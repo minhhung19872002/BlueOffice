@@ -402,3 +402,35 @@
   min-width: 24px;
   padding: 0 4px;
 }
+
+/* Auto-hidden ribbon (UI-RIBBON-003): a thin bar in the app accent; clicking it (or Alt)
+   shows the whole ribbon over the document. */
+.autoHideBar {
+  all: unset;
+  display: block;
+  width: 100%;
+  height: 10px;
+  background: var(--bo-app-accent-strong);
+  cursor: pointer;
+}
+
+.autoHideBar:hover,
+.autoHideBar:focus-visible {
+  background: var(--bo-app-accent);
+}
+
+.autoHideBar:focus-visible {
+  outline: 2px solid var(--bo-focus);
+  outline-offset: -2px;
+}
+
+.revealed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 40;
+  background: var(--bo-surface);
+  border-bottom: 1px solid var(--bo-border);
+  box-shadow: var(--bo-shadow-2);
+}

@@ -5,15 +5,18 @@ import { useSyncExternalStore } from 'react';
  * remembered per browser like the density (`density.ts`):
  *  - `simplified`: one row per tab, each group shows its most-used commands + "…";
  *  - `collapsed`: only the tab strip; clicking a tab shows its commands over the document
- *    (Ctrl+F1 toggles).
+ *    (Ctrl+F1 toggles);
+ *  - `autoHide`: no ribbon at all, only a thin bar at the top; clicking it or pressing Alt shows
+ *    the ribbon over the document until a command runs or the user clicks elsewhere.
  */
 export interface RibbonPrefs {
   simplified: boolean;
   collapsed: boolean;
+  autoHide: boolean;
 }
 
 const KEY = 'bo.ribbon';
-const DEFAULT: RibbonPrefs = { simplified: false, collapsed: false };
+const DEFAULT: RibbonPrefs = { simplified: false, collapsed: false, autoHide: false };
 const listeners = new Set<() => void>();
 let current: RibbonPrefs = load();
 
@@ -24,7 +27,11 @@ function load(): RibbonPrefs {
     const v: unknown = JSON.parse(raw);
     if (v && typeof v === 'object') {
       const o = v as Record<string, unknown>;
-      return { simplified: o.simplified === true, collapsed: o.collapsed === true };
+      return {
+        simplified: o.simplified === true,
+        collapsed: o.collapsed === true,
+        autoHide: o.autoHide === true,
+      };
     }
   } catch {
     // Storage blocked or bad JSON: defaults.
@@ -39,7 +46,12 @@ export function getRibbonPrefs(): RibbonPrefs {
 /** Change and remember the ribbon preferences. */
 export function setRibbonPrefs(change: Partial<RibbonPrefs>) {
   const next = { ...current, ...change };
-  if (next.simplified === current.simplified && next.collapsed === current.collapsed) return;
+  if (
+    next.simplified === current.simplified &&
+    next.collapsed === current.collapsed &&
+    next.autoHide === current.autoHide
+  )
+    return;
   current = next;
   try {
     globalThis.localStorage?.setItem(KEY, JSON.stringify(next));
@@ -52,6 +64,11 @@ export function setRibbonPrefs(change: Partial<RibbonPrefs>) {
 /** Ctrl+F1: collapse / expand the ribbon. */
 export function toggleRibbonCollapsed() {
   setRibbonPrefs({ collapsed: !current.collapsed });
+}
+
+/** Auto-hide the whole ribbon (UI-RIBBON-003) / show it again. */
+export function toggleRibbonAutoHide() {
+  setRibbonPrefs({ autoHide: !current.autoHide });
 }
 
 /** Full ↔ simplified ribbon. */

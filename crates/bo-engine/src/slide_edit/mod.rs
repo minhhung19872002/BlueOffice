@@ -1106,6 +1106,25 @@ pub struct ShapeInfo {
     pub lock_aspect: bool,
     /// Its text can be edited in place.
     pub editable_text: bool,
+    /// It holds an equation (`a14:m`, [MS-ODRAWXML]) — CORE-UI-008.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub equation: bool,
+}
+
+/// The shape's text holds an equation: an `a14:m` Office Math zone in a paragraph
+/// ([MS-ODRAWXML]). Equation shapes wrapped in `mc:AlternateContent` (ECMA-376 Part 3) are
+/// kept as unparsed nodes and cannot be selected yet.
+fn has_equation(n: &ShapeNode) -> bool {
+    let ShapeNode::Shape(s) = n else {
+        return false;
+    };
+    s.text.as_ref().is_some_and(|t| {
+        t.paragraphs.iter().any(|p| {
+            p.runs
+                .iter()
+                .any(|r| matches!(r, bo_model::slide::TextRun::Other(el) if el.local() == "m"))
+        })
+    })
 }
 
 /// A slide layout new slides can be based on.
@@ -5033,6 +5052,7 @@ impl Engine {
                     .map(|ph| ph.kind.clone().unwrap_or_else(|| "obj".into())),
                 lock_aspect,
                 editable_text: editable,
+                equation: has_equation(n),
             });
         }
         let table_state = ed.table.and_then(|ts| {

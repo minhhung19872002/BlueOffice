@@ -1,6 +1,6 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { ChevronDown, ChevronUp, Rows2, Rows3 } from 'lucide-react';
+import { ChevronDown, ChevronUp, PanelTopClose, Rows2, Rows3 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -30,7 +30,12 @@ import {
   type ContextTracker,
   type RibbonContext,
 } from './ribbonContext';
-import { setRibbonPrefs, toggleRibbonCollapsed, useRibbonPrefs } from './ribbonMode';
+import {
+  setRibbonPrefs,
+  toggleRibbonAutoHide,
+  toggleRibbonCollapsed,
+  useRibbonPrefs,
+} from './ribbonMode';
 import { KeyTipsLayer } from './KeyTipsLayer';
 import { ContextMenu, type MenuLine } from './ContextMenu';
 import { applyRibbonCustomization, type RibbonCustomization } from './ribbonCustomize';
@@ -113,6 +118,10 @@ export interface RibbonLabels {
   /** Collapse / expand button (Ctrl+F1); shown when both are set. */
   collapse?: string;
   expand?: string;
+  /** Auto-hide toggle (UI-RIBBON-003); shown when set. */
+  autoHide?: string;
+  /** The thin bar of the auto-hidden ribbon: click it to show the ribbon. */
+  showRibbon?: string;
 }
 
 export interface RibbonProps {
@@ -547,6 +556,16 @@ function sameTracker(a: ContextTracker, b: ContextTracker): boolean {
   );
 }
 
+/** The auto-hidden ribbon shown over the document (UI-RIBBON-003); else its content as is. */
+function RevealedPanel({ revealed, children }: { revealed: boolean; children: ReactNode }) {
+  if (!revealed) return <>{children}</>;
+  return (
+    <div className={styles.revealed} data-testid="ribbon-revealed">
+      {children}
+    </div>
+  );
+}
+
 /** Ctrl+F1 handled once per key press even when several ribbons are mounted. */
 const handledKeys = new WeakSet<Event>();
 
@@ -585,7 +604,9 @@ export function Ribbon({
   const [cache] = useState<WidthCache>(() => new Map());
   const prefs = useRibbonPrefs();
   const simplified = forceSimplified ?? prefs.simplified;
-  const collapsed = prefs.collapsed;
+  const autoHide = prefs.autoHide;
+  // The auto-hidden ribbon wins over the collapsed one.
+  const collapsed = prefs.collapsed && !autoHide;
   const more = labels?.more ?? moreLabel;
   const controlled = value !== undefined;
   const [st, setSt] = useState<TabState>(() => ({
@@ -616,6 +637,10 @@ export function Ribbon({
   }, [controlled, active, value, onValueChange]);
   const [peekOpen, setPeek] = useState(false);
   const peek = peekOpen && collapsed;
+  // Auto-hide mode: the ribbon is shown over the document after a click on the bar or Alt.
+  const [revealedOpen, setRevealed] = useState(false);
+  const revealed = revealedOpen && autoHide;
+  const hidden = autoHide && !revealed;
   const downOnActive = useRef<boolean | null>(null);
   const root = useRef<HTMLDivElement>(null);
   // The ribbon keeps the height of its tallest tab (per layout and density): switching tabs,
@@ -656,17 +681,22 @@ export function Ribbon({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // The collapsed ribbon shown over the document closes on outside click and Escape.
+  // The collapsed ribbon (or the auto-hidden one) shown over the document closes on outside
+  // click and Escape.
+  const floating = peek || revealed;
   useEffect(() => {
-    if (!peek) return undefined;
+    if (!floating) return undefined;
     const onDown = (e: MouseEvent) => {
       const t = e.target;
       if (!(t instanceof Node) || root.current?.contains(t)) return;
       if (t instanceof Element && t.closest('[data-bo-popover]')) return;
       setPeek(false);
+      setRevealed(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPeek(false);
+      if (e.key !== 'Escape') return;
+      setPeek(false);
+      setRevealed(false);
     };
     window.addEventListener('mousedown', onDown, true);
     window.addEventListener('keydown', onKey);
@@ -674,7 +704,7 @@ export function Ribbon({
       window.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('keydown', onKey);
     };
-  }, [peek]);
+  }, [floating]);
 
   const arranged = arrangeTabs(tabs);
   const trigger = (t: RibbonTab) => (
@@ -702,13 +732,16 @@ export function Ribbon({
       {t.label}
     </Tabs.Trigger>
   );
-  const showBody = !collapsed || peek;
+  const showBody = (!collapsed || peek) && !hidden;
   const stripTabs = [...arranged.plain, ...arranged.contexts.flatMap((c) => c.tabs)];
   // Running a command from the ribbon shown over the document closes it.
   const onBodyClick = (e: ReactMouseEvent) => {
-    if (!peek) return;
+    if (!floating) return;
     const t = e.target;
-    if (t instanceof Element && t.closest('button[data-command]')) setPeek(false);
+    if (t instanceof Element && t.closest('button[data-command]')) {
+      setPeek(false);
+      setRevealed(false);
+    }
   };
   return (
     <Tooltip.Provider delayDuration={400}>
@@ -718,6 +751,8 @@ export function Ribbon({
         data-testid="ribbon"
         data-simplified={simplified ? 'true' : undefined}
         data-collapsed={collapsed ? 'true' : undefined}
+        data-autohide={autoHide ? 'true' : undefined}
+        data-revealed={revealed ? 'true' : undefined}
         value={active}
         onValueChange={select}
         onContextMenu={
@@ -734,74 +769,128 @@ export function Ribbon({
             : undefined
         }
       >
-        <div className={styles.tabStrip}>
-          {fileMenu && (
-            <button
-              type="button"
-              className={`${styles.tab} ${styles.fileTab}`}
-              data-testid="file-tab"
-              aria-haspopup="dialog"
-              aria-expanded={!!fileMenu.open}
-              onClick={() => {
-                setPeek(false);
-                fileMenu.onOpen();
-              }}
-            >
-              {fileMenu.label}
-            </button>
-          )}
-          <Tabs.List className={styles.tabList}>
-            {arranged.plain.map(trigger)}
-            {arranged.contexts.map((c) => (
+        {hidden && (
+          <button
+            type="button"
+            className={styles.autoHideBar}
+            data-testid="ribbon-autohide-bar"
+            aria-expanded={false}
+            aria-label={labels?.showRibbon}
+            title={labels?.showRibbon ? `${labels.showRibbon} (Alt)` : undefined}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setRevealed(true)}
+          />
+        )}
+        {!hidden && (
+          <RevealedPanel revealed={revealed}>
+            <div className={styles.tabStrip}>
+              {fileMenu && (
+                <button
+                  type="button"
+                  className={`${styles.tab} ${styles.fileTab}`}
+                  data-testid="file-tab"
+                  aria-haspopup="dialog"
+                  aria-expanded={!!fileMenu.open}
+                  onClick={() => {
+                    setPeek(false);
+                    setRevealed(false);
+                    fileMenu.onOpen();
+                  }}
+                >
+                  {fileMenu.label}
+                </button>
+              )}
+              <Tabs.List className={styles.tabList}>
+                {arranged.plain.map(trigger)}
+                {arranged.contexts.map((c) => (
+                  <div
+                    key={c.context}
+                    className={styles.contextGroup}
+                    data-context-group={c.context}
+                    role="presentation"
+                  >
+                    {labels?.contexts?.[c.context] && (
+                      <span className={styles.contextLabel} aria-hidden="true">
+                        {labels.contexts[c.context]}
+                      </span>
+                    )}
+                    {c.tabs.map(trigger)}
+                  </div>
+                ))}
+              </Tabs.List>
+              {labels?.simplified && (
+                <button
+                  type="button"
+                  className={styles.modeButton}
+                  data-testid="ribbon-simplified"
+                  aria-pressed={simplified}
+                  aria-label={labels.simplified}
+                  title={labels.simplified}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setRibbonPrefs({ simplified: !simplified })}
+                >
+                  {simplified ? <Rows3 size={16} /> : <Rows2 size={16} />}
+                </button>
+              )}
+              {labels?.collapse && labels.expand && (
+                <button
+                  type="button"
+                  className={styles.modeButton}
+                  data-testid="ribbon-collapse"
+                  aria-expanded={!collapsed}
+                  aria-keyshortcuts="Control+F1"
+                  aria-label={collapsed ? labels.expand : labels.collapse}
+                  title={`${collapsed ? labels.expand : labels.collapse} (Ctrl+F1)`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setPeek(false);
+                    toggleRibbonCollapsed();
+                  }}
+                >
+                  {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                </button>
+              )}
+              {labels?.autoHide && (
+                <button
+                  type="button"
+                  className={styles.modeButton}
+                  data-testid="ribbon-autohide"
+                  aria-pressed={autoHide}
+                  aria-label={labels.autoHide}
+                  title={labels.autoHide}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setPeek(false);
+                    setRevealed(false);
+                    toggleRibbonAutoHide();
+                  }}
+                >
+                  <PanelTopClose size={16} />
+                </button>
+              )}
+              {trailing}
+            </div>
+            {showBody && (
               <div
-                key={c.context}
-                className={styles.contextGroup}
-                data-context-group={c.context}
-                role="presentation"
+                ref={setBodyEl}
+                style={{ minHeight: tallest[heightKey] }}
+                className={peek ? styles.peek : styles.body}
+                data-testid={peek ? 'ribbon-peek' : undefined}
+                onClick={onBodyClick}
               >
-                {labels?.contexts?.[c.context] && (
-                  <span className={styles.contextLabel} aria-hidden="true">
-                    {labels.contexts[c.context]}
-                  </span>
-                )}
-                {c.tabs.map(trigger)}
+                {tabs.map((t) => (
+                  <RibbonPanel
+                    key={t.id}
+                    tab={t}
+                    cache={cache}
+                    moreLabel={more}
+                    simplified={simplified}
+                  />
+                ))}
               </div>
-            ))}
-          </Tabs.List>
-          {labels?.simplified && (
-            <button
-              type="button"
-              className={styles.modeButton}
-              data-testid="ribbon-simplified"
-              aria-pressed={simplified}
-              aria-label={labels.simplified}
-              title={labels.simplified}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setRibbonPrefs({ simplified: !simplified })}
-            >
-              {simplified ? <Rows3 size={16} /> : <Rows2 size={16} />}
-            </button>
-          )}
-          {labels?.collapse && labels.expand && (
-            <button
-              type="button"
-              className={styles.modeButton}
-              data-testid="ribbon-collapse"
-              aria-expanded={!collapsed}
-              aria-keyshortcuts="Control+F1"
-              aria-label={collapsed ? labels.expand : labels.collapse}
-              title={`${collapsed ? labels.expand : labels.collapse} (Ctrl+F1)`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setPeek(false);
-                toggleRibbonCollapsed();
-              }}
-            >
-              {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            </button>
-          )}
-          {trailing}
-        </div>
+            )}
+          </RevealedPanel>
+        )}
         {keyTips && (
           <KeyTipsLayer
             root={root}
@@ -812,26 +901,9 @@ export function Ribbon({
               select(id);
               if (collapsed) setPeek(true);
             }}
+            // Auto-hidden ribbon: Alt / F10 shows it first (same render as the KeyTips).
+            onShow={autoHide ? () => setRevealed(true) : undefined}
           />
-        )}
-        {showBody && (
-          <div
-            ref={setBodyEl}
-            style={{ minHeight: tallest[heightKey] }}
-            className={peek ? styles.peek : styles.body}
-            data-testid={peek ? 'ribbon-peek' : undefined}
-            onClick={onBodyClick}
-          >
-            {tabs.map((t) => (
-              <RibbonPanel
-                key={t.id}
-                tab={t}
-                cache={cache}
-                moreLabel={more}
-                simplified={simplified}
-              />
-            ))}
-          </div>
         )}
       </Tabs.Root>
       {menu && customizeMenu && (
@@ -882,5 +954,7 @@ export function ribbonLabels(t: (key: string) => string): RibbonLabels {
     simplified: t('ribbon.mode.simplified'),
     collapse: t('ribbon.mode.collapse'),
     expand: t('ribbon.mode.expand'),
+    autoHide: t('ribbon.mode.autoHide'),
+    showRibbon: t('ribbon.mode.showRibbon'),
   };
 }

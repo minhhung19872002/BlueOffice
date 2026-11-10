@@ -247,6 +247,8 @@ export interface FormatState {
   pictureTools?: boolean;
   /** A SmartArt is at the selection (CORE-SMART-005). */
   smartArt?: boolean;
+  /** An embedded / linked object is at the selection (CORE-EMBED-001, CORE-UI-008). */
+  ole?: boolean;
   /** Proofing language of the selection (§17.3.2.20 lang, BCP 47), null when not set. */
   lang?: string | null;
   /** Spelling and grammar are not checked (§17.3.2.21 noProof). */
@@ -1521,6 +1523,8 @@ export interface SlideShapeInfo {
   placeholder: string | null;
   lockAspect: boolean;
   editableText: boolean;
+  /** It holds an equation (`a14:m`), CORE-UI-008. */
+  equation?: boolean;
 }
 
 export type SlideAlign = 'left' | 'center' | 'right' | 'justify';

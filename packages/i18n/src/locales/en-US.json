@@ -16,7 +16,22 @@
     "mode": {
       "simplified": "Simplified ribbon",
       "collapse": "Collapse the ribbon",
-      "expand": "Expand the ribbon"
+      "expand": "Expand the ribbon",
+      "autoHide": "Auto-hide the ribbon",
+      "showRibbon": "Show the ribbon"
+    },
+    "objectTabs": {
+      "equation": "Equation",
+      "ink": "Ink",
+      "object": "Object",
+      "groupEquation": "Equation",
+      "groupConvert": "Convert",
+      "groupPens": "Pens",
+      "groupErase": "Erase",
+      "groupReplay": "Replay",
+      "groupObject": "Embedded object",
+      "groupLinks": "Links",
+      "groupArrange": "Arrange"
     },
     "context": {
       "table": "Table tools",

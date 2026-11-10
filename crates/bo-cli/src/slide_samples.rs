@@ -2617,9 +2617,76 @@ pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     v.extend(smartart_data_decks());
     v.extend(chartex_decks());
     v.extend(model3d_decks());
+    v.extend(equation_decks());
     v
 }
 
+/// A slide with two equation text boxes (CORE-UI-008): one as written by the reference
+/// application — `mc:AlternateContent` (ECMA-376 Part 3, §10.2.1) whose `a14` choice holds a
+/// shape with an `a14:m` Office Math zone ([MS-ODRAWXML]; OMML, ECMA-376 Part 1, §22.1) and
+/// whose fallback is the same shape with plain text — and one plain shape whose paragraph
+/// holds the `a14:m` zone directly (the `a14` namespace is declared `mc:Ignorable`).
+fn equation_decks() -> Vec<(&'static str, Vec<u8>)> {
+    const A14: &str = "http://schemas.microsoft.com/office/drawing/2010/main";
+    const MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+    let math = |base: &str| {
+        format!(
+            concat!(
+                r#"<a14:m><m:oMathPara xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:oMath>"#,
+                r#"<m:sSup><m:e><m:r><m:t>{b}</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>"#,
+                r#"<m:r><m:t>+1</m:t></m:r></m:oMath></m:oMathPara></a14:m>"#
+            ),
+            b = base
+        )
+    };
+    let shape = |id: u32, y: i64, paras: &str| {
+        sp(
+            id,
+            &format!("Phương trình {}", id - 1),
+            "",
+            &(xfrm(4 * IN, y, 5 * IN, IN) + &prst("rect") + "<a:noFill/>"),
+            Some(&body_fit(r#" wrap="square""#, "<a:spAutoFit/>", paras)),
+            "",
+        )
+    };
+    let math_para = |base: &str| {
+        format!(
+            r#"<a:p><a:pPr algn="ctr"/>{}<a:endParaRPr lang="vi-VN" sz="3200" dirty="0"/></a:p>"#,
+            math(base)
+        )
+    };
+    let choice = shape(4, 2 * IN, &math_para("x"));
+    let fallback = shape(
+        4,
+        2 * IN,
+        r#"<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="3200" dirty="0"/><a:t>x²+1</a:t></a:r></a:p>"#,
+    );
+    let alt = format!(
+        concat!(
+            r#"<mc:AlternateContent xmlns:mc="{mc}">"#,
+            r#"<mc:Choice xmlns:a14="{a14}" Requires="a14">{choice}</mc:Choice>"#,
+            r#"<mc:Fallback>{fallback}</mc:Fallback></mc:AlternateContent>"#
+        ),
+        mc = MC,
+        a14 = A14,
+        choice = choice,
+        fallback = fallback,
+    );
+    let plain = shape(5, 4 * IN, &math_para("y"));
+    let mut deck = build(
+        &[blank_slide("Phương trình", alt + &plain)],
+        &Vec::new(),
+        THEME_BLUE,
+    );
+    // The plain shape's `a14:m` needs the namespace on the slide root, ignorable.
+    deck = replace_in_part(
+        &deck,
+        "/ppt/slides/slide1.xml",
+        "<p:sld ",
+        &format!(r#"<p:sld xmlns:mc="{MC}" xmlns:a14="{A14}" mc:Ignorable="a14" "#),
+    );
+    vec![("slide-equation.pptx", deck)]
+}
 #[cfg(test)]
 mod tests {
     /// The committed corpus is exactly what the generator produces

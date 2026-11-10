@@ -509,6 +509,8 @@ pub struct FormatState {
     pub smart_art: bool,
     /// A picture the picture tools act on is at the selection (CORE-PIC-001).
     pub picture_tools: bool,
+    /// An embedded / linked object (§17.3.3.19 object) is at the selection (CORE-UI-008).
+    pub ole: bool,
     /// Advanced character formatting (Font dialog).
     pub advanced: charfx::CharAdvanced,
 }
@@ -3294,6 +3296,7 @@ impl Session {
             picture: self.picture_state(),
             picture_tools: self.tools_target().is_some(),
             smart_art: self.smartart_target().is_some(),
+            ole: self.ole_at_selection().is_some(),
             advanced: charfx::CharAdvanced::of(&r),
         }
     }

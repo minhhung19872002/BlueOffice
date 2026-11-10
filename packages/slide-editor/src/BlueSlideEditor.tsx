@@ -306,6 +306,7 @@ import { ExportDocsDialog, exportPlan, type ExportDocsState } from './exportDocs
 import { MediaButtons } from './MediaLayer';
 import { MediaActionsHub, registerMediaCommands, useMediaTools } from './mediaPlayback';
 import { DrawActionsHub, drawTab, registerDrawCommands, useDrawTools } from './draw/drawTab';
+import { slideObjectContexts, slideObjectTabs } from './objectContexts';
 import type { ShowPos } from './player';
 import { fit, formatElapsed, showAction, step, type ShowAction } from './show';
 import { CustomShowsDialog } from './customShows';
@@ -406,7 +407,8 @@ import {
  * Contexts whose tab is activated when they appear (CORE-UI-001);
  * shapes and tables are typed in with the Home tab: their tabs only show.
  */
-const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'shape' && c !== 'table');
+// The Ink tab shows while inking from the Draw tab, which stays active.
+const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'shape' && c !== 'table' && c !== 'ink');
 
 export interface BlueSlideEditorProps {
   platform: Platform;
@@ -3842,6 +3844,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             },
           ]
         : []),
+      // Equation, embedded object and ink tabs (CORE-UI-008).
+      ...slideObjectTabs(
+        t,
+        item,
+        slideObjectContexts(edit?.selection, draw.state.tool),
+        draw.state,
+      ),
       {
         id: 'view',
         label: t('slideEditor.viewTab'),

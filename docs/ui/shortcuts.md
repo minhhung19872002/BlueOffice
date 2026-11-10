@@ -29,7 +29,7 @@ phím người dùng đè lên cột dưới đây, lưu theo app, xuất/nhập
 | F4 | Lặp lại thao tác cuối (`edit.repeat`; BlueSheet khi sửa công thức: đổi kiểu tham chiếu) | có |
 | F6 / Shift+F6 | Chuyển vùng: dải lệnh → tài liệu → ngăn tác vụ → thanh trạng thái | dự kiến (UI-A11Y-002) |
 | F7 | Chính tả & ngữ pháp | dự kiến |
-| Ctrl+F1 | Thu/mở dải lệnh | dự kiến (UI-RIBBON-003) |
+| Ctrl+F1 | Thu/mở dải lệnh | có (UI-RIBBON-003; ribbon tự ẩn: Alt hiện lại) |
 | Ctrl+Shift+= / Ctrl+- / Ctrl+0 | Phóng to / Thu nhỏ / 100% | có (BlueDoc) |
 | Escape | Thoát chế độ hiện tại | có |
 

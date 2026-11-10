@@ -645,4 +645,209 @@ mod tests {
         assert_eq!(picture_rids(f), vec!["rId2".to_owned()]);
         assert_eq!(canon(&crate::write_node(&node)), canon(&el));
     }
+
+    /// Children of `el` (local names) against a sequence of (names, min, max) particles.
+    fn sequence(el: &XmlElement, seq: &[(&[&str], usize, usize)]) -> Result<(), String> {
+        let kids: Vec<&str> = el.elements().map(XmlElement::local).collect();
+        let mut i = 0;
+        for (names, min, max) in seq {
+            let mut n = 0;
+            while i < kids.len() && n < *max && names.contains(&kids[i]) {
+                i += 1;
+                n += 1;
+            }
+            if n < *min {
+                return Err(format!(
+                    "{}: expected {names:?} at {i} in {kids:?}",
+                    el.name
+                ));
+            }
+        }
+        if i == kids.len() {
+            Ok(())
+        } else {
+            Err(format!("{}: unexpected {:?} in {kids:?}", el.name, kids[i]))
+        }
+    }
+
+    fn need(el: &XmlElement, attrs: &[&str]) -> Result<(), String> {
+        for a in attrs {
+            if el.attr(a).is_none() {
+                return Err(format!("{} lacks @{a}", el.name));
+            }
+        }
+        Ok(())
+    }
+
+    /// [MS-ODRAWXML] model3d schema (CT_Model3D and its parts): sequences, choices and
+    /// required attributes. (The SDK validator treats graphicData content as lax.)
+    fn check_schema(m: &XmlElement) -> Result<(), String> {
+        const U: usize = usize::MAX;
+        sequence(
+            m,
+            &[
+                (&["spPr"], 1, 1),
+                (&["camera"], 1, 1),
+                (&["trans"], 1, 1),
+                (&["attrSrcUrl"], 0, 1),
+                (&["raster"], 0, 1),
+                (&["extLst"], 0, 1),
+                (&["objViewport", "winViewport"], 1, 1),
+                (&["ambientLight"], 0, 1),
+                (&["ptLight", "spotLight", "dirLight", "unkLight"], 0, U),
+            ],
+        )?;
+        if rid_attr(m, "embed").is_none() {
+            return Err("model3d lacks r:embed".into());
+        }
+        for c in m.elements() {
+            match c.local() {
+                "camera" => {
+                    sequence(
+                        c,
+                        &[
+                            (&["pos"], 1, 1),
+                            (&["up"], 1, 1),
+                            (&["lookAt"], 1, 1),
+                            (&["orthographic", "perspective"], 1, 1),
+                            (&["extLst"], 0, 1),
+                        ],
+                    )?;
+                    if let Some(p) = child(c, "perspective") {
+                        need(p, &["fov"])?;
+                        let f = num(p, "fov").unwrap_or(-1.0);
+                        if !(0.0..=10_800_000.0).contains(&f) {
+                            return Err(format!("fov {f}"));
+                        }
+                    }
+                    if let Some(o) = child(c, "orthographic") {
+                        sequence(o, &[(&["sz"], 1, 1), (&["extLst"], 0, 1)])?;
+                    }
+                }
+                "trans" => {
+                    sequence(
+                        c,
+                        &[
+                            (&["meterPerModelUnit"], 0, 1),
+                            (&["preTrans"], 0, 1),
+                            (&["scale"], 0, 1),
+                            (&["rot"], 0, 1),
+                            (&["postTrans"], 0, 1),
+                            (&["extLst"], 0, 1),
+                        ],
+                    )?;
+                    if let Some(s) = child(c, "scale") {
+                        sequence(s, &[(&["sx"], 1, 1), (&["sy"], 1, 1), (&["sz"], 1, 1)])?;
+                    }
+                    if let Some(r) = child(c, "meterPerModelUnit") {
+                        need(r, &["n", "d"])?;
+                    }
+                }
+                "raster" => need(c, &["rName", "rVer"])?,
+                "objViewport" => need(c, &["viewportSz"])?,
+                "ambientLight" => sequence(
+                    c,
+                    &[
+                        (&["clr"], 1, 1),
+                        (&["illuminance"], 1, 1),
+                        (&["extLst"], 0, 1),
+                    ],
+                )?,
+                "ptLight" => {
+                    need(c, &["rad"])?;
+                    sequence(
+                        c,
+                        &[
+                            (&["clr"], 1, 1),
+                            (&["intensity"], 1, 1),
+                            (&["pos"], 1, 1),
+                            (&["extLst"], 0, 1),
+                        ],
+                    )?;
+                }
+                "spotLight" => {
+                    need(c, &["rad", "spotAng"])?;
+                    sequence(
+                        c,
+                        &[
+                            (&["clr"], 1, 1),
+                            (&["intensity"], 1, 1),
+                            (&["pos"], 1, 1),
+                            (&["lookAt"], 1, 1),
+                            (&["extLst"], 0, 1),
+                        ],
+                    )?;
+                }
+                "dirLight" => {
+                    need(c, &["angularRad"])?;
+                    sequence(
+                        c,
+                        &[
+                            (&["clr"], 1, 1),
+                            (&["illuminance"], 1, 1),
+                            (&["pos"], 1, 1),
+                            (&["lookAt"], 1, 1),
+                            (&["extLst"], 0, 1),
+                        ],
+                    )?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn written_markup_follows_the_schema() {
+        let v = View3d::fit([-1.0; 3], [1.0; 3]);
+        let el = parse(&node_xml(5, "M", "", (0, 0), (10, 10), "rId1", "rId2", &v));
+        let node = crate::parse_node(&el);
+        check_schema(model_el(node_model(&node).unwrap()).unwrap()).unwrap();
+        // A view written over the hand-written markup (orthographic → perspective, window →
+        // object viewport) stays valid.
+        let mut node = crate::parse_node(&parse(HAND));
+        let ShapeNode::Frame(f) = &mut node else {
+            panic!()
+        };
+        check_schema(model_el(f).unwrap()).unwrap();
+        let mut v = read_view(f);
+        v.fov = Some(1_800_000.0);
+        v.viewport = Some(5000.0);
+        write_view(f, &v);
+        check_schema(model_el(f).unwrap()).unwrap();
+        v.fov = None;
+        v.viewport = None;
+        write_view(f, &v);
+        check_schema(model_el(f).unwrap()).unwrap();
+        // A broken one is caught.
+        let mut bad = model_el(f).unwrap().clone();
+        bad.children
+            .retain(|c| !matches!(c, XmlNode::Element(e) if e.local() == "winViewport"));
+        assert!(check_schema(&bad).is_err());
+    }
+
+    #[test]
+    fn corpus_models_follow_the_schema() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/slide");
+        let mut seen = 0;
+        for name in [
+            "slide-model3d-cube.pptx",
+            "slide-model3d-scenes.pptx",
+            "slide-model3d-handwritten.pptx",
+        ] {
+            let pres = crate::read_pptx(&std::fs::read(dir.join(name)).unwrap()).unwrap();
+            for s in &pres.slides {
+                crate::visit(&s.data.shapes, &mut |n| {
+                    if let Some(f) = node_model(n) {
+                        check_schema(model_el(f).unwrap())
+                            .unwrap_or_else(|e| panic!("{name}: {e}"));
+                        assert!(fallback_rid(f).is_some(), "{name}: fallback picture");
+                        seen += 1;
+                    }
+                });
+            }
+        }
+        // 1 + 3 + 2 (one inside a group).
+        assert_eq!(seen, 6);
+    }
 }

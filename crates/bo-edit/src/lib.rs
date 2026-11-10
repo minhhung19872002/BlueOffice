@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod autocorrect;
+pub mod blocks;
 pub mod charfx;
 mod collate;
 pub mod comments;

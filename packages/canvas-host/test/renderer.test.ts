@@ -154,6 +154,48 @@ describe('canvas renderer', () => {
     expect(ops).toContain('dash ');
   });
 
+  it('releases decoded pictures when 100 documents are opened and closed (CORE-PERF-001)', async () => {
+    // Fake engine + decoder counting live bitmap handles (ImageBitmap.close()).
+    let live = 0;
+    let peak = 0;
+    const decode = async () => {
+      live++;
+      peak = Math.max(peak, live);
+      let open = true;
+      const bmp = {
+        close: () => {
+          if (open) live--;
+          open = false;
+        },
+      };
+      return { image: bmp, width: 10, height: 10 };
+    };
+    const page = (doc: number): PageDisplayList => ({
+      width: 100,
+      height: 100,
+      commands: Array.from({ length: 5 }, (_, k) => ({
+        op: 'image' as const,
+        image: `/doc${doc}/image${k}.png`,
+        x: 0,
+        y: 0,
+        w: 10,
+        h: 10,
+      })),
+    });
+    const images = new ImageStore({ getMedia: async () => new Uint8Array([1]) }, decode);
+    for (let doc = 0; doc < 100; doc++) {
+      await images.ensure(page(doc));
+      expect(images.size).toBe(5);
+      // Close (or open the next document) while a decode is still in flight.
+      const late = images.ensure(page(doc + 1000));
+      images.clear();
+      await late;
+      expect(images.size).toBe(0);
+    }
+    expect(live).toBe(0);
+    expect(peak).toBeLessThanOrEqual(10);
+  });
+
   it('draws slide paths, gradients, transforms and clip paths', async () => {
     const { ctx, ops } = recorder();
     const glyphs = new GlyphStore({ getGlyphOutlines: async () => [] }, (d) => `P(${d})`);

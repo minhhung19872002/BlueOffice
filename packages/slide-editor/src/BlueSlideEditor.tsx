@@ -674,6 +674,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [stageRef, stage] = useSize();
   const glyphs = useMemo(() => new GlyphStore(engine), [engine]);
   const images = useMemo(() => new ImageStore(engine), [engine]);
+  // Closing the editor releases the decoded pictures (CORE-PERF-001).
+  useEffect(() => () => images.clear(), [images]);
   const showCache = useMemo(() => new ShowCache(engine), [engine]);
 
   const count = info?.pageCount ?? 0;

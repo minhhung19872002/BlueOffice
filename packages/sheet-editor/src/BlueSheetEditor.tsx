@@ -696,6 +696,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const glyphs = useMemo(() => (host ? new GlyphStore(host) : null), [host]);
   // Pictures in cells and IMAGE pictures of the display list (SHEET-CELL-001).
   const cellImages = useMemo(() => (host ? new ImageStore(sheetMediaSource(host)) : null), [host]);
+  // Closing the editor releases the decoded pictures (CORE-PERF-001).
+  useEffect(() => () => cellImages?.clear(), [cellImages]);
   const renderSeq = useRef(0);
   const drag = useRef<Drag | null>(null);
   const fillTo = useRef<Range | null>(null);
@@ -756,6 +758,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   const loaded = useCallback(
     (wb: WorkbookInfo, name: string) => {
+      // Pictures of the previous workbook (media part names repeat across files).
+      cellImages?.clear();
       setInfo(wb);
       setLegacyNotice(wb.legacyConverted ?? 0);
       setFileName(name);
@@ -772,7 +776,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setStatus('');
       platform.window.setTitle(`${name} — ${t('app.sheet')}`);
     },
-    [platform, t],
+    [platform, t, cellImages],
   );
 
   /**

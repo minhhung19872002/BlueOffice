@@ -84,6 +84,8 @@ const defaultDecoder: ImageDecoder = async (bytes) => {
 /** Caches pictures referenced by `image` commands (bytes fetched from the engine). */
 export class ImageStore {
   private images = new Map<string, LoadedImage | null>();
+  /** Bumped by `clear`: decodes started for an earlier document are dropped. */
+  private generation = 0;
 
   constructor(
     private readonly engine: Pick<EngineHost, 'getMedia'>,
@@ -94,8 +96,18 @@ export class ImageStore {
     return this.images.get(media);
   }
 
-  /** Forget everything (new document). */
+  /** Number of decoded pictures held (tests, CORE-PERF-001). */
+  get size(): number {
+    return this.images.size;
+  }
+
+  /**
+   * Forget everything (new document, view closed). Decoded `ImageBitmap`s are closed so
+   * their pixel memory is released now rather than whenever the GC runs.
+   */
   clear(): void {
+    this.generation++;
+    for (const img of this.images.values()) release(img);
     this.images.clear();
   }
 
@@ -104,13 +116,23 @@ export class ImageStore {
     for (const c of page.commands) {
       if (c.op === 'image' && !this.images.has(c.image)) missing.add(c.image);
     }
+    const gen = this.generation;
     await Promise.all(
       [...missing].map(async (m) => {
         const bytes = await this.engine.getMedia(m);
-        this.images.set(m, bytes.length ? await this.decode(bytes) : null);
+        const img = bytes.length ? await this.decode(bytes) : null;
+        // Cleared meanwhile (another document) or decoded twice: keep nothing stale.
+        if (gen !== this.generation || this.images.has(m)) release(img);
+        else this.images.set(m, img);
       }),
     );
   }
+}
+
+/** Close a decoded picture that has a `close()` (ImageBitmap). */
+function release(img: LoadedImage | null | undefined): void {
+  const bmp = img?.image as { close?: () => void } | null | undefined;
+  if (bmp && typeof bmp.close === 'function') bmp.close();
 }
 
 export type PathFactory = (svgPath: string) => unknown;

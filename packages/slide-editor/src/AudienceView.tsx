@@ -25,6 +25,8 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
   const engine = platform.engine;
   const glyphs = useMemo(() => new GlyphStore(engine), [engine]);
   const images = useMemo(() => new ImageStore(engine), [engine]);
+  // Closing the editor releases the decoded pictures (CORE-PERF-001).
+  useEffect(() => () => images.clear(), [images]);
   const [info, setInfo] = useState<DocInfo | null>(null);
   const cache = useMemo(() => new ShowCache(engine), [engine]);
   const [show, setShow] = useState({ slide: 0, black: false, ended: false });

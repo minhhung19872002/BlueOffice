@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
       - run: cargo clippy -p bo-wasm -p bo-collab -p bo-formula --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build -p bo-wasm --target wasm32-unknown-unknown --release
 
@@ -259,3 +259,17 @@ jobs:
           "MSEDGEDRIVER=$driver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: pnpm test:e2e:desktop
         if: matrix.e2e
+      # On failure: does the app itself start and open its WebView2 debugging port?
+      - name: Desktop app start diagnostics
+        if: failure() && matrix.e2e
+        shell: pwsh
+        run: |
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
+          $p = Start-Process target\release\bluedoc.exe -ArgumentList 'tests\corpus\doc\review-01-insert-delete.docx' -PassThru `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\app.out" -RedirectStandardError "$env:RUNNER_TEMP\app.err"
+          Start-Sleep 20
+          Write-Host "alive: $(-not $p.HasExited) exit: $($p.ExitCode)"
+          try { (Invoke-WebRequest http://127.0.0.1:9333/json/version -UseBasicParsing).Content } catch { Write-Host "no debugging port: $_" }
+          Get-Content "$env:RUNNER_TEMP\app.out", "$env:RUNNER_TEMP\app.err" -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:LOCALAPPDATA\vn.bluestar.*" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 20 FullName
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }

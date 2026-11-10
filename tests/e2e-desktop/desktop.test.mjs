@@ -98,7 +98,7 @@ async function startDriver(args, env = process.env) {
     await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
   } catch (e) {
     killTree(child);
-    throw new Error(`${e.message}\n--- tauri-driver ${args.join(' ')} ---\n${log}`);
+    throw new Error(`${e.message}\n--- tauri-driver ${args.join(' ')} ---\n${log}`, { cause: e });
   }
   // Keep draining the pipes so a chatty driver never blocks on a full buffer.
   child.stdout.off('data', keep);

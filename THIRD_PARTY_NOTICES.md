@@ -39,7 +39,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | pdf-writer | 0.15.0 | MIT OR Apache-2.0 | Ghi PDF |
 | png | 0.18.1 | MIT OR Apache-2.0 | Giải mã ảnh PNG để nhúng PDF |
 | zune-jpeg / zune-core | 0.4.21 / 0.4.12 | MIT OR Apache-2.0 OR Zlib | Giải mã ảnh JPEG khi raster hoá |
-| libm | 0.2.16 | MIT | Hàm toán học thuần Rust (sin/cos/tan/pow) cho `bo-model3d`: ảnh và mô hình sinh ra giống hệt nhau trên mọi nền tảng (thư viện C của hệ điều hành có thể khác bit cuối) |
+| libm | 0.2.16 | MIT | Hàm toán học thuần Rust (sin/cos/tan/pow) cho `bo-model3d` và khối 3D của `bo-pptx`: ảnh và mô hình sinh ra giống hệt nhau trên mọi nền tảng (thư viện C của hệ điều hành có thể khác bit cuối) |
 | subsetter | 0.2.6 | MIT OR Apache-2.0 | Subset font nhúng PDF |
 | regex | 1.13.1 | MIT OR Apache-2.0 | Tìm/thay thế bằng biểu thức chính quy (`bo-edit`) |
 | serde / serde_json | 1.0.229 / 1.0.154 | MIT OR Apache-2.0 | Tuần tự hoá display list / DocInfo |

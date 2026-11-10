@@ -839,6 +839,7 @@ dependencies = [
  "bo-sheet",
  "bo-text",
  "bo-xlsx",
+ "libm",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

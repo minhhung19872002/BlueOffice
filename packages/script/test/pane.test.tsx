@@ -92,6 +92,99 @@ describe('ScriptPane', () => {
     expect(names.some((n) => n.startsWith('sheets'))).toBe(true);
   });
 
+  it('converts pasted macro VBA into an unsaved draft with its warnings, without running it (CORE-SCRIPT-003)', async () => {
+    const calls: string[] = [];
+    const host: ScriptHost = {
+      app: 'sheet',
+      call: async (m, args) => {
+        calls.push(`${m}(${JSON.stringify(args)})`);
+        return null;
+      },
+    };
+    const store = scriptStore('sheet', memory());
+    store.save({ name: 'Existing', code: 'console.log(1)' });
+    let handled = 0;
+    const pane = (request: number) => (
+      <I18nextProvider i18n={i18n}>
+        <ScriptPane
+          app="sheet"
+          host={() => host}
+          runner={inlineRunner()}
+          store={store}
+          vbaRequest={request}
+          onVbaRequestHandled={() => handled++}
+        />
+      </I18nextProvider>
+    );
+    const view = render(pane(0));
+    fireEvent.change(screen.getByTestId('script-list'), {
+      target: { value: store.list()[0]!.id },
+    });
+    expect(screen.queryByTestId('script-vba-source')).toBeNull();
+
+    // The "Convert macro VBA to BlueScript" command of the editor opens the converter.
+    view.rerender(pane(1));
+    const source = (await screen.findByTestId('script-vba-source')) as HTMLTextAreaElement;
+    expect(handled).toBe(1);
+    expect((screen.getByTestId('script-vba-convert') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(source, {
+      target: {
+        value: [
+          'Sub Fill()',
+          '  Application.ScreenUpdating = False',
+          '  Range("A1").Value = "Total"',
+          '  Range("A1").Select',
+          'End Sub',
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByTestId('script-vba-convert'));
+
+    const code = screen.getByTestId('script-code') as HTMLTextAreaElement;
+    expect(code.value).toContain('BlueScript draft converted from macro VBA');
+    expect(code.value).toContain('await sheet.range("A1").setValue("Total");');
+    expect(code.value).toContain('// TODO(VBA): Range("A1").Select');
+    // A new unsaved script: no saved script selected, nothing added to the store.
+    expect((screen.getByTestId('script-list') as HTMLSelectElement).value).toBe('');
+    expect((screen.getByTestId('script-name') as HTMLInputElement).value).toBe(
+      'Draft from macro VBA',
+    );
+    expect((screen.getByTestId('script-delete') as HTMLButtonElement).disabled).toBe(true);
+    expect(store.list().map((s) => s.name)).toEqual(['Existing']);
+    // The warnings are listed with their line and reason.
+    const warnings = [...screen.getByTestId('script-vba-warnings').querySelectorAll('li')].map(
+      (li) => li.textContent,
+    );
+    expect(warnings).toEqual([
+      'Line 2: Application.ScreenUpdating — not needed in BlueScript',
+      'Line 4: range.Select — no matching BlueScript API',
+    ]);
+    expect(screen.queryByTestId('script-vba-source')).toBeNull();
+    // Never run automatically.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls).toEqual([]);
+    expect(screen.getByTestId('script-console').textContent).toContain('It was not run.');
+    expect(screen.getByTestId('script-console').textContent).not.toContain('Done in');
+
+    // The user runs the reviewed draft.
+    fireEvent.click(screen.getByTestId('script-run'));
+    await waitFor(() =>
+      expect(screen.getByTestId('script-console').textContent).toContain('Done in'),
+    );
+    expect(calls).toEqual(['sheet.fill([-1,"A1","Total"])']);
+
+    // The button of the pane opens the converter too; a clean macro reports no warning.
+    fireEvent.click(screen.getByTestId('script-vba-open'));
+    fireEvent.change(screen.getByTestId('script-vba-source'), {
+      target: { value: 'Range("B2").Value = 1' },
+    });
+    fireEvent.click(screen.getByTestId('script-vba-convert'));
+    expect(screen.queryByTestId('script-vba-warnings')).toBeNull();
+    expect(screen.getByTestId('script-vba-report').textContent).toContain(
+      'Everything was converted',
+    );
+  });
+
   it('records actions into the editor and binds a saved script (CORE-SCRIPT-002)', async () => {
     const rec = new ScriptRecorder('sheet');
     const host: ScriptHost = { app: 'sheet', call: async () => null };

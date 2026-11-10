@@ -223,6 +223,7 @@ import {
   Palette,
   MessageSquare,
   SquareTerminal,
+  FileCode2,
   CircleDot,
 } from 'lucide-react';
 import { docScriptHost, recordEngine, ScriptPane, ScriptRecorder } from '@blueoffice/script';
@@ -541,6 +542,9 @@ function EditorInner({
   );
   /** New Style / Organizer dialog asked of the Styles pane (DOC-STYLE-001). */
   const [stylesRequest, setStylesRequest] = useState<StylesPaneRequest | null>(null);
+  // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
+  const [vbaRequest, setVbaRequest] = useState(0);
+  const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
@@ -2443,6 +2447,17 @@ function EditorInner({
       isChecked: (s) => s.taskPanes.includes('script'),
       run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'script') }),
     });
+    // Macro VBA → BlueScript draft (CORE-SCRIPT-003): VBA is only read, never run.
+    r.register({
+      id: 'script.convertVba',
+      isEnabled: hasDoc,
+      run: (s) => {
+        if (!s.taskPanes.includes('script')) {
+          store.setState({ taskPanes: togglePane(s.taskPanes, 'script') });
+        }
+        setVbaRequest((n) => n + 1);
+      },
+    });
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     r.register({
       id: 'script.record',
@@ -3863,6 +3878,7 @@ function EditorInner({
           items: [
             item('script.editor', 'commands.view.scriptEditor', <SquareTerminal size={ICON} />),
             item('script.record', 'commands.view.recordScript', <CircleDot size={ICON} />),
+            item('script.convertVba', 'commands.view.convertVba', <FileCode2 size={ICON} />),
           ],
         },
       ],
@@ -4047,6 +4063,8 @@ function EditorInner({
             }
             recorder={recorder}
             checkShortcut={scriptBindings.checkShortcut}
+            vbaRequest={vbaRequest}
+            onVbaRequestHandled={vbaRequestHandled}
             {...(platform.scriptSchedules ? { schedules: platform.scriptSchedules } : {})}
           />
         ),

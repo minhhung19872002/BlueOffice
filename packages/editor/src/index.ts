@@ -60,6 +60,7 @@ export {
   validScriptShortcut,
 } from './scriptBindings';
 export { MacroBanner, PasswordDialog, SavePasswordPanel } from './SecurityPanels';
+export { MacroViewer, useMacroViewer, type MacroViewerProps } from './MacroViewer';
 export { SaveAsTypeDialog, planOpen, saveName, type OpenPlan } from './FileVariants';
 export {
   BACKSTAGE_COMMANDS,

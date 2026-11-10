@@ -2444,6 +2444,16 @@ fn settings_bg() -> String {
 }
 
 /// Write the corpus into `dir`; returns the README table.
+/// The document the macro corpus file is made of (`macro_samples`).
+pub fn macro_document() -> Result<Vec<u8>, bo_opc::OpcError> {
+    Doc {
+        body: p("Tệp mẫu có macro VBA. BlueOffice chỉ hiển thị mã, không bao giờ chạy."),
+        sect: sect(""),
+        ..Doc::default()
+    }
+    .build()
+}
+
 pub fn generate(dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
     let mut readme = String::new();

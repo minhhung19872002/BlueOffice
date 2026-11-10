@@ -18,6 +18,9 @@
 //! * the legacy tabular formats of CORE-FMT-004 — SYLK, DIF, formatted text and
 //!   dBASE tables — from hand-written fixtures and files saved from the corpus;
 //!   and PDF files opened as documents, from PDF exports of the corpus.
+//! * the VBA project behind the read-only macro viewer (CORE-VBA-002): the
+//!   `vbaProject.bin` of the generated macro corpus, damaged as bytes and inside its
+//!   compressed streams.
 //!
 //! Every call must return (`Ok` or `Err`) without panicking, and within a time budget
 //! (no hang). The legacy binary parsers (CFB, BIFF8/BIFF12, `.doc`, `.ppt`, VBA),
@@ -278,6 +281,130 @@ fn mutated_xlsx_corpus_never_panics_or_hangs() {
 #[test]
 fn mutated_pptx_corpus_never_panics_or_hangs() {
     on_small_stack(|| run("slide", "pptx", 0x0D0C_0003));
+}
+
+/// CORE-VBA-002: the VBA project reader behind the macro viewer ([MS-OVBA]: compound
+/// file, compressed `dir` stream, module streams). The `vbaProject.bin` of the
+/// generated macro corpus is damaged at byte level and inside its streams (the
+/// compressed containers are decompressed, mutated and compressed again so that the
+/// record parser sees the damage), then read directly and through the engines.
+#[test]
+fn mutated_vba_projects_never_panic_or_hang() {
+    const MUTATIONS: usize = 60;
+    on_small_stack(|| {
+        let mut rng = Rng(0x0D0C_0BA5);
+        let mut runs = 0;
+        for (file, main_dir) in [
+            ("macro-vba.docm", "word"),
+            ("macro-vba.xlsm", "xl"),
+            ("macro-vba.pptm", "ppt"),
+        ] {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/corpus/macro")
+                .join(file);
+            let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
+            let pkg = Package::read(&bytes, &Limits::default()).expect("macro corpus opens");
+            let part = format!("/{main_dir}/vbaProject.bin");
+            let bin = pkg.part(&part).expect("vbaProject.bin").data.clone();
+            assert!(
+                bo_engine::vba_view::read(&bytes).is_some_and(|p| p.error.is_none()),
+                "{file}: the unmutated project must read"
+            );
+            for k in 0..MUTATIONS {
+                let mut data = bin.clone();
+                let len = data.len();
+                match rng.below(4) {
+                    0 => {
+                        for _ in 0..=rng.below(8) {
+                            let i = rng.below(len);
+                            data[i] = u8::try_from(rng.below(256)).unwrap_or(0);
+                        }
+                    }
+                    1 => data.truncate(rng.below(len)),
+                    2 => {
+                        let at = rng.below(len);
+                        let end = (at + 1 + rng.below(64)).min(len);
+                        data.drain(at..end);
+                    }
+                    _ => data = mutate_vba_streams(&mut rng, &bin),
+                }
+                let mut m = pkg.clone();
+                m.put_part(&part, data.clone());
+                let Ok(out) = m.write() else { continue };
+                timed(&format!("{file} vba#{k}"), || {
+                    let _ = bo_binary::read_vba_project(&data);
+                    let _ = bo_engine::vba_view::read(&out);
+                    let cmd = r#"{"cmd":"vbaProject"}"#;
+                    match main_dir {
+                        "xl" => {
+                            let mut s = SheetEngine::new();
+                            if s.open(&out, "fuzz.xlsm").is_ok() {
+                                let _ = s.exec_json(cmd);
+                            }
+                        }
+                        "word" => {
+                            let mut e = Engine::with_bundled_fonts();
+                            if e.open(&out, "fuzz.docm").is_ok() {
+                                let _ = e.command_json(cmd);
+                            }
+                        }
+                        _ => {
+                            let mut e = Engine::with_bundled_fonts();
+                            if e.open(&out, "fuzz.pptm").is_ok() {
+                                let _ = e.slide_command_json(cmd);
+                            }
+                        }
+                    }
+                });
+                runs += 1;
+            }
+        }
+        println!("macro: {runs} mutated VBA projects, no panic, no hang");
+    });
+}
+
+/// A copy of the compound file `bin` with one of its `VBA` streams damaged after
+/// decompression ([MS-OVBA] CompressedContainer) and compressed again.
+fn mutate_vba_streams(rng: &mut Rng, bin: &[u8]) -> Vec<u8> {
+    use std::io::{Cursor, Read, Write};
+    let Ok(mut cf) = cfb::CompoundFile::open(Cursor::new(bin.to_vec())) else {
+        return bin.to_vec();
+    };
+    let streams: Vec<String> = cf
+        .walk()
+        .filter(cfb::Entry::is_stream)
+        .map(|e| e.path().to_string_lossy().replace('\\', "/"))
+        .filter(|p| p.starts_with("/VBA/") && p != "/VBA/_VBA_PROJECT")
+        .collect();
+    if streams.is_empty() {
+        return bin.to_vec();
+    }
+    let path = &streams[rng.below(streams.len())];
+    let mut packed = Vec::new();
+    if let Ok(mut s) = cf.open_stream(path) {
+        let _ = s.read_to_end(&mut packed);
+    }
+    let mut raw = bo_binary::vba::decompress(&packed).unwrap_or(packed);
+    for _ in 0..=rng.below(6) {
+        if raw.is_empty() {
+            break;
+        }
+        let i = rng.below(raw.len());
+        match rng.below(3) {
+            0 => raw[i] = u8::try_from(rng.below(256)).unwrap_or(0),
+            // Record sizes and offsets are little-endian u32: make one huge.
+            1 => {
+                let end = (i + 4).min(raw.len());
+                raw[i..end].fill(0xFF);
+            }
+            _ => raw.truncate(i),
+        }
+    }
+    if let Ok(mut s) = cf.create_stream(path) {
+        let _ = s.write_all(&bo_binary::vba::compress(&raw));
+    }
+    let _ = cf.flush();
+    cf.into_inner().into_inner()
 }
 
 /// Markup worth injecting into HTML, MHTML, Flat OPC and XML Spreadsheet 2003 text.

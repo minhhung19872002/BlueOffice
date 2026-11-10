@@ -243,6 +243,39 @@ fn inspect_reports_format_encryption_and_macros() {
     assert!(sheet.contains("sheet: "), "{sheet}");
 }
 
+/// CORE-VBA-002: `inspect --vba` prints the module sources of a macro-enabled file
+/// (generated corpus); nothing is run.
+#[test]
+fn inspect_vba_prints_module_sources() {
+    let text = stdout(&run(bin()
+        .arg("inspect")
+        .arg(corpus("macro/macro-vba.docm"))
+        .arg("--vba")));
+    assert!(
+        text.starts_with("vba project: VBAProject (code page 1258)\n--- module ThisDocument (document)\nOption Explicit\n--- module Module1 (standard)\n"),
+        "{text}"
+    );
+    assert!(text.contains("' Ghi lời chào — mã này chỉ được hiển thị, không bao giờ chạy.\nSub ChaoMung()\n    Selection.TypeText \"Xin chào\"\nEnd Sub\n"), "{text}");
+
+    let json = stdout(&run(bin()
+        .arg("inspect")
+        .arg(corpus("macro/macro-vba.pptm"))
+        .args(["--vba", "--json"])));
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["modules"][0]["name"], "Slide1");
+    assert_eq!(v["modules"][1]["kind"], "standard");
+    assert!(v["modules"][1]["source"]
+        .as_str()
+        .unwrap()
+        .contains("MsgBox \"Xin chào\""));
+
+    let none = stdout(&run(bin()
+        .arg("inspect")
+        .arg(corpus("doc/phase1-sample.docx"))
+        .arg("--vba")));
+    assert_eq!(none.trim(), "vba: none");
+}
+
 /// CORE-FMT-001: templates, macro-enabled variants, slide shows and theme files.
 #[test]
 fn convert_to_variants_and_theme_files() {

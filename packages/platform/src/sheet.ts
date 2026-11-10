@@ -698,6 +698,8 @@ export interface SolverResult {
 /** A sheet editing command (`bo_engine::sheet::SheetCommand`). */
 export type SheetCommand =
   | import('./security').SecurityCommand
+  /** Macro source of the open file, read-only (CORE-VBA-002) → `VbaProjectInfo`. */
+  | import('./vba').VbaCommand
   | DataToolsCommand
   /** Get & Transform data (SHEET-PQ-001). */
   | import('./sheetQuery').SheetQueryCommand

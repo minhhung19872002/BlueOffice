@@ -259,6 +259,7 @@
       "scriptEditor": "Trình soạn BlueScript",
       "recordScript": "Ghi thao tác",
       "convertVba": "Chuyển macro VBA sang BlueScript…",
+      "viewMacros": "Xem macro (VBA)…",
       "styleInspector": "Trình kiểm tra kiểu",
       "revealFormatting": "Hiện định dạng",
       "styleOrganizer": "Trình sắp xếp kiểu",
@@ -3061,6 +3062,7 @@
   },
   "security": {
     "macroWarning": "Tài liệu chứa macro — macro sẽ được giữ nguyên nhưng không chạy",
+    "viewMacros": "Xem macro",
     "dismiss": "Đóng",
     "passwordTitle": "Cần mật khẩu",
     "passwordPrompt": "“{{name}}” được bảo vệ bằng mật khẩu. Nhập mật khẩu để mở.",
@@ -5343,6 +5345,29 @@
     "themeApplied": "Đã áp dụng chủ đề từ “{{name}}”.",
     "noTheme": "Tệp này không có chủ đề để dùng."
   },
+  "macroViewer": {
+    "title": "Macro (VBA) — chỉ xem",
+    "notice": "BlueOffice không bao giờ chạy VBA. Mã chỉ được hiển thị ở đây và vẫn được giữ nguyên trong tệp khi bạn lưu.",
+    "modules": "Mô-đun",
+    "kind": {
+      "standard": "Mô-đun",
+      "document": "Đối tượng tài liệu",
+      "class": "Lớp",
+      "form": "Biểu mẫu"
+    },
+    "lines": "{{count}} dòng",
+    "code": "Mã của {{name}} (chỉ đọc)",
+    "emptyModule": "Mô-đun này không có mã.",
+    "convert": "Chuyển thành bản nháp BlueScript",
+    "convertHint": "Bản nháp mở trong trình soạn BlueScript để bạn xem lại. Bản nháp không được chạy.",
+    "close": "Đóng",
+    "loading": "Đang đọc macro…",
+    "empty": "Tệp này không có dự án VBA để hiển thị. Tệp có thể chứa loại macro khác; BlueOffice giữ nguyên nhưng không hiển thị.",
+    "failed": "Không đọc được dự án VBA. Dự án vẫn được giữ nguyên trong tệp.",
+    "unreadable": "Không đọc được mô-đun này.",
+    "codePage": "Dự án dùng bảng mã {{codePage}} mà BlueOffice chưa giải mã: chữ có dấu có thể hiển thị sai.",
+    "truncated": "Dự án rất lớn: một phần không được hiển thị."
+  },
   "mailMerge": {
     "cancel": "Hủy",
     "ok": "Đồng ý",
@@ -5878,6 +5903,7 @@
       "convert": "Tạo bản nháp BlueScript",
       "cancel": "Hủy",
       "draftName": "Bản nháp từ macro VBA",
+      "draftNameModule": "Bản nháp từ macro VBA: {{module}}",
       "header": "Bản nháp BlueScript chuyển từ macro VBA (trong khả năng) — hãy xem lại trước khi chạy.",
       "headerTodo": "Có {{count}} cấu trúc chưa chuyển được: tìm TODO(VBA).",
       "converted": "Đã tạo bản nháp ({{procedures}} thủ tục, {{warnings}} chỗ cần xem lại). Bản nháp chưa được chạy.",

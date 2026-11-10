@@ -259,6 +259,7 @@
       "scriptEditor": "BlueScript editor",
       "recordScript": "Record actions",
       "convertVba": "Convert macro VBA to BlueScript…",
+      "viewMacros": "View macros (VBA)…",
       "styleInspector": "Style Inspector",
       "revealFormatting": "Reveal formatting",
       "styleOrganizer": "Style Organizer",
@@ -3061,6 +3062,7 @@
   },
   "security": {
     "macroWarning": "This document contains macros — they are kept but never run.",
+    "viewMacros": "View macros",
     "dismiss": "Close",
     "passwordTitle": "Password required",
     "passwordPrompt": "“{{name}}” is password protected. Enter the password to open it.",
@@ -5343,6 +5345,29 @@
     "themeApplied": "Theme applied from “{{name}}”.",
     "noTheme": "This file has no theme to use."
   },
+  "macroViewer": {
+    "title": "Macros (VBA) — view only",
+    "notice": "BlueOffice never runs VBA. The code is only shown here, and it stays in the file unchanged when you save.",
+    "modules": "Modules",
+    "kind": {
+      "standard": "Module",
+      "document": "Document object",
+      "class": "Class",
+      "form": "Form"
+    },
+    "lines": "{{count}} line(s)",
+    "code": "Code of {{name}} (read-only)",
+    "emptyModule": "This module has no code.",
+    "convert": "Convert to BlueScript draft",
+    "convertHint": "The draft opens in the BlueScript editor for you to review. It is not run.",
+    "close": "Close",
+    "loading": "Reading the macros…",
+    "empty": "This file has no VBA project to show. It may hold another kind of macro, which BlueOffice keeps but does not display.",
+    "failed": "The VBA project could not be read. It is still kept in the file.",
+    "unreadable": "This module could not be read.",
+    "codePage": "The project uses code page {{codePage}}, which BlueOffice does not decode: accented characters may be shown incorrectly.",
+    "truncated": "The project is very large: part of it is not shown."
+  },
   "mailMerge": {
     "cancel": "Cancel",
     "ok": "OK",
@@ -5878,6 +5903,7 @@
       "convert": "Create BlueScript draft",
       "cancel": "Cancel",
       "draftName": "Draft from macro VBA",
+      "draftNameModule": "Draft from macro VBA: {{module}}",
       "header": "BlueScript draft converted from macro VBA (best effort) — review it before running.",
       "headerTodo": "{{count}} construct(s) could not be converted: look for TODO(VBA).",
       "converted": "Draft created ({{procedures}} procedure(s), {{warnings}} to review). It was not run.",

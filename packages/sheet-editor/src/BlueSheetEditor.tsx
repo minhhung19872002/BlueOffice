@@ -199,6 +199,7 @@ import {
   Mic,
   SquareTerminal,
   FileCode2,
+  FileSearch,
   Braces,
   Database,
   FileCode,
@@ -237,6 +238,8 @@ import {
   ProtectionStatus,
   useFileProtection,
   MacroBanner,
+  MacroViewer,
+  useMacroViewer,
   PasswordDialog,
   PdfExportDialog,
   SaveAsTypeDialog,
@@ -354,7 +357,7 @@ import {
   registerCellMediaCommands,
   sheetMediaSource,
 } from './cellMedia';
-import type { CellMediaState, DocProperties } from '@blueoffice/platform';
+import type { CellMediaState, DocProperties, VbaProjectInfo } from '@blueoffice/platform';
 import { CfManagerDialog } from './cfRules';
 import {
   CfDialog,
@@ -734,6 +737,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
   const [vbaRequest, setVbaRequest] = useState(0);
   const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
+  // Read-only macro viewer (CORE-VBA-002): a module goes to the script pane as a draft.
+  const macroViewer = useMacroViewer(useCallback(() => setScriptOpen(true), []));
+  const showMacros = macroViewer.show;
+  // Asked of the engine host itself: looking at macros is not a recorded action.
+  const loadMacros = useCallback(
+    () =>
+      platform.sheet
+        ? platform.sheet.exec<VbaProjectInfo>({ cmd: 'vbaProject' })
+        : Promise.reject(new Error('no sheet engine')),
+    [platform.sheet],
+  );
   // Task pane layout of BlueSheet, remembered per app (CORE-UI-006).
   const [paneLayout, setPaneLayout] = useTaskPaneLayout('sheet');
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
@@ -2510,6 +2524,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       has,
     );
+    // Macro source of the open file, read-only (CORE-VBA-002); VBA is never run.
+    add('script.viewMacros', async () => showMacros(), has);
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     add(
       'script.record',
@@ -3096,6 +3112,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('options.shortcuts', async () => setShortcutsShown(true));
     return reg;
   }, [
+    showMacros,
     openSmartArt,
     readAloudLink,
     dictationLink,
@@ -4715,6 +4732,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
               item('script.record', t('commands.view.recordScript'), <CircleDot size={18} />),
               item('script.convertVba', t('commands.view.convertVba'), <FileCode2 size={18} />),
+              item('script.viewMacros', t('commands.view.viewMacros'), <FileSearch size={18} />),
             ],
           },
         ],
@@ -5089,7 +5107,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           }}
         />
       </div>
-      {macroBanner && <MacroBanner inline onDismiss={() => setMacroBanner(false)} />}
+      {macroBanner && (
+        <MacroBanner inline onView={showMacros} onDismiss={() => setMacroBanner(false)} />
+      )}
       {pdfOptions && (
         <PdfExportDialog
           app="sheet"
@@ -5681,6 +5701,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                         checkShortcut={scriptBindings.checkShortcut}
                         vbaRequest={vbaRequest}
                         onVbaRequestHandled={vbaRequestHandled}
+                        vbaDraft={macroViewer.draft}
+                        onVbaDraftHandled={macroViewer.draftHandled}
                         {...(platform.scriptSchedules
                           ? { schedules: platform.scriptSchedules }
                           : {})}
@@ -6117,6 +6139,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'checkDocument' && (
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
+      )}
+      {macroViewer.open && (
+        <MacroViewer
+          load={loadMacros}
+          onConvert={macroViewer.convert}
+          onClose={macroViewer.close}
+        />
       )}
       {readAloud.bar}
       {dictation.bar}

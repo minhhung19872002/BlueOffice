@@ -25,6 +25,10 @@ pub mod ppt;
 mod ppt_draw;
 pub mod sheet;
 pub mod vba;
+// The project writer builds generated test and corpus files; the browser build
+// (WASM) only reads.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod vba_write;
 pub mod xls;
 pub mod xls_formula;
 pub mod xlsb;
@@ -35,7 +39,9 @@ pub use ppt_draw::{
     preset_for, PptParagraph, PptPicture, PptPlaceholder, PptRichText, PptRun, PptShape,
 };
 pub use sheet::{Cell, CellValue, DefinedName, Workbook, Worksheet};
-pub use vba::{has_macros, read_vba_project, VbaProject};
+pub use vba::{
+    has_macros, read_vba_from_file, read_vba_project, VbaModule, VbaModuleKind, VbaProject,
+};
 pub use xls::read_xls;
 pub use xlsb::{read_xlsb, read_xlsb_package};
 
@@ -107,6 +113,18 @@ impl<'a> Cfb<'a> {
         let mut out = Vec::with_capacity(len.min(64 << 20) as usize);
         (&mut s).take(MAX_STREAM).read_to_end(&mut out)?;
         Ok(out)
+    }
+
+    /// [`Self::read`] refusing streams longer than `cap` bytes.
+    pub(crate) fn read_capped(&mut self, name: &str, cap: u64) -> Result<Vec<u8>> {
+        if !self.inner.is_stream(name) {
+            return Err(BinaryError::Missing(name.to_owned()));
+        }
+        let len = self.inner.entry(name)?.len();
+        if len > cap {
+            return Err(malformed(format!("stream {name} is {len} bytes")));
+        }
+        self.read(name)
     }
 }
 

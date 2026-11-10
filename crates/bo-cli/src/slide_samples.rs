@@ -2573,6 +2573,18 @@ pub fn big_deck(slides: usize, videos: usize, video_kb: usize, distinct: usize) 
     build(&specs, &parts, THEME_BLUE)
 }
 
+/// The deck the macro corpus file is made of (`macro_samples`).
+pub fn macro_base_deck() -> Vec<u8> {
+    build(
+        &[title_slide(
+            "Tệp mẫu có macro VBA",
+            "BlueOffice chỉ hiển thị mã, không bao giờ chạy",
+        )],
+        &Vec::new(),
+        THEME_BLUE,
+    )
+}
+
 /// Every corpus deck: (file name, bytes) — generated decks plus decks
 /// edited through the slide edit API (`slide_edits`).
 pub fn decks() -> Vec<(&'static str, Vec<u8>)> {

@@ -28,7 +28,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 |---|---|---|---|
 | quick-xml | 0.42.0 | MIT | Parse/ghi XML (OOXML) |
 | zip | 9.3.0 | MIT | Gói OPC (ZIP) |
-| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | Nén stream PDF |
+| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | Nén stream PDF; giải nén storage dự án VBA của .ppt (`bo-binary`) |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 | Đọc font, metric, outline glyph |
 | rustybuzz | 0.20.1 | MIT | Text shaping (port HarfBuzz) |
 | unicode-linebreak | 0.1.5 | Apache-2.0 | Ngắt dòng UAX #14 |

@@ -350,13 +350,42 @@ describe('BlueSheetEditor', () => {
     };
     const base = await host.info();
     host.open = async () => ({ ...base, name: 'Có macro.xlsm', macros: true });
+    const exec = host.exec;
+    const asked: string[] = [];
+    host.exec = (async (cmd: SheetCommand) => {
+      if (cmd.cmd !== 'vbaProject') return exec(cmd);
+      asked.push(cmd.cmd);
+      return {
+        name: 'VBAProject',
+        codePage: 1252,
+        codePageSupported: true,
+        modules: [{ name: 'Module1', kind: 'standard', source: 'Sub A()\nEnd Sub\n' }],
+      };
+    }) as SheetHost['exec'];
     render(<BlueSheetEditor platform={p} language="en-US" />);
     await screen.findByRole('tab', { name: 'Sheet1' });
     expect(screen.queryByTestId('macro-warning')).toBeNull();
     act(() => openHandler?.({ name: 'Có macro.xlsm', bytes: new Uint8Array([80, 75]) }));
     const bar = await screen.findByTestId('macro-warning');
     expect(bar.textContent).toContain('macros');
-    fireEvent.click(bar.querySelector('button')!);
+    // Nothing is read from the project until the user asks to see it.
+    expect(asked).toEqual([]);
+
+    // "View macros" opens the read-only viewer with the engine's answer (CORE-VBA-002).
+    fireEvent.click(within(bar).getByTestId('macro-warning-view'));
+    const viewer = await screen.findByTestId('macro-viewer');
+    const code = (await within(viewer).findByTestId('macro-viewer-code')) as HTMLTextAreaElement;
+    expect(code.value).toBe('Sub A()\nEnd Sub\n');
+    expect(code.readOnly).toBe(true);
+    expect(asked).toEqual(['vbaProject']);
+    // Converting sends the module to the BlueScript pane as a draft that is not run.
+    fireEvent.click(within(viewer).getByTestId('macro-viewer-convert'));
+    await waitFor(() => expect(screen.queryByTestId('macro-viewer')).toBeNull());
+    const script = (await screen.findByTestId('script-code')) as HTMLTextAreaElement;
+    expect(script.value).toContain('async function A()');
+    expect(screen.getByTestId('script-console').textContent).toContain('It was not run.');
+
+    fireEvent.click(within(bar).getByTestId('macro-warning-dismiss'));
     await waitFor(() => expect(screen.queryByTestId('macro-warning')).toBeNull());
   });
 

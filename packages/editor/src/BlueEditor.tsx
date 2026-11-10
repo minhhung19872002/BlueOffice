@@ -16,6 +16,7 @@ import {
   loadProofOptions,
 } from './SpellCheckDialog';
 import { AutoCorrectDialog, autoCorrectCommand, loadAutoCorrect } from './AutoCorrectDialog';
+import { MacroViewer, useMacroViewer } from './MacroViewer';
 import { DocCheckDocumentDialog } from './DocCheckDocument';
 import { VersionsPane } from './versions/VersionsPane';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
@@ -33,6 +34,7 @@ import type {
   SpellInfo,
   StoredDocument,
   TableEdit,
+  VbaProjectInfo,
   ViewLayoutMode,
 } from '@blueoffice/platform';
 import {
@@ -248,6 +250,7 @@ import {
   MessageSquare,
   SquareTerminal,
   FileCode2,
+  FileSearch,
   CircleDot,
   Shapes,
   AppWindow,
@@ -607,6 +610,20 @@ function EditorInner({
   // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
   const [vbaRequest, setVbaRequest] = useState(0);
   const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
+  // Read-only macro viewer (CORE-VBA-002): a module goes to the script pane as a draft.
+  const macroViewer = useMacroViewer(
+    useCallback(() => {
+      const s = store.getState();
+      if (!s.taskPanes.includes('script')) {
+        store.setState({ taskPanes: togglePane(s.taskPanes, 'script') });
+      }
+    }, [store]),
+  );
+  const showMacros = macroViewer.show;
+  const loadMacros = useCallback(
+    () => platform.engine.command({ cmd: 'vbaProject' }) as unknown as Promise<VbaProjectInfo>,
+    [platform],
+  );
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
@@ -2722,6 +2739,8 @@ function EditorInner({
         setVbaRequest((n) => n + 1);
       },
     });
+    // Macro source of the open file, read-only (CORE-VBA-002); VBA is never run.
+    r.register({ id: 'script.viewMacros', isEnabled: hasDoc, run: () => showMacros() });
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     r.register({
       id: 'script.record',
@@ -2964,6 +2983,7 @@ function EditorInner({
     registerObjectCommands(r, hasDoc, () => objectHub.get());
     return r;
   }, [
+    showMacros,
     platform,
     store,
     activeView,
@@ -4371,6 +4391,7 @@ function EditorInner({
             item('script.editor', 'commands.view.scriptEditor', <SquareTerminal size={ICON} />),
             item('script.record', 'commands.view.recordScript', <CircleDot size={ICON} />),
             item('script.convertVba', 'commands.view.convertVba', <FileCode2 size={ICON} />),
+            item('script.viewMacros', 'commands.view.viewMacros', <FileSearch size={ICON} />),
           ],
         },
       ],
@@ -4558,6 +4579,8 @@ function EditorInner({
             checkShortcut={scriptBindings.checkShortcut}
             vbaRequest={vbaRequest}
             onVbaRequestHandled={vbaRequestHandled}
+            vbaDraft={macroViewer.draft}
+            onVbaDraftHandled={macroViewer.draftHandled}
             {...(platform.scriptSchedules ? { schedules: platform.scriptSchedules } : {})}
           />
         ),
@@ -5184,6 +5207,13 @@ function EditorInner({
             {state.dialog === 'autoCorrect' && (
               <AutoCorrectDialog run={runCommand} onClose={closeDialog} />
             )}
+            {macroViewer.open && (
+              <MacroViewer
+                load={loadMacros}
+                onConvert={macroViewer.convert}
+                onClose={macroViewer.close}
+              />
+            )}
             {printOpen && platform.engine.printPdf && platform.engine.printPreview && (
               <PrintPanel
                 app="doc"
@@ -5632,7 +5662,14 @@ function EditorInner({
             {state.macroWarning && (
               <div className={styles.macroBar} role="status" data-testid="macro-warning">
                 <span>{t('security.macroWarning')}</span>
-                <button type="button" onClick={() => store.setState({ macroWarning: false })}>
+                <button type="button" onClick={showMacros} data-testid="macro-warning-view">
+                  {t('security.viewMacros')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => store.setState({ macroWarning: false })}
+                  data-testid="macro-warning-dismiss"
+                >
                   {t('security.dismiss')}
                 </button>
               </div>

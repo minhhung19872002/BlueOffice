@@ -71,6 +71,7 @@ pub mod textbox;
 pub mod theme_file;
 pub mod translate;
 pub mod variant;
+pub mod vba_view;
 pub mod views;
 pub mod web_formats;
 pub mod word_count;
@@ -305,6 +306,8 @@ pub struct Engine {
     merge_answers: bo_edit::merge::rules::Answers,
     /// The open file has macros (warning bar; they are preserved, never executed).
     macros: bool,
+    /// VBA project of the open file, read for display only (CORE-VBA-002).
+    vba: Option<Box<vba_view::VbaProjectOut>>,
     /// Runs the last `ConvertLegacyText` converted (reported in [`DocInfo`]).
     pub(crate) legacy_converted: usize,
     /// Password used by `save_docx` (Agile Encryption); `None` saves unencrypted.
@@ -459,6 +462,7 @@ impl Engine {
                 }
             }
             self.macros = macros;
+            self.vba = vba_view::of_open_file(macros, bytes);
             if is_zip {
                 self.file_variant = variant::detect(bytes).or(self.file_variant);
             }
@@ -527,6 +531,7 @@ impl Engine {
             self.props = props::PropsState::read(bytes);
         }
         self.macros = macros;
+        self.vba = vba_view::of_open_file(macros, bytes);
         if is_zip {
             self.file_variant = variant::detect(bytes).or(self.file_variant);
         }
@@ -581,6 +586,7 @@ impl Engine {
         self.session = Some(session);
         self.merge_preview = None;
         self.macros = false;
+        self.vba = None;
         self.legacy_converted = 0;
         self.save_password = None;
         self.file_variant = Some(variant::Variant::Docx);
@@ -813,12 +819,14 @@ impl Engine {
         self.images = images;
         self.slides = slide_edit::SlideEditor::default();
         self.macros = false;
+        self.vba = None;
         self.file_variant = Some(variant::Variant::Pptx);
         self.save_variant = None;
         self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;
         self.macros = false;
+        self.vba = None;
         self.save_password = None;
         self.scrub = inspect::package::Scrub::default();
         self.props = props::PropsState::default();

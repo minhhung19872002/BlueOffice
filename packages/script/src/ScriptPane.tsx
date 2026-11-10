@@ -43,6 +43,22 @@ export interface ScriptPaneProps {
   vbaRequest?: number;
   /** The request was taken (the host resets its counter). */
   onVbaRequestHandled?: () => void;
+  /**
+   * A module of the open file's VBA project sent by the read-only macro viewer
+   * (CORE-VBA-002): each new `id` is converted to a draft at once. The draft is
+   * shown for review and never run from here.
+   */
+  vbaDraft?: VbaDraftRequest | null;
+  /** The draft request was taken (the host clears it). */
+  onVbaDraftHandled?: () => void;
+}
+
+/** VBA source to convert into a BlueScript draft; `id` changes with every request. */
+export interface VbaDraftRequest {
+  id: number;
+  source: string;
+  /** Name of the VBA module the source comes from. */
+  module?: string;
 }
 
 /** `Ctrl+Shift+K` form of a key press; null for a lone modifier. */
@@ -77,6 +93,8 @@ export function ScriptPane({
   schedules,
   vbaRequest,
   onVbaRequestHandled,
+  vbaDraft,
+  onVbaDraftHandled,
 }: ScriptPaneProps) {
   const { t } = useTranslation();
   const scripts = useMemo(() => store ?? scriptStore(app), [store, app]);
@@ -158,9 +176,9 @@ export function ScriptPane({
   }, [request, onVbaRequestHandled]);
 
   /** The draft opens as a new unsaved script; it is never run from here. */
-  const convertMacro = () => {
-    if (!vbaSource.trim()) return;
-    const r = convertVba(vbaSource, { app });
+  const draftFrom = (source: string, module?: string) => {
+    if (!source.trim()) return;
+    const r = convertVba(source, { app });
     const header = [
       `// ${t('script.vba.header')}`,
       ...(r.warnings.length
@@ -168,7 +186,7 @@ export function ScriptPane({
         : []),
     ];
     setCurrent(null);
-    setName(t('script.vba.draftName'));
+    setName(module ? t('script.vba.draftNameModule', { module }) : t('script.vba.draftName'));
     setCode(`${header.join('\n')}\n${r.code}`);
     setHint(null);
     setVbaWarnings(r.warnings);
@@ -178,6 +196,19 @@ export function ScriptPane({
       t('script.vba.converted', { procedures: r.procedures.length, warnings: r.warnings.length }),
     );
   };
+
+  const convertMacro = () => draftFrom(vbaSource);
+
+  // A module sent by the macro viewer becomes the draft (state adjusted while rendering).
+  const draftId = vbaDraft?.id ?? 0;
+  const [seenDraft, setSeenDraft] = useState(0);
+  if (vbaDraft && draftId !== seenDraft) {
+    setSeenDraft(draftId);
+    draftFrom(vbaDraft.source, vbaDraft.module);
+  }
+  useEffect(() => {
+    if (draftId > 0) onVbaDraftHandled?.();
+  }, [draftId, onVbaDraftHandled]);
 
   const reloadSchedules = useCallback(() => {
     if (!schedules) return;

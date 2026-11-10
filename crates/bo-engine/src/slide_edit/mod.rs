@@ -3594,6 +3594,13 @@ impl Engine {
         if let Some(r) = Self::new_deck_json(json) {
             return r;
         }
+        // Macro source, read-only (CORE-VBA-002).
+        if serde_json::from_str::<serde_json::Value>(json)
+            .is_ok_and(|v| crate::vba_view::is_command(&v))
+        {
+            self.pres.as_ref().ok_or(EngineError::NoDocument)?;
+            return Ok(crate::vba_view::answer(self.vba.as_deref()));
+        }
         if let Some(sc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| crate::security::SecurityCommand::parse(&v))

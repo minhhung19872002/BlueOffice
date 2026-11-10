@@ -1,10 +1,13 @@
-//! SmartArt in BlueDoc: the diagram's pre-rendered drawing part ([MS-ODRAWXML]
-//! §2.3.2 `dsp:drawing`, shapes in DrawingML, ECMA-376 Part 1 §20.1) is drawn with
-//! the BlueSlide shape renderer and shown as a picture. The part itself is kept
-//! verbatim in the package (the image only lives in memory).
+//! SmartArt in BlueDoc: the diagram's drawing part ([MS-ODRAWXML] §2.3.2 `dsp:drawing`, shapes in
+//! DrawingML, ECMA-376 Part 1 §20.1) — or, without one, its data model laid out by
+//! `bo_pptx::diagram_layout` — is drawn with the BlueSlide shape renderer and shown as a picture.
+//! The pictures live in [`SmartArtImages`], next to the document: the parts themselves stay in the
+//! document's media as XML (kept verbatim when read, written as they are for new / edited
+//! diagrams, CORE-SMART-005), so undo and save see the real parts.
 
+use bo_model::diagram;
 use bo_model::slide::{CommonSlideData, Presentation, ShapeNode, Slide, SlideSize};
-use bo_model::{Block, Document, RunContent};
+use bo_model::Document;
 use bo_text::FontManager;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -41,55 +44,76 @@ pub fn render_png(xml: &[u8], w: i64, h: i64, fonts: &mut FontManager) -> Option
     bo_raster::render_page_png_with(&page, fonts, 2.0, &images).ok()
 }
 
-fn is_drawing_part(bytes: &[u8]) -> bool {
-    let head = &bytes[..bytes.len().min(512)];
-    let s = String::from_utf8_lossy(head);
-    s.contains("<dsp:drawing")
-        || s.contains(":drawing ") && s.contains("diagram")
-        || s.contains(":dataModel ") && s.contains("drawingml/2006/diagram")
+/// One rendered diagram: the part bytes it was drawn from and the PNG.
+#[derive(Debug, Clone, Default)]
+struct Rendered {
+    source: Arc<Vec<u8>>,
+    png: Vec<u8>,
 }
 
-/// Replace the media of SmartArt pictures by a rendering of their drawing part.
-pub fn render_smartart(doc: &mut Document, fonts: &mut FontManager) {
-    fn visit(blocks: &[Block], sizes: &mut BTreeMap<String, (i64, i64)>) {
-        for b in blocks {
-            match b {
-                Block::Paragraph(p) => {
-                    for r in &p.runs {
-                        for c in &r.content {
-                            if let RunContent::Image(img) = c {
-                                sizes
-                                    .entry(img.media.clone())
-                                    .or_insert((img.width.0, img.height.0));
-                            }
-                        }
+/// Pictures of the SmartArt diagrams of the open document, by media part name.
+#[derive(Debug, Clone, Default)]
+pub struct SmartArtImages {
+    map: BTreeMap<String, Rendered>,
+    /// Diagram media (name, bytes address) the pictures were drawn for.
+    key: Vec<(String, usize)>,
+}
+
+impl SmartArtImages {
+    /// The picture of diagram part `name`.
+    pub fn get(&self, name: &str) -> Option<&[u8]> {
+        self.map.get(name).map(|r| r.png.as_slice())
+    }
+
+    /// Forget every picture (another document is opened).
+    pub fn clear(&mut self) {
+        *self = SmartArtImages::default();
+    }
+
+    /// Draw the diagrams of `doc` whose parts changed since the last call.
+    pub fn refresh(&mut self, doc: &Document, fonts: &mut FontManager) {
+        let key: Vec<(String, usize)> = doc
+            .media
+            .iter()
+            .filter(|(n, b)| diagram::split_name(n).is_some() && diagram::is_diagram_xml(b))
+            .map(|(n, b)| (n.clone(), Arc::as_ptr(b) as usize))
+            .collect();
+        if key == self.key {
+            return;
+        }
+        self.key = key;
+        let mut next = BTreeMap::new();
+        for (name, (w, h)) in crate::media::sizes(doc) {
+            let Some(bytes) = doc.media.get(&name) else {
+                continue;
+            };
+            if !diagram::is_diagram_xml(bytes) {
+                continue;
+            }
+            match self.map.remove(&name) {
+                Some(r) if Arc::ptr_eq(&r.source, bytes) => {
+                    next.insert(name, r);
+                }
+                _ => {
+                    if let Some(png) = render_png(bytes, w, h, fonts) {
+                        next.insert(
+                            name,
+                            Rendered {
+                                source: bytes.clone(),
+                                png,
+                            },
+                        );
                     }
                 }
-                Block::Table(t) => {
-                    for row in &t.rows {
-                        for cell in &row.cells {
-                            visit(&cell.blocks, sizes);
-                        }
-                    }
-                }
-                Block::Opaque(_) => {}
             }
         }
+        self.map = next;
     }
-    let mut sizes: BTreeMap<String, (i64, i64)> = BTreeMap::new();
-    for s in &doc.sections {
-        visit(&s.blocks, &mut sizes);
-    }
-    for (name, (w, h)) in sizes {
-        let Some(bytes) = doc.media.get(&name) else {
-            continue;
-        };
-        if !is_drawing_part(bytes) {
-            continue;
-        }
-        if let Some(png) = render_png(bytes, w, h, fonts) {
-            doc.media.insert(name, Arc::new(png));
-        }
+}
+
+impl bo_render::ImageSource for SmartArtImages {
+    fn image(&self, id: &str) -> Option<&[u8]> {
+        self.get(id)
     }
 }
 
@@ -103,7 +127,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../tests/corpus/doc/smartart-04-datamodel.docx"
         );
-        let mut doc = bo_docx::read_docx(&std::fs::read(path).unwrap()).unwrap();
+        let doc = bo_docx::read_docx(&std::fs::read(path).unwrap()).unwrap();
         // The picture of the frame is the data model part, kept verbatim.
         let (name, bytes) = doc
             .media
@@ -116,13 +140,13 @@ mod tests {
         for f in crate::bundled::FONTS {
             fonts.add_font(f.to_vec());
         }
-        super::render_smartart(&mut doc, &mut fonts);
-        let png = &doc.media[&name];
+        let mut images = super::SmartArtImages::default();
+        images.refresh(&doc, &mut fonts);
+        let png = images.get(&name).unwrap();
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
-        // The saved file keeps the data part as it was.
-        let saved =
-            bo_docx::write_docx(&bo_docx::read_docx(&std::fs::read(path).unwrap()).unwrap())
-                .unwrap();
+        // The document's media keep the part as XML; so does the saved file.
+        assert_eq!(doc.media[&name].as_slice(), bytes.as_slice());
+        let saved = bo_docx::write_docx(&doc).unwrap();
         let back = bo_docx::read_docx(&saved).unwrap();
         assert_eq!(back.media[&name].as_slice(), bytes.as_slice());
     }

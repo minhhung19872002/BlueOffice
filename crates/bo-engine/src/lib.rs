@@ -23,6 +23,7 @@ pub mod collab;
 pub mod custom_xml;
 pub mod design;
 mod doc_picture;
+pub mod doc_smartart;
 pub mod edit;
 pub mod equation;
 pub mod fonts;
@@ -254,6 +255,8 @@ pub struct Engine {
     pres: Option<bo_model::slide::Presentation>,
     /// Images referenced by slide `Image` commands (part name -> bytes).
     images: BTreeMap<String, Vec<u8>>,
+    /// Pictures of the open document's SmartArt diagrams (CORE-SMART-005).
+    smartart_png: smartart::SmartArtImages,
     /// Selection and undo history of the open presentation.
     slides: slide_edit::SlideEditor,
     /// How tracked changes are displayed (follows `markup.mode`).
@@ -421,7 +424,6 @@ impl Engine {
             bo_odf::read_odt(bytes).map_err(|e| EngineError::Format(e.to_string()))?
         } else if is_zip {
             let mut d = bo_docx::read_docx(bytes)?;
-            smartart::render_smartart(&mut d, &mut self.fonts);
             media::convert_media(&mut d, &mut self.fonts);
             d
         } else if bytes.starts_with(CFB_SIGNATURE) {
@@ -526,6 +528,10 @@ impl Engine {
         self.goal_x = None;
         self.pres = None;
         self.images.clear();
+        self.smartart_png.clear();
+        if let Some(s) = &self.session {
+            self.smartart_png.refresh(s.doc(), &mut self.fonts);
+        }
         self.collab = None;
         self.slide_collab = None;
         self.hf = None;
@@ -637,6 +643,9 @@ impl Engine {
             if let Some(c) = self.doc_display.get_mut(i) {
                 *c = OnceCell::new();
             }
+        }
+        if let Some(s) = &self.session {
+            self.smartart_png.refresh(s.doc(), &mut self.fonts);
         }
         let mut dirty = dirty;
         self.refresh_markup(&mut dirty);
@@ -836,7 +845,7 @@ impl Engine {
         let media = self
             .document()
             .map_or_else(|| EMPTY.get_or_init(bo_render::Media::new), |d| &d.media);
-        bo_render::image::Chain(media, &self.images)
+        DocImages(&self.smartart_png, media, &self.images)
     }
 
     /// Summary of the open document.
@@ -1034,9 +1043,14 @@ impl Engine {
 
     /// Bytes of a document media part or slide image referenced by an `image` display command.
     pub fn media(&self, name: &str) -> Option<&[u8]> {
-        self.document()
-            .and_then(|d| d.media.get(name))
-            .map(|b| b.as_slice())
+        // A SmartArt part is shown as its picture.
+        self.smartart_png
+            .get(name)
+            .or_else(|| {
+                self.document()
+                    .and_then(|d| d.media.get(name))
+                    .map(|b| b.as_slice())
+            })
             .or_else(|| self.images.get(name).map(Vec::as_slice))
             // Slide media parts (video / audio clips played by the hosts).
             .or_else(|| self.pres.as_ref().and_then(|p| p.part_data(name)))
@@ -1283,4 +1297,20 @@ pub(crate) fn document_properties(
         }
     }
     out
+}
+
+/// Image sources of the open document: SmartArt pictures, media parts, then slide images.
+struct DocImages<'a>(
+    &'a smartart::SmartArtImages,
+    &'a bo_render::Media,
+    &'a BTreeMap<String, Vec<u8>>,
+);
+
+impl bo_render::ImageSource for DocImages<'_> {
+    fn image(&self, id: &str) -> Option<&[u8]> {
+        self.0
+            .get(id)
+            .or_else(|| self.1.image(id))
+            .or_else(|| self.2.image(id))
+    }
 }

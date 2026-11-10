@@ -219,12 +219,17 @@ pub(crate) fn read_diagrams(
             if gd.attr("uri") != Some(URI_DIAGRAM) {
                 continue;
             }
-            let Some(data_part) = gd
-                .child("relIds")
-                .and_then(|r| r.attr("dm"))
-                .and_then(target)
-            else {
+            // §21.4.2.6 relIds: r:dm, r:lo, r:qs, r:cs.
+            let rel_ids = gd.child("relIds");
+            let rel_dm = rel_ids.and_then(|r| r.attr("dm")).unwrap_or_default();
+            let Some(data_part) = target(rel_dm) else {
                 continue;
+            };
+            let named = |a: &str| {
+                rel_ids
+                    .and_then(|r| r.attr(a))
+                    .and_then(target)
+                    .unwrap_or_default()
             };
             let data = pkg
                 .part(&data_part)
@@ -252,6 +257,13 @@ pub(crate) fn read_diagrams(
                     .and_then(|c| c.attr("name"))
                     .unwrap_or_default()
                     .to_owned(),
+                layout: named("lo"),
+                style: named("qs"),
+                colors: named("cs"),
+                rel_dm: rel_dm.to_owned(),
+                data: data_part,
+                xml: None,
+                moved: false,
             });
         }
     }

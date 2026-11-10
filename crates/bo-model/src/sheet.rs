@@ -1605,6 +1605,28 @@ pub struct SheetDiagram {
     pub part: String,
     /// `cNvPr@name` of the frame.
     pub name: String,
+    /// Data model part (`dgm:relIds@r:dm`, §21.4.2.6); for a new diagram, the part it is written to.
+    #[serde(default)]
+    pub data: String,
+    /// Layout definition part (`r:lo`), empty when unknown.
+    #[serde(default)]
+    pub layout: String,
+    /// Quick style part (`r:qs`), empty when unknown.
+    #[serde(default)]
+    pub style: String,
+    /// Colours part (`r:cs`), empty when unknown.
+    #[serde(default)]
+    pub colors: String,
+    /// Relationship id of the data model in the sheet drawing (`r:dm`); empty for a diagram that is
+    /// not in the file yet (CORE-SMART-005).
+    #[serde(default)]
+    pub rel_dm: String,
+    /// Parts of a new or edited diagram, written on save; `None` keeps the file's parts as read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xml: Option<Box<crate::diagram::DiagramXml>>,
+    /// The anchor cells were changed (the frame's anchor is rewritten on save).
+    #[serde(default)]
+    pub moved: bool,
 }
 
 /// A slicer: a box of item buttons that filters a pivot table field or a table column

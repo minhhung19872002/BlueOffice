@@ -97,7 +97,8 @@
       "mergeRules": "Fields & rules",
       "mergeCreate": "Create",
       "automation": "Automation",
-      "language": "Language"
+      "language": "Language",
+      "window": "Window"
     },
     "comingLater": "Coming in a later release"
   },
@@ -302,7 +303,8 @@
       "translateCells": "Translate selected cells to a new column",
       "translateCellsInPlace": "Translate selected cells in place",
       "translateDeck": "Translate presentation",
-      "translateShapes": "Translate selected shapes"
+      "translateShapes": "Translate selected shapes",
+      "wordCount": "Word Count"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -404,6 +406,14 @@
     },
     "link": {
       "remove": "Remove link"
+    },
+    "window": {
+      "new": "New Window",
+      "arrangeAll": "Arrange All",
+      "split": "Split",
+      "sideBySide": "View Side by Side",
+      "syncScroll": "Synchronous Scrolling",
+      "resetPosition": "Reset Window Position"
     }
   },
   "status": {
@@ -5823,7 +5833,14 @@
         "compact": "Compact",
         "touch": "Touch"
       },
-      "proofingLanguage": "Proofing language…"
+      "proofingLanguage": "Proofing language…",
+      "themeLabel": "Theme",
+      "themes": {
+        "auto": "Use system setting",
+        "light": "Light",
+        "dark": "Dark",
+        "hc": "High contrast"
+      }
     },
     "describe": {
       "file_new": "A blank document.",
@@ -6617,5 +6634,87 @@
       "badFile": "The file could not be read as a .docx or .dotx document.",
       "failed": "The style could not be changed."
     }
+  },
+  "statusBar": {
+    "customize": "Customize status bar",
+    "reset": "Reset to defaults",
+    "items": {
+      "page": "Page number",
+      "words": "Word count",
+      "proofing": "Proofing status",
+      "language": "Language",
+      "trackChanges": "Track changes",
+      "capsLock": "Caps Lock",
+      "overtype": "Overtype",
+      "viewButtons": "View buttons",
+      "zoomSlider": "Zoom slider",
+      "zoom": "Zoom percentage",
+      "cellMode": "Cell mode",
+      "macro": "Macros",
+      "filter": "Filter mode",
+      "average": "Average",
+      "count": "Count",
+      "numericalCount": "Numerical count",
+      "min": "Minimum",
+      "max": "Maximum",
+      "sum": "Sum",
+      "slide": "Slide number",
+      "notes": "Notes",
+      "comments": "Comments",
+      "fit": "Fit slide to window"
+    },
+    "wordsSelected": "{{selected}} of {{count}} words",
+    "proofingErrors": "Proofing errors found",
+    "proofingClean": "No proofing errors",
+    "trackChangesOn": "Track changes: On",
+    "trackChangesOff": "Track changes: Off",
+    "on": "On",
+    "off": "Off",
+    "overtype": "Overtype",
+    "insert": "Insert",
+    "capsLock": "Caps Lock",
+    "views": "Views",
+    "zoomSlider": "Zoom",
+    "zoomPercent": "Zoom {{value}}% (click for 100%)",
+    "zoomPercentFit": "Zoom {{value}}% (click to fit the window)",
+    "enter": "Enter",
+    "numericalCount": "Numerical count",
+    "min": "Min",
+    "max": "Max",
+    "macro": "Macros",
+    "filterMode": "Filter mode",
+    "calculating": "Calculating…",
+    "notes": "Notes",
+    "comments": "Comments",
+    "fit": "Fit slide to window",
+    "edit": "Edit"
+  },
+  "wordCount": {
+    "title": "Word Count",
+    "close": "Close",
+    "selection": "Selection",
+    "document": "Document",
+    "pages": "Pages",
+    "words": "Words",
+    "chars": "Characters (no spaces)",
+    "charsWithSpaces": "Characters (with spaces)",
+    "paragraphs": "Paragraphs",
+    "includeNotes": "Include text boxes, footnotes and endnotes"
+  },
+  "windows": {
+    "message": "{{text}}",
+    "newWindowDesktop": "A new window was opened. On the desktop each window holds its own document.",
+    "arrangeHint": "On the web, drag the browser tab out into its own window and snap the windows next to each other (Windows key + ←/→).",
+    "arranged": "Arranged {{count}} windows.",
+    "noOtherWindow": "There is no other window to compare with. Open a second document in another window or tab.",
+    "compareWith": "Compare side by side with",
+    "cancel": "Cancel",
+    "untitled": "Untitled",
+    "sharedWindow": "Shared-document window",
+    "sideBySideWith": "Side by side with: {{name}}",
+    "splitBar": "Split bar (drag or use the arrow keys; double-click to remove the split)",
+    "splitPane": "Second pane",
+    "splitUnfroze": "Panes were unfrozen to split.",
+    "splitToFreeze": "The split became frozen panes."
   }
 }

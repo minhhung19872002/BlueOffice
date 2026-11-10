@@ -1571,8 +1571,8 @@ pub enum SheetCommand {
         /// Index of the control on the sheet.
         index: usize,
     },
-    /// Sum, count and average of the numbers in several ranges (status bar of a
-    /// multi-range selection); cells covered twice count once.
+    /// Sum, count, average, minimum and maximum of the numbers in several ranges
+    /// (status bar of the selection); cells covered twice count once.
     RangeStats {
         /// 0-based sheet index.
         sheet: usize,
@@ -4493,6 +4493,7 @@ fn move_sheet(wb: &mut Workbook, from: usize, to: usize) {
 fn range_stats(ws: &Worksheet, ranges: &[Rng]) -> Value {
     let mut seen = std::collections::BTreeSet::new();
     let (mut sum, mut numbers, mut count) = (0.0_f64, 0_u64, 0_u64);
+    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
     for r in ranges {
         let r = r.range();
         for row in r.first.row..=r.last.row {
@@ -4504,13 +4505,19 @@ fn range_stats(ws: &Worksheet, ranges: &[Rng]) -> Value {
                 if let CellValue::Number(n) = cell.value {
                     sum += n;
                     numbers += 1;
+                    min = min.min(n);
+                    max = max.max(n);
                 }
             }
         }
     }
     #[allow(clippy::cast_precision_loss)]
     let average = (numbers > 0).then(|| sum / numbers as f64);
-    json!({ "sum": sum, "count": count, "numbers": numbers, "average": average })
+    let (min, max) = ((numbers > 0).then_some(min), (numbers > 0).then_some(max));
+    json!({
+        "sum": sum, "count": count, "numbers": numbers, "average": average,
+        "min": min, "max": max,
+    })
 }
 
 impl SheetEngine {

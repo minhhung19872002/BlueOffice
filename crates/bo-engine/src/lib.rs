@@ -67,6 +67,7 @@ pub mod templates;
 pub mod textbox;
 pub mod theme_file;
 pub mod translate;
+pub mod word_count;
 pub mod variant;
 pub mod views;
 pub mod web_formats;

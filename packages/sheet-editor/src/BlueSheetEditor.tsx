@@ -54,6 +54,11 @@ import {
   RIBBON_CONTEXTS,
   CommandSearch,
   StatusBar,
+  StatusButtons,
+  StatusZoom,
+  STATUS_ITEMS,
+  useStatusBarPrefs,
+  useThemePref,
   TitleBar,
   QuickAccessBar,
   useCommandSearchShortcut,
@@ -196,7 +201,19 @@ import {
   FileSpreadsheet,
   FileText,
   Globe,
+  AppWindow,
+  LayoutGrid,
+  RotateCcw,
+  ArrowDownUp,
 } from 'lucide-react';
+import { SplitPane } from './SplitPane';
+import {
+  freezeFromSplit,
+  splitAtCell,
+  splitNeedsUnfreeze,
+  updateSplit,
+  type SheetSplit,
+} from './sheetSplit';
 import { recordSheetHost, ScriptPane, ScriptRecorder, sheetScriptHost } from '@blueoffice/script';
 import {
   useCallback,
@@ -211,6 +228,7 @@ import {
 import {
   CommandRegistry,
   FileBackstage,
+  useWindowTools,
   FileProtectionUi,
   ProtectionStatus,
   useFileProtection,
@@ -375,7 +393,6 @@ import {
   move,
   colName,
   parseA1,
-  parseNumber,
   parseTsv,
   pasteCells,
   rangeA1,
@@ -463,7 +480,28 @@ const SYMBOL_FONTS = [
   'Liberation Sans',
 ];
 /** Selections larger than this skip the status-bar statistics. */
-const STATS_LIMIT = 2_000;
+/** Selections above this many cells get their statistics after a short pause. */
+const STATS_ASYNC = 50_000;
+/** Selection statistics in the order the status bar shows them: item id, label key. */
+const STAT_ITEMS: readonly (readonly [string, string])[] = [
+  ['average', 'sheetEditor.average'],
+  ['count', 'sheetEditor.count'],
+  ['numericalCount', 'statusBar.numericalCount'],
+  ['min', 'statusBar.min'],
+  ['max', 'statusBar.max'],
+  ['sum', 'sheetEditor.sum'],
+];
+const STAT_TEST_IDS: Record<string, string> = { numericalCount: 'numerical-count' };
+const NO_STATS: RangeStats = {
+  sum: 0,
+  count: 0,
+  numbers: 0,
+  average: null,
+  min: null,
+  max: null,
+};
+const statsKeyOf = (sheet: number, ranges: Range[], revision: number) =>
+  `${sheet}:${ranges.map((r) => `${r.r0},${r.c0},${r.r1},${r.c1}`).join(';')}:${revision}`;
 
 /** Preview colours of the cell style gallery (fill, text). */
 const STYLE_PREVIEW: Record<string, [string, string, boolean]> = {
@@ -593,7 +631,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   );
   const [, setRecorderTick] = useState(0);
   useEffect(() => recorder.subscribe(() => setRecorderTick((n) => n + 1)), [recorder]);
-  const theme = useResolvedTheme(themeSetting);
+  // The theme picked in File › Options (remembered) wins over the editor's own setting.
+  const theme = useResolvedTheme(useThemePref(themeSetting));
   const decimal: ',' | '.' = i18n.language === 'en-US' ? '.' : ',';
 
   const [info, setInfo] = useState<WorkbookInfo | null>(null);
@@ -622,12 +661,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [status, setStatus] = useState('');
   /** Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = no notice). */
   const [legacyNotice, setLegacyNotice] = useState(0);
-  const [stats, setStats] = useState<{
-    key: string;
-    sum: number;
-    count: number;
-    numbers: number;
-  } | null>(null);
+  const [stats, setStats] = useState<(RangeStats & { key: string }) | null>(null);
+  /** Split panes of the grid (View › Window › Split); a view of this window only. */
+  const [split, setSplit] = useState<SheetSplit | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
   const [revision, setRevision] = useState(0);
   const [loadSeq, setLoadSeq] = useState(0);
@@ -728,7 +764,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Sheet whose invalid data is circled (`null`: none). */
   const [circlesOn, setCirclesOn] = useState<number | null>(null);
   const [circleRects, setCircleRects] = useState<CircleRect[]>([]);
-  const [multiStats, setMultiStats] = useState<(RangeStats & { key: string }) | null>(null);
   const [passwordPrompt, setPasswordPrompt] = useState<{
     file: PendingFile;
     wrong: boolean;
@@ -1005,18 +1040,41 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     };
   }, [host, info, sheet, circlesOn, view, px, revision]);
 
-  // Status-bar figures of a multi-range selection (computed by the engine).
+  // Status-bar statistics of the selection (CORE-UI-007): the engine counts every range
+  // once, limited to the used cells; a large selection is asked for after a short pause so
+  // dragging stays smooth (the bar shows "Calculating…" meanwhile).
   useEffect(() => {
-    if (!host || !info || extra.length === 0) return;
-    const ranges = [...extra, rangeOf(selection)].map(toRange);
-    const key = `${sheet}:${JSON.stringify(ranges)}:${revision}`;
+    if (!host || !info) return;
+    const all = [...extra, rangeOf(selection)];
+    const cells = all.reduce((n, r) => n + cellsOf(r), 0);
+    if (cells <= 1) return;
+    const key = statsKeyOf(sheet, all, revision);
+    const lastRow = info.sheets[sheet]?.lastRow ?? -1;
+    const lastCol = info.sheets[sheet]?.lastCol ?? -1;
+    const ranges = all
+      .map((r) => ({
+        r0: r.r0,
+        c0: r.c0,
+        r1: Math.min(r.r1, lastRow),
+        c1: Math.min(r.c1, lastCol),
+      }))
+      .filter((r) => r.r1 >= r.r0 && r.c1 >= r.c0);
     let cancelled = false;
-    void host
-      .exec<RangeStats>({ cmd: 'rangeStats', sheet, ranges })
-      .then((st) => !cancelled && st && setMultiStats({ ...st, key }))
-      .catch(() => {});
+    const timer = setTimeout(
+      () => {
+        void (
+          ranges.length
+            ? host.exec<RangeStats>({ cmd: 'rangeStats', sheet, ranges })
+            : Promise.resolve<RangeStats>(NO_STATS)
+        )
+          .then((st) => !cancelled && st && setStats({ ...st, key }))
+          .catch(() => {});
+      },
+      cells > STATS_ASYNC ? 150 : 0,
+    );
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [host, info, sheet, extra, selection, revision]);
 
@@ -1187,45 +1245,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     summary?.pivots && pivots.sheet === sheet
       ? pivotAt(pivots.list, selection.active.row, selection.active.col)
       : null;
-
-  // Status-bar statistics of the selection.
-  useEffect(() => {
-    if (!host || !info) return;
-    const r = rangeOf(selection);
-    if (cellsOf(r) <= 1 || cellsOf(r) > STATS_LIMIT) return;
-    const key = `${sheet}:${rangeA1(r)}:${revision}`;
-    let cancelled = false;
-    void (async () => {
-      const lastRow = info.sheets[sheet]?.lastRow ?? -1;
-      const lastCol = info.sheets[sheet]?.lastCol ?? -1;
-      let sum = 0;
-      let count = 0;
-      let numbers = 0;
-      const jobs: Promise<void>[] = [];
-      for (let row = r.r0; row <= Math.min(r.r1, lastRow); row++) {
-        for (let col = r.c0; col <= Math.min(r.c1, lastCol); col++) {
-          jobs.push(
-            host.cell(sheet, row, col).then((c) => {
-              if (c.display === '') return;
-              count++;
-              const n = c.input.startsWith('=')
-                ? parseNumber(c.display, decimal)
-                : parseNumber(c.input, decimal);
-              if (n !== null) {
-                sum += n;
-                numbers++;
-              }
-            }),
-          );
-        }
-      }
-      await Promise.all(jobs);
-      if (!cancelled) setStats({ key, sum, count, numbers });
-    })().catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [host, info, sheet, selection, revision, decimal]);
 
   // Keep the hidden/visible cell input focused so IME composition starts in it.
   const focusInput = useCallback(() => {
@@ -1922,6 +1941,74 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   );
 
   const [shortcutsShown, setShortcutsShown] = useState(false);
+  // View › Window (CORE-UI-007): the other windows, side by side, New Window.
+  const windowTools = useWindowTools({
+    platform,
+    app: 'sheet',
+    title: fileName,
+    scroller: () => scrollerRef.current,
+    getFile: async () => {
+      if (!host || !info) return null;
+      return {
+        bytes: await host.save('xlsx', sheet),
+        name: `${(fileName || info.name).replace(/\.[^.]+$/, '')}.xlsx`,
+      };
+    },
+    notify: setStatus,
+    t,
+  });
+  const {
+    newWindow: windowNew,
+    arrangeAll: windowArrange,
+    sideBySide: windowSideBySide,
+    toggleSynchronous: windowToggleSync,
+    resetPosition: windowReset,
+    synchronous: windowSync,
+  } = windowTools;
+  const windowPaired = !!windowTools.paired;
+  const statusBar = useStatusBarPrefs(platform.shell, 'sheet');
+
+  /** Split at the active cell (again: remove the split). A frozen sheet is unfrozen first. */
+  const toggleSplit = useCallback(
+    async (s: SheetEditorState) => {
+      if (split) {
+        setSplit(null);
+        return;
+      }
+      if (!host) return;
+      const frozen = {
+        rows: info?.sheets[s.sheet]?.frozenRows ?? 0,
+        cols: info?.sheets[s.sheet]?.frozenCols ?? 0,
+      };
+      if (splitNeedsUnfreeze(frozen)) {
+        await exec({ cmd: 'freeze', sheet: s.sheet, rows: 0, cols: 0 });
+        setStatus(t('windows.splitUnfroze'));
+      }
+      const { row, col } = s.selection.active;
+      const [rect, origin] = await Promise.all([
+        host.rangeRect(view, row, col, row, col),
+        host.rangeRect({ ...view, scrollX: 0, scrollY: 0 }, 0, 0, 0, 0),
+      ]);
+      setSplit(
+        splitAtCell({
+          cell: { row, col },
+          rect,
+          headers: { x: origin?.x ?? 0, y: origin?.y ?? 0 },
+          view,
+          zoom,
+        }),
+      );
+    },
+    [split, host, info, exec, view, zoom, t],
+  );
+  // Another sheet or workbook: the split belonged to the one shown before.
+  const splitScope = `${loadSeq}:${sheet}`;
+  const [splitFor, setSplitFor] = useState(splitScope);
+  if (splitFor !== splitScope) {
+    setSplitFor(splitScope);
+    setSplit(null);
+  }
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SheetEditorState>();
     const guard = async (
@@ -2854,16 +2941,41 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     // View
     const freeze = (rows: number, cols: number) => (s: SheetEditorState) =>
       exec({ cmd: 'freeze', sheet: s.sheet, rows, cols });
-    add('view.freezeTopRow', freeze(1, 0));
-    add('view.freezeFirstCol', freeze(0, 1));
-    add('view.freezePanes', (s) =>
-      exec({
-        cmd: 'freeze',
-        sheet: s.sheet,
-        rows: s.selection.active.row,
-        cols: s.selection.active.col,
-      }),
-    );
+    // Freezing a split sheet removes the split (frozen panes take its place).
+    const freezeTop = freeze(1, 0);
+    const freezeFirst = freeze(0, 1);
+    add('view.freezeTopRow', (s) => {
+      setSplit(null);
+      return freezeTop(s);
+    });
+    add('view.freezeFirstCol', (s) => {
+      setSplit(null);
+      return freezeFirst(s);
+    });
+    add('view.freezePanes', (s) => {
+      // On a split sheet the split becomes frozen panes at the cell it was made at.
+      const at = split
+        ? freezeFromSplit(split)
+        : { rows: s.selection.active.row, cols: s.selection.active.col };
+      if (split) {
+        setSplit(null);
+        setStatus(t('windows.splitToFreeze'));
+      }
+      return exec({ cmd: 'freeze', sheet: s.sheet, ...at });
+    });
+    // Window (CORE-UI-007): second window, split panes, side by side.
+    add('window.new', () => windowNew());
+    add('window.arrangeAll', () => windowArrange());
+    add('window.split', async (s) => toggleSplit(s), {
+      isChecked: () => !!split,
+      isEnabled: () => !!info && viewMode !== 'pageLayout',
+    });
+    add('window.sideBySide', async () => windowSideBySide(), { isChecked: () => windowPaired });
+    add('window.syncScroll', async () => windowToggleSync(), {
+      isEnabled: () => windowPaired,
+      isChecked: () => windowPaired && windowSync,
+    });
+    add('window.resetPosition', async () => windowReset(), { isEnabled: () => windowPaired });
     add('view.unfreeze', freeze(0, 0), {
       isEnabled: () => (summary?.frozenRows ?? 0) + (summary?.frozenCols ?? 0) > 0,
     });
@@ -2963,6 +3075,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setViewMode,
     toggleFormulas,
     showingFormulas,
+    split,
+    toggleSplit,
+    windowNew,
+    windowArrange,
+    windowSideBySide,
+    windowToggleSync,
+    windowReset,
+    windowPaired,
+    windowSync,
     recorder,
     queryFrom,
     queryRefresh,
@@ -4470,6 +4591,33 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           },
           ...sheetViewTabGroups(t, item),
           {
+            id: 'window',
+            label: t('ribbon.groups.window'),
+            items: [
+              item('window.new', t('commands.window.new'), <AppWindow size={18} />),
+              item('window.arrangeAll', t('commands.window.arrangeAll'), <LayoutGrid size={18} />),
+              item('window.split', t('commands.window.split'), <Rows2 size={18} />),
+              item(
+                'window.sideBySide',
+                t('commands.window.sideBySide'),
+                <Columns2 size={s} />,
+                'small',
+              ),
+              item(
+                'window.syncScroll',
+                t('commands.window.syncScroll'),
+                <ArrowDownUp size={s} />,
+                'small',
+              ),
+              item(
+                'window.resetPosition',
+                t('commands.window.resetPosition'),
+                <RotateCcw size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
             id: 'automation',
             label: t('ribbon.groups.automation'),
             items: [
@@ -4606,17 +4754,31 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   });
 
   const r = rangeOf(selection);
-  const multiKey = `${sheet}:${JSON.stringify(allRanges.map(toRange))}:${revision}`;
+  const statCells = allRanges.reduce((n, x) => n + cellsOf(x), 0);
   const shownStats =
-    extra.length > 0
-      ? multiStats && multiStats.key === multiKey
-        ? multiStats
-        : null
-      : stats && stats.key === `${sheet}:${rangeA1(r)}:${revision}`
-        ? stats
-        : null;
+    statCells > 1 && stats && stats.key === statsKeyOf(sheet, allRanges, revision) ? stats : null;
+  const statsPending = statCells > STATS_ASYNC && !shownStats;
   const fmtNum = (n: number) =>
     new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 10 }).format(n);
+  // Status bar texts (also the current values in its "customise" checklist).
+  const cellMode = edit ? (edit.inPlace ? 'edit' : 'enter') : 'ready';
+  const filterMode = !!summary?.autoFilter && (summary?.hiddenRows.length ?? 0) > 0;
+  const numeric = shownStats && shownStats.numbers > 0 ? shownStats : null;
+  const statValues: Record<string, string | undefined> = {
+    cellMode:
+      cellMode === 'edit'
+        ? t('statusBar.edit')
+        : cellMode === 'enter'
+          ? t('statusBar.enter')
+          : t('sheetEditor.ready'),
+    average: numeric ? fmtNum(numeric.sum / numeric.numbers) : undefined,
+    count: shownStats ? String(shownStats.count) : undefined,
+    numericalCount: shownStats ? String(shownStats.numbers) : undefined,
+    min: numeric && typeof numeric.min === 'number' ? fmtNum(numeric.min) : undefined,
+    max: numeric && typeof numeric.max === 'number' ? fmtNum(numeric.max) : undefined,
+    sum: numeric ? fmtNum(numeric.sum) : undefined,
+    zoom: `${Math.round(zoom * 100)}%`,
+  };
 
   if (!host) return null;
 
@@ -4901,348 +5063,391 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           />
         )}
         <div
-          className={styles.scroller}
-          ref={scrollerRef}
+          className={styles.splitWrap}
+          data-split={split?.orientation}
           hidden={viewMode === 'pageLayout'}
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            setScroll({ x: el.scrollLeft / scale, y: el.scrollTop / scale });
-          }}
         >
-          <div className={styles.sticky}>
-            <canvas
-              ref={canvasRef}
-              role="grid"
-              aria-label={t('sheetEditor.grid')}
-              data-testid="sheet-canvas"
-              style={{ cursor }}
-              onMouseDown={(e) => void onMouseDown(e)}
-              onContextMenu={(e) => void onGridContextMenu(e)}
-              onMouseMove={(e) => void onMouseMove(e)}
-              onDoubleClick={(e) => void onDoubleClick(e)}
-            />
-            {chart === null &&
-              extra.length > 0 &&
-              extraRects.map((x, i) => (
-                <div
-                  key={i}
-                  className={styles.selectionExtra}
-                  data-testid="selection-extra"
-                  style={{ left: x.x, top: x.y, width: x.w, height: x.h }}
-                />
-              ))}
-            <InvalidCircles rects={circlesOn === sheet ? circleRects : []} />
-            {viewMode === 'pageBreakPreview' && host && (
-              <PageBreakOverlay
-                host={host}
-                view={view}
-                revision={revision}
-                scale={scale}
-                width={size.w}
-                height={size.h}
-                frozen={{ rows: summary?.frozenRows ?? 0, cols: summary?.frozenCols ?? 0 }}
-                onMove={(m) =>
-                  void exec<{ scale: number | null }>({ cmd: 'movePageBreak', sheet, ...m }).then(
-                    (r) => r?.scale && setStatus(t('sheetViews.scaled', { pct: r.scale })),
-                  )
-                }
+          <div
+            className={styles.scroller}
+            ref={scrollerRef}
+            style={split ? { flex: `${split.ratio} 1 0` } : undefined}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              setScroll({ x: el.scrollLeft / scale, y: el.scrollTop / scale });
+            }}
+          >
+            <div className={styles.sticky}>
+              <canvas
+                ref={canvasRef}
+                role="grid"
+                aria-label={t('sheetEditor.grid')}
+                data-testid="sheet-canvas"
+                style={{ cursor }}
+                onMouseDown={(e) => void onMouseDown(e)}
+                onContextMenu={(e) => void onGridContextMenu(e)}
+                onMouseMove={(e) => void onMouseMove(e)}
+                onDoubleClick={(e) => void onDoubleClick(e)}
               />
-            )}
-            {audit.arrows.length > 0 && (
-              <TraceArrowsOverlay
-                host={host}
-                view={view}
-                arrows={audit.arrows}
-                toScreen={px}
-                width={size.w}
-                height={size.h}
-              />
-            )}
-            <PeerSelections boxes={peerBoxes} />
-            {selRect && chart === null && (
-              <div
-                className={painter ? styles.selectionPainter : styles.selection}
-                style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
-              >
-                <div
-                  className={styles.fillHandle}
-                  data-testid="fill-handle"
-                  title={t('sheetEditor.fillHandle')}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    drag.current = { kind: 'fill', source: rangeOf(selection) };
-                  }}
+              {chart === null &&
+                extra.length > 0 &&
+                extraRects.map((x, i) => (
+                  <div
+                    key={i}
+                    className={styles.selectionExtra}
+                    data-testid="selection-extra"
+                    style={{ left: x.x, top: x.y, width: x.w, height: x.h }}
+                  />
+                ))}
+              <InvalidCircles rects={circlesOn === sheet ? circleRects : []} />
+              {viewMode === 'pageBreakPreview' && host && (
+                <PageBreakOverlay
+                  host={host}
+                  view={view}
+                  revision={revision}
+                  scale={scale}
+                  width={size.w}
+                  height={size.h}
+                  frozen={{ rows: summary?.frozenRows ?? 0, cols: summary?.frozenCols ?? 0 }}
+                  onMove={(m) =>
+                    void exec<{ scale: number | null }>({ cmd: 'movePageBreak', sheet, ...m }).then(
+                      (r) => r?.scale && setStatus(t('sheetViews.scaled', { pct: r.scale })),
+                    )
+                  }
                 />
-              </div>
-            )}
-            {chart !== null && chartBox && (
-              <div
-                className={styles.chartSelection}
-                data-testid="chart-selection"
-                style={{ left: chartBox.x, top: chartBox.y, width: chartBox.w, height: chartBox.h }}
-              >
-                <div
-                  className={styles.chartHandle}
-                  data-testid="chart-resize"
-                  title={t('sheetEditor.chart.resize')}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (!chartInfo) return;
-                    drag.current = {
-                      kind: 'chart',
-                      index: chart,
-                      resize: true,
-                      start: { row: chartInfo.to[0], col: chartInfo.to[1] },
-                      from: chartInfo.from,
-                      to: chartInfo.to,
-                    };
-                  }}
+              )}
+              {audit.arrows.length > 0 && (
+                <TraceArrowsOverlay
+                  host={host}
+                  view={view}
+                  arrows={audit.arrows}
+                  toScreen={px}
+                  width={size.w}
+                  height={size.h}
                 />
-              </div>
-            )}
-            {smartArt !== null && smartBox && smartInfo && (
-              <div
-                className={styles.chartSelection}
-                data-testid="smartart-selection"
-                style={{ left: smartBox.x, top: smartBox.y, width: smartBox.w, height: smartBox.h }}
-              >
+              )}
+              <PeerSelections boxes={peerBoxes} />
+              {selRect && chart === null && (
                 <div
-                  className={styles.chartHandle}
-                  data-testid="smartart-resize"
-                  title={t('sheetEditor.chart.resize')}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    drag.current = {
-                      kind: 'chart',
-                      smart: true,
-                      index: smartArt,
-                      resize: true,
-                      start: { row: smartInfo.to[0], col: smartInfo.to[1] },
-                      from: smartInfo.from,
-                      to: smartInfo.to,
-                    };
-                  }}
-                />
-              </div>
-            )}
-            {timelines.map(({ info, rect }) => (
-              <div
-                key={`t${info.index}`}
-                className={styles.slicer}
-                data-testid="timeline"
-                role="group"
-                aria-label={info.caption}
-                style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <div className={styles.slicerHeader}>
-                  <span>
-                    {info.caption}
-                    <span className={styles.timelineLevel}>
-                      {' · '}
-                      {t(`sheetEditor.timeline.levels.${info.level}`)}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="timeline-clear"
-                    title={t('sheetEditor.slicer.clear')}
-                    aria-label={t('sheetEditor.slicer.clear')}
-                    disabled={!info.filtered}
-                    onClick={() => void exec({ cmd: 'timelineSelect', sheet, index: info.index })}
-                  >
-                    <FunnelX size={14} />
-                  </button>
-                </div>
-                <div className={styles.timelineStrip}>
-                  {info.periods.map((p, k) => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      className={info.filtered && p.selected ? styles.slicerOn : styles.slicerOff}
-                      aria-pressed={info.filtered && p.selected}
-                      onClick={(e) => {
-                        const from =
-                          e.shiftKey && timelineAnchor.current !== null
-                            ? timelineAnchor.current
-                            : k;
-                        if (!e.shiftKey) timelineAnchor.current = k;
-                        const a = info.periods[Math.min(from, k)] ?? p;
-                        const b = info.periods[Math.max(from, k)] ?? p;
-                        void exec({
-                          cmd: 'timelineSelect',
-                          sheet,
-                          index: info.index,
-                          start: a.start,
-                          end: b.end,
-                        });
-                      }}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {slicers.map(({ info, rect }) => (
-              <div
-                key={info.index}
-                className={styles.slicer}
-                data-testid="slicer"
-                role="group"
-                aria-label={info.caption}
-                style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <div className={styles.slicerHeader}>
-                  <span>{info.caption}</span>
-                  <button
-                    type="button"
-                    data-testid="slicer-clear"
-                    title={t('sheetEditor.slicer.clear')}
-                    aria-label={t('sheetEditor.slicer.clear')}
-                    disabled={info.items.every((i) => i.selected)}
-                    onClick={() =>
-                      void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: [] })
-                    }
-                  >
-                    <FunnelX size={14} />
-                  </button>
-                </div>
-                <div
-                  className={styles.slicerItems}
-                  style={{ gridTemplateColumns: `repeat(${info.columns}, 1fr)` }}
+                  className={painter ? styles.selectionPainter : styles.selection}
+                  style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
                 >
-                  {info.items.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      className={item.selected ? styles.slicerOn : styles.slicerOff}
-                      aria-pressed={item.selected}
-                      onClick={(e) => chooseSlicerItem(info, item.label, e.ctrlKey || e.metaKey)}
-                    >
-                      {item.label || t('sheetEditor.slicer.blank')}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-            <TableAutoBar last={tables?.lastAuto ?? null} run={run} />
-            {host && (
-              <FormControlLayer
-                host={host}
-                sheet={sheet}
-                view={view}
-                scale={scale}
-                revision={revision}
-                exec={exec}
-                selected={formSel}
-                onSelect={setFormSel}
-                onFormat={setFormDialog}
-                onNotice={setStatus}
-                onList={setFormList}
-              />
-            )}
-            {fillRect && (
-              <div
-                className={styles.fillPreview}
-                style={{ left: fillRect.x, top: fillRect.y, width: fillRect.w, height: fillRect.h }}
-              />
-            )}
-            {guide && (
-              <div
-                className={guide.x !== undefined ? styles.guideV : styles.guideH}
-                style={guide.x !== undefined ? { left: guide.x } : { top: guide.y }}
-              />
-            )}
-            {dvList && activeRect && !edit && (
-              <button
-                type="button"
-                className={styles.dvButton}
-                data-testid="dv-button"
-                aria-label={t('sheetEditor.dv.choose')}
-                style={{
-                  left: activeRect.x + activeRect.w + 1,
-                  top: activeRect.y,
-                  height: activeRect.h,
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setDvOpen((o) => !o);
-                }}
-              >
-                ▾
-              </button>
-            )}
-            {dvOpen && dvList && activeRect && (
-              <div
-                className={styles.dvList}
-                role="listbox"
-                data-testid="dv-list"
-                style={{
-                  left: activeRect.x,
-                  top: activeRect.y + activeRect.h + 1,
-                  minWidth: activeRect.w,
-                }}
-              >
-                {dvList.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="option"
-                    aria-selected={false}
-                    className={styles.menuItem}
+                  <div
+                    className={styles.fillHandle}
+                    data-testid="fill-handle"
+                    title={t('sheetEditor.fillHandle')}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      setDvOpen(false);
-                      void exec({
-                        cmd: 'setInputs',
-                        sheet,
-                        cells: [[selection.active.row, selection.active.col, v]],
-                      }).then(focusInput);
+                      e.stopPropagation();
+                      drag.current = { kind: 'fill', source: rangeOf(selection) };
                     }}
+                  />
+                </div>
+              )}
+              {chart !== null && chartBox && (
+                <div
+                  className={styles.chartSelection}
+                  data-testid="chart-selection"
+                  style={{
+                    left: chartBox.x,
+                    top: chartBox.y,
+                    width: chartBox.w,
+                    height: chartBox.h,
+                  }}
+                >
+                  <div
+                    className={styles.chartHandle}
+                    data-testid="chart-resize"
+                    title={t('sheetEditor.chart.resize')}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!chartInfo) return;
+                      drag.current = {
+                        kind: 'chart',
+                        index: chart,
+                        resize: true,
+                        start: { row: chartInfo.to[0], col: chartInfo.to[1] },
+                        from: chartInfo.from,
+                        to: chartInfo.to,
+                      };
+                    }}
+                  />
+                </div>
+              )}
+              {smartArt !== null && smartBox && smartInfo && (
+                <div
+                  className={styles.chartSelection}
+                  data-testid="smartart-selection"
+                  style={{
+                    left: smartBox.x,
+                    top: smartBox.y,
+                    width: smartBox.w,
+                    height: smartBox.h,
+                  }}
+                >
+                  <div
+                    className={styles.chartHandle}
+                    data-testid="smartart-resize"
+                    title={t('sheetEditor.chart.resize')}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      drag.current = {
+                        kind: 'chart',
+                        smart: true,
+                        index: smartArt,
+                        resize: true,
+                        start: { row: smartInfo.to[0], col: smartInfo.to[1] },
+                        from: smartInfo.from,
+                        to: smartInfo.to,
+                      };
+                    }}
+                  />
+                </div>
+              )}
+              {timelines.map(({ info, rect }) => (
+                <div
+                  key={`t${info.index}`}
+                  className={styles.slicer}
+                  data-testid="timeline"
+                  role="group"
+                  aria-label={info.caption}
+                  style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className={styles.slicerHeader}>
+                    <span>
+                      {info.caption}
+                      <span className={styles.timelineLevel}>
+                        {' · '}
+                        {t(`sheetEditor.timeline.levels.${info.level}`)}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="timeline-clear"
+                      title={t('sheetEditor.slicer.clear')}
+                      aria-label={t('sheetEditor.slicer.clear')}
+                      disabled={!info.filtered}
+                      onClick={() => void exec({ cmd: 'timelineSelect', sheet, index: info.index })}
+                    >
+                      <FunnelX size={14} />
+                    </button>
+                  </div>
+                  <div className={styles.timelineStrip}>
+                    {info.periods.map((p, k) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className={info.filtered && p.selected ? styles.slicerOn : styles.slicerOff}
+                        aria-pressed={info.filtered && p.selected}
+                        onClick={(e) => {
+                          const from =
+                            e.shiftKey && timelineAnchor.current !== null
+                              ? timelineAnchor.current
+                              : k;
+                          if (!e.shiftKey) timelineAnchor.current = k;
+                          const a = info.periods[Math.min(from, k)] ?? p;
+                          const b = info.periods[Math.max(from, k)] ?? p;
+                          void exec({
+                            cmd: 'timelineSelect',
+                            sheet,
+                            index: info.index,
+                            start: a.start,
+                            end: b.end,
+                          });
+                        }}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {slicers.map(({ info, rect }) => (
+                <div
+                  key={info.index}
+                  className={styles.slicer}
+                  data-testid="slicer"
+                  role="group"
+                  aria-label={info.caption}
+                  style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className={styles.slicerHeader}>
+                    <span>{info.caption}</span>
+                    <button
+                      type="button"
+                      data-testid="slicer-clear"
+                      title={t('sheetEditor.slicer.clear')}
+                      aria-label={t('sheetEditor.slicer.clear')}
+                      disabled={info.items.every((i) => i.selected)}
+                      onClick={() =>
+                        void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: [] })
+                      }
+                    >
+                      <FunnelX size={14} />
+                    </button>
+                  </div>
+                  <div
+                    className={styles.slicerItems}
+                    style={{ gridTemplateColumns: `repeat(${info.columns}, 1fr)` }}
                   >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            )}
-            <input
-              ref={inputRef}
-              className={edit ? styles.cellEditorActive : styles.cellEditor}
-              onFocus={() => {
-                lastInput.current = 'cell';
-              }}
-              aria-label={t('sheetEditor.cellEditor')}
-              style={
-                activeRect
-                  ? {
-                      left: activeRect.x,
-                      top: activeRect.y,
-                      minWidth: activeRect.w,
-                      height: activeRect.h,
-                      fontSize: 11 * scale,
-                    }
-                  : { left: -9999, top: 0 }
-              }
-              autoComplete="off"
-              spellCheck={false}
-              onKeyDown={onKeyDown}
-              onInput={(e) => onInput(e.currentTarget.value)}
-              onCompositionStart={() => {
-                composing.current = true;
-                if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false });
-              }}
-              onCompositionEnd={(e) => {
-                composing.current = false;
-                onInput(e.currentTarget.value);
-              }}
-            />
+                    {info.items.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        className={item.selected ? styles.slicerOn : styles.slicerOff}
+                        aria-pressed={item.selected}
+                        onClick={(e) => chooseSlicerItem(info, item.label, e.ctrlKey || e.metaKey)}
+                      >
+                        {item.label || t('sheetEditor.slicer.blank')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <TableAutoBar last={tables?.lastAuto ?? null} run={run} />
+              {host && (
+                <FormControlLayer
+                  host={host}
+                  sheet={sheet}
+                  view={view}
+                  scale={scale}
+                  revision={revision}
+                  exec={exec}
+                  selected={formSel}
+                  onSelect={setFormSel}
+                  onFormat={setFormDialog}
+                  onNotice={setStatus}
+                  onList={setFormList}
+                />
+              )}
+              {fillRect && (
+                <div
+                  className={styles.fillPreview}
+                  style={{
+                    left: fillRect.x,
+                    top: fillRect.y,
+                    width: fillRect.w,
+                    height: fillRect.h,
+                  }}
+                />
+              )}
+              {guide && (
+                <div
+                  className={guide.x !== undefined ? styles.guideV : styles.guideH}
+                  style={guide.x !== undefined ? { left: guide.x } : { top: guide.y }}
+                />
+              )}
+              {dvList && activeRect && !edit && (
+                <button
+                  type="button"
+                  className={styles.dvButton}
+                  data-testid="dv-button"
+                  aria-label={t('sheetEditor.dv.choose')}
+                  style={{
+                    left: activeRect.x + activeRect.w + 1,
+                    top: activeRect.y,
+                    height: activeRect.h,
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setDvOpen((o) => !o);
+                  }}
+                >
+                  ▾
+                </button>
+              )}
+              {dvOpen && dvList && activeRect && (
+                <div
+                  className={styles.dvList}
+                  role="listbox"
+                  data-testid="dv-list"
+                  style={{
+                    left: activeRect.x,
+                    top: activeRect.y + activeRect.h + 1,
+                    minWidth: activeRect.w,
+                  }}
+                >
+                  {dvList.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      className={styles.menuItem}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setDvOpen(false);
+                        void exec({
+                          cmd: 'setInputs',
+                          sheet,
+                          cells: [[selection.active.row, selection.active.col, v]],
+                        }).then(focusInput);
+                      }}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={inputRef}
+                className={edit ? styles.cellEditorActive : styles.cellEditor}
+                onFocus={() => {
+                  lastInput.current = 'cell';
+                }}
+                aria-label={t('sheetEditor.cellEditor')}
+                style={
+                  activeRect
+                    ? {
+                        left: activeRect.x,
+                        top: activeRect.y,
+                        minWidth: activeRect.w,
+                        height: activeRect.h,
+                        fontSize: 11 * scale,
+                      }
+                    : { left: -9999, top: 0 }
+                }
+                autoComplete="off"
+                spellCheck={false}
+                onKeyDown={onKeyDown}
+                onInput={(e) => onInput(e.currentTarget.value)}
+                onCompositionStart={() => {
+                  composing.current = true;
+                  if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false });
+                }}
+                onCompositionEnd={(e) => {
+                  composing.current = false;
+                  onInput(e.currentTarget.value);
+                }}
+              />
+            </div>
+            <div style={{ width: content.w * scale, height: content.h * scale }} />
           </div>
-          <div style={{ width: content.w * scale, height: content.h * scale }} />
+          {split && glyphs && (
+            <SplitPane
+              host={host}
+              glyphs={glyphs}
+              images={cellImages}
+              sheet={sheet}
+              split={split}
+              content={content}
+              revision={revision}
+              selection={{ range: toRange(r), active: selection.active }}
+              labels={{ pane: t('windows.splitPane'), bar: t('windows.splitBar') }}
+              onChange={(c) => setSplit((cur) => cur && updateSplit(cur, c))}
+              onRemove={() => setSplit(null)}
+              onSelect={(cell, extend) => {
+                setExtra([]);
+                setChart(null);
+                setSelection(extend ? { ...selection, focus: cell } : single(cell));
+                focusInput();
+              }}
+              fail={fail}
+            />
+          )}
         </div>
         <SheetClipboardUi
           paste={pasteUi && pasteUi.sel === selection ? pasteUi : null}
@@ -5495,46 +5700,111 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         </button>
       </div>
       <StatusBar
+        customize={{
+          label: t('statusBar.customize'),
+          items: STATUS_ITEMS.sheet.map((d) => ({
+            id: d.id,
+            label: t(`statusBar.items.${d.id}`),
+            checked: statusBar.shown(d.id),
+            ...(statValues[d.id] !== undefined ? { value: statValues[d.id] } : {}),
+          })),
+          onToggle: statusBar.toggle,
+          resetLabel: t('statusBar.reset'),
+          onReset: statusBar.reset,
+        }}
         left={
           <>
-            <span data-testid="sheet-status">
-              {status ||
-                (painter
-                  ? t('sheetEditor.painterActive')
-                  : chart !== null
-                    ? t('sheetEditor.chart.selected')
-                    : edit
-                      ? t('sheetEditor.edit')
-                      : t('sheetEditor.ready'))}
-            </span>
+            {(status || statusBar.shown('cellMode')) && (
+              <span data-testid="sheet-status" data-mode={cellMode}>
+                {status ||
+                  (painter
+                    ? t('sheetEditor.painterActive')
+                    : chart !== null
+                      ? t('sheetEditor.chart.selected')
+                      : statValues.cellMode)}
+              </span>
+            )}
+            {info?.macros && statusBar.shown('macro') && (
+              <span data-testid="status-macro">{t('statusBar.macro')}</span>
+            )}
+            {filterMode && statusBar.shown('filter') && (
+              <span data-testid="status-filter">{t('statusBar.filterMode')}</span>
+            )}
             {info && <ProtectionStatus info={protection.info} />}
+            {windowTools.shared && (
+              <span data-testid="status-shared-window">{t('windows.sharedWindow')}</span>
+            )}
+            {windowTools.paired && (
+              <span data-testid="status-side-by-side">
+                {t('windows.sideBySideWith', {
+                  name: windowTools.paired.title || t('windows.untitled'),
+                })}
+              </span>
+            )}
           </>
         }
         right={
           <>
             <CalcStatus state={audit.calc} onCalculate={() => void auditCalculate('workbook')} />
-            {shownStats && shownStats.numbers > 0 && (
-              <>
-                <span>
-                  {t('sheetEditor.average')}: {fmtNum(shownStats.sum / shownStats.numbers)}
-                </span>
-                <span data-testid="status-sum">
-                  {t('sheetEditor.sum')}: {fmtNum(shownStats.sum)}
-                </span>
-              </>
+            {statsPending && (
+              <span data-testid="status-calculating">{t('statusBar.calculating')}</span>
             )}
-            {shownStats && (
-              <span>
-                {t('sheetEditor.count')}: {shownStats.count}
-              </span>
+            {STAT_ITEMS.map(([id, label]) =>
+              statusBar.shown(id) && statValues[id] !== undefined ? (
+                <span key={id} data-testid={`status-${STAT_TEST_IDS[id] ?? id}`}>
+                  {t(label)}: {statValues[id]}
+                </span>
+              ) : null,
             )}
             {info?.encrypted && (
               <span data-testid="sheet-encrypted">{t('security.protected')}</span>
             )}
-            <span>{Math.round(zoom * 100)}%</span>
+            {statusBar.shown('viewButtons') && (
+              <StatusButtons
+                label={t('statusBar.views')}
+                testId="status-views"
+                exclusive
+                buttons={(
+                  [
+                    ['normal', 'sheetViews.normal', <Grid3x3 key="i" size={14} />],
+                    ['pageLayout', 'sheetViews.pageLayout', <FileText key="i" size={14} />],
+                    [
+                      'pageBreakPreview',
+                      'sheetViews.pageBreakPreview',
+                      <SeparatorHorizontal key="i" size={14} />,
+                    ],
+                  ] as const
+                ).map(([mode, label, icon]) => ({
+                  id: mode,
+                  label: t(label),
+                  icon,
+                  pressed: viewMode === mode,
+                  onClick: () => run(`view.${mode}`),
+                }))}
+              />
+            )}
+            {(statusBar.shown('zoomSlider') || statusBar.shown('zoom')) && (
+              <StatusZoom
+                zoom={zoom}
+                min={ZOOMS[0] ?? 0.5}
+                max={ZOOMS[ZOOMS.length - 1] ?? 2}
+                slider={statusBar.shown('zoomSlider')}
+                percent={statusBar.shown('zoom')}
+                onZoom={setZoom}
+                onStep={(d) => run(d > 0 ? 'view.zoomIn' : 'view.zoomOut')}
+                onPercent={() => setZoom(1)}
+                labels={{
+                  slider: t('statusBar.zoomSlider'),
+                  zoomIn: t('sheetEditor.zoomIn'),
+                  zoomOut: t('sheetEditor.zoomOut'),
+                  percent: t('statusBar.zoomPercent', { value: Math.round(zoom * 100) }),
+                }}
+              />
+            )}
           </>
         }
       />
+      {windowTools.element}
       {sheetMenu.element}
       {shortcuts.element}
       {ribbonCustom.element}

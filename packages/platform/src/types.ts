@@ -657,6 +657,8 @@ export type EditCommand =
   | import('./ole').OleCommand
   | import('./speech').DocSpeechCommand
   | import('./translation').DocTranslateCommand
+  /** Word count of the document and the selection → `wordCount` (CORE-UI-007). */
+  | { cmd: 'wordCount'; notes?: boolean }
   | import('./docStyles').DocStyleCommand
   | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
@@ -1141,6 +1143,8 @@ export interface EditResult {
   translation?: import('./translation').DocTextSegment[];
   /** Style management answer (style commands, DOC-STYLE-001). */
   styleMgr?: import('./docStyles').StyleMgrOut;
+  /** Word count of the document and the selection (`wordCount`, CORE-UI-007). */
+  wordCount?: WordCountInfo;
   /** Pictures for signing a line (`signatureLineImages`). */
   signatureLineImages?: SignatureLineImages;
 }
@@ -2557,6 +2561,26 @@ export interface PrintService {
   printPdf(pdf: Uint8Array, title: string): Promise<void>;
 }
 
+/** Figures of a piece of text (`wordCount`). */
+export interface WordCounts {
+  words: number;
+  /** Characters without spaces. */
+  chars: number;
+  charsWithSpaces: number;
+  /** Paragraphs with text. */
+  paragraphs: number;
+}
+
+/** Answer of the `wordCount` query. */
+export interface WordCountInfo {
+  pages: number;
+  document: WordCounts;
+  /** Present when text is selected. */
+  selection?: WordCounts;
+  /** Text boxes, footnotes and endnotes were counted. */
+  notes: boolean;
+}
+
 export interface UserInfo {
   id: string;
   name: string;
@@ -2581,6 +2605,11 @@ export interface MessageBus {
 export interface WindowManager {
   setTitle(title: string): void;
   openNew(url: string): Promise<void>;
+  /**
+   * Tiles the app's document windows (View › Arrange All); resolves how many were placed.
+   * Absent where the platform cannot move windows (browser tabs).
+   */
+  arrangeAll?(): Promise<number>;
 }
 
 export interface OfflineCache {

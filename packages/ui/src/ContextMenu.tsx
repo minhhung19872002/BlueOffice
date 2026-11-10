@@ -13,6 +13,10 @@ export interface MenuEntry {
   /** Spelling suggestion and similar: shown in bold at the top. */
   emphasis?: boolean;
   icon?: ReactNode;
+  /** Opens a submenu of these lines (`onSelect` is then not called). */
+  submenu?: MenuLine[];
+  /** Test id of the submenu. */
+  submenuTestId?: string;
   onSelect: () => void;
 }
 
@@ -30,6 +34,10 @@ export interface ContextMenuProps {
   label: string;
   onClose: () => void;
   testId?: string;
+  /** Submenu: ArrowLeft / Escape go back to the parent menu. */
+  onBack?: () => void;
+  /** Submenu: left edge used instead of `x` when the menu does not fit on the right. */
+  flipX?: number;
 }
 
 /**
@@ -37,8 +45,22 @@ export interface ContextMenuProps {
  * commands, Enter or Space runs one, Escape / Tab / a click elsewhere closes. Disabled
  * commands are shown greyed (`aria-disabled`) and skipped by the arrows.
  */
-export function ContextMenu({ x, y, items, label, onClose, testId }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  items,
+  label,
+  onClose,
+  testId,
+  onBack,
+  flipX,
+}: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
+  /** The menu and its open submenu (a click in either is not a click elsewhere). */
+  const wrap = useRef<HTMLDivElement>(null);
+  const nested = !!onBack;
+  /** Entry whose submenu is open, with the point it opens at. */
+  const [sub, setSub] = useState<{ i: number; x: number; y: number; flipX: number } | null>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   const entries = items.filter(isEntry);
   const enabled = entries.map((e, i) => (e.enabled === false ? -1 : i)).filter((i) => i >= 0);
@@ -60,18 +82,21 @@ export function ContextMenu({ x, y, items, label, onClose, testId }: ContextMenu
     const vw = window.innerWidth || 1024;
     const vh = window.innerHeight || 768;
     setPos({
-      left: Math.max(4, x + w > vw - 4 ? Math.max(4, x - w) : x),
+      left: Math.max(4, x + w > vw - 4 ? Math.max(4, (flipX ?? x) - w) : x),
       top: Math.max(4, y + h > vh - 4 ? Math.max(4, vh - h - 4) : y),
     });
-  }, [x, y, items.length]);
+  }, [x, y, items.length, flipX]);
 
   useEffect(() => {
+    if (sub) return;
     ref.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.focus();
-  }, [active]);
+  }, [active, sub]);
 
   useEffect(() => {
+    // A submenu lives inside its parent's wrapper: the parent watches clicks and the window.
+    if (nested) return;
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) closeRef.current();
+      if (!wrap.current?.contains(e.target as Node)) closeRef.current();
     };
     const onBlur = () => closeRef.current();
     window.addEventListener('mousedown', onDown, true);
@@ -82,11 +107,27 @@ export function ContextMenu({ x, y, items, label, onClose, testId }: ContextMenu
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('resize', onBlur);
     };
-  }, []);
+  }, [nested]);
 
+  const openSub = (i: number) => {
+    const r = ref.current
+      ?.querySelector<HTMLElement>(`[data-index="${i}"]`)
+      ?.getBoundingClientRect();
+    setSub({
+      i,
+      x: Math.round(r?.right ?? x) - 2,
+      y: Math.round(r?.top ?? y) - 4,
+      flipX: Math.round(r?.left ?? x) + 2,
+    });
+  };
   const run = (i: number) => {
     const e = entries[i];
     if (!e || e.enabled === false) return;
+    if (e.submenu) {
+      setActive(i);
+      openSub(i);
+      return;
+    }
     closeRef.current();
     e.onSelect();
   };
@@ -98,12 +139,16 @@ export function ContextMenu({ x, y, items, label, onClose, testId }: ContextMenu
   };
   // Keys work wherever the focus is (an editor may keep it in its text input).
   const onKey = (e: KeyboardEvent) => {
+    // The open submenu has the keys.
+    if (sub) return;
     let handled = true;
     if (e.key === 'ArrowDown') step(1);
     else if (e.key === 'ArrowUp') step(-1);
     else if (e.key === 'Home') setActive(enabled[0] ?? -1);
     else if (e.key === 'End') setActive(enabled[enabled.length - 1] ?? -1);
     else if (e.key === 'Enter' || e.key === ' ') run(active);
+    else if (e.key === 'ArrowRight' && entries[active]?.submenu) run(active);
+    else if (onBack && (e.key === 'ArrowLeft' || e.key === 'Escape')) onBack();
     else if (e.key === 'Escape' || e.key === 'Tab' || (e.key === 'F10' && e.shiftKey))
       closeRef.current();
     else handled = false;
@@ -122,53 +167,87 @@ export function ContextMenu({ x, y, items, label, onClose, testId }: ContextMenu
     return () => window.removeEventListener('keydown', f, true);
   }, []);
 
+  const subEntry = sub ? entries[sub.i] : undefined;
   return (
-    <div
-      ref={ref}
-      role="menu"
-      aria-label={label}
-      aria-orientation="vertical"
-      className={styles.menu}
-      data-testid={testId ?? 'context-menu'}
-      data-bo-popover=""
-      style={{ left: pos.left, top: pos.top }}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {items.map((line, key) => {
-        if ('separator' in line) return <div key={key} role="separator" className={styles.sep} />;
-        if ('heading' in line)
+    <div ref={wrap} style={{ display: 'contents' }}>
+      <div
+        ref={ref}
+        role="menu"
+        aria-label={label}
+        aria-orientation="vertical"
+        className={styles.menu}
+        data-testid={testId ?? 'context-menu'}
+        data-bo-popover=""
+        style={{ left: pos.left, top: pos.top }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        {items.map((line, key) => {
+          if ('separator' in line) return <div key={key} role="separator" className={styles.sep} />;
+          if ('heading' in line)
+            return (
+              <div
+                key={key}
+                className={styles.heading}
+                role="presentation"
+                data-testid={line.testId}
+              >
+                {line.heading}
+              </div>
+            );
+          const i = entries.indexOf(line);
+          const checkable = line.checked !== undefined;
           return (
-            <div key={key} className={styles.heading} role="presentation" data-testid={line.testId}>
-              {line.heading}
-            </div>
+            <button
+              key={key}
+              type="button"
+              role={checkable ? 'menuitemcheckbox' : 'menuitem'}
+              aria-checked={checkable ? line.checked : undefined}
+              aria-disabled={line.enabled === false || undefined}
+              aria-keyshortcuts={line.shortcut}
+              tabIndex={i === active ? 0 : -1}
+              data-index={i}
+              data-active={i === active || undefined}
+              data-menu-command={line.id}
+              className={`${styles.item} ${line.emphasis ? styles.emphasis : ''}`}
+              aria-haspopup={line.submenu ? 'menu' : undefined}
+              aria-expanded={line.submenu ? sub?.i === i : undefined}
+              onMouseEnter={() => {
+                if (line.enabled === false) return;
+                setActive(i);
+                if (line.submenu) {
+                  if (sub?.i !== i) openSub(i);
+                } else if (sub) setSub(null);
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => run(i)}
+            >
+              <span className={styles.check} aria-hidden="true">
+                {line.checked ? '✓' : (line.icon ?? '')}
+              </span>
+              <span className={styles.label}>{line.label}</span>
+              {line.shortcut && <kbd className={styles.kbd}>{line.shortcut}</kbd>}
+              {line.submenu && (
+                <span className={styles.more} aria-hidden="true">
+                  ›
+                </span>
+              )}
+            </button>
           );
-        const i = entries.indexOf(line);
-        const checkable = line.checked !== undefined;
-        return (
-          <button
-            key={key}
-            type="button"
-            role={checkable ? 'menuitemcheckbox' : 'menuitem'}
-            aria-checked={checkable ? line.checked : undefined}
-            aria-disabled={line.enabled === false || undefined}
-            aria-keyshortcuts={line.shortcut}
-            tabIndex={i === active ? 0 : -1}
-            data-index={i}
-            data-active={i === active || undefined}
-            data-menu-command={line.id}
-            className={`${styles.item} ${line.emphasis ? styles.emphasis : ''}`}
-            onMouseEnter={() => line.enabled !== false && setActive(i)}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => run(i)}
-          >
-            <span className={styles.check} aria-hidden="true">
-              {line.checked ? '✓' : (line.icon ?? '')}
-            </span>
-            <span className={styles.label}>{line.label}</span>
-            {line.shortcut && <kbd className={styles.kbd}>{line.shortcut}</kbd>}
-          </button>
-        );
-      })}
+        })}
+      </div>
+      {sub && subEntry?.submenu && (
+        <ContextMenu
+          key={sub.i}
+          x={sub.x}
+          y={sub.y}
+          flipX={sub.flipX}
+          items={subEntry.submenu}
+          label={subEntry.label}
+          testId={subEntry.submenuTestId ?? 'context-submenu'}
+          onClose={() => closeRef.current()}
+          onBack={() => setSub(null)}
+        />
+      )}
     </div>
   );
 }

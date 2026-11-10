@@ -258,6 +258,7 @@ import {
   LayoutGrid,
   Rows2,
   RotateCcw,
+  BookA,
 } from 'lucide-react';
 import { docScriptHost, recordEngine, ScriptPane, ScriptRecorder } from '@blueoffice/script';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -395,6 +396,13 @@ import { registerDictationCommands } from './dictationCommands';
 import { docDictationTarget } from './docDictation';
 import { useTranslate, type TranslateAction } from './TranslatePane';
 import { useBlueAi } from './AiPane';
+import {
+  thesaurusMenuEntry,
+  useThesaurus,
+  useThesaurusMenu,
+  type Thesaurus,
+} from './ThesaurusPane';
+import { docReplaceWord, docWordAtCaret } from './docThesaurus';
 import { AiLink, registerAiCommands } from './aiCommands';
 import { DOC_AI_COMMANDS, docAiFeatures } from './docAi';
 import { TranslateLink, registerTranslateCommands } from './translateCommands';
@@ -562,6 +570,14 @@ function EditorInner({
   useEffect(() => {
     aiLink.attach(ai);
   });
+  // Thesaurus (CORE-THES-001): a task pane and a context-menu submenu; the command reaches the
+  // pane through a ref.
+  const thesaurus = useThesaurus(platform.thesaurus);
+  const thesaurusRef = useRef<Thesaurus | null>(null);
+  useEffect(() => {
+    thesaurusRef.current = thesaurus;
+  });
+  const thesMenu = useThesaurusMenu(platform.thesaurus);
   const controller = useRef<DocController | null>(null);
   // Stop recording waits for keys typed just before it (queued in the controller).
   useEffect(
@@ -2370,6 +2386,29 @@ function EditorInner({
         });
       },
     });
+    // Thesaurus (CORE-THES-001): the pane on the word at the caret; a replacement is one
+    // undoable `insertText` over the word, in its capitalisation (chosen by the pane).
+    r.register({
+      id: 'review.thesaurus',
+      shortcut: 'Shift+F7',
+      isEnabled: hasDoc,
+      run: async () => {
+        const w = await docWordAtCaret(translateRun);
+        thesaurusRef.current?.open({
+          target: {
+            word: w?.word ?? '',
+            replace: async (text, word) => {
+              const ok = await docReplaceWord(translateRun, word, text);
+              view.current?.focus();
+              return ok;
+            },
+            insert: async (text) => {
+              await run({ cmd: 'insertText', text });
+            },
+          },
+        });
+      },
+    });
     // BlueAI (CORE-AI-001): the pane on a feature; results are applied from its preview only.
     registerAiCommands(r, {
       enabled: hasDoc,
@@ -4174,6 +4213,7 @@ function EditorInner({
               'commands.review.spellingDialog',
               <SpellCheck size={ICON} />,
             ),
+            item('review.thesaurus', 'commands.review.thesaurus', <BookA size={ICON} />),
             item('review.language', 'commands.review.language', <Languages size={ICON} />),
             item('review.wordCount', 'commands.review.wordCount', <Hash size={ICON} />),
             item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
@@ -4475,6 +4515,7 @@ function EditorInner({
   const closeTaskPane = (id: string) => {
     if (id === 'navigation') store.setState({ navPane: null });
     else if (id === 'ai') ai.close();
+    else if (id === 'thesaurus') thesaurus.close();
     else
       store.setState({
         taskPanes: togglePane(store.getState().taskPanes, id as DocTaskPane, false),
@@ -4629,6 +4670,15 @@ function EditorInner({
       content: ai.content,
     });
   }
+  if (thesaurus.active && state.doc) {
+    paneDefs.push({
+      id: 'thesaurus',
+      title: t('thesaurus.title'),
+      icon: <BookA size={14} aria-hidden />,
+      closeTestId: 'thesaurus-close',
+      content: thesaurus.content,
+    });
+  }
   const insets = taskPaneInsets(paneLayout, paneDefs);
   const reviewingDock = state.doc ? state.reviewingPane : null;
   const sideLeft = insets.left + (reviewingDock === 'left' ? REVIEWING_SIZE.left : 0);
@@ -4710,13 +4760,29 @@ function EditorInner({
         });
       lines.push({ separator: true });
     }
-    return [...lines, ...resolveMenu(DOC_MENUS[m.context], menuLookup)];
+    const resolved = resolveMenu(DOC_MENUS[m.context], menuLookup);
+    // Synonyms of the word at the caret (CORE-THES-001), for text and table text.
+    const synonyms =
+      m.context === 'text' || m.context === 'table'
+        ? thesaurusMenuEntry(
+            thesMenu.state,
+            (key, o) => t(key, o ?? {}),
+            (text, word) => {
+              const c = controller.current;
+              if (!c) return;
+              void docReplaceWord((x) => c.run(x), word, text).then(() => view.current?.focus());
+            },
+            () => void registry.execute('review.thesaurus', store.getState()),
+          )
+        : null;
+    return [...lines, ...resolved, ...(synonyms ? [{ separator: true } as const, synonyms] : [])];
   };
   const docMenu = useContextMenu<DocMenu>(t('contextMenu.label'), docMenuLines, focusDoc);
   useEffect(() => {
     ribbonTabsRef.current = allRibbonTabs;
   });
   const openDocMenu = docMenu.open;
+  const prepareSynonyms = thesMenu.prepare;
   // The right click (DocumentView callback) and Shift+F10 reach the menu through refs.
   useEffect(() => {
     contextMenuAt.current = async (e) => {
@@ -4746,6 +4812,8 @@ function EditorInner({
       );
       if (!inside)
         await c.run({ cmd: 'click', page: e.page, x: e.x, y: e.y, extend: false, count: 1 });
+      const w = await docWordAtCaret((x) => c.run(x));
+      prepareSynonyms(w?.word);
       openDocMenu({ ...at, context: docMenuContext(store.getState()) });
     };
     menuAtCaret.current = () => {
@@ -4756,7 +4824,12 @@ function EditorInner({
         menuPointOf(host?.querySelector('.bo-caret')) ??
         menuPointOf(sels?.[sels.length - 1]) ??
         menuPointOf(host);
-      if (at) openDocMenu({ ...at, context: docMenuContext(store.getState()) });
+      if (!at) return;
+      const c = controller.current;
+      void (c ? docWordAtCaret((x) => c.run(x)) : Promise.resolve(null)).then((w) => {
+        prepareSynonyms(w?.word);
+        openDocMenu({ ...at, context: docMenuContext(store.getState()) });
+      });
     };
   });
 

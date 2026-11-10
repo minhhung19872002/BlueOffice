@@ -26,6 +26,7 @@ import { webSpeech } from '../speech';
 import { webMediaCapture } from '../mediaCapture';
 import { ServerAiProvider } from '../ai';
 import { ServerTranslationProvider } from '../translation';
+import { assetThesaurus } from '../thesaurus';
 import { defaultDictation } from '../dictation';
 import { WebDisplays, presentationReceiverBus } from './displays';
 import { FetchRemoteImages } from '../remoteImages';
@@ -364,6 +365,8 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     video: new WebCodecsVideo(),
     // W3C Web Speech API (read aloud, CORE-LANG-003).
     speech: webSpeech(),
+    // Thesaurus data fetched on first use (`thesaurus/en/en.json.gz`, CORE-THES-001).
+    thesaurus: assetThesaurus(baseUrl),
     // Microphone / camera through getUserMedia + MediaRecorder (recorded shows, SLIDE-REC-001).
     media: webMediaCapture(),
     // Translation through the BlueOffice server (CORE-LANG-001): same origin unless

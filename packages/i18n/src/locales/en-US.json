@@ -338,6 +338,7 @@
       "moveParagraphDown": "Move paragraph down",
       "versions": "Version history…",
       "translate": "Translate",
+      "thesaurus": "Thesaurus",
       "translateDocument": "Translate document",
       "translateCells": "Translate selected cells to a new column",
       "translateCellsInPlace": "Translate selected cells in place",
@@ -6158,6 +6159,35 @@
       "cancelled": "Cancelled.",
       "empty": "Nothing to work on yet.",
       "badAnswer": "The answer was not in the expected form and was dropped. Try again."
+    }
+  },
+  "thesaurus": {
+    "title": "Thesaurus",
+    "menu": "Synonyms",
+    "openPane": "Open the thesaurus pane…",
+    "search": "Look up synonyms",
+    "searchPlaceholder": "Type an English word",
+    "lookUp": "Look up",
+    "lookUpChosen": "Look up the chosen word",
+    "replace": "Replace",
+    "insert": "Insert",
+    "antonyms": "Antonyms:",
+    "baseForm": "Base form: {{word}}",
+    "noWord": "Put the caret in a word or type the word to look up.",
+    "loading": "Loading the thesaurus…",
+    "searching": "Searching…",
+    "notFound": "No synonyms found for “{{word}}”. Only an English thesaurus is available.",
+    "noSynonyms": "No synonyms",
+    "loadFailed": "The thesaurus data could not be loaded.",
+    "unavailable": "There is no thesaurus on this platform.",
+    "replaced": "Replaced “{{from}}” with “{{to}}”.",
+    "wordGone": "The word “{{word}}” is no longer at the caret.",
+    "credit": "Data: Open English WordNet 2025 (CC BY 4.0).",
+    "pos": {
+      "n": "Nouns",
+      "v": "Verbs",
+      "a": "Adjectives",
+      "r": "Adverbs"
     }
   },
   "translate": {

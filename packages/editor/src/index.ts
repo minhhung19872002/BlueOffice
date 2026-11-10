@@ -231,6 +231,19 @@ export {
   type BlueAi,
 } from './AiPane';
 export { AiLink, registerAiCommands } from './aiCommands';
+// Thesaurus shared with BlueSheet / BlueSlide (CORE-THES-001).
+export {
+  MENU_SYNONYMS,
+  ThesaurusLink,
+  thesaurusMenuEntry,
+  useThesaurus,
+  useThesaurusMenu,
+  type Thesaurus,
+  type ThesaurusMenuState,
+  type ThesaurusOpen,
+  type ThesaurusTarget,
+} from './ThesaurusPane';
+export { docReplaceWord, docWordAtCaret, type DocWord } from './docThesaurus';
 export { DOC_AI_COMMANDS, docAiFeatures, docBodyText, docInsertResult } from './docAi';
 // Dictation shared with BlueSheet / BlueSlide (CORE-LANG-002).
 export {

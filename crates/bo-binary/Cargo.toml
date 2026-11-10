@@ -11,6 +11,7 @@ bo-model.workspace = true
 bo-opc.workspace = true
 bo-encoding = { path = "../bo-encoding" }
 cfb = "0.14"
+miniz_oxide = "0.8"
 zip.workspace = true
 thiserror.workspace = true
 

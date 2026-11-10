@@ -33,6 +33,11 @@ const RT_NOTES: u16 = 0x03F0;
 const RT_NOTES_ATOM: u16 = 0x03F1;
 const RT_SLIDE_PERSIST_ATOM: u16 = 0x03F3;
 const RT_VBA_INFO: u16 = 0x03FF;
+const RT_VBA_INFO_ATOM: u16 = 0x0400;
+const RT_LIST: u16 = 0x07D0;
+const RT_EXTERNAL_OLE_OBJECT_STG: u16 = 0x1011;
+/// Maximum size of the decompressed VBA project storage (64 MiB).
+const MAX_VBA_STORAGE: usize = 64 << 20;
 const RT_OUTLINE_TEXT_REF_ATOM: u16 = 0x0F9E;
 const RT_TEXT_HEADER_ATOM: u16 = 0x0F9F;
 const RT_TEXT_CHARS_ATOM: u16 = 0x0FA0;
@@ -241,6 +246,74 @@ pub fn read_ppt(bytes: &[u8]) -> Result<PptDeck> {
     let mut deck = parse_ppt_with(&doc, current.as_deref(), pictures.as_deref())?;
     deck.has_macros |= has_vba_storage;
     Ok(deck)
+}
+
+/// The VBA project storage of a `.ppt`: a compound file ([MS-OVBA] project) kept as
+/// a record of the `PowerPoint Document` stream. The VBAInfoAtom ([MS-PPT]
+/// VBAInfoContainer, in the DocumentContainer or its DocInfoListContainer) names
+/// the persist object; that record (RT_ExternalOleObjectStg) holds the storage,
+/// either as is (recInstance 0) or as a decompressed size followed by a ZLIB
+/// stream (recInstance 1, RFC 1950). `Ok(None)`: no VBA project.
+pub fn vba_storage(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    let mut cfb = Cfb::open(bytes)?;
+    if !cfb.has("/PowerPoint Document") || !cfb.has("/Current User") {
+        return Ok(None);
+    }
+    let doc = cfb.read("/PowerPoint Document")?;
+    let current = cfb.read("/Current User")?;
+    let Some((persist, doc_ref)) = persist_directory(&doc, &current)? else {
+        return Ok(None);
+    };
+    let Some(doc_off) = doc_ref.and_then(|r| persist.get(&r).copied()) else {
+        return Ok(None);
+    };
+    let (h, doc_body) = record_at(&doc, doc_off as usize)?;
+    if h.typ != RT_DOCUMENT {
+        return Ok(None);
+    }
+    let Some(stg_off) = vba_persist_ref(doc_body).and_then(|id| persist.get(&id).copied()) else {
+        return Ok(None);
+    };
+    let (h, body) = record_at(&doc, stg_off as usize)?;
+    if h.typ != RT_EXTERNAL_OLE_OBJECT_STG {
+        return Ok(None);
+    }
+    if h.instance == 0 {
+        return Ok(Some(body.to_vec()));
+    }
+    let size = u32_at(body, 0)? as usize;
+    if size > MAX_VBA_STORAGE {
+        return Err(malformed("VBA project storage too large"));
+    }
+    let data = body.get(4..).unwrap_or_default();
+    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(data, MAX_VBA_STORAGE)
+        .map(Some)
+        .map_err(|_| malformed("VBA project storage: bad ZLIB stream"))
+}
+
+/// `persistIdRef` of the VBAInfoAtom under a DocumentContainer body.
+fn vba_persist_ref(doc_body: &[u8]) -> Option<u32> {
+    let atom = |info: &[u8]| {
+        children(info)
+            .into_iter()
+            .find(|(h, _)| h.typ == RT_VBA_INFO_ATOM)
+            .and_then(|(_, d)| u32_at(d, 0).ok())
+    };
+    for (h, data) in children(doc_body) {
+        match h.typ {
+            RT_VBA_INFO => return atom(data),
+            RT_LIST => {
+                if let Some((_, info)) = children(data)
+                    .into_iter()
+                    .find(|(h, _)| h.typ == RT_VBA_INFO)
+                {
+                    return atom(info);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Parse the `PowerPoint Document` stream given the `Current User` stream.
@@ -661,6 +734,66 @@ pub(crate) mod tests {
         // drawings, but its text is still read.
         assert_eq!(deck.slides.len(), 2);
         assert_eq!(deck.slides[0].title().as_deref(), Some("Báo cáo"));
+    }
+
+    /// A deck whose DocInfoListContainer names persist object 2 as the VBA project storage.
+    fn vba_ppt(storage: &[u8], compressed: bool) -> Vec<u8> {
+        let mut info = 2u32.to_le_bytes().to_vec(); // persistIdRef
+        info.extend(1u32.to_le_bytes()); // fHasMacros
+        info.extend(2u32.to_le_bytes()); // version
+        let mut d = atom(RT_DOCUMENT_ATOM, &[0u8; 40]);
+        d.extend(cont(
+            RT_LIST,
+            &cont(RT_VBA_INFO, &atom(RT_VBA_INFO_ATOM, &info)),
+        ));
+        let mut doc = cont(RT_DOCUMENT, &d);
+        let stg_off = doc.len() as u32;
+        if compressed {
+            let mut body = (storage.len() as u32).to_le_bytes().to_vec();
+            body.extend(miniz_oxide::deflate::compress_to_vec_zlib(storage, 6));
+            doc.extend(rec(0, 1, RT_EXTERNAL_OLE_OBJECT_STG, &body));
+        } else {
+            doc.extend(rec(0, 0, RT_EXTERNAL_OLE_OBJECT_STG, storage));
+        }
+        let mut dir = (1u32 | (2 << 20)).to_le_bytes().to_vec();
+        dir.extend(0u32.to_le_bytes());
+        dir.extend(stg_off.to_le_bytes());
+        let dir_off = doc.len() as u32;
+        doc.extend(atom(RT_PERSIST_DIRECTORY_ATOM, &dir));
+        let ue_off = doc.len() as u32;
+        let mut ue = 256u32.to_le_bytes().to_vec();
+        ue.extend([0, 0, 0, 3]);
+        ue.extend(0u32.to_le_bytes());
+        ue.extend(dir_off.to_le_bytes());
+        ue.extend(1u32.to_le_bytes());
+        ue.extend(3u32.to_le_bytes());
+        ue.extend([0, 0, 0, 0]);
+        doc.extend(atom(RT_USER_EDIT_ATOM, &ue));
+        let mut cu = 20u32.to_le_bytes().to_vec();
+        cu.extend(0xE391_C05Fu32.to_le_bytes());
+        cu.extend(ue_off.to_le_bytes());
+        cu.extend([0u8; 8]);
+        crate::test_util::cfb_file(
+            &[
+                ("/PowerPoint Document", doc),
+                ("/Current User", atom(0x0FF6, &cu)),
+            ],
+            &[],
+        )
+    }
+
+    #[test]
+    fn vba_project_storage_of_a_deck() {
+        let project = crate::vba_write::sample_project("slide").unwrap();
+        for compressed in [true, false] {
+            let ppt = vba_ppt(&project, compressed);
+            assert_eq!(vba_storage(&ppt).unwrap().as_deref(), Some(&project[..]));
+            let p = crate::read_vba_from_file(&ppt).unwrap().unwrap();
+            assert_eq!(p.modules.len(), 2);
+            assert!(p.modules[1].source.contains("MsgBox \"Xin chào\""));
+        }
+        // No VBAInfoAtom: no project.
+        assert_eq!(vba_storage(&sample_ppt()).unwrap(), None);
     }
 
     #[test]

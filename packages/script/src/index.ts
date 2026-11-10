@@ -25,7 +25,12 @@ export {
 } from './runner';
 export { scriptStore, type SavedScript, type ScriptStore } from './store';
 export { BLUESCRIPT_DTS, complete, apiNames } from './completion';
-export { ScriptPane, shortcutFromEvent, type ScriptPaneProps } from './ScriptPane';
+export {
+  ScriptPane,
+  shortcutFromEvent,
+  type ScriptPaneProps,
+  type VbaDraftRequest,
+} from './ScriptPane';
 export {
   convertVba,
   MAX_VBA_CHARS,

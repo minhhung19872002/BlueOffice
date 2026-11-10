@@ -233,8 +233,17 @@ từ file (CLAUDE.md, clippy). Cùng một lõi chạy trong worker (`bo-cli`), 
 - Mở rồi lưu `.docm` giữ nguyên byte `vbaProject.bin`, `DocInfo.macros = true` → BlueDoc hiện thanh cảnh báo
   "Tài liệu chứa macro — macro sẽ được giữ nguyên nhưng không chạy" (`packages/i18n/src/locales/vi-VN.json` →
   `macroWarning`). Test: `crates/bo-engine/tests/security.rs` → `macros_are_reported_and_kept`.
-- `.xlsm`/`.pptm`: phần VBA được giữ như part không xử lý (opaque) khi lưu; **chưa có thanh cảnh báo** trong
-  BlueSheet/BlueSlide và chưa có test riêng như `.docm`.
+- `.xlsm`/`.pptm`: phần VBA được giữ như part không xử lý (opaque) khi lưu; thanh cảnh báo có ở cả ba ứng dụng.
+- [Đã có] **Xem mã macro, chỉ đọc** (CORE-VBA-002): `bo_binary::vba::read_vba_from_file` giải nén stream `dir` và
+  từng module theo [MS-OVBA] rồi giải mã theo bảng mã của dự án; lệnh `vbaProject` của ba cầu lệnh trả
+  `{ name, modules: [{ name, kind, source }] }`. Giao diện: nút "Xem macro" trên thanh cảnh báo và lệnh
+  `script.viewMacros` mở hộp thoại chỉ đọc (`packages/editor/src/MacroViewer.tsx`). Mã **chỉ là văn bản**: không
+  biên dịch, không chạy; nút "Chuyển thành bản nháp BlueScript" đưa văn bản một module sang bộ chuyển đổi
+  (ADR-0012), bản nháp cũng không tự chạy. Đầu vào độc hại: mọi đọc đều kiểm tra biên, giới hạn 64 MiB cho mỗi
+  stream giải nén và cho tổng mã nguồn, 4096 module, 256 MiB cho `vbaProject.bin`; module hỏng chỉ bị đánh dấu
+  "không đọc được". Test: `crates/bo-binary/src/vba.rs` (proptest), `crates/bo-engine/tests/vba_view.rs`,
+  `fuzz_smoke.rs` → `mutated_vba_projects_never_panic_or_hang`, `tests/e2e/specs/macro-viewer.spec.ts`.
+  `bo-cli inspect <tệp> --vba [--json]` in mã nguồn các module.
 
 ## 10. Chặn liên kết & tài nguyên ngoài
 

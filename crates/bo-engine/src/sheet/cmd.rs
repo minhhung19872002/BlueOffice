@@ -1917,6 +1917,11 @@ impl SheetEngine {
     /// Runs a command given as JSON; returns the JSON result.
     pub fn exec_json(&mut self, json: &str) -> Result<String> {
         let v: Value = serde_json::from_str(json).map_err(|e| bad(format!("bad command: {e}")))?;
+        // Macro source, read-only (CORE-VBA-002).
+        if crate::vba_view::is_command(&v) {
+            self.wb()?;
+            return Ok(crate::vba_view::answer(self.vba.as_deref()));
+        }
         if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
             return Ok(self.sheet_security(sc)?.to_string());
         }

@@ -94,7 +94,12 @@ sẽ được giữ nguyên nhưng không chạy". Macro được giữ nguyên 
 `.xlsm`, `.pptm`…). Nếu bạn chọn **Lưu thành** một kiểu không chứa được macro (ví dụ `.docx`), ứng dụng báo trước
 rằng macro sẽ bị bỏ.
 
-Bản này không có trình xem hay trình sửa mã macro. Trong BlueSheet, nút bấm được gán macro vẫn hiện tên macro ở
+**Xem mã macro (chỉ đọc).** Bấm **Xem macro** trên thanh thông báo, hoặc tab **Xem › Tự động hóa › Xem macro
+(VBA)…**, để mở hộp thoại liệt kê các mô-đun của dự án VBA và mã của từng mô-đun. Mã chỉ để đọc và sao chép: không
+sửa được, không chạy được. Chọn một mô-đun rồi bấm **Chuyển thành bản nháp BlueScript** để đưa mã sang trình soạn
+BlueScript dưới dạng bản nháp — bạn xem lại, sửa các chỗ đánh dấu `TODO(VBA)` rồi mới tự lưu hoặc chạy; bản nháp không
+bao giờ tự chạy. Dự án dùng bảng mã mà BlueOffice chưa giải mã (ngoài 1252, 1258, UTF-8) vẫn hiện được nhưng chữ có
+dấu có thể sai; mô-đun hỏng được ghi là "không đọc được". Không có trình sửa mã macro. Trong BlueSheet, nút bấm được gán macro vẫn hiện tên macro ở
 hộp thoại thiết lập điều khiển, nhưng bấm nút không chạy macro. Để tự động hóa, dùng
 [BlueScript](#10-tự-động-hóa-bằng-bluescript).
 

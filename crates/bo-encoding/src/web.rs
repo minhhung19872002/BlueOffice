@@ -45,6 +45,76 @@ impl Charset {
             _ => return None,
         })
     }
+
+    /// The encoding of a Windows code page identifier (the `CodePage` values of
+    /// [MS-OVBA] PROJECTCODEPAGE and similar records): 1252, 1258, 65001 (UTF-8),
+    /// 1200 / 1201 (UTF-16). `None` for code pages this crate has no table for.
+    pub fn from_code_page(code_page: u16) -> Option<Charset> {
+        Some(match code_page {
+            1252 => Charset::Windows1252,
+            1258 => Charset::Windows1258,
+            65001 => Charset::Utf8,
+            1200 => Charset::Utf16Le,
+            1201 => Charset::Utf16Be,
+            _ => return None,
+        })
+    }
+}
+
+/// The Windows-1258 byte of a character that has one (reverse of the decoding table).
+fn cp1258_byte(c: char) -> Option<u8> {
+    (0..=255u8).find(|&b| cp1258(b) == c)
+}
+
+/// Windows-1258 bytes of `c`: the letter with its breve / circumflex / horn, then the
+/// tone marks as combining characters (the form the code page stores Vietnamese in).
+fn cp1258_encode(c: char, out: &mut Vec<u8>) {
+    if let Some(b) = cp1258_byte(c) {
+        out.push(b);
+        return;
+    }
+    let mut parts: Vec<char> = Vec::new();
+    unicode_normalization::char::decompose_canonical(c, |d| parts.push(d));
+    let mut base = parts.first().copied().unwrap_or(c);
+    let mut tones: Vec<u8> = Vec::new();
+    let mut ok = true;
+    for &m in parts.iter().skip(1) {
+        if let Some(b) = cp1258_byte(m) {
+            tones.push(b);
+        } else if let Some(composed) = unicode_normalization::char::compose(base, m) {
+            base = composed;
+        } else {
+            ok = false;
+        }
+    }
+    match cp1258_byte(base) {
+        Some(b) if ok => {
+            out.push(b);
+            out.extend(tones);
+        }
+        _ => out.push(b'?'),
+    }
+}
+
+/// Encode `text` in `charset` (no byte order mark). Characters the encoding cannot
+/// represent become `?`.
+pub fn encode(text: &str, charset: Charset) -> Vec<u8> {
+    match charset {
+        Charset::Utf8 => text.as_bytes().to_vec(),
+        Charset::Utf16Le => text.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+        Charset::Utf16Be => text.encode_utf16().flat_map(u16::to_be_bytes).collect(),
+        Charset::Windows1252 => text
+            .chars()
+            .map(|c| cp1252::encode(c).unwrap_or(b'?'))
+            .collect(),
+        Charset::Windows1258 => {
+            let mut out = Vec::with_capacity(text.len());
+            for c in text.nfc() {
+                cp1258_encode(c, &mut out);
+            }
+            out
+        }
+    }
 }
 
 /// Windows-1258 bytes that differ from Windows-1252 (Unicode.org `CP1258.TXT`).
@@ -183,6 +253,31 @@ mod tests {
         let mut be = vec![0xFE, 0xFF];
         be.extend("Việt".encode_utf16().flat_map(u16::to_be_bytes));
         assert_eq!(decode_html(&be, None), "Việt");
+    }
+
+    #[test]
+    fn code_pages_and_encoding() {
+        assert_eq!(Charset::from_code_page(1252), Some(Charset::Windows1252));
+        assert_eq!(Charset::from_code_page(1258), Some(Charset::Windows1258));
+        assert_eq!(Charset::from_code_page(65001), Some(Charset::Utf8));
+        assert_eq!(Charset::from_code_page(932), None);
+        // Bytes of the `meta_declarations` sample, which come from CP1258.TXT.
+        assert_eq!(
+            encode("Việt Nam Đồng", Charset::Windows1258),
+            b"Vi\xEA\xF2t Nam \xD0\xF4\xCCng"
+        );
+        let text = "Tiếng Việt: ằ ẵ ự ở Ư Ơ đ ₫ — “x”";
+        for cs in [
+            Charset::Windows1258,
+            Charset::Utf8,
+            Charset::Utf16Le,
+            Charset::Utf16Be,
+        ] {
+            assert_eq!(decode(&encode(text, cs), cs), text, "{cs:?}");
+        }
+        assert_eq!(encode("café €", Charset::Windows1252), b"caf\xE9 \x80");
+        assert_eq!(encode("日本", Charset::Windows1252), b"??");
+        assert_eq!(encode("日", Charset::Windows1258), b"?");
     }
 
     #[test]

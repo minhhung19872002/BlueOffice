@@ -24,6 +24,8 @@
 //! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
 //! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
 //! bo-cli merge <template.docx> <data.csv|xlsx|vcf|json> --to docx|pdf|zip --out <out> [--pattern "«Field»"]  # mail merge
+//! bo-cli inspect file --vba [--json]             # VBA module sources, read-only ([MS-OVBA])
+//! bo-cli sample-macros <dir>                 # macro-enabled corpus files (tests/corpus/macro)
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
@@ -38,6 +40,7 @@
 mod convert;
 mod corpus;
 mod fidelity;
+mod macro_samples;
 mod sample;
 mod sign_cmd;
 mod slide_edits;
@@ -175,7 +178,15 @@ enum Cmd {
         input: PathBuf,
         #[arg(long)]
         password: Option<String>,
+        /// Print the source text of the VBA modules (read-only, [MS-OVBA]); with
+        /// `--json` as `{ name, modules: [{ name, kind, source }] }`.
+        #[arg(long)]
+        vba: bool,
+        #[arg(long)]
+        json: bool,
     },
+    /// Write the macro-enabled corpus files (tests/corpus/macro): generated VBA projects.
+    SampleMacros { dir: PathBuf },
     /// Print the display list of a page as JSON.
     Dump {
         input: PathBuf,
@@ -674,9 +685,55 @@ fn run(cli: Cli) -> R {
             let summary = sign_cmd::ltv(&input, &trust, &rev, tsa.as_deref(), &out)?;
             println!("{}: {summary}", out.display());
         }
-        Cmd::Inspect { input, password } => {
+        Cmd::SampleMacros { dir } => {
+            for (name, bytes) in macro_samples::files()? {
+                let path = dir.join(name);
+                write_file(&path, &bytes)?;
+                println!("{}", path.display());
+            }
+        }
+        Cmd::Inspect {
+            input,
+            password,
+            vba,
+            json,
+        } => {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
             let name = input.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if vba {
+                // CORE-VBA-002: the macro source is only read, never compiled or run.
+                let project = bo_engine::vba_view::read_file(&bytes, password.as_deref())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&project.unwrap_or_default())?
+                    );
+                    return Ok(());
+                }
+                let Some(p) = project else {
+                    println!("vba: none");
+                    return Ok(());
+                };
+                if let Some(e) = &p.error {
+                    return Err(format!("VBA project: {e}").into());
+                }
+                println!("vba project: {} (code page {})", p.name, p.code_page);
+                if !p.code_page_supported {
+                    eprintln!("warning: code page {} is read as Windows-1252", p.code_page);
+                }
+                for m in &p.modules {
+                    println!("--- module {} ({})", m.name, m.kind);
+                    if m.unreadable {
+                        println!("(unreadable)");
+                    } else {
+                        print!("{}", m.source);
+                        if !m.source.ends_with('\n') {
+                            println!();
+                        }
+                    }
+                }
+                return Ok(());
+            }
             let (loaded, facts) = convert::load_named(&bytes, name, password.as_deref())?;
             println!("format: {}", facts.format);
             if facts.flat_opc {

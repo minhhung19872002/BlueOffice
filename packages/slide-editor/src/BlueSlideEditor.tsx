@@ -5,6 +5,8 @@ import {
   ProtectionStatus,
   useFileProtection,
   MacroBanner,
+  MacroViewer,
+  useMacroViewer,
   PasswordDialog,
   PdfExportDialog,
   SaveAsTypeDialog,
@@ -93,6 +95,7 @@ import {
   type SlideActionTrigger,
   type SlideShowLink,
   type SlideShowSetup,
+  type VbaProjectInfo,
 } from '@blueoffice/platform';
 import {
   CommentThreads,
@@ -238,6 +241,7 @@ import {
   Mic,
   SquareTerminal,
   FileCode2,
+  FileSearch,
 } from 'lucide-react';
 import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
 import {
@@ -710,6 +714,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
   const [vbaRequest, setVbaRequest] = useState(0);
   const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
+  // Read-only macro viewer (CORE-VBA-002): a module goes to the script pane as a draft.
+  const macroViewer = useMacroViewer(useCallback(() => setScriptOpen(true), []));
+  const showMacros = macroViewer.show;
+  // Asked of the engine host itself: looking at macros is not a recorded action.
+  const loadMacros = useCallback(
+    () =>
+      platform.engine.slideCommand({ cmd: 'vbaProject' }) as unknown as Promise<VbaProjectInfo>,
+    [platform.engine],
+  );
   /** Selection pane: the slide's objects in z-order (CORE-UI-006). */
   const [selectionOpen, setSelectionOpen] = useState(false);
   // Task pane layout of BlueSlide, remembered per app (CORE-UI-006).
@@ -2442,6 +2455,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         setVbaRequest((n) => n + 1);
       },
     });
+    // Macro source of the open file, read-only (CORE-VBA-002); VBA is never run.
+    reg.register({ id: 'script.viewMacros', isEnabled: deck, run: async () => showMacros() });
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     reg.register({
       id: 'script.record',
@@ -2624,6 +2639,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     return reg;
   }, [
+    showMacros,
     openActionDialog,
     readAloudLink,
     dictationLink,
@@ -3690,6 +3706,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
               item('script.record', t('commands.view.recordScript'), <CircleDot size={18} />),
               item('script.convertVba', t('commands.view.convertVba'), <FileCode2 size={18} />),
+              item('script.viewMacros', t('commands.view.viewMacros'), <FileSearch size={18} />),
             ],
           },
         ],
@@ -4128,7 +4145,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }}
       />
       {macroBanner && view === 'normal' && (
-        <MacroBanner inline onDismiss={() => setMacroBanner(false)} />
+        <MacroBanner inline onView={showMacros} onDismiss={() => setMacroBanner(false)} />
       )}
       {view === 'normal' && <FileProtectionUi app="slide" p={protection} name={fileName} />}
       {passwordPrompt && (
@@ -4313,6 +4330,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           </div>
           {checkOpen && (
             <SlideCheckDocumentDialog run={runResult} onClose={() => setCheckOpen(false)} />
+          )}
+          {macroViewer.open && (
+            <MacroViewer
+              load={loadMacros}
+              onConvert={macroViewer.convert}
+              onClose={macroViewer.close}
+            />
           )}
           {spelling.dialog && (
             <SlideSpellDialog
@@ -4499,6 +4523,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                           checkShortcut={scriptBindings.checkShortcut}
                           vbaRequest={vbaRequest}
                           onVbaRequestHandled={vbaRequestHandled}
+                          vbaDraft={macroViewer.draft}
+                          onVbaDraftHandled={macroViewer.draftHandled}
                           {...(platform.scriptSchedules
                             ? { schedules: platform.scriptSchedules }
                             : {})}

@@ -313,6 +313,8 @@ pub struct SheetEngine {
     collab: Option<collab::SheetCollab>,
     /// The open file has macros (warning bar; preserved, never executed).
     macros: bool,
+    /// VBA project of the open file, read for display only (CORE-VBA-002).
+    vba: Option<Box<crate::vba_view::VbaProjectOut>>,
     /// Package variant of the open file (what the writer reproduces, CORE-FMT-001).
     file_variant: Option<crate::variant::Variant>,
     /// Variant the next saves produce when it differs (`saveFormat`).
@@ -770,6 +772,7 @@ impl SheetEngine {
             save_password: None,
             collab: None,
             macros: false,
+            vba: None,
             file_variant: None,
             save_variant: None,
             legacy_converted: 0,
@@ -875,6 +878,7 @@ impl SheetEngine {
         let bytes = flat.as_deref().unwrap_or(bytes);
         let info = self.open_plain(bytes, name)?;
         self.macros = bo_binary::has_macros(bytes);
+        self.vba = crate::vba_view::of_open_file(self.macros, bytes);
         self.file_variant = crate::variant::detect(bytes).or(self.file_variant);
         self.open_security(bytes);
         self.props = crate::props::PropsState::read(bytes);
@@ -967,6 +971,7 @@ impl SheetEngine {
         self.scrub = crate::inspect::package::Scrub::default();
         self.props = crate::props::PropsState::default();
         self.macros = false;
+        self.vba = None;
         self.file_variant = Some(crate::variant::Variant::Xlsx);
         self.save_variant = None;
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.

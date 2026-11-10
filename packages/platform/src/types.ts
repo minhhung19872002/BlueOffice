@@ -649,6 +649,8 @@ export type ListNumbering = { kind: 'restart'; value: number } | { kind: 'contin
 /** Editing command sent to the engine (JSON bridge, ADR-0008). */
 export type EditCommand =
   | import('./security').SecurityCommand
+  /** Macro source of the open file, read-only (CORE-VBA-002) → `VbaProjectInfo`. */
+  | import('./vba').VbaCommand
   | import('./picture').PictureCommand
   | import('./customXml').CustomXmlCommand
   /** Citations and bibliography (CORE-CITE-001). */
@@ -1625,6 +1627,8 @@ export interface SlideFreeformInfo {
 /** Slide editing command (JSON bridge, ADR-0008). */
 export type SlideCommand =
   | import('./security').SecurityCommand
+  /** Macro source of the open file, read-only (CORE-VBA-002) → `VbaProjectInfo`. */
+  | import('./vba').VbaCommand
   /** Playback options of video / audio clips (SLIDE-MEDIA-001). */
   | import('./slideMedia').SlideMediaCommand
   /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */

@@ -1271,6 +1271,13 @@ impl crate::Engine {
             .as_object_mut()
             .and_then(|o| o.remove("now"))
             .and_then(|n| n.as_f64());
+        // Macro source, read-only (CORE-VBA-002).
+        if crate::vba_view::is_command(&v) {
+            self.session
+                .as_ref()
+                .ok_or(crate::EngineError::NoDocument)?;
+            return Ok(crate::vba_view::answer(self.vba.as_deref()));
+        }
         if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
             let r = self.doc_security(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());

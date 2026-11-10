@@ -401,14 +401,35 @@ async function openDeck(p: Platform, label = 'Mở') {
 
 describe('BlueSlideEditor', () => {
   it('warns about macros in a .pptm deck and dismisses the bar', async () => {
-    const { p, open } = fakePlatform();
+    const { p, open, engine } = fakePlatform();
+    const base = engine.slideCommand.getMockImplementation()!;
+    engine.slideCommand.mockImplementation(async (c: SlideCommand) =>
+      c.cmd === 'vbaProject'
+        ? ({
+            name: 'VBAProject',
+            codePage: 1252,
+            codePageSupported: true,
+            modules: [{ name: 'Module1', kind: 'standard', source: 'Sub A()\nEnd Sub\n' }],
+          } as never)
+        : base(c),
+    );
     render(<BlueSlideEditor platform={p} language="vi-VN" />);
     await openDeck(p);
     expect(screen.queryByTestId('macro-warning')).toBeNull();
     act(() => open({ name: 'Có macro.pptm', bytes: new Uint8Array([1]) }));
     const bar = await screen.findByTestId('macro-warning');
     expect(bar.textContent).toContain('macro');
-    fireEvent.click(bar.querySelector('button')!);
+
+    // "View macros" opens the read-only viewer with the engine's answer (CORE-VBA-002).
+    fireEvent.click(within(bar).getByTestId('macro-warning-view'));
+    const viewer = await screen.findByTestId('macro-viewer');
+    const code = (await within(viewer).findByTestId('macro-viewer-code')) as HTMLTextAreaElement;
+    expect(code.value).toBe('Sub A()\nEnd Sub\n');
+    expect(code.readOnly).toBe(true);
+    fireEvent.click(within(viewer).getByRole('button', { name: 'Đóng' }));
+    await waitFor(() => expect(screen.queryByTestId('macro-viewer')).toBeNull());
+
+    fireEvent.click(within(bar).getByTestId('macro-warning-dismiss'));
     await waitFor(() => expect(screen.queryByTestId('macro-warning')).toBeNull());
   });
 

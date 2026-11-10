@@ -54,6 +54,8 @@ bo-opc.workspace = true
 bo-engine = { path = ".", features = ["bundled-fonts"] }
 insta.workspace = true
 proptest.workspace = true
+# The generated VBA project is moved into binary .doc / .xls files (tests/vba_view.rs).
+cfb = "0.14"
 criterion.workspace = true
 # Heap bytes in use for the open/close leak test (CORE-PERF-001, tests/open_close_leak.rs).
 stats_alloc = "0.1.10"

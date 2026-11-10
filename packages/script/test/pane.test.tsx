@@ -185,6 +185,66 @@ describe('ScriptPane', () => {
     );
   });
 
+  it('drafts a module sent by the macro viewer without running it (CORE-VBA-002)', async () => {
+    const calls: string[] = [];
+    const host: ScriptHost = {
+      app: 'sheet',
+      call: async (m, args) => {
+        calls.push(`${m}(${JSON.stringify(args)})`);
+        return null;
+      },
+    };
+    const store = scriptStore('sheet', memory());
+    let handled = 0;
+    const pane = (draft: { id: number; source: string; module?: string } | null) => (
+      <I18nextProvider i18n={i18n}>
+        <ScriptPane
+          app="sheet"
+          host={() => host}
+          runner={inlineRunner()}
+          store={store}
+          vbaDraft={draft}
+          onVbaDraftHandled={() => handled++}
+        />
+      </I18nextProvider>
+    );
+    // The pane opens with the request already set (the viewer opened it).
+    const source = 'Sub ChaoMung()\n    Range("A1").Value = "Xin chào"\n    Range("A1").Select\nEnd Sub\n';
+    const view = render(pane({ id: 1, source, module: 'Module1' }));
+    const code = screen.getByTestId('script-code') as HTMLTextAreaElement;
+    expect(code.value).toContain('BlueScript draft converted from macro VBA');
+    expect(code.value).toContain('await sheet.range("A1").setValue("Xin chào");');
+    expect(code.value).toContain('// TODO(VBA): Range("A1").Select');
+    expect((screen.getByTestId('script-name') as HTMLInputElement).value).toBe(
+      'Draft from macro VBA: Module1',
+    );
+    expect((screen.getByTestId('script-list') as HTMLSelectElement).value).toBe('');
+    expect(screen.getByTestId('script-vba-warnings').querySelectorAll('li')).toHaveLength(1);
+    // Nothing ran, the converter box stays closed, and the host clears the request.
+    expect(calls).toEqual([]);
+    expect(screen.getByTestId('script-console').textContent).toContain('It was not run.');
+    expect(screen.queryByTestId('script-vba-source')).toBeNull();
+    await waitFor(() => expect(handled).toBe(1));
+
+    // Cleared, then the same text edited by the user is not overwritten on re-render.
+    view.rerender(pane(null));
+    fireEvent.change(code, { target: { value: '// reviewed' } });
+    view.rerender(pane(null));
+    expect(code.value).toBe('// reviewed');
+
+    // A second request replaces the editor content with the new draft.
+    view.rerender(pane({ id: 2, source: 'Sub B()\n    Range("B2").Value = 2\nEnd Sub' }));
+    expect(code.value).toContain('await sheet.range("B2").setValue(2);');
+    expect((screen.getByTestId('script-name') as HTMLInputElement).value).toBe(
+      'Draft from macro VBA',
+    );
+    expect(screen.getByTestId('script-vba-report').textContent).toContain(
+      'Everything was converted',
+    );
+    await waitFor(() => expect(handled).toBe(2));
+    expect(calls).toEqual([]);
+  });
+
   it('records actions into the editor and binds a saved script (CORE-SCRIPT-002)', async () => {
     const rec = new ScriptRecorder('sheet');
     const host: ScriptHost = { app: 'sheet', call: async () => null };

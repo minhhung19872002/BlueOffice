@@ -44,6 +44,8 @@ cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
 cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp → OOXML, csv, pdf
 cargo run -p bo-cli -- inspect in.docx                   # định dạng, biến thể (dotx/xlsm/ppsx…), mã hoá, macro
+cargo run -p bo-cli -- inspect in.xlsm --vba [--json]    # mã nguồn các module VBA, chỉ đọc ([MS-OVBA], không bao giờ chạy)
+cargo run -p bo-cli -- sample-macros tests/corpus/macro  # sinh lại corpus có macro (.docm/.xlsm/.pptm, dự án VBA tự sinh)
 cargo run -p bo-cli -- convert in.docx --to html         # html (một tệp, ảnh data URI; workbook → bảng HTML) | mht (RFC 2557) | xml-flat (Flat OPC); đầu vào .html/.mht/Flat OPC/Excel XML 2003 nhận theo nội dung
 cargo run -p bo-cli -- convert in.docm --to dotx         # mẫu / có macro / trình chiếu (bỏ macro khi kiểu đích không chứa được); --to thmx: tệp chủ đề
 cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); --p12 f.p12 | --remote URL; --tsa URL (B-T)

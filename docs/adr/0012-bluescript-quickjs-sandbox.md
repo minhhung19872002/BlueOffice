@@ -81,8 +81,14 @@ hay trong một Web Worker thường, vẫn để lộ `fetch`, `postMessage`, `
      `Attribute VB_…` (siêu dữ liệu của tệp module xuất ra, không phải mã) được lược đi. Bản nháp
      luôn là JavaScript hợp lệ (test phân tích cú pháp mọi kết quả, kể cả đầu vào hỏng và chuỗi token ngẫu nhiên).
    - *Hạn chế*: ngữ nghĩa chỉ gần đúng (so sánh dùng `==`, ô trống là `null`, `ByRef` thành truyền giá trị, `And`/`Or`
-     coi là logic, không có mảng nhiều chiều); mã VBA phải được **dán vào** — BlueOffice mới chỉ đọc danh sách module
-     trong `vbaProject.bin` (`bo_binary::vba`), chưa trích mã nguồn module để hiện/chuyển trực tiếp từ tệp đang mở.
+     coi là logic, không có mảng nhiều chiều); mã VBA được dán vào, hoặc lấy từ tệp đang mở qua trình xem macro
+     chỉ đọc (mục 12).
+12. **Mã VBA của tệp đang mở làm đầu vào (CORE-VBA-002)**: engine đọc mã nguồn các module từ `vbaProject.bin`
+    ([MS-OVBA], `bo_binary::vba`; lệnh `vbaProject` ở cả ba cầu lệnh) chỉ để hiển thị. Hộp thoại chỉ đọc
+    `MacroViewer` (`packages/editor`, lệnh `script.viewMacros` và nút "Xem macro" trên thanh cảnh báo macro) gửi văn
+    bản một module cho ngăn BlueScript qua `ScriptPane.vbaDraft` (`{ id, source, module }`); ngăn chuyển ngay thành
+    bản nháp bằng đúng `convertVba` ở mục 11 — script mới chưa lưu, có danh sách cảnh báo, **không tự chạy**. VBA
+    vẫn không bao giờ chạy; việc xem mã không được ghi vào trình ghi thao tác.
 
 ## Hệ quả
 - Gói `@blueoffice/script` (~650 KB WASM, tải lười trong worker khi chạy lần đầu).

@@ -66,10 +66,20 @@ export function PasswordDialog({
 
 /**
  * Warning shown when a file carries macros ([MS-OVBA] VBA project, XLM macro
- * sheets): they are kept when saving but never run. `inline` places it in the
+ * sheets): they are kept when saving but never run; "View macros" opens the
+ * read-only viewer. `inline` places it in the
  * page flow (BlueSheet / BlueSlide) instead of over the document view.
  */
-export function MacroBanner({ onDismiss, inline }: { onDismiss: () => void; inline?: boolean }) {
+export function MacroBanner({
+  onDismiss,
+  onView,
+  inline,
+}: {
+  onDismiss: () => void;
+  /** Opens the read-only macro viewer (CORE-VBA-002). */
+  onView?: () => void;
+  inline?: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <div
@@ -79,7 +89,12 @@ export function MacroBanner({ onDismiss, inline }: { onDismiss: () => void; inli
       data-testid="macro-warning"
     >
       <span>{t('security.macroWarning')}</span>
-      <button type="button" onClick={onDismiss}>
+      {onView && (
+        <button type="button" onClick={onView} data-testid="macro-warning-view">
+          {t('security.viewMacros')}
+        </button>
+      )}
+      <button type="button" onClick={onDismiss} data-testid="macro-warning-dismiss">
         {t('security.dismiss')}
       </button>
     </div>

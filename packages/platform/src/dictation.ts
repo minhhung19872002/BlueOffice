@@ -556,7 +556,7 @@ export function resample(pcm: Float32Array, from: number, to: number): Float32Ar
 export const DICTATION_SAMPLE_RATE = 16_000;
 
 /** 16-bit mono PCM WAV of `pcm` (RIFF/WAVE, `fmt ` + `data` chunks). */
-export function encodeWav(pcm: Float32Array, sampleRate: number): Uint8Array {
+export function encodeWavMono(pcm: Float32Array, sampleRate: number): Uint8Array {
   const bytes = new Uint8Array(44 + pcm.length * 2);
   const v = new DataView(bytes.buffer);
   const ascii = (at: number, s: string) => {
@@ -781,7 +781,7 @@ export class ServerDictationProvider implements DictationProvider {
     const res = await this.fetchImpl(this.url(`/api/dictation?${q.toString()}`), {
       method: 'POST',
       headers: { ...(await this.opts.headers?.()), 'content-type': 'audio/wav' },
-      body: encodeWav(pcm, DICTATION_SAMPLE_RATE),
+      body: encodeWavMono(pcm, DICTATION_SAMPLE_RATE),
       signal,
     });
     if (!res.ok) {

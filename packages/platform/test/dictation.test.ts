@@ -11,7 +11,7 @@ import {
   defaultDictation,
   dictationError,
   dictationServerErrorCode,
-  encodeWav,
+  encodeWavMono,
   recognitionErrorCode,
   resample,
   webDictation,
@@ -220,7 +220,7 @@ describe('PhraseSegmenter', () => {
 
 describe('WAV encoding', () => {
   it('writes a 16-bit mono RIFF/WAVE file', () => {
-    const wav = encodeWav(Float32Array.from([0, 1, -1, 0.5]), 16000);
+    const wav = encodeWavMono(Float32Array.from([0, 1, -1, 0.5]), 16000);
     const v = new DataView(wav.buffer);
     const ascii = (a: number, n: number) => String.fromCharCode(...wav.slice(a, a + n));
     expect(ascii(0, 4)).toBe('RIFF');

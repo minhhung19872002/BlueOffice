@@ -52,6 +52,7 @@ import {
   CommandSearch,
   StatusBar,
   TitleBar,
+  QuickAccessBar,
   useCommandSearchShortcut,
   useResolvedTheme,
   TaskPaneHost,
@@ -242,6 +243,7 @@ import {
   shortcutCommands,
   useContextMenu,
   useCustomShortcuts,
+  useRibbonCustomization,
   type OpenContextMenu,
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
@@ -3473,6 +3475,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     open: shortcutsShown,
     onOpenChange: setShortcutsShown,
   });
+  // The user's ribbon and Quick Access Toolbar (CORE-UI-005).
+  const ribbonCustom = useRibbonCustomization({
+    app: 'sheet',
+    registry,
+    store: platform.shell,
+    files: platform.files,
+    tabs: () => ribbonTabsRef.current,
+    extraCommands: () => shortcutCommands([], registry, (id) => commandLabel(i18n, id)),
+    shortcuts,
+    enabled: (id) => !!state && registry.isEnabled(id, state),
+    run: (id) => run(id),
+  });
   const shortcutsVersion = shortcuts.version;
   const ribbonTabs: RibbonTab[] = useMemo(() => {
     // Rebuilt when the user's shortcuts change (tooltips show them).
@@ -4616,30 +4630,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           shortcut: 'Alt+Q',
           onOpen: () => setSearchOpen(true),
         }}
-        quickAccess={(
-          [
-            ['file.save', 'commands.file.save'],
-            ['edit.undo', 'commands.edit.undo'],
-            ['edit.redo', 'commands.edit.redo'],
-          ] as const
-        )
-          .map(([id, key]) => ({
-            id: id as string,
-            label: t(key),
-            shortcut: registry.get(id)?.shortcut,
-            enabled: state ? registry.isEnabled(id, state) : false,
-            onSelect: () => run(id),
-          }))
-          .concat(
-            scriptBindings.quickAccess.map((sc) => ({
-              id: `script.run.${sc.id}`,
-              icon: 'script.run',
-              label: t('script.runBound', { name: sc.name }),
-              shortcut: sc.shortcut,
-              enabled: !!info,
-              onSelect: () => run(`script.run.${sc.id}`),
-            })),
-          )}
+        quickAccess={
+          ribbonCustom.below
+            ? []
+            : ribbonCustom.quickAccess(
+                ribbonTabs,
+                scriptBindings.quickAccess.map((sc) => ({
+                  id: `script.run.${sc.id}`,
+                  icon: 'script.run',
+                  label: t('script.runBound', { name: sc.name }),
+                  shortcut: sc.shortcut,
+                  enabled: !!info,
+                  onSelect: () => run(`script.run.${sc.id}`),
+                })),
+              )
+        }
       />
       <CommandSearch
         tabs={ribbonTabs}
@@ -4660,7 +4665,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           open: backstage,
           onOpen: () => setBackstage(true),
         }}
+        {...ribbonCustom.ribbonProps()}
       />
+      {ribbonCustom.below && (
+        <QuickAccessBar
+          below
+          label={ribbonCustom.qatLabel}
+          items={ribbonCustom.quickAccess(ribbonTabs)}
+        />
+      )}
       <FileBackstage
         app="sheet"
         open={backstage}
@@ -5448,6 +5461,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       />
       {sheetMenu.element}
       {shortcuts.element}
+      {ribbonCustom.element}
       {tabMenu && (
         <ColorMenu
           x={tabMenu.x}

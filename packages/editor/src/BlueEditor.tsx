@@ -41,6 +41,7 @@ import {
   CommandSearch,
   StatusBar,
   TitleBar,
+  QuickAccessBar,
   useCommandSearchShortcut,
   nextDensity,
   nextTheme,
@@ -353,6 +354,7 @@ import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { FileBackstage, type BackstagePropertiesAccess } from './FileBackstage';
 import { useCustomShortcuts } from './ShortcutsDialog';
+import { useRibbonCustomization } from './RibbonCustomizeDialog';
 import { commandLabel, shortcutCommands, useContextMenu, type OpenContextMenu } from './commandUi';
 
 /**
@@ -2637,6 +2639,18 @@ function EditorInner({
     open: shortcutsShown,
     onOpenChange: setShortcutsShown,
   });
+  // The user's ribbon and Quick Access Toolbar (CORE-UI-005).
+  const ribbonCustom = useRibbonCustomization({
+    app: 'doc',
+    registry,
+    store: platform.shell,
+    files: platform.files,
+    tabs: () => ribbonTabsRef.current,
+    extraCommands: () => shortcutCommands([], registry, (id) => commandLabel(i18nInstance, id)),
+    shortcuts,
+    enabled: (id) => registry.isEnabled(id, store.getState()),
+    run: (id) => void registry.execute(id, store.getState()),
+  });
 
   const runCommand = useCallback(
     (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
@@ -4178,30 +4192,21 @@ function EditorInner({
           shortcut: 'Alt+Q',
           onOpen: () => setSearchOpen(true),
         }}
-        quickAccess={(
-          [
-            ['file.save', 'commands.file.save'],
-            ['edit.undo', 'commands.edit.undo'],
-            ['edit.redo', 'commands.edit.redo'],
-          ] as const
-        )
-          .map(([id, key]) => ({
-            id: id as string,
-            label: t(key),
-            shortcut: registry.get(id)?.shortcut,
-            enabled: registry.isEnabled(id, state),
-            onSelect: () => void registry.execute(id, store.getState()),
-          }))
-          .concat(
-            scriptBindings.quickAccess.map((sc) => ({
-              id: `script.run.${sc.id}`,
-              icon: 'script.run',
-              label: t('script.runBound', { name: sc.name }),
-              shortcut: sc.shortcut,
-              enabled: !!state.doc,
-              onSelect: () => void registry.execute(`script.run.${sc.id}`, store.getState()),
-            })),
-          )}
+        quickAccess={
+          ribbonCustom.below
+            ? []
+            : ribbonCustom.quickAccess(
+                [...tabs, ...contextTabs],
+                scriptBindings.quickAccess.map((sc) => ({
+                  id: `script.run.${sc.id}`,
+                  icon: 'script.run',
+                  label: t('script.runBound', { name: sc.name }),
+                  shortcut: sc.shortcut,
+                  enabled: !!state.doc,
+                  onSelect: () => void registry.execute(`script.run.${sc.id}`, store.getState()),
+                })),
+              )
+        }
         actions={
           <>
             {host?.showShare && (
@@ -4251,6 +4256,14 @@ function EditorInner({
                 open: backstage,
                 onOpen: () => setBackstage(true),
               }}
+              {...ribbonCustom.ribbonProps()}
+            />
+          )}
+          {ribbonCustom.below && !(state.focusMode && state.doc) && (
+            <QuickAccessBar
+              below
+              label={ribbonCustom.qatLabel}
+              items={ribbonCustom.quickAccess([...tabs, ...contextTabs])}
             />
           )}
           <main
@@ -4808,6 +4821,7 @@ function EditorInner({
               />
             )}
             {shortcuts.element}
+            {ribbonCustom.element}
             {state.legacyNotice > 0 && (
               <div
                 className={styles.macroBar}

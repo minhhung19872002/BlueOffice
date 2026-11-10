@@ -385,7 +385,9 @@
       "saveCopy": "Save a copy of the embedded workbook"
     },
     "options": {
-      "shortcuts": "Customize shortcuts…"
+      "shortcuts": "Customize shortcuts…",
+      "customizeRibbon": "Customize the ribbon…",
+      "customizeQat": "Customize the Quick Access Toolbar…"
     }
   },
   "status": {
@@ -6018,5 +6020,49 @@
     "cameraName": "Camera",
     "inkName": "Ink",
     "preview": "Camera preview"
+  },
+  "customize": {
+    "title": "Customize the ribbon",
+    "titleQat": "Customize the Quick Access Toolbar",
+    "pageRibbon": "Ribbon",
+    "pageQat": "Quick Access Toolbar",
+    "menu": "Customize",
+    "addToQat": "Add to Quick Access Toolbar",
+    "removeFromQat": "Remove from Quick Access Toolbar",
+    "search": "Search commands",
+    "filter": "Filter by tab",
+    "allTabs": "All commands",
+    "commands": "Commands",
+    "ribbonTree": "Ribbon tabs, groups and commands",
+    "qatList": "Quick Access Toolbar commands",
+    "add": "Add »",
+    "remove": "« Remove",
+    "newTab": "New tab",
+    "newGroup": "New group",
+    "newTabLabel": "New tab (Custom)",
+    "newGroupLabel": "New group (Custom)",
+    "rename": "Rename…",
+    "renameLabel": "New name",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "up": "Move up",
+    "down": "Move down",
+    "expand": "Expand / collapse",
+    "show": "Show {{name}}",
+    "custom": "(Custom)",
+    "resetTab": "Reset tab",
+    "resetAll": "Reset all",
+    "resetQat": "Reset toolbar",
+    "below": "Show the Quick Access Toolbar below the ribbon",
+    "export": "Export…",
+    "import": "Import…",
+    "close": "Close",
+    "exported": "Exported the ribbon, Quick Access Toolbar and shortcuts.",
+    "exportFailed": "Could not export the file.",
+    "imported": "Imported the ribbon, Quick Access Toolbar and shortcuts.",
+    "importedIgnored": "Imported. Skipped {{count}} commands this app does not have: {{ids}}",
+    "importInvalid": "The file is not a BlueOffice customization file.",
+    "importWrongApp": "This customization file is for another app.",
+    "importNewer": "The file was made by a newer version of BlueOffice."
   }
 }

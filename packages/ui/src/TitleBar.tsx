@@ -36,6 +36,44 @@ export interface TitleBarProps {
 }
 
 /**
+ * The Quick Access Toolbar's buttons: in the title bar, or in its own row below the ribbon
+ * (`below`, CORE-UI-005).
+ */
+export function QuickAccessBar({
+  items,
+  label,
+  below,
+}: {
+  items: readonly QuickAccessItem[];
+  label: string;
+  below?: boolean;
+}) {
+  return (
+    <div
+      className={below ? `${styles.qat} ${styles.qatBelow}` : styles.qat}
+      role="toolbar"
+      aria-label={label}
+      data-testid={below ? 'qat-below' : 'qat'}
+    >
+      {items.map((q) => (
+        <button
+          key={q.id}
+          type="button"
+          className={styles.qatButton}
+          data-command={`qat:${q.id}`}
+          aria-label={q.label}
+          title={q.shortcut ? `${q.label} (${q.shortcut})` : q.label}
+          disabled={q.enabled === false}
+          onClick={q.onSelect}
+        >
+          <Icon name={q.icon ?? q.id} size={16} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The 40px title bar shared by the three apps (docs/ui/DESIGN.md "Khung cửa sổ"): app mark and
  * quick-access commands on the left, document name with its save state in the middle, search
  * and actions on the right. It sits on the app accent band (`--bo-app-accent-strong`).
@@ -48,22 +86,7 @@ export function TitleBar(p: TitleBarProps) {
         <span className={styles.appName}>{p.appName}</span>
       </span>
       {p.quickAccess && p.quickAccess.length > 0 && (
-        <div className={styles.qat} role="toolbar" aria-label={p.quickAccessLabel}>
-          {p.quickAccess.map((q) => (
-            <button
-              key={q.id}
-              type="button"
-              className={styles.qatButton}
-              data-command={`qat:${q.id}`}
-              aria-label={q.label}
-              title={q.shortcut ? `${q.label} (${q.shortcut})` : q.label}
-              disabled={q.enabled === false}
-              onClick={q.onSelect}
-            >
-              <Icon name={q.icon ?? q.id} size={16} />
-            </button>
-          ))}
-        </div>
+        <QuickAccessBar items={p.quickAccess} label={p.quickAccessLabel} />
       )}
       <span className={styles.doc}>
         <span className={styles.docName} data-testid="doc-name">

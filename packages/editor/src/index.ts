@@ -23,6 +23,26 @@ export {
   type ShortcutCommand,
   type ShortcutsDialogProps,
 } from './ShortcutsDialog';
+export {
+  CUSTOMIZATION_FORMAT,
+  CUSTOMIZATION_VERSION,
+  exportCustomization,
+  importCustomization,
+  loadCustomization,
+  ribbonKey,
+  saveCustomization,
+  type ImportResult,
+  type UiCustomization,
+} from './ribbonCustomization';
+export {
+  customizeCommands,
+  RibbonCustomizeDialog,
+  useRibbonCustomization,
+  type CustomizeCommand,
+  type CustomizePage,
+  type RibbonCustomizationOptions,
+  type RibbonCustomizeDialogProps,
+} from './RibbonCustomizeDialog';
 export { commandLabel, shortcutCommands, useContextMenu, type OpenContextMenu } from './commandUi';
 export {
   SCRIPT_COMMAND_PREFIX,

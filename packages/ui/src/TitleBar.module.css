@@ -28,6 +28,24 @@
   gap: 2px;
 }
 
+.qatBelow {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  padding: 0 var(--bo-space-2, 8px);
+  background: var(--bo-surface);
+  color: var(--bo-text);
+  border-bottom: 1px solid var(--bo-border);
+}
+
+.qatBelow .qatButton:hover:not(:disabled) {
+  background: var(--bo-hover);
+}
+
+.qatBelow .qatButton:focus-visible {
+  outline-color: var(--bo-focus);
+}
+
 .qatButton {
   all: unset;
   display: inline-flex;

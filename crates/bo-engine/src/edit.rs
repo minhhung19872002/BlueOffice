@@ -870,6 +870,14 @@ pub enum Command {
     /// Check the document against Nghị định 30/2020/NĐ-CP (administrative document
     /// format): `adminFormat` of the result lists the deviations.
     CheckAdminFormat,
+    /// Correct the fixable deviations from Nghị định 30/2020/NĐ-CP (font, size, style,
+    /// alignment, paper, margins, body spacing, page number from page 2) in one undoable
+    /// edit; `adminFormat` of the result is the check after the fix.
+    FixAdminFormat {
+        /// Issue ids to fix (every occurrence of each); `None`: every fixable issue.
+        #[serde(default)]
+        ids: Option<Vec<String>>,
+    },
     /// Design tab state: page colour, page borders, watermark, themes, style sets.
     Design,
     /// Set (`None`: remove) the page colour (§17.2.1 background), `RRGGBB`.
@@ -1577,6 +1585,7 @@ impl crate::Engine {
                     | Command::MergePresets
                     | Command::NewFromTemplate { .. }
                     | Command::CheckAdminFormat
+                    | Command::FixAdminFormat { .. }
                     | Command::SetSavePassword { .. }
                     | Command::SaveFormat { .. }
                     | Command::EquationTemplates

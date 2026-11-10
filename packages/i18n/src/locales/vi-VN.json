@@ -254,6 +254,7 @@
       "reviewingPaneBottom": "Danh sách sửa đổi ở dưới",
       "protectForms": "Chỉ cho điền biểu mẫu…",
       "checkAdminFormat": "Kiểm tra thể thức (NĐ 30)",
+      "fixAdminFormat": "Sửa thể thức theo NĐ 30",
       "lockTracking": "Khoá theo dõi thay đổi…",
       "moveParagraphUp": "Chuyển đoạn lên",
       "moveParagraphDown": "Chuyển đoạn xuống",
@@ -4319,6 +4320,14 @@
     "summary": "Phát hiện {{n}} sai lệch; bấm vào một mục để chuyển tới đoạn văn.",
     "expected": "Quy định: {{value}}",
     "actual": "Hiện tại: {{value}}",
+    "fix": "Sửa",
+    "fixTitle": "Sửa sai lệch này ở mọi chỗ (có thể hoàn tác)",
+    "fixAll": "Sửa tất cả ({{n}})",
+    "fixed": "Đã sửa — bấm Hoàn tác (Ctrl+Z) để khôi phục.",
+    "severity": {
+      "error": "Lỗi",
+      "warning": "Lưu ý"
+    },
     "components": {
       "page": "Trang giấy",
       "font": "Phông chữ",

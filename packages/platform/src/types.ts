@@ -695,6 +695,8 @@ export type EditCommand =
   | { cmd: 'setNoteText'; endnote?: boolean; id: number; text: string }
   | { cmd: 'newFromTemplate'; id: string; name: string }
   | { cmd: 'checkAdminFormat' }
+  /** Correct the fixable Nghị định 30/2020 deviations (issue ids; all when omitted), one undoable edit. */
+  | { cmd: 'fixAdminFormat'; ids?: string[] }
   | { cmd: 'review' | 'acceptAllRevisions' | 'rejectAllRevisions' }
   /** Compare with an original (.docx / .odt / .doc): the differences become tracked changes. */
   | { cmd: 'compareWith'; name: string; base64: string }
@@ -1087,9 +1089,11 @@ export interface AdminFormatIssue {
   /** Start of the paragraph's text. */
   text?: string;
   count: number;
+  /** `fixAdminFormat` can correct it (every occurrence). */
+  fixable: boolean;
 }
 
-/** Result of `checkAdminFormat`. */
+/** Result of `checkAdminFormat` / `fixAdminFormat`. */
 export interface AdminFormatReport {
   issues: AdminFormatIssue[];
   /** Components recognised. */

@@ -254,6 +254,7 @@
       "reviewingPaneBottom": "Change list at the bottom",
       "protectForms": "Restrict to form filling…",
       "checkAdminFormat": "Check administrative format",
+      "fixAdminFormat": "Fix administrative format",
       "lockTracking": "Lock tracking…",
       "moveParagraphUp": "Move paragraph up",
       "moveParagraphDown": "Move paragraph down",
@@ -4319,6 +4320,14 @@
     "summary": "{{n}} deviations found; click one to go to its paragraph.",
     "expected": "Required: {{value}}",
     "actual": "Found: {{value}}",
+    "fix": "Fix",
+    "fixTitle": "Fix this deviation everywhere (can be undone)",
+    "fixAll": "Fix all ({{n}})",
+    "fixed": "Fixed — press Undo (Ctrl+Z) to restore.",
+    "severity": {
+      "error": "Error",
+      "warning": "Note"
+    },
     "components": {
       "page": "Page",
       "font": "Font",

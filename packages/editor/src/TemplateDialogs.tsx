@@ -90,16 +90,32 @@ function useValue() {
     /^[a-zA-Z]+$/.test(v) ? t(`adminFormat.values.${v}`, { defaultValue: v }) : v;
 }
 
-/** Review → Check administrative format (Nghị định 30/2020): the deviations found. */
+/**
+ * Review → Check administrative format (Nghị định 30/2020): the deviations found; a
+ * click goes to the paragraph, "Fix" corrects one deviation (every occurrence) and
+ * "Fix all" every fixable one — each one undoable edit (`fixAdminFormat`).
+ */
 export function AdminFormatDialog({ run, onClose }: { run: Run; onClose: () => void }) {
   const { t } = useTranslation();
   const value = useValue();
   const [report, setReport] = useState<AdminFormatReport | null>(null);
+  const [fixed, setFixed] = useState(false);
   const check = useCallback(() => {
-    void run({ cmd: 'checkAdminFormat' }).then((r) => setReport(r?.adminFormat ?? null));
+    void run({ cmd: 'checkAdminFormat' }).then((r) => {
+      setFixed(false);
+      setReport(r?.adminFormat ?? null);
+    });
   }, [run]);
   useEffect(check, [check]);
+  const fix = (ids?: string[]) => {
+    const cmd: EditCommand = ids ? { cmd: 'fixAdminFormat', ids } : { cmd: 'fixAdminFormat' };
+    void run(cmd).then((r) => {
+      if (r?.adminFormat) setReport(r.adminFormat);
+      setFixed(true);
+    });
+  };
   const issues = report?.issues ?? [];
+  const fixable = issues.filter((i) => i.fixable).length;
   return (
     <Dialog
       open
@@ -109,6 +125,15 @@ export function AdminFormatDialog({ run, onClose }: { run: Run; onClose: () => v
       width={620}
       footer={
         <>
+          <button
+            type="button"
+            className={styles.dialogButton}
+            data-testid="admin-format-fix-all"
+            disabled={fixable === 0}
+            onClick={() => fix()}
+          >
+            {t('adminFormat.fixAll', { n: fixable })}
+          </button>
           <button
             type="button"
             className={styles.dialogButton}
@@ -129,6 +154,7 @@ export function AdminFormatDialog({ run, onClose }: { run: Run; onClose: () => v
           {issues.length === 0
             ? t('adminFormat.ok')
             : t('adminFormat.summary', { n: issues.length })}
+          {fixed && ` ${t('adminFormat.fixed')}`}
         </p>
       )}
       {issues.length > 0 && (
@@ -146,6 +172,7 @@ export function AdminFormatDialog({ run, onClose }: { run: Run; onClose: () => v
                 }}
               >
                 <strong>
+                  <span className={tpl.severity}>{t(`adminFormat.severity.${i.severity}`)}</span>{' '}
                   {t(`adminFormat.components.${i.component}`)} —{' '}
                   {t(`adminFormat.props.${i.property}`)}
                   {i.section !== undefined && ` (${t('hf.section', { n: i.section + 1 })})`}
@@ -157,6 +184,17 @@ export function AdminFormatDialog({ run, onClose }: { run: Run; onClose: () => v
                 </span>
                 {i.text && <em>{i.text}</em>}
               </button>
+              {i.fixable && (
+                <button
+                  type="button"
+                  className={styles.dialogButton}
+                  data-testid="admin-format-fix"
+                  title={t('adminFormat.fixTitle')}
+                  onClick={() => fix([i.id])}
+                >
+                  {t('adminFormat.fix')}
+                </button>
+              )}
             </li>
           ))}
         </ul>

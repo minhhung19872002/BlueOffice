@@ -23,7 +23,7 @@ public sealed record JobDto(string Id, JobKind Kind, JobStatus Status, string? E
 {
     /// <summary>Maps a job.</summary>
     public static JobDto From(ConversionJob j) => new(
-        j.Id, j.Kind, j.Status, j.Error, $"/jobs/{j.Id}", j.Status == JobStatus.Succeeded ? $"/jobs/{j.Id}/result" : null, j.CreatedAt, j.CompletedAt);
+        j.Id, j.Kind, j.Status, j.Error, $"{j.UrlPrefix}/jobs/{j.Id}", j.Status == JobStatus.Succeeded ? $"{j.UrlPrefix}/jobs/{j.Id}/result" : null, j.CreatedAt, j.CompletedAt);
 }
 
 /// <summary>
@@ -40,15 +40,8 @@ public static class JobEndpoints
         group.MapPost("/thumbnail", (HttpContext ctx, CancellationToken ct) => SubmitAsync(ctx, JobKind.Thumbnail, ct));
         group.MapPost("/preview", (HttpContext ctx, CancellationToken ct) => SubmitAsync(ctx, JobKind.Preview, ct));
         group.MapPost("/extract-text", (HttpContext ctx, CancellationToken ct) => SubmitAsync(ctx, JobKind.ExtractText, ct));
-        group.MapGet("/jobs/{id}", async (string id, ClaimsPrincipal p, IJobQueue queue, CancellationToken ct) =>
-            Results.Ok(JobDto.From(await OwnedJobAsync(id, p, queue, ct))));
-        group.MapGet("/jobs/{id}/result", async (string id, ClaimsPrincipal p, IJobQueue queue, IObjectStore store, CancellationToken ct) =>
-        {
-            var job = await OwnedJobAsync(id, p, queue, ct);
-            return job.Status == JobStatus.Succeeded
-                ? Results.Stream(await store.OpenReadAsync(job.OutputKey, ct), job.OutputContentType, job.OutputFileName)
-                : Results.Conflict(JobDto.From(job));
-        });
+        group.MapGet("/jobs/{id}", StatusAsync);
+        group.MapGet("/jobs/{id}/result", ResultAsync);
 
         // Page images of a PNG preview (POST /preview with format=png): 1-based, owner only.
         group.MapGet("/jobs/{id}/pages/{page:int}", async (string id, int page, ClaimsPrincipal p, IJobQueue queue, IObjectStore store, CancellationToken ct) =>
@@ -72,19 +65,111 @@ public static class JobEndpoints
         _ => throw ApiException.BadRequest("Preview 'format' must be 'pdf' or 'png'."),
     };
 
+    /// <summary><c>GET …/jobs/{id}</c>: status of a job of the caller.</summary>
+    internal static async Task<IResult> StatusAsync(string id, ClaimsPrincipal p, IJobQueue queue, CancellationToken ct) =>
+        Results.Ok(JobDto.From(await OwnedJobAsync(id, p, queue, ct)));
+
+    /// <summary><c>GET …/jobs/{id}/result</c>: output of a finished job of the caller (409 with the status otherwise).</summary>
+    internal static async Task<IResult> ResultAsync(string id, HttpContext ctx, IJobQueue queue, IObjectStore store, CancellationToken ct)
+    {
+        var job = await OwnedJobAsync(id, ctx.User, queue, ct);
+        return job.Status == JobStatus.Succeeded
+            ? await OutputAsync(ctx, job, store, ct)
+            : Results.Conflict(JobDto.From(job));
+    }
+
+    private static async Task<IResult> OutputAsync(HttpContext ctx, ConversionJob job, IObjectStore store, CancellationToken ct)
+    {
+        if (job.EditsApplied is { } applied)
+        {
+            ctx.Response.Headers["X-Edits-Applied"] = applied.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            ctx.Response.Headers["X-Edits-Unmatched"] = (job.EditsUnmatched ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return Results.Stream(await store.OpenReadAsync(job.OutputKey, ct), job.OutputContentType, job.OutputFileName);
+    }
+
     private static async Task<ConversionJob> OwnedJobAsync(string id, ClaimsPrincipal p, IJobQueue queue, CancellationToken ct)
     {
         var job = await queue.GetAsync(id, ct);
         return job is not null && job.Owner == p.PrincipalKey() ? job : throw ApiException.NotFound("Job");
     }
 
-    private static async Task<IResult> SubmitAsync(HttpContext ctx, JobKind kind, CancellationToken ct)
+    /// <summary>PDF export options of a conversion (<c>pdfa</c> = 1b|2b|3b, <c>tagged</c>, <c>bookmarks</c>), validated.</summary>
+    internal static void ReadPdfOptions(IFormCollection form, ConversionJob job)
+    {
+        var pdfa = ((string?)form["pdfa"] ?? "").Trim().ToLowerInvariant();
+        if (pdfa.Length > 0)
+        {
+            if (!ConversionFormats.PdfALevels.Contains(pdfa))
+            {
+                throw ApiException.BadRequest("'pdfa' must be 1b, 2b or 3b.");
+            }
+
+            job.Options["pdfa"] = pdfa;
+        }
+
+        foreach (var flag in new[] { "tagged", "bookmarks" })
+        {
+            if (IsTrue(form[flag]))
+            {
+                job.Options[flag] = "true";
+            }
+        }
+    }
+
+    /// <summary>True for a form flag set to <c>true</c> / <c>1</c>.</summary>
+    internal static bool IsTrue(string? value) => value is not null && (value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1");
+
+    /// <summary>
+    /// Queues <paramref name="job"/> (its inputs are already in the object store). With <paramref name="wait"/> the
+    /// result is returned directly when it is ready within <c>Worker:WaitTimeout</c>; otherwise <c>202</c> + status URL.
+    /// </summary>
+    internal static async Task<IResult> EnqueueAsync(HttpContext ctx, ConversionJob job, bool wait, CancellationToken ct)
     {
         var services = ctx.RequestServices;
         var queue = services.GetRequiredService<IJobQueue>();
         var store = services.GetRequiredService<IObjectStore>();
-        var storage = services.GetRequiredService<StorageOptions>();
         var worker = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<WorkerOptions>>().Value;
+        await queue.EnqueueAsync(job, ct);
+        JobMetrics.Submitted.Add(1, new KeyValuePair<string, object?>("kind", job.Kind.ToString()));
+
+        if (wait)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(worker.WaitTimeout);
+            try
+            {
+                while (true)
+                {
+                    var current = await queue.GetAsync(job.Id, timeout.Token);
+                    if (current?.Status == JobStatus.Succeeded)
+                    {
+                        return await OutputAsync(ctx, current, store, ct);
+                    }
+
+                    if (current?.Status == JobStatus.Failed)
+                    {
+                        return Results.Problem(current.Error, statusCode: StatusCodes.Status422UnprocessableEntity);
+                    }
+
+                    await Task.Delay(100, timeout.Token);
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Fall through to 202.
+            }
+        }
+
+        return Results.Accepted($"{job.UrlPrefix}/jobs/{job.Id}", JobDto.From(job));
+    }
+
+    private static async Task<IResult> SubmitAsync(HttpContext ctx, JobKind kind, CancellationToken ct)
+    {
+        var services = ctx.RequestServices;
+        var store = services.GetRequiredService<IObjectStore>();
+        var storage = services.GetRequiredService<StorageOptions>();
         var time = services.GetRequiredService<TimeProvider>();
         if (!ctx.Request.HasFormContentType)
         {
@@ -112,6 +197,11 @@ public static class JobEndpoints
             Owner = ctx.User.PrincipalKey(),
             CreatedAt = time.GetUtcNow().UtcDateTime,
         };
+        if (kind == JobKind.Convert)
+        {
+            ReadPdfOptions(form, job);
+        }
+
         if (int.TryParse(form["page"], out var page))
         {
             job.Page = page;
@@ -132,38 +222,7 @@ public static class JobEndpoints
             await store.PutAsync(job.InputKey, s, "application/octet-stream", ct);
         }
 
-        await queue.EnqueueAsync(job, ct);
-        JobMetrics.Submitted.Add(1, new KeyValuePair<string, object?>("kind", kind.ToString()));
-
-        if (ctx.Request.Query["wait"] == "true")
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(worker.WaitTimeout);
-            try
-            {
-                while (true)
-                {
-                    var current = await queue.GetAsync(job.Id, timeout.Token);
-                    if (current?.Status == JobStatus.Succeeded)
-                    {
-                        return Results.Stream(await store.OpenReadAsync(current.OutputKey, ct), current.OutputContentType, current.OutputFileName);
-                    }
-
-                    if (current?.Status == JobStatus.Failed)
-                    {
-                        return Results.Problem(current.Error, statusCode: StatusCodes.Status422UnprocessableEntity);
-                    }
-
-                    await Task.Delay(100, timeout.Token);
-                }
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                // Fall through to 202.
-            }
-        }
-
-        return Results.Accepted($"/jobs/{job.Id}", JobDto.From(job));
+        return await EnqueueAsync(ctx, job, ctx.Request.Query["wait"] == "true", ct);
     }
 }
 

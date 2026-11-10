@@ -420,6 +420,83 @@
   min-width: 0;
 }
 
+/* The grid and, when split, its second pane (CORE-UI-007). */
+.splitWrap {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.splitWrap[hidden] {
+  display: none;
+}
+
+.splitWrap[data-split='horizontal'] {
+  flex-direction: column;
+}
+
+.splitWrap > .scroller {
+  min-width: 0;
+}
+
+.splitPane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.splitBar {
+  flex: none;
+  box-sizing: border-box;
+  background: var(--bo-surface-2);
+  border: 0 solid var(--bo-border);
+  touch-action: none;
+}
+
+.splitBar[data-orientation='horizontal'] {
+  height: 6px;
+  border-width: 1px 0;
+  cursor: row-resize;
+}
+
+.splitBar[data-orientation='vertical'] {
+  width: 6px;
+  border-width: 0 1px;
+  cursor: col-resize;
+}
+
+.splitBar:hover,
+.splitBar:focus-visible {
+  background: var(--bo-sheet-accent, #0b7a6b);
+}
+
+.splitActive {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid var(--bo-chrome-cursor, #1a5fcc);
+}
+
+/* High contrast (CORE-UI-007): the cell cursor in two tones, visible on any cell fill. */
+:global([data-theme='hc']) .selection,
+:global([data-theme='hc']) .splitActive {
+  border: 3px solid var(--bo-chrome-cursor);
+  outline: 1px solid var(--bo-chrome-halo);
+  background: transparent;
+  forced-color-adjust: none;
+}
+
+@media (forced-colors: active) {
+  .selection,
+  .splitActive {
+    border: 3px solid var(--bo-chrome-cursor);
+    outline: 1px solid var(--bo-chrome-halo);
+    background: transparent;
+    forced-color-adjust: none;
+  }
+}
+
 .pivotPanel {
   display: flex;
   flex-direction: column;

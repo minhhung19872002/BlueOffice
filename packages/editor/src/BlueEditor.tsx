@@ -1,4 +1,13 @@
-import { DocumentView } from '@blueoffice/canvas-host';
+import {
+  DocumentView,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  type DocumentViewOptions,
+  type ImeEvent,
+} from '@blueoffice/canvas-host';
+import { overtypeInsert } from './overtype';
+import { WordCountDialog } from './WordCountDialog';
+import { useWindowTools, type WindowTools } from './windowTools';
 import { loadIgnoredWords, loadUserWords, saveUserWord } from './SpellMenu';
 import {
   LanguageDialog,
@@ -27,9 +36,14 @@ import type {
   ViewLayoutMode,
 } from '@blueoffice/platform';
 import {
+  BLOCK_STORE_KEY,
   PASSWORD_REQUIRED,
+  SPLIT_DEFAULT,
+  SPLIT_MIN,
   THEME_MIME,
   WEB_FORMAT_COMMANDS,
+  clampSplit,
+  dragSplit,
   WRONG_PASSWORD,
   openExtensions,
   openProtection,
@@ -42,7 +56,14 @@ import {
   ribbonLabels,
   RIBBON_CONTEXTS,
   CommandSearch,
+  STATUS_ITEMS,
   StatusBar,
+  StatusButtons,
+  StatusZoom,
+  getThemePref,
+  setThemePref,
+  useStatusBarPrefs,
+  useThemePref,
   TitleBar,
   QuickAccessBar,
   useCommandSearchShortcut,
@@ -97,6 +118,7 @@ import {
   Grid2x2,
   Grid3x3,
   LayoutTemplate,
+  LibraryBig,
   Paintbrush,
   PanelBottom,
   PanelTop,
@@ -223,15 +245,20 @@ import {
   Palette,
   MessageSquare,
   SquareTerminal,
+  FileCode2,
   CircleDot,
   Shapes,
+  AppWindow,
+  LayoutGrid,
+  Rows2,
+  RotateCcw,
 } from 'lucide-react';
 import { docScriptHost, recordEngine, ScriptPane, ScriptRecorder } from '@blueoffice/script';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
 import { useScriptBindings } from './scriptBindings';
-import { DocController } from './controller';
+import { DocController, type EditView } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel } from './Panels';
 import { SymbolPanel } from './SymbolPanel';
@@ -250,6 +277,13 @@ import {
 } from './TrackingControls';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { SaveAsTypeDialog, planOpen, saveName } from './FileVariants';
+import {
+  BlockGalleryMenu,
+  BlocksOrganizer,
+  blockErrorKey,
+  clearBlockPreviews,
+  SaveBlockDialog,
+} from './BuildingBlocks';
 import { fromBase64, toBase64 } from './clipboard/docPaste';
 import {
   identityNames,
@@ -456,7 +490,8 @@ function EditorInner({
   platform: basePlatform,
   app = 'doc',
   language = 'vi-VN',
-  theme = 'light',
+  // Follows the system (dark mode, forced colours / more contrast) like BlueSheet and BlueSlide.
+  theme = 'auto',
   host,
   sampleUrl,
   onDocumentOpened,
@@ -474,7 +509,14 @@ function EditorInner({
   useEffect(() => recorder.subscribe(() => setRecorderTick((n) => n + 1)), [recorder]);
   const [store] = useState(() => createEditorStore(language, theme));
   const state = useStore(store);
-  const resolvedTheme = useResolvedTheme(state.theme);
+  // The theme picked in File › Options (remembered) wins over the editor's own setting.
+  const themeSetting = useThemePref(state.theme);
+  const resolvedTheme = useResolvedTheme(themeSetting);
+  const resolvedThemeRef = useRef(resolvedTheme);
+  useEffect(() => {
+    resolvedThemeRef.current = resolvedTheme;
+  });
+  const windowsRef = useRef<WindowTools | null>(null);
   const density = useDensity();
   const viewHost = useRef<HTMLDivElement>(null);
   // Command UI (CORE-UI-003 / 004): context menu, mini toolbar, shortcut dialog.
@@ -485,6 +527,11 @@ function EditorInner({
   const ribbonTabsRef = useRef<RibbonTab[]>([]);
   const [mini, setMini] = useState<{ x: number; y: number } | null>(null);
   const view = useRef<DocumentView | null>(null);
+  // Split view (CORE-UI-007): the second pane's page view and which pane has the keyboard.
+  const splitHost = useRef<HTMLDivElement>(null);
+  const splitView = useRef<DocumentView | null>(null);
+  const activePane = useRef<0 | 1>(0);
+  const paneOptions = useRef<DocumentViewOptions>({});
   // Read aloud (CORE-LANG-003): the commands reach the hook through a ref.
   const readAloud = useReadAloud(platform.speech, 'paragraph');
   const readAloudRef = useRef<ReadAloud | null>(null);
@@ -544,6 +591,9 @@ function EditorInner({
   );
   /** New Style / Organizer dialog asked of the Styles pane (DOC-STYLE-001). */
   const [stylesRequest, setStylesRequest] = useState<StylesPaneRequest | null>(null);
+  // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
+  const [vbaRequest, setVbaRequest] = useState(0);
+  const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
@@ -609,6 +659,8 @@ function EditorInner({
         protectUi: null,
       });
       view.current?.setDocument(info);
+      splitView.current?.setDocument(info);
+      store.setState({ proofErrors: null });
       // Focus at once: typing may start while the set-up commands below are still running.
       view.current?.focus();
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
@@ -648,6 +700,8 @@ function EditorInner({
         templateFile.current = plan.variant?.template ? file : null;
         stored.current = plan.fromTemplate ? null : (doc ?? null);
         openedBytes.current = file.bytes;
+        // Another document: its blocks (keys `doc:N`) are not the previous one's.
+        clearBlockPreviews();
         await loaded(info);
         if (plan.fromTemplate) {
           store.setState({
@@ -708,13 +762,48 @@ function EditorInner({
 
   /** Embedded / linked workbooks (CORE-EMBED-001), behind the `object.*` commands. */
   const [objectHub] = useState(() => new ObjectActionsHub());
+  // Typing: the Insert key switches overtype mode, in which text replaces what follows.
+  const handleInput = useCallback(
+    (e: ImeEvent) => {
+      const c = controller.current;
+      if (!c) return;
+      if (e.type === 'key' && e.key === 'Insert' && !e.ctrl && !e.shift && !e.alt) {
+        store.setState({ overtype: !store.getState().overtype });
+        return;
+      }
+      if (e.type === 'insert' && store.getState().overtype) {
+        void overtypeInsert((cmd) => c.run(cmd), e.text, store.getState().edit?.selection);
+        return;
+      }
+      c.input(e);
+    },
+    [store],
+  );
+  /** The pane that has the keyboard: page number and zoom in the status bar are its. */
+  const activatePane = useCallback(
+    (pane: 0 | 1) => {
+      if (activePane.current === pane) return;
+      activePane.current = pane;
+      const v = pane === 1 ? splitView.current : view.current;
+      if (v) store.setState({ zoom: v.zoom });
+    },
+    [store],
+  );
+  const activeView = useCallback(
+    () => (activePane.current === 1 && splitView.current) || view.current,
+    [],
+  );
   // Engine + view lifecycle.
   useEffect(() => {
     if (app !== 'doc' || !viewHost.current) return;
-    const v = new DocumentView(viewHost.current, platform.engine, {
-      onPageChange: (page) => store.setState({ page }),
-      onZoomChange: (zoom) => store.setState({ zoom }),
-      onInput: (e) => controller.current?.input(e),
+    const viewOptions: DocumentViewOptions = {
+      onPageChange: (page) => {
+        if (activePane.current === 0) store.setState({ page });
+      },
+      onZoomChange: (zoom) => {
+        if (activePane.current === 0) store.setState({ zoom });
+      },
+      onInput: handleInput,
       onPointer: (e) => {
         controller.current?.pointer(e);
         if (e.type === 'down') setMini(null);
@@ -764,8 +853,29 @@ function EditorInner({
         ),
       // Right click: the context menu of what is under the pointer (spelling first).
       onContextMenu: (e) => void contextMenuAt.current(e),
+    };
+    paneOptions.current = viewOptions;
+    const v = new DocumentView(viewHost.current, platform.engine, {
+      ...viewOptions,
+      onPointer: (e) => {
+        if (e.type === 'down') activatePane(0);
+        viewOptions.onPointer?.(e);
+      },
     });
     view.current = v;
+    // Both panes of a split show every change; the caret scrolls into view in the active one.
+    const panes: EditView = {
+      refresh: (info, dirty) => {
+        v.refresh(info, dirty);
+        splitView.current?.refresh(info, dirty);
+      },
+      setSelection: (caret, rects, scroll = true) => {
+        const second = splitView.current;
+        const lower = !!second && activePane.current === 1;
+        v.setSelection(caret, rects, lower ? false : scroll);
+        second?.setSelection(caret, rects, lower ? scroll : false);
+      },
+    };
     // Spelling marks follow edits after a short pause (the engine caches unchanged paragraphs).
     let spellTimer: ReturnType<typeof setTimeout> | undefined;
     const refreshSpelling = () => {
@@ -774,18 +884,22 @@ function EditorInner({
         const s = store.getState();
         if (s.spellingOn || s.grammarOn)
           void controller.current?.query({ cmd: 'spelling' }).then((r) => {
-            if (r?.spelling) v.setSpelling(r.spelling);
+            if (!r?.spelling) return;
+            v.setSpelling(r.spelling);
+            store.setState({ proofErrors: r.spelling.length });
           });
       }, 400);
     };
     controller.current = new DocController(
       platform.engine,
-      v,
+      panes,
       platform.clipboard,
       (r) => {
         measure();
-        if (r.spelling) v.setSpelling(r.spelling);
-        else if (r.dirty.length) refreshSpelling();
+        if (r.spelling) {
+          v.setSpelling(r.spelling);
+          store.setState({ proofErrors: r.spelling.length });
+        } else if (r.dirty.length) refreshSpelling();
         // Find "highlight all": new boxes with a find, stale ones dropped after an edit.
         if (r.highlights) v.setFindHighlights(r.highlights);
         else if (r.dirty.length) v.setFindHighlights([]);
@@ -800,8 +914,13 @@ function EditorInner({
           ...(r.merge ? { merge: r.merge } : {}),
           ...(r.security ? { security: r.security } : {}),
         });
+        // The user's building blocks file changed: keep it through the platform.
+        if (r.blocks?.store)
+          void platform.offline.put(BLOCK_STORE_KEY, fromBase64(r.blocks.store)).catch(() => {});
         if (isProtectionRefusal(r.error))
           store.setState({ status: { kind: 'info', key: refusalKey(r.error) } });
+        else if (blockErrorKey(r.error))
+          store.setState({ status: { kind: 'info', key: blockErrorKey(r.error) ?? '' } });
         else if (r.error)
           fail(formErrorKey(r.error) ?? reviewErrorKey(r.error) ?? 'errors.edit', r.error);
       },
@@ -818,6 +937,16 @@ function EditorInner({
           void controller.current?.run({ cmd: 'spellIgnore', word });
         const proof = loadProofOptions();
         if (proof) void controller.current?.run({ cmd: 'proofOptions', ...proof });
+        // The user's building blocks (a .dotx kept by the platform) for the galleries and F3.
+        void platform.offline
+          .get(BLOCK_STORE_KEY)
+          .then((bytes) =>
+            bytes?.length
+              ? platform.engine.command({ cmd: 'loadBlockStore', file: toBase64(bytes) })
+              : null,
+          )
+          // No document is open yet: the engine keeps the store and answers with an error.
+          .catch(() => {});
       },
       (e: unknown) => fail('errors.engine', e),
     );
@@ -842,7 +971,54 @@ function EditorInner({
       view.current = null;
       controller.current = null;
     };
-  }, [app, platform, store, fail, measure, i18nInstance, objectHub]);
+  }, [app, platform, store, fail, measure, i18nInstance, objectHub, handleInput, activatePane]);
+
+  // Split view (CORE-UI-007): a second page view of the same document, below the first,
+  // with its own scroll position and zoom. Edits made in either pane show in both.
+  const splitOn = state.split !== null && !!state.doc;
+  useEffect(() => {
+    const host = splitHost.current;
+    const main = view.current;
+    const info = store.getState().doc;
+    if (!splitOn || !host || !main || !info) return;
+    const base = { ...paneOptions.current };
+    delete base.onViewport;
+    const second = new DocumentView(host, platform.engine, {
+      ...base,
+      onPageChange: (page) => {
+        if (activePane.current === 1) store.setState({ page });
+      },
+      onZoomChange: (zoom) => {
+        if (activePane.current === 1) store.setState({ zoom });
+      },
+      onPointer: (e) => {
+        if (e.type === 'down') activatePane(1);
+        base.onPointer?.(e);
+      },
+    });
+    second.scroller.dataset.testid = 'split-scroller';
+    second.setDocument(info);
+    second.setPageMode(main.pageMode);
+    second.setZoom(main.zoom);
+    const edit = store.getState().edit;
+    if (edit) second.setSelection(edit.caret, edit.rects, false);
+    splitView.current = second;
+    // The new pane starts at the place the first one shows.
+    const frame = requestAnimationFrame(() => {
+      second.scroller.scrollTop = main.scroller.scrollTop;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      splitView.current = null;
+      second.dispose();
+      activatePane(0);
+      store.setState({ zoom: main.zoom });
+    };
+  }, [splitOn, platform, store, activatePane]);
+  // The panes changed size without a window resize: lay the pages out again.
+  useEffect(() => {
+    window.dispatchEvent(new Event('resize'));
+  }, [state.split]);
   // Dictation (CORE-LANG-002): at the caret through the controller; interim text drawn by the view.
   const dictationTarget = useCallback(
     () =>
@@ -872,6 +1048,7 @@ function EditorInner({
     const mode: ViewLayoutMode =
       state.viewMode === 'web' ? 'web' : state.viewMode === 'draft' ? 'draft' : 'print';
     v.setPageMode(mode);
+    splitView.current?.setPageMode(mode);
     const send = () => {
       const width = mode === 'web' ? Math.floor(v.contentWidthPt()) : 0;
       const key = `${mode}:${width}`;
@@ -1745,22 +1922,58 @@ function EditorInner({
       id: 'view.zoomIn',
       shortcut: 'Ctrl+Shift+=',
       isEnabled: hasDoc,
-      run: (s) => view.current?.setZoom(s.zoom * 1.1),
+      run: (s) => activeView()?.setZoom(s.zoom * 1.1),
     });
     r.register({
       id: 'view.zoomOut',
       shortcut: 'Ctrl+-',
       isEnabled: hasDoc,
-      run: (s) => view.current?.setZoom(s.zoom / 1.1),
+      run: (s) => activeView()?.setZoom(s.zoom / 1.1),
     });
     r.register({
       id: 'view.zoomReset',
       shortcut: 'Ctrl+0',
       isEnabled: hasDoc,
       isChecked: (s) => s.zoom === 1,
-      run: () => view.current?.setZoom(1),
+      run: () => activeView()?.setZoom(1),
     });
-    r.register({ id: 'view.fitWidth', isEnabled: hasDoc, run: () => view.current?.fitWidth() });
+    r.register({ id: 'view.fitWidth', isEnabled: hasDoc, run: () => activeView()?.fitWidth() });
+    // Window (CORE-UI-007): second window, split panes, side by side.
+    const paged = (s: EditorState) =>
+      hasDoc(s) && s.viewMode !== 'outline' && s.viewMode !== 'read';
+    r.register({ id: 'window.new', run: () => windowsRef.current?.newWindow() });
+    r.register({ id: 'window.arrangeAll', run: () => windowsRef.current?.arrangeAll() });
+    r.register({
+      id: 'window.split',
+      shortcut: 'Ctrl+Alt+S',
+      isEnabled: paged,
+      isChecked: (s) => s.split !== null,
+      run: (s) => {
+        store.setState({ split: s.split === null ? SPLIT_DEFAULT : null });
+        view.current?.focus();
+      },
+    });
+    r.register({
+      id: 'window.sideBySide',
+      isChecked: (s) => s.sideBySide,
+      run: () => windowsRef.current?.sideBySide(),
+    });
+    r.register({
+      id: 'window.syncScroll',
+      isEnabled: (s) => s.sideBySide,
+      isChecked: (s) => s.sideBySide && s.syncScroll,
+      run: () => windowsRef.current?.toggleSynchronous(),
+    });
+    r.register({
+      id: 'window.resetPosition',
+      isEnabled: (s) => s.sideBySide,
+      run: () => windowsRef.current?.resetPosition(),
+    });
+    r.register({
+      id: 'review.wordCount',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'wordCount' }),
+    });
     r.register({
       id: 'view.collaborators',
       isChecked: (s) => s.showPeers,
@@ -1768,9 +1981,10 @@ function EditorInner({
     });
     r.register({
       id: 'view.toggleTheme',
-      isChecked: (s) => s.theme === 'dark' || s.theme === 'hc',
+      isChecked: (s) => ['dark', 'hc'].includes(getThemePref() ?? s.theme),
       // Light → dark → high contrast → light (UI-TOKENS-002).
-      run: (s) => store.setState({ theme: nextTheme(s.theme) }),
+      // From the theme shown now (`auto` is whatever the system gave).
+      run: () => setThemePref(nextTheme(resolvedThemeRef.current)),
     });
     r.register({
       id: 'view.density',
@@ -2451,6 +2665,17 @@ function EditorInner({
       isChecked: (s) => s.taskPanes.includes('script'),
       run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'script') }),
     });
+    // Macro VBA → BlueScript draft (CORE-SCRIPT-003): VBA is only read, never run.
+    r.register({
+      id: 'script.convertVba',
+      isEnabled: hasDoc,
+      run: (s) => {
+        if (!s.taskPanes.includes('script')) {
+          store.setState({ taskPanes: togglePane(s.taskPanes, 'script') });
+        }
+        setVbaRequest((n) => n + 1);
+      },
+    });
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     r.register({
       id: 'script.record',
@@ -2557,6 +2782,32 @@ function EditorInner({
         await run({ cmd: 'formatParagraph', format: { kind: 'align', align: 'Center' } });
         await run({ cmd: 'insertField', instr: 'PAGE' });
       },
+    });
+    // Building blocks (§17.12 glossary document): save the selection, Organizer, F3.
+    r.register({
+      id: 'insert.saveBlock',
+      shortcut: 'Alt+F3',
+      isEnabled: (s) => {
+        const sel = s.edit?.selection;
+        return (
+          hasDoc(s) &&
+          !s.edit?.story &&
+          !!sel &&
+          (sel.anchor.p !== sel.focus.p || sel.anchor.o !== sel.focus.o)
+        );
+      },
+      run: () => store.setState({ dialog: 'saveBlock' }),
+    });
+    r.register({
+      id: 'insert.blocksOrganizer',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'blocksOrganizer' }),
+    });
+    r.register({
+      id: 'insert.autoText',
+      shortcut: 'F3',
+      isEnabled: (s) => hasDoc(s) && !s.edit?.story,
+      run: () => run({ cmd: 'expandAutoText' }),
     });
     // Footnotes and endnotes (§17.11).
     r.register({
@@ -2669,6 +2920,7 @@ function EditorInner({
   }, [
     platform,
     store,
+    activeView,
     sampleUrl,
     openFile,
     newDocument,
@@ -2859,10 +3111,109 @@ function EditorInner({
       ? t(`spell.lang.${fs.lang}`)
       : fs.lang
     : t('spell.lang.none');
+  /** Engine queries of dialogs (they change neither the document nor the selection). */
+  const queryDoc = useCallback(
+    (c: EditCommand) => controller.current?.query(c) ?? Promise.resolve(null),
+    [],
+  );
+  // View › Window (CORE-UI-007): the other windows, side by side, New Window.
+  const windowTools = useWindowTools({
+    platform,
+    app: 'doc',
+    title: state.doc?.name ?? '',
+    scroller: () => view.current?.scroller ?? null,
+    getFile: async () => {
+      const d = store.getState().doc;
+      if (!d) return null;
+      return {
+        bytes: await platform.engine.saveDocx(),
+        name: `${d.name.replace(/\.[^.]+$/, '')}.docx`,
+      };
+    },
+    notify: (text) =>
+      store.setState({ status: { kind: 'info', key: 'windows.message', params: { text } } }),
+    t,
+  });
+  useEffect(() => {
+    windowsRef.current = windowTools;
+  });
+  const sideBySide = !!windowTools.paired;
+  useEffect(() => {
+    store.setState({ sideBySide, syncScroll: windowTools.synchronous });
+  }, [store, sideBySide, windowTools.synchronous]);
+
+  // Status bar (CORE-UI-007): the user's items; words of the selection; Caps Lock.
+  const statusBar = useStatusBarPrefs(platform.shell, 'doc');
+  const [selectionWords, setSelectionWords] = useState<number | null>(null);
+  const selection = state.edit?.selection;
+  const hasSelection =
+    !!selection &&
+    (selection.anchor.p !== selection.focus.p || selection.anchor.o !== selection.focus.o);
+  const wordsShown = statusBar.shown('words');
+  useEffect(() => {
+    if (!hasSelection || !wordsShown) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      void controller.current?.query({ cmd: 'wordCount' }).then((r) => {
+        if (live) setSelectionWords(r?.wordCount?.selection?.words ?? null);
+      });
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [hasSelection, wordsShown, selection, state.layoutVersion]);
+  const [capsLock, setCapsLock] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => setCapsLock(e.getModifierState?.('CapsLock') ?? false);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+    };
+  }, []);
+  const navOpen = !!state.navPane && !!state.doc && !state.focusMode;
+  // Status bar texts (also the current values in its "customise" checklist).
+  const wordTotal = state.doc?.wordCount ?? 0;
+  const statusValues: Record<string, string | undefined> = state.doc
+    ? {
+        page: t('status.page', { current: state.page + 1, total: state.doc.pageCount }),
+        words:
+          hasSelection && selectionWords !== null
+            ? t('statusBar.wordsSelected', { selected: selectionWords, count: wordTotal })
+            : t('status.words', { count: wordTotal }),
+        proofing:
+          state.proofErrors === null
+            ? undefined
+            : state.proofErrors > 0
+              ? t('statusBar.proofingErrors')
+              : t('statusBar.proofingClean'),
+        language: languageLabel,
+        trackChanges: t(
+          state.review?.trackChanges ? 'statusBar.trackChangesOn' : 'statusBar.trackChangesOff',
+        ),
+        capsLock: capsLock ? t('statusBar.on') : t('statusBar.off'),
+        overtype: t(state.overtype ? 'statusBar.overtype' : 'statusBar.insert'),
+        zoom: t('status.zoom', { value: Math.round(state.zoom * 100) }),
+      }
+    : {};
   const noDoc = !state.doc;
   const focusDoc = () => view.current?.focus();
   const runFocus = (c: EditCommand) =>
-    (controller.current?.run(c) ?? Promise.resolve(null)).then(() => focusDoc());
+    (controller.current?.run(c) ?? Promise.resolve(null)).then((r) => {
+      focusDoc();
+      return r;
+    });
+  /** Page whose header / footer a gallery block replaces: the caret's. */
+  const blockPage = state.edit?.caret?.page ?? state.page;
+  /** A registry command at the bottom of a building block gallery. */
+  const blockAction = (id: string, key: string) => ({
+    id,
+    label: t(key),
+    disabled: !registry.isEnabled(id, state),
+    onSelect: () => void registry.execute(id, store.getState()),
+  });
   const tableTab: RibbonTab[] = fs?.table
     ? [
         {
@@ -3357,9 +3708,86 @@ function EditorInner({
           id: 'headerFooter',
           label: t('ribbon.groups.headerFooter'),
           items: [
-            item('insert.header', 'commands.insert.header', <PanelTop size={ICON} />),
-            item('insert.footer', 'commands.insert.footer', <PanelBottom size={ICON} />),
-            item('insert.pageNumber', 'commands.insert.pageNumber', <Hash size={ICON} />),
+            custom(
+              'insert.headerGallery',
+              <BlockGalleryMenu
+                groups={['header']}
+                label={t('commands.insert.header')}
+                icon={<PanelTop size={16} />}
+                testId="header-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.header', 'blocks.menu.editHeader')]}
+              />,
+            ),
+            custom(
+              'insert.footerGallery',
+              <BlockGalleryMenu
+                groups={['footer']}
+                label={t('commands.insert.footer')}
+                icon={<PanelBottom size={16} />}
+                testId="footer-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.footer', 'blocks.menu.editFooter')]}
+              />,
+            ),
+            custom(
+              'insert.pageNumberGallery',
+              <BlockGalleryMenu
+                groups={['pageNumber']}
+                label={t('commands.insert.pageNumber')}
+                icon={<Hash size={16} />}
+                testId="page-number-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.pageNumber', 'blocks.menu.pageNumberHere')]}
+              />,
+            ),
+          ],
+        },
+        {
+          id: 'buildingBlocks',
+          label: t('ribbon.groups.buildingBlocks'),
+          items: [
+            custom(
+              'insert.coverPageGallery',
+              <BlockGalleryMenu
+                groups={['coverPage']}
+                label={t('commands.insert.coverPage')}
+                icon={<LayoutTemplate size={16} />}
+                testId="cover-page-gallery"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[blockAction('insert.blocksOrganizer', 'commands.insert.blocksOrganizer')]}
+              />,
+            ),
+            custom(
+              'insert.buildingBlocks',
+              <BlockGalleryMenu
+                groups={['quickParts', 'textBox', 'table']}
+                label={t('commands.insert.buildingBlocks')}
+                icon={<LibraryBig size={16} />}
+                testId="building-blocks"
+                disabled={noDoc}
+                run={runFocus}
+                query={queryCommand}
+                page={blockPage}
+                actions={[
+                  blockAction('insert.autoText', 'commands.insert.autoText'),
+                  blockAction('insert.saveBlock', 'commands.insert.saveBlock'),
+                  blockAction('insert.blocksOrganizer', 'commands.insert.blocksOrganizer'),
+                ]}
+              />,
+            ),
           ],
         },
       ],
@@ -3669,6 +4097,7 @@ function EditorInner({
               <SpellCheck size={ICON} />,
             ),
             item('review.language', 'commands.review.language', <Languages size={ICON} />),
+            item('review.wordCount', 'commands.review.wordCount', <Hash size={ICON} />),
             item('review.autoCorrect', 'commands.review.autoCorrect', <WandSparkles size={ICON} />),
             item('review.checkDocument', 'inspect.command', <ClipboardCheck size={ICON} />),
             item(
@@ -3867,11 +4296,28 @@ function EditorInner({
           ],
         },
         {
+          id: 'window',
+          label: t('ribbon.groups.window'),
+          items: [
+            item('window.new', 'commands.window.new', <AppWindow size={ICON} />),
+            item('window.arrangeAll', 'commands.window.arrangeAll', <LayoutGrid size={ICON} />),
+            item('window.split', 'commands.window.split', <Rows2 size={ICON} />),
+            item('window.sideBySide', 'commands.window.sideBySide', <Columns2 size={ICON} />),
+            item('window.syncScroll', 'commands.window.syncScroll', <ArrowDownUp size={ICON} />),
+            item(
+              'window.resetPosition',
+              'commands.window.resetPosition',
+              <RotateCcw size={ICON} />,
+            ),
+          ],
+        },
+        {
           id: 'automation',
           label: t('ribbon.groups.automation'),
           items: [
             item('script.editor', 'commands.view.scriptEditor', <SquareTerminal size={ICON} />),
             item('script.record', 'commands.view.recordScript', <CircleDot size={ICON} />),
+            item('script.convertVba', 'commands.view.convertVba', <FileCode2 size={ICON} />),
           ],
         },
       ],
@@ -3938,7 +4384,7 @@ function EditorInner({
     store.setState({ dialog: null });
     view.current?.focus();
   };
-  const navOpen = !!state.navPane && !!state.doc && !state.focusMode;
+
   const rulersOn =
     state.showRuler && !!state.doc && !state.focusMode && state.viewMode !== 'outline';
   const closeTaskPane = (id: string) => {
@@ -4056,6 +4502,8 @@ function EditorInner({
             }
             recorder={recorder}
             checkShortcut={scriptBindings.checkShortcut}
+            vbaRequest={vbaRequest}
+            onVbaRequestHandled={vbaRequestHandled}
             {...(platform.scriptSchedules ? { schedules: platform.scriptSchedules } : {})}
           />
         ),
@@ -4095,6 +4543,19 @@ function EditorInner({
           ...(reviewingDock === 'bottom' ? { bottom: REVIEWING_SIZE.bottom } : {}),
         }
       : undefined;
+  // Split view: the panes share the page area between the rulers and a bottom dock.
+  const splitInsets = {
+    top: rulersOn ? 22 : 0,
+    bottom: reviewingDock === 'bottom' ? REVIEWING_SIZE.bottom : 0,
+  };
+  /** Edge of the split: 0 = top of the bar, 1 = bottom inset of the first pane, 2 = top of the second. */
+  const splitEdge = (edge: 0 | 1 | 2): string => {
+    const r = state.split ?? SPLIT_DEFAULT;
+    const room = `(100% - ${splitInsets.top + splitInsets.bottom}px)`;
+    return edge === 1
+      ? `calc(${splitInsets.bottom}px + ${room} * ${1 - r} + 3px)`
+      : `calc(${splitInsets.top}px + ${room} * ${r} ${edge === 0 ? '-' : '+'} 3px)`;
+  };
   // Context menus (CORE-UI-003): commands of what is under the pointer, resolved from the
   // ribbon (so the contextual tab of the object the right click selected is there).
   const allRibbonTabs = [...tabs, ...contextTabs];
@@ -4419,10 +4880,56 @@ function EditorInner({
             <div
               ref={viewHost}
               className={`${styles.viewHost} ${rulersOn ? styles.withRulers : ''}`}
-              style={hostStyle}
+              style={splitOn ? { ...hostStyle, bottom: splitEdge(1) } : hostStyle}
               data-testid="document-view"
               data-marks={state.showMarks ? 'true' : undefined}
             />
+            {splitOn && (
+              <>
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label={t('windows.splitBar')}
+                  aria-valuemin={Math.round(SPLIT_MIN * 100)}
+                  aria-valuemax={Math.round((1 - SPLIT_MIN) * 100)}
+                  aria-valuenow={Math.round((state.split ?? SPLIT_DEFAULT) * 100)}
+                  tabIndex={0}
+                  data-testid="split-bar"
+                  className={viewStyles.splitBar}
+                  style={{
+                    left: hostStyle?.left ?? 0,
+                    right: hostStyle?.right ?? 0,
+                    top: splitEdge(0),
+                  }}
+                  onDoubleClick={() => store.setState({ split: null })}
+                  onKeyDown={(e) => {
+                    const step = e.key === 'ArrowUp' ? -0.05 : e.key === 'ArrowDown' ? 0.05 : 0;
+                    if (!step) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    store.setState({ split: clampSplit((state.split ?? SPLIT_DEFAULT) + step) });
+                  }}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                    const box = workspace.current?.getBoundingClientRect();
+                    if (!box) return;
+                    const top = box.top + splitInsets.top;
+                    const total = box.height - splitInsets.top - splitInsets.bottom;
+                    store.setState({ split: dragSplit(total, e.clientY - top) });
+                  }}
+                />
+                <div
+                  ref={splitHost}
+                  className={`${styles.viewHost} ${rulersOn ? styles.withRulers : ''}`}
+                  style={{ ...hostStyle, top: splitEdge(2) }}
+                  data-testid="document-view-split"
+                />
+              </>
+            )}
             <TaskPaneHost
               layout={paneLayout}
               onLayout={setPaneLayout}
@@ -4674,6 +5181,9 @@ function EditorInner({
                 }}
               />
             )}
+            {state.dialog === 'wordCount' && (
+              <WordCountDialog query={queryDoc} onClose={closeDialog} />
+            )}
             {state.dialog === 'language' && (
               <LanguageDialog
                 run={runCommand}
@@ -4796,6 +5306,17 @@ function EditorInner({
                 }}
                 onClose={closeDialog}
                 onContinue={(choice) => signLineRef.current?.(choice)}
+              />
+            )}
+            {state.dialog === 'saveBlock' && (
+              <SaveBlockDialog run={runCommand} query={queryCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'blocksOrganizer' && (
+              <BlocksOrganizer
+                run={runCommand}
+                query={queryCommand}
+                page={blockPage}
+                onClose={closeDialog}
               />
             )}
             {state.dialog === 'watermark' && (
@@ -5163,19 +5684,55 @@ function EditorInner({
       )}
       {!(state.focusMode && state.doc) && (
         <StatusBar
+          customize={
+            state.doc
+              ? {
+                  label: t('statusBar.customize'),
+                  items: STATUS_ITEMS.doc.map((d) => ({
+                    id: d.id,
+                    label: t(`statusBar.items.${d.id}`),
+                    checked: statusBar.shown(d.id),
+                    ...(statusValues[d.id] !== undefined ? { value: statusValues[d.id] } : {}),
+                  })),
+                  onToggle: statusBar.toggle,
+                  resetLabel: t('statusBar.reset'),
+                  onReset: statusBar.reset,
+                }
+              : undefined
+          }
           left={
             <>
-              <span data-testid="status-page">
-                {state.doc
-                  ? t('status.page', { current: state.page + 1, total: state.doc.pageCount })
-                  : t('status.ready')}
-              </span>
-              {state.doc && (
-                <span data-testid="status-words">
-                  {t('status.words', { count: state.doc.wordCount })}
+              {(!state.doc || statusBar.shown('page')) && (
+                <span data-testid="status-page">
+                  {state.doc
+                    ? t('status.page', { current: state.page + 1, total: state.doc.pageCount })
+                    : t('status.ready')}
                 </span>
               )}
-              {state.doc && (
+              {state.doc && statusBar.shown('words') && (
+                <button
+                  type="button"
+                  className={styles.statusButton}
+                  data-testid="status-words"
+                  title={t('wordCount.title')}
+                  onClick={() => void registry.execute('review.wordCount', state)}
+                >
+                  {statusValues.words}
+                </button>
+              )}
+              {state.doc && statusBar.shown('proofing') && state.proofErrors !== null && (
+                <button
+                  type="button"
+                  className={styles.statusButton}
+                  data-testid="status-proofing"
+                  data-errors={state.proofErrors}
+                  title={statusValues.proofing}
+                  onClick={() => void registry.execute('review.spellingDialog', state)}
+                >
+                  {statusValues.proofing}
+                </button>
+              )}
+              {state.doc && statusBar.shown('language') && (
                 <button
                   type="button"
                   className={styles.statusButton}
@@ -5187,6 +5744,31 @@ function EditorInner({
                   {languageLabel}
                 </button>
               )}
+              {state.doc && statusBar.shown('trackChanges') && (
+                <button
+                  type="button"
+                  className={styles.statusButton}
+                  data-testid="status-track-changes"
+                  aria-pressed={!!state.review?.trackChanges}
+                  onClick={() => void registry.execute('review.trackChanges', state)}
+                >
+                  {statusValues.trackChanges}
+                </button>
+              )}
+              {state.doc && statusBar.shown('capsLock') && capsLock && (
+                <span data-testid="status-caps-lock">{t('statusBar.capsLock')}</span>
+              )}
+              {state.doc && statusBar.shown('overtype') && (
+                <button
+                  type="button"
+                  className={styles.statusButton}
+                  data-testid="status-overtype"
+                  aria-pressed={state.overtype}
+                  onClick={() => store.setState({ overtype: !state.overtype })}
+                >
+                  {statusValues.overtype}
+                </button>
+              )}
               {state.edit?.modified && (
                 <span data-testid="status-modified">{t('status.modified')}</span>
               )}
@@ -5194,6 +5776,16 @@ function EditorInner({
                 <span data-testid="status-protected">{t('security.protected')}</span>
               )}
               {state.doc && <ProtectionStatus info={state.security} />}
+              {windowTools.shared && (
+                <span data-testid="status-shared-window">{t('windows.sharedWindow')}</span>
+              )}
+              {windowTools.paired && (
+                <span data-testid="status-side-by-side">
+                  {t('windows.sideBySideWith', {
+                    name: windowTools.paired.title || t('windows.untitled'),
+                  })}
+                </span>
+              )}
               {status.kind === 'busy' && <span>{t(status.key)}</span>}
               {status.kind === 'info' && (
                 <span data-testid="status-info">{t(status.key, status.params)}</span>
@@ -5207,29 +5799,51 @@ function EditorInner({
                   backend: platform.engine.backend === 'wasm' ? 'WASM' : 'native',
                 })}
               </span>
-              <button
-                type="button"
-                className={styles.statusButton}
-                onClick={() => void registry.execute('view.zoomOut', state)}
-                aria-label={t('commands.view.zoomOut')}
-              >
-                −
-              </button>
-              <span data-testid="status-zoom">
-                {t('status.zoom', { value: Math.round(state.zoom * 100) })}
-              </span>
-              <button
-                type="button"
-                className={styles.statusButton}
-                onClick={() => void registry.execute('view.zoomIn', state)}
-                aria-label={t('commands.view.zoomIn')}
-              >
-                +
-              </button>
+              {state.doc && statusBar.shown('viewButtons') && (
+                <StatusButtons
+                  label={t('statusBar.views')}
+                  testId="status-views"
+                  exclusive
+                  buttons={(
+                    [
+                      ['read', 'view.readMode', <BookOpen key="i" size={14} />],
+                      ['print', 'view.printLayout', <FileText key="i" size={14} />],
+                      ['web', 'view.webLayout', <Globe key="i" size={14} />],
+                    ] as const
+                  ).map(([mode, id, icon]) => ({
+                    id: mode,
+                    label: t(`commands.${id}`),
+                    icon,
+                    pressed: state.viewMode === mode,
+                    onClick: () => void registry.execute(id, state),
+                  }))}
+                />
+              )}
+              {(statusBar.shown('zoomSlider') || statusBar.shown('zoom')) && (
+                <StatusZoom
+                  zoom={state.zoom}
+                  min={MIN_ZOOM}
+                  max={MAX_ZOOM}
+                  slider={statusBar.shown('zoomSlider')}
+                  percent={statusBar.shown('zoom')}
+                  onZoom={(z: number) => activeView()?.setZoom(z)}
+                  onStep={(d: 1 | -1) =>
+                    void registry.execute(d > 0 ? 'view.zoomIn' : 'view.zoomOut', state)
+                  }
+                  onPercent={() => void registry.execute('view.zoomReset', state)}
+                  labels={{
+                    slider: t('statusBar.zoomSlider'),
+                    zoomIn: t('commands.view.zoomIn'),
+                    zoomOut: t('commands.view.zoomOut'),
+                    percent: t('statusBar.zoomPercent', { value: Math.round(state.zoom * 100) }),
+                  }}
+                />
+              )}
             </>
           }
         />
       )}
+      {windowTools.element}
       {readAloud.bar}
       {dictation.bar}
       {translate.pane}

@@ -743,3 +743,89 @@ describe('BlueSheetEditor', () => {
     );
   });
 });
+
+describe('BlueSheet status bar (CORE-UI-007)', { timeout: 30_000 }, () => {
+  async function open() {
+    const { host } = fakeHost();
+    const info = await host.info();
+    const used = { ...info, sheets: [{ ...info.sheets[0]!, lastRow: 9, lastCol: 3 }] };
+    host.info = async () => used;
+    host.newWorkbook = async () => used;
+    const base = host.exec;
+    const stats: SheetCommand[] = [];
+    host.exec = (async (cmd: SheetCommand) => {
+      if (cmd.cmd === 'rangeStats') {
+        stats.push(cmd);
+        return { sum: 120, count: 5, numbers: 4, average: 30, min: 10, max: 50 };
+      }
+      return base(cmd);
+    }) as SheetHost['exec'];
+    const { p } = platform(host);
+    localStorage.clear();
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    return { host, stats };
+  }
+  const select = (ref: string) => {
+    const nameBox = screen.getByLabelText('Name box');
+    fireEvent.change(nameBox, { target: { value: ref } });
+    fireEvent.keyDown(nameBox, { key: 'Enter' });
+  };
+
+  it('shows the statistics the engine computed for the selection', async () => {
+    const { stats } = await open();
+    // One cell: no statistics.
+    expect(screen.queryByTestId('status-sum')).toBeNull();
+    select('A1:B3');
+    await waitFor(() => expect(screen.getByTestId('status-sum').textContent).toBe('Sum: 120'));
+    expect(screen.getByTestId('status-average').textContent).toBe('Average: 30');
+    expect(screen.getByTestId('status-count').textContent).toBe('Count: 5');
+    expect(stats.at(-1)).toEqual({
+      cmd: 'rangeStats',
+      sheet: 0,
+      ranges: [{ r0: 0, c0: 0, r1: 2, c1: 1 }],
+    });
+    // Minimum, maximum and numerical count are off until the user turns them on.
+    expect(screen.queryByTestId('status-min')).toBeNull();
+    fireEvent.contextMenu(screen.getByTestId('status-bar'));
+    expect(screen.getByTestId('status-item-sum').textContent).toContain('120');
+    fireEvent.click(screen.getByTestId('status-item-min'));
+    fireEvent.click(screen.getByTestId('status-item-max'));
+    fireEvent.click(screen.getByTestId('status-item-numericalCount'));
+    fireEvent.click(screen.getByTestId('status-item-average'));
+    expect(screen.getByTestId('status-min').textContent).toBe('Min: 10');
+    expect(screen.getByTestId('status-max').textContent).toBe('Max: 50');
+    expect(screen.getByTestId('status-numerical-count').textContent).toBe('Numerical count: 4');
+    expect(screen.queryByTestId('status-average')).toBeNull();
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem('blueoffice.statusbar.sheet') ?? '{}')).toEqual({
+        shown: ['min', 'max', 'numericalCount'],
+        hidden: ['average'],
+      }),
+    );
+  });
+
+  it('asks the engine only for the used part of a large selection', async () => {
+    const { stats } = await open();
+    select('B1:C5000');
+    await waitFor(() => expect(screen.getByTestId('status-sum')).toBeTruthy());
+    expect(stats.at(-1)).toMatchObject({ ranges: [{ r0: 0, c0: 1, r1: 9, c1: 2 }] });
+  });
+
+  it('shows the cell mode: Ready, Enter while typing, Edit after F2', async () => {
+    await open();
+    expect(screen.getByTestId('sheet-status').textContent).toBe('Ready');
+    const input = screen.getByLabelText('Cell editor');
+    fireEvent.keyDown(input, { key: 'F2' });
+    await waitFor(() => expect(screen.getByTestId('sheet-status').textContent).toBe('Edit'));
+    expect(screen.getByTestId('sheet-status').dataset.mode).toBe('edit');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('sheet-status').textContent).toBe('Ready'));
+    fireEvent.input(input, { target: { value: '12' } });
+    await waitFor(() => expect(screen.getByTestId('sheet-status').textContent).toBe('Enter'));
+    // Zoom and view buttons are on the right.
+    expect(screen.getByTestId('status-zoom')).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Zoom' })).toBeTruthy();
+    expect(screen.getByRole('radiogroup', { name: 'Views' })).toBeTruthy();
+  });
+});

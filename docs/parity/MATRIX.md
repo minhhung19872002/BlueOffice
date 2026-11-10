@@ -54,6 +54,8 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); đọc chính tả qua bộ nhận dạng trình duyệt/dịch vụ cấu hình + lệnh dấu câu (CORE-LANG-002); chưa model cục bộ |
 | Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
+| HTML / MHT / Flat OPC / Excel XML 2003 | all | ✅ | — | ✅ | ✅ | ✅ | 🟡 | — | bo-html, bo-opc flat, web_formats.rs, webFormats.test | 🟡 | CORE-FMT-003: Doc + Sheet HTML/MHT, Flat OPC ba app, XML 2003 đọc; thiếu Slide HTML, biểu đồ/ảnh sheet, E2E giao diện |
+| Trích dẫn & tài liệu tham khảo | Doc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⬜ | bo-edit cite, corpus cite-01..03, citations.spec | 🟡 | CORE-CITE-001: 8 kiểu, BibTeX/RIS; thiếu header/footer/chú thích, in nghiêng, xuất RIS |
 | PDF/A, PDF có thẻ | all | — | — | ✅ | — | ✅ | ✅ | — | bo-pdf/tests/pdfa.rs, bo-engine/tests/pdf_export.rs | 🟡 | PDF/A-1b/2b/3b, cây cấu trúc, dấu trang từ đề mục/slide/sheet, hộp thoại Xuất PDF (CORE-FMT-002); chưa kiểm bằng veraPDF |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |
 | Ribbon: tab ngữ cảnh, ribbon đơn giản, thu gọn | all | — | ✅ | — | — | ✅ | ✅ | — | ribbonContext.test.tsx, ribbon-context.spec | ✅ | CORE-UI-001; ngữ cảnh phương trình/ink/đối tượng chưa phát hiện từ vùng chọn |
@@ -122,5 +124,6 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Trình chiếu + Presenter | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, slide_present.rs | 🟡 | custom show, tập dượt, bút/laser, phóng, kiosk (SLIDE-SHOW-001); thiếu thuyết minh |
 | Ghi thuyết trình / xuất video | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_video.rs, video.test, slide_record.rs, slide-record.spec | 🟡 | ghi thuyết minh/camera/nét vẽ/thời gian vào .pptx, phát lại (SLIDE-REC-001); xuất MP4/WebM có tiếng + camera (web), GIF/PNG mọi nơi; desktop chưa thử thiết bị thật |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); thiếu media liên kết |
+| Hyperlink & action | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_action.rs, actions tests, slide-actions.spec | 🟡 | SLIDE-ACTION-001: hình + chữ, click/hover, nút hành động, âm thanh, chính sách an toàn; thiếu ô bảng, mailto desktop, menu chuột phải |
 | SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |
 | Comment hiện đại | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |

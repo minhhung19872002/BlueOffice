@@ -14,6 +14,7 @@ pub mod custom_xml;
 pub mod diagram;
 pub mod field;
 pub mod form;
+pub mod glossary;
 pub mod index;
 pub mod mention;
 pub mod ole;

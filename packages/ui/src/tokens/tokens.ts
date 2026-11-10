@@ -223,6 +223,86 @@ function semantic(theme: ThemeName): Semantic {
   };
 }
 
+/**
+ * Chrome drawn over the document canvas (`--bo-chrome-*`, CORE-UI-007): caret, selection,
+ * selection handles, the cell cursor, comment markers and ruler marks. The paper keeps the
+ * colours of the document (white unless the document says otherwise), so these are chosen
+ * against `PAPER`, not against the UI surface. `halo` is the second tone drawn around the
+ * mark: with it the mark stays visible on dark document content as well.
+ */
+export interface Chrome {
+  caret: string;
+  /** Selection tint: `selection` at `selection-alpha` opacity over the content. */
+  selection: string;
+  'selection-alpha': string;
+  /** Outline of the selection / cell cursor / selected object. */
+  cursor: string;
+  /** Fill and outline of resize handles. */
+  handle: string;
+  'handle-border': string;
+  /** Comment and note markers. */
+  comment: string;
+  /** Second tone around carets, cursors and handles (transparent where not needed). */
+  halo: string;
+  /** Width of focus rings and of the cursor outline. */
+  'focus-width': string;
+}
+
+/** Paper colour the canvas chrome is checked against. */
+export const PAPER = '#ffffff';
+
+export const CHROME: Record<ThemeName, Chrome> = {
+  light: {
+    caret: '#000000',
+    selection: '#3378DC',
+    'selection-alpha': '0.32',
+    cursor: '#1A5FCC',
+    handle: '#ffffff',
+    'handle-border': '#1A5FCC',
+    comment: '#B45309',
+    halo: 'transparent',
+    'focus-width': '2px',
+  },
+  dark: {
+    caret: '#000000',
+    selection: '#3378DC',
+    'selection-alpha': '0.32',
+    cursor: '#1A5FCC',
+    handle: '#ffffff',
+    'handle-border': '#1A5FCC',
+    comment: '#B45309',
+    halo: 'transparent',
+    'focus-width': '2px',
+  },
+  hc: {
+    caret: '#000000',
+    selection: '#0037DA',
+    'selection-alpha': '0.45',
+    cursor: '#000000',
+    handle: '#FFD600',
+    'handle-border': '#000000',
+    comment: '#B00020',
+    halo: '#ffffff',
+    'focus-width': '3px',
+  },
+};
+
+/**
+ * `forced-colors: active`: the same roles from the system palette. The halo is the opposite
+ * system colour, so a mark is two-toned whatever the document content under it.
+ */
+export const CHROME_FORCED: Chrome = {
+  caret: 'CanvasText',
+  selection: 'Highlight',
+  'selection-alpha': '0.45',
+  cursor: 'Highlight',
+  handle: 'HighlightText',
+  'handle-border': 'Highlight',
+  comment: 'LinkText',
+  halo: 'Canvas',
+  'focus-width': '3px',
+};
+
 export function gray(theme: ThemeName): readonly string[] {
   return theme === 'light' ? GRAY_LIGHT : theme === 'dark' ? GRAY_DARK : GRAY_HC;
 }
@@ -270,6 +350,7 @@ function themeBlock(theme: ThemeName): string {
       .map((c, i) => `  --bo-gray-${i + 1}: ${c};`)
       .join('\n'),
   );
+  lines.push(vars(CHROME[theme] as unknown as Record<string, string>, '--bo-chrome-'));
   for (const [name, s] of Object.entries(STATUS[theme])) {
     lines.push(
       `  --bo-${name}-bg: ${s.bg};\n  --bo-${name}-border: ${s.border};\n  --bo-${name}-text: ${s.text};`,
@@ -350,6 +431,15 @@ ${themeBlock('hc')}
 ${apps}
 
 ${density}
+
+@media (forced-colors: active) {
+  :root,
+  [data-theme] {
+${Object.entries(CHROME_FORCED)
+  .map(([k, v]) => `    --bo-chrome-${k}: ${v};`)
+  .join('\n')}
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   :root {

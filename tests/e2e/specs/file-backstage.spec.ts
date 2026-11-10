@@ -77,7 +77,16 @@ test('Save As lists every output format of each app', async ({ page }) => {
   await page.goto('/doc');
   await page.getByTestId('new-document').click();
   await expect(page.getByTestId('doc-name')).toHaveText('Tài liệu mới.docx');
-  expect(await formats(page)).toEqual(['.docx', '.docm', '.dotx', '.dotm', '.pdf']);
+  expect(await formats(page)).toEqual([
+    '.docx',
+    '.docm',
+    '.dotx',
+    '.dotm',
+    '.pdf',
+    '.html',
+    '.mht',
+    '.xml',
+  ]);
 
   await page.goto('/sheet');
   await expect(page.getByRole('tab', { name: 'Sheet1' })).toBeVisible();
@@ -88,6 +97,9 @@ test('Save As lists every output format of each app', async ({ page }) => {
     '.xltm',
     '.csv',
     '.pdf',
+    '.html',
+    '.mht',
+    '.xml',
     '.thmx',
   ]);
 
@@ -106,6 +118,7 @@ test('Save As lists every output format of each app', async ({ page }) => {
     '.pdf',
     '.png',
     '.gif',
+    '.xml',
     '.thmx',
   ]);
 });

@@ -76,7 +76,32 @@ export {
   type GroupWidths,
   type RibbonLayoutPlan,
 } from './ribbonLayout';
-export { StatusBar, type StatusBarProps } from './StatusBar';
+export {
+  StatusBar,
+  StatusButtons,
+  StatusZoom,
+  type StatusBarCustomize,
+  type StatusBarMenuItem,
+  type StatusBarProps,
+  type StatusToggle,
+  type StatusZoomProps,
+} from './StatusBar';
+export {
+  STATUS_ITEMS,
+  isStatusItemShown,
+  loadStatusPrefs,
+  sanitizeStatusPrefs,
+  saveStatusPrefs,
+  setStatusItem,
+  shownStatusItems,
+  statusBarKey,
+  useStatusBarPrefs,
+  type StatusBarApp,
+  type StatusBarCustomization,
+  type StatusBarPrefs,
+  type StatusItemDef,
+} from './statusBarPrefs';
+export { THEME_SETTINGS, getThemePref, setThemePref, useThemePref } from './themePref';
 export {
   nextTheme,
   resolveTheme,

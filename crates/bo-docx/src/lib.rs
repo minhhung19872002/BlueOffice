@@ -19,6 +19,7 @@ pub(crate) mod textfx;
 mod writer;
 
 pub use reader::read_docx;
+pub use writer::glossary::CT_GLOSSARY;
 pub use writer::write_docx;
 
 /// Errors produced while reading a `.docx`.

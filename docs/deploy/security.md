@@ -74,6 +74,9 @@ Ký hiệu: **[Đã có]** = cài trong code/cấu hình mặc định · **[C�
   (xoá, quản lý chia sẻ, đọc audit = Owner). Chia sẻ thư mục được kế thừa; chia sẻ hết hạn bị bỏ qua (`IsActive`).
 - Mọi `/api/...` của file yêu cầu policy `User` (`Files/FileEndpoints.cs`). Endpoint chuyển đổi (`/convert`, `/jobs`,
   `/api/convert/pdf`) yêu cầu policy `Service` (người dùng OIDC hoặc host) — `Jobs/JobEndpoints.cs`, `Program.cs`.
+- REST API `/api/v1` (mặc định tắt) yêu cầu policy `RestApi`: khoá API ở header `X-Api-Key` (cấu hình chỉ giữ SHA-256,
+  có scope `convert`/`merge`/`edit`/`inspect`, thu hồi và hết hạn) hoặc token của policy `Service`; khoá API không mở
+  endpoint nào khác — `Rest/ApiKeyAuth.cs`, [rest-api.md](rest-api.md).
 - **Link chia sẻ**: token ngẫu nhiên 256 bit, base64url (`FileService.CreateLinkAsync`), có hạn tuỳ chọn (hết hạn → 410),
   không cho cấp vai trò Owner; truy cập link là **ẩn danh** (`/api/links/{token}`), mỗi lần tải ghi audit `link:<id>`.
 - Tên file/thư mục được kiểm tra (`FileService.ValidateName`); MIME suy ra từ phần mở rộng, không tin client
@@ -193,7 +196,7 @@ Ký hiệu: **[Đã có]** = cài trong code/cấu hình mặc định · **[C�
 | PostgreSQL | User `blueoffice` sở hữu cả DB `keycloak` | User riêng cho Keycloak; chỉ quyền cần thiết |
 | Image | Gắn tag, chưa gắn digest | Gắn `@sha256:`, quét lỗ hổng (Trivy/Grype) trước khi triển khai |
 | Keycloak | Mật khẩu admin mặc định rỗng nếu không điền | Bắt buộc `KEYCLOAK_ADMIN_PASSWORD`, tắt console admin ra ngoài |
-| Rate limit | Không có | Giới hạn ở reverse proxy cho `/api/links`, `/api/sessions`, `/edit`, `/convert` |
+| Rate limit | Chỉ có cho REST API `/api/v1` (theo khoá / người dùng, sau xác thực) | Giới hạn ở reverse proxy cho `/api/links`, `/api/sessions`, `/edit`, `/convert`, `/api/v1/` |
 
 ## 8. Xử lý tệp không tin cậy
 

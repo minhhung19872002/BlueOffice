@@ -183,6 +183,36 @@ pub fn next_window_label() -> String {
     format!("doc-{}", WINDOW_SEQ.fetch_add(1, Ordering::Relaxed) + 1)
 }
 
+/// View › Arrange All: `n` windows tiled over the area `(x, y, w, h)` (logical pixels) —
+/// columns side by side up to three windows, then a grid filled row by row. Returns the
+/// position and size of each window, in order.
+pub fn tile_windows(n: usize, area: (f64, f64, f64, f64)) -> Vec<(f64, f64, f64, f64)> {
+    if n == 0 {
+        return Vec::new();
+    }
+    let (x, y, w, h) = area;
+    let cols = if n <= 3 {
+        n
+    } else {
+        (1..=n).find(|c| c * c >= n).unwrap_or(n)
+    };
+    let rows = n.div_ceil(cols);
+    #[allow(clippy::cast_precision_loss)]
+    let (cw, rh) = (w / cols as f64, h / rows as f64);
+    (0..n)
+        .map(|i| {
+            #[allow(clippy::cast_precision_loss)]
+            let (c, r) = ((i % cols) as f64, (i / cols) as f64);
+            (x + c * cw, y + r * rh, cw, rh)
+        })
+        .collect()
+}
+
+/// Is `label` a document window (the main one or one opened by `open_window`)?
+pub fn is_document_window(label: &str) -> bool {
+    label == "main" || label.starts_with("doc-")
+}
+
 /// Only relative app URLs with a query may be opened in new windows.
 pub fn window_url(query: &str) -> Result<String, String> {
     let q = query.trim_start_matches('?');
@@ -272,6 +302,23 @@ mod tests {
         assert_eq!(p, Path::new("/tmp/out").join("passwd"));
         assert!(e2e_save_path("/tmp/out", "..").is_none());
         assert!(e2e_save_path(" ", "a.docx").is_none());
+    }
+
+    #[test]
+    fn tiles_windows_side_by_side_then_in_a_grid() {
+        assert!(tile_windows(0, (0.0, 0.0, 1200.0, 800.0)).is_empty());
+        assert_eq!(
+            tile_windows(2, (10.0, 20.0, 1200.0, 800.0)),
+            vec![(10.0, 20.0, 600.0, 800.0), (610.0, 20.0, 600.0, 800.0)]
+        );
+        let four = tile_windows(4, (0.0, 0.0, 1200.0, 800.0));
+        assert_eq!(four[0], (0.0, 0.0, 600.0, 400.0));
+        assert_eq!(four[3], (600.0, 400.0, 600.0, 400.0));
+        // Five windows: three columns, two rows.
+        let five = tile_windows(5, (0.0, 0.0, 1200.0, 800.0));
+        assert_eq!(five[4], (400.0, 400.0, 400.0, 400.0));
+        assert!(is_document_window("main") && is_document_window("doc-3"));
+        assert!(!is_document_window("print-1"));
     }
 
     #[test]

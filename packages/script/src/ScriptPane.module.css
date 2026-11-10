@@ -168,3 +168,39 @@
   color: inherit;
   cursor: pointer;
 }
+
+.vba,
+.vbaReport {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+}
+
+.vbaHint {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.vbaSource {
+  min-height: 120px;
+  padding: 4px 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.vbaWarnings {
+  max-height: 140px;
+  margin: 0;
+  padding: 0 0 0 16px;
+  overflow: auto;
+  color: #b45309;
+  font-size: 12px;
+}

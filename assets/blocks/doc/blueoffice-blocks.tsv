@@ -1,0 +1,29 @@
+name	gallery	category	behavior	description
+Bìa – Đường kẻ đậm	coverPg	BlueOffice	pg	Tiêu đề lớn canh trái trên một đường kẻ đậm
+Bìa – Khung giữa	coverPg	BlueOffice	pg	Tiêu đề trong khung ở giữa trang
+Bìa – Tối giản	coverPg	BlueOffice	pg	Tiêu đề canh phải với đường kẻ mảnh
+Đầu trang – Ba cột	hdrs	BlueOffice	p	Ba ô giữ chỗ: trái, giữa, phải
+Đầu trang – Tên tài liệu	hdrs	BlueOffice	p	Tên tài liệu bên trái, đường kẻ bên dưới
+Đầu trang – Cơ quan và ngày	hdrs	BlueOffice	p	Tên cơ quan bên trái, ngày bên phải, đường kẻ bên dưới
+Đầu trang – Dải nền	hdrs	BlueOffice	p	Tên tài liệu trên dải nền nhạt, số trang bên phải
+Chân trang – Ba cột	ftrs	BlueOffice	p	Ba ô giữ chỗ: trái, giữa, phải
+Chân trang – Tên tài liệu và số trang	ftrs	BlueOffice	p	Tên tài liệu bên trái, "Trang X / Y" bên phải, đường kẻ bên trên
+Chân trang – Lưu hành nội bộ	ftrs	BlueOffice	p	Dòng "Tài liệu lưu hành nội bộ" và số trang ở giữa
+Chân trang – Thông tin liên hệ	ftrs	BlueOffice	p	Tên, địa chỉ, điện thoại của cơ quan ở giữa, đường kẻ bên trên
+Số trang – Dưới giữa	pgNumB	BlueOffice	p	Số trang ở giữa chân trang
+Số trang – Dưới phải	pgNumB	BlueOffice	p	Số trang bên phải chân trang
+Số trang – Trang X / Y	pgNumB	BlueOffice	p	"Trang X / Y" ở giữa chân trang
+Số trang – Gạch hai bên	pgNumB	BlueOffice	p	"– X –" ở giữa chân trang
+Số trang – Trên giữa	pgNumT	BlueOffice	p	Số trang ở giữa lề trên (thể thức văn bản hành chính)
+Số trang – Trên phải	pgNumT	BlueOffice	p	"Trang X / Y" bên phải đầu trang
+Trích dẫn – Khung viền	txtBox	BlueOffice	content	Khung trích dẫn bên phải, viền mảnh
+Trích dẫn – Nền nhạt	txtBox	BlueOffice	content	Khung trích dẫn bên trái, nền nhạt không viền
+Trích dẫn – Dải ngang	txtBox	BlueOffice	content	Khung trích dẫn rộng ở giữa, kẻ trên và dưới
+Bảng – Danh sách	tbls	BlueOffice	p	Bảng ba cột có hàng tiêu đề: STT, nội dung, ghi chú
+Bảng – Lịch công tác	tbls	BlueOffice	p	Bảng bốn cột: thời gian, nội dung, chủ trì, địa điểm
+Nơi nhận	autoTxt	Văn bản hành chính	p	Khối "Nơi nhận" (ô 9b): cỡ 12 đậm nghiêng, danh sách cỡ 11
+Chữ ký	autoTxt	Văn bản hành chính	p	Quyền hạn, chức vụ, chữ ký và họ tên người ký (ô 7a–7c)
+Nơi nhận và chữ ký	autoTxt	Văn bản hành chính	p	Nơi nhận bên trái, khối chữ ký bên phải
+Quốc hiệu	autoTxt	Văn bản hành chính	p	Tên cơ quan, số ký hiệu bên trái; Quốc hiệu, Tiêu ngữ, địa danh và ngày bên phải
+Kính gửi	autoTxt	Văn bản hành chính	content	Dòng "Kính gửi:" cỡ 14
+Căn cứ	autoTxt	Văn bản hành chính	p	Đoạn căn cứ ban hành văn bản, chữ nghiêng

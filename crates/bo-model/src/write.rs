@@ -145,7 +145,7 @@ pub fn fingerprint<T: std::hash::Hash + ?Sized>(v: &T) -> u64 {
 }
 
 /// Where the document was read from (enables lossless saving).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SourcePackage {
     /// Original package bytes.
     #[serde(skip)]
@@ -251,6 +251,10 @@ pub struct Document {
     /// (§15.2.5), in relationship order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_xml: Vec<crate::custom_xml::CustomXmlPart>,
+    /// Building blocks stored in the document (ECMA-376 Part 1, §17.12 glossary
+    /// document part).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glossary: Option<Arc<crate::glossary::Glossary>>,
     /// Source package the document was read from (`None` for a new document).
     pub source: Option<Arc<SourcePackage>>,
 }

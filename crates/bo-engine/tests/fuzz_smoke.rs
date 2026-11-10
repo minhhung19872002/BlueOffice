@@ -11,6 +11,10 @@
 //!   layout/sheet/slide engines behind them actually see the damaged markup;
 //! * byte-level mutations of the ZIP container itself (OPC reader).
 //!
+//! * the text formats of CORE-FMT-003 — HTML, MHTML, Flat OPC and XML Spreadsheet
+//!   2003 — derived from the same corpus (and the hand-written `xml2003-*.xml`
+//!   fixtures) and mutated as text, then opened by both engines.
+//!
 //! Every call must return (`Ok` or `Err`) without panicking, and within a time budget
 //! (no hang). The legacy binary parsers (CFB, BIFF8/BIFF12, `.doc`, `.ppt`, VBA),
 //! `[MS-OFFCRYPTO]`, ODF, TCVN3/VNI and the formula parser have their own mutation
@@ -270,4 +274,136 @@ fn mutated_xlsx_corpus_never_panics_or_hangs() {
 #[test]
 fn mutated_pptx_corpus_never_panics_or_hangs() {
     on_small_stack(|| run("slide", "pptx", 0x0D0C_0003));
+}
+
+/// Markup worth injecting into HTML, MHTML, Flat OPC and XML Spreadsheet 2003 text.
+const WEB_INJECT: &[&str] = &[
+    "<table><tr><td colspan=99999 rowspan=99999>",
+    "</td></tr></table>",
+    "<ul><li><ol><li>",
+    "<p style=\"margin:1e30pt;font-size:1e30px;line-height:0;width:-5%\">",
+    "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA\">",
+    "<script>while(1){}</script>",
+    "<style>p{color:red;}}}{{</style>",
+    "<a class=\"bo-noteref\" href=\"#bo-note-f1\">",
+    "<div class=\"bo-note\" id=\"bo-note-f1\">",
+    "&#x110000;&#0;&bogus;",
+    "<!--",
+    "<![CDATA[",
+    "=\r\n",
+    "=ZZ",
+    "\r\n--b\r\nContent-Type: multipart/related; boundary=b\r\n\r\n",
+    "\r\nContent-Transfer-Encoding: base64\r\n\r\n!!!!",
+    "<pkg:part pkg:name=\"/../../x\" pkg:contentType=\"a/b\"><pkg:binaryData>",
+    "<pkg:part pkg:name=\"/word/document.xml\"><pkg:xmlData>",
+    "</pkg:xmlData></pkg:part>",
+    "<Row ss:Index=\"1048577\" ss:Span=\"4294967295\">",
+    "<Cell ss:Index=\"16385\" ss:MergeAcross=\"4294967295\" ss:Formula=\"=R[-9999999]C[\">",
+    "<Data ss:Type=\"DateTime\">9999-99-99T99:99:99</Data>",
+    "<Style ss:ID=\"Default\" ss:Parent=\"Default\">",
+    "<Column ss:Index=\"0\" ss:Span=\"99999999\" ss:Width=\"1e308\"/>",
+];
+
+fn mutate_web(rng: &mut Rng, data: &mut Vec<u8>) {
+    if rng.below(3) == 0 {
+        let at = rng.below(data.len().max(1)).min(data.len());
+        let frag = WEB_INJECT[rng.below(WEB_INJECT.len())].as_bytes();
+        data.splice(at..at, frag.iter().copied());
+    } else {
+        mutate_xml(rng, data);
+    }
+}
+
+/// Both engines on one text input: the document engine (HTML, MHTML, Flat OPC of a
+/// document or a deck) and the sheet engine (HTML tables, XML Spreadsheet 2003,
+/// Flat OPC of a workbook), plus the readers behind them.
+fn open_web(name: &str, bytes: &[u8]) {
+    let _ = bo_engine::web_formats::detect(bytes, name);
+    let _ = Package::read(bytes, &Limits::default());
+    let _ = bo_xlsx::read_xml_spreadsheet(bytes);
+    let mut e = Engine::with_bundled_fonts();
+    if e.open(bytes, name).is_ok() {
+        let _ = e.page_json(0);
+        let _ = e.export_as("html");
+        let _ = e.save_docx();
+    }
+    let mut s = SheetEngine::new();
+    if s.open(bytes, name).is_ok() {
+        let _ = s.save("html", 0);
+        let _ = s.save("xlsx", 0);
+    }
+}
+
+/// Seeds: (file name, bytes) of every CORE-FMT-003 text format, made from the corpus.
+fn web_seeds() -> Vec<(String, Vec<u8>)> {
+    let mut seeds = Vec::new();
+    let small = |dir: &str, ext: &str| -> Vec<PathBuf> {
+        let mut v: Vec<(u64, PathBuf)> = corpus(dir, ext)
+            .into_iter()
+            .filter_map(|p| Some((std::fs::metadata(&p).ok()?.len(), p)))
+            .collect();
+        v.sort();
+        v.into_iter().take(2).map(|(_, p)| p).collect()
+    };
+    for path in small("doc", "docx") {
+        let bytes = std::fs::read(&path).expect("corpus file");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&bytes, "seed.docx").expect("corpus docx opens");
+        seeds.push(("seed.html".to_owned(), e.export_as("html").expect("html")));
+        seeds.push(("seed.mht".to_owned(), e.export_as("mht").expect("mht")));
+        seeds.push((
+            "seed.xml".to_owned(),
+            e.export_as("xml").expect("flat docx"),
+        ));
+    }
+    for path in small("slide", "pptx").into_iter().take(1) {
+        let bytes = std::fs::read(&path).expect("corpus file");
+        seeds.push((
+            "deck.xml".to_owned(),
+            bo_opc::flat::zip_to_flat(&bytes).expect("flat pptx"),
+        ));
+    }
+    for path in small("sheet", "xlsx") {
+        let bytes = std::fs::read(&path).expect("corpus file");
+        let mut s = SheetEngine::new();
+        s.open(&bytes, "seed.xlsx").expect("corpus xlsx opens");
+        seeds.push((
+            "book.html".to_owned(),
+            s.save("html", 0).expect("html tables"),
+        ));
+        seeds.push(("book.xml".to_owned(), s.save("xml", 0).expect("flat xlsx")));
+    }
+    for path in corpus("sheet", "xml") {
+        seeds.push((
+            "book2003.xml".to_owned(),
+            std::fs::read(&path).expect("fixture"),
+        ));
+    }
+    seeds
+}
+
+#[test]
+fn mutated_web_formats_never_panic_or_hang() {
+    on_small_stack(|| {
+        let seeds = web_seeds();
+        assert!(seeds.len() >= 10, "seeds: {}", seeds.len());
+        let mut rng = Rng(0x0D0C_0004);
+        let mut runs = 0;
+        for (name, bytes) in &seeds {
+            // The seed itself opens.
+            timed(name, || open_web(name, bytes));
+            for k in 0..XML_MUTATIONS {
+                let mut data = bytes.clone();
+                for _ in 0..=rng.below(3) {
+                    mutate_web(&mut rng, &mut data);
+                }
+                timed(&format!("{name} #{k}"), || open_web(name, &data));
+                runs += 1;
+            }
+        }
+        println!(
+            "web formats: {} seeds, {runs} mutated inputs, no panic, no hang",
+            seeds.len()
+        );
+    });
 }

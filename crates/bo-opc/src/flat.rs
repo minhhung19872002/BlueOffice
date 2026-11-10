@@ -469,6 +469,11 @@ pub fn flat_to_zip(bytes: &[u8]) -> Option<Result<Vec<u8>>> {
     is_flat_opc(bytes).then(|| read_flat(bytes, &Limits::default()).and_then(|p| p.write()))
 }
 
+/// ZIP package bytes of a Flat OPC document (an error when `bytes` are not one).
+pub fn zip_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
+    read_flat(bytes, &Limits::default())?.write()
+}
+
 /// Flat OPC document of ZIP package bytes.
 pub fn zip_to_flat(bytes: &[u8]) -> Result<Vec<u8>> {
     write_flat(&Package::read(bytes, &Limits::default())?)

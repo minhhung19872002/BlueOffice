@@ -157,6 +157,20 @@ impl Selector {
 #[derive(Debug, Clone, Default)]
 pub struct StyleSheet {
     rules: Vec<(Selector, Decls)>,
+    /// Rules by their most selective part (`#id`, else `.class`, else type), so an
+    /// element only meets the rules that can match it.
+    index: std::collections::HashMap<String, Vec<usize>>,
+}
+
+/// Index key of a selector: its id, else its first class, else its type.
+fn rule_key(s: &Selector) -> String {
+    if let Some(id) = &s.id {
+        format!("#{id}")
+    } else if let Some(c) = s.classes.first() {
+        format!(".{c}")
+    } else {
+        s.tag.clone().unwrap_or_default()
+    }
 }
 
 /// Most rules kept from the style sheets of one document.
@@ -193,6 +207,10 @@ impl StyleSheet {
                     for sel in prelude.split(',') {
                         if let Some(sel) = Selector::parse(sel) {
                             if self.rules.len() < MAX_RULES {
+                                self.index
+                                    .entry(rule_key(&sel))
+                                    .or_default()
+                                    .push(self.rules.len());
                                 self.rules.push((sel, decls.clone()));
                             }
                         }
@@ -206,14 +224,31 @@ impl StyleSheet {
     /// Declarations that apply to `e`: matching rules by specificity then source
     /// order, then the element's own `style` attribute.
     pub fn computed(&self, e: &Element) -> Decls {
-        let mut hits: Vec<(u32, usize)> = self
-            .rules
-            .iter()
-            .enumerate()
-            .filter(|(_, (s, _))| s.matches(e))
-            .map(|(i, (s, _))| (s.specificity(), i))
-            .collect();
+        let mut hits: Vec<(u32, usize)> = Vec::new();
+        if !self.rules.is_empty() {
+            let mut keys: Vec<String> = vec![e.name.clone()];
+            if let Some(id) = e.attr("id") {
+                keys.push(format!("#{id}"));
+            }
+            if let Some(classes) = e.attr("class") {
+                keys.extend(
+                    classes
+                        .split_ascii_whitespace()
+                        .take(32)
+                        .map(|c| format!(".{c}")),
+                );
+            }
+            for key in keys {
+                for &i in self.index.get(&key).map_or(&[][..], Vec::as_slice) {
+                    let s = &self.rules[i].0;
+                    if s.matches(e) {
+                        hits.push((s.specificity(), i));
+                    }
+                }
+            }
+        }
         hits.sort_unstable();
+        hits.dedup();
         let mut out = Decls::default();
         for (_, i) in hits {
             out.extend(&self.rules[i].1);

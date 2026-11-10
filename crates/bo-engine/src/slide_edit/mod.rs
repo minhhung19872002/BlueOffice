@@ -199,6 +199,12 @@ pub enum SlideCommand {
     /// The current deck's theme (first master) as a `.thmx` file (`design.themeFile`,
     /// base64; CORE-FMT-001). Apply one with `applyTheme { file }`.
     SaveThemeFile,
+    /// The open presentation in another file format (CORE-FMT-003) → `file`
+    /// (base64): `xml` (Flat OPC of the `.pptx` package).
+    ExportFile {
+        /// `xml`.
+        format: String,
+    },
     /// Package variant of the next saves by file extension (`pptx`, `pptm`, `potx`,
     /// `potm`, `ppsx`, `ppsm`; CORE-FMT-001). A macro-free variant drops the VBA
     /// project on save.
@@ -1208,6 +1214,9 @@ pub struct SlideEditResult {
     /// Answer of the `show` command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show: Option<show::ShowOut>,
+    /// File bytes of `exportFile`, base64.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     /// Custom shows, show setup, hidden slides and timings (Slide Show tab).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presenting: Option<present::PresentOut>,
@@ -3599,6 +3608,16 @@ impl Engine {
             }
             return Ok(r);
         }
+        if let SlideCommand::ExportFile { format } = &cmd {
+            use base64::Engine as _;
+            let out = self.export_as(format);
+            let mut r = self.slide_command(SlideCommand::State)?;
+            match out {
+                Ok(b) => r.file = Some(base64::engine::general_purpose::STANDARD.encode(b)),
+                Err(e) => r.error = Some(e.to_string()),
+            }
+            return Ok(r);
+        }
         if let SlideCommand::SaveFormat { ext } = &cmd {
             let failed = self.set_save_format(ext).is_err();
             let mut r = self.slide_command(SlideCommand::State)?;
@@ -3656,6 +3675,7 @@ impl Engine {
                 SlideCommand::State
                 | SlideCommand::SetSavePassword { .. }
                 | SlideCommand::SaveFormat { .. }
+                | SlideCommand::ExportFile { .. }
                 | SlideCommand::SaveThemeFile
                 | SlideCommand::Inspect
                 | SlideCommand::DocProperties
@@ -4990,6 +5010,7 @@ impl Engine {
                 _ => None,
             },
             show: None,
+            file: None,
             presenting: Some(present::present_out(pres)),
             comments: comments::comments_out(pres, slide),
             inspection: None,

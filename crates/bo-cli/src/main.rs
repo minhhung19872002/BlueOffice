@@ -73,13 +73,18 @@ enum Cmd {
         #[arg(long)]
         page: Option<usize>,
     },
-    /// Convert to another format. Templates / macro-enabled variants / slide shows
+    /// Convert to another format. `html` (one filtered HTML file; workbooks become
+    /// HTML tables), `mht` (single-file web page) and `xml-flat` (Flat OPC: the
+    /// .docx/.xlsx/.pptx package as one XML file) — CORE-FMT-003; HTML, MHTML, Flat
+    /// OPC and XML Spreadsheet 2003 inputs are recognised by content.
+    /// Templates / macro-enabled variants / slide shows
     /// (`dotx`, `docm`, `xltm`, `ppsx`, …) re-type the package (macros are dropped for
     /// macro-free types); `thmx` saves the file's theme as a theme file.
     Convert {
         input: PathBuf,
         #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx", "gif", "png", "jpg", "svg", "zip",
-            "docm", "dotx", "dotm", "xlsm", "xltx", "xltm", "pptm", "potx", "potm", "ppsx", "ppsm", "thmx"])]
+            "docm", "dotx", "dotm", "xlsm", "xltx", "xltm", "pptm", "potx", "potm", "ppsx", "ppsm", "thmx",
+            "html", "mht", "xml-flat"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -671,11 +676,16 @@ fn run(cli: Cli) -> R {
         }
         Cmd::Inspect { input, password } => {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
-            let (loaded, facts) = convert::load(&bytes, password.as_deref())?;
+            let name = input.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let (loaded, facts) = convert::load_named(&bytes, name, password.as_deref())?;
             println!("format: {}", facts.format);
+            if facts.flat_opc {
+                println!("container: Flat OPC (pkg:package)");
+            }
             // CORE-FMT-001: document / template / macro-enabled / slide show, by the
-            // main part's content type.
-            if let Some(v) = bo_engine::variant::detect(&bytes) {
+            // main part's content type (of the package a Flat OPC file describes).
+            let package = bo_opc::flat::flat_to_zip(&bytes).and_then(Result::ok);
+            if let Some(v) = bo_engine::variant::detect(package.as_deref().unwrap_or(&bytes)) {
                 println!("variant: {}", v.ext());
             }
             println!("encrypted: {}", facts.encrypted);
@@ -986,10 +996,35 @@ fn run_convert(
         Some(_) => "pptx",
         None => to,
     };
-    let (loaded, facts) = convert::load(&bytes, password)?;
+    let (loaded, facts) = convert::load_named(&bytes, &name, password)?;
     if facts.has_macros {
         eprintln!("note: the input contains macros; they are preserved where the output format allows and never executed");
     }
+    // CORE-FMT-003: Flat OPC is the OOXML package of the input's kind as one XML file.
+    let flat_out = to == "xml-flat";
+    let to = if flat_out {
+        match &loaded {
+            Loaded::Document { .. } => "docx",
+            Loaded::Pptx(_) | Loaded::Deck(_) => "pptx",
+            Loaded::Xlsx(_) | Loaded::Workbook(_) | Loaded::Spreadsheet(_) => "xlsx",
+        }
+    } else {
+        to
+    };
+    let title = input
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("document");
+    // An HTML page converted to a spreadsheet format: its tables become sheets.
+    let web_in = matches!(facts.format, "html" | "mht");
+    let loaded = match loaded {
+        Loaded::Document { .. } if web_in && matches!(to, "xlsx" | "csv" | "ods") => {
+            let mut engine = bo_engine::SheetEngine::new();
+            engine.open(&bytes, &name)?;
+            Loaded::Xlsx(engine.save("xlsx", 0)?)
+        }
+        other => other,
+    };
     let mut out_ext = to.to_owned();
     let job = if to == "pdf" {
         deck.print.json()?
@@ -1035,6 +1070,8 @@ fn run_convert(
             docx
         }
         (Loaded::Document { doc, .. }, "odt") => bo_odf::write_odt(&doc)?,
+        (Loaded::Document { doc, .. }, "html") => bo_html::write_html(&doc, title).into_bytes(),
+        (Loaded::Document { doc, .. }, "mht") => bo_html::write_mht(&doc, title),
         (Loaded::Document { doc, .. }, "txt") => doc.plain_text().into_bytes(),
         (Loaded::Workbook(wb), "csv") => {
             let s = wb
@@ -1070,14 +1107,16 @@ fn run_convert(
             engine.save_pptx()?
         }
         // Spreadsheets through the BlueSheet engine (xls/xlsb/ods are converted).
-        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf") => sheet_convert(&b, &name, to, sheet, pdf)?,
+        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf" | "html") => {
+            sheet_convert(&b, &with_xlsx_ext(&name), to, sheet, pdf)?
+        }
         (Loaded::Xlsx(b), "ods") => {
             let mut engine = bo_engine::SheetEngine::new();
             engine.open(&b, &name)?;
             let wb = engine.workbook().ok_or("no workbook")?;
             bo_odf::write_ods(&convert::model_to_ods(wb))?
         }
-        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf") => {
+        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf" | "html") => {
             sheet_convert(&bytes, &name, to, sheet, pdf)?
         }
         // .ppt / .odp decks with their drawing, through the BlueSlide engine.
@@ -1125,8 +1164,14 @@ fn run_convert(
         }
         None => data,
     };
+    let data = if flat_out {
+        out_ext = "xml".into();
+        bo_opc::flat::zip_to_flat(&data)?
+    } else {
+        data
+    };
     let data = if let Some(pw) = protect {
-        if !matches!(to, "docx") {
+        if !matches!(to, "docx") || flat_out {
             return Err("--protect is only supported for docx output".into());
         }
         bo_crypto::save_package(&data, Some(pw))?
@@ -1140,6 +1185,20 @@ fn run_convert(
     write_file(&out, &data)?;
     println!("{} ({} bytes)", out.display(), data.len());
     Ok(())
+}
+
+/// `name` as an `.xlsx` name: workbook bytes converted from another format are a
+/// package whatever the input was called (`.csv`, `.xml`, `.html`).
+fn with_xlsx_ext(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if [".xlsx", ".xlsm", ".xltx", ".xltm"]
+        .iter()
+        .any(|e| lower.ends_with(e))
+    {
+        name.to_owned()
+    } else {
+        format!("{}.xlsx", name.rsplit_once('.').map_or(name, |(b, _)| b))
+    }
 }
 
 fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {

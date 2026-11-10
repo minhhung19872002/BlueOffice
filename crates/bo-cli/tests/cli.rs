@@ -386,3 +386,101 @@ fn roundtrip_keeps_workbooks_and_decks_in_their_format() {
     assert!(text.contains("ppt/presentation.xml"));
     assert!(!text.contains("word/document.xml"));
 }
+
+/// CORE-FMT-003: `--to html|mht|xml-flat`, and those formats (plus XML Spreadsheet
+/// 2003) as inputs, recognised by content. The OOXML files converted from them are
+/// structurally valid packages (`validate --openxml off`; the fidelity job runs
+/// OpenXmlValidator where .NET is available).
+#[test]
+fn convert_web_and_single_file_xml_formats() {
+    let dir = scratch("web-formats");
+    let conv = |src: &Path, to: &str, out: &Path| {
+        run(bin()
+            .arg("convert")
+            .arg(src)
+            .args(["--to", to])
+            .arg("--out")
+            .arg(out));
+        std::fs::read(out).unwrap()
+    };
+    let inspect = |p: &Path| stdout(&run(bin().arg("inspect").arg(p)));
+    let docx = corpus("doc/phase1-sample.docx");
+
+    // Document → HTML → .docx.
+    let html = dir.join("doc.html");
+    let bytes = conv(&docx, "html", &html);
+    assert!(bytes.starts_with(b"<!DOCTYPE html>"));
+    assert!(!String::from_utf8_lossy(&bytes).contains("<script"));
+    assert!(inspect(&html).contains("format: html"));
+    let back = dir.join("from-html.docx");
+    assert!(conv(&html, "docx", &back).starts_with(b"PK"));
+
+    // Document → MHTML → .docx.
+    let mht = dir.join("doc.mht");
+    let bytes = conv(&docx, "mht", &mht);
+    assert!(bytes.starts_with(b"From: <Saved by BlueOffice>\r\nMIME-Version: 1.0"));
+    assert!(inspect(&mht).contains("format: mht"));
+    let from_mht = dir.join("from-mht.docx");
+    assert!(conv(&mht, "docx", &from_mht).starts_with(b"PK"));
+    // The text is the same through both.
+    let text = |p: &Path, name: &str| {
+        let out = dir.join(name);
+        String::from_utf8(conv(p, "txt", &out)).unwrap()
+    };
+    let words = |s: String| s.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let original = words(text(&docx, "a.txt"));
+    assert_eq!(words(text(&html, "b.txt")), original);
+    assert_eq!(words(text(&mht, "c.txt")), original);
+
+    // Flat OPC for the three document types, and back to the package.
+    for (src, base, variant) in [
+        (docx.clone(), "docx", "docx"),
+        (corpus("sheet/values-1.xlsx"), "xlsx", "xlsx"),
+        (corpus("slide/slide-text-bullets.pptx"), "pptx", "pptx"),
+    ] {
+        let flat = dir.join(format!("flat-{base}.xml"));
+        let bytes = conv(&src, "xml-flat", &flat);
+        let head = String::from_utf8_lossy(&bytes[..300.min(bytes.len())]).into_owned();
+        assert!(head.contains("<pkg:package xmlns:pkg="), "{head}");
+        assert!(head.contains("<?mso-application progid="), "{head}");
+        let report = inspect(&flat);
+        assert!(report.contains(&format!("format: {base}")), "{report}");
+        assert!(report.contains("container: Flat OPC"), "{report}");
+        assert!(report.contains(&format!("variant: {variant}")), "{report}");
+        let back = dir.join(format!("from-flat.{base}"));
+        assert!(conv(&flat, base, &back).starts_with(b"PK"));
+    }
+    // Default output name: `.xml` next to the input.
+    let copy = dir.join("copy.docx");
+    std::fs::copy(&docx, &copy).unwrap();
+    run(bin().arg("convert").arg(&copy).args(["--to", "xml-flat"]));
+    assert!(dir.join("copy.xml").exists());
+
+    // XML Spreadsheet 2003 → .xlsx / .csv / HTML tables; HTML tables → .xlsx.
+    let xml2003 = corpus("sheet/xml2003-1-budget.xml");
+    let report = inspect(&xml2003);
+    assert!(report.contains("format: xml-2003"), "{report}");
+    assert!(report.contains("sheet: Ngân sách"), "{report}");
+    let xlsx = dir.join("budget.xlsx");
+    assert!(conv(&xml2003, "xlsx", &xlsx).starts_with(b"PK"));
+    let csv = String::from_utf8(conv(&xml2003, "csv", &dir.join("budget.csv"))).unwrap();
+    assert!(csv.contains("Khoản mục"), "{csv}");
+    assert!(csv.contains("165000000"), "{csv}");
+    let tables = dir.join("budget.html");
+    let page = String::from_utf8(conv(&xlsx, "html", &tables)).unwrap();
+    assert!(page.contains("<caption>Ngân sách</caption>"));
+    let from_tables = dir.join("from-tables.xlsx");
+    assert!(conv(&tables, "xlsx", &from_tables).starts_with(b"PK"));
+    assert!(inspect(&from_tables).contains("sheet: Tham_so"));
+
+    // Every OOXML file made from the new readers is a well-formed package.
+    for p in [&back, &from_mht, &xlsx, &from_tables] {
+        run(bin().arg("validate").arg(p).args(["--openxml", "off"]));
+    }
+    for base in ["docx", "xlsx", "pptx"] {
+        run(bin()
+            .arg("validate")
+            .arg(dir.join(format!("from-flat.{base}")))
+            .args(["--openxml", "off"]));
+    }
+}

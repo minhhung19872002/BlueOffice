@@ -413,6 +413,8 @@ struct Reader {
     css: StyleSheet,
     wb: Workbook,
     cells: usize,
+    /// Cell formats already built, by what determined them.
+    formats: HashMap<String, u32>,
 }
 
 impl Reader {
@@ -422,12 +424,39 @@ impl Reader {
         let mut d = table.clone();
         d.extend(tr);
         d.extend(&own);
-        let has = |tag: &[&str]| {
-            td.descendants()
-                .iter()
-                .skip(1)
-                .any(|e| tag.contains(&e.name.as_str()))
-        };
+        let inner = td.descendants();
+        let has = |tag: &[&str]| inner.iter().skip(1).any(|e| tag.contains(&e.name.as_str()));
+        let key = format!(
+            "{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}{}{}{}",
+            td.name,
+            d.0,
+            td.attr("bgcolor"),
+            td.attr("align"),
+            td.attr("valign"),
+            td.attr("data-fmt"),
+            td.attr("data-fmt-id"),
+            u8::from(has(&["b", "strong"])),
+            u8::from(has(&["i", "em"])),
+            u8::from(has(&["u"])),
+            u8::from(has(&["s", "strike", "del"])),
+        );
+        if let Some(&xf) = self.formats.get(&key) {
+            return xf;
+        }
+        let xf = self.build_format(td, &own, &d, &has);
+        if self.formats.len() < 100_000 {
+            self.formats.insert(key, xf);
+        }
+        xf
+    }
+
+    fn build_format(
+        &mut self,
+        td: &Element,
+        own: &Decls,
+        d: &Decls,
+        has: &dyn Fn(&[&str]) -> bool,
+    ) -> u32 {
         let base = self.wb.styles.fonts.first().cloned().unwrap_or_default();
         let mut font = Font {
             scheme: None,
@@ -502,10 +531,10 @@ impl Reader {
             v.eq_ignore_ascii_case("normal") || v.eq_ignore_ascii_case("pre-wrap")
         });
         let border = Border {
-            top: edge_from_css(&own, "top"),
-            left: edge_from_css(&own, "left"),
-            bottom: edge_from_css(&own, "bottom"),
-            right: edge_from_css(&own, "right"),
+            top: edge_from_css(own, "top"),
+            left: edge_from_css(own, "left"),
+            bottom: edge_from_css(own, "bottom"),
+            right: edge_from_css(own, "right"),
             ..Border::default()
         };
         let num_fmt_id = match (td.attr("data-fmt"), td.attr("data-fmt-id")) {
@@ -741,6 +770,7 @@ pub fn read_workbook_html_str(text: &str) -> Workbook {
         css,
         wb: Workbook::new(),
         cells: 0,
+        formats: HashMap::new(),
     };
     reader.wb.sheets.clear();
     // Top-level tables: depth-first, not descending into a table.

@@ -619,6 +619,13 @@ pub enum Command {
         #[serde(default)]
         password: Option<String>,
     },
+    /// The open document in another file format (CORE-FMT-003) → `file` (base64):
+    /// `html` (one filtered HTML file), `mht` (single-file web page) or `xml`
+    /// (Flat OPC). The document and its saved state do not change.
+    ExportFile {
+        /// `html`, `mht` or `xml`.
+        format: String,
+    },
     /// Package variant of the next saves by file extension (`docx`, `dotx`, `docm`,
     /// `dotm`; CORE-FMT-001). A macro-free variant drops the VBA project on save.
     SaveFormat {
@@ -1132,6 +1139,9 @@ pub struct EditResult {
     /// Error message of a command that could not be applied (state is unchanged).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// File bytes of `exportFile`, base64.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     /// Review pane state; present after document changes and review commands.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review: Option<ReviewState>,
@@ -1331,6 +1341,19 @@ impl crate::Engine {
     }
 
     fn command_inner(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+        // Export to another format: nothing changes (also while filling in forms).
+        if let Command::ExportFile { format } = &cmd {
+            use base64::Engine as _;
+            let out = self.export_as(format);
+            let mut r = self.query_result()?;
+            match out {
+                Ok(bytes) => {
+                    r.file = Some(base64::engine::general_purpose::STANDARD.encode(bytes));
+                }
+                Err(e) => r.error = Some(e.to_string()),
+            }
+            return Ok(r);
+        }
         // Filling in forms (§17.15.1.29): only form fields, content controls and unprotected
         // sections change.
         let cmd = match self.session.as_ref() {
@@ -1601,6 +1624,7 @@ impl crate::Engine {
                 match cmd {
                     // Handled outside the session (view options, merge state).
                     Command::State
+                    | Command::ExportFile { .. }
                     | Command::AutoCorrect { .. }
                     | Command::Review
                     | Command::SetRevisionView { .. }
@@ -2406,6 +2430,7 @@ impl crate::Engine {
             proof: None,
             proof_options: None,
             painter: s.picked_format().is_some(),
+            file: None,
             design: None,
             security: None,
             outline: None,

@@ -34,10 +34,55 @@ pub struct Facts {
     pub format: &'static str,
     pub encrypted: bool,
     pub has_macros: bool,
+    /// The package came as one Flat OPC XML file (CORE-FMT-003).
+    pub flat_opc: bool,
 }
 
 /// Detect and read `bytes`. Encrypted OOXML needs `password`.
+#[cfg(test)]
 pub fn load(bytes: &[u8], password: Option<&str>) -> Result<(Loaded, Facts), Error> {
+    load_named(bytes, "", password)
+}
+
+/// [`load`] with the file name, whose extension decides for text formats that
+/// cannot be told apart by content (`.html`, `.mht`).
+pub fn load_named(
+    bytes: &[u8],
+    name: &str,
+    password: Option<&str>,
+) -> Result<(Loaded, Facts), Error> {
+    use bo_engine::web_formats::{detect, WebKind};
+    // CORE-FMT-003: web and single-file XML formats, by content then extension.
+    match detect(bytes, name) {
+        Some(WebKind::FlatOpc) => {
+            let zip = bo_opc::flat::zip_bytes(bytes)?;
+            let (loaded, mut facts) = load_named(&zip, name, password)?;
+            facts.flat_opc = true;
+            return Ok((loaded, facts));
+        }
+        Some(WebKind::XmlSpreadsheet) => {
+            let wb = bo_xlsx::read_xml_spreadsheet(bytes)?;
+            let facts = Facts {
+                format: "xml-2003",
+                ..Facts::default()
+            };
+            return Ok((Loaded::Xlsx(bo_xlsx::write_xlsx(&wb)?), facts));
+        }
+        Some(kind @ (WebKind::Html | WebKind::Mht)) => {
+            let doc = match kind {
+                WebKind::Mht => {
+                    bo_html::read_mht(bytes).ok_or("the MHTML file has no HTML page")?
+                }
+                _ => bo_html::read_html(bytes),
+            };
+            let facts = Facts {
+                format: kind.name(),
+                ..Facts::default()
+            };
+            return Ok((Loaded::Document { doc, source: None }, facts));
+        }
+        None => {}
+    }
     let mut facts = Facts {
         has_macros: bo_binary::has_macros(bytes),
         ..Facts::default()
@@ -61,7 +106,7 @@ pub fn load(bytes: &[u8], password: Option<&str>) -> Result<(Loaded, Facts), Err
             }
             LegacyKind::EncryptedOoxml => {
                 let plain = bo_crypto::open_package(bytes, password)?;
-                let (loaded, inner) = load(&plain, None)?;
+                let (loaded, inner) = load_named(&plain, name, None)?;
                 facts.format = inner.format;
                 facts.has_macros = inner.has_macros;
                 facts.encrypted = true;

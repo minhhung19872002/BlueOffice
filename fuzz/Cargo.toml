@@ -24,6 +24,7 @@ bo-docx = { path = "../crates/bo-docx" }
 bo-xlsx = { path = "../crates/bo-xlsx" }
 bo-pptx = { path = "../crates/bo-pptx" }
 bo-formula = { path = "../crates/bo-formula" }
+bo-html = { path = "../crates/bo-html" }
 
 # Keep this crate out of the root workspace.
 [workspace]
@@ -126,6 +127,20 @@ bench = false
 [[bin]]
 name = "formula"
 path = "fuzz_targets/formula.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "html"
+path = "fuzz_targets/html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flat_opc"
+path = "fuzz_targets/flat_opc.rs"
 test = false
 doc = false
 bench = false

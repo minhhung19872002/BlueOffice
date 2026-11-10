@@ -38,6 +38,9 @@ public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(
     /// <summary>Scheduled BlueScript runs (CORE-SCRIPT-002).</summary>
     public DbSet<ScriptSchedule> ScriptSchedules => Set<ScriptSchedule>();
 
+    /// <summary>Run history of scheduled scripts (CORE-SCRIPT-004).</summary>
+    public DbSet<ScriptRun> ScriptRuns => Set<ScriptRun>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -106,6 +109,17 @@ public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(
             e.Property(x => x.Cron).HasMaxLength(120);
             e.Property(x => x.LastStatus).HasMaxLength(16);
             e.Property(x => x.LastError).HasMaxLength(2000);
+            e.Property(x => x.DisabledReason).HasMaxLength(500);
+            e.Property(x => x.ProtectedToken).HasMaxLength(16000);
+        });
+        modelBuilder.Entity<ScriptRun>(e =>
+        {
+            e.HasIndex(x => new { x.ScheduleId, x.StartedAt });
+            e.Property(x => x.ScheduleId).HasMaxLength(32);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.Property(x => x.Error).HasMaxLength(2000);
+            e.Property(x => x.Logs).HasMaxLength(8000);
+            e.Property(x => x.Version).HasMaxLength(256);
         });
 
         modelBuilder.Entity<Storage.CollabLogEntry>(e =>

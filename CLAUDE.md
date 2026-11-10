@@ -54,6 +54,8 @@ cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch]
 cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--sunset SHA-1=2014-01-01] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
 cargo run -p bo-cli -- edit mau.docx --edits edits.json --out out.pdf --to pdf [--strict]   # điền mẫu (content control, bookmark, chuỗi giữ chỗ, thuộc tính; .xlsx: ô / tên) — bo_engine::fill, REST API docs/deploy/rest-api.md
 cargo run -p bo-cli -- merge mau.docx data.csv --to zip --each docx --out out.zip     # trộn thư: mỗi bản ghi một tệp (docx|pdf); inspect <tệp> --json
+cargo run -p bo-cli -- script run in.docx --script s.js [--out out.docx] [--timeout ms] [--memory mb] [--json]   # BlueScript headless (bo-script, ADR-0013)
+node packages/script/scripts/build-headless.mjs          # đóng gói lại API BlueScript cho bo-script sau khi sửa packages/script/src
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
 cargo run -p bo-cli -- convert deck.pptx --to gif        # trình chiếu → GIF động (bo_engine::slide_edit::video; web: MP4/WebM qua WebCodecs)
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet
@@ -112,6 +114,7 @@ bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formu
 bo-query (Lấy & biến đổi dữ liệu: nguồn CSV/JSON/XML/sổ/thư mục/web + ngôn ngữ bước JSON; docs/spec-notes/sheet-queries.md) ◄─ bo-engine (lệnh `query*`)
 bo-engine (facade: Engine doc+slide, SheetEngine) ◄─ bo-wasm (web) · bo-cli · apps/desktop/src-tauri
 bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
+bo-script (BlueScript headless: QuickJS-ng/rquickjs + bundle API của packages/script, cầu engine đồng bộ) ◄─ bo-cli (`script run`)
 ```
 Package TS: `platform` (PAL, `EngineHost`, `SheetHost`) → `canvas-host`, `ui`, `i18n` → `editor` (BlueDoc + `CommandRegistry`),
 `sheet-editor`, `slide-editor` → `apps/web` (`/doc` `/sheet` `/slide`, nhúng `/edit`), `apps/desktop`;
@@ -162,3 +165,4 @@ cung cấp).
 - [0010](docs/adr/0010-library-deviations-from-prompt.md) Thư viện khác prompt: cầu nối chuỗi JSON, serial date tự cài, không TanStack Query, CSS Modules một phần
 - [0011](docs/adr/0011-own-english-hyphenation-rules.md) Gạch nối tự động: quy tắc tiếng Anh tự viết (không tệp mẫu bên thứ ba), tiếng Việt chỉ ngắt ở dấu cách
 - [0012](docs/adr/0012-bluescript-quickjs-sandbox.md) BlueScript: QuickJS (WASM, MIT) trong Web Worker riêng, API qua cầu JSON allow-list, một lần chạy = một bước hoàn tác, script lưu theo người dùng
+- [0013](docs/adr/0013-headless-bluescript-runtime.md) BlueScript headless trên server: QuickJS-ng (`rquickjs`, MIT) trong `bo-cli script run`, chạy đúng bundle API của trình duyệt, lịch chạy lưu phiên bản mới (`Scripts:ScheduleEnabled` mặc định tắt)

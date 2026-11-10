@@ -50,8 +50,10 @@ hay trong một Web Worker thường, vẫn để lộ `fetch`, `postMessage`, `
 10. **Chạy theo lịch (server)**: `ScriptSchedule` (EF, cả hai provider) + `/api/sessions/{id}/schedules` lưu bản sao
    một script đã lưu của người dùng với biểu thức cron 5 trường (UTC); `ScriptScheduleWorker` chạy lịch đến hạn qua
    `IScriptRunner`. Server chỉ có worker bo-cli (không có JavaScript), nên bộ chạy mặc định
-   `UnavailableScriptRunner` ghi `lastStatus = unavailable`; bộ chạy headless thật (QuickJS trong bo-cli hoặc tiến
-   trình Node cách ly) để sau. Script nhúng trong tài liệu không bao giờ được lập lịch hay tự chạy.
+   `UnavailableScriptRunner` ghi `lastStatus = unavailable`. **CORE-SCRIPT-004** thay bằng bộ chạy headless thật:
+   QuickJS-ng (`rquickjs`) trong `bo-cli script run`, chạy đúng mã API của `packages/script` — xem ADR-0013 và
+   `docs/deploy/scripts.md` (mặc định tắt, `Scripts:ScheduleEnabled`). Script nhúng trong tài liệu không bao giờ được
+   lập lịch hay tự chạy.
 11. **Chuyển macro VBA → bản nháp BlueScript (CORE-SCRIPT-003)**: `packages/script/src/vbaConvert/` (TypeScript
    thuần, viết từ đặc tả công khai [MS-VBAL], không thêm thư viện) gồm bộ tách từ (`lexer.ts`: nối dòng ` _`, chú
    thích `'`/`Rem`, chuỗi `""`, số `&H`/`&O`, ngày `#…#`), bộ phân tích (`parser.ts`) và bộ sinh mã (`emit.ts`).

@@ -22,7 +22,9 @@ import {
   type QuickJSRuntime,
   type QuickJSWASMModule,
 } from 'quickjs-emscripten-core';
+import { errorText } from './host';
 import { PRELUDE } from './prelude';
+import { wrapScript } from './wrap';
 
 /** Default limits of a run. */
 export const DEFAULT_LIMITS = {
@@ -96,16 +98,7 @@ export function resetQuickJS(): void {
   modulePromise = null;
 }
 
-const errorText = (e: unknown): string =>
-  e instanceof Error ? e.message : typeof e === 'string' ? e : (JSON.stringify(e) ?? String(e));
-
-/** Wraps the user code: top-level `await` and `return` work, strict mode. */
-export function wrapScript(code: string): string {
-  return `(async () => {"use strict";\n${code}\n})()`;
-}
-
-/** Number of lines the wrapper adds before the user code (for error line numbers). */
-export const WRAP_LINES = 1;
+export { WRAP_LINES, wrapScript } from './wrap';
 
 /**
  * Runs `code` in a fresh QuickJS runtime of `module`. Never throws: every failure

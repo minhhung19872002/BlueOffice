@@ -235,6 +235,47 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Sqlite
                     b.ToTable("Folders");
                 });
 
+            modelBuilder.Entity("BlueOffice.Domain.ScriptRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Logs")
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ScheduleId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScheduleId", "StartedAt");
+
+                    b.ToTable("ScriptRuns");
+                });
+
             modelBuilder.Entity("BlueOffice.Domain.ScriptSchedule", b =>
                 {
                     b.Property<string>("Id")
@@ -245,12 +286,19 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Sqlite
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Cron")
                         .IsRequired()
                         .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisabledReason")
+                        .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Enabled")
@@ -288,6 +336,10 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("NextRunAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProtectedToken")
+                        .HasMaxLength(16000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("UserId")

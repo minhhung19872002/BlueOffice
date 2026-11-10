@@ -2,6 +2,7 @@
 import { createI18n, I18nextProvider } from '@blueoffice/i18n';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import type { ScriptRunRecord, ScriptSchedule, ScriptSchedules } from '@blueoffice/platform';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ScriptHost } from '../src/host';
 import { inlineRunner } from '../src/runner';
@@ -277,5 +278,79 @@ describe('ScriptPane', () => {
     fireEvent.click(screen.getByTestId('script-qat'));
     expect(store.list()[0]).toMatchObject({ shortcut: 'Ctrl+Alt+1', quickAccess: true });
     expect((screen.getByTestId('script-shortcut') as HTMLInputElement).value).toBe('Ctrl+Alt+1');
+  });
+});
+
+describe('ScriptPane server schedules (CORE-SCRIPT-004)', () => {
+  it('shows the status, the run history and re-enables a disabled schedule', async () => {
+    const base: ScriptSchedule = {
+      id: 's1',
+      name: 'Tổng hợp',
+      cron: '0 7 * * *',
+      enabled: false,
+      nextRunAt: null,
+      lastRunAt: '2026-11-11T07:00:00Z',
+      lastStatus: 'failed',
+      lastError: 'error: boom',
+      consecutiveFailures: 5,
+      disabledReason: 'Disabled after 5 failed runs in a row.',
+    };
+    let current = base;
+    const enabled: [string, boolean][] = [];
+    const runs: ScriptRunRecord[] = [
+      {
+        startedAt: '2026-11-11T07:00:00Z',
+        durationMs: 42,
+        status: 'failed',
+        error: 'error: boom (line 1, column 7)',
+        logs: '[log] start\n',
+        version: null,
+      },
+      {
+        startedAt: '2026-11-10T07:00:00Z',
+        durationMs: 30,
+        status: 'succeeded',
+        error: null,
+        logs: null,
+        version: '7',
+      },
+    ];
+    const schedules: ScriptSchedules = {
+      list: async () => [current],
+      create: async () => current,
+      remove: async () => {},
+      runs: async () => runs,
+      setEnabled: async (id, on) => {
+        enabled.push([id, on]);
+        current = { ...current, enabled: on, consecutiveFailures: 0, disabledReason: null };
+        return current;
+      },
+    };
+    wrap(
+      <ScriptPane
+        app="doc"
+        host={() => null}
+        runner={inlineRunner()}
+        store={scriptStore('doc', memory())}
+        schedules={schedules}
+      />,
+    );
+    const item = await screen.findByTestId('script-schedule-item');
+    expect(item.textContent).toContain('last run failed');
+    expect(item.textContent).toContain('disabled');
+    expect(item.querySelector('span')?.getAttribute('title')).toBe(base.disabledReason);
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    const list = await screen.findByRole('list', { name: 'Runs of “Tổng hợp”' });
+    expect(list.textContent).toContain('failed · 42 ms');
+    expect(list.textContent).toContain('error: boom (line 1, column 7)');
+    expect(list.textContent).toContain('[log] start');
+    expect(list.textContent).toContain('succeeded · 30 ms · saved version 7');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable again' }));
+    await waitFor(() => expect(enabled).toEqual([['s1', true]]));
+    await waitFor(() =>
+      expect(screen.getByTestId('script-schedule-item').textContent).not.toContain('disabled'),
+    );
   });
 });

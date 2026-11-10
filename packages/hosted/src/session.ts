@@ -236,6 +236,8 @@ export function sessionScriptSchedules(
     lastRunAt: str(v.lastRunAt),
     lastStatus: str(v.lastStatus),
     lastError: str(v.lastError),
+    consecutiveFailures: typeof v.consecutiveFailures === 'number' ? v.consecutiveFailures : 0,
+    disabledReason: str(v.disabledReason),
   });
   return {
     list: async () => {
@@ -263,6 +265,29 @@ export function sessionScriptSchedules(
         headers,
       });
       if (!res.ok && res.status !== 404) throw new Error(`session.unschedule ${res.status}`);
+    },
+    runs: async (id) => {
+      const res = await fetchImpl(`${base}/${encodeURIComponent(id)}/runs`, { headers });
+      if (!res.ok) throw new Error(`session.scheduleRuns ${res.status}`);
+      const body = (await res.json()) as { runs?: unknown };
+      const list = Array.isArray(body.runs) ? (body.runs as Record<string, unknown>[]) : [];
+      return list.map((r) => ({
+        startedAt: str(r.startedAt) ?? '',
+        durationMs: typeof r.durationMs === 'number' ? r.durationMs : 0,
+        status: str(r.status) ?? '',
+        error: str(r.error),
+        logs: str(r.logs),
+        version: str(r.version),
+      }));
+    },
+    setEnabled: async (id, enabled) => {
+      const res = await fetchImpl(`${base}/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error(`session.scheduleEnable ${res.status}`);
+      return parse((await res.json()) as Record<string, unknown>);
     },
   };
 }

@@ -16,9 +16,26 @@ export interface ScriptSchedule {
   /** ISO date-times. */
   nextRunAt: string | null;
   lastRunAt: string | null;
-  /** `succeeded`, `failed` or `unavailable` (no server-side runner configured). */
+  /** `succeeded`, `failed`, `skipped` (file open for editing) or `unavailable` (runs switched off). */
   lastStatus: string | null;
   lastError: string | null;
+  /** Failed runs in a row (CORE-SCRIPT-004). */
+  consecutiveFailures: number;
+  /** Why the server disabled the schedule (too many failures). */
+  disabledReason: string | null;
+}
+
+/** One run in a schedule's history (CORE-SCRIPT-004). */
+export interface ScriptRunRecord {
+  /** ISO date-time. */
+  startedAt: string;
+  durationMs: number;
+  status: string;
+  error: string | null;
+  /** Console output (`[level] text` lines, truncated). */
+  logs: string | null;
+  /** Host version the run saved. */
+  version: string | null;
 }
 
 export interface ScriptScheduleInput {
@@ -34,4 +51,8 @@ export interface ScriptSchedules {
   /** Rejects with `Error('schedule.invalidCron')` for a malformed schedule. */
   create(input: ScriptScheduleInput): Promise<ScriptSchedule>;
   remove(id: string): Promise<void>;
+  /** Run history, newest first. */
+  runs?(id: string): Promise<ScriptRunRecord[]>;
+  /** Enables (resetting the failure count) or disables a schedule. */
+  setEnabled?(id: string, enabled: boolean): Promise<ScriptSchedule>;
 }

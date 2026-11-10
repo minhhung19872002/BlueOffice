@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from '@blueoffice/i18n';
-import type { ScriptSchedule, ScriptSchedules } from '@blueoffice/platform';
+import type { ScriptRunRecord, ScriptSchedule, ScriptSchedules } from '@blueoffice/platform';
 import { complete, insertion, type Completion } from './completion';
 import type { ScriptHost } from './host';
 import type { ScriptRecorder } from './recorder';
@@ -214,6 +214,18 @@ export function ScriptPane({
     if (!schedules) return;
     schedules.list().then(setPlanned, () => setPlanned([]));
   }, [schedules]);
+  // Run history of one schedule (CORE-SCRIPT-004), loaded when opened.
+  const [history, setHistory] = useState<{ id: string; runs: ScriptRunRecord[] } | null>(null);
+  const toggleHistory = (id: string) => {
+    if (history?.id === id || !schedules?.runs) {
+      setHistory(null);
+      return;
+    }
+    schedules.runs(id).then(
+      (runs) => setHistory({ id, runs }),
+      () => setHistory({ id, runs: [] }),
+    );
+  };
   useEffect(reloadSchedules, [reloadSchedules]);
 
   const describe = (r: RunResult) => {
@@ -601,17 +613,60 @@ export function ScriptPane({
       {schedules && planned.length > 0 && (
         <ul className={styles.schedules} aria-label={t('script.schedule.list')}>
           {planned.map((p) => (
-            <li key={p.id}>
-              <span>
+            <li key={p.id} data-testid="script-schedule-item">
+              <span title={p.disabledReason ?? p.lastError ?? undefined}>
                 {p.name} · <code>{p.cron}</code>
                 {p.lastStatus ? ` · ${t(`script.schedule.status.${p.lastStatus}`)}` : ''}
+                {p.enabled ? '' : ` · ${t('script.schedule.disabled')}`}
               </span>
+              {!p.enabled && schedules.setEnabled && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void schedules.setEnabled?.(p.id, true).then(reloadSchedules, reloadSchedules)
+                  }
+                >
+                  {t('script.schedule.enable')}
+                </button>
+              )}
+              {schedules.runs && (
+                <button
+                  type="button"
+                  aria-expanded={history?.id === p.id}
+                  onClick={() => toggleHistory(p.id)}
+                >
+                  {t('script.schedule.history')}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void schedules.remove(p.id).then(reloadSchedules, reloadSchedules)}
               >
                 {t('script.schedule.remove')}
               </button>
+              {history?.id === p.id && (
+                <ol
+                  className={styles.runs}
+                  aria-label={t('script.schedule.historyOf', { name: p.name })}
+                >
+                  {history.runs.length === 0 && <li>{t('script.schedule.noRuns')}</li>}
+                  {history.runs.map((r) => (
+                    <li key={r.startedAt + r.status}>
+                      {t('script.schedule.run', {
+                        at: new Date(r.startedAt).toLocaleString(),
+                        status: t(`script.schedule.runStatus.${r.status}`),
+                        ms: r.durationMs,
+                      })}
+                      {r.version
+                        ? ` · ${t('script.schedule.version', { version: r.version })}`
+                        : ''}
+                      {(r.error || r.logs) && (
+                        <pre>{[r.error, r.logs].filter(Boolean).join('\n')}</pre>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
             </li>
           ))}
         </ul>

@@ -48,8 +48,9 @@ public sealed class MigrationTests
         {
             await old.Database.EnsureCreatedAsync();
             await old.Database.ExecuteSqlRawAsync("DROP TABLE \"CollabLog\"");
-            // Tables of later migrations (ScriptSchedules) did not exist either.
+            // Tables of later migrations (ScriptSchedules, ScriptRuns) did not exist either.
             await old.Database.ExecuteSqlRawAsync("DROP TABLE \"ScriptSchedules\"");
+            await old.Database.ExecuteSqlRawAsync("DROP TABLE \"ScriptRuns\"");
             old.Users.Add(new User { Subject = "dev|alice", DisplayName = "Alice" });
             await old.SaveChangesAsync();
         }

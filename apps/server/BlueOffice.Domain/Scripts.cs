@@ -43,18 +43,31 @@ public sealed class ScriptSchedule
     /// <summary>Last run (UTC).</summary>
     public DateTime? LastRunAt { get; set; }
 
-    /// <summary><c>succeeded</c>, <c>failed</c> or <c>unavailable</c> (no runner configured).</summary>
+    /// <summary><c>succeeded</c>, <c>failed</c>, <c>skipped</c> or <c>unavailable</c> (runs switched off / no runner).</summary>
     public string? LastStatus { get; set; }
 
     /// <summary>Error of the last run.</summary>
     public string? LastError { get; set; }
+
+    /// <summary>Failed runs in a row (CORE-SCRIPT-004); the schedule is disabled when it reaches the configured maximum.</summary>
+    public int ConsecutiveFailures { get; set; }
+
+    /// <summary>Why the server disabled the schedule (null when the owner did, or when enabled).</summary>
+    public string? DisabledReason { get; set; }
+
+    /// <summary>
+    /// The owner's host access token from the session that created (or last listed) the schedule, protected with
+    /// ASP.NET Core Data Protection. Scheduled runs read and write the file with it; null for local files (the
+    /// owner's user id is enough).
+    /// </summary>
+    public string? ProtectedToken { get; set; }
 
     /// <summary>Creation time (UTC).</summary>
     public DateTime CreatedAt { get; set; }
 }
 
 /// <summary>Outcome of one scheduled run.</summary>
-/// <param name="Status"><c>succeeded</c>, <c>failed</c> or <c>unavailable</c>.</param>
+/// <param name="Status"><c>succeeded</c>, <c>failed</c>, <c>skipped</c> or <c>unavailable</c>.</param>
 /// <param name="Error">Error message when not succeeded.</param>
 public sealed record ScriptRunResult(string Status, string? Error)
 {
@@ -64,15 +77,52 @@ public sealed record ScriptRunResult(string Status, string? Error)
     /// <summary>Status of a failed run.</summary>
     public const string Failed = "failed";
 
-    /// <summary>Status when no server-side runner exists.</summary>
+    /// <summary>Status when scheduled runs are switched off or no server-side runner exists.</summary>
     public const string Unavailable = "unavailable";
+
+    /// <summary>Status when the run was put off (the file is open for collaborative editing); not a failure.</summary>
+    public const string Skipped = "skipped";
+
+    /// <summary>Console output of the script (one line per entry, <c>[level] text</c>).</summary>
+    public string? Logs { get; init; }
+
+    /// <summary>Version saved to the host, when the script changed the file.</summary>
+    public string? Version { get; init; }
+}
+
+/// <summary>One run of a <see cref="ScriptSchedule"/> in its history (CORE-SCRIPT-004), visible to the owner.</summary>
+public sealed class ScriptRun
+{
+    /// <summary>Id.</summary>
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>Schedule (<see cref="ScriptSchedule.Id"/>).</summary>
+    public string ScheduleId { get; set; } = "";
+
+    /// <summary>Start (UTC).</summary>
+    public DateTime StartedAt { get; set; }
+
+    /// <summary>Wall time of the run in milliseconds.</summary>
+    public long DurationMs { get; set; }
+
+    /// <summary>Status (<see cref="ScriptRunResult"/> constants).</summary>
+    public string Status { get; set; } = "";
+
+    /// <summary>Error message (truncated).</summary>
+    public string? Error { get; set; }
+
+    /// <summary>Console output (truncated).</summary>
+    public string? Logs { get; set; }
+
+    /// <summary>Host version saved by the run.</summary>
+    public string? Version { get; set; }
 }
 
 /// <summary>Runs a scheduled script headless against the host file (opens it, runs the script, saves a version).</summary>
 public interface IScriptRunner
 {
-    /// <summary>Runs <paramref name="schedule"/> once.</summary>
-    Task<ScriptRunResult> RunAsync(ScriptSchedule schedule, CancellationToken ct);
+    /// <summary>Runs <paramref name="schedule"/> once; <paramref name="runAtUtc"/> is the time of the run (version note).</summary>
+    Task<ScriptRunResult> RunAsync(ScriptSchedule schedule, DateTime runAtUtc, CancellationToken ct);
 }
 
 /// <summary>

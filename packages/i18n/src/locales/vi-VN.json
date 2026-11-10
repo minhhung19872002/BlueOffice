@@ -5987,8 +5987,22 @@
       "status": {
         "succeeded": "lần trước: thành công",
         "failed": "lần trước: lỗi",
-        "unavailable": "máy chủ chưa có bộ chạy script"
-      }
+        "skipped": "lần trước: hoãn (tệp đang được mở)",
+        "unavailable": "máy chủ chưa bật chạy script theo lịch"
+      },
+      "runStatus": {
+        "succeeded": "thành công",
+        "failed": "lỗi",
+        "skipped": "hoãn",
+        "unavailable": "không chạy"
+      },
+      "disabled": "đã tắt",
+      "enable": "Bật lại",
+      "history": "Lịch sử",
+      "historyOf": "Lịch sử chạy “{{name}}”",
+      "noRuns": "Chưa chạy lần nào.",
+      "run": "{{at}} · {{status}} · {{ms}} ms",
+      "version": "đã lưu phiên bản {{version}}"
     }
   },
   "backstage": {

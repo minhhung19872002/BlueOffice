@@ -18,7 +18,7 @@ import type {
   StoredDocument,
   VersionHistory,
 } from '@blueoffice/platform';
-import { variantOf } from '@blueoffice/platform';
+import { ServerTranslationProvider, variantOf } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
 import { OfflineError, reach, type OfflineSaves } from './offline';
 
@@ -448,6 +448,13 @@ export function hostedPlatform(
     storage,
     versions: sessionVersions(api, session, mode, fetchImpl, opts.onRestored),
     people: sessionPeople(api, session, fetchImpl),
+    // Translation through the session's server (CORE-LANG-001; unavailable unless configured there).
+    translation: new ServerTranslationProvider({
+      baseUrl: api,
+      session: session.sessionId,
+      headers: () => ({ 'x-session-token': session.sessionToken }),
+      fetch: (url, init) => fetchImpl(url, init),
+    }),
     ...(mode.editable ? { scriptSchedules: sessionScriptSchedules(api, session, fetchImpl) } : {}),
     files: {
       openFile: base.files.openFile.bind(base.files),

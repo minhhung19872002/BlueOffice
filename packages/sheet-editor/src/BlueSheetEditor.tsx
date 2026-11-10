@@ -173,6 +173,7 @@ import {
   CircleSlash,
   ChevronsDownUp,
   WandSparkles,
+  Languages,
   ListX,
   ImagePlus,
   ScanText,
@@ -209,6 +210,10 @@ import {
   planOpen,
   ReadAloudLink,
   registerReadAloudCommands,
+  registerTranslateCommands,
+  TranslateLink,
+  useTranslate,
+  type TranslateAction,
   saveName,
   taskPaneLabels,
   toBase64,
@@ -219,6 +224,7 @@ import {
   type SmartArtDraft,
 } from '@blueoffice/editor';
 import { sheetReadUnits } from './readAloud';
+import { asTextInput, translateCells, type CellTranslateMode } from './translate';
 import {
   SheetClipboardUi,
   sheetPasteCommand,
@@ -1528,6 +1534,51 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     readAloudLink.attach(readAloud, beginRead);
   });
 
+  // Translation (CORE-LANG-001): the active cell in the pane; the selected cells in place or
+  // into new columns.
+  const translate = useTranslate(platform.translation, platform.clipboard);
+  const [translateLink] = useState(() => new TranslateLink());
+  useEffect(() => {
+    translateLink.attach(translate);
+  });
+  const beginTranslate = useCallback(
+    async (st: SheetEditorState, action?: string) => {
+      const range = rangeOf(st.selection);
+      const { row, col } = st.selection.active;
+      const cell = await st.host.cell(st.sheet, row, col);
+      const cellsAction = (id: string, mode: CellTranslateMode): TranslateAction => ({
+        id,
+        label: t(`translate.actions.${id}`),
+        run: async ({ from, to, signal, onProgress }) => {
+          const provider = platform.translation;
+          if (!provider) return;
+          const n = await translateCells(st.host, st.sheet, range, provider, from, to, mode, {
+            signal,
+            onProgress,
+          });
+          if (n) await refreshInfo();
+          return n ? t('translate.done.cells', { count: n }) : t('translate.done.nothing');
+        },
+      });
+      const text = cell.input.startsWith('=') ? '' : cell.display;
+      translateLink.open({
+        source: {
+          text,
+          replace: async (tr) => {
+            await st.host.setInputs(st.sheet, [[row, col, asTextInput(tr)]]);
+            await refreshInfo();
+          },
+        },
+        actions: [
+          cellsAction('cellsNewColumn', 'newColumn'),
+          cellsAction('cellsInPlace', 'inPlace'),
+        ],
+        autoRun: action,
+      });
+    },
+    [platform.translation, refreshInfo, t, translateLink],
+  );
+
   /** Every range of the selection (multi-range with Ctrl), the current one last. */
   const allRanges = useMemo(() => [...extra, rangeOf(selection)], [extra, selection]);
 
@@ -2057,6 +2108,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       enabled: (st) => st.hasWorkbook,
       begin: (st) => readAloudLink.begin(st),
       current: () => readAloudLink.aloud(),
+    });
+    registerTranslateCommands(reg, {
+      enabled: (st) => st.hasWorkbook,
+      begin: beginTranslate,
+      actions: {
+        cellsNewColumn: 'review.translateCells',
+        cellsInPlace: 'review.translateCellsInPlace',
+      },
     });
     // CORE-SEC-001: final mark, write protection, label, protected ranges.
     add(
@@ -2682,6 +2741,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   }, [
     openSmartArt,
     readAloudLink,
+    beginTranslate,
     auditTrace,
     auditCalculate,
     removeArrows,
@@ -4031,6 +4091,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('review.readAloud', t('commands.review.readAloud'), <Volume2 size={18} />),
             ],
           },
+          {
+            id: 'language',
+            label: t('ribbon.groups.language'),
+            items: [
+              item('review.translate', t('commands.review.translate'), <Languages size={18} />),
+              item(
+                'review.translateCells',
+                t('commands.review.translateCells'),
+                <Languages size={s} />,
+                'small',
+              ),
+              item(
+                'review.translateCellsInPlace',
+                t('commands.review.translateCellsInPlace'),
+                <Languages size={s} />,
+                'small',
+              ),
+            ],
+          },
         ],
       },
       {
@@ -5282,6 +5361,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
       )}
       {readAloud.bar}
+      {translate.pane}
       <SheetEditSpelling
         host={host}
         inputs={spellInputs}

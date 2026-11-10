@@ -41,6 +41,7 @@ pub mod sigline;
 pub mod smartart;
 pub mod table;
 pub mod table_tools;
+pub mod translate;
 
 pub use autocorrect::{AutoCorrectOptions, Replacement};
 pub use comments::CommentInfo;

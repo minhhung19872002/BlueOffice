@@ -9,6 +9,7 @@ using BlueOffice.Api.Jobs;
 using BlueOffice.Api.Scripts;
 using BlueOffice.Api.Sessions;
 using BlueOffice.Api.Signing;
+using BlueOffice.Api.Translation;
 using BlueOffice.Domain;
 using BlueOffice.Infrastructure;
 using BlueOffice.Infrastructure.Data;
@@ -84,6 +85,9 @@ else
 
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddRevocationProxy(config);
+
+// Translation proxy (CORE-LANG-001): off unless Translation:Provider is configured (docs/deploy/translation.md).
+builder.Services.AddTranslation(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -189,6 +193,7 @@ app.MapSessionEndpoints();
 app.MapScriptScheduleEndpoints();
 app.MapHostBrowseEndpoints();
 app.MapRevocationProxy();
+app.MapTranslation();
 
 app.Run();
 

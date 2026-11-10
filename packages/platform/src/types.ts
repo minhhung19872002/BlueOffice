@@ -643,6 +643,7 @@ export type EditCommand =
   /** Embedded / linked workbooks (CORE-EMBED-001). */
   | import('./ole').OleCommand
   | import('./speech').DocSpeechCommand
+  | import('./translation').DocTranslateCommand
   | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
@@ -1113,6 +1114,8 @@ export interface EditResult {
   signatureLines?: SignatureLineInfo[];
   /** Read-aloud text and rectangles (`speechText`, `speechRects`, CORE-LANG-003). */
   speech?: import('./speech').DocSpeechInfo;
+  /** Text segments of the body paragraphs (`translationSegments`, CORE-LANG-001). */
+  translation?: import('./translation').DocTextSegment[];
   /** Pictures for signing a line (`signatureLineImages`). */
   signatureLineImages?: SignatureLineImages;
 }
@@ -2718,4 +2721,6 @@ export interface Platform {
   scriptSchedules?: import('./scriptSchedules').ScriptSchedules;
   /** Text to speech for read aloud (absent where the platform cannot speak). */
   speech?: import('./speech').SpeechProvider;
+  /** Translation (absent where none is configured; CORE-LANG-001). */
+  translation?: import('./translation').TranslationProvider;
 }

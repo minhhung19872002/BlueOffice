@@ -93,7 +93,8 @@
       "show": "Show",
       "mergeRules": "Fields & rules",
       "mergeCreate": "Create",
-      "automation": "Automation"
+      "automation": "Automation",
+      "language": "Language"
     },
     "comingLater": "Coming in a later release"
   },
@@ -281,7 +282,13 @@
       "lockTracking": "Lock tracking…",
       "moveParagraphUp": "Move paragraph up",
       "moveParagraphDown": "Move paragraph down",
-      "versions": "Version history…"
+      "versions": "Version history…",
+      "translate": "Translate",
+      "translateDocument": "Translate document",
+      "translateCells": "Translate selected cells to a new column",
+      "translateCellsInPlace": "Translate selected cells in place",
+      "translateDeck": "Translate presentation",
+      "translateShapes": "Translate selected shapes"
     },
     "references": {
       "insertToc": "Table of contents",
@@ -5555,6 +5562,55 @@
       "review_versions": "See, compare and restore earlier versions.",
       "file_print": "Choose pages, copies, printer and preview.",
       "file_exportPdf": "Save a PDF copy with the default settings."
+    }
+  },
+  "translate": {
+    "title": "Translate",
+    "close": "Close the translation pane",
+    "from": "From",
+    "to": "To",
+    "detect": "Detect language",
+    "swap": "Swap languages",
+    "selection": "Selected text",
+    "noSelection": "Select the text to translate, or translate everything below.",
+    "translate": "Translate",
+    "result": "Translation (editable before use)",
+    "insert": "Insert",
+    "replace": "Replace",
+    "copy": "Copy",
+    "cancel": "Cancel",
+    "working": "Translating…",
+    "progress": "Translating {{done}}/{{total}}…",
+    "unavailable": "No translation service is available. An administrator has to configure one on the BlueOffice server; until then no text is sent anywhere.",
+    "privacy": "Text is sent to the translation service your administrator configured.",
+    "languages": {
+      "vi": "Vietnamese",
+      "en": "English"
+    },
+    "actions": {
+      "document": "Translate the whole document (as a copy)",
+      "cellsNewColumn": "Translate selected cells to a new column",
+      "cellsInPlace": "Translate selected cells in place",
+      "deck": "Translate the whole presentation (as a copy)",
+      "shapes": "Translate the selected shapes (in place)"
+    },
+    "done": {
+      "document": "Opened the translation “{{name}}” ({{count}} text segments). The original document is unchanged.",
+      "cells": "Translated {{count}} cells.",
+      "deck": "Opened the translation “{{name}}” ({{count}} texts). The original presentation is unchanged.",
+      "nothing": "There is no text to translate.",
+      "shapes": "Translated {{count}} shapes."
+    },
+    "errors": {
+      "unavailable": "No translation service is configured.",
+      "unauthorized": "Sign in to translate.",
+      "unsupportedLanguage": "The translation service does not offer this language.",
+      "tooLarge": "The text is too long for the translation service.",
+      "rateLimited": "The translation service is busy; try again later.",
+      "upstream": "The translation service failed.",
+      "network": "Cannot reach the translation service.",
+      "cancelled": "Translation cancelled.",
+      "sameLanguage": "The text is already in the target language."
     }
   }
 }

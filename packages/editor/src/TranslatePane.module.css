@@ -1,0 +1,152 @@
+.pane {
+  position: fixed;
+  top: 140px;
+  right: 16px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius, 6px);
+  background: var(--bo-surface);
+  color: var(--bo-text);
+  font: 13px var(--bo-font, system-ui, sans-serif);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.langs,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label,
+.caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--bo-text-muted, inherit);
+  font-size: 12px;
+}
+
+.select {
+  min-width: 120px;
+  height: 28px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius, 6px);
+  background: var(--bo-surface);
+  color: inherit;
+  font: inherit;
+}
+
+.source {
+  max-height: 120px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius, 6px);
+  white-space: pre-wrap;
+}
+
+.result {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius, 6px);
+  background: var(--bo-surface);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.icon,
+.button,
+.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius, 6px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.icon {
+  width: 28px;
+  padding: 0;
+  border-color: transparent;
+}
+
+.primary {
+  align-self: flex-start;
+  border-color: var(--bo-accent);
+  background: var(--bo-accent);
+  color: var(--bo-on-accent, #fff);
+}
+
+.icon:hover,
+.button:hover {
+  background: var(--bo-hover);
+}
+
+.icon:disabled,
+.button:disabled,
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.icon:focus-visible,
+.button:focus-visible,
+.primary:focus-visible,
+.select:focus-visible,
+.result:focus-visible {
+  outline: 2px solid var(--bo-accent);
+  outline-offset: 1px;
+}
+
+.progress {
+  flex: 1;
+  min-width: 80px;
+}
+
+.hint,
+.notice,
+.privacy {
+  margin: 0;
+}
+
+.hint,
+.privacy {
+  color: var(--bo-text-muted, inherit);
+  font-size: 12px;
+}

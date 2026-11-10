@@ -5804,7 +5804,11 @@
       "gif": "Ảnh động / video",
       "html": "Trang web (.html, một tệp)",
       "mht": "Trang web một tệp (.mht)",
-      "xml": "Tài liệu XML (Flat OPC, .xml)"
+      "xml": "Tài liệu XML (Flat OPC, .xml)",
+      "slk": "SYLK (liên kết ký hiệu, .slk)",
+      "dif": "DIF (định dạng trao đổi dữ liệu, .dif)",
+      "prn": "Văn bản có định dạng (phân cách bằng dấu cách, .prn)",
+      "epub": "Sách điện tử (EPUB, .epub)"
     },
     "print": {
       "preview": "In… (xem trước và thiết lập)"
@@ -6461,10 +6465,18 @@
       "masterView": "Không gán hành động trong chế độ xem bản cái."
     }
   },
+  "tabularFormats": {
+    "saveSlk": "Lưu trang tính thành SYLK (.slk)",
+    "saveDif": "Lưu trang tính thành DIF (.dif)",
+    "savePrn": "Lưu trang tính thành văn bản có định dạng (.prn)",
+    "saved": "Đã lưu “{{name}}” (chỉ trang tính hiện tại)."
+  },
   "webFormats": {
     "saveHtml": "Lưu thành trang web (.html)",
     "saveMht": "Lưu thành trang web một tệp (.mht)",
     "saveFlatXml": "Lưu thành tài liệu XML (.xml)",
+    "saveEpub": "Lưu thành sách điện tử (.epub)",
+    "describeEpub": "Sách điện tử EPUB 3: mỗi đề mục cấp 1 là một chương, có mục lục.",
     "saved": "Đã lưu “{{name}}”.",
     "failed": "Không lưu được định dạng này.",
     "describeHtml": "Một tệp HTML, ảnh được nhúng trong tệp. Tương thích với trình duyệt web.",

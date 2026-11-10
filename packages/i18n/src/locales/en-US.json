@@ -5804,7 +5804,11 @@
       "gif": "Animation / video",
       "html": "Web page (.html, single file)",
       "mht": "Single-file web page (.mht)",
-      "xml": "XML document (Flat OPC, .xml)"
+      "xml": "XML document (Flat OPC, .xml)",
+      "slk": "SYLK (symbolic link, .slk)",
+      "dif": "DIF (data interchange format, .dif)",
+      "prn": "Formatted text (space delimited, .prn)",
+      "epub": "E-book (EPUB, .epub)"
     },
     "print": {
       "preview": "Print… (preview and settings)"
@@ -6461,10 +6465,18 @@
       "masterView": "Actions cannot be set in the master view."
     }
   },
+  "tabularFormats": {
+    "saveSlk": "Save sheet as SYLK (.slk)",
+    "saveDif": "Save sheet as DIF (.dif)",
+    "savePrn": "Save sheet as formatted text (.prn)",
+    "saved": "Saved “{{name}}” (the current sheet only)."
+  },
   "webFormats": {
     "saveHtml": "Save as web page (.html)",
     "saveMht": "Save as single-file web page (.mht)",
     "saveFlatXml": "Save as XML document (.xml)",
+    "saveEpub": "Save as e-book (.epub)",
+    "describeEpub": "An EPUB 3 e-book: one chapter per top-level heading, with a table of contents.",
     "saved": "Saved “{{name}}”.",
     "failed": "This format could not be saved.",
     "describeHtml": "One HTML file with its pictures embedded. Opens in any web browser.",

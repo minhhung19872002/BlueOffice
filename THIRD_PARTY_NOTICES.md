@@ -135,6 +135,10 @@ Icon giao diện từ **Lucide** (ISC). Logo/favicon BlueOffice tự thiết k�
   `scripts/gen-symbols.mjs` từ `UnicodeData.txt` + `Blocks.txt` của **Unicode Character Database 16.0.0**
   — © 1991-2024 Unicode, Inc., **Unicode License v3** (permissive; https://www.unicode.org/license.txt).
   Dùng cho bảng chọn ký hiệu (CORE-SYMBOL-001). Từ khoá tiếng Việt và nhãn ký tự đặc biệt do BlueOffice tự viết.
+- `crates/bo-encoding/src/cp_tables.rs`: nửa trên (0x80–0xFF) của 18 code page một byte (437, 737, 850, 852,
+  857, 860, 861, 863, 865, 866, 874, 1250, 1251, 1253–1257) để đọc bảng dBASE (CORE-FMT-004). Ánh xạ byte →
+  ký tự là của các tệp `MAPPINGS/VENDORS/MICSFT/{PC,WINDOWS}/CPnnn.TXT` — © Unicode, Inc., **Unicode License v3**;
+  bảng được xuất một lần bằng các codec `cpNNN` của CPython (vốn sinh từ chính các tệp ánh xạ đó), không chép mã nguồn.
 
 ## Từ điển chính tả
 

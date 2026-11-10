@@ -45,7 +45,8 @@ bo-text ◄── bo-layout ◄─┼── bo-render ◄── bo-raster
 | `bo-opc` | OPC: content types, relationships, part; giữ part không hiểu; chống zip bomb, giới hạn độ sâu XML |
 | `bo-docx` · `bo-xlsx` · `bo-pptx` | WordprocessingML / SpreadsheetML / PresentationML ↔ model, round-trip lossless (ADR-0005) |
 | `bo-drawingml` | DrawingML: màu, theme, 187 preset shape, fill/line/text, chart |
-| `bo-html` | HTML / MHTML (RFC 2557) ↔ tài liệu, bảng HTML ↔ bảng tính; bộ phân tích HTML khoan dung, bỏ script, không tải tài nguyên ngoài (CORE-FMT-003). Flat OPC ở `bo_opc::flat`, Excel XML 2003 ở `bo_xlsx::xml2003` |
+| `bo-html` | HTML / MHTML (RFC 2557) ↔ tài liệu, bảng HTML ↔ bảng tính; bộ phân tích HTML khoan dung, bỏ script, không tải tài nguyên ngoài (CORE-FMT-003). Flat OPC ở `bo_opc::flat`, Excel XML 2003 ở `bo_xlsx::xml2003`. Xuất EPUB 3 (`epub`: chương XHTML tách ở đề mục cấp 1, tài liệu điều hướng, CSS, ảnh; CORE-FMT-004) |
+| `bo-tabular` | Định dạng bảng cũ cho BlueSheet (CORE-FMT-004): SYLK (`.slk`: giá trị, công thức R1C1 ↔ A1, định dạng số, đậm/nghiêng, căn lề, độ rộng cột), DIF (`.dif`), văn bản có định dạng phân cách bằng dấu cách (`.prn`: ghi theo cột cố định, đọc bằng cách dò cột), bảng dBASE/FoxPro (`.dbf`, chỉ đọc; code page theo language driver qua `bo_encoding::codepage`) |
 | `bo-binary` · `bo-odf` · `bo-encoding` · `bo-crypto` | `.doc/.xls/.xlsb/.ppt` (đọc), ODF 1.3, TCVN3/VNI → Unicode, [MS-OFFCRYPTO] |
 | `bo-text` | FontManager, fallback metric-compatible, shaping rustybuzz, cache, outline |
 | `bo-layout` | Dàn trang: phân trang, bảng, ảnh, header/footer, cột, footnote, field |

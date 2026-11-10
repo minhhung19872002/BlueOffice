@@ -5,7 +5,9 @@
 //!   `data:` URLs, RFC 2397);
 //! * [`read_mht`] / [`write_mht`] — the same page with its pictures as parts of a
 //!   `multipart/related` message (RFC 2557);
-//! * [`read_workbook_html`] / [`write_workbook_html`] — worksheets ↔ HTML tables.
+//! * [`read_workbook_html`] / [`write_workbook_html`] — worksheets ↔ HTML tables;
+//! * [`write_epub`] — a document as an EPUB 3 publication (XHTML chapters split at
+//!   the top-level headings, a navigation document, a style sheet, pictures).
 //!
 //! Everything read here is untrusted: scripts are dropped by the parser and never
 //! run or kept, no URL is ever fetched, nesting and sizes are bounded, and no
@@ -17,12 +19,17 @@ pub mod doc_read;
 pub mod doc_write;
 pub mod dom;
 pub mod entities;
+pub mod epub;
 pub mod image;
 pub mod mht;
 pub mod sheet;
 
 pub use doc_read::{read_html, read_html_str, read_html_with, ReadOptions};
-pub use doc_write::{write_html, write_html_with, Images, Resource, WriteOptions};
+pub use doc_write::{
+    write_html, write_html_with, write_xhtml_chapters, Chapter, Images, Resource, WriteOptions,
+    XhtmlBook,
+};
+pub use epub::{write_epub, EpubOptions};
 pub use mht::{is_mht, read_mht, write_mht, write_mht_page};
 pub use sheet::{read_workbook_html, write_workbook_html};
 

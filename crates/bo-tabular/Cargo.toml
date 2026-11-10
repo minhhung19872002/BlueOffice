@@ -1,0 +1,20 @@
+[package]
+name = "bo-tabular"
+description = "Legacy tabular data formats for the BlueOffice workbook model: SYLK (.slk), DIF (.dif), formatted space-delimited text (.prn) and dBASE tables (.dbf, read)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-encoding.workspace = true
+bo-formula.workspace = true
+bo-model.workspace = true
+bo-sheet.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

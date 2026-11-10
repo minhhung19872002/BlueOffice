@@ -15,6 +15,9 @@
 //!   2003 — derived from the same corpus (and the hand-written `xml2003-*.xml`
 //!   fixtures) and mutated as text, then opened by both engines.
 //!
+//! * the legacy tabular formats of CORE-FMT-004 — SYLK, DIF, formatted text and
+//!   dBASE tables — from hand-written fixtures and files saved from the corpus.
+//!
 //! Every call must return (`Ok` or `Err`) without panicking, and within a time budget
 //! (no hang). The legacy binary parsers (CFB, BIFF8/BIFF12, `.doc`, `.ppt`, VBA),
 //! `[MS-OFFCRYPTO]`, ODF, TCVN3/VNI and the formula parser have their own mutation
@@ -403,6 +406,121 @@ fn mutated_web_formats_never_panic_or_hang() {
         }
         println!(
             "web formats: {} seeds, {runs} mutated inputs, no panic, no hang",
+            seeds.len()
+        );
+    });
+}
+
+// ---------------------------------------------------------------- CORE-FMT-004
+// SYLK, DIF, formatted text and dBASE tables: the hand-written fixtures and files
+// saved from the corpus, mutated as bytes and with records of each format.
+
+/// Records worth injecting into SYLK / DIF / fixed-width text.
+const TABULAR_INJECT: &[&str] = &[
+    "\r\nC;Y1048576;X16384;K1e308;ER[-9999999]C[9999999]\r\n",
+    "\r\nC;Y0;X0;K\"\r\n",
+    "\r\nC;X99999999;K1\r\n",
+    "\r\nC;Y2;X2;S;R99999;C99999\r\n",
+    "\r\nF;W1 16384 255\r\nF;W0 4294967295 1e99\r\n",
+    "\r\nF;P4294967295;FG0X;SDIM99999999999;Y3;X3\r\n",
+    "\r\nF;M4294967295;R1048576\r\nF;P1;C16384\r\n",
+    "\r\nP;P;;;;;;;;\r\nP;F;M-1;SBI\r\n",
+    "\r\nNN;N;E((((\r\nNN;NA1;ER1C1\r\n",
+    "\r\nO;V4\r\nE\r\n",
+    ";;",
+    "\u{1b} :",
+    "\r\n-1,0\r\nBOT\r\n",
+    "\r\n-1,0\r\nEOD\r\n",
+    "\r\n0,1e999\r\nV\r\n",
+    "\r\n1,0\r\n\"\"\"\r\n",
+    "\r\n0,\r\nNA\r\n9,9\r\n",
+    "\r\nDATA\r\n0,0\r\n\"\"\r\n",
+    "                                                                        x",
+    "\t\t\t",
+    "\u{0c}\u{1a}",
+];
+
+/// Offsets of a dBASE table worth damaging: record count, header length, record
+/// length, language driver, type / length / decimals of the first two fields.
+const DBF_OFFSETS: [usize; 11] = [4, 8, 9, 10, 11, 29, 43, 48, 49, 75, 80];
+
+fn mutate_tabular(rng: &mut Rng, data: &mut Vec<u8>) {
+    match rng.below(4) {
+        0 => {
+            let at = rng.below(data.len().max(1)).min(data.len());
+            let frag = TABULAR_INJECT[rng.below(TABULAR_INJECT.len())].as_bytes();
+            data.splice(at..at, frag.iter().copied());
+        }
+        1 if !data.is_empty() => {
+            let at = DBF_OFFSETS[rng.below(DBF_OFFSETS.len())].min(data.len() - 1);
+            data[at] = (rng.next() & 0xFF) as u8;
+        }
+        _ => mutate_xml(rng, data),
+    }
+}
+
+/// The readers directly, then the sheet engine with every way out.
+fn open_tabular(name: &str, bytes: &[u8]) {
+    let _ = bo_tabular::detect(bytes, name);
+    let _ = bo_tabular::read_sylk(bytes);
+    let _ = bo_tabular::read_dif(bytes);
+    let _ = bo_tabular::read_prn(bytes, ',');
+    let _ = bo_tabular::read_dbf(bytes);
+    let mut s = SheetEngine::new();
+    if s.open(bytes, name).is_ok() {
+        for format in ["slk", "dif", "prn", "csv", "xlsx"] {
+            let _ = s.save(format, 0);
+        }
+    }
+}
+
+fn tabular_seeds() -> Vec<(String, Vec<u8>)> {
+    let mut seeds = Vec::new();
+    for ext in ["slk", "dif", "prn", "dbf"] {
+        for path in corpus("sheet", ext) {
+            seeds.push((
+                format!("fixture.{ext}"),
+                std::fs::read(&path).expect("fixture"),
+            ));
+        }
+    }
+    // Files the engine itself saves from the smallest workbooks of the corpus.
+    let mut books: Vec<(u64, PathBuf)> = corpus("sheet", "xlsx")
+        .into_iter()
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.len(), p)))
+        .collect();
+    books.sort();
+    for (_, path) in books.into_iter().take(3) {
+        let bytes = std::fs::read(&path).expect("corpus file");
+        let mut s = SheetEngine::new();
+        s.open(&bytes, "seed.xlsx").expect("corpus xlsx opens");
+        for ext in ["slk", "dif", "prn"] {
+            seeds.push((format!("saved.{ext}"), s.save(ext, 0).expect("saves")));
+        }
+    }
+    seeds
+}
+
+#[test]
+fn mutated_tabular_formats_never_panic_or_hang() {
+    on_small_stack(|| {
+        let seeds = tabular_seeds();
+        assert!(seeds.len() >= 13, "seeds: {}", seeds.len());
+        let mut rng = Rng(0x0D0C_0004 ^ 0x5A5A);
+        let mut runs = 0;
+        for (name, bytes) in &seeds {
+            timed(name, || open_tabular(name, bytes));
+            for k in 0..XML_MUTATIONS * 2 {
+                let mut data = bytes.clone();
+                for _ in 0..=rng.below(3) {
+                    mutate_tabular(&mut rng, &mut data);
+                }
+                timed(&format!("{name} #{k}"), || open_tabular(name, &data));
+                runs += 1;
+            }
+        }
+        println!(
+            "tabular formats: {} seeds, {runs} mutated inputs, no panic, no hang",
             seeds.len()
         );
     });

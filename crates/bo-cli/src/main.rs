@@ -76,7 +76,10 @@ enum Cmd {
     /// Convert to another format. `html` (one filtered HTML file; workbooks become
     /// HTML tables), `mht` (single-file web page) and `xml-flat` (Flat OPC: the
     /// .docx/.xlsx/.pptx package as one XML file) — CORE-FMT-003; HTML, MHTML, Flat
-    /// OPC and XML Spreadsheet 2003 inputs are recognised by content.
+    /// OPC and XML Spreadsheet 2003 inputs are recognised by content. `slk` (SYLK),
+    /// `dif` and `prn` (formatted text, space delimited) write one sheet of a
+    /// workbook; SYLK, DIF, `.prn` and dBASE `.dbf` files are read; `epub` writes a
+    /// document as an EPUB 3 publication — CORE-FMT-004.
     /// Templates / macro-enabled variants / slide shows
     /// (`dotx`, `docm`, `xltm`, `ppsx`, …) re-type the package (macros are dropped for
     /// macro-free types); `thmx` saves the file's theme as a theme file.
@@ -84,7 +87,7 @@ enum Cmd {
         input: PathBuf,
         #[arg(long, value_parser = ["pdf", "docx", "odt", "txt", "csv", "ods", "odp", "pptx", "xlsx", "gif", "png", "jpg", "svg", "zip",
             "docm", "dotx", "dotm", "xlsm", "xltx", "xltm", "pptm", "potx", "potm", "ppsx", "ppsm", "thmx",
-            "html", "mht", "xml-flat"])]
+            "html", "mht", "xml-flat", "slk", "dif", "prn", "epub"])]
         to: String,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -977,6 +980,18 @@ fn run_convert(
         println!("{} ({} bytes)", out.display(), data.len());
         return Ok(());
     }
+    // CORE-FMT-004: a document as an EPUB 3 publication (chapters at Heading 1).
+    if to == "epub" {
+        let engine = open(input)?;
+        if engine.document().is_none() {
+            return Err("only documents convert to epub".into());
+        }
+        let data = engine.export_as("epub")?;
+        let out = out.unwrap_or_else(|| input.with_extension("epub"));
+        write_file(&out, &data)?;
+        println!("{} ({} bytes)", out.display(), data.len());
+        return Ok(());
+    }
     // CORE-FMT-001: a theme file from the input's theme part.
     if to == "thmx" {
         let theme = bo_engine::theme_file::theme_xml_of(&bytes)
@@ -1107,7 +1122,7 @@ fn run_convert(
             engine.save_pptx()?
         }
         // Spreadsheets through the BlueSheet engine (xls/xlsb/ods are converted).
-        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf" | "html" | "mht") => {
+        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf" | "html" | "mht" | "slk" | "dif" | "prn") => {
             sheet_convert(&b, &with_xlsx_ext(&name), to, sheet, pdf)?
         }
         (Loaded::Xlsx(b), "ods") => {
@@ -1116,9 +1131,10 @@ fn run_convert(
             let wb = engine.workbook().ok_or("no workbook")?;
             bo_odf::write_ods(&convert::model_to_ods(wb))?
         }
-        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf" | "html" | "mht") => {
-            sheet_convert(&bytes, &name, to, sheet, pdf)?
-        }
+        (
+            Loaded::Workbook(_) | Loaded::Spreadsheet(_),
+            "xlsx" | "pdf" | "html" | "mht" | "slk" | "dif" | "prn",
+        ) => sheet_convert(&bytes, &name, to, sheet, pdf)?,
         // .ppt / .odp decks with their drawing, through the BlueSlide engine.
         (Loaded::Deck(_), "pptx" | "pdf" | "png" | "jpg" | "svg" | "zip") => {
             let mut engine = Engine::with_bundled_fonts();

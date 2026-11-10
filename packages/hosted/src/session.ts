@@ -22,6 +22,7 @@ import {
   ServerTranslationProvider,
   appOfXml,
   defaultDictation,
+  isTabularFile,
   variantOf,
 } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
@@ -67,7 +68,8 @@ export const appForFile = (name: string): HostedApp => {
   // Templates, macro-enabled variants and slide shows (CORE-FMT-001).
   const variant = variantOf(ext);
   if (variant) return variant.app;
-  if (['xlsb', 'xls', 'ods', 'csv'].includes(ext)) return 'sheet';
+  // SYLK, DIF, formatted text and dBASE tables (CORE-FMT-004).
+  if (['xlsb', 'xls', 'ods', 'csv'].includes(ext) || isTabularFile(name)) return 'sheet';
   if (['ppt', 'odp'].includes(ext)) return 'slide';
   return 'doc';
 };

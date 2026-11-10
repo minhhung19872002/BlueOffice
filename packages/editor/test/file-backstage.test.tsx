@@ -136,13 +136,23 @@ describe('FileBackstage', () => {
 
   it('offers the web and XML formats of each app on Save As (CORE-FMT-003)', () => {
     // What every app lists beside its document types.
-    expect(OTHER_FORMATS.doc.map(([, ext]) => ext)).toEqual(['pdf', 'html', 'mht', 'xml']);
+    expect(OTHER_FORMATS.doc.map(([, ext]) => ext)).toEqual([
+      'pdf',
+      'html',
+      'mht',
+      'xml',
+      'epub',
+    ]);
     expect(OTHER_FORMATS.sheet.map(([, ext]) => ext)).toEqual([
       'csv',
       'pdf',
       'html',
       'mht',
       'xml',
+      // SYLK, DIF, formatted text: the current sheet (CORE-FMT-004).
+      'slk',
+      'dif',
+      'prn',
       'thmx',
     ]);
     // A presentation has Flat OPC but no HTML page set.
@@ -177,6 +187,63 @@ describe('FileBackstage', () => {
     fireEvent.click(nav('Lưu thành'));
     fireEvent.click(document.querySelector('[data-format=".xml"]')!);
     expect(run).toHaveBeenLastCalledWith('file.saveFlatXml');
+  });
+
+  it('offers EPUB for documents and SYLK, DIF and formatted text for sheets (CORE-FMT-004)', () => {
+    const run = vi.fn();
+    const doc = new Set(['file.exportPdf', 'file.saveEpub']);
+    const first = setup({
+      commands: { has: (id) => doc.has(id), enabled: () => true, run },
+    });
+    fireEvent.click(nav('Lưu thành'));
+    const formats = () =>
+      Array.from(document.querySelectorAll('[data-format]')).map(
+        (b) => (b as HTMLElement).dataset.format,
+      );
+    expect(formats().slice(4)).toEqual(['.pdf', '.epub']);
+    expect(screen.getByText('Sách điện tử (EPUB, .epub)')).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-format=".epub"]')!);
+    expect(first.onClose).toHaveBeenCalled();
+    expect(run).toHaveBeenCalledWith('file.saveEpub');
+    cleanup();
+
+    // BlueSheet: the three formats of the current sheet, between Flat OPC and the theme.
+    const sheet = new Set([
+      'file.saveCsv',
+      'file.saveFlatXml',
+      'file.saveSlk',
+      'file.saveDif',
+      'file.savePrn',
+      'file.saveThemeFile',
+      'file.saveEpub', // registered or not, a sheet has no EPUB entry
+    ]);
+    setup({
+      app: 'sheet',
+      commands: { has: (id) => sheet.has(id), enabled: () => true, run },
+    });
+    fireEvent.click(nav('Lưu thành'));
+    expect(formats().filter((f) => !f?.startsWith('.xl'))).toEqual([
+      '.csv',
+      '.xml',
+      '.slk',
+      '.dif',
+      '.prn',
+      '.thmx',
+    ]);
+    expect(screen.getByText('SYLK (liên kết ký hiệu, .slk)')).toBeTruthy();
+    expect(screen.getByText('DIF (định dạng trao đổi dữ liệu, .dif)')).toBeTruthy();
+    expect(
+      screen.getByText('Văn bản có định dạng (phân cách bằng dấu cách, .prn)'),
+    ).toBeTruthy();
+    for (const [ext, command] of [
+      ['.slk', 'file.saveSlk'],
+      ['.dif', 'file.saveDif'],
+      ['.prn', 'file.savePrn'],
+    ] as const) {
+      fireEvent.click(document.querySelector(`[data-format="${ext}"]`)!);
+      expect(run).toHaveBeenLastCalledWith(command);
+      fireEvent.click(nav('Lưu thành'));
+    }
   });
 
   it('pins a recent file, keeps it first and stores it for the user', async () => {

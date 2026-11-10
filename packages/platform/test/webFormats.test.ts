@@ -12,8 +12,10 @@ const bytes = (s: string) => new TextEncoder().encode(s);
 
 describe('web and single-file XML formats (CORE-FMT-003)', () => {
   it('lists the formats each app saves to', () => {
-    expect(WEB_FORMATS.map((f) => f.id)).toEqual(['html', 'mht', 'xml']);
-    expect(webFormats('doc').map((f) => f.ext)).toEqual(['html', 'mht', 'xml']);
+    expect(WEB_FORMATS.map((f) => f.id)).toEqual(['html', 'mht', 'xml', 'epub']);
+    // BlueDoc also exports an EPUB 3 publication (CORE-FMT-004).
+    expect(webFormats('doc').map((f) => f.ext)).toEqual(['html', 'mht', 'xml', 'epub']);
+    expect(webFormat('epub')?.mime).toBe('application/epub+zip');
     expect(webFormats('sheet').map((f) => f.ext)).toEqual(['html', 'mht', 'xml']);
     // A presentation is not exported as an HTML page set: Flat OPC only.
     expect(webFormats('slide').map((f) => f.ext)).toEqual(['xml']);
@@ -27,6 +29,7 @@ describe('web and single-file XML formats (CORE-FMT-003)', () => {
       html: 'file.saveHtml',
       mht: 'file.saveMht',
       xml: 'file.saveFlatXml',
+      epub: 'file.saveEpub',
     });
   });
 

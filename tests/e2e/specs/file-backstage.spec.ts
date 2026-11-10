@@ -77,7 +77,18 @@ test('Save As lists every output format of each app', async ({ page }) => {
   await page.goto('/doc');
   await page.getByTestId('new-document').click();
   await expect(page.getByTestId('doc-name')).toHaveText('Tài liệu mới.docx');
-  expect(await formats(page)).toEqual(['.docx', '.docm', '.dotx', '.dotm', '.pdf']);
+  // Web page, single-file web page, Flat OPC (CORE-FMT-003); EPUB (CORE-FMT-004).
+  expect(await formats(page)).toEqual([
+    '.docx',
+    '.docm',
+    '.dotx',
+    '.dotm',
+    '.pdf',
+    '.html',
+    '.mht',
+    '.xml',
+    '.epub',
+  ]);
 
   await page.goto('/sheet');
   await expect(page.getByRole('tab', { name: 'Sheet1' })).toBeVisible();
@@ -88,6 +99,13 @@ test('Save As lists every output format of each app', async ({ page }) => {
     '.xltm',
     '.csv',
     '.pdf',
+    '.html',
+    '.mht',
+    '.xml',
+    // The current sheet as SYLK, DIF, formatted text (CORE-FMT-004).
+    '.slk',
+    '.dif',
+    '.prn',
     '.thmx',
   ]);
 
@@ -106,6 +124,7 @@ test('Save As lists every output format of each app', async ({ page }) => {
     '.pdf',
     '.png',
     '.gif',
+    '.xml',
     '.thmx',
   ]);
 });

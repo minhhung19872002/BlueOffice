@@ -620,10 +620,11 @@ pub enum Command {
         password: Option<String>,
     },
     /// The open document in another file format (CORE-FMT-003) → `file` (base64):
-    /// `html` (one filtered HTML file), `mht` (single-file web page) or `xml`
-    /// (Flat OPC). The document and its saved state do not change.
+    /// `html` (one filtered HTML file), `mht` (single-file web page), `xml`
+    /// (Flat OPC) or `epub` (EPUB 3, CORE-FMT-004). The document and its saved
+    /// state do not change.
     ExportFile {
-        /// `html`, `mht` or `xml`.
+        /// `html`, `mht`, `xml` or `epub`.
         format: String,
     },
     /// Package variant of the next saves by file extension (`docx`, `dotx`, `docm`,
@@ -1359,7 +1360,7 @@ impl crate::Engine {
         // Export to another format: nothing changes (also while filling in forms).
         if let Command::ExportFile { format } = &cmd {
             use base64::Engine as _;
-            let out = self.export_as(format);
+            let out = self.export_as_at(format, now.or(self.clock_fixed));
             let mut r = self.query_result()?;
             match out {
                 Ok(bytes) => {

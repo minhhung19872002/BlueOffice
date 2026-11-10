@@ -49,6 +49,7 @@ regex = { version = "1", default-features = false, features = ["std", "unicode-c
 bo-edit = { path = "crates/bo-edit" }
 bo-encoding = { path = "crates/bo-encoding" }
 bo-html = { path = "crates/bo-html" }
+bo-tabular = { path = "crates/bo-tabular" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

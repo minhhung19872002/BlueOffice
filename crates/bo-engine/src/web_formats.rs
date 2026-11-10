@@ -4,7 +4,8 @@
 //! * Flat OPC (`pkg:package`, one XML file holding a whole package) for documents,
 //!   workbooks and presentations — `bo_opc::flat`;
 //! * HTML tables and XML Spreadsheet 2003 for workbooks (`SheetEngine`, in
-//!   [`crate::sheet`]).
+//!   [`crate::sheet`]);
+//! * EPUB 3 export of documents — `bo_html::epub` (CORE-FMT-004).
 //!
 //! Opening sniffs the content first and falls back to the file extension. HTML is
 //! untrusted: scripts are never run or kept and no external resource is fetched.
@@ -94,9 +95,53 @@ impl Engine {
     /// * `html` — one filtered HTML file, pictures as `data:` URLs (documents);
     /// * `mht` — a single-file web page, RFC 2557 (documents);
     /// * `xml` — Flat OPC of the `.docx` / `.pptx` package. A save password does
-    ///   not apply: the format has no encryption.
+    ///   not apply: the format has no encryption;
+    /// * `epub` — an EPUB 3 publication, one chapter per top-level heading
+    ///   (documents; CORE-FMT-004), dated with the system clock.
     pub fn export_as(&self, format: &str) -> Result<Vec<u8>> {
+        self.export_as_at(format, None)
+    }
+
+    /// [`Engine::export_as`] at host time `now` (Unix milliseconds; the system
+    /// clock when absent) — the modification date of an EPUB publication.
+    pub fn export_as_at(&self, format: &str, now: Option<i64>) -> Result<Vec<u8>> {
         match format.to_ascii_lowercase().as_str() {
+            "epub" => {
+                let doc = self.document().ok_or(EngineError::NoDocument)?;
+                let props = self.props.get();
+                let title = if props.title.trim().is_empty() {
+                    title_of(&self.name)
+                } else {
+                    props.title.trim()
+                };
+                // The publication identifier follows the content: the same
+                // document exports to the same file.
+                let id = crate::guid::guid_nth(&(title, doc.plain_text()), 0);
+                let modified = now
+                    .or_else(crate::review::system_ms)
+                    .map(crate::review::iso_date)
+                    .unwrap_or_else(|| props.modified.clone());
+                let language = doc
+                    .default_run
+                    .lang
+                    .as_ref()
+                    .and_then(|l| l.val.clone())
+                    .unwrap_or_else(|| "und".into());
+                bo_html::write_epub(
+                    doc,
+                    &bo_html::EpubOptions {
+                        title: title.to_owned(),
+                        author: props.author.clone(),
+                        language,
+                        identifier: format!(
+                            "urn:uuid:{}",
+                            id.trim_matches(['{', '}']).to_ascii_lowercase()
+                        ),
+                        modified,
+                    },
+                )
+                .map_err(|e| EngineError::Format(e.to_string()))
+            }
             "html" | "htm" => {
                 let doc = self.document().ok_or(EngineError::NoDocument)?;
                 Ok(bo_html::write_html(doc, title_of(&self.name)).into_bytes())

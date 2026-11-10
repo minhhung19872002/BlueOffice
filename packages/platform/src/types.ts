@@ -827,9 +827,10 @@ export type EditCommand =
   | { cmd: 'saveFormat'; ext: string }
   /**
    * The open document in another format → `file` (base64): one HTML file, a single-file
-   * web page (MHTML) or Flat OPC (CORE-FMT-003). Nothing changes in the document.
+   * web page (MHTML) or Flat OPC (CORE-FMT-003), or an EPUB 3 publication with one
+   * chapter per top-level heading (CORE-FMT-004). Nothing changes in the document.
    */
-  | { cmd: 'exportFile'; format: 'html' | 'mht' | 'xml' }
+  | { cmd: 'exportFile'; format: 'html' | 'mht' | 'xml' | 'epub' }
   /** Theme of a `.thmx` (or another document / workbook / deck), base64; error `noTheme`. */
   | { cmd: 'applyThemeFile'; file: string }
   /** The document's theme as a `.thmx` → `design.themeFile` (base64); error `noTheme`. */

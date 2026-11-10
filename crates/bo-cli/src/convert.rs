@@ -83,6 +83,17 @@ pub fn load_named(
         }
         None => {}
     }
+    // CORE-FMT-004: SYLK and DIF by content, .prn and .dbf by extension.
+    if !bytes.starts_with(b"PK") && bo_binary::detect(bytes).is_none() {
+        if let Some(kind) = bo_tabular::detect(bytes, name) {
+            let wb = bo_tabular::read(bytes, kind, '.')?;
+            let facts = Facts {
+                format: kind.name(),
+                ..Facts::default()
+            };
+            return Ok((Loaded::Xlsx(bo_xlsx::write_xlsx(&wb)?), facts));
+        }
+    }
     let mut facts = Facts {
         has_macros: bo_binary::has_macros(bytes),
         ..Facts::default()

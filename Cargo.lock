@@ -554,6 +554,7 @@ dependencies = [
  "bo-pptx",
  "bo-sheet",
  "bo-sign",
+ "bo-tabular",
  "bo-xlsx",
  "clap",
  "png",
@@ -684,6 +685,7 @@ dependencies = [
  "bo-sheet",
  "bo-sign",
  "bo-spell",
+ "bo-tabular",
  "bo-text",
  "bo-xlsx",
  "criterion",
@@ -722,6 +724,9 @@ dependencies = [
  "bo-sheet",
  "png",
  "proptest",
+ "quick-xml",
+ "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]
@@ -917,6 +922,18 @@ dependencies = [
  "proptest",
  "unicode-normalization",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "bo-tabular"
+version = "0.1.0"
+dependencies = [
+ "bo-encoding",
+ "bo-formula",
+ "bo-model",
+ "bo-sheet",
+ "proptest",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

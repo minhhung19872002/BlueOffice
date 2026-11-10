@@ -110,7 +110,7 @@ describe('DesktopPlatform', () => {
 
 describe('appForPath', () => {
   it('sends workbooks to BlueSheet, decks to BlueSlide and the rest to BlueDoc', () => {
-    for (const f of ['a.xlsx', 'B.XLSM', 'c.xls', 'd.xlsb', 'e.ods', 'f.csv']) {
+    for (const f of ['a.xlsx', 'B.XLSM', 'c.xls', 'd.xlsb', 'e.ods', 'f.csv', 'g.slk', 'h.DIF', 'i.prn', 'j.dbf']) {
       expect(appForPath(f)).toBe('sheet');
     }
     for (const f of ['a.pptx', 'b.ppt', 'c.odp', 'd.potx']) expect(appForPath(f)).toBe('slide');

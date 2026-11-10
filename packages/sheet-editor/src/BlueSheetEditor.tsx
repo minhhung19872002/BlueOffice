@@ -41,6 +41,8 @@ import {
   mimeFor,
   notifyMentions,
   openExtensions,
+  TABULAR_FORMATS,
+  TABULAR_OPEN_EXTENSIONS,
   WEB_FORMAT_COMMANDS,
   webFormats,
   webOpenExtensions,
@@ -1966,6 +1968,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           '.csv',
           // XML Spreadsheet 2003, Flat OPC, HTML tables (CORE-FMT-003).
           ...webOpenExtensions('sheet'),
+          // SYLK, DIF, formatted text, dBASE tables (CORE-FMT-004).
+          ...TABULAR_OPEN_EXTENSIONS,
         ]);
         if (!f) return;
         setStatus(t('sheetEditor.loading'));
@@ -1979,7 +1983,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { shortcut: 'Ctrl+O' },
     );
     const baseName = () =>
-      fileName.replace(/\.(xlsx|xlsm|xltx|xltm|csv|xml|html?|mht|mhtml)$/i, '') ||
+      fileName.replace(
+        /\.(xlsx|xlsm|xltx|xltm|csv|xml|html?|mht|mhtml|slk|sylk|dif|prn|dbf)$/i,
+        '',
+      ) ||
       t('sheetEditor.untitled');
     const has = { isEnabled: (s: SheetEditorState) => s.hasWorkbook };
     // The workbook keeps its type: .xlsx, .xlsm, .xltx or .xltm (CORE-FMT-001).
@@ -2046,12 +2053,27 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     );
     // The workbook as HTML tables, a single-file web page or Flat OPC (CORE-FMT-003).
     for (const f of webFormats('sheet')) {
+      // EPUB is a format of documents only.
+      if (f.id === 'epub') continue;
+      const format = f.id;
       add(
         WEB_FORMAT_COMMANDS[f.id],
         async (s) => {
-          const bytes = await s.host.save(f.id, s.sheet);
+          const bytes = await s.host.save(format, s.sheet);
           const saved = await platform.files.saveFile(bytes, `${baseName()}.${f.ext}`, f.mime);
           if (saved) setStatus(t('webFormats.saved', { name: saved }));
+        },
+        has,
+      );
+    }
+    // The current sheet as SYLK, DIF or formatted text (CORE-FMT-004).
+    for (const f of TABULAR_FORMATS) {
+      add(
+        f.command,
+        async (s) => {
+          const bytes = await s.host.save(f.id, s.sheet);
+          const saved = await platform.files.saveFile(bytes, `${baseName()}.${f.ext}`, f.mime);
+          if (saved) setStatus(t('tabularFormats.saved', { name: saved }));
         },
         has,
       );

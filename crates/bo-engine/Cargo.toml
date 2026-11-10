@@ -32,6 +32,7 @@ bo-binary = { path = "../bo-binary" }
 bo-encoding = { path = "../bo-encoding" }
 bo-odf = { path = "../bo-odf" }
 bo-html.workspace = true
+bo-tabular.workspace = true
 bo-query = { path = "../bo-query" }
 bo-crypto = { path = "../bo-crypto" }
 bo-opc.workspace = true

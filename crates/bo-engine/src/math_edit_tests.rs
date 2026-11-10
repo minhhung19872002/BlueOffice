@@ -319,6 +319,335 @@ fn other_commands_leave_the_equation() {
     assert_eq!(linear_of_para0(&mut e), "a/b");
 }
 
+const NS_M: &str = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+const NS_W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+/// Start of the first equation of paragraph 0.
+fn eq_at(e: &Engine) -> bo_edit::Pos {
+    let text = e.session.as_ref().unwrap().para_text(0).unwrap();
+    bo_edit::Pos::new(0, text.find('\u{FFFC}').unwrap())
+}
+
+fn eq_xml(e: &Engine, at: bo_edit::Pos) -> String {
+    e.session.as_ref().unwrap().equation_at(at).unwrap()
+}
+
+/// "Ta có " and the equation `xml` (an `m:oMath` / `m:oMathPara`), as a file holds it: saved and
+/// opened again. The caret is at the end.
+fn open_with(xml: &str) -> (Engine, bo_edit::Pos) {
+    let mut e = engine("a");
+    let at = eq_at(&e);
+    e.session
+        .as_mut()
+        .unwrap()
+        .replace_equation(at, xml, false)
+        .unwrap();
+    let bytes = e.save_docx().unwrap();
+    let mut back = Engine::with_bundled_fonts();
+    back.open(&bytes, "t.docx").unwrap();
+    back.command(Command::Move {
+        motion: Motion::DocEnd,
+        extend: false,
+    })
+    .unwrap();
+    let at = eq_at(&back);
+    (back, at)
+}
+
+fn refused(r: &EditResult) -> bool {
+    r.error.as_deref() == Some(super::MATH_UNSUPPORTED) && r.math.is_none()
+}
+
+// source: ECMA-376 Part 1, §22.1.2 (OMML elements the in-place model has no node for: box,
+// groupChr, sPre, borderBox, phant; the run property scr, WordprocessingML w:rPr in m:r, control
+// properties ctrlPr; oMathParaPr and several oMath in one oMathPara).
+#[test]
+fn unsupported_markup_is_not_edited_in_place() {
+    let m =
+        |inner: &str| format!(r#"<m:oMath xmlns:m="{NS_M}" xmlns:w="{NS_W}">{inner}</m:oMath>"#);
+    let r = |t: &str| format!("<m:r><m:t>{t}</m:t></m:r>");
+    let cases = [
+        m(&format!("<m:box><m:e>{}</m:e></m:box>", r("x"))),
+        m(&format!(
+            r#"<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/></m:groupChrPr><m:e>{}</m:e></m:groupChr>"#,
+            r("ab")
+        )),
+        m(&format!(
+            "<m:sPre><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:sPre>",
+            r("1"),
+            r("2"),
+            r("X")
+        )),
+        m(&format!("<m:borderBox><m:e>{}</m:e></m:borderBox>", r("y"))),
+        m(&format!("<m:phant><m:e>{}</m:e></m:phant>", r("z"))),
+        m(r#"<m:r><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><m:t>x</m:t></m:r>"#),
+        m(r#"<m:r><m:rPr><m:scr m:val="script"/></m:rPr><m:t>L</m:t></m:r>"#),
+        m(&format!(
+            "<m:f><m:fPr><m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr></m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>",
+            r("1"),
+            r("2")
+        )),
+        format!(
+            r#"<m:oMathPara xmlns:m="{NS_M}"><m:oMathParaPr><m:jc m:val="left"/></m:oMathParaPr><m:oMath>{}</m:oMath></m:oMathPara>"#,
+            r("q")
+        ),
+        format!(
+            r#"<m:oMathPara xmlns:m="{NS_M}"><m:oMath>{}</m:oMath><m:oMath>{}</m:oMath></m:oMathPara>"#,
+            r("a"),
+            r("b")
+        ),
+    ];
+    for xml in &cases {
+        let (mut e, at) = open_with(xml);
+        let before = eq_xml(&e, at);
+        assert!(!super::lossless(&before), "{before}");
+        let range = bo_edit::Selection {
+            anchor: at,
+            focus: bo_edit::Pos::new(at.para, at.offset + 3),
+        };
+        // mathEnter: refused, the equation selected (the dialog edits it).
+        let r = e.command(Command::MathEnter { end: true }).unwrap();
+        assert!(refused(&r), "{xml}: {:?}", r.error);
+        assert_eq!(r.selection, range);
+        assert!(r.equation.is_some(), "{xml}");
+        // Typing right after does not replace or rewrite it.
+        let r = e.command(Command::InsertText { text: "q".into() }).unwrap();
+        assert!(refused(&r), "{xml}");
+        assert_eq!(eq_xml(&e, at), before, "{xml}");
+        // A click on it: refused the same way, typing changes nothing.
+        let (page, ox, base) = crate::nav::object_origin(e.layout.document(), at).unwrap();
+        let r = e
+            .command(Command::Click {
+                page,
+                x: ox + 1.0,
+                y: base - 1.0,
+                extend: false,
+                count: 1,
+            })
+            .unwrap();
+        assert!(refused(&r), "{xml}: {:?} {:?}", r.error, r.selection);
+        assert_eq!(r.selection, range);
+        for c in ["q", " ", "^"] {
+            e.command(Command::InsertText { text: c.into() }).unwrap();
+            e.command(Command::MathInsert { text: c.into() }).unwrap();
+        }
+        assert_eq!(eq_xml(&e, at), before, "{xml}");
+        // Arrows pass over it as before in-place editing.
+        e.command(Command::Move {
+            motion: Motion::DocEnd,
+            extend: false,
+        })
+        .unwrap();
+        let r = run(
+            &mut e,
+            Command::Move {
+                motion: Motion::Left,
+                extend: false,
+            },
+        );
+        assert!(r.math.is_none(), "{xml}");
+        assert_eq!(r.selection.focus, at);
+        let r = run(
+            &mut e,
+            Command::Move {
+                motion: Motion::Right,
+                extend: false,
+            },
+        );
+        assert!(r.math.is_none(), "{xml}");
+        assert_eq!(eq_xml(&e, at), before, "{xml}");
+        // Saved unchanged.
+        assert_eq!(saved_omml(&e), before, "{xml}");
+    }
+}
+
+#[test]
+fn supported_equations_still_enter() {
+    // Markup that differs only in what carries no information: whitespace, split runs of one
+    // style, an empty property element.
+    let xml = format!(
+        "<m:oMath xmlns:m=\"{NS_M}\">\n  <m:r><m:t>a</m:t></m:r><m:r><m:t>b</m:t></m:r>\n  <m:f><m:fPr></m:fPr><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f>\n</m:oMath>"
+    );
+    let (mut e, _) = open_with(&xml);
+    let r = run(&mut e, Command::MathEnter { end: true });
+    assert!(r.math.is_some());
+    typed(&mut e, "c");
+    assert_eq!(linear(&mut e), "ab1/2c");
+    // Every template, inline and display, and an edited equation after save + reopen.
+    for (_, src) in crate::equation::TEMPLATES {
+        for display in [false, true] {
+            let mut e = Engine::with_bundled_fonts();
+            e.load(crate::plain_text_document("x "), "t.docx").unwrap();
+            run(
+                &mut e,
+                Command::InsertEquation {
+                    text: (*src).into(),
+                    latex: false,
+                    display,
+                    replace: false,
+                    numbered: None,
+                },
+            );
+            let r = run(&mut e, Command::MathEnter { end: true });
+            assert!(r.math.is_some(), "{src} display={display}");
+        }
+    }
+    let mut e = engine("a/b");
+    run(&mut e, Command::MathEnter { end: true });
+    typed(&mut e, "+x^2 ");
+    let bytes = e.save_docx().unwrap();
+    let mut back = Engine::with_bundled_fonts();
+    back.open(&bytes, "t.docx").unwrap();
+    back.command(Command::Move {
+        motion: Motion::DocEnd,
+        extend: false,
+    })
+    .unwrap();
+    assert!(run(&mut back, Command::MathEnter { end: true })
+        .math
+        .is_some());
+}
+
+/// Revisions of the main text.
+fn revisions(e: &Engine) -> Vec<bo_edit::RevisionItem> {
+    e.session.as_ref().unwrap().revisions()
+}
+
+fn reopen(e: &Engine) -> Engine {
+    let bytes = e.save_docx().unwrap();
+    let mut back = Engine::with_bundled_fonts();
+    back.open(&bytes, "t.docx").unwrap();
+    back
+}
+
+/// The equations of paragraph 0: (start, OMML, tracked as deleted).
+fn equations(e: &Engine) -> Vec<(usize, String, bool)> {
+    let s = e.session.as_ref().unwrap();
+    let text = s.para_text(0).unwrap();
+    text.match_indices('\u{FFFC}')
+        .filter_map(|(i, _)| {
+            let at = bo_edit::Pos::new(0, i);
+            let xml = s.equation_at(at)?;
+            Some((i, xml, s.equation_deleted(at)))
+        })
+        .collect()
+}
+
+// source: ECMA-376 Part 1, §17.13.5.14 del / §17.13.5.18 ins around the math zone (CT_RunTrackChange
+// holds m:oMath); ADR-0015 addendum: one revision per edit session of an equation.
+#[test]
+fn tracked_edit_is_one_revision_of_the_whole_equation() {
+    let mut e = engine("a/b");
+    e.set_clock_ms(1_700_000_000_000);
+    run(&mut e, Command::SetAuthor { name: "An".into() });
+    run(&mut e, Command::SetTrackChanges { on: true });
+    let at = eq_at(&e);
+    let original = eq_xml(&e, at);
+    run(&mut e, Command::MathEnter { end: true });
+    let r = typed(&mut e, "+c");
+    // The review state comes with the edit: one change.
+    let review = r.review.as_ref().unwrap();
+    assert_eq!(review.revisions.len(), 1);
+    assert_eq!(review.revisions[0].kind, bo_edit::RevKind::Equation);
+    assert_eq!(review.revisions[0].author, "An");
+    assert!(review.revisions[0].date.is_some());
+    // The original is kept, byte for byte, as a deletion; the edit follows it as an insertion.
+    let eqs = equations(&e);
+    assert_eq!(eqs.len(), 2, "{eqs:?}");
+    assert_eq!(eqs[0].1, original);
+    assert!(eqs[0].2 && !eqs[1].2);
+    assert_eq!(crate::equation::info(&eqs[1].1).unwrap().linear, "a/b+c");
+    // More typing, an autobuild, a structure deleted: the same pending revision.
+    typed(&mut e, "+x^2 ");
+    run(&mut e, Command::DeleteBackward);
+    run(&mut e, Command::DeleteBackward);
+    assert_eq!(revisions(&e).len(), 1);
+    // A later session on the edited equation still updates that revision.
+    mv(&mut e, MathMotion::Exit);
+    run(&mut e, Command::MathEnter { end: true });
+    typed(&mut e, "d");
+    mv(&mut e, MathMotion::Exit);
+    let revs = revisions(&e);
+    assert_eq!(revs.len(), 1, "{revs:?}");
+    let id = revs[0].id;
+    let edited = equations(&e)[1].1.clone();
+    // "+x^2 " built a superscript the two Backspaces removed (select, delete).
+    assert_eq!(crate::equation::info(&edited).unwrap().linear, "a/b+c+d");
+    // The deleted original is not edited in place.
+    run(
+        &mut e,
+        Command::SetSelection {
+            selection: bo_edit::Selection::caret(at),
+        },
+    );
+    let r = e.command(Command::MathEnter { end: false }).unwrap();
+    assert!(refused(&r));
+    assert_eq!(equations(&e)[0].1, original);
+
+    // Saved and reopened: the same single revision, both equations unchanged.
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fidelity/output/math-tracked-edit.docx"
+    );
+    std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
+    std::fs::write(path, e.save_docx().unwrap()).unwrap();
+    let back = reopen(&e);
+    let revs = revisions(&back);
+    assert_eq!(revs.len(), 1, "{revs:?}");
+    assert_eq!(revs[0].kind, bo_edit::RevKind::Equation);
+    let eqs = equations(&back);
+    assert_eq!(
+        (eqs[0].1.as_str(), eqs[1].1.as_str()),
+        (original.as_str(), edited.as_str())
+    );
+
+    // Reject: exactly the old equation; accept: the new one.
+    let cases = [
+        (Box::new(reopen(&e)), false),
+        (Box::new(reopen(&e)), true),
+        (Box::new(e), false),
+    ];
+    for (mut x, accept) in cases {
+        let id = revisions(&x).first().map_or(id, |r| r.id);
+        let cmd = if accept {
+            Command::AcceptRevision { id: Some(id) }
+        } else {
+            Command::RejectRevision { id: Some(id) }
+        };
+        run(&mut x, cmd);
+        assert_eq!(revisions(&x).len(), 0);
+        let eqs = equations(&x);
+        assert_eq!(eqs.len(), 1);
+        let want = if accept { &edited } else { &original };
+        assert_eq!(&eqs[0].1, want);
+        // After rejecting, the original edits in place again.
+        let at = bo_edit::Pos::new(0, eqs[0].0);
+        assert!(super::lossless(&eqs[0].1));
+        assert!(!x.session.as_ref().unwrap().equation_deleted(at));
+    }
+}
+
+#[test]
+fn untracked_edits_make_no_revision_and_undo_of_a_tracked_edit() {
+    let mut e = engine("a");
+    run(&mut e, Command::MathEnter { end: true });
+    typed(&mut e, "b");
+    assert_eq!(revisions(&e).len(), 0);
+    assert_eq!(equations(&e).len(), 1);
+    mv(&mut e, MathMotion::Exit);
+    run(&mut e, Command::SetTrackChanges { on: true });
+    let original = equations(&e)[0].1.clone();
+    run(&mut e, Command::MathEnter { end: true });
+    typed(&mut e, "cd");
+    assert_eq!(revisions(&e).len(), 1);
+    // The tracked session is one undo step: undo restores the equation without a revision.
+    run(&mut e, Command::Undo);
+    assert_eq!(revisions(&e).len(), 0);
+    let eqs = equations(&e);
+    assert_eq!(eqs.len(), 1);
+    assert_eq!(eqs[0].1, original);
+}
+
 fn linear_of_para0(e: &mut Engine) -> String {
     let s = e.session.as_ref().unwrap();
     let text = s.para_text(0).unwrap();

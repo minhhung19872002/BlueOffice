@@ -1162,8 +1162,19 @@ fn read_para_children(
             // Other paragraph-level markup is kept verbatim.
             _ => {
                 let raw = capture(r, s, before)?;
+                // An Office Math zone inside §17.13.5.18 ins / §17.13.5.14 del (CT_RunTrackChange
+                // allows m:oMath / m:oMathPara) is an inserted / deleted equation.
+                let props = if bo_model::index::is_math_xml(&raw.xml) {
+                    RunProps {
+                        ins: rc.ins.clone(),
+                        del: rc.del.clone(),
+                        ..RunProps::default()
+                    }
+                } else {
+                    RunProps::default()
+                };
                 p.runs.push(Run {
-                    props: RunProps::default(),
+                    props,
                     content: vec![RunContent::Markup(raw)],
                 });
             }

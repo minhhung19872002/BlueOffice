@@ -77,7 +77,9 @@ fn kind_of(k: RevKind) -> MarkKind {
         | RevKind::MoveTo
         | RevKind::ParagraphInsert
         | RevKind::RowInsert
-        | RevKind::CellInsert => MarkKind::Insert,
+        | RevKind::CellInsert
+        // An edited equation (ADR-0015 addendum): the deleted original and the inserted edit.
+        | RevKind::Equation => MarkKind::Insert,
         RevKind::Delete
         | RevKind::MoveFrom
         | RevKind::ParagraphDelete

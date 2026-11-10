@@ -1404,7 +1404,13 @@ impl crate::Engine {
         let picture = matches!(cmd, Command::Copy | Command::Cut)
             .then(|| self.selection_picture())
             .flatten();
-        // Editing inside an equation (CORE-MATH-010).
+        // Editing inside an equation (CORE-MATH-010); its tracked changes are dated by the host
+        // clock like other edits.
+        if self.math.is_some() {
+            if let Some(ms) = now.or(self.clock_fixed).or_else(crate::review::system_ms) {
+                self.apply_clock_ms(ms);
+            }
+        }
         if let Some(r) = self.math_command(&cmd)? {
             return Ok(r);
         }

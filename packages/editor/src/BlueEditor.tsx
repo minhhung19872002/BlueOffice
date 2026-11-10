@@ -266,7 +266,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
 import { useScriptBindings } from './scriptBindings';
-import { DocController, type EditView } from './controller';
+import { DocController, MATH_UNSUPPORTED, type EditView } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel } from './Panels';
 import { SymbolPanel } from './SymbolPanel';
@@ -580,6 +580,9 @@ function EditorInner({
   });
   const thesMenu = useThesaurusMenu(platform.thesaurus);
   const controller = useRef<DocController | null>(null);
+  // Runs the `insert.equation` command (set once the registry exists): a double click or Enter
+  // on a selected equation edits it in the equation dialog.
+  const equationDialog = useRef<() => void>(() => {});
   // Stop recording waits for keys typed just before it (queued in the controller).
   useEffect(
     () =>
@@ -969,7 +972,9 @@ function EditorInner({
         // The user's building blocks file changed: keep it through the platform.
         if (r.blocks?.store)
           void platform.offline.put(BLOCK_STORE_KEY, fromBase64(r.blocks.store)).catch(() => {});
-        if (isProtectionRefusal(r.error))
+        if (r.error === MATH_UNSUPPORTED)
+          store.setState({ status: { kind: 'info', key: 'equation.inPlaceUnsupported' } });
+        else if (isProtectionRefusal(r.error))
           store.setState({ status: { kind: 'info', key: refusalKey(r.error) } });
         else if (blockErrorKey(r.error))
           store.setState({ status: { kind: 'info', key: blockErrorKey(r.error) ?? '' } });
@@ -978,6 +983,7 @@ function EditorInner({
       },
       (e) => fail('errors.edit', e),
     );
+    controller.current.onEquationDialog = () => equationDialog.current();
     platform.engine.init().then(
       () => {
         store.setState({ engineReady: true });
@@ -3054,6 +3060,9 @@ function EditorInner({
     aiLink,
   ]);
   /* eslint-enable react-hooks/refs */
+  useEffect(() => {
+    equationDialog.current = () => void registry.execute('insert.equation', store.getState());
+  }, [registry, store]);
 
   // Keyboard shortcuts (registry); plain typing and caret keys go through the IME textarea.
   useEffect(() => {

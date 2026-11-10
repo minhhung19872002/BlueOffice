@@ -67,10 +67,35 @@ pub struct MathState {
     pub placeholders: Vec<SelRect>,
 }
 
+/// Error code of a refused `mathEnter` / click: the equation holds markup the in-place model cannot
+/// keep (ADR-0015 addendum); it is selected instead, for the equation dialog.
+pub const MATH_UNSUPPORTED: &str = "mathUnsupported";
+
 /// The equation at `at`: its tree and whether it is a display equation.
 fn read(s: &bo_edit::Session, at: Pos) -> Option<(Vec<Node>, bool)> {
     let xml = s.equation_at(at)?;
     Some((bo_math::from_omml(&xml)?, crate::equation::is_display(&xml)))
+}
+
+/// The zone is written back unchanged by the in-place model: reading it into the tree and writing
+/// the tree again (as the first in-place edit does) gives the same markup (`bo_math::read::
+/// same_omml`). Zones with anything the tree does not hold (`m:box`, `m:groupChr`, `m:sPre`,
+/// `m:borderBox`, `m:phant`, `w:rPr` / `m:ctrlPr` formatting, other run properties, …) are not.
+#[must_use]
+pub fn lossless(xml: &str) -> bool {
+    let Some(mut nodes) = bo_math::from_omml(xml) else {
+        return false;
+    };
+    me::normalize(&mut nodes);
+    let again = crate::equation::wrap(&bo_math::to_omml(&nodes), crate::equation::is_display(xml));
+    bo_math::read::same_omml(xml, &again)
+}
+
+/// The equation at `at` can be edited in place (`Some(false)`: there is one, but not editable —
+/// unsupported markup, or a tracked deletion).
+fn editable(s: &bo_edit::Session, at: Pos) -> Option<bool> {
+    let xml = s.equation_at(at)?;
+    Some(!s.equation_deleted(at) && lossless(&xml))
 }
 
 impl crate::Engine {
@@ -92,9 +117,30 @@ impl crate::Engine {
             self.math = None;
             return Ok(None);
         }
+        // Typing just after a refusal does not replace the selected equation: it still cannot be
+        // edited in place (the dialog edits it; Delete / Backspace remove it).
+        if let (Some((at, version)), Some(s)) = (self.math_refused, self.session.as_ref()) {
+            let range = Selection {
+                anchor: at,
+                focus: Pos::new(at.para, at.offset + OBJECT_LEN),
+            };
+            let still = s.version() == version && s.selection() == range;
+            if !still {
+                self.math_refused = None;
+            } else if matches!(cmd, Command::InsertText { .. } | Command::MathInsert { .. }) {
+                return Ok(Some(self.edit_result(
+                    Vec::new(),
+                    (None, None, None),
+                    Some(MATH_UNSUPPORTED.into()),
+                )?));
+            }
+        }
         // The equation may be gone (an edit elsewhere, another document).
         if let Some(m) = &self.math {
-            let ok = self.session.as_ref().and_then(|s| read(s, m.at)).is_some();
+            let ok = self
+                .session
+                .as_ref()
+                .is_some_and(|s| read(s, m.at).is_some() && !s.equation_deleted(m.at));
             if !ok {
                 self.math = None;
             }
@@ -158,6 +204,18 @@ impl crate::Engine {
                 self.math_leave(true);
                 return self.math_click(page, x, y);
             }
+            // A double click on an equation selects it (for the equation dialog).
+            Command::Click {
+                page,
+                x,
+                y,
+                extend: false,
+                count: 2,
+            } => {
+                let (page, x, y) = (*page, *x, *y);
+                self.math_leave(true);
+                return self.math_select_click(page, x, y);
+            }
             _ => {
                 self.math_leave(true);
                 return Ok(None);
@@ -182,21 +240,25 @@ impl crate::Engine {
                 let Some((at, nodes)) = found else {
                     return Ok(None);
                 };
+                if editable(s, at) != Some(true) {
+                    return self.math_refuse(at).map(Some);
+                }
                 self.set_math(at, me::zone_end(&nodes, *end));
                 Ok(Some(self.math_result(Vec::new())?))
             }
-            // An arrow onto an equation enters it.
+            // An arrow onto an equation enters it (one that cannot be edited in place is passed
+            // over as before).
             Command::Move {
                 motion: Motion::Right,
                 extend: false,
             } if sel.is_collapsed() => {
                 let at = sel.focus;
                 match read(s, at) {
-                    Some((nodes, _)) => {
+                    Some((nodes, _)) if editable(s, at) == Some(true) => {
                         self.set_math(at, me::zone_end(&nodes, false));
                         Ok(Some(self.math_result(Vec::new())?))
                     }
-                    None => Ok(None),
+                    _ => Ok(None),
                 }
             }
             Command::Move {
@@ -205,11 +267,11 @@ impl crate::Engine {
             } if sel.is_collapsed() && sel.focus.offset >= OBJECT_LEN => {
                 let at = Pos::new(sel.focus.para, sel.focus.offset - OBJECT_LEN);
                 match read(s, at) {
-                    Some((nodes, _)) => {
+                    Some((nodes, _)) if editable(s, at) == Some(true) => {
                         self.set_math(at, me::zone_end(&nodes, true));
                         Ok(Some(self.math_result(Vec::new())?))
                     }
-                    None => Ok(None),
+                    _ => Ok(None),
                 }
             }
             Command::Click {
@@ -219,6 +281,13 @@ impl crate::Engine {
                 extend: false,
                 count: 1,
             } => self.math_click(*page, *x, *y),
+            Command::Click {
+                page,
+                x,
+                y,
+                extend: false,
+                count: 2,
+            } => self.math_select_click(*page, *x, *y),
             Command::MathMove { .. }
             | Command::MathInsert { .. }
             | Command::MathDelete { .. }
@@ -252,12 +321,41 @@ impl crate::Engine {
         }
     }
 
-    /// A click: on an equation, the caret goes to the slot under the pointer.
+    /// A click: on an equation, the caret goes to the slot under the pointer; an equation that
+    /// cannot be edited in place is selected instead, with [`MATH_UNSUPPORTED`].
     fn math_click(&mut self, page: usize, x: f32, y: f32) -> crate::Result<Option<EditResult>> {
-        let layout = self.layout.document();
-        let Some(p) = nav::hit_test(layout, page, x, y) else {
+        let Some((at, pos)) = self.equation_hit(page, x, y) else {
             return Ok(None);
         };
+        if self.session.as_ref().and_then(|s| editable(s, at)) != Some(true) {
+            return self.math_refuse(at).map(Some);
+        }
+        self.set_math(at, pos);
+        Ok(Some(self.math_result(Vec::new())?))
+    }
+
+    /// A double click on an equation selects the whole equation.
+    fn math_select_click(
+        &mut self,
+        page: usize,
+        x: f32,
+        y: f32,
+    ) -> crate::Result<Option<EditResult>> {
+        let Some((at, _)) = self.equation_hit(page, x, y) else {
+            return Ok(None);
+        };
+        self.select_equation(at);
+        Ok(Some(self.edit_result(
+            Vec::new(),
+            (None, None, None),
+            None,
+        )?))
+    }
+
+    /// The equation under a point and the position in it under the point.
+    fn equation_hit(&mut self, page: usize, x: f32, y: f32) -> Option<(Pos, MathPos)> {
+        let layout = self.layout.document();
+        let p = nav::hit_test(layout, page, x, y)?;
         // The nearest caret stop to a point on an equation is its start or its end.
         let candidates = [p, Pos::new(p.para, p.offset.saturating_sub(OBJECT_LEN))];
         for at in candidates {
@@ -274,11 +372,32 @@ impl crate::Engine {
             if gpage != page || lx < 0.0 || lx > geo.w || ly < -geo.asc || ly > geo.desc {
                 continue;
             }
-            let pos = hit_slot(&geo, &nodes, lx, ly);
-            self.set_math(at, pos);
-            return Ok(Some(self.math_result(Vec::new())?));
+            return Some((at, hit_slot(&geo, &nodes, lx, ly)));
         }
-        Ok(None)
+        None
+    }
+
+    fn select_equation(&mut self, at: Pos) {
+        self.math = None;
+        if let Some(s) = self.session.as_mut() {
+            s.end_math_group();
+            s.set_selection(Selection {
+                anchor: at,
+                focus: Pos::new(at.para, at.offset + OBJECT_LEN),
+            });
+        }
+    }
+
+    /// In-place editing refused (ADR-0015 addendum): the equation is selected as before in-place
+    /// editing existed (the equation dialog edits it) and [`MATH_UNSUPPORTED`] tells the host why.
+    fn math_refuse(&mut self, at: Pos) -> crate::Result<EditResult> {
+        self.select_equation(at);
+        self.math_refused = self.session.as_ref().map(|s| (at, s.version()));
+        self.edit_result(
+            Vec::new(),
+            (None, None, None),
+            Some(MATH_UNSUPPORTED.into()),
+        )
     }
 
     /// Slot geometry of the equation at `at` as laid out from its tree.
@@ -338,17 +457,24 @@ impl crate::Engine {
             .as_mut()
             .ok_or(crate::EngineError::NoDocument)?
             .replace_equation(m.at, &xml, group);
-        let error = res.err().map(|e| e.to_string());
+        // With track changes the edited equation follows the deleted original.
+        let (at, error) = match res {
+            Ok(at) => (at, None),
+            Err(e) => (m.at, Some(e.to_string())),
+        };
         // The caret in the tree as it reads back.
         let back = bo_math::from_omml(&xml).unwrap_or_default();
         self.math = Some(MathCaret {
-            at: m.at,
+            at,
             pos: me::clamp(&back, pos),
             selected: false,
         });
         let dirty = self.relayout()?;
         let mut r = self.math_result_with(dirty, error)?;
         r.collab = self.collab_after_edit();
+        if let Some(s) = self.session.as_ref() {
+            r.review = Some(crate::review::review_state(s, &self.markup));
+        }
         Ok(r)
     }
 

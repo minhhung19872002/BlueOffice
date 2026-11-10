@@ -2969,7 +2969,8 @@
       "cellDelete": "Xoá ô/cột",
       "cellMerge": "Gộp/tách ô",
       "rowFormat": "Thuộc tính hàng",
-      "tableGrid": "Độ rộng cột"
+      "tableGrid": "Độ rộng cột",
+      "equation": "Sửa phương trình"
     },
     "story": {
       "header": "Đầu trang",
@@ -3709,6 +3710,7 @@
   "equation": {
     "title": "Chèn phương trình",
     "editTitle": "Sửa phương trình",
+    "inPlaceUnsupported": "Phương trình này có định dạng mà chế độ sửa tại chỗ không giữ được. Nhấp đúp hoặc nhấn Enter để sửa trong hộp phương trình.",
     "input": "Phương trình",
     "syntax": "Cú pháp",
     "unicodeMath": "UnicodeMath (tuyến tính)",

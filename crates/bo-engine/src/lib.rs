@@ -359,6 +359,9 @@ pub struct Engine {
     blocks: blocks::BlockState,
     /// The caret inside an equation being edited in place (BlueDoc, CORE-MATH-010).
     math: Option<math_edit::MathCaret>,
+    /// An equation just refused for in-place editing and selected (start, document version):
+    /// typing right after does not replace it (ADR-0015 addendum).
+    math_refused: Option<(bo_edit::Pos, u64)>,
 }
 
 impl Engine {

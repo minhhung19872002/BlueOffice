@@ -1592,7 +1592,12 @@ impl Session {
         }
         // Both halves of a tracked move are resolved together (§17.13.5.22–27).
         let moves = moves::move_groups(&self.doc);
-        let set: Option<std::collections::HashSet<i32>> = ids.map(|v| moves.expand(v));
+        // Both halves of an edited equation too (ADR-0015 addendum).
+        let set: Option<std::collections::HashSet<i32>> = ids.map(|v| {
+            let mut s = moves.expand(v);
+            revisions::with_equation_halves(&self.doc, &mut s);
+            s
+        });
         let dead = moves.dead_markers(set.as_ref());
         let all = self.revisions();
         let n = match &set {
@@ -2043,10 +2048,17 @@ impl Session {
     /// CORE-MATH-010; ECMA-376 Part 1, §22.1.2.77 oMath): its run formatting is kept and the caret
     /// is left just after it. With `group`, the change joins the previous one when that was a grouped
     /// edit of the same equation with nothing in between (one undo step per typed group).
-    pub fn replace_equation(&mut self, at: Pos, xml: &str, group: bool) -> Result<()> {
+    ///
+    /// In track-changes mode the change is a revision of the whole equation (ADR-0015 addendum):
+    /// the original zone is marked deleted (§17.13.5.14 del) and the edited one is inserted just
+    /// after it (§17.13.5.18 ins); an equation this author inserted (the pending one of an edit
+    /// session) is changed in place, so one session leaves one revision. Returns where the edited
+    /// equation now starts (after the deleted original when one was marked).
+    pub fn replace_equation(&mut self, at: Pos, xml: &str, group: bool) -> Result<Pos> {
         let mergeable = group && self.math_group == Some(at);
         let prev_after = self.undo.last().map(|t| t.after);
         let math = RunContent::Markup(bo_model::Raw::new(xml, 0));
+        let mut new_at = at;
         self.edit(|tx, _| {
             let (path, p, mut atoms) = tx.atoms(at.para)?;
             let mut off = 0;
@@ -2061,10 +2073,25 @@ impl Session {
                 off += para::atom_len(&a.1);
             }
             let i = found.ok_or(EditError::BadPosition)?;
+            // A deleted equation is not edited.
+            if atoms[i].0.del.is_some() {
+                return Err(EditError::BadPosition);
+            }
             let len = para::atom_len(&math);
-            atoms[i].1 = math.clone();
+            match tx.track.as_mut() {
+                Some(t) if !t.owns(&atoms[i].0) => {
+                    let del = t.mark();
+                    let ins = t.mark();
+                    let mut props = atoms[i].0.clone();
+                    props.ins = Some(ins);
+                    atoms[i].0.del = Some(del);
+                    new_at = Pos::new(at.para, at.offset + para::atom_len(&atoms[i].1));
+                    atoms.insert(i + 1, (props, math.clone()));
+                }
+                _ => atoms[i].1 = math.clone(),
+            }
             tx.replace_para(&path, para::with_atoms(&p, atoms))?;
-            Ok(Selection::caret(Pos::new(at.para, at.offset + len)))
+            Ok(Selection::caret(Pos::new(new_at.para, new_at.offset + len)))
         })?;
         if mergeable
             && self.undo.len() >= 2
@@ -2076,8 +2103,8 @@ impl Session {
                 prev.after = last.after;
             }
         }
-        self.math_group = group.then_some(at);
-        Ok(())
+        self.math_group = group.then_some(new_at);
+        Ok(new_at)
     }
 
     /// The next in-place equation edit starts a new undo step.
@@ -2088,14 +2115,24 @@ impl Session {
     /// The OMML of the equation that starts at `at`, if there is one.
     #[must_use]
     pub fn equation_at(&self, at: Pos) -> Option<String> {
+        self.equation_atom(at).map(|(_, xml)| xml)
+    }
+
+    /// The equation at `at` is a tracked deletion (§17.13.5.14 del, §17.13.5.22 moveFrom).
+    #[must_use]
+    pub fn equation_deleted(&self, at: Pos) -> bool {
+        self.equation_atom(at).is_some_and(|(p, _)| p.del.is_some())
+    }
+
+    fn equation_atom(&self, at: Pos) -> Option<(RunProps, String)> {
         let paths = body_paragraphs(&self.doc);
         let p = para_at(&self.doc, paths.get(at.para)?)?;
         let mut off = 0;
-        for (_, c) in para::flatten(p) {
+        for (props, c) in para::flatten(p) {
             if off == at.offset {
                 if let RunContent::Markup(raw) = &c {
                     if bo_model::index::is_math_xml(&raw.xml) {
-                        return Some(raw.xml.to_string());
+                        return Some((props, raw.xml.to_string()));
                     }
                 }
             }

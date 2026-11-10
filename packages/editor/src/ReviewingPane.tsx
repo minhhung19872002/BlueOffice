@@ -24,6 +24,7 @@ export function markKindOf(kind: RevisionKind): MarkKind {
     case 'paragraphInsert':
     case 'rowInsert':
     case 'cellInsert':
+    case 'equation':
       return 'insert';
     case 'delete':
     case 'moveFrom':

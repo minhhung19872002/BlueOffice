@@ -828,6 +828,7 @@ dependencies = [
  "bo-render",
  "bo-text",
  "bo-xlsx",
+ "criterion",
  "serde",
  "serde_json",
  "unicode-normalization",

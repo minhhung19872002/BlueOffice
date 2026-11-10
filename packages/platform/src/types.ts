@@ -1474,6 +1474,8 @@ export type SlideCommand =
   | import('./slideShow').SlidePresentCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
+  /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
+  | import('./versions').CompareDeckCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
@@ -2536,4 +2538,6 @@ export interface Platform {
   video?: VideoEncoding;
   /** Other monitors for the audience screen (absent: a plain second window). */
   displays?: import('./slideShow').DisplayService;
+  /** Version history of the open file (hosted sessions; CORE-VERSION-001). */
+  versions?: import('./versions').VersionHistory;
 }

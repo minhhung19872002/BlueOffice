@@ -5,7 +5,14 @@
  * version). Used by the web embed (`/edit`, token via `@blueoffice/editor-sdk`)
  * and by the desktop deep link (`bluedoc://open?host=…&file=…&token=…`).
  */
-import type { DocumentStorage, OpenedFile, Platform, StoredDocument } from '@blueoffice/platform';
+import type {
+  DocumentStorage,
+  FileVersion,
+  OpenedFile,
+  Platform,
+  StoredDocument,
+  VersionHistory,
+} from '@blueoffice/platform';
 import { variantOf } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
 import { OfflineError, reach, type OfflineSaves } from './offline';
@@ -122,6 +129,66 @@ export async function checkpoint(
   return res.json().catch(() => null);
 }
 
+/**
+ * Version history of the session file (docs/bohp.md §B `…/versions`,
+ * `…/versions/{v}/contents`, `…/versions/{v}/restore`; CORE-VERSION-001).
+ * Restoring needs edit permission; `onRestored` hears the new version (the
+ * collaboration room reloads every participant; without one the shell reloads).
+ */
+export function sessionVersions(
+  api: string,
+  session: HostedSession,
+  mode: SessionMode,
+  fetchImpl: FetchLike,
+  onRestored?: (version: string) => void,
+): VersionHistory {
+  const base = `${api}/api/sessions/${encodeURIComponent(session.sessionId)}/versions`;
+  const headers = { 'x-session-token': session.sessionToken };
+  const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  return {
+    fileName: session.file.name,
+    canRestore: () => mode.editable,
+    list: async () => {
+      const res = await fetchImpl(base, { headers });
+      if (!res.ok) throw new Error(`session.versions ${res.status}`);
+      const body = (await res.json()) as { versions?: unknown };
+      const list = Array.isArray(body.versions) ? (body.versions as Record<string, unknown>[]) : [];
+      return list
+        .filter((v) => typeof v.version === 'string')
+        .map((v): FileVersion => {
+          const by = v.modifiedBy as { id?: unknown; name?: unknown } | null | undefined;
+          return {
+            version: v.version as string,
+            ...(typeof v.size === 'number' ? { size: v.size } : {}),
+            modifiedAt: str(v.modifiedAt),
+            modifiedBy: by ? { id: str(by.id) ?? '', name: str(by.name) ?? '' } : null,
+            note: str(v.note),
+          };
+        });
+    },
+    contents: async (version) => {
+      const res = await fetchImpl(`${base}/${encodeURIComponent(version)}/contents`, { headers });
+      if (!res.ok) throw new Error(`session.versionContents ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    },
+    restore: async (version) => {
+      if (!mode.editable) throw new Error('session.readOnly');
+      const res = await fetchImpl(`${base}/${encodeURIComponent(version)}/restore`, {
+        method: 'POST',
+        headers,
+      });
+      if (!res.ok) throw new Error(`session.restore ${res.status}`);
+      const v = str(
+        ((await res.json().catch(() => null)) as { version?: unknown } | null)?.version,
+      );
+      const restored = v ?? '';
+      if (restored) session.file = { ...session.file, version: restored };
+      onRestored?.(restored);
+      return { version: restored };
+    },
+  };
+}
+
 /** Editor actions reported to the host's audit log (docs/bohp.md §B `…/audit`). */
 export type AuditAction = 'print' | 'export' | 'download';
 
@@ -189,6 +256,8 @@ export function hostedPlatform(
     onSaveError?: (e: unknown) => void;
     /** Keep saves locally while the server is unreachable (desktop). */
     offline?: HostedOffline;
+    /** A version was restored (CORE-VERSION-001). */
+    onRestored?: (version: string) => void;
   },
 ): Platform {
   const { api, session, file, app, mode, fetchImpl, offline } = opts;
@@ -260,6 +329,7 @@ export function hostedPlatform(
   return {
     ...base,
     storage,
+    versions: sessionVersions(api, session, mode, fetchImpl, opts.onRestored),
     files: {
       openFile: base.files.openFile.bind(base.files),
       // Same-format saves go back to the host; other formats (PDF, CSV) go to the disk.

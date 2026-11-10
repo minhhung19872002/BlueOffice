@@ -137,6 +137,10 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
     },
     ...(o.onSaveError ? { onSaveError: o.onSaveError } : {}),
     ...(offline ? { offline } : {}),
+    // A restore resets the collaboration room (every participant reloads); alone, reload here.
+    onRestored: () => {
+      if (!client) o.onEnded?.('reload');
+    },
   });
   // Commands run against the final platform (collaborative + view-mode guard).
   let final: Platform = platform;

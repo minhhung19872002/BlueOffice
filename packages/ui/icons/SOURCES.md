@@ -235,6 +235,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `review.spelling` | Lucide (ISC) `SpellCheck` |
 | `review.spellingDialog` | Lucide (ISC) `SpellCheck` |
 | `review.trackChanges` | Lucide (ISC) `FilePenLine` |
+| `review.versions` | Lucide (ISC) `RotateCcwClock` |
 | `review.viewFinal` | Lucide (ISC) `Eye` |
 | `review.viewMarkup` | Lucide (ISC) `Eye` |
 | `review.viewOriginal` | Lucide (ISC) `Eye` |

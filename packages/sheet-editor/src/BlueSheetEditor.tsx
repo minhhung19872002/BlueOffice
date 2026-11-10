@@ -67,6 +67,7 @@ import {
   ChartColumn,
   ChartSpline,
   ClipboardCheck,
+  History,
   SpellCheck,
   ClipboardList,
   ClipboardPaste,
@@ -238,6 +239,7 @@ import {
   useTables,
 } from './tableDesign';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
+import { SheetShowChangesPane } from './showChanges';
 import { SheetEditSpelling, SheetSpellDialog, useSheetSpelling } from './spelling';
 import {
   SaveChartTemplateDialog,
@@ -562,6 +564,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [pivotPanel, setPivotPanel] = useState(true);
   /** Threaded comments side panel ([MS-XLSX] threaded comments). */
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // Show Changes / version history pane (CORE-VERSION-001).
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
   /** Symbol picker panel (insert into the cell being edited, else the active cell). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
@@ -1908,6 +1912,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       ...has,
       isChecked: () => commentsOpen,
     });
+    add('review.versions', async () => setVersionsOpen((o) => !o), {
+      ...has,
+      isChecked: () => versionsOpen,
+    });
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
@@ -2406,6 +2414,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     pivotLabels,
     pivotPanel,
     commentsOpen,
+    versionsOpen,
     activePivot,
     formList,
     formSel,
@@ -3585,6 +3594,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             ],
           },
           {
+            id: 'versions',
+            label: t('versions.group'),
+            items: [item('review.versions', t('versions.showChanges'), <History size={18} />)],
+          },
+          {
             id: 'proofing',
             label: t('ribbon.groups.proofing'),
             items: [
@@ -4320,6 +4334,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             }}
             onClose={() => {
               setCommentsOpen(false);
+              focusInput();
+            }}
+          />
+        )}
+        {versionsOpen && (
+          <SheetShowChangesPane
+            exec={(cmd) => exec(cmd, false)}
+            versions={platform.versions}
+            openFile={() => platform.files.openFile(['.xlsx', '.xlsm', '.xls', '.xlsb', '.ods'])}
+            goTo={goToRange}
+            onClose={() => {
+              setVersionsOpen(false);
               focusInput();
             }}
           />

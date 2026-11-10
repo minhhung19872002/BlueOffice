@@ -233,6 +233,7 @@
       "outline": "Dàn ý",
       "readMode": "Chế độ đọc",
       "focus": "Tập trung",
+      "focusedReader": "Trình đọc tập trung",
       "navigationPane": "Ngăn điều hướng",
       "stylesPane": "Ngăn kiểu",
       "formattingMarks": "Ký hiệu định dạng",
@@ -5602,6 +5603,40 @@
       "upstream": "Dịch vụ nhận dạng giọng nói bị lỗi.",
       "noTarget": "Hãy đặt con trỏ vào chỗ cần nhập chữ (khối chữ hoặc ô) rồi thử lại."
     }
+  },
+  "reader": {
+    "title": "Trình đọc tập trung",
+    "tools": "Công cụ đọc",
+    "close": "Đóng trình đọc (Esc)",
+    "textSize": "Cỡ chữ",
+    "smaller": "Giảm cỡ chữ",
+    "larger": "Tăng cỡ chữ",
+    "textSizeValue": "{{size}} px",
+    "wideSpacing": "Giãn chữ",
+    "lineSpacing": "Giãn dòng",
+    "column": "Độ rộng cột",
+    "columns": {
+      "narrow": "Hẹp",
+      "medium": "Vừa",
+      "wide": "Rộng"
+    },
+    "theme": "Màu trang",
+    "themes": {
+      "light": "Sáng",
+      "sepia": "Nâu giấy",
+      "dark": "Tối"
+    },
+    "themeHighContrast": "Đang dùng giao diện tương phản cao của ứng dụng",
+    "lineFocus": "Tập trung dòng",
+    "lineFocusOff": "Tắt",
+    "lineFocusLines": "{{count}} dòng",
+    "syllables": "Tách âm tiết",
+    "focus": "Ẩn công cụ",
+    "showTools": "Hiện công cụ đọc",
+    "play": "Đọc to",
+    "stopReading": "Dừng đọc",
+    "text": "Nội dung của {{name}}",
+    "empty": "Tài liệu chưa có chữ nào để đọc."
   },
   "readAloud": {
     "bar": "Điều khiển đọc to",

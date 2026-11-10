@@ -153,6 +153,30 @@ export {
   registerReadAloudCommands,
 } from './readAloudCommands';
 export { docReadRequest, docUnits, type SpeechHighlighter } from './docReadAloud';
+// Focused reader (CORE-LANG-004).
+export {
+  FocusedReader,
+  groupLines,
+  lineOf,
+  lineWindow,
+  type FocusedReaderProps,
+  type ReaderBlock,
+  type ReaderLine,
+  type WordBox,
+} from './FocusedReader';
+export {
+  DEFAULT_READER_PREFS,
+  READER_PALETTES,
+  READER_PREFS_KEY,
+  contrast,
+  loadReaderPrefs,
+  parseReaderPrefs,
+  saveReaderPrefs,
+  type ReaderPrefs,
+  type ReaderTheme,
+} from './focusedReaderPrefs';
+export { docReaderBlocks, readerStart } from './docFocusedReader';
+export { HYPHENATION_LIMITS, SYLLABLE_LIMITS, hyphenPoints, syllables } from './syllables';
 // SmartArt dialog shared with BlueSheet / BlueSlide (CORE-SMART-005).
 export {
   SMARTART_LAYOUTS,

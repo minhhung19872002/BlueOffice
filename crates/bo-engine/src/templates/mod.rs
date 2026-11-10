@@ -391,7 +391,7 @@ fn two_signers(left: (&str, &str), right: (&str, &str)) -> Vec<Block> {
 /// The document around the blocks: page, page number header, default font.
 fn document(blocks: Vec<Block>) -> Document {
     // Page number centred in the top margin, not on the first page (§17.10.6 titlePg,
-    // §17.16.5.43 PAGE): Phụ lục I, "số trang … canh giữa theo chiều ngang trong phần
+    // §17.16.5.44 PAGE): Phụ lục I, "số trang … canh giữa theo chiều ngang trong phần
     // lề trên, không hiển thị số trang thứ nhất".
     let number = para(
         vec![Run {

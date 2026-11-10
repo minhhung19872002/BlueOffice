@@ -26,7 +26,7 @@ export interface RecipientOptions {
   excluded?: number[];
 }
 
-/** Comparison operators of IF / SKIPIF / NEXTIF rules (ECMA-376 Part 1, §17.16.5.24). */
+/** Comparison operators of IF / SKIPIF / NEXTIF rules (ECMA-376 Part 1, §17.16.5.26). */
 export type RuleOp = '=' | '<>' | '<' | '<=' | '>' | '>=';
 
 /** A merge rule field the Rules menu inserts. */

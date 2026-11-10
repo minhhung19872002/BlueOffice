@@ -1,6 +1,6 @@
 /**
  * References tab dialogs of BlueDoc: table of figures (`TOC \c` / `\a`, ECMA-376 Part 1,
- * §17.16.5.68), index entries and index (§17.16.5.72 XE, §17.16.5.28 INDEX), citations and
+ * §17.16.5.68), index entries and index (§17.16.5.72 XE, §17.16.5.29 INDEX), citations and
  * table of authorities (§17.16.5.62 TA, §17.16.5.67 TOA) and footnote ↔ endnote
  * conversion (§17.11). Each dialog sends one engine command (one undo step); the field
  * instructions are built by the pure helpers below.

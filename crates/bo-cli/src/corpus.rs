@@ -544,7 +544,7 @@ fn cite_simple(instr: &str, shown: &str) -> String {
     format!(r#"<w:fldSimple w:instr=" {instr} "><w:r><w:t>{shown}</w:t></w:r></w:fldSimple>"#)
 }
 
-/// A BIBLIOGRAPHY field (§17.16.5.5) spanning one paragraph per entry, inside its block
+/// A BIBLIOGRAPHY field (§17.16.5.7) spanning one paragraph per entry, inside its block
 /// content control (§17.5.2.2 bibliography). An entry is XML-escaped text with italic
 /// stretches between asterisks and a tab after the number label of numeric styles.
 fn bibliography_sdt(id: i32, instr: &str, entries: &[&str]) -> String {
@@ -1382,7 +1382,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         )],
         ..Doc::default()
     }));
-    // ---- citations and bibliography (§22.6 b:Sources, §17.16.5.8 CITATION, §17.16.5.5
+    // ---- citations and bibliography (§22.6 b:Sources, §17.16.5.8 CITATION, §17.16.5.7
     // BIBLIOGRAPHY); the cached results are the ones BlueDoc's own style formatters give.
     let cite_styles = format!(
         r#"{}<w:style w:type="paragraph" w:styleId="Bibliography"><w:name w:val="bibliography"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:ind w:left="720" w:hanging="720"/></w:pPr></w:style>"#,
@@ -1489,7 +1489,7 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     // ---- review: tracked changes (ECMA-376 Part 1, §17.13.5)
     let d1 = r#"w:author="Nguyễn Văn An" w:date="2026-11-07T08:00:00Z""#;
     let d2 = r#"w:author="Trần Thị Bình" w:date="2026-11-07T09:15:00Z""#;
-    // ---- fields to update: TOC (§17.16.5.68), SEQ (§17.16.5.56), REF/PAGEREF (§17.16.5.49/42)
+    // ---- fields to update: TOC (§17.16.5.68), SEQ (§17.16.5.56), REF/PAGEREF (§17.16.5.51/45)
     let fld = |instr: &str, cached: &str| field_complex(instr, cached);
     let toc_entry = |style: &str, bm: &str, text: &str, page: &str, head: &str, tail: &str| {
         format!(
@@ -2605,7 +2605,7 @@ pub fn big_document(
 /// (§17.4.38 tbl) with a numbered caption (§17.16.5.56 SEQ) or an inline picture
 /// (cycling through `distinct` image parts), a chapter heading (Heading1,
 /// §17.3.1.20 outlineLvl) every 20 pages, a header and a footer with PAGE / NUMPAGES
-/// fields (§17.16.5.43 / §17.16.5.38). Generated for benchmarks, never committed.
+/// fields (§17.16.5.44 / §17.16.5.42). Generated for benchmarks, never committed.
 pub fn big_document_rich(pages: usize, distinct: usize) -> Result<Vec<u8>, bo_opc::OpcError> {
     let distinct = distinct.max(1);
     let (cx, cy) = (2_880_000_i64, 2_160_000_i64); // 8 cm × 6 cm in EMU

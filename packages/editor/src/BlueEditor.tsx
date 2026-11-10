@@ -15,7 +15,7 @@ import {
   SpellCheckDialog,
   loadProofOptions,
 } from './SpellCheckDialog';
-import { AutoCorrectDialog, autoCorrectCommand, loadAutoCorrect } from './AutoCorrectDialog';
+import { AutoCorrectDialog, loadAutoCorrect, openSetupCommand } from './AutoCorrectDialog';
 import { MacroViewer, useMacroViewer } from './MacroViewer';
 import { DocCheckDocumentDialog } from './DocCheckDocument';
 import { VersionsPane } from './versions/VersionsPane';
@@ -712,23 +712,22 @@ function EditorInner({
       // Focus at once: typing may start while the set-up commands below are still running.
       view.current?.focus();
       platform.window.setTitle(`${info.name} — ${t('app.doc')}`);
-      // New revisions and comments are attributed to the signed-in user (fallback "BlueOffice").
-      await controller.current?.run({ cmd: 'setAuthor', name: platform.auth.user?.name ?? '' });
-      // Editable regions (CORE-SEC-001) match the signed-in user's name / e-mail;
-      // a final or read-only file asks how to open it.
-      const sec = await controller.current?.run({
-        cmd: 'setIdentity',
-        names: identityNames(platform.auth.user),
-      });
-      if (sec?.security && openProtection(sec.security) !== 'none' && !sec.security.markedFinal)
+      // One engine call (CORE-MISC-003): new revisions and comments are attributed to the
+      // signed-in user (fallback "BlueOffice"); editable regions (CORE-SEC-001) match the
+      // user's name / e-mail; AutoCorrect as you type uses the user's kept options, else
+      // the engine defaults; then the editing state and, the first time, the font list.
+      const r = await controller.current?.run(
+        openSetupCommand(
+          platform.auth.user?.name ?? '',
+          identityNames(platform.auth.user),
+          loadAutoCorrect(),
+          store.getState().fonts.length === 0,
+        ),
+      );
+      // A final or read-only file asks how to open it.
+      if (r?.security && openProtection(r.security) !== 'none' && !r.security.markedFinal)
         store.setState({ protectUi: 'prompt' });
-      // AutoCorrect as you type: the user's kept options, else the engine defaults.
-      await controller.current?.run(autoCorrectCommand(loadAutoCorrect()));
-      await controller.current?.run({ cmd: 'state' });
-      if (store.getState().fonts.length === 0) {
-        const f = await controller.current?.run({ cmd: 'fontList' });
-        if (f?.fonts) store.setState({ fonts: f.fonts });
-      }
+      if (r?.fonts) store.setState({ fonts: r.fonts });
       onDocumentOpened?.(info.name, info.pageCount);
     },
     [platform, store, t, onDocumentOpened],
@@ -2853,7 +2852,7 @@ function EditorInner({
       id: 'file.newFromTemplate',
       run: () => store.setState({ dialog: 'templates' }),
     });
-    // Headers and footers (§17.10), page numbers (§17.16.5.43 PAGE).
+    // Headers and footers (§17.10), page numbers (§17.16.5.44 PAGE).
     const caretPage = (s: EditorState) => s.edit?.caret?.page ?? s.page;
     for (const [id, header] of [
       ['insert.header', true],
@@ -2971,7 +2970,7 @@ function EditorInner({
       run: () => store.setState({ dialog: 'tableProperties' }),
     });
     // Table tools: sizes (§17.4.53 tblLayout, §17.4.81 trHeight), sort, formula
-    // (§17.16.5.1), text direction (§17.4.72), wrapping (§17.4.58), text ↔ table.
+    // (§17.16.3), text direction (§17.4.72), wrapping (§17.4.58), text ↔ table.
     const toolCmds: [string, TableEdit][] = [
       ['table.distributeRows', { kind: 'distributeRows' }],
       ['table.distributeColumns', { kind: 'distributeColumns' }],

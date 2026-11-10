@@ -298,6 +298,23 @@ fn line_numbers_start_and_distance() {
     assert!((nums[0].1 - 36.0).abs() < 0.01, "{:?}", nums[0]);
 }
 
+/// [MS-OI29500] 2.1.215 (Part 1 §17.6.8 lnNumType, note b): `w:start` is the count of
+/// numbers skipped when numbering starts or restarts — "a value of 3 means to start
+/// numbering at 4" — also on every new page with `restart="newPage"`.
+#[test]
+fn line_numbers_start_skips_numbers_at_every_restart() {
+    let mut sec = section((0..80).map(|i| p(&format!("Dòng {i}"))).collect());
+    sec.line_numbers = Some(LineNumbering {
+        start: 3,
+        ..LineNumbering::default()
+    });
+    let l = run(&doc(vec![sec]));
+    assert!(l.pages.len() >= 2);
+    assert_eq!(numbers(&l, 0)[0].0, "4");
+    assert_eq!(numbers(&l, 0)[1].0, "5");
+    assert_eq!(numbers(&l, 1)[0].0, "4");
+}
+
 #[test]
 fn line_numbers_restart_on_each_page() {
     let mut sec = section((0..80).map(|i| p(&format!("Dòng {i}"))).collect());

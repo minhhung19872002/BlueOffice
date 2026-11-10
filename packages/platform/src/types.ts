@@ -756,6 +756,19 @@ export type EditCommand =
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }
   | { cmd: 'setAuthor'; name: string }
+  /**
+   * Document-open set-up in one call (CORE-MISC-003): `setAuthor`, `setIdentity`,
+   * `autoCorrect` (`autoCorrect` options or `resetAutoCorrect`), `state` and, with `fonts`,
+   * `fontList`; the answer is the state with `security`, `autocorrect` and `fonts`.
+   */
+  | {
+      cmd: 'openSetup';
+      author?: string;
+      names?: string[];
+      autoCorrect?: AutoCorrectOptions;
+      resetAutoCorrect?: boolean;
+      fonts?: boolean;
+    }
   | { cmd: 'setRevisionView'; view: RevisionView }
   /** Review display mode / markup options; absent fields are kept. */
   | ({ cmd: 'setMarkup' } & Partial<MarkupOptions>)

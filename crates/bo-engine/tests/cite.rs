@@ -1,5 +1,5 @@
 //! Citations and bibliography through the JSON command bridge (CORE-CITE-001): the corpus
-//! files `cite-*.docx` (sources part §22.6, CITATION §17.16.5.8, BIBLIOGRAPHY §17.16.5.5),
+//! files `cite-*.docx` (sources part §22.6, CITATION §17.16.5.8, BIBLIOGRAPHY §17.16.5.7),
 //! style switching, save and reopen, BibTeX / RIS.
 // Tests may unwrap: a panic is a test failure.
 #![allow(clippy::unwrap_used)]

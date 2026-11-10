@@ -51,6 +51,23 @@ export function autoCorrectCommand(options: AutoCorrectOptions | null): EditComm
   return options ? { cmd: 'autoCorrect', options } : { cmd: 'autoCorrect', reset: true };
 }
 
+/** The document-open set-up (CORE-MISC-003): author, identity names, AutoCorrect (the
+ * kept options, else the engine defaults), state and — `fonts` — the font list. */
+export function openSetupCommand(
+  author: string,
+  names: string[],
+  autoCorrect: AutoCorrectOptions | null,
+  fonts: boolean,
+): EditCommand {
+  return {
+    cmd: 'openSetup',
+    author,
+    names,
+    ...(autoCorrect ? { autoCorrect } : { resetAutoCorrect: true }),
+    fonts,
+  };
+}
+
 const lines = (s: string) =>
   s
     .split('\n')

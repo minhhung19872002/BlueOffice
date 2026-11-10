@@ -73,6 +73,14 @@ fn security_commands_do_not_shadow_app_commands() {
     );
 }
 
+// CORE-MISC-003: `openSetup` is parsed before both enums too.
+#[test]
+fn open_setup_does_not_shadow_doc_commands() {
+    let security = variants(include_str!("../src/security.rs"), "SecurityCommand");
+    let doc = variants(include_str!("../src/edit.rs"), "Command");
+    assert!(!doc.contains("openSetup") && !security.contains("openSetup"));
+}
+
 // CORE-SPELL-006: the spelling commands are parsed before the app commands as well.
 #[test]
 fn spelling_commands_do_not_shadow_app_commands() {

@@ -45,6 +45,7 @@ pub mod merge_sources;
 pub mod nav;
 mod notes;
 pub mod ole;
+pub mod open_setup;
 mod page_layout;
 pub mod pdf_export;
 pub mod pdf_import;

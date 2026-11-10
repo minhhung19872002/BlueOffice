@@ -9,6 +9,7 @@ import type {
 import { keyToCommand } from './keys';
 import { DOC_REPEATABLE, RepeatTracker } from './repeat';
 import { clipboardHistory, type ClipboardHistory, type ClipItem } from './clipboard/history';
+import { CopyInFlight } from './clipboard/copyInFlight';
 import {
   DEFAULT_PASTE,
   defaultChoice,
@@ -46,6 +47,8 @@ export class DocController {
   pasteDefaults: PasteDefaults = DEFAULT_PASTE;
   /** Clipboard history copies are added to. */
   history: ClipboardHistory = clipboardHistory;
+  /** The copy still on its way to the system clipboard (pastes wait for it). */
+  readonly copies = new CopyInFlight<ClipPayload>();
   private pasteListener: ((r: DocPasteRecord | null) => void) | null = null;
   /** Last repeatable edit (F4, CORE-UI-004). */
   readonly repeats = new RepeatTracker<EditCommand>(DOC_REPEATABLE);
@@ -192,19 +195,31 @@ export class DocController {
         if (c) void this.run(c);
         break;
       }
-      case 'paste': {
-        const image = e.image;
-        if (image && !e.text && !e.html && !e.internal) {
-          void image
-            .arrayBuffer()
-            .then((b) => this.paste('', '', '', new Uint8Array(b)))
-            .catch((err: unknown) => this.onError(err));
-        } else void this.paste(e.text, e.html, e.internal);
+      case 'paste':
+        this.pasteEvent(e.text, e.html, e.internal, e.image).catch((err: unknown) =>
+          this.onError(err),
+        );
         break;
-      }
       case 'composition':
         break;
     }
+  }
+
+  /** A `paste` event: its content was read when the event fired, so when a copy of this
+   * editor was still on its way to the system clipboard that content is older than the
+   * copy — paste the copy instead (CORE-MISC-003). */
+  async pasteEvent(
+    text: string,
+    html: string,
+    internal = '',
+    image?: Blob,
+  ): Promise<EditResult | null> {
+    const copied = await this.copies.settle();
+    if (copied.result) return this.paste(copied.result.text, copied.result.html);
+    if (image && !text && !html && !internal) {
+      return this.paste('', '', '', new Uint8Array(await image.arrayBuffer()));
+    }
+    return this.paste(text, html, internal);
   }
 
   /** Paste, preferring the lossless internal format of our own copies; the mode comes
@@ -282,9 +297,15 @@ export class DocController {
     return r;
   }
 
+  /** Copy (or cut) the selection to the clipboard history and the system clipboard; a
+   * paste started before it is done waits for it (`copies`). */
   async copy(cut = false): Promise<void> {
+    await this.copies.track(this.copyNow(cut));
+  }
+
+  private async copyNow(cut: boolean): Promise<ClipPayload | null> {
     const r = await this.run({ cmd: cut ? 'cut' : 'copy' });
-    if (!r?.clip || !r.clip.text) return;
+    if (!r?.clip || !r.clip.text) return null;
     this.lastClip = r.clip;
     this.history.push({
       app: 'doc',
@@ -299,11 +320,18 @@ export class DocController {
     } catch {
       await this.clipboard.writeText(r.clip.text).catch(() => {});
     }
+    return r.clip;
   }
 
   /** Paste from the system clipboard (ribbon button): text, HTML and pictures when the
-   * platform can read them, else plain text. */
+   * platform can read them, else plain text. A copy still in flight is pasted itself
+   * (the system clipboard may not hold it yet, or may refuse it). */
   async pasteFromClipboard(): Promise<void> {
+    const copied = await this.copies.settle();
+    if (copied.result) {
+      await this.paste(copied.result.text, copied.result.html);
+      return;
+    }
     const all = await Promise.resolve()
       .then(() => this.clipboard.read?.())
       .catch(() => undefined);

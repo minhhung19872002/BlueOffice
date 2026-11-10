@@ -451,7 +451,7 @@ pub enum Command {
     InsertToc,
     /// Insert a table of figures (`TOC \c` / `\a`), an index (`INDEX`) or a table of
     /// authorities (`TOA`) at the caret and fill it (ECMA-376 Part 1, §17.16.5.68,
-    /// §17.16.5.28, §17.16.5.67).
+    /// §17.16.5.29, §17.16.5.67).
     InsertReferenceTable {
         /// Field instruction.
         instr: String,
@@ -794,7 +794,7 @@ pub enum Command {
     },
     /// Close the header/footer editor.
     CloseHeaderFooter,
-    /// Insert a simple field such as `PAGE` or `NUMPAGES` (§17.16.5.43, §17.16.5.40).
+    /// Insert a simple field such as `PAGE` or `NUMPAGES` (§17.16.5.44, §17.16.5.42).
     InsertField {
         /// Field instruction (e.g. `PAGE`).
         instr: String,
@@ -1285,6 +1285,11 @@ impl crate::Engine {
                 .ok_or(crate::EngineError::NoDocument)?;
             return Ok(crate::vba_view::answer(self.vba.as_deref()));
         }
+        // Document-open set-up in one call (CORE-MISC-003).
+        if let Some(oc) = crate::open_setup::OpenSetup::parse(&v) {
+            let r = self.doc_open_setup(oc, now.map(|ms| ms as i64))?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(sc) = crate::security::SecurityCommand::parse(&v) {
             let r = self.doc_security(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
@@ -1357,7 +1362,11 @@ impl crate::Engine {
     }
 
     /// Run a command at host time `now` (Unix ms; the system clock when absent).
-    fn command_at(&mut self, cmd: Command, now: Option<i64>) -> crate::Result<EditResult> {
+    pub(crate) fn command_at(
+        &mut self,
+        cmd: Command,
+        now: Option<i64>,
+    ) -> crate::Result<EditResult> {
         let click = match &cmd {
             Command::Click { page, x, y, .. } => Some((*page, *x, *y)),
             _ => None,

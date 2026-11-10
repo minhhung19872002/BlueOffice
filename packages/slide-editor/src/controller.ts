@@ -1,10 +1,11 @@
 import type {
+  ClipboardContent,
   EngineHost,
   SlideCommand,
   SlideEditResult,
   SlideTransform,
 } from '@blueoffice/platform';
-import { RepeatTracker, SLIDE_REPEATABLE } from '@blueoffice/editor';
+import { CopyInFlight, RepeatTracker, SLIDE_REPEATABLE } from '@blueoffice/editor';
 
 /**
  * Sends slide commands to the engine one at a time (the engine holds the
@@ -101,6 +102,40 @@ export class SlideController {
   isOwnClip(mark: string | undefined, text?: string): boolean {
     if (mark) return mark === this.clipMark;
     return this.clipText !== null && (text ?? '') === this.clipText;
+  }
+
+  /** The copy still on its way to the system clipboard (pastes wait for it). */
+  readonly copies = new CopyInFlight<SlideEditResult>();
+
+  /**
+   * Copy or cut (`cmd`) in the engine, then hand the clip to `toSystem` (system
+   * clipboard write); tracked as the copy in flight until both are done.
+   */
+  copy(
+    cmd: SlideCommand,
+    toSystem: (r: SlideEditResult) => Promise<void>,
+  ): Promise<SlideEditResult | null> {
+    return this.copies.track(
+      (async () => {
+        const r = await this.run(cmd);
+        if (!r?.clipboard) return null;
+        await toSystem(r);
+        return r;
+      })(),
+    );
+  }
+
+  /**
+   * The clipboard content a paste should use, after any copy in flight: null means
+   * "paste the engine's own copy" — a copy was running, so what `read` gives (or
+   * gave, for a paste event) is older than it (CORE-MISC-003).
+   */
+  async clipboardForPaste(
+    read: () => Promise<ClipboardContent | null | undefined>,
+  ): Promise<ClipboardContent | null> {
+    const copied = await this.copies.settle();
+    if (copied.result) return null;
+    return (await read()) ?? null;
   }
 
   private copiedShapes: { text: string; png?: string } | null = null;

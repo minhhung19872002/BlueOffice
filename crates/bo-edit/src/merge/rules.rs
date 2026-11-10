@@ -1,8 +1,8 @@
 //! Mail-merge rule fields evaluated once per record (ECMA-376 Part 1, §17.16.5):
-//! §17.16.5.35 MERGEFIELD, §17.16.5.24 IF, §17.16.5.58 SKIPIF, §17.16.5.39 NEXTIF,
+//! §17.16.5.35 MERGEFIELD, §17.16.5.26 IF, §17.16.5.58 SKIPIF, §17.16.5.39 NEXTIF,
 //! §17.16.5.38 NEXT, §17.16.5.36 MERGEREC, §17.16.5.37 MERGESEQ, §17.16.5 ASK (sets a
 //! bookmark from a prompt), §17.16.5 FILLIN (the prompt's answer is the result),
-//! §17.16.5.57 SET and REF (§17.16.5.49) of a bookmark set by SET / ASK.
+//! §17.16.5.57 SET and REF (§17.16.5.51) of a bookmark set by SET / ASK.
 //!
 //! Fields are read both as simple fields (§17.16.19 fldSimple, [`RunContent::Field`])
 //! and as complex fields (§17.16.18 fldChar begin … separate … end, §17.16.23
@@ -317,7 +317,7 @@ fn condition(t: &[(String, bool)], ctx: &Ctx<'_>) -> Option<(bool, usize)> {
     if op.1 || !OPS.contains(&op.0.as_str()) {
         return None;
     }
-    // An unquoted operand naming a bookmark reads its value (§17.16.5.24).
+    // An unquoted operand naming a bookmark reads its value (§17.16.5.26).
     let val = |x: &(String, bool)| {
         if x.1 {
             x.0.clone()
@@ -426,7 +426,7 @@ fn eval_instr(instr: &str, ctx: &mut Ctx<'_>) -> Option<String> {
             }
             Some(String::new())
         }
-        // §17.16.5.24: `IF a op b "true text" "false text"`.
+        // §17.16.5.26: `IF a op b "true text" "false text"`.
         "IF" => {
             let a = args(instr);
             let (ok, used) = condition(&a, ctx)?;
@@ -804,7 +804,7 @@ pub enum RulePart {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum MergeRule {
-    /// `IF {MERGEFIELD field} op "value" "then" "else"` (§17.16.5.24).
+    /// `IF {MERGEFIELD field} op "value" "then" "else"` (§17.16.5.26).
     If {
         /// Column compared.
         field: String,

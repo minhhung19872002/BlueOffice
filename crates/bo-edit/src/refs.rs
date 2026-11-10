@@ -1,5 +1,5 @@
 //! References built from marker fields: tables of figures (`TOC \c` / `\a` over caption
-//! `SEQ` fields, ECMA-376 Part 1, §17.16.5.68), indexes (§17.16.5.28 INDEX over
+//! `SEQ` fields, ECMA-376 Part 1, §17.16.5.68), indexes (§17.16.5.29 INDEX over
 //! §17.16.5.72 XE entries), tables of authorities (§17.16.5.67 TOA over §17.16.5.62 TA
 //! citations), marking entries and citations, and converting footnotes ↔ endnotes
 //! (§17.11.14 footnoteReference, §17.11.7 endnoteReference).
@@ -417,7 +417,7 @@ pub(crate) fn toc(
 }
 
 // ---------------------------------------------------------------------------
-// Indexes (§17.16.5.28 INDEX, §17.16.5.72 XE)
+// Indexes (§17.16.5.29 INDEX, §17.16.5.72 XE)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -1010,7 +1010,7 @@ fn convert_note_blocks(doc: &Document, blocks: &[Block], endnote: bool) -> Vec<B
 
 impl Session {
     /// Insert a field whose result is a run of paragraphs — a table of contents or of
-    /// figures (`TOC`, §17.16.5.68), an index (`INDEX`, §17.16.5.28) or a table of
+    /// figures (`TOC`, §17.16.5.68), an index (`INDEX`, §17.16.5.29) or a table of
     /// authorities (`TOA`, §17.16.5.67) — at the caret and fill it. `leader` is the
     /// leader of the right-aligned page numbers; `columns` > 1 puts the field in its own
     /// continuous section with that many columns (§17.6.4 cols, §17.6.22 type).

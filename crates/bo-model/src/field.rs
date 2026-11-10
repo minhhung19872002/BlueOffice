@@ -1,7 +1,7 @@
 //! Field results and their formatting (ECMA-376 Part 1, §17.16): the instruction's words and
 //! switches (§17.16.1 syntax), the general formatting switches — §17.16.4.1 date-time pictures
 //! (`\@`), §17.16.4.2 numeric pictures (`\#`), §17.16.4.3 general formats (`\*`: case, Arabic,
-//! letters, Roman numerals, ordinals, numbers in words, hexadecimal) — and §17.16.5.1 `=` formulas.
+//! letters, Roman numerals, ordinals, numbers in words, hexadecimal) — and §17.16.3 `=` formulas.
 //! Numbers in words and month / day names are Vietnamese or English.
 
 use crate::write::{format_number, NumFormat};
@@ -692,7 +692,7 @@ pub fn format(v: &FieldValue, instr: &str, vi: bool) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// §17.16.5.1 `=` formulas
+// §17.16.3 `=` formulas
 // ---------------------------------------------------------------------------
 
 /// What a formula reads: bookmarks (numbers) and table cells (`A1`, ranges, `ABOVE`, `LEFT`, …).
@@ -915,7 +915,7 @@ impl P<'_> {
     }
 }
 
-/// Evaluate a §17.16.5.1 `=` formula (`SUM(ABOVE)`, `Price*1.1`, `IF(A1>5, 1, 0)`, …).
+/// Evaluate a §17.16.3 `=` formula (`SUM(ABOVE)`, `Price*1.1`, `IF(A1>5, 1, 0)`, …).
 #[must_use]
 pub fn formula(expr: &str, env: &dyn FormulaEnv) -> Option<f64> {
     let mut p = P {
@@ -1045,7 +1045,7 @@ mod tests {
         }
     }
 
-    // source: ECMA-376 Part 1, §17.16.5.1 = (formula) operators and functions.
+    // source: ECMA-376 Part 1, §17.16.3 = (formula) operators and functions.
     #[test]
     fn formulas() {
         let f = |s: &str| formula(s, &Env).unwrap_or_else(|| panic!("{s}"));

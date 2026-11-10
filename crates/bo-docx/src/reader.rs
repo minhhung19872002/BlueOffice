@@ -1221,8 +1221,8 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
             .next()
             .unwrap_or("")
             .to_ascii_uppercase();
-        // Page fields are computed by layout; SEQ (§17.16.5.56), REF (§17.16.5.49),
-        // PAGEREF (§17.16.5.42) and MERGEFIELD (§17.16.5.35) by "update fields" and
+        // Page fields are computed by layout; SEQ (§17.16.5.56), REF (§17.16.5.51),
+        // PAGEREF (§17.16.5.45) and MERGEFIELD (§17.16.5.35) by "update fields" and
         // mail merge, CITATION (§17.16.5.8) from the document's sources — those only
         // when the range holds nothing else.
         let simple = matches!(
@@ -2669,11 +2669,12 @@ fn read_sect_pr(
                 s.columns = cols;
                 return Ok(true);
             }
-            // §17.6.8 lnNumType
+            // §17.6.8 lnNumType; [MS-OI29500] 2.1.215: countBy within 1..=100, start
+            // (numbers skipped, first number start + 1) within 0..=32767.
             b"lnNumType" => {
                 s.line_numbers = Some(LineNumbering {
                     count_by: int(e, b"countBy").unwrap_or(1).clamp(1, 100) as u16,
-                    start: int(e, b"start").unwrap_or(0).max(0) as u32,
+                    start: int(e, b"start").unwrap_or(0).clamp(0, 32_767) as u32,
                     distance: twips(e, b"distance").filter(|t| t.0 >= 0),
                     restart: LineNumberRestart::parse(attr(e, b"restart").as_deref().unwrap_or("")),
                 });

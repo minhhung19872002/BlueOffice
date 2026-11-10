@@ -1,6 +1,6 @@
 //! Tables of figures, indexes, tables of authorities and note conversion. Expected
 //! entries are worked out by hand from the page each paragraph is given and the rules
-//! of the field switches (ECMA-376 Part 1, §17.16.5.28 INDEX, §17.16.5.67 TOA,
+//! of the field switches (ECMA-376 Part 1, §17.16.5.29 INDEX, §17.16.5.67 TOA,
 //! §17.16.5.68 TOC); Vietnamese order: `a ă â b c d đ e ê g h …`, tones ngang, huyền,
 //! hỏi, ngã, sắc, nặng.
 #![allow(clippy::unwrap_used)]

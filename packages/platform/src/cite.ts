@@ -1,7 +1,7 @@
 /**
  * Citations and bibliography of BlueDoc (CORE-CITE-001): the sources of the document's
  * bibliography part (ECMA-376 Part 1, §22.6 `b:Sources`), `CITATION` (§17.16.5.8) and
- * `BIBLIOGRAPHY` (§17.16.5.5) fields — the engine commands `cite*`, mirroring
+ * `BIBLIOGRAPHY` (§17.16.5.7) fields — the engine commands `cite*`, mirroring
  * `bo_engine::cite::CiteCommand`.
  */
 

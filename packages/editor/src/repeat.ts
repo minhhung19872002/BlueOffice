@@ -46,6 +46,7 @@ export const SLIDE_REPEATABLE: ReadonlySet<string> = new Set([
 /** Commands that leave the remembered one alone (they change nothing, or only where). */
 const NEUTRAL = new Set([
   'state',
+  'openSetup',
   'historyLen',
   'mergeHistory',
   'spelling',

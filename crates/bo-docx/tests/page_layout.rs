@@ -28,10 +28,17 @@ fn para(props: ParaProps, text: &str) -> Block {
 }
 
 fn sample() -> Vec<u8> {
+    sample_with(
+        r#"<w:lnNumType w:countBy="5" w:start="9" w:distance="283" w:restart="newSection"/>"#,
+    )
+}
+
+/// The sample with another first-section `w:lnNumType`.
+fn sample_with(ln_num: &str) -> Vec<u8> {
     let mut p = Package::new();
     let doc = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="{W}"><w:body><w:p><w:pPr><w:keepNext/><w:framePr w:dropCap="drop" w:lines="3" w:hSpace="113" w:wrap="around" w:vAnchor="text" w:hAnchor="text"/></w:pPr><w:r><w:t>C</w:t></w:r></w:p><w:p><w:pPr><w:suppressLineNumbers/><w:suppressAutoHyphens/></w:pPr><w:r><w:t>hữ hoa thả.</w:t></w:r></w:p><w:p><w:pPr><w:framePr w:w="2000" w:h="400" w:hRule="exact" w:wrap="around"/></w:pPr><w:r><w:t>Khung</w:t></w:r></w:p><w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:lnNumType w:countBy="5" w:start="9" w:distance="283" w:restart="newSection"/><w:cols w:num="2" w:space="567" w:sep="1" w:equalWidth="0"><w:col w:w="3000" w:space="567"/><w:col w:w="5788"/></w:cols></w:sectPr></w:pPr></w:p><w:p><w:r><w:t>Dọc</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="720" w:sep="true"/><w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>"#
+<w:document xmlns:w="{W}"><w:body><w:p><w:pPr><w:keepNext/><w:framePr w:dropCap="drop" w:lines="3" w:hSpace="113" w:wrap="around" w:vAnchor="text" w:hAnchor="text"/></w:pPr><w:r><w:t>C</w:t></w:r></w:p><w:p><w:pPr><w:suppressLineNumbers/><w:suppressAutoHyphens/></w:pPr><w:r><w:t>hữ hoa thả.</w:t></w:r></w:p><w:p><w:pPr><w:framePr w:w="2000" w:h="400" w:hRule="exact" w:wrap="around"/></w:pPr><w:r><w:t>Khung</w:t></w:r></w:p><w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>{ln_num}<w:cols w:num="2" w:space="567" w:sep="1" w:equalWidth="0"><w:col w:w="3000" w:space="567"/><w:col w:w="5788"/></w:cols></w:sectPr></w:pPr></w:p><w:p><w:r><w:t>Dọc</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/><w:cols w:space="720" w:sep="true"/><w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>"#
     );
     p.add_part("/word/document.xml", CT_DOCUMENT, doc.into_bytes())
         .unwrap();
@@ -132,6 +139,27 @@ fn reads_layout_settings() {
             no_caps: true,
         }
     );
+}
+
+/// [MS-OI29500] 2.1.215 (Part 1 §17.6.8 lnNumType): `start` within 0..=32767 (numbers
+/// skipped, the first one is start + 1), `countBy` within 1..=100; absent start = 0.
+#[test]
+fn line_numbering_values_are_kept_in_range() {
+    let ln = |xml: &str| read_docx(&sample_with(xml)).unwrap().sections[0].line_numbers;
+    let got = ln(r#"<w:lnNumType w:countBy="500" w:start="40000"/>"#).unwrap();
+    assert_eq!((got.count_by, got.start), (100, 32_767));
+    let got = ln(r#"<w:lnNumType w:countBy="0" w:start="-2"/>"#).unwrap();
+    assert_eq!((got.count_by, got.start), (1, 0));
+    let got = ln(r#"<w:lnNumType w:countBy="1"/>"#).unwrap();
+    assert_eq!(got.start, 0);
+    // Written back as read: start 3 stays 3 (shown as 4).
+    let mut doc = read_docx(&sample_with(r#"<w:lnNumType w:countBy="1" w:start="3"/>"#)).unwrap();
+    doc.sections[0]
+        .blocks
+        .push(para(ParaProps::default(), "mới"));
+    let out = write_docx(&doc).unwrap();
+    let xml = part(&out, "/word/document.xml");
+    assert!(xml.contains(r#"w:start="3""#), "{xml}");
 }
 
 #[test]

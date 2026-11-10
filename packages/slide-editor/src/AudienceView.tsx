@@ -70,6 +70,7 @@ export function AudienceView({ platform, channel }: AudienceViewProps) {
           click: msg.click ?? 0,
           enter: msg.enter ?? 'jump',
           from: msg.enter === 'transition' && p.slide !== msg.slide ? p.slide : null,
+          ...(msg.zoom ? { zoom: msg.zoom } : {}),
         }));
       }
     });

@@ -30,7 +30,8 @@
       "object": "Object tools",
       "media": "Media tools",
       "sparkline": "Sparkline tools",
-      "model3d": "3D model tools"
+      "model3d": "3D model tools",
+      "zoom": "Zoom tools"
     },
     "more": "More commands",
     "tabs": {
@@ -2690,6 +2691,38 @@
         "ember": "Ember",
         "slate": "Slate",
         "mono": "Greyscale"
+      }
+    },
+    "zoom": {
+      "group": "Zoom",
+      "summary": "Summary zoom",
+      "section": "Section zoom",
+      "slide": "Slide zoom",
+      "tab": "Zoom",
+      "groupOptions": "Zoom options",
+      "groupStyle": "Zoom style",
+      "return": "Return to zoom",
+      "transition": "Zoom transition",
+      "duration": "Duration (s)",
+      "background": "Use target background",
+      "image": "Change image",
+      "resetImage": "Slide preview image",
+      "refresh": "Update previews",
+      "insert": "Insert",
+      "slideN": "Slide {{n}}",
+      "sectionN": "Section {n}",
+      "summaryTitle": "Summary",
+      "summarySection": "Summary section",
+      "noSections": "The presentation has no sections yet.",
+      "title": {
+        "summary": "Insert summary zoom",
+        "section": "Insert section zoom",
+        "slide": "Insert slide zoom"
+      },
+      "hint": {
+        "summary": "Pick the first slide of each section: a new summary slide is created before the first one, and sections are created where needed.",
+        "section": "Pick the sections to zoom to.",
+        "slide": "Pick the slides to zoom to."
       }
     },
     "model3d": {

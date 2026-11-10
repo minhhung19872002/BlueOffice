@@ -61,7 +61,19 @@ export type SlideLinkAction =
   | { kind: 'none' }
   | { kind: 'customShow'; id: number; return?: boolean }
   | { kind: 'slide'; slide: number }
-  | { kind: 'next' | 'prev' | 'first' | 'last' | 'lastViewed' | 'end' };
+  | { kind: 'next' | 'prev' | 'first' | 'last' | 'lastViewed' | 'end' }
+  /**
+   * A zoom (SLIDE-ZOOM-001): play `slides`, zooming in from the zoom's box `rect` (points,
+   * filled in by the show from the link); with `return`, come back afterwards.
+   * `transitionMs` `null` = the target's own transition.
+   */
+  | {
+      kind: 'zoom';
+      slides: number[];
+      return?: boolean;
+      transitionMs?: number | null;
+      rect?: [number, number, number, number];
+    };
 
 /** A shape whose hyperlink the show follows, with its box `[x, y, w, h]` (points). */
 export interface SlideShowLink {

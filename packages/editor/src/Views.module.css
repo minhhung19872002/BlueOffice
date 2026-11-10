@@ -45,6 +45,15 @@
   font-size: 13px;
 }
 
+.navEmbedded {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--bo-text);
+  font-size: 13px;
+}
+
 .navHeader {
   display: flex;
   align-items: center;

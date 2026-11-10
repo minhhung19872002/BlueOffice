@@ -203,6 +203,7 @@
       "readMode": "Chế độ đọc",
       "focus": "Tập trung",
       "navigationPane": "Ngăn điều hướng",
+      "stylesPane": "Ngăn kiểu",
       "formattingMarks": "Ký hiệu định dạng"
     },
     "review": {
@@ -2171,6 +2172,7 @@
     "applyAll": "Áp dụng cho mọi slide",
     "preview": "Xem thử",
     "animPane": "Ngăn hiệu ứng",
+    "selectionPane": "Ngăn chọn",
     "groupEntrance": "Xuất hiện",
     "groupExit": "Biến mất",
     "groupPreview": "Xem thử",
@@ -5342,5 +5344,30 @@
     "cancel": "Huỷ",
     "bookmarksSlides": "Tạo dấu trang từ tiêu đề trang chiếu",
     "bookmarksSheets": "Tạo dấu trang từ tên trang tính"
+  },
+  "taskPane": {
+    "dockLeft": "Gắn bên trái",
+    "dockRight": "Gắn bên phải",
+    "float": "Tách thành cửa sổ nổi",
+    "close": "Đóng ngăn",
+    "resize": "Đổi độ rộng ngăn",
+    "move": "Kéo để di chuyển; nhấp đúp để gắn lại",
+    "tabs": "Các ngăn",
+    "styles": {
+      "title": "Kiểu",
+      "filter": "Lọc kiểu",
+      "preview": "Hiện xem trước",
+      "loading": "Đang tải danh sách kiểu…",
+      "empty": "Không có kiểu nào khớp.",
+      "paragraph": "Kiểu đoạn văn",
+      "character": "Kiểu ký tự"
+    },
+    "selection": {
+      "title": "Chọn đối tượng",
+      "empty": "Trang chiếu này chưa có đối tượng.",
+      "hint": "Đối tượng trên cùng ở đầu danh sách; Ctrl+nhấp để chọn thêm.",
+      "forward": "Đưa lên một lớp",
+      "backward": "Đưa xuống một lớp"
+    }
   }
 }

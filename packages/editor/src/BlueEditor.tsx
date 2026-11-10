@@ -49,6 +49,10 @@ import {
   PictureActionsHub,
   useObjectTools,
   ObjectActionsHub,
+  TaskPaneHost,
+  taskPaneInsets,
+  useTaskPaneLayout,
+  type TaskPaneDef,
   type RibbonTab,
   type ThemeSetting,
 } from '@blueoffice/ui';
@@ -195,6 +199,8 @@ import {
   Volume2,
   Network,
   Pencil,
+  Palette,
+  MessageSquare,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -249,7 +255,9 @@ import {
   type RememberedSigning,
   type SignForm,
 } from './signing';
-import { createEditorStore, type EditorState } from './store';
+import { createEditorStore, togglePane, type DocTaskPane, type EditorState } from './store';
+import { StylesPane } from './StylesPane';
+import { taskPaneLabels } from './taskPaneLabels';
 import {
   HeaderFooterBar,
   NotesPanel,
@@ -341,8 +349,6 @@ const ICON = 20;
 const SMALL = 16;
 /** Room the docked reviewing pane takes from the pages (CSS px, see ReviewingPane.module.css). */
 const REVIEWING_SIZE = { left: 300, bottom: 220 };
-/** Width of the docked navigation pane (CSS px, see Views.module.css). */
-const NAV_SIZE = 260;
 /** Offline-cache keys of the crash-recovery copy (prompt §6 Phase 2: autosave + recovery). */
 export const AUTOSAVE_KEY = 'bluedoc.autosave.docx';
 export const AUTOSAVE_NAME_KEY = 'bluedoc.autosave.name';
@@ -422,6 +428,12 @@ function EditorInner({
   /** View layout last sent to the engine (`mode:width`). */
   const sentLayout = useRef('print:0');
   const [searchOpen, setSearchOpen] = useState(false);
+  // Task pane layout of BlueDoc, remembered per app (CORE-UI-006).
+  const [paneLayout, setPaneLayout] = useTaskPaneLayout('doc');
+  const loadStyles = useCallback(
+    async () => (await controller.current?.query({ cmd: 'styleList' }))?.styles ?? null,
+    [],
+  );
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
@@ -1845,9 +1857,8 @@ function EditorInner({
     r.register({
       id: 'review.versions',
       isEnabled: hasDoc,
-      isChecked: (s) => s.dialog === 'versions',
-      run: () =>
-        store.setState({ dialog: store.getState().dialog === 'versions' ? null : 'versions' }),
+      isChecked: (s) => s.taskPanes.includes('versions'),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'versions') }),
     });
     r.register({
       id: 'review.checkAdminFormat',
@@ -2035,13 +2046,13 @@ function EditorInner({
       id: 'review.newComment',
       shortcut: 'Ctrl+Alt+M',
       isEnabled: hasDoc,
-      run: () => store.setState({ panel: 'comments' }),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'comments', true) }),
     });
     r.register({
       id: 'review.comments',
       isEnabled: hasDoc,
-      isChecked: (s) => s.panel === 'comments',
-      run: (s) => store.setState({ panel: s.panel === 'comments' ? null : 'comments' }),
+      isChecked: (s) => s.taskPanes.includes('comments'),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'comments') }),
     });
     r.register({
       id: 'review.deleteComment',
@@ -2160,6 +2171,13 @@ function EditorInner({
       isEnabled: hasDoc,
       isChecked: (s) => s.navPane !== null,
       run: (s) => store.setState({ navPane: s.navPane ? null : 'headings' }),
+    });
+    r.register({
+      id: 'view.stylesPane',
+      shortcut: 'Ctrl+Alt+Shift+S',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.taskPanes.includes('styles'),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'styles') }),
     });
     r.register({
       id: 'view.formattingMarks',
@@ -2823,6 +2841,11 @@ function EditorInner({
         {
           id: 'styles',
           label: t('ribbon.groups.styles'),
+          launcher: {
+            id: 'view.stylesPane',
+            label: t('commands.view.stylesPane'),
+            onSelect: () => void registry.execute('view.stylesPane', store.getState()),
+          },
           items: [
             s('style.normal', 'commands.format.styleNormal', <Pilcrow size={SMALL} />),
             s('style.title', 'commands.format.styleTitle', <Type size={SMALL} />),
@@ -3368,6 +3391,7 @@ function EditorInner({
           label: t('ribbon.groups.show'),
           items: [
             item('view.navigationPane', 'commands.view.navigationPane', <PanelLeft size={ICON} />),
+            item('view.stylesPane', 'commands.view.stylesPane', <Palette size={ICON} />),
             item('view.formattingMarks', 'commands.view.formattingMarks', <Pilcrow size={ICON} />),
           ],
         },
@@ -3463,16 +3487,110 @@ function EditorInner({
   const navOpen = !!state.navPane && !!state.doc && !state.focusMode;
   const rulersOn =
     state.showRuler && !!state.doc && !state.focusMode && state.viewMode !== 'outline';
-  const sideLeft =
-    (navOpen ? NAV_SIZE : 0) +
-    (state.reviewingPane === 'left' && state.doc ? REVIEWING_SIZE.left : 0);
+  const closeTaskPane = (id: string) => {
+    if (id === 'navigation') store.setState({ navPane: null });
+    else
+      store.setState({
+        taskPanes: togglePane(store.getState().taskPanes, id as DocTaskPane, false),
+      });
+  };
+  // Task panes (CORE-UI-006): navigation, styles, comments, version history.
+  const paneDefs: TaskPaneDef[] = [];
+  if (navOpen && state.navPane && state.doc) {
+    paneDefs.push({
+      id: 'navigation',
+      title: t('views.nav.title'),
+      icon: <PanelLeft size={14} aria-hidden />,
+      defaultDock: 'left',
+      closeTestId: 'navigation-close',
+      content: (
+        <NavigationPane
+          embedded
+          tab={state.navPane}
+          onTab={(navPane) => store.setState({ navPane })}
+          outline={state.outline}
+          caretPara={state.edit?.selection.focus.p}
+          page={state.page}
+          pageCount={state.doc.pageCount}
+          layoutVersion={state.layoutVersion}
+          renderThumbnail={renderThumb}
+          goToPage={(i) => view.current?.scrollToPage(i)}
+          run={runCommand}
+          onClearHighlights={() => view.current?.setFindHighlights([])}
+          onClose={() => {
+            store.setState({ navPane: null });
+            view.current?.focus();
+          }}
+        />
+      ),
+    });
+  }
+  for (const id of state.doc ? state.taskPanes : []) {
+    if (id === 'styles') {
+      paneDefs.push({
+        id,
+        title: t('taskPane.styles.title'),
+        icon: <Palette size={14} aria-hidden />,
+        content: (
+          <StylesPane
+            load={loadStyles}
+            current={fs?.style ?? null}
+            refreshKey={`${state.doc?.name ?? ''}:${fs?.style ?? ''}`}
+            apply={(styleId) => void runFocus({ cmd: 'applyStyle', id: styleId })}
+          />
+        ),
+      });
+    } else if (id === 'comments') {
+      paneDefs.push({
+        id,
+        title: t('comments.title'),
+        icon: <MessageSquare size={14} aria-hidden />,
+        content: (
+          <CommentsPanel
+            embedded
+            review={state.review}
+            run={runCommand}
+            language={state.language}
+            onClose={() => {
+              closeTaskPane(id);
+              focusDoc();
+            }}
+          />
+        ),
+      });
+    } else {
+      paneDefs.push({
+        id,
+        title: t('versions.title'),
+        icon: <History size={14} aria-hidden />,
+        content: (
+          <VersionsPane
+            embedded
+            versions={platform.versions}
+            openFile={() => platform.files.openFile(['.docx', '.odt', '.doc'])}
+            // BlueDoc shows the differences as tracked changes (DOC-COMPARE-001).
+            compare={async (bytes, name) => {
+              await runCommand({ cmd: 'compareWith', name, base64: toBase64(bytes) });
+              return null;
+            }}
+            onClose={() => {
+              closeTaskPane(id);
+              focusDoc();
+            }}
+          />
+        ),
+      });
+    }
+  }
+  const insets = taskPaneInsets(paneLayout, paneDefs);
+  const reviewingDock = state.doc ? state.reviewingPane : null;
+  const sideLeft = insets.left + (reviewingDock === 'left' ? REVIEWING_SIZE.left : 0);
   const hostStyle =
-    sideLeft || (state.reviewingPane === 'bottom' && state.doc)
+    sideLeft || insets.right || reviewingDock === 'bottom'
       ? {
           ...(sideLeft ? { left: sideLeft } : {}),
-          ...(state.reviewingPane === 'bottom' && state.doc
-            ? { bottom: REVIEWING_SIZE.bottom }
-            : {}),
+          ...(insets.right ? { right: insets.right } : {}),
+          ...(reviewingDock === 'bottom' ? { bottom: REVIEWING_SIZE.bottom } : {}),
         }
       : undefined;
   const goToPara = (para: number) =>
@@ -3583,27 +3701,19 @@ function EditorInner({
               data-testid="document-view"
               data-marks={state.showMarks ? 'true' : undefined}
             />
-            {navOpen && state.navPane && state.doc && (
-              <NavigationPane
-                tab={state.navPane}
-                onTab={(navPane) => store.setState({ navPane })}
-                outline={state.outline}
-                caretPara={state.edit?.selection.focus.p}
-                page={state.page}
-                pageCount={state.doc.pageCount}
-                layoutVersion={state.layoutVersion}
-                renderThumbnail={renderThumb}
-                goToPage={(i) => view.current?.scrollToPage(i)}
-                run={runCommand}
-                onClearHighlights={() => view.current?.setFindHighlights([])}
-                onClose={() => {
-                  store.setState({ navPane: null });
-                  view.current?.focus();
-                }}
-              />
-            )}
+            <TaskPaneHost
+              layout={paneLayout}
+              onLayout={setPaneLayout}
+              panes={paneDefs}
+              onClose={closeTaskPane}
+              labels={taskPaneLabels(t)}
+              focusApp={focusDoc}
+            />
             {state.viewMode === 'outline' && state.doc && (
-              <div className={viewStyles.outlineHost} style={{ left: navOpen ? NAV_SIZE : 0 }}>
+              <div
+                className={viewStyles.outlineHost}
+                style={{ left: insets.left, right: insets.right }}
+              >
                 <OutlineView
                   items={state.outline}
                   caretPara={state.edit?.selection.focus.p}
@@ -3650,6 +3760,11 @@ function EditorInner({
                 run={runCommand}
                 language={state.language}
                 dock={state.reviewingPane}
+                style={
+                  state.reviewingPane === 'left'
+                    ? { left: insets.left }
+                    : { left: insets.left, right: insets.right }
+                }
                 onDock={(reviewingPane) => store.setState({ reviewingPane })}
                 onClose={() => store.setState({ reviewingPane: null })}
               />
@@ -3780,18 +3895,6 @@ function EditorInner({
             )}
             {state.dialog === 'checkDocument' && (
               <DocCheckDocumentDialog run={runCommand} onClose={closeDialog} />
-            )}
-            {state.dialog === 'versions' && (
-              <VersionsPane
-                versions={platform.versions}
-                openFile={() => platform.files.openFile(['.docx', '.odt', '.doc'])}
-                // BlueDoc shows the differences as tracked changes (DOC-COMPARE-001).
-                compare={async (bytes, name) => {
-                  await runCommand({ cmd: 'compareWith', name, base64: toBase64(bytes) });
-                  return null;
-                }}
-                onClose={closeDialog}
-              />
             )}
             {state.dialog === 'formField' && state.edit?.formField && (
               <FormFieldDialog
@@ -4228,14 +4331,6 @@ function EditorInner({
               <MergeFieldPanel merge={state.merge} run={runCommand} onClose={closePanel} />
             )}
             {state.panel === 'crossref' && <CrossRefPanel run={runCommand} onClose={closePanel} />}
-            {state.panel === 'comments' && (
-              <CommentsPanel
-                review={state.review}
-                run={runCommand}
-                language={state.language}
-                onClose={closePanel}
-              />
-            )}
             <DocClipboardUi
               controller={controller}
               ready={state.engineReady}

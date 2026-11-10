@@ -46,6 +46,7 @@ export function VersionsPane<T>({
   onSelect,
   onClose,
   title,
+  embedded = false,
 }: {
   versions?: VersionHistory | undefined;
   /** Picks another file to compare with (absent: versions only). */
@@ -54,6 +55,8 @@ export function VersionsPane<T>({
   onSelect?: (row: ChangeRow<T>) => void;
   onClose: () => void;
   title?: string;
+  /** Shown in a task pane (CORE-UI-006): the host draws the title bar and close button. */
+  embedded?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const [list, setList] = useState<FileVersion[] | null>(null);
@@ -156,9 +159,9 @@ export function VersionsPane<T>({
 
   return (
     <div
-      className={styles.panel}
-      role="dialog"
-      aria-label={title ?? t('versions.title')}
+      className={embedded ? styles.embedded : styles.panel}
+      role={embedded ? undefined : 'dialog'}
+      aria-label={embedded ? undefined : (title ?? t('versions.title'))}
       data-testid="versions-pane"
       onKeyDown={(e) => {
         e.stopPropagation();
@@ -168,12 +171,14 @@ export function VersionsPane<T>({
         }
       }}
     >
-      <div className={styles.header}>
-        <strong>{title ?? t('versions.title')}</strong>
-        <button type="button" aria-label={t('versions.close')} onClick={onClose}>
-          ×
-        </button>
-      </div>
+      {!embedded && (
+        <div className={styles.header}>
+          <strong>{title ?? t('versions.title')}</strong>
+          <button type="button" aria-label={t('versions.close')} onClick={onClose}>
+            ×
+          </button>
+        </div>
+      )}
 
       <section aria-label={t('versions.history')}>
         <div className={styles.sectionTitle}>{t('versions.history')}</div>

@@ -58,12 +58,15 @@ export function SheetShowChangesPane({
   openFile,
   goTo,
   onClose,
+  embedded = false,
 }: {
   exec: Exec;
   versions?: VersionHistory | undefined;
   openFile?: () => Promise<OpenedFile | null>;
   goTo: (to: SheetGoTo) => void;
   onClose: () => void;
+  /** Inside a task pane (CORE-UI-006). */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const compare = useCallback(
@@ -89,6 +92,7 @@ export function SheetShowChangesPane({
         if (to) goTo(to);
       }}
       onClose={onClose}
+      embedded={embedded}
     />
   );
 }

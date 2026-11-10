@@ -177,3 +177,11 @@
   color: var(--bo-success, #2e7d32);
   text-decoration: none;
 }
+
+/* Inside a task pane (CORE-UI-006): the host gives the box and the title bar. */
+.embedded {
+  box-sizing: border-box;
+  padding: 8px 10px;
+  color: var(--bo-text, #1b2430);
+  font-size: 13px;
+}

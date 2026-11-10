@@ -22,6 +22,7 @@ export { SymbolPanel, useSymbolPickerLabels } from './SymbolPanel';
 export { CheckDocumentDialog, type CheckDocumentBridge, type CheckTab } from './CheckDocument';
 export { DocCheckDocumentDialog, docCheckBridge } from './DocCheckDocument';
 export { ClipboardPanel, previewText } from './clipboard/ClipboardPanel';
+export { taskPaneLabels } from './taskPaneLabels';
 export {
   VersionsPane,
   versionDate,

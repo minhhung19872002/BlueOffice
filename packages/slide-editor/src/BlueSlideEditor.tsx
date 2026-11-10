@@ -19,6 +19,7 @@ import {
   ReadAloudLink,
   registerReadAloudCommands,
   saveName,
+  taskPaneLabels,
   objectPlatform,
   objectToolsLabels,
   registerObjectCommands,
@@ -69,7 +70,10 @@ import {
   PictureActionsHub,
   useObjectTools,
   ObjectActionsHub,
+  TaskPaneHost,
+  useTaskPaneLayout,
   type RibbonTab,
+  type TaskPaneDef,
   type ThemeSetting,
 } from '@blueoffice/ui';
 import {
@@ -111,6 +115,7 @@ import {
   Clapperboard,
   ClipboardCheck,
   History,
+  Layers,
   SpellCheck,
   ClipboardPaste,
   Copy,
@@ -178,6 +183,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimationPane } from './AnimationPane';
+import { SelectionPane } from './SelectionPane';
 import { AudienceLink } from './audience';
 import { AudienceView } from './AudienceView';
 import { ChartDialog, type ChartDraft } from './ChartDialog';
@@ -510,6 +516,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [checkOpen, setCheckOpen] = useState(false);
   /** Version history / compare versions pane (CORE-VERSION-001). */
   const [versionsOpen, setVersionsOpen] = useState(false);
+  /** Selection pane: the slide's objects in z-order (CORE-UI-006). */
+  const [selectionOpen, setSelectionOpen] = useState(false);
+  // Task pane layout of BlueSlide, remembered per app (CORE-UI-006).
+  const [paneLayout, setPaneLayout] = useTaskPaneLayout('slide');
   /** Slide size dialog and master / layout rename dialog (SLIDE-MASTER-001). */
   const [sizeOpen, setSizeOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -1056,6 +1066,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const refocusText = () =>
     (document.querySelector('[data-testid="slide-text-editor"]') as HTMLElement | null)?.focus();
 
+  /** Give the keyboard back to the slide (task panes: Escape, F6). */
+  const focusSlide = useCallback(() => slideRef.current?.focus(), []);
+
   const exitEdit = useCallback(() => {
     editingRef.current = null;
     setEditing(null);
@@ -1522,6 +1535,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => paneOpen,
       run: () => setPaneOpen((o) => !o),
     });
+    reg.register({
+      id: 'view.selectionPane',
+      isEnabled: deck,
+      isChecked: () => selectionOpen,
+      run: () => setSelectionOpen((o) => !o),
+    });
 
     // Transitions (§19.3.1.50) and animations (§19.5).
     for (const k of RIBBON_TRANSITIONS) {
@@ -1962,6 +1981,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     displayTarget,
     setup,
     paneOpen,
+    selectionOpen,
     commentsOpen,
     versionsOpen,
     newChart,
@@ -2588,6 +2608,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('arrange.back', t('slideEditor.sendToBack'), <SendToBack size={16} />, sm),
               item('arrange.forward', t('slideEditor.bringForward'), <ArrowUp size={16} />, sm),
               item('arrange.backward', t('slideEditor.sendBackward'), <ArrowDown size={16} />, sm),
+              item('view.selectionPane', t('slideEditor.selectionPane'), <Layers size={16} />, sm),
             ],
           },
           {
@@ -3304,18 +3325,6 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {checkOpen && (
             <SlideCheckDocumentDialog run={runResult} onClose={() => setCheckOpen(false)} />
           )}
-          {versionsOpen && (
-            <SlideVersionsPane
-              engine={engine}
-              versions={platform.versions}
-              openFile={() => platform.files.openFile(['.pptx', '.pptm', '.ppt', '.odp'])}
-              onShow={(slide, shapeId) => {
-                if (slide !== current) goTo(slide);
-                if (shapeId !== undefined) run({ cmd: 'select', ids: [shapeId] });
-              }}
-              onClose={() => setVersionsOpen(false)}
-            />
-          )}
           {spelling.dialog && (
             <SlideSpellDialog
               engine={engine}
@@ -3369,62 +3378,137 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               onClose={() => setSymbolsOpen(false)}
             />
           )}
-          {commentsOpen && count > 0 && (
-            <CommentThreads
-              threads={(edit?.comments ?? []).map((th) => ({
-                ...th,
-                anchor: t('slideEditor.slideOf', { n: shown + 1, total: count }),
-              }))}
-              labels={{
-                title: t('slideEditor.comments.title'),
-                empty: t('slideEditor.comments.empty'),
-                newComment: t('slideEditor.comments.new'),
-                newPlaceholder: t('slideEditor.comments.newPlaceholder'),
-                reply: t('slideEditor.comments.reply'),
-                replyPlaceholder: t('slideEditor.comments.replyPlaceholder'),
-                resolve: t('slideEditor.comments.resolve'),
-                reopen: t('slideEditor.comments.reopen'),
-                delete: t('slideEditor.comments.delete'),
-                close: t('slideEditor.comments.close'),
-                resolved: t('slideEditor.comments.resolved'),
-              }}
-              newAnchor={t('slideEditor.slideOf', { n: shown + 1, total: count })}
-              onAdd={(text) =>
-                run({
-                  cmd: 'addComment',
-                  text,
-                  author: platform.auth?.user?.name ?? '',
-                  date: new Date().toISOString(),
-                })
-              }
-              onReply={(parent, text) =>
-                run({
-                  cmd: 'addComment',
-                  parent,
-                  text,
-                  author: platform.auth?.user?.name ?? '',
-                  date: new Date().toISOString(),
-                })
-              }
-              onResolve={(id, done) => run({ cmd: 'resolveComment', id, done })}
-              onDelete={(id) => run({ cmd: 'deleteComment', id })}
-              onClose={() => setCommentsOpen(false)}
-            />
-          )}
-          {paneOpen && count > 0 && (
-            <AnimationPane
-              engine={engine}
-              glyphs={glyphs}
-              images={images}
-              edit={edit}
-              slideSize={info?.pages[shown] ?? slideSize}
-              revision={revision(shown)}
-              run={run}
-              onClose={() => setPaneOpen(false)}
-              previewToken={previewToken}
-              pickSound={() => platform.files.openFile(['.wav'])}
-            />
-          )}
+          <TaskPaneHost
+            placement="flex"
+            layout={paneLayout}
+            onLayout={setPaneLayout}
+            panes={[
+              ...(selectionOpen && count > 0
+                ? [
+                    {
+                      id: 'selection',
+                      title: t('taskPane.selection.title'),
+                      icon: <Layers size={14} aria-hidden />,
+                      content: (
+                        <SelectionPane
+                          objects={edit?.objects ?? []}
+                          selected={(edit?.selection ?? []).map((o) => o.id)}
+                          run={run}
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
+              ...(paneOpen && count > 0
+                ? [
+                    {
+                      id: 'animation',
+                      title: t('slideEditor.animPane'),
+                      icon: <PanelRight size={14} aria-hidden />,
+                      content: (
+                        <AnimationPane
+                          embedded
+                          engine={engine}
+                          glyphs={glyphs}
+                          images={images}
+                          edit={edit}
+                          slideSize={info?.pages[shown] ?? slideSize}
+                          revision={revision(shown)}
+                          run={run}
+                          onClose={() => setPaneOpen(false)}
+                          previewToken={previewToken}
+                          pickSound={() => platform.files.openFile(['.wav'])}
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
+              ...(commentsOpen && count > 0
+                ? [
+                    {
+                      id: 'comments',
+                      title: t('slideEditor.comments.title'),
+                      icon: <MessageSquareText size={14} aria-hidden />,
+                      content: (
+                        <CommentThreads
+                          embedded
+                          threads={(edit?.comments ?? []).map((th) => ({
+                            ...th,
+                            anchor: t('slideEditor.slideOf', { n: shown + 1, total: count }),
+                          }))}
+                          labels={{
+                            title: t('slideEditor.comments.title'),
+                            empty: t('slideEditor.comments.empty'),
+                            newComment: t('slideEditor.comments.new'),
+                            newPlaceholder: t('slideEditor.comments.newPlaceholder'),
+                            reply: t('slideEditor.comments.reply'),
+                            replyPlaceholder: t('slideEditor.comments.replyPlaceholder'),
+                            resolve: t('slideEditor.comments.resolve'),
+                            reopen: t('slideEditor.comments.reopen'),
+                            delete: t('slideEditor.comments.delete'),
+                            close: t('slideEditor.comments.close'),
+                            resolved: t('slideEditor.comments.resolved'),
+                          }}
+                          newAnchor={t('slideEditor.slideOf', { n: shown + 1, total: count })}
+                          onAdd={(text) =>
+                            run({
+                              cmd: 'addComment',
+                              text,
+                              author: platform.auth?.user?.name ?? '',
+                              date: new Date().toISOString(),
+                            })
+                          }
+                          onReply={(parent, text) =>
+                            run({
+                              cmd: 'addComment',
+                              parent,
+                              text,
+                              author: platform.auth?.user?.name ?? '',
+                              date: new Date().toISOString(),
+                            })
+                          }
+                          onResolve={(id, done) => run({ cmd: 'resolveComment', id, done })}
+                          onDelete={(id) => run({ cmd: 'deleteComment', id })}
+                          onClose={() => setCommentsOpen(false)}
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
+              ...(versionsOpen
+                ? [
+                    {
+                      id: 'versions',
+                      title: t('versions.slideTitle'),
+                      icon: <History size={14} aria-hidden />,
+                      content: (
+                        <SlideVersionsPane
+                          embedded
+                          engine={engine}
+                          versions={platform.versions}
+                          openFile={() =>
+                            platform.files.openFile(['.pptx', '.pptm', '.ppt', '.odp'])
+                          }
+                          onShow={(slide, shapeId) => {
+                            if (slide !== current) goTo(slide);
+                            if (shapeId !== undefined) run({ cmd: 'select', ids: [shapeId] });
+                          }}
+                          onClose={() => setVersionsOpen(false)}
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
+            ]}
+            onClose={(id) => {
+              if (id === 'selection') setSelectionOpen(false);
+              else if (id === 'animation') setPaneOpen(false);
+              else if (id === 'comments') setCommentsOpen(false);
+              else setVersionsOpen(false);
+            }}
+            labels={taskPaneLabels(t)}
+            focusApp={focusSlide}
+          />
         </div>
       )}
       {view === 'sorter' && (

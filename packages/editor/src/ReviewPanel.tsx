@@ -229,11 +229,14 @@ export function CommentsPanel({
   run,
   language,
   onClose,
+  embedded = false,
 }: {
   review: ReviewState | null;
   run: Run;
   language: string;
   onClose: () => void;
+  /** Inside a task pane (CORE-UI-006): the host draws the title bar and close button. */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState('');
@@ -254,18 +257,21 @@ export function CommentsPanel({
     await run({ cmd: 'addComment', text: draft });
     setDraft('');
   };
+  const Root = embedded ? 'div' : 'aside';
   return (
-    <aside
-      className={styles.reviewPane}
-      aria-label={t('comments.title')}
+    <Root
+      className={embedded ? styles.reviewPaneEmbedded : styles.reviewPane}
+      aria-label={embedded ? undefined : t('comments.title')}
       data-testid="comments-pane"
     >
-      <div className={styles.reviewHeader}>
-        <strong>{t('comments.title')}</strong>
-        <button type="button" onClick={onClose} aria-label={t('find.close')}>
-          ✕
-        </button>
-      </div>
+      {!embedded && (
+        <div className={styles.reviewHeader}>
+          <strong>{t('comments.title')}</strong>
+          <button type="button" onClick={onClose} aria-label={t('find.close')}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className={styles.panelRow}>
         <input
           autoFocus
@@ -291,6 +297,6 @@ export function CommentsPanel({
           <CommentCard key={c.id} c={c} replies={repliesOf(c.id)} run={run} language={language} />
         ))}
       </ul>
-    </aside>
+    </Root>
   );
 }

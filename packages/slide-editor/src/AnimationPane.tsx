@@ -131,6 +131,8 @@ export interface AnimationPaneProps {
   previewToken: number;
   /** Ask for a WAV file (through the platform); `null` when cancelled. */
   pickSound?: () => Promise<{ bytes: Uint8Array; name: string } | null>;
+  /** Inside a task pane (CORE-UI-006): the host draws the title bar and close button. */
+  embedded?: boolean;
 }
 
 /** Effect label of an animation (`Xuất hiện`, `Mờ dần (biến mất)`, …). */
@@ -161,6 +163,7 @@ export function AnimationPane({
   onClose,
   previewToken,
   pickSound,
+  embedded = false,
 }: AnimationPaneProps) {
   const { t } = useTranslation();
   const label = useEffectLabel();
@@ -252,18 +255,21 @@ export function AnimationPane({
   };
 
   const dirs = tr?.dirs ?? transitionDirs(kind);
+  const Root = embedded ? 'div' : 'aside';
   return (
-    <aside
-      className={styles.animPane}
-      aria-label={t('slideEditor.animPane')}
+    <Root
+      className={embedded ? styles.animPaneEmbedded : styles.animPane}
+      aria-label={embedded ? undefined : t('slideEditor.animPane')}
       data-testid="anim-pane"
     >
-      <header className={styles.animPaneHead}>
-        <h3>{t('slideEditor.animPane')}</h3>
-        <button type="button" onClick={onClose} aria-label={t('slideEditor.close')}>
-          <X size={14} />
-        </button>
-      </header>
+      {!embedded && (
+        <header className={styles.animPaneHead}>
+          <h3>{t('slideEditor.animPane')}</h3>
+          <button type="button" onClick={onClose} aria-label={t('slideEditor.close')}>
+            <X size={14} />
+          </button>
+        </header>
+      )}
 
       <section className={styles.animSection}>
         <h4>{t('slideEditor.transitionTab')}</h4>
@@ -624,6 +630,6 @@ export function AnimationPane({
           </div>
         )}
       </section>
-    </aside>
+    </Root>
   );
 }

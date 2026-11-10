@@ -204,6 +204,16 @@
   font-size: 13px;
 }
 
+/* Comments inside a task pane (CORE-UI-006). */
+.reviewPaneEmbedded {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--bo-text);
+  font-size: 13px;
+}
+
 .reviewHeader {
   display: flex;
   justify-content: space-between;

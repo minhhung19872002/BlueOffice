@@ -49,7 +49,10 @@ import {
   TitleBar,
   useCommandSearchShortcut,
   useResolvedTheme,
+  TaskPaneHost,
+  useTaskPaneLayout,
   type RibbonTab,
+  type TaskPaneDef,
   type ThemeSetting,
 } from '@blueoffice/ui';
 import {
@@ -199,6 +202,7 @@ import {
   ReadAloudLink,
   registerReadAloudCommands,
   saveName,
+  taskPaneLabels,
   toBase64,
   useReadAloud,
   type ClipItem,
@@ -607,6 +611,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [commentsOpen, setCommentsOpen] = useState(false);
   // Show Changes / version history pane (CORE-VERSION-001).
   const [versionsOpen, setVersionsOpen] = useState(false);
+  // Task pane layout of BlueSheet, remembered per app (CORE-UI-006).
+  const [paneLayout, setPaneLayout] = useTaskPaneLayout('sheet');
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
   /** Symbol picker panel (insert into the cell being edited, else the active cell). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
@@ -4648,62 +4654,97 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             }}
           />
         )}
-        {commentsOpen && (
-          <CommentThreads
-            threads={threads.map((th) => ({ ...th, anchor: th.cell }))}
-            labels={commentLabels}
-            newAnchor={
-              threads.some(
-                (th) => th.row === selection.active.row && th.col === selection.active.col,
-              )
-                ? null
-                : `${colName(selection.active.col)}${selection.active.row + 1}`
-            }
-            onAdd={(text) =>
-              void commentCmd({
-                cmd: 'addComment',
-                sheet,
-                row: selection.active.row,
-                col: selection.active.col,
-                text,
-                author: platform.auth?.user?.name ?? '',
-                date: new Date().toISOString(),
-              })
-            }
-            onReply={(id, text) =>
-              void commentCmd({
-                cmd: 'addComment',
-                sheet,
-                parent: id,
-                text,
-                author: platform.auth?.user?.name ?? '',
-                date: new Date().toISOString(),
-              })
-            }
-            onResolve={(id, done) => void commentCmd({ cmd: 'resolveComment', sheet, id, done })}
-            onDelete={(id) => void commentCmd({ cmd: 'deleteComment', sheet, id })}
-            onSelect={(id) => {
-              const th = threads.find((x) => x.id === id);
-              if (th) setSelection(single({ row: th.row, col: th.col }));
-            }}
-            onClose={() => {
-              setCommentsOpen(false);
-              focusInput();
-            }}
-          />
-        )}
-        {versionsOpen && (
-          <SheetShowChangesPane
-            exec={(cmd) => exec(cmd, false)}
-            versions={platform.versions}
-            openFile={() => platform.files.openFile(['.xlsx', '.xlsm', '.xls', '.xlsb', '.ods'])}
-            goTo={goToRange}
-            onClose={() => {
-              setVersionsOpen(false);
-              focusInput();
-            }}
-          />
-        )}
+        <TaskPaneHost
+          placement="flex"
+          layout={paneLayout}
+          onLayout={setPaneLayout}
+          panes={[
+            ...(commentsOpen
+              ? [
+                  {
+                    id: 'comments',
+                    title: commentLabels.title,
+                    icon: <MessageSquareText size={14} aria-hidden />,
+                    content: (
+                      <CommentThreads
+                        embedded
+                        threads={threads.map((th) => ({ ...th, anchor: th.cell }))}
+                        labels={commentLabels}
+                        newAnchor={
+                          threads.some(
+                            (th) =>
+                              th.row === selection.active.row && th.col === selection.active.col,
+                          )
+                            ? null
+                            : `${colName(selection.active.col)}${selection.active.row + 1}`
+                        }
+                        onAdd={(text) =>
+                          void commentCmd({
+                            cmd: 'addComment',
+                            sheet,
+                            row: selection.active.row,
+                            col: selection.active.col,
+                            text,
+                            author: platform.auth?.user?.name ?? '',
+                            date: new Date().toISOString(),
+                          })
+                        }
+                        onReply={(id, text) =>
+                          void commentCmd({
+                            cmd: 'addComment',
+                            sheet,
+                            parent: id,
+                            text,
+                            author: platform.auth?.user?.name ?? '',
+                            date: new Date().toISOString(),
+                          })
+                        }
+                        onResolve={(id, done) =>
+                          void commentCmd({ cmd: 'resolveComment', sheet, id, done })
+                        }
+                        onDelete={(id) => void commentCmd({ cmd: 'deleteComment', sheet, id })}
+                        onSelect={(id) => {
+                          const th = threads.find((x) => x.id === id);
+                          if (th) setSelection(single({ row: th.row, col: th.col }));
+                        }}
+                        onClose={() => {
+                          setCommentsOpen(false);
+                          focusInput();
+                        }}
+                      />
+                    ),
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
+            ...(versionsOpen
+              ? [
+                  {
+                    id: 'versions',
+                    title: t('versions.sheetTitle'),
+                    icon: <History size={14} aria-hidden />,
+                    content: (
+                      <SheetShowChangesPane
+                        embedded
+                        exec={(cmd) => exec(cmd, false)}
+                        versions={platform.versions}
+                        openFile={() =>
+                          platform.files.openFile(['.xlsx', '.xlsm', '.xls', '.xlsb', '.ods'])
+                        }
+                        goTo={goToRange}
+                        onClose={() => {
+                          setVersionsOpen(false);
+                          focusInput();
+                        }}
+                      />
+                    ),
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
+          ]}
+          onClose={(id) => (id === 'comments' ? setCommentsOpen(false) : setVersionsOpen(false))}
+          labels={taskPaneLabels(t)}
+          focusApp={focusInput}
+        />
         {activePivot && pivotPanel && (
           <PivotPanel
             host={host}

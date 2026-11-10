@@ -23,6 +23,7 @@ pub mod effects;
 pub mod freeform;
 pub mod geom;
 pub mod handles;
+pub mod hlink;
 pub mod ink;
 pub mod picture;
 pub mod presets;

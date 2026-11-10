@@ -11,6 +11,7 @@
 //! keeps their unknown children (`Extra`) in place, so saving stays lossless for
 //! everything that was not touched.
 
+pub mod action;
 pub mod build;
 pub mod chart;
 pub mod clip;
@@ -1255,6 +1256,9 @@ pub struct SlideEditResult {
     /// Answer of `model3dMesh`: the model's geometry for the interactive viewer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model3d_mesh: Option<model3d::MeshOut>,
+    /// Hyperlinks and actions of the selection (after an `action*` command).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<action::ActionInfoOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -1306,6 +1310,8 @@ pub struct SlideEditor {
     text: Option<rich::TextSel>,
     /// Selected cells while a table is edited.
     table: Option<table::TableSel>,
+    /// Hyperlinks followed in the running show ([`bo_pptx::link_key`]).
+    followed: Vec<String>,
     /// The deck is open read-only (CORE-SEC-001): edits are refused.
     pub(crate) read_only: bool,
     /// The master view is open (SLIDE-MASTER-001).
@@ -2549,6 +2555,8 @@ fn cmd_add_slide(
 
 fn cmd_delete_slide(tx: &mut Tx<'_>, sel: &mut SlideSel, index: Option<usize>) -> R<()> {
     let i = index.unwrap_or(sel.slide);
+    // Links of other slides to this one go with it (§21.1.2.3.5, `hlinksldjump`).
+    action::drop_links_to(tx, i)?;
     let s = tx.pres.slides.get(i).cloned().ok_or(OpError::NoSlide(i))?;
     tx.op(SlideOp::Slides {
         index: i,
@@ -3532,6 +3540,14 @@ impl Engine {
             .and_then(|v| model3d::Model3dCommand::parse(&v))
         {
             let r = self.slide_model3d_command(mc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        // Hyperlinks and actions (SLIDE-ACTION-001).
+        if let Some(ac) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| action::ActionCommand::parse(&v))
+        {
+            let r = self.slide_action_command(ac?)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(ic) = serde_json::from_str::<serde_json::Value>(json)
@@ -4662,6 +4678,7 @@ impl Engine {
         for r in &ranges {
             let opts = bo_pptx::RenderOptions {
                 layer: Some(*r),
+                followed: self.slides.followed.clone(),
                 ..bo_pptx::RenderOptions::default()
             };
             let page =
@@ -4690,7 +4707,7 @@ impl Engine {
             layers,
             animations,
             triggers: show::triggers_out(pres, slide),
-            links: present::links_out(pres, slide),
+            links: action::links_out(pres, slide, &mut self.fonts),
             media: media::media_out(pres, slide),
             morph: self.morph_out(slide),
         })
@@ -4769,6 +4786,7 @@ impl Engine {
             )?);
         }
         self.display = Some(bo_render::DisplayList { pages });
+        self.refresh_slide_links(None);
         Ok(())
     }
 
@@ -5013,6 +5031,7 @@ impl Engine {
                 _ => None,
             },
             model3d_mesh: None,
+            action: None,
         })
     }
 }

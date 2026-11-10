@@ -43,7 +43,7 @@ fn slice_chars(s: &str, from: usize, to: usize) -> String {
 }
 
 /// Length in characters of a run in the editing format.
-fn run_len(r: &TextRun) -> usize {
+pub(super) fn run_len(r: &TextRun) -> usize {
     match r {
         TextRun::Run { text, .. } | TextRun::Field { text, .. } => char_len(text),
         TextRun::Break { .. } => 1,
@@ -670,6 +670,39 @@ pub fn apply_format_range(
         // The paragraph mark takes the format when the whole paragraph is covered.
         if ls == 0 && le == b - a {
             ch(p.end_props.get_or_insert_with(RunProps::default));
+        }
+        p.runs = merge_runs(std::mem::take(&mut p.runs));
+    }
+}
+
+/// Change the run properties of the characters `[start, end)` of the editing
+/// text: runs are split at both ends, fields are changed whole, paragraph marks
+/// are left alone (hyperlinks of a text range, §21.1.2.3.5).
+pub fn map_runs_range(
+    tb: &mut TextBody,
+    start: usize,
+    end: usize,
+    f: &mut dyn FnMut(&mut RunProps),
+) {
+    let (start, end) = (start.min(end), start.max(end));
+    let ranges = para_ranges(tb);
+    for (p, &(a, b)) in tb.paragraphs.iter_mut().zip(&ranges) {
+        let (s, e) = (start.max(a), end.min(b));
+        if s >= e {
+            continue;
+        }
+        let (ls, le) = (s - a, e - a);
+        split_at(p, ls);
+        split_at(p, le);
+        let mut pos = 0;
+        for r in &mut p.runs {
+            let len = run_len(r);
+            if len > 0 && pos < le && pos + len > ls {
+                if let TextRun::Run { props, .. } | TextRun::Field { props, .. } = r {
+                    f(props);
+                }
+            }
+            pos += len;
         }
         p.runs = merge_runs(std::mem::take(&mut p.runs));
     }

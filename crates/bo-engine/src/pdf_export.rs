@@ -431,6 +431,26 @@ impl Engine {
         )?)
     }
 
+    /// Link annotations of a deck exported one slide per page (SLIDE-ACTION-001):
+    /// URLs (`http`, `https`, `mailto`) and jumps to slides.
+    pub(crate) fn slide_pdf_links(&self, pages: usize) -> Vec<bo_pdf::PdfLink> {
+        use crate::slide_edit::action::ExportTarget;
+        let mut out = Vec::new();
+        for page in 0..pages {
+            for (r, target) in self.slide_export_links(page) {
+                out.push(bo_pdf::PdfLink {
+                    page,
+                    rect: [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32],
+                    target: match target {
+                        ExportTarget::Url(u) => bo_pdf::LinkTarget::Uri(u.clone()),
+                        ExportTarget::Slide(s) => bo_pdf::LinkTarget::Page(*s),
+                    },
+                });
+            }
+        }
+        out
+    }
+
     fn export_slides_pdf(&self, choices: ExportChoices) -> Result<Vec<u8>> {
         let list = self.display.as_ref().ok_or(EngineError::NoDocument)?;
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
@@ -505,6 +525,7 @@ impl Engine {
             opts.attachments
                 .push(attachment(&self.name, "pptx", PPTX_MIME, self.save_pptx()?));
         }
+        opts.links = self.slide_pdf_links(list.pages.len());
         Ok(bo_pdf::write_pdf_with_options(
             list,
             &self.fonts,

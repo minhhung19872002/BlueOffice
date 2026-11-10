@@ -1,0 +1,52 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Danh "
+  text 44.0pt 111.5,57.4 #000000ff "sách "
+  text 44.0pt 201.5,57.4 #000000ff "đánh "
+  text 44.0pt 303.0,57.4 #000000ff "số"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 126.0]
+  text 28.0pt 7.2,26.8 #000000ff "1."
+  text 28.0pt 43.2,26.8 #000000ff "Bước "
+  text 28.0pt 109.7,26.8 #000000ff "một"
+  text 28.0pt 7.2,67.6 #000000ff "2."
+  text 28.0pt 43.2,67.6 #000000ff "Bước "
+  text 28.0pt 109.7,67.6 #000000ff "hai"
+  text 24.0pt 43.2,105.0 #000000ff "a)"
+  text 24.0pt 79.2,105.0 #000000ff "Bước "
+  text 24.0pt 136.2,105.0 #000000ff "con"
+  text 28.0pt 7.2,144.7 #000000ff "3."
+  text 28.0pt 43.2,144.7 #000000ff "Bước "
+  text 28.0pt 112.8,144.7 #000000ff "ba"
+  text 28.0pt 148.0,144.7 #c00000ff "(quan "
+  text 28.0pt 220.4,144.7 #c00000ff "trọng)"
+pop transform
+path n=14 [60.0 470.0 104.0 514.0] fill=#2e75b6ff
+path n=9 [65.5 475.5 98.5 508.5] fill=#1c466dff
+path n=9 [65.5 475.5 98.5 508.5] stroke=#1f5485ff w1.00
+path n=5 [60.0 470.0 104.0 514.0] stroke=#1f5485ff w1.00
+path n=9 [114.0 470.0 158.0 514.0] fill=#2e75b6ff
+path n=4 [119.5 475.5 152.5 508.5] fill=#1c466dff
+path n=4 [119.5 475.5 152.5 508.5] stroke=#1f5485ff w1.00
+path n=5 [114.0 470.0 158.0 514.0] stroke=#1f5485ff w1.00
+path n=9 [168.0 470.0 212.0 514.0] fill=#2e75b6ff
+path n=4 [173.5 475.5 206.5 508.5] fill=#1c466dff
+path n=4 [173.5 475.5 206.5 508.5] stroke=#1f5485ff w1.00
+path n=5 [168.0 470.0 212.0 514.0] stroke=#1f5485ff w1.00
+path n=14 [222.0 470.0 266.0 514.0] fill=#2e75b6ff
+path n=9 [227.5 475.5 260.5 508.5] fill=#1c466dff
+path n=9 [227.5 475.5 260.5 508.5] stroke=#1f5485ff w1.00
+path n=5 [222.0 470.0 266.0 514.0] stroke=#1f5485ff w1.00
+path n=17 [276.0 470.0 320.0 514.0] fill=#2e75b6ff
+path n=14 [285.6 477.6 310.4 508.5] fill=#255e92ff
+path n=9 [281.5 475.5 314.5 508.5] fill=#1c466dff
+path n=20 [281.5 475.5 314.5 508.5] stroke=#1f5485ff w1.00
+path n=5 [276.0 470.0 320.0 514.0] stroke=#1f5485ff w1.00
+path n=21 [330.0 470.0 374.0 514.0] fill=#2e75b6ff
+path n=16 [335.5 475.5 368.5 508.5] fill=#1c466dff
+path n=16 [335.5 475.5 368.5 508.5] stroke=#1f5485ff w1.00
+path n=5 [330.0 470.0 374.0 514.0] stroke=#1f5485ff w1.00

@@ -23,6 +23,94 @@ pub(crate) struct TextEnv<'a> {
     pub colors: ColorContext<'a>,
     /// 1-based slide number for `slidenum` fields.
     pub slide_number: usize,
+    /// Name of the part holding the text (hyperlink targets are relative to it).
+    pub part: &'a str,
+    /// Relationships of that part.
+    pub rels: &'a [bo_model::slide::Rel],
+    /// Keys ([`link_key`]) of the hyperlinks followed in the running show.
+    pub followed: &'a [String],
+}
+
+/// What a hyperlink element points at, as one string: the relationship target (a
+/// URL, or the name of the linked part) when it has one, else its `action` URI.
+/// Links with the same key become "followed" together (§20.1.6.2 folHlink).
+pub fn link_key(
+    part: &str,
+    rels: &[bo_model::slide::Rel],
+    h: &bo_model::slide::XmlElement,
+) -> String {
+    let rid = h.attr("r:id").unwrap_or_default();
+    if let Some(r) = rels.iter().find(|r| !rid.is_empty() && r.id == rid) {
+        return if r.external {
+            r.target.clone()
+        } else {
+            bo_opc::resolve_target(part, &r.target)
+        };
+    }
+    h.attr("action").unwrap_or_default().to_owned()
+}
+
+/// How the text of a hyperlink is painted.
+enum LinkPaint {
+    /// In the text colour ([MS-ODRAWXML] `a14:hlinkClr val="tx"`), underlined.
+    Text,
+    /// In this colour, underlined.
+    Color(Rgba),
+}
+
+/// Colour of a run that is a click hyperlink (ECMA-376 Part 1, §21.1.2.3.5
+/// hlinkClick in rPr): the theme's `hlink` colour, `folHlink` once the link was
+/// followed in the show (§20.1.6.2 clrScheme). `None`: the run is not a link.
+fn link_color(props: &RunProps, env: &TextEnv<'_>) -> Option<LinkPaint> {
+    let h = &props
+        .extra
+        .iter()
+        .find(|e| e.xml.name == "a:hlinkClick")?
+        .xml;
+    let rid = h.attr("r:id").unwrap_or_default();
+    let action = h.attr("action").unwrap_or_default();
+    if rid.is_empty() && (action.is_empty() || action.eq_ignore_ascii_case("ppaction://noaction")) {
+        return None;
+    }
+    let keep_text = h
+        .elements()
+        .filter(|e| e.local() == "extLst")
+        .flat_map(bo_model::slide::XmlElement::elements)
+        .flat_map(bo_model::slide::XmlElement::elements)
+        .any(|e| e.local() == "hlinkClr" && e.attr("val") == Some("tx"));
+    if keep_text {
+        return Some(LinkPaint::Text);
+    }
+    let key = link_key(env.part, env.rels, h);
+    let name = if env.followed.contains(&key) {
+        "folHlink"
+    } else {
+        "hlink"
+    };
+    Some(LinkPaint::Color(to_rgba(resolve(
+        &bo_model::slide::Color::scheme(name),
+        &env.colors,
+    ))))
+}
+
+/// [`style_for`] of a run, with the hyperlink colour and underline of a link.
+fn run_style(
+    own: &RunProps,
+    rp: &RunProps,
+    scale: f64,
+    env: &TextEnv<'_>,
+    fonts: &mut FontManager,
+) -> Option<Style> {
+    let mut st = style_for(rp, scale, env, fonts)?;
+    if let Some(color) = link_color(own, env) {
+        st.underline = true;
+        if let LinkPaint::Color(c) = color {
+            st.color = c;
+            // The link colour replaces gradient / pattern fills of the run too.
+            st.fx = None;
+        }
+    }
+    Some(st)
 }
 
 #[derive(Clone)]
@@ -331,7 +419,7 @@ fn layout_paragraph(
                 if first_rp.is_none() {
                     first_rp = Some(rp.clone());
                 }
-                if let Some(st) = style_for(&rp, scale, env, fonts) {
+                if let Some(st) = run_style(props, &rp, scale, env, fonts) {
                     spans.push((bo_text::nfc(&text), st, false, (src, src + len)));
                 }
                 src += len;

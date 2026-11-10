@@ -15,12 +15,12 @@
 //! Everything goes through invertible ops (one undo step per command); parts
 //! and elements that a command does not change keep their bytes.
 
-use super::geom::{place_slide, Placed, EMU_PT};
+use super::geom::EMU_PT;
 use super::ops::{PresFields, SlideOp, Tx};
 use super::{refuse, SlideSel, R};
 use bo_drawingml::dom;
 use bo_model::slide::{
-    Extra, NonVisual, Presentation, RawPart, Rel, ShapeNode, Transition, XmlElement, XmlNode,
+    Extra, Presentation, RawPart, Rel, ShapeNode, Transition, XmlElement, XmlNode,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -36,8 +36,6 @@ const NS_P: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 /// Sort key of `p:custShowLst` in CT_Presentation (§19.2.1.26: 9th child, as
 /// `dom::key_for` numbers the sequence).
 const KEY_CUST_SHOW_LST: u16 = 2 * 8 + 2;
-/// Sort key of `a:hlinkClick` in CT_NonVisualDrawingProps (§20.1.2.2.8: 1st child).
-const KEY_HLINK_CLICK: u16 = 2;
 /// `kiosk@restart` default (§19.2.1.17): 300 000 ms.
 const DEFAULT_RESTART_MS: u32 = 300_000;
 
@@ -221,19 +219,42 @@ pub enum LinkAction {
     LastViewed,
     /// End the show.
     End,
+    /// A URL or mail address (external relationship without an `action`).
+    Url {
+        /// Target of the relationship, as written.
+        url: String,
+    },
+    /// Another presentation (`ppaction://hlinkpres`).
+    Presentation {
+        /// Target of the relationship.
+        path: String,
+        /// 1-based slide of that deck (`slideindex`).
+        #[serde(default)]
+        slide: Option<u32>,
+    },
+    /// Another file (`ppaction://hlinkfile`).
+    File {
+        /// Target of the relationship.
+        path: String,
+    },
+    /// A program (`ppaction://program`). Kept in the file, never run.
+    Program {
+        /// Target of the relationship.
+        path: String,
+    },
+    /// A macro (`ppaction://macro`). Kept in the file, never run.
+    Macro {
+        /// Macro name.
+        name: String,
+    },
+    /// An action BlueSlide does not know. Kept in the file, never run.
+    Unknown {
+        /// The `action` URI.
+        action: String,
+    },
 }
 
-/// A shape with a hyperlink the show follows when clicked.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinkOut {
-    /// Shape id (`cNvPr@id`).
-    pub shape_id: u32,
-    /// Bounds `[x, y, w, h]` in points.
-    pub rect: [f64; 4],
-    /// What the link does.
-    pub action: LinkAction,
-}
+pub use super::action::LinkOut;
 
 // ---------------------------------------------------------------------------
 // Reading
@@ -389,74 +410,6 @@ pub fn present_out(pres: &Presentation) -> PresentOut {
             .map(|s| s.transition.as_ref().and_then(|t| t.advance_after_ms))
             .collect(),
     }
-}
-
-/// Query parameter of a `ppaction://…?a=b&c=d` URL.
-fn query<'a>(url: &'a str, key: &str) -> Option<&'a str> {
-    let (_, q) = url.split_once('?')?;
-    q.split('&').find_map(|kv| {
-        let (k, v) = kv.split_once('=')?;
-        k.eq_ignore_ascii_case(key).then_some(v)
-    })
-}
-
-/// The show action of an `a:hlinkClick` (§21.1.2.3.5) of a shape on `slide`.
-fn link_action(pres: &Presentation, slide: usize, h: &XmlElement) -> Option<LinkAction> {
-    let action = h.attr("action")?;
-    let lower = action.to_ascii_lowercase();
-    if lower.starts_with("ppaction://customshow") {
-        let id = query(action, "id")?.parse().ok()?;
-        let ret = query(action, "return").is_some_and(|v| v.eq_ignore_ascii_case("true"));
-        return Some(LinkAction::CustomShow { id, ret });
-    }
-    if lower.starts_with("ppaction://hlinkshowjump") {
-        return match query(action, "jump")?.to_ascii_lowercase().as_str() {
-            "nextslide" => Some(LinkAction::Next),
-            "previousslide" => Some(LinkAction::Prev),
-            "firstslide" => Some(LinkAction::First),
-            "lastslide" => Some(LinkAction::Last),
-            "lastslideviewed" => Some(LinkAction::LastViewed),
-            "endshow" => Some(LinkAction::End),
-            _ => None,
-        };
-    }
-    if lower.starts_with("ppaction://hlinksldjump") {
-        let s = pres.slides.get(slide)?;
-        let rid = rel_id_attr(h)?;
-        let rel = s.info.rels.iter().find(|r| r.id == rid && !r.external)?;
-        let target = bo_opc::resolve_target(&s.info.part_name, &rel.target);
-        let to = pres
-            .slides
-            .iter()
-            .position(|x| x.info.part_name.eq_ignore_ascii_case(&target))?;
-        return Some(LinkAction::Slide { slide: to });
-    }
-    None
-}
-
-/// Shapes of `slide` whose hyperlink the show follows (top-level and grouped).
-pub fn links_out(pres: &Presentation, slide: usize) -> Vec<LinkOut> {
-    let placed = place_slide(pres, slide);
-    let mut flat: Vec<&Placed> = Vec::new();
-    super::connect::walk(&placed, &mut |p| flat.push(p));
-    let mut out = Vec::new();
-    for p in flat {
-        let Some(nv) = super::ops::node_at(pres, slide, &p.path).and_then(ShapeNode::nv) else {
-            continue;
-        };
-        let Some(h) = nv.cnv_extra.iter().find(|x| x.xml.local() == "hlinkClick") else {
-            continue;
-        };
-        if let Some(action) = link_action(pres, slide, &h.xml) {
-            let r = p.b.bounds();
-            out.push(LinkOut {
-                shape_id: p.id,
-                rect: [r.x, r.y, r.w, r.h],
-                action,
-            });
-        }
-    }
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -927,83 +880,21 @@ pub fn cmd_set_timings(
     Ok(())
 }
 
-fn nv_mut(n: &mut ShapeNode) -> Option<&mut NonVisual> {
-    match n {
-        ShapeNode::Shape(s) => Some(&mut s.nv),
-        ShapeNode::Picture(p) => Some(&mut p.nv),
-        ShapeNode::Group(g) => Some(&mut g.nv),
-        ShapeNode::Connector(c) => Some(&mut c.nv),
-        ShapeNode::Frame(f) => Some(&mut f.nv),
-        ShapeNode::Other(_) => None,
-    }
-}
-
-/// The `action` URL of a link (§21.1.2.3.5 hlinkClick@action).
-fn action_url(a: &LinkAction) -> Option<String> {
-    let jump = |j: &str| Some(format!("ppaction://hlinkshowjump?jump={j}"));
-    match a {
-        LinkAction::None | LinkAction::Slide { .. } => None,
-        LinkAction::CustomShow { id, ret } => Some(format!(
-            "ppaction://customshow?id={id}{}",
-            if *ret { "&return=true" } else { "" }
-        )),
-        LinkAction::Next => jump("nextslide"),
-        LinkAction::Prev => jump("previousslide"),
-        LinkAction::First => jump("firstslide"),
-        LinkAction::Last => jump("lastslide"),
-        LinkAction::LastViewed => jump("lastslideviewed"),
-        LinkAction::End => jump("endshow"),
-    }
-}
-
-/// Give the selected shapes a show hyperlink (or remove it).
+/// Give the selected shapes a show hyperlink (or remove it): the click action
+/// of [`super::action`] without a tooltip, sound or highlight.
 pub fn cmd_set_show_link(tx: &mut Tx<'_>, sel: &SlideSel, action: &LinkAction) -> R<()> {
-    if sel.ids.is_empty() {
-        return refuse("noSelection");
-    }
-    if let LinkAction::CustomShow { id, .. } = action {
-        if !custom_shows(tx.pres).iter().any(|s| s.id == *id) {
-            return refuse("noCustomShow");
-        }
-    }
-    if matches!(action, LinkAction::Slide { .. }) {
-        return refuse("unsupportedLink");
-    }
-    let url = action_url(action);
-    let placed = place_slide(tx.pres, sel.slide);
-    for &id in &sel.ids {
-        let Some(p) = super::geom::find(&placed, id) else {
-            continue;
-        };
-        let Some(mut node) = super::ops::node_at(tx.pres, sel.slide, &p.path).cloned() else {
-            continue;
-        };
-        let Some(nv) = nv_mut(&mut node) else {
-            continue;
-        };
-        // Media keep their own play action (ppaction://media).
-        if nv.cnv_extra.iter().any(|x| {
-            x.xml.local() == "hlinkClick" && x.xml.attr("action") == Some("ppaction://media")
-        }) {
-            continue;
-        }
-        nv.cnv_extra.retain(|x| x.xml.local() != "hlinkClick");
-        if let Some(u) = &url {
-            // §21.1.2.3.5: r:id is required; a show action has no target part.
-            nv.cnv_extra.insert(
-                0,
-                Extra {
-                    key: KEY_HLINK_CLICK,
-                    xml: el(
-                        "a:hlinkClick",
-                        &[("r:id", String::new()), ("action", u.clone())],
-                    ),
-                },
-            );
-        }
-        tx.replace_node(sel.slide, &p.path, node)?;
-    }
-    Ok(())
+    super::action::set_action(
+        tx,
+        sel,
+        None,
+        super::action::Trigger::Click,
+        &super::action::ActionSpec {
+            target: action.clone(),
+            tooltip: None,
+            highlight: false,
+            sound: super::action::SoundSpec::None,
+        },
+    )
 }
 
 /// Freeform shape of one ink stroke (§19.3.1.43 sp, §20.1.9.8 custGeom).
@@ -1138,23 +1029,6 @@ mod tests {
         assert_eq!(s.show_type, ShowType::Browse);
         assert!(!s.scrollbar);
         assert_eq!(s.range, SlideRange::Custom { id: 3 });
-    }
-
-    #[test]
-    fn ppaction_urls() {
-        assert_eq!(
-            action_url(&LinkAction::CustomShow { id: 2, ret: true }).as_deref(),
-            Some("ppaction://customshow?id=2&return=true")
-        );
-        assert_eq!(
-            query("ppaction://customshow?id=7&return=true", "id"),
-            Some("7")
-        );
-        assert_eq!(
-            query("ppaction://hlinkshowjump?jump=endshow", "jump"),
-            Some("endshow")
-        );
-        assert_eq!(action_url(&LinkAction::None), None);
     }
 
     #[test]

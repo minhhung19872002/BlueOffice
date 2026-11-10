@@ -37,7 +37,7 @@ pub use render::{
     render_level, render_slide, render_thumbnail, render_with, shape_text_geometry,
     table_cell_text_geometry, RenderOptions, ShapeRange,
 };
-pub use text_layout::{CaretLine, TextGeometry};
+pub use text_layout::{link_key, CaretLine, TextGeometry};
 pub use write::write_pptx;
 
 /// Relationship type namespace (transitional), ECMA-376 Part 1, §15.2.

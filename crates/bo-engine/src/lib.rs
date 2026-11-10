@@ -271,6 +271,9 @@ pub struct Engine {
     images: BTreeMap<String, Vec<u8>>,
     /// Pictures of the open document's SmartArt diagrams (CORE-SMART-005).
     smartart_png: smartart::SmartArtImages,
+    /// Click links of each slide that an exported PDF keeps (SLIDE-ACTION-001),
+    /// refreshed with the slide's display list.
+    pub(crate) slide_links: Vec<Vec<([f64; 4], slide_edit::action::ExportTarget)>>,
     /// Selection and undo history of the open presentation.
     slides: slide_edit::SlideEditor,
     /// How tracked changes are displayed (follows `markup.mode`).
@@ -773,6 +776,7 @@ impl Engine {
         self.textbox = None;
         self.display = Some(DisplayList { pages });
         self.pres = Some(pres);
+        self.refresh_slide_links(None);
         self.images = images;
         self.slides = slide_edit::SlideEditor::default();
         self.macros = false;
@@ -799,6 +803,7 @@ impl Engine {
             &mut self.fonts,
             &mut self.images,
         )?;
+        self.refresh_slide_links(Some(index));
         let display = self.display.as_mut().ok_or(EngineError::NoDocument)?;
         let slot = display
             .pages
@@ -1076,11 +1081,21 @@ impl Engine {
             .name
             .rsplit_once('.')
             .map_or(self.name.clone(), |(b, _)| b.to_owned());
-        Ok(bo_pdf::write_pdf_with_images(
+        // A deck keeps its hyperlinks as link annotations (SLIDE-ACTION-001).
+        let opts = bo_pdf::PdfOptions {
+            links: if self.pres.is_some() {
+                self.slide_pdf_links(display.pages.len())
+            } else {
+                Vec::new()
+            },
+            ..bo_pdf::PdfOptions::default()
+        };
+        Ok(bo_pdf::write_pdf_with_options(
             display,
             &self.fonts,
             &bo_pdf::PdfMeta { title: Some(title) },
             &self.image_source(),
+            &opts,
         )?)
     }
 

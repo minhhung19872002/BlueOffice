@@ -1947,6 +1947,30 @@
     "stopReplay": "Stop replay",
     "layer": "Ink drawing area",
     "inkName": "Ink",
+    "lasso": "Lasso select ink",
+    "groupConvert": "Convert",
+    "inkToShape": "Convert ink to shapes",
+    "autoShape": "Convert to shapes while drawing",
+    "inkToText": "Convert ink to text",
+    "inkToMath": "Convert ink to an equation",
+    "picked": "{{count}} ink strokes selected",
+    "noInk": "This slide has no ink yet.",
+    "noShapes": "No shape was recognised; the ink is kept.",
+    "converted": "Converted {{count}} shapes; {{kept}} strokes kept as ink.",
+    "recognized": "Recognised: {{text}}",
+    "handwriting": {
+      "noText": "Ink cannot be converted to text yet: this browser has no handwriting recogniser and no recognition service is configured on the server by an administrator.",
+      "noMath": "Ink cannot be converted to an equation yet: no handwritten-math recognition service is configured on the server by an administrator.",
+      "errors": {
+        "unavailable": "The handwriting recognition service is unavailable.",
+        "unsupportedLanguage": "The recognition service does not support this language yet.",
+        "unauthorized": "You are not allowed to use the handwriting recognition service.",
+        "tooLarge": "Too much ink to recognise at once; select fewer strokes.",
+        "rateLimited": "The recognition service is busy; try again later.",
+        "upstream": "The recognition service failed.",
+        "empty": "No text was recognised in the ink."
+      }
+    },
     "colors": {
       "black": "Black",
       "blue": "Blue",

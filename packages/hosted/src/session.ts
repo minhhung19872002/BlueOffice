@@ -9,6 +9,7 @@ import type {
   CommentNoticeResult,
   DocumentStorage,
   FileVersion,
+  HandwritingProvider,
   MentionCandidate,
   OpenedFile,
   PeopleDirectory,
@@ -19,10 +20,12 @@ import type {
   VersionHistory,
 } from '@blueoffice/platform';
 import {
+  AutoHandwritingProvider,
   ServerAiProvider,
   ServerTranslationProvider,
   appOfXml,
   defaultDictation,
+  defaultHandwriting,
   variantOf,
 } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
@@ -489,6 +492,22 @@ export function hostedPlatform(
           },
         }) ?? base.dictation;
       return dictation ? { dictation } : {};
+    })(),
+    // Handwriting through the session's server when configured there, the base platform's
+    // recogniser for the rest (CORE-INK-002).
+    ...((): Pick<Platform, 'handwriting'> => {
+      const server = defaultHandwriting({
+        mode: 'server',
+        server: {
+          baseUrl: api,
+          session: session.sessionId,
+          headers: () => ({ 'x-session-token': session.sessionToken }),
+          fetch: (url, init) => fetchImpl(url, init),
+        },
+      });
+      const list = [server, base.handwriting].filter((p): p is HandwritingProvider => !!p);
+      const handwriting = list.length > 1 ? new AutoHandwritingProvider(list) : list[0];
+      return handwriting ? { handwriting } : {};
     })(),
     ...(mode.editable ? { scriptSchedules: sessionScriptSchedules(api, session, fetchImpl) } : {}),
     files: {

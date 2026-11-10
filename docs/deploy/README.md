@@ -6,6 +6,7 @@ Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md) · Ký số (ký t�
 [remote-signing.md](remote-signing.md) · REST API cho hệ thống khác (mặc định tắt): [rest-api.md](rest-api.md) ·
 Dịch văn bản (mặc định tắt): [translation.md](translation.md) ·
 Đọc chính tả (mặc định tắt): [dictation.md](dictation.md) ·
+Nhận dạng chữ viết tay — nét vẽ thành chữ / phương trình (mặc định tắt): [handwriting.md](handwriting.md) ·
 BlueAI — trợ lý dùng mô hình ngôn ngữ do quản trị viên cấu hình (mặc định tắt): [ai.md](ai.md).
 
 ## 1. Thành phần

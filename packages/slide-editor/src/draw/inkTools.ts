@@ -6,7 +6,7 @@
  */
 import type { SlideInkObject, SlideInkStrokeIn, SlideInkStrokeOut } from '@blueoffice/platform';
 
-export type DrawTool = 'select' | 'pen' | 'highlighter' | 'eraserStroke' | 'eraserPoint';
+export type DrawTool = 'select' | 'pen' | 'highlighter' | 'eraserStroke' | 'eraserPoint' | 'lasso';
 
 type Pt = [number, number];
 
@@ -53,6 +53,8 @@ export interface DrawState {
   penWidth: WidthPreset;
   highlighterWidth: WidthPreset;
   ruler: Ruler | null;
+  /** Recognised pen strokes become shapes as they are drawn (CORE-INK-002). */
+  autoShape: boolean;
 }
 
 export const INITIAL_DRAW: DrawState = {
@@ -62,6 +64,7 @@ export const INITIAL_DRAW: DrawState = {
   penWidth: 'medium',
   highlighterWidth: 'medium',
   ruler: null,
+  autoShape: false,
 };
 
 /** Colour and width of the active pen or highlighter. */
@@ -236,6 +239,71 @@ export function touches(s: SlideInkStrokeOut, p: Pt, radius: number): boolean {
     if (segDist(p, [a[0], a[1]], [b[0], b[1]]) <= radius + Math.max(a[2], b[2]) / 2) return true;
   }
   return false;
+}
+
+// ----------------------------------------------------------- lasso selection
+
+/** Is `p` inside the closed polygon `poly` (even-odd rule)? */
+export function insidePolygon(poly: Pt[], p: Pt): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!;
+    const b = poly[j]!;
+    if (
+      a[1] > p[1] !== b[1] > p[1] &&
+      p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Share of a stroke's samples a lasso must hold to pick its ink object. */
+export const LASSO_SHARE = 0.6;
+
+/**
+ * Ink objects picked by a lasso path: those with most of their samples inside it; a short
+ * drag (a click) picks the object whose stroke it touches.
+ */
+export function lassoPick(objects: SlideInkObject[], path: Pt[]): number[] {
+  let len = 0;
+  for (let i = 1; i < path.length; i++) {
+    len += Math.hypot(path[i]![0] - path[i - 1]![0], path[i]![1] - path[i - 1]![1]);
+  }
+  if (path.length < 3 || len < 12) {
+    const p = path[path.length - 1];
+    if (!p) return [];
+    const hit = [...objects]
+      .reverse()
+      .find((o) => o.strokes.some((s) => touches(s, p, ERASER_RADIUS)));
+    return hit ? [hit.id] : [];
+  }
+  return objects
+    .filter((o) => {
+      const pts = o.strokes.flatMap((s) => s.points);
+      if (pts.length === 0) return false;
+      const n = pts.filter((q) => insidePolygon(path, [q[0], q[1]])).length;
+      return n / pts.length >= LASSO_SHARE;
+    })
+    .map((o) => o.id);
+}
+
+/** Strokes of the chosen ink objects for handwriting recognition (all when `ids` is empty). */
+export function handwritingStrokes(
+  objects: SlideInkObject[],
+  ids: number[],
+): { points: [number, number][]; times?: number[] }[] {
+  return objects
+    .filter((o) => ids.length === 0 || ids.includes(o.id))
+    .flatMap((o) => o.strokes)
+    .map((s) => ({
+      points: s.points.map((p) => [p[0], p[1]] as Pt),
+      // Times from the stroke's start (recorded ones may be absolute).
+      ...(s.times && s.times.length === s.points.length
+        ? { times: s.times.map((t) => t - s.times![0]!) }
+        : {}),
+    }));
 }
 
 // -------------------------------------------------------------------- replay

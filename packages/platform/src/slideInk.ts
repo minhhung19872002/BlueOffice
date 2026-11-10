@@ -24,10 +24,48 @@ export type SlideEraseMode = 'stroke' | 'point';
 export type SlideInkCommand =
   /** Ink of the current slide → `ink`; `backdrop`: also the slide drawn without ink. */
   | { cmd: 'inkInfo'; backdrop?: boolean }
-  /** New ink object (one undo step). */
-  | { cmd: 'addInk'; stroke: SlideInkStrokeIn; name?: string }
+  /**
+   * New ink object (one undo step). `autoShape` (CORE-INK-002): a recognised stroke is added as
+   * the matching shape instead; `attachTo` names a line just made from ink that the stroke may be
+   * an arrowhead of.
+   */
+  | {
+      cmd: 'addInk';
+      stroke: SlideInkStrokeIn;
+      name?: string;
+      autoShape?: boolean;
+      attachTo?: number;
+    }
   /** Erase along a path (one undo step). */
-  | { cmd: 'eraseInk'; points: [number, number][]; radius: number; mode?: SlideEraseMode };
+  | { cmd: 'eraseInk'; points: [number, number][]; radius: number; mode?: SlideEraseMode }
+  /** Ink objects (`ids`; none = all ink of the slide) → preset shapes (one undo step). */
+  | { cmd: 'inkToShapes'; ids?: number[] }
+  /** Ink → a text box holding recognised handwriting. */
+  | { cmd: 'inkToText'; ids?: number[]; text: string }
+  /** Ink → an equation (UnicodeMath, or LaTeX with `latex`). */
+  | { cmd: 'inkToMath'; ids?: number[]; text: string; latex?: boolean };
+
+/** What ink was converted to (`kind`: a recognised shape, `text` or `math`). */
+export type SlideInkShapeKind =
+  | 'line'
+  | 'arrow'
+  | 'rectangle'
+  | 'square'
+  | 'triangle'
+  | 'ellipse'
+  | 'circle'
+  | 'diamond'
+  | 'pentagon'
+  | 'hexagon'
+  | 'star'
+  | 'text'
+  | 'math';
+
+export interface SlideInkConverted {
+  shapes: { id: number; kind: SlideInkShapeKind }[];
+  /** Strokes of the chosen ink that stayed ink. */
+  kept: number;
+}
 
 /** One trace in slide points. */
 export interface SlideInkStrokeOut {
@@ -54,4 +92,6 @@ export interface SlideInkInfo {
   objects: SlideInkObject[];
   /** The slide drawn without its ink (`inkInfo` with `backdrop`). */
   backdrop?: PageDisplayList;
+  /** What a conversion made (CORE-INK-002). */
+  converted?: SlideInkConverted;
 }

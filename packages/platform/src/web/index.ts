@@ -27,6 +27,7 @@ import { webMediaCapture } from '../mediaCapture';
 import { ServerAiProvider } from '../ai';
 import { ServerTranslationProvider } from '../translation';
 import { defaultDictation } from '../dictation';
+import { defaultHandwriting } from '../handwriting';
 import { WebDisplays, presentationReceiverBus } from './displays';
 import { FetchRemoteImages } from '../remoteImages';
 import { createBrowserQueryData } from '../queryData';
@@ -364,6 +365,23 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
         },
       });
       return dictation ? { dictation } : {};
+    })(),
+    // Handwriting (CORE-INK-002): VITE_BO_HANDWRITING = auto (default: the BlueOffice server for
+    // what an administrator configured there, else the browser's Handwriting Recognition API) |
+    // browser | server | off; VITE_BO_HANDWRITING_URL names the server (same origin by default).
+    ...((): Pick<Platform, 'handwriting'> => {
+      const handwriting = defaultHandwriting({
+        mode: env.VITE_BO_HANDWRITING,
+        lang: () => document.documentElement.lang || 'vi-VN',
+        server: {
+          baseUrl: env.VITE_BO_HANDWRITING_URL ?? '',
+          headers: async (): Promise<Record<string, string>> => {
+            const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+            return token ? { Authorization: `Bearer ${token}` } : {};
+          },
+        },
+      });
+      return handwriting ? { handwriting } : {};
     })(),
     displays: new WebDisplays(),
     images: new FetchRemoteImages(),

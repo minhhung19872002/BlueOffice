@@ -7,6 +7,7 @@ using BlueOffice.Api.Collab;
 using BlueOffice.Api.Common;
 using BlueOffice.Api.Files;
 using BlueOffice.Api.Dictation;
+using BlueOffice.Api.Handwriting;
 using BlueOffice.Api.Jobs;
 using BlueOffice.Api.Rest;
 using BlueOffice.Api.Scripts;
@@ -100,6 +101,9 @@ builder.Services.AddTranslation(config);
 
 // Dictation proxy (CORE-LANG-002): off unless Dictation:Provider is configured (docs/deploy/dictation.md).
 builder.Services.AddDictation(config);
+
+// Handwriting recognition proxy (CORE-INK-002): off unless Handwriting:Provider is configured (docs/deploy/handwriting.md).
+builder.Services.AddHandwriting(config);
 
 // BlueAI proxy (CORE-AI-001): off unless AI:Enabled is set (docs/deploy/ai.md).
 builder.Services.AddAi(config);
@@ -215,6 +219,7 @@ app.MapRevocationProxy();
 app.MapWebDataProxy();
 app.MapTranslation();
 app.MapDictation();
+app.MapHandwriting();
 app.MapAi();
 
 app.Run();

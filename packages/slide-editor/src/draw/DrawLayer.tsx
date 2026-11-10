@@ -45,12 +45,17 @@ export interface DrawLayerProps {
   onStroke: (s: SlideInkStrokeIn) => void;
   onErase: (points: Pt[], radius: number, mode: SlideEraseMode) => void;
   onRuler: (r: Ruler) => void;
+  /** A finished lasso drag (slide points; CORE-INK-002). */
+  onLasso?: (path: Pt[]) => void;
+  /** Ink picked with the lasso (outlined). */
+  picked?: SlideInkObject[];
   labels: DrawLayerLabels;
 }
 
 type Drag =
   | { kind: 'stroke'; rec: StrokeRecorder; id: number }
   | { kind: 'erase'; path: Pt[]; id: number }
+  | { kind: 'lasso'; path: Pt[]; id: number }
   | { kind: 'moveRuler'; from: Pt; start: Ruler; id: number }
   | { kind: 'rotateRuler'; start: Ruler; a0: number; id: number };
 
@@ -68,14 +73,21 @@ export function DrawLayer({
   onStroke,
   onErase,
   onRuler,
+  onLasso,
+  picked = [],
   labels,
 }: DrawLayerProps) {
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   /** What the drag shows (a copy of the drag state, for rendering). */
-  const [view, setView] = useState<{ stroke: Pt[] | null; erase: Pt[] | null }>({
+  const [view, setView] = useState<{
+    stroke: Pt[] | null;
+    erase: Pt[] | null;
+    lasso: Pt[] | null;
+  }>({
     stroke: null,
     erase: null,
+    lasso: null,
   });
   const [cursor, setCursor] = useState<Pt | null>(null);
   const redraw = () => {
@@ -83,6 +95,7 @@ export function DrawLayer({
     setView({
       stroke: d?.kind === 'stroke' ? d.rec.points.map((p) => [p[0], p[1]] as Pt) : null,
       erase: d?.kind === 'erase' ? [...d.path] : null,
+      lasso: d?.kind === 'lasso' ? [...d.path] : null,
     });
   };
   const erasing = state.tool === 'eraserStroke' || state.tool === 'eraserPoint';
@@ -119,6 +132,8 @@ export function DrawLayer({
     }
     if (erasing) {
       drag.current = { kind: 'erase', path: [p], id };
+    } else if (state.tool === 'lasso') {
+      drag.current = { kind: 'lasso', path: [p], id };
     } else {
       drag.current = {
         kind: 'stroke',
@@ -150,6 +165,7 @@ export function DrawLayer({
         break;
       }
       case 'erase':
+      case 'lasso':
         d.path.push(p);
         redraw();
         break;
@@ -170,6 +186,7 @@ export function DrawLayer({
     if (d.kind === 'erase') {
       onErase(d.path, ERASER_RADIUS, state.tool === 'eraserPoint' ? 'point' : 'stroke');
     }
+    if (d.kind === 'lasso') onLasso?.(d.path);
     redraw();
   };
 
@@ -267,6 +284,24 @@ export function DrawLayer({
             key={i}
             className={styles.doomed}
             points={s.points.map((p) => `${p[0]},${p[1]}`).join(' ')}
+          />
+        ))}
+        {view.lasso && view.lasso.length > 1 && (
+          <polygon
+            className={styles.lasso}
+            data-testid="draw-lasso"
+            points={view.lasso.map((p) => `${p[0]},${p[1]}`).join(' ')}
+          />
+        )}
+        {picked.map((o) => (
+          <rect
+            key={o.id}
+            className={styles.picked}
+            data-testid="draw-picked"
+            x={o.rect[0]}
+            y={o.rect[1]}
+            width={o.rect[2]}
+            height={o.rect[3]}
           />
         ))}
         {erasing && cursor && (

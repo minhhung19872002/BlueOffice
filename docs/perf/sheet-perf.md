@@ -49,6 +49,53 @@ Không commit tệp lớn: sổ 10 triệu ô được sinh trong bench / test (
 
 \* đo khi máy bận (tải nền ~50–100 %); xem bảng criterion bên dưới cho số ổn định khi có.
 
+## SHEET-PERF-002: undo nhẹ + cập nhật bộ tính theo phần thay đổi
+
+`BO_BENCH_ONCE=1 BO_BENCH_ONLY=engine cargo bench -p bo-engine --bench sheet_big`, mỗi ca 3 lần,
+lấy trung vị; bản "trước" (main) và "sau" chạy xen kẽ trên cùng máy (dùng chung, có tải nền).
+
+| Ca (qua `SheetEngine::exec_json`) | Trước (3 lần → trung vị) | Sau (3 lần → trung vị) | Mục tiêu |
+|---|---|---|---|
+| `sort` 2 khoá, 1 048 575 bản ghi × 4 cột | 2,89 · 3,66 · 3,18 → **3,18 s** | 1,63 · 1,84 · 2,52 → **1,84 s** | < 2 s |
+| `setFilter` (danh sách giá trị) | 1,54 · 1,83 · 1,85 → **1,83 s** | 0,86 · 1,19 · 1,01 → **1,01 s** | < 2 s |
+| `pivotCreate` (1 trường hàng, 1 cột, Sum) | 4,03 · 4,88 · 4,90 → **4,88 s** | 1,97 · 2,83 · 2,38 → **2,38 s** | < 3 s |
+
+Phân rã lệnh `sort` sau khi sửa (một lần chạy): ảnh chụp "vỏ" sổ 0,06 ms; sắp xếp lõi + lưu công thức
+~1,0 s; đồng bộ bộ tính ~0,5–0,6 s (trước: ảnh chụp cả sổ ~0,6 s + `LiveCalc::rebuild` ~2,3 s).
+Pivot: tạo báo cáo lõi ~2,2 s + đồng bộ vùng đích ~0,07 s. Lọc: ẩn hàng lõi ~0,8 s + `SUBTOTAL` ~0,1 s.
+
+Thay đổi:
+
+- **Bước undo nhẹ** (`bo-engine/src/sheet/light_undo.rs`, `UndoEntry::Light`, `SheetEngine::edit_light`):
+  thay vì `wb.clone()` (mọi ô), bước giữ sổ **không có ô và bộ đệm pivot** ("vỏ": style, thiết lập
+  trang tính, hàng ẩn, AutoFilter/`sortState`, định nghĩa pivot, biểu đồ…) và:
+  - **sort**: hoán vị hàng (`RowPerm`: hàng `start + n` nhận hàng `start + perm[n]`) + văn bản gốc
+    của các công thức bị di chuyển (dịch tham chiếu khi đổi hàng không luôn đảo được: tham chiếu
+    ra ngoài lưới thành `#REF!`). Undo = hoán vị ngược không dịch + khôi phục văn bản công thức;
+    redo = áp lại hoán vị có dịch (tất định, trùng kết quả sort).
+  - **pivotCreate / pivotRefresh**: nội dung cũ của **hình chữ nhật đích đã đổi** (lưu góc phần tư từ
+    ô trái-trên của báo cáo trước khi sửa, sau khi sửa chỉ giữ hình bao các ô đổi) + bộ đệm pivot:
+    thêm (`Truncate`/`Append`) hoặc bị làm mới thay (`Swap`, bộ đệm cũ được **chuyển** sang bước
+    undo qua `bo_sheet::pivot::refresh_pivot_keeping`, không clone).
+  - **toggleFilter / setFilter / showAllData**: chỉ "vỏ" (hàng ẩn), đồng bộ `SUBTOTAL` bằng
+    `LiveCalc::sync_hidden_rows`.
+  Áp bước = đổi chỗ trạng thái hiện tại với trạng thái lưu, trả về bước ngược (undo/redo chính xác).
+  Sổ có trang tính được bảo vệ, sắp xếp trái → phải: giữ đường cũ (ảnh chụp cả sổ, kiểm ô khoá).
+- **Bộ tính sau sort** (`LiveCalc::permute_rows` → `bo_formula::Workbook::permute_rows`): di chuyển
+  hằng trong engine theo hoán vị (khối không có công thức: giá trị đổi chỗ theo chu trình ngay trong
+  các mục của bảng băm, một lượt duyệt), đặt lại công thức bị di chuyển từ mô hình, đánh dấu ô di
+  chuyển là đã sửa → chỉ công thức đọc chúng được tính lại. Nạp lại toàn bộ khi: chế độ tính tay,
+  "precision as displayed", công thức chia sẻ / mảng trong hàng di chuyển, vùng tràn (spill) chạm khối.
+- **Bộ tính sau pivot**: `LiveCalc::update` trên các ô của vùng đổi; thêm trang tính mới (pivot không
+  có `dest`) vẫn nạp lại toàn bộ.
+
+Kiểm thử đúng: `sheet::light_undo::tests` (sổ ngẫu nhiên có công thức tương đối / tuyệt đối / tới hàng
+trên / ngoài vùng / trang khác / `SUBTOTAL`: sort nhiều lần, lọc, pivot tạo / làm mới / tạo trên trang
+mới — sau lệnh trùng nạp lại bộ tính đầy đủ; undo → mô hình **giống hệt** trước; redo → giống hệt sau),
+`live::tests::permuted_rows_recalculate_like_a_full_reload` (chỉ tính lại công thức liên quan),
+`bo-formula/tests/proptest_permute.rs` (hoán vị có / không có công thức trong khối = sổ mới với đầu
+vào đã hoán vị). Cộng tác: lệnh không đổi đường đồng bộ (`collab_local` so mô hình), test collab xanh.
+
 ## Điểm nóng đã sửa
 
 - **Sắp xếp** (`bo_sheet::sort::sort_lines`): mỗi mức khoá quy về một **thứ hạng u32 cho mỗi dòng**
@@ -96,8 +143,9 @@ Song song: không thêm `rayon`; chỉ `std::thread` có `cfg(not(target_arch = 
 
 ## Còn lại
 
-- Lệnh qua `SheetEngine` vẫn trả giá **ảnh chụp undo cả sổ** (`wb.clone()`, ~0,6 s / 4 triệu ô) và
-  **nạp lại bộ tính** sau sort / pivot (`LiveCalc::rebuild`, ~2 s / 4 triệu ô): lệnh `sort` 1 triệu
-  hàng ~4 s > 2 s. Hướng tiếp: undo dạng hoán vị cho sort, cập nhật bộ tính theo hoán vị thay vì nạp lại.
+- ~~Ảnh chụp undo cả sổ + nạp lại bộ tính sau sort / pivot~~: xong ở SHEET-PERF-002 (mục trên).
+  Vẫn chụp cả sổ: sắp xếp trái → phải, sổ có trang tính bảo vệ, pivot update / group / move / đổi
+  nguồn / làm mới tất cả, Advanced Filter, Subtotal. Pivot tạo trên **trang mới** vẫn nạp lại bộ tính
+  (engine chưa thêm trang tăng dần). Undo của sort vẫn đồng bộ bộ tính bằng hoán vị ngược (~0,5 s).
 - Mở 10 triệu ô ~14 s, bộ nhớ ~4 GB (mỗi `Cell` 152 byte trong BTreeMap + bản sao trong bộ tính).
   Hướng tiếp: lưu ô theo cột / chuỗi dùng chung dạng chỉ số, `Box` công thức trong `Cell`.

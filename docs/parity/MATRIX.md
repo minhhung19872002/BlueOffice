@@ -52,7 +52,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
 | BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
-| Dịch / đọc chính tả / đọc to | all | — | 🟡 | — | — | 🟡 | 🟡 | — | read-aloud tests (provider giả), speech.rs | 🟡 | đọc to + tô từ đang đọc ở 3 app qua `SpeechProvider` (CORE-LANG-003, Web Speech); chưa dịch, chưa đọc chính tả |
+| Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); chưa model cục bộ, chưa đọc chính tả |
 | Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
 | PDF/A, PDF có thẻ | all | — | — | ✅ | — | ✅ | ✅ | — | bo-pdf/tests/pdfa.rs, bo-engine/tests/pdf_export.rs | 🟡 | PDF/A-1b/2b/3b, cây cấu trúc, dấu trang từ đề mục/slide/sheet, hộp thoại Xuất PDF (CORE-FMT-002); chưa kiểm bằng veraPDF |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |

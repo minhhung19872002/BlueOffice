@@ -177,6 +177,7 @@ export const OTHER_FORMATS: Record<VariantApp, readonly (readonly [string, strin
     ['file.saveCsv', 'csv'],
     ['file.exportPdf', 'pdf'],
     ['file.saveHtml', 'html'],
+    ['file.saveMht', 'mht'],
     ['file.saveFlatXml', 'xml'],
     ['file.saveThemeFile', 'thmx'],
   ],

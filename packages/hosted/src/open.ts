@@ -11,7 +11,7 @@ import { HostedStatus, SessionMode, parseMode, type SessionModeValue } from './m
 import { syncPendingSave, type OfflineSaves, type SyncOutcome } from './offline';
 import { guardPlatform } from './readonly';
 import {
-  appForFile,
+  appForFileContent,
   commandHandler,
   hostedPlatform,
   openSession,
@@ -109,7 +109,8 @@ export async function openHosted(o: OpenHostedOptions): Promise<HostedEditor> {
       file.bytes,
     )
     .catch(() => {});
-  const app = appForFile(file.name);
+  // An `.xml` file says which app it belongs to in its content (CORE-FMT-003).
+  const app = appForFileContent(file.name, file.bytes);
   const mode = new SessionMode(parseMode(session.mode), o.requestedMode ?? 'edit');
   const status = new HostedStatus();
   const dirty = new DirtyState();

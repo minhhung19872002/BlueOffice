@@ -1687,7 +1687,8 @@ impl SheetEngine {
     }
 
     /// Serialises the workbook: `xlsx`, `csv` of `sheet`, `ods`, `html` (every sheet
-    /// as an HTML table), `html-sheet` (only `sheet`) or `xml` (Flat OPC of the
+    /// as an HTML table), `html-sheet` (only `sheet`), `mht` (that page as a
+    /// single-file web page) or `xml` (Flat OPC of the
     /// `.xlsx` package, not encrypted; CORE-FMT-003). Chart caches are refreshed
     /// from their ranges first (§21.2.2.120 `numCache`).
     pub fn save(&mut self, format: &str, sheet: usize) -> Result<Vec<u8>> {
@@ -1747,7 +1748,8 @@ impl SheetEngine {
                 Ok(bo_xlsx::write_csv(self.sheet(sheet)?, &opts))
             }
             // HTML tables: displayed text, cell formatting, merged cells.
-            "html" | "html-sheet" => {
+            // `mht`: the same page of every sheet as a single-file web page (RFC 2557).
+            "html" | "html-sheet" | "mht" => {
                 let only = (format == "html-sheet").then_some(sheet);
                 if only.is_some() {
                     self.sheet(sheet)?;
@@ -1756,7 +1758,11 @@ impl SheetEngine {
                     .name
                     .rsplit_once('.')
                     .map_or(self.name.as_str(), |(b, _)| b);
-                Ok(bo_html::write_workbook_html(wb, only, &self.locale, title).into_bytes())
+                let html = bo_html::write_workbook_html(wb, only, &self.locale, title);
+                if format == "mht" {
+                    return Ok(bo_html::write_mht_page(&html, &[]));
+                }
+                Ok(html.into_bytes())
             }
             // ODF 1.3 spreadsheet: values, OpenFormula formulas, cell styles.
             "ods" => bo_odf::write_ods(&workbook_to_ods(wb, &self.locale))

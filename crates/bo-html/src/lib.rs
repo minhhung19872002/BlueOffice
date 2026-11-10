@@ -23,7 +23,7 @@ pub mod sheet;
 
 pub use doc_read::{read_html, read_html_str, read_html_with, ReadOptions};
 pub use doc_write::{write_html, write_html_with, Images, Resource, WriteOptions};
-pub use mht::{is_mht, read_mht, write_mht};
+pub use mht::{is_mht, read_mht, write_mht, write_mht_page};
 pub use sheet::{read_workbook_html, write_workbook_html};
 
 /// The bytes look like an HTML page: after a byte order mark, white space and

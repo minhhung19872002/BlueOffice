@@ -472,9 +472,16 @@ fn convert_web_and_single_file_xml_formats() {
     let from_tables = dir.join("from-tables.xlsx");
     assert!(conv(&tables, "xlsx", &from_tables).starts_with(b"PK"));
     assert!(inspect(&from_tables).contains("sheet: Tham_so"));
+    // The workbook as a single-file web page, and back.
+    let single = dir.join("budget.mht");
+    assert!(conv(&xlsx, "mht", &single).starts_with(b"From: "));
+    assert!(inspect(&single).contains("format: mht"));
+    let from_single = dir.join("from-single.xlsx");
+    assert!(conv(&single, "xlsx", &from_single).starts_with(b"PK"));
+    assert!(inspect(&from_single).contains("sheet: Tham_so"));
 
     // Every OOXML file made from the new readers is a well-formed package.
-    for p in [&back, &from_mht, &xlsx, &from_tables] {
+    for p in [&back, &from_mht, &xlsx, &from_tables, &from_single] {
         run(bin().arg("validate").arg(p).args(["--openxml", "off"]));
     }
     for base in ["docx", "xlsx", "pptx"] {

@@ -436,7 +436,14 @@ pub fn write_mht(doc: &Document, title: &str) -> Vec<u8> {
             images: Images::Cid,
         },
     );
-    let b = boundary(&html, &resources);
+    write_mht_page(&html, &resources)
+}
+
+/// One MHTML file (RFC 2557) from an HTML page and the resources it references by
+/// `cid:` URL: the page quoted-printable, each resource base64. A page without
+/// pictures (workbook tables) has no resources.
+pub fn write_mht_page(html: &str, resources: &[Resource]) -> Vec<u8> {
+    let b = boundary(html, resources);
     let mut out = String::with_capacity(html.len() * 2);
     out.push_str("From: <Saved by BlueOffice>\r\n");
     out.push_str("MIME-Version: 1.0\r\n");
@@ -451,7 +458,7 @@ pub fn write_mht(doc: &Document, title: &str) -> Vec<u8> {
     out.push_str("Content-Location: file:///C:/document.htm\r\n\r\n");
     out.push_str(&encode_quoted_printable(html.as_bytes()));
     out.push_str("\r\n");
-    for r in &resources {
+    for r in resources {
         let _ = write!(out, "--{b}\r\n");
         let _ = write!(out, "Content-Type: {}\r\n", r.mime);
         out.push_str("Content-Transfer-Encoding: base64\r\n");

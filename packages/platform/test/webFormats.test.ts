@@ -14,7 +14,7 @@ describe('web and single-file XML formats (CORE-FMT-003)', () => {
   it('lists the formats each app saves to', () => {
     expect(WEB_FORMATS.map((f) => f.id)).toEqual(['html', 'mht', 'xml']);
     expect(webFormats('doc').map((f) => f.ext)).toEqual(['html', 'mht', 'xml']);
-    expect(webFormats('sheet').map((f) => f.ext)).toEqual(['html', 'xml']);
+    expect(webFormats('sheet').map((f) => f.ext)).toEqual(['html', 'mht', 'xml']);
     // A presentation is not exported as an HTML page set: Flat OPC only.
     expect(webFormats('slide').map((f) => f.ext)).toEqual(['xml']);
     expect(webFormat('mht')?.mime).toBe('multipart/related');

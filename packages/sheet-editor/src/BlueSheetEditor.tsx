@@ -2044,12 +2044,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       has,
     );
-    // The workbook as HTML tables or as Flat OPC (CORE-FMT-003).
+    // The workbook as HTML tables, a single-file web page or Flat OPC (CORE-FMT-003).
     for (const f of webFormats('sheet')) {
       add(
         WEB_FORMAT_COMMANDS[f.id],
         async (s) => {
-          const bytes = await s.host.save(f.id === 'xml' ? 'xml' : 'html', s.sheet);
+          const bytes = await s.host.save(f.id, s.sheet);
           const saved = await platform.files.saveFile(bytes, `${baseName()}.${f.ext}`, f.mime);
           if (saved) setStatus(t('webFormats.saved', { name: saved }));
         },

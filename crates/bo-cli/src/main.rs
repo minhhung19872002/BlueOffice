@@ -1107,7 +1107,7 @@ fn run_convert(
             engine.save_pptx()?
         }
         // Spreadsheets through the BlueSheet engine (xls/xlsb/ods are converted).
-        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf" | "html") => {
+        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf" | "html" | "mht") => {
             sheet_convert(&b, &with_xlsx_ext(&name), to, sheet, pdf)?
         }
         (Loaded::Xlsx(b), "ods") => {
@@ -1116,7 +1116,7 @@ fn run_convert(
             let wb = engine.workbook().ok_or("no workbook")?;
             bo_odf::write_ods(&convert::model_to_ods(wb))?
         }
-        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf" | "html") => {
+        (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf" | "html" | "mht") => {
             sheet_convert(&bytes, &name, to, sheet, pdf)?
         }
         // .ppt / .odp decks with their drawing, through the BlueSlide engine.

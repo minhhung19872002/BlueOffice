@@ -141,6 +141,7 @@ describe('FileBackstage', () => {
       'csv',
       'pdf',
       'html',
+      'mht',
       'xml',
       'thmx',
     ]);

@@ -337,6 +337,39 @@ fn workbook_opens_excel_xml_2003_and_html_tables() {
     if let Ok(dir) = std::env::var("BO_WEB_OUT") {
         std::fs::write(PathBuf::from(dir).join("from-html-tables.xlsx"), &from_html).unwrap();
     }
+    // The same tables as a single-file web page (MHTML), opened again.
+    let mht = s.save("mht", 0).unwrap();
+    assert!(bo_html::is_mht(&mht));
+    assert!(mht.is_ascii(), "quoted-printable keeps the file 7-bit");
+    let mut from_mht = SheetEngine::new();
+    let info = from_mht.open(&mht, "budget.mht").unwrap();
+    assert_eq!(
+        info.sheets
+            .iter()
+            .map(|x| x.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Ngân sách", "Tham_so", "Ẩn"]
+    );
+    let wb = from_mht.workbook().unwrap();
+    assert_eq!(
+        wb.sheets[0].cell_a1("A2").unwrap().value,
+        CellValue::Text("Lương & thưởng".into())
+    );
+    assert_eq!(
+        wb.sheets[0].cell_a1("B2").unwrap().value,
+        CellValue::Number(120_000_000.0)
+    );
+    assert_eq!(
+        wb.sheets[0]
+            .cell_a1("B5")
+            .unwrap()
+            .formula
+            .as_ref()
+            .unwrap()
+            .text,
+        "SUM(B2:B4)"
+    );
+    assert_eq!(wb.sheets[0].merges.len(), 1);
     // One sheet only.
     let one = s.save("html-sheet", 1).unwrap();
     let mut single = SheetEngine::new();

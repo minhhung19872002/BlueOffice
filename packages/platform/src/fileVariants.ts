@@ -135,7 +135,7 @@ export interface WebFormat {
 
 export const WEB_FORMATS: readonly WebFormat[] = [
   { id: 'html', ext: 'html', mime: 'text/html', apps: ['doc', 'sheet'] },
-  { id: 'mht', ext: 'mht', mime: 'multipart/related', apps: ['doc'] },
+  { id: 'mht', ext: 'mht', mime: 'multipart/related', apps: ['doc', 'sheet'] },
   { id: 'xml', ext: 'xml', mime: 'application/xml', apps: ['doc', 'sheet', 'slide'] },
 ];
 

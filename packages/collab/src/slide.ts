@@ -2,8 +2,9 @@
  * BlueSlide ↔ `bo-collab` binding: slides (properties and order) and their
  * objects are shared live through the replica's `slides` / `shapes` maps,
  * last writer wins per object (bo_engine::slide_edit::collab). Presence
- * carries the selected object; collaborators' selections are reported
- * through `onSlidePeers`.
+ * carries the selected object, or the current slide (`"<slide>/"`) when none
+ * is selected; collaborators' slides and selections are reported through
+ * `onSlidePeers` (`slideOnly` = no object selected).
  */
 import {
   LiveQueue,
@@ -15,12 +16,13 @@ import {
 } from './live';
 import type { CollabEngine } from './index';
 import type { Presence } from './sheet';
+import { slidePresence } from './presence';
 
 /** Subset of a slide editing result used here (`SlideEditResult`). */
 export interface SlideResultLike {
   canUndo: boolean;
   canRedo: boolean;
-  collab?: { change: ChangeLike; shape?: string };
+  collab?: { change: ChangeLike; shape?: string; slide?: string };
 }
 
 /** Subset of `EngineHost` used here. */
@@ -37,11 +39,13 @@ type BoxOf<H extends SlideEngineLike> = NonNullable<
   Awaited<ReturnType<NonNullable<H['slideCollabPeers']>>>[number]
 >;
 
-/** A collaborator's selected object. */
+/** A collaborator's slide and selected object. */
 export type SlidePeerView<H extends SlideEngineLike> = BoxOf<H> & {
   clientId: number;
   name: string;
   color: string;
+  /** On the slide without a selected object (no box to outline). */
+  slideOnly?: boolean;
 };
 
 export interface SlideCollab<H extends SlideEngineLike> {
@@ -88,9 +92,10 @@ export function collabSlideHost<H extends SlideEngineLike>(
     const c = r.collab;
     if (!c) return r;
     if (phase === 'live' && !isEmptyChange(c.change)) replica.applyLocal(JSON.stringify(c.change));
-    if (c.shape !== lastShape) {
-      lastShape = c.shape;
-      const p: Presence = { ...user, ...(c.shape ? { shape: c.shape } : {}) };
+    const at = c.shape ?? (c.slide ? slidePresence(c.slide) : undefined);
+    if (at !== lastShape) {
+      lastShape = at;
+      const p: Presence = { ...user, ...(at ? { shape: at } : {}) };
       replica.setPresence(JSON.stringify(p));
     }
     if (phase === 'live') {
@@ -115,7 +120,10 @@ export function collabSlideHost<H extends SlideEngineLike>(
     const boxes = peers.length ? await host.slideCollabPeers(peers.map(([, p]) => p.shape!)) : [];
     const views = peers.flatMap(([clientId, p], i) => {
       const b = boxes[i] as BoxOf<H> | null | undefined;
-      return b ? [{ ...b, clientId, name: p.name, color: p.color } as SlidePeerView<H>] : [];
+      if (!b) return [];
+      const view = { ...b, clientId, name: p.name, color: p.color } as SlidePeerView<H>;
+      if (p.shape!.endsWith('/')) view.slideOnly = true;
+      return [view];
     });
     peerListeners.forEach((l) => l(views));
   };

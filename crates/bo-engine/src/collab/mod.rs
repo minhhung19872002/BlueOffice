@@ -148,6 +148,22 @@ pub struct Blob {
     pub b64: String,
 }
 
+/// Largest part whose bytes are fingerprinted in full (larger parts — video,
+/// audio — are never rewritten in place: their length stands for them).
+const FINGERPRINT_MAX: usize = 4 << 20;
+
+/// Cheap identity of a binary part, to notice a part rewritten in place
+/// (an embedded workbook edited, a SmartArt or comment part rebuilt).
+pub(crate) fn fingerprint(data: &[u8]) -> (usize, u64) {
+    use std::hash::{Hash, Hasher};
+    if data.len() > FINGERPRINT_MAX {
+        return (data.len(), 0);
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut h);
+    (data.len(), h.finish())
+}
+
 impl Blob {
     /// JSON encoding of a part (content type and base64 bytes).
     pub fn encode(ct: Option<&str>, bytes: &[u8]) -> String {
@@ -177,6 +193,9 @@ pub struct PeerRects {
     pub caret: Option<crate::nav::CaretRect>,
     /// Highlight rectangles of the peer's range selection.
     pub rects: Vec<crate::nav::SelRect>,
+    /// The paragraph the peer's caret is in, on the caret's page (margin bar).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub para: Option<crate::nav::CaretRect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -885,8 +904,10 @@ pub(crate) struct DocCollab {
     joining: bool,
     /// Numbering definitions of the opened file.
     base_nums: BTreeSet<i32>,
-    /// Media parts every replica has (opened file + shared blobs).
-    known_media: BTreeSet<String>,
+    /// Media parts every replica has (opened file + shared blobs) with the
+    /// bytes last shared: a part rewritten in place (an embedded workbook
+    /// edited, CORE-EMBED-001) is shared again.
+    known_media: BTreeMap<String, Arc<Vec<u8>>>,
     /// Document version the shadow was last compared at.
     version: u64,
     /// Replica client id and counter for ids of new tables, rows and columns.
@@ -920,7 +941,7 @@ impl DocCollab {
         DocCollab {
             joining: !seed,
             base_nums: doc.numbering.nums.iter().map(|n| n.id).collect(),
-            known_media: doc.media.keys().cloned().collect(),
+            known_media: doc.media.clone(),
             client,
             ..DocCollab::default()
         }
@@ -1456,8 +1477,24 @@ impl Engine {
             c.version = s.version();
             change = c.local_change(doc);
             if !c.joining {
+                // Parts dropped here (a SmartArt rebuilt under new names).
+                let dropped: Vec<String> = c
+                    .known_media
+                    .keys()
+                    .filter(|k| !doc.media.contains_key(*k))
+                    .cloned()
+                    .collect();
+                for name in dropped {
+                    c.known_media.remove(&name);
+                    change.blobs.insert(name, None);
+                }
                 for (name, bytes) in &doc.media {
-                    if c.known_media.insert(name.clone()) {
+                    let known = c
+                        .known_media
+                        .get(name)
+                        .is_some_and(|k| Arc::ptr_eq(k, bytes) || **k == **bytes);
+                    if !known {
+                        c.known_media.insert(name.clone(), bytes.clone());
                         change
                             .blobs
                             .insert(name.clone(), Some(Blob::encode(None, bytes)));
@@ -1639,18 +1676,54 @@ impl Engine {
                 new: cn,
             });
         }
-        for (name, v) in &change.blobs {
-            let Some((_, bytes)) = v.as_deref().and_then(Blob::decode) else {
-                continue;
-            };
-            c.known_media.insert(name.clone());
-            if !doc.media.contains_key(name) {
-                ops.push(Op::Media {
-                    name: name.clone(),
-                    old: None,
-                    new: Some(Arc::new(bytes)),
+        // Document-wide settings (page colour / theme, hyphenation, custom XML).
+        let mut protection = None;
+        if let Some(st) = content.settings {
+            if st.design != (doc.design.clone(), doc.theme_fonts.clone()) {
+                ops.push(Op::Design {
+                    old: Box::new((doc.design.clone(), doc.theme_fonts.clone())),
+                    new: Box::new(st.design),
                 });
             }
+            if st.hyphenation != doc.hyphenation {
+                ops.push(Op::Hyphenation {
+                    old: doc.hyphenation,
+                    new: st.hyphenation,
+                });
+            }
+            if st.custom_xml != doc.custom_xml {
+                ops.push(Op::CustomXml {
+                    old: doc.custom_xml.clone(),
+                    new: st.custom_xml,
+                });
+            }
+            if st.protection != doc.protection {
+                protection = Some(st.protection);
+            }
+        }
+        let mut dropped = Vec::new();
+        for (name, v) in &change.blobs {
+            let Some(v) = v else {
+                dropped.push(name.clone());
+                continue;
+            };
+            let Some((_, bytes)) = Blob::decode(v) else {
+                continue;
+            };
+            let old = doc.media.get(name);
+            if old.is_some_and(|o| **o == bytes) {
+                if let Some(o) = old {
+                    c.known_media.insert(name.clone(), o.clone());
+                }
+                continue;
+            }
+            let new = Arc::new(bytes);
+            c.known_media.insert(name.clone(), new.clone());
+            ops.push(Op::Media {
+                name: name.clone(),
+                old: old.cloned(),
+                new: Some(new),
+            });
         }
         let mut tmp = DocCollab {
             entries,
@@ -1665,6 +1738,13 @@ impl Engine {
             // Cannot happen while the shadow matches the model; the document is unchanged.
             error = Some(e.to_string());
         }
+        // The editing restriction is a setting outside the history (§17.15.1.29).
+        if let Some(p) = protection {
+            s.set_protection(p);
+            if s.tracking_locked() {
+                s.set_track_changes(true);
+            }
+        }
         // Header/footer contents (after the sections are in place).
         if let Some(sections) = parts::rebuilt_headers(s.doc(), &c.stories, &touched, true) {
             let op = Op::Sections {
@@ -1674,6 +1754,26 @@ impl Engine {
             };
             let keep = s.selection();
             if let Err(e) = s.apply_external(vec![op], keep) {
+                error = Some(e.to_string());
+            }
+        }
+        // Media parts others dropped (a SmartArt rebuilt under new names), once
+        // nothing here shows them any more.
+        let gone: Vec<Op> = dropped
+            .iter()
+            .filter_map(|name| {
+                c.known_media.remove(name);
+                let old = s.doc().media.get(name)?;
+                (!bo_edit::picture_tools::media_in_use(s.doc(), name)).then(|| Op::Media {
+                    name: name.clone(),
+                    old: Some(old.clone()),
+                    new: None,
+                })
+            })
+            .collect();
+        if !gone.is_empty() {
+            let keep = s.selection();
+            if let Err(e) = s.apply_external(gone, keep) {
                 error = Some(e.to_string());
             }
         }
@@ -1741,6 +1841,7 @@ impl Engine {
                 };
                 PeerRects {
                     caret: crate::nav::caret_rect(layout, sel.focus),
+                    para: crate::nav::paragraph_band(layout, sel.focus),
                     rects: if sel.is_collapsed() {
                         Vec::new()
                     } else {

@@ -175,7 +175,7 @@ impl crate::Engine {
                         rep.before += data.len();
                         rep.after += c.bytes.len();
                         let ext = if c.jpeg { "jpeg" } else { "png" };
-                        let mut n = s.doc().media.len() + 1;
+                        let mut n = s.part_number_start(s.doc().media.len() + 1);
                         let name = loop {
                             let cand = format!("/word/media/image{n}.{ext}");
                             if !s.doc().media.contains_key(&cand) && !names.contains(&cand) {

@@ -664,3 +664,22 @@
   padding: 0 6px 6px;
   overflow-x: auto;
 }
+
+/* Live collaboration: a collaborator's selected cell / range with their name. */
+.peerSelection {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid #c2410c;
+  box-sizing: border-box;
+}
+
+.peerTag {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  padding: 0 4px;
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font: 600 11px/16px var(--bo-font-ui, system-ui, sans-serif);
+  white-space: nowrap;
+}

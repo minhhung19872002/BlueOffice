@@ -49,7 +49,8 @@ impl crate::Engine {
                     .as_ref()
                     .is_some_and(|s| bo_edit::picture_tools::media_in_use(s.doc(), n))
         };
-        (1..=u32::MAX)
+        let start = self.session.as_ref().map_or(1, |s| s.part_number_start(1));
+        (start..=usize::MAX)
             .map(|n| format!("/word/{dir}/{stem}{n}.{ext}"))
             .find(|n| !used(n))
             .unwrap_or_default()

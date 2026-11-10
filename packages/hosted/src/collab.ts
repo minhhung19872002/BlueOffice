@@ -79,11 +79,11 @@ export function startCollab(o: StartCollabOptions): CollabHandle {
     color: colorFor(id),
   };
   if (app === 'sheet' && hosted.sheet) {
-    const sheet = collabSheetHost<SheetHost>(hosted.sheet, replica, flush);
+    const sheet = collabSheetHost<SheetHost>(hosted.sheet, replica, flush, user);
     shared = sheet;
     hosted = { ...hosted, sheet };
   } else if (app === 'slide') {
-    // BlueSlide: slides and objects (last writer wins per object), selected object.
+    // BlueSlide: slides and objects (last writer wins per object), current slide and selected object.
     const live = collabSlideHost<EngineHost>(hosted.engine, replica, flush, user);
     shared = live;
     engine = live.engine;

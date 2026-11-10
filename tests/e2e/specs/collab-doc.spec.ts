@@ -101,6 +101,16 @@ test('two users edit one .docx: text, bold, carets, save, revoke, offline', asyn
   await expect(a.frame.getByTestId('peer-caret').first()).toBeVisible();
   await expect(a.frame.getByTestId('peer-caret').first()).toContainText(USERS.u2);
   await expect(b.frame.getByTestId('peer-caret').first()).toContainText(USERS.u1);
+  // …and a bar in their colour marks the paragraph they are in (CORE-COLLAB-001).
+  const bar = a.frame.getByTestId('peer-bar').first();
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-label', `${USERS.u2} đang sửa đoạn này`);
+  await expect(bar).toContainText(USERS.u2);
+  const barBox = (await bar.boundingBox())!;
+  const caretBox = (await a.frame.getByTestId('peer-caret').first().boundingBox())!;
+  expect(barBox.x).toBeLessThan(caretBox.x);
+  expect(barBox.y).toBeLessThanOrEqual(caretBox.y + 1);
+  expect(barBox.y + barBox.height).toBeGreaterThanOrEqual(caretBox.y + caretBox.height - 1);
 
   // (c) The host's `save` command creates a version listing both editors.
   const before = (await fileState(fileId)).versions.length;

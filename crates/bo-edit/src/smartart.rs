@@ -77,7 +77,7 @@ impl Session {
     /// A free diagram number `n` for new parts `<dir>/<kind><n>.xml`: none of the five is a media
     /// part or one of `taken`.
     pub fn new_diagram_number(&self, dir: &str, taken: &[String]) -> usize {
-        let mut n = 1;
+        let mut n = self.part_number_start(1);
         while diagram::part_names(dir, n)
             .iter()
             .any(|p| self.doc.media.contains_key(p) || taken.contains(p))

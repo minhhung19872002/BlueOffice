@@ -2893,7 +2893,10 @@
   "collab": {
     "editing": "{{name}} is editing",
     "anonymous": "Guest",
-    "selected": "Selected by {{name}}"
+    "selected": "Selected by {{name}}",
+    "inParagraph": "{{name}} is editing this paragraph",
+    "inRange": "{{name}} selected {{range}}",
+    "onSlide": "{{name}} is on this slide"
   },
   "font": {
     "family": "Font",

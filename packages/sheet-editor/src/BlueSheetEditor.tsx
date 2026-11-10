@@ -349,6 +349,7 @@ import {
   type Range,
   type Selection,
 } from './grid';
+import { PeerSelections, usePeerBoxes } from './peers';
 import styles from './SheetEditor.module.css';
 
 /**
@@ -880,6 +881,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     (x: Rect | null) => x && { x: x.x * scale, y: x.y * scale, w: x.w * scale, h: x.h * scale },
     [scale],
   );
+
+  // Live collaboration: share the own selection, show the collaborators' ones.
+  const sheetName = summary?.name;
+  const peerBoxes = usePeerBoxes(host, view, sheetName, px, revision);
+  useEffect(() => {
+    if (sheetName !== undefined) host?.collabSelect?.(sheetName, rangeA1(rangeOf(selection)));
+  }, [host, sheetName, selection]);
 
   // Selection overlay + formula bar contents.
   useEffect(() => {
@@ -4408,6 +4416,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 height={size.h}
               />
             )}
+            <PeerSelections boxes={peerBoxes} />
             {selRect && chart === null && (
               <div
                 className={painter ? styles.selectionPainter : styles.selection}

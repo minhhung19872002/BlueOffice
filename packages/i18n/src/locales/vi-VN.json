@@ -2893,7 +2893,10 @@
   "collab": {
     "editing": "{{name}} đang sửa",
     "anonymous": "Khách",
-    "selected": "{{name}} đang chọn"
+    "selected": "{{name}} đang chọn",
+    "inParagraph": "{{name}} đang sửa đoạn này",
+    "inRange": "{{name}} đang chọn {{range}}",
+    "onSlide": "{{name}} đang ở trang chiếu này"
   },
   "font": {
     "family": "Phông chữ",

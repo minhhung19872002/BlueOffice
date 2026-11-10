@@ -108,7 +108,7 @@ impl Session {
                 line.id
             )));
         }
-        let mut n = self.doc.media.len() + 1;
+        let mut n = self.part_number_start(self.doc.media.len() + 1);
         let name = loop {
             let cand = format!("/word/media/image{n}.png");
             if !self.doc.media.contains_key(&cand) {

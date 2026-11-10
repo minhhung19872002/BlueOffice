@@ -270,6 +270,7 @@ import {
 import masterStyles from './masterView.module.css';
 import { NotesPageView } from './notesPage';
 import { OutlineView } from './outlineView';
+import { PeerBadges, peersBySlide } from './peerBadges';
 import {
   HandoutSlots,
   pageMasterState,
@@ -487,6 +488,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropOver, setDropOver] = useState<number | null>(null);
   const [peers, setPeers] = useState<SlidePeer[]>([]);
+  const peersOn = useMemo(() => peersBySlide(peers), [peers]);
   /** An encrypted deck waiting for its password ([MS-OFFCRYPTO]). */
   const [passwordPrompt, setPasswordPrompt] = useState<{
     bytes: Uint8Array;
@@ -3118,6 +3120,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           >
             <span className={styles.thumbNo}>{i + 1}</span>
             {canvas(i, 150)}
+            <PeerBadges peers={peersOn.get(i)} />
             {edit?.masterView?.items[i] && (
               <span className={masterStyles.thumbName}>
                 {edit.masterView.items[i].name || t('slideEditor.master.unnamed')}
@@ -3318,7 +3321,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     onStartCellEdit={startCellEdit}
                     onActivateObject={() => void objectHub.activate()}
                     peers={peers
-                      .filter((p) => p.slide === shown)
+                      .filter((p) => p.slide === shown && !p.slideOnly)
                       .map((p) => {
                         const name = p.name || t('collab.anonymous');
                         return { ...p, name, label: t('collab.selected', { name }) };

@@ -33,15 +33,24 @@
 //!   structural changes of the same update); **charts** `ch:<sheet>:<i>` and **pivot
 //!   tables** `pv:<sheet>:<i>` (+ caches `pc:<i>`) last writer wins per
 //!   object; defined names `wb`.
+//! * **Pictures in cells** ([MS-XLSX] §2.3.6.1.10 `_localImage`): the cell entry
+//!   names the picture (`im`), its bytes travel once in `blobs` under its
+//!   `cellimg:` id. **Workbook settings** (one key each, [`wb_entries`]): theme
+//!   colours (§20.1.6.2), `date1904` (§18.2.28), threaded-comment persons
+//!   ([MS-XLSX] `CT_Person`, one key per person), `workbookProtection` (§18.2.29)
+//!   and the workbook relationships / default content types of the preserved
+//!   parts; a preserved part added or rewritten
+//!   (a theme applied, §14.2.7) travels in `blobs` under its part name.
 
 use super::{SheetEngine, MAX_COLS, MAX_ROWS};
-use crate::collab::{order, CollabChange};
+use crate::collab::{fingerprint, order, Blob, CollabChange};
 use crate::{EngineError, Result};
 use bo_formula::{CellAddr, Expr, RefKind, Reference, SheetRef};
 use bo_model::sheet::{
-    Border, Cell, CellRange, CellRef, CellValue, CellXf, ColInfo, ConditionalFormat,
-    DataValidation, DefinedName, Dxf, Fill, Font, Formula, FormulaKind, PivotCache, PivotTable,
-    RawAttr, RowInfo, Stylesheet, Workbook, Worksheet,
+    Border, Cell, CellImage, CellImageSource, CellRange, CellRef, CellValue, CellXf, ColInfo,
+    ConditionalFormat, DataValidation, DefinedName, Dxf, Fill, Font, Formula, FormulaKind,
+    OpaquePart, OpaqueRel, Person, PivotCache, PivotTable, RawAttr, RawXml, RowInfo, Stylesheet,
+    Workbook, Worksheet,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -239,6 +248,128 @@ struct SharedCell {
     vm: Option<u32>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     ph: bool,
+    /// Picture stored in the cell (bytes in `blobs` under `k`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    im: Option<SharedImage>,
+}
+
+/// A picture placed in a cell ([MS-XLSX] §2.3.6.1.10 `_localImage`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct SharedImage {
+    /// `cellimg:` id of the bytes (the `blobs` key).
+    k: String,
+    /// File extension of the picture.
+    x: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    a: Option<String>,
+    /// `CalcOrigin`.
+    #[serde(default)]
+    o: u32,
+}
+
+impl SharedImage {
+    fn of(im: &CellImage) -> Option<SharedImage> {
+        match &im.source {
+            CellImageSource::Local { ext, key, .. } => Some(SharedImage {
+                k: key.clone(),
+                x: ext.clone(),
+                a: im.alt_text.clone(),
+                o: im.calc_origin,
+            }),
+            // `IMAGE` results come from the (shared) formula.
+            CellImageSource::Web { .. } => None,
+        }
+    }
+
+    fn image(&self, data: Vec<u8>) -> CellImage {
+        CellImage {
+            source: CellImageSource::Local {
+                data,
+                ext: self.x.clone(),
+                key: self.k.clone(),
+            },
+            alt_text: self.a.clone(),
+            calc_origin: self.o,
+        }
+    }
+}
+
+fn is_wb_protection(x: &RawXml) -> bool {
+    super::protect::element_name(&x.xml) == "workbookProtection"
+}
+
+/// Workbook-level settings, one `meta` key each (last writer wins per key):
+/// `wt` theme colours, `wd` date1904, `wk` workbookProtection (verbatim),
+/// `wr` workbook relationships + default content types, `pe:<id>` one per
+/// threaded-comment person (so people added at once by two replicas are all kept).
+fn wb_entries(wb: &Workbook) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    let mut put = |k: String, v: Option<String>| {
+        if let Some(v) = v {
+            m.insert(k, v);
+        }
+    };
+    put(
+        "wt".into(),
+        wb.theme
+            .as_ref()
+            .and_then(|t| serde_json::to_string(t).ok()),
+    );
+    put("wd".into(), wb.date1904.then(|| "1".to_owned()));
+    let prot: Vec<&RawXml> = wb.unknown.iter().filter(|x| is_wb_protection(x)).collect();
+    put(
+        "wk".into(),
+        (!prot.is_empty())
+            .then(|| serde_json::to_string(&prot).ok())
+            .flatten(),
+    );
+    put(
+        "wr".into(),
+        serde_json::to_string(&(&wb.opaque.workbook_rels, &wb.opaque.content_type_defaults)).ok(),
+    );
+    for p in &wb.persons {
+        put(format!("pe:{}", p.id), serde_json::to_string(p).ok());
+    }
+    m
+}
+
+fn is_wb_key(k: &str) -> bool {
+    matches!(k, "wt" | "wd" | "wk" | "wr") || k.starts_with("pe:")
+}
+
+/// The workbook settings `meta` says.
+fn place_wb(meta: &BTreeMap<String, String>, wb: &mut Workbook) {
+    wb.theme = meta.get("wt").and_then(|j| serde_json::from_str(j).ok());
+    wb.date1904 = meta.contains_key("wd");
+    let prot: Vec<RawXml> = meta
+        .get("wk")
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default();
+    wb.unknown.retain(|x| !is_wb_protection(x));
+    wb.unknown.extend(prot);
+    if let Some((rels, ctd)) = meta
+        .get("wr")
+        .and_then(|j| serde_json::from_str::<(Vec<OpaqueRel>, Vec<(String, String)>)>(j).ok())
+    {
+        wb.opaque.workbook_rels = rels;
+        wb.opaque.content_type_defaults = ctd;
+    }
+    // Persons: known ones keep their place, new ones follow in key order.
+    let shared: Vec<Person> = keys_with(meta, "pe:")
+        .iter()
+        .filter_map(|k| serde_json::from_str(meta.get(k)?).ok())
+        .collect();
+    let mut list: Vec<Person> = wb
+        .persons
+        .iter()
+        .filter_map(|p| shared.iter().find(|x| x.id == p.id).cloned())
+        .collect();
+    for p in &shared {
+        if !list.iter().any(|x| x.id == p.id) {
+            list.push(p.clone());
+        }
+    }
+    wb.persons = list;
 }
 
 /// A cell format by value (§18.8.10 xf with its font, fill, border, numFmt).
@@ -385,6 +516,7 @@ fn same(a: &Cell, b: &Cell) -> bool {
         && a.cm == b.cm
         && a.vm == b.vm
         && a.show_phonetic == b.show_phonetic
+        && a.image == b.image
 }
 
 fn ph(i: usize) -> String {
@@ -430,6 +562,11 @@ pub(crate) struct SheetCollab {
     snap: BTreeMap<String, Cell>,
     seen: BTreeMap<String, Seen>,
     seen_wb: Option<(Vec<DefinedName>, Vec<PivotCache>)>,
+    seen_wbx: Option<BTreeMap<String, String>>,
+    /// Bytes of the pictures in cells every replica has, by `cellimg:` id.
+    images: HashMap<String, Vec<u8>>,
+    /// Fingerprints of the preserved parts every replica has, by part name.
+    parts: HashMap<String, (usize, u64)>,
     pub pending: Vec<LocalStruct>,
 }
 
@@ -464,10 +601,28 @@ fn keys_with(meta: &BTreeMap<String, String>, p: &str) -> Vec<String> {
 }
 
 impl SheetCollab {
-    fn new(seed: bool, client: u64) -> SheetCollab {
+    /// Every replica opened the same file: its pictures and parts are known.
+    fn new(wb: &Workbook, seed: bool, client: u64) -> SheetCollab {
+        let mut images = HashMap::new();
+        for ws in &wb.sheets {
+            for cell in ws.cells.values() {
+                if let Some(CellImageSource::Local { data, key, .. }) =
+                    cell.image.as_deref().map(|i| &i.source)
+                {
+                    images.insert(key.clone(), data.clone());
+                }
+            }
+        }
         SheetCollab {
             joining: !seed,
             client,
+            images,
+            parts: wb
+                .opaque
+                .parts
+                .iter()
+                .map(|p| (p.name.clone(), fingerprint(&p.data)))
+                .collect(),
             ..SheetCollab::default()
         }
     }
@@ -685,7 +840,8 @@ impl SheetCollab {
             .as_ref()
             .map(|f| self.formula_shared(wb, keys, host, f));
         let v = (f.is_none() && c.value != CellValue::Empty).then(|| c.value.clone());
-        if f.is_none() && v.is_none() && c.cm.is_none() && c.vm.is_none() {
+        let im = c.image.as_deref().and_then(SharedImage::of);
+        if f.is_none() && v.is_none() && c.cm.is_none() && c.vm.is_none() && im.is_none() {
             return None;
         }
         serde_json::to_string(&SharedCell {
@@ -694,6 +850,7 @@ impl SheetCollab {
             cm: c.cm,
             vm: c.vm,
             ph: c.show_phonetic,
+            im,
         })
         .ok()
     }
@@ -818,6 +975,16 @@ impl SheetCollab {
                     continue;
                 }
                 let v = self.cell_json(wb, &keys, &sk, cell);
+                if let Some(CellImageSource::Local { data, key, ext }) =
+                    cell.image.as_deref().map(|i| &i.source)
+                {
+                    if !self.images.contains_key(key) {
+                        self.images.insert(key.clone(), data.clone());
+                        let ct = format!("image/{ext}");
+                        out.blobs
+                            .insert(key.clone(), Some(Blob::encode(Some(&ct), data)));
+                    }
+                }
                 if self.cells.get(&key) != v.as_ref() {
                     match &v {
                         Some(j) => self.cells.insert(key.clone(), j.clone()),
@@ -1078,6 +1245,32 @@ impl SheetCollab {
             }
             self.seen_wb = Some(wbs);
         }
+        let wbx = wb_entries(wb);
+        if self.seen_wbx.as_ref() != Some(&wbx) {
+            for (k, v) in &wbx {
+                put(&mut self.meta, &mut out, k.clone(), Some(v.clone()));
+            }
+            let gone: Vec<String> = self
+                .meta
+                .keys()
+                .filter(|k| is_wb_key(k) && !wbx.contains_key(*k))
+                .cloned()
+                .collect();
+            for k in gone {
+                put(&mut self.meta, &mut out, k, None);
+            }
+            self.seen_wbx = Some(wbx);
+        }
+        for p in &wb.opaque.parts {
+            let h = fingerprint(&p.data);
+            if self.parts.get(&p.name) != Some(&h) {
+                self.parts.insert(p.name.clone(), h);
+                out.blobs.insert(
+                    p.name.clone(),
+                    Some(Blob::encode(p.content_type.as_deref(), &p.data)),
+                );
+            }
+        }
         out
     }
 }
@@ -1297,7 +1490,7 @@ impl SheetEngine {
     /// client id (ids of new rows, columns and sheets).
     pub fn collab_start(&mut self, seed: bool, client: u64) -> Result<CollabChange> {
         let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
-        let mut c = SheetCollab::new(seed, client);
+        let mut c = SheetCollab::new(wb, seed, client);
         let ch = if seed {
             c.local_change(wb, true)
         } else {
@@ -1403,6 +1596,25 @@ impl SheetEngine {
         }
         let adjuster = self.adjuster;
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        // Pictures of cells and preserved parts (before the cells that use them).
+        for (k, v) in &change.blobs {
+            let Some((ct, data)) = v.as_deref().and_then(Blob::decode) else {
+                continue;
+            };
+            if k.starts_with("cellimg:") {
+                c.images.insert(k.clone(), data);
+                continue;
+            }
+            c.parts.insert(k.clone(), fingerprint(&data));
+            match wb.opaque.parts.iter_mut().find(|p| p.name == *k) {
+                Some(p) => p.data = data,
+                None => wb.opaque.parts.push(OpaquePart {
+                    name: k.clone(),
+                    content_type: ct,
+                    data,
+                }),
+            }
+        }
         if joining {
             if !c.meta.keys().any(|k| k.starts_with("sh:")) {
                 return Ok(());
@@ -1557,6 +1769,10 @@ impl SheetEngine {
                 cell.cm = sc.cm;
                 cell.vm = sc.vm;
                 cell.show_phonetic = sc.ph;
+                cell.image = sc.im.as_ref().and_then(|im| {
+                    let data = c.images.get(&im.k)?.clone();
+                    Some(Box::new(im.image(data)))
+                });
             }
             if let Some(j) = want_s {
                 cell.style = *style_memo
@@ -1755,6 +1971,11 @@ impl SheetEngine {
             {
                 wb.defined_names = e.names;
             }
+        }
+        if (joining && c.meta.keys().any(|k| is_wb_key(k)))
+            || change.meta.keys().any(|k| is_wb_key(k))
+        {
+            place_wb(&c.meta, wb);
         }
         if joining || change.meta.keys().any(|k| k.starts_with("pc")) {
             let host = c

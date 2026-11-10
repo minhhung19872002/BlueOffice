@@ -16,15 +16,21 @@
 //! * **definitions** (last writer wins per key): styles `st:<id>` (§17.7.4.17),
 //!   numbering of the opened file `nm:<numId>` / `an:<abstractNumId>` (§17.9),
 //!   comment metadata `cm:<id>` (author, date, thread, done; [MS-DOCX] §2.5.2),
-//!   document settings `doc` (`evenAndOddHeaders`, §17.10.1).
+//!   document settings `doc` (`evenAndOddHeaders`, §17.10.1); one key per
+//!   document-wide setting of the other kinds ([`Settings`]): `ds` page colour,
+//!   theme part and theme fonts (§17.2.1 background, §20.1.6.9 theme), `hy`
+//!   hyphenation (§17.15.1.10), `cx` custom XML parts (§15.2.4 / §15.2.5) and
+//!   `pt` the editing restriction (§17.15.1.29 documentProtection; absent = none).
 
 use super::{
     apply_entries, diff_cells, line_of, order, BuildCtx, CollabChange, DeltaBuilder, Entry,
     LineCtx, Seg, TextDelta, TextOp,
 };
+use bo_model::custom_xml::CustomXmlPart;
 use bo_model::{
-    AbstractNum, Block, CellProps, Comment, Document, HeaderFooter, Num, Paragraph, Row, RowProps,
-    Section, Style, Table, TableProps, Twips,
+    AbstractNum, Block, CellProps, Comment, DocDesign, DocProtection, Document, HeaderFooter,
+    Hyphenation, Num, Paragraph, Row, RowProps, Section, Style, Table, TableProps, ThemeFonts,
+    Twips,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -715,6 +721,76 @@ struct DocSettings {
     cn: Option<Vec<Block>>,
 }
 
+/// Document-wide settings shared one `meta` key each (last writer wins per key).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct Settings {
+    /// `ds`: page colour / theme part (§17.2.1, DrawingML §20.1.6.9) and theme fonts.
+    pub design: (DocDesign, ThemeFonts),
+    /// `hy`: §17.15.1.10 autoHyphenation and related settings.
+    pub hyphenation: Hyphenation,
+    /// `cx`: custom XML data parts (ECMA-376 Part 1, §15.2.4 / §15.2.5).
+    pub custom_xml: Vec<CustomXmlPart>,
+    /// `pt`: §17.15.1.29 documentProtection (`None`: no restriction).
+    pub protection: Option<DocProtection>,
+}
+
+/// `meta` keys of [`Settings`].
+const SETTING_KEYS: [&str; 4] = ["ds", "hy", "cx", "pt"];
+
+impl Settings {
+    pub fn of(doc: &Document) -> Settings {
+        Settings {
+            design: (doc.design.clone(), doc.theme_fonts.clone()),
+            hyphenation: doc.hyphenation,
+            custom_xml: doc.custom_xml.clone(),
+            protection: doc.protection.clone(),
+        }
+    }
+
+    fn entries(&self) -> [(&'static str, Option<String>); 4] {
+        [
+            ("ds", serde_json::to_string(&self.design).ok()),
+            ("hy", serde_json::to_string(&self.hyphenation).ok()),
+            ("cx", serde_json::to_string(&self.custom_xml).ok()),
+            (
+                "pt",
+                self.protection
+                    .as_ref()
+                    .and_then(|p| serde_json::to_string(p).ok()),
+            ),
+        ]
+    }
+
+    /// The settings `meta` says, starting from `doc`'s (`None`: no setting touched).
+    /// A key missing from `meta` keeps the document's value, except `pt` (no
+    /// restriction) once it was touched or for a late joiner (`all`).
+    fn rebuilt(
+        doc: &Document,
+        meta: &BTreeMap<String, String>,
+        touched: &BTreeSet<String>,
+        all: bool,
+    ) -> Option<Settings> {
+        if !all && !SETTING_KEYS.iter().any(|k| touched.contains(*k)) {
+            return None;
+        }
+        let mut s = Settings::of(doc);
+        let get = |k: &str| meta.get(k).map(String::as_str);
+        if let Some(v) = get("ds").and_then(|j| serde_json::from_str(j).ok()) {
+            s.design = v;
+        }
+        if let Some(v) = get("hy").and_then(|j| serde_json::from_str(j).ok()) {
+            s.hyphenation = v;
+        }
+        if let Some(v) = get("cx").and_then(|j| serde_json::from_str(j).ok()) {
+            s.custom_xml = v;
+        }
+        if all || touched.contains("pt") {
+            s.protection = get("pt").and_then(|j| serde_json::from_str(j).ok());
+        }
+        Some(s)
+    }
+}
+
 const HF_KINDS: [&str; 6] = ["hd", "hf", "he", "fd", "ff", "fe"];
 
 fn hf_slot<'a>(s: &'a Section, kind: &str) -> Option<&'a Vec<Block>> {
@@ -764,6 +840,7 @@ pub(crate) struct Seen {
     endnotes: Option<BTreeMap<i32, Vec<Block>>>,
     headers: Option<Vec<(HeaderFooter, HeaderFooter)>>,
     eo: Option<(bool, Option<Vec<Block>>)>,
+    settings: Option<Settings>,
 }
 
 impl Seen {
@@ -776,6 +853,7 @@ impl Seen {
         self.endnotes = Some(doc.endnotes.clone());
         self.headers = Some(headers_of(doc));
         self.eo = Some((doc.even_and_odd_headers, doc.continuation_notice.clone()));
+        self.settings = Some(Settings::of(doc));
     }
 }
 
@@ -964,6 +1042,13 @@ pub(crate) fn share_parts(
         set(meta, out, "doc".into(), j);
         seen.eo = Some(settings);
     }
+    let now = Settings::of(doc);
+    if seen.settings.as_ref() != Some(&now) {
+        for (k, v) in now.entries() {
+            set(meta, out, k.into(), v);
+        }
+        seen.settings = Some(now);
+    }
 }
 
 /// The parts as `meta` and the stories now say (`all` = rebuild everything,
@@ -978,6 +1063,8 @@ pub(crate) struct Rebuilt {
     /// Footnote continuation notice; `None` = not rebuilt (the inner `None` = no notice).
     #[allow(clippy::option_option)] // "not rebuilt" vs "rebuilt to no notice"
     pub notice: Option<Option<Vec<Block>>>,
+    /// Document-wide settings (`None`: not rebuilt).
+    pub settings: Option<Settings>,
 }
 
 fn by_prefix<'a>(
@@ -1097,6 +1184,7 @@ pub(crate) fn rebuild_parts(
         endnotes,
         eo,
         notice,
+        settings: Settings::rebuilt(doc, meta, touched, all),
     }
 }
 

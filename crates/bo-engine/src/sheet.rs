@@ -283,6 +283,9 @@ enum UndoEntry {
     },
     /// Whole workbook before a structural change (insert/delete rows, sort…).
     Workbook(Box<Workbook>),
+    /// Several entries undone as one step, in the order they were recorded
+    /// (a BlueScript run, CORE-SCRIPT-001).
+    Group(Vec<UndoEntry>),
 }
 
 /// The sheet engine.
@@ -1440,6 +1443,17 @@ impl SheetEngine {
     }
 
     fn apply(&mut self, e: UndoEntry) -> Result<UndoEntry> {
+        let e = match e {
+            // Undone newest first; the inverses replay oldest first.
+            UndoEntry::Group(list) => {
+                let mut inv = Vec::with_capacity(list.len());
+                for e in list.into_iter().rev() {
+                    inv.push(self.apply(e)?);
+                }
+                return Ok(UndoEntry::Group(inv));
+            }
+            e => e,
+        };
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         let mut touched: Option<(usize, Vec<(u32, u32)>)> = None;
         let inverse = match e {
@@ -1464,6 +1478,7 @@ impl SheetEngine {
                 self.invalidate(None);
                 UndoEntry::Workbook(Box::new(cur))
             }
+            UndoEntry::Group(_) => return Err(EngineError::Sheet("nested undo group".into())),
         };
         if let Some(wb) = self.wb.as_mut() {
             match touched {
@@ -1494,6 +1509,21 @@ impl SheetEngine {
         let inv = self.apply(e)?;
         self.undo.push(inv);
         Ok(true)
+    }
+
+    /// Number of undo steps.
+    #[must_use]
+    pub fn history_len(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// Joins the undo steps after the first `depth` into one; returns the length afterwards.
+    pub fn merge_history_since(&mut self, depth: usize) -> usize {
+        if self.undo.len() > depth + 1 {
+            let tail = self.undo.split_off(depth);
+            self.undo.push(UndoEntry::Group(tail));
+        }
+        self.undo.len()
     }
 
     /// Undo is available.

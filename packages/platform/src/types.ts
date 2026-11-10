@@ -646,6 +646,9 @@ export type EditCommand =
   | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
+  /** Undo history length → `count`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
+  | { cmd: 'historyLen' }
+  | { cmd: 'mergeHistory'; since: number }
   | { cmd: 'setSelection'; selection: Selection }
   | { cmd: 'click'; page: number; x: number; y: number; extend?: boolean; count?: number }
   | { cmd: 'dragTo'; page: number; x: number; y: number }
@@ -1601,6 +1604,9 @@ export type SlideCommand =
   /** The first master's theme as a `.thmx` → `design.themeFile` (base64). */
   | { cmd: 'saveThemeFile' }
   | { cmd: 'undo' | 'redo' }
+  /** Undo history length → `history`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
+  | { cmd: 'historyLen' }
+  | { cmd: 'mergeHistory'; since: number }
   /** New comment thread on the current slide, or a reply to thread `parent`. */
   | {
       cmd: 'addComment';
@@ -2130,6 +2136,8 @@ export interface SlideEditResult {
   layouts: { index: number; name: string; kind: string | null }[];
   preview?: SlidePreview;
   hits?: number[];
+  /** Undo history length (`historyLen`, `mergeHistory`). */
+  history?: number;
   error?: string;
   /** While collaborating: the change to share and the selected object key. */
   collab?: { change: CollabChange; shape?: string };

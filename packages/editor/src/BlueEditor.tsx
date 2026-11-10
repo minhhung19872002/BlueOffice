@@ -203,7 +203,9 @@ import {
   Pencil,
   Palette,
   MessageSquare,
+  SquareTerminal,
 } from 'lucide-react';
+import { docScriptHost, ScriptPane } from '@blueoffice/script';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
@@ -2195,6 +2197,13 @@ function EditorInner({
       isChecked: (s) => s.taskPanes.includes('styles'),
       run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'styles') }),
     });
+    // BlueScript pane (CORE-SCRIPT-001).
+    r.register({
+      id: 'script.editor',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.taskPanes.includes('script'),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'script') }),
+    });
     r.register({
       id: 'view.formattingMarks',
       shortcut: 'Ctrl+Shift+8',
@@ -3479,6 +3488,13 @@ function EditorInner({
             item('view.toggleLanguage', 'commands.view.toggleLanguage', <Languages size={ICON} />),
           ],
         },
+        {
+          id: 'automation',
+          label: t('ribbon.groups.automation'),
+          items: [
+            item('script.editor', 'commands.view.scriptEditor', <SquareTerminal size={ICON} />),
+          ],
+        },
       ],
     },
   ];
@@ -3615,6 +3631,22 @@ function EditorInner({
               closeTaskPane(id);
               focusDoc();
             }}
+          />
+        ),
+      });
+    } else if (id === 'script') {
+      paneDefs.push({
+        id,
+        title: t('script.title'),
+        icon: <SquareTerminal size={14} aria-hidden />,
+        content: (
+          <ScriptPane
+            app="doc"
+            host={() =>
+              store.getState().doc
+                ? docScriptHost({ run: runCommand, onEnd: () => focusDoc() })
+                : null
+            }
           />
         ),
       });

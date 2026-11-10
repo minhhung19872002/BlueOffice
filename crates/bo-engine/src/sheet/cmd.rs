@@ -1141,6 +1141,14 @@ pub enum SheetCommand {
         #[serde(default)]
         color: Option<String>,
     },
+    /// Number of undo steps → `{ history }` (CORE-SCRIPT-001).
+    HistoryLen,
+    /// Joins the undo steps after the first `since` into one (a BlueScript run is
+    /// one undo step, CORE-SCRIPT-001) → `{ history }`, the length afterwards.
+    MergeHistory {
+        /// History length before the steps to join.
+        since: usize,
+    },
     /// Several commands as one undo step (e.g. formatting every range of a
     /// multi-range selection); results are returned in order.
     Batch {
@@ -2190,6 +2198,8 @@ impl SheetEngine {
                 Ok(json!({ "ok": true }))
             }),
             C::Batch { cmds } => self.batch(cmds),
+            C::HistoryLen => Ok(json!({ "history": self.history_len() })),
+            C::MergeHistory { since } => Ok(json!({ "history": self.merge_history_since(since) })),
             C::GoalSeek {
                 sheet,
                 target,

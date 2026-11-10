@@ -92,7 +92,8 @@
       "views": "Views",
       "show": "Show",
       "mergeRules": "Fields & rules",
-      "mergeCreate": "Create"
+      "mergeCreate": "Create",
+      "automation": "Automation"
     },
     "comingLater": "Coming in a later release"
   },
@@ -223,7 +224,8 @@
       "focus": "Focus",
       "navigationPane": "Navigation pane",
       "stylesPane": "Styles pane",
-      "formattingMarks": "Formatting marks"
+      "formattingMarks": "Formatting marks",
+      "scriptEditor": "BlueScript editor"
     },
     "review": {
       "readAloud": "Read aloud",
@@ -5401,6 +5403,41 @@
       "hint": "The top object is listed first; Ctrl+click to add to the selection.",
       "forward": "Bring forward",
       "backward": "Send backward"
+    }
+  },
+  "script": {
+    "title": "BlueScript",
+    "run": "Run",
+    "runHint": "Run the script (Ctrl+Enter)",
+    "stop": "Stop",
+    "save": "Save",
+    "delete": "Delete",
+    "newScript": "New script",
+    "savedList": "Saved scripts",
+    "name": "Script name",
+    "untitled": "Untitled script",
+    "savedAs": "Saved “{{name}}”.",
+    "code": "Script code",
+    "suggestions": "Suggestions",
+    "output": "Output",
+    "clear": "Clear output",
+    "noDocument": "Open a file first.",
+    "status": {
+      "running": "Running…",
+      "done": "Done in {{ms}} ms ({{calls}} API calls)."
+    },
+    "error": {
+      "syntax": "Syntax error",
+      "error": "Script error",
+      "timeout": "Stopped: the time limit was reached.",
+      "memory": "Stopped: the memory limit was reached.",
+      "cancelled": "Stopped.",
+      "limit": "Stopped: too many API calls."
+    },
+    "sample": {
+      "doc": "// BlueScript – automate BlueDoc. Ctrl+Space: suggestions, Ctrl+Enter: run.\nconst paras = await doc.paragraphs;\nconsole.log('Paragraphs:', paras.length);\nconst hits = await doc.find('BlueOffice');\nconsole.log('Matches:', hits.length);\n",
+      "sheet": "// BlueScript – automate BlueSheet. Ctrl+Space: suggestions, Ctrl+Enter: run.\nconst r = sheet.range('A1:B3');\nconsole.log(await r.values);\n// await r.format({ bold: true });\n",
+      "slide": "// BlueScript – automate BlueSlide. Ctrl+Space: suggestions, Ctrl+Enter: run.\nfor (const s of await presentation.slides) {\n  const shapes = await s.shapes;\n  console.log('Slide', s.index + 1, shapes.map((x) => x.text).filter(Boolean));\n}\n"
     }
   }
 }

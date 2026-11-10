@@ -185,7 +185,9 @@ import {
   MessageSquareText,
   Shapes,
   Volume2,
+  SquareTerminal,
 } from 'lucide-react';
+import { ScriptPane, slideScriptHost } from '@blueoffice/script';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimationPane } from './AnimationPane';
 import { SelectionPane } from './SelectionPane';
@@ -527,6 +529,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [checkOpen, setCheckOpen] = useState(false);
   /** Version history / compare versions pane (CORE-VERSION-001). */
   const [versionsOpen, setVersionsOpen] = useState(false);
+  /** BlueScript pane (CORE-SCRIPT-001). */
+  const [scriptOpen, setScriptOpen] = useState(false);
   /** Selection pane: the slide's objects in z-order (CORE-UI-006). */
   const [selectionOpen, setSelectionOpen] = useState(false);
   // Task pane layout of BlueSlide, remembered per app (CORE-UI-006).
@@ -1851,6 +1855,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => versionsOpen,
       run: async () => setVersionsOpen((o) => !o),
     });
+    reg.register({
+      id: 'script.editor',
+      isEnabled: deck,
+      isChecked: () => scriptOpen,
+      run: async () => setScriptOpen((o) => !o),
+    });
     for (const [id, preset] of [
       ['insert.rect', 'rect'],
       ['insert.ellipse', 'ellipse'],
@@ -2022,6 +2032,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     selectionOpen,
     commentsOpen,
     versionsOpen,
+    scriptOpen,
     newChart,
     openSmartArt,
     openChart,
@@ -2915,6 +2926,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             ],
           },
           sectionsGroup(t, item),
+          {
+            id: 'automation',
+            label: t('ribbon.groups.automation'),
+            items: [
+              item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
+            ],
+          },
         ],
       },
     ];
@@ -3531,11 +3549,31 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(scriptOpen
+                ? [
+                    {
+                      id: 'script',
+                      title: t('script.title'),
+                      icon: <SquareTerminal size={14} aria-hidden />,
+                      content: (
+                        <ScriptPane
+                          app="slide"
+                          host={() =>
+                            count > 0
+                              ? slideScriptHost({ run: runResult, onEnd: focusSlide })
+                              : null
+                          }
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
             ]}
             onClose={(id) => {
               if (id === 'selection') setSelectionOpen(false);
               else if (id === 'animation') setPaneOpen(false);
               else if (id === 'comments') setCommentsOpen(false);
+              else if (id === 'script') setScriptOpen(false);
               else setVersionsOpen(false);
             }}
             labels={taskPaneLabels(t)}

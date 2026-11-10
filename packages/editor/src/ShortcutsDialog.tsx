@@ -361,5 +361,5 @@ export function useCustomShortcuts<S>({
       }}
     />
   ) : null;
-  return { element, version, map };
+  return { element, version, map, apply };
 }

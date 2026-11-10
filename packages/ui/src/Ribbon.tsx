@@ -32,6 +32,8 @@ import {
 } from './ribbonContext';
 import { setRibbonPrefs, toggleRibbonCollapsed, useRibbonPrefs } from './ribbonMode';
 import { KeyTipsLayer } from './KeyTipsLayer';
+import { ContextMenu, type MenuLine } from './ContextMenu';
+import { applyRibbonCustomization, type RibbonCustomization } from './ribbonCustomize';
 
 export interface RibbonItem {
   /** Command id from the command registry (e.g. `file.open`). */
@@ -138,6 +140,30 @@ export interface RibbonProps {
   keyTips?: boolean;
   /** KeyTip codes by id (`tab:<id>`, `file`, command ids) replacing the derived ones. */
   keyTipOverrides?: Readonly<Record<string, string>>;
+  /**
+   * The user's customisation (CORE-UI-005), applied over `tabs` (contextual tabs unchanged);
+   * `resolveItem` supplies commands of custom groups that no ribbon tab has.
+   */
+  customization?: RibbonCustomization | null;
+  resolveItem?: (id: string) => RibbonItem | undefined;
+  /** Right-click menu of the ribbon (customise ribbon / Quick Access Toolbar). */
+  customizeMenu?: RibbonCustomizeMenu;
+}
+
+export interface RibbonCustomizeMenu {
+  labels: {
+    /** Accessible name of the menu. */
+    menu: string;
+    customizeRibbon: string;
+    customizeQat: string;
+    addToQat: string;
+    removeFromQat: string;
+  };
+  onCustomizeRibbon: () => void;
+  onCustomizeQat: () => void;
+  /** The command is on the Quick Access Toolbar. */
+  inQat: (id: string) => boolean;
+  onToggleQat: (id: string) => void;
 }
 
 export interface RibbonFileMenu {
@@ -536,7 +562,7 @@ const handledKeys = new WeakSet<Event>();
  * tab's commands over the document when the tab is clicked.
  */
 export function Ribbon({
-  tabs,
+  tabs: builtTabs,
   value,
   onValueChange,
   trailing,
@@ -547,7 +573,14 @@ export function Ribbon({
   fileMenu,
   keyTips = true,
   keyTipOverrides,
+  customization,
+  resolveItem,
+  customizeMenu,
 }: RibbonProps) {
+  const [menu, setMenu] = useState<{ x: number; y: number; command?: string } | null>(null);
+  const tabs = customization
+    ? applyRibbonCustomization(builtTabs, customization, resolveItem)
+    : builtTabs;
   // Measured widths survive re-renders; the map is mutated in layout effects only.
   const [cache] = useState<WidthCache>(() => new Map());
   const prefs = useRibbonPrefs();
@@ -687,6 +720,19 @@ export function Ribbon({
         data-collapsed={collapsed ? 'true' : undefined}
         value={active}
         onValueChange={select}
+        onContextMenu={
+          customizeMenu
+            ? (e) => {
+                const t = e.target;
+                if (t instanceof Element && t.closest('input, textarea, select')) return;
+                e.preventDefault();
+                const el =
+                  t instanceof Element ? t.closest<HTMLElement>('button[data-command]') : null;
+                const command = el?.dataset.launcher ? undefined : el?.dataset.command;
+                setMenu({ x: e.clientX, y: e.clientY, command });
+              }
+            : undefined
+        }
       >
         <div className={styles.tabStrip}>
           {fileMenu && (
@@ -788,8 +834,42 @@ export function Ribbon({
           </div>
         )}
       </Tabs.Root>
+      {menu && customizeMenu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label={customizeMenu.labels.menu}
+          testId="context-menu-ribbon"
+          onClose={() => setMenu(null)}
+          items={customizeLines(customizeMenu, menu.command)}
+        />
+      )}
     </Tooltip.Provider>
   );
+}
+
+function customizeLines(m: RibbonCustomizeMenu, command: string | undefined): MenuLine[] {
+  const lines: MenuLine[] = [];
+  if (command) {
+    const has = m.inQat(command);
+    lines.push(
+      {
+        id: has ? 'ribbon.removeFromQat' : 'ribbon.addToQat',
+        label: has ? m.labels.removeFromQat : m.labels.addToQat,
+        onSelect: () => m.onToggleQat(command),
+      },
+      { separator: true },
+    );
+  }
+  lines.push(
+    {
+      id: 'options.customizeRibbon',
+      label: m.labels.customizeRibbon,
+      onSelect: m.onCustomizeRibbon,
+    },
+    { id: 'options.customizeQat', label: m.labels.customizeQat, onSelect: m.onCustomizeQat },
+  );
+  return lines;
 }
 
 /** Ribbon strings from the shared i18n keys (`ribbon.mode.*`, `ribbon.context.*`). */

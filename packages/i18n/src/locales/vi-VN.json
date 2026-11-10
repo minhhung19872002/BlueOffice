@@ -385,7 +385,9 @@
       "saveCopy": "Lưu bản sao sổ làm việc nhúng"
     },
     "options": {
-      "shortcuts": "Tùy biến phím tắt…"
+      "shortcuts": "Tùy biến phím tắt…",
+      "customizeRibbon": "Tùy biến ribbon…",
+      "customizeQat": "Tùy biến thanh truy cập nhanh…"
     }
   },
   "status": {
@@ -6018,5 +6020,49 @@
     "cameraName": "Camera",
     "inkName": "Nét vẽ",
     "preview": "Xem trước camera"
+  },
+  "customize": {
+    "title": "Tùy biến ribbon",
+    "titleQat": "Tùy biến thanh truy cập nhanh",
+    "pageRibbon": "Ribbon",
+    "pageQat": "Thanh truy cập nhanh",
+    "menu": "Tùy biến",
+    "addToQat": "Thêm vào thanh truy cập nhanh",
+    "removeFromQat": "Xóa khỏi thanh truy cập nhanh",
+    "search": "Tìm lệnh",
+    "filter": "Lọc theo tab",
+    "allTabs": "Mọi lệnh",
+    "commands": "Các lệnh",
+    "ribbonTree": "Tab, nhóm và lệnh của ribbon",
+    "qatList": "Lệnh trên thanh truy cập nhanh",
+    "add": "Thêm »",
+    "remove": "« Xóa",
+    "newTab": "Tab mới",
+    "newGroup": "Nhóm mới",
+    "newTabLabel": "Tab mới (Tùy chỉnh)",
+    "newGroupLabel": "Nhóm mới (Tùy chỉnh)",
+    "rename": "Đổi tên…",
+    "renameLabel": "Tên mới",
+    "ok": "OK",
+    "cancel": "Huỷ",
+    "up": "Chuyển lên",
+    "down": "Chuyển xuống",
+    "expand": "Mở rộng / thu gọn",
+    "show": "Hiện {{name}}",
+    "custom": "(Tùy chỉnh)",
+    "resetTab": "Đặt lại tab",
+    "resetAll": "Đặt lại tất cả",
+    "resetQat": "Đặt lại thanh",
+    "below": "Hiện thanh truy cập nhanh bên dưới ribbon",
+    "export": "Xuất…",
+    "import": "Nhập…",
+    "close": "Đóng",
+    "exported": "Đã xuất ribbon, thanh truy cập nhanh và phím tắt.",
+    "exportFailed": "Không xuất được tệp.",
+    "imported": "Đã nhập ribbon, thanh truy cập nhanh và phím tắt.",
+    "importedIgnored": "Đã nhập. Bỏ qua {{count}} lệnh không có trong ứng dụng này: {{ids}}",
+    "importInvalid": "Tệp không phải cấu hình tùy biến BlueOffice.",
+    "importWrongApp": "Tệp cấu hình này dành cho ứng dụng khác.",
+    "importNewer": "Tệp được tạo bởi phiên bản BlueOffice mới hơn."
   }
 }

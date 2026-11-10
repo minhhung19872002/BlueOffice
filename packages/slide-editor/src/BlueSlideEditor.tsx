@@ -41,6 +41,7 @@ import {
   shortcutCommands,
   useContextMenu,
   useCustomShortcuts,
+  useRibbonCustomization,
   type OpenContextMenu,
 } from '@blueoffice/editor';
 import { slideReadRequest } from './readAloud';
@@ -96,6 +97,7 @@ import {
   CommandSearch,
   StatusBar,
   TitleBar,
+  QuickAccessBar,
   useCommandSearchShortcut,
   usePictureTools,
   useResolvedTheme,
@@ -2774,6 +2776,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     open: shortcutsShown,
     onOpenChange: setShortcutsShown,
   });
+  // The user's ribbon and Quick Access Toolbar (CORE-UI-005).
+  const ribbonCustom = useRibbonCustomization({
+    app: 'slide',
+    registry,
+    store: platform.shell,
+    files: platform.files,
+    tabs: () => ribbonTabsRef.current,
+    extraCommands: () => shortcutCommands([], registry, (id) => commandLabel(i18n, id)),
+    shortcuts,
+    enabled: (id) => registry.isEnabled(id, state),
+    run: (id) => exec(id),
+  });
   const shortcutsVersion = shortcuts.version;
   const ribbonTabs: RibbonTab[] = useMemo(() => {
     // Rebuilt when the user's shortcuts change (tooltips show them).
@@ -3755,30 +3769,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             shortcut: 'Alt+Q',
             onOpen: () => setSearchOpen(true),
           }}
-          quickAccess={(
-            [
-              ['file.save', 'commands.file.save'],
-              ['edit.undo', 'commands.edit.undo'],
-              ['edit.redo', 'commands.edit.redo'],
-            ] as const
-          )
-            .map(([id, key]) => ({
-              id: id as string,
-              label: t(key),
-              shortcut: registry.get(id)?.shortcut,
-              enabled: registry.isEnabled(id, state),
-              onSelect: () => exec(id),
-            }))
-            .concat(
-              scriptBindings.quickAccess.map((sc) => ({
-                id: `script.run.${sc.id}`,
-                icon: 'script.run',
-                label: t('script.runBound', { name: sc.name }),
-                shortcut: sc.shortcut,
-                enabled: count > 0,
-                onSelect: () => exec(`script.run.${sc.id}`),
-              })),
-            )}
+          quickAccess={
+            ribbonCustom.below
+              ? []
+              : ribbonCustom.quickAccess(
+                  [...ribbonTabs, ...extraTabs],
+                  scriptBindings.quickAccess.map((sc) => ({
+                    id: `script.run.${sc.id}`,
+                    icon: 'script.run',
+                    label: t('script.runBound', { name: sc.name }),
+                    shortcut: sc.shortcut,
+                    enabled: count > 0,
+                    onSelect: () => exec(`script.run.${sc.id}`),
+                  })),
+                )
+          }
         />
       )}
       {picture.dialogs}
@@ -3795,6 +3800,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {shortcuts.element}
+      {ribbonCustom.element}
       <CommandSearch
         tabs={[...ribbonTabs, ...extraTabs]}
         open={searchOpen}
@@ -3815,6 +3821,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             open: backstage,
             onOpen: () => setBackstage(true),
           }}
+          {...ribbonCustom.ribbonProps()}
           // Contextual tabs come and go with the selection; the ribbon falls back by itself.
           value={ribbonTab}
           onValueChange={(v) => {
@@ -3822,6 +3829,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             // The pane belongs to the Transitions / Animations tabs.
             if ((v === 'transitions' || v === 'animations') && view === 'normal') setPaneOpen(true);
           }}
+        />
+      )}
+      {ribbonCustom.below && view !== 'show' && view !== 'presenter' && (
+        <QuickAccessBar
+          below
+          label={ribbonCustom.qatLabel}
+          items={ribbonCustom.quickAccess([...ribbonTabs, ...extraTabs])}
         />
       )}
       <FileBackstage

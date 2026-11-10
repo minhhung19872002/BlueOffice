@@ -34,7 +34,18 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 - [x] **UI-FRAME-001** (P0) Component `AppFrame` dùng chung: thanh tiêu đề 40px (icon app, truy cập nhanh, tên tài liệu + trạng
   thái lưu, khu phải: cộng tác, Bình luận, Chia sẻ, tài khoản), hàng tab, thân ribbon, vùng làm việc, thanh trạng thái 24px.
   *Xong khi:* 3 app dùng chung khung; test unit vai trò ARIA landmark; E2E đo chiều cao. **Đã có:** `TitleBar` (`packages/ui`, `<header>` 40px trên dải màu nhấn `--bo-app-accent-strong`: dấu app, thanh truy cập nhanh Lưu/Hoàn tác/Làm lại từ registry, tên tài liệu + trạng thái lưu, chỗ cho ô tìm lệnh và nút bên phải), hàng thẻ ribbon nối cùng dải màu nhấn, icon ribbon theo màu nhấn app, `StatusBar` 24px nền `--bo-surface-2`; dùng ở cả BlueDoc/BlueSheet/BlueSlide (ẩn khi trình chiếu); test `titlebar.test.tsx`, E2E `ui-frame.spec.ts` (chiều cao, màu nhấn từng app, hoàn tác từ thanh truy cập nhanh). Ô tìm lệnh: UI-FRAME-003; avatar cộng tác/Chia sẻ/tài khoản trong khung: theo từng app khi có.
-- [ ] **UI-FRAME-002** (P1) Thanh truy cập nhanh tùy biến (thêm/bớt lệnh, nhớ theo người dùng). *Xong khi:* test thêm/bớt.
+- [x] **UI-FRAME-002** (P1) Thanh truy cập nhanh tùy biến (thêm/bớt lệnh, nhớ theo người dùng). *Xong khi:* test thêm/bớt.
+  **Đã có (CORE-UI-005):** hộp thoại "Tùy biến ribbon" (`RibbonCustomizeDialog` + `useRibbonCustomization`, `packages/editor`;
+  mở từ Tệp › Tùy chọn — lệnh `options.customizeRibbon` / `options.customizeQat` — hoặc chuột phải trên ribbon): trái là mọi lệnh
+  của app (tìm, lọc theo tab), phải là cây tab → nhóm → lệnh: tab/nhóm tùy chỉnh, đổi tên, sắp xếp (nút ↑/↓ + kéo thả), ẩn tab/nhóm
+  có sẵn (không xoá được, chỉ ẩn), bỏ lệnh khỏi nhóm tùy chỉnh, đặt lại một tab / tất cả; trang Thanh truy cập nhanh: thêm/bớt/sắp
+  xếp, hiện bên dưới ribbon (`QuickAccessBar below`); chuột phải một lệnh ribbon → "Thêm vào / Xóa khỏi thanh truy cập nhanh".
+  Mô hình `ribbonCustomize.ts` (`packages/ui`): chỉ lưu phần khác (thứ tự, id ẩn, nhãn mới, tab/nhóm của người dùng) nên tab/nhóm/
+  lệnh app thêm sau vẫn hiện đúng chỗ; tab ngữ cảnh không đổi; `Ribbon` nhận `customization` (KeyTips và chế độ đơn giản theo cây đã
+  tùy biến). Lưu theo người dùng, theo app (`blueoffice.ribbon.<app>`, cùng cơ chế phím tắt); xuất/nhập một tệp JSON
+  `blueoffice-customization` (version 1: ribbon + thanh truy cập nhanh + phím tắt; nhận cả tệp phím tắt cũ; lệnh không có trong app
+  bị bỏ qua kèm thông báo; từ chối tệp app khác / phiên bản mới hơn). Test `ui/test/ribbonCustomize.test.tsx`,
+  `editor/test/ribbon-customization.test.tsx`, E2E `ribbon-customize.spec.ts`.
 - [x] **UI-FRAME-003** (P0) Ô tìm lệnh Ctrl+Q / Alt+Q: tìm trong registry (nhãn, từ khóa, không dấu), chạy lệnh, gợi ý tìm
   trong tài liệu. *Xong khi:* unit test xếp hạng; E2E định dạng chữ bằng ô tìm lệnh. **Đã có:** `CommandSearch` + `searchRank` (`packages/ui`): lệnh lấy từ ribbon (một lần mỗi id, bỏ control tuỳ biến), xếp hạng đầu nhãn > đầu từ > chứa > mọi từ trong nhãn/đường dẫn/id, bỏ dấu tiếng Việt (đ → d), lệnh bật trước lệnh tắt; Ctrl+Q / Alt+Q và ô trên thanh tiêu đề ở cả 3 app; ↑/↓/Enter/Esc, ARIA combobox/listbox; test `command-search.test.tsx`, E2E `ui-frame.spec.ts` (Alt+Q → "dam" → Enter in đậm; mở từ thanh tiêu đề BlueSheet). **CORE-UI-003:** trước khi gõ hiện "Dùng gần đây" (lệnh đã chạy từ ô tìm, nhớ theo trình duyệt), sau kết quả là "Lệnh liên quan" (lệnh cùng nhóm ribbon với kết quả đầu; `relatedCommands`). Gợi ý tìm trong tài liệu/trợ giúp: chưa có.
 - [ ] **UI-FRAME-004** (P1) Thanh trạng thái theo app (trang/từ, ngôn ngữ, ô chọn + thống kê, chế độ xem, thanh trượt zoom),

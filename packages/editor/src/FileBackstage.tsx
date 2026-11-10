@@ -113,6 +113,8 @@ const COMMAND_LABELS: Record<string, string> = {
   'review.language': 'backstage.options.proofingLanguage',
   'file.checkUpdates': 'commands.file.checkUpdates',
   'options.shortcuts': 'commands.options.shortcuts',
+  'options.customizeRibbon': 'commands.options.customizeRibbon',
+  'options.customizeQat': 'commands.options.customizeQat',
 };
 
 /** Commands of each page, in order (the ones the app registers are shown). */
@@ -153,6 +155,8 @@ export const BACKSTAGE_COMMANDS: Record<
     'review.spellingDialog',
     'review.language',
     'options.shortcuts',
+    'options.customizeRibbon',
+    'options.customizeQat',
     'file.checkUpdates',
   ],
 };

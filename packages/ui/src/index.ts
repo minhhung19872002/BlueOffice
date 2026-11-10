@@ -16,8 +16,43 @@ export {
   type RibbonLauncher,
   type RibbonFileMenu,
   type RibbonProps,
+  type RibbonCustomizeMenu,
   type RibbonTab,
 } from './Ribbon';
+export {
+  addCustomGroup,
+  addCustomTab,
+  addGroupCommand,
+  applyRibbonCustomization,
+  compactCustomization,
+  customizationTree,
+  DEFAULT_QAT,
+  isCustomId,
+  isEmptyCustomization,
+  mergeOrder,
+  moveGroupCommand,
+  moveNode,
+  nodeKey,
+  qatAdd,
+  qatCommands,
+  qatMove,
+  qatRemove,
+  removeCustomNode,
+  removeGroupCommand,
+  renameNode,
+  resetTab,
+  ribbonItems,
+  sanitizeCustomization,
+  sanitizeQat,
+  setNodeHidden,
+  type CustomGroup,
+  type CustomTab,
+  type QatCustomization,
+  type RibbonCustomization,
+  type RibbonNode,
+  type TreeGroup,
+  type TreeTab,
+} from './ribbonCustomize';
 export {
   arrangeTabs,
   decideActiveTab,
@@ -90,7 +125,13 @@ export {
   type SymbolBlock,
   type SymbolEntry,
 } from './symbols/catalog';
-export { TitleBar, type QuickAccessItem, type SaveState, type TitleBarProps } from './TitleBar';
+export {
+  QuickAccessBar,
+  TitleBar,
+  type QuickAccessItem,
+  type SaveState,
+  type TitleBarProps,
+} from './TitleBar';
 export {
   CommandSearch,
   isCommandSearchKey,

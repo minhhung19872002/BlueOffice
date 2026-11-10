@@ -2104,6 +2104,11 @@ pub struct PivotCache {
     /// `calculatedItems` (§18.10.1.9) of the cache definition.
     #[serde(default)]
     pub calculated_items: Vec<PivotCalcItem>,
+    /// Built from the workbook data model (BlueOffice definitions part): written without
+    /// `refreshOnLoad`, so that other software keeps the records instead of rebuilding them
+    /// from `worksheetSource`.
+    #[serde(default)]
+    pub model: bool,
 }
 
 /// A cache field (§18.10.1.3 `cacheField`).

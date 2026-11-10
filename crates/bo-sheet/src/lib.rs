@@ -21,6 +21,7 @@ pub mod cf_manage;
 pub mod chart;
 pub mod chart_style;
 pub mod color;
+pub mod datamodel;
 pub mod datatools;
 pub mod diff;
 pub mod errcheck;

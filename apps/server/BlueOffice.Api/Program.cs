@@ -7,6 +7,7 @@ using BlueOffice.Api.Common;
 using BlueOffice.Api.Files;
 using BlueOffice.Api.Dictation;
 using BlueOffice.Api.Jobs;
+using BlueOffice.Api.Rest;
 using BlueOffice.Api.Scripts;
 using BlueOffice.Api.Sessions;
 using BlueOffice.Api.Signing;
@@ -54,6 +55,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 // Infrastructure (DB, object store, job queue, host clients, webhooks) + auth.
 builder.Services.AddBlueOfficeInfrastructure(config);
 builder.Services.AddBlueOfficeAuth(config, builder.Environment);
+
+// Document REST API for other systems (CORE-API-001): off unless RestApi:Enabled (docs/deploy/rest-api.md).
+builder.Services.AddRestApi(config);
 builder.Services.AddBlueOfficeHealth(config);
 if (config.GetValue("Otel:Enabled", true))
 {
@@ -159,6 +163,9 @@ app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSecond
 app.UseAuthentication();
 app.UseAuthorization();
 
+// After authorization: REST API limits are per API key / user.
+app.UseRateLimiter();
+
 app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains(HealthAndTelemetry.ReadyTag) });
 
@@ -196,6 +203,7 @@ app.MapPost("/api/convert/pdf", async (IFormFile file, IDocumentConverter conver
 
 app.MapFileEndpoints();
 app.MapJobEndpoints();
+app.MapRestApi();
 app.MapSessionEndpoints();
 app.MapScriptScheduleEndpoints();
 app.MapHostBrowseEndpoints();

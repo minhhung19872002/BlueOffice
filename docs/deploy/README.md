@@ -3,7 +3,8 @@
 Tài liệu cho quản trị viên hệ thống. Sao lưu: [backup.md](backup.md) · Nâng cấp: [upgrade.md](upgrade.md) ·
 An toàn thông tin (hồ sơ cấp độ): [security.md](security.md) ·
 Giao thức tích hợp BlueDrive: [../bohp.md](../bohp.md) · Ký số (ký từ xa, dấu thời gian, USB token, Root CA):
-[remote-signing.md](remote-signing.md) · Dịch văn bản (mặc định tắt): [translation.md](translation.md) ·
+[remote-signing.md](remote-signing.md) · REST API cho hệ thống khác (mặc định tắt): [rest-api.md](rest-api.md) ·
+Dịch văn bản (mặc định tắt): [translation.md](translation.md) ·
 Đọc chính tả (mặc định tắt): [dictation.md](dictation.md).
 
 ## 1. Thành phần
@@ -141,6 +142,7 @@ Thêm `http://tauri.localhost` (Windows/Linux) và `tauri://localhost` (macOS) v
 | `Jobs__Concurrency`, `WORKER_REPLICAS` | Số job song song mỗi worker / số worker |
 | `BoCli__Timeout` | Thời gian tối đa một lần chạy `bo-cli` (mặc định 60 s) |
 | `BoCli__AllowedExtensions__N` | Định dạng đầu vào của `/convert` `/thumbnail` `/preview` `/extract-text` (mặc định docx, docm, doc, odt, txt, md, xlsx, xlsm, xlsb, xls, ods, pptx, ppt, odp) |
+| `RestApi__Enabled`, `RestApi__Keys__N__*`, `RestApi__MaxUploadBytes`, `RestApi__RateLimit__*` | REST API tài liệu `/api/v1` cho hệ thống khác: bật, khoá API (chỉ lưu SHA-256) + scope, giới hạn kích thước và tần suất ([rest-api.md](rest-api.md)) |
 | `Webhooks__MaxAttempts`, `Webhooks__RetryBaseDelay` | Số lần gửi webhook (mặc định 3, thử lại khi lỗi mạng/5xx/429) và độ trễ gốc (1 s → 1 s, 4 s) |
 | `Hosts__N__SignIn__*`, `Hosts__N__DisplayName` | Đăng nhập SSO của màn hình Start desktop và tên hiển thị host |
 | `Otel__Endpoint` | OTLP collector (trace + metric), để trống nếu không dùng |

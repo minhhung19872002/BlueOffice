@@ -83,6 +83,17 @@ public sealed class FakeRunner : IBoCliRunner
                     1 => new ProcessResult(0, """{"commands":[{"op":"glyphs","y":10,"text":"Trang 2"}]}""", ""),
                     _ => new ProcessResult(1, "", $"error: page {page + 1} out of range"),
                 };
+
+            case "merge":
+                // REST API: the output is a zip (one file per record) or one merged document.
+                await File.WriteAllBytesAsync(Out(), Out().EndsWith(".zip", StringComparison.Ordinal) ? "PK fake zip"u8.ToArray() : "%PDF-1.7 merged"u8.ToArray(), ct);
+                return new ProcessResult(0, "3 records", "");
+            case "edit":
+                // REST API: one edit applied, one that matched nothing (the report bo-cli prints).
+                await File.WriteAllBytesAsync(Out(), "%PDF-1.7 edited"u8.ToArray(), ct);
+                return new ProcessResult(0, """[{"op":"setControl","target":"ho_ten","count":1},{"op":"setBookmark","target":"KhongCo","count":0}]""", "");
+            case "inspect":
+                return new ProcessResult(0, """{"format":"docx","variant":"docm","encrypted":false,"opened":true,"macros":true,"kind":"document","paragraphs":3}""", "");
             default:
                 return new ProcessResult(1, "", "unknown");
         }

@@ -122,7 +122,8 @@
       "customWatermark": "Custom watermark…",
       "removeWatermark": "Remove watermark",
       "themes": "Themes",
-      "styleSets": "Paragraph spacing"
+      "styleSets": "Paragraph spacing",
+      "ideas": "Design suggestions"
     },
     "file": {
       "open": "Open file",
@@ -188,7 +189,8 @@
       "styleTitle": "Title",
       "styleHeading1": "Heading 1",
       "styleHeading2": "Heading 2",
-      "painter": "Format Painter"
+      "painter": "Format Painter",
+      "quickAnalysis": "Quick analysis"
     },
     "insert": {
       "table": "Table",
@@ -220,7 +222,8 @@
       "coverPage": "Cover page",
       "saveBlock": "Save selection as building block…",
       "blocksOrganizer": "Building Blocks Organizer…",
-      "autoText": "Insert the block named before the caret"
+      "autoText": "Insert the block named before the caret",
+      "chartRecommended": "Recommended charts"
     },
     "layout": {
       "margins": "Margins",
@@ -6997,6 +7000,112 @@
       "bodyOnly": "Close the header, footer, note or text box first: building blocks go into the main text.",
       "badFile": "The building blocks file could not be read.",
       "failed": "The building block could not be changed."
+    }
+  },
+  "designIdeas": {
+    "command": "Design suggestions",
+    "group": "Suggestions",
+    "title": "Design suggestions",
+    "loading": "Preparing layouts…",
+    "empty": "Nothing to arrange on this slide yet. Add a title, text, pictures, a chart or a table and layouts will appear here.",
+    "masterView": "Close the master view to use design suggestions.",
+    "intro": "Click a layout to apply it; your content stays as it is.",
+    "apply": "Apply layout {{n}}",
+    "kind": {
+      "titleOnly": "Title only",
+      "section": "Title slide or section",
+      "bullets": "Title and text",
+      "longText": "Long text",
+      "pictures": "Pictures",
+      "visual": "Chart, table or graphic"
+    }
+  },
+  "quickAnalysis": {
+    "button": "Quick analysis",
+    "title": "Quick analysis of the selection",
+    "loading": "Looking at the data…",
+    "close": "Close",
+    "tabs": {
+      "formatting": "Formatting",
+      "charts": "Charts",
+      "totals": "Totals",
+      "tables": "Tables",
+      "sparklines": "Sparklines"
+    },
+    "tabHint": {
+      "formatting": "Highlight the numbers with conditional formatting.",
+      "charts": "Charts that suit this data, best first.",
+      "totals": "Add a row or column of totals next to the selection.",
+      "tables": "Turn the data into a table or summarise it in a pivot table.",
+      "sparklines": "Small charts in the column right of each row."
+    },
+    "fmt": {
+      "dataBar": "Data bars",
+      "colorScale": "Colour scale",
+      "iconSet": "Icon set",
+      "greaterThan": "Above average",
+      "top10": "Top 10 %",
+      "clear": "Clear formats"
+    },
+    "fmtHint": {
+      "dataBar": "A bar in each cell, as long as its value.",
+      "colorScale": "Cell colours from low (red) through middle (yellow) to high (green).",
+      "iconSet": "Arrows showing high, middle and low values.",
+      "greaterThan": "Highlight the values above the average.",
+      "top10": "Highlight the highest 10 % of the values.",
+      "clear": "Remove the conditional formats of the selection."
+    },
+    "charts": {
+      "none": "There are no numbers to chart in the selection."
+    },
+    "reason": {
+      "trend": "Shows how the values change over time.",
+      "compare": "Compares the values of a few categories.",
+      "parts": "Shows how the parts make up the whole.",
+      "relationship": "Shows how two sets of numbers relate.",
+      "manyCategories": "Compares many categories or long labels.",
+      "hierarchy": "Shows the groups and their parts.",
+      "composition": "Compares totals and what they are made of.",
+      "default": "A general-purpose chart."
+    },
+    "recommended": {
+      "command": "Recommended charts",
+      "title": "Recommended charts",
+      "hint": "Pick a chart for the selected data; point at one to see why it is suggested."
+    },
+    "totals": {
+      "rows": {
+        "sum": "Sum row",
+        "average": "Average row",
+        "count": "Count row",
+        "percent": "% of total row",
+        "running": "Running total row"
+      },
+      "cols": {
+        "sum": "Sum column",
+        "average": "Average column",
+        "count": "Count column",
+        "percent": "% of total column",
+        "running": "Running total column"
+      },
+      "label": {
+        "sum": "Total",
+        "average": "Average",
+        "count": "Count",
+        "percent": "% of total",
+        "running": "Running total"
+      },
+      "notFree": "The cells next to the selection are not empty; clear them first.",
+      "noNumbers": "The selection has no numbers to total."
+    },
+    "tables": {
+      "table": "Table",
+      "pivot": "Pivot table"
+    },
+    "spark": {
+      "line": "Line",
+      "column": "Column",
+      "stacked": "Win/loss"
     }
   }
 }

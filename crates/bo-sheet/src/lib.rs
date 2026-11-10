@@ -19,6 +19,7 @@ pub mod cf;
 pub mod cf_draw;
 pub mod cf_manage;
 pub mod chart;
+pub mod chart_recommend;
 pub mod chart_style;
 pub mod color;
 pub mod datamodel;

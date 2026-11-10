@@ -199,12 +199,15 @@ describe('BlueSlide master commands', () => {
     expect(tabs[1]!.groups.map((g) => g.id)).toEqual([
       'designThemes',
       'designVariants',
+      'designIdeas',
       'designCustomize',
       'designLayouts',
     ]);
     expect(tabs[1]!.groups[0]!.items[0]!.label).toBe('Bến cảng');
+    // Design suggestions (CORE-DESIGN-001) open their pane through the command registry.
+    expect(tabs[1]!.groups[2]!.items[0]!.id).toBe('design.ideas');
     // Applying a layout to the current slide.
-    tabs[1]!.groups[3]!.items[1]!.onSelect();
+    tabs[1]!.groups[4]!.items[1]!.onSelect();
     fireEvent.input(screen.getByTestId('design-background'), { target: { value: '#ff8800' } });
     fireEvent.change(screen.getByTestId('design-background'), { target: { value: '#ff8800' } });
     expect(sent[0]).toEqual({ cmd: 'applyLayout', layout: 1, slides: [3] });

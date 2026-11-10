@@ -207,6 +207,7 @@ import {
   LayoutGrid,
   RotateCcw,
   ArrowDownUp,
+  Zap,
 } from 'lucide-react';
 import { SplitPane } from './SplitPane';
 import {
@@ -288,6 +289,7 @@ import {
   type SheetPasteChoice,
 } from './pasteOptions';
 import { AnalysisDialog } from './analysis';
+import { QuickAnalysis, RecommendedChartsDialog } from './quickAnalysis';
 import {
   ConsolidateDialog,
   InvalidCircles,
@@ -667,6 +669,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [selRect, setSelRect] = useState<Rect | null>(null);
   const [activeRect, setActiveRect] = useState<Rect | null>(null);
   const [status, setStatus] = useState('');
+  // Quick Analysis panel and Insert › Recommended charts (CORE-DESIGN-001).
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [recommendOpen, setRecommendOpen] = useState(false);
   /** Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = no notice). */
   const [legacyNotice, setLegacyNotice] = useState(0);
   const [stats, setStats] = useState<(RangeStats & { key: string }) | null>(null);
@@ -1298,6 +1303,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
     },
     [host, refreshInfo, fail],
+  );
+
+  /** Runs a read-only command (no refresh). */
+  const query = useCallback(
+    <T,>(cmd: SheetCommand): Promise<T | null> => exec<T>(cmd, false),
+    [exec],
   );
 
   // Get & Transform data (SHEET-PQ-001): ribbon actions, query editor, Queries pane.
@@ -2505,6 +2516,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
+    add('insert.chartRecommended', async () => setRecommendOpen(true), has);
+    // Quick Analysis of a multi-cell selection (CORE-DESIGN-001).
+    add('format.quickAnalysis', async () => setQuickOpen((o) => !o), {
+      isEnabled: (s) => {
+        const sel = rangeOf(s.selection);
+        return s.hasWorkbook && (sel.r0 !== sel.r1 || sel.c0 !== sel.c1);
+      },
+    });
     // SmartArt (CORE-SMART-005): the BlueSlide layout library over cells from the active one.
     add(
       'insert.smartart',
@@ -4019,6 +4038,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('sheetEditor.groupCharts'),
             items: [
               item('insert.chart', t('sheetEditor.chart.insert'), <ChartColumn size={18} />),
+              item(
+                'insert.chartRecommended',
+                t('quickAnalysis.recommended.command'),
+                <ChartColumn size={16} />,
+                'small',
+              ),
+              item('format.quickAnalysis', t('quickAnalysis.button'), <Zap size={16} />, 'small'),
               item('insert.smartart', t('slideEditor.smartart.button'), <Network size={18} />),
               item('insert.sparklines', t('sparkline.insert'), <ChartSpline size={18} />),
               item(
@@ -4900,6 +4926,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         return [];
     }
   };
+  /** Inserts a chart of `kind` over the selection and selects it (recommended charts). */
+  const insertChartKind = (kind: string) => {
+    setQuickOpen(false);
+    void exec<{ index: number }>({ cmd: 'insertChart', sheet, range: toRange(r), kind }).then(
+      (res) => {
+        if (res) setChart(res.index);
+      },
+    );
+  };
   const pickMenu = (kind: string, id: string) => {
     const range = toRange(r);
     if (kind === 'borders') void borderSel({ preset: id as BorderPreset, style: 'thin' });
@@ -5213,6 +5248,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     }}
                   />
                 </div>
+              )}
+              {selRect && chart === null && !edit && (r.r0 !== r.r1 || r.c0 !== r.c1) && (
+                <QuickAnalysis
+                  sheet={sheet}
+                  range={toRange(r)}
+                  anchor={{ x: selRect.x + selRect.w, y: selRect.y + selRect.h }}
+                  exec={exec}
+                  query={query}
+                  insertChart={insertChartKind}
+                  runCommand={(id) => run(id)}
+                  onNotice={setStatus}
+                  open={quickOpen}
+                  onOpenChange={setQuickOpen}
+                />
               )}
               {chart !== null && chartBox && (
                 <div
@@ -6282,6 +6331,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}
+      {recommendOpen && (
+        <RecommendedChartsDialog
+          sheet={sheet}
+          range={toRange(r)}
+          query={query}
+          onInsert={insertChartKind}
+          onClose={() => {
+            setRecommendOpen(false);
+            focusInput();
+          }}
+        />
+      )}
       {smartArtDialog && (
         <SmartArtDialog
           mode={smartArtDialog.mode}

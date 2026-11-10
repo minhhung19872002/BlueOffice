@@ -339,6 +339,7 @@ import {
   type RecordOptions,
 } from './recordTools';
 import { SlideCanvas } from './SlideCanvas';
+import { DesignIdeasPane } from './designIdeas';
 import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
@@ -738,6 +739,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
   /** Selection pane: the slide's objects in z-order (CORE-UI-006). */
   const [selectionOpen, setSelectionOpen] = useState(false);
+  // Design suggestions pane (CORE-DESIGN-001).
+  const [designOpen, setDesignOpen] = useState(false);
   // Task pane layout of BlueSlide, remembered per app (CORE-UI-006).
   const [paneLayout, setPaneLayout] = useTaskPaneLayout('slide');
   /** Slide size dialog and master / layout rename dialog (SLIDE-MASTER-001). */
@@ -2072,6 +2075,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => selectionOpen,
       run: () => setSelectionOpen((o) => !o),
     });
+    reg.register({
+      id: 'design.ideas',
+      isEnabled: deck,
+      isChecked: () => designOpen,
+      run: () => setDesignOpen((o) => !o),
+    });
 
     // Transitions (§19.3.1.50) and animations (§19.5).
     for (const k of RIBBON_TRANSITIONS) {
@@ -2756,6 +2765,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setup,
     paneOpen,
     selectionOpen,
+    designOpen,
     commentsOpen,
     notesShown,
     stageZoom,
@@ -4554,6 +4564,24 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             layout={paneLayout}
             onLayout={setPaneLayout}
             panes={[
+              ...(designOpen && count > 0
+                ? [
+                    {
+                      id: 'designIdeas',
+                      title: t('designIdeas.title'),
+                      icon: <Sparkles size={14} aria-hidden />,
+                      content: (
+                        <DesignIdeasPane
+                          glyphs={glyphs}
+                          images={images}
+                          slide={shown}
+                          revision={revision(shown)}
+                          run={runResult}
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
               ...(selectionOpen && count > 0
                 ? [
                     {

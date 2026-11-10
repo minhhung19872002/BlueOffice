@@ -46,6 +46,7 @@ export * from './slideShow';
 export * from './slideInk';
 export * from './slideModel3d';
 export * from './slideZoom';
+export * from './designIdeas';
 export {
   WebCodecsVideo,
   VIDEO_CODECS,

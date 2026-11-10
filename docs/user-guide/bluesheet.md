@@ -179,6 +179,16 @@ Các loại biểu đồ tạo được:
 > **Hạn chế:** chưa có biểu đồ chứng khoán kèm khối lượng; chưa có biểu đồ bản đồ; biểu đồ mở rộng (thác nước, bản
 > đồ cây…) chưa có nhãn dữ liệu và chưa nhận kiểu / màu nhanh.
 
+- **Biểu đồ đề xuất:** xếp hạng các loại biểu đồ hợp với dữ liệu đã chọn (theo thời gian → đường; vài nhóm →
+  cột, một dãy số dương ít nhóm → tròn; hai cột số → phân tán; nhiều nhóm hoặc nhãn dài → thanh ngang; nhiều cột
+  nhãn → bản đồ cây / hình nắng), có ảnh xem trước; trỏ vào để xem lý do.
+- **Phân tích nhanh:** khi chọn nhiều ô, nút nhỏ ở góc dưới phải vùng chọn mở các thẻ **Định dạng** (thanh dữ
+  liệu, thang màu, bộ biểu tượng, trên trung bình, 10 % cao nhất, xóa định dạng), **Biểu đồ** (biểu đồ đề xuất),
+  **Tổng** (hàng / cột tổng, trung bình, đếm, % tổng, lũy kế — một bước **Hoàn tác**; các ô bên cạnh phải trống),
+  **Bảng** (bảng, bảng tổng hợp) và **Biểu đồ nhỏ** (đường, cột, thắng/thua).
+
+> **Hạn chế:** thẻ Định dạng chưa xem trước trực tiếp trên ô khi trỏ chuột (chỉ có mô tả).
+
 ### SmartArt, Biểu đồ thu nhỏ, Ảnh trong ô, Ô đánh dấu
 
 - **SmartArt:** chèn sơ đồ; cách dùng giống BlueDoc ([bluedoc.md](bluedoc.md#smartart)).

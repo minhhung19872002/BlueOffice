@@ -18,6 +18,7 @@ pub mod clip;
 pub mod collab;
 pub mod comments;
 pub mod connect;
+pub mod designer;
 pub mod effects;
 pub mod freeform;
 pub mod geom;
@@ -1272,6 +1273,9 @@ pub struct SlideEditResult {
     /// The selected zoom (SLIDE-ZOOM-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zoom: Option<zoom::ZoomOut>,
+    /// Answer of `designIdeas` (CORE-DESIGN-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design_ideas: Option<designer::DesignIdeasOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -3596,6 +3600,14 @@ impl Engine {
             let r = self.slide_ole_command(oc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        // Design suggestions (CORE-DESIGN-001).
+        if let Some(dc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| designer::DesignCommand::parse(&v))
+        {
+            let r = self.slide_design_command(dc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| picture::PictureCommand::parse(&v))
@@ -5081,6 +5093,7 @@ impl Engine {
                 [one] => zoom::zoom_out(pres, slide, one.id),
                 _ => None,
             },
+            design_ideas: None,
         })
     }
 }

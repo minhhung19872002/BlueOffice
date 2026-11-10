@@ -19,8 +19,10 @@ function fromBase64(b64: string): Uint8Array {
 
 /** A file name for a presentation titled `title`. */
 export function deckFileName(title: string): string {
-  const base = title
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ')
+  // Characters not allowed in file names, and control characters.
+  const base = [...title]
+    .map((c) => (c.charCodeAt(0) < 0x20 || '\\/:*?"<>|'.includes(c) ? ' ' : c))
+    .join('')
     .replace(/\s+/g, ' ')
     .trim();
   return `${base || 'album'}.pptx`;

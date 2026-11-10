@@ -139,7 +139,13 @@ function fakeEngine(options: { bad?: string[]; titleLayout?: boolean } = {}) {
   let nextId = 10;
   const history: string[] = [];
   const log: SlideCommand[] = [];
-  const box = (cx: number, cy: number, w: number, h: number): SlideBox => ({ cx, cy, w, h, rot: 0 });
+  const box = (cx: number, cy: number, w: number, h: number): SlideBox => ({
+    cx,
+    cy,
+    w,
+    h,
+    rot: 0,
+  });
   const shape = (kind: Shape['kind'], rect: SlideBox, more: Partial<Shape> = {}): Shape => ({
     id: nextId++,
     name: '',
@@ -359,10 +365,7 @@ describe('album builder', () => {
 });
 
 describe('photo album dialog', () => {
-  const open = (
-    files: AlbumPicture[][],
-    more: { canAppend?: boolean; unsaved?: boolean } = {},
-  ) => {
+  const open = (files: AlbumPicture[][], more: { canAppend?: boolean; unsaved?: boolean } = {}) => {
     const onCreate = vi.fn<(r: AlbumRequest) => void>();
     const onClose = vi.fn();
     const pick = vi.fn(async () => files.shift() ?? []);
@@ -496,7 +499,13 @@ describe('slides from outline dialog', () => {
       { level: 0, text: 'Thiết kế' },
     ];
     render(
-      <OutlineDialog t={t} name="dan-y.docx" entries={entries} onClose={onClose} onInsert={onInsert} />,
+      <OutlineDialog
+        t={t}
+        name="dan-y.docx"
+        entries={entries}
+        onClose={onClose}
+        onInsert={onInsert}
+      />,
     );
     expect(screen.getByRole('dialog', { name: 'Slide từ dàn ý' })).toBeTruthy();
     expect(screen.getByText('Tệp: dan-y.docx')).toBeTruthy();
@@ -627,6 +636,24 @@ describe('reuse slides pane', () => {
     expect(selected()).toEqual([true, true, true]);
     fireEvent.keyDown(list, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('keeps plain keys inside but lets shortcuts (save, undo) reach the editor', () => {
+    open();
+    const seen: string[] = [];
+    const onKey = (e: KeyboardEvent) => seen.push(`${e.ctrlKey ? 'Ctrl+' : ''}${e.key}`);
+    window.addEventListener('keydown', onKey);
+    try {
+      const list = screen.getByRole('listbox');
+      fireEvent.keyDown(list, { key: 'Delete' });
+      fireEvent.keyDown(list, { key: 'ArrowDown' });
+      fireEvent.keyDown(list, { key: 'a', ctrlKey: true });
+      fireEvent.keyDown(list, { key: 's', ctrlKey: true });
+      fireEvent.keyDown(screen.getByTestId('reuse-open'), { key: 'z', ctrlKey: true });
+      expect(seen).toEqual(['Ctrl+s', 'Ctrl+z']);
+    } finally {
+      window.removeEventListener('keydown', onKey);
+    }
   });
 
   it('cannot insert without an open presentation', () => {

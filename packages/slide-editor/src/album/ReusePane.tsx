@@ -1,5 +1,5 @@
 import type { SlideReuseSource } from '@blueoffice/platform';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import styles from './album.module.css';
 
 type T = (key: string, opts?: Record<string, unknown>) => string;
@@ -49,11 +49,13 @@ export function ReusePane({
   const list = useRef<HTMLUListElement>(null);
   const count = source?.slides.length ?? 0;
 
-  // Another file: nothing is selected yet.
-  useEffect(() => {
+  // Another file: nothing is selected yet (state reset while rendering).
+  const [shown, setShown] = useState(source);
+  if (shown !== source) {
+    setShown(source);
     setPicked(new Set());
     setFocus(0);
-  }, [source]);
+  }
 
   const toggle = (i: number) =>
     setPicked((old) => {
@@ -82,6 +84,9 @@ export function ReusePane({
       aria-label={embedded ? undefined : t('slideEditor.reuse.title')}
       data-testid="reuse-pane"
       onKeyDown={(e) => {
+        // Plain keys stay in the pane (they would move or delete shapes); shortcuts
+        // with a modifier (save, undo, …) still reach the editor.
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
         e.stopPropagation();
         if (e.key === 'Escape') {
           e.preventDefault();
@@ -135,6 +140,7 @@ export function ReusePane({
                 setPicked(new Set(source.slides.map((_, i) => i)));
               else return;
               e.preventDefault();
+              e.stopPropagation();
             }}
           >
             {source.slides.map((s, i) => (
@@ -154,7 +160,11 @@ export function ReusePane({
                 onDoubleClick={() => insert([i])}
               >
                 {s.png ? (
-                  <img className={styles.slideThumb} src={`data:image/png;base64,${s.png}`} alt="" />
+                  <img
+                    className={styles.slideThumb}
+                    src={`data:image/png;base64,${s.png}`}
+                    alt=""
+                  />
                 ) : (
                   <span className={styles.slideThumbEmpty} aria-hidden />
                 )}

@@ -184,7 +184,7 @@ export function decodeText(bytes: Uint8Array): string {
 /** Outline of indented text (see the module docs). A leading list mark (`-`, `*`, `•`) is dropped. */
 export function textOutline(text: string): OutlineEntry[] {
   const lines = text
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .split(/\r\n|\r|\n/)
     .map((raw) => {
       const indent = /^[\t ]*/.exec(raw)?.[0] ?? '';

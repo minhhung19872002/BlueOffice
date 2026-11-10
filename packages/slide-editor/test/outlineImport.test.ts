@@ -174,7 +174,7 @@ describe('text outline', () => {
     ]);
     // "Đề\n\tý" in UTF-16LE: U+0110 U+1EC1 U+000A U+0009 U+00FD.
     const le = new Uint8Array([0xff, 0xfe, 0x10, 0x01, 0xc1, 0x1e, 0x0a, 0, 0x09, 0, 0xfd, 0]);
-    expect(decodeText(le).replace(/^﻿/, '')).toBe('Đề\n\tý');
+    expect(decodeText(le).replace(/^\uFEFF/, '')).toBe('Đề\n\tý');
     expect(await outlineOfFile('b.txt', le)).toEqual([
       { level: 0, text: 'Đề' },
       { level: 1, text: 'ý' },

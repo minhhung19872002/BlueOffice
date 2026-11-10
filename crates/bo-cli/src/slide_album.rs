@@ -137,7 +137,10 @@ fn photos(base: &[(&'static str, Vec<u8>)], png: &[u8]) -> Option<Vec<u8>> {
     // 5 % margin, 3 % gap, two columns (the UI's "two pictures" layout).
     let (m, gap) = (sw * 0.05, sw * 0.03);
     let cw = (sw - 2.0 * m - gap) / 2.0;
-    let cells = [(m, m, cw, sh - 2.0 * m), (m + cw + gap, m, cw, sh - 2.0 * m)];
+    let cells = [
+        (m, m, cw, sh - 2.0 * m),
+        (m + cw + gap, m, cw, sh - 2.0 * m),
+    ];
     let pictures = [
         ("Bãi biển.png", Frame::Rect),
         ("Núi rừng.png", Frame::Rounded),
@@ -151,7 +154,10 @@ fn photos(base: &[(&'static str, Vec<u8>)], png: &[u8]) -> Option<Vec<u8>> {
         place(&mut e, png, name, cells[i % 2], Some(caption), *frame)?;
     }
     run(&mut e, r#"{"cmd":"select","ids":[]}"#)?;
-    run(&mut e, &format!(r#"{{"cmd":"mergeHistory","since":{since}}}"#))?;
+    run(
+        &mut e,
+        &format!(r#"{{"cmd":"mergeHistory","since":{since}}}"#),
+    )?;
     e.save_pptx().ok()
 }
 
@@ -301,8 +307,13 @@ mod tests {
         }
         // Captions: one text box per picture with the file name.
         let text = bo_engine::slide_edit::clip::plain_text(&p.slides[1].data.shapes);
-        assert!(text.contains("Bãi biển") && text.contains("Núi rừng"), "{text}");
-        assert!(bo_engine::slide_edit::clip::plain_text(&p.slides[2].data.shapes).contains("Phố cổ"));
+        assert!(
+            text.contains("Bãi biển") && text.contains("Núi rừng"),
+            "{text}"
+        );
+        assert!(
+            bo_engine::slide_edit::clip::plain_text(&p.slides[2].data.shapes).contains("Phố cổ")
+        );
     }
 
     #[test]
@@ -327,13 +338,20 @@ mod tests {
             Frame::Rounded,
         )
         .expect("place");
-        run(&mut e, &format!(r#"{{"cmd":"mergeHistory","since":{since}}}"#)).expect("merge");
+        run(
+            &mut e,
+            &format!(r#"{{"cmd":"mergeHistory","since":{since}}}"#),
+        )
+        .expect("merge");
         let r = run(&mut e, r#"{"cmd":"undo"}"#).expect("undo");
         assert_eq!(r["canUndo"], false);
         assert_eq!(e.presentation().expect("deck"), &before);
         // Redo brings the whole album back.
         run(&mut e, r#"{"cmd":"redo"}"#).expect("redo");
-        assert_eq!(e.presentation().expect("deck").slides.len(), before.slides.len() + 1);
+        assert_eq!(
+            e.presentation().expect("deck").slides.len(),
+            before.slides.len() + 1
+        );
     }
 
     // source: ECMA-376 Part 1, §21.1.2.2.7 pPr@lvl.
@@ -344,7 +362,10 @@ mod tests {
         let o = bo_engine::slide_edit::outline::outline(&p);
         assert_eq!(o[1].title, "Tổng quan");
         let bullets = |i: usize| -> Vec<(String, u8)> {
-            o[i].bullets.iter().map(|b| (b.text.clone(), b.level)).collect()
+            o[i].bullets
+                .iter()
+                .map(|b| (b.text.clone(), b.level))
+                .collect()
         };
         assert_eq!(
             bullets(1),
@@ -385,13 +406,23 @@ mod tests {
         // The pictures slide took this deck's design; the two text slides brought theirs.
         assert_eq!(p.masters.len(), target.masters.len() + 1);
         assert_eq!(p.themes.len(), target.themes.len() + 1);
-        assert_eq!(pictures(&p.slides[1]).len(), pictures(&read("slide-images-crop.pptx").slides[0]).len());
+        assert_eq!(
+            pictures(&p.slides[1]).len(),
+            pictures(&read("slide-images-crop.pptx").slides[0]).len()
+        );
         assert!(p.slides[1].layout < target.layouts.len());
         for i in [2, 3] {
             let l = &p.layouts[p.slides[i].layout];
             assert!(p.slides[i].layout >= target.layouts.len());
-            assert!(l.data.name.as_deref().is_some_and(|n| n.ends_with("(nguồn)")));
-            assert_eq!(p.themes[p.masters[l.master].theme].name.as_deref(), Some("Nguồn"));
+            assert!(l
+                .data
+                .name
+                .as_deref()
+                .is_some_and(|n| n.ends_with("(nguồn)")));
+            assert_eq!(
+                p.themes[p.masters[l.master].theme].name.as_deref(),
+                Some("Nguồn")
+            );
         }
         let src = read("slide-text-bullets.pptx");
         let text = |p: &bo_model::slide::Presentation, i: usize| {

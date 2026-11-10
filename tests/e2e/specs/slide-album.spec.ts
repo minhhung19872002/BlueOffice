@@ -168,7 +168,7 @@ test('photo album from three pictures: order, captions, one undo step, saved', a
 
   // Two slides after the first one; the editor shows the album's first slide.
   await expect(page.getByTestId('slide-status')).toHaveText('Slide 2 / 5');
-  await expect(page.getByTestId('thumb-4')).toBeVisible();
+  await expect(page.getByTestId('thumb-5')).toBeVisible();
 
   // The whole album is one undo step.
   await command(page, 'Trang đầu', 'edit.undo');
@@ -198,7 +198,7 @@ test('photo album from three pictures: order, captions, one undo step, saved', a
   // The pictures keep their proportions (pho-co.png is 120 × 40).
   const ext = /<p:pic>.*?<a:ext cx="(\d+)" cy="(\d+)"\/>/s.exec(two)!;
   expect(Number(ext[1]) / Number(ext[2])).toBeCloseTo(3, 2);
-  await page.getByTestId('thumb-1').click();
+  await page.getByTestId('thumb-2').click();
   await expect(page.getByTestId('slide-status')).toHaveText('Slide 2 / 5');
   expect(errors).toEqual([]);
 });
@@ -350,7 +350,7 @@ test('reuse two slides of another presentation, keeping their formatting; saved'
   await expect(page.getByTestId('reuse-insert')).toHaveText('Chèn slide đã chọn (2)');
   await page.getByTestId('reuse-insert').click();
   await expect(page.getByTestId('slide-status')).toHaveText('Slide 2 / 4');
-  await expect(page.getByTestId('thumb-3')).toBeVisible();
+  await expect(page.getByTestId('thumb-4')).toBeVisible();
 
   // One undo step for both slides.
   await command(page, 'Trang đầu', 'edit.undo');

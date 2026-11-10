@@ -23,8 +23,8 @@ pub fn new_deck(title: &str) -> crate::Result<Vec<u8>> {
         }],
         title: Some(title.to_owned()).filter(|t| !t.is_empty()),
     };
-    let bytes = bo_pptx::build::build_pptx(&spec)
-        .map_err(|e| crate::EngineError::Format(e.to_string()))?;
+    let bytes =
+        bo_pptx::build::build_pptx(&spec).map_err(|e| crate::EngineError::Format(e.to_string()))?;
     let mut pres = bo_pptx::read_pptx(&bytes)?;
     // The title slide gets the placeholders of its layout.
     if let Some(first) = pres.slides.first().cloned() {

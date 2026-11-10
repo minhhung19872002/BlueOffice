@@ -127,7 +127,10 @@ fn reuse_open_lists_slides_with_titles_and_thumbnails() {
             .unwrap();
         // PNG signature (ISO/IEC 15948, §5.2) and the requested width in IHDR.
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
-        assert_eq!(u32::from_be_bytes([png[16], png[17], png[18], png[19]]), 120);
+        assert_eq!(
+            u32::from_be_bytes([png[16], png[17], png[18], png[19]]),
+            120
+        );
     }
     // Listing changes nothing in the open deck.
     assert!(!run(&mut e, r#"{"cmd":"state"}"#).can_undo);

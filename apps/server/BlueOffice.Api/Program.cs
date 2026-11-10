@@ -62,6 +62,7 @@ builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<SessionService>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<CommentMentionService>();
 builder.Services.AddSingleton<LocalHostStorage>();
 builder.Services.Configure<CollabOptions>(config.GetSection("Collab"));
 builder.Services.AddSingleton(sp => CollabLogStore.Create(sp, config));

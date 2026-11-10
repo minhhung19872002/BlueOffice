@@ -98,6 +98,10 @@ public static class DependencyInjection
         services.AddSingleton<HostWebhookDispatcher>();
         services.AddSingleton<IHostNotifier>(sp => sp.GetRequiredService<HostWebhookDispatcher>());
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<HostWebhookDispatcher>());
+
+        // SMTP relay (section Mail; disabled while Mail:SmtpHost / Mail:From are empty).
+        services.Configure<Mail.MailOptions>(config.GetSection("Mail"));
+        services.TryAddSingleton<Mail.IMailSender, Mail.SmtpMailSender>();
         return services;
     }
 }

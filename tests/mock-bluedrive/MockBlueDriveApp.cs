@@ -334,6 +334,56 @@ public static class MockBlueDriveApp
             }
         });
 
+        // ---------------------------------------------------------------- BOHP §A3 people + comment notifications
+        bohp.MapGet("/files/{id}/people", async (string id, string? q, int? limit, HttpRequest req, MockState s) =>
+        {
+            var (_, error) = await s.AuthorizeAsync(req, id, p => p.View);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            lock (s)
+            {
+                // Everyone with access to the file (owner + shared), matched on name or e-mail.
+                var f = s.Get(id);
+                var query = (q ?? "").Trim();
+                var people = s.Users.Keys
+                    .Where(u => u != "bluedrive-service" && (u == f.OwnerId || f.PermsOf(u).View))
+                    .Where(u => query.Length == 0
+                        || s.Users[u].Contains(query, StringComparison.OrdinalIgnoreCase)
+                        || s.EmailOf(u).Contains(query, StringComparison.OrdinalIgnoreCase)
+                        || u == query)
+                    .Take(Math.Clamp(limit ?? 10, 1, 50))
+                    .Select(u => new { id = u, name = s.Users[u], email = s.EmailOf(u), avatarUrl = (string?)null })
+                    .ToList();
+                return Results.Ok(new { people });
+            }
+        });
+        bohp.MapPost("/files/{id}/notifications", async (string id, HttpRequest req, MockState s) =>
+        {
+            var (user, error) = await s.AuthorizeAsync(req, id, p => p.View);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            var body = await new StreamReader(req.Body, Encoding.UTF8).ReadToEndAsync();
+            lock (s)
+            {
+                s.Notifications.Add(new NotificationRecord(id, user!, body));
+            }
+
+            return Results.Accepted();
+        });
+        app.MapGet("/_admin/notifications", (MockState s) =>
+        {
+            lock (s)
+            {
+                return Results.Ok(s.Notifications.ToList());
+            }
+        });
+
         // ---------------------------------------------------------------- BOHP §A2 browsing (user tokens without `fid`)
         bohp.MapGet("/me", async (HttpRequest req, MockState s) =>
         {
@@ -455,6 +505,9 @@ public static class MockBlueDriveApp
         return ms.ToArray();
     }
 }
+
+/// <summary>A comment notification received from BlueOffice (<c>Body</c> = raw JSON).</summary>
+public sealed record NotificationRecord(string FileId, string CallerId, string Body);
 
 /// <summary>POST /_admin/token.</summary>
 public sealed record TokenRequest(string UserId, string? FileId, int? TtlSeconds);
@@ -717,6 +770,12 @@ public sealed class MockState
         ["u3"] = "Lê Văn Cường",
         ["bluedrive-service"] = "BlueDrive",
     };
+
+    /// <summary>E-mail address of a user (people directory, BOHP §A3).</summary>
+    public string EmailOf(string user) => $"{user}@drive.mock";
+
+    /// <summary>Comment notifications received (BOHP §A3).</summary>
+    public List<NotificationRecord> Notifications { get; } = [];
 
     /// <summary>Files.</summary>
     public Dictionary<string, MockFile> Files { get; } = [];

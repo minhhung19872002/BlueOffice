@@ -90,6 +90,28 @@ Access token nhận được là token BOHP của người dùng. Không cấu h
 `/_admin/folders` tạo thư mục; `/_admin/webhooks/fail {"count","status"}` làm webhook thất bại N lần (thử retry);
 bản ghi webhook có `signatureValid` (chữ ký + timestamp ±5 phút) và `attempt`.
 
+## A3. Người dùng để @nhắc tên + thông báo bình luận (tuỳ chọn; CORE-COMMENT-001)
+
+Gọi bằng token của phiên (token có `fid` của file được phép). Host không cài (404/405/501) → bộ chọn người chỉ có những
+người đang cộng tác, không gửi gì cho host. WOPI không có phần này.
+
+| Method & path | Mô tả | Thành công | Lỗi |
+|---|---|---|---|
+| `GET /files/{id}/people?q=&limit=` | Người có thể nhắc tên trong file (thường là người có quyền trên file), khớp `q` theo tên / e-mail | 200 `{"people":[{"id","name","email","avatarUrl"}]}` | 401, 403, 404 |
+| `POST /files/{id}/notifications` | Bình luận mới nhắc tên / giao việc; host tự gửi (trong ứng dụng, push, e-mail) | 2xx | 401, 403, 404 |
+
+Body thông báo: `{"type":"mention"|"task","commentId","text","from":{"id","name"},"to":[{"id","name","email"}],"fileName","app":"doc"|"sheet"|"slide"}`
+(`task`: người nhận được giao việc; `text` rút gọn 500 ký tự).
+
+Phía BlueOffice (header `X-Session-Token`): `GET /api/sessions/{id}/people?q=&limit=` → `{"people":[{"id","name","email","avatarUrl","source":"host"|"collaborator"}]}`
+(host + người đang có phiên trên cùng file, tối đa 20); `POST /api/sessions/{id}/mentions`
+`{"commentId","text","mentions":[{"id","name"}],"assignee":{"id","name"}?,"app"}` → `{"recipients","host":"sent"|"unsupported"|"failed"|"none","emails"}`
+(cần quyền `comment` hoặc `edit`). Server chỉ tin `id`: người nhận được tra lại qua `GET …/people` của host (hoặc là người cộng tác),
+e-mail lấy từ host chứ không từ editor; tác giả và id lạ bị bỏ qua. E-mail chỉ gửi khi cấu hình SMTP (`Mail:SmtpHost`, `Mail:From`;
+xem `docs/comment-mentions.md`), không cấu hình thì không gửi gì.
+
+**Mock**: `/people` trả chủ file + người được chia sẻ, e-mail `<id>@drive.mock`; thông báo nhận được xem ở `GET /_admin/notifications`.
+
 ## B. Mở editor
 
 - Iframe: `GET https://office.<domain>/edit?host=bluedrive&file={id}&token={jwt}` → JSON `SessionInfo`

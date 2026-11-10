@@ -250,3 +250,36 @@ public sealed class HostConflictException(string reason, string? currentVersion,
 /// <summary>The operation is not offered by this protocol.</summary>
 public sealed class HostNotSupportedException(string operation)
     : HostException(501, $"Operation '{operation}' is not supported by this host.");
+
+/// <summary>A person who can be @mentioned in a comment (BOHP §A3 <c>GET /files/{id}/people</c>).</summary>
+public sealed record HostPerson(string Id, string Name, string? Email, string? AvatarUrl);
+
+/// <summary>Comment notification sent to a host (BOHP §A3 <c>POST /files/{id}/notifications</c>).</summary>
+/// <param name="Type"><c>mention</c> or <c>task</c> (the recipient was assigned a task).</param>
+/// <param name="CommentId">Id of the comment in the file.</param>
+/// <param name="Text">Comment text (shortened).</param>
+/// <param name="From">Author of the comment.</param>
+/// <param name="To">Recipients.</param>
+/// <param name="FileName">Name of the file.</param>
+/// <param name="App"><c>doc</c>, <c>sheet</c> or <c>slide</c>.</param>
+public sealed record HostCommentNotification(
+    string Type,
+    string CommentId,
+    string Text,
+    HostUser From,
+    IReadOnlyList<HostPerson> To,
+    string FileName,
+    string? App);
+
+/// <summary>
+/// Optional people directory + notifications of a host (BOHP §A3; CORE-COMMENT-001). WOPI has neither: the people
+/// picker then only offers the current collaborators and nothing is sent to the host.
+/// </summary>
+public interface IHostPeople
+{
+    /// <summary>People the user can mention on the file whose name or e-mail contains <paramref name="query"/>.</summary>
+    Task<IReadOnlyList<HostPerson>> SearchPeopleAsync(HostCallContext ctx, string fileId, string query, int limit, CancellationToken ct);
+
+    /// <summary>Delivers a comment notification (in-app / push / e-mail, as the host decides).</summary>
+    Task NotifyAsync(HostCallContext ctx, string fileId, HostCommentNotification notification, CancellationToken ct);
+}

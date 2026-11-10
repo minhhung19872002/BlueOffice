@@ -10,7 +10,7 @@ namespace BlueOffice.Infrastructure.Hosts;
 /// Client of the BlueOffice Host Protocol (docs/bohp.md). BOHP maps 1:1 onto <see cref="IHostStorage"/> (§A) and
 /// <see cref="IHostBrowser"/> (§A2, optional browsing endpoints).
 /// </summary>
-public interface IBohpClient : IHostStorage, IHostBrowser;
+public interface IBohpClient : IHostStorage, IHostBrowser, IHostPeople;
 
 /// <summary>HTTP implementation of <see cref="IBohpClient"/> (named HttpClient <see cref="HttpClientName"/>).</summary>
 public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
@@ -190,6 +190,34 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
         {
             return null;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<HostPerson>> SearchPeopleAsync(HostCallContext ctx, string fileId, string query, int limit, CancellationToken ct)
+    {
+        using var res = await SendAsync(ctx, HttpMethod.Get, $"{FilePath(fileId)}/people?q={Uri.EscapeDataString(query)}&limit={limit}", null, ct);
+        var dto = await ReadAsync<PeopleDto>(res, ct);
+        return (dto.People ?? [])
+            .Where(p => !string.IsNullOrEmpty(p.Id))
+            .Select(p => new HostPerson(p.Id!, p.Name ?? p.Id!, string.IsNullOrWhiteSpace(p.Email) ? null : p.Email, p.AvatarUrl))
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task NotifyAsync(HostCallContext ctx, string fileId, HostCommentNotification notification, CancellationToken ct)
+    {
+        var body = new
+        {
+            type = notification.Type,
+            commentId = notification.CommentId,
+            text = notification.Text,
+            from = new { id = notification.From.Id, name = notification.From.Name },
+            to = notification.To.Select(p => new { id = p.Id, name = p.Name, email = p.Email }).ToList(),
+            fileName = notification.FileName,
+            app = notification.App,
+        };
+        using var content = JsonContent.Create(body, options: Json);
+        using var res = await SendAsync(ctx, HttpMethod.Post, FilePath(fileId) + "/notifications", content, ct);
     }
 
     private static List<HostItem> ToItems(List<ItemDto>? items) =>
@@ -415,6 +443,22 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
         public RenameDto(string name) => Name = name;
 
         public string? Name { get; set; }
+    }
+
+    private sealed class PersonDto
+    {
+        public string? Id { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? Email { get; set; }
+
+        public string? AvatarUrl { get; set; }
+    }
+
+    private sealed class PeopleDto
+    {
+        public List<PersonDto>? People { get; set; }
     }
 
     private sealed class ErrorDto

@@ -59,6 +59,12 @@ import {
   type RibbonTab,
   type TaskPaneDef,
   type ThemeSetting,
+  SHEET_MENUS,
+  isContextMenuKey,
+  registryMenuLookup,
+  resolveMenu,
+  ribbonMenuLookup,
+  type SheetMenuContext,
 } from '@blueoffice/ui';
 import {
   AArrowDown,
@@ -217,7 +223,13 @@ import {
   type BackstagePropertiesAccess,
   type ClipItem,
   type SmartArtDraft,
+  commandLabel,
+  shortcutCommands,
+  useContextMenu,
+  useCustomShortcuts,
+  type OpenContextMenu,
 } from '@blueoffice/editor';
+import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
 import {
   SheetClipboardUi,
@@ -369,6 +381,13 @@ export interface BlueSheetEditorProps {
 }
 
 /** Editor state passed to commands. */
+/** Commands F4 repeats on the new selection (CORE-UI-004); dialogs and menus are left out. */
+export const SHEET_REPEATABLE =
+  /^(?:format\.(?:bold|italic|underline|strike|align\w+|wrap|indentInc|indentDec|fontGrow|fontShrink|percent|comma|currency|date|mergeAcross|unmerge|clear|lockCell)|cells\.(?:insert|delete|hide|unhide|autofit)\w*|data\.sort(?:Asc|Desc)|edit\.(?:clear|fillDown|fillRight))$/;
+
+/** An open BlueSheet context menu (CORE-UI-003); `sheet` for a sheet tab. */
+type SheetMenu = OpenContextMenu & { context: SheetMenuContext; sheet?: number };
+
 export interface SheetEditorState {
   host: SheetHost;
   sheet: number;
@@ -1739,6 +1758,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [host, fileName, t, refreshInfo, platform, sheet, fail],
   );
 
+  const [shortcutsShown, setShortcutsShown] = useState(false);
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SheetEditorState>();
     const guard = async (
@@ -2678,6 +2698,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('formulas.calcNow', () => auditCalculate('workbook'), { shortcut: 'F9' });
     add('formulas.calcSheet', () => auditCalculate('sheet'), { shortcut: 'Shift+F9' });
     add('formulas.calcFull', () => auditCalculate('full'), { shortcut: 'Ctrl+Alt+F9' });
+    // F4 outside a formula: the last formatting / row-column command again (CORE-UI-004).
+    reg.trackRepeat((id) => SHEET_REPEATABLE.test(id));
+    add(
+      'edit.repeat',
+      async (s) => {
+        const last = reg.lastRepeatable;
+        if (last) await reg.execute(last, s);
+      },
+      { shortcut: 'F4', ...has },
+    );
+    add('options.shortcuts', async () => setShortcutsShown(true));
     return reg;
   }, [
     openSmartArt,
@@ -2835,7 +2866,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       } else if (navKey[e.key] && !edit.inPlace) {
         e.preventDefault();
         void commit(move(selection, navKey[e.key]!, false, 1, hidden));
+      } else if (e.key === 'F4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        cycleRefIn(e.currentTarget);
       }
+      return;
+    }
+    if (isContextMenuKey(e)) {
+      e.preventDefault();
+      const c = canvasRef.current?.getBoundingClientRect();
+      if (c && selRect)
+        sheetMenu.open({
+          x: c.left + selRect.x,
+          y: c.top + selRect.y + selRect.h,
+          context: activeMedia?.image ? 'picture' : 'cell',
+        });
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
@@ -2937,6 +2982,52 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         put(c.input, c.input.length, c.input.length, pos);
       })
       .catch(fail);
+  };
+
+  // F4 in a formula: the reference at the caret cycles A1 → $A$1 → A$1 → $A1 (CORE-UI-004).
+  const cycleRefIn = (el: HTMLInputElement) => {
+    if (!edit) return;
+    const c = cycleReference(edit.text, el.selectionEnd ?? el.value.length);
+    if (!c) return;
+    setEdit({ ...edit, text: c.text });
+    setBarText(c.text);
+    if (inputRef.current) inputRef.current.value = c.text;
+    requestAnimationFrame(() => el.setSelectionRange(c.start, c.end));
+  };
+
+  // Right click on the grid: select what is under the pointer unless it is in the selection,
+  // then its menu (CORE-UI-003).
+  const onGridContextMenu = async (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const at = { x: e.clientX, y: e.clientY };
+    if (edit) await commit();
+    const hit = await hitAt(e);
+    if (!hit) return;
+    const rg = rangeOf(selection);
+    const last = info?.sheets[sheet];
+    const inRows = (row: number) => row >= rg.r0 && row <= rg.r1;
+    const inCols = (col: number) => col >= rg.c0 && col <= rg.c1;
+    if (hit.kind === 'cell') {
+      const p = { row: hit.row, col: hit.col };
+      const same = p.row === selection.active.row && p.col === selection.active.col;
+      if (!(inRows(p.row) && inCols(p.col))) setSelection(single(p));
+      sheetMenu.open({ ...at, context: same && activeMedia?.image ? 'picture' : 'cell' });
+    } else if (hit.kind === 'rowHeader' || hit.kind === 'rowEdge') {
+      if (!(inRows(hit.row) && rg.c0 === 0))
+        setSelection(
+          span({ row: hit.row, col: 0 }, { row: hit.row, col: Math.max(last?.lastCol ?? 0, 25) }),
+        );
+      sheetMenu.open({ ...at, context: 'rowHeader' });
+    } else if (hit.kind === 'columnHeader' || hit.kind === 'columnEdge') {
+      if (!(inCols(hit.col) && rg.r0 === 0))
+        setSelection(
+          span({ row: 0, col: hit.col }, { row: Math.max(last?.lastRow ?? 0, 999), col: hit.col }),
+        );
+      sheetMenu.open({ ...at, context: 'columnHeader' });
+    } else if (hit.kind === 'chart') {
+      setChart(hit.index);
+      sheetMenu.open({ ...at, context: 'chart' });
+    }
   };
 
   // Typing (including IME output) lands in the input and switches to edit mode.
@@ -3211,7 +3302,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // ------------------------------------------------------------- view
 
+  // The user's keyboard shortcuts (CORE-UI-004).
+  const ribbonTabsRef = useRef<RibbonTab[]>([]);
+  const shortcuts = useCustomShortcuts({
+    app: 'sheet',
+    registry,
+    store: platform.shell,
+    files: platform.files,
+    commands: () =>
+      shortcutCommands(ribbonTabsRef.current, registry, (id) => commandLabel(i18n, id)),
+    open: shortcutsShown,
+    onOpenChange: setShortcutsShown,
+  });
+  const shortcutsVersion = shortcuts.version;
   const ribbonTabs: RibbonTab[] = useMemo(() => {
+    // Rebuilt when the user's shortcuts change (tooltips show them).
+    void shortcutsVersion;
     const item = (
       id: string,
       label: string,
@@ -4171,7 +4277,36 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     fileName,
     fail,
     loadTableStyles,
+    shortcutsVersion,
   ]);
+
+  // Context menus (CORE-UI-003): cell, row / column header, sheet tab, chart, picture.
+  const menuLookup = ribbonMenuLookup(
+    ribbonTabs,
+    registryMenuLookup(
+      registry,
+      () => state,
+      (id) => commandLabel(i18n, id),
+      (id) => run(id),
+    ),
+  );
+  const sheetMenu = useContextMenu<SheetMenu>(
+    t('contextMenu.label'),
+    (m) =>
+      resolveMenu(SHEET_MENUS[m.context], (id) =>
+        id === 'sheet.tabColor'
+          ? {
+              id,
+              label: t('contextMenu.tabColor'),
+              onSelect: () => setTabMenu({ sheet: m.sheet ?? sheet, x: m.x, y: m.y }),
+            }
+          : menuLookup(id),
+      ),
+    focusInput,
+  );
+  useEffect(() => {
+    ribbonTabsRef.current = ribbonTabs;
+  });
 
   const r = rangeOf(selection);
   const multiKey = `${sheet}:${JSON.stringify(allRanges.map(toRange))}:${revision}`;
@@ -4397,6 +4532,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             } else if (e.key === 'Escape') {
               e.preventDefault();
               cancelEdit();
+            } else if (e.key === 'F4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+              e.preventDefault();
+              cycleRefIn(e.currentTarget);
             }
           }}
         />
@@ -4483,6 +4621,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               data-testid="sheet-canvas"
               style={{ cursor }}
               onMouseDown={(e) => void onMouseDown(e)}
+              onContextMenu={(e) => void onGridContextMenu(e)}
               onMouseMove={(e) => void onMouseMove(e)}
               onDoubleClick={(e) => void onDoubleClick(e)}
             />
@@ -5025,7 +5164,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               onDragEnd={() => setDragTab(null)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setTabMenu({ sheet: i, x: e.clientX, y: e.clientY - 4 });
+                if (i !== sheet) {
+                  setSheet(i);
+                  setSelection(single({ row: 0, col: 0 }));
+                }
+                sheetMenu.open({ x: e.clientX, y: e.clientY - 4, context: 'sheetTab', sheet: i });
               }}
               onClick={() => {
                 setSheet(i);
@@ -5093,6 +5236,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           </>
         }
       />
+      {sheetMenu.element}
+      {shortcuts.element}
       {tabMenu && (
         <ColorMenu
           x={tabMenu.x}

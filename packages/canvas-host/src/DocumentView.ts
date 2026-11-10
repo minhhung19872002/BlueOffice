@@ -29,6 +29,9 @@ export interface PagePointer {
   shift: boolean;
   /** Click count (1 caret, 2 word, 3 paragraph). */
   count: number;
+  /** Viewport point of the pointer (mouse-up: where the mini toolbar shows). */
+  clientX?: number;
+  clientY?: number;
 }
 
 export interface DocumentViewOptions {
@@ -47,6 +50,8 @@ export interface DocumentViewOptions {
     y: number;
     clientX: number;
     clientY: number;
+    /** Element under the pointer (a review balloon, the page). */
+    target: EventTarget | null;
   }) => void;
   /** The pages moved on screen (scroll, zoom, resize, relayout): rulers follow them. */
   onViewport?: () => void;
@@ -460,7 +465,7 @@ export class DocumentView {
     const p = this.pointAt(e);
     if (!p || !this.info) return;
     e.preventDefault();
-    this.opts.onContextMenu({ ...p, clientX: e.clientX, clientY: e.clientY });
+    this.opts.onContextMenu({ ...p, clientX: e.clientX, clientY: e.clientY, target: e.target });
   };
 
   private onMouseDown = (e: MouseEvent) => {
@@ -489,7 +494,15 @@ export class DocumentView {
     if (!this.dragging) return;
     this.dragging = false;
     const p = this.pointAt(e);
-    if (p) this.opts.onPointer?.({ type: 'up', ...p, shift: e.shiftKey, count: 1 });
+    if (p)
+      this.opts.onPointer?.({
+        type: 'up',
+        ...p,
+        shift: e.shiftKey,
+        count: 1,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
   };
 
   /** Show pages as printed, as web layout strips or as draft (see {@link PageMode}). */

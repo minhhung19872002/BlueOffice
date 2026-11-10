@@ -9,7 +9,9 @@ const words = (f: FrameLocator) => f.getByTestId('status-words');
 
 async function wordCount(f: FrameLocator): Promise<number> {
   const t = (await words(f).textContent()) ?? '';
-  return Number(/(\d[\d.]*)/.exec(t)?.[1]?.replace(/\./g, '') ?? NaN);
+  // With a selection the bar shows "selected / total" (CORE-UI-007): the total is the last number.
+  const all = t.match(/\d[\d.]*/g) ?? [];
+  return Number(all.at(-1)?.replace(/\./g, '') ?? NaN);
 }
 
 test('host chrome, theme, dirty / share / close events, print and export-pdf', async ({

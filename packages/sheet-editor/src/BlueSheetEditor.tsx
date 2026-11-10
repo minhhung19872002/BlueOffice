@@ -192,6 +192,7 @@ import {
 } from 'react';
 import {
   CommandRegistry,
+  FileBackstage,
   FileProtectionUi,
   ProtectionStatus,
   useFileProtection,
@@ -212,6 +213,7 @@ import {
   taskPaneLabels,
   toBase64,
   useReadAloud,
+  type BackstagePropertiesAccess,
   type ClipItem,
   type SmartArtDraft,
 } from '@blueoffice/editor';
@@ -287,7 +289,7 @@ import {
   registerCellMediaCommands,
   sheetMediaSource,
 } from './cellMedia';
-import type { CellMediaState } from '@blueoffice/platform';
+import type { CellMediaState, DocProperties } from '@blueoffice/platform';
 import { CfManagerDialog } from './cfRules';
 import {
   CfDialog,
@@ -2746,6 +2748,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [registry, state],
   );
+  // The File screen (CORE-UI-002).
+  const [backstage, setBackstage] = useState(false);
+  const closeBackstage = useCallback(() => setBackstage(false), []);
+  const backstageCommands = useMemo(
+    () => ({
+      has: (id: string) => registry.has(id),
+      enabled: (id: string) => !!state && registry.isEnabled(id, state),
+      run,
+    }),
+    [registry, state, run],
+  );
+  const docProperties = useMemo<BackstagePropertiesAccess | undefined>(
+    () =>
+      host && {
+        load: () => host.exec<DocProperties>({ cmd: 'docProperties' }),
+        save: (props) => host.exec<DocProperties>({ cmd: 'setDocProperties', props }),
+      },
+    [host],
+  );
 
   // ------------------------------------------------------------- input
 
@@ -4233,7 +4254,38 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           noResults: t('commandSearch.noResults'),
         }}
       />
-      <Ribbon tabs={ribbonTabs} labels={ribbonLabels(t)} autoActivate={AUTO_CONTEXTS} />
+      <Ribbon
+        tabs={ribbonTabs}
+        labels={ribbonLabels(t)}
+        autoActivate={AUTO_CONTEXTS}
+        fileMenu={{
+          label: t('ribbon.tabs.file'),
+          open: backstage,
+          onOpen: () => setBackstage(true),
+        }}
+      />
+      <FileBackstage
+        app="sheet"
+        open={backstage}
+        onClose={closeBackstage}
+        commands={backstageCommands}
+        hasDocument={!!info}
+        fileName={fileName}
+        variant={info?.variant}
+        macros={info?.macros}
+        properties={docProperties}
+        shell={platform.shell}
+        openPath={
+          platform.files.openPath
+            ? (path) =>
+                void platform.files.openPath?.(path).then(
+                  (f) => openFile(f),
+                  (e: unknown) => fail(e),
+                )
+            : undefined
+        }
+        onSaveAs={(ext) => void saveAsTypeChosen(ext)}
+      />
       {legacyNotice > 0 && (
         <div className={styles.macroBar} role="status" data-testid="legacy-notice">
           <span>{t('legacy.sheetConverted', { count: legacyNotice })}</span>

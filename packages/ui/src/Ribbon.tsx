@@ -128,6 +128,18 @@ export interface RibbonProps {
    * the ones the caret moves through while typing (table cells), which then only show.
    */
   autoActivate?: readonly RibbonContext[];
+  /**
+   * The File button at the start of the tab strip (CORE-UI-002): opens the full-window
+   * File screen (`Backstage`) instead of a ribbon tab.
+   */
+  fileMenu?: RibbonFileMenu;
+}
+
+export interface RibbonFileMenu {
+  label: string;
+  onOpen: () => void;
+  /** The File screen is shown. */
+  open?: boolean;
 }
 
 /** Commands per group kept in the simplified ribbon when no item is flagged `simplified`. */
@@ -527,6 +539,7 @@ export function Ribbon({
   labels,
   simplified: forceSimplified,
   autoActivate,
+  fileMenu,
 }: RibbonProps) {
   // Measured widths survive re-renders; the map is mutated in layout effects only.
   const [cache] = useState<WidthCache>(() => new Map());
@@ -667,6 +680,21 @@ export function Ribbon({
         onValueChange={select}
       >
         <div className={styles.tabStrip}>
+          {fileMenu && (
+            <button
+              type="button"
+              className={`${styles.tab} ${styles.fileTab}`}
+              data-testid="file-tab"
+              aria-haspopup="dialog"
+              aria-expanded={!!fileMenu.open}
+              onClick={() => {
+                setPeek(false);
+                fileMenu.onOpen();
+              }}
+            >
+              {fileMenu.label}
+            </button>
+          )}
           <Tabs.List className={styles.tabList}>
             {arranged.plain.map(trigger)}
             {arranged.contexts.map((c) => (

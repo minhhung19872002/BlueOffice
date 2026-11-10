@@ -823,6 +823,8 @@ export type EditCommand =
   /** Text or picture watermark of every page; absent removes it. */
   | { cmd: 'setWatermark'; watermark?: WatermarkSpec | null }
   | { cmd: 'applyTheme' | 'applyStyleSet'; id: string }
+  /** File › Info document properties (CORE-UI-002) → `docProperties`. */
+  | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001): `inspect`, `inspectRemove`, `inspectKeep` → `inspection`. */
   | InspectCommand
   | { cmd: 'inspectFix'; fix: InspectFix }
@@ -1061,6 +1063,8 @@ export interface EditResult {
   painter?: boolean;
   /** Check document report (`inspect` and the inspector commands). */
   inspection?: InspectReport;
+  /** Document properties (`docProperties`, `setDocProperties`). */
+  docProperties?: import('./docProperties').DocProperties;
   /** Misspelt words to underline (`spelling`, `spellIgnore`, `spellAddWord`, `setSpelling`). */
   spelling?: SpellMark[];
   /** The misspelt word at a point (`spellAt`). */
@@ -1609,6 +1613,8 @@ export type SlideCommand =
   /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
   | import('./versions').CompareDeckCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
+  /** File › Info document properties (CORE-UI-002) → `docProperties`. */
+  | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
   | { cmd: 'inspectFix'; fix: InspectFix }
@@ -2160,6 +2166,8 @@ export interface SlideEditResult {
   comments?: SlideThreadInfo[];
   /** Check document report (`inspect` and the inspector commands). */
   inspection?: InspectReport;
+  /** Document properties (`docProperties`, `setDocProperties`). */
+  docProperties?: import('./docProperties').DocProperties;
   /** Text editing inside a shape. */
   textEdit?: SlideTextEdit;
   /** Table being edited: anchor cells (merged cells once) and the selection. */

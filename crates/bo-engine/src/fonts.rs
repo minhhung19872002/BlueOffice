@@ -96,6 +96,9 @@ impl Engine {
         if let Some(r) = self.inspect_command(cmd)? {
             return Ok(Some(r));
         }
+        if let Some(r) = self.props_command(cmd)? {
+            return Ok(Some(r));
+        }
         if matches!(cmd, Command::Equation) && self.session.is_some() {
             return Ok(Some(self.query_result()?));
         }

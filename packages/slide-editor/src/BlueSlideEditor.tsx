@@ -8,6 +8,7 @@ import {
   PasswordDialog,
   PdfExportDialog,
   SaveAsTypeDialog,
+  FileBackstage,
   SavePasswordPanel,
   SmartArtDialog,
   SymbolPanel,
@@ -24,6 +25,7 @@ import {
   objectToolsLabels,
   registerObjectCommands,
   useReadAloud,
+  type BackstagePropertiesAccess,
   type ClipItem,
   type SmartArtDraft,
 } from '@blueoffice/editor';
@@ -2100,6 +2102,25 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     },
     [registry, state, run],
   );
+  // The File screen (CORE-UI-002).
+  const [backstage, setBackstage] = useState(false);
+  const closeBackstage = useCallback(() => setBackstage(false), []);
+  const backstageCommands = useMemo(
+    () => ({
+      has: (id: string) => registry.has(id),
+      enabled: (id: string) => registry.isEnabled(id, state),
+      run: exec,
+    }),
+    [registry, state, exec],
+  );
+  const docProperties = useMemo<BackstagePropertiesAccess>(
+    () => ({
+      load: async () => (await ctrl.run({ cmd: 'docProperties' }))?.docProperties ?? null,
+      save: async (props) =>
+        (await ctrl.run({ cmd: 'setDocProperties', props }))?.docProperties ?? null,
+    }),
+    [ctrl],
+  );
 
   // Picture tools tab (CORE-PIC-001) for the selected pictures.
   const picture = usePictureTools({
@@ -3194,6 +3215,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           tabs={[...ribbonTabs, ...extraTabs]}
           labels={ribbonLabels(t)}
           autoActivate={AUTO_CONTEXTS}
+          fileMenu={{
+            label: t('ribbon.tabs.file'),
+            open: backstage,
+            onOpen: () => setBackstage(true),
+          }}
           // Contextual tabs come and go with the selection; the ribbon falls back by itself.
           value={ribbonTab}
           onValueChange={(v) => {
@@ -3203,6 +3229,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           }}
         />
       )}
+      <FileBackstage
+        app="slide"
+        open={backstage}
+        onClose={closeBackstage}
+        commands={backstageCommands}
+        hasDocument={state.hasDeck}
+        fileName={fileName}
+        variant={info?.variant}
+        macros={info?.macros}
+        properties={docProperties}
+        shell={platform.shell}
+        openPath={
+          platform.files.openPath
+            ? (path) =>
+                void platform.files.openPath?.(path).then(
+                  (f) => load(f.bytes, f.name),
+                  (e: unknown) => fail(e),
+                )
+            : undefined
+        }
+        onSaveAs={(ext) => void saveAsTypeChosen(ext)}
+      />
       <SaveAsTypeDialog
         open={saveAsType}
         app="slide"

@@ -35,6 +35,7 @@ export * from './fileVariants';
 export * from './remoteImages';
 export * from './cellMedia';
 export * from './security';
+export * from './docProperties';
 export * from './slideMaster';
 export * from './slideViews';
 export * from './slideShow';

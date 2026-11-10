@@ -5442,5 +5442,86 @@
       "sheet": "// BlueScript – automate BlueSheet. Ctrl+Space: suggestions, Ctrl+Enter: run.\nconst r = sheet.range('A1:B3');\nconsole.log(await r.values);\n// await r.format({ bold: true });\n",
       "slide": "// BlueScript – automate BlueSlide. Ctrl+Space: suggestions, Ctrl+Enter: run.\nfor (const s of await presentation.slides) {\n  const shapes = await s.shapes;\n  console.log('Slide', s.index + 1, shapes.map((x) => x.text).filter(Boolean));\n}\n"
     }
+  },
+  "backstage": {
+    "back": "Back",
+    "nav": {
+      "new": "New",
+      "open": "Open",
+      "info": "Info",
+      "save": "Save",
+      "saveAs": "Save as",
+      "print": "Print",
+      "share": "Share",
+      "export": "Export",
+      "close": "Close",
+      "options": "Options"
+    },
+    "open": {
+      "browse": "Browse",
+      "recent": "Pinned and recent",
+      "noRecent": "No recent files yet.",
+      "pin": "Pin",
+      "unpin": "Unpin"
+    },
+    "info": {
+      "properties": "Properties",
+      "manage": "Protect, check and versions"
+    },
+    "props": {
+      "title": "Title",
+      "subject": "Subject",
+      "author": "Author",
+      "keywords": "Keywords",
+      "comments": "Comments",
+      "category": "Category",
+      "status": "Status",
+      "company": "Company",
+      "manager": "Manager",
+      "lastModifiedBy": "Last saved by",
+      "created": "Created",
+      "modified": "Modified",
+      "revision": "Revision"
+    },
+    "saveAs": {
+      "types": "Document types",
+      "other": "Other formats"
+    },
+    "formats": {
+      "pdf": "PDF",
+      "csv": "CSV (comma delimited)",
+      "thmx": "Theme file",
+      "png": "PNG picture of each slide",
+      "gif": "Animation / video"
+    },
+    "print": {
+      "preview": "Print… (preview and settings)"
+    },
+    "share": {
+      "describe": "Invite others to view or edit this file together.",
+      "unavailable": "Sharing is available when the file is opened from storage (BlueDrive or a server)."
+    },
+    "options": {
+      "general": "General",
+      "language": "Display language (Tiếng Việt / English)",
+      "theme": "Light / dark / high contrast",
+      "density": "Display density",
+      "densities": {
+        "normal": "Normal",
+        "compact": "Compact",
+        "touch": "Touch"
+      },
+      "proofingLanguage": "Proofing language…"
+    },
+    "describe": {
+      "file_new": "A blank document.",
+      "file_newFromTemplate": "Start from a ready-made template.",
+      "file_open": "Pick a file on this computer.",
+      "file_protect": "Mark as final, set passwords, restrict editing.",
+      "review_checkDocument": "Find personal information, hidden content, accessibility and compatibility issues.",
+      "review_versions": "See, compare and restore earlier versions.",
+      "file_print": "Choose pages, copies, printer and preview.",
+      "file_exportPdf": "Save a PDF copy with the default settings."
+    }
   }
 }

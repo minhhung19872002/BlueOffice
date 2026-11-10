@@ -325,6 +325,7 @@ import { docReadRequest } from './docReadAloud';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
+import { FileBackstage, type BackstagePropertiesAccess } from './FileBackstage';
 
 /**
  * Contexts whose tab is activated when they appear (CORE-UI-001);
@@ -430,6 +431,8 @@ function EditorInner({
     remembered: RememberedSigning;
   } | null>(null);
   const [tab, setTab] = useState('home');
+  // The File screen (CORE-UI-002).
+  const [backstage, setBackstage] = useState(false);
   /** Mail merge: rule kind of the rule dialog, finish mode of the finish dialog. */
   const [ruleKind, setRuleKind] = useState<RuleKind>('if');
   const [finishMode, setFinishMode] = useState<FinishMode>('document');
@@ -2442,6 +2445,23 @@ function EditorInner({
     (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
     [],
   );
+  const docProperties = useMemo<BackstagePropertiesAccess>(
+    () => ({
+      load: async () => (await runCommand({ cmd: 'docProperties' }))?.docProperties ?? null,
+      save: async (props) =>
+        (await runCommand({ cmd: 'setDocProperties', props }))?.docProperties ?? null,
+    }),
+    [runCommand],
+  );
+  const backstageCommands = useMemo(
+    () => ({
+      has: (id: string) => registry.has(id),
+      enabled: (id: string) => registry.isEnabled(id, store.getState()),
+      run: (id: string) => void registry.execute(id, store.getState()),
+    }),
+    [registry, store],
+  );
+  const closeBackstage = useCallback(() => setBackstage(false), [setBackstage]);
   const item = (
     id: string,
     labelKey: string,
@@ -3764,12 +3784,18 @@ function EditorInner({
           />
           {!(state.focusMode && state.doc) && (
             <Ribbon
-              tabs={[...tabs, ...contextTabs]}
+              // File commands live on the File screen (CORE-UI-002); search still finds them.
+              tabs={[...tabs.filter((x) => x.id !== 'file'), ...contextTabs]}
               // A contextual tab whose object is no longer selected falls back in the ribbon.
               value={tab}
               onValueChange={setTab}
               labels={ribbonLabels(t)}
               autoActivate={AUTO_CONTEXTS}
+              fileMenu={{
+                label: t('ribbon.tabs.file'),
+                open: backstage,
+                onOpen: () => setBackstage(true),
+              }}
             />
           )}
           <main
@@ -4598,6 +4624,33 @@ function EditorInner({
         />
       )}
       {readAloud.bar}
+      <FileBackstage
+        app="doc"
+        open={backstage}
+        onClose={closeBackstage}
+        commands={backstageCommands}
+        hasDocument={!!state.doc}
+        fileName={state.doc?.name}
+        variant={state.doc?.variant}
+        macros={state.doc?.macros}
+        properties={docProperties}
+        shell={platform.shell}
+        openPath={
+          platform.files.openPath
+            ? (path) =>
+                void platform.files.openPath?.(path).then(
+                  (f) => openFileRef.current(f),
+                  (e: unknown) => fail('errors.open', e),
+                )
+            : undefined
+        }
+        onSaveAs={(ext) => {
+          saveAsExt.current = ext;
+          void registry.execute('file.saveAsType', store.getState());
+        }}
+        onShare={host?.showShare ? host.onShare : undefined}
+        onCloseDocument={host?.showClose ? host.onClose : undefined}
+      />
     </div>
   );
 }

@@ -681,6 +681,8 @@ export type SheetCommand =
   /** Workbook views (SHEET-VIEW-001). */
   | import('./sheetViews').SheetViewCommand
   | { cmd: 'presets' }
+  /** File › Info document properties (CORE-UI-002) → `DocProperties`. */
+  | import('./docProperties').DocPropertiesCommand
   /** Check document (CORE-INSPECT-001) → `InspectReport`. */
   | InspectCommand
   /** Sparklines (SHEET-SPARK-001). */

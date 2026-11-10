@@ -5442,5 +5442,86 @@
       "sheet": "// BlueScript – tự động hóa BlueSheet. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nconst r = sheet.range('A1:B3');\nconsole.log(await r.values);\n// await r.format({ bold: true });\n",
       "slide": "// BlueScript – tự động hóa BlueSlide. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nfor (const s of await presentation.slides) {\n  const shapes = await s.shapes;\n  console.log('Trang', s.index + 1, shapes.map((x) => x.text).filter(Boolean));\n}\n"
     }
+  },
+  "backstage": {
+    "back": "Quay lại",
+    "nav": {
+      "new": "Mới",
+      "open": "Mở",
+      "info": "Thông tin",
+      "save": "Lưu",
+      "saveAs": "Lưu thành",
+      "print": "In",
+      "share": "Chia sẻ",
+      "export": "Xuất",
+      "close": "Đóng",
+      "options": "Tùy chọn"
+    },
+    "open": {
+      "browse": "Duyệt",
+      "recent": "Đã ghim và gần đây",
+      "noRecent": "Chưa có tệp gần đây.",
+      "pin": "Ghim",
+      "unpin": "Bỏ ghim"
+    },
+    "info": {
+      "properties": "Thuộc tính",
+      "manage": "Bảo vệ, kiểm tra và phiên bản"
+    },
+    "props": {
+      "title": "Tiêu đề",
+      "subject": "Chủ đề",
+      "author": "Tác giả",
+      "keywords": "Từ khóa",
+      "comments": "Ghi chú",
+      "category": "Thể loại",
+      "status": "Trạng thái",
+      "company": "Đơn vị",
+      "manager": "Người quản lý",
+      "lastModifiedBy": "Người lưu gần nhất",
+      "created": "Ngày tạo",
+      "modified": "Ngày sửa",
+      "revision": "Số lần sửa"
+    },
+    "saveAs": {
+      "types": "Kiểu tài liệu",
+      "other": "Định dạng khác"
+    },
+    "formats": {
+      "pdf": "PDF",
+      "csv": "CSV (phân cách bằng dấu phẩy)",
+      "thmx": "Tệp chủ đề",
+      "png": "Ảnh PNG từng trang chiếu",
+      "gif": "Ảnh động / video"
+    },
+    "print": {
+      "preview": "In… (xem trước và thiết lập)"
+    },
+    "share": {
+      "describe": "Mời người khác xem hoặc cùng sửa tệp này.",
+      "unavailable": "Chia sẻ có khi tệp được mở từ kho lưu trữ (BlueDrive hoặc máy chủ)."
+    },
+    "options": {
+      "general": "Chung",
+      "language": "Ngôn ngữ giao diện (Tiếng Việt / English)",
+      "theme": "Giao diện sáng / tối / tương phản cao",
+      "density": "Mật độ hiển thị",
+      "densities": {
+        "normal": "Thường",
+        "compact": "Gọn",
+        "touch": "Cảm ứng"
+      },
+      "proofingLanguage": "Ngôn ngữ soát lỗi…"
+    },
+    "describe": {
+      "file_new": "Tài liệu trống.",
+      "file_newFromTemplate": "Bắt đầu từ một mẫu có sẵn.",
+      "file_open": "Chọn tệp trên máy này.",
+      "file_protect": "Đánh dấu bản cuối, đặt mật khẩu, giới hạn quyền sửa.",
+      "review_checkDocument": "Tìm thông tin cá nhân, nội dung ẩn, vấn đề trợ năng và tương thích.",
+      "review_versions": "Xem, so sánh và khôi phục các phiên bản trước.",
+      "file_print": "Chọn trang, số bản, máy in và xem trước.",
+      "file_exportPdf": "Lưu một bản PDF với thiết lập mặc định."
+    }
   }
 }

@@ -31,6 +31,7 @@ pub mod equation;
 pub mod fonts;
 pub mod forms;
 pub mod gallery;
+mod guid;
 pub mod inspect;
 mod legacy_slides;
 pub mod markup;

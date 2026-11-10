@@ -14,7 +14,6 @@ use bo_pptx::comments::{
     ModernComment, ModernReply, CT_AUTHORS, CT_COMMENTS, REL_AUTHORS, REL_COMMENTS,
 };
 use serde::Serialize;
-use std::hash::{Hash, Hasher};
 
 /// One comment of a thread as the UI shows it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -118,31 +117,7 @@ pub fn comments_out(pres: &Presentation, slide: usize) -> Vec<ThreadOut> {
         .collect()
 }
 
-/// A GUID-shaped id (`{XXXXXXXX-XXXX-4XXX-8XXX-XXXXXXXXXXXX}`) from `seed`,
-/// distinct from `taken`.
-fn guid(seed: &impl Hash, taken: &dyn Fn(&str) -> bool) -> String {
-    let mut n = 0u64;
-    loop {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        seed.hash(&mut h);
-        n.hash(&mut h);
-        let a = h.finish();
-        n.hash(&mut h);
-        let b = h.finish();
-        let id = format!(
-            "{{{:08X}-{:04X}-4{:03X}-8{:03X}-{:012X}}}",
-            a >> 32,
-            (a >> 16) & 0xFFFF,
-            a & 0xFFF,
-            b >> 52,
-            b & 0xFFFF_FFFF_FFFF
-        );
-        if !taken(&id) {
-            return id;
-        }
-        n += 1;
-    }
-}
+use crate::guid::guid;
 
 fn initials(name: &str) -> String {
     name.split_whitespace()

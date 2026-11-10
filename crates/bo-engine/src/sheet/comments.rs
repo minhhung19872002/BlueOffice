@@ -10,7 +10,6 @@ use bo_model::sheet::{
     CellRef, Comment, Person, TextRun, ThreadedComment, ThreadedMention, Workbook,
 };
 use serde::Serialize;
-use std::hash::{Hash, Hasher};
 
 /// One comment of a thread as the UI shows it.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -42,31 +41,7 @@ pub struct ThreadView {
     pub comments: Vec<CommentView>,
 }
 
-/// A GUID-shaped id (`{XXXXXXXX-XXXX-4XXX-8XXX-XXXXXXXXXXXX}`, [MS-XLSX] ST_Guid)
-/// derived from `seed`, distinct from every id in `taken`.
-pub(super) fn guid(seed: &impl Hash, taken: &dyn Fn(&str) -> bool) -> String {
-    let mut n = 0u64;
-    loop {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        seed.hash(&mut h);
-        n.hash(&mut h);
-        let a = h.finish();
-        n.hash(&mut h);
-        let b = h.finish();
-        let id = format!(
-            "{{{:08X}-{:04X}-4{:03X}-8{:03X}-{:012X}}}",
-            a >> 32,
-            (a >> 16) & 0xFFFF,
-            a & 0xFFF,
-            b >> 52,
-            b & 0xFFFF_FFFF_FFFF
-        );
-        if !taken(&id) {
-            return id;
-        }
-        n += 1;
-    }
-}
+pub(super) use crate::guid::guid;
 
 fn person_id(wb: &mut Workbook, author: &str) -> String {
     let name = if author.trim().is_empty() {

@@ -916,24 +916,7 @@ fn cmd_bookmark_remove(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, name: &
     Ok(())
 }
 
-/// A GUID-shaped id (`{XXXXXXXX-XXXX-4XXX-8XXX-XXXXXXXXXXXX}`) from `seed`.
-fn guid(seed: &str, n: u64) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    seed.hash(&mut h);
-    n.hash(&mut h);
-    let a = h.finish();
-    n.hash(&mut h);
-    let b = h.finish();
-    format!(
-        "{{{:08X}-{:04X}-4{:03X}-8{:03X}-{:012X}}}",
-        a >> 32,
-        (a >> 16) & 0xFFFF,
-        a & 0xFFF,
-        b >> 52,
-        b & 0xFFFF_FFFF_FFFF
-    )
-}
+use crate::guid::guid_nth;
 
 fn cmd_caption_add(
     tx: &mut Tx<'_>,
@@ -963,7 +946,7 @@ fn cmd_caption_add(
         .map(|c| c.id)
         .collect();
     let track_id = (0..=existing.len() as u64)
-        .map(|n| guid(&format!("{part}{text}"), n))
+        .map(|n| guid_nth(&format!("{part}{text}"), n))
         .find(|g| !existing.contains(g))
         .unwrap_or_default();
     let label = label

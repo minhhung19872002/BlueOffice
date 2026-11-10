@@ -74,7 +74,19 @@ export type SlideLinkAction =
   | { kind: 'file'; path: string }
   | { kind: 'program'; path: string }
   | { kind: 'macro'; name: string }
-  | { kind: 'unknown'; action: string };
+  | { kind: 'unknown'; action: string }
+  /**
+   * A zoom (SLIDE-ZOOM-001): play `slides`, zooming in from the zoom's box `rect` (points,
+   * filled in by the show from the link); with `return`, come back afterwards.
+   * `transitionMs` `null` = the target's own transition.
+   */
+  | {
+      kind: 'zoom';
+      slides: number[];
+      return?: boolean;
+      transitionMs?: number | null;
+      rect?: [number, number, number, number];
+    };
 
 /** What starts an action. */
 export type SlideActionTrigger = 'click' | 'hover';

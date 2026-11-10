@@ -252,6 +252,19 @@ pub enum LinkAction {
         /// The `action` URI.
         action: String,
     },
+    /// A zoom (SLIDE-ZOOM-001, [MS-PPTX] §2.8.3.1): play `slides` (a slide, or a section's
+    /// slides), zooming in from the zoom's box; with `ret`, come back to the zoom's slide
+    /// afterwards.
+    Zoom {
+        /// 0-based slides in playing order.
+        slides: Vec<usize>,
+        /// `zmPr@returnToParent`.
+        #[serde(default, rename = "return")]
+        ret: bool,
+        /// `zmPr@transitionDur` in ms; `None`: the destination's own transition.
+        #[serde(default)]
+        transition_ms: Option<u32>,
+    },
 }
 
 pub use super::action::LinkOut;

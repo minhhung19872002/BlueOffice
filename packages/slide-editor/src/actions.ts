@@ -79,6 +79,7 @@ export function actionPolicy(link: Pick<SlideShowLink, 'action' | 'safety'>): Ac
     case 'first':
     case 'last':
     case 'lastViewed':
+    case 'zoom':
     case 'end':
       return link.safety === 'blocked' || link.safety === 'external'
         ? blocked('unknown', a.kind)

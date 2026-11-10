@@ -21,7 +21,8 @@ import {
   type Frames,
   type ShowPos,
 } from './player';
-import { morphLayers } from './transitionFx';
+import { morphLayers, type TransitionPlan } from './transitionFx';
+import { zoomFrames, type ZoomMove } from './presenting';
 import { SlideCanvas } from './SlideCanvas';
 import styles from './SlideEditor.module.css';
 
@@ -150,6 +151,24 @@ export interface ShowStageProps {
   narration?: boolean;
 }
 
+/** Transition into the slide; a zoom (SLIDE-ZOOM-001) replaces the slide's own. */
+function stagePlan(
+  show: SlideShowInfo | null,
+  slide: number,
+  zoom: ZoomMove | undefined,
+): TransitionPlan {
+  if (zoom && show) {
+    const f = zoomFrames(zoom, show.width, show.height);
+    return {
+      duration: zoom.ms,
+      incoming: f.incoming,
+      outgoing: f.outgoing,
+      outgoingOnTop: zoom.out,
+    };
+  }
+  return transitionPlan(show?.transition ?? null, slide);
+}
+
 /** The transition sound playing (§19.3.1.42 sndAc), shared by the show's slides. */
 let transitionAudio: { el: HTMLAudioElement; url: string } | null = null;
 
@@ -247,7 +266,8 @@ export function ShowStage({
   const size = show ?? slide;
   const height = size.width > 0 ? Math.round((width * size.height) / size.width) : 0;
   const ready = show !== null && show.slide === pos.slide;
-  const key = `${pos.slide}:${pos.click}:${pos.enter}:${from ?? ''}`;
+  const zoomKey = pos.zoom ? `${pos.zoom.out ? 'out' : 'in'}${pos.zoom.rect.join(',')}` : '';
+  const key = `${pos.slide}:${pos.click}:${pos.enter}:${from ?? ''}:${zoomKey}`;
   const playing = !still && pos.enter !== 'jump';
   // Without animation the slide shows with every effect played.
   const atClick = still && show && show.slide === pos.slide ? show.clicks : pos.click;
@@ -348,7 +368,7 @@ export function ShowStage({
       if (cancelled) return;
       let delay = 0;
       if (pos.enter === 'transition') {
-        const t = transitionPlan(show.transition, pos.slide);
+        const t = stagePlan(show, pos.slide, pos.zoom);
         if (media) playTransitionSound(engine, show.transition?.sound ?? null);
         if (t.duration > 0) {
           const opts = { duration: t.duration, easing: 'ease-in-out', fill: 'both' as const };
@@ -361,7 +381,7 @@ export function ShowStage({
             if (a) anims.push(a);
           }
           // Morph: the overlay's shapes move from the previous slide to this one.
-          if (show.transition?.kind === 'morph' && show.morph) {
+          if (!pos.zoom && show.transition?.kind === 'morph' && show.morph) {
             morphLayers(show.morph, show.width, show.height).forEach((l, i) => {
               const a = animate(morphRefs.current[i], l.frames, opts);
               if (a) anims.push(a);
@@ -410,7 +430,19 @@ export function ShowStage({
       for (const a of anims) a.cancel();
       for (const a of endless) a.cancel();
     };
-  }, [show, pos.slide, pos.click, pos.enter, playing, hasOutgoing, key, media, engine, atClick]);
+  }, [
+    show,
+    pos.slide,
+    pos.click,
+    pos.enter,
+    pos.zoom,
+    playing,
+    hasOutgoing,
+    key,
+    media,
+    engine,
+    atClick,
+  ]);
 
   return (
     <div
@@ -421,6 +453,7 @@ export function ShowStage({
       data-click={pos.click}
       data-clicks={show?.clicks ?? 0}
       data-transition={show?.transition?.kind ?? 'none'}
+      data-zoom={pos.zoom ? (pos.zoom.out ? 'out' : 'in') : undefined}
       role="img"
       aria-label={label}
     >
@@ -429,7 +462,7 @@ export function ShowStage({
           ref={outgoingRef}
           className={styles.showLayer}
           style={{
-            zIndex: transitionPlan(show?.transition ?? null, pos.slide).outgoingOnTop ? 2 : 0,
+            zIndex: stagePlan(show, pos.slide, pos.zoom).outgoingOnTop ? 2 : 0,
           }}
         >
           <SlideCanvas

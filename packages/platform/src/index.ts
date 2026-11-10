@@ -44,6 +44,7 @@ export * from './slideViews';
 export * from './slideShow';
 export * from './slideInk';
 export * from './slideModel3d';
+export * from './slideZoom';
 export {
   WebCodecsVideo,
   VIDEO_CODECS,
@@ -55,9 +56,12 @@ export {
 export * from './sheetDataTools';
 export * from './speech';
 export * from './translation';
+export * from './docStyles';
 export * from './queryData';
 export * from './dictation';
 export * from './mediaCapture';
+// Both modules have a WAV encoder; the package's is the recorder's (`dictation` keeps its own).
+export { encodeWav } from './mediaCapture';
 export {
   OidcSession,
   fetchOidcConfig,

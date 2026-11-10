@@ -296,6 +296,36 @@ const SCRIPTS: &[Script] = &[
             r#"{"cmd":"setChart","kind":"bar","title":"Đã sửa dữ liệu","legend":"b","data":{"categories":["Bắc","Trung","Nam"],"series":[{"name":"Năm nay","values":[7,4,9]},{"name":"Năm trước","values":[5,3,8]}]}}"#,
         ],
     },
+    // Zooms (SLIDE-ZOOM-001, [MS-PPTX] §2.8–§2.11): slide zooms with options, section zooms,
+    // a summary zoom creating its slide and sections.
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: "slide-zoom-slide.pptx",
+        commands: &[
+            r#"{"cmd":"goTo","slide":0}"#,
+            r#"{"cmd":"zoomInsertSlides","slides":[1,2]}"#,
+            r#"{"cmd":"zoomOptions","returnToParent":false,"transition":true,"durationMs":1500}"#,
+        ],
+    },
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: "slide-zoom-section.pptx",
+        commands: &[
+            r#"{"cmd":"addSection","name":"Mục tiêu","slide":1,"firstName":"Mở đầu"}"#,
+            r#"{"cmd":"addSection","name":"Kết luận","slide":2}"#,
+            r#"{"cmd":"goTo","slide":0}"#,
+            r#"{"cmd":"zoomInsertSections","sections":[1,2]}"#,
+            r#"{"cmd":"zoomOptions","showBg":false}"#,
+        ],
+    },
+    Script {
+        base: "slide-text-bullets.pptx",
+        name: "slide-zoom-summary.pptx",
+        commands: &[
+            r#"{"cmd":"zoomInsertSummary","slides":[1,2],"names":{"title":"Tổng quan","summary":"Phần tổng quan","section":"Phần {n}","first":"Mở đầu"}}"#,
+            r#"{"cmd":"zoomOptions","transition":true,"durationMs":800}"#,
+        ],
+    },
     // Video and audio inserted (see `decks`): clips, posters, relationships.
     Script {
         base: "slide-text-bullets.pptx",

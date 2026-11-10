@@ -25,6 +25,7 @@ pub mod design;
 mod doc_ole;
 mod doc_picture;
 pub mod doc_smartart;
+pub mod doc_styles;
 pub mod edit;
 pub mod equation;
 pub mod fonts;

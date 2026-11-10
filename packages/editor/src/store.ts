@@ -27,7 +27,14 @@ export type Status =
   | { kind: 'error'; key: string; message: string };
 
 /** BlueDoc task panes (CORE-UI-006): Styles, Comments, Version history (CORE-VERSION-001), BlueScript (CORE-SCRIPT-001). */
-export type DocTaskPane = 'styles' | 'comments' | 'versions' | 'script';
+export type DocTaskPane =
+  | 'styles'
+  | 'comments'
+  | 'versions'
+  | 'script'
+  /** Style Inspector and Reveal Formatting (DOC-STYLE-001). */
+  | 'styleInspector'
+  | 'revealFormatting';
 
 /** `panes` with `id` shown (`on`) or hidden. */
 export function togglePane(panes: DocTaskPane[], id: DocTaskPane, on = !panes.includes(id)) {

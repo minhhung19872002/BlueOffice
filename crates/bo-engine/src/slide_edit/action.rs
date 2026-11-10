@@ -254,6 +254,7 @@ pub fn safety(a: &LinkAction) -> Safety {
         LinkAction::None
         | LinkAction::CustomShow { .. }
         | LinkAction::Slide { .. }
+        | LinkAction::Zoom { .. }
         | LinkAction::Next
         | LinkAction::Prev
         | LinkAction::First
@@ -641,6 +642,8 @@ fn link_parts(tx: &mut Tx<'_>, slide: usize, target: &LinkAction) -> R<(String, 
             };
             Ok((id, kind.uri()))
         }
+        // A zoom is its own object (SLIDE-ZOOM-001), not a hyperlink.
+        LinkAction::Zoom { .. } => refuse("unsupportedLink"),
         // Programs and macros are never created; unknown actions cannot be written.
         LinkAction::Program { .. } | LinkAction::Macro { .. } | LinkAction::Unknown { .. } => {
             refuse("unsafeAction")

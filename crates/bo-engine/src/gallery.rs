@@ -1,6 +1,9 @@
 //! Style gallery: the paragraph and character styles of the open document
 //! (ECMA-376 Part 1, §17.7.4.17 style) with what a preview needs. Quick styles
 //! (§17.7.4.14 qFormat) come first in style-sheet order, then the others by name.
+//! A linked paragraph / character pair (§17.7.4.6 link) is listed once, as the
+//! paragraph style. The Styles pane filters on `recommended` (§17.7.4.16 semiHidden,
+//! §17.7.4.20 unhideWhenUsed, §17.7.4.4 hidden) and `inUse`, ordered by `uiPriority`.
 
 use bo_model::{Document, RunProps, StyleKind};
 use serde::Serialize;
@@ -37,6 +40,22 @@ pub struct StyleEntry {
     pub quick: bool,
     /// How the style's name is rendered in the gallery.
     pub preview: StylePreview,
+    /// §17.7.4.19 uiPriority.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ui_priority: Option<u32>,
+    /// Shown in the recommended list: not hidden, and not semi-hidden unless it
+    /// unhides when used and is used.
+    pub recommended: bool,
+    /// The document's content uses the style.
+    pub in_use: bool,
+    /// Linked character style (§17.7.4.6 link) folded into this entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linked: Option<String>,
+    /// §17.7.4.3 basedOn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub based_on: Option<String>,
+    /// The default style of its type (cannot be deleted).
+    pub is_default: bool,
 }
 
 fn preview(doc: &Document, rp: &RunProps) -> StylePreview {
@@ -62,12 +81,23 @@ fn preview(doc: &Document, rp: &RunProps) -> StylePreview {
 pub fn styles(doc: &Document) -> Vec<StyleEntry> {
     let mut quick = Vec::new();
     let mut rest = Vec::new();
+    let used = bo_edit::styles::styles_in_use(doc);
     for s in &doc.styles.styles {
         let (kind, rp) = match s.kind {
             StyleKind::Paragraph => ("paragraph", doc.styles.resolve_paragraph(&s.id).1),
             StyleKind::Character => ("character", doc.styles.resolve_character(&s.id)),
             _ => continue,
         };
+        // The character half of a linked pair is shown with its paragraph style.
+        let partner = s
+            .linked
+            .as_deref()
+            .and_then(|l| doc.style(l))
+            .filter(|l| l.kind != s.kind && l.linked.as_deref() == Some(s.id.as_str()));
+        if s.kind == StyleKind::Character && partner.is_some() {
+            continue;
+        }
+        let in_use = used.contains(&s.id) || partner.is_some_and(|p| used.contains(&p.id));
         let e = StyleEntry {
             id: s.id.clone(),
             name: if s.name.is_empty() {
@@ -78,6 +108,12 @@ pub fn styles(doc: &Document) -> Vec<StyleEntry> {
             kind,
             quick: s.quick,
             preview: preview(doc, &rp),
+            ui_priority: s.ui_priority,
+            recommended: !s.hidden && (!s.semi_hidden || (s.unhide_when_used && in_use)),
+            in_use,
+            linked: partner.map(|p| p.id.clone()),
+            based_on: s.based_on.clone(),
+            is_default: s.is_default,
         };
         if s.quick {
             quick.push(e);
@@ -97,6 +133,12 @@ pub fn styles(doc: &Document) -> Vec<StyleEntry> {
                 kind: "paragraph",
                 quick: true,
                 preview: preview(doc, &s.rpr),
+                ui_priority: None,
+                recommended: true,
+                in_use: false,
+                linked: None,
+                based_on: s.based_on.clone(),
+                is_default: s.is_default,
             });
         }
     }

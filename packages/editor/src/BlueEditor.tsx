@@ -276,7 +276,8 @@ import {
   type SignForm,
 } from './signing';
 import { createEditorStore, togglePane, type DocTaskPane, type EditorState } from './store';
-import { StylesPane } from './StylesPane';
+import { StylesPane, type StylesPaneRequest } from './StylesPane';
+import { RevealFormattingPane, StyleInspectorPane } from './StyleInspector';
 import { taskPaneLabels } from './taskPaneLabels';
 import {
   HeaderFooterBar,
@@ -528,6 +529,12 @@ function EditorInner({
     async () => (await controller.current?.query({ cmd: 'styleList' }))?.styles ?? null,
     [],
   );
+  const queryCommand = useCallback(
+    (c: EditCommand) => controller.current?.query(c) ?? Promise.resolve(null),
+    [],
+  );
+  /** New Style / Organizer dialog asked of the Styles pane (DOC-STYLE-001). */
+  const [stylesRequest, setStylesRequest] = useState<StylesPaneRequest | null>(null);
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
   useCommandSearchShortcut(() => setSearchOpen(true));
@@ -2367,6 +2374,33 @@ function EditorInner({
       isChecked: (s) => s.taskPanes.includes('styles'),
       run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'styles') }),
     });
+    // Style management (DOC-STYLE-001).
+    r.register({
+      id: 'view.styleInspector',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.taskPanes.includes('styleInspector'),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'styleInspector') }),
+    });
+    r.register({
+      id: 'view.revealFormatting',
+      shortcut: 'Shift+F1',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.taskPanes.includes('revealFormatting'),
+      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'revealFormatting') }),
+    });
+    for (const [id, kind] of [
+      ['view.newStyle', 'newStyle'],
+      ['view.styleOrganizer', 'organizer'],
+    ] as const) {
+      r.register({
+        id,
+        isEnabled: hasDoc,
+        run: (s) => {
+          store.setState({ taskPanes: togglePane(s.taskPanes, 'styles', true) });
+          setStylesRequest((q) => ({ kind, n: (q?.n ?? 0) + 1 }));
+        },
+      });
+    }
     // BlueScript pane (CORE-SCRIPT-001).
     r.register({
       id: 'script.editor',
@@ -3884,8 +3918,36 @@ function EditorInner({
             current={fs?.style ?? null}
             refreshKey={`${state.doc?.name ?? ''}:${fs?.style ?? ''}`}
             apply={(styleId) => void runFocus({ cmd: 'applyStyle', id: styleId })}
+            request={stylesRequest}
+            onRequestDone={() => setStylesRequest(null)}
+            manage={{
+              run: runCommand,
+              query: queryCommand,
+              openFile: (accept) => platform.files.openFile(accept),
+              saveFile: (bytes, name, mime) => platform.files.saveFile(bytes, name, mime),
+              openPane: (pane) =>
+                store.setState({
+                  taskPanes: togglePane(store.getState().taskPanes, pane, true),
+                }),
+            }}
           />
         ),
+      });
+    } else if (id === 'styleInspector') {
+      paneDefs.push({
+        id,
+        title: t('docStyles.inspector.title'),
+        icon: <Palette size={14} aria-hidden />,
+        content: (
+          <StyleInspectorPane query={queryCommand} run={runCommand} refreshKey={state.edit} />
+        ),
+      });
+    } else if (id === 'revealFormatting') {
+      paneDefs.push({
+        id,
+        title: t('docStyles.reveal.title'),
+        icon: <Eye size={14} aria-hidden />,
+        content: <RevealFormattingPane query={queryCommand} refreshKey={state.edit} />,
       });
     } else if (id === 'comments') {
       paneDefs.push({

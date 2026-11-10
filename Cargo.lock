@@ -709,6 +709,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-html"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bo-docx",
+ "bo-encoding",
+ "bo-formula",
+ "bo-model",
+ "bo-sheet",
+ "png",
+ "proptest",
+]
+
+[[package]]
 name = "bo-layout"
 version = "0.1.0"
 dependencies = [
@@ -770,6 +784,7 @@ dependencies = [
 name = "bo-opc"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "proptest",
  "quick-xml",
  "thiserror 2.0.21",

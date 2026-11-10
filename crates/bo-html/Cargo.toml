@@ -1,0 +1,22 @@
+[package]
+name = "bo-html"
+description = "HTML and MHTML (single-file web page) import and export for documents and worksheets."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-model.workspace = true
+bo-encoding.workspace = true
+bo-sheet.workspace = true
+bo-formula.workspace = true
+base64 = "0.22"
+
+[dev-dependencies]
+bo-docx.workspace = true
+proptest.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true

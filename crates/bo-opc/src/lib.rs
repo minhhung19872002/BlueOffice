@@ -4,11 +4,15 @@
 //! BlueOffice does not understand — is kept as raw bytes and written back
 //! unchanged, in the original order, so a read → write round trip is lossless.
 //!
+//! A package may also be stored as one XML file ("Flat OPC", [`flat`]):
+//! [`Package::read`] accepts both containers.
+//!
 //! Untrusted input is guarded by [`Limits`] (zip-bomb protection).
 #![forbid(unsafe_code)]
 
 mod content_types;
 pub mod custom;
+pub mod flat;
 mod package;
 mod rels;
 pub mod xml;

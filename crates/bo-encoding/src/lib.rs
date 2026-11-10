@@ -22,6 +22,7 @@
 
 pub mod cp1252;
 mod tables;
+pub mod web;
 
 use bo_model::{Document, RunContent, RunProps, StyleSheet};
 

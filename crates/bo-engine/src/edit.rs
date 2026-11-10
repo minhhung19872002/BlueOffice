@@ -1236,6 +1236,9 @@ pub struct EditResult {
     /// Custom XML parts and their nodes (custom XML commands, §15.2.4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_xml: Option<Vec<bo_edit::custom_xml::CustomXmlInfo>>,
+    /// Sources, reference style and citation at the caret (citation commands, CORE-CITE-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cite: Option<Box<crate::cite::CiteInfo>>,
     /// Read-aloud text and highlight rectangles (`speechText`, `speechRects`, CORE-LANG-003).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speech: Option<Box<crate::speech::SpeechInfo>>,
@@ -1269,6 +1272,11 @@ impl crate::Engine {
         }
         if let Some(xc) = crate::custom_xml::CustomXmlCommand::parse(&v) {
             let r = self.doc_custom_xml_command(xc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        // Citations and bibliography (CORE-CITE-001).
+        if let Some(cc) = crate::cite::CiteCommand::parse(&v) {
+            let r = self.doc_cite_command(cc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         // Embedded and linked workbooks (CORE-EMBED-001).
@@ -2416,6 +2424,7 @@ impl crate::Engine {
             signature_line_images: None,
             picture: None,
             custom_xml: None,
+            cite: None,
             speech: None,
             translation: None,
         })

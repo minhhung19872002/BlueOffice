@@ -1501,6 +1501,8 @@ export type SlideCommand =
   | import('./slideInk').SlideInkCommand
   /** Spelling and grammar of the deck (CORE-SPELL-006). */
   | import('./spelling').SlideSpellCommand
+  /** Compare with another version of the deck (CORE-VERSION-001) → `DeckCompareResult`. */
+  | import('./versions').CompareDeckCommand
   | { cmd: 'state' | 'selectAll' | 'delete' | 'duplicate' | 'group' | 'ungroup' }
   /** Check document (CORE-INSPECT-001) → `inspection`. */
   | InspectCommand
@@ -2582,4 +2584,6 @@ export interface Platform {
   mail?: import('./mailMerge').MailProvider;
   /** Pictures from the web for the sheet `IMAGE` function (absent: not allowed). */
   images?: import('./remoteImages').RemoteImages;
+  /** Version history of the open file (hosted sessions; CORE-VERSION-001). */
+  versions?: import('./versions').VersionHistory;
 }

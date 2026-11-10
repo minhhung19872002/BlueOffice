@@ -257,6 +257,26 @@ public static class MockBlueDriveApp
                 });
             }
         });
+        bohp.MapGet("/files/{id}/versions/{v}/contents", async (string id, string v, HttpRequest req, MockState s) =>
+        {
+            var (_, error) = await s.AuthorizeAsync(req, id, p => p.View);
+            if (error is not null)
+            {
+                return error;
+            }
+
+            lock (s)
+            {
+                var old = s.Get(id).Versions.FirstOrDefault(x => x.Version == v);
+                if (old is null)
+                {
+                    return Results.NotFound();
+                }
+
+                req.HttpContext.Response.Headers.ETag = $"\"{old.Version}\"";
+                return Results.Bytes(old.Content, "application/octet-stream");
+            }
+        });
         bohp.MapPost("/files/{id}/versions/{v}/restore", async (string id, string v, HttpRequest req, MockState s) =>
         {
             var (user, error) = await s.AuthorizeAsync(req, id, p => p.Edit);

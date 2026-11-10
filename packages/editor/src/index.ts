@@ -22,6 +22,12 @@ export { CheckDocumentDialog, type CheckDocumentBridge, type CheckTab } from './
 export { DocCheckDocumentDialog, docCheckBridge } from './DocCheckDocument';
 export { ClipboardPanel, previewText } from './clipboard/ClipboardPanel';
 export {
+  VersionsPane,
+  versionDate,
+  type ChangeRow,
+  type CompareOutcome,
+} from './versions/VersionsPane';
+export {
   CLIP_HISTORY_MAX,
   ClipboardHistory,
   clipboardHistory,

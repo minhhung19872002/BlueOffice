@@ -251,6 +251,7 @@ public sealed class WopiTests : IAsyncLifetime
 
         // WOPI has no version history.
         Assert.Equal(HttpStatusCode.NotImplemented, (await c.GetAsync(new Uri($"/api/sessions/{sid}/versions", UriKind.Relative))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotImplemented, (await c.GetAsync(new Uri($"/api/sessions/{sid}/versions/1/contents", UriKind.Relative))).StatusCode);
     }
 
     [Fact]

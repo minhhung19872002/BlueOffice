@@ -8,6 +8,7 @@ import {
 } from './SpellCheckDialog';
 import { AutoCorrectDialog, autoCorrectCommand, loadAutoCorrect } from './AutoCorrectDialog';
 import { DocCheckDocumentDialog } from './DocCheckDocument';
+import { VersionsPane } from './versions/VersionsPane';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
@@ -162,6 +163,7 @@ import {
   SquareFunction,
   TextCursorInput,
   GitCompare,
+  History,
   GitMerge,
   Braces,
   ListChecks,
@@ -210,7 +212,7 @@ import {
 } from './TrackingControls';
 import { PasswordDialog, SavePasswordPanel } from './SecurityPanels';
 import { SaveAsTypeDialog, planOpen, saveName } from './FileVariants';
-import { fromBase64 } from './clipboard/docPaste';
+import { fromBase64, toBase64 } from './clipboard/docPaste';
 import {
   identityNames,
   isProtectionRefusal,
@@ -1770,6 +1772,13 @@ function EditorInner({
       run: () => store.setState({ dialog: 'checkDocument' }),
     });
     r.register({
+      id: 'review.versions',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.dialog === 'versions',
+      run: () =>
+        store.setState({ dialog: store.getState().dialog === 'versions' ? null : 'versions' }),
+    });
+    r.register({
       id: 'review.checkAdminFormat',
       isEnabled: hasDoc,
       run: () => store.setState({ dialog: 'adminFormat' }),
@@ -3185,6 +3194,7 @@ function EditorInner({
           items: [
             item('review.compare', 'commands.review.compare', <GitCompare size={ICON} />),
             item('review.combine', 'commands.review.combine', <GitMerge size={ICON} />),
+            item('review.versions', 'commands.review.versions', <History size={ICON} />),
           ],
         },
         {
@@ -3634,6 +3644,18 @@ function EditorInner({
             )}
             {state.dialog === 'checkDocument' && (
               <DocCheckDocumentDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'versions' && (
+              <VersionsPane
+                versions={platform.versions}
+                openFile={() => platform.files.openFile(['.docx', '.odt', '.doc'])}
+                // BlueDoc shows the differences as tracked changes (DOC-COMPARE-001).
+                compare={async (bytes, name) => {
+                  await runCommand({ cmd: 'compareWith', name, base64: toBase64(bytes) });
+                  return null;
+                }}
+                onClose={closeDialog}
+              />
             )}
             {state.dialog === 'formField' && state.edit?.formField && (
               <FormFieldDialog

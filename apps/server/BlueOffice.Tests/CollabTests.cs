@@ -194,6 +194,32 @@ public sealed class CollabTests : IDisposable
     }
 
     [Fact]
+    public async Task LocalSessionReadsOlderVersionsWithAuthorNames()
+    {
+        var fileId = await SharedFileAsync();
+        var (_, sb) = await SessionAsync("bob", "Bob", fileId);
+        var bob = _app.CreateClient();
+        bob.DefaultRequestHeaders.Add("X-Session-Token", sb.GetProperty("sessionToken").GetString());
+        var sid = sb.GetProperty("sessionId").GetString();
+        (await bob.PostAsync(new Uri($"/api/sessions/{sid}/checkpoint?save=true", UriKind.Relative), new ByteArrayContent("v2-docx"u8.ToArray()))).EnsureSuccessStatusCode();
+
+        // Version history names the author of each version (compare pane).
+        var versions = await bob.GetFromJsonAsync<JsonElement>(new Uri($"/api/sessions/{sid}/versions", UriKind.Relative));
+        var list = versions.GetProperty("versions").EnumerateArray().ToList();
+        Assert.Equal(["2", "1"], list.Select(v => v.GetProperty("version").GetString()));
+        Assert.Equal("Bob", list[0].GetProperty("modifiedBy").GetProperty("name").GetString());
+        Assert.Equal("Alice", list[1].GetProperty("modifiedBy").GetProperty("name").GetString());
+
+        var v1 = await bob.GetAsync(new Uri($"/api/sessions/{sid}/versions/1/contents", UriKind.Relative));
+        Assert.Equal(HttpStatusCode.OK, v1.StatusCode);
+        Assert.Equal("v1"u8.ToArray(), await v1.Content.ReadAsByteArrayAsync());
+        Assert.Equal("1", v1.Headers.GetValues("X-Version").Single());
+        Assert.Equal("v2-docx"u8.ToArray(), await bob.GetByteArrayAsync(new Uri($"/api/sessions/{sid}/contents", UriKind.Relative)));
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync(new Uri($"/api/sessions/{sid}/versions/7/contents", UriKind.Relative))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync(new Uri($"/api/sessions/{sid}/versions/x/contents", UriKind.Relative))).StatusCode);
+    }
+
+    [Fact]
     public async Task UnsavedLogIsPersistedAndReplayedToTheNextSession()
     {
         var fileId = await SharedFileAsync();

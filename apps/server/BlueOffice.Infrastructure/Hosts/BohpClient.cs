@@ -112,6 +112,14 @@ public sealed class BohpClient(IHttpClientFactory httpFactory) : IBohpClient
     }
 
     /// <inheritdoc />
+    public async Task<HostContent> GetVersionContentsAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct)
+    {
+        using var res = await SendAsync(ctx, HttpMethod.Get, $"{FilePath(fileId)}/versions/{Uri.EscapeDataString(version)}/contents", null, ct);
+        var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+        return new HostContent(bytes, version);
+    }
+
+    /// <inheritdoc />
     public async Task<HostPutResult> RestoreVersionAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct)
     {
         using var res = await SendAsync(ctx, HttpMethod.Post, $"{FilePath(fileId)}/versions/{Uri.EscapeDataString(version)}/restore", null, ct);

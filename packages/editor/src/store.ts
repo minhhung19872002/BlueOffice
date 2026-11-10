@@ -86,6 +86,8 @@ export interface EditorState {
     | 'pageBorders'
     | 'watermark'
     | 'checkDocument'
+    /** Version history / compare with a version (CORE-VERSION-001). */
+    | 'versions'
     | 'spellCheck'
     | 'language'
     | 'columns'

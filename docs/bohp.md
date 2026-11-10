@@ -26,6 +26,7 @@ BlueOffice cài đặt phần B–D. Bản cài tối thiểu để test: `tests
 | `POST /files/{id}/refresh-lock` | Gia hạn | 200 như trên | 409 nếu không còn khoá / khác lockId |
 | `POST /files/{id}/unlock` | Mở khoá `{"lockId"}` | 200 | 409 nếu khác lockId |
 | `GET /files/{id}/versions` | Lịch sử, mới nhất trước | 200 `{"versions":[Version]}` | |
+| `GET /files/{id}/versions/{v}/contents` | Nội dung phiên bản `v` (so sánh, xem trước khi khôi phục) | 200 bytes | 404 |
 | `POST /files/{id}/versions/{v}/restore` | Khôi phục `v` thành phiên bản mới | 200 `{"version"}` | 404 |
 | `POST /files/{id}/rename` | `{"name"}` (kèm phần mở rộng) | 200 `{"name"}` | 409 trùng tên |
 | `POST /folders/{folderId}/files?name=` | Tạo file (Save As, bản xung đột); body = bytes | 201 `{"id","name","version"}` | 403, 409 |
@@ -101,7 +102,7 @@ bản ghi webhook có `signatureValid` (chữ ký + timestamp ±5 phút) và `at
 
 API phiên (header `X-Session-Token`): `GET /api/sessions/{id}`, `DELETE`, `GET …/contents`, `POST …/checkpoint[?save=true&overwrite=true]`
 (body = file đã serialize bởi editor), `POST …/refresh` `{"token"}` (token mới + đọc lại quyền), `POST …/audit`
-`{"action":"print|export|download","detail"}`, `GET …/versions`, `POST …/versions/{v}/restore`, `POST …/rename`,
+`{"action":"print|export|download","detail"}`, `GET …/versions`, `GET …/versions/{v}/contents`, `POST …/versions/{v}/restore`, `POST …/rename`,
 `POST …/save-as?name=&folderId=`, `POST …/sync?baseVersion=` (sửa offline, xem D).
 
 ## C. Cộng tác (`WS /collab/{fileId}?session=&token=`)

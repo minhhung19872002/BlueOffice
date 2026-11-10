@@ -86,6 +86,8 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'setIdentity',
   'setReadOnly',
   'unlockWrite',
+  // Compare with another version (CORE-VERSION-001).
+  'compareDeck',
 ]);
 
 /** BlueSheet `exec` commands that only read. */
@@ -114,6 +116,8 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'unlockWrite',
   'protectedRanges',
   'unlockProtectedRange',
+  // Show Changes (CORE-VERSION-001).
+  'compareWorkbook',
 ]);
 
 export const READ_ONLY_ERROR = 'session.readOnly';

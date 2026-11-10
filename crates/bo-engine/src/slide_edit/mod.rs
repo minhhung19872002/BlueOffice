@@ -3438,6 +3438,9 @@ impl Engine {
         if let Some(sc) = spell::SlideSpellCommand::parse(json) {
             return self.slide_spell(sc);
         }
+        if let Some(r) = self.compare_deck_json(json) {
+            return r;
+        }
         if let Some(sc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| crate::security::SecurityCommand::parse(&v))

@@ -106,6 +106,14 @@ public static class SessionEndpoints
             var s = Require(id, req, store, time);
             return Results.Ok(new { versions = await s.Storage.GetVersionsAsync(s.Context, s.FileId, ct) });
         });
+        api.MapGet("/{id}/versions/{version}/contents", async (string id, string version, HttpRequest req, SessionStore store, TimeProvider time, CancellationToken ct) =>
+        {
+            // An older version (compare, preview before restore): read-only, any session that can view the file.
+            var s = Require(id, req, store, time);
+            var content = await s.Storage.GetVersionContentsAsync(s.Context, s.FileId, version, ct);
+            req.HttpContext.Response.Headers["X-Version"] = content.Version ?? version;
+            return Results.File(content.Content, FileContentType(s.File.Name), s.File.Name);
+        });
         api.MapPost("/{id}/versions/{version}/restore", async (string id, string version, HttpRequest req, SessionStore store, RoomManager rooms, AuditService audit, TimeProvider time, CancellationToken ct) =>
         {
             var s = RequireEdit(id, req, store, time);

@@ -103,6 +103,7 @@ import {
   Circle,
   Clapperboard,
   ClipboardCheck,
+  History,
   SpellCheck,
   ClipboardPaste,
   Copy,
@@ -182,6 +183,7 @@ import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideCheckDocumentDialog } from './inspect';
 import { SlideController } from './controller';
 import { SlideSpellDialog, SlideSpellLayer, useSlideSpelling } from './spelling';
+import { SlideVersionsPane } from './compareVersions';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
 import {
   SlideClipboardUi,
@@ -485,6 +487,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
+  /** Version history / compare versions pane (CORE-VERSION-001). */
+  const [versionsOpen, setVersionsOpen] = useState(false);
   /** Slide size dialog and master / layout rename dialog (SLIDE-MASTER-001). */
   const [sizeOpen, setSizeOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -1729,6 +1733,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => commentsOpen,
       run: async () => setCommentsOpen((o) => !o),
     });
+    reg.register({
+      id: 'review.versions',
+      isEnabled: deck,
+      isChecked: () => versionsOpen,
+      run: async () => setVersionsOpen((o) => !o),
+    });
     for (const [id, preset] of [
       ['insert.rect', 'rect'],
       ['insert.ellipse', 'ellipse'],
@@ -1895,6 +1905,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setup,
     paneOpen,
     commentsOpen,
+    versionsOpen,
     newChart,
     openSmartArt,
     openChart,
@@ -2468,6 +2479,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             items: [
               item('review.checkDocument', t('inspect.command'), <ClipboardCheck size={18} />),
             ],
+          },
+          {
+            id: 'versions',
+            label: t('versions.group'),
+            items: [item('review.versions', t('versions.compareVersions'), <History size={18} />)],
           },
           {
             id: 'proofing',
@@ -3210,6 +3226,18 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           </div>
           {checkOpen && (
             <SlideCheckDocumentDialog run={runResult} onClose={() => setCheckOpen(false)} />
+          )}
+          {versionsOpen && (
+            <SlideVersionsPane
+              engine={engine}
+              versions={platform.versions}
+              openFile={() => platform.files.openFile(['.pptx', '.pptm', '.ppt', '.odp'])}
+              onShow={(slide, shapeId) => {
+                if (slide !== current) goTo(slide);
+                if (shapeId !== undefined) run({ cmd: 'select', ids: [shapeId] });
+              }}
+              onClose={() => setVersionsOpen(false)}
+            />
           )}
           {spelling.dialog && (
             <SlideSpellDialog

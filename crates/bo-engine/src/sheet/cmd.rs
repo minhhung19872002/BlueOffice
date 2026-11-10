@@ -1879,6 +1879,9 @@ impl SheetEngine {
         if let Some(mc) = super::cell_media_cmd::CellMediaCommand::parse(&v) {
             return Ok(self.cell_media_checked(mc)?.to_string());
         }
+        if let Some(cc) = super::compare_cmd::CompareCommand::parse(&v) {
+            return Ok(self.compare_workbook(&cc)?.to_string());
+        }
         let cmd: SheetCommand =
             serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
         if !self.sec.read_only {

@@ -210,6 +210,8 @@ import {
   PenLine,
   ArrowLeftRight,
   Bookmark,
+  Library,
+  Quote,
   Scale,
   Volume2,
   Mic,
@@ -330,6 +332,7 @@ import {
 import { PdfExportDialog } from './PdfExportDialog';
 import { CombineCharsDialog, FontEffectsDialog, PhoneticGuideDialog } from './FontEffectsDialog';
 import { isReferenceDialog, ReferenceDialog } from './ReferenceDialogs';
+import { CitationDialog, CitationStylePicker, isCitationDialog } from './CitationDialogs';
 import { Rulers, type PageBox } from './Ruler';
 import { NavigationPane } from './NavigationPane';
 import { XmlMappingPane } from './XmlMappingPane';
@@ -1946,6 +1949,10 @@ function EditorInner({
       ['references.markCitation', 'markCitation'],
       ['references.insertToa', 'insertToa'],
       ['references.convertNotes', 'convertNotes'],
+      // Citations and bibliography (CitationDialogs, CORE-CITE-001).
+      ['references.insertCitation', 'insertCitation'],
+      ['references.manageSources', 'manageSources'],
+      ['references.insertBibliography', 'insertBibliography'],
     ] as const) {
       r.register({
         id,
@@ -3461,6 +3468,35 @@ function EditorInner({
           ],
         },
         {
+          id: 'citations',
+          label: t('ribbon.groups.citations'),
+          items: [
+            item(
+              'references.insertCitation',
+              'commands.references.insertCitation',
+              <Quote size={ICON} />,
+            ),
+            s(
+              'references.manageSources',
+              'commands.references.manageSources',
+              <Library size={SMALL} />,
+            ),
+            custom(
+              'references.citationStyle',
+              <CitationStylePicker
+                run={runCommand}
+                disabled={noDoc || !!state.edit?.story}
+                refreshKey={`${state.doc?.name ?? ''}|${state.dialog ?? ''}`}
+              />,
+            ),
+            s(
+              'references.insertBibliography',
+              'commands.references.insertBibliography',
+              <BookOpen size={SMALL} />,
+            ),
+          ],
+        },
+        {
           id: 'authorities',
           label: t('ribbon.groups.authorities'),
           items: [
@@ -4688,6 +4724,16 @@ function EditorInner({
               <ReferenceDialog
                 which={state.dialog}
                 run={runCommand}
+                language={state.language}
+                onClose={closeDialog}
+              />
+            )}
+            {isCitationDialog(state.dialog) && (
+              <CitationDialog
+                which={state.dialog}
+                run={runCommand}
+                settings={platform.shell}
+                files={platform.files}
                 language={state.language}
                 onClose={closeDialog}
               />

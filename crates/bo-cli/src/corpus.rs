@@ -477,6 +477,100 @@ fn field_complex(instr: &str, cached: &str) -> String {
     )
 }
 
+/// A CITATION field (ECMA-376 Part 1, §17.16.5.8) as a complex field inside its inline
+/// content control (§17.5.2.3 citation). `shown` is XML-escaped text.
+fn cite_sdt(id: i32, instr: &str, shown: &str) -> String {
+    format!(
+        r#"<w:sdt><w:sdtPr><w:id w:val="{id}"/><w:citation/></w:sdtPr><w:sdtContent>{}</w:sdtContent></w:sdt>"#,
+        field_complex(instr, shown)
+    )
+}
+
+/// A CITATION field as a simple field (§17.16.19 fldSimple).
+fn cite_simple(instr: &str, shown: &str) -> String {
+    format!(r#"<w:fldSimple w:instr=" {instr} "><w:r><w:t>{shown}</w:t></w:r></w:fldSimple>"#)
+}
+
+/// A BIBLIOGRAPHY field (§17.16.5.5) spanning one paragraph per entry, inside its block
+/// content control (§17.5.2.2 bibliography). An entry is XML-escaped text with italic
+/// stretches between asterisks and a tab after the number label of numeric styles.
+fn bibliography_sdt(id: i32, instr: &str, entries: &[&str]) -> String {
+    let mut out =
+        format!(r#"<w:sdt><w:sdtPr><w:id w:val="{id}"/><w:bibliography/></w:sdtPr><w:sdtContent>"#);
+    for (i, e) in entries.iter().enumerate() {
+        out.push_str(r#"<w:p><w:pPr><w:pStyle w:val="Bibliography"/></w:pPr>"#);
+        if i == 0 {
+            out.push_str(&format!(
+                r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> {instr} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#
+            ));
+        }
+        let (label, text) = match e.split_once('\t') {
+            Some((l, t)) => (Some(l), t),
+            None => (None, *e),
+        };
+        if let Some(l) = label {
+            out.push_str(&format!("<w:r><w:t>{l}</w:t><w:tab/></w:r>"));
+        }
+        for (k, part) in text.split('*').enumerate() {
+            if part.is_empty() {
+                continue;
+            }
+            let rpr = if k % 2 == 1 {
+                "<w:rPr><w:i/></w:rPr>"
+            } else {
+                ""
+            };
+            out.push_str(&format!(
+                r#"<w:r>{rpr}<w:t xml:space="preserve">{part}</w:t></w:r>"#
+            ));
+        }
+        if i + 1 == entries.len() {
+            out.push_str(r#"<w:r><w:fldChar w:fldCharType="end"/></w:r>"#);
+        }
+        out.push_str("</w:p>");
+    }
+    out.push_str("</w:sdtContent></w:sdt>");
+    out
+}
+
+/// One `b:Source` (§22.6.2.59): people as (family, given) or a corporate author, then the
+/// other elements. Values are XML-escaped text.
+fn cite_source(
+    tag: &str,
+    kind: &str,
+    people: &[(&str, &str)],
+    corporate: &str,
+    fields: &[(&str, &str)],
+) -> String {
+    let mut out = format!("<b:Source><b:Tag>{tag}</b:Tag><b:SourceType>{kind}</b:SourceType>");
+    if !corporate.is_empty() {
+        out.push_str(&format!(
+            "<b:Author><b:Author><b:Corporate>{corporate}</b:Corporate></b:Author></b:Author>"
+        ));
+    } else if !people.is_empty() {
+        out.push_str("<b:Author><b:Author><b:NameList>");
+        for (last, first) in people {
+            out.push_str(&format!(
+                "<b:Person><b:Last>{last}</b:Last><b:First>{first}</b:First></b:Person>"
+            ));
+        }
+        out.push_str("</b:NameList></b:Author></b:Author>");
+    }
+    for (k, v) in fields {
+        out.push_str(&format!("<b:{k}>{v}</b:{k}>"));
+    }
+    out.push_str("</b:Source>");
+    out
+}
+
+/// The bibliography part (§22.6.2.60 Sources) with the selected style's name.
+fn cite_sources(style: &str, sources: &[String]) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<b:Sources StyleName=\"{style}\" xmlns:b=\"http://schemas.openxmlformats.org/officeDocument/2006/bibliography\" xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/bibliography\">{}</b:Sources>",
+        sources.concat()
+    )
+}
+
 /// All corpus documents: (file name, feature, description, package).
 fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
     let mut v = Vec::new();
@@ -1217,6 +1311,90 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
   <dh:thanhToan>CK</dh:thanhToan>
 </dh:donHang>".to_owned(),
             "{3B0F6A52-1C7D-4E8A-9B21-6D4C0E5F7A13}".to_owned(),
+        )],
+        ..Doc::default()
+    }));
+    // ---- citations and bibliography (§22.6 b:Sources, §17.16.5.8 CITATION, §17.16.5.5
+    // BIBLIOGRAPHY); the cached results are the ones BlueDoc's own style formatters give.
+    let cite_styles = format!(
+        r#"{}<w:style w:type="paragraph" w:styleId="Bibliography"><w:name w:val="bibliography"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:ind w:left="720" w:hanging="720"/></w:pPr></w:style>"#,
+        default_styles()
+    );
+    v.push(("cite-01-apa-author-date.docx", "cite", "Nguồn trích dẫn (customXml b:Sources, StyleName APA): sách hai tác giả, bài báo ba tác giả có DOI, báo cáo của tổ chức, nguồn giữ chỗ; trường CITATION phức trong sdt w:citation (một nguồn, nhiều nguồn \\m kèm trang \\p, nguồn giữ chỗ) và BIBLIOGRAPHY trong sdt w:bibliography", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Phương pháp nghiên cứu được trình bày trong </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cite_sdt(4101, "CITATION Smi20 \\l 1033", "(Smith &amp; Doe, 2020)")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Kết quả gần đây </w:t></w:r>{}<w:r><w:t xml:space="preserve"> cho thấy xu hướng tương tự.</w:t></w:r></w:p>"#, cite_sdt(4102, "CITATION Ngu21 \\l 1033 \\p 105 \\m WHO22", "(Nguyen et al., 2021, p. 105; World Health Organization, 2022)")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Nguồn sẽ bổ sung sau </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cite_sdt(4103, "CITATION Placeholder1 \\l 1033", "(Placeholder1)")),
+            heading(1, "Tài liệu tham khảo"),
+            bibliography_sdt(4104, "BIBLIOGRAPHY", &[
+                "Nguyen, M. T., Smith, J. K., &amp; Tran, L. (2021). Deep learning for text. *Journal of Data*, *12*(3), 100–120. https://doi.org/10.1000/jd.2021.5",
+                "Smith, J. K., &amp; Doe, J. (2020). *Research methods* (2nd ed.). Blue Press.",
+                "World Health Organization. (2022). *Global report*. WHO Press.",
+            ]),
+            p("Hết."),
+        ].concat(),
+        sect: s.clone(),
+        styles: Some(cite_styles.clone()),
+        custom_xml: vec![(
+            cite_sources("APA", &[
+                cite_source("Smi20", "Book", &[("Smith", "John K."), ("Doe", "Jane")], "", &[("Title", "Research methods"), ("Year", "2020"), ("Edition", "2"), ("Publisher", "Blue Press"), ("City", "Hanoi"), ("LCID", "1033")]),
+                cite_source("Ngu21", "JournalArticle", &[("Nguyen", "Minh T."), ("Smith", "John K."), ("Tran", "Lan")], "", &[("Title", "Deep learning for text"), ("JournalName", "Journal of Data"), ("Year", "2021"), ("Volume", "12"), ("Issue", "3"), ("Pages", "100-120"), ("DOI", "10.1000/jd.2021.5")]),
+                cite_source("WHO22", "Report", &[], "World Health Organization", &[("Title", "Global report"), ("Year", "2022"), ("Publisher", "WHO Press"), ("City", "Geneva")]),
+                cite_source("Placeholder1", "Book", &[], "", &[]),
+            ]),
+            "{7C1E9A40-52B3-4D6F-8A17-3E5B9C0D2F61}".to_owned(),
+        )],
+        ..Doc::default()
+    }));
+    v.push(("cite-02-ieee-numeric.docx", "cite", "Trích dẫn kiểu số theo thứ tự xuất hiện (StyleName IEEE): chương sách có chủ biên, bài hội nghị, trang web có ngày truy cập; trường CITATION dạng fldSimple (kèm trang, hai nguồn) và danh mục có nhãn [n] + tab", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Thuật toán phân tích cú pháp nhanh </w:t></w:r>{}<w:r><w:t xml:space="preserve"> dựa trên kỹ thuật lấy mẫu </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cite_simple("CITATION Gar18", "[1]"), cite_simple("CITATION Lee19 \\p 50-52", "[2, pp. 50–52]")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Xem thêm </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cite_simple("CITATION Gar18 \\m Blu23", "[1], [3]")),
+            heading(1, "References"),
+            bibliography_sdt(4201, "BIBLIOGRAPHY", &[
+                "[1]\tL. Garcia, “Fast parsing,” in *Proceedings of the International Conference on Parsing*, Paris, 2018, pp. 10–15.",
+                "[2]\tA. Lee, “Sampling,” in *Handbook of statistics*, M. Brown, Ed. London: Blue Press, 2019, pp. 45–67.",
+                "[3]\tBlue Docs Team. “Getting started.” Blue Docs. Accessed: Jan. 15, 2024. [Online]. Available: https://example.org/start",
+            ]),
+        ].concat(),
+        sect: s.clone(),
+        styles: Some(cite_styles.clone()),
+        custom_xml: vec![(
+            cite_sources("IEEE", &[
+                r#"<b:Source><b:Tag>Lee19</b:Tag><b:SourceType>BookSection</b:SourceType><b:Author><b:Author><b:NameList><b:Person><b:Last>Lee</b:Last><b:First>Anna</b:First></b:Person></b:NameList></b:Author><b:Editor><b:NameList><b:Person><b:Last>Brown</b:Last><b:First>Mark</b:First></b:Person></b:NameList></b:Editor></b:Author><b:Title>Sampling</b:Title><b:BookTitle>Handbook of statistics</b:BookTitle><b:Year>2019</b:Year><b:Pages>45-67</b:Pages><b:Publisher>Blue Press</b:Publisher><b:City>London</b:City></b:Source>"#.to_owned(),
+                cite_source("Gar18", "ConferenceProceedings", &[("Garcia", "Luis")], "", &[("Title", "Fast parsing"), ("ConferenceName", "Proceedings of the International Conference on Parsing"), ("Year", "2018"), ("Pages", "10-15"), ("Publisher", "ACM"), ("City", "Paris")]),
+                cite_source("Blu23", "InternetSite", &[], "Blue Docs Team", &[("Title", "Getting started"), ("InternetSiteTitle", "Blue Docs"), ("Year", "2023"), ("Month", "5"), ("Day", "4"), ("URL", "https://example.org/start"), ("YearAccessed", "2024"), ("MonthAccessed", "1"), ("DayAccessed", "15")]),
+            ]),
+            "{2A6D4F18-9B7C-4E35-A1D0-6F8E3C5B7A92}".to_owned(),
+        )],
+        ..Doc::default()
+    }));
+    v.push(("cite-03-vn-thesis.docx", "cite", "Danh mục tài liệu tham khảo kiểu luận văn Việt Nam (StyleName VNThesis): tài liệu tiếng Việt trước (xếp theo tên tác giả, không có tác giả thì theo cơ quan ban hành), tài liệu nước ngoài sau (xếp theo họ); văn bản pháp luật; trích dẫn [số, tr. x-y]; BIBLIOGRAPHY \\l 1066", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Lúa lai đã được nghiên cứu từ sớm </w:t></w:r>{}<w:r><w:t xml:space="preserve">, </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cite_sdt(4301, "CITATION Qua92 \\l 1066 \\p 10-16", "[2, tr. 10-16]"), cite_sdt(4302, "CITATION And85 \\l 1066 \\m Bor97", "[5], [6]")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Việc xử lý dữ liệu cá nhân tuân theo quy định hiện hành </w:t></w:r>{}<w:r><w:t xml:space="preserve"> và giáo trình </w:t></w:r>{}<w:r><w:t>.</w:t></w:r></w:p>"#, cite_sdt(4303, "CITATION ND13 \\l 1066", "[4]"), cite_sdt(4304, "CITATION Ngu15 \\l 1066", "[1]")),
+            heading(1, "TÀI LIỆU THAM KHẢO"),
+            bibliography_sdt(4305, "BIBLIOGRAPHY \\l 1066", &[
+                "[1]\tNguyễn Văn An, Trần Thị Bình (2015), *Giáo trình thống kê*, Nhà xuất bản Giáo dục, Hà Nội.",
+                "[2]\tQuách Ngọc Ân (1992), “Nhìn lại hai năm phát triển lúa lai”, *Di truyền học ứng dụng*, 98(1), tr. 10-16.",
+                "[3]\tBộ Nông nghiệp &amp; PTNT (1996), *Báo cáo tổng kết 5 năm (1992-1996) phát triển lúa lai*, Hà Nội.",
+                "[4]\tChính phủ (2023), *Nghị định quy định về bảo vệ dữ liệu cá nhân*, số 13/2023/NĐ-CP, ngày 17/04/2023.",
+                "[5]\tAnderson J.E. (1985), “The Relative Inefficiency of Quota”, *American Economic Review*, 75(1), pp. 178-90.",
+                "[6]\tBorkakati R.P., Virmani S.S. (1997), “Genetics of thermosensitive genic male sterility in Rice”, *Euphytica*, 88, pp. 1-7.",
+            ]),
+        ].concat(),
+        sect: s.clone(),
+        styles: Some(cite_styles),
+        custom_xml: vec![(
+            cite_sources("VNThesis", &[
+                cite_source("And85", "JournalArticle", &[("Anderson", "J. E.")], "", &[("Title", "The Relative Inefficiency of Quota"), ("JournalName", "American Economic Review"), ("Year", "1985"), ("Volume", "75"), ("Issue", "1"), ("Pages", "178-90"), ("LCID", "1033")]),
+                cite_source("Qua92", "JournalArticle", &[("Quách", "Ngọc Ân")], "", &[("Title", "Nhìn lại hai năm phát triển lúa lai"), ("JournalName", "Di truyền học ứng dụng"), ("Year", "1992"), ("Volume", "98"), ("Issue", "1"), ("Pages", "10-16"), ("LCID", "1066")]),
+                cite_source("Bo96", "Report", &[], "Bộ Nông nghiệp &amp; PTNT", &[("Title", "Báo cáo tổng kết 5 năm (1992-1996) phát triển lúa lai"), ("Year", "1996"), ("City", "Hà Nội"), ("LCID", "1066")]),
+                cite_source("Ngu15", "Book", &[("Nguyễn", "Văn An"), ("Trần", "Thị Bình")], "", &[("Title", "Giáo trình thống kê"), ("Year", "2015"), ("Publisher", "Nhà xuất bản Giáo dục"), ("City", "Hà Nội"), ("LCID", "1066")]),
+                cite_source("Bor97", "JournalArticle", &[("Borkakati", "R. P."), ("Virmani", "S. S.")], "", &[("Title", "Genetics of thermosensitive genic male sterility in Rice"), ("JournalName", "Euphytica"), ("Year", "1997"), ("Volume", "88"), ("Pages", "1-7"), ("LCID", "1033")]),
+                cite_source("ND13", "Case", &[], "", &[("Title", "Nghị định quy định về bảo vệ dữ liệu cá nhân"), ("CaseNumber", "13/2023/NĐ-CP"), ("Court", "Chính phủ"), ("Year", "2023"), ("Month", "4"), ("Day", "17"), ("LCID", "1066")]),
+            ]),
+            "{5E3B7D29-0A4C-4F81-B6E2-9D1C8A7F4B03}".to_owned(),
         )],
         ..Doc::default()
     }));

@@ -232,6 +232,11 @@ test('BlueDoc opens a PDF file as a document of its text', async ({ page }) => {
 
   // Open it again: recognised by content, the text comes back, saved as .docx.
   await page.getByTestId('file-tab').click();
+  await page
+    .getByRole('navigation', { name: 'Tệp' })
+    .getByRole('button', { name: 'Mở', exact: true })
+    .click();
+  await expect(page.getByTestId('backstage')).toHaveAttribute('data-page', 'open');
   const chooser = page.waitForEvent('filechooser');
   await page.locator('[data-testid="backstage"] [data-command="file.open"]').click();
   await (

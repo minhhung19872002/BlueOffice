@@ -19,16 +19,16 @@ pub use compute::{ColKind, Layout, RowKind};
 use crate::cells::resolve_ref;
 use bo_formula::DateSystem;
 use bo_model::sheet::{
-    pivot_item_cmp, Cell, CellRange, CellRef, CellValue, CellXf, PivotCache, PivotCacheField,
-    PivotDataField, PivotFieldFilter, PivotFieldGroup, PivotFieldOptions, PivotFilter,
-    PivotFunction, PivotGroupBy, PivotItemKey, PivotLayout, PivotRangeGroup, PivotShowAs,
-    PivotStyleInfo, PivotTable, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
+    Cell, CellRange, CellRef, CellValue, CellXf, PivotCache, PivotCacheField, PivotDataField,
+    PivotFieldFilter, PivotFieldGroup, PivotFieldOptions, PivotFilter, PivotFunction, PivotGroupBy,
+    PivotItemKey, PivotLayout, PivotRangeGroup, PivotShowAs, PivotStyleInfo, PivotTable, Workbook,
+    Worksheet, MAX_COLS, MAX_ROWS,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// Maximum number of source cells read into a cache.
-const MAX_SOURCE_CELLS: u64 = 4_000_000;
+const MAX_SOURCE_CELLS: u64 = 16_777_216;
 
 /// Captions written into report cells (localized by the host).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -247,20 +247,25 @@ pub fn source_data(
         }
         names.push(name);
     }
-    let mut records = Vec::new();
-    for r in range.first.row + 1..=range.last.row {
-        let rec: Vec<CellValue> = (range.first.col..=range.last.col)
-            .map(|c| match ws.cell(r, c).map(|cell| &cell.value) {
-                Some(CellValue::RichText(_)) => CellValue::Text(
-                    ws.cell(r, c)
-                        .and_then(|x| x.value.as_text())
-                        .unwrap_or_default(),
-                ),
-                Some(v) => v.clone(),
-                None => CellValue::Empty,
-            })
-            .collect();
-        records.push(rec);
+    // One pass over the rows of the range (no tree lookup per cell).
+    let width = range.cols() as usize;
+    let (c0, c1) = (range.first.col, range.last.col);
+    let first = range.first.row + 1;
+    let mut records: Vec<Vec<CellValue>> = Vec::new();
+    if first <= range.last.row {
+        for (&(r, c), cell) in ws.cells.range((first, c0)..=(range.last.row, c1)) {
+            if c < c0 || c > c1 {
+                continue;
+            }
+            let i = (r - first) as usize;
+            while records.len() <= i {
+                records.push(vec![CellValue::Empty; width]);
+            }
+            records[i][(c - c0) as usize] = match &cell.value {
+                CellValue::RichText(_) => CellValue::Text(cell.value.as_text().unwrap_or_default()),
+                v => v.clone(),
+            };
+        }
     }
     // Trailing blank rows of a whole-column selection are not records.
     while records
@@ -274,45 +279,156 @@ pub fn source_data(
 
 /// Number format of every source column: that of its first number (0 = General).
 pub fn source_formats(wb: &Workbook, sheet: usize, range: CellRange) -> Vec<u32> {
+    let width = range.cols() as usize;
     let Some(ws) = wb.sheets.get(sheet) else {
-        return vec![0; range.cols() as usize];
+        return vec![0; width];
     };
-    (range.first.col..=range.last.col)
-        .map(|col| {
-            (range.first.row + 1..=range.last.row)
-                .find_map(|row| {
-                    let c = ws.cell(row, col)?;
-                    matches!(c.value, CellValue::Number(_))
-                        .then(|| wb.styles.xf(c.style).map(|x| x.num_fmt_id))
-                        .flatten()
-                })
-                .unwrap_or(0)
-        })
-        .collect()
+    let (c0, c1) = (range.first.col, range.last.col);
+    let mut out: Vec<Option<u32>> = vec![None; width];
+    let mut left = width;
+    let first = range.first.row + 1;
+    if first <= range.last.row {
+        for (&(_, c), cell) in ws.cells.range((first, c0)..=(range.last.row, c1)) {
+            if c < c0 || c > c1 {
+                continue;
+            }
+            let slot = &mut out[(c - c0) as usize];
+            if slot.is_none() && matches!(cell.value, CellValue::Number(_)) {
+                if let Some(x) = wb.styles.xf(cell.style) {
+                    *slot = Some(x.num_fmt_id);
+                    left -= 1;
+                    if left == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    out.into_iter().map(|x| x.unwrap_or(0)).collect()
 }
 
 /// Cache fields with their distinct items in display order.
+///
+/// Fields are independent: on native targets they are collected on scoped threads
+/// (one per field, at most the available parallelism); WebAssembly builds stay
+/// single-threaded.
 pub fn cache_fields(names: &[String], records: &[Vec<CellValue>]) -> Vec<PivotCacheField> {
-    names
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            let mut seen: HashSet<PivotItemKey> = HashSet::new();
-            let mut items = Vec::new();
-            for rec in records {
-                let v = rec.get(i).cloned().unwrap_or_default();
-                if seen.insert(PivotItemKey::of(&v)) {
-                    items.push(v);
+    let field = |i: usize| PivotCacheField {
+        name: names[i].clone(),
+        items: distinct_items(records, i),
+        ..PivotCacheField::default()
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    if records.len() >= 50_000 && names.len() > 1 {
+        let threads = std::thread::available_parallelism().map_or(1, usize::from);
+        if threads > 1 {
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let done: std::sync::Mutex<Vec<Option<PivotCacheField>>> =
+                std::sync::Mutex::new((0..names.len()).map(|_| None).collect());
+            std::thread::scope(|s| {
+                for _ in 0..threads.min(names.len()) {
+                    s.spawn(|| loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= names.len() {
+                            break;
+                        }
+                        let f = field(i);
+                        if let Ok(mut out) = done.lock() {
+                            out[i] = Some(f);
+                        }
+                    });
+                }
+            });
+            let out = done.into_inner().unwrap_or_default();
+            if out.len() == names.len() && out.iter().all(Option::is_some) {
+                return out.into_iter().flatten().collect();
+            }
+        }
+    }
+    (0..names.len()).map(field).collect()
+}
+
+/// Distinct values of column `i` of the records, in display order
+/// (`pivot_item_cmp`: numbers ascending, then text case-insensitively, booleans,
+/// errors, blank); each item is the value's first occurrence.
+///
+/// Exact texts are deduplicated as borrowed strings (no key built per record);
+/// each distinct text then gets its lower-cased key once and the keys are sorted
+/// with an inline 8-byte prefix, so most comparisons do not read the strings. A
+/// column of a million distinct texts needs no allocation per record beyond its
+/// key, and no per-comparison key.
+fn distinct_items(records: &[Vec<CellValue>], i: usize) -> Vec<CellValue> {
+    use std::borrow::Cow;
+    /// Lower-cased item key, borrowed when the text is already lower-case ASCII.
+    fn key(s: &str) -> Cow<'_, str> {
+        if s.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
+            Cow::Borrowed(s)
+        } else {
+            Cow::Owned(s.to_lowercase())
+        }
+    }
+    let empty = CellValue::Empty;
+    let mut nums: Vec<(f64, u32)> = Vec::new();
+    let mut texts: HashMap<&str, u32> = HashMap::new();
+    let mut bools: [Option<u32>; 2] = [None, None];
+    let mut errors: Vec<(&str, u32)> = Vec::new();
+    let mut blank: Option<u32> = None;
+    // Values whose text is computed (rich text): owned, kept apart.
+    let mut owned: Vec<(String, u32)> = Vec::new();
+    for (ri, rec) in records.iter().enumerate() {
+        let ri = ri as u32;
+        if ri == 4096 && texts.len() > 2048 {
+            // Mostly distinct texts: size the table once instead of regrowing it.
+            texts.reserve(records.len() - texts.len());
+        }
+        match rec.get(i).unwrap_or(&empty) {
+            CellValue::Empty => {
+                blank.get_or_insert(ri);
+            }
+            // -0 and 0 are one item.
+            CellValue::Number(n) => nums.push((if *n == 0.0 { 0.0 } else { *n }, ri)),
+            CellValue::Bool(b) => {
+                bools[usize::from(*b)].get_or_insert(ri);
+            }
+            CellValue::Error(e) => {
+                if !errors.iter().any(|(x, _)| *x == e.as_str()) {
+                    errors.push((e.as_str(), ri));
                 }
             }
-            items.sort_by(pivot_item_cmp);
-            PivotCacheField {
-                name: name.clone(),
-                items,
-                ..PivotCacheField::default()
+            CellValue::Text(s) | CellValue::Date(s) => {
+                texts.entry(s).or_insert(ri);
             }
+            v @ CellValue::RichText(_) => owned.push((v.as_text().unwrap_or_default(), ri)),
+        }
+    }
+    nums.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    nums.dedup_by(|b, a| a.0 == b.0);
+    let prefix = |s: &str| {
+        let mut b = [0u8; 8];
+        let n = s.len().min(8);
+        b[..n].copy_from_slice(&s.as_bytes()[..n]);
+        u64::from_be_bytes(b)
+    };
+    let mut keyed: Vec<(u64, Cow<'_, str>, u32)> = texts
+        .into_iter()
+        .chain(owned.iter().map(|(s, ri)| (s.as_str(), *ri)))
+        .map(|(s, ri)| {
+            let k = key(s);
+            (prefix(&k), k, ri)
         })
-        .collect()
+        .collect();
+    // (prefix, key) orders as the key; the first occurrence of a key is kept.
+    keyed.sort_unstable();
+    keyed.dedup_by(|b, a| a.1 == b.1);
+    errors.sort_unstable();
+    let value = |ri: u32| -> CellValue { records[ri as usize].get(i).unwrap_or(&empty).clone() };
+    let mut items = Vec::with_capacity(nums.len() + keyed.len() + errors.len() + 3);
+    items.extend(nums.iter().map(|(_, ri)| value(*ri)));
+    items.extend(keyed.iter().map(|(_, _, ri)| value(*ri)));
+    items.extend(bools.iter().flatten().map(|ri| value(*ri)));
+    items.extend(errors.iter().map(|(_, ri)| value(*ri)));
+    items.extend(blank.map(value));
+    items
 }
 
 /// Items of a cache field as an axis shows them: its group captions when
@@ -821,7 +937,8 @@ fn refresh_cache(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Resu
     let (names, records) = source_data(&wb.sheets[si], range, labels)?;
     let formats = source_formats(wb, si, range);
     let sys = date_system(wb);
-    let old = wb.pivot_caches[ci].fields.clone();
+    // Taken, not cloned: the old fields are only read (their items can be millions).
+    let old = std::mem::take(&mut wb.pivot_caches[ci].fields);
     let mut fields = cache_fields(&names, &records);
     for (f, id) in fields.iter_mut().zip(formats) {
         f.num_fmt_id = id;
@@ -881,8 +998,9 @@ fn refresh_cache(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Resu
     }
     let cache = &mut wb.pivot_caches[ci];
     cache.fields = fields;
-    cache.records = records;
+    let old_records = std::mem::replace(&mut cache.records, records);
     cache.dirty = true;
+    crate::drop_in_background((old, old_records));
     for (s, i) in list {
         render(wb, s, i, labels)?;
     }

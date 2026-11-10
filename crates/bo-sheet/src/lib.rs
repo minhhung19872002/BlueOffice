@@ -54,3 +54,19 @@ pub mod timeline;
 pub mod validation;
 pub mod viewport;
 pub mod whatif;
+
+/// Drop `value` (a large structure of many small allocations: the previous
+/// records of a pivot cache, a replaced formula engine) on a background thread on
+/// native targets, so the edit does not wait for the deallocation; in place on
+/// WebAssembly (single-threaded).
+pub(crate) fn drop_in_background<T: Send + 'static>(value: T) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // A failed spawn drops the value with the closure, here.
+        let _ = std::thread::Builder::new()
+            .name("bo-sheet-drop".into())
+            .spawn(move || drop(value));
+    }
+    #[cfg(target_arch = "wasm32")]
+    drop(value);
+}

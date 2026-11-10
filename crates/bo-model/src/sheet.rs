@@ -2218,7 +2218,10 @@ impl PivotItemKey {
             CellValue::Bool(b) => PivotItemKey::Bool(*b),
             CellValue::Error(e) => PivotItemKey::Error(e.as_str().to_owned()),
             CellValue::Date(d) => PivotItemKey::Text(d.to_lowercase()),
-            other => PivotItemKey::Text(other.as_text().unwrap_or_default().to_lowercase()),
+            CellValue::Text(s) => PivotItemKey::Text(s.to_lowercase()),
+            other @ CellValue::RichText(_) => {
+                PivotItemKey::Text(other.as_text().unwrap_or_default().to_lowercase())
+            }
         }
     }
 }
@@ -2226,6 +2229,17 @@ impl PivotItemKey {
 /// Display order of pivot items: numbers ascending, then text (case-insensitive),
 /// booleans, errors and blanks last.
 pub fn pivot_item_cmp(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
+    pivot_item_cmp_keyed(a, &PivotItemKey::of(a), b, &PivotItemKey::of(b))
+}
+
+/// [`pivot_item_cmp`] with the items' keys already built (sorting many items
+/// without building two keys per comparison).
+pub fn pivot_item_cmp_keyed(
+    a: &CellValue,
+    ka: &PivotItemKey,
+    b: &CellValue,
+    kb: &PivotItemKey,
+) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let rank = |k: &PivotItemKey| match k {
         PivotItemKey::Number(_) => 0,
@@ -2234,8 +2248,7 @@ pub fn pivot_item_cmp(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
         PivotItemKey::Error(_) => 3,
         PivotItemKey::Blank => 4,
     };
-    let (ka, kb) = (PivotItemKey::of(a), PivotItemKey::of(b));
-    match (&ka, &kb, a, b) {
+    match (ka, kb, a, b) {
         (
             PivotItemKey::Number(_),
             PivotItemKey::Number(_),
@@ -2245,7 +2258,7 @@ pub fn pivot_item_cmp(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
         (PivotItemKey::Text(x), PivotItemKey::Text(y), ..)
         | (PivotItemKey::Error(x), PivotItemKey::Error(y), ..) => x.cmp(y),
         (PivotItemKey::Bool(x), PivotItemKey::Bool(y), ..) => x.cmp(y),
-        _ => rank(&ka).cmp(&rank(&kb)),
+        _ => rank(ka).cmp(&rank(kb)),
     }
 }
 

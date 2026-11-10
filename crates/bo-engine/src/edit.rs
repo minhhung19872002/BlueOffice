@@ -1240,7 +1240,14 @@ impl crate::Engine {
     }
 
     /// Set the clock (Unix milliseconds) used to date new revisions and comments.
+    ///
+    /// The clock stays fixed for later commands that carry no host time of their own.
     pub fn set_clock_ms(&mut self, ms: i64) {
+        self.clock_fixed = Some(ms);
+        self.apply_clock_ms(ms);
+    }
+
+    fn apply_clock_ms(&mut self, ms: i64) {
         if let Some(s) = self.session.as_mut() {
             s.set_clock(Some(crate::review::iso_date(ms)));
         }
@@ -1441,8 +1448,8 @@ impl crate::Engine {
             },
             _ => {}
         }
-        if let Some(ms) = now.or_else(crate::review::system_ms) {
-            self.set_clock_ms(ms);
+        if let Some(ms) = now.or(self.clock_fixed).or_else(crate::review::system_ms) {
+            self.apply_clock_ms(ms);
         }
         let keep_goal = matches!(
             cmd,

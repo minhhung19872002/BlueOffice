@@ -237,6 +237,8 @@ impl WordCount {
 #[derive(Default)]
 pub struct Engine {
     fonts: FontManager,
+    /// Clock fixed by the host (`set_clock_ms`), used instead of the system clock.
+    clock_fixed: Option<i64>,
     /// Sheets of the last print preview (CORE-PRINT-001).
     print_cache: print::PreviewCache,
     cache: LayoutCache,

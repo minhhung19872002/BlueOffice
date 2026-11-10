@@ -32,6 +32,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Biểu đồ c: cơ bản (9 loại) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | corpus charts-* | ✅ | một bộ vẽ chung cho Sheet/Slide/Doc; kiểu/màu/bố cục nhanh/mẫu biểu đồ (CORE-CHART-007, Sheet + Slide) |
 | Biểu đồ c: nâng cao (bubble, radar, stock, surface, 3D…) | all | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | — | corpus writer-charts-*, slide_show | 🟡 | 100 %, bubble, radar, stock HLC/OHLC, of-pie, tách miếng, surface (nhìn trên), 3D (cột/thanh/trụ/nón/kim tự tháp, đường, vùng, tròn, bề mặt; khối thật); thiếu VHLC/VOHLC |
 | Biểu đồ cx: (waterfall, treemap…) | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus writer-chartex-*, slide-chartex-* | 🟡 | 7 loại đọc/vẽ ở mọi app; tạo trong BlueSheet; chưa regionMap |
+| Nhúng/liên kết workbook, OLE | Doc/Slide | ✅ | 🟡 | 🟡 | ✅ | 🟡 | ✅ | — | bo-docx ole, bo-engine ole | 🟡 | CORE-EMBED-001: ảnh preview, giữ nguyên byte, chèn/sửa lưới, cập nhật liên kết (desktop); chưa EMF/WMF, chưa mở bằng BlueSheet |
 | Shape preset/custom geometry | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 187 preset, snapshots | ✅ | |
 | Edit points / merge shapes | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | Hiệu ứng: shadow, glow | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | snapshots | 🟡 | PDF blur dạng ảnh mặt nạ |

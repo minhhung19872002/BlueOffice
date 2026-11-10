@@ -5814,7 +5814,8 @@ function EditorInner({
                   const c = controller.current;
                   if (!c) return;
                   try {
-                    await insertDocIcons(c, icons);
+                    // One operation for a save: the placeholder is swapped before saving.
+                    await c.hold(insertDocIcons(c, icons));
                   } catch (e) {
                     fail('errors.image', e);
                   }

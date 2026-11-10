@@ -346,8 +346,29 @@ export class DocController {
     await this.paste(text, '');
   }
 
-  /** Wait for queued commands. */
-  idle(): Promise<unknown> {
-    return this.queue;
+  /** Multi-step operations in progress (see {@link hold}). */
+  private readonly held = new Set<Promise<unknown>>();
+
+  /**
+   * Registers an operation made of several queued commands (e.g. insert a picture, then
+   * swap its data, then merge the history): {@link idle} waits for it as a whole, so a save
+   * cannot slip in between its steps.
+   */
+  hold<T>(op: Promise<T>): Promise<T> {
+    this.held.add(op);
+    const done = () => this.held.delete(op);
+    op.then(done, done);
+    return op;
+  }
+
+  /** Wait for queued commands and for operations registered with {@link hold}. */
+  async idle(): Promise<unknown> {
+    let last: unknown;
+    // An operation may queue more commands while it runs: wait until both are drained.
+    for (;;) {
+      last = await this.queue;
+      if (this.held.size === 0) return last;
+      await Promise.allSettled([...this.held]);
+    }
   }
 }

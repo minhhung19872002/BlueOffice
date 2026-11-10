@@ -1,0 +1,11 @@
+{
+  "source": "BlueOffice test fixture",
+  "data": {
+    "products": [
+      { "code": "A01", "name": "Táo", "group": { "id": 1, "name": "Trái cây" }, "price": 12.5, "active": true },
+      { "code": "A02", "name": "Lê", "group": { "id": 1, "name": "Trái cây" }, "price": 20, "active": false },
+      { "code": "A03", "name": "Cam", "group": { "id": 1, "name": "Trái cây" }, "price": 15, "tags": ["new", "sale"] },
+      { "code": "B01", "name": "Gạo", "group": { "id": 2, "name": "Lương thực" }, "price": 18.25 }
+    ]
+  }
+}

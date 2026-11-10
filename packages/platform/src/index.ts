@@ -6,6 +6,7 @@ export type * from './sheetViews';
 export type * from './views';
 export type * from './sparkline';
 export type * from './sheetTable';
+export type * from './sheetQuery';
 export type * from './slideExport';
 export type * from './print';
 export type * from './sigline';
@@ -45,6 +46,7 @@ export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcod
 export * from './sheetDataTools';
 export * from './speech';
 export * from './translation';
+export * from './queryData';
 export {
   OidcSession,
   fetchOidcConfig,

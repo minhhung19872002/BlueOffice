@@ -99,6 +99,7 @@ bo-opc ◄─ bo-docx · bo-xlsx · bo-pptx (+ bo-drawingml) · bo-crypto · bo-
 bo-model (doc · sheet · slide) ◄─ bo-docx · bo-xlsx · bo-pptx · bo-binary (.doc/.xls/.xlsb/.ppt) · bo-odf · bo-encoding
 bo-text ◄─ bo-layout ◄─ bo-render ◄─ bo-raster (PNG), bo-pdf
 bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formula ◄─ bo-sheet (lưới, định dạng số, CF/DV, chart)
+bo-query (Lấy & biến đổi dữ liệu: nguồn CSV/JSON/XML/sổ/thư mục/web + ngôn ngữ bước JSON; docs/spec-notes/sheet-queries.md) ◄─ bo-engine (lệnh `query*`)
 bo-engine (facade: Engine doc+slide, SheetEngine) ◄─ bo-wasm (web) · bo-cli · apps/desktop/src-tauri
 bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 ```

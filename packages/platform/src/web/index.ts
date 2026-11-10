@@ -26,6 +26,7 @@ import { webSpeech } from '../speech';
 import { ServerTranslationProvider } from '../translation';
 import { WebDisplays, presentationReceiverBus } from './displays';
 import { FetchRemoteImages } from '../remoteImages';
+import { createBrowserQueryData } from '../queryData';
 
 export { WebSigning } from './signing';
 export type { SignatureBackend, WebSigningOptions } from './signing';
@@ -305,5 +306,15 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
       : {}),
     displays: new WebDisplays(),
     images: new FetchRemoteImages(),
+    // Get & Transform (SHEET-PQ-001): folders from a directory picker; web pages through the
+    // BlueOffice server's proxy (same origin unless VITE_BO_WEBDATA_URL names it, `off` = none),
+    // which answers 404 until an administrator enables it (docs/deploy/web-data.md).
+    dataSources: createBrowserQueryData({
+      proxyBaseUrl: env.VITE_BO_WEBDATA_URL === 'off' ? null : (env.VITE_BO_WEBDATA_URL ?? ''),
+      headers: async (): Promise<Record<string, string>> => {
+        const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+        return token ? { Authorization: `Bearer ${token}` } : {};
+      },
+    }),
   };
 }

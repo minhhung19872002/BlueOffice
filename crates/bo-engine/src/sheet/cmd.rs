@@ -1938,6 +1938,9 @@ impl SheetEngine {
         if let Some(sc) = super::smartart_cmd::SmartArtCommand::parse(&v) {
             return Ok(self.smartart_command(sc)?.to_string());
         }
+        if let Some(qc) = super::query_cmd::QueryCommand::parse(&v) {
+            return Ok(self.query_command_checked(qc?)?.to_string());
+        }
         let cmd: SheetCommand =
             serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
         if !self.sec.read_only {

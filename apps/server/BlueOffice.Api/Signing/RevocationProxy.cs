@@ -49,7 +49,7 @@ public static class RevocationProxy
                 AllowAutoRedirect = true,
                 MaxAutomaticRedirections = 3,
                 UseProxy = false,
-                ConnectCallback = (ctx, ct) => ConnectAsync(ctx, opts, ct),
+                ConnectCallback = (ctx, ct) => ConnectAsync(ctx, opts.AllowPrivateNetworks, ct),
             });
         return services;
     }
@@ -82,11 +82,12 @@ public static class RevocationProxy
             || (ip.GetAddressBytes()[0] & 0xFE) == 0xFC); // fc00::/7 unique local
     }
 
-    private static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext ctx, RevocationOptions opts, CancellationToken ct)
+    /// <summary>Opens the connection to an allowed address of the host (public only unless <paramref name="allowPrivate"/>).</summary>
+    internal static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext ctx, bool allowPrivate, CancellationToken ct)
     {
         var host = ctx.DnsEndPoint.Host;
         var addresses = IPAddress.TryParse(host, out var literal) ? [literal] : await Dns.GetHostAddressesAsync(host, ct);
-        var allowed = addresses.Where(a => opts.AllowPrivateNetworks || IsPublic(a)).ToArray();
+        var allowed = addresses.Where(a => allowPrivate || IsPublic(a)).ToArray();
         if (allowed.Length == 0)
         {
             throw new HttpRequestException($"{host}: address not allowed");

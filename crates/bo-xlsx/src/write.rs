@@ -260,6 +260,13 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                         mode: TargetMode::Internal,
                     });
                     table_rids.push(id);
+                    if !t.rels.is_empty() {
+                        out_parts.push((
+                            bo_opc::rels_part_name(&tpath),
+                            None,
+                            bo_opc_rels_xml(&to_rels(&tpath, &t.rels)).into_bytes(),
+                        ));
+                    }
                     out_parts.push((tpath, Some(CT_TABLE.into()), table_xml(t).into_bytes()));
                 }
                 // Comments (§18.7).

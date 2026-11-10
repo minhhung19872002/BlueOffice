@@ -52,6 +52,8 @@ import { DesktopAuth, type DesktopScheme } from './auth';
 import { WebCodecsVideo } from '../webcodecs';
 import { FetchRemoteImages } from '../remoteImages';
 import { webSpeech } from '../speech';
+import { fromBase64 } from '../web/signing';
+import type { PickedFolder, QueryDataSources } from '../sheetQuery';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -428,6 +430,38 @@ export class DesktopFileAccess implements FileAccess {
   }
 }
 
+/** A folder as the `pick_folder` / `read_folder` commands return it. */
+interface NativeFolder {
+  name: string;
+  path: string;
+  files: { name: string; data: string }[];
+}
+
+const toFolder = (f: NativeFolder): PickedFolder => ({
+  name: f.name,
+  path: f.path,
+  files: f.files.map((x) => ({ name: x.name, bytes: fromBase64(x.data) })),
+});
+
+/** Get & Transform sources on the desktop: native folder dialog, direct web requests. */
+export class DesktopQueryData implements QueryDataSources {
+  constructor(private readonly call: Invoke = invoke as Invoke) {}
+  async pickFolder(): Promise<PickedFolder | null> {
+    const f = await this.call<NativeFolder | null>('pick_folder');
+    return f ? toFolder(f) : null;
+  }
+  async readFolder(path: string): Promise<PickedFolder> {
+    return toFolder(await this.call<NativeFolder>('read_folder', { path }));
+  }
+  async fetchWeb(url: string): Promise<Uint8Array> {
+    try {
+      return toBytes(await this.call<ArrayBuffer>('fetch_web', { url }));
+    } catch (e) {
+      throw new Error(typeof e === 'string' ? e : 'network', { cause: e });
+    }
+  }
+}
+
 /**
  * Offline cache in a local folder (`<app data>/offline`, prompt §3.4
  * "desktop = thư mục cache cục bộ"): survives restarts and web view resets,
@@ -749,5 +783,6 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     speech: webSpeech(),
     displays: new DesktopDisplays(call),
     images: new FetchRemoteImages(),
+    dataSources: new DesktopQueryData(call),
   };
 }

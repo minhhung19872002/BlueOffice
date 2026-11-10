@@ -185,6 +185,12 @@ import {
   ScanText,
   Volume2,
   SquareTerminal,
+  Braces,
+  Database,
+  FileCode,
+  FileSpreadsheet,
+  FileText,
+  Globe,
 } from 'lucide-react';
 import { recordSheetHost, ScriptPane, ScriptRecorder, sheetScriptHost } from '@blueoffice/script';
 import {
@@ -237,6 +243,7 @@ import {
 import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
 import { asTextInput, translateCells, type CellTranslateMode } from './translate';
+import { useSheetQueries } from './queries';
 import {
   SheetClipboardUi,
   sheetPasteCommand,
@@ -1246,6 +1253,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     },
     [host, refreshInfo, fail],
   );
+
+  // Get & Transform data (SHEET-PQ-001): ribbon actions, query editor, Queries pane.
+  const queries = useSheetQueries({
+    host,
+    platform,
+    sheet,
+    cell: selection.active,
+    onChanged: refreshInfo,
+    goToSheet: setSheet,
+    fail,
+  });
+  const {
+    startFrom: queryFrom,
+    refresh: queryRefresh,
+    togglePane: toggleQueries,
+    paneOpen: queriesOpen,
+  } = queries;
 
   /** Open the SmartArt dialog on diagram `index` of sheet `sh` (CORE-SMART-005). */
   const openSmartArt = useCallback(
@@ -2622,6 +2646,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('data.removeDuplicates', open({ kind: 'dedupe' }));
     add('data.consolidate', open({ kind: 'consolidate' }));
     add('data.subtotal', open({ kind: 'subtotal' }));
+    add('data.fromCsv', () => queryFrom('csv'));
+    add('data.fromJson', () => queryFrom('json'));
+    add('data.fromXml', () => queryFrom('xml'));
+    add('data.fromWorkbook', () => queryFrom('workbook'));
+    add('data.fromFolder', () => queryFrom('folder'));
+    add('data.fromWeb', () => queryFrom('web'));
+    add('data.queries', async () => toggleQueries(), {
+      isChecked: () => queriesOpen,
+    });
+    add('data.refreshAll', () => queryRefresh(), { shortcut: 'Ctrl+Alt+F5' });
     const outlineGroup = (rows: boolean, ungroup: boolean) => (s: SheetEditorState) => {
       const r = rangeOf(s.selection);
       return exec({
@@ -2818,6 +2852,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     toggleFormulas,
     showingFormulas,
     recorder,
+    queryFrom,
+    queryRefresh,
+    toggleQueries,
+    queriesOpen,
   ]);
 
   // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
@@ -3968,6 +4006,30 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         id: 'data',
         label: t('sheetEditor.tabData'),
         groups: [
+          {
+            id: 'getData',
+            label: t('sheetQuery.group'),
+            items: [
+              item('data.fromCsv', t('sheetQuery.ribbon.fromCsv'), <FileText size={18} />),
+              item('data.fromJson', t('sheetQuery.ribbon.fromJson'), <Braces size={s} />, 'small'),
+              item('data.fromXml', t('sheetQuery.ribbon.fromXml'), <FileCode size={s} />, 'small'),
+              item(
+                'data.fromWorkbook',
+                t('sheetQuery.ribbon.fromWorkbook'),
+                <FileSpreadsheet size={s} />,
+                'small',
+              ),
+              item(
+                'data.fromFolder',
+                t('sheetQuery.ribbon.fromFolder'),
+                <FolderOpen size={s} />,
+                'small',
+              ),
+              item('data.fromWeb', t('sheetQuery.ribbon.fromWeb'), <Globe size={s} />, 'small'),
+              item('data.queries', t('sheetQuery.ribbon.queries'), <Database size={18} />),
+              item('data.refreshAll', t('sheetQuery.ribbon.refreshAll'), <RefreshCw size={18} />),
+            ],
+          },
           {
             id: 'sortFilter',
             label: t('sheetEditor.groupSortFilter'),
@@ -5158,13 +5220,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   } satisfies TaskPaneDef,
                 ]
               : []),
+            ...(queries.pane ? [queries.pane] : []),
           ]}
           onClose={(id) =>
-            id === 'comments'
-              ? setCommentsOpen(false)
-              : id === 'script'
-                ? setScriptOpen(false)
-                : setVersionsOpen(false)
+            id === 'queries'
+              ? queries.closePane()
+              : id === 'comments'
+                ? setCommentsOpen(false)
+                : id === 'script'
+                  ? setScriptOpen(false)
+                  : setVersionsOpen(false)
           }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}
@@ -5507,6 +5572,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {readAloud.bar}
       {translate.pane}
+      {queries.element}
       <SheetEditSpelling
         host={host}
         inputs={spellInputs}

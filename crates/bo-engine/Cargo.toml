@@ -30,6 +30,7 @@ bo-xlsx.workspace = true
 bo-binary = { path = "../bo-binary" }
 bo-encoding = { path = "../bo-encoding" }
 bo-odf = { path = "../bo-odf" }
+bo-query = { path = "../bo-query" }
 bo-crypto = { path = "../bo-crypto" }
 bo-opc.workspace = true
 serde.workspace = true

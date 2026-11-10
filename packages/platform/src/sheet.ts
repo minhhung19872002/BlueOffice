@@ -672,6 +672,8 @@ export interface SolverResult {
 export type SheetCommand =
   | import('./security').SecurityCommand
   | DataToolsCommand
+  /** Get & Transform data (SHEET-PQ-001). */
+  | import('./sheetQuery').SheetQueryCommand
   /** Formula auditing and calculation (SHEET-AUDIT-001). */
   | import('./audit').AuditCommand
   /** Spelling and grammar of text cells (CORE-SPELL-006). */

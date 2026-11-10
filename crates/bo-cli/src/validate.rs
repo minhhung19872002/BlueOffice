@@ -292,6 +292,26 @@ fn is_xml_part(name: &str, content_type: Option<&str>) -> bool {
 /// XML 1.0 well-formedness as far as the parser sees it: one root element, matching
 /// end tags, well-formed attributes (no duplicates) and known entity references.
 fn well_formed(data: &[u8]) -> Result<(), String> {
+    // XML 1.0 §4.3.3: UTF-16 starts with its byte order mark ([MS-QDEFF] DataMashup parts).
+    let le = data.starts_with(&[0xFF, 0xFE]);
+    if le || data.starts_with(&[0xFE, 0xFF]) {
+        let body = &data[2..];
+        if !body.len().is_multiple_of(2) {
+            return Err("odd number of bytes in UTF-16 text".into());
+        }
+        let units: Vec<u16> = body
+            .chunks_exact(2)
+            .map(|c| {
+                if le {
+                    u16::from_le_bytes([c[0], c[1]])
+                } else {
+                    u16::from_be_bytes([c[0], c[1]])
+                }
+            })
+            .collect();
+        let text = String::from_utf16(&units).map_err(|e| e.to_string())?;
+        return well_formed(text.as_bytes());
+    }
     let mut r = bo_opc::xml::XmlReader::new(data, "");
     let mut roots = 0usize;
     loop {
@@ -799,6 +819,16 @@ mod tests {
         assert!(well_formed(b"<a>&nbsp;</a>").is_err());
         assert!(well_formed(b"<a>").is_err());
         assert!(well_formed(b"").is_err());
+        let utf16: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain(
+                "<?xml version=\"1.0\" encoding=\"utf-16\"?><a>é</a>"
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes),
+            )
+            .collect();
+        assert!(well_formed(&utf16).is_ok());
+        assert!(well_formed(&utf16[..utf16.len() - 4]).is_err());
     }
 
     #[test]

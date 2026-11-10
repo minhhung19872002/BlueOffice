@@ -1477,6 +1477,17 @@ impl Engine {
             c.version = s.version();
             change = c.local_change(doc);
             if !c.joining {
+                // Parts dropped here (a SmartArt rebuilt under new names).
+                let dropped: Vec<String> = c
+                    .known_media
+                    .keys()
+                    .filter(|k| !doc.media.contains_key(*k))
+                    .cloned()
+                    .collect();
+                for name in dropped {
+                    c.known_media.remove(&name);
+                    change.blobs.insert(name, None);
+                }
                 for (name, bytes) in &doc.media {
                     let known = c
                         .known_media
@@ -1690,8 +1701,13 @@ impl Engine {
                 protection = Some(st.protection);
             }
         }
+        let mut dropped = Vec::new();
         for (name, v) in &change.blobs {
-            let Some((_, bytes)) = v.as_deref().and_then(Blob::decode) else {
+            let Some(v) = v else {
+                dropped.push(name.clone());
+                continue;
+            };
+            let Some((_, bytes)) = Blob::decode(v) else {
                 continue;
             };
             let old = doc.media.get(name);
@@ -1738,6 +1754,26 @@ impl Engine {
             };
             let keep = s.selection();
             if let Err(e) = s.apply_external(vec![op], keep) {
+                error = Some(e.to_string());
+            }
+        }
+        // Media parts others dropped (a SmartArt rebuilt under new names), once
+        // nothing here shows them any more.
+        let gone: Vec<Op> = dropped
+            .iter()
+            .filter_map(|name| {
+                c.known_media.remove(name);
+                let old = s.doc().media.get(name)?;
+                (!bo_edit::picture_tools::media_in_use(s.doc(), name)).then(|| Op::Media {
+                    name: name.clone(),
+                    old: Some(old.clone()),
+                    new: None,
+                })
+            })
+            .collect();
+        if !gone.is_empty() {
+            let keep = s.selection();
+            if let Err(e) = s.apply_external(gone, keep) {
                 error = Some(e.to_string());
             }
         }

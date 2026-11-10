@@ -205,7 +205,7 @@ impl Engine {
                 None => (cw / w0).min(ch / h0),
             };
             let doc = s.doc();
-            let mut n = doc.media.len() + 1;
+            let mut n = s.part_number_start(doc.media.len() + 1);
             let name = loop {
                 let cand = format!("/word/media/watermark{n}.{ext}");
                 if !doc.media.contains_key(&cand) {

@@ -290,6 +290,108 @@ fn an_embedded_workbook_edited_in_place_reaches_the_other_peer() {
     assert_eq!(v["ole"]["cells"][1][2], "=B2/4", "{v}");
 }
 
+impl Peer {
+    fn share(&mut self, r: &bo_engine::edit::EditResult) {
+        let c = r.collab.as_ref().unwrap().change.clone();
+        self.replica.apply_local(&to_replica(&c)).unwrap();
+    }
+}
+
+/// Pictures in the body (by media part name) of a peer.
+fn pictures(p: &Peer) -> Vec<(String, usize)> {
+    let d = p.engine.document().unwrap();
+    let mut v = Vec::new();
+    for s in &d.sections {
+        for b in &s.blocks {
+            if let bo_model::Block::Paragraph(par) = b {
+                for r in &par.runs {
+                    for c in &r.content {
+                        if let bo_model::RunContent::Image(i) = c {
+                            v.push((
+                                i.media.clone(),
+                                d.media.get(&i.media).map_or(0, |m| m.len()),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    v
+}
+
+// source: ECMA-376 Part 2, §9.1.1 part names (media parts added at once on two replicas)
+#[test]
+fn doc_pictures_and_smartart_added_at_once_keep_their_own_parts() {
+    let (mut a, mut b) = doc_pair("Một\nHai");
+    // Both insert a picture at once: two parts, two pictures, the same on both sides.
+    a.cmd(
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":0,"o":3},"focus":{"p":0,"o":3}}}),
+    );
+    b.cmd(
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":1,"o":3},"focus":{"p":1,"o":3}}}),
+    );
+    let r = a.engine.insert_image(PNG_2X1.to_vec(), "a.png").unwrap();
+    a.share(&r);
+    let mut big = PNG_2X1.to_vec();
+    big.extend_from_slice(&[0; 16]);
+    let r = b.engine.insert_image(big, "b.png").unwrap();
+    b.share(&r);
+    settle(&mut a, &mut b);
+    let (pa, pb) = (pictures(&a), pictures(&b));
+    assert_eq!(pa, pb);
+    assert_eq!(pa.len(), 2);
+    assert_ne!(pa[0].0, pa[1].0, "distinct part names");
+    assert_ne!(pa[0].1, pa[1].1, "each keeps its own bytes");
+    assert_eq!(
+        a.engine.document().unwrap().media,
+        b.engine.document().unwrap().media
+    );
+    // SmartArt inserted by A, its text edited by B: parts and frame converge.
+    a.cmd(
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":1,"o":0},"focus":{"p":1,"o":0}}}),
+    );
+    a.cmd(&json!({"cmd":"insertSmartArt","layout":"process","items":[{"text":"Một","level":0},{"text":"Hai","level":0}]}));
+    settle(&mut a, &mut b);
+    assert_eq!(pictures(&a), pictures(&b));
+    let frame = |p: &Peer| {
+        pictures(p)
+            .into_iter()
+            .find(|(m, _)| m.contains("/diagrams/"))
+            .unwrap()
+            .0
+    };
+    let media = frame(&b);
+    let at = b
+        .engine
+        .document()
+        .unwrap()
+        .sections
+        .iter()
+        .flat_map(|s| s.blocks.iter())
+        .position(|bl| match bl {
+            bo_model::Block::Paragraph(p) => p.runs.iter().any(|r| {
+                r.content
+                    .iter()
+                    .any(|c| matches!(c, bo_model::RunContent::Image(i) if i.media == media))
+            }),
+            _ => false,
+        })
+        .unwrap();
+    b.cmd(
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":at,"o":0},"focus":{"p":at,"o":0}}}),
+    );
+    b.cmd(&json!({"cmd":"setSmartArt","layout":"process","items":[{"text":"Một","level":0},{"text":"Hai","level":0},{"text":"Ba","level":0}]}));
+    settle(&mut a, &mut b);
+    assert_eq!(pictures(&a), pictures(&b));
+    assert_eq!(
+        a.engine.document().unwrap().media,
+        b.engine.document().unwrap().media
+    );
+    let info = a.engine.doc_smartart().unwrap();
+    assert_eq!(info.items.len(), 3, "B's text reached A");
+}
+
 #[test]
 fn slide_comment_parts_rewritten_in_place_converge() {
     big_stack(|| {

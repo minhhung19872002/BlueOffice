@@ -1238,6 +1238,19 @@ impl Session {
         self.id_seed = seed;
     }
 
+    /// First number to try for a new part name (`image<n>.png`, `data<n>.xml`, …):
+    /// `n` alone, or — while collaborating ([`Session::set_id_seed`]) — in a band of
+    /// the replica's own (seed × 100 000 + `n`), so parts added at once on two
+    /// replicas get different names (ECMA-376 Part 2, §9.1.1 part names) instead of
+    /// one replacing the other.
+    #[must_use]
+    pub fn part_number_start(&self, n: usize) -> usize {
+        match self.id_seed {
+            Some(s) => usize::from(s) * 100_000 + n,
+            None => n,
+        }
+    }
+
     /// Start editing `doc` with the caret at the beginning.
     pub fn new(doc: Document) -> Session {
         // §17.15.1.89 trackRevisions, or §17.18.37 trackedChanges protection.
@@ -3321,7 +3334,7 @@ impl Session {
         height: i64,
     ) -> Result<Selection> {
         let ext = ext.trim_start_matches('.').to_ascii_lowercase();
-        let mut n = self.doc.media.len() + 1;
+        let mut n = self.part_number_start(self.doc.media.len() + 1);
         let name = loop {
             let cand = format!("/word/media/image{n}.{ext}");
             if !self.doc.media.contains_key(&cand) {

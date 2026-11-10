@@ -190,7 +190,7 @@ impl Session {
 
     /// A media part name not used yet, `/word/media/image<n>.<ext>`.
     pub fn new_media_name(&self, ext: &str) -> String {
-        let mut n = self.doc.media.len() + 1;
+        let mut n = self.part_number_start(self.doc.media.len() + 1);
         loop {
             let cand = format!("/word/media/image{n}.{ext}");
             if !self.doc.media.contains_key(&cand) {

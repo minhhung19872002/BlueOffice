@@ -263,9 +263,23 @@ fn group_json(cache: &PivotCache, field: usize) -> Value {
     })
 }
 
+/// Table, column and measure flag of a data model cache field name (`Table[Column]` or
+/// `[Measure]`).
+fn model_field(name: &str) -> (Option<&str>, Option<&str>, bool) {
+    if let Some(m) = name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
+        return (None, Some(m), true);
+    }
+    match name.split_once('[') {
+        Some((t, c)) => (Some(t), Some(c.strip_suffix(']').unwrap_or(c)), false),
+        None => (None, Some(name), false),
+    }
+}
+
 /// Field list, areas and settings of a pivot table for the side panel.
 pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &Locale) -> Value {
     let cache = wb.pivot_caches.iter().find(|c| c.cache_id == p.cache_id);
+    let model = bo_sheet::datamodel::pivot::is_model_cache(wb, p.cache_id);
+    let defs = model.then(|| bo_sheet::datamodel::DataModel::read(wb));
     let fields: Vec<Value> = cache
         .map(|c| {
             c.fields
@@ -299,8 +313,25 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
                             .as_ref()
                             .and_then(|g| g.range.as_ref())
                             .is_some_and(|r| r.dates);
+                    // Over the data model: `Table[Column]` or `[Measure]`.
+                    let (mut table, column, measure) = if model {
+                        model_field(&f.name)
+                    } else {
+                        (None, None, false)
+                    };
+                    // A measure is listed under its home table.
+                    let home = defs.as_ref().and_then(|d| {
+                        let m = d.measures.get(d.measure(column?)?)?;
+                        Some(m.table.clone())
+                    });
+                    if measure {
+                        table = home.as_deref();
+                    }
                     json!({
                         "name": f.name,
+                        "table": table,
+                        "column": column,
+                        "measure": measure,
                         "items": items,
                         "formula": f.formula,
                         "derived": f.derived,
@@ -347,6 +378,7 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
         "location": Rng::of(p.location),
         "area": Rng::of(bo_sheet::pivot::occupied(p)),
         "source": source,
+        "model": model,
         "fields": fields,
         "rows": p.rows,
         "cols": p.cols,
@@ -417,6 +449,7 @@ impl SheetEngine {
         let mut l = labels.unwrap_or_default();
         let d1904 = self.wb.as_ref().is_some_and(|w| w.date1904);
         l.today = self.live.now().map(|t| if d1904 { t - 1462.0 } else { t });
+        l.locale = Some(self.locale);
         l
     }
 

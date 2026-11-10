@@ -1346,7 +1346,7 @@ fn inspect_json(
     password: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     use serde_json::json;
-    let (loaded, facts) = match convert::load_named(bytes, "", password) {
+    let (loaded, facts) = match convert::load(bytes, password) {
         Ok(x) => x,
         // An encrypted package that cannot be opened is still a fact worth reporting.
         Err(e) if bo_binary::detect(bytes) == Some(bo_binary::LegacyKind::EncryptedOoxml) => {

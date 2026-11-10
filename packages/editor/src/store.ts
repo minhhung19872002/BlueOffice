@@ -108,6 +108,7 @@ export interface EditorState {
     | 'signatureLine'
     | 'signLine'
     | ReferenceDialogId
+    | import('./CitationDialogs').CitationDialogId
     | import('./MergeDialogs').MailMergeDialogId
     | null;
   /** Format Painter: off, once (single click) or sticky (double click; Esc stops). */

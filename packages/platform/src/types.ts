@@ -640,6 +640,8 @@ export type EditCommand =
   | import('./security').SecurityCommand
   | import('./picture').PictureCommand
   | import('./customXml').CustomXmlCommand
+  /** Citations and bibliography (CORE-CITE-001). */
+  | import('./cite').CiteCommand
   /** Embedded / linked workbooks (CORE-EMBED-001). */
   | import('./ole').OleCommand
   | import('./speech').DocSpeechCommand
@@ -1098,6 +1100,8 @@ export interface EditResult {
   picture?: import('./picture').PictureInfo;
   /** Custom XML parts (`customXml*` commands, §15.2.4). */
   customXml?: import('./customXml').CustomXmlPartInfo[];
+  /** Sources, reference style and the citation at the caret (`cite*` commands). */
+  cite?: import('./cite').CiteInfo;
   /** The embedded / linked object at the selection (`ole*` commands, CORE-EMBED-001). */
   ole?: import('./ole').OleInfo;
   /** Linked files (`oleLinks`). */

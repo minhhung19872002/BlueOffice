@@ -19,6 +19,7 @@ export type * from './versions';
 export type * from './scriptSchedules';
 export * from './slideMedia';
 export type * from './customXml';
+export * from './cite';
 export type * from './mailMerge';
 export * from './people';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';

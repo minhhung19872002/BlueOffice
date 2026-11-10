@@ -178,17 +178,10 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
 
 // ---------------------------------------------------------------- shell services: windows, recent files, print, updates, save as
 
-/** Clicks a ribbon tab by its (Vietnamese) label: Radix tabs react to real pointer events. */
-async function clickTab(label) {
-  const el = await waitFor(
-    () =>
-      wd('POST', s('/element'), {
-        using: 'xpath',
-        value: `//*[@role="tab" and normalize-space()="${label}"]`,
-      }).then((e) => e[ELEMENT]),
-    `tab ${label}`,
-  );
-  await wd('POST', s(`/element/${el}/click`), {});
+/** Opens the File screen (CORE-UI-002) on one of its pages. */
+async function fileScreen(section) {
+  await clickCss('[data-testid="file-tab"]');
+  await clickCss(`[data-testid="backstage"] [data-section="${section}"]`);
 }
 
 async function clickCss(css) {
@@ -250,8 +243,8 @@ describe(
     it('prints through a print window showing the PDF (OS print dialog)', async () => {
       const main = await wd('GET', s('/window'));
       const before = await wd('GET', s('/window/handles'));
-      await clickTab('Tệp');
-      await clickCss('[data-command="file.print"]');
+      await fileScreen('print');
+      await clickCss('[data-testid="backstage"] [data-command="file.print"]');
       // The print panel (CORE-PRINT-001): print the job it previews.
       await clickCss('[data-testid="print-go"]:not([disabled])');
       const handles = await waitFor(async () => {
@@ -269,9 +262,9 @@ describe(
       await wd('POST', s('/window'), { handle: main });
     });
 
-    it('checks for updates from the File tab', async () => {
-      await clickTab('Tệp');
-      await clickCss('[data-command="file.checkUpdates"]');
+    it('checks for updates from the File screen', async () => {
+      await fileScreen('options');
+      await clickCss('[data-testid="backstage"] [data-command="file.checkUpdates"]');
       const info = await waitFor(async () => {
         const t = await exec(
           'return document.querySelector("[data-testid=status-info]")?.textContent ?? "";',
@@ -286,8 +279,8 @@ describe(
     });
 
     it('saves as a new file (Save as)', async () => {
-      await clickTab('Tệp');
-      await clickCss('[data-command="file.saveAs"]');
+      await fileScreen('saveAs');
+      await clickCss('[data-testid="backstage"] [data-format=".docx"]');
       const saved = join(saveDir, 'review-01-insert-delete.docx');
       await waitFor(() => existsSync(saved), 'saved file');
       const bytes = await waitFor(() => {

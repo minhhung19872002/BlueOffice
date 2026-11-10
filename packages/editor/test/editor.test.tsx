@@ -364,4 +364,89 @@ describe('BlueEditor digital signatures', () => {
       documentName: 'a-signed.docx',
     });
   });
+
+  it('shows the table / picture / header-footer contextual tabs with the selection (CORE-UI-001)', async () => {
+    const p = fakePlatform();
+    let at: 'text' | 'table' | 'picture' | 'header' = 'text';
+    const command = p.engine.command;
+    p.engine.command = async (c) => {
+      const r = await command(c);
+      const format = {
+        ...r.format,
+        table:
+          at === 'table'
+            ? {
+                rows: 2,
+                cols: 2,
+                row: 0,
+                col: 0,
+                headerRow: false,
+                shading: null,
+                align: 'Left' as const,
+                widthPct: null,
+                width: 0,
+                multiCell: false,
+                merged: false,
+                direction: null,
+                wrap: false,
+                fixedLayout: false,
+              }
+            : null,
+        pictureTools: at === 'picture',
+      };
+      const story =
+        at === 'header'
+          ? {
+              kind: 'header' as const,
+              section: 0,
+              variant: 'default' as const,
+              page: 0,
+              titlePage: false,
+              evenAndOdd: false,
+              linked: false,
+              canLink: false,
+            }
+          : undefined;
+      return { ...r, format, story };
+    };
+    render(<BlueEditor platform={p} autosaveMs={0} />);
+    fireEvent.click(screen.getByTestId('new-document'));
+    await waitFor(() =>
+      expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx'),
+    );
+    const ime = document.querySelector('textarea')!;
+    const type = (text: string) => {
+      ime.value = text;
+      fireEvent.input(ime);
+    };
+    const active = () =>
+      screen.getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true')
+        ?.textContent;
+    expect(screen.queryByRole('tab', { name: 'Bảng' })).toBeNull();
+
+    at = 'table';
+    type('a');
+    // The table tab appears under "Công cụ bảng"; typing in a cell keeps the Home tab.
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Bảng' })).toBeTruthy());
+    const band = document.querySelector('[data-context-group="table"]')!;
+    expect(band.textContent).toContain('Công cụ bảng');
+    expect(active()).toBe('Trang đầu');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Bảng' }));
+    expect(document.querySelector('[data-command="table.insertRowAbove"]')).not.toBeNull();
+
+    at = 'picture';
+    type('b');
+    await waitFor(() => expect(active()).toBe('Định dạng ảnh'));
+    expect(screen.queryByRole('tab', { name: 'Bảng' })).toBeNull();
+
+    at = 'header';
+    type('c');
+    await waitFor(() => expect(active()).toBe('Đầu & chân trang'));
+    expect(document.querySelector('[data-command="hf.close"]')).not.toBeNull();
+
+    at = 'text';
+    type('d');
+    await waitFor(() => expect(active()).toBe('Trang đầu'));
+    expect(document.querySelector('[data-context-group]')).toBeNull();
+  });
 });

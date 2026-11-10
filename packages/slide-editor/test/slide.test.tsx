@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   OpenedFile,
@@ -611,6 +611,40 @@ describe('BlueSlideEditor', () => {
     fireEvent.keyDown(window, { key: 'Delete' });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'delete' }));
     await waitFor(() => expect(screen.queryByTestId('selection-box')).toBeNull());
+  });
+
+  it('shows the shape / chart contextual tab while one is selected (CORE-UI-001)', async () => {
+    const { p, st } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    const ribbon = within(screen.getByTestId('ribbon'));
+    const active = () =>
+      ribbon.getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true')
+        ?.textContent;
+    expect(active()).toBe('Trang đầu');
+    expect(ribbon.queryByRole('tab', { name: 'Hình' })).toBeNull();
+    const overlay = screen.getByTestId('slide-overlay');
+    const click = (x: number) => {
+      fireEvent.pointerDown(overlay, { button: 0, clientX: x, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(overlay, { button: 0, clientX: x, clientY: 10, pointerId: 1 });
+    };
+    click(10);
+    await screen.findByTestId('selection-box');
+    // Selecting the shape shows its tab under "Công cụ hình"; Home stays (text formatting).
+    await waitFor(() => expect(ribbon.getByRole('tab', { name: 'Hình' })).toBeTruthy());
+    expect(document.querySelector('[data-context-group="shape"]')!.textContent).toContain(
+      'Công cụ hình',
+    );
+    expect(active()).toBe('Trang đầu');
+    fireEvent.mouseDown(ribbon.getByRole('tab', { name: 'Hình' }));
+    await waitFor(() => expect(active()).toBe('Hình'));
+    // Deselect, then select a chart: the chart tab appears and is activated.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    st.sel = [];
+    st.chart = true;
+    click(12);
+    await waitFor(() => expect(active()).toBe('Biểu đồ'));
+    expect(ribbon.queryByRole('tab', { name: 'Hình' })).toBeNull();
   });
 
   it('copies to the system clipboard and pastes internal copies, pictures and text', async () => {

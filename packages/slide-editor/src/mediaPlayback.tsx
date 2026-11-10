@@ -791,6 +791,7 @@ export function useMediaTools(host: MediaToolsHost): { tabs: RibbonTab[]; dialog
   const video = clip.kind === 'video';
   const playback: RibbonTab = {
     id: 'mediaPlayback',
+    context: 'media',
     label: t('slideMedia.tab'),
     groups: [
       {
@@ -926,6 +927,7 @@ export function useMediaTools(host: MediaToolsHost): { tabs: RibbonTab[]; dialog
   };
   const format: RibbonTab = {
     id: 'mediaFormat',
+    context: 'media',
     label: t('slideMedia.formatTab'),
     groups: [
       {

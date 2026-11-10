@@ -59,6 +59,8 @@ import {
 import {
   CommentThreads,
   Ribbon,
+  ribbonLabels,
+  RIBBON_CONTEXTS,
   CommandSearch,
   StatusBar,
   TitleBar,
@@ -273,6 +275,12 @@ import {
   sectionsGroup,
   type SectionState,
 } from './sections';
+
+/**
+ * Contexts whose tab is activated when they appear (CORE-UI-001);
+ * shapes and tables are typed in with the Home tab: their tabs only show.
+ */
+const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'shape' && c !== 'table');
 
 export interface BlueSlideEditorProps {
   platform: Platform;
@@ -2677,6 +2685,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ? [
             {
               id: 'smartart',
+              context: 'smartArt' as const,
               label: t('slideEditor.smartart.tab'),
               groups: [
                 {
@@ -2699,6 +2708,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ? [
             {
               id: 'chart',
+              context: 'chart' as const,
               label: t('slideEditor.chartTab'),
               groups: [
                 {
@@ -2757,6 +2767,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         ? [
             {
               id: 'table',
+              context: 'table' as const,
               label: t('slideEditor.tableTab'),
               groups: [
                 {
@@ -3109,12 +3120,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       {view !== 'show' && view !== 'presenter' && (
         <Ribbon
           tabs={[...ribbonTabs, ...extraTabs]}
-          moreLabel={t('ribbon.more')}
-          value={
-            ribbonTabs.some((x) => x.id === ribbonTab) || extraTabs.some((x) => x.id === ribbonTab)
-              ? ribbonTab
-              : 'home'
-          }
+          labels={ribbonLabels(t)}
+          autoActivate={AUTO_CONTEXTS}
+          // Contextual tabs come and go with the selection; the ribbon falls back by itself.
+          value={ribbonTab}
           onValueChange={(v) => {
             setRibbonTab(v);
             // The pane belongs to the Transitions / Animations tabs.

@@ -183,6 +183,7 @@
       "pageBreak": "Ngắt trang",
       "sectionBreak": "Ngắt phần",
       "symbol": "Ký tự đặc biệt",
+      "icon": "Biểu tượng",
       "header": "Đầu trang",
       "footer": "Chân trang",
       "pageNumber": "Số trang",
@@ -3736,6 +3737,22 @@
     "reset": "Khôi phục mặc định",
     "ok": "Đồng ý",
     "cancel": "Huỷ"
+  },
+  "iconLibrary": {
+    "title": "Chèn biểu tượng",
+    "search": "Tìm theo tên hoặc từ khoá (có dấu hoặc không dấu)",
+    "category": "Nhóm",
+    "allCategories": "Tất cả các nhóm",
+    "grid": "Thư viện biểu tượng",
+    "loading": "Đang tải thư viện biểu tượng…",
+    "loadError": "Không tải được thư viện biểu tượng",
+    "noResults": "Không có biểu tượng nào khớp",
+    "found": "{{count}} biểu tượng",
+    "selected": "Đã chọn {{count}} biểu tượng",
+    "clear": "Bỏ chọn",
+    "insert": "Chèn",
+    "close": "Đóng",
+    "failed": "Không chèn được biểu tượng"
   },
   "symbolPicker": {
     "title": "Chèn ký hiệu",

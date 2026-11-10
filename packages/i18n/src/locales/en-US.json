@@ -183,6 +183,7 @@
       "pageBreak": "Page break",
       "sectionBreak": "Section break",
       "symbol": "Symbol",
+      "icon": "Icons",
       "header": "Header",
       "footer": "Footer",
       "pageNumber": "Page number",
@@ -3736,6 +3737,22 @@
     "reset": "Restore defaults",
     "ok": "OK",
     "cancel": "Cancel"
+  },
+  "iconLibrary": {
+    "title": "Insert icons",
+    "search": "Search by name or keyword",
+    "category": "Category",
+    "allCategories": "All categories",
+    "grid": "Icon library",
+    "loading": "Loading the icon library…",
+    "loadError": "The icon library could not be loaded",
+    "noResults": "No icon matches",
+    "found": "{{count}} icons",
+    "selected": "{{count}} selected",
+    "clear": "Clear selection",
+    "insert": "Insert",
+    "close": "Close",
+    "failed": "The icon could not be inserted"
   },
   "symbolPicker": {
     "title": "Insert symbol",

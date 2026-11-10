@@ -77,6 +77,15 @@ export {
 } from './ProtectionPanels';
 export type { EditorState } from './store';
 export { SymbolPanel, useSymbolPickerLabels } from './SymbolPanel';
+export { IconPanel, useIconLibraryLabels } from './IconPanel';
+export {
+  insertDocIcons,
+  insertSheetIcons,
+  insertSlideIcons,
+  type DocIconTarget,
+  type IconRaster,
+  type SlideIconTarget,
+} from './insertIcons';
 export { CheckDocumentDialog, type CheckDocumentBridge, type CheckTab } from './CheckDocument';
 export { DocCheckDocumentDialog, docCheckBridge } from './DocCheckDocument';
 export { ClipboardPanel, previewText } from './clipboard/ClipboardPanel';

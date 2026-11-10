@@ -12,6 +12,8 @@ import {
   SavePasswordPanel,
   SmartArtDialog,
   SymbolPanel,
+  IconPanel,
+  insertSlideIcons,
   PrintPanel,
   clipboardHistory,
   pictureTabLabels,
@@ -701,6 +703,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [commentsOpen, setCommentsOpen] = useState(false);
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  const [iconsOpen, setIconsOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
   /** Version history / compare versions pane (CORE-VERSION-001). */
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -2297,6 +2300,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     // Insert.
     simple('insert.textBox', { cmd: 'insertTextBox', text: '' }, deck);
     reg.register({ id: 'insert.symbol', isEnabled: deck, run: async () => setSymbolsOpen(true) });
+    reg.register({ id: 'insert.icon', isEnabled: deck, run: async () => setIconsOpen(true) });
     reg.register({
       id: 'review.checkDocument',
       isEnabled: deck,
@@ -3218,7 +3222,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           {
             id: 'symbols',
             label: t('ribbon.groups.symbols'),
-            items: [item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />)],
+            items: [
+              item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />),
+              item('insert.icon', t('commands.insert.icon'), <Shapes size={18} />),
+            ],
           },
           {
             id: 'shapes',
@@ -4351,6 +4358,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               font={edit?.format.font ?? undefined}
               onInsert={insertSymbol}
               onClose={() => setSymbolsOpen(false)}
+            />
+          )}
+          {iconsOpen && (
+            <IconPanel
+              onInsert={(icons) => insertSlideIcons(ctrl, icons).catch(fail)}
+              onClose={() => setIconsOpen(false)}
             />
           )}
           <TaskPaneHost

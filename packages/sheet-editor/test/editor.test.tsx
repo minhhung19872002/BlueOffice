@@ -441,6 +441,24 @@ describe('BlueSheetEditor', () => {
     await waitFor(() => expect(cells.get('0,0')).toBe('Giá ₫'));
   });
 
+  it('opens the icon library from the Insert tab', { timeout: 40_000 }, async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="vi-VN" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await waitFor(() => document.querySelector('[data-command="insert.icon"]')!));
+    const panel = await screen.findByRole('dialog', { name: 'Chèn biểu tượng' });
+    fireEvent.change(await screen.findByTestId('icon-search'), {
+      target: { value: 'bieu do cot' },
+    });
+    expect(
+      await screen.findByRole('gridcell', { name: 'Biểu đồ cột' }, { timeout: 20_000 }),
+    ).toBeTruthy();
+    fireEvent.keyDown(panel, { key: 'Escape' });
+    expect(screen.queryByTestId('icon-panel')).toBeNull();
+  });
+
   it('IME composition does not commit early', async () => {
     const { host } = fakeHost();
     const { p } = platform(host);

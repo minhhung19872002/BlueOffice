@@ -278,6 +278,28 @@ describe('BlueEditor', () => {
     expect(screen.queryByTestId('symbol-panel')).toBeNull();
   });
 
+  it(
+    'opens the icon library from the Insert tab and searches it without accents',
+    { timeout: 40_000 },
+    async () => {
+      const p = fakePlatform();
+      render(<BlueEditor platform={p} autosaveMs={0} />);
+      fireEvent.click(screen.getByTestId('new-document'));
+      await waitFor(() =>
+        expect(screen.getByTestId('doc-name').textContent).toBe('Tài liệu mới.docx'),
+      );
+      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+      fireEvent.click(await waitFor(() => document.querySelector('[data-command="insert.icon"]')!));
+      const panel = await screen.findByRole('dialog', { name: 'Chèn biểu tượng' });
+      fireEvent.change(await screen.findByTestId('icon-search'), { target: { value: 'con dau' } });
+      expect(
+        await screen.findByRole('gridcell', { name: 'Con dấu tròn' }, { timeout: 20_000 }),
+      ).toBeTruthy();
+      fireEvent.keyDown(panel, { key: 'Escape' });
+      expect(screen.queryByTestId('icon-panel')).toBeNull();
+    },
+  );
+
   it('opens the find panel and offers crash recovery', async () => {
     const p = fakePlatform();
     p.offline.get = async (k) =>

@@ -153,7 +153,8 @@ pub fn field_args(instr: &str) -> Vec<String> {
     out
 }
 
-/// A TOC / INDEX / TOA field spanning top-level paragraphs `first..=last` of a section.
+/// A TOC / INDEX / TOA / BIBLIOGRAPHY field spanning top-level paragraphs `first..=last` of a
+/// section.
 #[derive(Debug, Clone)]
 pub(crate) struct TocRange {
     pub(crate) first: usize,
@@ -166,9 +167,16 @@ pub(crate) struct TocRange {
     instr: String,
 }
 
+impl TocRange {
+    /// The field instruction.
+    pub(crate) fn instr(&self) -> &str {
+        &self.instr
+    }
+}
+
 /// Fields whose result is a run of paragraphs (§17.16.5.68 TOC, §17.16.5.28 INDEX,
-/// §17.16.5.67 TOA).
-const BLOCK_FIELDS: [&str; 3] = ["TOC", "INDEX", "TOA"];
+/// §17.16.5.67 TOA, §17.16.5.5 BIBLIOGRAPHY).
+const BLOCK_FIELDS: [&str; 4] = ["TOC", "INDEX", "TOA", "BIBLIOGRAPHY"];
 
 /// TOC / INDEX / TOA fields among the top-level paragraphs of a block list.
 pub(crate) fn toc_ranges(blocks: &[Block]) -> Vec<TocRange> {
@@ -452,6 +460,16 @@ pub fn builtin_field_style(id: &str) -> Option<Style> {
         }
         _ => {}
     }
+    // Bibliography entries: wrapped lines hang (the "hanging indent" of the APA, MLA and
+    // Chicago reference lists); the number label of numeric styles sits in the hang.
+    if id == "Bibliography" {
+        let mut s = Style::new("Bibliography", "bibliography", StyleKind::Paragraph);
+        s.based_on = Some("Normal".into());
+        s.next = Some("Normal".into());
+        s.ppr.indent_left = Some(Twips(720));
+        s.ppr.indent_first_line = Some(Twips(-720));
+        return Some(s);
+    }
     if id == "Caption" {
         let mut s = Style::new("Caption", "caption", StyleKind::Paragraph);
         s.based_on = Some("Normal".into());
@@ -538,6 +556,93 @@ pub fn new_block_field_paragraph(instr: &str, leader: Option<TabLeader>, width: 
     p
 }
 
+/// Replace the result of block field `t` with `entries` (the field's begin … separate
+/// marks stay at the start of the first paragraph, its end mark at the end of the last).
+/// Returns whether anything changed.
+fn splice_block_field(blocks: &mut Vec<Block>, t: &TocRange, entries: Vec<Paragraph>) -> bool {
+    let (Some(Block::Paragraph(first)), Some(Block::Paragraph(last))) =
+        (blocks.get(t.first).cloned(), blocks.get(t.last).cloned())
+    else {
+        return false;
+    };
+    let fa = para::flatten(&first);
+    let la = para::flatten(&last);
+    let prefix: Vec<Atom> = fa[..t.begin.min(fa.len())].to_vec();
+    let head: Vec<Atom> = match t.separate {
+        Some(sep) if sep < fa.len() => fa[t.begin..=sep].to_vec(),
+        _ => toc_head(&t.instr),
+    };
+    let end: Atom = la.get(t.end).cloned().unwrap_or_else(toc_end);
+    let suffix: Vec<Atom> = la
+        .get(t.end + 1..)
+        .map(<[Atom]>::to_vec)
+        .unwrap_or_default();
+    let mut out: Vec<Block> = Vec::new();
+    if entries.is_empty() {
+        let mut a = prefix;
+        a.extend(head);
+        a.push(end);
+        a.extend(suffix);
+        out.push(Block::Paragraph(para::with_atoms(&first, a)));
+    } else {
+        let n = entries.len();
+        for (i, mut e) in entries.into_iter().enumerate() {
+            let mut a = Vec::new();
+            if i == 0 {
+                a.extend(prefix.clone());
+                a.extend(head.clone());
+            }
+            a.extend(para::flatten(&e));
+            if i + 1 == n {
+                a.push(end.clone());
+                a.extend(suffix.clone());
+            }
+            e.runs = para::rebuild(a);
+            out.push(Block::Paragraph(e));
+        }
+    }
+    // Same content (whatever the run grouping or source XML): keep the original.
+    let same = |a: &Block, b: &Block| match (a, b) {
+        (Block::Paragraph(x), Block::Paragraph(y)) => {
+            x.props == y.props && para::flatten(x) == para::flatten(y)
+        }
+        _ => a == b,
+    };
+    let old = &blocks[t.first..=t.last];
+    if old.len() != out.len() || !old.iter().zip(&out).all(|(a, b)| same(a, b)) {
+        blocks.splice(t.first..=t.last, out);
+        true
+    } else {
+        false
+    }
+}
+
+/// Recompute only the citations (§17.16.5.8 CITATION) and bibliographies (§17.16.5.5
+/// BIBLIOGRAPHY) from the document's sources — no page numbers needed.
+pub(crate) fn update_cite(doc: &Document) -> FieldUpdate {
+    let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
+    let mut count = 0;
+    let mut styles_needed: Vec<String> = Vec::new();
+    if let Some(cite) = crate::cite::Context::of(doc, &sections) {
+        count += cite.update_citations(&mut sections);
+        for blocks in &mut sections {
+            let mut ranges = toc_ranges(blocks);
+            ranges.retain(|t| field_kind(&t.instr) == "BIBLIOGRAPHY");
+            for t in ranges.into_iter().rev() {
+                let entries = cite.bibliography(&t.instr, &mut styles_needed);
+                if splice_block_field(blocks, &t, entries) {
+                    count += 1;
+                }
+            }
+        }
+    }
+    FieldUpdate {
+        styles: ensure_styles(&doc.styles, &styles_needed),
+        sections,
+        count,
+    }
+}
+
 /// Recompute TOC, SEQ, REF, PAGEREF fields. `pages[id]` = displayed page number of
 /// body paragraph `id` (0 = unknown).
 pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
@@ -545,6 +650,11 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
     let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
     let mut count = 0;
     let mut styles_needed: Vec<String> = Vec::new();
+    // ---- 0. Citations (§17.16.5.8) from the document's sources.
+    let cite = crate::cite::Context::of(doc, &sections);
+    if let Some(c) = &cite {
+        count += c.update_citations(&mut sections);
+    }
     let paths = body_paragraphs(doc);
     let id_of: HashMap<Vec<usize>, usize> = paths
         .iter()
@@ -649,24 +759,9 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
         let mut tocs = tocs.clone();
         tocs.sort_by_key(|(si, t)| std::cmp::Reverse((*si, t.first)));
         for (si, t) in tocs {
-            let blocks = &mut sections[si];
-            let (Some(Block::Paragraph(first)), Some(Block::Paragraph(last))) =
-                (blocks.get(t.first).cloned(), blocks.get(t.last).cloned())
-            else {
+            let Some(Block::Paragraph(first)) = sections[si].get(t.first).cloned() else {
                 continue;
             };
-            let fa = para::flatten(&first);
-            let la = para::flatten(&last);
-            let prefix: Vec<Atom> = fa[..t.begin.min(fa.len())].to_vec();
-            let head: Vec<Atom> = match t.separate {
-                Some(sep) if sep < fa.len() => fa[t.begin..=sep].to_vec(),
-                _ => toc_head(&t.instr),
-            };
-            let end: Atom = la.get(t.end).cloned().unwrap_or_else(toc_end);
-            let suffix: Vec<Atom> = la
-                .get(t.end + 1..)
-                .map(<[Atom]>::to_vec)
-                .unwrap_or_default();
             let layout = refs::EntryLayout {
                 width: text_width(doc, si),
                 leader: refs::leader_of(&first),
@@ -690,43 +785,15 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
                     env.vi,
                     &mut styles_needed,
                 ),
+                // Without a sources part the result a file came with stays.
+                "BIBLIOGRAPHY" => match &cite {
+                    Some(c) => c.bibliography(&t.instr, &mut styles_needed),
+                    None => continue,
+                },
                 _ => refs::toc(&t.instr, &targets, layout, &mut styles_needed),
             };
-            let mut out: Vec<Block> = Vec::new();
-            if entries.is_empty() {
-                let mut a = prefix;
-                a.extend(head);
-                a.push(end);
-                a.extend(suffix);
-                out.push(Block::Paragraph(para::with_atoms(&first, a)));
-            } else {
-                let n = entries.len();
-                for (i, mut e) in entries.into_iter().enumerate() {
-                    let mut a = Vec::new();
-                    if i == 0 {
-                        a.extend(prefix.clone());
-                        a.extend(head.clone());
-                    }
-                    a.extend(para::flatten(&e));
-                    if i + 1 == n {
-                        a.push(end.clone());
-                        a.extend(suffix.clone());
-                    }
-                    e.runs = para::rebuild(a);
-                    out.push(Block::Paragraph(e));
-                }
-            }
-            // Same content (whatever the run grouping or source XML): keep the original.
-            let same = |a: &Block, b: &Block| match (a, b) {
-                (Block::Paragraph(x), Block::Paragraph(y)) => {
-                    x.props == y.props && para::flatten(x) == para::flatten(y)
-                }
-                _ => a == b,
-            };
-            let old = &blocks[t.first..=t.last];
-            if old.len() != out.len() || !old.iter().zip(&out).all(|(a, b)| same(a, b)) {
+            if splice_block_field(&mut sections[si], &t, entries) {
                 count += 1;
-                blocks.splice(t.first..=t.last, out);
             }
         }
     }

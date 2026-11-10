@@ -1202,12 +1202,16 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
             .to_ascii_uppercase();
         // Page fields are computed by layout; SEQ (§17.16.5.56), REF (§17.16.5.49),
         // PAGEREF (§17.16.5.42) and MERGEFIELD (§17.16.5.35) by "update fields" and
-        // mail merge — those only when the range holds nothing else.
+        // mail merge, CITATION (§17.16.5.8) from the document's sources — those only
+        // when the range holds nothing else.
         let simple = matches!(
             kind.as_str(),
             "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "DATE" | "TIME"
         ) || (clean
-            && matches!(kind.as_str(), "SEQ" | "REF" | "PAGEREF" | "MERGEFIELD"));
+            && matches!(
+                kind.as_str(),
+                "SEQ" | "REF" | "PAGEREF" | "MERGEFIELD" | "CITATION"
+            ));
         match end {
             Some(j) if simple && !nested => {
                 let props = runs[i].props.clone();

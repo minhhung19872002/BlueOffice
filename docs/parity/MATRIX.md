@@ -101,7 +101,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Comment luồng / notes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | Bảo vệ sheet/workbook | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | ✅ | |
 | Form controls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-form-controls-* | 🟡 | 9 loại, ô liên kết hai chiều (SHEET-FORMCTL-001); chưa dịch theo chèn hàng/cột |
-| In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests, view_cmd_tests, sheet-views.spec | 🟡 | + Page Break Preview kéo ngắt, Page Layout view, Custom Views, Show Formulas (SHEET-VIEW-001) |
+| In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests, view_cmd_tests, sheet-views.spec, print_job.rs | 🟡 | + Page Break Preview kéo ngắt, Page Layout view, Custom Views, Show Formulas (SHEET-VIEW-001); bảng In chung, nhiều trang/tờ, chọn trang (CORE-PRINT-001) |
 | Hiệu năng 1 triệu ô | — | ✅ | ✅ | — | ✅ | ✅ | — | bench | 🟡 | chưa đo 10 triệu ô, pivot 1 triệu dòng |
 
 ## BlueSlide

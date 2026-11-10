@@ -2565,6 +2565,22 @@ impl Session {
         self.undo.len()
     }
 
+    /// Join every transaction recorded after the first `depth` into one undo step
+    /// (a BlueScript run, CORE-SCRIPT-001). Returns the history length afterwards.
+    pub fn merge_history_since(&mut self, depth: usize) -> usize {
+        if self.undo.len() > depth + 1 {
+            let mut tail = self.undo.split_off(depth);
+            let mut first = tail.remove(0);
+            for t in tail {
+                first.ops.extend(t.ops);
+                first.after = t.after;
+            }
+            self.undo.push(first);
+            self.typing = false;
+        }
+        self.undo.len()
+    }
+
     /// The next typed character starts a new undo step (no merging into the last one).
     pub fn end_typing(&mut self) {
         self.typing = false;

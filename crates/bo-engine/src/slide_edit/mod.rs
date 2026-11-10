@@ -811,6 +811,14 @@ pub enum SlideCommand {
     Undo,
     /// Redo the last undone change.
     Redo,
+    /// Number of undo steps (in `history`; CORE-SCRIPT-001).
+    HistoryLen,
+    /// Join the undo steps after the first `since` into one (a BlueScript run is
+    /// one undo step, CORE-SCRIPT-001); `history` = the length afterwards.
+    MergeHistory {
+        /// History length before the steps to join.
+        since: usize,
+    },
 }
 
 impl SlideCommand {
@@ -844,6 +852,8 @@ impl SlideCommand {
         matches!(
             self,
             SlideCommand::State
+                | SlideCommand::HistoryLen
+                | SlideCommand::MergeHistory { .. }
                 | SlideCommand::SetText { .. }
                 | SlideCommand::FormatText { .. }
                 | SlideCommand::TextSelect { .. }
@@ -860,6 +870,8 @@ impl SlideCommand {
         matches!(
             self,
             SlideCommand::State
+                | SlideCommand::HistoryLen
+                | SlideCommand::MergeHistory { .. }
                 | SlideCommand::TableSelect { .. }
                 | SlideCommand::TableHit { .. }
                 | SlideCommand::SetCellText { .. }
@@ -1132,6 +1144,9 @@ pub struct SlideEditResult {
     /// Shape ids at the point of `hitTest`, topmost first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hits: Option<Vec<u32>>,
+    /// Undo history length (`historyLen`, `mergeHistory`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history: Option<usize>,
     /// Message of a command that could not be applied (the deck is unchanged).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -1284,6 +1299,8 @@ struct Outcome {
     all: bool,
     preview: Option<Preview>,
     hits: Option<Vec<u32>>,
+    /// Undo history length asked for by `historyLen` / `mergeHistory`.
+    history: Option<usize>,
     error: Option<String>,
     /// Shapes just copied: (slide, top-level ids, bounds, text) for the system clipboard.
     copied: Option<(usize, Vec<u32>, Rect, String)>,
@@ -1404,6 +1421,23 @@ impl SlideEditor {
                 out.error = Some(e.to_string());
             }
         }
+    }
+
+    /// Join every transaction after the first `depth` into one undo step.
+    fn merge_history_since(&mut self, depth: usize) -> usize {
+        if self.undo.len() > depth + 1 {
+            let mut tail = self.undo.split_off(depth);
+            let mut first = tail.remove(0);
+            for t in tail {
+                first.ops.extend(t.ops);
+                first.after = t.after;
+                // The joined step keeps the newest id (saved-state tracking).
+                first.id = t.id;
+            }
+            first.typing = None;
+            self.undo.push(first);
+        }
+        self.undo.len()
     }
 
     fn undo(&mut self, pres: &mut Presentation, out: &mut Outcome) {
@@ -3553,7 +3587,10 @@ impl Engine {
             let clipboard = &mut self.slide_clip;
             let deck = self.deck_seq;
             ed.clamp(pres);
-            let history = matches!(cmd, SlideCommand::Undo | SlideCommand::Redo);
+            let history = matches!(
+                cmd,
+                SlideCommand::Undo | SlideCommand::Redo | SlideCommand::MergeHistory { .. }
+            );
             let mark = ed.history_mark();
             let cmd = if ed.in_any_master_view() && cmd.blocked_in_master_view(clipboard.as_ref()) {
                 out.error = Some("masterView".into());
@@ -4470,6 +4507,10 @@ impl Engine {
                 }
                 SlideCommand::Undo => ed.undo(pres, &mut out),
                 SlideCommand::Redo => ed.redo(pres, &mut out),
+                SlideCommand::HistoryLen => out.history = Some(ed.undo.len()),
+                SlideCommand::MergeHistory { since } => {
+                    out.history = Some(ed.merge_history_since(since));
+                }
             }
             ed.master_sync(pres, &mut out, mark, history);
             ed.sections_sync(pres, mark, history);
@@ -4863,6 +4904,7 @@ impl Engine {
                 .collect(),
             preview: out.preview,
             hits: out.hits,
+            history: out.history,
             error: out.error,
             collab: None,
             text_edit,

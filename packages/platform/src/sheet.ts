@@ -941,6 +941,9 @@ export type SheetCommand =
   | { cmd: 'moveSheet'; from: number; to: number }
   | { cmd: 'setTabColor'; sheet: number; color?: string | null }
   | { cmd: 'batch'; cmds: SheetCommand[] }
+  /** Undo history length → `{ history }`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
+  | { cmd: 'historyLen' }
+  | { cmd: 'mergeHistory'; since: number }
   | { cmd: 'rangeStats'; sheet: number; ranges: SheetRange[] }
   /**
    * Flash Fill: learn a pattern from the filled cells of column `col` (the other columns of

@@ -144,6 +144,14 @@ pub enum Command {
     Undo,
     /// Redo the last undone edit.
     Redo,
+    /// Number of undo steps (in `count`; CORE-SCRIPT-001).
+    HistoryLen,
+    /// Join the undo steps after the first `since` into one (in `count`: the history
+    /// length afterwards; a BlueScript run is one undo step, CORE-SCRIPT-001).
+    MergeHistory {
+        /// History length before the steps to join.
+        since: usize,
+    },
     /// Find every match of a query (returned in `matches`).
     Find {
         /// Text to look for.
@@ -1872,6 +1880,12 @@ impl crate::Engine {
                     }
                     Command::Redo => {
                         s.redo();
+                    }
+                    Command::HistoryLen => {
+                        extra.1 = Some(s.history_len());
+                    }
+                    Command::MergeHistory { since } => {
+                        extra.1 = Some(s.merge_history_since(since));
                     }
                     Command::Find {
                         query,

@@ -50,7 +50,9 @@ import {
   PASSWORD_REQUIRED,
   THEME_MIME,
   WRONG_PASSWORD,
+  mentionFields,
   mimeFor,
+  notifyMentions,
   openExtensions,
   type DisplayTarget,
   type SlideLinkAction,
@@ -58,6 +60,7 @@ import {
 } from '@blueoffice/platform';
 import {
   CommentThreads,
+  type MentionSubmit,
   Ribbon,
   CommandSearch,
   StatusBar,
@@ -620,6 +623,33 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const loadGallery = useMemo(() => slideGalleryLoader((cmd) => ctrl.run(cmd)), [ctrl]);
   const [saveTemplate, setSaveTemplate] = useState(false);
   const runResult = useCallback((cmd: SlideCommand) => ctrl.run(cmd), [ctrl]);
+  /** Posts a comment / reply with its @mentions and task, then notifies the people (CORE-COMMENT-001). */
+  const postComment = useCallback(
+    async (parent: string | null, extra: MentionSubmit) => {
+      const ids = (r: SlideEditResult | null | undefined) =>
+        new Set((r?.comments ?? []).flatMap((th) => th.comments.map((c) => c.id)));
+      const before = ids(edit);
+      const r = await ctrl.run({
+        cmd: 'addComment',
+        ...(parent ? { parent } : {}),
+        text: extra.text,
+        author: platform.auth?.user?.name ?? '',
+        date: new Date().toISOString(),
+        ...mentionFields(extra.mentions, extra.assignee),
+      });
+      const added = [...ids(r)].find((id) => !before.has(id));
+      if (added) {
+        void notifyMentions(platform.people, {
+          commentId: added,
+          text: extra.text.trim(),
+          mentions: extra.mentions,
+          assignee: extra.assignee,
+          app: 'slide',
+        });
+      }
+    },
+    [ctrl, edit, platform],
+  );
   // Edit points (CORE-SHAPE-001): the shape whose points are being edited.
   const [pointsFor, setPointsFor] = useState<number | null>(null);
   const selectedId = edit?.selection.length === 1 ? (edit.selection[0]?.id ?? null) : null;
@@ -3387,25 +3417,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 delete: t('slideEditor.comments.delete'),
                 close: t('slideEditor.comments.close'),
                 resolved: t('slideEditor.comments.resolved'),
+                assignTo: t('comments.assignTo'),
+                noMatches: t('comments.noMatches'),
+                people: t('comments.people'),
+                assignedTo: t('comments.assignedTo', { name: '{name}' }),
+                taskDone: t('comments.taskDone', { name: '{name}' }),
               }}
               newAnchor={t('slideEditor.slideOf', { n: shown + 1, total: count })}
-              onAdd={(text) =>
-                run({
-                  cmd: 'addComment',
-                  text,
-                  author: platform.auth?.user?.name ?? '',
-                  date: new Date().toISOString(),
-                })
-              }
-              onReply={(parent, text) =>
-                run({
-                  cmd: 'addComment',
-                  parent,
-                  text,
-                  author: platform.auth?.user?.name ?? '',
-                  date: new Date().toISOString(),
-                })
-              }
+              searchPeople={platform.people ? (q) => platform.people!.search(q) : undefined}
+              onAdd={(_text, extra) => void postComment(null, extra)}
+              onReply={(parent, _text, extra) => void postComment(parent, extra)}
               onResolve={(id, done) => run({ cmd: 'resolveComment', id, done })}
               onDelete={(id) => run({ cmd: 'deleteComment', id })}
               onClose={() => setCommentsOpen(false)}

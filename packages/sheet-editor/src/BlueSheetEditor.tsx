@@ -37,12 +37,15 @@ import {
   WORKBOOK_PROTECTED,
   WRONG_PASSWORD,
   WRONG_PROTECTION_PASSWORD,
+  mentionFields,
   mimeFor,
+  notifyMentions,
   openExtensions,
   withExtension,
 } from '@blueoffice/platform';
 import {
   CommentThreads,
+  type MentionSubmit,
   Ribbon,
   CommandSearch,
   StatusBar,
@@ -1303,10 +1306,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Runs a comment command (one undo step) and reloads the threads. */
   const commentCmd = useCallback(
     async (cmd: SheetCommand) => {
-      await exec(cmd);
+      const r = await exec<{ id?: string }>(cmd);
       setThreadsRev((n) => n + 1);
+      return r;
     },
     [exec],
+  );
+  /** Posts a comment / reply with its @mentions and task, then notifies the people (CORE-COMMENT-001). */
+  const postComment = useCallback(
+    async (target: { row: number; col: number } | { parent: string }, extra: MentionSubmit) => {
+      const r = await commentCmd({
+        cmd: 'addComment',
+        sheet,
+        ...target,
+        text: extra.text,
+        author: platform.auth?.user?.name ?? '',
+        date: new Date().toISOString(),
+        ...mentionFields(extra.mentions, extra.assignee),
+      });
+      if (r?.id) {
+        void notifyMentions(platform.people, {
+          commentId: r.id,
+          text: extra.text.trim(),
+          mentions: extra.mentions,
+          assignee: extra.assignee,
+          app: 'sheet',
+        });
+      }
+    },
+    [commentCmd, sheet, platform],
   );
   const commentLabels = useMemo(
     () => ({
@@ -1321,6 +1349,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       delete: t('sheetEditor.comments.delete'),
       close: t('sheetEditor.comments.close'),
       resolved: t('sheetEditor.comments.resolved'),
+      assignTo: t('comments.assignTo'),
+      noMatches: t('comments.noMatches'),
+      people: t('comments.people'),
+      assignedTo: t('comments.assignedTo', { name: '{name}' }),
+      taskDone: t('comments.taskDone', { name: '{name}' }),
     }),
     [t],
   );
@@ -4659,27 +4692,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 ? null
                 : `${colName(selection.active.col)}${selection.active.row + 1}`
             }
-            onAdd={(text) =>
-              void commentCmd({
-                cmd: 'addComment',
-                sheet,
-                row: selection.active.row,
-                col: selection.active.col,
-                text,
-                author: platform.auth?.user?.name ?? '',
-                date: new Date().toISOString(),
-              })
+            searchPeople={platform.people ? (q) => platform.people!.search(q) : undefined}
+            onAdd={(_text, extra) =>
+              void postComment({ row: selection.active.row, col: selection.active.col }, extra)
             }
-            onReply={(id, text) =>
-              void commentCmd({
-                cmd: 'addComment',
-                sheet,
-                parent: id,
-                text,
-                author: platform.auth?.user?.name ?? '',
-                date: new Date().toISOString(),
-              })
-            }
+            onReply={(id, _text, extra) => void postComment({ parent: id }, extra)}
             onResolve={(id, done) => void commentCmd({ cmd: 'resolveComment', sheet, id, done })}
             onDelete={(id) => void commentCmd({ cmd: 'deleteComment', sheet, id })}
             onSelect={(id) => {

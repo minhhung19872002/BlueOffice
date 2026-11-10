@@ -5,7 +5,10 @@
 
 use super::{SheetEngine, UndoEntry};
 use crate::{EngineError, Result};
-use bo_model::sheet::{CellRef, Comment, Person, TextRun, ThreadedComment, Workbook};
+use bo_model::mention::{valid_mentions, CommentTask, Mention, MentionPerson};
+use bo_model::sheet::{
+    CellRef, Comment, Person, TextRun, ThreadedComment, ThreadedMention, Workbook,
+};
 use serde::Serialize;
 use std::hash::{Hash, Hasher};
 
@@ -17,6 +20,12 @@ pub struct CommentView {
     pub author: String,
     pub date: String,
     pub text: String,
+    /// @mentions in `text` ([MS-XLSX] `mentions`; UTF-16 ranges).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<Mention>,
+    /// Task assigned in the comment (BlueOffice extension).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<CommentTask>,
 }
 
 /// A thread anchored on a cell.
@@ -79,6 +88,56 @@ fn person_id(wb: &mut Workbook, author: &str) -> String {
     id
 }
 
+/// Person of a mention: an existing [MS-XLSX] person with the same user id (e-mail
+/// or host id) or name, or a new one (`providerId` "None").
+fn mention_person_id(wb: &mut Workbook, p: &MentionPerson) -> String {
+    let user = p
+        .email
+        .clone()
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| p.id.clone());
+    if let Some(x) = wb.persons.iter().find(|x| {
+        (!user.is_empty() && x.user_id.as_deref() == Some(user.as_str()))
+            || (x.display_name == p.name && x.user_id.is_none())
+    }) {
+        return x.id.clone();
+    }
+    let ids: Vec<String> = wb.persons.iter().map(|x| x.id.clone()).collect();
+    let id = guid(&("mention", &p.name, &user), &|g| {
+        ids.iter().any(|i| i == g)
+    });
+    wb.persons.push(Person {
+        id: id.clone(),
+        display_name: p.name.clone(),
+        user_id: (!user.is_empty()).then_some(user),
+        provider_id: Some("None".into()),
+    });
+    id
+}
+
+/// The UI view of a threaded comment's mentions.
+fn mentions_view(wb: &Workbook, c: &ThreadedComment) -> Vec<Mention> {
+    c.mentions
+        .iter()
+        .map(|m| {
+            let p = wb.persons.iter().find(|p| p.id == m.person_id);
+            let user = p.and_then(|p| p.user_id.clone());
+            Mention {
+                person: MentionPerson {
+                    id: user
+                        .clone()
+                        .filter(|u| !u.contains('@'))
+                        .unwrap_or_default(),
+                    name: p.map(|p| p.display_name.clone()).unwrap_or_default(),
+                    email: user.filter(|u| u.contains('@')),
+                },
+                start: m.start,
+                length: m.length,
+            }
+        })
+        .collect()
+}
+
 impl SheetEngine {
     /// Threads of a sheet in file order of their first comment.
     pub fn comment_threads(&self, sheet: usize) -> Result<Vec<ThreadView>> {
@@ -96,6 +155,8 @@ impl SheetEngine {
             author: author(&c.person_id),
             date: c.date.clone().unwrap_or_default(),
             text: c.text.clone(),
+            mentions: mentions_view(wb, c),
+            task: c.task.clone(),
         };
         let mut out: Vec<ThreadView> = ws
             .threaded_comments
@@ -146,12 +207,44 @@ impl SheetEngine {
         date: Option<&str>,
         parent: Option<&str>,
     ) -> Result<String> {
+        self.add_comment_with(sheet, cell, text, author, date, parent, &[], None)
+    }
+
+    /// [`Self::add_comment`] with @mentions (UTF-16 ranges of `text`, stored as
+    /// [MS-XLSX] `mentions` + persons) and an assigned task (CORE-COMMENT-001).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_comment_with(
+        &mut self,
+        sheet: usize,
+        cell: CellRef,
+        text: &str,
+        author: &str,
+        date: Option<&str>,
+        parent: Option<&str>,
+        mentions: &[Mention],
+        task: Option<CommentTask>,
+    ) -> Result<String> {
+        // Ranges index the text as sent; trimming shifts them by the leading blanks.
+        let lead = bo_model::mention::utf16_len(&text[..text.len() - text.trim_start().len()]);
         let text = text.trim().to_owned();
+        let mentions: Vec<Mention> = mentions
+            .iter()
+            .filter(|m| m.start >= lead)
+            .map(|m| Mention {
+                start: m.start - lead,
+                ..m.clone()
+            })
+            .collect();
+        let mentions = valid_mentions(&text, &mentions);
         if text.is_empty() {
             return Err(EngineError::Sheet("empty comment".into()));
         }
         self.comment_edit(sheet, |wb| {
             let person_id = person_id(wb, author);
+            let people: Vec<(String, u32, u32)> = mentions
+                .iter()
+                .map(|m| (mention_person_id(wb, &m.person), m.start, m.length))
+                .collect();
             let ws = &mut wb.sheets[sheet];
             let (cell, parent_id) = if let Some(p) = parent {
                 let root = ws
@@ -185,6 +278,17 @@ impl SheetEngine {
                 parent_id: parent_id.clone(),
                 text: text.clone(),
                 done: false,
+                mentions: people
+                    .iter()
+                    .enumerate()
+                    .map(|(k, (pid, start, length))| ThreadedMention {
+                        person_id: pid.clone(),
+                        mention_id: guid(&(&id, k, pid), &|g| g == id),
+                        start: *start,
+                        length: *length,
+                    })
+                    .collect(),
+                task,
             };
             if let Some(p) = &parent_id {
                 // A reply goes after the last comment of its thread.

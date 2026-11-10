@@ -1,5 +1,11 @@
-import { useState } from 'react';
 import styles from './CommentThreads.module.css';
+import {
+  CommentTaskLine,
+  MentionComposer,
+  MentionText,
+  type MentionSubmit,
+} from './MentionComposer';
+import type { MentionSpan, MentionSuggestion } from './mentions';
 
 /** One comment of a thread (the first is the thread's root). */
 export interface ThreadComment {
@@ -8,6 +14,10 @@ export interface ThreadComment {
   /** ISO 8601 date-time, or empty. */
   date: string;
   text: string;
+  /** @mentions in `text`. */
+  mentions?: MentionSpan[] | undefined;
+  /** Task assigned in the comment. */
+  task?: { assignee: { name: string } } | null | undefined;
 }
 
 /** A comment thread anchored somewhere in the document (a cell, a slide). */
@@ -32,6 +42,16 @@ export interface CommentThreadsLabels {
   delete: string;
   close: string;
   resolved: string;
+  /** Composer checkbox "Assign to". */
+  assignTo: string;
+  /** Picker without a match. */
+  noMatches: string;
+  /** Accessible name of the picker. */
+  people: string;
+  /** "Assigned to {name}" (`{name}` is replaced). */
+  assignedTo: string;
+  /** "Assigned to {name} · done" for a resolved thread. */
+  taskDone: string;
 }
 
 export interface CommentThreadsProps {
@@ -39,44 +59,14 @@ export interface CommentThreadsProps {
   labels: CommentThreadsLabels;
   /** Anchor of a new thread (current cell / slide); `null` disables adding. */
   newAnchor: string | null;
-  onAdd: (text: string) => void;
-  onReply: (threadId: string, text: string) => void;
+  onAdd: (text: string, extra: MentionSubmit) => void;
+  onReply: (threadId: string, text: string, extra: MentionSubmit) => void;
+  /** People for the @mention picker (hosted sessions); absent: no picker. */
+  searchPeople?: ((query: string) => Promise<MentionSuggestion[]>) | undefined;
   onResolve: (threadId: string, done: boolean) => void;
   onDelete: (threadId: string) => void;
   onSelect?: (threadId: string) => void;
   onClose: () => void;
-}
-
-function Composer(props: { placeholder: string; submit: string; onSubmit: (t: string) => void }) {
-  const [text, setText] = useState('');
-  const send = () => {
-    const v = text.trim();
-    if (!v) return;
-    props.onSubmit(v);
-    setText('');
-  };
-  return (
-    <div className={styles.composer}>
-      <textarea
-        value={text}
-        rows={2}
-        placeholder={props.placeholder}
-        aria-label={props.placeholder}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          // Ctrl+Enter sends; plain keys stay in the text box (no grid shortcuts).
-          e.stopPropagation();
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            send();
-          }
-        }}
-      />
-      <button type="button" onClick={send} disabled={!text.trim()}>
-        {props.submit}
-      </button>
-    </div>
-  );
 }
 
 const when = (iso: string) => {
@@ -87,6 +77,13 @@ const when = (iso: string) => {
 /** Side panel listing comment threads with reply / resolve / delete. */
 export function CommentThreads(props: CommentThreadsProps) {
   const { labels } = props;
+  const composerLabels = (placeholder: string, submit: string) => ({
+    placeholder,
+    submit,
+    assignTo: labels.assignTo,
+    noMatches: labels.noMatches,
+    people: labels.people,
+  });
   return (
     <aside className={styles.panel} aria-label={labels.title} data-testid="comment-threads">
       <div className={styles.head}>
@@ -100,10 +97,10 @@ export function CommentThreads(props: CommentThreadsProps) {
           <div className={styles.anchor}>
             {labels.newComment} · {props.newAnchor}
           </div>
-          <Composer
-            placeholder={labels.newPlaceholder}
-            submit={labels.newComment}
-            onSubmit={props.onAdd}
+          <MentionComposer
+            labels={composerLabels(labels.newPlaceholder, labels.newComment)}
+            search={props.searchPeople}
+            onSubmit={(v) => props.onAdd(v.text, v)}
           />
         </div>
       )}
@@ -125,7 +122,18 @@ export function CommentThreads(props: CommentThreadsProps) {
                 <span className={styles.author}>{c.author}</span>
                 <span>{when(c.date)}</span>
               </div>
-              <div className={styles.text}>{c.text}</div>
+              <div className={styles.text}>
+                <MentionText text={c.text} mentions={c.mentions} />
+              </div>
+              {c.task && (
+                <CommentTaskLine
+                  label={(th.done ? labels.taskDone : labels.assignedTo).replace(
+                    '{name}',
+                    c.task.assignee.name,
+                  )}
+                  done={th.done}
+                />
+              )}
             </div>
           ))}
           <div className={styles.actions}>
@@ -137,10 +145,10 @@ export function CommentThreads(props: CommentThreadsProps) {
             </button>
           </div>
           {!th.done && (
-            <Composer
-              placeholder={labels.replyPlaceholder}
-              submit={labels.reply}
-              onSubmit={(t) => props.onReply(th.id, t)}
+            <MentionComposer
+              labels={composerLabels(labels.replyPlaceholder, labels.reply)}
+              search={props.searchPeople}
+              onSubmit={(v) => props.onReply(th.id, v.text, v)}
             />
           )}
         </section>

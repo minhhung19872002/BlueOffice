@@ -927,6 +927,26 @@ pub struct ThreadedComment {
     pub text: String,
     /// `done`: the thread is resolved.
     pub done: bool,
+    /// `mentions` ([MS-XLSX] `CT_ThreadedCommentMentions`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<ThreadedMention>,
+    /// Task assigned in the comment (BlueOffice `ext` of the comment's `extLst`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<crate::mention::CommentTask>,
+}
+
+/// A mention in a threaded comment ([MS-XLSX] `CT_Mention`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadedMention {
+    /// `mentionpersonId`: a [`Person::id`].
+    pub person_id: String,
+    /// `mentionId` (GUID).
+    pub mention_id: String,
+    /// `startIndex` in the comment text.
+    pub start: u32,
+    /// `length`.
+    pub length: u32,
 }
 
 /// An author of threaded comments ([MS-XLSX] `CT_Person`).

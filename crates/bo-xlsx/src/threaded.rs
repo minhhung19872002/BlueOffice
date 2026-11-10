@@ -8,7 +8,8 @@
 //! older readers still see the text.
 
 use crate::chart::parse_dom;
-use bo_model::sheet::{CellRef, Person, ThreadedComment};
+use bo_model::mention::{CommentTask, MentionPerson, EXT_URI, NS as BO_NS};
+use bo_model::sheet::{CellRef, Person, ThreadedComment, ThreadedMention};
 use bo_opc::xml::escape;
 use std::fmt::Write as _;
 
@@ -43,9 +44,63 @@ pub(crate) fn read_threaded(data: &[u8], part: &str) -> Vec<ThreadedComment> {
                 parent_id: n.attr("parentId").map(str::to_owned),
                 text: n.child("text").map(|t| t.text.clone()).unwrap_or_default(),
                 done: matches!(n.attr("done"), Some("1" | "true")),
+                mentions: read_mentions(n),
+                task: read_task(n),
             })
         })
         .collect()
+}
+
+/// `mentions/mention` ([MS-XLSX] `CT_ThreadedCommentMentions`, `CT_Mention`:
+/// `mentionpersonId`, `mentionId`, `startIndex`, `length`, all required).
+fn read_mentions(n: &crate::chart::Node) -> Vec<ThreadedMention> {
+    n.child("mentions")
+        .map(|m| {
+            m.children
+                .iter()
+                .filter(|c| c.name == "mention")
+                .filter_map(|c| {
+                    Some(ThreadedMention {
+                        person_id: c.attr("mentionpersonId")?.to_owned(),
+                        mention_id: c.attr("mentionId").unwrap_or_default().to_owned(),
+                        start: c.attr("startIndex")?.parse().ok()?,
+                        length: c.attr("length")?.parse().ok()?,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The BlueOffice task of `extLst/ext[@uri=EXT_URI]/bo:task` (see `bo_model::mention`).
+fn read_task(n: &crate::chart::Node) -> Option<CommentTask> {
+    let ext = n
+        .child("extLst")?
+        .children
+        .iter()
+        .find(|e| e.name == "ext" && e.attr("uri") == Some(EXT_URI))?;
+    let t = ext.child("task")?;
+    Some(CommentTask {
+        assignee: MentionPerson {
+            id: t.attr("assigneeId").unwrap_or_default().to_owned(),
+            name: t.attr("assigneeName").unwrap_or_default().to_owned(),
+            email: t.attr("assigneeEmail").map(str::to_owned),
+        },
+    })
+}
+
+/// `<bo:task …/>` of the BlueOffice extension.
+pub(crate) fn task_xml(t: &CommentTask) -> String {
+    let mut s = format!(
+        "<bo:task xmlns:bo=\"{BO_NS}\" assigneeId=\"{}\" assigneeName=\"{}\"",
+        escape(&t.assignee.id),
+        escape(&t.assignee.name)
+    );
+    if let Some(e) = &t.assignee.email {
+        let _ = write!(s, " assigneeEmail=\"{}\"", escape(e));
+    }
+    s.push_str("/>");
+    s
 }
 
 /// `personList` part.
@@ -88,7 +143,30 @@ pub(crate) fn threaded_xml(comments: &[ThreadedComment]) -> String {
         if c.done {
             out.push_str(" done=\"1\"");
         }
-        let _ = write!(out, "><text>{}</text></threadedComment>", escape(&c.text));
+        let _ = write!(out, "><text>{}</text>", escape(&c.text));
+        // CT_ThreadedComment: text, mentions?, extLst? (its `ext` is SpreadsheetML's, §18.2.7).
+        if !c.mentions.is_empty() {
+            out.push_str("<mentions>");
+            for m in &c.mentions {
+                let _ = write!(
+                    out,
+                    "<mention mentionpersonId=\"{}\" mentionId=\"{}\" startIndex=\"{}\" length=\"{}\"/>",
+                    escape(&m.person_id),
+                    escape(&m.mention_id),
+                    m.start,
+                    m.length
+                );
+            }
+            out.push_str("</mentions>");
+        }
+        if let Some(t) = &c.task {
+            let _ = write!(
+                out,
+                "<extLst><x:ext xmlns:x=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" uri=\"{EXT_URI}\">{}</x:ext></extLst>",
+                task_xml(t)
+            );
+        }
+        out.push_str("</threadedComment>");
     }
     out.push_str("</ThreadedComments>");
     out
@@ -132,8 +210,21 @@ mod tests {
                 person_id: "{00000000-0000-4000-8000-0000000000aa}".into(),
                 date: Some("2026-11-08T09:30:00.00".into()),
                 parent_id: None,
-                text: "Kiểm tra số liệu <quý 3> & ghi chú".into(),
+                text: "Kiểm tra số liệu <quý 3> & ghi chú @Bình".into(),
                 done: true,
+                mentions: vec![ThreadedMention {
+                    person_id: "{00000000-0000-4000-8000-0000000000bb}".into(),
+                    mention_id: "{00000000-0000-4000-8000-0000000000cc}".into(),
+                    start: 34,
+                    length: 5,
+                }],
+                task: Some(CommentTask {
+                    assignee: MentionPerson {
+                        id: "u2".into(),
+                        name: "Trần Thị Bình".into(),
+                        email: Some("binh@example.invalid".into()),
+                    },
+                }),
             },
             ThreadedComment {
                 id: "{00000000-0000-4000-8000-000000000002}".into(),
@@ -143,6 +234,8 @@ mod tests {
                 parent_id: Some("{00000000-0000-4000-8000-000000000001}".into()),
                 text: "Đã sửa".into(),
                 done: false,
+                mentions: Vec::new(),
+                task: None,
             },
         ];
         let xml = threaded_xml(&c);

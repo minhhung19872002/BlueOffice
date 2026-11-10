@@ -157,6 +157,13 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         comments_ids = true;
         read_comments_ids(&p.data, &p.name, &mut doc.comments)?;
     }
+    // BlueOffice comment tasks part (CORE-COMMENT-001).
+    if let Some(p) = pkg
+        .related_part(&main, crate::mentions::REL_TASKS)?
+        .and_then(|n| pkg.part(&n))
+    {
+        crate::mentions::read_tasks(&p.data, &mut doc.comments);
+    }
     let (prefix, suffix) = read_body(&main_part.data, &ctx, &mut doc, &mut media)?;
     doc.media = media;
     // §15.2.4 custom XML parts; bound content controls show their nodes (§17.5.2.6).

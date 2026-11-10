@@ -142,6 +142,15 @@ public static class SessionEndpoints
             return Results.Ok(created);
         }).DisableAntiforgery();
 
+        // @mentions in comments (CORE-COMMENT-001): people picker and notifications of a posted comment.
+        api.MapGet("/{id}/people", async (string id, string? q, int? limit, HttpRequest req, SessionStore store, CommentMentionService mentions, TimeProvider time, CancellationToken ct) =>
+        {
+            var s = Require(id, req, store, time);
+            return Results.Ok(new { people = await mentions.SearchAsync(s, q, limit ?? 10, ct) });
+        });
+        api.MapPost("/{id}/mentions", async (string id, CommentMentionRequest body, HttpRequest req, SessionStore store, CommentMentionService mentions, TimeProvider time, CancellationToken ct) =>
+            Results.Ok(await mentions.NotifyAsync(Require(id, req, store, time), body, ct)));
+
         // Offline edits (desktop/web cache) uploaded with the version they were based on; conflicts produce a copy.
         api.MapPost("/{id}/sync", async (string id, string baseVersion, HttpRequest req, SessionStore store, SessionService sessions, StorageOptions storage, TimeProvider time, CancellationToken ct) =>
         {

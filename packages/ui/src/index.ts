@@ -36,6 +36,15 @@ export {
   type CommentThreadsProps,
   type ThreadComment,
 } from './CommentThreads';
+export {
+  CommentTaskLine,
+  MentionComposer,
+  MentionText,
+  type MentionComposerLabels,
+  type MentionComposerProps,
+  type MentionSubmit,
+} from './MentionComposer';
+export * from './mentions';
 export * from './tokens';
 export * from './icons';
 export { getDensity, nextDensity, setDensity, useDensity, type Density } from './density';

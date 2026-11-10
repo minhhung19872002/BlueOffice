@@ -17,6 +17,7 @@ export type * from './versions';
 export * from './slideMedia';
 export type * from './customXml';
 export type * from './mailMerge';
+export * from './people';
 export { PASSWORD_REQUIRED, WRONG_PASSWORD } from './types';
 export {
   AnonymousSession,

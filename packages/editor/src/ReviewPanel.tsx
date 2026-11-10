@@ -2,10 +2,19 @@ import type {
   CommentInfo,
   EditCommand,
   EditResult,
+  PeopleDirectory,
   ReviewState,
   RevisionItem,
 } from '@blueoffice/platform';
+import { mentionFields, notifyMentions } from '@blueoffice/platform';
 import { useTranslation } from '@blueoffice/i18n';
+import {
+  CommentTaskLine,
+  MentionComposer,
+  MentionText,
+  type MentionComposerLabels,
+  type MentionSubmit,
+} from '@blueoffice/ui';
 import { useState } from 'react';
 import styles from './Editor.module.css';
 
@@ -133,24 +142,72 @@ export function ReviewPanel({
   );
 }
 
+/**
+ * Posts a comment (`parent` null) or a reply with its @mentions and task, then
+ * notifies the people through the hosted session (CORE-COMMENT-001).
+ */
+async function postComment(
+  run: Run,
+  people: PeopleDirectory | undefined,
+  parent: number | null,
+  v: MentionSubmit,
+): Promise<void> {
+  const fields = mentionFields(v.mentions, v.assignee);
+  const r = await run(
+    parent === null
+      ? { cmd: 'addComment', text: v.text, ...fields }
+      : { cmd: 'replyComment', id: parent, text: v.text, ...fields },
+  );
+  if (r && typeof r.count === 'number') {
+    void notifyMentions(people, {
+      commentId: String(r.count),
+      text: v.text.trim(),
+      mentions: v.mentions,
+      assignee: v.assignee,
+      app: 'doc',
+    });
+  }
+}
+
+/** One comment's text with its mentions, and its task line. */
+function CommentBody({ c, done }: { c: CommentInfo; done: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <span data-testid="comment-text">
+        <MentionText text={c.text} mentions={c.mentions} />
+      </span>
+      {c.task && (
+        <CommentTaskLine
+          label={t(done ? 'comments.taskDone' : 'comments.assignedTo', {
+            name: c.task.assignee.name,
+          })}
+          done={done}
+        />
+      )}
+    </>
+  );
+}
+
 function CommentCard({
   c,
   replies,
   run,
   language,
+  people,
+  labels,
 }: {
   c: CommentInfo;
   replies: CommentInfo[];
   run: Run;
   language: string;
+  people: PeopleDirectory | undefined;
+  labels: (placeholder: string, submit: string) => MentionComposerLabels;
 }) {
   const { t } = useTranslation();
-  const [reply, setReply] = useState('');
   const [replying, setReplying] = useState(false);
-  const send = async () => {
-    if (!reply.trim()) return;
-    await run({ cmd: 'replyComment', id: c.id, text: reply });
-    setReply('');
+  const send = async (v: MentionSubmit) => {
+    await postComment(run, people, c.id, v);
     setReplying(false);
   };
   return (
@@ -171,28 +228,27 @@ function CommentCard({
         </span>
         <span className={styles.reviewMeta}>{formatStamp(c.date, language)}</span>
         {c.quote && <span className={styles.reviewText}>“{c.quote}”</span>}
-        <span data-testid="comment-text">{c.text}</span>
+        <CommentBody c={c} done={c.done} />
       </button>
       {replies.map((r) => (
         <div key={r.id} className={styles.commentReply} data-testid="comment-reply">
           <span className={styles.reviewKind}>{r.author}</span>{' '}
           <span className={styles.reviewMeta}>{formatStamp(r.date, language)}</span>
-          <div>{r.text}</div>
+          <div>
+            <CommentBody c={r} done={c.done} />
+          </div>
         </div>
       ))}
       {replying && (
         <div className={styles.panelRow}>
-          <input
+          <MentionComposer
             autoFocus
-            data-testid="comment-reply-input"
-            aria-label={t('comments.replyPlaceholder')}
-            placeholder={t('comments.replyPlaceholder')}
-            value={reply}
-            onChange={(e) => setReply(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void send();
-              if (e.key === 'Escape') setReplying(false);
-            }}
+            multiline={false}
+            testId="comment-reply-input"
+            labels={labels(t('comments.replyPlaceholder'), t('comments.reply'))}
+            search={people ? (q) => people.search(q) : undefined}
+            onSubmit={(v) => void send(v)}
+            onCancel={() => setReplying(false)}
           />
         </div>
       )}
@@ -200,7 +256,8 @@ function CommentCard({
         <button
           type="button"
           data-testid="comment-reply-button"
-          onClick={() => (replying ? void send() : setReplying(true))}
+          aria-pressed={replying}
+          onClick={() => setReplying(!replying)}
         >
           {t('comments.reply')}
         </button>
@@ -229,14 +286,23 @@ export function CommentsPanel({
   run,
   language,
   onClose,
+  people,
 }: {
   review: ReviewState | null;
   run: Run;
   language: string;
   onClose: () => void;
+  /** @mention picker + notifications (hosted sessions; CORE-COMMENT-001). */
+  people?: PeopleDirectory | undefined;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState('');
+  const labels = (placeholder: string, submit: string): MentionComposerLabels => ({
+    placeholder,
+    submit,
+    assignTo: t('comments.assignTo'),
+    noMatches: t('comments.noMatches'),
+    people: t('comments.people'),
+  });
   const comments = review?.comments ?? [];
   const byId = new Map(comments.map((c) => [c.id, c]));
   // Thread root of a comment (replies to replies belong to the same thread).
@@ -249,11 +315,7 @@ export function CommentsPanel({
   };
   const top = comments.filter((c) => root(c) === c.id);
   const repliesOf = (id: number) => comments.filter((c) => c.id !== id && root(c) === id);
-  const add = async () => {
-    if (!draft.trim()) return;
-    await run({ cmd: 'addComment', text: draft });
-    setDraft('');
-  };
+
   return (
     <aside
       className={styles.reviewPane}
@@ -267,28 +329,31 @@ export function CommentsPanel({
         </button>
       </div>
       <div className={styles.panelRow}>
-        <input
+        <MentionComposer
           autoFocus
-          data-testid="comment-input"
-          aria-label={t('comments.placeholder')}
-          placeholder={t('comments.placeholder')}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void add();
-            if (e.key === 'Escape') onClose();
-          }}
+          multiline={false}
+          testId="comment-input"
+          buttonTestId="comment-add"
+          labels={labels(t('comments.placeholder'), t('comments.add'))}
+          search={people ? (q) => people.search(q) : undefined}
+          onSubmit={(v) => void postComment(run, people, null, v)}
+          onCancel={onClose}
         />
-        <button type="button" data-testid="comment-add" onClick={() => void add()}>
-          {t('comments.add')}
-        </button>
       </div>
       <div className={styles.panelMessage} data-testid="comment-count">
         {top.length ? t('comments.count', { count: top.length }) : t('comments.none')}
       </div>
       <ul className={styles.reviewList}>
         {top.map((c) => (
-          <CommentCard key={c.id} c={c} replies={repliesOf(c.id)} run={run} language={language} />
+          <CommentCard
+            key={c.id}
+            c={c}
+            replies={repliesOf(c.id)}
+            run={run}
+            language={language}
+            people={people}
+            labels={labels}
+          />
         ))}
       </ul>
     </aside>

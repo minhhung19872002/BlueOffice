@@ -7,10 +7,11 @@
 use super::chart::put_part;
 use super::ops::{PresFields, SlideOp, Tx};
 use super::{refuse, R};
+use bo_model::mention::{valid_mentions, CommentTask, Mention};
 use bo_model::slide::{Presentation, Rel};
 use bo_pptx::comments::{
-    authors_xml, comments_xml, read_authors, read_comments, CommentAuthor, ModernComment,
-    ModernReply, CT_AUTHORS, CT_COMMENTS, REL_AUTHORS, REL_COMMENTS,
+    authors_xml, comments_xml_ns, read_authors, read_comments, root_namespaces, CommentAuthor,
+    ModernComment, ModernReply, CT_AUTHORS, CT_COMMENTS, REL_AUTHORS, REL_COMMENTS,
 };
 use serde::Serialize;
 use std::hash::{Hash, Hasher};
@@ -27,6 +28,12 @@ pub struct CommentOut {
     pub date: String,
     /// Plain text.
     pub text: String,
+    /// @mentions in `text` (UTF-16 ranges).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<Mention>,
+    /// Task assigned in the comment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<CommentTask>,
 }
 
 /// A comment thread of the current slide.
@@ -96,6 +103,8 @@ pub fn comments_out(pres: &Presentation, slide: usize) -> Vec<ThreadOut> {
         author: name(&r.author_id),
         date: r.created.clone(),
         text: r.text.clone(),
+        mentions: r.mentions.clone(),
+        task: r.task.clone(),
     };
     list.iter()
         .map(|c| ThreadOut {
@@ -148,7 +157,11 @@ fn initials(name: &str) -> String {
 fn store(tx: &mut Tx<'_>, slide: usize, list: &[ModernComment]) -> R<()> {
     let s = &tx.pres.slides[slide];
     let sld_id = s.slide_id;
+    let mut ns = Vec::new();
     let part = if let Some(p) = comment_part(tx.pres, slide) {
+        if let Some(d) = tx.pres.part_data(&p) {
+            ns = root_namespaces(d, &p);
+        }
         p
     } else {
         let name = format!("/ppt/comments/modernComment_{sld_id:X}_0.xml");
@@ -169,7 +182,7 @@ fn store(tx: &mut Tx<'_>, slide: usize, list: &[ModernComment]) -> R<()> {
         tx,
         &part,
         Some(CT_COMMENTS),
-        comments_xml(list, sld_id, 0).into_bytes(),
+        comments_xml_ns(list, sld_id, 0, &ns).into_bytes(),
     )
 }
 
@@ -238,7 +251,34 @@ pub fn cmd_add(
     date: Option<&str>,
     parent: Option<&str>,
 ) -> R<()> {
+    cmd_add_with(tx, slide, text, author, date, parent, &[], None)
+}
+
+/// [`cmd_add`] with @mentions (UTF-16 ranges of `text`) and an assigned task
+/// (BlueOffice extension, CORE-COMMENT-001).
+#[allow(clippy::too_many_arguments)]
+pub fn cmd_add_with(
+    tx: &mut Tx<'_>,
+    slide: usize,
+    text: &str,
+    author: &str,
+    date: Option<&str>,
+    parent: Option<&str>,
+    mentions: &[Mention],
+    task: Option<CommentTask>,
+) -> R<()> {
+    // Ranges index the text as sent; trimming shifts them by the leading blanks.
+    let lead = bo_model::mention::utf16_len(&text[..text.len() - text.trim_start().len()]);
     let text = text.trim();
+    let shifted: Vec<Mention> = mentions
+        .iter()
+        .filter(|m| m.start >= lead)
+        .map(|m| Mention {
+            start: m.start - lead,
+            ..m.clone()
+        })
+        .collect();
+    let mentions = valid_mentions(text, &shifted);
     if text.is_empty() || slide >= tx.pres.slides.len() {
         return refuse("emptyComment");
     }
@@ -259,6 +299,9 @@ pub fn cmd_add(
             .unwrap_or("2000-01-01T00:00:00.000Z")
             .to_owned(),
         text: text.to_owned(),
+        mentions,
+        task,
+        ..ModernReply::default()
     };
     match parent {
         Some(p) => {

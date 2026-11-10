@@ -159,7 +159,7 @@ impl SheetEngine {
 
     /// Show every row a filter hides on `sheet` (one undo step). Returns `{ shown }`.
     pub(super) fn show_all_data(&mut self, sheet: usize) -> Result<Value> {
-        self.edit(sheet, Recalc::All, |wb, _| {
+        self.edit(sheet, Recalc::HiddenRows(sheet), |wb, _| {
             let shown = bo_sheet::advfilter::show_all(wb, sheet);
             Ok(json!({ "shown": shown }))
         })

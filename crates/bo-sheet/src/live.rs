@@ -80,7 +80,8 @@ impl LiveCalc {
             write_back(&fw, wb, si, &anchors);
         }
         crate::whatif::calculate_data_tables(&mut fw, wb);
-        self.engine = Some(fw);
+        // The previous engine holds a copy of every cell: freed off the edit path.
+        crate::drop_in_background(self.engine.replace(fw));
         self.pending = false;
         self.tables_pending = false;
         self.unwritten.clear();
@@ -109,7 +110,8 @@ impl LiveCalc {
                 write_back(&fw, wb, si, anchors);
             }
         }
-        self.engine = Some(fw);
+        // The previous engine holds a copy of every cell: freed off the edit path.
+        crate::drop_in_background(self.engine.replace(fw));
         self.pending = false;
         self.tables_pending = false;
         self.unwritten.clear();
@@ -164,6 +166,37 @@ impl LiveCalc {
                     cell.value = to_cell_value(&v);
                 }
             }
+            self.pending = true;
+            return;
+        }
+        fw.recalculate();
+        let ids = fw.last_recalculated().to_vec();
+        write_ids(fw, wb, &ids, None);
+        if mode == CalcMode::AutoNoTable {
+            self.tables_pending = true;
+        } else {
+            crate::whatif::calculate_data_tables(fw, wb);
+        }
+    }
+
+    /// Pushes the hidden rows of sheet `sheet` (AutoFilter, outline) into the live
+    /// engine in one step and recalculates (`SUBTOTAL` / `AGGREGATE` skip hidden
+    /// rows), without reloading the cells. Falls back to [`LiveCalc::rebuild`]
+    /// when no engine is loaded.
+    pub fn sync_hidden_rows(&mut self, wb: &mut Workbook, sheet: usize) {
+        let Some(fw) = self.engine.as_mut() else {
+            self.rebuild(wb);
+            return;
+        };
+        let Some(ws) = wb.sheets.get(sheet) else {
+            return;
+        };
+        fw.set_hidden_rows(
+            sheet,
+            ws.rows.iter().filter(|(_, i)| i.hidden).map(|(r, _)| *r),
+        );
+        let mode = CalcSettings::read(wb).mode;
+        if mode == CalcMode::Manual {
             self.pending = true;
             return;
         }

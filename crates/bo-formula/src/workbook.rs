@@ -291,6 +291,21 @@ impl Workbook {
         self.mark_all_formulas();
     }
 
+    /// Replace the hidden rows of `sheet` at once (an AutoFilter applied to a
+    /// million rows): every formula is marked for recalculation once, and only
+    /// when the set changes ([`Workbook::set_row_hidden`] marks them per row).
+    pub fn set_hidden_rows(&mut self, sheet: usize, rows: impl IntoIterator<Item = u32>) {
+        let Some(s) = self.sheets.get_mut(sheet) else {
+            return;
+        };
+        let rows: FxHashSet<u32> = rows.into_iter().collect();
+        if s.hidden_rows == rows {
+            return;
+        }
+        s.hidden_rows = rows;
+        self.mark_all_formulas();
+    }
+
     // ------------------------------------------------------------ editing
 
     fn touch(&mut self, id: CellId) {

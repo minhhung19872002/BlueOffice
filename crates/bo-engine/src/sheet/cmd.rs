@@ -1716,6 +1716,9 @@ pub(super) enum Recalc {
     No,
     All,
     Range(usize, CellRange),
+    /// Only the hidden rows of the sheet changed (AutoFilter): pushed to the
+    /// live engine without reloading every cell.
+    HiddenRows(usize),
 }
 
 fn bad(msg: impl Into<String>) -> EngineError {
@@ -1783,6 +1786,11 @@ fn flash_fill_cells(
 }
 
 /// The contiguous block of data around a single cell (Ctrl+A / sort / filter).
+///
+/// Grows the block by any filled neighbouring row or column (diagonals included)
+/// until none is left. Rows grow one lookup at a time; a column step scans the
+/// block's rows once, so a list of a million rows is found in a few passes (no
+/// cap on its size).
 pub(crate) fn current_region(ws: &Worksheet, r: CellRange) -> CellRange {
     if r.rows() > 1 || r.cols() > 1 {
         return r;
@@ -1793,25 +1801,35 @@ pub(crate) fn current_region(ws: &Worksheet, r: CellRange) -> CellRange {
             .any(|(_, c)| non_empty(c))
     };
     let (mut r0, mut c0, mut r1, mut c1) = (r.first.row, r.first.col, r.last.row, r.last.col);
-    for _ in 0..100_000 {
+    loop {
+        let mut grown = false;
         let lc = c0.saturating_sub(1);
         let rc = (c1 + 1).min(MAX_COLS - 1);
-        let mut grown = false;
-        if r0 > 0 && filled(r0 - 1, lc, rc) {
+        while r0 > 0 && filled(r0 - 1, lc, rc) {
             r0 -= 1;
             grown = true;
         }
-        if r1 + 1 < MAX_ROWS && filled(r1 + 1, lc, rc) {
+        while r1 + 1 < MAX_ROWS && filled(r1 + 1, lc, rc) {
             r1 += 1;
             grown = true;
         }
-        if c0 > 0 && (r0.saturating_sub(1)..=r1 + 1).any(|row| filled(row, c0 - 1, c0 - 1)) {
+        let (left, right) = (c0.checked_sub(1), (c1 + 1 < MAX_COLS).then_some(c1 + 1));
+        let (mut grow_left, mut grow_right) = (false, false);
+        let last = (r1 + 1).min(MAX_ROWS - 1);
+        for (&(_, c), cell) in ws.cells.range((r0.saturating_sub(1), 0)..=(last, u32::MAX)) {
+            if (Some(c) == left || Some(c) == right) && non_empty(cell) {
+                grow_left |= Some(c) == left;
+                grow_right |= Some(c) == right;
+                if grow_left == left.is_some() && grow_right == right.is_some() {
+                    break;
+                }
+            }
+        }
+        if grow_left {
             c0 -= 1;
             grown = true;
         }
-        if c1 + 1 < MAX_COLS
-            && (r0.saturating_sub(1)..=r1 + 1).any(|row| filled(row, c1 + 1, c1 + 1))
-        {
+        if grow_right {
             c1 += 1;
             grown = true;
         }
@@ -2032,6 +2050,7 @@ impl SheetEngine {
         match recalc {
             Recalc::No => {}
             Recalc::All => self.live.rebuild(wb),
+            Recalc::HiddenRows(si) => self.live.sync_hidden_rows(wb, si),
             Recalc::Range(si, r) => {
                 let cells: Vec<(u32, u32)> = (r.first.row..=r.last.row)
                     .flat_map(|row| (r.first.col..=r.last.col).map(move |c| (row, c)))
@@ -2886,7 +2905,7 @@ impl SheetEngine {
             C::ShowAllData { sheet } => self.show_all_data(sheet),
             C::ToggleFilter { sheet, range } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
-                self.edit(sheet, Recalc::All, |wb, _| {
+                self.edit(sheet, Recalc::HiddenRows(sheet), |wb, _| {
                     let ws = &mut wb.sheets[sheet];
                     if let Some(af) = ws.auto_filter.take() {
                         for row in af.range.first.row..=af.range.last.row {
@@ -2987,7 +3006,7 @@ impl SheetEngine {
             }
             C::SetFilter { sheet, col, filter } => {
                 let now = self.live.now();
-                self.edit(sheet, Recalc::All, |wb, _| {
+                self.edit(sheet, Recalc::HiddenRows(sheet), |wb, _| {
                     let range = wb.sheets[sheet]
                         .auto_filter
                         .as_ref()

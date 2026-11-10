@@ -257,13 +257,13 @@ pub(crate) fn load_with(
                 }
             }
         }
+        // Bulk: `set_row_hidden` would mark every formula once per hidden row (a
+        // filtered list of a million rows). Without a trusted cache every formula
+        // is already marked by `load_formula`; with one, cached `SUBTOTAL`
+        // results already account for the hidden rows.
         for (&r, info) in &ws.rows {
             if info.hidden {
-                if trust_cache {
-                    fw.load_row_hidden(si, r);
-                } else {
-                    fw.set_row_hidden(si, r, true);
-                }
+                fw.load_row_hidden(si, r);
             }
         }
     }

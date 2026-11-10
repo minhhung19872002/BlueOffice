@@ -874,6 +874,11 @@ impl SheetEngine {
     /// of cells converted (also reported as `legacyConverted`).
     pub fn convert_legacy_text(&mut self) -> Result<usize> {
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        if !bo_encoding::workbook_has_legacy_fonts(wb) {
+            // Nothing to convert: no undo snapshot (a full copy of the workbook).
+            self.legacy_converted = 0;
+            return Ok(0);
+        }
         let before = Box::new(wb.clone());
         let n = bo_encoding::convert_workbook(wb);
         self.legacy_converted = n;

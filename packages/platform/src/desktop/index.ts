@@ -563,6 +563,10 @@ class DesktopWindow implements WindowManager {
     const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : url;
     await this.call<string>('open_window', { query });
   }
+  /** Tiles the document windows on this window's monitor (View › Arrange All). */
+  arrangeAll(): Promise<number> {
+    return this.call<number>('arrange_windows');
+  }
 }
 
 type WindowApp = 'doc' | 'sheet' | 'slide';

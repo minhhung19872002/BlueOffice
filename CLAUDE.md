@@ -39,6 +39,7 @@ cargo run -p bo-cli -- convert tests/corpus/doc/phase1-sample.docx --to pdf --ou
 cargo run -p bo-cli -- convert in.docx --to pdf --pdfa 2b --tagged --bookmarks   # PDF/A-1b/2b/3b (3b đính kèm tệp gốc), PDF có thẻ, dấu trang từ đề mục (cả .pptx/.xlsx)
 cargo run -p bo-cli -- dump <file> --page 0    # display list JSON
 cargo run -p bo-cli -- corpus tests/corpus/doc # sinh lại corpus Phase 2 (in bảng README)
+cargo run -p bo-cli -- blocks assets/blocks/doc  # sinh lại thư viện khối dựng sẵn (.dotx có glossary; có test so khớp)
 cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lại
 cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
@@ -51,6 +52,8 @@ cargo run -p bo-cli -- convert in.docm --to dotx         # mẫu / có macro / t
 cargo run -p bo-cli -- sign in.pdf --key k.pem --cert c.pem   # PAdES / OOXML (bo-sign); --p12 f.p12 | --remote URL; --tsa URL (B-T)
 cargo run -p bo-cli -- ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL]   # PAdES B-LT: DSS (chứng thư + CRL/OCSP); --tsa: B-LTA
 cargo run -p bo-cli -- verify in.pdf --trust root-ca.pem [--crl ca.crl] [--ocsp r.der | --ocsp-fetch] [--crl-fetch] [--sunset SHA-1=2014-01-01] [--json]  # chữ ký + dấu thời gian + chuỗi tới trust anchor + thu hồi CRL/OCSP (ADR-0007)
+cargo run -p bo-cli -- edit mau.docx --edits edits.json --out out.pdf --to pdf [--strict]   # điền mẫu (content control, bookmark, chuỗi giữ chỗ, thuộc tính; .xlsx: ô / tên) — bo_engine::fill, REST API docs/deploy/rest-api.md
+cargo run -p bo-cli -- merge mau.docx data.csv --to zip --each docx --out out.zip     # trộn thư: mỗi bản ghi một tệp (docx|pdf); inspect <tệp> --json
 cargo run -p bo-cli -- sample-slides tests/corpus/slide  # sinh lại corpus slide
 cargo run -p bo-cli -- convert deck.pptx --to gif        # trình chiếu → GIF động (bo_engine::slide_edit::video; web: MP4/WebM qua WebCodecs)
 BO_WRITE_CORPUS=1 cargo test -p bo-xlsx --test corpus    # sinh lại corpus sheet

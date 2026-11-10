@@ -74,6 +74,50 @@
   padding: 16px;
 }
 
+/* Zoomed in with the status bar slider: the stage scrolls (CORE-UI-007). */
+.stage[data-zoomed] {
+  overflow: auto;
+  align-items: safe center;
+  justify-content: safe center;
+}
+
+.stage[data-zoomed] > * {
+  flex: none;
+}
+
+.statusButton {
+  all: unset;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/* High contrast (CORE-UI-007): selection frame and handles in two tones. */
+:global([data-theme='hc']) .selected {
+  stroke: var(--bo-chrome-cursor);
+  stroke-width: 3px;
+}
+
+:global([data-theme='hc']) .handle {
+  fill: var(--bo-chrome-handle);
+  stroke: var(--bo-chrome-handle-border);
+  stroke-width: 2px;
+}
+
+@media (forced-colors: active) {
+  .selected {
+    stroke: var(--bo-chrome-cursor);
+    stroke-width: 3px;
+    forced-color-adjust: none;
+  }
+
+  .handle {
+    fill: var(--bo-chrome-handle);
+    stroke: var(--bo-chrome-handle-border);
+    stroke-width: 2px;
+    forced-color-adjust: none;
+  }
+}
+
 .mainSlide {
   box-shadow: 0 2px 10px rgb(0 0 0 / 25%);
   background: #fff;

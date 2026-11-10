@@ -100,9 +100,12 @@ export interface EditorState {
     | 'adminFormat'
     | 'pageBorders'
     | 'watermark'
+    | 'saveBlock'
+    | 'blocksOrganizer'
     | 'checkDocument'
     | 'spellCheck'
     | 'language'
+    | 'wordCount'
     | 'columns'
     | 'lineNumbers'
     | 'hyphenation'
@@ -146,6 +149,15 @@ export interface EditorState {
   security: SecurityInfo | null;
   /** Protection UI: the Protect dialog, or the "view only / edit" prompt on open. */
   protectUi: 'panel' | 'prompt' | null;
+  /** Split view (View › Window): the first pane's share of the height; `null` = one pane. */
+  split: number | null;
+  /** Overtype mode (Insert key): typed text replaces what follows the caret. */
+  overtype: boolean;
+  /** Side by side with another window, and whether the two scroll together. */
+  sideBySide: boolean;
+  syncScroll: boolean;
+  /** Proofing marks in the document (`null`: not checked yet). */
+  proofErrors: number | null;
   /** BlueDoc view (View › Views): print, web or draft layout, outline view, read mode. */
   viewMode: 'print' | 'web' | 'draft' | 'outline' | 'read';
   /** Focus mode: ribbon and status bar hidden. */
@@ -192,6 +204,11 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   spellMenu: null,
   security: null,
   protectUi: null,
+  split: null,
+  overtype: false,
+  sideBySide: false,
+  syncScroll: true,
+  proofErrors: null,
   viewMode: 'print',
   focusMode: false,
   navPane: null,

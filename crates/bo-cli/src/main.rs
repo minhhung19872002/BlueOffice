@@ -13,7 +13,7 @@
 //! bo-cli convert deck.pptx --to zip                  # presentation package (deck, media, OFL fonts)
 //! bo-cli convert in.docx|deck.pptx|book.xlsx --to pdf --pages "1-3, 5" [--per-sheet 4] [--paper a4] [--copies 2] [--print-options JSON]
 //! bo-cli convert secret.docx --password pw --to docx --protect newpw
-//! bo-cli inspect file                               # format, encryption, macros
+//! bo-cli inspect file [--json]                      # format, encryption, macros
 //! bo-cli sign in.pdf --p12 me.p12 [--tsa URL] | --key k.pem --cert c.pem | --remote URL
 //! bo-cli ltv in.pdf --trust root-ca.pem [--crl-fetch --ocsp-fetch] [--tsa URL] [--out out.pdf]
 //! bo-cli verify in.pdf [--trust root-ca.pem] [--crl ca.crl] [--ocsp resp.der | --ocsp-fetch] [--crl-fetch] [--json]
@@ -23,11 +23,13 @@
 //! bo-cli corpus <dir>                         # generate the Phase 2 round-trip corpus
 //! bo-cli roundtrip <file.docx> --out <out>    # open and save again (lossless check)
 //! bo-cli fields <file.docx> --out <out.docx>  # update TOC / SEQ / REF / PAGEREF fields
-//! bo-cli merge <template.docx> <data.csv|xlsx|vcf|json> --to docx|pdf|zip --out <out> [--pattern "«Field»"]  # mail merge
+//! bo-cli merge <template.docx> <data.csv|xlsx|vcf|json> --to docx|pdf|zip --out <out> [--pattern "«Field»"] [--each pdf|docx]  # mail merge
+//! bo-cli edit <template.docx|xlsx> --edits edits.json --out <out> [--to pdf] [--strict]  # fill controls, bookmarks, placeholders, properties, cells
 //! bo-cli inspect file --vba [--json]             # VBA module sources, read-only ([MS-OVBA])
 //! bo-cli sample-macros <dir>                 # macro-enabled corpus files (tests/corpus/macro)
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
+//! bo-cli blocks <dir>                        # write the BlueDoc building block library (assets/blocks/doc)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
 //! bo-cli sample-big <out.docx> --pages 1000 --rich  # + headings, tables, footnotes, fields (CORE-PERF-001)
 //! bo-cli sample-big-deck <out.pptx> [--slides 300 --videos 6 --video-kb 4096]  # pictures + video deck
@@ -37,8 +39,10 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod blocks;
 mod convert;
 mod corpus;
+mod edit_cmd;
 mod fidelity;
 mod macro_samples;
 mod sample;
@@ -182,6 +186,7 @@ enum Cmd {
         /// `--json` as `{ name, modules: [{ name, kind, source }] }`.
         #[arg(long)]
         vba: bool,
+        /// Machine-readable JSON (an encrypted file without its password is reported, not an error).
         #[arg(long)]
         json: bool,
     },
@@ -225,11 +230,33 @@ enum Cmd {
         /// File name pattern of `--to zip` (`«Field»` = the record's value).
         #[arg(long, default_value = "")]
         pattern: String,
+        /// Format of the files of `--to zip`.
+        #[arg(long, value_parser = ["pdf", "docx"], default_value = "pdf")]
+        each: String,
+    },
+    /// Fill a template (.docx: content controls by tag / title, bookmarks, text
+    /// placeholders, document properties; .xlsx: cells by reference or defined name)
+    /// from a JSON array of edits and save it; prints what each edit changed as JSON.
+    Edit {
+        input: PathBuf,
+        /// JSON file with the edits (`bo_engine::fill::FillEdit`).
+        #[arg(long)]
+        edits: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// Output format (default: the template's own).
+        #[arg(long, value_parser = ["docx", "xlsx", "pdf"])]
+        to: Option<String>,
+        /// Fail when an edit matches nothing.
+        #[arg(long)]
+        strict: bool,
     },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
     /// Write the built-in BlueDoc templates (.docx) and their thumbnails (.png).
     Templates { dir: PathBuf },
+    /// Write the BlueDoc building block library (.dotx) and its index.
+    Blocks { dir: PathBuf },
     /// Write the §5 benchmark document: about N A4 pages of text with inline pictures.
     SampleBig {
         out: PathBuf,
@@ -695,6 +722,15 @@ fn run(cli: Cli) -> R {
         Cmd::Inspect {
             input,
             password,
+            vba: false,
+            json: true,
+        } => {
+            let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
+            println!("{}", inspect_json(&bytes, password.as_deref())?);
+        }
+        Cmd::Inspect {
+            input,
+            password,
             vba,
             json,
         } => {
@@ -852,6 +888,7 @@ fn run(cli: Cli) -> R {
             to,
             out,
             pattern,
+            each,
         } => {
             let mut engine = open(&template)?;
             let bytes = std::fs::read(&data).map_err(|e| format!("{}: {e}", data.display()))?;
@@ -862,12 +899,7 @@ fn run(cli: Cli) -> R {
                 .to_owned();
             let records = engine.set_merge_data(&bytes, &name)?;
             if to == "zip" {
-                let r = engine.command(bo_engine::Command::MergeToPdfs { pattern })?;
-                if let Some(e) = r.error {
-                    return Err(e.into());
-                }
-                let out_files = r.merge_out.and_then(|m| m.zip).ok_or("no output")?;
-                let zip = bo_engine::merge::base64_decode(&out_files).ok_or("base64")?;
+                let zip = engine.merge_zip(&pattern, &each)?;
                 write_file(&out, &zip)?;
                 println!("{records} records → {}", out.display());
                 return Ok(());
@@ -883,6 +915,32 @@ fn run(cli: Cli) -> R {
             };
             write_file(&out, &bytes)?;
             println!("{records} records → {}", out.display());
+        }
+        Cmd::Edit {
+            input,
+            edits,
+            out,
+            to,
+            strict,
+        } => {
+            let json =
+                std::fs::read_to_string(&edits).map_err(|e| format!("{}: {e}", edits.display()))?;
+            let own = match input.extension().and_then(|e| e.to_str()) {
+                Some(e) if e.eq_ignore_ascii_case("xlsx") || e.eq_ignore_ascii_case("xlsm") => {
+                    "xlsx"
+                }
+                _ => "docx",
+            };
+            let (bytes, report) = edit_cmd::run(&input, &json, to.as_deref().unwrap_or(own))?;
+            if strict {
+                if let Some(miss) = report.iter().find(|r| r.count == 0) {
+                    return Err(
+                        format!("edit matched nothing: {} '{}'", miss.op, miss.target).into(),
+                    );
+                }
+            }
+            write_file(&out, &bytes)?;
+            println!("{}", serde_json::to_string(&report)?);
         }
         Cmd::SampleBig {
             out,
@@ -925,6 +983,13 @@ fn run(cli: Cli) -> R {
         }
         Cmd::Templates { dir } => {
             for (name, bytes) in templates::files()? {
+                let path = dir.join(name);
+                write_file(&path, &bytes)?;
+                println!("{}", path.display());
+            }
+        }
+        Cmd::Blocks { dir } => {
+            for (name, bytes) in blocks::files()? {
                 let path = dir.join(name);
                 write_file(&path, &bytes)?;
                 println!("{}", path.display());
@@ -1273,6 +1338,91 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io
         }
     }
     Ok(())
+}
+
+/// `inspect --json`: format, variant, encryption, macros and a content summary.
+fn inspect_json(
+    bytes: &[u8],
+    password: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    use serde_json::json;
+    let (loaded, facts) = match convert::load(bytes, password) {
+        Ok(x) => x,
+        // An encrypted package that cannot be opened is still a fact worth reporting.
+        Err(e) if bo_binary::detect(bytes) == Some(bo_binary::LegacyKind::EncryptedOoxml) => {
+            return Ok(json!({
+                "format": null,
+                "encrypted": true,
+                "opened": false,
+                "macros": bo_binary::has_macros(bytes),
+                "error": e.to_string(),
+            })
+            .to_string());
+        }
+        Err(e) => return Err(e),
+    };
+    let mut v = json!({
+        "format": facts.format,
+        "variant": bo_engine::variant::detect(bytes).map(bo_engine::variant::Variant::ext),
+        "encrypted": facts.encrypted,
+        "opened": true,
+        "macros": facts.has_macros,
+    });
+    let sheets = |names: Vec<(String, Option<usize>)>| {
+        names
+            .into_iter()
+            .map(|(name, cells)| json!({ "name": name, "cells": cells }))
+            .collect::<Vec<_>>()
+    };
+    match loaded {
+        convert::Loaded::Document { doc, .. } => {
+            v["kind"] = "document".into();
+            v["paragraphs"] = doc.paragraphs().count().into();
+        }
+        convert::Loaded::Workbook(wb) => {
+            v["kind"] = "spreadsheet".into();
+            v["sheets"] = sheets(
+                wb.sheets
+                    .iter()
+                    .map(|s| (s.name.clone(), Some(s.cells.len())))
+                    .collect(),
+            )
+            .into();
+        }
+        convert::Loaded::Spreadsheet(d) => {
+            v["kind"] = "spreadsheet".into();
+            v["sheets"] = sheets(
+                d.sheets
+                    .iter()
+                    .map(|s| (s.name.clone(), Some(s.cells.len())))
+                    .collect(),
+            )
+            .into();
+        }
+        convert::Loaded::Deck(p) => {
+            v["kind"] = "presentation".into();
+            v["slides"] = p.slides.len().into();
+        }
+        convert::Loaded::Pptx(b) => {
+            let mut engine = Engine::with_bundled_fonts();
+            v["kind"] = "presentation".into();
+            v["slides"] = engine.open_pptx(&b, "deck.pptx")?.page_count.into();
+        }
+        convert::Loaded::Xlsx(b) => {
+            let mut engine = bo_engine::SheetEngine::new();
+            v["kind"] = "spreadsheet".into();
+            v["sheets"] = sheets(
+                engine
+                    .open(&b, "book.xlsx")?
+                    .sheets
+                    .into_iter()
+                    .map(|s| (s.name, None))
+                    .collect(),
+            )
+            .into();
+        }
+    }
+    Ok(v.to_string())
 }
 
 fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {

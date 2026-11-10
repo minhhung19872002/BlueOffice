@@ -97,7 +97,9 @@
       "mergeRules": "Trường & quy tắc",
       "mergeCreate": "Tạo",
       "automation": "Tự động hóa",
-      "language": "Ngôn ngữ"
+      "language": "Ngôn ngữ",
+      "window": "Cửa sổ",
+      "buildingBlocks": "Khối dựng sẵn"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -201,7 +203,12 @@
       "smartart": "SmartArt",
       "link": "Chèn liên kết",
       "action": "Thiết lập hành động",
-      "actionButtons": "Nút hành động"
+      "actionButtons": "Nút hành động",
+      "buildingBlocks": "Khối dựng sẵn",
+      "coverPage": "Trang bìa",
+      "saveBlock": "Lưu vùng chọn thành khối dựng sẵn…",
+      "blocksOrganizer": "Quản lý khối dựng sẵn…",
+      "autoText": "Chèn khối có tên vừa gõ trước con trỏ"
     },
     "layout": {
       "margins": "Lề",
@@ -304,7 +311,8 @@
       "translateCells": "Dịch ô chọn sang cột mới",
       "translateCellsInPlace": "Dịch ô chọn tại chỗ",
       "translateDeck": "Dịch bản trình chiếu",
-      "translateShapes": "Dịch các hình đã chọn"
+      "translateShapes": "Dịch các hình đã chọn",
+      "wordCount": "Đếm từ"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -406,6 +414,14 @@
     },
     "link": {
       "remove": "Bỏ liên kết"
+    },
+    "window": {
+      "new": "Cửa sổ mới",
+      "arrangeAll": "Sắp xếp tất cả",
+      "split": "Tách",
+      "sideBySide": "Xem song song",
+      "syncScroll": "Cuộn đồng bộ",
+      "resetPosition": "Đặt lại vị trí cửa sổ"
     }
   },
   "status": {
@@ -5880,7 +5896,14 @@
         "compact": "Gọn",
         "touch": "Cảm ứng"
       },
-      "proofingLanguage": "Ngôn ngữ soát lỗi…"
+      "proofingLanguage": "Ngôn ngữ soát lỗi…",
+      "themeLabel": "Giao diện",
+      "themes": {
+        "auto": "Theo hệ thống",
+        "light": "Sáng",
+        "dark": "Tối",
+        "hc": "Tương phản cao"
+      }
     },
     "describe": {
       "file_new": "Tài liệu trống.",
@@ -6673,6 +6696,171 @@
       "basedOnLoop": "Một kiểu không thể dựa trên chính nó hoặc một kiểu dựa trên nó.",
       "badFile": "Không đọc được tệp dưới dạng tài liệu .docx hoặc .dotx.",
       "failed": "Không thay đổi được kiểu."
+    }
+  },
+  "statusBar": {
+    "customize": "Tùy chỉnh thanh trạng thái",
+    "reset": "Đặt lại mặc định",
+    "items": {
+      "page": "Số trang",
+      "words": "Số từ",
+      "proofing": "Trạng thái soát lỗi",
+      "language": "Ngôn ngữ",
+      "trackChanges": "Theo dõi thay đổi",
+      "capsLock": "Caps Lock",
+      "overtype": "Chế độ ghi đè",
+      "viewButtons": "Nút chế độ xem",
+      "zoomSlider": "Thanh trượt thu phóng",
+      "zoom": "Tỷ lệ thu phóng",
+      "cellMode": "Chế độ ô",
+      "macro": "Macro",
+      "filter": "Chế độ lọc",
+      "average": "Trung bình",
+      "count": "Số ô có dữ liệu",
+      "numericalCount": "Số ô chứa số",
+      "min": "Nhỏ nhất",
+      "max": "Lớn nhất",
+      "sum": "Tổng",
+      "slide": "Số trang chiếu",
+      "notes": "Ghi chú",
+      "comments": "Bình luận",
+      "fit": "Vừa trang chiếu với cửa sổ"
+    },
+    "wordsSelected": "{{selected}} / {{count}} từ",
+    "proofingErrors": "Có lỗi cần soát",
+    "proofingClean": "Không có lỗi cần soát",
+    "trackChangesOn": "Theo dõi thay đổi: Bật",
+    "trackChangesOff": "Theo dõi thay đổi: Tắt",
+    "on": "Bật",
+    "off": "Tắt",
+    "overtype": "Ghi đè",
+    "insert": "Chèn",
+    "capsLock": "Caps Lock",
+    "views": "Chế độ xem",
+    "zoomSlider": "Thu phóng",
+    "zoomPercent": "Thu phóng {{value}}% (nhấp để về 100%)",
+    "zoomPercentFit": "Thu phóng {{value}}% (nhấp để vừa cửa sổ)",
+    "enter": "Nhập",
+    "numericalCount": "Số ô chứa số",
+    "min": "Nhỏ nhất",
+    "max": "Lớn nhất",
+    "macro": "Có macro",
+    "filterMode": "Chế độ lọc",
+    "calculating": "Đang tính…",
+    "notes": "Ghi chú",
+    "comments": "Bình luận",
+    "fit": "Vừa trang chiếu với cửa sổ",
+    "edit": "Sửa"
+  },
+  "wordCount": {
+    "title": "Đếm từ",
+    "close": "Đóng",
+    "selection": "Vùng chọn",
+    "document": "Tài liệu",
+    "pages": "Trang",
+    "words": "Từ",
+    "chars": "Ký tự (không tính dấu cách)",
+    "charsWithSpaces": "Ký tự (tính cả dấu cách)",
+    "paragraphs": "Đoạn",
+    "includeNotes": "Tính cả hộp văn bản, cước chú và chú thích cuối"
+  },
+  "windows": {
+    "message": "{{text}}",
+    "newWindowDesktop": "Đã mở một cửa sổ mới. Trên máy tính, mỗi cửa sổ mở một tài liệu riêng.",
+    "arrangeHint": "Trên web, hãy kéo thẻ trình duyệt ra thành cửa sổ riêng rồi xếp cạnh nhau (phím Windows + ←/→).",
+    "arranged": "Đã sắp xếp {{count}} cửa sổ.",
+    "noOtherWindow": "Chưa có cửa sổ nào khác để xem song song. Hãy mở tài liệu thứ hai trong cửa sổ hoặc thẻ khác.",
+    "compareWith": "Xem song song với",
+    "cancel": "Hủy",
+    "untitled": "Chưa đặt tên",
+    "sharedWindow": "Cửa sổ dùng chung tài liệu",
+    "sideBySideWith": "Song song với: {{name}}",
+    "splitBar": "Thanh tách (kéo hoặc dùng phím mũi tên; nhấp đúp để bỏ tách)",
+    "splitPane": "Ngăn thứ hai",
+    "splitUnfroze": "Đã bỏ cố định ngăn để tách.",
+    "splitToFreeze": "Đã chuyển vạch tách thành ngăn cố định."
+  },
+  "blocks": {
+    "groups": {
+      "quickParts": "Khối dựng sẵn và văn bản tự động",
+      "header": "Đầu trang",
+      "footer": "Chân trang",
+      "pageNumber": "Số trang",
+      "coverPage": "Trang bìa",
+      "textBox": "Hộp văn bản",
+      "table": "Bảng"
+    },
+    "galleries": {
+      "autoTxt": "Văn bản tự động",
+      "docParts": "Khối dựng sẵn",
+      "hdrs": "Đầu trang",
+      "ftrs": "Chân trang",
+      "pgNum": "Số trang",
+      "pgNumT": "Số trang (đầu trang)",
+      "pgNumB": "Số trang (cuối trang)",
+      "pgNumMargins": "Số trang (lề trang)",
+      "coverPg": "Trang bìa",
+      "txtBox": "Hộp văn bản",
+      "tbls": "Bảng",
+      "eq": "Phương trình",
+      "watermarks": "Hình mờ",
+      "bib": "Tài liệu tham khảo",
+      "custom1": "Tuỳ chỉnh 1",
+      "custom2": "Tuỳ chỉnh 2",
+      "custom3": "Tuỳ chỉnh 3",
+      "custom4": "Tuỳ chỉnh 4",
+      "custom5": "Tuỳ chỉnh 5",
+      "other": "Tuỳ chỉnh"
+    },
+    "stores": {
+      "document": "Tài liệu này",
+      "user": "Khối của tôi",
+      "builtin": "Thư viện BlueOffice"
+    },
+    "behaviors": {
+      "content": "Chỉ chèn nội dung",
+      "p": "Chèn nội dung thành đoạn riêng",
+      "pg": "Chèn nội dung thành trang riêng"
+    },
+    "fields": {
+      "name": "Tên",
+      "gallery": "Thư viện",
+      "category": "Danh mục",
+      "description": "Mô tả",
+      "behavior": "Tuỳ chọn",
+      "store": "Lưu vào"
+    },
+    "menu": {
+      "empty": "Thư viện này chưa có khối nào.",
+      "editHeader": "Sửa đầu trang",
+      "editFooter": "Sửa chân trang",
+      "pageNumberHere": "Số trang tại vị trí con trỏ"
+    },
+    "save": {
+      "title": "Lưu vùng chọn thành khối dựng sẵn",
+      "ok": "Lưu",
+      "hint": "Gõ tên khối trong văn bản rồi nhấn F3 để chèn. Tên không được chứa dấu phẩy."
+    },
+    "organizer": {
+      "title": "Quản lý khối dựng sẵn",
+      "pick": "Chọn một khối để xem trước.",
+      "edit": "Sửa thuộc tính…",
+      "apply": "Áp dụng",
+      "delete": "Xoá",
+      "insert": "Chèn",
+      "close": "Đóng",
+      "builtin": "Không thể sửa hay xoá khối của thư viện BlueOffice."
+    },
+    "errors": {
+      "noBlock": "Khối dựng sẵn không còn tồn tại.",
+      "badName": "Hãy nhập tên không chứa dấu phẩy.",
+      "badGallery": "Hãy chọn một thư viện trong danh sách.",
+      "emptySelection": "Hãy chọn nội dung cần lưu thành khối dựng sẵn trước.",
+      "builtinBlock": "Không thể sửa khối của thư viện BlueOffice.",
+      "noAutoText": "Không có khối dựng sẵn nào mang tên vừa gõ trước con trỏ.",
+      "bodyOnly": "Hãy đóng đầu trang, chân trang, chú thích hoặc hộp văn bản trước: khối dựng sẵn được chèn vào thân văn bản.",
+      "badFile": "Không đọc được tệp khối dựng sẵn.",
+      "failed": "Không thể thay đổi khối dựng sẵn."
     }
   }
 }

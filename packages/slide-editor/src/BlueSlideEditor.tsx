@@ -1,4 +1,4 @@
-import { GlyphStore, ImageStore } from '@blueoffice/canvas-host';
+import { GlyphStore, ImageStore, PX_PER_PT } from '@blueoffice/canvas-host';
 import {
   CommandRegistry,
   FileProtectionUi,
@@ -11,6 +11,7 @@ import {
   PdfExportDialog,
   SaveAsTypeDialog,
   FileBackstage,
+  useWindowTools,
   SavePasswordPanel,
   SmartArtDialog,
   SymbolPanel,
@@ -105,6 +106,11 @@ import {
   RIBBON_CONTEXTS,
   CommandSearch,
   StatusBar,
+  StatusButtons,
+  StatusZoom,
+  STATUS_ITEMS,
+  useStatusBarPrefs,
+  useThemePref,
   TitleBar,
   QuickAccessBar,
   useCommandSearchShortcut,
@@ -240,6 +246,12 @@ import {
   Volume2,
   Mic,
   SquareTerminal,
+  AppWindow,
+  RotateCcw,
+  ArrowDownUp,
+  Columns2,
+  Maximize2,
+  MessageSquare,
   FileCode2,
   FileSearch,
 } from 'lucide-react';
@@ -609,7 +621,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       return false;
     }
   });
-  const theme = useResolvedTheme(themeSetting);
+  // The theme picked in File › Options (remembered) wins over the editor's own setting.
+  const theme = useResolvedTheme(useThemePref(themeSetting));
   const [info, setInfo] = useState<DocInfo | null>(null);
   /** The open deck has macros (kept, never run): show the warning bar. */
   const [fileName, setFileName] = useState('');
@@ -779,6 +792,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const colorId = useId();
   const [colorTarget, setColorTarget] = useState<ColorTarget>('fill');
   const [stageRef, stage] = useSize();
+  // Editing zoom of the slide (CORE-UI-007): `null` = fit the window; the notes pane.
+  const [stageZoom, setStageZoom] = useState<number | null>(null);
+  const [notesShown, setNotesShown] = useState(true);
+  const thumbsEl = useRef<HTMLElement | null>(null);
   const glyphs = useMemo(() => new GlyphStore(engine), [engine]);
   const images = useMemo(() => new ImageStore(engine), [engine]);
   // Closing the editor releases the decoded pictures (CORE-PERF-001).
@@ -1850,6 +1867,34 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   /** Draw tab tools (CORE-INK-001), behind `draw.*`. */
   const [drawHub] = useState(() => new DrawActionsHub());
   const [shortcutsShown, setShortcutsShown] = useState(false);
+  // View › Window (CORE-UI-007): the other windows, side by side, New Window.
+  const windowTools = useWindowTools({
+    platform,
+    app: 'slide',
+    title: fileName,
+    scroller: () => thumbsEl.current,
+    getFile: async () => {
+      if (count === 0) return null;
+      await ctrl.idle();
+      return {
+        bytes: await engine.savePptx(),
+        name: `${(fileName || 'slides').replace(/\.[^.]+$/, '')}.pptx`,
+      };
+    },
+    notify: setStatus,
+    t,
+  });
+  const {
+    newWindow: windowNew,
+    arrangeAll: windowArrange,
+    sideBySide: windowSideBySide,
+    toggleSynchronous: windowToggleSync,
+    resetPosition: windowReset,
+    synchronous: windowSync,
+  } = windowTools;
+  const windowPaired = !!windowTools.paired;
+  const statusBar = useStatusBarPrefs(platform.shell, 'slide');
+
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -2434,6 +2479,37 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => commentsOpen,
       run: async () => setCommentsOpen((o) => !o),
     });
+    // Status bar and View › Window (CORE-UI-007).
+    reg.register({
+      id: 'view.notes',
+      isEnabled: deck,
+      isChecked: () => notesShown,
+      run: async () => setNotesShown((o) => !o),
+    });
+    reg.register({
+      id: 'view.fitWindow',
+      isEnabled: deck,
+      isChecked: () => stageZoom === null,
+      run: async () => setStageZoom(null),
+    });
+    reg.register({ id: 'window.new', run: () => windowNew() });
+    reg.register({ id: 'window.arrangeAll', run: () => windowArrange() });
+    reg.register({
+      id: 'window.sideBySide',
+      isChecked: () => windowPaired,
+      run: async () => windowSideBySide(),
+    });
+    reg.register({
+      id: 'window.syncScroll',
+      isEnabled: () => windowPaired,
+      isChecked: () => windowPaired && windowSync,
+      run: async () => windowToggleSync(),
+    });
+    reg.register({
+      id: 'window.resetPosition',
+      isEnabled: () => windowPaired,
+      run: async () => windowReset(),
+    });
     reg.register({
       id: 'review.versions',
       isEnabled: deck,
@@ -2669,6 +2745,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     paneOpen,
     selectionOpen,
     commentsOpen,
+    notesShown,
+    stageZoom,
+    windowNew,
+    windowArrange,
+    windowSideBySide,
+    windowToggleSync,
+    windowReset,
+    windowPaired,
+    windowSync,
     versionsOpen,
     scriptOpen,
     newChart,
@@ -3700,6 +3785,32 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           },
           sectionsGroup(t, item),
           {
+            id: 'window',
+            label: t('ribbon.groups.window'),
+            items: [
+              item('window.new', t('commands.window.new'), <AppWindow size={18} />),
+              item('window.arrangeAll', t('commands.window.arrangeAll'), <LayoutGrid size={18} />),
+              item(
+                'window.sideBySide',
+                t('commands.window.sideBySide'),
+                <Columns2 size={16} />,
+                sm,
+              ),
+              item(
+                'window.syncScroll',
+                t('commands.window.syncScroll'),
+                <ArrowDownUp size={16} />,
+                sm,
+              ),
+              item(
+                'window.resetPosition',
+                t('commands.window.resetPosition'),
+                <RotateCcw size={16} />,
+                sm,
+              ),
+            ],
+          },
+          {
             id: 'automation',
             label: t('ribbon.groups.automation'),
             items: [
@@ -3955,7 +4066,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     />
   );
   const thumbs = (
-    <nav className={styles.thumbs} aria-label={t('slideEditor.thumbnails')} data-slide-thumbs>
+    <nav
+      className={styles.thumbs}
+      aria-label={t('slideEditor.thumbnails')}
+      data-slide-thumbs
+      ref={thumbsEl}
+    >
       {entries.map((en) => {
         if (en.kind === 'section') return sectionHeader(en.index, en.section);
         const i = en.index;
@@ -4018,7 +4134,26 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     </nav>
   );
 
-  const main = fit(slideSize, { width: stage.width - 32, height: stage.height - 32 });
+  // The slide fits the stage unless the user zoomed (status bar slider).
+  const fitted = fit(slideSize, { width: stage.width - 32, height: stage.height - 32 });
+  const fitZoom = slideSize.width > 0 ? fitted.width / (slideSize.width * PX_PER_PT) : 1;
+  const main =
+    stageZoom === null
+      ? fitted
+      : {
+          width: Math.round(slideSize.width * PX_PER_PT * stageZoom),
+          height: Math.round(slideSize.height * PX_PER_PT * stageZoom),
+        };
+  const shownZoom = stageZoom ?? (fitZoom > 0 ? fitZoom : 1);
+  const uiLanguage = t(`spell.lang.${i18n.language}`, { defaultValue: i18n.language });
+  // Status bar texts (also the current values in its "customise" checklist).
+  const statusValues: Record<string, string | undefined> = {
+    slide: count > 0 ? t('slideEditor.slideOf', { n: shown + 1, total: count }) : undefined,
+    language: uiLanguage,
+    notes: notesShown ? t('statusBar.on') : t('statusBar.off'),
+    comments: commentsOpen ? t('statusBar.on') : t('statusBar.off'),
+    zoom: `${Math.round(shownZoom * 100)}%`,
+  };
   const elapsed = formatElapsed(now - startedAt);
   const nextInOrder = showRun.order[(pos.at ?? 0) + 1];
   const message = error
@@ -4213,7 +4348,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 </select>
               </div>
             )}
-            <div className={styles.stage} ref={stageRef}>
+            <div
+              className={styles.stage}
+              ref={stageRef}
+              data-testid="slide-stage"
+              data-zoomed={stageZoom === null ? undefined : 'true'}
+            >
               {count > 0 ? (
                 <div
                   className={styles.slideWrap}
@@ -4314,7 +4454,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <p className={styles.empty}>{t('slideEditor.empty')}</p>
               )}
             </div>
-            {count > 0 && !state.masterView && !state.pageMaster && (
+            {count > 0 && notesShown && !state.masterView && !state.pageMaster && (
               <section className={styles.notes} aria-label={t('slideEditor.notes')}>
                 <textarea
                   className={styles.notesEditor}
@@ -4949,31 +5089,151 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       )}
       {view !== 'show' && (
         <StatusBar
+          customize={{
+            label: t('statusBar.customize'),
+            items: STATUS_ITEMS.slide.map((d) => ({
+              id: d.id,
+              label: t(`statusBar.items.${d.id}`),
+              checked: statusBar.shown(d.id),
+              ...(statusValues[d.id] !== undefined ? { value: statusValues[d.id] } : {}),
+            })),
+            onToggle: statusBar.toggle,
+            resetLabel: t('statusBar.reset'),
+            onReset: statusBar.reset,
+          }}
           left={
             <>
-              <span data-testid="slide-status">
-                {message ||
-                  (count > 0 ? t('slideEditor.slideOf', { n: shown + 1, total: count }) : '')}
-              </span>
+              {(message || statusBar.shown('slide')) && (
+                <span data-testid="slide-status">{message || (statusValues.slide ?? '')}</span>
+              )}
+              {count > 0 && statusBar.shown('language') && (
+                <button
+                  type="button"
+                  className={styles.statusButton}
+                  data-testid="status-language"
+                  title={t('commands.review.spellingDialog')}
+                  onClick={() => exec('review.spellingDialog')}
+                >
+                  {uiLanguage}
+                </button>
+              )}
               {count > 0 && <ProtectionStatus info={protection.info} />}
+              {windowTools.shared && (
+                <span data-testid="status-shared-window">{t('windows.sharedWindow')}</span>
+              )}
+              {windowTools.paired && (
+                <span data-testid="status-side-by-side">
+                  {t('windows.sideBySideWith', {
+                    name: windowTools.paired.title || t('windows.untitled'),
+                  })}
+                </span>
+              )}
             </>
           }
           right={
-            <span>
-              {fileName}
-              {modified && (
-                <span
-                  className={styles.modified}
-                  data-testid="status-modified"
-                  title={t('slideEditor.unsaved')}
-                >
-                  {t('slideEditor.modified')}
-                </span>
+            <>
+              <span>
+                {fileName}
+                {modified && (
+                  <span
+                    className={styles.modified}
+                    data-testid="status-modified"
+                    title={t('slideEditor.unsaved')}
+                  >
+                    {t('slideEditor.modified')}
+                  </span>
+                )}
+              </span>
+              {count > 0 && (statusBar.shown('notes') || statusBar.shown('comments')) && (
+                <StatusButtons
+                  label={t('statusBar.items.notes')}
+                  testId="status-panes"
+                  buttons={[
+                    ...(statusBar.shown('notes')
+                      ? [
+                          {
+                            id: 'notes',
+                            label: t('statusBar.notes'),
+                            icon: <StickyNote size={14} />,
+                            pressed: notesShown,
+                            onClick: () => exec('view.notes'),
+                          },
+                        ]
+                      : []),
+                    ...(statusBar.shown('comments')
+                      ? [
+                          {
+                            id: 'comments',
+                            label: t('statusBar.comments'),
+                            icon: <MessageSquare size={14} />,
+                            pressed: commentsOpen,
+                            onClick: () => exec('review.comments'),
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
               )}
-            </span>
+              {count > 0 && statusBar.shown('viewButtons') && (
+                <StatusButtons
+                  label={t('statusBar.views')}
+                  testId="status-views"
+                  exclusive
+                  buttons={(
+                    [
+                      ['normal', 'slideEditor.normal', <Rows3 key="i" size={14} />],
+                      ['sorter', 'slideEditor.sorter', <LayoutGrid key="i" size={14} />],
+                      ['reading', 'slideEditor.reading', <BookOpen key="i" size={14} />],
+                    ] as const
+                  ).map(([v, label, icon]) => ({
+                    id: v,
+                    label: t(label),
+                    icon,
+                    pressed: view === v,
+                    onClick: () => exec(`view.${v}`),
+                  }))}
+                />
+              )}
+              {count > 0 &&
+                view === 'normal' &&
+                (statusBar.shown('zoomSlider') || statusBar.shown('zoom')) && (
+                  <StatusZoom
+                    zoom={shownZoom}
+                    min={0.1}
+                    max={4}
+                    slider={statusBar.shown('zoomSlider')}
+                    percent={statusBar.shown('zoom')}
+                    onZoom={setStageZoom}
+                    onPercent={() => setStageZoom(null)}
+                    labels={{
+                      slider: t('statusBar.zoomSlider'),
+                      zoomIn: t('commands.view.zoomIn'),
+                      zoomOut: t('commands.view.zoomOut'),
+                      percent: t('statusBar.zoomPercentFit', {
+                        value: Math.round(shownZoom * 100),
+                      }),
+                    }}
+                  />
+                )}
+              {count > 0 && view === 'normal' && statusBar.shown('fit') && (
+                <StatusButtons
+                  label={t('statusBar.fit')}
+                  buttons={[
+                    {
+                      id: 'fit',
+                      label: t('statusBar.fit'),
+                      icon: <Maximize2 size={14} />,
+                      pressed: stageZoom === null,
+                      onClick: () => exec('view.fitWindow'),
+                    },
+                  ]}
+                />
+              )}
+            </>
           }
         />
       )}
+      {windowTools.element}
       {readAloud.bar}
       {dictation.bar}
       {translate.pane}

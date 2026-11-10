@@ -576,7 +576,7 @@ pub fn copy_styles(from: &Document, to: &mut Document, ids: &[String]) -> Vec<St
 
 /// Copy numbering instance `num_id` of `from` (and its abstract definition) into
 /// `to` under fresh ids; the new `numId`.
-fn copy_num(from: &Document, to: &mut Document, num_id: i32) -> Option<i32> {
+pub(crate) fn copy_num(from: &Document, to: &mut Document, num_id: i32) -> Option<i32> {
     let num = from.numbering.nums.iter().find(|n| n.id == num_id)?;
     let abs = from
         .numbering

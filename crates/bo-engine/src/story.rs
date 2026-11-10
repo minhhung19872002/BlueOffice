@@ -102,7 +102,7 @@ fn story_blocks(s: &Session) -> Vec<Block> {
 
 impl Engine {
     /// Variant of the header/footer shown on page `pi` (§17.10.5, §17.10.6).
-    fn variant_of(&self, pi: usize) -> Option<(usize, HfVariant)> {
+    pub(crate) fn variant_of(&self, pi: usize) -> Option<(usize, HfVariant)> {
         let layout = self.layout()?;
         let doc = self.session.as_ref()?.doc();
         let page = layout.pages.get(pi)?;

@@ -57,7 +57,9 @@ export {
 } from './webcodecs';
 export * from './sheetDataTools';
 export * from './speech';
+export * from './windows';
 export * from './translation';
+export * from './buildingBlocks';
 export * from './docStyles';
 export * from './queryData';
 export * from './dictation';

@@ -153,9 +153,14 @@ public static class AuthSetup
         app.MapGet("/api/auth/config", () => Results.Ok(new { oidc })).AllowAnonymous();
     }
 
-    /// <summary>Stable principal id: "host:&lt;name&gt;:&lt;sub&gt;" or "user:&lt;sub&gt;".</summary>
+    /// <summary>Claim carrying the key name on principals authenticated by a REST API key (<c>Rest/ApiKeyAuth.cs</c>).</summary>
+    public const string ApiKeyClaim = "bo_api_key";
+
+    /// <summary>Stable principal id: "host:&lt;name&gt;:&lt;sub&gt;", "apikey:&lt;name&gt;" or "user:&lt;sub&gt;".</summary>
     public static string PrincipalKey(this ClaimsPrincipal p) =>
-        p.FindFirst(HostClaim)?.Value is { } h ? $"host:{h}:{p.FindFirst("sub")?.Value}" : $"user:{p.FindFirst("sub")?.Value}";
+        p.FindFirst(HostClaim)?.Value is { } h ? $"host:{h}:{p.FindFirst("sub")?.Value}"
+        : p.FindFirst(ApiKeyClaim)?.Value is { } k ? $"apikey:{k}"
+        : $"user:{p.FindFirst("sub")?.Value}";
 }
 
 /// <summary>Authenticates <c>Authorization: Bearer</c> JWTs signed by a configured host (issuer → host → JWKS).</summary>

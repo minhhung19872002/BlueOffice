@@ -52,6 +52,8 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
 | BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Trình đọc tập trung | Doc | — | ✅ | — | — | ✅ | ✅ | — | focused-reader.test, syllables.test, immersive-reader.spec | 🟡 | CORE-LANG-004: giãn chữ/dòng, nền, tô dòng, âm tiết tiếng Anh, đọc to; thiếu danh sách/định dạng, từ ghép Việt, Slide |
+| Thư viện biểu tượng | all | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | icon manifest tests, IconLibraryPicker test, icon-library.spec | ✅ | CORE-ICON-001: 210 icon tự vẽ, tìm Việt–Anh không dấu; Doc/Sheet lưu PNG, Slide lưu SVG |
 | Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); đọc chính tả qua bộ nhận dạng trình duyệt/dịch vụ cấu hình + lệnh dấu câu (CORE-LANG-002); chưa model cục bộ |
 | Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
 | HTML / MHT / Flat OPC / Excel XML 2003 | all | ✅ | — | ✅ | ✅ | ✅ | 🟡 | — | bo-html, bo-opc flat, web_formats.rs, webFormats.test | 🟡 | CORE-FMT-003: Doc + Sheet HTML/MHT, Flat OPC ba app, XML 2003 đọc; thiếu Slide HTML, biểu đồ/ảnh sheet, E2E giao diện |

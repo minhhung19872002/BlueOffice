@@ -1,11 +1,16 @@
 /**
  * BlueScript pane (CORE-SCRIPT-001): code editor with completion from the API
  * typings, Run / Stop, an output console and the user's saved scripts.
+ * CORE-SCRIPT-002: Record / Stop recording (the recorded script opens here), a
+ * keyboard shortcut and Quick Access Toolbar button for a saved script, and
+ * server schedules of the open hosted file.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from '@blueoffice/i18n';
+import type { ScriptSchedule, ScriptSchedules } from '@blueoffice/platform';
 import { complete, insertion, type Completion } from './completion';
 import type { ScriptHost } from './host';
+import type { ScriptRecorder } from './recorder';
 import { defaultRunner, type ScriptRun, type ScriptRunner } from './runner';
 import type { LogLevel, RunResult, ScriptApp, ScriptLimits } from './sandbox';
 import { scriptStore, type SavedScript, type ScriptStore } from './store';
@@ -18,6 +23,28 @@ export interface ScriptPaneProps {
   runner?: ScriptRunner;
   store?: ScriptStore;
   limits?: Partial<ScriptLimits>;
+  /** Macro recorder of the editor (CORE-SCRIPT-002). */
+  recorder?: ScriptRecorder;
+  /**
+   * Checks a shortcut for a saved script: the name of the command (or script)
+   * already bound to it, `invalid` when it cannot be used, null when free.
+   */
+  checkShortcut?: (shortcut: string, scriptId: string) => string | null;
+  /** Server schedules of the open file (hosted sessions). */
+  schedules?: ScriptSchedules;
+}
+
+/** `Ctrl+Shift+K` form of a key press; null for a lone modifier. */
+export function shortcutFromEvent(
+  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+): string | null {
+  if (['Control', 'Shift', 'Alt', 'Meta', 'OS', 'AltGraph'].includes(e.key)) return null;
+  const mods: string[] = [];
+  if (e.ctrlKey || e.metaKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  return [...mods, key].join('+');
 }
 
 interface Line {
@@ -28,20 +55,45 @@ interface Line {
 
 const MAX_LINES = 2_000;
 
-export function ScriptPane({ app, host, runner, store, limits }: ScriptPaneProps) {
+export function ScriptPane({
+  app,
+  host,
+  runner,
+  store,
+  limits,
+  recorder,
+  checkShortcut,
+  schedules,
+}: ScriptPaneProps) {
   const { t } = useTranslation();
   const scripts = useMemo(() => store ?? scriptStore(app), [store, app]);
   const run = useMemo(() => runner ?? defaultRunner(), [runner]);
   const [saved, setSaved] = useState<SavedScript[]>(() => scripts.list());
   const [current, setCurrent] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [code, setCode] = useState(() => t(`script.sample.${app}`));
+  // A recording stopped from the ribbon while the pane was closed opens here.
+  const [pendingRecording] = useState(() => recorder?.takeResult() ?? null);
+  const recordedCode = useCallback(
+    (source: string) =>
+      `// ${t('script.recordedHeader')}\n${source || `// ${t('script.recordedEmpty')}`}\n`,
+    [t],
+  );
+  const [name, setName] = useState(() =>
+    pendingRecording !== null ? t('script.recordedName') : '',
+  );
+  const [code, setCode] = useState(() =>
+    pendingRecording !== null ? recordedCode(pendingRecording) : t(`script.sample.${app}`),
+  );
   const [lines, setLines] = useState<Line[]>([]);
   const [running, setRunning] = useState<ScriptRun | null>(null);
   const [hint, setHint] = useState<Completion | null>(null);
   const [active, setActive] = useState(0);
   const area = useRef<HTMLTextAreaElement>(null);
   const seq = useRef(0);
+  const [recording, setRecording] = useState(() => !!recorder?.recording);
+  const [bindError, setBindError] = useState<string | null>(null);
+  const [cron, setCron] = useState('0 7 * * 1-5');
+  const [planned, setPlanned] = useState<ScriptSchedule[]>([]);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const push = useCallback((level: Line['level'], text: string) => {
     setLines((l) => {
@@ -51,6 +103,36 @@ export function ScriptPane({ app, host, runner, store, limits }: ScriptPaneProps
   }, []);
 
   useEffect(() => () => running?.stop(), [running]);
+
+  // Saved scripts changed elsewhere (bindings, another pane).
+  useEffect(() => scripts.subscribe(() => setSaved(scripts.list())), [scripts]);
+
+  const showRecorded = useCallback(
+    (source: string) => {
+      setCurrent(null);
+      setName(t('script.recordedName'));
+      setCode(recordedCode(source));
+      push('status', t('script.recordStopped'));
+    },
+    [t, push, recordedCode],
+  );
+
+  useEffect(() => {
+    if (!recorder) return undefined;
+    return recorder.subscribe((e) => {
+      setRecording(e.type === 'start');
+      if (e.type === 'stop') {
+        recorder.takeResult();
+        showRecorded(e.source);
+      }
+    });
+  }, [recorder, showRecorded]);
+
+  const reloadSchedules = useCallback(() => {
+    if (!schedules) return;
+    schedules.list().then(setPlanned, () => setPlanned([]));
+  }, [schedules]);
+  useEffect(reloadSchedules, [reloadSchedules]);
 
   const describe = (r: RunResult) => {
     if (r.ok) {
@@ -77,14 +159,19 @@ export function ScriptPane({ app, host, runner, store, limits }: ScriptPaneProps
     push('status', t('script.status.running'));
     const r = run.run(code, h, { ...limits, log: (level, text) => push(level, text) });
     setRunning(r);
-    void r.done.then((res) => {
+    // What the script does is not recorded (CORE-SCRIPT-002).
+    const done = recorder ? recorder.pause(() => r.done) : r.done;
+    void done.then((res) => {
       describe(res);
       setRunning(null);
     });
   };
 
+  const currentScript = saved.find((x) => x.id === current) ?? null;
+
   const save = () => {
     const s = scripts.save({
+      ...(currentScript ?? {}),
       ...(current ? { id: current } : {}),
       name: name || t('script.untitled'),
       code,
@@ -101,6 +188,65 @@ export function ScriptPane({ app, host, runner, store, limits }: ScriptPaneProps
     setSaved(scripts.list());
     setCurrent(null);
     setName('');
+  };
+
+  const toggleRecording = () => {
+    if (!recorder) return;
+    if (recorder.recording) recorder.stop();
+    else {
+      if (!host()) {
+        push('error', t('script.noDocument'));
+        return;
+      }
+      void recorder.start();
+      push('status', t('script.recordStarted'));
+    }
+  };
+
+  /** Shortcut / Quick Access Toolbar binding of the current saved script. */
+  const bind = (patch: { shortcut?: string | null; quickAccess?: boolean }) => {
+    if (!currentScript) return;
+    const shortcut =
+      patch.shortcut === undefined ? currentScript.shortcut : (patch.shortcut ?? undefined);
+    if (patch.shortcut) {
+      const conflict = checkShortcut?.(patch.shortcut, currentScript.id) ?? null;
+      if (conflict) {
+        setBindError(
+          conflict === 'invalid'
+            ? t('script.bind.invalid', { shortcut: patch.shortcut })
+            : t('script.bind.conflict', { shortcut: patch.shortcut, command: conflict }),
+        );
+        return;
+      }
+    }
+    setBindError(null);
+    const rest: Partial<SavedScript> & Pick<SavedScript, 'name' | 'code'> = { ...currentScript };
+    delete rest.shortcut;
+    scripts.save({
+      ...rest,
+      ...(shortcut ? { shortcut } : {}),
+      quickAccess: patch.quickAccess ?? !!currentScript.quickAccess,
+    });
+    setSaved(scripts.list());
+  };
+
+  const schedule = () => {
+    if (!schedules || !currentScript) return;
+    setScheduleError(null);
+    schedules
+      .create({ name: currentScript.name, code: currentScript.code, cron: cron.trim() })
+      .then(
+        () => {
+          push('status', t('script.schedule.created', { name: currentScript.name }));
+          reloadSchedules();
+        },
+        (e: unknown) =>
+          setScheduleError(
+            e instanceof Error && e.message === 'schedule.invalidCron'
+              ? t('script.schedule.invalidCron')
+              : t('script.schedule.failed'),
+          ),
+      );
   };
 
   const pick = (id: string) => {
@@ -229,7 +375,97 @@ export function ScriptPane({ app, host, runner, store, limits }: ScriptPaneProps
         <button type="button" onClick={remove} disabled={!current} data-testid="script-delete">
           {t('script.delete')}
         </button>
+        {recorder && (
+          <button
+            type="button"
+            onClick={toggleRecording}
+            disabled={!!running}
+            aria-pressed={recording}
+            className={recording ? styles.recording : undefined}
+            data-testid="script-record"
+          >
+            {recording ? t('script.recordStop') : t('script.record')}
+          </button>
+        )}
       </div>
+      {recording && (
+        <div className={styles.recordingNote} role="status" data-testid="script-recording">
+          {t('script.recordingNote')}
+        </div>
+      )}
+      {currentScript && (
+        <div className={styles.row}>
+          <input
+            aria-label={t('script.bind.shortcut')}
+            placeholder={t('script.bind.shortcutHint')}
+            value={currentScript.shortcut ?? ''}
+            readOnly
+            onKeyDown={(e) => {
+              if (e.key === 'Tab') return;
+              e.preventDefault();
+              e.stopPropagation();
+              if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.altKey) {
+                bind({ shortcut: null });
+                return;
+              }
+              const s = shortcutFromEvent(e);
+              if (s) bind({ shortcut: s });
+            }}
+            data-testid="script-shortcut"
+          />
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              checked={!!currentScript.quickAccess}
+              onChange={(e) => bind({ quickAccess: e.target.checked })}
+              data-testid="script-qat"
+            />
+            {t('script.bind.quickAccess')}
+          </label>
+        </div>
+      )}
+      {bindError && (
+        <div className={styles.errorNote} role="alert" data-testid="script-bind-error">
+          {bindError}
+        </div>
+      )}
+      {schedules && currentScript && (
+        <div className={styles.row}>
+          <input
+            aria-label={t('script.schedule.cron')}
+            title={t('script.schedule.cronHint')}
+            value={cron}
+            onChange={(e) => setCron(e.target.value)}
+            data-testid="script-cron"
+          />
+          <button type="button" onClick={schedule} data-testid="script-schedule">
+            {t('script.schedule.add')}
+          </button>
+        </div>
+      )}
+      {scheduleError && (
+        <div className={styles.errorNote} role="alert">
+          {scheduleError}
+        </div>
+      )}
+      {schedules && planned.length > 0 && (
+        <ul className={styles.schedules} aria-label={t('script.schedule.list')}>
+          {planned.map((p) => (
+            <li key={p.id}>
+              <span>
+                {p.name} · <code>{p.cron}</code>
+                {p.lastStatus ? ` · ${t(`script.schedule.status.${p.lastStatus}`)}` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => void schedules.remove(p.id).then(reloadSchedules, reloadSchedules)}
+              >
+                {t('script.schedule.remove')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
         ref={area}
         className={styles.code}

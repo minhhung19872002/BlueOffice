@@ -127,3 +127,44 @@
 .info {
   color: inherit;
 }
+
+.recording {
+  border-color: var(--bo-danger, #c42b1c) !important;
+  color: var(--bo-danger, #c42b1c) !important;
+}
+
+.recordingNote,
+.errorNote {
+  color: var(--bo-danger, #c42b1c);
+  font-size: 12px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.schedules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.schedules li {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: center;
+}
+
+.schedules button {
+  padding: 0 6px;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}

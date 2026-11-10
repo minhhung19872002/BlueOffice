@@ -427,6 +427,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'review.viewFinal': lucide(Eye),
   'review.viewMarkup': lucide(Eye),
   'review.viewOriginal': lucide(Eye),
+  'script.run': lucide(Play),
   'sheet.add': lucide(Plus),
   'sheet.delete': lucide(Trash2),
   'sheet.rename': lucide(Table2),

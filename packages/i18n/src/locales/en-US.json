@@ -225,7 +225,8 @@
       "navigationPane": "Navigation pane",
       "stylesPane": "Styles pane",
       "formattingMarks": "Formatting marks",
-      "scriptEditor": "BlueScript editor"
+      "scriptEditor": "BlueScript editor",
+      "recordScript": "Record actions"
     },
     "review": {
       "readAloud": "Read aloud",
@@ -5441,6 +5442,38 @@
       "doc": "// BlueScript – automate BlueDoc. Ctrl+Space: suggestions, Ctrl+Enter: run.\nconst paras = await doc.paragraphs;\nconsole.log('Paragraphs:', paras.length);\nconst hits = await doc.find('BlueOffice');\nconsole.log('Matches:', hits.length);\n",
       "sheet": "// BlueScript – automate BlueSheet. Ctrl+Space: suggestions, Ctrl+Enter: run.\nconst r = sheet.range('A1:B3');\nconsole.log(await r.values);\n// await r.format({ bold: true });\n",
       "slide": "// BlueScript – automate BlueSlide. Ctrl+Space: suggestions, Ctrl+Enter: run.\nfor (const s of await presentation.slides) {\n  const shapes = await s.shapes;\n  console.log('Slide', s.index + 1, shapes.map((x) => x.text).filter(Boolean));\n}\n"
+    },
+    "record": "Record",
+    "recordStop": "Stop recording",
+    "recordStarted": "Recording: your edits become a script.",
+    "recordStopped": "Recording stopped; the script is in the editor — save it.",
+    "recordingNote": "● Recording…",
+    "recordedName": "Recorded script",
+    "recordedHeader": "Script recorded from your actions",
+    "recordedEmpty": "Nothing was recorded.",
+    "runBound": "Run script “{{name}}”",
+    "boundFailed": "Script failed — {{message}}",
+    "bind": {
+      "shortcut": "Shortcut",
+      "shortcutHint": "Press a key combination (Backspace: none)",
+      "quickAccess": "Quick Access Toolbar button",
+      "conflict": "{{shortcut}} is already used by “{{command}}”.",
+      "invalid": "{{shortcut}} cannot be used: add Ctrl or Alt (or use F1–F12)."
+    },
+    "schedule": {
+      "cron": "Server schedule",
+      "cronHint": "minute hour day month weekday (UTC), e.g. 0 7 * * 1-5",
+      "add": "Schedule",
+      "list": "Schedules of this file",
+      "remove": "Remove",
+      "created": "Scheduled “{{name}}”.",
+      "invalidCron": "Invalid schedule (5 fields: minute hour day month weekday).",
+      "failed": "Could not schedule the script.",
+      "status": {
+        "succeeded": "last run succeeded",
+        "failed": "last run failed",
+        "unavailable": "no script runner on the server yet"
+      }
     }
   },
   "backstage": {

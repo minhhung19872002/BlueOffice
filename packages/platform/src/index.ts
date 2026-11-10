@@ -14,6 +14,7 @@ export type * from './ole';
 export type * from './charfx';
 export type * from './spelling';
 export type * from './versions';
+export type * from './scriptSchedules';
 export * from './slideMedia';
 export type * from './customXml';
 export type * from './mailMerge';

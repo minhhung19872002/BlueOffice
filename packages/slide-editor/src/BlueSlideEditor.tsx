@@ -25,6 +25,7 @@ import {
   objectToolsLabels,
   registerObjectCommands,
   useReadAloud,
+  useScriptBindings,
   type BackstagePropertiesAccess,
   type ClipItem,
   type SmartArtDraft,
@@ -119,6 +120,7 @@ import {
   ChartLine,
   ChartPie,
   Circle,
+  CircleDot,
   Clapperboard,
   ClipboardCheck,
   History,
@@ -189,7 +191,7 @@ import {
   Volume2,
   SquareTerminal,
 } from 'lucide-react';
-import { ScriptPane, slideScriptHost } from '@blueoffice/script';
+import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimationPane } from './AnimationPane';
 import { SelectionPane } from './SelectionPane';
@@ -444,7 +446,14 @@ function useSize(): [(el: HTMLElement | null) => void, { width: number; height: 
 
 function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideEditorProps) {
   const { t, i18n } = useTranslation();
-  const engine = platform.engine;
+  // Macro recorder (CORE-SCRIPT-002): it sees every slide command the editor sends.
+  const [recorder] = useState(() => new ScriptRecorder('slide'));
+  const engine = useMemo(
+    () => recordEngine(platform.engine, recorder),
+    [platform.engine, recorder],
+  );
+  const [, setRecorderTick] = useState(0);
+  useEffect(() => recorder.subscribe(() => setRecorderTick((n) => n + 1)), [recorder]);
   // Read aloud (CORE-LANG-003): the commands reach the hook through a ref.
   const readAloud = useReadAloud(platform.speech, 'text');
   const [readAloudLink] = useState(() => new ReadAloudLink());
@@ -1865,6 +1874,20 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => scriptOpen,
       run: async () => setScriptOpen((o) => !o),
     });
+    // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
+    reg.register({
+      id: 'script.record',
+      isEnabled: deck,
+      isChecked: () => recorder.recording,
+      run: async () => {
+        if (!recorder.recording) {
+          await recorder.start();
+          return;
+        }
+        recorder.stop();
+        setScriptOpen(true);
+      },
+    });
     for (const [id, preset] of [
       ['insert.rect', 'rect'],
       ['insert.ellipse', 'ellipse'],
@@ -2051,7 +2074,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     asYouType,
     mediaHub,
     drawHub,
+    recorder,
   ]);
+
+  // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
+  const scriptBindings = useScriptBindings({
+    app: 'slide',
+    registry,
+    host: () => (count > 0 ? slideScriptHost({ run: runResult, onEnd: focusSlide }) : null),
+    recorder,
+    label: (id) => t(`commands.${id}`),
+    onResult: (sc, r) => {
+      if (!r.ok) {
+        setStatus(t('script.boundFailed', { message: `${sc.name}: ${r.error?.message ?? ''}` }));
+      }
+    },
+  });
 
   const state: SlideEditorState = useMemo(() => {
     const s = edit?.selection ?? [];
@@ -2954,6 +2992,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             label: t('ribbon.groups.automation'),
             items: [
               item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
+              item('script.record', t('commands.view.recordScript'), <CircleDot size={18} />),
             ],
           },
         ],
@@ -3188,13 +3227,24 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               ['edit.undo', 'commands.edit.undo'],
               ['edit.redo', 'commands.edit.redo'],
             ] as const
-          ).map(([id, key]) => ({
-            id,
-            label: t(key),
-            shortcut: registry.get(id)?.shortcut,
-            enabled: registry.isEnabled(id, state),
-            onSelect: () => exec(id),
-          }))}
+          )
+            .map(([id, key]) => ({
+              id: id as string,
+              label: t(key),
+              shortcut: registry.get(id)?.shortcut,
+              enabled: registry.isEnabled(id, state),
+              onSelect: () => exec(id),
+            }))
+            .concat(
+              scriptBindings.quickAccess.map((sc) => ({
+                id: `script.run.${sc.id}`,
+                icon: 'script.run',
+                label: t('script.runBound', { name: sc.name }),
+                shortcut: sc.shortcut,
+                enabled: count > 0,
+                onSelect: () => exec(`script.run.${sc.id}`),
+              })),
+            )}
         />
       )}
       {picture.dialogs}
@@ -3614,6 +3664,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                               ? slideScriptHost({ run: runResult, onEnd: focusSlide })
                               : null
                           }
+                          recorder={recorder}
+                          checkShortcut={scriptBindings.checkShortcut}
+                          {...(platform.scriptSchedules
+                            ? { schedules: platform.scriptSchedules }
+                            : {})}
                         />
                       ),
                     } satisfies TaskPaneDef,

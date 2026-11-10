@@ -179,7 +179,7 @@ import {
   Volume2,
   SquareTerminal,
 } from 'lucide-react';
-import { ScriptPane, sheetScriptHost } from '@blueoffice/script';
+import { recordSheetHost, ScriptPane, ScriptRecorder, sheetScriptHost } from '@blueoffice/script';
 import {
   useCallback,
   useEffect,
@@ -213,6 +213,7 @@ import {
   taskPaneLabels,
   toBase64,
   useReadAloud,
+  useScriptBindings,
   type BackstagePropertiesAccess,
   type ClipItem,
   type SmartArtDraft,
@@ -541,7 +542,14 @@ interface Rect {
 
 function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetEditorProps) {
   const { t, i18n } = useTranslation();
-  const host = platform.sheet;
+  // Macro recorder (CORE-SCRIPT-002): it sees every sheet host call the editor makes.
+  const [recorder] = useState(() => new ScriptRecorder('sheet'));
+  const host = useMemo(
+    () => (platform.sheet ? recordSheetHost(platform.sheet, recorder) : platform.sheet),
+    [platform.sheet, recorder],
+  );
+  const [, setRecorderTick] = useState(0);
+  useEffect(() => recorder.subscribe(() => setRecorderTick((n) => n + 1)), [recorder]);
   const theme = useResolvedTheme(themeSetting);
   const decimal: ',' | '.' = i18n.language === 'en-US' ? '.' : ',';
 
@@ -2137,6 +2145,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       ...has,
       isChecked: () => scriptOpen,
     });
+    // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
+    add(
+      'script.record',
+      async () => {
+        if (!recorder.recording) {
+          await recorder.start();
+          return;
+        }
+        recorder.stop();
+        setScriptOpen(true);
+      },
+      { ...has, isChecked: () => recorder.recording },
+    );
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
@@ -2705,7 +2726,29 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setViewMode,
     toggleFormulas,
     showingFormulas,
+    recorder,
   ]);
+
+  // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
+  const scriptBindings = useScriptBindings({
+    app: 'sheet',
+    registry,
+    host: () =>
+      host && info
+        ? sheetScriptHost({
+            host,
+            activeSheet: () => sheetNow.current,
+            decimal,
+            onEnd: refreshInfo,
+          })
+        : null,
+    recorder,
+    label: (id) => t(`commands.${id}`),
+    onResult: (sc, r) => {
+      if (!r.ok)
+        setStatus(t('script.boundFailed', { message: `${sc.name}: ${r.error?.message ?? ''}` }));
+    },
+  });
 
   const state: SheetEditorState | null = useMemo(
     () =>
@@ -4028,6 +4071,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('ribbon.groups.automation'),
             items: [
               item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
+              item('script.record', t('commands.view.recordScript'), <CircleDot size={18} />),
             ],
           },
         ],
@@ -4236,13 +4280,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             ['edit.undo', 'commands.edit.undo'],
             ['edit.redo', 'commands.edit.redo'],
           ] as const
-        ).map(([id, key]) => ({
-          id,
-          label: t(key),
-          shortcut: registry.get(id)?.shortcut,
-          enabled: state ? registry.isEnabled(id, state) : false,
-          onSelect: () => run(id),
-        }))}
+        )
+          .map(([id, key]) => ({
+            id: id as string,
+            label: t(key),
+            shortcut: registry.get(id)?.shortcut,
+            enabled: state ? registry.isEnabled(id, state) : false,
+            onSelect: () => run(id),
+          }))
+          .concat(
+            scriptBindings.quickAccess.map((sc) => ({
+              id: `script.run.${sc.id}`,
+              icon: 'script.run',
+              label: t('script.runBound', { name: sc.name }),
+              shortcut: sc.shortcut,
+              enabled: !!info,
+              onSelect: () => run(`script.run.${sc.id}`),
+            })),
+          )}
       />
       <CommandSearch
         tabs={ribbonTabs}
@@ -4875,6 +4930,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                               })
                             : null
                         }
+                        recorder={recorder}
+                        checkShortcut={scriptBindings.checkShortcut}
+                        {...(platform.scriptSchedules
+                          ? { schedules: platform.scriptSchedules }
+                          : {})}
                       />
                     ),
                   } satisfies TaskPaneDef,

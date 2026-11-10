@@ -204,11 +204,13 @@ import {
   Palette,
   MessageSquare,
   SquareTerminal,
+  CircleDot,
 } from 'lucide-react';
-import { docScriptHost, ScriptPane } from '@blueoffice/script';
+import { docScriptHost, recordEngine, ScriptPane, ScriptRecorder } from '@blueoffice/script';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
+import { useScriptBindings } from './scriptBindings';
 import { DocController } from './controller';
 import styles from './Editor.module.css';
 import { FindPanel } from './Panels';
@@ -389,7 +391,7 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 function EditorInner({
-  platform,
+  platform: basePlatform,
   app = 'doc',
   language = 'vi-VN',
   theme = 'light',
@@ -400,6 +402,14 @@ function EditorInner({
   i18nInstance,
 }: BlueEditorProps & { i18nInstance: ReturnType<typeof createI18n> }) {
   const t = useMemo(() => i18nInstance.t.bind(i18nInstance), [i18nInstance]);
+  // Macro recorder (CORE-SCRIPT-002): it sees every engine command the editor sends.
+  const [recorder] = useState(() => new ScriptRecorder('doc'));
+  const platform = useMemo(
+    () => ({ ...basePlatform, engine: recordEngine(basePlatform.engine, recorder) }),
+    [basePlatform, recorder],
+  );
+  const [, setRecorderTick] = useState(0);
+  useEffect(() => recorder.subscribe(() => setRecorderTick((n) => n + 1)), [recorder]);
   const [store] = useState(() => createEditorStore(language, theme));
   const state = useStore(store);
   const resolvedTheme = useResolvedTheme(state.theme);
@@ -2212,6 +2222,23 @@ function EditorInner({
       isChecked: (s) => s.taskPanes.includes('script'),
       run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'script') }),
     });
+    // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
+    r.register({
+      id: 'script.record',
+      isEnabled: hasDoc,
+      isChecked: () => recorder.recording,
+      run: async (s) => {
+        if (!recorder.recording) {
+          await recorder.start();
+          view.current?.focus();
+          return;
+        }
+        recorder.stop();
+        if (!s.taskPanes.includes('script')) {
+          store.setState({ taskPanes: togglePane(s.taskPanes, 'script') });
+        }
+      },
+    });
     r.register({
       id: 'view.formattingMarks',
       shortcut: 'Ctrl+Shift+8',
@@ -2422,6 +2449,7 @@ function EditorInner({
     printLayoutPdf,
     pictureHub,
     objectHub,
+    recorder,
   ]);
   /* eslint-enable react-hooks/refs */
 
@@ -2445,6 +2473,24 @@ function EditorInner({
     (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
     [],
   );
+  const scriptHost = useCallback(
+    () =>
+      store.getState().doc
+        ? docScriptHost({ run: runCommand, onEnd: () => view.current?.focus() })
+        : null,
+    [store, runCommand],
+  );
+  // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
+  const scriptBindings = useScriptBindings({
+    app: 'doc',
+    registry,
+    host: scriptHost,
+    recorder,
+    label: (id) => t(`commands.${id}`),
+    onResult: (sc, r) => {
+      if (!r.ok) fail('script.boundFailed', new Error(`${sc.name}: ${r.error?.message ?? ''}`));
+    },
+  });
   const docProperties = useMemo<BackstagePropertiesAccess>(
     () => ({
       load: async () => (await runCommand({ cmd: 'docProperties' }))?.docProperties ?? null,
@@ -3518,6 +3564,7 @@ function EditorInner({
           label: t('ribbon.groups.automation'),
           items: [
             item('script.editor', 'commands.view.scriptEditor', <SquareTerminal size={ICON} />),
+            item('script.record', 'commands.view.recordScript', <CircleDot size={ICON} />),
           ],
         },
       ],
@@ -3672,6 +3719,9 @@ function EditorInner({
                 ? docScriptHost({ run: runCommand, onEnd: () => focusDoc() })
                 : null
             }
+            recorder={recorder}
+            checkShortcut={scriptBindings.checkShortcut}
+            {...(platform.scriptSchedules ? { schedules: platform.scriptSchedules } : {})}
           />
         ),
       });
@@ -3740,13 +3790,24 @@ function EditorInner({
             ['edit.undo', 'commands.edit.undo'],
             ['edit.redo', 'commands.edit.redo'],
           ] as const
-        ).map(([id, key]) => ({
-          id,
-          label: t(key),
-          shortcut: registry.get(id)?.shortcut,
-          enabled: registry.isEnabled(id, state),
-          onSelect: () => void registry.execute(id, store.getState()),
-        }))}
+        )
+          .map(([id, key]) => ({
+            id: id as string,
+            label: t(key),
+            shortcut: registry.get(id)?.shortcut,
+            enabled: registry.isEnabled(id, state),
+            onSelect: () => void registry.execute(id, store.getState()),
+          }))
+          .concat(
+            scriptBindings.quickAccess.map((sc) => ({
+              id: `script.run.${sc.id}`,
+              icon: 'script.run',
+              label: t('script.runBound', { name: sc.name }),
+              shortcut: sc.shortcut,
+              enabled: !!state.doc,
+              onSelect: () => void registry.execute(`script.run.${sc.id}`, store.getState()),
+            })),
+          )}
         actions={
           <>
             {host?.showShare && (

@@ -263,7 +263,7 @@ mod tests {
             let e = &p[132 + i * 12..144 + i * 12];
             let at = u32::from_be_bytes(e[4..8].try_into().unwrap()) as usize;
             let len = u32::from_be_bytes(e[8..12].try_into().unwrap()) as usize;
-            assert!(at % 4 == 0 && at + len <= p.len());
+            assert!(at.is_multiple_of(4) && at + len <= p.len());
             let ty = &p[at..at + 4];
             assert!([b"desc", b"text", b"XYZ ", b"curv"]
                 .iter()

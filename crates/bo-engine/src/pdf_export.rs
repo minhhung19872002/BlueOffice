@@ -58,17 +58,22 @@ fn doc_lang(doc: &Document) -> Option<String> {
         .filter(|l| !l.trim().is_empty())
 }
 
+/// Command ranges (page, start, end).
+type Ranges = Vec<(usize, usize, usize)>;
+/// Pictures: (alt, page, start, end).
+type Figures = Vec<(Option<String>, usize, usize, usize)>;
+
 /// Content of one page: command ranges by source.
 #[derive(Default)]
 struct Contents {
-    /// Body paragraph id → (page, start, end).
-    body: HashMap<u32, Vec<(usize, usize, usize)>>,
+    /// Body paragraph id → ranges.
+    body: HashMap<u32, Ranges>,
     /// Text box (para, at, sub) → ranges.
-    boxes: BTreeMap<(u32, u32, u32), Vec<(usize, usize, usize)>>,
+    boxes: BTreeMap<(u32, u32, u32), Ranges>,
     /// Note (endnote, id) → paragraph → ranges.
-    notes: BTreeMap<(bool, i32), BTreeMap<u32, Vec<(usize, usize, usize)>>>,
-    /// Pictures matched to body paragraphs: para → (alt, page, start, end).
-    figures: HashMap<u32, Vec<(Option<String>, usize, usize, usize)>>,
+    notes: BTreeMap<(bool, i32), BTreeMap<u32, Ranges>>,
+    /// Pictures matched to body paragraphs: para → figures.
+    figures: HashMap<u32, Figures>,
 }
 
 /// Pictures of each body paragraph (display id, alt text), in paragraph-id order.
@@ -232,22 +237,19 @@ impl DocTree<'_> {
                             nodes.push(with_content(Role::P, &r));
                         }
                     }
-                    match (role, num) {
-                        (Role::LBody, Some(n)) => {
-                            close_lists(&mut lists, Some(n.ilvl), out);
-                            if lists.last().is_none_or(|(l, _)| *l < n.ilvl) {
-                                lists.push((n.ilvl, StructNode::new(Role::L)));
-                            }
-                            let mut li = StructNode::new(Role::LI);
-                            li.kids.extend(nodes.into_iter().map(StructKid::Node));
-                            if let Some((_, l)) = lists.last_mut() {
-                                l.kids.push(StructKid::Node(li));
-                            }
+                    if let (Role::LBody, Some(n)) = (role, num) {
+                        close_lists(&mut lists, Some(n.ilvl), out);
+                        if lists.last().is_none_or(|(l, _)| *l < n.ilvl) {
+                            lists.push((n.ilvl, StructNode::new(Role::L)));
                         }
-                        _ => {
-                            close_lists(&mut lists, None, out);
-                            out.extend(nodes);
+                        let mut li = StructNode::new(Role::LI);
+                        li.kids.extend(nodes.into_iter().map(StructKid::Node));
+                        if let Some((_, l)) = lists.last_mut() {
+                            l.kids.push(StructKid::Node(li));
                         }
+                    } else {
+                        close_lists(&mut lists, None, out);
+                        out.extend(nodes);
                     }
                 }
                 Block::Table(t) => {
@@ -347,15 +349,15 @@ impl Engine {
     /// (PDF/A part, tagged PDF, bookmarks).
     pub fn export_pdf_with(&self, choices: &ExportChoices) -> Result<Vec<u8>> {
         if self.session.is_some() {
-            self.export_doc_pdf(choices)
+            self.export_doc_pdf(*choices)
         } else if self.pres.is_some() {
-            self.export_slides_pdf(choices)
+            self.export_slides_pdf(*choices)
         } else {
             Err(EngineError::NoDocument)
         }
     }
 
-    fn base_options(&self, choices: &ExportChoices, creator: &str) -> PdfOptions {
+    fn base_options(choices: ExportChoices, creator: &str) -> PdfOptions {
         PdfOptions {
             pdfa: choices.pdfa,
             creator: Some(creator.to_owned()),
@@ -363,7 +365,7 @@ impl Engine {
         }
     }
 
-    fn export_doc_pdf(&self, choices: &ExportChoices) -> Result<Vec<u8>> {
+    fn export_doc_pdf(&self, choices: ExportChoices) -> Result<Vec<u8>> {
         let session = self.session.as_ref().ok_or(EngineError::NoDocument)?;
         let doc = session.doc();
         let layout = self.layout.document();
@@ -375,7 +377,7 @@ impl Engine {
             spans.push(s);
         }
         let list = DisplayList { pages };
-        let mut opts = self.base_options(choices, "BlueDoc");
+        let mut opts = Self::base_options(choices, "BlueDoc");
         let props = doc
             .source
             .as_ref()
@@ -429,10 +431,10 @@ impl Engine {
         )?)
     }
 
-    fn export_slides_pdf(&self, choices: &ExportChoices) -> Result<Vec<u8>> {
+    fn export_slides_pdf(&self, choices: ExportChoices) -> Result<Vec<u8>> {
         let list = self.display.as_ref().ok_or(EngineError::NoDocument)?;
         let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
-        let mut opts = self.base_options(choices, "BlueSlide");
+        let mut opts = Self::base_options(choices, "BlueSlide");
         let titles: Vec<String> = pres
             .slides
             .iter()

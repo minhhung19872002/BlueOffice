@@ -26,6 +26,9 @@ use bo_sheet::headerfooter::{self as hf, HfAlign, HfBase, HfContext, HfFormat};
 use bo_sheet::render::{render_viewport, RenderOptions};
 use bo_sheet::viewport::Viewport;
 
+/// Printed pages of every visible sheet plus (sheet name, first page index).
+pub(crate) type PrintedPages = (Vec<PageList>, Vec<(String, usize)>);
+
 /// Points per inch.
 const PT_PER_IN: f64 = 72.0;
 /// Height of the printed column-heading band (points).
@@ -1032,7 +1035,7 @@ impl SheetEngine {
 
     /// Printed pages of every visible sheet, with each sheet's name and first
     /// page index (sheets without pages are left out of the list of firsts).
-    pub(crate) fn printed_pages(&mut self) -> Result<(Vec<PageList>, Vec<(String, usize)>)> {
+    pub(crate) fn printed_pages(&mut self) -> Result<PrintedPages> {
         let n = self.wb()?.sheets.len();
         let mut pages = Vec::new();
         let mut firsts = Vec::new();

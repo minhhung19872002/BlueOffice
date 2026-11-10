@@ -157,7 +157,7 @@ fn doc_pdfa_1b_has_no_transparency_and_3b_embeds_the_docx() {
     assert!(!s.contains("/SMask") && !s.contains("/Group") && !s.contains("/ca "));
     assert!(xmp(&p).contains("<pdfaid:part>1</pdfaid:part>"));
     // Neither outline nor structure when not asked for.
-    assert!(outline(&p).is_empty());
+    assert_eq!(outline(&p), Vec::<(usize, String)>::new());
     assert!(dict_get(&p.catalog().unwrap().dict, "StructTreeRoot").is_none());
 
     let three = e
@@ -259,7 +259,6 @@ fn sheet_set_pdf_export_then_export_pdf() {
     assert_eq!(p.header, "%PDF-1.4");
     assert!(xmp(&p).contains("<pdfaid:part>1</pdfaid:part>"));
     let o = outline(&p);
-    assert!(!o.is_empty());
     assert_eq!(o[0].1, names[0]);
     let r = roles(&p);
     assert!(

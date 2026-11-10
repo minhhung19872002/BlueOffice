@@ -507,7 +507,7 @@ fn run(cli: Cli) -> R {
             protect.as_deref(),
             sheet,
             &deck,
-            &pdf.choices()?,
+            pdf.choices()?,
         )?,
         Cmd::Sign {
             input,
@@ -675,7 +675,7 @@ fn run(cli: Cli) -> R {
                     None,
                     0,
                     &DeckExportArgs::default(),
-                    &bo_pdf::ExportChoices::default(),
+                    bo_pdf::ExportChoices::default(),
                 )?;
             } else {
                 let engine = open(&input)?;
@@ -817,6 +817,7 @@ fn run(cli: Cli) -> R {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_convert(
     input: &Path,
     to: &str,
@@ -825,13 +826,13 @@ fn run_convert(
     protect: Option<&str>,
     sheet: usize,
     deck: &DeckExportArgs,
-    pdf: &bo_pdf::ExportChoices,
+    pdf: bo_pdf::ExportChoices,
 ) -> R {
-    let plain = *pdf == bo_pdf::ExportChoices::default();
+    use convert::Loaded;
+    let plain = pdf == bo_pdf::ExportChoices::default();
     if !plain && to != "pdf" {
         return Err("--pdfa, --tagged and --bookmarks need --to pdf".into());
     }
-    use convert::Loaded;
     let bytes = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
     let name = input
         .file_name()
@@ -845,7 +846,7 @@ fn run_convert(
         let data = if plain {
             engine.export_pdf()?
         } else {
-            engine.export_pdf_with(pdf)?
+            engine.export_pdf_with(&pdf)?
         };
         let out = out.unwrap_or_else(|| input.with_extension("pdf"));
         write_file(&out, &data)?;
@@ -883,7 +884,7 @@ fn run_convert(
             if plain {
                 engine.export_pdf()?
             } else {
-                engine.export_pdf_with(pdf)?
+                engine.export_pdf_with(&pdf)?
             }
         }
         (Loaded::Document { doc, source }, "docx") => {
@@ -920,7 +921,7 @@ fn run_convert(
                     data
                 }
                 None if plain => engine.export_pdf()?,
-                None => engine.export_pdf_with(pdf)?,
+                None => engine.export_pdf_with(&pdf)?,
             }
         }
         (Loaded::Pptx(b), "pptx") => {
@@ -949,7 +950,7 @@ fn run_convert(
                     data
                 }
                 None if to == "pdf" && plain => engine.export_pdf()?,
-                None if to == "pdf" => engine.export_pdf_with(pdf)?,
+                None if to == "pdf" => engine.export_pdf_with(&pdf)?,
                 None => engine.save_pptx()?,
             }
         }
@@ -1152,13 +1153,13 @@ fn sheet_convert(
     name: &str,
     to: &str,
     sheet: usize,
-    pdf: &bo_pdf::ExportChoices,
+    pdf: bo_pdf::ExportChoices,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut engine = bo_engine::SheetEngine::with_bundled_fonts();
     engine.open(bytes, name)?;
     Ok(match to {
-        "pdf" if *pdf == bo_pdf::ExportChoices::default() => engine.export_pdf()?,
-        "pdf" => engine.export_pdf_with(pdf)?,
+        "pdf" if pdf == bo_pdf::ExportChoices::default() => engine.export_pdf()?,
+        "pdf" => engine.export_pdf_with(&pdf)?,
         fmt => engine.save(fmt, sheet.saturating_sub(1))?,
     })
 }

@@ -66,8 +66,4 @@ export interface PdfExport {
 export type PdfAPart = '1b' | '2b' | '3b';
 
 export type SlideExportOptions =
-  | HandoutExport
-  | NotesExport
-  | ImageExport
-  | PackageExport
-  | PdfExport;
+  HandoutExport | NotesExport | ImageExport | PackageExport | PdfExport;

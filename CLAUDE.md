@@ -36,6 +36,7 @@ cargo bench -p bo-layout                      # benchmark layout 300 trang
 cargo run -p bo-cli -- sample tests/corpus/doc/phase1-sample.docx
 cargo run -p bo-cli -- render tests/corpus/doc/phase1-sample.docx --out out/page-%d.png
 cargo run -p bo-cli -- convert tests/corpus/doc/phase1-sample.docx --to pdf --out out/sample.pdf
+cargo run -p bo-cli -- convert in.docx --to pdf --pdfa 2b --tagged --bookmarks   # PDF/A-1b/2b/3b (3b đính kèm tệp gốc), PDF có thẻ, dấu trang từ đề mục (cả .pptx/.xlsx)
 cargo run -p bo-cli -- dump <file> --page 0    # display list JSON
 cargo run -p bo-cli -- corpus tests/corpus/doc # sinh lại corpus Phase 2 (in bảng README)
 cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lại

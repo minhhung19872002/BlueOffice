@@ -735,25 +735,25 @@ function EditorInner({
   /** PDF of the printed pages (the web and draft views lay out other pages for the screen). */
   const printLayoutPdf = useCallback(
     async (choices?: PdfExport): Promise<Uint8Array> => {
-    // PDF/A, tagged PDF and bookmarks (CORE-FMT-002) go through the export bridge.
-    const pdf = () => {
-      const e = platform.engine;
-      if (!choices) return e.exportPdf();
-      if (!e.exportSlides) throw new Error('exportSlides');
-      return e.exportSlides(choices);
-    };
-    const mode = store.getState().viewMode;
-    if (mode !== 'web' && mode !== 'draft') return pdf();
-    await controller.current?.run({ cmd: 'setViewLayout', mode: 'print' });
-    try {
-      return await pdf();
-    } finally {
-      const width = Math.floor(view.current?.contentWidthPt() ?? 0);
-      sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
-      await controller.current?.run(
-        mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
-      );
-    }
+      // PDF/A, tagged PDF and bookmarks (CORE-FMT-002) go through the export bridge.
+      const pdf = () => {
+        const e = platform.engine;
+        if (!choices) return e.exportPdf();
+        if (!e.exportSlides) throw new Error('exportSlides');
+        return e.exportSlides(choices);
+      };
+      const mode = store.getState().viewMode;
+      if (mode !== 'web' && mode !== 'draft') return pdf();
+      await controller.current?.run({ cmd: 'setViewLayout', mode: 'print' });
+      try {
+        return await pdf();
+      } finally {
+        const width = Math.floor(view.current?.contentWidthPt() ?? 0);
+        sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
+        await controller.current?.run(
+          mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
+        );
+      }
     },
     [platform, store],
   );

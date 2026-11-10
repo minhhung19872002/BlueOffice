@@ -278,7 +278,7 @@ impl PdfDate {
         )
     }
 
-    pub(crate) fn pdf(&self) -> pdf_writer::Date {
+    pub(crate) fn pdf(self) -> pdf_writer::Date {
         pdf_writer::Date::new(self.year)
             .month(self.month)
             .day(self.day)

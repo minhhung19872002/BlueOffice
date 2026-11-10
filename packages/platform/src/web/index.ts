@@ -25,6 +25,7 @@ import { WebCodecsVideo } from '../webcodecs';
 import { webSpeech } from '../speech';
 import { webMediaCapture } from '../mediaCapture';
 import { ServerAiProvider } from '../ai';
+import { ServerAddinCatalog } from '../addins';
 import { ServerTranslationProvider } from '../translation';
 import { assetThesaurus } from '../thesaurus';
 import { defaultDictation } from '../dictation';
@@ -391,6 +392,20 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
       ? {
           ai: new ServerAiProvider({
             baseUrl: env.VITE_BO_AI_URL ?? '',
+            headers: async (): Promise<Record<string, string>> => {
+              const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+              return token ? { Authorization: `Bearer ${token}` } : {};
+            },
+          }),
+        }
+      : {}),
+    // Add-ins (CORE-ADDIN-001) from the BlueOffice server's catalogue: same origin unless
+    // VITE_BO_ADDINS_URL names it, `off` = none. The server answers 404 (no add-ins, no
+    // Add-in tab) until an administrator enables `Addins:Enabled`.
+    ...(env.VITE_BO_ADDINS_URL !== 'off'
+      ? {
+          addins: new ServerAddinCatalog({
+            baseUrl: env.VITE_BO_ADDINS_URL ?? '',
             headers: async (): Promise<Record<string, string>> => {
               const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
               return token ? { Authorization: `Bearer ${token}` } : {};

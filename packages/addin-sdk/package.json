@@ -1,0 +1,22 @@
+{
+  "name": "@blueoffice/addin-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BlueOffice add-ins (CORE-ADDIN-001): manifest schema, the versioned postMessage JSON-RPC protocol and the client library add-in pages use to talk to BlueDoc / BlueSheet / BlueSlide.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./manifest.schema.json": "./manifest.schema.json"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

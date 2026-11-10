@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BlueOffice.Api.Addins;
 using BlueOffice.Api.Ai;
 using BlueOffice.Api.Audit;
 using BlueOffice.Api.Auth;
@@ -107,6 +108,9 @@ builder.Services.AddHandwriting(config);
 
 // BlueAI proxy (CORE-AI-001): off unless AI:Enabled is set (docs/deploy/ai.md).
 builder.Services.AddAi(config);
+
+// Add-in catalogue (CORE-ADDIN-001): off unless Addins:Enabled is set (docs/deploy/addins.md).
+builder.Services.AddAddins(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -221,6 +225,7 @@ app.MapTranslation();
 app.MapDictation();
 app.MapHandwriting();
 app.MapAi();
+app.MapAddins();
 
 app.Run();
 

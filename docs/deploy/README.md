@@ -8,6 +8,7 @@ Dịch văn bản (mặc định tắt): [translation.md](translation.md) ·
 Đọc chính tả (mặc định tắt): [dictation.md](dictation.md) ·
 Nhận dạng chữ viết tay — nét vẽ thành chữ / phương trình (mặc định tắt): [handwriting.md](handwriting.md) ·
 BlueAI — trợ lý dùng mô hình ngôn ngữ do quản trị viên cấu hình (mặc định tắt): [ai.md](ai.md).
+Add-in web của tổ chức (danh mục do quản trị viên phát hành, mặc định tắt): [addins.md](addins.md).
 
 ## 1. Thành phần
 

@@ -80,6 +80,8 @@ public sealed class CollabPersistenceTests
             await db.ExecuteSqlRawAsync("DROP TABLE \"CollabLog\"");
             await db.ExecuteSqlRawAsync("DROP TABLE \"__EFMigrationsHistory\"");
             await db.ExecuteSqlRawAsync("DROP TABLE \"ScriptSchedules\"");
+            await db.ExecuteSqlRawAsync("DROP TABLE \"AddinInstalls\"");
+            await db.ExecuteSqlRawAsync("DROP TABLE \"Addins\"");
         }
 
         using var second = new TestApp(dataDir: dir);

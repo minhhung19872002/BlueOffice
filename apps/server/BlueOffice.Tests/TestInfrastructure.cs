@@ -229,15 +229,21 @@ public sealed class TestApp : WebApplicationFactory<Program>
     /// <summary>Object store root.</summary>
     public string ObjectsRoot => Path.Combine(_dir, "objects");
 
-    /// <summary>A dev JWT for a user.</summary>
-    public static string UserToken(string sub, string name)
+    /// <summary>A dev JWT for a user; <paramref name="extra"/> adds claims (roles …).</summary>
+    public static string UserToken(string sub, string name, IReadOnlyDictionary<string, object>? extra = null)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(DevKey));
+        var claims = new Dictionary<string, object> { ["sub"] = sub, ["name"] = name, ["email"] = sub + "@example.vn" };
+        foreach (var kv in extra ?? new Dictionary<string, object>())
+        {
+            claims[kv.Key] = kv.Value;
+        }
+
         return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = "blueoffice-dev",
             Audience = "blueoffice-api",
-            Claims = new Dictionary<string, object> { ["sub"] = sub, ["name"] = name, ["email"] = sub + "@example.vn" },
+            Claims = claims,
             Expires = DateTime.UtcNow.AddHours(1),
             SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
         });
@@ -248,6 +254,14 @@ public sealed class TestApp : WebApplicationFactory<Program>
     {
         var c = CreateClient();
         c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", UserToken(sub, name ?? sub));
+        return c;
+    }
+
+    /// <summary>HTTP client authenticated as <paramref name="sub"/> with extra token claims.</summary>
+    public HttpClient ClientWithClaims(string sub, IReadOnlyDictionary<string, object> extra)
+    {
+        var c = CreateClient();
+        c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", UserToken(sub, sub, extra));
         return c;
     }
 

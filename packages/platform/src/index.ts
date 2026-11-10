@@ -63,6 +63,7 @@ export * from './windows';
 export * from './translation';
 export * from './thesaurus';
 export * from './ai';
+export * from './addins';
 export * from './buildingBlocks';
 export * from './docStyles';
 export * from './queryData';

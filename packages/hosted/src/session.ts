@@ -21,6 +21,7 @@ import type {
 } from '@blueoffice/platform';
 import {
   AutoHandwritingProvider,
+  ServerAddinCatalog,
   ServerAiProvider,
   ServerTranslationProvider,
   appOfXml,
@@ -476,6 +477,13 @@ export function hostedPlatform(
     }),
     // BlueAI through the session's server (CORE-AI-001; off unless enabled there).
     ai: new ServerAiProvider({
+      baseUrl: api,
+      session: session.sessionId,
+      headers: () => ({ 'x-session-token': session.sessionToken }),
+      fetch: (url, init) => fetchImpl(url, init),
+    }),
+    // Add-ins of the session's server catalogue (CORE-ADDIN-001; none unless enabled there).
+    addins: new ServerAddinCatalog({
       baseUrl: api,
       session: session.sessionId,
       headers: () => ({ 'x-session-token': session.sessionToken }),

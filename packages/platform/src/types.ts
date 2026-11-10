@@ -2889,6 +2889,8 @@ export interface Platform {
   thesaurus?: import('./thesaurus').ThesaurusProvider;
   /** BlueAI assistant (absent: none on this platform; off unless an administrator enabled it; CORE-AI-001). */
   ai?: import('./ai').AiProvider;
+  /** Organisation add-in catalogue (absent or `list` → null: no add-ins; CORE-ADDIN-001). */
+  addins?: import('./addins').AddinCatalog;
   /** Folders and web pages for Get & Transform data (SHEET-PQ-001; absent: files only). */
   dataSources?: import('./sheetQuery').QueryDataSources;
   /** Speech to text for dictation (absent where the platform cannot listen; CORE-LANG-002). */

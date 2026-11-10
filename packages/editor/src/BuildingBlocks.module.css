@@ -1,0 +1,137 @@
+/* Building block galleries (Insert tab), save dialog and Organizer. */
+.triggerLabel {
+  margin: 0 2px 0 4px;
+  font-size: 12px;
+}
+
+.menu {
+  width: 320px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.group {
+  margin: 6px 8px 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+}
+
+.category {
+  margin: 4px 8px 2px;
+  color: var(--bo-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.gallery .item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  text-align: start;
+}
+
+.preview {
+  display: block;
+  max-width: 100%;
+  max-height: 160px;
+  align-self: center;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--bo-border);
+}
+
+.previewText {
+  display: block;
+  overflow: hidden;
+  padding: 4px 6px;
+  color: var(--bo-text-muted);
+  background: var(--bo-surface, #fff);
+  border: 1px dashed var(--bo-border);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemName {
+  font-size: 12px;
+}
+
+.actions {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--bo-border);
+}
+
+.organizer {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  min-height: 320px;
+}
+
+.tableWrap {
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--bo-border);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: 4px 6px;
+  background: var(--bo-surface, #fff);
+  border-bottom: 1px solid var(--bo-border);
+  text-align: start;
+}
+
+.table td {
+  padding: 3px 6px;
+  cursor: default;
+}
+
+.table tbody tr:hover {
+  background: var(--bo-hover);
+}
+
+.table tbody tr.picked {
+  background: var(--bo-selected, var(--bo-hover));
+  outline: 1px solid var(--bo-accent);
+  outline-offset: -1px;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.previewBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  padding: 6px;
+  background: var(--bo-hover);
+}
+
+.detail {
+  margin: 0;
+  font-size: 12px;
+}

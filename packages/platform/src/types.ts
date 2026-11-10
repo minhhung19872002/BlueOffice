@@ -660,6 +660,8 @@ export type EditCommand =
   /** Word count of the document and the selection → `wordCount` (CORE-UI-007). */
   | { cmd: 'wordCount'; notes?: boolean }
   | import('./docStyles').DocStyleCommand
+  /** Building blocks / AutoText (DOC-BB-001). */
+  | import('./buildingBlocks').BuildingBlockCommand
   | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
@@ -1145,6 +1147,8 @@ export interface EditResult {
   styleMgr?: import('./docStyles').StyleMgrOut;
   /** Word count of the document and the selection (`wordCount`, CORE-UI-007). */
   wordCount?: WordCountInfo;
+  /** Building blocks answer (building block commands, DOC-BB-001). */
+  blocks?: import('./buildingBlocks').BlocksOut;
   /** Pictures for signing a line (`signatureLineImages`). */
   signatureLineImages?: SignatureLineImages;
 }

@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
+pub mod blocks;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 pub mod chart_design;
@@ -67,10 +68,10 @@ pub mod templates;
 pub mod textbox;
 pub mod theme_file;
 pub mod translate;
-pub mod word_count;
 pub mod variant;
 pub mod views;
 pub mod web_formats;
+pub mod word_count;
 
 /// Installed OS fonts (native hosts, see [`Engine::set_system_fonts`]).
 #[cfg(not(target_arch = "wasm32"))]
@@ -344,6 +345,8 @@ pub struct Engine {
     show_marks: bool,
     /// Slide show video / GIF export in progress (BlueSlide).
     video: Option<Box<slide_edit::video::VideoSession>>,
+    /// Building blocks: the user's store, the shipped library, previews (BlueDoc).
+    blocks: blocks::BlockState,
 }
 
 impl Engine {

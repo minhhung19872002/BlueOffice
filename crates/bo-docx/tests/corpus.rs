@@ -198,6 +198,17 @@ fn strip(mut d: Document) -> Document {
     for s in &mut d.styles.styles {
         s.src = None;
     }
+    // §17.12 glossary document: entries and its own styles.
+    if let Some(g) = d.glossary.as_mut().map(std::sync::Arc::make_mut) {
+        g.source = None;
+        for p in &mut g.parts {
+            p.src = None;
+            strip_blocks(&mut p.blocks);
+        }
+        for s in &mut g.styles.styles {
+            s.src = None;
+        }
+    }
     d
 }
 

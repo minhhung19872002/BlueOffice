@@ -182,7 +182,8 @@ mod tests {
         assert_eq!(r["wordCount"]["pages"], 1);
         assert!(r["wordCount"].get("selection").is_none());
         // "Xin chào" selected (byte offsets of the index text).
-        let sel = r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":9}}}"#;
+        let sel =
+            r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":9}}}"#;
         cmd(&mut e, sel);
         let r = cmd(&mut e, r#"{"cmd":"wordCount","notes":true}"#);
         let s = &r["wordCount"]["selection"];

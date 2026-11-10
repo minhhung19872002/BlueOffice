@@ -114,6 +114,14 @@ pub enum Op {
         /// New parts.
         new: Vec<CustomXmlPart>,
     },
+    /// Replace the building blocks of the document (ECMA-376 Part 1, §17.12
+    /// glossary document).
+    Glossary {
+        /// Previous glossary.
+        old: Option<std::sync::Arc<bo_model::glossary::Glossary>>,
+        /// New glossary.
+        new: Option<std::sync::Arc<bo_model::glossary::Glossary>>,
+    },
 }
 
 impl Op {
@@ -183,6 +191,10 @@ impl Op {
                 old: new.clone(),
                 new: old.clone(),
             },
+            Op::Glossary { old, new } => Op::Glossary {
+                old: new.clone(),
+                new: old.clone(),
+            },
         }
     }
 
@@ -219,7 +231,7 @@ impl Op {
             // §17.15.1.35 evenAndOddHeaders only selects which header a page shows.
             Op::EvenAndOddHeaders { .. } => changes.mark_headers(0),
             // Data parts are not laid out (bound controls change through `Blocks`).
-            Op::CustomXml { .. } => {}
+            Op::CustomXml { .. } | Op::Glossary { .. } => {}
             _ => changes.mark_all(),
         }
     }
@@ -319,6 +331,12 @@ impl Op {
                     return Err(EditError::Conflict);
                 }
                 doc.custom_xml.clone_from(new);
+            }
+            Op::Glossary { old, new } => {
+                if doc.glossary != *old {
+                    return Err(EditError::Conflict);
+                }
+                doc.glossary.clone_from(new);
             }
         }
         Ok(())

@@ -39,6 +39,7 @@ cargo run -p bo-cli -- convert tests/corpus/doc/phase1-sample.docx --to pdf --ou
 cargo run -p bo-cli -- convert in.docx --to pdf --pdfa 2b --tagged --bookmarks   # PDF/A-1b/2b/3b (3b đính kèm tệp gốc), PDF có thẻ, dấu trang từ đề mục (cả .pptx/.xlsx)
 cargo run -p bo-cli -- dump <file> --page 0    # display list JSON
 cargo run -p bo-cli -- corpus tests/corpus/doc # sinh lại corpus Phase 2 (in bảng README)
+cargo run -p bo-cli -- blocks assets/blocks/doc  # sinh lại thư viện khối dựng sẵn (.dotx có glossary; có test so khớp)
 cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lại
 cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo

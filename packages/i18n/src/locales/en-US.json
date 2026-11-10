@@ -98,7 +98,8 @@
       "mergeCreate": "Create",
       "automation": "Automation",
       "language": "Language",
-      "window": "Window"
+      "window": "Window",
+      "buildingBlocks": "Building blocks"
     },
     "comingLater": "Coming in a later release"
   },
@@ -202,7 +203,12 @@
       "smartart": "SmartArt",
       "link": "Insert link",
       "action": "Action settings",
-      "actionButtons": "Action buttons"
+      "actionButtons": "Action buttons",
+      "buildingBlocks": "Building blocks",
+      "coverPage": "Cover page",
+      "saveBlock": "Save selection as building block…",
+      "blocksOrganizer": "Building Blocks Organizer…",
+      "autoText": "Insert the block named before the caret"
     },
     "layout": {
       "margins": "Margins",
@@ -6716,5 +6722,88 @@
     "splitPane": "Second pane",
     "splitUnfroze": "Panes were unfrozen to split.",
     "splitToFreeze": "The split became frozen panes."
+  },
+  "blocks": {
+    "groups": {
+      "quickParts": "Building blocks and auto text",
+      "header": "Headers",
+      "footer": "Footers",
+      "pageNumber": "Page numbers",
+      "coverPage": "Cover pages",
+      "textBox": "Text boxes",
+      "table": "Tables"
+    },
+    "galleries": {
+      "autoTxt": "Auto text",
+      "docParts": "Building blocks",
+      "hdrs": "Headers",
+      "ftrs": "Footers",
+      "pgNum": "Page numbers",
+      "pgNumT": "Page numbers (top of page)",
+      "pgNumB": "Page numbers (bottom of page)",
+      "pgNumMargins": "Page numbers (margins)",
+      "coverPg": "Cover pages",
+      "txtBox": "Text boxes",
+      "tbls": "Tables",
+      "eq": "Equations",
+      "watermarks": "Watermarks",
+      "bib": "Bibliographies",
+      "custom1": "Custom 1",
+      "custom2": "Custom 2",
+      "custom3": "Custom 3",
+      "custom4": "Custom 4",
+      "custom5": "Custom 5",
+      "other": "Custom"
+    },
+    "stores": {
+      "document": "This document",
+      "user": "My building blocks",
+      "builtin": "BlueOffice library"
+    },
+    "behaviors": {
+      "content": "Insert content only",
+      "p": "Insert content in its own paragraph",
+      "pg": "Insert content on its own page"
+    },
+    "fields": {
+      "name": "Name",
+      "gallery": "Gallery",
+      "category": "Category",
+      "description": "Description",
+      "behavior": "Options",
+      "store": "Save in"
+    },
+    "menu": {
+      "empty": "No building blocks in this gallery.",
+      "editHeader": "Edit header",
+      "editFooter": "Edit footer",
+      "pageNumberHere": "Page number at the caret"
+    },
+    "save": {
+      "title": "Save selection as building block",
+      "ok": "Save",
+      "hint": "Type the name of a block in the text and press F3 to insert it. A name cannot contain a comma."
+    },
+    "organizer": {
+      "title": "Building Blocks Organizer",
+      "pick": "Select a building block to see its preview.",
+      "edit": "Edit properties…",
+      "apply": "Apply",
+      "delete": "Delete",
+      "insert": "Insert",
+      "close": "Close",
+      "builtin": "Blocks of the BlueOffice library cannot be changed or deleted."
+    },
+    "errors": {
+      "noBlock": "The building block no longer exists.",
+      "badName": "Enter a name without a comma.",
+      "badGallery": "Choose one of the galleries in the list.",
+      "emptySelection": "Select the content to save as a building block first.",
+      "builtinBlock": "Blocks of the BlueOffice library cannot be changed.",
+      "noAutoText": "No building block has the name typed before the caret.",
+      "bodyOnly": "Close the header, footer, note or text box first: building blocks go into the main text.",
+      "badFile": "The building blocks file could not be read.",
+      "failed": "The building block could not be changed."
+    }
   }
 }

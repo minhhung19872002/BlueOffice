@@ -47,6 +47,8 @@ pub(crate) const REL_COMMENTS_EXT: &str =
 pub(crate) const REL_COMMENTS_IDS: &str =
     "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds";
 
+pub(crate) mod glossary;
+
 /// Parsing context for one source part (relationships are part-relative).
 struct Ctx<'p> {
     pkg: &'p Package,
@@ -165,6 +167,11 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         crate::mentions::read_tasks(&p.data, &mut doc.comments);
     }
     let (prefix, suffix) = read_body(&main_part.data, &ctx, &mut doc, &mut media)?;
+    // §17.12 glossary document: the building blocks of the document / template.
+    if let Some(name) = pkg.related_part(&main, glossary::REL_GLOSSARY)? {
+        doc.glossary =
+            glossary::read_glossary(&pkg, &name, ctx.theme.as_ref(), &mut media)?.map(Arc::new);
+    }
     doc.media = media;
     // §15.2.4 custom XML parts; bound content controls show their nodes (§17.5.2.6).
     doc.custom_xml = crate::custom_xml::read_parts(&pkg, &main)?;

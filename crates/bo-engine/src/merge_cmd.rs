@@ -319,6 +319,44 @@ impl Engine {
         Ok(out)
     }
 
+    /// One `.docx` per merged document, named by `pattern`: (file name, bytes).
+    pub fn merge_docx_files(&self, pattern: &str) -> crate::Result<Vec<(String, Vec<u8>)>> {
+        let (docs, m) = self.merged_docs()?;
+        let mut used = std::collections::HashSet::new();
+        let mut out = Vec::with_capacity(docs.len());
+        for (n, d) in docs.into_iter().enumerate() {
+            let row = d
+                .records
+                .first()
+                .and_then(|p| self.merge_order.get(*p))
+                .copied();
+            let stem = row
+                .map(|r| safe_file_name(&fill_pattern(pattern, m, r)))
+                .unwrap_or_default();
+            let name = unique_name(&stem, "docx", n + 1, &mut used);
+            out.push((name, bo_docx::write_docx(&d.doc)?));
+        }
+        Ok(out)
+    }
+
+    /// One file per merged document (`format`: `pdf` or `docx`), zipped.
+    pub fn merge_zip(&mut self, pattern: &str, format: &str) -> crate::Result<Vec<u8>> {
+        let files: Vec<(String, Vec<u8>)> = match format {
+            "docx" => self.merge_docx_files(pattern)?,
+            "pdf" => self
+                .merge_pdfs(pattern)?
+                .into_iter()
+                .map(|(n, b, _)| (n, b))
+                .collect(),
+            other => {
+                return Err(crate::EngineError::BadCommand(format!(
+                    "mail merge: unknown file format '{other}'"
+                )))
+            }
+        };
+        zip(&files)
+    }
+
     /// One e-mail per merged document with an address in field `to`; returns the
     /// mails and the number left out.
     pub fn merge_emails(

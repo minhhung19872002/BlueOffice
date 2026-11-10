@@ -9,6 +9,7 @@ import {
   appForFile,
   fetchAllowedOrigins,
   hostedText,
+  joinWindowSession,
   offlinePlatform,
   openHosted,
   serverBase,
@@ -17,7 +18,7 @@ import {
   type FetchLike,
   type HostedApp,
 } from '@blueoffice/hosted';
-import type { OidcSession, Platform } from '@blueoffice/platform';
+import { WINDOW_PARAM, type OidcSession, type Platform } from '@blueoffice/platform';
 import {
   AUTH_CALLBACK_PATH,
   createWebAuth,
@@ -295,10 +296,16 @@ async function standalone(): Promise<void> {
     // Old routes (/write, /docs, /sheets, /slides) keep working.
     window.history.replaceState(null, '', redirect + window.location.search + window.location.hash);
   }
-  const platform = createWebPlatform({
+  let platform = createWebPlatform({
     storage: (files) => new LocalStorageProvider(files),
     ...(auth ? { auth } : {}),
   });
+  // A window of View › New Window: the same document, edits shared with the other window.
+  const windowId = params.get(WINDOW_PARAM);
+  if (windowId) {
+    const w = await joinWindowSession({ platform, app, id: windowId }).catch(() => null);
+    if (w) platform = w.platform;
+  }
   root.render(
     <StrictMode>
       {notice ? <Notice text={notice} /> : null}

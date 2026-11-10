@@ -96,6 +96,9 @@ export interface RangeStats {
   count: number;
   numbers: number;
   average: number | null;
+  /** Smallest / largest number (`null` without numbers; absent from older engines). */
+  min?: number | null;
+  max?: number | null;
 }
 
 /** Result of the `flashFill` command. */

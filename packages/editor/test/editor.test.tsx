@@ -478,3 +478,129 @@ describe('BlueEditor digital signatures', () => {
     expect(document.querySelector('[data-context-group]')).toBeNull();
   });
 });
+
+describe('BlueDoc status bar, word count and split view (CORE-UI-007)', { timeout: 30_000 }, () => {
+  async function open() {
+    const p = fakePlatform();
+    const command = p.engine.command;
+    p.engine.command = async (cmd) => {
+      const r = await command(cmd);
+      return cmd.cmd === 'wordCount'
+        ? {
+            ...r,
+            wordCount: {
+              pages: 3,
+              notes: cmd.notes ?? false,
+              document: {
+                words: cmd.notes ? 50 : 42,
+                chars: 200,
+                charsWithSpaces: 241,
+                paragraphs: 7,
+              },
+            },
+          }
+        : r;
+    };
+    localStorage.clear();
+    render(<BlueEditor platform={p} language="en-US" />);
+    fireEvent.click(screen.getByText('Open a file'));
+    await waitFor(() => expect(screen.getByTestId('status-page').textContent).toBe('Page 1 of 3'));
+    return p;
+  }
+
+  it('shows the items of the app and lets the user pick them', async () => {
+    await open();
+    expect(screen.getByTestId('status-words').textContent).toMatch(/^\d+ words$/);
+    expect(screen.getByTestId('status-track-changes').textContent).toBe('Track changes: Off');
+    expect(screen.getByRole('radiogroup', { name: 'Views' })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Zoom' })).toBeTruthy();
+    // Overtype is off by default; the checklist turns it on, and words off.
+    expect(screen.queryByTestId('status-overtype')).toBeNull();
+    fireEvent.contextMenu(screen.getByTestId('status-bar'));
+    expect(screen.getByRole('menu', { name: 'Customize status bar' })).toBeTruthy();
+    expect(screen.getByTestId('status-item-page').textContent).toContain('Page 1 of');
+    fireEvent.click(screen.getByTestId('status-item-overtype'));
+    fireEvent.click(screen.getByTestId('status-item-words'));
+    expect(screen.queryByTestId('status-words')).toBeNull();
+    const overtype = screen.getByTestId('status-overtype');
+    expect(overtype.textContent).toBe('Insert');
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem('blueoffice.statusbar.doc') ?? '{}')).toEqual({
+        shown: ['overtype'],
+        hidden: ['words'],
+      }),
+    );
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    // The Insert key switches overtype mode; typing then replaces what follows the caret.
+    const ime = document.querySelector('textarea')!;
+    fireEvent.keyDown(ime, { key: 'Insert' });
+    await waitFor(() => expect(screen.getByTestId('status-overtype').textContent).toBe('Overtype'));
+  });
+
+  it('overtype types over the next character', async () => {
+    const p = await open();
+    const ime = document.querySelector('textarea')!;
+    fireEvent.keyDown(ime, { key: 'Insert' });
+    ime.value = 'x';
+    fireEvent.input(ime);
+    await waitFor(() => expect(p.commands).toContainEqual({ cmd: 'insertText', text: 'x' }));
+    const sent = p.commands.map((c) => c.cmd);
+    expect(sent.indexOf('move')).toBeGreaterThan(-1);
+    expect(sent.indexOf('move')).toBeLessThan(sent.lastIndexOf('insertText'));
+    expect(p.commands).toContainEqual({ cmd: 'move', motion: 'right', extend: true });
+  });
+
+  it('a click on the word count opens the Word Count dialog', async () => {
+    const p = await open();
+    fireEvent.click(screen.getByTestId('status-words'));
+    const dialog = await screen.findByTestId('word-count-dialog');
+    await waitFor(() => expect(screen.getByTestId('word-count-words').textContent).toBe('42'));
+    expect(screen.getByTestId('word-count-pages').textContent).toBe('3');
+    expect(screen.getByTestId('word-count-charsWithSpaces').textContent).toBe('241');
+    expect(dialog.textContent).toContain('Paragraphs');
+    // Text boxes, footnotes and endnotes on request.
+    fireEvent.click(screen.getByTestId('word-count-notes'));
+    await waitFor(() => expect(screen.getByTestId('word-count-words').textContent).toBe('50'));
+    expect(p.commands).toContainEqual({ cmd: 'wordCount', notes: true });
+    fireEvent.click(screen.getByTestId('word-count-close'));
+    await waitFor(() => expect(screen.queryByTestId('word-count-dialog')).toBeNull());
+  });
+
+  it('View › Window: Split shows a second pane of the same document', async () => {
+    await open();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'View' }));
+    expect(document.querySelector('[data-command="window.new"]')).toBeTruthy();
+    expect(document.querySelector('[data-command="window.arrangeAll"]')).toBeTruthy();
+    const sync = document.querySelector('[data-command="window.syncScroll"]')!;
+    expect(sync.hasAttribute('disabled') || sync.getAttribute('aria-disabled') === 'true').toBe(
+      true,
+    );
+    const split = document.querySelector('[data-command="window.split"]')!;
+    fireEvent.click(split);
+    const pane = await screen.findByTestId('document-view-split');
+    await waitFor(() => expect(pane.querySelector('[data-testid="split-scroller"]')).toBeTruthy());
+    const bar = screen.getByRole('separator');
+    expect(bar.getAttribute('aria-valuenow')).toBe('50');
+    fireEvent.keyDown(bar, { key: 'ArrowDown' });
+    await waitFor(() => expect(bar.getAttribute('aria-valuenow')).toBe('55'));
+    // Both panes are views of one engine document: one textarea each for typing.
+    expect(document.querySelectorAll('.bo-doc-scroller')).toHaveLength(2);
+    fireEvent.click(document.querySelector('[data-command="window.split"]')!);
+    await waitFor(() => expect(screen.queryByTestId('document-view-split')).toBeNull());
+    expect(document.querySelectorAll('.bo-doc-scroller')).toHaveLength(1);
+  });
+
+  it('Arrange All explains what to do in a browser', async () => {
+    await open();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'View' }));
+    fireEvent.click(document.querySelector('[data-command="window.arrangeAll"]')!);
+    await waitFor(() =>
+      expect(screen.getByTestId('status-info').textContent).toContain('drag the browser tab'),
+    );
+    // No other window: side by side says so.
+    fireEvent.click(document.querySelector('[data-command="window.sideBySide"]')!);
+    await waitFor(() =>
+      expect(screen.getByTestId('status-info').textContent).toContain('no other window'),
+    );
+  });
+});

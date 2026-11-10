@@ -14,6 +14,15 @@ public enum JobKind
 
     /// <summary>Plain text from the display list (<c>bo-cli dump</c>).</summary>
     ExtractText,
+
+    /// <summary>Mail merge of a .docx template with a data file (<c>bo-cli merge</c>, REST API).</summary>
+    Merge,
+
+    /// <summary>Template filling from a JSON list of edits (<c>bo-cli edit</c>, REST API).</summary>
+    Edit,
+
+    /// <summary>Format, variant, encryption and macros of a file (<c>bo-cli inspect --json</c>, REST API).</summary>
+    Inspect,
 }
 
 /// <summary>Job lifecycle.</summary>
@@ -64,6 +73,27 @@ public sealed class ConversionJob
 
     /// <summary>Object key of the output.</summary>
     public string OutputKey => $"jobs/{Id}/output";
+
+    /// <summary>Object key of the second input: merge data (<see cref="JobKind.Merge"/>) or the edits JSON (<see cref="JobKind.Edit"/>).</summary>
+    public string DataKey => $"jobs/{Id}/data";
+
+    /// <summary>Extension of the merge data file (".csv", ".json", ".xlsx", ".vcf").</summary>
+    public string? DataExtension { get; set; }
+
+    /// <summary>
+    /// Extra options by kind — convert: <c>pdfa</c> (1b|2b|3b), <c>tagged</c>, <c>bookmarks</c>; merge: <c>each</c> (pdf|docx),
+    /// <c>pattern</c>; edit: <c>strict</c>. Values are validated by the API before the job is queued.
+    /// </summary>
+    public Dictionary<string, string> Options { get; set; } = [];
+
+    /// <summary>Prefix of the status and result URLs ("" for the host services, "/api/v1" for the REST API).</summary>
+    public string UrlPrefix { get; set; } = "";
+
+    /// <summary>Edits that changed something (<see cref="JobKind.Edit"/>).</summary>
+    public int? EditsApplied { get; set; }
+
+    /// <summary>Edits that matched nothing (<see cref="JobKind.Edit"/>).</summary>
+    public int? EditsUnmatched { get; set; }
 
     /// <summary>Object key of page <paramref name="page"/> (1-based) of a PNG preview.</summary>
     public string PageKey(int page) => $"jobs/{Id}/pages/{page}";

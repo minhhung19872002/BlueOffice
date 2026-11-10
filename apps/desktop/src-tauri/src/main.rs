@@ -671,6 +671,35 @@ fn dispatch_requests(app: &tauri::AppHandle, requests: Vec<LaunchRequest>) {
     }
 }
 
+/// View › Arrange All: tiles the visible document windows over the monitor of the calling
+/// window (a strip is left for the task bar). Returns how many windows were placed.
+#[tauri::command]
+fn arrange_windows(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<usize, String> {
+    /// Height kept free for the task bar / dock (logical pixels).
+    const BAR: f64 = 48.0;
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no monitor".to_owned())?;
+    let (x, y, w, h) = monitor_box(&monitor);
+    let mut wins: Vec<(String, tauri::WebviewWindow)> = app
+        .webview_windows()
+        .into_iter()
+        .filter(|(label, w)| shell::is_document_window(label) && w.is_visible().unwrap_or(false))
+        .collect();
+    wins.sort_by(|a, b| a.0.cmp(&b.0));
+    let rects = shell::tile_windows(wins.len(), (x, y, w, (h - BAR).max(240.0)));
+    for ((_, win), (left, top, width, height)) in wins.iter().zip(rects) {
+        let _ = win.unminimize();
+        let _ = win.unmaximize();
+        win.set_position(tauri::LogicalPosition::new(left, top))
+            .map_err(|e| e.to_string())?;
+        win.set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(wins.len())
+}
+
 #[tauri::command]
 fn set_title(window: tauri::WebviewWindow, title: String) -> Result<(), String> {
     window.set_title(&title).map_err(|e| e.to_string())
@@ -780,6 +809,7 @@ fn main() {
             open_window,
             list_displays,
             open_window_on,
+            arrange_windows,
             update_check,
             update_install,
             sheet_cmds::sheet_open,

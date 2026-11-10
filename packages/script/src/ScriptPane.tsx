@@ -4,6 +4,9 @@
  * CORE-SCRIPT-002: Record / Stop recording (the recorded script opens here), a
  * keyboard shortcut and Quick Access Toolbar button for a saved script, and
  * server schedules of the open hosted file.
+ * CORE-SCRIPT-003: "Convert macro VBA" — pasted VBA text becomes a BlueScript
+ * draft (a new unsaved script) with the list of what could not be converted;
+ * VBA is never run and the draft is never run automatically.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from '@blueoffice/i18n';
@@ -14,6 +17,7 @@ import type { ScriptRecorder } from './recorder';
 import { defaultRunner, type ScriptRun, type ScriptRunner } from './runner';
 import type { LogLevel, RunResult, ScriptApp, ScriptLimits } from './sandbox';
 import { scriptStore, type SavedScript, type ScriptStore } from './store';
+import { convertVba, type VbaWarning } from './vbaConvert';
 import styles from './ScriptPane.module.css';
 
 export interface ScriptPaneProps {
@@ -32,6 +36,13 @@ export interface ScriptPaneProps {
   checkShortcut?: (shortcut: string, scriptId: string) => string | null;
   /** Server schedules of the open file (hosted sessions). */
   schedules?: ScriptSchedules;
+  /**
+   * Counter of the "Convert macro VBA to BlueScript" command (CORE-SCRIPT-003):
+   * each new value above 0 opens the converter of the pane.
+   */
+  vbaRequest?: number;
+  /** The request was taken (the host resets its counter). */
+  onVbaRequestHandled?: () => void;
 }
 
 /** `Ctrl+Shift+K` form of a key press; null for a lone modifier. */
@@ -64,6 +75,8 @@ export function ScriptPane({
   recorder,
   checkShortcut,
   schedules,
+  vbaRequest,
+  onVbaRequestHandled,
 }: ScriptPaneProps) {
   const { t } = useTranslation();
   const scripts = useMemo(() => store ?? scriptStore(app), [store, app]);
@@ -94,6 +107,10 @@ export function ScriptPane({
   const [cron, setCron] = useState('0 7 * * 1-5');
   const [planned, setPlanned] = useState<ScriptSchedule[]>([]);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [vbaOpen, setVbaOpen] = useState(false);
+  const [vbaSource, setVbaSource] = useState('');
+  /** Unconverted constructs of the draft in the editor; null: the code is not a draft. */
+  const [vbaWarnings, setVbaWarnings] = useState<VbaWarning[] | null>(null);
 
   const push = useCallback((level: Line['level'], text: string) => {
     setLines((l) => {
@@ -110,6 +127,7 @@ export function ScriptPane({
   const showRecorded = useCallback(
     (source: string) => {
       setCurrent(null);
+      setVbaWarnings(null);
       setName(t('script.recordedName'));
       setCode(recordedCode(source));
       push('status', t('script.recordStopped'));
@@ -127,6 +145,39 @@ export function ScriptPane({
       }
     });
   }, [recorder, showRecorded]);
+
+  // A new request of the editor command opens the converter (state adjusted while rendering).
+  const request = vbaRequest ?? 0;
+  const [seenRequest, setSeenRequest] = useState(0);
+  if (request !== seenRequest) {
+    setSeenRequest(request);
+    if (request > 0) setVbaOpen(true);
+  }
+  useEffect(() => {
+    if (request > 0) onVbaRequestHandled?.();
+  }, [request, onVbaRequestHandled]);
+
+  /** The draft opens as a new unsaved script; it is never run from here. */
+  const convertMacro = () => {
+    if (!vbaSource.trim()) return;
+    const r = convertVba(vbaSource, { app });
+    const header = [
+      `// ${t('script.vba.header')}`,
+      ...(r.warnings.length
+        ? [`// ${t('script.vba.headerTodo', { count: r.warnings.length })}`]
+        : []),
+    ];
+    setCurrent(null);
+    setName(t('script.vba.draftName'));
+    setCode(`${header.join('\n')}\n${r.code}`);
+    setHint(null);
+    setVbaWarnings(r.warnings);
+    setVbaOpen(false);
+    push(
+      'status',
+      t('script.vba.converted', { procedures: r.procedures.length, warnings: r.warnings.length }),
+    );
+  };
 
   const reloadSchedules = useCallback(() => {
     if (!schedules) return;
@@ -250,6 +301,7 @@ export function ScriptPane({
   };
 
   const pick = (id: string) => {
+    setVbaWarnings(null);
     if (!id) {
       setCurrent(null);
       setName('');
@@ -387,7 +439,74 @@ export function ScriptPane({
             {recording ? t('script.recordStop') : t('script.record')}
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setVbaOpen((o) => !o)}
+          aria-expanded={vbaOpen}
+          title={t('script.vba.hint')}
+          data-testid="script-vba-open"
+        >
+          {t('script.vba.open')}
+        </button>
       </div>
+      {vbaOpen && (
+        <div className={styles.vba} role="group" aria-label={t('script.vba.title')}>
+          <div className={styles.vbaHint}>{t('script.vba.hint')}</div>
+          <textarea
+            className={styles.vbaSource}
+            aria-label={t('script.vba.source')}
+            placeholder={t('script.vba.placeholder')}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            wrap="off"
+            value={vbaSource}
+            onChange={(e) => setVbaSource(e.target.value)}
+            data-testid="script-vba-source"
+          />
+          <div className={styles.row}>
+            <button
+              type="button"
+              onClick={convertMacro}
+              disabled={!vbaSource.trim()}
+              data-testid="script-vba-convert"
+            >
+              {t('script.vba.convert')}
+            </button>
+            <button type="button" onClick={() => setVbaOpen(false)}>
+              {t('script.vba.cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+      {vbaWarnings && (
+        <div className={styles.vbaReport} data-testid="script-vba-report">
+          <div className={styles.consoleHead}>
+            <strong>
+              {vbaWarnings.length
+                ? t('script.vba.warningsTitle', { count: vbaWarnings.length })
+                : t('script.vba.noWarnings')}
+            </strong>
+            <button type="button" onClick={() => setVbaWarnings(null)}>
+              {t('script.vba.dismiss')}
+            </button>
+          </div>
+          <div className={styles.vbaHint}>{t('script.vba.review')}</div>
+          {vbaWarnings.length > 0 && (
+            <ul className={styles.vbaWarnings} data-testid="script-vba-warnings">
+              {vbaWarnings.map((w, i) => (
+                <li key={`${w.line}-${i}`} title={w.source}>
+                  {t('script.vba.warning', {
+                    line: w.line,
+                    construct: w.construct,
+                    reason: t(`script.vba.reason.${w.reason}`),
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {recording && (
         <div className={styles.recordingNote} role="status" data-testid="script-recording">
           {t('script.recordingNote')}

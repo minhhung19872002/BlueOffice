@@ -41,6 +41,9 @@ const REL_SETTINGS: &str =
 const REL_IMAGE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 const REL_HYPERLINK: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+/// ECMA-376 Part 1, §11.3.8 Glossary Document part.
+const REL_GLOSSARY: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/glossaryDocument";
 const REL_CORE: &str =
     "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
 
@@ -100,6 +103,19 @@ struct Doc {
     /// Custom XML data storage parts (ECMA-376 Part 1, §15.2.4): (item XML, `ds:itemID`),
     /// written as `/customXml/itemN.xml` with an `itemPropsN.xml` properties part (§15.2.5).
     custom_xml: Vec<(String, String)>,
+    /// Glossary document (ECMA-376 Part 1, §17.12): the building blocks of the file.
+    glossary: Option<Gloss>,
+}
+
+/// Parts of a glossary document: `w:docPart` elements, the glossary's own styles
+/// (default: the corpus styles) and numbering, and pictures of `Doc::images` it
+/// refers to as (relationship id, index).
+#[derive(Default)]
+struct Gloss {
+    parts: String,
+    styles: Option<String>,
+    numbering: Option<String>,
+    images: Vec<(&'static str, usize)>,
 }
 
 fn wrap(root: &str, inner: &str) -> String {
@@ -248,6 +264,43 @@ impl Doc {
                 &format!("../customXml/item{k}.xml"),
                 false,
             );
+        }
+        if let Some(g) = &self.glossary {
+            // §11.3.8 Glossary Document part with relationships of its own (Part 2, §9.3).
+            p.add_part(
+                "/word/glossary/document.xml",
+                bo_docx::CT_GLOSSARY,
+                wrap(
+                    "glossaryDocument",
+                    &format!("<w:docParts>{}</w:docParts>", g.parts),
+                )
+                .into_bytes(),
+            )?;
+            let own = |id: &str, ty: &str, target: &str| Relationship {
+                id: id.into(),
+                rel_type: ty.into(),
+                target: target.into(),
+                mode: TargetMode::Internal,
+            };
+            let mut grels = vec![own("rId1", REL_STYLES, "styles.xml")];
+            p.add_part(
+                "/word/glossary/styles.xml",
+                CT_STYLES,
+                wrap("styles", &g.styles.clone().unwrap_or_else(default_styles)).into_bytes(),
+            )?;
+            if let Some(n) = &g.numbering {
+                p.add_part(
+                    "/word/glossary/numbering.xml",
+                    CT_NUMBERING,
+                    wrap("numbering", n).into_bytes(),
+                )?;
+                grels.push(own("rId2", REL_NUMBERING, "numbering.xml"));
+            }
+            for (id, k) in &g.images {
+                grels.push(own(id, REL_IMAGE, &format!("../media/image{}.png", k + 1)));
+            }
+            p.set_relationships("/word/glossary/document.xml", &grels);
+            rel("rIdG1", REL_GLOSSARY, "glossary/document.xml", false);
         }
         p.set_relationships("/word/document.xml", &rels);
         let core = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -568,6 +621,21 @@ fn cite_sources(style: &str, sources: &[String]) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<b:Sources StyleName=\"{style}\" xmlns:b=\"http://schemas.openxmlformats.org/officeDocument/2006/bibliography\" xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/bibliography\">{}</b:Sources>",
         sources.concat()
+    )
+}
+
+/// §17.12.5 docPart: properties (§17.12.7 docPartPr; `n` makes the §17.12.11 guid)
+/// and body (§17.12.6 docPartBody).
+fn doc_part(n: u32, name: &str, gallery: &str, category: &str, extra: &str, body: &str) -> String {
+    format!(
+        r#"<w:docPart><w:docPartPr><w:name w:val="{name}"/><w:category><w:name w:val="{category}"/><w:gallery w:val="{gallery}"/></w:category>{extra}<w:guid w:val="{{C0A5B10C-{n:04}-4D2E-9F3A-5B6C7D8E9F00}}"/></w:docPartPr><w:docPartBody>{body}</w:docPartBody></w:docPart>"#
+    )
+}
+
+/// §17.12.15 types and §17.12.2 behaviors of a docPart.
+fn part_kind(ty: &str, behavior: &str) -> String {
+    format!(
+        r#"<w:types><w:type w:val="{ty}"/></w:types><w:behaviors><w:behavior w:val="{behavior}"/></w:behaviors>"#
     )
 }
 
@@ -2306,6 +2374,65 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             rpara(&[("", "Ngang trong dọc: "), (r#"<w:eastAsianLayout w:id="4" w:vert="1" w:vertCompress="1"/>"#, "12")]),
         ].concat(),
         sect: sect(""),
+        ..Doc::default()
+    }));
+    // ---- building blocks: the glossary document part (§17.12)
+    v.push(("blocks-01-autotext.docx", "blocks", "Glossary document (word/glossary/document.xml) có styles riêng: AutoText một đoạn chèn trong dòng (behavior content), AutoText nhiều đoạn có kiểu riêng của glossary (behavior p), Quick Part có định dạng trực tiếp và mô tả, mục giữ chỗ của content control (bbPlcHdr) được w:placeholder tham chiếu", Doc {
+        body: [
+            p("Gõ tên khối rồi nhấn F3 để chèn: kg, nn."),
+            r#"<w:p><w:r><w:t xml:space="preserve">Người nhận: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Người nhận"/><w:id w:val="4101"/><w:placeholder><w:docPart w:val="DefaultPlaceholder_4101"/></w:placeholder><w:showingPlcHdr/><w:text/></w:sdtPr><w:sdtContent><w:r><w:rPr><w:color w:val="808080"/></w:rPr><w:t>Bấm để nhập tên</w:t></w:r></w:sdtContent></w:sdt></w:p>"#.to_owned(),
+            lorem(2),
+        ].concat(),
+        sect: sect(""),
+        glossary: Some(Gloss {
+            parts: [
+                doc_part(1, "kg", "autoTxt", "Hành chính", &format!("{}<w:description w:val=\"Lời kính gửi\"/>", part_kind("autoExp", "content")), r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Kính gửi: </w:t></w:r></w:p>"#),
+                doc_part(2, "nn", "autoTxt", "Hành chính", &part_kind("normal", "p"), r#"<w:p><w:pPr><w:pStyle w:val="NoiNhan"/></w:pPr><w:r><w:t>Nơi nhận:</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="NoiNhanMuc"/></w:pPr><w:r><w:t>- Như trên;</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="NoiNhanMuc"/></w:pPr><w:r><w:t>- Lưu: VT.</w:t></w:r></w:p>"#),
+                doc_part(3, "Lời cảm ơn", "docParts", "Thư từ", &format!("{}<w:description w:val=\"Câu kết thư &amp; lời chào\"/>", part_kind("normal", "content")), r#"<w:p><w:r><w:t xml:space="preserve">Xin </w:t></w:r><w:r><w:rPr><w:i/><w:color w:val="1F4E79"/></w:rPr><w:t>trân trọng cảm ơn</w:t></w:r><w:r><w:t xml:space="preserve"> sự quan tâm của Quý cơ quan.</w:t></w:r></w:p>"#),
+                doc_part(4, "DefaultPlaceholder_4101", "placeholder", "General", &part_kind("bbPlcHdr", "content"), r#"<w:p><w:r><w:rPr><w:rStyle w:val="PlaceholderText"/></w:rPr><w:t>Bấm để nhập tên</w:t></w:r></w:p>"#),
+            ].concat(),
+            styles: Some(format!(r#"{}<w:style w:type="paragraph" w:customStyle="1" w:styleId="NoiNhan"><w:name w:val="Nơi nhận"/><w:basedOn w:val="Normal"/><w:next w:val="NoiNhanMuc"/><w:pPr><w:spacing w:before="120" w:after="0"/></w:pPr><w:rPr><w:b/><w:i/><w:sz w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:customStyle="1" w:styleId="NoiNhanMuc"><w:name w:val="Nơi nhận mục"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0"/></w:pPr><w:rPr><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="character" w:styleId="PlaceholderText"><w:name w:val="Placeholder Text"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:rPr><w:color w:val="808080"/></w:rPr></w:style>"#, default_styles())),
+            ..Gloss::default()
+        }),
+        ..Doc::default()
+    }));
+    v.push(("blocks-02-galleries.docx", "blocks", "Glossary theo từng thư viện: đầu trang (hdrs, tab giữa/phải + sectPr cuối docPartBody), chân trang (ftrs, viền trên, PAGE/NUMPAGES), số trang (pgNumB), trang bìa (coverPg, behavior pg), bảng (tbls) và danh sách đánh số dùng numbering.xml riêng của glossary", Doc {
+        body: lorem(3),
+        sect: sect(""),
+        glossary: Some(Gloss {
+            parts: [
+                doc_part(11, "Đầu trang ba phần", "hdrs", "Báo cáo", &part_kind("normal", "p"), &format!(r#"<w:p><w:pPr><w:tabs><w:tab w:val="center" w:pos="4677"/><w:tab w:val="right" w:pos="9355"/></w:tabs></w:pPr><w:r><w:t>[Cơ quan]</w:t></w:r><w:r><w:tab/><w:t>[Tên tài liệu]</w:t></w:r><w:r><w:tab/><w:t>[Ngày]</w:t></w:r></w:p>{}"#, sect(""))),
+                doc_part(12, "Chân trang số trang", "ftrs", "Báo cáo", &part_kind("normal", "p"), &format!(r#"<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="595959"/></w:pBdr><w:jc w:val="right"/></w:pPr><w:r><w:t xml:space="preserve">Trang </w:t></w:r>{}<w:r><w:t xml:space="preserve"> / </w:t></w:r>{}</w:p>"#, field_complex("PAGE", "1"), field_complex("NUMPAGES", "1"))),
+                doc_part(13, "Số trang giữa", "pgNumB", "Đơn giản", &part_kind("normal", "p"), &format!(r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr>{}</w:p>"#, field_simple("PAGE", "1"))),
+                doc_part(14, "Bìa báo cáo", "coverPg", "Báo cáo", &format!("{}<w:description w:val=\"Trang bìa có khung tiêu đề\"/>", part_kind("normal", "pg")), &[
+                    pr(r#"<w:spacing w:before="2400"/><w:jc w:val="center"/>"#, r#"<w:b/><w:sz w:val="28"/>"#, "[TÊN CƠ QUAN, TỔ CHỨC]"),
+                    table(&[7000], &[row("", &[cell(7000, r#"<w:tcBorders><w:top w:val="single" w:sz="18" w:space="0" w:color="1F4E79"/><w:bottom w:val="single" w:sz="18" w:space="0" w:color="1F4E79"/></w:tcBorders>"#, "[TÊN TÀI LIỆU]")])], r#"<w:jc w:val="center"/>"#),
+                    pr(r#"<w:jc w:val="center"/>"#, r#"<w:i/>"#, "[Địa danh], năm 20…"),
+                ].concat()),
+                doc_part(15, "Bảng ba cột", "tbls", "Chung", &part_kind("normal", "p"), &format!("{}{}", table(&[1000, 5355, 3000], &[
+                    row(r#"<w:tblHeader/>"#, &[cell(1000, r#"<w:shd w:val="clear" w:color="auto" w:fill="DCE6F1"/>"#, "STT"), cell(5355, r#"<w:shd w:val="clear" w:color="auto" w:fill="DCE6F1"/>"#, "Nội dung"), cell(3000, r#"<w:shd w:val="clear" w:color="auto" w:fill="DCE6F1"/>"#, "Ghi chú")]),
+                    row("", &[cell(1000, "", "1"), cell(5355, "", ""), cell(3000, "", "")]),
+                ], ""), p(""))),
+                doc_part(16, "Các bước thực hiện", "docParts", "Chung", &part_kind("normal", "p"), &[li(1, 0, "Bước một"), li(1, 0, "Bước hai"), li(1, 1, "Chi tiết của bước hai"), li(1, 0, "Bước ba")].concat()),
+            ].concat(),
+            numbering: Some(numbering(&[(0, &[("decimal", "%1."), ("lowerLetter", "%2)")])], r#"<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>"#)),
+            ..Gloss::default()
+        }),
+        ..Doc::default()
+    }));
+    v.push(("blocks-03-picture-custom.docx", "blocks", "Glossary có ảnh (quan hệ ảnh riêng của glossary tới ../media), thư viện tuỳ chỉnh custom1 và custQuickParts, hai mục trùng tên khác danh mục, w:style của docPart, khối chữ ký hai cột bằng bảng không viền", Doc {
+        body: [p("Văn bản có khối dựng sẵn kèm ảnh."), lorem(1)].concat(),
+        sect: sect(""),
+        images: vec![("rId20".to_owned(), png(48, 24, [31, 78, 121]))],
+        glossary: Some(Gloss {
+            parts: [
+                doc_part(21, "Biểu trưng", "custom1", "Nhận diện", &format!("{}<w:description w:val=\"Biểu trưng kèm tên cơ quan\"/>", part_kind("normal", "p")), &format!(r#"<w:p><w:pPr><w:jc w:val="center"/></w:pPr>{}</w:p>{}"#, inline_pic(9001, "rId9", 914_400, 457_200, "", ""), pr(r#"<w:jc w:val="center"/>"#, r#"<w:b/><w:caps/>"#, "[Tên cơ quan, tổ chức]"))),
+                doc_part(22, "Chữ ký", "custQuickParts", "Giám đốc", &part_kind("normal", "p"), &table(&[4677, 4678], &[row("", &[cell(4677, "", ""), cell(4678, "", "GIÁM ĐỐC")]), row("", &[cell(4677, "", ""), cell(4678, "", "[Họ và tên]")])], r#"<w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>"#)),
+                doc_part(23, "Chữ ký", "custQuickParts", "Trưởng phòng", &part_kind("normal", "p"), &pr(r#"<w:pStyle w:val="Heading1"/><w:jc w:val="right"/>"#, "", "TRƯỞNG PHÒNG")).replace("<w:category>", r#"<w:style w:val="Heading1"/><w:category>"#),
+            ].concat(),
+            images: vec![("rId9", 0)],
+            ..Gloss::default()
+        }),
         ..Doc::default()
     }));
     v

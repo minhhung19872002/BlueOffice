@@ -44,6 +44,22 @@ public sealed class JobTests : IDisposable
     }
 
     [Fact]
+    public async Task ConvertPassesPdfOptionsToTheWorker()
+    {
+        var c = _app.ClientFor("job-user");
+        using (var form = Form("Tờ trình.docx", ("pdfa", "3b"), ("bookmarks", "true")))
+        {
+            Assert.Equal(HttpStatusCode.OK, (await c.PostAsync(new Uri("/convert?wait=true", UriKind.Relative), form)).StatusCode);
+        }
+
+        Assert.Equal(["--pdfa", "3b", "--bookmarks"], Assert.Single(_app.Runner.Calls).Skip(6));
+        using (var form = Form("a.docx", ("pdfa", "x")))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsync(new Uri("/convert?wait=true", UriKind.Relative), form)).StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task AsyncJobCanBePolledAndOnlyByItsOwner()
     {
         var c = _app.ClientFor("job-owner");

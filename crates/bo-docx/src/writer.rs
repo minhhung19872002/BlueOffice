@@ -58,6 +58,8 @@ const W15_NS: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 const W16CID_NS: &str = "http://schemas.microsoft.com/office/word/2016/wordml/cid";
 const MC_NS: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 
+pub(crate) mod glossary;
+
 /// Relationships of the main document part being written.
 struct Rels {
     part: String,
@@ -172,6 +174,8 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
             }],
         );
     }
+    // §17.12 glossary document (building blocks), before the media it may refer to.
+    w.write_glossary(&main)?;
     w.write_media()?;
     if crate::custom_xml::write_parts(&mut w.pkg, &main, &mut w.rels.list, doc)? {
         w.rels.changed = true;

@@ -26,7 +26,10 @@ import {
   BackstageProperties,
   getDensity,
   setDensity,
+  setThemePref,
+  THEME_SETTINGS,
   usePinnedFiles,
+  useThemePref,
   type BackstageCommand,
   type BackstageFile,
   type BackstageFormat,
@@ -211,6 +214,7 @@ export function FileBackstage(p: FileBackstageProps) {
   const [recent, setRecent] = useState<RecentFile[]>([]);
   const { pinned, toggle } = usePinnedFiles(p.shell, app);
   const [density, setDensityState] = useState(getDensity);
+  const themeSetting = useThemePref('auto');
   const { properties, shell, hasDocument } = p;
   // Each time the screen opens: the start page (set while rendering), then the
   // properties and the recent files.
@@ -344,6 +348,22 @@ export function FileBackstage(p: FileBackstageProps) {
   const optionsPage = (
     <>
       <BackstageCommands title={t('backstage.options.general')} commands={optionCommands} />
+      <div>
+        <label>
+          {t('backstage.options.themeLabel')}{' '}
+          <select
+            data-testid="backstage-theme"
+            value={themeSetting}
+            onChange={(e) => setThemePref(e.target.value as (typeof THEME_SETTINGS)[number])}
+          >
+            {THEME_SETTINGS.map((th) => (
+              <option key={th} value={th}>
+                {t(`backstage.options.themes.${th}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {!commands.has('view.density') && (
         <div>
           <label>

@@ -749,8 +749,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const showMacros = macroViewer.show;
   // Asked of the engine host itself: looking at macros is not a recorded action.
   const loadMacros = useCallback(
-    () =>
-      platform.engine.slideCommand({ cmd: 'vbaProject' }) as unknown as Promise<VbaProjectInfo>,
+    () => platform.engine.slideCommand({ cmd: 'vbaProject' }) as unknown as Promise<VbaProjectInfo>,
     [platform.engine],
   );
   /** Selection pane: the slide's objects in z-order (CORE-UI-006). */

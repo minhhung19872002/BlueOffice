@@ -209,7 +209,8 @@ describe('ScriptPane', () => {
       </I18nextProvider>
     );
     // The pane opens with the request already set (the viewer opened it).
-    const source = 'Sub ChaoMung()\n    Range("A1").Value = "Xin chào"\n    Range("A1").Select\nEnd Sub\n';
+    const source =
+      'Sub ChaoMung()\n    Range("A1").Value = "Xin chào"\n    Range("A1").Select\nEnd Sub\n';
     const view = render(pane({ id: 1, source, module: 'Module1' }));
     const code = screen.getByTestId('script-code') as HTMLTextAreaElement;
     expect(code.value).toContain('BlueScript draft converted from macro VBA');

@@ -187,6 +187,7 @@ import {
   Volume2,
   Mic,
   SquareTerminal,
+  FileCode2,
   Braces,
   Database,
   FileCode,
@@ -682,6 +683,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [versionsOpen, setVersionsOpen] = useState(false);
   /** BlueScript pane (CORE-SCRIPT-001). */
   const [scriptOpen, setScriptOpen] = useState(false);
+  // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
+  const [vbaRequest, setVbaRequest] = useState(0);
+  const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
   // Task pane layout of BlueSheet, remembered per app (CORE-UI-006).
   const [paneLayout, setPaneLayout] = useTaskPaneLayout('sheet');
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
@@ -2337,6 +2341,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       ...has,
       isChecked: () => scriptOpen,
     });
+    // Macro VBA → BlueScript draft (CORE-SCRIPT-003): VBA is only read, never run.
+    add(
+      'script.convertVba',
+      async () => {
+        setScriptOpen(true);
+        setVbaRequest((n) => n + 1);
+      },
+      has,
+    );
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     add(
       'script.record',
@@ -4457,6 +4470,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             items: [
               item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
               item('script.record', t('commands.view.recordScript'), <CircleDot size={18} />),
+              item('script.convertVba', t('commands.view.convertVba'), <FileCode2 size={18} />),
             ],
           },
         ],
@@ -5349,6 +5363,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                         }
                         recorder={recorder}
                         checkShortcut={scriptBindings.checkShortcut}
+                        vbaRequest={vbaRequest}
+                        onVbaRequestHandled={vbaRequestHandled}
                         {...(platform.scriptSchedules
                           ? { schedules: platform.scriptSchedules }
                           : {})}

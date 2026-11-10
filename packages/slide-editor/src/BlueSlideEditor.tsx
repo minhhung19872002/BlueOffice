@@ -228,6 +228,7 @@ import {
   Volume2,
   Mic,
   SquareTerminal,
+  FileCode2,
 } from 'lucide-react';
 import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
 import {
@@ -671,6 +672,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [versionsOpen, setVersionsOpen] = useState(false);
   /** BlueScript pane (CORE-SCRIPT-001). */
   const [scriptOpen, setScriptOpen] = useState(false);
+  // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
+  const [vbaRequest, setVbaRequest] = useState(0);
+  const vbaRequestHandled = useCallback(() => setVbaRequest(0), []);
   /** Selection pane: the slide's objects in z-order (CORE-UI-006). */
   const [selectionOpen, setSelectionOpen] = useState(false);
   // Task pane layout of BlueSlide, remembered per app (CORE-UI-006).
@@ -2255,6 +2259,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => scriptOpen,
       run: async () => setScriptOpen((o) => !o),
     });
+    // Macro VBA → BlueScript draft (CORE-SCRIPT-003): VBA is only read, never run.
+    reg.register({
+      id: 'script.convertVba',
+      isEnabled: deck,
+      run: async () => {
+        setScriptOpen(true);
+        setVbaRequest((n) => n + 1);
+      },
+    });
     // Macro recorder (CORE-SCRIPT-002): Stop opens the recorded script in the pane.
     reg.register({
       id: 'script.record',
@@ -3480,6 +3493,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             items: [
               item('script.editor', t('commands.view.scriptEditor'), <SquareTerminal size={18} />),
               item('script.record', t('commands.view.recordScript'), <CircleDot size={18} />),
+              item('script.convertVba', t('commands.view.convertVba'), <FileCode2 size={18} />),
             ],
           },
         ],
@@ -4280,6 +4294,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                           }
                           recorder={recorder}
                           checkShortcut={scriptBindings.checkShortcut}
+                          vbaRequest={vbaRequest}
+                          onVbaRequestHandled={vbaRequestHandled}
                           {...(platform.scriptSchedules
                             ? { schedules: platform.scriptSchedules }
                             : {})}

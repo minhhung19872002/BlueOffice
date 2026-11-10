@@ -76,6 +76,8 @@ import {
   resolveMenu,
   ribbonMenuLookup,
   type SheetMenuContext,
+  BackgroundRemovalMode,
+  type BackgroundPreviewValue,
 } from '@blueoffice/ui';
 import {
   AArrowDown,
@@ -283,6 +285,7 @@ import {
   useCustomShortcuts,
   useRibbonCustomization,
   type OpenContextMenu,
+  pictureTabLabels,
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
@@ -357,6 +360,7 @@ import {
 import { FormatControlDialog, FormControlLayer, INSERTABLE } from './formControls';
 import {
   type AltTextTarget,
+  type CellPictureTarget,
   CellPictureAltDialog,
   clickCheckbox,
   deleteCheckboxes,
@@ -1151,6 +1155,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   // Checkbox / picture of the active cell, and the alt-text dialog (SHEET-CELL-001).
   const [activeMedia, setActiveMedia] = useState<CellMediaState | null>(null);
   const [altDialog, setAltDialog] = useState<AltTextTarget | null>(null);
+  // Background removal mode of a cell picture (CORE-PIC-002).
+  const [bgTarget, setBgTarget] = useState<CellPictureTarget | null>(null);
   // Checkbox / picture of the active cell (Space toggles a checkbox).
   useEffect(() => {
     if (!host || !info) return;
@@ -2702,6 +2708,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         exec: (cmd) => exec(cmd),
         pickFile: (accept) => platform.files.openFile(accept),
         openAltText: (d) => setAltDialog(d),
+        openBackground: (d) => setBgTarget(d),
         fail,
       },
     );
@@ -4183,6 +4190,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'cell.pictureAltText',
                 t('sheetEditor.cellMedia.altText'),
                 <ScanText size={s} />,
+                'small',
+              ),
+              item(
+                'cell.pictureRemoveBackground',
+                t('pictureTools.removeBackground'),
+                <Eraser size={s} />,
                 'small',
               ),
               item(
@@ -6322,6 +6335,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           }}
           onShow={spellShow}
           onChanged={refreshInfo}
+        />
+      )}
+      {bgTarget && (
+        <BackgroundRemovalMode
+          open
+          labels={pictureTabLabels(t)}
+          preview={async (spec) =>
+            (await exec<BackgroundPreviewValue>({
+              cmd: 'cellImageBackgroundPreview',
+              ...bgTarget,
+              ...spec,
+            })) ?? null
+          }
+          onKeep={(spec) => {
+            const target = bgTarget;
+            setBgTarget(null);
+            void exec({ cmd: 'cellImageRemoveBackground', ...target, ...spec, source: false });
+          }}
+          onDiscard={() => setBgTarget(null)}
         />
       )}
       {altDialog && (

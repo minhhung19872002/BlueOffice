@@ -17,6 +17,7 @@
 
 use super::cmd::{Recalc, Rng};
 use super::SheetEngine;
+use crate::picture_bg::{self as bg, MarkSpec, PriorSpec, RemovalSpec};
 use crate::{EngineError, Result};
 use base64::Engine as _;
 use bo_model::sheet::{
@@ -105,6 +106,35 @@ pub enum CellMediaCommand {
     },
     /// Base64 bytes of a display-list picture id (`cellimg:…` or `url:…`), `null` if unknown.
     CellMedia { id: String },
+    /// Preview of removing the background of a cell picture (CORE-PIC-002): the
+    /// proposed removal tinted ([`crate::picture_bg::BackgroundPreview`]); no change.
+    CellImageBackgroundPreview {
+        sheet: usize,
+        row: u32,
+        col: u32,
+        #[serde(default)]
+        rect: Option<[f64; 4]>,
+        #[serde(default)]
+        marks: Vec<MarkSpec>,
+        #[serde(default)]
+        prior: Option<PriorSpec>,
+        #[serde(default)]
+        source: bool,
+    },
+    /// Remove the background of a cell picture (one undo step): the cell shows a PNG
+    /// with alpha. [MS-XLSX] rich values hold one picture, so the original lives in the
+    /// undo history (undo restores it), not in the file.
+    CellImageRemoveBackground {
+        sheet: usize,
+        row: u32,
+        col: u32,
+        #[serde(default)]
+        rect: Option<[f64; 4]>,
+        #[serde(default)]
+        marks: Vec<MarkSpec>,
+        #[serde(default)]
+        prior: Option<PriorSpec>,
+    },
 }
 
 impl CellMediaCommand {
@@ -122,6 +152,8 @@ impl CellMediaCommand {
             "imageRequests",
             "imageLoaded",
             "cellMedia",
+            "cellImageBackgroundPreview",
+            "cellImageRemoveBackground",
         ];
         let name = v.get("cmd")?.as_str()?;
         if !NAMES.contains(&name) {
@@ -449,7 +481,71 @@ impl SheetEngine {
                     json!(base64::engine::general_purpose::STANDARD.encode(b))
                 }))
             }
+            C::CellImageBackgroundPreview {
+                sheet,
+                row,
+                col,
+                rect,
+                marks,
+                prior,
+                source,
+            } => {
+                let spec = RemovalSpec {
+                    rect,
+                    marks,
+                    prior,
+                    source,
+                };
+                let data = self.local_image(sheet, row, col)?;
+                let p = bg::preview(&data, &spec, &bg::clock_ms)
+                    .ok_or_else(|| bad("unsupported picture format"))?;
+                Ok(serde_json::to_value(p).unwrap_or(Value::Null))
+            }
+            C::CellImageRemoveBackground {
+                sheet,
+                row,
+                col,
+                rect,
+                marks,
+                prior,
+            } => {
+                let spec = RemovalSpec {
+                    rect,
+                    marks,
+                    prior,
+                    source: false,
+                };
+                let data = self.local_image(sheet, row, col)?;
+                let png =
+                    bg::remove(&data, &spec).ok_or_else(|| bad("unsupported picture format"))?;
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    if let Some(cell) = wb.sheets[sheet].cells.get_mut(&(row, col)) {
+                        if let Some(img) = cell.image.as_deref_mut() {
+                            let next = CellImage::local(png, "png", img.alt_text.clone());
+                            img.source = next.source;
+                        }
+                        // A changed rich value is written as a new one.
+                        cell.vm = None;
+                    }
+                    Ok(())
+                })?;
+                Ok(Value::Null)
+            }
         }
+    }
+
+    /// Bytes of the stored picture of a cell, when it is one the background removal
+    /// decodes.
+    fn local_image(&self, sheet: usize, row: u32, col: u32) -> Result<Vec<u8>> {
+        self.wb
+            .as_ref()
+            .and_then(|wb| wb.sheets.get(sheet))
+            .and_then(|ws| ws.cell(row, col))
+            .and_then(|c| c.image.as_deref())
+            .and_then(CellImage::data)
+            .filter(|d| bg::removable(d))
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| bad("no picture in this cell"))
     }
 
     /// Bytes of the pictures the `Image` commands of `pages` use (PDF export).

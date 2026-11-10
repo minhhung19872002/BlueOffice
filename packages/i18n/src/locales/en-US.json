@@ -5087,6 +5087,15 @@
     "toShapes": "Turn into shapes",
     "adjust": "Fine-tune…",
     "insertSvg": "SVG picture…",
+    "removeBackground": "Remove background",
+    "markKeep": "Mark areas to keep",
+    "markRemove": "Mark areas to remove",
+    "undoMark": "Undo last mark",
+    "discardChanges": "Discard changes",
+    "keepChanges": "Keep changes",
+    "computing": "Separating the background…",
+    "kept": "{{percent}}% of the picture kept; the purple areas will be removed",
+    "bgCanvas": "Preview: draw on the picture to mark areas; arrow keys move the cursor, Space marks at the cursor",
     "preset": {
       "sharp": {
         "soften50": "Soften 50%",

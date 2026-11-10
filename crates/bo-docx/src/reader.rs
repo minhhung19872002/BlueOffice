@@ -5,6 +5,7 @@
 
 use crate::{DocxError, Result};
 use bo_model::custom_xml::DataBinding;
+use bo_model::picture::{PictureFormat, RemovedBackground};
 use bo_model::slide::Theme;
 
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -1502,10 +1503,21 @@ fn with_src(mut img: Image, raw: Raw) -> Image {
     // A moved floating picture is written again (§20.4.2.3 anchor): the
     // fingerprint of the position as read.
     let fp = if img.shape.is_some() {
+        img.format = None;
         crate::shape::shape_fingerprint(&img)
     } else {
         // Adjustments and crop shape of the picture (CORE-PIC-001).
-        if let Some(p) = crate::picture::read(&raw.xml) {
+        let original = img
+            .format
+            .take()
+            .and_then(|f| f.removal)
+            .map(|r| r.original);
+        if let Some(mut p) = crate::picture::read(&raw.xml) {
+            // The original picture of a removed background, resolved while reading.
+            p.format.removal = p.format.removal.zip(original).map(|(mut r, original)| {
+                r.original = original;
+                r
+            });
             img.format = (!p.format.is_plain()).then(|| Box::new(p.format));
         }
         fingerprint(&img.anchor)
@@ -1787,6 +1799,27 @@ fn read_drawing_frame(
                             .or_insert_with(|| Arc::new(p.data.clone()));
                     }
                     img.media = target;
+                }
+            }
+            // [MS-ODRAWXML] a14:imgLayer@r:embed: the original picture of a removed
+            // background (CORE-PIC-002), kept when it is a raster picture BlueOffice draws.
+            b"imgLayer" => {
+                if let Some(target) = attr(&e, b"embed").and_then(|id| ctx.target(&id)) {
+                    let ext = target.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+                    if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp") {
+                        if let Some(p) = ctx.pkg.part(&target) {
+                            media
+                                .entry(target.clone())
+                                .or_insert_with(|| Arc::new(p.data.clone()));
+                            img.format = Some(Box::new(PictureFormat {
+                                removal: Some(Box::new(RemovedBackground {
+                                    original: target,
+                                    ..RemovedBackground::default()
+                                })),
+                                ..PictureFormat::default()
+                            }));
+                        }
+                    }
                 }
             }
             // §20.1.8.55 srcRect

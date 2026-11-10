@@ -25,6 +25,9 @@ import {
   useDictation,
   registerTranslateCommands,
   TranslateLink,
+  AiLink,
+  registerAiCommands,
+  useBlueAi,
   translatedName,
   useTranslate,
   type TranslateAction,
@@ -55,6 +58,7 @@ import {
   translateDeckTexts,
   translateSelectedShapes,
 } from './translate';
+import { SLIDE_AI_COMMANDS, slideAiFeatures } from './slideAi';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
   ClipboardContent,
@@ -609,6 +613,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [translateLink] = useState(() => new TranslateLink());
   useEffect(() => {
     translateLink.attach(translate);
+  });
+  // BlueAI (CORE-AI-001): a task pane; slides from an outline work without the provider.
+  const ai = useBlueAi(platform.ai, platform.clipboard);
+  const [aiLink] = useState(() => new AiLink());
+  useEffect(() => {
+    aiLink.attach(ai);
   });
   const [readNotes, setReadNotes] = useState(() => {
     try {
@@ -2380,6 +2390,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       },
       current: () => readAloudLink.aloud(),
     });
+    registerAiCommands(reg, {
+      enabled: deck,
+      features: SLIDE_AI_COMMANDS,
+      isOff: () => aiLink.off,
+      begin: (_s, feature) =>
+        aiLink.open({
+          features: slideAiFeatures({
+            t: (key, options) => t(key, options ?? {}),
+            run: (c) => ctrl.run(c),
+          }),
+          feature,
+        }),
+    });
     registerTranslateCommands(reg, {
       enabled: deck,
       actions: { deck: 'review.translateDeck', shapes: 'review.translateShapes' },
@@ -2704,6 +2727,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     readAloudLink,
     dictationLink,
     translateLink,
+    aiLink,
     readNotes,
     uiLang,
     fail,
@@ -3482,6 +3506,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 sm,
               ),
             ],
+          },
+          {
+            id: 'ai',
+            label: t('ribbon.groups.ai'),
+            items: [item('ai.pane', t('commands.ai.pane'), <Sparkles size={18} />)],
           },
         ],
       },
@@ -4647,9 +4676,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(ai.active && count > 0
+                ? [
+                    {
+                      id: 'ai',
+                      title: t('ai.title'),
+                      icon: <Sparkles size={14} aria-hidden />,
+                      closeTestId: 'ai-close',
+                      content: ai.content,
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
             ]}
             onClose={(id) => {
-              if (id === 'selection') setSelectionOpen(false);
+              if (id === 'ai') ai.close();
+              else if (id === 'selection') setSelectionOpen(false);
               else if (id === 'animation') setPaneOpen(false);
               else if (id === 'comments') setCommentsOpen(false);
               else if (id === 'script') setScriptOpen(false);

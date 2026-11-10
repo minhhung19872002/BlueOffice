@@ -2849,6 +2849,8 @@ export interface Platform {
   speech?: import('./speech').SpeechProvider;
   /** Translation (absent where none is configured; CORE-LANG-001). */
   translation?: import('./translation').TranslationProvider;
+  /** BlueAI assistant (absent: none on this platform; off unless an administrator enabled it; CORE-AI-001). */
+  ai?: import('./ai').AiProvider;
   /** Folders and web pages for Get & Transform data (SHEET-PQ-001; absent: files only). */
   dataSources?: import('./sheetQuery').QueryDataSources;
   /** Speech to text for dictation (absent where the platform cannot listen; CORE-LANG-002). */

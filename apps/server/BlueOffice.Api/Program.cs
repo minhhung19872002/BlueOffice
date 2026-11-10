@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BlueOffice.Api.Ai;
 using BlueOffice.Api.Audit;
 using BlueOffice.Api.Auth;
 using BlueOffice.Api.Collab;
@@ -99,6 +100,9 @@ builder.Services.AddTranslation(config);
 
 // Dictation proxy (CORE-LANG-002): off unless Dictation:Provider is configured (docs/deploy/dictation.md).
 builder.Services.AddDictation(config);
+
+// BlueAI proxy (CORE-AI-001): off unless AI:Enabled is set (docs/deploy/ai.md).
+builder.Services.AddAi(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -211,6 +215,7 @@ app.MapRevocationProxy();
 app.MapWebDataProxy();
 app.MapTranslation();
 app.MapDictation();
+app.MapAi();
 
 app.Run();
 

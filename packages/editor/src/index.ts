@@ -185,6 +185,19 @@ export {
   translateDocumentSegments,
   translatedName,
 } from './docTranslate';
+export {
+  AiNotice,
+  useBlueAi,
+  type AiApply,
+  type AiFeature,
+  type AiMaterial,
+  type AiOpen,
+  type AiPreview,
+  type AiRunContext,
+  type BlueAi,
+} from './AiPane';
+export { AiLink, registerAiCommands } from './aiCommands';
+export { DOC_AI_COMMANDS, docAiFeatures, docBodyText, docInsertResult } from './docAi';
 // Dictation shared with BlueSheet / BlueSlide (CORE-LANG-002).
 export {
   DICTATION_COMMANDS,

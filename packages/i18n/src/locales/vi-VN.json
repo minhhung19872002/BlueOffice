@@ -48,6 +48,7 @@
       "table": "Bảng"
     },
     "groups": {
+      "ai": "BlueAI",
       "speech": "Giọng nói",
       "documentFormatting": "Định dạng tài liệu",
       "pageBackground": "Nền trang",
@@ -104,6 +105,16 @@
     "comingLater": "Sẽ có ở phiên bản sau"
   },
   "commands": {
+    "ai": {
+      "pane": "BlueAI",
+      "rewrite": "BlueAI: viết lại phần chọn",
+      "summarize": "BlueAI: tóm tắt",
+      "draft": "BlueAI: soạn nháp theo yêu cầu",
+      "slidesFromOutline": "Tạo trang chiếu từ dàn ý",
+      "slidesFromTopic": "BlueAI: dàn ý trang chiếu từ chủ đề",
+      "formula": "BlueAI: gợi ý công thức",
+      "analyze": "BlueAI: phân tích dữ liệu"
+    },
     "design": {
       "pageColor": "Màu trang",
       "pageBorders": "Viền trang",
@@ -5888,6 +5899,105 @@
       "review_versions": "Xem, so sánh và khôi phục các phiên bản trước.",
       "file_print": "Chọn trang, số bản, máy in và xem trước.",
       "file_exportPdf": "Lưu một bản PDF với thiết lập mặc định."
+    }
+  },
+  "ai": {
+    "title": "BlueAI",
+    "checking": "Đang kiểm tra BlueAI…",
+    "off": "BlueAI đang tắt. Quản trị viên cần bật BlueAI trên máy chủ BlueOffice; khi chưa bật, không có nội dung nào của tài liệu được gửi đi. Các chức năng không cần AI vẫn dùng được.",
+    "offTooltip": "BlueAI đang tắt (quản trị viên chưa bật) — không có nội dung nào được gửi đi",
+    "consent": "Khi bạn bấm Tạo, nội dung hiển thị bên dưới được gửi tới {{host}} — dịch vụ do quản trị viên cấu hình. Tối đa {{max}} ký tự mỗi yêu cầu.",
+    "unknownHost": "máy chủ BlueOffice",
+    "featureList": "Chức năng BlueAI",
+    "features": {
+      "rewrite": "Viết lại phần chọn",
+      "summarize": "Tóm tắt",
+      "draft": "Soạn nháp theo yêu cầu",
+      "slidesFromOutline": "Trang chiếu từ dàn ý (không cần AI)",
+      "slidesFromTopic": "Dàn ý trang chiếu từ chủ đề",
+      "formula": "Gợi ý công thức",
+      "analyze": "Phân tích dữ liệu"
+    },
+    "hints": {
+      "rewrite": "Viết lại đoạn văn bản đang chọn theo giọng văn bạn chọn.",
+      "summarize": "Tóm tắt phần chọn, hoặc toàn bộ tài liệu khi không chọn gì.",
+      "draft": "Mô tả nội dung cần soạn; phần chọn (nếu có) được gửi kèm làm ngữ cảnh.",
+      "slidesFromOutline": "Mỗi dòng không thụt lề là tiêu đề một trang chiếu; các dòng thụt lề hoặc bắt đầu bằng “-” là ý của trang đó. Xử lý ngay trên máy, không gửi đi đâu.",
+      "slidesFromTopic": "Mô tả chủ đề; BlueAI đề xuất dàn ý để bạn xem trước khi tạo trang chiếu.",
+      "formula": "Mô tả phép tính cần làm; tiêu đề và vài dòng đầu của vùng chọn được gửi kèm làm ngữ cảnh.",
+      "analyze": "Nhận xét ngắn về vùng dữ liệu đang chọn (dòng đầu là tiêu đề)."
+    },
+    "tone": {
+      "label": "Giọng văn",
+      "formal": "Trang trọng (văn phong hành chính)",
+      "concise": "Ngắn gọn",
+      "friendly": "Thân thiện"
+    },
+    "prompts": {
+      "draft": "Yêu cầu soạn thảo",
+      "draftPlaceholder": "Ví dụ: Thư mời họp giao ban quý IV, 9 giờ thứ Hai tại phòng họp tầng 3",
+      "outline": "Dàn ý",
+      "outlinePlaceholder": "Tiêu đề trang 1\n  Ý thứ nhất\n  Ý thứ hai\nTiêu đề trang 2\n  - Ý khác",
+      "topic": "Chủ đề bản trình chiếu",
+      "topicPlaceholder": "Ví dụ: Kế hoạch chuyển đổi số năm 2027, 6 trang",
+      "formula": "Mô tả công thức",
+      "formulaPlaceholder": "Ví dụ: Tổng doanh thu của các dòng có khu vực là Miền Bắc"
+    },
+    "material": {
+      "sent": "Nội dung sẽ gửi",
+      "used": "Nội dung dùng",
+      "refresh": "Đọc lại",
+      "selection": "phần văn bản đang chọn",
+      "document": "toàn bộ tài liệu",
+      "cells": "các ô {{range}}"
+    },
+    "size": "{{size}}/{{max}} ký tự",
+    "run": "Tạo",
+    "preview": "Xem trước",
+    "working": "BlueAI đang xử lý…",
+    "cancel": "Hủy",
+    "result": "Kết quả (xem trước)",
+    "copy": "Sao chép",
+    "discard": "Bỏ",
+    "review": "Hãy đọc lại kết quả trước khi dùng (nội dung do AI tạo có thể sai). Tài liệu chỉ thay đổi khi bạn bấm nút áp dụng.",
+    "applied": "Đã áp dụng.",
+    "applyFailed": "Không áp dụng được kết quả.",
+    "materialChanged": "Phần chọn đã thay đổi. Hãy xem lại nội dung sẽ gửi rồi bấm lại.",
+    "actions": {
+      "insert": "Chèn",
+      "replace": "Thay thế phần chọn",
+      "createSlides": "Tạo trang chiếu",
+      "insertFormula": "Chèn vào ô hiện hành"
+    },
+    "doc": {
+      "selectFirst": "Hãy chọn đoạn văn bản cần viết lại rồi bấm Đọc lại.",
+      "empty": "Tài liệu chưa có văn bản.",
+      "noContext": "Không có phần chọn: chỉ gửi yêu cầu của bạn.",
+      "selectionLost": "Phần chọn không còn nên chưa thay thế gì. Hãy chọn lại văn bản, hoặc dùng Chèn."
+    },
+    "slide": {
+      "count": "{{count}} trang chiếu",
+      "created": "Đã thêm {{count}} trang chiếu vào cuối bản trình chiếu."
+    },
+    "sheet": {
+      "noContext": "Vùng chọn trống: chỉ gửi mô tả của bạn.",
+      "selectData": "Hãy chọn vùng dữ liệu cần phân tích rồi bấm Đọc lại.",
+      "checked": "Công thức đã được BlueSheet kiểm tra cú pháp; chưa được chèn vào ô nào.",
+      "invalidFormula": "Công thức được gợi ý không hợp lệ nên đã bị bỏ. Hãy mô tả lại rõ hơn.",
+      "unknownFunctions": "Công thức được gợi ý dùng hàm BlueSheet không có ({{names}}) nên đã bị bỏ.",
+      "inserted": "Đã chèn công thức vào ô {{cell}}."
+    },
+    "errors": {
+      "unavailable": "BlueAI đang tắt (quản trị viên chưa bật).",
+      "unauthorized": "Cần đăng nhập để dùng BlueAI.",
+      "tooLarge": "Nội dung quá dài: {{size}} ký tự, tối đa {{max}} ký tự mỗi yêu cầu. Hãy chọn ít nội dung hơn.",
+      "rateLimited": "Bạn đã gửi quá nhiều yêu cầu, hoặc dịch vụ đang bận. Hãy thử lại sau.",
+      "upstream": "Dịch vụ AI gặp lỗi.",
+      "timeout": "Dịch vụ AI không trả lời kịp. Hãy thử lại với nội dung ngắn hơn.",
+      "network": "Không kết nối được tới máy chủ BlueOffice.",
+      "cancelled": "Đã hủy.",
+      "empty": "Chưa có nội dung để xử lý.",
+      "badAnswer": "Câu trả lời không đúng dạng cần có nên đã bị bỏ. Hãy thử lại."
     }
   },
   "translate": {

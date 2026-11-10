@@ -48,6 +48,7 @@
       "table": "Table"
     },
     "groups": {
+      "ai": "BlueAI",
       "speech": "Speech",
       "documentFormatting": "Document formatting",
       "pageBackground": "Page background",
@@ -104,6 +105,16 @@
     "comingLater": "Coming in a later release"
   },
   "commands": {
+    "ai": {
+      "pane": "BlueAI",
+      "rewrite": "BlueAI: rewrite the selection",
+      "summarize": "BlueAI: summarise",
+      "draft": "BlueAI: draft from a request",
+      "slidesFromOutline": "Slides from an outline",
+      "slidesFromTopic": "BlueAI: slide outline from a topic",
+      "formula": "BlueAI: suggest a formula",
+      "analyze": "BlueAI: analyse data"
+    },
     "design": {
       "pageColor": "Page colour",
       "pageBorders": "Page borders",
@@ -5888,6 +5899,105 @@
       "review_versions": "See, compare and restore earlier versions.",
       "file_print": "Choose pages, copies, printer and preview.",
       "file_exportPdf": "Save a PDF copy with the default settings."
+    }
+  },
+  "ai": {
+    "title": "BlueAI",
+    "checking": "Checking BlueAI…",
+    "off": "BlueAI is turned off. An administrator has to enable BlueAI on the BlueOffice server; until then no document content is sent anywhere. Features that need no AI still work.",
+    "offTooltip": "BlueAI is turned off (not enabled by the administrator) — nothing is sent",
+    "consent": "When you press Generate, the content shown below is sent to {{host}} — the service configured by your administrator. At most {{max}} characters per request.",
+    "unknownHost": "the BlueOffice server",
+    "featureList": "BlueAI features",
+    "features": {
+      "rewrite": "Rewrite the selection",
+      "summarize": "Summarise",
+      "draft": "Draft from a request",
+      "slidesFromOutline": "Slides from an outline (no AI needed)",
+      "slidesFromTopic": "Slide outline from a topic",
+      "formula": "Suggest a formula",
+      "analyze": "Analyse data"
+    },
+    "hints": {
+      "rewrite": "Rewrites the selected text in the tone you choose.",
+      "summarize": "Summarises the selection, or the whole document when nothing is selected.",
+      "draft": "Describe what to write; the selection (if any) is sent along as context.",
+      "slidesFromOutline": "Each line that is not indented is a slide title; indented lines or lines starting with “-” are its bullets. Done on this device, nothing is sent.",
+      "slidesFromTopic": "Describe the topic; BlueAI proposes an outline you preview before slides are created.",
+      "formula": "Describe the calculation; the headers and first rows of the selection are sent along as context.",
+      "analyze": "A short commentary on the selected data (first row = headers)."
+    },
+    "tone": {
+      "label": "Tone",
+      "formal": "Formal (administrative style)",
+      "concise": "Concise",
+      "friendly": "Friendly"
+    },
+    "prompts": {
+      "draft": "What to write",
+      "draftPlaceholder": "Example: Invitation to the Q4 review meeting, Monday 9 am, meeting room on the 3rd floor",
+      "outline": "Outline",
+      "outlinePlaceholder": "Title of slide 1\n  First point\n  Second point\nTitle of slide 2\n  - Another point",
+      "topic": "Presentation topic",
+      "topicPlaceholder": "Example: Digital transformation plan for 2027, 6 slides",
+      "formula": "Describe the formula",
+      "formulaPlaceholder": "Example: Total revenue of the rows whose region is North"
+    },
+    "material": {
+      "sent": "Content to send",
+      "used": "Content used",
+      "refresh": "Read again",
+      "selection": "the selected text",
+      "document": "the whole document",
+      "cells": "cells {{range}}"
+    },
+    "size": "{{size}}/{{max}} characters",
+    "run": "Generate",
+    "preview": "Preview",
+    "working": "BlueAI is working…",
+    "cancel": "Cancel",
+    "result": "Result (preview)",
+    "copy": "Copy",
+    "discard": "Discard",
+    "review": "Read the result before using it (AI-generated content can be wrong). The document only changes when you press an apply button.",
+    "applied": "Applied.",
+    "applyFailed": "The result could not be applied.",
+    "materialChanged": "The selection changed. Check the content to send, then press again.",
+    "actions": {
+      "insert": "Insert",
+      "replace": "Replace the selection",
+      "createSlides": "Create slides",
+      "insertFormula": "Insert into the active cell"
+    },
+    "doc": {
+      "selectFirst": "Select the text to rewrite, then press Read again.",
+      "empty": "The document has no text yet.",
+      "noContext": "Nothing selected: only your request is sent.",
+      "selectionLost": "The selection is gone, so nothing was replaced. Select the text again, or use Insert."
+    },
+    "slide": {
+      "count": "{{count}} slides",
+      "created": "Added {{count}} slides at the end of the presentation."
+    },
+    "sheet": {
+      "noContext": "The selection is empty: only your description is sent.",
+      "selectData": "Select the data to analyse, then press Read again.",
+      "checked": "BlueSheet checked the syntax of this formula; it has not been written to any cell.",
+      "invalidFormula": "The suggested formula is not valid and was dropped. Try a clearer description.",
+      "unknownFunctions": "The suggested formula uses functions BlueSheet does not have ({{names}}) and was dropped.",
+      "inserted": "Formula inserted into cell {{cell}}."
+    },
+    "errors": {
+      "unavailable": "BlueAI is turned off (not enabled by the administrator).",
+      "unauthorized": "Sign in to use BlueAI.",
+      "tooLarge": "Too much content: {{size}} characters, at most {{max}} per request. Select less content.",
+      "rateLimited": "Too many requests, or the service is busy. Try again later.",
+      "upstream": "The AI service failed.",
+      "timeout": "The AI service did not answer in time. Try again with less content.",
+      "network": "Could not reach the BlueOffice server.",
+      "cancelled": "Cancelled.",
+      "empty": "Nothing to work on yet.",
+      "badAnswer": "The answer was not in the expected form and was dropped. Try again."
     }
   },
   "translate": {

@@ -1,0 +1,17 @@
+[package]
+name = "bo-model3d"
+description = "3D models: glTF 2.0 / GLB, OBJ and STL loaders, GLB writer and a software z-buffer renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+png.workspace = true
+base64 = "0.22"
+zune-jpeg = { version = "0.4", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

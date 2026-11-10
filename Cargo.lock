@@ -740,6 +740,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-model3d"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "png",
+ "serde",
+ "serde_json",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "bo-odf"
 version = "0.1.0"
 dependencies = [

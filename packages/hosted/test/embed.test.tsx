@@ -47,6 +47,9 @@ describe('dirty tracking (SDK `dirty`)', () => {
     );
     await p.engine.command({ cmd: 'setAuthor', name: 'An' });
     await p.engine.command({ cmd: 'state' });
+    // Settings sent when a document opens and object queries change nothing.
+    await p.engine.command({ cmd: 'autoCorrect', options: {} } as never);
+    await p.engine.command({ cmd: 'oleInfo', cells: true } as never);
     await p.engine.command({ cmd: 'move', motion: 'left' } as never);
     await p.engine.command({ cmd: 'bad' } as never);
     await p.engine.slideCommand({ cmd: 'goTo', slide: 1 });

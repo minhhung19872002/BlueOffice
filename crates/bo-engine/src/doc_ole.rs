@@ -318,7 +318,8 @@ impl crate::Engine {
             }
         };
         let dirty = self.relayout()?;
-        let mut r = self.edit_result(dirty, (None, None, None), res.err())?;
+        // `story_result`: an open header/footer stays open (a double-click asks `oleInfo`).
+        let mut r = self.story_result(dirty, res.err())?;
         r.collab = self.collab_after_edit();
         let mut v = serde_json::to_value(&r).unwrap_or_default();
         let now = self

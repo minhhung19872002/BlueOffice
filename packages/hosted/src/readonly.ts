@@ -47,6 +47,16 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   'unlockWrite',
   'nextEditableRegion',
   'showEditableRegions',
+  // Embedded objects, SmartArt, read aloud, format check: queries only.
+  'oleInfo',
+  'oleLinks',
+  'smartArtInfo',
+  'speechText',
+  'speechRects',
+  'checkAdminFormat',
+  // Session settings, not document content (sent when a document opens).
+  'autoCorrect',
+  'proofOptions',
 ]);
 
 /**
@@ -118,6 +128,7 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'unlockProtectedRange',
   // Show Changes (CORE-VERSION-001).
   'compareWorkbook',
+  'smartArtInfo',
 ]);
 
 export const READ_ONLY_ERROR = 'session.readOnly';

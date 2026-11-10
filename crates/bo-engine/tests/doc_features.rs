@@ -48,6 +48,10 @@ fn header_editing_with_page_number_and_undo() {
         r#"{"cmd":"click","page":0,"x":100,"y":30,"count":2}"#,
     );
     assert_eq!(r["story"]["kind"], "header");
+    // The host asks for an embedded object on every double-click: the header stays open.
+    let r = cmd(&mut e, r#"{"cmd":"oleInfo","cells":true}"#);
+    assert_eq!(r["story"]["kind"], "header");
+    assert!(r.get("ole").is_none());
     let caret_y = r["caret"]["y"].as_f64().unwrap();
     assert!(caret_y < 56.7, "caret in the top margin: {caret_y}");
     let r = cmd(&mut e, r#"{"cmd":"insertText","text":"Trang "}"#);

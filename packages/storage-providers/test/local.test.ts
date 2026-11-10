@@ -38,6 +38,21 @@ describe('LocalStorageProvider', () => {
     ]);
   });
 
+  it('offers PDF files in the open dialog (CORE-FMT-004)', async () => {
+    let accept: string[] = [];
+    const { files } = fakeFiles();
+    const p = new LocalStorageProvider({
+      ...files,
+      openFile: async (a) => {
+        accept = a;
+        return files.openFile(a);
+      },
+    });
+    await p.open();
+    expect(accept).toContain('.pdf');
+    expect(accept).toContain('.docx');
+  });
+
   it('handles cancellation', async () => {
     const p = new LocalStorageProvider(fakeFiles(true).files);
     expect(await p.open()).toBeNull();

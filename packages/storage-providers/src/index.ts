@@ -26,6 +26,8 @@ export class LocalStorageProvider implements DocumentStorage {
       '.md',
       // Web pages and Flat OPC (CORE-FMT-003).
       ...webOpenExtensions('doc'),
+      // PDF, best effort: the text of each page (CORE-FMT-004).
+      '.pdf',
     ],
   ) {}
 

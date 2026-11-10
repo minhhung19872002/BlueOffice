@@ -23,6 +23,8 @@ serde_json.workspace = true
 # backend on wasm32-unknown-unknown (crypto.getRandomValues).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
+# lopdf (PDF open in bo-engine) pulls getrandom 0.3: its `wasm_js` backend.
+getrandom03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 
 [lints]
 workspace = true

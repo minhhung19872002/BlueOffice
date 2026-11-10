@@ -41,6 +41,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 base64 = "0.22"
 zip.workspace = true
+# Best-effort PDF open (pdf_import.rs, CORE-FMT-004); MIT. On wasm32 its getrandom 0.3
+# needs the `wasm_js` backend (bo-wasm).
+lopdf = { version = "0.38", default-features = false }
 
 [dev-dependencies]
 zune-jpeg = { version = "0.4", default-features = false, features = ["std"] }

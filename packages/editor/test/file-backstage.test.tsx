@@ -136,13 +136,7 @@ describe('FileBackstage', () => {
 
   it('offers the web and XML formats of each app on Save As (CORE-FMT-003)', () => {
     // What every app lists beside its document types.
-    expect(OTHER_FORMATS.doc.map(([, ext]) => ext)).toEqual([
-      'pdf',
-      'html',
-      'mht',
-      'xml',
-      'epub',
-    ]);
+    expect(OTHER_FORMATS.doc.map(([, ext]) => ext)).toEqual(['pdf', 'html', 'mht', 'xml', 'epub']);
     expect(OTHER_FORMATS.sheet.map(([, ext]) => ext)).toEqual([
       'csv',
       'pdf',
@@ -232,9 +226,7 @@ describe('FileBackstage', () => {
     ]);
     expect(screen.getByText('SYLK (liên kết ký hiệu, .slk)')).toBeTruthy();
     expect(screen.getByText('DIF (định dạng trao đổi dữ liệu, .dif)')).toBeTruthy();
-    expect(
-      screen.getByText('Văn bản có định dạng (phân cách bằng dấu cách, .prn)'),
-    ).toBeTruthy();
+    expect(screen.getByText('Văn bản có định dạng (phân cách bằng dấu cách, .prn)')).toBeTruthy();
     for (const [ext, command] of [
       ['.slk', 'file.saveSlk'],
       ['.dif', 'file.saveDif'],

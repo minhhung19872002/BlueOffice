@@ -16,7 +16,8 @@
 //!   fixtures) and mutated as text, then opened by both engines.
 //!
 //! * the legacy tabular formats of CORE-FMT-004 — SYLK, DIF, formatted text and
-//!   dBASE tables — from hand-written fixtures and files saved from the corpus.
+//!   dBASE tables — from hand-written fixtures and files saved from the corpus;
+//!   and PDF files opened as documents, from PDF exports of the corpus.
 //!
 //! Every call must return (`Ok` or `Err`) without panicking, and within a time budget
 //! (no hang). The legacy binary parsers (CFB, BIFF8/BIFF12, `.doc`, `.ppt`, VBA),
@@ -521,6 +522,47 @@ fn mutated_tabular_formats_never_panic_or_hang() {
         }
         println!(
             "tabular formats: {} seeds, {runs} mutated inputs, no panic, no hang",
+            seeds.len()
+        );
+    });
+}
+
+/// PDF files opened as documents (CORE-FMT-004, best effort): files the engine
+/// exports from the smallest documents of the corpus, mutated as bytes (cut cross
+/// reference tables, wrong offsets and lengths, flipped stream bytes).
+#[test]
+fn mutated_pdf_files_never_panic_or_hang() {
+    on_small_stack(|| {
+        let mut docs: Vec<(u64, PathBuf)> = corpus("doc", "docx")
+            .into_iter()
+            .filter_map(|p| Some((std::fs::metadata(&p).ok()?.len(), p)))
+            .collect();
+        docs.sort();
+        let mut seeds = Vec::new();
+        for (_, path) in docs.into_iter().take(3) {
+            let mut e = Engine::with_bundled_fonts();
+            e.open(&std::fs::read(&path).expect("corpus file"), "seed.docx")
+                .expect("corpus docx opens");
+            seeds.push(e.export_pdf().expect("exports"));
+        }
+        let mut rng = Rng(0x0D0C_0004 ^ 0x0F0F);
+        let mut runs = 0;
+        for (i, bytes) in seeds.iter().enumerate() {
+            let open = |b: &[u8]| {
+                let _ = Engine::with_bundled_fonts().open(b, "fuzz.pdf");
+            };
+            timed(&format!("pdf seed {i}"), || open(bytes));
+            for k in 0..XML_MUTATIONS * 2 {
+                let mut data = bytes.clone();
+                for _ in 0..=rng.below(3) {
+                    mutate_xml(&mut rng, &mut data);
+                }
+                timed(&format!("pdf seed {i} #{k}"), || open(&data));
+                runs += 1;
+            }
+        }
+        println!(
+            "pdf: {} seeds, {runs} mutated inputs, no panic, no hang",
             seeds.len()
         );
     });

@@ -295,6 +295,8 @@ async function pickLocal(): Promise<void> {
     ...webOpenExtensions('doc'),
     // SYLK, DIF, formatted text and dBASE tables (CORE-FMT-004).
     ...TABULAR_OPEN_EXTENSIONS,
+    // PDF opens as a document of its text, best effort (CORE-FMT-004).
+    '.pdf',
   ]);
   if (f) await openLocal(f);
 }

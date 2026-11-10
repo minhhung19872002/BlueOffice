@@ -47,6 +47,7 @@ mod notes;
 pub mod ole;
 mod page_layout;
 pub mod pdf_export;
+pub mod pdf_import;
 pub mod perm;
 pub mod picture_tools;
 pub mod print;
@@ -480,6 +481,9 @@ impl Engine {
                 }
                 _ => return Err(EngineError::Unsupported(name.to_owned())),
             }
+        } else if pdf_import::is_pdf(bytes) {
+            // PDF (CORE-FMT-004): best-effort, the text of each page only.
+            pdf_import::read_pdf(bytes)?
         } else if let Some(kind) = web_formats::detect(bytes, name) {
             // HTML and MHTML (CORE-FMT-003): scripts are dropped, nothing is fetched.
             let mut d = web_formats::read_web_document(bytes, kind)?;
@@ -495,7 +499,7 @@ impl Engine {
         };
         // Legacy, ODF, web and Flat OPC documents are saved as .docx.
         let name = match lower.rsplit_once('.') {
-            Some((_, "doc" | "odt" | "html" | "htm" | "xhtml" | "mht" | "mhtml")) => {
+            Some((_, "doc" | "odt" | "html" | "htm" | "xhtml" | "mht" | "mhtml" | "pdf")) => {
                 with_ext(name, "docx")
             }
             Some((_, "xml")) if from_flat => with_ext(name, "docx"),

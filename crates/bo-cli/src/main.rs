@@ -712,7 +712,8 @@ fn run(cli: Cli) -> R {
             json: true,
         } => {
             let bytes = std::fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
-            println!("{}", inspect_json(&bytes, password.as_deref())?);
+            let name = input.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            println!("{}", inspect_json(&bytes, name, password.as_deref())?);
         }
         Cmd::Inspect {
             input,
@@ -1052,8 +1053,16 @@ fn run_convert(
     }
     // CORE-FMT-004: a document as an EPUB 3 publication (chapters at Heading 1).
     if to == "epub" {
+        // The document engine would read any ZIP package as a document: ask the
+        // format readers what the input is first.
+        let is_doc = lower.ends_with(".txt")
+            || lower.ends_with(".md")
+            || matches!(
+                convert::load_named(&bytes, &name, password)?.0,
+                Loaded::Document { .. }
+            );
         let engine = open(input)?;
-        if engine.document().is_none() {
+        if !is_doc || engine.document().is_none() {
             return Err("only documents convert to epub".into());
         }
         let data = engine.export_as("epub")?;
@@ -1307,10 +1316,11 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io
 /// `inspect --json`: format, variant, encryption, macros and a content summary.
 fn inspect_json(
     bytes: &[u8],
+    name: &str,
     password: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     use serde_json::json;
-    let (loaded, facts) = match convert::load(bytes, password) {
+    let (loaded, facts) = match convert::load_named(bytes, name, password) {
         Ok(x) => x,
         // An encrypted package that cannot be opened is still a fact worth reporting.
         Err(e) if bo_binary::detect(bytes) == Some(bo_binary::LegacyKind::EncryptedOoxml) => {

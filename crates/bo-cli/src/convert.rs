@@ -94,6 +94,15 @@ pub fn load_named(
             return Ok((Loaded::Xlsx(bo_xlsx::write_xlsx(&wb)?), facts));
         }
     }
+    // CORE-FMT-004: a PDF file opens as a document of its text, best effort.
+    if bo_engine::pdf_import::is_pdf(bytes) {
+        let doc = bo_engine::pdf_import::read_pdf(bytes)?;
+        let facts = Facts {
+            format: "pdf",
+            ..Facts::default()
+        };
+        return Ok((Loaded::Document { doc, source: None }, facts));
+    }
     let mut facts = Facts {
         has_macros: bo_binary::has_macros(bytes),
         ..Facts::default()

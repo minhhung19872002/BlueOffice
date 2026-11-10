@@ -119,8 +119,7 @@ impl Engine {
                 let id = crate::guid::guid_nth(&(title, doc.plain_text()), 0);
                 let modified = now
                     .or_else(crate::review::system_ms)
-                    .map(crate::review::iso_date)
-                    .unwrap_or_else(|| props.modified.clone());
+                    .map_or_else(|| props.modified.clone(), crate::review::iso_date);
                 let language = doc
                     .default_run
                     .lang

@@ -2077,8 +2077,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       fileName.replace(
         /\.(xlsx|xlsm|xltx|xltm|csv|xml|html?|mht|mhtml|slk|sylk|dif|prn|dbf)$/i,
         '',
-      ) ||
-      t('sheetEditor.untitled');
+      ) || t('sheetEditor.untitled');
     const has = { isEnabled: (s: SheetEditorState) => s.hasWorkbook };
     // The workbook keeps its type: .xlsx, .xlsm, .xltx or .xltm (CORE-FMT-001).
     const saveWorkbook = async (s: SheetEditorState, variant?: string | null) => {

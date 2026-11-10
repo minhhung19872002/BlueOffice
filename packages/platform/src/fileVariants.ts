@@ -219,13 +219,7 @@ export const TABULAR_FORMATS: readonly TabularFormat[] = [
 ];
 
 /** Extensions (with the dot) of the legacy tabular files BlueSheet opens. */
-export const TABULAR_OPEN_EXTENSIONS: readonly string[] = [
-  '.slk',
-  '.sylk',
-  '.dif',
-  '.prn',
-  '.dbf',
-];
+export const TABULAR_OPEN_EXTENSIONS: readonly string[] = ['.slk', '.sylk', '.dif', '.prn', '.dbf'];
 
 /** Whether a file name has the extension of a legacy tabular format. */
 export function isTabularFile(name: string): boolean {

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
 
 // CORE-FMT-004: BlueSheet opens SYLK, DIF, formatted text (.prn) and dBASE tables and
-// saves a sheet as SYLK / DIF / formatted text; BlueDoc exports an EPUB 3 publication.
+// saves a sheet as SYLK / DIF / formatted text; BlueDoc exports an EPUB 3 publication
+// and opens PDF files (best effort, the text).
 const here = dirname(fileURLToPath(import.meta.url));
 const corpus = (name: string) => join(here, '..', '..', 'corpus', 'sheet', name);
 
@@ -58,8 +59,7 @@ function unzip(zip: Buffer): Map<string, Buffer> {
     const skip = zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
     const local = zip.readUInt32LE(at + 42);
     const name = zip.subarray(at + 46, at + 46 + nameLen).toString('utf8');
-    const data =
-      local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const data = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
     const raw = zip.subarray(data, data + size);
     out.set(name, method === 0 ? raw : inflateRawSync(raw));
     at += 46 + nameLen + skip;
@@ -215,5 +215,37 @@ test('BlueDoc exports an EPUB with a chapter per Heading 1', async ({ page }) =>
   expect(text('OEBPS/chapter-2.xhtml')).toContain('Chương hai</h1>');
   // The document itself is unchanged and still a .docx.
   await expect(page.getByTestId('doc-name')).toHaveText('Tài liệu mới.docx');
+  expect(errors).toEqual([]);
+});
+
+test('BlueDoc opens a PDF file as a document of its text', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/doc');
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
+  await page.keyboard.insertText('Báo cáo tháng mười');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('Doanh thu tăng đều');
+  const pdf = await saveAs(page, 'pdf');
+  expect(pdf.bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+  // Open it again: recognised by content, the text comes back, saved as .docx.
+  await page.getByTestId('file-tab').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('[data-testid="backstage"] [data-command="file.open"]').click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'Báo cáo.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdf.bytes,
+  });
+  await expect(page.getByTestId('doc-name')).toHaveText('Báo cáo.docx');
+  await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
+  // The words are in the document: its web page export has both lines.
+  const html = (await saveAs(page, 'html')).bytes.toString('utf8');
+  expect(html).toContain('Báo cáo tháng mười');
+  expect(html).toContain('Doanh thu tăng đều');
   expect(errors).toEqual([]);
 });

@@ -254,3 +254,38 @@ fn document_exports_as_epub() {
     );
     keep("document.epub", &epub);
 }
+
+/// A PDF file opens as a document of its text, best effort: a document exported
+/// to PDF by the engine comes back with its words, one PDF page per page.
+#[test]
+fn pdf_opens_as_text_document() {
+    let mut e = bo_engine::Engine::with_bundled_fonts();
+    e.open(&corpus("doc/phase1-sample.docx"), "sample.docx")
+        .unwrap();
+    let source = e.document().unwrap().plain_text();
+    let pages = e.info().unwrap().page_count;
+    let pdf = e.export_pdf().unwrap();
+
+    let mut back = bo_engine::Engine::with_bundled_fonts();
+    // Recognised by content, whatever the name; saved as .docx.
+    let info = back.open(&pdf, "Báo cáo.pdf").unwrap();
+    assert_eq!(info.name, "Báo cáo.docx");
+    let text = back.document().unwrap().plain_text();
+    // The words come back in order, with their diacritics and the gaps between
+    // them (lines are re-broken where the PDF lines end).
+    let words: Vec<&str> = source.split_whitespace().take(120).collect();
+    let got: Vec<&str> = text.split_whitespace().take(120).collect();
+    assert_eq!(words.len(), 120);
+    assert_eq!(got, words);
+    let lines = text.matches('\n').count();
+    assert!(lines > source.matches('\n').count(), "one paragraph per PDF line");
+    // Each PDF page after the first starts a new page.
+    let breaks = back.document().unwrap().sections[0]
+        .blocks
+        .iter()
+        .filter(|b| matches!(b, bo_model::Block::Paragraph(p) if p.props.page_break_before == Some(true)))
+        .count();
+    assert_eq!(breaks + 1, pages);
+    // A broken PDF is an error, not a panic.
+    assert!(back.open(&pdf[..pdf.len() / 3], "cut.pdf").is_err());
+}

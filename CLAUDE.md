@@ -43,7 +43,7 @@ cargo run -p bo-cli -- blocks assets/blocks/doc  # sinh lại thư viện khối
 cargo run -p bo-cli -- roundtrip in.docx --out out.docx   # mở rồi lưu lại
 cargo test -p bo-docx --test corpus -- --nocapture       # % round-trip corpus
 cargo test -p bo-edit                          # gồm proptest undo/redo
-cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp + slk/dif/prn/dbf → OOXML, csv, pdf; --to slk|dif|prn (một trang tính), --to epub (tài liệu)
+cargo run -p bo-cli -- convert in.xls --to xlsx          # doc/xls/xlsb/ppt/odt/ods/odp + slk/dif/prn/dbf + pdf (chỉ văn bản) → OOXML, csv, pdf; --to slk|dif|prn (một trang tính), --to epub (tài liệu)
 cargo run -p bo-cli -- inspect in.docx                   # định dạng, biến thể (dotx/xlsm/ppsx…), mã hoá, macro
 cargo run -p bo-cli -- convert in.docx --to html         # html (một tệp, ảnh data URI; workbook → bảng HTML) | mht (RFC 2557) | xml-flat (Flat OPC); đầu vào .html/.mht/Flat OPC/Excel XML 2003 nhận theo nội dung
 cargo run -p bo-cli -- convert in.docm --to dotx         # mẫu / có macro / trình chiếu (bỏ macro khi kiểu đích không chứa được); --to thmx: tệp chủ đề

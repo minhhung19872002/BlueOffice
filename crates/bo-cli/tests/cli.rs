@@ -570,7 +570,30 @@ fn convert_secondary_formats() {
         .unwrap();
     assert!(!out.status.success());
 
-    // Every workbook made from a legacy file is a well-formed package.
+    // A PDF opens as a document of its text (best effort) and converts to .docx.
+    let pdf = conv(
+        &corpus("doc/phase1-sample.docx"),
+        "pdf",
+        &dir.join("sample.pdf"),
+    );
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(inspect(&dir.join("sample.pdf")).contains("format: pdf"));
+    let from_pdf = dir.join("from-pdf.docx");
+    assert!(conv(&dir.join("sample.pdf"), "docx", &from_pdf).starts_with(b"PK"));
+    let txt = dir.join("from-pdf.txt");
+    conv(&from_pdf, "txt", &txt);
+    let original = dir.join("original.txt");
+    conv(&corpus("doc/phase1-sample.docx"), "txt", &original);
+    let first_word = std::fs::read_to_string(&original)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(std::fs::read_to_string(&txt).unwrap().contains(&first_word));
+    made.push(from_pdf);
+
+    // Every workbook (and the document) made from a legacy file is a well-formed package.
     for p in &made {
         run(bin().arg("validate").arg(p).args(["--openxml", "off"]));
     }

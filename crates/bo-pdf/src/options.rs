@@ -290,6 +290,26 @@ impl PdfDate {
     }
 }
 
+/// Where a link annotation leads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkTarget {
+    /// A URI action (ISO 32000-1 §12.6.4.7). Non-ASCII characters are percent-encoded.
+    Uri(String),
+    /// A go-to action (§12.6.4.2) to the top of page `page` (0-based) of this document.
+    Page(usize),
+}
+
+/// A link annotation (ISO 32000-1 §12.5.6.5) over a rectangle of a page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfLink {
+    /// 0-based page the link is on.
+    pub page: usize,
+    /// `[x, y, w, h]` in points from the page's top-left corner.
+    pub rect: [f32; 4],
+    /// Where it leads.
+    pub target: LinkTarget,
+}
+
 /// Everything beyond the plain page content that an export may add.
 #[derive(Debug, Clone, Default)]
 pub struct PdfOptions {
@@ -304,6 +324,9 @@ pub struct PdfOptions {
     pub bookmarks: Vec<Bookmark>,
     /// Associated files (only written for plain PDF and PDF/A-3).
     pub attachments: Vec<Attachment>,
+    /// Link annotations (URLs and jumps to pages). Links to pages that do not
+    /// exist and links on pages that do not exist are left out.
+    pub links: Vec<PdfLink>,
     /// `/Author` and `dc:creator`.
     pub author: Option<String>,
     /// `/Creator` and `xmp:CreatorTool` (the application that made the content).

@@ -522,6 +522,200 @@ impl Workbook {
         self.set_input(sheet, addr.row, addr.col, input)
     }
 
+    /// Permute rows `start..start + perm.len()` inside columns `c0..=c1` of `sheet`
+    /// (a sort): row `start + n` receives the constants of row `start + perm[n]`.
+    /// Formula cells of the moved rows are removed — the caller sets them again at
+    /// their new place, their references translated. Every moved position is marked
+    /// as edited, so the next [`Workbook::recalculate`] updates the formulas reading
+    /// them. Returns `false` (nothing changed) when a moved cell takes part in a
+    /// spill range or is rounded to its displayed precision.
+    pub fn permute_rows(
+        &mut self,
+        sheet: usize,
+        start: u32,
+        c0: u32,
+        c1: u32,
+        perm: &[u32],
+    ) -> bool {
+        if sheet >= self.sheets.len() || c1 < c0 {
+            return false;
+        }
+        let moved: Vec<u32> = (0..perm.len() as u32)
+            .filter(|&n| perm[n as usize] != n)
+            .collect();
+        if moved.is_empty() {
+            return true;
+        }
+        let special =
+            !self.spill_owner.is_empty() || !self.spills.is_empty() || !self.round_to.is_empty();
+        if special {
+            for &n in &moved {
+                for c in c0..=c1 {
+                    let id = CellId::new(sheet, start + n, c);
+                    if self.spill_owner.contains_key(&id)
+                        || self.spills.contains_key(&id)
+                        || self.round_to.contains_key(&id)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        let width = (c1 - c0 + 1) as usize;
+        let mut slot_of = vec![u32::MAX; perm.len()];
+        for (k, &n) in moved.iter().enumerate() {
+            slot_of[n as usize] = k as u32;
+        }
+        if moved.len() * width * 4 >= self.sheets[sheet].cells.len()
+            && self.permute_constants(sheet, start, c0, c1, perm, &moved, &slot_of)
+        {
+            self.mark_moved(sheet, c0, c1, start, &moved);
+            return true;
+        }
+        let mut taken: Vec<Option<Value>> = Vec::with_capacity(moved.len() * width);
+        let mut formulas = Vec::new();
+        {
+            let cells = &mut self.sheets[sheet].cells;
+            for &n in &moved {
+                for c in c0..=c1 {
+                    match cells.remove(&(start + n, c)) {
+                        Some(d) if d.formula.is_some() => {
+                            formulas.push(CellId::new(sheet, start + n, c));
+                            taken.push(None);
+                        }
+                        Some(d) => taken.push(Some(d.value)),
+                        None => taken.push(None),
+                    }
+                }
+            }
+        }
+        for id in formulas {
+            self.remove_formula(id);
+        }
+        let cells = &mut self.sheets[sheet].cells;
+        for &n in &moved {
+            let k = slot_of[perm[n as usize] as usize] as usize;
+            for (j, c) in (c0..=c1).enumerate() {
+                if let Some(value) = taken.get_mut(k * width + j).and_then(Option::take) {
+                    cells.insert(
+                        (start + n, c),
+                        CellData {
+                            formula: None,
+                            value,
+                        },
+                    );
+                }
+            }
+        }
+        self.mark_moved(sheet, c0, c1, start, &moved);
+        true
+    }
+
+    /// Marks the cells of the moved rows as edited.
+    fn mark_moved(&mut self, sheet: usize, c0: u32, c1: u32, start: u32, moved: &[u32]) {
+        self.changed.reserve(moved.len() * (c1 - c0 + 1) as usize);
+        for &n in moved {
+            for c in c0..=c1 {
+                self.changed.push(CellId::new(sheet, start + n, c));
+            }
+        }
+        // Anchors blocked earlier may now be free.
+        self.changed.extend(self.spill_blocked.iter().copied());
+    }
+
+    /// [`Workbook::permute_rows`] of a block without formulas: the values move
+    /// through the map's own entries (one pass over the sheet, no removal and
+    /// re-insertion of every cell). Returns `false`, changing nothing, when a cell of
+    /// the moved rows holds a formula.
+    #[allow(clippy::too_many_arguments)]
+    fn permute_constants(
+        &mut self,
+        sheet: usize,
+        start: u32,
+        c0: u32,
+        c1: u32,
+        perm: &[u32],
+        moved: &[u32],
+        slot_of: &[u32],
+    ) -> bool {
+        let width = (c1 - c0 + 1) as usize;
+        let cells = &mut self.sheets[sheet].cells;
+        let mut slots: Vec<Option<&mut CellData>> = Vec::new();
+        slots.resize_with(moved.len() * width, || None);
+        for (&(r, c), d) in cells.iter_mut() {
+            if r < start || c < c0 || c > c1 {
+                continue;
+            }
+            let Some(&k) = slot_of.get((r - start) as usize) else {
+                continue;
+            };
+            if k == u32::MAX {
+                continue;
+            }
+            if d.formula.is_some() {
+                return false;
+            }
+            slots[k as usize * width + (c - c0) as usize] = Some(d);
+        }
+        // Moved line `k` takes the values of line `src[k]`; the lines swap along the
+        // permutation's cycles (one line held aside per cycle).
+        let src: Vec<usize> = moved
+            .iter()
+            .map(|&n| slot_of[perm[n as usize] as usize] as usize)
+            .collect();
+        let mut removed = Vec::new();
+        let mut added = Vec::new();
+        let mut done = vec![false; moved.len()];
+        let mut tmp: Vec<Option<Value>> = Vec::with_capacity(width);
+        let take = |slots: &mut [Option<&mut CellData>], i: usize| {
+            slots[i].as_mut().map(|d| std::mem::take(&mut d.value))
+        };
+        for first in 0..moved.len() {
+            if done[first] {
+                continue;
+            }
+            tmp.clear();
+            tmp.extend((0..width).map(|j| take(&mut slots, first * width + j)));
+            let mut to = first;
+            loop {
+                done[to] = true;
+                let from = src[to];
+                for j in 0..width {
+                    let v = if from == first {
+                        tmp[j].take()
+                    } else {
+                        take(&mut slots, from * width + j)
+                    };
+                    let key = (start + moved[to], c0 + j as u32);
+                    match (&mut slots[to * width + j], v) {
+                        (Some(d), Some(v)) => d.value = v,
+                        (Some(_), None) => removed.push(key),
+                        (None, Some(v)) => added.push((key, v)),
+                        (None, None) => {}
+                    }
+                }
+                if from == first {
+                    break;
+                }
+                to = from;
+            }
+        }
+        drop(slots);
+        for k in removed {
+            cells.remove(&k);
+        }
+        for (k, value) in added {
+            cells.insert(
+                k,
+                CellData {
+                    formula: None,
+                    value,
+                },
+            );
+        }
+        true
+    }
+
     /// Clear a cell.
     pub fn clear(&mut self, sheet: usize, row: u32, col: u32) {
         self.set_value(sheet, row, col, Value::Empty);

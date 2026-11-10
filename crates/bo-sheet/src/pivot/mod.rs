@@ -924,10 +924,34 @@ pub fn refresh_pivot(
         .and_then(|s| s.pivots.get(index))
         .map(|p| p.cache_id)
         .ok_or("no such pivot table")?;
-    refresh_cache(wb, cache_id, labels)
+    refresh_cache(wb, cache_id, labels, None)
 }
 
-fn refresh_cache(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Result<(), String> {
+/// [`refresh_pivot`] that hands back the cache as it was before the refresh
+/// (`(index in wb.pivot_caches, cache)`, moved, not cloned) for undo. `previous` is
+/// set as soon as the cache changes, even when re-rendering fails afterwards.
+pub fn refresh_pivot_keeping(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    labels: &PivotLabels,
+    previous: &mut Option<(usize, PivotCache)>,
+) -> Result<(), String> {
+    let cache_id = wb
+        .sheets
+        .get(sheet)
+        .and_then(|s| s.pivots.get(index))
+        .map(|p| p.cache_id)
+        .ok_or("no such pivot table")?;
+    refresh_cache(wb, cache_id, labels, Some(previous))
+}
+
+fn refresh_cache(
+    wb: &mut Workbook,
+    cache_id: u32,
+    labels: &PivotLabels,
+    keep: Option<&mut Option<(usize, PivotCache)>>,
+) -> Result<(), String> {
     let ci = wb
         .pivot_caches
         .iter()
@@ -983,7 +1007,7 @@ fn refresh_cache(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Resu
     for c in &calcs {
         add_item(&mut fields[c.field as usize].items, &c.name);
     }
-    wb.pivot_caches[ci].calculated_items = calcs;
+    let old_calcs = std::mem::replace(&mut wb.pivot_caches[ci].calculated_items, calcs);
     let identity = old.is_empty();
     let n_new = fields.len();
     let remap = |f: u32| -> Option<u32> {
@@ -999,8 +1023,23 @@ fn refresh_cache(wb: &mut Workbook, cache_id: u32, labels: &PivotLabels) -> Resu
     let cache = &mut wb.pivot_caches[ci];
     cache.fields = fields;
     let old_records = std::mem::replace(&mut cache.records, records);
-    cache.dirty = true;
-    crate::drop_in_background((old, old_records));
+    let old_dirty = std::mem::replace(&mut cache.dirty, true);
+    match keep {
+        Some(keep) => {
+            // The cache as it was: its metadata (unchanged) with the old content.
+            let fields = std::mem::take(&mut cache.fields);
+            let records = std::mem::take(&mut cache.records);
+            let mut prev = cache.clone();
+            cache.fields = fields;
+            cache.records = records;
+            prev.fields = old;
+            prev.records = old_records;
+            prev.calculated_items = old_calcs;
+            prev.dirty = old_dirty;
+            *keep = Some((ci, prev));
+        }
+        None => crate::drop_in_background((old, old_records)),
+    }
     for (s, i) in list {
         render(wb, s, i, labels)?;
     }
@@ -1017,7 +1056,7 @@ pub fn refresh_all(wb: &mut Workbook, labels: &PivotLabels) -> Result<usize, Str
     ids.sort_unstable();
     ids.dedup();
     for id in &ids {
-        refresh_cache(wb, *id, labels)?;
+        refresh_cache(wb, *id, labels, None)?;
     }
     Ok(ids.len())
 }
@@ -1041,7 +1080,7 @@ fn ensure_records(
         .find(|c| c.cache_id == cache_id)
         .is_none_or(|c| !c.dirty);
     if needs_data {
-        refresh_cache(wb, cache_id, labels)?;
+        refresh_cache(wb, cache_id, labels, None)?;
     }
     Ok(cache_id)
 }
@@ -1969,7 +2008,7 @@ pub fn change_source(
         let area = occupied(&wb.sheets[s].pivots[i]);
         clear_area(&mut wb.sheets[s], area);
     }
-    refresh_cache(wb, cache_id, labels)
+    refresh_cache(wb, cache_id, labels, None)
 }
 
 fn overlaps(a: CellRange, b: CellRange) -> bool {

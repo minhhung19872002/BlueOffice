@@ -958,6 +958,41 @@
       "xTitle": "Tiêu đề trục ngang",
       "yTitle": "Tiêu đề trục dọc",
       "selected": "Đã chọn biểu đồ — kéo để di chuyển, kéo góc để đổi cỡ, Delete để xoá",
+      "map": {
+        "title": "Tùy chọn bản đồ",
+        "projection": "Phép chiếu",
+        "projections": {
+          "auto": "Tự động",
+          "mercator": "Mercator",
+          "miller": "Miller",
+          "robinson": "Robinson",
+          "albers": "Albers (hình nón)"
+        },
+        "level": "Cấp vùng",
+        "levels": {
+          "auto": "Tự động",
+          "countryRegion": "Quốc gia/vùng lãnh thổ",
+          "world": "Thế giới",
+          "state": "Tỉnh/thành",
+          "dataOnly": "Chỉ vùng có dữ liệu"
+        },
+        "labels": "Nhãn vùng",
+        "labelModes": {
+          "none": "Không hiện",
+          "bestFitOnly": "Chỉ khi vừa",
+          "showAll": "Hiện tất cả"
+        },
+        "scale": "Thang màu",
+        "scales": {
+          "sequential": "Tuần tự (2 màu)",
+          "diverging": "Phân kỳ (3 màu)"
+        },
+        "categorical": "Giá trị là nhóm: mỗi nhóm một màu.",
+        "minColor": "Màu giá trị nhỏ nhất",
+        "midColor": "Màu điểm giữa",
+        "maxColor": "Màu giá trị lớn nhất",
+        "needsDataset": "Bản đồ cấp tỉnh cần bộ dữ liệu ranh giới tỉnh/thành được phê duyệt (assets/maps/vn-provinces)."
+      },
       "types": {
         "column": "Cột",
         "stackedColumn": "Cột chồng",
@@ -993,6 +1028,7 @@
         "pareto": "Pareto",
         "boxWhisker": "Hộp và râu",
         "funnel": "Phễu",
+        "regionMap": "Biểu đồ bản đồ",
         "column3D": "Cột 3D",
         "clusteredColumn3D": "Cột nhóm 3D",
         "stackedColumn3D": "Cột chồng 3D",
@@ -7250,6 +7286,7 @@
       "manyCategories": "So sánh nhiều nhóm hoặc nhãn dài.",
       "hierarchy": "Cho thấy các nhóm và phần con của chúng.",
       "composition": "So sánh tổng và thành phần của từng tổng.",
+      "geography": "So sánh giá trị giữa các quốc gia, vùng lãnh thổ trên bản đồ.",
       "default": "Biểu đồ dùng chung cho nhiều loại dữ liệu."
     },
     "recommended": {

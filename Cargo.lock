@@ -903,6 +903,7 @@ dependencies = [
  "bo-text",
  "bo-xlsx",
  "criterion",
+ "insta",
  "serde",
  "serde_json",
  "unicode-normalization",

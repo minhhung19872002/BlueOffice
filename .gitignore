@@ -26,5 +26,6 @@ Thumbs.db
 /apps/*/public/samples/
 /apps/*/public/dictionaries/
 /apps/*/public/thesaurus/
+/apps/*/public/maps/
 /.claude/worktrees/
 /deploy/.env

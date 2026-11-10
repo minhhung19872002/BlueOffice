@@ -30,6 +30,15 @@ for (const lang of readdirSync(thes, { withFileTypes: true })) {
     copyFileSync(join(thes, lang.name, f), join(target, 'thesaurus', lang.name, f));
 }
 
+// Map chart boundary datasets (assets/maps/<id>/ except the bundled world; CORE-CHART-006).
+const maps = join(root, 'assets', 'maps');
+for (const set of readdirSync(maps, { withFileTypes: true })) {
+  if (!set.isDirectory() || set.name === 'world') continue;
+  mkdirSync(join(target, 'maps', set.name), { recursive: true });
+  for (const f of readdirSync(join(maps, set.name)))
+    copyFileSync(join(maps, set.name, f), join(target, 'maps', set.name, f));
+}
+
 mkdirSync(join(target, 'samples'), { recursive: true });
 copyFileSync(
   join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx'),

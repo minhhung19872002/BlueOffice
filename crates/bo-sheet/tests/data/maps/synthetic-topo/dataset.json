@@ -1,0 +1,14 @@
+{
+  "format": "bo-map-dataset/1",
+  "id": "synthetic-topo",
+  "level": "state",
+  "country": "ZY",
+  "file": "squares.topojson",
+  "object": "units",
+  "nameProperties": ["name"],
+  "codeProperty": "code",
+  "expectedCount": 2,
+  "source": "Synthetic test data: two adjacent squares in the South Atlantic sharing one arc, not real geography",
+  "version": "1",
+  "license": "CC0-1.0"
+}

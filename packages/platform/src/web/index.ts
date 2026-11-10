@@ -28,6 +28,7 @@ import { ServerAiProvider } from '../ai';
 import { ServerAddinCatalog } from '../addins';
 import { ServerTranslationProvider } from '../translation';
 import { assetThesaurus } from '../thesaurus';
+import { assetMapDatasets } from '../mapDatasets';
 import { ServerRemoteShow } from '../remoteShow';
 import { defaultDictation } from '../dictation';
 import { defaultHandwriting } from '../handwriting';
@@ -370,6 +371,8 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     speech: webSpeech(),
     // Thesaurus data fetched on first use (`thesaurus/en/en.json.gz`, CORE-THES-001).
     thesaurus: assetThesaurus(baseUrl),
+    // Map chart boundary datasets (`maps/<id>/`, CORE-CHART-006).
+    mapDatasets: assetMapDatasets(baseUrl),
     // Microphone / camera through getUserMedia + MediaRecorder (recorded shows, SLIDE-REC-001).
     media: webMediaCapture(),
     // Translation through the BlueOffice server (CORE-LANG-001): same origin unless

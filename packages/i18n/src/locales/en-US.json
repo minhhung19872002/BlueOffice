@@ -958,6 +958,41 @@
       "xTitle": "Horizontal axis title",
       "yTitle": "Vertical axis title",
       "selected": "Chart selected — drag to move, drag the corner to resize, Delete to remove",
+      "map": {
+        "title": "Map options",
+        "projection": "Projection",
+        "projections": {
+          "auto": "Automatic",
+          "mercator": "Mercator",
+          "miller": "Miller",
+          "robinson": "Robinson",
+          "albers": "Albers (conic)"
+        },
+        "level": "Map area",
+        "levels": {
+          "auto": "Automatic",
+          "countryRegion": "Countries/regions",
+          "world": "World",
+          "state": "Provinces",
+          "dataOnly": "Only regions with data"
+        },
+        "labels": "Region labels",
+        "labelModes": {
+          "none": "None",
+          "bestFitOnly": "Only where they fit",
+          "showAll": "Show all"
+        },
+        "scale": "Colour scale",
+        "scales": {
+          "sequential": "Sequential (2 colours)",
+          "diverging": "Diverging (3 colours)"
+        },
+        "categorical": "The values are categories: one colour each.",
+        "minColor": "Lowest value colour",
+        "midColor": "Midpoint colour",
+        "maxColor": "Highest value colour",
+        "needsDataset": "Province maps need an approved province boundary dataset (assets/maps/vn-provinces)."
+      },
       "types": {
         "column": "Column",
         "stackedColumn": "Stacked column",
@@ -993,6 +1028,7 @@
         "pareto": "Pareto",
         "boxWhisker": "Box and whisker",
         "funnel": "Funnel",
+        "regionMap": "Map",
         "column3D": "3-D column",
         "clusteredColumn3D": "3-D clustered column",
         "stackedColumn3D": "3-D stacked column",
@@ -7250,6 +7286,7 @@
       "manyCategories": "Compares many categories or long labels.",
       "hierarchy": "Shows the groups and their parts.",
       "composition": "Compares totals and what they are made of.",
+      "geography": "Compares values across countries and regions on a map.",
       "default": "A general-purpose chart."
     },
     "recommended": {

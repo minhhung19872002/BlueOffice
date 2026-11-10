@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "ma": "SQ1", "ten": "Ô Vuông Một", "name": "Square One" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "ma": "SQ2", "ten": "Ô Vuông Hai", "name": "Square Two" },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[[[2, 0], [3, 0], [3, 1], [2, 1], [2, 0]]]]
+      }
+    }
+  ]
+}

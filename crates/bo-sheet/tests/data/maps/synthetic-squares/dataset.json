@@ -1,0 +1,14 @@
+{
+  "format": "bo-map-dataset/1",
+  "id": "synthetic-squares",
+  "level": "state",
+  "country": "ZZ",
+  "file": "squares.geojson",
+  "nameProperties": ["ten", "name"],
+  "codeProperty": "ma",
+  "aliases": "aliases.json",
+  "expectedCount": 2,
+  "source": "Synthetic test data: two squares in the open ocean, not real geography",
+  "version": "1",
+  "license": "CC0-1.0"
+}

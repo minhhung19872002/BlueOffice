@@ -828,6 +828,17 @@ export type SheetCommand =
       xTitle?: string;
       yTitle?: string;
     }
+  /** Options of a region map (CORE-CHART-006); "" clears an option (automatic / default). */
+  | ({ cmd: 'setChartMap'; sheet: number; index: number } & Partial<ChartMapOptions>)
+  /** Registers a map boundary dataset (answer: `{ id, regions }`). */
+  | {
+      cmd: 'registerMapDataset';
+      manifest: string;
+      boundaries: string;
+      aliases?: string;
+    }
+  /** The registered map datasets (answer: `{ id, country, regions }[]`). */
+  | { cmd: 'mapDatasets' }
   | { cmd: 'deleteChart'; sheet: number; index: number }
   | SheetSmartArtCommand
   | {
@@ -1387,6 +1398,38 @@ export interface ChartInfo {
   /** Cell holding the bottom-right corner. */
   to: [number, number];
   series: number;
+  /** Region map options (`null` for other charts; CORE-CHART-006). */
+  map?: ChartMapInfo | null;
+}
+
+/** Editable options of a region map (chartex `regionMap`). */
+export interface ChartMapOptions {
+  /** `mercator` | `miller` | `robinson` | `albers`; `''` = automatic. */
+  projection: string;
+  /** Area level (`countryRegion`, `world`, `state` …); `''` = automatic. */
+  level: string;
+  /** Region labels: `none` | `bestFitOnly` | `showAll`. */
+  labels: string;
+  /** Colour scale. */
+  scale: 'sequential' | 'diverging';
+  /** `RRGGBB` colours; `''` = default. */
+  minColor: string;
+  midColor: string;
+  maxColor: string;
+}
+
+/** A region map as `charts` lists it. */
+export interface ChartMapInfo {
+  projection: string | null;
+  level: string | null;
+  labels: string | null;
+  scale: 'sequential' | 'diverging';
+  categorical: boolean;
+  minColor: string | null;
+  midColor: string | null;
+  maxColor: string | null;
+  /** `needsDataset`: a map of provinces without a boundary dataset for its locations. */
+  status: 'ok' | 'needsDataset';
 }
 
 export interface Rejection {

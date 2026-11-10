@@ -1,0 +1,18 @@
+{
+  "type": "Topology",
+  "transform": { "scale": [0.5, 0.5], "translate": [-30, -20] },
+  "objects": {
+    "units": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": "Polygon", "arcs": [[0, 1]], "properties": { "code": "WEST", "name": "Khối Tây" } },
+        { "type": "Polygon", "arcs": [[-1, 2]], "properties": { "code": "EAST", "name": "Khối Đông" } }
+      ]
+    }
+  },
+  "arcs": [
+    [[2, 0], [0, 2]],
+    [[2, 2], [-2, 0], [0, -2], [2, 0]],
+    [[2, 0], [2, 0], [0, 2], [-2, 0]]
+  ]
+}

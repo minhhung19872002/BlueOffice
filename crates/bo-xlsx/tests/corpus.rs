@@ -1263,6 +1263,168 @@ fn sparklines(i: usize) -> Book {
     }
 }
 
+/// Region map charts written by hand ([MS-ODRAWXML] chartex `regionMap`, CORE-CHART-006): a numeric
+/// two-colour scale with an opaque geography cache; a diverging three-colour scale (number middle,
+/// theme colours) on a world view with a cache; a map of categories (`colorStr`) without one. The
+/// caches hold synthetic bytes, not data of any other application.
+fn maps(i: usize) -> Book {
+    const CX: &str = "http://schemas.microsoft.com/office/drawing/2014/chartex";
+    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let (rows, title): (Vec<(&str, &str)>, &str) = match i {
+        1 => (
+            vec![
+                ("Việt Nam", "98.2"),
+                ("Thái Lan", "71.7"),
+                ("Lào", "7.6"),
+                ("Campuchia", "17.4"),
+                ("Malaysia", "34.3"),
+            ],
+            "Dân số (triệu)",
+        ),
+        2 => (
+            vec![
+                ("Vietnam", "6.1"),
+                ("Japan", "-0.4"),
+                ("Brazil", "2.9"),
+                ("Germany", "-0.3"),
+                ("Nigeria", "3.3"),
+                ("Canada", "1.2"),
+            ],
+            "Tăng trưởng (%)",
+        ),
+        _ => (
+            vec![
+                ("Việt Nam", "ASEAN"),
+                ("Indonesia", "ASEAN"),
+                ("Nhật Bản", "Đông Á"),
+                ("Hàn Quốc", "Đông Á"),
+                ("Ấn Độ", "Nam Á"),
+            ],
+            "Khu vực",
+        ),
+    };
+    let text_values = i == 3;
+    let n = rows.len();
+    // Sheet: names in A (shared strings), values in B.
+    let mut sst = vec!["<t>Quốc gia</t>".to_owned(), format!("<t>{title}</t>")];
+    let mut data = String::from(
+        r#"<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>"#,
+    );
+    for (k, (name, v)) in rows.iter().enumerate() {
+        let r = k + 2;
+        sst.push(format!("<t>{name}</t>"));
+        let a = sst.len() - 1;
+        let b = if text_values {
+            sst.push(format!("<t>{v}</t>"));
+            format!(r#"<c r="B{r}" t="s"><v>{}</v></c>"#, sst.len() - 1)
+        } else {
+            format!(r#"<c r="B{r}"><v>{v}</v></c>"#)
+        };
+        let _ = write!(
+            data,
+            r#"<row r="{r}"><c r="A{r}" t="s"><v>{a}</v></c>{b}</row>"#
+        );
+    }
+    let pts = |vals: Vec<&str>| -> String {
+        let mut s = String::new();
+        for (k, v) in vals.iter().enumerate() {
+            let _ = write!(s, r#"<cx:pt idx="{k}">{v}</cx:pt>"#);
+        }
+        s
+    };
+    let cat = format!(
+        r#"<cx:strDim type="cat"><cx:f>'Bản đồ'!$A$2:$A${}</cx:f><cx:lvl ptCount="{n}">{}</cx:lvl></cx:strDim>"#,
+        n + 1,
+        pts(rows.iter().map(|r| r.0).collect())
+    );
+    let val = if text_values {
+        format!(
+            r#"<cx:strDim type="colorStr"><cx:f>'Bản đồ'!$B$2:$B${}</cx:f><cx:lvl ptCount="{n}">{}</cx:lvl></cx:strDim>"#,
+            n + 1,
+            pts(rows.iter().map(|r| r.1).collect())
+        )
+    } else {
+        format!(
+            r#"<cx:numDim type="colorVal"><cx:f>'Bản đồ'!$B$2:$B${}</cx:f><cx:lvl ptCount="{n}" formatCode="General">{}</cx:lvl></cx:numDim>"#,
+            n + 1,
+            pts(rows.iter().map(|r| r.1).collect())
+        )
+    };
+    // Synthetic cache bytes ("BlueOffice synthetic geography cache N", base64).
+    let cache = |k: usize| {
+        let b64 = [
+            "Qmx1ZU9mZmljZSBzeW50aGV0aWMgZ2VvZ3JhcGh5IGNhY2hlIDE=",
+            "Qmx1ZU9mZmljZSBzeW50aGV0aWMgZ2VvZ3JhcGh5IGNhY2hlIDI=",
+        ][k - 1];
+        format!(
+            r#"<cx:geoCache provider="{{B1E50FF0-0000-4000-8000-00000000000{k}}}"><cx:binary>{b64}</cx:binary></cx:geoCache>"#
+        )
+    };
+    let (scale, labels, geography) = match i {
+        1 => (
+            r#"<cx:valueColors><cx:minColor><a:srgbClr val="FFF2CC"/></cx:minColor><cx:maxColor><a:srgbClr val="7F6000"/></cx:maxColor></cx:valueColors><cx:valueColorPositions count="2"><cx:min><cx:extremeValue/></cx:min><cx:max><cx:extremeValue/></cx:max></cx:valueColorPositions>"#.to_owned(),
+            r#"<cx:dataLabels><cx:visibility seriesName="0" categoryName="1" value="0"/></cx:dataLabels>"#,
+            format!(
+                r#"<cx:regionLabelLayout val="bestFitOnly"/><cx:geography projectionType="mercator" viewedRegionType="countryRegion" cultureLanguage="vi-VN" cultureRegion="VN" attribution="Natural Earth">{}</cx:geography>"#,
+                cache(1)
+            ),
+        ),
+        2 => (
+            r#"<cx:valueColors><cx:minColor><a:schemeClr val="accent2"/></cx:minColor><cx:midColor><a:srgbClr val="F2F2F2"/></cx:midColor><cx:maxColor><a:schemeClr val="accent1"/></cx:maxColor></cx:valueColors><cx:valueColorPositions count="3"><cx:min><cx:number val="-1"/></cx:min><cx:mid><cx:number val="0"/></cx:mid><cx:max><cx:extremeValue/></cx:max></cx:valueColorPositions>"#.to_owned(),
+            r#"<cx:dataLabels><cx:visibility seriesName="0" categoryName="1" value="1"/></cx:dataLabels>"#,
+            format!(
+                r#"<cx:regionLabelLayout val="showAll"/><cx:geography projectionType="robinson" viewedRegionType="world" cultureLanguage="en-US" cultureRegion="US" attribution="Natural Earth">{}</cx:geography>"#,
+                cache(2)
+            ),
+        ),
+        _ => (
+            String::new(),
+            "",
+            r#"<cx:regionLabelLayout val="none"/><cx:geography projectionType="miller" viewedRegionType="dataOnly" cultureLanguage="vi-VN" cultureRegion="VN" attribution="Natural Earth"/>"#.to_owned(),
+        ),
+    };
+    let chart = format!(
+        r#"{DECL}<cx:chartSpace xmlns:a="{A}" xmlns:r="{NS_R}" xmlns:cx="{CX}"><cx:chartData><cx:data id="0">{cat}{val}</cx:data></cx:chartData><cx:chart><cx:title pos="t" align="ctr" overlay="0"><cx:tx><cx:txData><cx:v>{title}</cx:v></cx:txData></cx:tx></cx:title><cx:plotArea><cx:plotAreaRegion><cx:series layoutId="regionMap" uniqueId="{{B1E50FF1-0000-4000-8000-00000000000{i}}}"><cx:tx><cx:txData><cx:f>'Bản đồ'!$B$1</cx:f><cx:v>{title}</cx:v></cx:txData></cx:tx>{scale}{labels}<cx:dataId val="0"/><cx:layoutPr>{geography}</cx:layoutPr></cx:series></cx:plotAreaRegion></cx:plotArea><cx:legend pos="{}" align="ctr" overlay="0"/></cx:chart></cx:chartSpace>"#,
+        ["r", "b", "l"][i - 1]
+    );
+    let drawing = format!(
+        r#"{DECL}<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="{A}"><xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>11</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>18</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:cx4="http://schemas.microsoft.com/office/drawing/2016/5/10/chartex" Requires="cx4"><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Bản đồ {i}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="{CX}"><cx:chart xmlns:cx="{CX}" xmlns:r="{NS_R}" r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame></mc:Choice><mc:Fallback><xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="2" name="Bản đồ {i}"/><xdr:cNvSpPr><a:spLocks noTextEdit="1"/></xdr:cNvSpPr></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="4876800" cy="3238500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr><xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip"/><a:lstStyle/><a:p><a:r><a:rPr lang="vi-VN" sz="1100"/><a:t>Biểu đồ bản đồ</a:t></a:r></a:p></xdr:txBody></xdr:sp></mc:Fallback></mc:AlternateContent><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>"#
+    );
+    let drels = format!(
+        r#"{DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.microsoft.com/office/2014/relationships/chartEx" Target="../charts/chartEx1.xml"/></Relationships>"#
+    );
+    let body = format!(r#"<sheetData>{data}</sheetData><drawing r:id="rId1"/>"#);
+    let mut s = sheet("Bản đồ", &body);
+    s.rels = vec![(
+        "rId1".into(),
+        "drawing".into(),
+        "../drawings/drawing1.xml".into(),
+        false,
+    )];
+    Book {
+        sheets: vec![s],
+        sst,
+        parts: vec![
+            (
+                "/xl/drawings/drawing1.xml".into(),
+                Some("application/vnd.openxmlformats-officedocument.drawing+xml".into()),
+                drawing.into_bytes(),
+            ),
+            (
+                "/xl/drawings/_rels/drawing1.xml.rels".into(),
+                None,
+                drels.into_bytes(),
+            ),
+            (
+                "/xl/charts/chartEx1.xml".into(),
+                Some("application/vnd.ms-office.chartex+xml".into()),
+                chart.into_bytes(),
+            ),
+        ],
+        ..Book::default()
+    }
+}
+
 type Feature = (&'static str, &'static str, fn(usize) -> Book);
 
 const FEATURES: &[Feature] = &[
@@ -1284,6 +1446,7 @@ const FEATURES: &[Feature] = &[
     ("smartart", "SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback", smartart),
     ("threaded", "threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes", threaded),
     ("sparklines", "sparklines ([MS-XLSX] x14:sparklineGroups): line with markers/high/low and theme colours; column with custom axis + negative and win/loss right-to-left next to a data validation ext; line on a date axis with group axes, span and hidden data", sparklines),
+    ("maps", "region map charts (chartex regionMap): two-colour scale + Mercator + geography cache; diverging scale + Robinson world view + cache; map of categories (colorStr) + Miller", maps),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1863,6 +2026,43 @@ fn writer_chartex(kind: &str, i: usize) -> m::Workbook {
             }
             r
         }
+        "regionMap" => {
+            let mut r = vec![vec![text("Quốc gia"), text("Giá trị")]];
+            match i {
+                1 => r.extend(
+                    [
+                        ("Việt Nam", 98.2),
+                        ("Thái Lan", 71.7),
+                        ("Lào", 7.6),
+                        ("Cambodia", 17.4),
+                    ]
+                    .iter()
+                    .map(|(n, v)| vec![text(n), num(*v)]),
+                ),
+                2 => r.extend(
+                    [
+                        ("France", 1.1),
+                        ("Spain", -0.6),
+                        ("Italy", 0.4),
+                        ("Poland", 2.8),
+                        ("Ba Lan", 2.8),
+                    ]
+                    .iter()
+                    .map(|(n, v)| vec![text(n), num(*v)]),
+                ),
+                _ => r.extend(
+                    [
+                        ("Brazil", "Mercosur"),
+                        ("Argentina", "Mercosur"),
+                        ("Chile", "Pacific"),
+                        ("Peru", "Pacific"),
+                    ]
+                    .iter()
+                    .map(|(n, v)| vec![text(n), text(v)]),
+                ),
+            }
+            r
+        }
         _ => {
             let items: &[(&str, f64)] = match i {
                 1 => &[
@@ -1903,8 +2103,21 @@ fn writer_chartex(kind: &str, i: usize) -> m::Workbook {
     if kind == "histogram" && i == 2 {
         chart.plots[0].style = Some("count:6".into());
     }
+    if kind == "regionMap" && i == 2 {
+        // A diverging scale through zero, Robinson, every label.
+        let m = chart.map.as_mut().expect("map options");
+        m.scale.diverging = true;
+        m.scale.mid_number = Some(0.0);
+        m.projection = Some("robinson".into());
+        m.labels = Some("showAll".into());
+        chart.legend = Some("b".into());
+    }
     wb.sheets[0].charts.push(chart);
     wb
+}
+
+fn writer_chartex_map(i: usize) -> m::Workbook {
+    writer_chartex("regionMap", i)
 }
 
 fn writer_chartex_waterfall(i: usize) -> m::Workbook {
@@ -2696,6 +2909,7 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-chartex-pareto", "BlueSheet writer: chartex pareto (categories sorted by count, cumulative line)", writer_chartex_pareto),
     ("writer-chartex-box", "BlueSheet writer: chartex box & whisker (one series; two series; an outlier)", writer_chartex_box),
     ("writer-chartex-funnel", "BlueSheet writer: chartex funnel (4, 3 and 5 stages)", writer_chartex_funnel),
+    ("writer-chartex-map", "BlueSheet writer: chartex region map (countries on a two-colour scale; diverging scale through zero, Robinson, all labels; categories)", writer_chartex_map),
     ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
     ("writer-pivot-totals", "BlueSheet writer: pivot report settings (tabular with repeated labels + blank rows and column subtotals; outline with bottom subtotals, sort by value, top-N + label filter, medium style; compact with number format, % of total / parent, rank, value filter, hidden item, dark style)", writer_pivot_totals),
     ("writer-pivot-groups", "BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total)", writer_pivot_groups),
@@ -3577,6 +3791,26 @@ fn new_chart_types_round_trip() {
             let ctx = format!("{name}-{i}");
             assert_eq!(b.plots.len(), a.plots.len(), "{ctx}");
             assert_eq!(b.axes, a.axes, "{ctx}");
+            // Region maps keep their options (the scale's defaults are written out explicitly).
+            match (&a.map, &b.map) {
+                (Some(ma), Some(mb)) => {
+                    assert_eq!(
+                        (&mb.projection, &mb.level, &mb.labels, mb.categorical),
+                        (&ma.projection, &ma.level, &ma.labels, ma.categorical),
+                        "{ctx}"
+                    );
+                    assert_eq!(mb.text_values, ma.text_values, "{ctx}");
+                    assert_eq!(mb.scale.diverging, ma.scale.diverging, "{ctx}");
+                    assert_eq!(mb.scale.mid_number, ma.scale.mid_number, "{ctx}");
+                    assert_eq!(
+                        (&mb.culture_language, &mb.culture_region, &mb.attribution),
+                        (&ma.culture_language, &ma.culture_region, &ma.attribution),
+                        "{ctx}"
+                    );
+                }
+                (None, None) => {}
+                _ => panic!("{ctx}: map options lost"),
+            }
             for (pa, pb) in a.plots.iter().zip(&b.plots) {
                 assert_eq!(pb.kind, pa.kind, "{ctx}");
                 assert_eq!(pb.grouping, pa.grouping, "{ctx}");
@@ -3608,6 +3842,108 @@ fn new_chart_types_round_trip() {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+/// The chartex part of a saved workbook (its text).
+fn chartex_part(bytes: &[u8]) -> String {
+    let pkg = Package::read(bytes, &Limits::default()).unwrap();
+    let part = pkg
+        .parts()
+        .iter()
+        .find(|p| p.name.contains("/charts/chartEx"))
+        .expect("a chartex part");
+    String::from_utf8(part.data.clone()).unwrap()
+}
+
+// source: [MS-ODRAWXML] chartex `regionMap` series — CT_ValueColors, CT_ValueColorPositions,
+// CT_RegionLabelLayout, CT_Geography / CT_GeoCache; CORE-CHART-006.
+#[test]
+fn corpus_maps_read_edit_and_keep_the_geography_cache() {
+    for i in 1..=3 {
+        let src = build(&maps(i));
+        let wb = read_xlsx(&src).unwrap();
+        let c = &wb.sheets[0].charts[0];
+        assert_eq!(c.plots[0].kind, m::ChartKind::RegionMap, "{i}");
+        let map = c.map.as_ref().expect("map options");
+        let s = &c.plots[0].series[0];
+        let last = if i == 2 { 7 } else { 6 };
+        assert_eq!(s.cat_ref, Some(format!("'Bản đồ'!$A$2:$A${last}")), "{i}");
+        match i {
+            1 => {
+                assert_eq!(map.projection.as_deref(), Some("mercator"));
+                assert_eq!(map.level.as_deref(), Some("countryRegion"));
+                assert_eq!(map.labels.as_deref(), Some("bestFitOnly"));
+                assert!(!map.scale.diverging && !map.categorical);
+                assert_eq!(map.scale.min, Some(m::ChartColor::Rgb(0x00FF_F2CC)));
+                assert_eq!(map.scale.max, Some(m::ChartColor::Rgb(0x007F_6000)));
+                assert_eq!(s.values[0], Some(98.2));
+                assert_eq!(s.categories[3], "Campuchia");
+            }
+            2 => {
+                assert_eq!(map.projection.as_deref(), Some("robinson"));
+                assert_eq!(map.level.as_deref(), Some("world"));
+                assert_eq!(map.labels.as_deref(), Some("showAll"));
+                assert!(map.scale.diverging);
+                assert_eq!(map.scale.min, Some(m::ChartColor::Scheme("accent2".into())));
+                assert_eq!(map.scale.min_number, Some(-1.0));
+                assert_eq!(map.scale.mid_number, Some(0.0));
+                assert_eq!(map.scale.max_number, None);
+                assert_eq!(
+                    (map.culture_language.as_str(), map.culture_region.as_str()),
+                    ("en-US", "US")
+                );
+            }
+            _ => {
+                assert_eq!(map.projection.as_deref(), Some("miller"));
+                assert_eq!(map.level.as_deref(), Some("dataOnly"));
+                assert!(map.categorical);
+                assert_eq!(
+                    map.text_values,
+                    vec!["ASEAN", "ASEAN", "Đông Á", "Đông Á", "Nam Á"]
+                );
+                assert!(map.geo_raw.is_none());
+            }
+        }
+        // Not edited: the part is written back byte for byte.
+        let raw = chartex_part(&src);
+        assert_eq!(chartex_part(&write_xlsx(&wb).unwrap()), raw, "{i}");
+        // Edited (title and projection): regenerated with the cache kept verbatim.
+        let mut edited = wb.clone();
+        let c = &mut edited.sheets[0].charts[0];
+        c.title = Some(format!("Bản đồ sửa {i}"));
+        c.map.as_mut().unwrap().projection = Some("albers".into());
+        c.dirty = true;
+        let bytes = write_xlsx(&edited).unwrap();
+        let xml = chartex_part(&bytes);
+        if i < 3 {
+            let start = raw.find("<cx:geoCache").unwrap();
+            let end = raw.find("</cx:geoCache>").unwrap() + "</cx:geoCache>".len();
+            assert!(xml.contains(&raw[start..end]), "{i}: cache kept");
+        }
+        assert!(xml.contains("projectionType=\"albers\""), "{i}");
+        let back = read_xlsx(&bytes).unwrap();
+        let (a, b) = (&edited.sheets[0].charts[0], &back.sheets[0].charts[0]);
+        assert_eq!(b.title, a.title);
+        let (ma, mb) = (a.map.as_ref().unwrap(), b.map.as_ref().unwrap());
+        assert_eq!(mb.geo_raw, ma.geo_raw, "{i}");
+        assert_eq!(
+            (&mb.projection, &mb.level, &mb.labels),
+            (&ma.projection, &ma.level, &ma.labels)
+        );
+        assert_eq!(mb.categorical, ma.categorical);
+        assert_eq!(mb.text_values, ma.text_values);
+        assert_eq!(mb.scale.min, ma.scale.min);
+        assert_eq!(mb.scale.mid_number, ma.scale.mid_number);
+        assert_eq!(b.plots[0].series[0].values, a.plots[0].series[0].values);
+        // The edited file, for the validator: BO_MAP_OUT=<dir> cargo test … corpus_maps
+        if let Ok(dir) = std::env::var("BO_MAP_OUT") {
+            std::fs::write(
+                Path::new(&dir).join(format!("maps-{i}-edited.xlsx")),
+                &bytes,
+            )
+            .unwrap();
         }
     }
 }

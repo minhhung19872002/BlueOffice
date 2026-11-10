@@ -394,6 +394,14 @@ enum ScriptAction {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // Map chart boundary datasets (CORE-CHART-006): every folder with a `dataset.json` under
+    // BLUEOFFICE_MAPS_DIR (e.g. `assets/maps`, holding `vn-provinces/` once approved data exists).
+    if let Some(dir) = std::env::var_os("BLUEOFFICE_MAPS_DIR") {
+        let (_, errors) = bo_sheet::geo::dataset::register_dir(std::path::Path::new(&dir));
+        for e in errors {
+            eprintln!("map dataset: {e}");
+        }
+    }
     // The recursive parsers need more than the 1 MiB main-thread stack of Windows in
     // unoptimised builds: run the command on a thread with a roomy stack.
     let worker = std::thread::Builder::new()

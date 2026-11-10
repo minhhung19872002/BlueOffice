@@ -154,6 +154,9 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   // Show Changes (CORE-VERSION-001).
   'compareWorkbook',
   'smartArtInfo',
+  // Map chart boundary datasets (CORE-CHART-006): engine set-up, not document edits.
+  'mapDatasets',
+  'registerMapDataset',
 ]);
 
 export const READ_ONLY_ERROR = 'session.readOnly';

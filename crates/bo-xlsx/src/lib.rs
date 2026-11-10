@@ -23,6 +23,7 @@ mod chart;
 mod chart_format;
 pub mod chart_write;
 pub mod chartex;
+pub mod chartex_map;
 mod csv;
 mod custom_views;
 pub mod diagram_write;

@@ -69,7 +69,8 @@ fn text_of(n: &Node) -> String {
 }
 
 /// The chart of a `cx:chartSpace` (`dom` its root).
-pub(crate) fn parse_chartex(dom: &Node, part: &str) -> Option<Chart> {
+pub(crate) fn parse_chartex(dom: &Node, raw: &[u8], part: &str) -> Option<Chart> {
+    let raw = std::str::from_utf8(raw).ok();
     let data: Vec<(String, Vec<Dim>)> = dom
         .child("chartData")?
         .children
@@ -108,6 +109,7 @@ pub(crate) fn parse_chartex(dom: &Node, part: &str) -> Option<Chart> {
             "treemap" => ChartKind::Treemap,
             "sunburst" => ChartKind::Sunburst,
             "funnel" => ChartKind::Funnel,
+            "regionMap" => ChartKind::RegionMap,
             "boxWhisker" => ChartKind::BoxWhisker,
             "clusteredColumn" if pareto => ChartKind::Pareto,
             "clusteredColumn" => ChartKind::Histogram,
@@ -125,9 +127,25 @@ pub(crate) fn parse_chartex(dom: &Node, part: &str) -> Option<Chart> {
             ..ChartSeries::default()
         };
         let id = s.child("dataId").and_then(|d| d.attr("val")).unwrap_or("0");
+        let mut map =
+            (plot.kind == ChartKind::RegionMap).then(|| crate::chartex_map::parse(s, raw));
         if let Some((_, ds)) = data.iter().find(|(i, _)| i == id) {
             for d in ds {
                 match d.ty.as_str() {
+                    // A map of categories: `cx:strDim type="colorStr"`.
+                    "colorStr" => {
+                        if let Some(m) = map.as_mut() {
+                            m.categorical = true;
+                            m.text_values = d
+                                .levels
+                                .first()
+                                .map(|l| l.iter().map(|p| p.clone().unwrap_or_default()).collect())
+                                .unwrap_or_default();
+                            // No numbers: one missing value per point.
+                            cs.values = vec![None; m.text_values.len()];
+                        }
+                        cs.val_ref.clone_from(&d.f);
+                    }
                     "cat" => {
                         cs.cat_ref.clone_from(&d.f);
                         cs.levels = d
@@ -137,7 +155,7 @@ pub(crate) fn parse_chartex(dom: &Node, part: &str) -> Option<Chart> {
                             .collect();
                         cs.categories = cs.levels.first().cloned().unwrap_or_default();
                     }
-                    "val" | "size" | "y" => {
+                    "val" | "size" | "y" | "colorVal" => {
                         cs.val_ref.clone_from(&d.f);
                         cs.values = d
                             .levels
@@ -193,13 +211,20 @@ pub(crate) fn parse_chartex(dom: &Node, part: &str) -> Option<Chart> {
             }
         }
         plot.series.push(cs);
+        if let Some(m) = map {
+            out.map.get_or_insert(m);
+        }
     }
     out.plots = vec![plot];
     Some(out)
 }
 
 fn str_dim(out: &mut String, f: Option<&str>, levels: &[Vec<String>]) {
-    out.push_str("<cx:strDim type=\"cat\">");
+    str_dim_of(out, "cat", f, levels);
+}
+
+fn str_dim_of(out: &mut String, ty: &str, f: Option<&str>, levels: &[Vec<String>]) {
+    let _ = write!(out, "<cx:strDim type=\"{ty}\">");
     if let Some(f) = f {
         let _ = write!(out, "<cx:f>{}</cx:f>", escape(f));
     }
@@ -263,12 +288,27 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
             };
             str_dim(&mut out, s.cat_ref.as_deref(), &levels);
         }
-        num_dim(
-            &mut out,
-            if hierarchical { "size" } else { "val" },
-            s.val_ref.as_deref(),
-            &s.values,
-        );
+        match (&kind, chart.map.as_ref()) {
+            // [MS-ODRAWXML] chartex ST_StringDimensionType colorStr: a map of categories.
+            (ChartKind::RegionMap, Some(m)) if m.categorical => {
+                str_dim_of(
+                    &mut out,
+                    "colorStr",
+                    s.val_ref.as_deref(),
+                    std::slice::from_ref(&m.text_values),
+                );
+            }
+            // ST_NumericDimensionType colorVal: the values of a map's colour scale.
+            (ChartKind::RegionMap, _) => {
+                num_dim(&mut out, "colorVal", s.val_ref.as_deref(), &s.values);
+            }
+            _ => num_dim(
+                &mut out,
+                if hierarchical { "size" } else { "val" },
+                s.val_ref.as_deref(),
+                &s.values,
+            ),
+        }
         out.push_str("</cx:data>");
     }
     if series.is_empty() {
@@ -291,8 +331,10 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
         ChartKind::Funnel => "funnel",
         ChartKind::BoxWhisker => "boxWhisker",
         ChartKind::Histogram | ChartKind::Pareto => "clusteredColumn",
+        ChartKind::RegionMap => "regionMap",
         _ => "waterfall",
     };
+    let map_opts = chart.map.clone().unwrap_or_default();
     for (i, s) in series.iter().enumerate() {
         let _ = write!(
             out,
@@ -301,8 +343,16 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
         if let Some(n) = s.name.as_deref().filter(|n| !n.is_empty()) {
             text_data(&mut out, "tx", n);
         }
+        // CT_Series: valueColors, valueColorPositions, dataPt*, dataLabels precede dataId.
+        if kind == ChartKind::RegionMap {
+            if !map_opts.categorical {
+                crate::chartex_map::write_scale(&mut out, &map_opts.scale);
+            }
+            crate::chartex_map::write_labels(&mut out, &map_opts);
+        }
         let _ = write!(out, "<cx:dataId val=\"{i}\"/>");
         match kind {
+            ChartKind::RegionMap => crate::chartex_map::write_layout(&mut out, &map_opts),
             ChartKind::Waterfall => {
                 out.push_str("<cx:layoutPr><cx:visibility connectorLines=\"1\"/>");
                 if !s.subtotals.is_empty() {
@@ -358,7 +408,7 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
     }
     out.push_str("</cx:plotAreaRegion>");
     match kind {
-        ChartKind::Treemap | ChartKind::Sunburst => {}
+        ChartKind::Treemap | ChartKind::Sunburst | ChartKind::RegionMap => {}
         ChartKind::Funnel => {
             out.push_str(
                 "<cx:axis id=\"0\"><cx:catScaling gapWidth=\"0.06\"/><cx:tickLabels/></cx:axis>",

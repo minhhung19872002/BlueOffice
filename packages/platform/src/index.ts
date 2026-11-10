@@ -62,6 +62,7 @@ export * from './speech';
 export * from './windows';
 export * from './translation';
 export * from './thesaurus';
+export * from './mapDatasets';
 export * from './ai';
 export * from './addins';
 export * from './buildingBlocks';

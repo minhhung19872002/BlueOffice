@@ -53,6 +53,7 @@ import { WebCodecsVideo } from '../webcodecs';
 import { FetchRemoteImages } from '../remoteImages';
 import { webSpeech } from '../speech';
 import { assetThesaurus } from '../thesaurus';
+import { assetMapDatasets } from '../mapDatasets';
 import { fromBase64 } from '../web/signing';
 import type { PickedFolder, QueryDataSources } from '../sheetQuery';
 import { webDictation } from '../dictation';
@@ -791,6 +792,8 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     speech: webSpeech(),
     // Thesaurus data bundled with the app's front end, read on first use (CORE-THES-001).
     thesaurus: assetThesaurus(opts.baseUrl ?? import.meta.env?.BASE_URL ?? '/'),
+    // Map chart boundary datasets bundled with the front end (CORE-CHART-006).
+    mapDatasets: assetMapDatasets(opts.baseUrl ?? import.meta.env?.BASE_URL ?? '/'),
     // The webview's recogniser when it has one (WebView2 may not; CORE-LANG-002); the
     // dictation UI says so when it is missing or fails to start.
     ...((): Pick<Platform, 'dictation'> => {

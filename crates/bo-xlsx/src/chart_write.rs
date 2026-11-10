@@ -787,14 +787,17 @@ pub fn anchor_xml(chart: &Chart, shape_id: u32, rel_id: &str) -> String {
         // A chartex frame is an mc:AlternateContent choice (ECMA-376 Part 3, §10.2.1) for the
         // applications that know the chartex namespaces; others show the fallback text box.
         let cx = crate::chartex::CX_NS;
-        let (req, req_ns) = if chart
-            .plots
-            .first()
-            .is_some_and(|p| p.kind == ChartKind::Funnel)
-        {
+        let kind = chart.plots.first().map(|p| &p.kind);
+        let (req, req_ns) = if kind == Some(&ChartKind::Funnel) {
             (
                 "cx2",
                 "http://schemas.microsoft.com/office/drawing/2015/10/21/chartex",
+            )
+        } else if kind == Some(&ChartKind::RegionMap) {
+            // Region maps came with the 2016/5/10 chartex namespace ([MS-ODRAWXML] namespaces).
+            (
+                "cx4",
+                "http://schemas.microsoft.com/office/drawing/2016/5/10/chartex",
             )
         } else {
             (

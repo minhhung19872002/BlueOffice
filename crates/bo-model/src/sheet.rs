@@ -1529,6 +1529,85 @@ pub struct Chart {
     /// Style, colours and quick-layout formatting (CORE-CHART-007).
     #[serde(default)]
     pub format: crate::chart_style::ChartFormat,
+    /// Region map options (chartex `regionMap` layout, CORE-CHART-006).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map: Option<MapOptions>,
+}
+
+/// Options of a region map ([MS-ODRAWXML] chartex `cx:series@layoutId="regionMap"`: the series'
+/// `cx:valueColors` / `cx:valueColorPositions` and the `cx:layoutPr` children `cx:regionLabelLayout`
+/// and `cx:geography`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MapOptions {
+    /// `cx:geography@projectionType`: `mercator`, `miller`, `robinson`, `albers`; `None` = automatic.
+    pub projection: Option<String>,
+    /// `cx:geography@viewedRegionType` (area level): `dataOnly`, `postalCode`, `county`, `state`,
+    /// `countryRegion`, `countryRegionList`, `world`; `None` = automatic.
+    pub level: Option<String>,
+    /// `cx:regionLabelLayout@val`: `none`, `bestFitOnly`, `showAll`; `None` = not written.
+    pub labels: Option<String>,
+    /// `cx:geography@cultureLanguage` (e.g. `vi-VN`).
+    pub culture_language: String,
+    /// `cx:geography@cultureRegion` (e.g. `VN`).
+    pub culture_region: String,
+    /// `cx:geography@attribution`.
+    pub attribution: String,
+    /// The series' values are categories (`cx:strDim type="colorStr"`), each drawn in its own colour,
+    /// rather than numbers on a colour scale (`cx:numDim type="colorVal"`).
+    pub categorical: bool,
+    /// Cached category values of a categorical map (one per point).
+    pub text_values: Vec<String>,
+    /// Colour scale (`cx:valueColors`, `cx:valueColorPositions`).
+    pub scale: MapColorScale,
+    /// Inner XML of the file's `cx:geography` element (its `cx:geoCache` and extensions), written back
+    /// verbatim; `None` for a new map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geo_raw: Option<String>,
+}
+
+/// Colour scale of a region map: sequential (two colours) or diverging (three colours).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MapColorScale {
+    /// Three colours (`cx:valueColorPositions@count="3"`) with a middle colour.
+    pub diverging: bool,
+    /// `cx:minColor`.
+    pub min: Option<ChartColor>,
+    /// `cx:midColor`.
+    pub mid: Option<ChartColor>,
+    /// `cx:maxColor`.
+    pub max: Option<ChartColor>,
+    /// Position of the middle colour: a number (`cx:mid/cx:number`), else a percentage
+    /// (`cx:mid/cx:percent`, default 50).
+    pub mid_number: Option<f64>,
+    /// `cx:mid/cx:percent@val` (0–100).
+    pub mid_percent: Option<f64>,
+    /// `cx:min/cx:number@val` (`None`: the lowest value, `cx:extremeValue`).
+    pub min_number: Option<f64>,
+    /// `cx:max/cx:number@val` (`None`: the highest value).
+    pub max_number: Option<f64>,
+}
+
+impl MapColorScale {
+    /// BlueSheet's default colours `(min, mid, max)`: light to dark blue; diverging from red through
+    /// a pale middle to blue.
+    #[must_use]
+    pub fn default_colors(diverging: bool) -> (ChartColor, Option<ChartColor>, ChartColor) {
+        if diverging {
+            (
+                ChartColor::Rgb(0x00C0_504D),
+                Some(ChartColor::Rgb(0x00F5_F1E6)),
+                ChartColor::Rgb(0x002E_6DB4),
+            )
+        } else {
+            (
+                ChartColor::Rgb(0x00DC_E9F5),
+                None,
+                ChartColor::Rgb(0x001F_4E89),
+            )
+        }
+    }
 }
 
 /// Value / category axis options and the data table of a chart (ECMA-376 Part 1, §21.2.2).
@@ -1953,6 +2032,8 @@ pub enum ChartKind {
     BoxWhisker,
     /// Chartex funnel (`funnel`).
     Funnel,
+    /// Chartex region map (`regionMap`, CORE-CHART-006): areas coloured by value or category.
+    RegionMap,
     /// Any other plot element, by local name.
     Other(String),
 }
@@ -1970,6 +2051,7 @@ impl ChartKind {
                 | ChartKind::Pareto
                 | ChartKind::BoxWhisker
                 | ChartKind::Funnel
+                | ChartKind::RegionMap
         )
     }
 }

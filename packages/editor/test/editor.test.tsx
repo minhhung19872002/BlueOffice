@@ -484,7 +484,7 @@ describe('BlueDoc status bar, word count and split view (CORE-UI-007)', { timeou
     await open();
     expect(screen.getByTestId('status-words').textContent).toMatch(/^\d+ words$/);
     expect(screen.getByTestId('status-track-changes').textContent).toBe('Track changes: Off');
-    expect(screen.getByRole('group', { name: 'Views' })).toBeTruthy();
+    expect(screen.getByRole('radiogroup', { name: 'Views' })).toBeTruthy();
     expect(screen.getByRole('slider', { name: 'Zoom' })).toBeTruthy();
     // Overtype is off by default; the checklist turns it on, and words off.
     expect(screen.queryByTestId('status-overtype')).toBeNull();

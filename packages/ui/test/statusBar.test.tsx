@@ -316,4 +316,25 @@ describe('status bar controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Page layout' }));
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it('exclusive buttons (view modes) are a radio group with one checked', () => {
+    const onClick = vi.fn();
+    render(
+      <StatusButtons
+        label="Views"
+        exclusive
+        buttons={[
+          { id: 'normal', label: 'Normal', pressed: true, onClick },
+          { id: 'layout', label: 'Page layout', pressed: false, onClick },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('radiogroup', { name: 'Views' })).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Normal' }).getAttribute('aria-checked')).toBe('true');
+    const other = screen.getByRole('radio', { name: 'Page layout' });
+    expect(other.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(other);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
 });

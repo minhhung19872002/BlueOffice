@@ -5745,6 +5745,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               <StatusButtons
                 label={t('statusBar.views')}
                 testId="status-views"
+                exclusive
                 buttons={(
                   [
                     ['normal', 'sheetViews.normal', <Grid3x3 key="i" size={14} />],

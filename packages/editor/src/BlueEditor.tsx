@@ -471,7 +471,8 @@ function EditorInner({
   platform: basePlatform,
   app = 'doc',
   language = 'vi-VN',
-  theme = 'light',
+  // Follows the system (dark mode, forced colours / more contrast) like BlueSheet and BlueSlide.
+  theme = 'auto',
   host,
   sampleUrl,
   onDocumentOpened,
@@ -492,6 +493,10 @@ function EditorInner({
   // The theme picked in File › Options (remembered) wins over the editor's own setting.
   const themeSetting = useThemePref(state.theme);
   const resolvedTheme = useResolvedTheme(themeSetting);
+  const resolvedThemeRef = useRef(resolvedTheme);
+  useEffect(() => {
+    resolvedThemeRef.current = resolvedTheme;
+  });
   const windowsRef = useRef<WindowTools | null>(null);
   const density = useDensity();
   const viewHost = useRef<HTMLDivElement>(null);
@@ -1909,7 +1914,8 @@ function EditorInner({
       id: 'view.toggleTheme',
       isChecked: (s) => ['dark', 'hc'].includes(getThemePref() ?? s.theme),
       // Light → dark → high contrast → light (UI-TOKENS-002).
-      run: (s) => setThemePref(nextTheme(getThemePref() ?? s.theme)),
+      // From the theme shown now (`auto` is whatever the system gave).
+      run: () => setThemePref(nextTheme(resolvedThemeRef.current)),
     });
     r.register({
       id: 'view.density',
@@ -5530,6 +5536,7 @@ function EditorInner({
                 <StatusButtons
                   label={t('statusBar.views')}
                   testId="status-views"
+                  exclusive
                   buttons={(
                     [
                       ['read', 'view.readMode', <BookOpen key="i" size={14} />],

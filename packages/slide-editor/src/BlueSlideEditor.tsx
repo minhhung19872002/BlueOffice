@@ -4896,6 +4896,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <StatusButtons
                   label={t('statusBar.views')}
                   testId="status-views"
+                  exclusive
                   buttons={(
                     [
                       ['normal', 'slideEditor.normal', <Rows3 key="i" size={14} />],

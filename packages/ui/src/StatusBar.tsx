@@ -237,7 +237,7 @@ export function StatusZoom({
   onStep,
 }: StatusZoomProps) {
   const clamp = (z: number) => Math.min(max, Math.max(min, Math.round(z * 100) / 100));
-  const pct = Math.round(zoom * 100);
+  const pct = Number.isFinite(zoom) ? Math.round(zoom * 100) : 100;
   return (
     <span className={styles.zoom}>
       {slider && (
@@ -302,27 +302,40 @@ export interface StatusToggle {
   onClick: () => void;
 }
 
-/** A row of small toggle buttons (view modes, notes, comments). */
+/**
+ * A row of small toggle buttons (notes, comments). `exclusive`: exactly one of them is on
+ * (the view modes) — a radio group, so the choices are announced as one of several and are
+ * told apart from the ribbon buttons of the same name.
+ */
 export function StatusButtons({
   label,
   buttons,
   testId,
+  exclusive = false,
 }: {
   label: string;
   buttons: StatusToggle[];
   testId?: string;
+  exclusive?: boolean;
 }) {
   return (
-    <span role="group" aria-label={label} className={styles.group} data-testid={testId}>
+    <span
+      role={exclusive ? 'radiogroup' : 'group'}
+      aria-label={label}
+      className={styles.group}
+      data-testid={testId}
+    >
       {buttons.map((b) => (
         <button
           key={b.id}
           type="button"
+          role={exclusive ? 'radio' : undefined}
           className={styles.button}
           data-testid={`status-button-${b.id}`}
           aria-label={b.label}
           title={b.label}
-          aria-pressed={b.pressed ?? undefined}
+          aria-checked={exclusive ? !!b.pressed : undefined}
+          aria-pressed={exclusive ? undefined : (b.pressed ?? undefined)}
           disabled={b.disabled}
           onClick={b.onClick}
         >

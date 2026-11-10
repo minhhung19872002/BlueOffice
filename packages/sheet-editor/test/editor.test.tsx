@@ -808,6 +808,6 @@ describe('BlueSheet status bar (CORE-UI-007)', { timeout: 30_000 }, () => {
     // Zoom and view buttons are on the right.
     expect(screen.getByTestId('status-zoom')).toBeTruthy();
     expect(screen.getByRole('slider', { name: 'Zoom' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Views' })).toBeTruthy();
+    expect(screen.getByRole('radiogroup', { name: 'Views' })).toBeTruthy();
   });
 });

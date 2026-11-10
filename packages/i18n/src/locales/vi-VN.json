@@ -27,6 +27,7 @@
       "table": "Bảng"
     },
     "groups": {
+      "speech": "Giọng nói",
       "documentFormatting": "Định dạng tài liệu",
       "pageBackground": "Nền trang",
       "document": "Tài liệu",
@@ -200,6 +201,12 @@
       "formattingMarks": "Ký hiệu định dạng"
     },
     "review": {
+      "readAloud": "Đọc to",
+      "readAloudPause": "Tạm dừng hoặc tiếp tục đọc",
+      "readAloudPrevious": "Đọc lại phần trước",
+      "readAloudNext": "Đọc phần tiếp theo",
+      "readAloudStop": "Dừng đọc",
+      "readAloudNotes": "Đọc cả ghi chú của người trình bày",
       "trackChanges": "Theo dõi thay đổi",
       "accept": "Chấp nhận",
       "reject": "Từ chối",
@@ -4879,5 +4886,31 @@
     "themeSaved": "Đã lưu chủ đề vào “{{name}}”.",
     "themeApplied": "Đã áp dụng chủ đề từ “{{name}}”.",
     "noTheme": "Tệp này không có chủ đề để dùng."
+  },
+  "readAloud": {
+    "bar": "Điều khiển đọc to",
+    "pause": "Tạm dừng",
+    "resume": "Tiếp tục đọc",
+    "stop": "Dừng đọc",
+    "previous": {
+      "paragraph": "Đoạn trước",
+      "cell": "Ô trước",
+      "text": "Khối chữ trước"
+    },
+    "next": {
+      "paragraph": "Đoạn tiếp theo",
+      "cell": "Ô tiếp theo",
+      "text": "Khối chữ tiếp theo"
+    },
+    "speed": "Tốc độ",
+    "rate": "{{value}}×",
+    "voice": "Giọng đọc",
+    "voiceAuto": "Tự chọn theo ngôn ngữ",
+    "noVietnameseVoice": "Máy chưa cài giọng đọc tiếng Việt. Hãy thêm giọng tiếng Việt trong phần cài đặt giọng nói của hệ điều hành rồi thử lại.",
+    "noVoice": "Máy chưa cài giọng đọc cho ngôn ngữ {{lang}}.",
+    "unavailable": "Trình duyệt hoặc ứng dụng này không hỗ trợ đọc to.",
+    "nothing": "Không có chữ nào để đọc.",
+    "error": "Không đọc to được ({{error}}).",
+    "withNotes": "Đọc cả ghi chú"
   }
 }

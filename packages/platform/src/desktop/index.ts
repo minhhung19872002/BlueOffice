@@ -49,6 +49,7 @@ import { WebEngineHost } from '../web/WebEngineHost';
 import { webSheetTransport } from '../web/WebSheetHost';
 import { DesktopAuth, type DesktopScheme } from './auth';
 import { WebCodecsVideo } from '../webcodecs';
+import { webSpeech } from '../speech';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -724,6 +725,8 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     updates: new DesktopUpdates(call),
     // The webview (WebView2 / WebKitGTK) encodes when it has WebCodecs; else GIF / PNG only.
     video: new WebCodecsVideo(),
+    // The webview's Web Speech API (WebView2: the Windows voices) for read aloud.
+    speech: webSpeech(),
     displays: new DesktopDisplays(call),
   };
 }

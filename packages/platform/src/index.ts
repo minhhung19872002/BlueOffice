@@ -33,6 +33,7 @@ export * from './slideViews';
 export * from './slideShow';
 export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
 export * from './sheetDataTools';
+export * from './speech';
 export {
   OidcSession,
   fetchOidcConfig,

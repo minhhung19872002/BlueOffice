@@ -54,3 +54,26 @@ export {
   type ProofWalkActions,
   type WalkIssue,
 } from './ProofWalkDialog';
+// Read aloud shared with BlueSheet / BlueSlide (CORE-LANG-003).
+export {
+  READ_RATES,
+  ReadAloudSession,
+  type ReadAloudListener,
+  type ReadAloudSettings,
+  type ReadAloudState,
+  type ReadPosition,
+  type ReadUnit,
+} from './readAloud';
+export {
+  useReadAloud,
+  type ReadAloud,
+  type ReadAloudRequest,
+  type ReadUnitKind,
+} from './ReadAloudBar';
+export {
+  READ_ALOUD_COMMANDS,
+  READ_ALOUD_SHORTCUT,
+  ReadAloudLink,
+  registerReadAloudCommands,
+} from './readAloudCommands';
+export { docReadRequest, docUnits, type SpeechHighlighter } from './docReadAloud';

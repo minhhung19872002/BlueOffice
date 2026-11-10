@@ -183,6 +183,7 @@ import {
   ArrowLeftRight,
   Bookmark,
   Scale,
+  Volume2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -281,6 +282,9 @@ import { NavigationPane } from './NavigationPane';
 import { XmlMappingPane } from './XmlMappingPane';
 import { OutlineView } from './OutlineView';
 import { ReadMode } from './ReadMode';
+import { useReadAloud, type ReadAloud } from './ReadAloudBar';
+import { registerReadAloudCommands } from './readAloudCommands';
+import { docReadRequest } from './docReadAloud';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 
@@ -359,6 +363,12 @@ function EditorInner({
   const density = useDensity();
   const viewHost = useRef<HTMLDivElement>(null);
   const view = useRef<DocumentView | null>(null);
+  // Read aloud (CORE-LANG-003): the commands reach the hook through a ref.
+  const readAloud = useReadAloud(platform.speech, 'paragraph');
+  const readAloudRef = useRef<ReadAloud | null>(null);
+  useEffect(() => {
+    readAloudRef.current = readAloud;
+  });
   const controller = useRef<DocController | null>(null);
   const stored = useRef<StoredDocument | null>(null);
   /** Bytes of the opened file (its digital signatures are verified on them). */
@@ -1706,6 +1716,18 @@ function EditorInner({
         await controller.current?.run({ cmd: 'setGrammar', on: !s.grammarOn });
       },
     });
+    registerReadAloudCommands(r, {
+      enabled: hasDoc,
+      begin: async () => {
+        const req = await docReadRequest(
+          platform.engine,
+          () => view.current,
+          i18nInstance.language || 'vi-VN',
+        );
+        await readAloudRef.current?.start(req);
+      },
+      current: () => readAloudRef.current,
+    });
     registerTrackingCommands(r, {
       hasDoc,
       run,
@@ -2954,6 +2976,11 @@ function EditorInner({
           ],
         },
         {
+          id: 'speech',
+          label: t('ribbon.groups.speech'),
+          items: [item('review.readAloud', 'commands.review.readAloud', <Volume2 size={ICON} />)],
+        },
+        {
           id: 'tracking',
           label: t('ribbon.groups.tracking'),
           items: [
@@ -4024,6 +4051,7 @@ function EditorInner({
           }
         />
       )}
+      {readAloud.bar}
     </div>
   );
 }

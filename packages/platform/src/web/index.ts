@@ -22,6 +22,7 @@ import { WebEngineHost } from './WebEngineHost';
 import { createWebSheetHost, webSheetTransport } from './WebSheetHost';
 import { WebSigning } from './signing';
 import { WebCodecsVideo } from '../webcodecs';
+import { webSpeech } from '../speech';
 import { WebDisplays, presentationReceiverBus } from './displays';
 
 export { WebSigning } from './signing';
@@ -284,6 +285,8 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     ),
     signing,
     video: new WebCodecsVideo(),
+    // W3C Web Speech API (read aloud, CORE-LANG-003).
+    speech: webSpeech(),
     displays: new WebDisplays(),
   };
 }

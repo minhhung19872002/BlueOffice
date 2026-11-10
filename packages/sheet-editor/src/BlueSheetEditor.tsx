@@ -162,6 +162,7 @@ import {
   ChevronsDownUp,
   WandSparkles,
   ListX,
+  Volume2,
 } from 'lucide-react';
 import {
   useCallback,
@@ -186,10 +187,14 @@ import {
   clipboardHistory,
   fromBase64,
   planOpen,
+  ReadAloudLink,
+  registerReadAloudCommands,
   saveName,
   toBase64,
+  useReadAloud,
   type ClipItem,
 } from '@blueoffice/editor';
+import { sheetReadUnits } from './readAloud';
 import {
   SheetClipboardUi,
   sheetPasteCommand,
@@ -1320,6 +1325,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [reveal],
   );
 
+  // Read aloud (CORE-LANG-003): the selected cells row by row; the active cell follows.
+  const readAloud = useReadAloud(platform.speech, 'cell');
+  const [readAloudLink] = useState(() => new ReadAloudLink<SheetEditorState>());
+  const beginRead = useCallback(
+    async (st: SheetEditorState) => {
+      const sel = st.selection;
+      const { units, cells } = await sheetReadUnits(
+        st.host,
+        st.sheet,
+        rangeOf(sel),
+        spelling.lang || i18n.language || 'vi-VN',
+      );
+      await readAloudLink.aloud()?.start({
+        units,
+        onUnit: (i) => {
+          const c = cells[i];
+          if (!c) return;
+          const next = { ...sel, active: { row: c.row, col: c.col } };
+          setSelection(next);
+          void reveal(next);
+        },
+      });
+    },
+    [spelling.lang, i18n.language, reveal, readAloudLink],
+  );
+  useEffect(() => {
+    readAloudLink.attach(readAloud, beginRead);
+  });
+
   /** Every range of the selection (multi-range with Ctrl), the current one last. */
   const allRanges = useMemo(() => [...extra, rangeOf(selection)], [extra, selection]);
 
@@ -1828,6 +1862,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('review.spelling', async () => toggleSpelling(), {
       ...has,
       isChecked: () => asYouType,
+    });
+    registerReadAloudCommands(reg, {
+      enabled: (st) => st.hasWorkbook,
+      begin: (st) => readAloudLink.begin(st),
+      current: () => readAloudLink.aloud(),
     });
     // CORE-SEC-001: final mark, write protection, label, protected ranges.
     add(
@@ -2378,6 +2417,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('formulas.calcFull', () => auditCalculate('full'), { shortcut: 'Ctrl+Alt+F9' });
     return reg;
   }, [
+    readAloudLink,
     auditTrace,
     auditCalculate,
     removeArrows,
@@ -3601,6 +3641,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               ),
             ],
           },
+          {
+            id: 'speech',
+            label: t('ribbon.groups.speech'),
+            items: [
+              item('review.readAloud', t('commands.review.readAloud'), <Volume2 size={18} />),
+            ],
+          },
         ],
       },
       {
@@ -4654,6 +4701,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {dialog?.kind === 'checkDocument' && (
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
       )}
+      {readAloud.bar}
       <SheetEditSpelling
         host={host}
         inputs={spellInputs}

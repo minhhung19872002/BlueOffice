@@ -610,6 +610,7 @@ export type EditCommand =
   | import('./security').SecurityCommand
   | import('./picture').PictureCommand
   | import('./customXml').CustomXmlCommand
+  | import('./speech').DocSpeechCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   | { cmd: 'setSelection'; selection: Selection }
@@ -1007,6 +1008,8 @@ export interface EditResult {
   adminFormat?: AdminFormatReport;
   /** Signature lines of the document (signature line commands). */
   signatureLines?: SignatureLineInfo[];
+  /** Read-aloud text and rectangles (`speechText`, `speechRects`, CORE-LANG-003). */
+  speech?: import('./speech').DocSpeechInfo;
   /** Pictures for signing a line (`signatureLineImages`). */
   signatureLineImages?: SignatureLineImages;
 }
@@ -2536,4 +2539,6 @@ export interface Platform {
   video?: VideoEncoding;
   /** Other monitors for the audience screen (absent: a plain second window). */
   displays?: import('./slideShow').DisplayService;
+  /** Text to speech for read aloud (absent where the platform cannot speak). */
+  speech?: import('./speech').SpeechProvider;
 }

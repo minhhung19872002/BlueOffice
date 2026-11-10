@@ -1107,6 +1107,9 @@ pub struct EditResult {
     /// Custom XML parts and their nodes (custom XML commands, §15.2.4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_xml: Option<Vec<bo_edit::custom_xml::CustomXmlInfo>>,
+    /// Read-aloud text and highlight rectangles (`speechText`, `speechRects`, CORE-LANG-003).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speech: Option<Box<crate::speech::SpeechInfo>>,
 }
 
 impl crate::Engine {
@@ -1130,6 +1133,10 @@ impl crate::Engine {
         }
         if let Some(xc) = crate::custom_xml::CustomXmlCommand::parse(&v) {
             let r = self.doc_custom_xml_command(xc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(sc) = crate::speech::SpeechCommand::parse(&v) {
+            let r = self.doc_speech_command(sc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         let cmd: Command =
@@ -2216,6 +2223,7 @@ impl crate::Engine {
             signature_line_images: None,
             picture: None,
             custom_xml: None,
+            speech: None,
         })
     }
 }

@@ -27,6 +27,7 @@
       "table": "Table"
     },
     "groups": {
+      "speech": "Speech",
       "documentFormatting": "Document formatting",
       "pageBackground": "Page background",
       "document": "Document",
@@ -200,6 +201,12 @@
       "formattingMarks": "Formatting marks"
     },
     "review": {
+      "readAloud": "Read aloud",
+      "readAloudPause": "Pause or resume reading",
+      "readAloudPrevious": "Go back one part",
+      "readAloudNext": "Skip to the next part",
+      "readAloudStop": "Stop reading",
+      "readAloudNotes": "Read the speaker notes too",
       "trackChanges": "Track changes",
       "accept": "Accept",
       "reject": "Reject",
@@ -4879,5 +4886,31 @@
     "themeSaved": "Theme saved to “{{name}}”.",
     "themeApplied": "Theme applied from “{{name}}”.",
     "noTheme": "This file has no theme to use."
+  },
+  "readAloud": {
+    "bar": "Read aloud controls",
+    "pause": "Pause",
+    "resume": "Resume reading",
+    "stop": "Stop reading",
+    "previous": {
+      "paragraph": "Previous paragraph",
+      "cell": "Previous cell",
+      "text": "Previous text block"
+    },
+    "next": {
+      "paragraph": "Next paragraph",
+      "cell": "Next cell",
+      "text": "Next text block"
+    },
+    "speed": "Speed",
+    "rate": "{{value}}×",
+    "voice": "Voice",
+    "voiceAuto": "Match the text language",
+    "noVietnameseVoice": "No Vietnamese voice is installed. Add a Vietnamese voice in your system speech settings, then try again.",
+    "noVoice": "No voice is installed for {{lang}}.",
+    "unavailable": "This browser or app cannot read aloud.",
+    "nothing": "There is no text to read.",
+    "error": "Could not read aloud ({{error}}).",
+    "withNotes": "Include notes"
   }
 }

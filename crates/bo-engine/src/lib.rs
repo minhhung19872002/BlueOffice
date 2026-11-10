@@ -48,6 +48,7 @@ pub mod sigline;
 pub mod slide_edit;
 pub mod slide_export;
 pub mod smartart;
+pub mod speech;
 pub mod spell;
 pub mod story;
 pub mod templates;

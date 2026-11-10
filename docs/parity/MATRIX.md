@@ -52,7 +52,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
 | BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
-| Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); chưa model cục bộ, chưa đọc chính tả |
+| Dịch / đọc chính tả / đọc to | all | — | 🟡 | ✅ | — | ✅ | ✅ | — | read-aloud tests, translate tests + translate.spec, TranslationTests (.NET) | 🟡 | đọc to + tô từ (CORE-LANG-003); dịch qua dịch vụ cấu hình được ở 3 app giữ định dạng (CORE-LANG-001); đọc chính tả qua bộ nhận dạng trình duyệt/dịch vụ cấu hình + lệnh dấu câu (CORE-LANG-002); chưa model cục bộ |
 | Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
 | PDF/A, PDF có thẻ | all | — | — | ✅ | — | ✅ | ✅ | — | bo-pdf/tests/pdfa.rs, bo-engine/tests/pdf_export.rs | 🟡 | PDF/A-1b/2b/3b, cây cấu trúc, dấu trang từ đề mục/slide/sheet, hộp thoại Xuất PDF (CORE-FMT-002); chưa kiểm bằng veraPDF |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |
@@ -97,7 +97,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Slicer / Timeline | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | slicers.rs, timelines.rs, writer-slicers-*, timeline-1, sheet-slicer/timeline.spec | 🟡 | slicer bảng tạo/lọc/lưu; slicer pivot và timeline đọc/lọc/lưu lựa chọn (chưa tạo mới) |
 | Goal Seek / Data Table / Solver | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | + Scenario Manager & báo cáo (SHEET-WHATIF-003); Solver phi tuyến/tiến hoá/`dif` + 3 báo cáo (SHEET-SOLVER-002) |
 | Kiểm tra công thức / tuỳ chọn tính | — | — | ✅ | ✅ | ✅ | ✅ | — | audit.rs, audit.test | 🟡 | truy vết, đánh giá từng bước, kiểm tra lỗi, cửa sổ theo dõi, thủ công/lặp/precision (SHEET-AUDIT-001) |
-| Power Query / data model | 🟡 | — | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
+| Lấy & biến đổi dữ liệu / data model | 🟡 | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-query, sheet_query.rs, sheet-query.spec | 🟡 | truy vấn CSV/JSON/XML/sổ tính/thư mục/web + bước biến đổi, làm mới (SHEET-PQ-001); DataMashup của phần mềm khác giữ nguyên; chưa có data model (SHEET-DM-001) |
 | Flash Fill, Text to Columns | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | Flash Fill (SHEET-FLASH-001), Text to Columns + xoá trùng + Consolidate + Subtotal + dàn ý (SHEET-DATA-002); thiếu gợi ý khi gõ, thanh dàn ý |
 | Analysis ToolPak | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | 19 công cụ phân tích thống kê (SHEET-ATP-001); thiếu biểu đồ đầu ra |
 | Sparklines | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-sparklines-* | 🟡 | đọc/ghi/vẽ/sửa (SHEET-SPARK-001); chưa dịch theo chèn hàng/cột |

@@ -118,3 +118,78 @@ export function variantMime(name: string): string | undefined {
   if (name.toLowerCase().endsWith(`.${THEME_EXT}`)) return THEME_MIME;
   return variantOf(name)?.mime;
 }
+
+/**
+ * Web and single-file XML formats (CORE-FMT-003): one HTML file, a single-file
+ * web page (MHTML) and Flat OPC — the whole package as one XML file.
+ */
+export interface WebFormat {
+  /** Format id of the engine (`exportFile`, `SheetHost.save`). */
+  id: 'html' | 'mht' | 'xml';
+  /** Extension of saved files, without the dot. */
+  ext: string;
+  mime: string;
+  /** Apps that save to the format. */
+  apps: readonly VariantApp[];
+}
+
+export const WEB_FORMATS: readonly WebFormat[] = [
+  { id: 'html', ext: 'html', mime: 'text/html', apps: ['doc', 'sheet'] },
+  { id: 'mht', ext: 'mht', mime: 'multipart/related', apps: ['doc'] },
+  { id: 'xml', ext: 'xml', mime: 'application/xml', apps: ['doc', 'sheet', 'slide'] },
+];
+
+/** Web formats an app saves to. */
+export function webFormats(app: VariantApp): WebFormat[] {
+  return WEB_FORMATS.filter((f) => f.apps.includes(app));
+}
+
+/** A web format by id. */
+export function webFormat(id: string): WebFormat | undefined {
+  return WEB_FORMATS.find((f) => f.id === id);
+}
+
+/**
+ * Extensions (with the dot) of the web and XML formats an app opens: HTML and MHTML
+ * pages (BlueDoc; BlueSheet reads their tables), Flat OPC (`.xml`, every app) and
+ * XML Spreadsheet 2003 (`.xml`, BlueSheet). The engine tells them apart by content.
+ */
+export function webOpenExtensions(app: VariantApp): string[] {
+  return app === 'slide' ? ['.xml'] : ['.html', '.htm', '.mht', '.mhtml', '.xml'];
+}
+
+/** Command of each web format in the editors' command registries (`file.saveHtml`, …). */
+export const WEB_FORMAT_COMMANDS: Record<WebFormat['id'], string> = {
+  html: 'file.saveHtml',
+  mht: 'file.saveMht',
+  xml: 'file.saveFlatXml',
+};
+
+/**
+ * The app an `.xml` file belongs to, from its first bytes: XML Spreadsheet 2003 is a
+ * workbook; Flat OPC names its application in the `mso-application` processing
+ * instruction or by the content type of its main part. `undefined` when the text
+ * tells nothing (the caller falls back to the file name).
+ */
+export function appOfXml(bytes: Uint8Array): VariantApp | undefined {
+  const utf16 = bytes[0] === 0xff && bytes[1] === 0xfe;
+  const head = new TextDecoder(utf16 ? 'utf-16le' : 'utf-8').decode(bytes.subarray(0, 262_144));
+  const start = head.slice(0, 4096);
+  if (
+    start.includes('urn:schemas-microsoft-com:office:spreadsheet') &&
+    /<(\w+:)?Workbook[\s>]/.test(start)
+  ) {
+    return 'sheet';
+  }
+  if (!start.includes('http://schemas.microsoft.com/office/2006/xmlPackage')) return undefined;
+  const progid = /<\?mso-application\s+progid="([^"]+)"/.exec(start)?.[1] ?? '';
+  if (progid.startsWith('Word.')) return 'doc';
+  if (progid.startsWith('Excel.')) return 'sheet';
+  if (progid.startsWith('PowerPoint.')) return 'slide';
+  if (/wordprocessingml\.(document|template)\.main|ms-word\./.test(head)) return 'doc';
+  if (/spreadsheetml\.(sheet|template)\.main|ms-excel\./.test(head)) return 'sheet';
+  if (/presentationml\.(presentation|slideshow|template)\.main|ms-powerpoint\./.test(head)) {
+    return 'slide';
+  }
+  return undefined;
+}

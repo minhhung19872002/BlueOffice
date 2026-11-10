@@ -8,6 +8,7 @@ import {
   StartScreen,
   SyncPrompt,
   appForFile,
+  appForFileContent,
   authText,
   beginSignIn,
   completeSignIn,
@@ -28,6 +29,7 @@ import {
 } from '@blueoffice/hosted';
 import {
   openExtensions,
+  webOpenExtensions,
   shouldCheckForUpdates,
   updateNotice,
   type HostFileLink,
@@ -271,7 +273,7 @@ async function openLocal(file: OpenedFile): Promise<void> {
   if (file.path) {
     void base.shell.addRecentFile({ name: file.name, path: file.path, openedAt: Date.now() });
   }
-  showEditor(appForFile(file.name), file);
+  showEditor(appForFileContent(file.name, file.bytes), file);
 }
 
 async function pickLocal(): Promise<void> {
@@ -288,6 +290,8 @@ async function pickLocal(): Promise<void> {
     ...openExtensions('slide'),
     '.ppt',
     '.odp',
+    // Web pages, Flat OPC and XML Spreadsheet 2003 (CORE-FMT-003).
+    ...webOpenExtensions('doc'),
   ]);
   if (f) await openLocal(f);
 }

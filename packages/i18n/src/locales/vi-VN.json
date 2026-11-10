@@ -5600,7 +5600,10 @@
       "csv": "CSV (phân cách bằng dấu phẩy)",
       "thmx": "Tệp chủ đề",
       "png": "Ảnh PNG từng trang chiếu",
-      "gif": "Ảnh động / video"
+      "gif": "Ảnh động / video",
+      "html": "Trang web (.html, một tệp)",
+      "mht": "Trang web một tệp (.mht)",
+      "xml": "Tài liệu XML (Flat OPC, .xml)"
     },
     "print": {
       "preview": "In… (xem trước và thiết lập)"
@@ -6137,5 +6140,15 @@
       "suggestions": "Gợi ý",
       "help": "Hàm tổng hợp SUM, AVERAGE, MIN, MAX, COUNT, COUNTROWS, DISTINCTCOUNT trên Bảng[Cột]; DIVIDE(a, b, giá trị thay thế); CALCULATE(biểu thức, FILTER(Bảng, điều kiện), ALL(Bảng[Cột])); RELATED(Bảng[Cột]) trong cột tính toán; [Số đo] dùng lại một số đo."
     }
+  },
+  "webFormats": {
+    "saveHtml": "Lưu thành trang web (.html)",
+    "saveMht": "Lưu thành trang web một tệp (.mht)",
+    "saveFlatXml": "Lưu thành tài liệu XML (.xml)",
+    "saved": "Đã lưu “{{name}}”.",
+    "failed": "Không lưu được định dạng này.",
+    "describeHtml": "Một tệp HTML, ảnh được nhúng trong tệp. Tương thích với trình duyệt web.",
+    "describeMht": "Trang web và ảnh trong một tệp duy nhất (MHTML).",
+    "describeXml": "Toàn bộ gói tài liệu trong một tệp XML (Flat OPC)."
   }
 }

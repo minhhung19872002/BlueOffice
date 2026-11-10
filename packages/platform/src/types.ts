@@ -811,6 +811,11 @@ export type EditCommand =
   | { cmd: 'setSavePassword'; password?: string }
   /** Package variant of the next saves (`docx`, `docm`, `dotx`, `dotm`); error `saveFormat`. */
   | { cmd: 'saveFormat'; ext: string }
+  /**
+   * The open document in another format → `file` (base64): one HTML file, a single-file
+   * web page (MHTML) or Flat OPC (CORE-FMT-003). Nothing changes in the document.
+   */
+  | { cmd: 'exportFile'; format: 'html' | 'mht' | 'xml' }
   /** Theme of a `.thmx` (or another document / workbook / deck), base64; error `noTheme`. */
   | { cmd: 'applyThemeFile'; file: string }
   /** The document's theme as a `.thmx` → `design.themeFile` (base64); error `noTheme`. */
@@ -1042,6 +1047,8 @@ export interface EditResult {
   count?: number;
   clip?: ClipPayload;
   error?: string;
+  /** `exportFile`: the file, base64. */
+  file?: string;
   /** Present after document changes and review commands. */
   review?: ReviewState;
   /** Cross-reference targets (`crossReferenceTargets`). */
@@ -1630,6 +1637,8 @@ export type SlideCommand =
   | { cmd: 'setSavePassword'; password?: string }
   /** Package variant of the next saves (`pptx`, `pptm`, `potx`, `potm`, `ppsx`, `ppsm`). */
   | { cmd: 'saveFormat'; ext: string }
+  /** The open presentation as Flat OPC (one XML file) → `file` (base64; CORE-FMT-003). */
+  | { cmd: 'exportFile'; format: 'xml' }
   /** The first master's theme as a `.thmx` → `design.themeFile` (base64). */
   | { cmd: 'saveThemeFile' }
   | { cmd: 'undo' | 'redo' }
@@ -2170,6 +2179,8 @@ export interface SlideEditResult {
   /** Undo history length (`historyLen`, `mergeHistory`). */
   history?: number;
   error?: string;
+  /** `exportFile`: the file, base64. */
+  file?: string;
   /** While collaborating: the change to share and the selected object key. */
   collab?: { change: CollabChange; shape?: string; slide?: string };
   /** Comment threads of the current slide. */

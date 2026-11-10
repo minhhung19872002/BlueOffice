@@ -152,7 +152,11 @@ export interface SheetView {
   height: number;
 }
 
-export type SheetSaveFormat = 'xlsx' | 'csv' | 'ods';
+/**
+ * `html`: every sheet as an HTML table; `html-sheet`: the given sheet only; `xml`: Flat OPC
+ * of the `.xlsx` package (CORE-FMT-003).
+ */
+export type SheetSaveFormat = 'xlsx' | 'csv' | 'ods' | 'html' | 'html-sheet' | 'xml';
 
 // ------------------------------------------------- editing commands (mirrors bo_engine::sheet::cmd)
 

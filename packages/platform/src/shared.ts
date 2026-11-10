@@ -194,6 +194,12 @@ export class FileAccessStorage implements DocumentStorage {
       '.odt',
       '.txt',
       '.md',
+      // Web pages and Flat OPC (CORE-FMT-003).
+      '.html',
+      '.htm',
+      '.mht',
+      '.mhtml',
+      '.xml',
     ],
   ) {}
   async open(_ref?: DocumentRef): Promise<StoredDocument | null> {

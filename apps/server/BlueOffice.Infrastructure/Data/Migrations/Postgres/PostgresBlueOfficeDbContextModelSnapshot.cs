@@ -242,6 +242,47 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Postgres
                     b.ToTable("Folders");
                 });
 
+            modelBuilder.Entity("BlueOffice.Domain.ScriptRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Logs")
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.Property<string>("ScheduleId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScheduleId", "StartedAt");
+
+                    b.ToTable("ScriptRuns");
+                });
+
             modelBuilder.Entity("BlueOffice.Domain.ScriptSchedule", b =>
                 {
                     b.Property<string>("Id")
@@ -252,6 +293,9 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Postgres
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -259,6 +303,10 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Postgres
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<string>("DisabledReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
@@ -296,6 +344,10 @@ namespace BlueOffice.Infrastructure.Data.Migrations.Postgres
 
                     b.Property<DateTime?>("NextRunAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedToken")
+                        .HasMaxLength(16000)
+                        .HasColumnType("character varying(16000)");
 
                     b.Property<string>("UserId")
                         .IsRequired()

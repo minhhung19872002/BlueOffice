@@ -5987,8 +5987,22 @@
       "status": {
         "succeeded": "last run succeeded",
         "failed": "last run failed",
-        "unavailable": "no script runner on the server yet"
-      }
+        "skipped": "last run put off (file was open)",
+        "unavailable": "scheduled scripts are switched off on the server"
+      },
+      "runStatus": {
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "skipped": "put off",
+        "unavailable": "not run"
+      },
+      "disabled": "disabled",
+      "enable": "Enable again",
+      "history": "History",
+      "historyOf": "Runs of “{{name}}”",
+      "noRuns": "Not run yet.",
+      "run": "{{at}} · {{status}} · {{ms}} ms",
+      "version": "saved version {{version}}"
     }
   },
   "backstage": {

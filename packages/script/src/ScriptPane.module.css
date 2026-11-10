@@ -153,11 +153,27 @@
   font-size: 12px;
 }
 
-.schedules li {
+.schedules > li {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 6px;
   align-items: center;
+}
+
+.runs {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--bo-text-muted, inherit);
+}
+
+.runs pre {
+  margin: 2px 0 4px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
 }
 
 .schedules button {

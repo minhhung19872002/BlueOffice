@@ -20,6 +20,7 @@ using BlueOffice.Infrastructure;
 using BlueOffice.Infrastructure.Data;
 using BlueOffice.Infrastructure.Hosts;
 using BlueOffice.Infrastructure.Storage;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -113,9 +114,18 @@ if (serveApi)
     builder.Services.AddHostedService(sp => sp.GetRequiredService<CollabMaintenanceService>());
 }
 
-// Scheduled BlueScript runs (CORE-SCRIPT-002). With several api instances, enable the scheduler on one only.
+// Scheduled BlueScript runs (CORE-SCRIPT-002/004). With several api instances, enable the scheduler on one only.
+// Runs execute only with Scripts:ScheduleEnabled (headless QuickJS in bo-cli, docs/deploy/scripts.md).
 builder.Services.Configure<ScriptOptions>(config.GetSection("Scripts"));
-builder.Services.TryAddSingleton<IScriptRunner, UnavailableScriptRunner>();
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("BlueOffice");
+if (config["DataProtection:KeysPath"] is { Length: > 0 } keysPath)
+{
+    // Keys shared by all instances and kept across restarts (stored host tokens of schedules stay readable).
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+}
+
+builder.Services.AddSingleton<ScheduleTokenProtector>();
+builder.Services.TryAddSingleton<IScriptRunner, BoCliScriptRunner>();
 builder.Services.AddSingleton<ScriptScheduleWorker>();
 if (serveApi && config.GetValue("Scripts:SchedulerEnabled", true))
 {

@@ -28,6 +28,7 @@ pub mod master;
 pub mod media;
 pub mod media_playback;
 pub mod morph;
+pub mod ole;
 pub mod ops;
 pub mod outline;
 pub mod page_master;
@@ -1470,6 +1471,7 @@ fn kind_of(n: &ShapeNode) -> &'static str {
         }
         n if chart::is_chart(n) => "chart",
         n if smartart::is_smartart(n) => "smartart",
+        n if ole::is_ole(n) => "object",
         ShapeNode::Frame(_) | ShapeNode::Other(_) => "graphic",
     }
 }
@@ -3465,6 +3467,14 @@ impl Engine {
             .and_then(|v| ink::InkCommand::parse(&v))
         {
             let r = self.slide_ink_command(ic)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        // Embedded and linked workbooks (CORE-EMBED-001).
+        if let Some(oc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| crate::ole::OleCommand::parse(&v))
+        {
+            let r = self.slide_ole_command(oc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)

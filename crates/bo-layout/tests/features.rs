@@ -427,6 +427,7 @@ fn image(w: i64, h: i64, anchor: Option<Anchor>) -> RunContent {
         shape: None,
         format: None,
         src: None,
+        ole: None,
     }))
 }
 

@@ -975,6 +975,7 @@ fn read_paragraph(
     let mut p = Paragraph::default();
     read_para_children(r, ctx, media, sect, &mut p, &RunCtx::default())?;
     crate::forms::collapse_form_fields(&mut p.runs);
+    link_items(&mut p.runs);
     collapse_simple_fields(&mut p.runs);
     Ok(p)
 }
@@ -1312,6 +1313,21 @@ fn read_run(
                     None => run.content.push(RunContent::Opaque(raw)),
                 }
             }
+            // §17.3.3.19 object: an embedded or linked object shown through its preview
+            // picture (CORE-EMBED-001); kept verbatim when it has none.
+            b"object" if s => {
+                let raw = capture(r, true, before)?;
+                match ole_object(&raw.xml, ctx, media) {
+                    Some(mut img) => {
+                        img.src = Some(Raw::new(
+                            raw.xml.clone(),
+                            crate::ole::object_fingerprint(&img),
+                        ));
+                        run.content.push(RunContent::Image(Box::new(img)));
+                    }
+                    None => run.content.push(RunContent::Opaque(raw)),
+                }
+            }
             // §17.16.18 fldChar
             _ => {
                 let raw = capture(r, s, before)?;
@@ -1351,6 +1367,78 @@ fn diagram_drawing_part(ctx: &Ctx<'_>, dm: &str) -> Option<String> {
             }
             Event::Eof => return None,
             _ => {}
+        }
+    }
+}
+
+/// A `w:object` (§17.3.3.19) as a picture carrying its object (CORE-EMBED-001).
+fn ole_object(
+    xml: &str,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Option<Image> {
+    let rel = |id: &str| {
+        let r = ctx.rels.get(id)?;
+        Some(if r.mode == TargetMode::External {
+            (r.target.clone(), true)
+        } else {
+            (bo_opc::resolve_target(&ctx.part, &r.target), false)
+        })
+    };
+    let o = crate::ole::read(xml, &ctx.part, &rel)?;
+    let media_name = ctx.target(&o.preview_rid)?;
+    if !media.contains_key(&media_name) {
+        let data = ctx.pkg.part(&media_name)?.data.clone();
+        media.insert(media_name.clone(), Arc::new(data));
+    }
+    Some(Image {
+        media: media_name,
+        width: o.width,
+        height: o.height,
+        anchor: None,
+        crop: None,
+        rotation: 0,
+        description: String::new(),
+        shape: None,
+        format: None,
+        ole: Some(Box::new(o.ole)),
+        src: None,
+    })
+}
+
+/// Item of linked objects (§17.16.5.32 LINK field around the object): the field
+/// instruction before a linked object names its source item.
+fn link_items(runs: &mut [Run]) {
+    let mut instr = String::new();
+    for run in runs.iter_mut() {
+        for c in &mut run.content {
+            match c {
+                RunContent::Opaque(raw)
+                    if raw.xml.contains("fldChar") && raw.xml.contains("\"begin\"") =>
+                {
+                    instr.clear();
+                }
+                RunContent::Opaque(raw) if raw.xml.contains("instrText") => {
+                    instr.push_str(&instr_text(&raw.xml));
+                }
+                RunContent::Image(img) => {
+                    let Some(l) = img.ole.as_mut().and_then(|o| o.link.as_mut()) else {
+                        continue;
+                    };
+                    if let Some((_, file, item)) = bo_model::ole::parse_link_instr(&instr) {
+                        l.item = item;
+                        if l.source.is_empty() {
+                            l.source = file;
+                        }
+                        // The fingerprint follows the modelled object.
+                        let fp = crate::ole::object_fingerprint(img);
+                        if let Some(src) = img.src.as_mut() {
+                            src.fingerprint = fp;
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -1489,6 +1577,7 @@ fn drawing_shape(
             shape: Some(Box::new(shape)),
             format: None,
             src: None,
+            ole: None,
         }
     };
     if let Some(s) = img.shape.as_mut() {
@@ -1545,6 +1634,7 @@ fn read_drawing_frame(
         shape: None,
         format: None,
         src: None,
+        ole: None,
     };
     let mut anchor: Option<Anchor> = None;
     let mut in_polygon = false;

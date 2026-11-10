@@ -1223,6 +1223,11 @@ impl crate::Engine {
             let r = self.doc_custom_xml_command(xc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        // Embedded and linked workbooks (CORE-EMBED-001).
+        if let Some(oc) = crate::ole::OleCommand::parse(&v) {
+            let r = self.doc_ole_command(oc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         let cmd: Command =
             serde_json::from_value(v).map_err(|e| crate::EngineError::BadCommand(e.to_string()))?;
         let r = self.command_at(cmd, now.map(|ms| ms as i64))?;

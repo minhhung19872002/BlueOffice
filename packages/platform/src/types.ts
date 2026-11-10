@@ -614,6 +614,8 @@ export type EditCommand =
   | import('./security').SecurityCommand
   | import('./picture').PictureCommand
   | import('./customXml').CustomXmlCommand
+  /** Embedded / linked workbooks (CORE-EMBED-001). */
+  | import('./ole').OleCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   | { cmd: 'setSelection'; selection: Selection }
@@ -1005,6 +1007,10 @@ export interface EditResult {
   picture?: import('./picture').PictureInfo;
   /** Custom XML parts (`customXml*` commands, §15.2.4). */
   customXml?: import('./customXml').CustomXmlPartInfo[];
+  /** The embedded / linked object at the selection (`ole*` commands, CORE-EMBED-001). */
+  ole?: import('./ole').OleInfo;
+  /** Linked files (`oleLinks`). */
+  links?: import('./ole').OleLink[];
   /** Document outline (`outline` and outline commands). */
   outline?: OutlineItem[];
   /** Find results with context (`findResults`). */
@@ -1349,7 +1355,16 @@ export interface SlideGuide {
 export interface SlideShapeInfo {
   id: number;
   name: string;
-  kind: 'shape' | 'picture' | 'group' | 'connector' | 'table' | 'chart' | 'smartart' | 'graphic';
+  kind:
+    | 'shape'
+    | 'picture'
+    | 'group'
+    | 'connector'
+    | 'table'
+    | 'chart'
+    | 'smartart'
+    | 'object'
+    | 'graphic';
   rect: SlideBox;
   /** Text in the editing format: `\n` paragraphs, `\u000b` line breaks. */
   text: string | null;
@@ -1476,6 +1491,8 @@ export type SlideCommand =
   /** Slide masters, layouts, themes, slide size (SLIDE-MASTER-001). */
   | import('./slideMaster').SlideMasterCommand
   | import('./picture').PictureCommand
+  /** Embedded / linked workbooks (CORE-EMBED-001). */
+  | import('./ole').OleCommand
   /** Outline, notes page, notes / handout master views, sections (SLIDE-VIEW-001). */
   | import('./slideViews').SlideViewCommand
   /** Custom shows, show setup, timings, show links, kept ink (SLIDE-SHOW-001). */
@@ -2087,6 +2104,10 @@ export interface SlideEditResult {
   masterView?: import('./slideMaster').SlideMasterViewInfo;
   /** The selected picture (picture tools commands, CORE-PIC-001). */
   picture?: import('./picture').PictureInfo;
+  /** The selected embedded / linked object (`ole*` commands, CORE-EMBED-001). */
+  ole?: import('./ole').OleInfo;
+  /** Linked files (`oleLinks`). */
+  links?: import('./ole').OleLink[];
   /** Sections of the deck (absent without sections). */
   sections?: import('./slideViews').SlideSection[];
   /** The notes / handout master view's pane, while it is open. */

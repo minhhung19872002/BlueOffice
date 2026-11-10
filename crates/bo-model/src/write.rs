@@ -2067,6 +2067,9 @@ pub struct Image {
     /// Picture adjustments and crop shape (CORE-PIC-001).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<Box<crate::picture::PictureFormat>>,
+    /// Embedded or linked object this picture previews (`w:object`, CORE-EMBED-001).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ole: Option<Box<crate::ole::OleObject>>,
     /// Original `w:drawing` XML.
     #[serde(skip)]
     pub src: Option<Raw>,

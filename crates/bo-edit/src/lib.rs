@@ -24,6 +24,7 @@ mod inspect;
 pub mod lists;
 pub mod merge;
 mod moves;
+pub mod ole;
 mod ops;
 pub mod outline;
 pub mod page_layout;
@@ -3320,6 +3321,7 @@ impl Session {
                 shape: None,
                 format: None,
                 src: None,
+                ole: None,
             };
             let caret = tx.insert_atoms(at, vec![(props, RunContent::Image(Box::new(img)))])?;
             Ok(Selection::caret(caret))

@@ -181,6 +181,7 @@ fn new_line(media: &str, line: SignatureLine) -> Paragraph {
             ..Shape::default()
         })),
         src: None,
+        ole: None,
     };
     Paragraph::new(
         ParaProps::default(),

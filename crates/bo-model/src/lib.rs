@@ -14,6 +14,7 @@ pub mod custom_xml;
 pub mod field;
 pub mod form;
 pub mod index;
+pub mod ole;
 pub mod picture;
 pub mod run_fx;
 pub mod sheet;

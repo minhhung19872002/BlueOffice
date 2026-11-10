@@ -8,6 +8,7 @@
 
 mod custom_xml;
 mod forms;
+mod ole;
 mod picture;
 mod reader;
 mod shape;

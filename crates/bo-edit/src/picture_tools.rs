@@ -244,6 +244,7 @@ mod tests {
             shape: None,
             format: None,
             src: None,
+            ole: None,
         }
     }
 

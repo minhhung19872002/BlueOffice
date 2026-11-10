@@ -331,6 +331,12 @@
       "bodyText": "Make body text",
       "moveUp": "Move up",
       "moveDown": "Move down"
+    },
+    "object": {
+      "insert": "Workbook object",
+      "edit": "Edit embedded object",
+      "updateLinks": "Update links",
+      "saveCopy": "Save a copy of the embedded workbook"
     }
   },
   "status": {
@@ -5180,6 +5186,38 @@
       "titleRows": "Rows to repeat",
       "titleCols": "Columns to repeat",
       "ignorePrintArea": "Ignore print area"
+    }
+  },
+  "objectTools": {
+    "insertTitle": "Insert workbook object",
+    "editTitle": "Edit embedded workbook",
+    "newTable": "New empty workbook",
+    "fromFile": "From a workbook file (.xlsx)",
+    "browse": "Choose file…",
+    "noFile": "No file chosen",
+    "link": "Link to the file instead of embedding it",
+    "linkHint": "Linking to a file works in the desktop app only.",
+    "autoUpdate": "Update when the document opens",
+    "range": "Range to show (optional)",
+    "rangeHint": "Sheet1!A1:D10",
+    "addRow": "Add row",
+    "addColumn": "Add column",
+    "removeRow": "Remove row",
+    "removeColumn": "Remove column",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "cell": "Cell {{address}}",
+    "updated": "Updated {{count}} linked objects.",
+    "error": {
+      "noObject": "Select an embedded object first.",
+      "noLinks": "The document has no linked objects.",
+      "linksUnavailable": "Updating links reads the source files, so it works in the desktop app only.",
+      "linkMissing": "A linked source file could not be read.",
+      "linkedObject": "This object is linked to a file: edit the source file, then update links.",
+      "notWorkbook": "This object is not a workbook, so it cannot be edited here.",
+      "noData": "Choose a workbook file.",
+      "badRange": "The range is not valid.",
+      "noCells": "The table has no cells."
     }
   }
 }

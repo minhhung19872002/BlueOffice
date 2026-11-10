@@ -315,6 +315,7 @@ fn sample_doc() -> Document {
                 shape: None,
                 format: None,
                 src: None,
+                ole: None,
             }))],
         }],
     ));

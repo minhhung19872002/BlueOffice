@@ -31,7 +31,7 @@ pub fn esc(s: &str) -> String {
     o
 }
 
-fn parse(xml: &str) -> Option<XmlElement> {
+pub(super) fn parse(xml: &str) -> Option<XmlElement> {
     bo_drawingml::dom::parse(xml.as_bytes(), "/new").ok()
 }
 

@@ -331,6 +331,12 @@
       "bodyText": "Chuyển thành văn bản thường",
       "moveUp": "Đưa lên",
       "moveDown": "Đưa xuống"
+    },
+    "object": {
+      "insert": "Đối tượng sổ làm việc",
+      "edit": "Sửa đối tượng nhúng",
+      "updateLinks": "Cập nhật liên kết",
+      "saveCopy": "Lưu bản sao sổ làm việc nhúng"
     }
   },
   "status": {
@@ -5180,6 +5186,38 @@
       "titleRows": "Hàng lặp lại",
       "titleCols": "Cột lặp lại",
       "ignorePrintArea": "Bỏ qua vùng in"
+    }
+  },
+  "objectTools": {
+    "insertTitle": "Chèn đối tượng sổ làm việc",
+    "editTitle": "Sửa sổ làm việc nhúng",
+    "newTable": "Sổ làm việc mới (trống)",
+    "fromFile": "Từ tệp sổ làm việc (.xlsx)",
+    "browse": "Chọn tệp…",
+    "noFile": "Chưa chọn tệp",
+    "link": "Liên kết tới tệp thay vì nhúng",
+    "linkHint": "Liên kết tới tệp chỉ dùng được trong ứng dụng máy tính.",
+    "autoUpdate": "Tự cập nhật khi mở",
+    "range": "Vùng hiển thị (không bắt buộc)",
+    "rangeHint": "Sheet1!A1:D10",
+    "addRow": "Thêm hàng",
+    "addColumn": "Thêm cột",
+    "removeRow": "Bớt hàng",
+    "removeColumn": "Bớt cột",
+    "ok": "Đồng ý",
+    "cancel": "Hủy",
+    "cell": "Ô {{address}}",
+    "updated": "Đã cập nhật {{count}} đối tượng liên kết.",
+    "error": {
+      "noObject": "Hãy chọn một đối tượng nhúng trước.",
+      "noLinks": "Tài liệu không có đối tượng liên kết.",
+      "linksUnavailable": "Cập nhật liên kết cần đọc tệp nguồn nên chỉ có trong ứng dụng máy tính.",
+      "linkMissing": "Không đọc được một tệp nguồn của liên kết.",
+      "linkedObject": "Đối tượng này liên kết tới tệp: hãy sửa tệp nguồn rồi cập nhật liên kết.",
+      "notWorkbook": "Đối tượng này không phải sổ làm việc nên không sửa được ở đây.",
+      "noData": "Hãy chọn tệp sổ làm việc.",
+      "badRange": "Vùng không hợp lệ.",
+      "noCells": "Bảng không có ô nào."
     }
   }
 }

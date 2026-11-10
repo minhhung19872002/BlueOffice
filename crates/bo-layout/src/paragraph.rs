@@ -745,6 +745,7 @@ fn math_object(
         shape: None,
         format: None,
         src: None,
+        ole: None,
     };
     Some((
         image,

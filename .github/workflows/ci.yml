@@ -257,19 +257,29 @@ jobs:
           $driver = Join-Path $dir 'msedgedriver.exe'
           & $driver --version
           "MSEDGEDRIVER=$driver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - run: pnpm test:e2e:desktop
-        if: matrix.e2e
-      # On failure: does the app itself start and open its WebView2 debugging port?
+      # Does the app's WebView2 open the debugging port msedgedriver needs? (Edge policies,
+      # WEBVIEW2_* variables and the browser process command line.)
       - name: Desktop app start diagnostics
-        if: failure() && matrix.e2e
+        if: matrix.e2e
+        continue-on-error: true
         shell: pwsh
         run: |
+          foreach ($k in 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
+              'HKCU:\SOFTWARE\Policies\Microsoft\Edge', 'HKLM:\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge') {
+            if (Test-Path $k) {
+              Write-Host "== $k"; Get-ItemProperty $k | Out-String | Write-Host
+              Get-ChildItem $k -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  sub: $($_.Name)" }
+            }
+          }
+          Get-ChildItem env: | Where-Object Name -like 'WEBVIEW2*' | Out-String | Write-Host
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
-          $p = Start-Process target\release\bluedoc.exe -ArgumentList 'tests\corpus\doc\review-01-insert-delete.docx' -PassThru `
-            -RedirectStandardOutput "$env:RUNNER_TEMP\app.out" -RedirectStandardError "$env:RUNNER_TEMP\app.err"
+          $p = Start-Process target\release\bluedoc.exe -ArgumentList 'tests\corpus\doc\review-01-insert-delete.docx' -PassThru
           Start-Sleep 20
-          Write-Host "alive: $(-not $p.HasExited) exit: $($p.ExitCode)"
-          try { (Invoke-WebRequest http://127.0.0.1:9333/json/version -UseBasicParsing).Content } catch { Write-Host "no debugging port: $_" }
-          Get-Content "$env:RUNNER_TEMP\app.out", "$env:RUNNER_TEMP\app.err" -ErrorAction SilentlyContinue
-          Get-ChildItem "$env:LOCALAPPDATA\vn.bluestar.*" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 20 FullName
+          Write-Host "alive: $(-not $p.HasExited)"
+          try { (Invoke-WebRequest http://127.0.0.1:9333/json/version -UseBasicParsing).Content | Write-Host } catch { Write-Host "no debugging port: $_" }
+          $wv = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'bluedoc' }
+          $wv | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { Write-Host "browser: $($_.CommandLine)" }
+          $wv | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+      - run: pnpm test:e2e:desktop
+        if: matrix.e2e

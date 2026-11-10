@@ -34,6 +34,7 @@ pub mod outline;
 pub mod page_master;
 pub mod picture;
 pub mod present;
+pub mod record;
 pub mod rich;
 pub mod sections;
 pub mod show;
@@ -1244,6 +1245,9 @@ pub struct SlideEditResult {
     /// Ink of the current slide (answer of `inkInfo` / `addInk` / `eraseInk`, CORE-INK-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ink: Option<ink::InkOut>,
+    /// Recordings of the deck (answer of the recording commands, SLIDE-REC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recording: Option<record::RecordingOut>,
 }
 
 /// System clipboard content of a copy: plain text and a PNG (base64).
@@ -3522,6 +3526,14 @@ impl Engine {
             let r = self.slide_ink_command(ic)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
+        // Recorded slide shows (SLIDE-REC-001).
+        if let Some(rc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| record::RecordCommand::parse(&v))
+        {
+            let r = self.slide_record_command(rc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
         // Embedded and linked workbooks (CORE-EMBED-001).
         if let Some(oc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
@@ -4974,6 +4986,7 @@ impl Engine {
             outline: None,
             notes_pages: None,
             ink: None,
+            recording: None,
         })
     }
 }

@@ -352,7 +352,20 @@ fn add_rel(tx: &mut Tx<'_>, slide: usize, part: &str) -> R<String> {
 
 /// Add one stroke as a new ink object.
 pub fn cmd_add(tx: &mut Tx<'_>, sel: &mut SlideSel, s: &InkStrokeIn, name: &str) -> R<()> {
-    let slide = sel.slide;
+    add_stroke(tx, sel.slide, s, name, None)?;
+    sel.ids.clear();
+    Ok(())
+}
+
+/// Add one stroke as a new ink object on top of `slide` and return its shape id;
+/// `cnv_ext` (an `a:extLst`) goes into the object's `p14:cNvPr` (recording marker).
+pub fn add_stroke(
+    tx: &mut Tx<'_>,
+    slide: usize,
+    s: &InkStrokeIn,
+    name: &str,
+    cnv_ext: Option<&bo_model::slide::XmlElement>,
+) -> R<u32> {
     if slide >= tx.pres.slides.len() {
         return Err(OpError::NoSlide(slide).into());
     }
@@ -401,11 +414,35 @@ pub fn cmd_add(tx: &mut Tx<'_>, sel: &mut SlideSel, s: &InkStrokeIn, name: &str)
         (emu(size.0), emu(size.1)),
         &fallback,
     );
-    let node = build::node(&xml).ok_or(super::EditError::Refused("build"))?;
+    let mut node = build::node(&xml).ok_or(super::EditError::Refused("build"))?;
+    if let (Some(ext), ShapeNode::Other(el)) = (cnv_ext, &mut node) {
+        // §20.1.2.2.8 cNvPr content (hlinkClick, hlinkHover, extLst) of the content part.
+        if let Some(c) = first_mut(el, "cNvPr") {
+            c.children
+                .push(bo_model::slide::XmlNode::Element(ext.clone()));
+        }
+    }
     let at = tx.pres.slides[slide].data.shapes.len();
     tx.insert_nodes(slide, &[], at, vec![node])?;
-    sel.ids.clear();
-    Ok(())
+    Ok(id)
+}
+
+/// First descendant of `el` (depth first) with local name `local`.
+fn first_mut<'a>(
+    el: &'a mut bo_model::slide::XmlElement,
+    local: &str,
+) -> Option<&'a mut bo_model::slide::XmlElement> {
+    for c in &mut el.children {
+        if let bo_model::slide::XmlNode::Element(c) = c {
+            if c.local() == local {
+                return Some(c);
+            }
+            if let Some(f) = first_mut(c, local) {
+                return Some(f);
+            }
+        }
+    }
+    None
 }
 
 /// Distance from `p` to the segment `a`–`b`.

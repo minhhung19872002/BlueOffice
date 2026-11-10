@@ -184,6 +184,9 @@ pub struct MediaOut {
     pub link: Option<String>,
     /// How the clip plays (trim, fades, bookmarks, start, options, captions).
     pub playback: super::media_playback::MediaPlayback,
+    /// Narration / camera of a slide show recording (SLIDE-REC-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recorded: Option<super::record::RecKind>,
 }
 
 /// A top-level shape of a slide.

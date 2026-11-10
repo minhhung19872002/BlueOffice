@@ -113,6 +113,7 @@ pub fn media_out(pres: &Presentation, slide: usize) -> Vec<MediaOut> {
             mime,
             link: link.filter(|r| r.external).map(|r| r.target.clone()),
             playback,
+            recorded: super::record::picture_kind(pic),
         });
     }
     out

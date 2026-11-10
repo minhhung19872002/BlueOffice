@@ -6,6 +6,7 @@ using BlueOffice.Api.Collab;
 using BlueOffice.Api.Common;
 using BlueOffice.Api.Files;
 using BlueOffice.Api.Jobs;
+using BlueOffice.Api.Scripts;
 using BlueOffice.Api.Sessions;
 using BlueOffice.Api.Signing;
 using BlueOffice.Domain;
@@ -87,6 +88,15 @@ builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
     builder.Services.AddHostedService(sp => sp.GetRequiredService<CollabMaintenanceService>());
+}
+
+// Scheduled BlueScript runs (CORE-SCRIPT-002). With several api instances, enable the scheduler on one only.
+builder.Services.Configure<ScriptOptions>(config.GetSection("Scripts"));
+builder.Services.TryAddSingleton<IScriptRunner, UnavailableScriptRunner>();
+builder.Services.AddSingleton<ScriptScheduleWorker>();
+if (serveApi && config.GetValue("Scripts:SchedulerEnabled", true))
+{
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<ScriptScheduleWorker>());
 }
 
 builder.Services.Configure<WorkerOptions>(config.GetSection("Worker"));
@@ -176,6 +186,7 @@ app.MapPost("/api/convert/pdf", async (IFormFile file, IDocumentConverter conver
 app.MapFileEndpoints();
 app.MapJobEndpoints();
 app.MapSessionEndpoints();
+app.MapScriptScheduleEndpoints();
 app.MapHostBrowseEndpoints();
 app.MapRevocationProxy();
 

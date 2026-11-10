@@ -89,7 +89,7 @@ describe('BlueDoc recorder', () => {
     // Reading and navigation are not recorded.
     await ui.command({ cmd: 'state' });
     await ui.command({ cmd: 'find', query: 'x', options: {} });
-    const source = rec.stop();
+    const source = await rec.stop();
 
     expect(source).toContain('await doc.insertText("Hello ");');
     expect(source).toContain('await doc.format({"bold":true});');
@@ -125,7 +125,7 @@ describe('BlueDoc recorder', () => {
     await rec.start();
     await ui.command({ cmd: 'insertText', text: '!' });
     await rec.pause(() => ui.command({ cmd: 'insertText', text: '?' }));
-    const source = rec.stop();
+    const source = await rec.stop();
     expect(source).toBe('await doc.select(0, 3, 3);\nawait doc.insertText("!");');
   });
 });
@@ -175,7 +175,7 @@ describe('BlueSheet recorder', () => {
     });
     await ui.exec({ cmd: 'merge', sheet: 0, range: { r0: 3, c0: 0, r1: 3, c1: 2 }, center: true });
     await ui.exec({ cmd: 'charts', sheet: 0 });
-    const source = rec.stop();
+    const source = await rec.stop();
     expect(source).toContain('await (await workbook.sheet(0)).range("A1").setValues([["Tên"]]);');
     expect(source).toContain('range("A2:B3").setValues([["a","2"],["b","=B1*2"]]);');
     expect(source).toContain('range("A1:B1").format({"bold":true,"fillColor":"#FFFF00"});');
@@ -217,7 +217,7 @@ describe('BlueSlide recorder', () => {
     await ui.slideCommand({ cmd: 'setLine', color: 'C00000', width: 2 });
     await ui.slideCommand({ cmd: 'goTo', slide: 0 });
     await ui.slideCommand({ cmd: 'addSlide', after: 0 });
-    const source = rec.stop();
+    const source = await rec.stop();
     expect(source).toContain(`find((s) => s.id === ${first!.id})?.setFill("#00B050");`);
     expect(source).toContain(`find((s) => s.id === ${first!.id})?.move(`);
     expect(source).toContain(`find((s) => s.id === ${first!.id})?.setText("Hi");`);

@@ -79,6 +79,7 @@ public sealed class CollabPersistenceTests
             var db = scope.ServiceProvider.GetRequiredService<BlueOfficeDbContext>().Database;
             await db.ExecuteSqlRawAsync("DROP TABLE \"CollabLog\"");
             await db.ExecuteSqlRawAsync("DROP TABLE \"__EFMigrationsHistory\"");
+            await db.ExecuteSqlRawAsync("DROP TABLE \"ScriptSchedules\"");
         }
 
         using var second = new TestApp(dataDir: dir);

@@ -291,8 +291,28 @@ export class ScriptRecorder {
     }
   }
 
+  /**
+   * Waits for the editor's queued commands (keys typed just before Stop); set by
+   * an editor whose commands go through a queue.
+   */
+  private settle: (() => Promise<unknown>) | null = null;
+
+  /** Sets the wait for the editor's command queue; returns the function that removes it. */
+  setSettle(fn: () => Promise<unknown>): () => void {
+    this.settle = fn;
+    return () => {
+      if (this.settle === fn) this.settle = null;
+    };
+  }
+
   /** Stops recording; resolves to the script source (empty when nothing was recorded). */
-  stop(): string {
+  async stop(): Promise<string> {
+    if (!this.on) return this.result ?? '';
+    try {
+      await this.settle?.();
+    } catch {
+      // the queue failed: stop with what was recorded
+    }
     if (!this.on) return this.result ?? '';
     this.flush();
     this.on = false;

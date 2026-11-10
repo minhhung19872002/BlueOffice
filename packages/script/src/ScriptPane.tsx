@@ -192,7 +192,7 @@ export function ScriptPane({
 
   const toggleRecording = () => {
     if (!recorder) return;
-    if (recorder.recording) recorder.stop();
+    if (recorder.recording) void recorder.stop();
     else {
       if (!host()) {
         push('error', t('script.noDocument'));

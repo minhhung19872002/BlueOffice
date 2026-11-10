@@ -1,7 +1,7 @@
 # ADR-0012: BlueScript chạy trong QuickJS (WASM) trong một Web Worker riêng; script lưu theo người dùng
 
 - Trạng thái: Chấp nhận · Ngày: 2026-11-10
-- Liên quan: parity CORE-SCRIPT-001 (CORE-SCRIPT-002: ghi thao tác, nút/phím tắt, chạy theo lịch — chưa làm);
+- Liên quan: parity CORE-SCRIPT-001 (CORE-SCRIPT-002: ghi thao tác, nút/phím tắt, lưu lịch chạy — mục 8–10);
   `packages/script`; ADR-0008 (cầu lệnh JSON).
 
 ## Bối cảnh
@@ -38,7 +38,20 @@ hay trong một Web Worker thường, vẫn để lộ `fetch`, `postMessage`, `
    chưa được bóc (không đóng gói trình biên dịch TypeScript ~9 MB).
 7. **VBA** vẫn không bao giờ chạy (không đổi).
 8. **Recorder (CORE-SCRIPT-002)**: mỗi hàm API là đúng một lệnh gọi `method(...args)` JSON, nên bộ ghi chỉ cần quan
-   sát các lệnh gọi rồi sinh mã bằng `callToSource`.
+   sát các lệnh gọi rồi sinh mã bằng `callToSource`. `ScriptRecorder` bọc đúng các lệnh UI gửi (`recordEngine` cho
+   `EngineHost.command` / `slideCommand`, `recordSheetHost` cho `SheetHost`, như `packages/hosted` theo dõi dirty), dịch
+   lệnh sửa sang API (gõ liên tiếp → một `insertText`, Enter = `\n`, Backspace bỏ ký tự vừa gõ; định dạng → `format`;
+   ô → `range().setValues/format`; hình → `setText/setFill/setLine/move`), còn lại → `command({…})`. Lệnh chọn /
+   di chuyển không ghi nguyên văn: bộ ghi giữ vùng chọn của người dùng và của bản chạy lại, chỉ phát `select` (hoặc
+   `goTo`/`select` trên slide) khi một thao tác cần. Lệnh do script chạy không bị ghi (`pause`).
+9. **Gán script (CORE-SCRIPT-002)**: `SavedScript.shortcut` / `quickAccess` lưu cùng script (theo người dùng); mỗi
+   script được gán là lệnh `script.run.<id>` trong `CommandRegistry` (trùng phím tắt bị từ chối, cần Ctrl/Alt hoặc
+   F1–F12).
+10. **Chạy theo lịch (server)**: `ScriptSchedule` (EF, cả hai provider) + `/api/sessions/{id}/schedules` lưu bản sao
+   một script đã lưu của người dùng với biểu thức cron 5 trường (UTC); `ScriptScheduleWorker` chạy lịch đến hạn qua
+   `IScriptRunner`. Server chỉ có worker bo-cli (không có JavaScript), nên bộ chạy mặc định
+   `UnavailableScriptRunner` ghi `lastStatus = unavailable`; bộ chạy headless thật (QuickJS trong bo-cli hoặc tiến
+   trình Node cách ly) để sau. Script nhúng trong tài liệu không bao giờ được lập lịch hay tự chạy.
 
 ## Hệ quả
 - Gói `@blueoffice/script` (~650 KB WASM, tải lười trong worker khi chạy lần đầu).

@@ -423,6 +423,12 @@ function EditorInner({
     readAloudRef.current = readAloud;
   });
   const controller = useRef<DocController | null>(null);
+  // Stop recording waits for keys typed just before it (queued in the controller).
+  useEffect(
+    () =>
+      recorder.setSettle(() => controller.current?.query({ cmd: 'state' }) ?? Promise.resolve()),
+    [recorder],
+  );
   const stored = useRef<StoredDocument | null>(null);
   /** Bytes of the opened file (its digital signatures are verified on them). */
   const openedBytes = useRef<Uint8Array | null>(null);
@@ -2233,7 +2239,7 @@ function EditorInner({
           view.current?.focus();
           return;
         }
-        recorder.stop();
+        await recorder.stop();
         if (!s.taskPanes.includes('script')) {
           store.setState({ taskPanes: togglePane(s.taskPanes, 'script') });
         }

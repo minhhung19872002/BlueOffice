@@ -299,7 +299,7 @@ public static class SessionEndpoints
         await rooms.RunConnectionAsync(s, socket, ctx.RequestAborted);
     }
 
-    private static EditorSession Require(string id, HttpRequest req, SessionStore store, TimeProvider time) =>
+    internal static EditorSession Require(string id, HttpRequest req, SessionStore store, TimeProvider time) =>
         store.Get(id, req.Headers[TokenHeader], time.GetUtcNow().UtcDateTime)
         ?? throw (MisdirectedTo(id, req) is { } owner
             ? new ApiException(StatusCodes.Status421MisdirectedRequest, $"Session belongs to instance '{owner}'.")
@@ -320,7 +320,7 @@ public static class SessionEndpoints
         return owner == self ? null : owner;
     }
 
-    private static EditorSession RequireEdit(string id, HttpRequest req, SessionStore store, TimeProvider time)
+    internal static EditorSession RequireEdit(string id, HttpRequest req, SessionStore store, TimeProvider time)
     {
         var s = Require(id, req, store, time);
         return s.Permissions.Edit ? s : throw ApiException.Forbidden("Edit permission required.");

@@ -2153,7 +2153,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           await recorder.start();
           return;
         }
-        recorder.stop();
+        await recorder.stop();
         setScriptOpen(true);
       },
       { ...has, isChecked: () => recorder.recording },

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { createI18n, I18nextProvider } from '@blueoffice/i18n';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ScriptHost } from '../src/host';
@@ -110,11 +110,9 @@ describe('ScriptPane', () => {
     await waitFor(() => expect(rec.recording).toBe(true));
     expect(screen.getByTestId('script-recording')).toBeTruthy();
     rec.sheetInputs(0, [[1, 2, 'x']]);
-    act(() => {
-      fireEvent.click(screen.getByTestId('script-record'));
-    });
+    fireEvent.click(screen.getByTestId('script-record'));
     const code = screen.getByTestId('script-code') as HTMLTextAreaElement;
-    expect(code.value).toContain('range("C2").setValues([["x"]]);');
+    await waitFor(() => expect(code.value).toContain('range("C2").setValues([["x"]]);'));
     expect(screen.queryByTestId('script-recording')).toBeNull();
 
     fireEvent.click(screen.getByTestId('script-save'));

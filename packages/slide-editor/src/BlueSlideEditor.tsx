@@ -629,6 +629,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   }, []);
 
   const ctrl = useMemo(() => new SlideController(engine, apply, fail), [engine, apply, fail]);
+  // Stop recording waits for queued commands (CORE-SCRIPT-002).
+  useEffect(() => recorder.setSettle(() => ctrl.idle()), [recorder, ctrl]);
 
   // The engine ended text editing (other command, slide change): close the editor.
   useEffect(() => {
@@ -1884,7 +1886,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           await recorder.start();
           return;
         }
-        recorder.stop();
+        await recorder.stop();
         setScriptOpen(true);
       },
     });

@@ -6,6 +6,7 @@ import {
   useFileProtection,
   MacroBanner,
   PasswordDialog,
+  PdfExportDialog,
   SaveAsTypeDialog,
   SavePasswordPanel,
   SymbolPanel,
@@ -509,6 +510,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   } | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportDocsOpen, setExportDocsOpen] = useState(false);
+  /** PDF/A, tagged PDF and bookmarks dialog (CORE-FMT-002). */
+  const [pdfOptionsOpen, setPdfOptionsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   const [sortFrom, setSortFrom] = useState<number | null>(null);
@@ -1438,6 +1441,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: () => setVideoOpen(true),
     });
     reg.register({ id: 'file.exportDocs', isEnabled: deck, run: () => setExportDocsOpen(true) });
+    reg.register({
+      id: 'file.exportPdfOptions',
+      isEnabled: (s) => deck(s) && !!engine.exportSlides,
+      run: () => setPdfOptionsOpen(true),
+    });
     for (const v of ['normal', 'sorter', 'reading', 'outline', 'notesPage'] as const) {
       reg.register({
         id: `view.${v}`,
@@ -2165,6 +2173,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('file.exportPng', t('slideEditor.exportPng'), <FileImage size={16} />, sm),
               item('file.exportVideo', t('slideEditor.exportVideo'), <Film size={16} />, sm),
               item('file.exportDocs', t('slideExport.title'), <FileStack size={16} />, sm),
+              item(
+                'file.exportPdfOptions',
+                t('commands.file.exportPdfOptions'),
+                <FileDown size={16} />,
+                sm,
+              ),
               item('file.print', t('slideEditor.print'), <Printer size={16} />, sm),
             ],
           },
@@ -3537,6 +3551,28 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           video={platform.video}
           onClose={() => setVideoOpen(false)}
           run={exportVideo}
+        />
+      )}
+      {pdfOptionsOpen && (
+        <PdfExportDialog
+          app="slide"
+          onClose={() => setPdfOptionsOpen(false)}
+          onExport={(c) => {
+            void (async () => {
+              setExporting(true);
+              try {
+                if (!engine.exportSlides) throw new Error(t('slideExport.unsupported'));
+                await ctrl.idle();
+                const bytes = await engine.exportSlides(c);
+                await platform.files.saveFile(bytes, `${baseName()}.pdf`, 'application/pdf');
+                setStatus(t('slideExport.done'));
+              } catch (e) {
+                fail(e);
+              } finally {
+                setExporting(false);
+              }
+            })();
+          }}
         />
       )}
       {exportDocsOpen && (

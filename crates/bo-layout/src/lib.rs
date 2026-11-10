@@ -45,7 +45,7 @@ pub use math::{layout_equation, EquationGlyphs, EquationRun};
 pub use page::{border_items, border_lines, border_width, ArtMotif};
 pub use paragraph::{FieldContext, LayoutCache};
 pub use sigline::signature_line_page;
-pub use style::author_color;
+pub use style::{author_color, para_props};
 pub use types::{
     Fragment, GlyphPos, Layer, LayoutDocument, Line, LineRotation, LineSource, NoteKey, Page,
     PageDecor, PageItem, PathCmd, ShapePath, SharedStr,

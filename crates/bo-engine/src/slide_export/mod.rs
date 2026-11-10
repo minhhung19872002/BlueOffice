@@ -165,6 +165,10 @@ pub enum SlideExport {
     Image(ImageOptions),
     /// Zip of the deck, its media clips and embeddable fonts.
     Package,
+    /// The open document or deck as PDF with PDF/A, tagged-PDF and bookmark
+    /// choices (`{"kind":"pdf","pdfa":"2b","tagged":true,"bookmarks":true}`,
+    /// CORE-FMT-002).
+    Pdf(bo_pdf::ExportChoices),
 }
 
 /// Thin black outline of a rectangle.
@@ -424,6 +428,7 @@ impl Engine {
             }
             SlideExport::Image(o) => self.export_images(o),
             SlideExport::Package => package::build(self),
+            SlideExport::Pdf(c) => self.export_pdf_with(c),
         }
     }
 

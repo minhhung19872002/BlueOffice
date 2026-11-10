@@ -15,8 +15,10 @@ subsetter.workspace = true
 miniz_oxide = "0.8"
 thiserror.workspace = true
 png.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 png.workspace = true
 
 [lints]

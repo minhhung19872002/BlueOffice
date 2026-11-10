@@ -7,6 +7,7 @@
 //! bo-cli convert book.xls --to csv|ods [--sheet 1]  # also .xlsb / .ods input
 //! bo-cli convert deck.ppt --to odp|txt              # also .odp input
 //! bo-cli convert deck.pptx --to gif                 # slide show as an animated GIF
+//! bo-cli convert in.docx|deck.pptx|book.xlsx --to pdf --pdfa 1b|2b|3b --tagged --bookmarks
 //! bo-cli convert deck.pptx --to pdf --handout 6 [--vertical] [--letter] | --notes-pages
 //! bo-cli convert deck.pptx --to png|jpg|svg [--width 1280] [--slide 1]   # zip of all slides without --slide
 //! bo-cli convert deck.pptx --to zip                  # presentation package (deck, media, OFL fonts)
@@ -90,6 +91,8 @@ enum Cmd {
         sheet: usize,
         #[command(flatten)]
         deck: DeckExportArgs,
+        #[command(flatten)]
+        pdf: PdfExportArgs,
     },
     /// Digitally sign a PDF (PAdES B-B/B-T) or .docx/.xlsx/.pptx (ECMA-376 Part 2 §12,
     /// XAdES) with a PEM key + certificate, a .p12 file or a remote signing service.
@@ -318,6 +321,36 @@ struct DeckExportArgs {
     slide: Option<usize>,
 }
 
+/// PDF/A, tagged PDF and bookmarks of `convert --to pdf` (CORE-FMT-002).
+#[derive(clap::Args, Debug, Default)]
+struct PdfExportArgs {
+    /// --to pdf: PDF/A conformance (ISO 19005), `1b`, `2b` or `3b` (3b embeds the source file).
+    #[arg(long, value_parser = ["1b", "2b", "3b"])]
+    pdfa: Option<String>,
+    /// --to pdf: tagged PDF (logical structure, ISO 32000-1 §14.8).
+    #[arg(long)]
+    tagged: bool,
+    /// --to pdf: bookmarks from headings (BlueDoc), slide titles or sheet names.
+    #[arg(long)]
+    bookmarks: bool,
+}
+
+impl PdfExportArgs {
+    fn choices(&self) -> Result<bo_pdf::ExportChoices, Box<dyn std::error::Error>> {
+        let pdfa = match &self.pdfa {
+            Some(p) => {
+                Some(bo_pdf::PdfA::parse(p).ok_or_else(|| format!("unknown PDF/A part {p}"))?)
+            }
+            None => None,
+        };
+        Ok(bo_pdf::ExportChoices {
+            pdfa,
+            tagged: self.tagged,
+            bookmarks: self.bookmarks,
+        })
+    }
+}
+
 /// Exported bytes and the output file extension.
 type Exported = Option<(Vec<u8>, String)>;
 
@@ -465,6 +498,7 @@ fn run(cli: Cli) -> R {
             protect,
             sheet,
             deck,
+            pdf,
         } => run_convert(
             &input,
             &to,
@@ -473,6 +507,7 @@ fn run(cli: Cli) -> R {
             protect.as_deref(),
             sheet,
             &deck,
+            &pdf.choices()?,
         )?,
         Cmd::Sign {
             input,
@@ -640,6 +675,7 @@ fn run(cli: Cli) -> R {
                     None,
                     0,
                     &DeckExportArgs::default(),
+                    &bo_pdf::ExportChoices::default(),
                 )?;
             } else {
                 let engine = open(&input)?;
@@ -789,7 +825,12 @@ fn run_convert(
     protect: Option<&str>,
     sheet: usize,
     deck: &DeckExportArgs,
+    pdf: &bo_pdf::ExportChoices,
 ) -> R {
+    let plain = *pdf == bo_pdf::ExportChoices::default();
+    if !plain && to != "pdf" {
+        return Err("--pdfa, --tagged and --bookmarks need --to pdf".into());
+    }
     use convert::Loaded;
     let bytes = std::fs::read(input).map_err(|e| format!("{}: {e}", input.display()))?;
     let name = input
@@ -800,7 +841,12 @@ fn run_convert(
     let lower = name.to_ascii_lowercase();
     if to == "pdf" && (lower.ends_with(".txt") || lower.ends_with(".md")) {
         // Plain text is not a package: the engine reads it as paragraphs.
-        let data = open(input)?.export_pdf()?;
+        let engine = open(input)?;
+        let data = if plain {
+            engine.export_pdf()?
+        } else {
+            engine.export_pdf_with(pdf)?
+        };
         let out = out.unwrap_or_else(|| input.with_extension("pdf"));
         write_file(&out, &data)?;
         println!("{} ({} bytes)", out.display(), data.len());
@@ -834,7 +880,11 @@ fn run_convert(
         (Loaded::Document { doc, .. }, "pdf") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.load(doc, &name)?;
-            engine.export_pdf()?
+            if plain {
+                engine.export_pdf()?
+            } else {
+                engine.export_pdf_with(pdf)?
+            }
         }
         (Loaded::Document { doc, source }, "docx") => {
             let (docx, carried) = convert::document_to_docx(&doc, source.as_ref())?;
@@ -869,7 +919,8 @@ fn run_convert(
                     out_ext = ext;
                     data
                 }
-                None => engine.export_pdf()?,
+                None if plain => engine.export_pdf()?,
+                None => engine.export_pdf_with(pdf)?,
             }
         }
         (Loaded::Pptx(b), "pptx") => {
@@ -878,7 +929,7 @@ fn run_convert(
             engine.save_pptx()?
         }
         // Spreadsheets through the BlueSheet engine (xls/xlsb/ods are converted).
-        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf") => sheet_convert(&b, &name, to, sheet)?,
+        (Loaded::Xlsx(b), "xlsx" | "csv" | "pdf") => sheet_convert(&b, &name, to, sheet, pdf)?,
         (Loaded::Xlsx(b), "ods") => {
             let mut engine = bo_engine::SheetEngine::new();
             engine.open(&b, &name)?;
@@ -886,7 +937,7 @@ fn run_convert(
             bo_odf::write_ods(&convert::model_to_ods(wb))?
         }
         (Loaded::Workbook(_) | Loaded::Spreadsheet(_), "xlsx" | "pdf") => {
-            sheet_convert(&bytes, &name, to, sheet)?
+            sheet_convert(&bytes, &name, to, sheet, pdf)?
         }
         // .ppt / .odp decks with their drawing, through the BlueSlide engine.
         (Loaded::Deck(_), "pptx" | "pdf" | "png" | "jpg" | "svg" | "zip") => {
@@ -897,7 +948,8 @@ fn run_convert(
                     out_ext = ext;
                     data
                 }
-                None if to == "pdf" => engine.export_pdf()?,
+                None if to == "pdf" && plain => engine.export_pdf()?,
+                None if to == "pdf" => engine.export_pdf_with(pdf)?,
                 None => engine.save_pptx()?,
             }
         }
@@ -1100,11 +1152,13 @@ fn sheet_convert(
     name: &str,
     to: &str,
     sheet: usize,
+    pdf: &bo_pdf::ExportChoices,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut engine = bo_engine::SheetEngine::with_bundled_fonts();
     engine.open(bytes, name)?;
     Ok(match to {
-        "pdf" => engine.export_pdf()?,
+        "pdf" if *pdf == bo_pdf::ExportChoices::default() => engine.export_pdf()?,
+        "pdf" => engine.export_pdf_with(pdf)?,
         fmt => engine.save(fmt, sheet.saturating_sub(1))?,
     })
 }

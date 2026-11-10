@@ -91,6 +91,7 @@ export interface EditorState {
     | 'columns'
     | 'lineNumbers'
     | 'hyphenation'
+    | 'pdfExport'
     | 'textDirection'
     | 'dropCap'
     | 'fontEffects'

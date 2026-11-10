@@ -4,15 +4,31 @@
 //! encoding, subsetted with `subsetter`. A `ToUnicode` CMap built from the
 //! glyph clusters keeps the text searchable and copyable.
 //! Reference: ISO 32000-1:2008 §9.7 (Composite fonts), §9.10.3 (ToUnicode).
+//!
+//! [`write_pdf_with_options`] adds PDF/A level B conformance (ISO 19005-1/-2/-3),
+//! the logical structure of tagged PDF (§14.7–14.8), bookmarks (§12.3.3) and
+//! associated files.
 #![forbid(unsafe_code)]
+
+mod icc;
+mod options;
+pub mod probe;
+mod tags;
+mod xmp;
+
+pub use icc::{srgb_profile, SRGB_DESCRIPTION};
+pub use options::{
+    Attachment, Bookmark, ExportChoices, PdfA, PdfDate, PdfOptions, Role, StructKid, StructNode,
+};
+pub use tags::{auto_grid, auto_paragraphs};
 
 use bo_render::{Command, DisplayList, GradientStop, ImageSource, Paint, PathSeg, Rgba, Stroke};
 use bo_text::{FaceId, FontManager};
 use pdf_writer::types::{
-    CidFontType, FontFlags, FunctionShadingType, LineCapStyle, LineJoinStyle, SystemInfo,
-    UnicodeCmap,
+    AssociationKind, CidFontType, FontFlags, FunctionShadingType, LineCapStyle, LineJoinStyle,
+    OutputIntentSubtype, PageMode, SystemInfo, UnicodeCmap,
 };
-use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
+use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use std::collections::{BTreeMap, HashMap};
 
 /// PDF export errors.
@@ -21,6 +37,9 @@ pub enum PdfError {
     /// Subsetting the font with the given face id failed.
     #[error("font subsetting failed for face {0}: {1}")]
     Subset(u32, String),
+    /// The requested PDF/A part cannot hold the requested content.
+    #[error("PDF/A: {0}")]
+    Conformance(String),
 }
 
 /// Metadata written to the document information dictionary.
@@ -29,6 +48,9 @@ pub struct PdfMeta {
     /// `/Title` entry.
     pub title: Option<String>,
 }
+
+/// Producer written to `/Producer` and `pdf:Producer`.
+const PRODUCER: &str = "BlueOffice";
 
 struct FontUse {
     remapper: subsetter::GlyphRemapper,
@@ -58,7 +80,37 @@ pub fn write_pdf_with_images(
     meta: &PdfMeta,
     images: &dyn ImageSource,
 ) -> Result<Vec<u8>, PdfError> {
+    write_pdf_with_options(list, fonts, meta, images, &PdfOptions::default())
+}
+
+/// Write the display list as PDF with the PDF/A, structure, bookmark and
+/// attachment choices of `opts`.
+#[allow(clippy::too_many_lines)]
+pub fn write_pdf_with_options(
+    list: &DisplayList,
+    fonts: &FontManager,
+    meta: &PdfMeta,
+    images: &dyn ImageSource,
+    opts: &PdfOptions,
+) -> Result<Vec<u8>, PdfError> {
+    if let Some(a) = opts.pdfa {
+        if !opts.attachments.is_empty() && !a.allows_attachments() {
+            // ISO 19005-1 §6.1.11 forbids embedded files; ISO 19005-2 §6.8 allows
+            // only PDF/A files.
+            return Err(PdfError::Conformance(format!(
+                "PDF/A-{}b cannot embed the source file; use PDF/A-3b",
+                a.part()
+            )));
+        }
+    }
+    let pdfa = opts.pdfa;
+    // ISO 19005-1 §6.4: no transparency in PDF/A-1 — it is flattened over white.
+    let flatten = pdfa == Some(PdfA::A1b);
     let mut pdf = Pdf::new();
+    // ISO 19005-1 is based on PDF 1.4.
+    if flatten {
+        pdf.set_version(1, 4);
+    }
     let mut next = 1;
     let mut alloc = || {
         let r = Ref::new(next);
@@ -111,21 +163,36 @@ pub fn write_pdf_with_images(
     for f in &face_order {
         uses.get_mut(f).expect("face registered").font_ref = alloc();
     }
+    let prepared = opts
+        .structure
+        .as_ref()
+        .map(|n| tags::prepare(n, list, &mut alloc));
+    let mut id_hash = IdHash::new();
 
     // Pages.
     let mut page_ids = Vec::new();
     let mut image_refs: HashMap<String, Option<Ref>> = HashMap::new();
     let mut alpha_refs: BTreeMap<u8, Ref> = BTreeMap::new();
-    for page in &list.pages {
+    let no_marks = Vec::new();
+    for (page_index, page) in list.pages.iter().enumerate() {
         let page_id = alloc();
         let content_id = alloc();
         page_ids.push(page_id);
         let h = page.height;
         let mut c = Content::new();
         let mut used_fonts: Vec<u32> = Vec::new();
-        let mut res = PageRes::default();
+        let mut res = PageRes {
+            flatten,
+            ..PageRes::default()
+        };
         let mut pending: Vec<PendingShading> = Vec::new();
-        for cmd in &page.commands {
+        let mut marker = prepared
+            .as_ref()
+            .map(|p| tags::Marker::new(p.marks.get(page_index).unwrap_or(&no_marks)));
+        for (cmd_index, cmd) in page.commands.iter().enumerate() {
+            if let Some(m) = marker.as_mut() {
+                m.before(&mut c, cmd_index);
+            }
             match cmd {
                 Command::FillRect {
                     x,
@@ -134,7 +201,8 @@ pub fn write_pdf_with_images(
                     h: rh,
                     color,
                 } => {
-                    set_fill(&mut c, *color);
+                    let color = res.mix(*color, false);
+                    set_fill(&mut c, color);
                     c.rect(*x, h - y - rh, *w, *rh);
                     c.fill_nonzero();
                 }
@@ -147,6 +215,7 @@ pub fn write_pdf_with_images(
                     color,
                     dash,
                 } => {
+                    let color = res.mix(*color, false);
                     c.set_stroke_rgb(
                         f32::from(color.0) / 255.0,
                         f32::from(color.1) / 255.0,
@@ -178,12 +247,16 @@ pub fn write_pdf_with_images(
                     }
                     c.save_state();
                     use_alpha(&mut c, &mut res, color.3);
-                    set_fill(&mut c, *color);
+                    set_fill(&mut c, res.mix(*color, true));
                     c.begin_text();
                     let name = format!("F{face}");
                     c.set_font(Name(name.as_bytes()), *size);
                     for g in glyphs {
                         let new = u.remapper.get(g.0).unwrap_or(0);
+                        // ISO 19005-2 §6.2.11.8: no references to the .notdef glyph.
+                        if pdfa.is_some() && g.0 == 0 {
+                            continue;
+                        }
                         c.set_text_matrix([1.0, 0.0, 0.0, 1.0, x + g.1, h - (y + g.2)]);
                         c.show(Str(&new.to_be_bytes()));
                     }
@@ -192,30 +265,36 @@ pub fn write_pdf_with_images(
                 }
                 Command::PushClip { x, y, w, h: rh } => {
                     c.save_state();
+                    res.groups.push(1.0);
                     c.rect(*x, h - y - rh, *w, *rh);
                     c.clip_nonzero();
                     c.end_path();
                 }
                 Command::PopClip | Command::PopTransform | Command::PopOpacity => {
+                    res.groups.pop();
                     c.restore_state();
                 }
                 Command::PushTransform { m } => {
                     c.save_state();
+                    res.groups.push(1.0);
                     c.transform(flip_matrix(*m, h));
                 }
                 Command::PushClipPath { segs } => {
                     c.save_state();
+                    res.groups.push(1.0);
                     emit_path(&mut c, segs, h);
                     c.clip_nonzero();
                     c.end_path();
                 }
                 Command::PushOpacity { alpha } => {
                     c.save_state();
-                    use_alpha(
-                        &mut c,
-                        &mut res,
-                        (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
-                    );
+                    let a = alpha.clamp(0.0, 1.0);
+                    res.groups.push(a);
+                    use_alpha(&mut c, &mut res, (a * 255.0).round() as u8);
+                }
+                Command::BlurPath { .. } if flatten => {
+                    // ISO 19005-1 §6.4: soft masks are not allowed; soft shadows and
+                    // glows are left out of PDF/A-1 files.
                 }
                 Command::BlurPath {
                     segs,
@@ -256,18 +335,36 @@ pub fn write_pdf_with_images(
                     crop,
                     rotation,
                 } => {
-                    let r = if let Some(r) = image_refs.get(image) {
+                    // PDF/A-1: pictures under an opacity group are flattened per opacity.
+                    let group = if flatten {
+                        (res.group_alpha() * 255.0).round() as u8
+                    } else {
+                        255
+                    };
+                    let key = if group == 255 {
+                        image.clone()
+                    } else {
+                        format!("{image}\u{0}{group}")
+                    };
+                    let r = if let Some(r) = image_refs.get(&key) {
                         *r
                     } else {
                         // Derived ids (`media#fx:…`) resolve to the adjusted picture (CORE-PIC-001).
                         let r = bo_raster::picfx::resolve(images, image)
-                            .and_then(|b| load_image(&b))
+                            .and_then(|b| {
+                                let img = load_image(&b)?;
+                                Some(if pdfa.is_some() {
+                                    conform_image(img, &b, flatten, group)
+                                } else {
+                                    img
+                                })
+                            })
                             .map(|img| {
                                 let id = alloc();
                                 write_image(&mut pdf, &mut alloc, id, &img);
                                 id
                             });
-                        image_refs.insert(image.clone(), r);
+                        image_refs.insert(key, r);
                         r
                     };
                     let Some(r) = r else {
@@ -296,12 +393,24 @@ pub fn write_pdf_with_images(
                 alpha_refs.insert(*a, id);
             }
         }
-        let data = compress(&c.finish());
+        if let Some(m) = marker.as_mut() {
+            m.close(&mut c);
+        }
+        let raw = c.finish();
+        id_hash.update(&raw);
+        let data = compress(&raw);
         pdf.stream(content_id, &data).filter(Filter::FlateDecode);
         let mut p = pdf.page(page_id);
         p.media_box(Rect::new(0.0, 0.0, page.width, page.height));
         p.parent(pages_id);
         p.contents(content_id);
+        if prepared
+            .as_ref()
+            .is_some_and(|s| s.page_has_marks(page_index))
+        {
+            // §14.7.4.4: key of the page's entry in the parent tree.
+            p.struct_parents(page_index as i32);
+        }
         let mut resources = p.resources();
         let mut fdict = resources.fonts();
         for f in &used_fonts {
@@ -394,8 +503,19 @@ pub fn write_pdf_with_images(
         if info.italic {
             flags |= FontFlags::ITALIC;
         }
-        pdf.font_descriptor(desc_id)
-            .name(Name(base.as_bytes()))
+        // ISO 19005-1 §6.3.5: a CIDFont subset lists the CIDs it holds in CIDSet
+        // (CIDs are the consecutive new glyph ids 0..n here).
+        let cid_set = flatten.then(|| {
+            let id = alloc();
+            let mut bits = vec![0_u8; widths.len().div_ceil(8)];
+            for i in 0..widths.len() {
+                bits[i / 8] |= 0x80 >> (i % 8);
+            }
+            pdf.stream(id, &bits);
+            id
+        });
+        let mut fd = pdf.font_descriptor(desc_id);
+        fd.name(Name(base.as_bytes()))
             .flags(flags)
             .bbox(bbox)
             .italic_angle(if info.italic { -12.0 } else { 0.0 })
@@ -404,6 +524,10 @@ pub fn write_pdf_with_images(
             .cap_height(to_pdf(f32::from(info.ascender)) * 0.7)
             .stem_v(if info.bold { 140.0 } else { 80.0 })
             .font_file2(file_id);
+        if let Some(cs) = cid_set {
+            fd.cid_set(cs);
+        }
+        fd.finish();
         let compressed = compress(&subset);
         pdf.stream(file_id, &compressed)
             .filter(Filter::FlateDecode)
@@ -419,14 +543,182 @@ pub fn write_pdf_with_images(
     pdf.pages(pages_id)
         .kids(page_ids.iter().copied())
         .count(page_ids.len() as i32);
-    pdf.catalog(catalog_id).pages(pages_id);
+
+    if let Some(s) = &prepared {
+        s.write(&mut pdf, &mut alloc, &page_ids, opts.lang.as_deref());
+    }
+    let outline = tags::write_outline(&mut pdf, &mut alloc, &opts.bookmarks, &page_ids, list);
+    let doc_meta = xmp::DocMeta {
+        title: meta.title.as_deref(),
+        author: opts.author.as_deref(),
+        creator: opts.creator.as_deref(),
+        producer: PRODUCER,
+        lang: opts.lang.as_deref(),
+        date: opts.date,
+        pdfa,
+    };
+    let metadata = pdfa.map(|_| {
+        let id = alloc();
+        let packet = xmp::packet(&doc_meta);
+        // §14.3.2 metadata stream; ISO 19005-1 §6.7.2: not filtered.
+        pdf.metadata(id, &packet);
+        id
+    });
+    let profile = pdfa.map(|_| {
+        let id = alloc();
+        let icc = icc::srgb_profile();
+        let data = compress(&icc);
+        pdf.icc_profile(id, &data).n(3).filter(Filter::FlateDecode);
+        id
+    });
+    let files = write_attachments(&mut pdf, &mut alloc, &opts.attachments, opts.date);
+
+    let mut cat = pdf.catalog(catalog_id);
+    cat.pages(pages_id);
+    if let Some(o) = outline {
+        // §12.3.3: the outline, shown when the file opens.
+        cat.outlines(o);
+        cat.page_mode(PageMode::UseOutlines);
+    }
+    if let Some(s) = &prepared {
+        // §14.7.2 structure tree root; §14.7.1 MarkInfo: a tagged PDF.
+        cat.pair(Name(b"StructTreeRoot"), s.root());
+        cat.mark_info().marked(true);
+    }
+    if let Some(l) = &opts.lang {
+        // §14.9.2.1 natural language of the document.
+        cat.lang(TextStr(l));
+    }
+    if let Some(m) = metadata {
+        cat.metadata(m);
+    }
+    if let Some(p) = profile {
+        // ISO 19005-1 §6.2.2 / ISO 19005-2 §6.2.3: PDF/A output intent with an
+        // embedded ICC profile (ISO 32000-1 §14.11.5).
+        cat.output_intents()
+            .push()
+            .subtype(OutputIntentSubtype::PDFA)
+            .output_condition_identifier(TextStr("sRGB IEC61966-2.1"))
+            .output_condition(TextStr("sRGB"))
+            .info(TextStr(SRGB_DESCRIPTION))
+            .dest_output_profile(p);
+    }
+    if !files.is_empty() {
+        // ISO 32000-1 §7.11.4 embedded files name tree; ISO 32000-2 §14.13 /AF.
+        {
+            let mut names = cat.names();
+            let mut tree = names.embedded_files();
+            let mut entries = tree.names();
+            for (name, r) in &files {
+                entries.insert(Str(name.as_bytes()), *r);
+            }
+        }
+        cat.insert(Name(b"AF"))
+            .array()
+            .items(files.iter().map(|(_, r)| *r));
+    }
+    cat.finish();
+
     let mut info = pdf.document_info(info_id);
-    info.producer(pdf_writer::TextStr("BlueOffice"));
+    info.producer(TextStr(PRODUCER));
     if let Some(t) = &meta.title {
-        info.title(pdf_writer::TextStr(t));
+        info.title(TextStr(t));
+    }
+    if let Some(a) = &opts.author {
+        info.author(TextStr(a));
+    }
+    if let Some(c) = &opts.creator {
+        info.creator(TextStr(c));
+    }
+    if let Some(d) = opts.date {
+        info.creation_date(d.pdf());
+        info.modified_date(d.pdf());
     }
     info.finish();
+    // ISO 19005-1 §6.1.3: the trailer has a file identifier (ISO 32000-1 §14.4).
+    if let Some(t) = &meta.title {
+        id_hash.update(t.as_bytes());
+    }
+    let id = id_hash.digest();
+    pdf.set_file_id((id.clone(), id));
     Ok(pdf.finish())
+}
+
+/// Write embedded file streams and file specifications (`/AFRelationship`
+/// ISO 32000-2 §14.13.2, ISO 19005-3 §6.8); returns (name, file spec) pairs.
+fn write_attachments(
+    pdf: &mut Pdf,
+    alloc: &mut dyn FnMut() -> Ref,
+    files: &[Attachment],
+    date: Option<PdfDate>,
+) -> Vec<(String, Ref)> {
+    let mut out = Vec::new();
+    for f in files {
+        let stream_id = alloc();
+        let spec_id = alloc();
+        let data = compress(&f.data);
+        let mut ef = pdf.embedded_file(stream_id, &data);
+        ef.filter(Filter::FlateDecode);
+        ef.subtype(Name(f.mime.as_bytes()));
+        let mut params = ef.params();
+        params.size(f.data.len() as i32);
+        if let Some(d) = date {
+            params.modification_date(d.pdf());
+        }
+        params.finish();
+        ef.finish();
+        let mut spec = pdf.file_spec(spec_id);
+        spec.path(Str(ascii_name(&f.name).as_bytes()));
+        spec.unic_file(TextStr(&f.name));
+        spec.description(TextStr(&f.description));
+        spec.embedded_file_with_unicode(stream_id);
+        spec.association_kind(if f.source {
+            AssociationKind::Source
+        } else {
+            AssociationKind::Data
+        });
+        spec.finish();
+        out.push((f.name.clone(), spec_id));
+    }
+    out
+}
+
+/// ASCII fallback of a file name for `/F` (the Unicode name goes in `/UF`).
+fn ascii_name(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_graphic() || c == ' ' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// File identifier from the content (ISO 32000-1 §14.4 suggests a digest of the
+/// file; two 64-bit FNV-1a lanes give 16 bytes without a hash dependency).
+struct IdHash([u64; 2]);
+
+impl IdHash {
+    fn new() -> Self {
+        IdHash([0xcbf2_9ce4_8422_2325, 0x8422_2325_cbf2_9ce4])
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        for &b in data {
+            for (i, h) in self.0.iter_mut().enumerate() {
+                *h ^= u64::from(b) ^ (i as u64);
+                *h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+    }
+
+    fn digest(&self) -> Vec<u8> {
+        let mut v = self.0[0].to_be_bytes().to_vec();
+        v.extend(self.0[1].to_be_bytes());
+        v
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +737,34 @@ struct PageRes {
     alphas: Vec<u8>,
     shadings: Vec<(String, Ref)>,
     images: Vec<(String, Ref)>,
+    /// PDF/A-1: transparency is flattened over a white page.
+    flatten: bool,
+    /// Opacity of each open push (1 for clips and transforms).
+    groups: Vec<f32>,
+}
+
+impl PageRes {
+    /// Product of the open opacity groups.
+    fn group_alpha(&self) -> f32 {
+        self.groups.iter().product()
+    }
+
+    /// When flattening, `color` (with its own alpha if `own`) composited over white.
+    fn mix(&self, color: Rgba, own: bool) -> Rgba {
+        if !self.flatten {
+            return color;
+        }
+        let a = self.group_alpha() * if own { f32::from(color.3) / 255.0 } else { 1.0 };
+        if a >= 0.999 {
+            return Rgba(color.0, color.1, color.2, 255);
+        }
+        let m = |v: u8| {
+            (f32::from(v) * a + 255.0 * (1.0 - a))
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
+        Rgba(m(color.0), m(color.1), m(color.2), 255)
+    }
 }
 
 /// A shading to be written after the page content.
@@ -543,9 +863,10 @@ fn set_stroke(c: &mut Content, s: &Stroke) {
     }
 }
 
-/// Use an alpha ExtGState inside the current `q … Q` when `a < 255`.
+/// Use an alpha ExtGState inside the current `q … Q` when `a < 255` (never when
+/// flattening for PDF/A-1: colours are mixed instead).
 fn use_alpha(c: &mut Content, res: &mut PageRes, a: u8) {
-    if a == 255 {
+    if a == 255 || res.flatten {
         return;
     }
     if !res.alphas.contains(&a) {
@@ -784,6 +1105,70 @@ fn decode_png(data: &[u8]) -> Option<ImageData> {
         width: info.width,
         height: info.height,
     })
+}
+
+/// Make a picture fit PDF/A: CMYK JPEGs become RGB samples (DeviceCMYK needs a
+/// CMYK output intent, ISO 19005-1 §6.2.3.3 / ISO 19005-2 §6.2.4.3; ours is
+/// sRGB) and, for PDF/A-1 (`flatten`), alpha and the opacity `group` are
+/// composited over white (ISO 19005-1 §6.4: no soft masks).
+fn conform_image(img: ImageData, bytes: &[u8], flatten: bool, group: u8) -> ImageData {
+    let over_white = |v: u8, a: u32| ((u32::from(v) * a + 255 * (255 - a) + 127) / 255) as u8;
+    let g = u32::from(group);
+    match img {
+        ImageData::Jpeg { components, .. } if components == 4 || (flatten && group < 255) => {
+            let Some(d) = bo_raster::picfx::decode_rgba(bytes) else {
+                return img;
+            };
+            let mut rgb = Vec::with_capacity(d.pixels.len() / 4 * 3);
+            for px in d.pixels.chunks_exact(4) {
+                let a = if flatten {
+                    u32::from(px[3]) * g / 255
+                } else {
+                    255
+                };
+                rgb.extend(px[..3].iter().map(|&v| over_white(v, a)));
+            }
+            ImageData::Raw {
+                rgb,
+                gray: false,
+                alpha: None,
+                width: d.width,
+                height: d.height,
+            }
+        }
+        ImageData::Raw {
+            rgb,
+            gray,
+            alpha,
+            width,
+            height,
+        } if flatten && (alpha.is_some() || group < 255) => {
+            let n = if gray { 1 } else { 3 };
+            let out = rgb
+                .chunks_exact(n)
+                .enumerate()
+                .flat_map(|(i, px)| {
+                    let a = alpha
+                        .as_ref()
+                        .and_then(|al| al.get(i))
+                        .map_or(255, |&v| u32::from(v))
+                        * g
+                        / 255;
+                    px.iter()
+                        .map(move |&v| over_white(v, a))
+                        .collect::<Vec<u8>>()
+                })
+                .collect();
+            ImageData::Raw {
+                rgb: out,
+                gray,
+                alpha: None,
+                width,
+                height,
+            }
+        }
+        other => other,
+    }
 }
 
 fn load_image(data: &[u8]) -> Option<ImageData> {

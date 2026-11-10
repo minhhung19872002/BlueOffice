@@ -21,6 +21,7 @@ bo-sheet = { path = "../bo-sheet" }
 bo-binary = { path = "../bo-binary" }
 bo-odf = { path = "../bo-odf" }
 bo-math.workspace = true
+bo-pdf.workspace = true
 bo-crypto = { path = "../bo-crypto" }
 bo-sign = { path = "../bo-sign", features = ["http", "pkcs12"] }
 serde_json.workspace = true

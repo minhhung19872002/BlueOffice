@@ -36,6 +36,7 @@ pub mod merge;
 pub mod nav;
 mod notes;
 mod page_layout;
+pub mod pdf_export;
 pub mod perm;
 pub mod picture_tools;
 pub mod proof;

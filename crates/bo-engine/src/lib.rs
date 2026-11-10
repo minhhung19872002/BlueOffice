@@ -28,6 +28,7 @@ pub mod doc_smartart;
 pub mod doc_styles;
 pub mod edit;
 pub mod equation;
+pub mod fill;
 pub mod fonts;
 pub mod forms;
 pub mod gallery;

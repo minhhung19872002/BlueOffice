@@ -386,3 +386,120 @@ fn roundtrip_keeps_workbooks_and_decks_in_their_format() {
     assert!(text.contains("ppt/presentation.xml"));
     assert!(!text.contains("word/document.xml"));
 }
+
+/// CORE-API-001: `edit` fills a template from a JSON list of edits, `merge --each docx`
+/// writes one .docx per record, `inspect --json` is machine-readable.
+#[test]
+fn edit_merge_each_and_inspect_json() {
+    let dir = scratch("api");
+    let edits = dir.join("edits.json");
+    std::fs::write(
+        &edits,
+        r#"[{"op":"setControl","tag":"ho_ten","value":"Nguyễn Văn An"},
+            {"op":"setProperties","props":{"title":"Hợp đồng"}}]"#,
+    )
+    .unwrap();
+    let template = corpus("doc/controls-01-forms.docx");
+    let out = dir.join("filled.docx");
+    let report = stdout(&run(bin()
+        .arg("edit")
+        .arg(&template)
+        .arg("--edits")
+        .arg(&edits)
+        .arg("--out")
+        .arg(&out)
+        .arg("--strict")));
+    let report: serde_json::Value = serde_json::from_str(&report).unwrap();
+    assert_eq!(report[0]["count"], 1, "{report}");
+    assert_eq!(report[1]["op"], "setProperties", "{report}");
+    let pdf = dir.join("filled.pdf");
+    run(bin()
+        .arg("edit")
+        .arg(&template)
+        .arg("--edits")
+        .arg(&edits)
+        .args(["--to", "pdf", "--out"])
+        .arg(&pdf));
+    assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF-"));
+    let text = dir.join("filled.txt");
+    run(bin()
+        .arg("convert")
+        .arg(&out)
+        .args(["--to", "txt", "--out"])
+        .arg(&text));
+    let text = std::fs::read_to_string(&text).unwrap();
+    assert!(text.contains("Nguyễn Văn An"), "{text}");
+
+    // --strict: an edit that matches nothing fails and writes nothing.
+    std::fs::write(
+        &edits,
+        r#"[{"op":"setBookmark","name":"KhongCo","text":"x"}]"#,
+    )
+    .unwrap();
+    let strict = dir.join("strict.docx");
+    let res = bin()
+        .arg("edit")
+        .arg(&template)
+        .arg("--edits")
+        .arg(&edits)
+        .arg("--out")
+        .arg(&strict)
+        .arg("--strict")
+        .output()
+        .unwrap();
+    assert!(!res.status.success());
+    assert!(String::from_utf8_lossy(&res.stderr).contains("matched nothing"));
+    assert!(!strict.exists());
+
+    // A workbook cell by defined name.
+    std::fs::write(&edits, r#"[{"op":"setCell","ref":"TyGia","value":25000}]"#).unwrap();
+    let book = dir.join("book.xlsx");
+    run(bin()
+        .arg("edit")
+        .arg(corpus("sheet/names-1.xlsx"))
+        .arg("--edits")
+        .arg(&edits)
+        .arg("--out")
+        .arg(&book));
+    let csv = dir.join("book.csv");
+    run(bin()
+        .arg("convert")
+        .arg(&book)
+        .args(["--to", "csv", "--out"])
+        .arg(&csv));
+    let csv = std::fs::read_to_string(&csv).unwrap();
+    assert!(csv.contains("25000"), "{csv}");
+
+    // One .docx per record, zipped.
+    let zip = dir.join("letters.zip");
+    run(bin()
+        .arg("merge")
+        .arg(corpus("doc/merge-01-letter.docx"))
+        .arg(corpus("doc/merge-data.csv"))
+        .args(["--to", "zip", "--each", "docx", "--pattern", "«Họ tên»"])
+        .arg("--out")
+        .arg(&zip));
+    let bytes = std::fs::read(&zip).unwrap();
+    assert!(bytes.starts_with(b"PK"));
+    let needle = "Trần Thị Bình.docx".as_bytes();
+    assert!(bytes.windows(needle.len()).any(|w| w == needle));
+
+    let info = stdout(&run(bin().arg("inspect").arg(&template).arg("--json")));
+    let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+    assert_eq!(info["format"], "docx", "{info}");
+    assert_eq!(info["kind"], "document", "{info}");
+    assert_eq!(info["encrypted"], false, "{info}");
+    assert_eq!(info["macros"], false, "{info}");
+    // An encrypted file without its password is reported, not an error.
+    let locked = dir.join("locked.docx");
+    run(bin()
+        .arg("convert")
+        .arg(&template)
+        .args(["--to", "docx", "--protect", "bí-mật"])
+        .arg("--out")
+        .arg(&locked));
+    let info = stdout(&run(bin().arg("inspect").arg(&locked).arg("--json")));
+    let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+    assert_eq!(info["encrypted"], true, "{info}");
+    assert_eq!(info["opened"], false, "{info}");
+}

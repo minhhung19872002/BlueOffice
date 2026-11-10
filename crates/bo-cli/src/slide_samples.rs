@@ -2286,6 +2286,209 @@ fn replace_in_part(pkg: &[u8], part: &str, from: &str, to: &str) -> Vec<u8> {
     p.write().unwrap_or_else(|_| pkg.to_vec())
 }
 
+// ---------------------------------------------------------------------------
+// 3D models (CORE-3DMODEL-001)
+// ---------------------------------------------------------------------------
+
+/// [MS-ODRAWXML] relationship type of `am3d:model3d@r:embed`.
+const REL_MODEL3D: &str = "http://schemas.microsoft.com/office/2017/06/relationships/model3d";
+
+/// A self-made model seen with rotation `rot` (degrees) in a frame at most `max` EMU:
+/// (GLB, PNG picture of the view, the view, frame size EMU).
+fn model3d(
+    scene: &bo_model3d::Scene,
+    rot: [f64; 3],
+    max: (f64, f64),
+) -> (Vec<u8>, Vec<u8>, bo_model3d::view::View3d, (i64, i64)) {
+    use bo_model3d::view::{View3d, ANGLE};
+    let (lo, hi) = scene.bounds().unwrap_or(([-0.5; 3], [0.5; 3]));
+    let mut v = View3d::fit(lo, hi);
+    v.rot = rot.map(|d| d * ANGLE);
+    let (w, h) = v.frame_for(scene, max.0, max.1);
+    let (pw, ph) = bo_model3d::raster::picture_size(w, h, 96.0, 512);
+    let png = bo_model3d::raster::render_png(scene, &v, w, h, pw, ph);
+    (bo_model3d::glb::write(scene), png, v, (w as i64, h as i64))
+}
+
+fn model3d_decks() -> Vec<(&'static str, Vec<u8>)> {
+    use bo_model3d::sample;
+    let glb_part = |n: usize, data: Vec<u8>| {
+        (
+            format!("/ppt/media/model3d{n}.glb"),
+            "model/gltf-binary".to_owned(),
+            data,
+        )
+    };
+    let png_part =
+        |n: usize, data: Vec<u8>| (format!("/ppt/media/image{n}.png"), String::new(), data);
+    let rels = |m: &str, mi: usize, i: &str, ii: usize| {
+        vec![
+            r(m, REL_MODEL3D, &format!("../media/model3d{mi}.glb")),
+            r(i, "image", &format!("../media/image{ii}.png")),
+        ]
+    };
+    // Deck 1: one cube seen from above front left.
+    let (glb1, png1, v1, (w1, h1)) = model3d(
+        &sample::cube(),
+        [25.0, 35.0, 0.0],
+        (4.0 * IN as f64, 4.0 * IN as f64),
+    );
+    let mut s1 = blank_slide(
+        "Mô hình 3D: khối lập phương",
+        bo_pptx::model3d::node_xml(
+            4,
+            "3D Model 3",
+            "Khối lập phương sáu màu",
+            ((13 * IN - w1) / 2, IN + (5 * IN - h1) / 2),
+            (w1, h1),
+            "rId2",
+            "rId3",
+            &v1,
+        ),
+    );
+    s1.rels = rels("rId2", 1, "rId3", 1);
+    // Deck 2: a textured cube and a ring (top view), then a pyramid on a second slide.
+    let (glb2, png2, v2, (w2, h2)) = model3d(
+        &sample::textured_cube(),
+        [20.0, 330.0, 0.0],
+        (3.5 * IN as f64, 3.5 * IN as f64),
+    );
+    let (glb3, png3, v3, (w3, h3)) = model3d(
+        &sample::ring(),
+        [60.0, 0.0, 0.0],
+        (4.0 * IN as f64, 3.0 * IN as f64),
+    );
+    let (glb4, png4, v4, (w4, h4)) = model3d(
+        &sample::pyramid(),
+        [15.0, 45.0, 0.0],
+        (4.0 * IN as f64, 4.0 * IN as f64),
+    );
+    let mut s2 = blank_slide(
+        "Hai mô hình: khối có vân và vòng xuyến",
+        bo_pptx::model3d::node_xml(
+            4,
+            "3D Model 3",
+            "Khối vân ca-rô",
+            (IN, 2 * IN),
+            (w2, h2),
+            "rId2",
+            "rId3",
+            &v2,
+        ) + &bo_pptx::model3d::node_xml(
+            5,
+            "3D Model 4",
+            "Vòng xuyến",
+            (7 * IN, 2 * IN),
+            (w3, h3),
+            "rId4",
+            "rId5",
+            &v3,
+        ),
+    );
+    s2.rels = rels("rId2", 1, "rId3", 1);
+    s2.rels.extend(rels("rId4", 2, "rId5", 2));
+    let mut s3 = blank_slide(
+        "Kim tự tháp",
+        bo_pptx::model3d::node_xml(
+            4,
+            "3D Model 3",
+            "",
+            (4 * IN, 2 * IN),
+            (w4, h4),
+            "rId2",
+            "rId3",
+            &v4,
+        ),
+    );
+    s3.rels = rels("rId2", 3, "rId3", 3);
+    // Deck 3: written by hand from the schema — orthographic camera, window viewport,
+    // point / spot / directional lights, extension lists, a model inside a group.
+    let (glb5, png5, _, _) = model3d(
+        &sample::pyramid(),
+        [0.0, 0.0, 0.0],
+        (3.0 * IN as f64, 3.0 * IN as f64),
+    );
+    let am3d = "http://schemas.microsoft.com/office/drawing/2017/model3d";
+    let hand = |id: u32, off: (i64, i64)| {
+        format!(
+            concat!(
+                r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:am3d="{am3d}" Requires="am3d">"#,
+                r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Mô hình {id}" descr="Kim tự tháp, camera trực giao"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>"#,
+                r#"<p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{s}" cy="{s}"/></p:xfrm><a:graphic><a:graphicData uri="{am3d}"><am3d:model3d r:embed="rId2">"#,
+                r#"<am3d:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{s}" cy="{s}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></am3d:spPr>"#,
+                r#"<am3d:camera><am3d:pos x="0" y="0" z="90000000"/><am3d:up dx="0" dy="36000000" dz="0"/><am3d:lookAt x="0" y="0" z="0"/>"#,
+                r#"<am3d:orthographic><am3d:sz n="40000000" d="1"/></am3d:orthographic></am3d:camera>"#,
+                r#"<am3d:trans><am3d:meterPerModelUnit n="1" d="1"/><am3d:preTrans dx="0" dy="0" dz="0"/><am3d:scale><am3d:sx n="1" d="1"/><am3d:sy n="1" d="1"/><am3d:sz n="1" d="1"/></am3d:scale>"#,
+                r#"<am3d:rot ax="1200000" ay="2700000" az="0"/><am3d:postTrans dx="0" dy="0" dz="0"/></am3d:trans>"#,
+                r#"<am3d:raster rName="BlueOffice" rVer="1"><am3d:blip r:embed="rId3"/></am3d:raster>"#,
+                r#"<am3d:extLst><a:ext uri="{{9A65E2B6-3D5C-4F5E-8A1B-000000000001}}"/></am3d:extLst>"#,
+                r#"<am3d:winViewport/>"#,
+                r#"<am3d:ambientLight enabled="1"><am3d:clr><a:srgbClr val="404040"/></am3d:clr><am3d:illuminance n="1" d="2"/></am3d:ambientLight>"#,
+                r#"<am3d:ptLight rad="0"><am3d:clr><a:srgbClr val="FFF2CC"/></am3d:clr><am3d:intensity n="3" d="1"/><am3d:pos x="10000000" y="30000000" z="50000000"/></am3d:ptLight>"#,
+                r#"<am3d:spotLight rad="0" spotAng="1800000"><am3d:clr><a:srgbClr val="DDEBF7"/></am3d:clr><am3d:intensity n="2" d="1"/><am3d:pos x="-30000000" y="10000000" z="40000000"/><am3d:lookAt x="0" y="0" z="0"/></am3d:spotLight>"#,
+                r#"<am3d:dirLight angularRad="0" enabled="0"><am3d:clr><a:schemeClr val="accent1"/></am3d:clr><am3d:illuminance n="1" d="1"/><am3d:pos x="0" y="36000000" z="0"/><am3d:lookAt x="0" y="0" z="0"/></am3d:dirLight>"#,
+                r#"</am3d:model3d></a:graphicData></a:graphic></p:graphicFrame></mc:Choice>"#,
+                r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="{id}" name="Mô hình {id}" descr="Kim tự tháp, camera trực giao"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>"#,
+                r#"<p:blipFill><a:blip r:embed="rId3"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>"#,
+                r#"<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{s}" cy="{s}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic></mc:Fallback></mc:AlternateContent>"#
+            ),
+            am3d = am3d,
+            id = id,
+            x = off.0,
+            y = off.1,
+            s = 3 * IN,
+        )
+    };
+    let group = format!(
+        concat!(
+            r#"<p:grpSp><p:nvGrpSpPr><p:cNvPr id="6" name="Nhóm 5"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>"#,
+            r#"<p:grpSpPr><a:xfrm><a:off x="{gx}" y="{gy}"/><a:ext cx="{s}" cy="{s}"/><a:chOff x="{gx}" y="{gy}"/><a:chExt cx="{s}" cy="{s}"/></a:xfrm></p:grpSpPr>{m}</p:grpSp>"#
+        ),
+        gx = 7 * IN,
+        gy = 2 * IN,
+        s = 3 * IN,
+        m = hand(7, (7 * IN, 2 * IN)),
+    );
+    let mut s4 = blank_slide(
+        "Mô hình viết tay theo lược đồ",
+        hand(4, (2 * IN, 2 * IN)) + &group,
+    );
+    s4.rels = rels("rId2", 1, "rId3", 1);
+    vec![
+        (
+            "slide-model3d-cube.pptx",
+            build(
+                &[s1],
+                &vec![glb_part(1, glb1), png_part(1, png1)],
+                THEME_BLUE,
+            ),
+        ),
+        (
+            "slide-model3d-scenes.pptx",
+            build(
+                &[s2, s3],
+                &vec![
+                    glb_part(1, glb2),
+                    png_part(1, png2),
+                    glb_part(2, glb3),
+                    png_part(2, png3),
+                    glb_part(3, glb4),
+                    png_part(3, png4),
+                ],
+                THEME_BLUE,
+            ),
+        ),
+        (
+            "slide-model3d-handwritten.pptx",
+            build(
+                &[s4],
+                &vec![glb_part(1, glb5), png_part(1, png5)],
+                THEME_BLUE,
+            ),
+        ),
+    ]
+}
+
 /// Every corpus deck: (file name, bytes) — generated decks plus decks
 /// edited through the slide edit API (`slide_edits`).
 pub fn decks() -> Vec<(&'static str, Vec<u8>)> {
@@ -2314,6 +2517,7 @@ pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     v.extend(smartart_decks());
     v.extend(smartart_data_decks());
     v.extend(chartex_decks());
+    v.extend(model3d_decks());
     v
 }
 

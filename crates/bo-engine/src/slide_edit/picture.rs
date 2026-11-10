@@ -169,7 +169,7 @@ fn add_part(tx: &mut Tx<'_>, data: Vec<u8>, ext: &str, mime: &str) -> R<String> 
 }
 
 /// Point relationship `rid` of `slide` at `part`; drops the old part when unused.
-fn retarget(tx: &mut Tx<'_>, slide: usize, rid: &str, part: &str) -> R<()> {
+pub(super) fn retarget(tx: &mut Tx<'_>, slide: usize, rid: &str, part: &str) -> R<()> {
     let old = rel_part(tx.pres, slide, rid);
     let target = format!("../media/{}", part.rsplit('/').next().unwrap_or_default());
     let rid = rid.to_owned();

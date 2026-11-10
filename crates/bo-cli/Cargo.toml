@@ -27,6 +27,7 @@ bo-sign = { path = "../bo-sign", features = ["http", "pkcs12"] }
 serde_json.workspace = true
 quick-xml.workspace = true
 bo-pptx = { path = "../bo-pptx" }
+bo-model3d = { path = "../bo-model3d" }
 clap.workspace = true
 png.workspace = true
 

@@ -75,6 +75,7 @@ import {
   DEFAULT_SHOW_SETUP,
   PASSWORD_REQUIRED,
   THEME_MIME,
+  MODEL3D_FILES,
   WRONG_PASSWORD,
   mentionFields,
   mimeFor,
@@ -311,6 +312,14 @@ import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
 import { EditPointsOverlay } from './editPoints';
 import { registerShapeTools, shapeFormatTab } from './shapeFormat';
+import { Model3dLayer } from './model3d/Model3dLayer';
+import {
+  Model3dAltTextDialog,
+  Model3dIcon,
+  model3dTab,
+  registerModel3dCommands,
+  type Model3dState,
+} from './model3d/model3dTab';
 import { registerShapeEffects, shapeEffectsGroup, warpPreviewLoader } from './shapeEffects';
 import {
   RenameDialog,
@@ -398,7 +407,7 @@ export function slideMenuContext(r: {
   return 'shape';
 }
 
-export interface SlideEditorState extends MasterState, SectionState, PageMasterState {
+export interface SlideEditorState extends MasterState, SectionState, PageMasterState, Model3dState {
   hasDeck: boolean;
   current: number;
   hasSelection: boolean;
@@ -681,6 +690,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     mode: 'insert' | 'edit';
     initial: SmartArtDraft;
   } | null>(null);
+  // 3D models (CORE-3DMODEL-001): pan & zoom mode and the alt text dialog.
+  // Pan & zoom is on for one model (off once another object is selected).
+  const [panZoomFor, setPanZoomFor] = useState<number | null>(null);
+  const [model3dAlt, setModel3dAlt] = useState(false);
   const [chartDialog, setChartDialog] = useState<{
     mode: 'insert' | 'edit';
     initial: ChartDraft;
@@ -2260,6 +2273,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }),
     });
     reg.register({
+      id: 'insert.model3d',
+      isEnabled: deck,
+      run: () =>
+        guard(async () => {
+          const f = await platform.files.openFile(MODEL3D_FILES);
+          if (f) await ctrl.insertPicture(f.bytes, f.name);
+        }),
+    });
+    reg.register({
       id: 'insert.media',
       isEnabled: deck,
       run: () =>
@@ -2357,6 +2379,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     registerObjectCommands(reg, deck, () => objectHub.get());
     registerMediaCommands(reg, mediaHub);
     registerDrawCommands(reg, drawHub);
+    // 3D models (CORE-3DMODEL-001): registered with the registry so the ribbon sees them at once.
+    registerModel3dCommands(reg, run, {
+      togglePanZoom: (s) =>
+        setPanZoomFor((id) => (id !== null && id === s.model3dId ? null : (s.model3dId ?? null))),
+      openAltText: () => setModel3dAlt(true),
+    });
     // SLIDE-VIEW-001: notes / handout master views (edited in the normal view) and sections.
     registerPageMasterCommands(reg, (cmd) => {
       if (cmd.cmd === 'pageMasterView' && cmd.on) setView('normal');
@@ -2456,6 +2484,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChart: s.length === 1 && s[0]?.kind === 'chart' && !!edit?.chart,
       isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
       isPicture: s.length > 0 && s.every((x) => x.kind === 'picture'),
+      isModel3d: s.length === 1 && s[0]?.kind === 'model3d' && !!edit?.model3d,
+      model3dId: edit?.model3d?.id,
+      panZoom3d:
+        s.length === 1 && s[0]?.kind === 'model3d' && panZoomFor === (edit?.model3d?.id ?? null),
       transition: edit?.transition?.kind ?? 'none',
       isShape: s.length === 1 && s[0]?.kind === 'shape',
       mergeable: s.length > 1 && s.every((x) => x.kind === 'shape'),
@@ -2464,7 +2496,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       ...sectionState(edit?.sections, current, sectionPick),
       ...pageMasterState(edit),
     };
-  }, [count, current, edit, sectionPick, pointsFor, selectedId]);
+  }, [count, current, edit, sectionPick, pointsFor, selectedId, panZoomFor]);
   // Built-in themes and variants (one command each).
   const design = edit?.design;
   useEffect(() => registerDesignChoices(registry, run, design), [registry, run, design]);
@@ -2473,6 +2505,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     [registry, run, setEditingPoints],
   );
   useEffect(() => registerShapeEffects(registry, run), [registry, run]);
+
   const loadWarpPreviews = useMemo(() => warpPreviewLoader(runResult), [runResult]);
   const exec = useCallback(
     (id: string) => {
@@ -2982,6 +3015,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('object.updateLinks', t('commands.object.updateLinks'), <RefreshCw size={18} />),
               item('insert.smartart', t('slideEditor.smartart.button'), <Network size={18} />),
               item('insert.media', t('slideEditor.media'), <Clapperboard size={18} />),
+              item('insert.model3d', t('slideEditor.model3d.insert'), <Model3dIcon />),
             ],
           },
         ],
@@ -3203,6 +3237,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             }),
           ]
         : []),
+      ...(state.isModel3d ? [model3dTab(t, item)] : []),
       ...(state.isSmartArt
         ? [
             {
@@ -3966,6 +4001,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   )}
                   {draw.layer}
                   {draw.replay(main.width)}
+                  {edit?.slide === shown && state.isModel3d && edit.model3d && (
+                    <Model3dLayer
+                      key={edit.model3d.id}
+                      model={edit.model3d}
+                      scale={main.width / (slideSize.width || 1)}
+                      panZoom={!!state.panZoom3d}
+                      run={runResult}
+                      labels={{
+                        rotate: t('slideEditor.model3d.rotate'),
+                        panZoom: t('slideEditor.model3d.panZoomHint'),
+                      }}
+                    />
+                  )}
                   {edit?.slide === shown && (edit.media?.length ?? 0) > 0 && (
                     <MediaButtons
                       engine={engine}
@@ -4401,6 +4449,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           initial={smartArtDialog.initial}
           onClose={() => setSmartArtDialog(null)}
           onApply={applySmartArt}
+        />
+      )}
+      {model3dAlt && (
+        <Model3dAltTextDialog
+          open
+          model={edit?.model3d}
+          t={t}
+          onClose={() => setModel3dAlt(false)}
+          onSave={(text) => run({ cmd: 'model3dAltText', text })}
         />
       )}
       {chartDialog && (

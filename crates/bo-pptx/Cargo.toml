@@ -10,6 +10,7 @@ publish = false
 bo-model.workspace = true
 bo-opc.workspace = true
 bo-drawingml = { path = "../bo-drawingml" }
+bo-model3d = { path = "../bo-model3d" }
 bo-render.workspace = true
 bo-layout.workspace = true
 bo-sheet.workspace = true

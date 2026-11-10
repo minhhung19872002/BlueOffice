@@ -16,7 +16,8 @@ export type RibbonContext =
   | 'ink'
   | 'object'
   | 'media'
-  | 'sparkline';
+  | 'sparkline'
+  | 'model3d';
 
 export const RIBBON_CONTEXTS: readonly RibbonContext[] = [
   'table',
@@ -30,6 +31,7 @@ export const RIBBON_CONTEXTS: readonly RibbonContext[] = [
   'object',
   'media',
   'sparkline',
+  'model3d',
 ];
 
 interface TabLike {

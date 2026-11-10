@@ -546,6 +546,7 @@ dependencies = [
  "bo-engine",
  "bo-math",
  "bo-model",
+ "bo-model3d",
  "bo-odf",
  "bo-opc",
  "bo-pdf",
@@ -670,6 +671,7 @@ dependencies = [
  "bo-layout",
  "bo-math",
  "bo-model",
+ "bo-model3d",
  "bo-odf",
  "bo-opc",
  "bo-pdf",
@@ -741,6 +743,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-model3d"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "png",
+ "serde",
+ "serde_json",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "bo-odf"
 version = "0.1.0"
 dependencies = [
@@ -785,6 +798,7 @@ dependencies = [
  "bo-drawingml",
  "bo-layout",
  "bo-model",
+ "bo-model3d",
  "bo-opc",
  "bo-render",
  "bo-sheet",

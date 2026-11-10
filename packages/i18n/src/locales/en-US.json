@@ -29,7 +29,8 @@
       "ink": "Ink tools",
       "object": "Object tools",
       "media": "Media tools",
-      "sparkline": "Sparkline tools"
+      "sparkline": "Sparkline tools",
+      "model3d": "3D model tools"
     },
     "more": "More commands",
     "tabs": {
@@ -2689,6 +2690,34 @@
         "ember": "Ember",
         "slate": "Slate",
         "mono": "Greyscale"
+      }
+    },
+    "model3d": {
+      "insert": "3D model",
+      "tab": "3D model",
+      "groupViews": "3D views",
+      "groupAdjust": "Adjust",
+      "groupAccess": "Accessibility",
+      "rotate": "Drag to turn the 3D model (arrow keys turn it too)",
+      "panZoom": "Pan & zoom",
+      "panZoomHint": "Drag to move the model, scroll to zoom",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "reset": "Reset view",
+      "altText": "Alt text",
+      "altTextTitle": "Alt text of the 3D model",
+      "altTextLabel": "Describe the 3D model for people who cannot see it",
+      "presets": {
+        "front": "Front",
+        "back": "Back",
+        "left": "Left",
+        "right": "Right",
+        "top": "Top",
+        "bottom": "Bottom",
+        "aboveFrontLeft": "Above front left",
+        "aboveFrontRight": "Above front right",
+        "belowFrontLeft": "Below front left",
+        "belowFrontRight": "Below front right"
       }
     }
   },

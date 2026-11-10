@@ -1828,6 +1828,38 @@ fn draw_frame(
                 draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
             }
         }
+        // 3D model ([MS-ODRAWXML] am3d:model3d): the rendered view — the fallback picture
+        // of its mc:AlternateContent, else `raster/blip` — fills the frame. BlueOffice
+        // renders both again whenever the view changes (bo_model3d::raster).
+        GraphicContent::Other(_) if crate::model3d::is_model3d(f) => {
+            let rid = crate::model3d::fallback_rid(f).or_else(|| crate::model3d::raster_rid(f));
+            if let Some(rid) = rid {
+                let pic = bo_model::slide::Picture {
+                    blip: bo_model::slide::BlipFill {
+                        embed: Some(rid),
+                        stretch: true,
+                        ..Default::default()
+                    },
+                    props: bo_model::slide::ShapeProps {
+                        xfrm: Some(bo_model::slide::Xfrm {
+                            off: Some((0, 0)),
+                            ext: f.xfrm.ext,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                draw_node(
+                    cx,
+                    &ShapeNode::Picture(Box::new(pic)),
+                    Frame::root(),
+                    fonts,
+                    images,
+                    &mut cmds,
+                );
+            }
+        }
         GraphicContent::Other(_) => {}
     }
     wrap_transform(aff, cmds, out);

@@ -357,7 +357,7 @@ pub fn sort_lines(
     has_header: bool,
     by_columns: bool,
     adj: &dyn FormulaAdjuster,
-) {
+) -> Option<LinePerm> {
     let (lo, hi) = if by_columns {
         (range.first.row, range.last.row)
     } else {
@@ -374,7 +374,7 @@ pub fn sort_lines(
         (range.first.row + u32::from(has_header), range.last.row)
     };
     if keys.is_empty() || start >= end || sheet >= wb.sheets.len() {
-        return;
+        return None;
     }
     let ords = key_ordinals(wb, sheet, range, &keys, (start, end), by_columns);
     let mut perm: Vec<u32> = (0..=end - start).collect();
@@ -391,13 +391,44 @@ pub fn sort_lines(
         }),
     }
     if perm.iter().enumerate().all(|(i, p)| i as u32 == *p) {
-        return;
+        return None;
     }
     let ws = &mut wb.sheets[sheet];
     if by_columns {
         move_columns(ws, range, start, &perm, adj);
-    } else if !permute_rows_in_place(ws, range, start, &perm, adj) {
-        move_rows(ws, range, start, &perm, adj);
+    } else {
+        permute_rows(ws, range, start, &perm, Some(adj));
+    }
+    Some(LinePerm { start, perm })
+}
+
+/// The lines a sort moved: line `start + n` received line `start + perm[n]`
+/// (rows, or columns of a left-to-right sort).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinePerm {
+    /// First moved line (after the header).
+    pub start: u32,
+    /// Source line of every destination line, relative to `start`.
+    pub perm: Vec<u32>,
+}
+
+/// Permute the rows `start..start + perm.len()` inside `range`'s columns: row
+/// `start + n` receives the cells of row `start + perm[n]`. With `adj` the
+/// formulas of moved cells are translated by the distance moved (a sort);
+/// without, cells move as they are (undoing a sort, whose formula texts are
+/// restored separately).
+pub fn permute_rows(
+    ws: &mut Worksheet,
+    range: CellRange,
+    start: u32,
+    perm: &[u32],
+    adj: Option<&dyn FormulaAdjuster>,
+) {
+    if perm.is_empty() {
+        return;
+    }
+    if !permute_rows_in_place(ws, range, start, perm, adj) {
+        move_rows(ws, range, start, perm, adj);
     }
 }
 
@@ -563,7 +594,7 @@ fn permute_rows_in_place(
     range: CellRange,
     start: u32,
     perm: &[u32],
-    adj: &dyn FormulaAdjuster,
+    adj: Option<&dyn FormulaAdjuster>,
 ) -> bool {
     let n = perm.len();
     let end = start + (n as u32 - 1);
@@ -689,7 +720,10 @@ fn permute_rows_in_place(
 }
 
 /// Rewrite the formula of a cell moved by `(dr, dc)`.
-fn translate(cell: &mut Cell, dr: i64, dc: i64, adj: &dyn FormulaAdjuster) {
+fn translate(cell: &mut Cell, dr: i64, dc: i64, adj: Option<&dyn FormulaAdjuster>) {
+    let Some(adj) = adj else {
+        return;
+    };
     if let Some(f) = &mut cell.formula {
         if (dr != 0 || dc != 0) && !f.text.is_empty() {
             if let Some(t) = adj.translate(&f.text, dr, dc) {
@@ -707,7 +741,7 @@ fn move_rows(
     range: CellRange,
     start: u32,
     perm: &[u32],
-    adj: &dyn FormulaAdjuster,
+    adj: Option<&dyn FormulaAdjuster>,
 ) {
     let end = start + (perm.len() as u32 - 1);
     let (c0, c1) = (range.first.col, range.last.col);
@@ -780,7 +814,7 @@ fn move_columns(
         let to = start + n as u32;
         let d = i64::from(to) - i64::from(start + from);
         for (r, mut cell) in std::mem::take(&mut lines[from as usize]) {
-            translate(&mut cell, 0, d, adj);
+            translate(&mut cell, 0, d, Some(adj));
             ws.cells.insert((r, to), cell);
         }
     }

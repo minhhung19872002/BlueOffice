@@ -2085,6 +2085,69 @@ impl SheetEngine {
         Ok(out)
     }
 
+    /// [`SheetEngine::edit`] for large edits (sort, AutoFilter, pivot tables) whose
+    /// undo step does not copy the cells (SHEET-PERF-002): the cells of `quadrants`
+    /// (sheet, top-left) are saved before the edit and only the rectangle the edit
+    /// changed is kept; the edit reports the rows it permuted, the pivot caches it
+    /// added or replaced and the sheets whose hidden rows changed (`LightFx`), and the
+    /// formula engine is updated for exactly those. A workbook with a protected sheet
+    /// takes the whole-workbook step of [`SheetEngine::edit`] (locked cells are
+    /// checked against it, with `fallback` recalculation).
+    pub(super) fn edit_light<R>(
+        &mut self,
+        sheet: usize,
+        fallback: Recalc,
+        quadrants: &[(usize, CellRef)],
+        f: impl FnOnce(
+            &mut Workbook,
+            &bo_sheet::formula::BoFormula,
+            &mut super::light_undo::LightFx,
+        ) -> Result<R>,
+    ) -> Result<R> {
+        use super::light_undo as lu;
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        if sheet >= wb.sheets.len() {
+            return Err(EngineError::PageOutOfRange(sheet));
+        }
+        if wb
+            .sheets
+            .iter()
+            .any(|ws| super::protect::sheet_info(ws).protected)
+        {
+            return self.edit(sheet, fallback, |wb, adj| {
+                f(wb, adj, &mut lu::LightFx::default())
+            });
+        }
+        let sheets = wb.sheets.len();
+        let shell = lu::shell(wb);
+        let saved: Vec<(usize, CellRef, lu::Cells)> = quadrants
+            .iter()
+            .map(|&(s, at)| (s, at, lu::quadrant(wb, s, at)))
+            .collect();
+        let mut fx = lu::LightFx::default();
+        let out = match f(wb, &self.adjuster, &mut fx) {
+            Ok(out) => out,
+            Err(e) => {
+                // A failed edit leaves the workbook as it was.
+                let regions = saved
+                    .into_iter()
+                    .map(|(s, at, cells)| lu::whole_quadrant(s, at, cells))
+                    .collect();
+                drop(lu::Light::new(shell, regions, fx).apply(wb, &self.adjuster));
+                return Err(e);
+            }
+        };
+        let regions = saved
+            .into_iter()
+            .filter_map(|(s, at, cells)| lu::changed_region(wb, s, at, cells))
+            .collect();
+        let step = lu::Light::new(shell, regions, fx);
+        self.sync_light(&step, sheets);
+        self.invalidate(Some(sheet));
+        self.push_undo(UndoEntry::Light(Box::new(step)));
+        Ok(out)
+    }
+
     /// Executes a command.
     #[allow(clippy::too_many_lines)]
     pub fn exec(&mut self, cmd: SheetCommand) -> Result<Value> {
@@ -2894,10 +2957,56 @@ impl SheetEngine {
                 left_to_right,
             } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
-                self.edit(sheet, Recalc::All, |wb, adj| {
+                let sort = |wb: &mut Workbook,
+                            adj: &bo_sheet::formula::BoFormula,
+                            fx: &mut super::light_undo::LightFx| {
                     let keys: Vec<bo_sheet::sort::SortKey> =
                         keys.iter().map(SortKeySpec::key).collect();
-                    bo_sheet::sort::sort_lines(wb, sheet, r, &keys, has_header, left_to_right, adj);
+                    // Formula texts before the sort: references are translated when
+                    // rows move, which undo cannot always reverse (`#REF!`).
+                    let first = r.first.row + u32::from(has_header);
+                    let formulas: Vec<((u32, u32), String)> = wb.sheets[sheet]
+                        .cells
+                        .range((first, r.first.col)..=(r.last.row.max(first), r.last.col))
+                        .filter(|((row, _), _)| !left_to_right && *row <= r.last.row)
+                        .filter(|((_, c), cell)| {
+                            *c >= r.first.col && *c <= r.last.col && cell.formula.is_some()
+                        })
+                        .map(|(k, cell)| {
+                            (
+                                *k,
+                                cell.formula
+                                    .as_ref()
+                                    .map(|f| f.text.clone())
+                                    .unwrap_or_default(),
+                            )
+                        })
+                        .collect();
+                    let moved = bo_sheet::sort::sort_lines(
+                        wb,
+                        sheet,
+                        r,
+                        &keys,
+                        has_header,
+                        left_to_right,
+                        adj,
+                    );
+                    if let Some(m) = moved {
+                        let start = m.start;
+                        let formulas = formulas
+                            .into_iter()
+                            .filter(|((row, _), _)| m.perm[(row - start) as usize] != row - start)
+                            .collect();
+                        fx.perm = Some(super::light_undo::RowPerm {
+                            sheet,
+                            start,
+                            c0: r.first.col,
+                            c1: r.last.col,
+                            perm: m.perm,
+                            formulas,
+                            forward: false,
+                        });
+                    }
                     super::sortfilter_cmd::record_sort_state(
                         wb,
                         sheet,
@@ -2907,7 +3016,15 @@ impl SheetEngine {
                         left_to_right,
                     );
                     Ok(serde_json::to_value(Rng::of(r)).unwrap_or(Value::Null))
-                })
+                };
+                if left_to_right {
+                    // Columns: whole-workbook step.
+                    self.edit(sheet, Recalc::All, |wb, adj| {
+                        sort(wb, adj, &mut super::light_undo::LightFx::default())
+                    })
+                } else {
+                    self.edit_light(sheet, Recalc::All, &[], sort)
+                }
             }
             C::SortColors {
                 sheet,
@@ -2940,7 +3057,8 @@ impl SheetEngine {
             C::ShowAllData { sheet } => self.show_all_data(sheet),
             C::ToggleFilter { sheet, range } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
-                self.edit(sheet, Recalc::HiddenRows(sheet), |wb, _| {
+                self.edit_light(sheet, Recalc::HiddenRows(sheet), &[], |wb, _, fx| {
+                    fx.hidden.push(sheet);
                     let ws = &mut wb.sheets[sheet];
                     if let Some(af) = ws.auto_filter.take() {
                         for row in af.range.first.row..=af.range.last.row {
@@ -3041,7 +3159,8 @@ impl SheetEngine {
             }
             C::SetFilter { sheet, col, filter } => {
                 let now = self.live.now();
-                self.edit(sheet, Recalc::HiddenRows(sheet), |wb, _| {
+                self.edit_light(sheet, Recalc::HiddenRows(sheet), &[], |wb, _, fx| {
+                    fx.hidden.push(sheet);
                     let range = wb.sheets[sheet]
                         .auto_filter
                         .as_ref()
@@ -3538,7 +3657,13 @@ impl SheetEngine {
             } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 let labels = self.pivot_labels(labels);
-                let out = self.edit(sheet, Recalc::All, |wb, _| {
+                // The report grows right and down from `dest` (report filters included).
+                let quadrants: Vec<(usize, CellRef)> = dest
+                    .iter()
+                    .map(|a| (a.sheet, CellRef::new(a.row, a.col)))
+                    .collect();
+                let out = self.edit_light(sheet, Recalc::All, &quadrants, |wb, _, fx| {
+                    let caches = wb.pivot_caches.len();
                     let spec = PivotSpec {
                         rows,
                         cols,
@@ -3584,6 +3709,7 @@ impl SheetEngine {
                     let index =
                         bo_sheet::pivot::create_pivot(wb, sheet, r, dest_sheet, at, &spec, &labels)
                             .map_err(bad)?;
+                    fx.caches = super::light_undo::CacheUndo::Truncate(caches);
                     Ok(json!({ "sheet": dest_sheet, "index": index }))
                 })?;
                 // A new sheet needs its own geometry slot.
@@ -3696,8 +3822,34 @@ impl SheetEngine {
                 labels,
             } => {
                 let labels = self.pivot_labels(labels);
-                let out = self.edit(sheet, Recalc::All, |wb, _| {
-                    bo_sheet::pivot::refresh_pivot(wb, sheet, index, &labels).map_err(bad)?;
+                // Every report of the cache is rendered again from its top-left.
+                let quadrants: Vec<(usize, CellRef)> = {
+                    let wb = self.wb()?;
+                    let id = wb
+                        .sheets
+                        .get(sheet)
+                        .and_then(|s| s.pivots.get(index))
+                        .map(|p| p.cache_id);
+                    wb.sheets
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(s, ws)| {
+                            ws.pivots
+                                .iter()
+                                .filter(|p| Some(p.cache_id) == id)
+                                .map(move |p| (s, bo_sheet::pivot::occupied(p).first))
+                        })
+                        .collect()
+                };
+                let out = self.edit_light(sheet, Recalc::All, &quadrants, |wb, _, fx| {
+                    let mut prev = None;
+                    let res = bo_sheet::pivot::refresh_pivot_keeping(
+                        wb, sheet, index, &labels, &mut prev,
+                    );
+                    if let Some(p) = prev {
+                        fx.caches = super::light_undo::CacheUndo::Swap(vec![p]);
+                    }
+                    res.map_err(bad)?;
                     Ok(json!({ "ok": true }))
                 })?;
                 // Pivots on other sheets may share the cache.

@@ -17,7 +17,7 @@
 use crate::calcopts::{CalcMode, CalcSettings};
 use crate::formula::{load, load_with, to_cell_value, to_value, write_back};
 use bo_formula::{CellId, DateSystem, WebProvider};
-use bo_model::sheet::Workbook;
+use bo_model::sheet::{FormulaKind, Workbook};
 use std::sync::Arc;
 
 /// Live calculation state for one workbook.
@@ -173,6 +173,78 @@ impl LiveCalc {
         let ids = fw.last_recalculated().to_vec();
         write_ids(fw, wb, &ids, None);
         if mode == CalcMode::AutoNoTable {
+            self.tables_pending = true;
+        } else {
+            crate::whatif::calculate_data_tables(fw, wb);
+        }
+    }
+
+    /// After rows `start..start + perm.len()` of columns `c0..=c1` of sheet `sheet`
+    /// were permuted in the model (a sort: row `start + n` received row
+    /// `start + perm[n]`), moves the same cells in the live engine, sets the moved
+    /// formulas again from the model and recalculates their dependents only —
+    /// instead of reloading the workbook. Falls back to [`LiveCalc::rebuild`] in
+    /// manual calculation, with "precision as displayed", shared / array formulas in
+    /// the moved rows or spill ranges over them.
+    pub fn permute_rows(
+        &mut self,
+        wb: &mut Workbook,
+        sheet: usize,
+        start: u32,
+        c0: u32,
+        c1: u32,
+        perm: &[u32],
+    ) {
+        if perm.is_empty() || c1 < c0 {
+            return;
+        }
+        let calc = CalcSettings::read(wb);
+        let Some(ws) = wb.sheets.get(sheet) else {
+            return;
+        };
+        let end = start + (perm.len() as u32 - 1);
+        let mut formulas: Vec<(u32, u32)> = Vec::new();
+        let mut plain = true;
+        for (&(r, c), cell) in ws.cells.range((start, c0)..=(end, c1)) {
+            if c < c0 || c > c1 {
+                continue;
+            }
+            if let Some(f) = &cell.formula {
+                if f.text.is_empty() || f.kind != FormulaKind::Normal {
+                    plain = false;
+                    break;
+                }
+                if perm[(r - start) as usize] != r - start {
+                    formulas.push((r, c));
+                }
+            }
+        }
+        let fits = plain && calc.mode != CalcMode::Manual && calc.full_precision;
+        let Some(fw) = self.engine.as_mut().filter(|_| fits) else {
+            self.rebuild(wb);
+            return;
+        };
+        if !fw.permute_rows(sheet, start, c0, c1, perm) {
+            self.rebuild(wb);
+            return;
+        }
+        let system = if wb.date1904 {
+            DateSystem::Date1904
+        } else {
+            DateSystem::Date1900
+        };
+        for (r, c) in formulas {
+            if let Some(cell) = ws.cell(r, c) {
+                let text = cell.formula.as_ref().map_or("", |f| f.text.as_str());
+                if fw.set_formula(sheet, r, c, text).is_err() {
+                    fw.set_value(sheet, r, c, to_value(&cell.value, system));
+                }
+            }
+        }
+        fw.recalculate();
+        let ids = fw.last_recalculated().to_vec();
+        write_ids(fw, wb, &ids, None);
+        if calc.mode == CalcMode::AutoNoTable {
             self.tables_pending = true;
         } else {
             crate::whatif::calculate_data_tables(fw, wb);
@@ -363,6 +435,58 @@ mod tests {
 
     fn num(wb: &Workbook, s: usize, r: u32, c: u32) -> CellValue {
         wb.sheets[s].cell(r, c).unwrap().value.clone()
+    }
+
+    // source: ECMA-376 Part 1, §18.17.2.3 relative references follow moved cells
+    #[test]
+    fn permuted_rows_recalculate_like_a_full_reload() {
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        for r in 0..300u32 {
+            let v = f64::from((r * 7919) % 301);
+            ws.set_cell(r, 0, Cell::new(CellValue::Number(v)));
+            ws.set_cell(r, 1, Cell::new(CellValue::Text(format!("t{}", r % 13))));
+            if r % 3 == 0 {
+                ws.set_cell(r, 2, Cell::default().with_formula(&format!("A{}*2", r + 1)));
+            }
+        }
+        ws.set_cell(0, 5, Cell::default().with_formula("SUM(C1:C300)+A1"));
+        ws.set_cell(1, 5, Cell::default().with_formula("INDEX(B1:B300,5)&A7"));
+        ws.set_cell(2, 5, Cell::default().with_formula("F1+1"));
+        for r in 400..600u32 {
+            ws.set_cell(r, 9, Cell::default().with_formula("1+1"));
+        }
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        // Reverse rows 1..299 of A:C, the way a sort moves them (formulas translated).
+        let start = 1u32;
+        let perm: Vec<u32> = (0..299u32).rev().collect();
+        let ws = &mut wb.sheets[0];
+        let mut rows: Vec<Vec<(u32, Cell)>> = (0..299u32)
+            .map(|n| {
+                (0..3u32)
+                    .filter_map(|c| ws.cells.remove(&(start + n, c)).map(|cell| (c, cell)))
+                    .collect()
+            })
+            .collect();
+        for (n, &from) in perm.iter().enumerate() {
+            let to = start + n as u32;
+            for (c, mut cell) in std::mem::take(&mut rows[from as usize]) {
+                if let Some(f) = cell.formula.as_mut() {
+                    f.text = format!("A{}*2", to + 1);
+                }
+                ws.cells.insert((to, c), cell);
+            }
+        }
+        live.permute_rows(&mut wb, 0, start, 0, 2, &perm);
+        assert!(
+            live.last_evaluations() < 200,
+            "only the moved formulas and their readers: {}",
+            live.last_evaluations()
+        );
+        let mut full = wb.clone();
+        LiveCalc::new().rebuild(&mut full);
+        assert_eq!(wb, full);
     }
 
     #[test]

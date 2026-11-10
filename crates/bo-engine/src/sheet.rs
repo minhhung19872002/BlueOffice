@@ -31,6 +31,7 @@ mod compare_cmd;
 mod datatools_cmd;
 mod formctl_cmd;
 mod inspect_cmd;
+mod light_undo;
 mod ole_cmd;
 mod paste_opts;
 mod pivot_cmd;
@@ -281,8 +282,10 @@ enum UndoEntry {
         sheet: usize,
         cells: Vec<(u32, u32, Option<Cell>)>,
     },
-    /// Whole workbook before a structural change (insert/delete rows, sort…).
+    /// Whole workbook before a structural change (insert/delete rows…).
     Workbook(Box<Workbook>),
+    /// A sort, AutoFilter or pivot step without a copy of the cells (SHEET-PERF-002).
+    Light(Box<light_undo::Light>),
     /// Several entries undone as one step, in the order they were recorded
     /// (a BlueScript run, CORE-SCRIPT-001).
     Group(Vec<UndoEntry>),
@@ -1462,6 +1465,14 @@ impl SheetEngine {
                 }
                 return Ok(UndoEntry::Group(inv));
             }
+            UndoEntry::Light(step) => {
+                let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+                let before = wb.sheets.len();
+                let inv = step.apply(wb, &self.adjuster);
+                self.invalidate(None);
+                self.sync_light(&inv, before);
+                return Ok(UndoEntry::Light(Box::new(inv)));
+            }
             e => e,
         };
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
@@ -1488,7 +1499,9 @@ impl SheetEngine {
                 self.invalidate(None);
                 UndoEntry::Workbook(Box::new(cur))
             }
-            UndoEntry::Group(_) => return Err(EngineError::Sheet("nested undo group".into())),
+            UndoEntry::Group(_) | UndoEntry::Light(_) => {
+                return Err(EngineError::Sheet("nested undo group".into()))
+            }
         };
         if let Some(wb) = self.wb.as_mut() {
             match touched {

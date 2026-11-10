@@ -13,8 +13,27 @@
     "slide": "BlueSlide – Trình chiếu"
   },
   "ribbon": {
+    "mode": {
+      "simplified": "Ribbon đơn giản",
+      "collapse": "Thu gọn ribbon",
+      "expand": "Mở rộng ribbon"
+    },
+    "context": {
+      "table": "Công cụ bảng",
+      "picture": "Công cụ ảnh",
+      "chart": "Công cụ biểu đồ",
+      "shape": "Công cụ hình",
+      "headerFooter": "Công cụ đầu & chân trang",
+      "smartArt": "Công cụ sơ đồ",
+      "equation": "Công cụ phương trình",
+      "ink": "Công cụ mực",
+      "object": "Công cụ đối tượng",
+      "media": "Công cụ đa phương tiện",
+      "sparkline": "Công cụ biểu đồ thu nhỏ"
+    },
     "more": "Thêm lệnh",
     "tabs": {
+      "headerFooter": "Đầu & chân trang",
       "design": "Thiết kế",
       "file": "Tệp",
       "home": "Trang đầu",

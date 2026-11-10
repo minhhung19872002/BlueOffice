@@ -13,8 +13,27 @@
     "slide": "BlueSlide – Presentations"
   },
   "ribbon": {
+    "mode": {
+      "simplified": "Simplified ribbon",
+      "collapse": "Collapse the ribbon",
+      "expand": "Expand the ribbon"
+    },
+    "context": {
+      "table": "Table tools",
+      "picture": "Picture tools",
+      "chart": "Chart tools",
+      "shape": "Shape tools",
+      "headerFooter": "Header & footer tools",
+      "smartArt": "Diagram tools",
+      "equation": "Equation tools",
+      "ink": "Ink tools",
+      "object": "Object tools",
+      "media": "Media tools",
+      "sparkline": "Sparkline tools"
+    },
     "more": "More commands",
     "tabs": {
+      "headerFooter": "Header & footer",
       "design": "Design",
       "file": "File",
       "home": "Home",

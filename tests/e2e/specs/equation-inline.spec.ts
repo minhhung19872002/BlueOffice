@@ -13,8 +13,11 @@ const cmd = (page: Page, id: string) => page.locator(`[data-command="${id}"]`);
 const page1 = (page: Page) => page.locator('.bo-page[data-page="1"]');
 
 async function box(page: Page, testId: string) {
-  await expect(page.getByTestId(testId).first()).toBeAttached();
-  const b = await page.getByTestId(testId).first().boundingBox();
+  const el = page.getByTestId(testId).first();
+  // The caret is redrawn after each key: wait until the new one is laid out.
+  await expect(el).toBeVisible();
+  let b = await el.boundingBox();
+  await expect.poll(async () => (b = await el.boundingBox()) !== null).toBe(true);
   if (!b) throw new Error(`${testId} has no box`);
   return b;
 }

@@ -2,6 +2,28 @@ import '@blueoffice/ui/theme.css';
 
 export { BlueEditor, type BlueEditorProps, type HostConfig } from './BlueEditor';
 export { CommandRegistry, normalizeShortcut, type Command } from './commands';
+export { DOC_REPEATABLE, RepeatTracker, SLIDE_REPEATABLE } from './repeat';
+export {
+  SHORTCUTS_FORMAT,
+  assignShortcut,
+  exportShortcuts,
+  importShortcuts,
+  loadShortcuts,
+  saveShortcuts,
+  shortcutFromKey,
+  shortcutsKey,
+  validShortcut,
+  type ShortcutApp,
+  type ShortcutMap,
+} from './shortcuts';
+export {
+  ShortcutsDialog,
+  useCustomShortcuts,
+  type CustomShortcutsOptions,
+  type ShortcutCommand,
+  type ShortcutsDialogProps,
+} from './ShortcutsDialog';
+export { commandLabel, shortcutCommands, useContextMenu, type OpenContextMenu } from './commandUi';
 export {
   SCRIPT_COMMAND_PREFIX,
   bindScripts,

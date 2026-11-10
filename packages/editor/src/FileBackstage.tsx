@@ -112,6 +112,7 @@ const COMMAND_LABELS: Record<string, string> = {
   'review.spellingDialog': 'commands.review.spellingDialog',
   'review.language': 'backstage.options.proofingLanguage',
   'file.checkUpdates': 'commands.file.checkUpdates',
+  'options.shortcuts': 'commands.options.shortcuts',
 };
 
 /** Commands of each page, in order (the ones the app registers are shown). */
@@ -151,6 +152,7 @@ export const BACKSTAGE_COMMANDS: Record<
     'review.spelling',
     'review.spellingDialog',
     'review.language',
+    'options.shortcuts',
     'file.checkUpdates',
   ],
 };

@@ -133,7 +133,8 @@
       "selectAll": "Select all",
       "find": "Find",
       "replace": "Replace",
-      "pasteSpecial": "Paste special…"
+      "pasteSpecial": "Paste special…",
+      "repeat": "Repeat last action"
     },
     "format": {
       "fontDialog": "Character effects…",
@@ -371,6 +372,9 @@
       "edit": "Edit embedded object",
       "updateLinks": "Update links",
       "saveCopy": "Save a copy of the embedded workbook"
+    },
+    "options": {
+      "shortcuts": "Customize shortcuts…"
     }
   },
   "status": {
@@ -3737,7 +3741,9 @@
   "commandSearch": {
     "title": "Find a command",
     "placeholder": "Find a command (Alt+Q)",
-    "noResults": "No command matches"
+    "noResults": "No command matches",
+    "recent": "Recently used",
+    "related": "Related commands"
   },
   "design": {
     "themes": {
@@ -5556,5 +5562,39 @@
       "file_print": "Choose pages, copies, printer and preview.",
       "file_exportPdf": "Save a PDF copy with the default settings."
     }
+  },
+  "contextMenu": {
+    "label": "Context menu",
+    "tabColor": "Tab colour…",
+    "spelling": "Spelling suggestions"
+  },
+  "miniToolbar": {
+    "label": "Floating formatting bar",
+    "styles": "Styles"
+  },
+  "shortcuts": {
+    "title": "Customize keyboard shortcuts",
+    "search": "Search commands or shortcuts",
+    "command": "Command",
+    "shortcut": "Shortcut",
+    "actions": "Actions",
+    "change": "Change",
+    "remove": "Remove",
+    "reset": "Default",
+    "resetAll": "Reset all",
+    "assign": "Assign",
+    "reassign": "Assign anyway",
+    "cancel": "Cancel",
+    "close": "Close",
+    "custom": "(changed)",
+    "pressKeys": "Press the new keys for {{command}}",
+    "invalid": "Use Ctrl or Alt with a key, or a function key F1–F12.",
+    "conflict": "Assigned to: {{commands}}. Assigning it here removes it there.",
+    "export": "Export…",
+    "import": "Import…",
+    "exported": "Shortcuts exported.",
+    "imported": "Imported {{count}} shortcut changes.",
+    "importInvalid": "The file is not a BlueOffice shortcut table.",
+    "importWrongApp": "This shortcut file is for another app."
   }
 }

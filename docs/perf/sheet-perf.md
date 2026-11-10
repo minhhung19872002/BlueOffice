@@ -26,19 +26,22 @@ Không commit tệp lớn: sổ 10 triệu ô được sinh trong bench / test (
 
 ## Kết quả lõi (`bo-sheet`, `BO_BENCH_ONCE=1`)
 
-| Ca (1 048 575 bản ghi) | Trước | Sau | Mục tiêu |
-|---|---|---|---|
-| Sắp xếp 1 khoá số | 13,3 s | 1,05 s | < 2 s |
-| Sắp xếp 2 khoá (văn bản tiếng Việt + số giảm dần) | 57,1 s | 1,26 s | < 2 s |
-| AutoFilter: danh sách giá trị + điều kiện số | 6,5 s | 0,67 s | < 2 s |
-| Tạo pivot (2 trường hàng, 1 trường cột, Sum) | 21,9 s | 2,43 s | < 3 s |
-| Làm mới pivot | 24,7 s | 2,74 s | < 3 s |
+| Ca (1 048 575 bản ghi) | Trước | Sau (máy yên) | Sau (tải nền ~50 %) | Mục tiêu |
+|---|---|---|---|---|
+| Sắp xếp 1 khoá số | 13,3 s | 1,05 s | 1,46 s | < 2 s |
+| Sắp xếp 2 khoá (văn bản tiếng Việt + số giảm dần) | 57,1 s | 1,26 s | 1,44 s | < 2 s |
+| AutoFilter: danh sách giá trị + điều kiện số | 6,5 s | 0,67 s | 0,82 s | < 2 s |
+| Tạo pivot (2 trường hàng, 1 trường cột, Sum) | 21,9 s | 2,43 s | 2,47 s | < 3 s |
+| Làm mới pivot | 24,7 s | 2,74 s | 2,34 s | < 3 s |
+| Nạp lại bộ tính (`LiveCalc::rebuild`, 6,3 triệu ô) | — | — | 2,41 s | (tham khảo) |
+
+`size_of::<Cell>()` = 152 byte.
 
 ## Kết quả qua `SheetEngine` (danh sách 1 048 576 × 4)
 
 | Ca | Trước | Sau | Ghi chú |
 |---|---|---|---|
-| Mở `.xlsx` 10 485 760 ô (7 cột số, 3 cột chuỗi dùng chung) | — (không đo được trước) | ~14 s | mở được; xem "Còn lại" |
+| Mở `.xlsx` 10 485 760 ô (7 cột số, 3 cột chuỗi dùng chung, 65 MB) | — | 13,0–14,0 s | mở được (`ten_million_cell_workbook_opens` release: 13,0 s) |
 | Lệnh `sort` 2 khoá | (lõi 57 s + …) | ~4,0 s | ảnh chụp undo 0,6 s + sắp xếp 1,2 s + nạp lại bộ tính 2,3 s |
 | `toggleFilter` trên 1 ô của danh sách 1 triệu hàng | treo (vùng hiện hành O(n²)) | < 1 s | `current_region` sửa |
 | Lệnh `setFilter` | treo (O(hàng ẩn × ô)) | ~1,7 s* | không nạp lại bộ tính (`Recalc::HiddenRows`) |

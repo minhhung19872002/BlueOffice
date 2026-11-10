@@ -73,6 +73,12 @@ public sealed class ConversionJobProcessor(
         try
         {
             var ext = Path.GetExtension(job.FileName).ToLowerInvariant();
+            if (job.Kind == JobKind.Inspect)
+            {
+                // The format is detected from the content: the extension is not trusted, and not needed.
+                return await InspectAsync(job, dir.FullName, ct);
+            }
+
             if (!options.Value.AllowedExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
             {
                 return Fail(job, $"Unsupported input type '{ext}'.");
@@ -101,7 +107,27 @@ public sealed class ConversionJobProcessor(
                         }
 
                         var output = Path.Combine(dir.FullName, "output." + to);
-                        var r = await runner.RunAsync(["convert", input, "--to", to, "--out", output], dir.FullName, ct);
+                        List<string> args = ["convert", input, "--to", to, "--out", output];
+                        if (to == "pdf" && job.Kind == JobKind.Convert)
+                        {
+                            // PDF/A (ISO 19005), tagged PDF and bookmarks (CORE-FMT-002).
+                            if (job.Options.TryGetValue("pdfa", out var pdfa) && ConversionFormats.PdfALevels.Contains(pdfa))
+                            {
+                                args.AddRange(["--pdfa", pdfa]);
+                            }
+
+                            if (job.Options.ContainsKey("tagged"))
+                            {
+                                args.Add("--tagged");
+                            }
+
+                            if (job.Options.ContainsKey("bookmarks"))
+                            {
+                                args.Add("--bookmarks");
+                            }
+                        }
+
+                        var r = await runner.RunAsync(args, dir.FullName, ct);
 
                         // bo-cli keeps macros of a macro-enabled input (.doc with VBA → .docm): name and type follow the package.
                         var outFormat = r.ExitCode == 0 && File.Exists(output) ? ConversionFormats.ActualFormat(to, output) : to;
@@ -125,6 +151,12 @@ public sealed class ConversionJobProcessor(
                 case JobKind.ExtractText:
                     return await ExtractTextAsync(job, input, dir.FullName, baseName, ct);
 
+                case JobKind.Merge:
+                    return await MergeAsync(job, input, ext, dir.FullName, baseName, ct);
+
+                case JobKind.Edit:
+                    return await EditAsync(job, input, ext, dir.FullName, baseName, ct);
+
                 default:
                     return Fail(job, "Unknown job kind.");
             }
@@ -132,6 +164,11 @@ public sealed class ConversionJobProcessor(
         catch (Domain.ObjectNotFoundException)
         {
             return Fail(job, "Job input is missing.");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // BoCli:Timeout elapsed (the process tree was killed by the runner).
+            return Fail(job, "The operation timed out.");
         }
         finally
         {
@@ -144,6 +181,133 @@ public sealed class ConversionJobProcessor(
                 // Best effort cleanup.
             }
         }
+    }
+
+    private async Task<string> CopyDataAsync(ConversionJob job, string path, CancellationToken ct)
+    {
+        await using var src = await store.OpenReadAsync(job.DataKey, ct);
+        await using var fs = File.Create(path);
+        await src.CopyToAsync(fs, ct);
+        return path;
+    }
+
+    private async Task<ConversionJob> MergeAsync(ConversionJob job, string input, string ext, string workDir, string baseName, CancellationToken ct)
+    {
+        if (!ConversionFormats.IsMergeTemplate(ext))
+        {
+            return Fail(job, $"A mail merge template must be .docx (got '{ext}').");
+        }
+
+        var dataExt = (job.DataExtension ?? "").ToLowerInvariant();
+        if (!ConversionFormats.MergeData.Contains(dataExt))
+        {
+            return Fail(job, $"Unsupported merge data type '{dataExt}'.");
+        }
+
+        var to = (job.TargetFormat ?? "docx").ToLowerInvariant();
+        if (to is not ("docx" or "pdf" or "zip"))
+        {
+            return Fail(job, $"Cannot merge to '{to}'.");
+        }
+
+        // Never trust client file names for paths: fixed names, known extensions.
+        var data = await CopyDataAsync(job, Path.Combine(workDir, "data" + dataExt), ct);
+        var output = Path.Combine(workDir, "merged." + to);
+        List<string> args = ["merge", input, data, "--to", to, "--out", output];
+        if (to == "zip")
+        {
+            args.AddRange(["--each", job.Options.GetValueOrDefault("each") == "docx" ? "docx" : "pdf"]);
+            if (job.Options.TryGetValue("pattern", out var pattern) && pattern.Length > 0)
+            {
+                // "--pattern=…": a value starting with '-' must not be read as a flag.
+                args.Add("--pattern=" + pattern);
+            }
+        }
+
+        var r = await runner.RunAsync(args, workDir, ct);
+        var contentType = to == "zip" ? "application/zip" : ConversionFormats.ContentType(to);
+        return await FinishFileAsync(job, r, output, contentType, baseName + "." + to, ct);
+    }
+
+    private async Task<ConversionJob> EditAsync(ConversionJob job, string input, string ext, string workDir, string baseName, CancellationToken ct)
+    {
+        var own = ConversionFormats.EditFormat(ext);
+        if (own is null)
+        {
+            return Fail(job, $"Edits apply to .docx and .xlsx templates (got '{ext}').");
+        }
+
+        var to = (job.TargetFormat ?? own).ToLowerInvariant();
+        if (to != own && to != "pdf")
+        {
+            return Fail(job, $"Cannot save '{ext}' as '{to}'.");
+        }
+
+        var edits = await CopyDataAsync(job, Path.Combine(workDir, "edits.json"), ct);
+        var output = Path.Combine(workDir, "edited." + to);
+        List<string> args = ["edit", input, "--edits", edits, "--out", output, "--to", to];
+        if (job.Options.ContainsKey("strict"))
+        {
+            args.Add("--strict");
+        }
+
+        var r = await runner.RunAsync(args, workDir, ct);
+        if (r.ExitCode == 0)
+        {
+            // bo-cli prints what each edit changed: [{"op":…,"target":…,"count":n}].
+            try
+            {
+                using var report = JsonDocument.Parse(r.StdOut);
+                var counts = report.RootElement.EnumerateArray()
+                    .Select(e => e.TryGetProperty("count", out var c) && c.TryGetInt32(out var n) ? n : 0)
+                    .ToList();
+                job.EditsApplied = counts.Count(n => n > 0);
+                job.EditsUnmatched = counts.Count(n => n == 0);
+            }
+            catch (Exception e) when (e is JsonException or InvalidOperationException)
+            {
+                // No report: the output is still valid.
+            }
+        }
+
+        var outFormat = r.ExitCode == 0 && File.Exists(output) ? ConversionFormats.ActualFormat(to, output) : to;
+        return await FinishFileAsync(job, r, output, ConversionFormats.ContentType(outFormat), baseName + "." + outFormat, ct);
+    }
+
+    private async Task<ConversionJob> InspectAsync(ConversionJob job, string workDir, CancellationToken ct)
+    {
+        var input = Path.Combine(workDir, "input.bin");
+        await using (var src = await store.OpenReadAsync(job.InputKey, ct))
+        await using (var fs = File.Create(input))
+        {
+            await src.CopyToAsync(fs, ct);
+        }
+
+        var r = await runner.RunAsync(["inspect", input, "--json"], workDir, ct);
+        if (r.ExitCode != 0)
+        {
+            return Fail(job, string.IsNullOrWhiteSpace(r.StdErr) ? "Not a supported document." : r.StdErr.Trim());
+        }
+
+        Dictionary<string, JsonElement> facts;
+        try
+        {
+            facts = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(r.StdOut) ?? [];
+        }
+        catch (JsonException)
+        {
+            return Fail(job, "Inspection failed.");
+        }
+
+        var payload = new Dictionary<string, object?> { ["fileName"] = job.FileName };
+        foreach (var (k, v) in facts)
+        {
+            payload[k] = v;
+        }
+
+        using var ms = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(payload));
+        await store.PutAsync(job.OutputKey, ms, "application/json", ct);
+        return Succeed(job, "application/json", Path.GetFileNameWithoutExtension(job.FileName) + ".json");
     }
 
     private async Task<ConversionJob> PreviewPagesAsync(ConversionJob job, string input, string ext, string workDir, string baseName, CancellationToken ct)
@@ -336,6 +500,23 @@ public static class ConversionFormats
     private static readonly string[] Spreadsheets = [".xlsx", ".xlsm", ".xlsb", ".xls", ".ods"];
     private static readonly string[] Presentations = [".pptx", ".ppt", ".odp"];
 
+    /// <summary>PDF/A conformance levels of <c>bo-cli convert --pdfa</c> (ISO 19005-1/2/3, level B).</summary>
+    public static IReadOnlyList<string> PdfALevels { get; } = ["1b", "2b", "3b"];
+
+    /// <summary>Data files of a mail merge (<c>bo-cli merge</c>).</summary>
+    public static IReadOnlyList<string> MergeData { get; } = [".csv", ".json", ".xlsx", ".vcf"];
+
+    /// <summary>True for mail merge templates.</summary>
+    public static bool IsMergeTemplate(string ext) => ext.ToLowerInvariant() is ".docx" or ".docm";
+
+    /// <summary>Own format of a template <c>bo-cli edit</c> can fill ("docx", "xlsx"), else null.</summary>
+    public static string? EditFormat(string ext) => ext.ToLowerInvariant() switch
+    {
+        ".docx" or ".docm" => "docx",
+        ".xlsx" or ".xlsm" => "xlsx",
+        _ => null,
+    };
+
     /// <summary>Every input extension the worker understands.</summary>
     public static IReadOnlyList<string> AllInputs { get; } = [.. Documents, .. PlainText, .. Spreadsheets, .. Presentations];
 
@@ -424,6 +605,7 @@ public static class ConversionFormats
         "csv" => "text/csv",
         "txt" => "text/plain",
         "png" => "image/png",
+        "zip" => "application/zip",
         _ => "application/octet-stream",
     };
 }

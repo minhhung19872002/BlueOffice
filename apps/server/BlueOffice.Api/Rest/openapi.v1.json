@@ -1,0 +1,385 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "BlueOffice Document API",
+    "version": "1.0.0",
+    "description": "Create, fill, merge, convert and inspect office documents from other systems (CORE-API-001). Every operation runs as a job of the conversion worker. By default the result is returned directly (200) when it is ready within Worker:WaitTimeout; otherwise, or with ?wait=false, the answer is 202 with a job whose statusUrl is polled and whose resultUrl returns the file. Errors are RFC 7807 problem details."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "ApiKey": [] }, { "Bearer": [] }],
+  "tags": [
+    { "name": "documents", "description": "Document operations" },
+    { "name": "jobs", "description": "Status and result of asynchronous operations" }
+  ],
+  "paths": {
+    "/api/v1/documents/convert": {
+      "post": {
+        "tags": ["documents"],
+        "operationId": "convertDocument",
+        "summary": "Convert a document, workbook or presentation",
+        "description": "Scope: convert. Inputs: docx, docm, doc, odt, txt, md → pdf, docx, odt, txt; xlsx, xlsm, xlsb, xls, ods → pdf, xlsx, ods, csv; pptx → pdf, pptx; ppt, odp → odp, txt.",
+        "parameters": [{ "$ref": "#/components/parameters/Wait" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary", "description": "The input file; its extension selects the reader." },
+                  "to": { "type": "string", "default": "pdf", "enum": ["pdf", "docx", "odt", "txt", "xlsx", "ods", "csv", "pptx", "odp"] },
+                  "pdfa": { "type": "string", "enum": ["1b", "2b", "3b"], "description": "PDF/A conformance (ISO 19005); 3b embeds the source file. PDF output only." },
+                  "tagged": { "type": "boolean", "description": "Tagged PDF (ISO 32000-1 §14.8). PDF output only." },
+                  "bookmarks": { "type": "boolean", "description": "Bookmarks from headings, slide titles or sheet names. PDF output only." }
+                }
+              },
+              "example": { "file": "(binary) Báo cáo.docx", "to": "pdf", "pdfa": "2b", "tagged": true, "bookmarks": true }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/File" },
+          "202": { "$ref": "#/components/responses/Accepted" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "413": { "$ref": "#/components/responses/Problem" },
+          "422": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/documents/merge": {
+      "post": {
+        "tags": ["documents"],
+        "operationId": "mailMerge",
+        "summary": "Bulk mail merge of a .docx template",
+        "description": "Scope: merge. The template's MERGEFIELD fields are filled once per record. Data: the file 'data' (.csv with a header row, .json array of objects, .xlsx first sheet, .vcf) or the form value 'records' (JSON array of objects). output=single: one document with one section per record; output=zip: one file per record, named by 'pattern'.",
+        "parameters": [{ "$ref": "#/components/parameters/Wait" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["template"],
+                "properties": {
+                  "template": { "type": "string", "format": "binary", "description": "Mail merge main document (.docx)." },
+                  "data": { "type": "string", "format": "binary", "description": "Data file: .csv, .json, .xlsx or .vcf." },
+                  "records": { "type": "string", "description": "JSON array of objects (instead of 'data'); at most RestApi:MaxRecords." },
+                  "to": { "type": "string", "enum": ["docx", "pdf"], "default": "docx" },
+                  "output": { "type": "string", "enum": ["single", "zip"], "default": "single" },
+                  "pattern": { "type": "string", "maxLength": 200, "description": "File name of each record in the zip; «Field» is replaced by the record's value. Default: 1, 2, 3 …" }
+                }
+              },
+              "example": {
+                "template": "(binary) Thư mời.docx",
+                "records": "[{\"HoTen\":\"Nguyễn Văn An\",\"DonVi\":\"Sở Kế hoạch\"},{\"HoTen\":\"Trần Thị Bình\",\"DonVi\":\"Phòng Tài chính\"}]",
+                "to": "pdf",
+                "output": "zip",
+                "pattern": "Thư mời «HoTen»"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/File" },
+          "202": { "$ref": "#/components/responses/Accepted" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "413": { "$ref": "#/components/responses/Problem" },
+          "422": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/documents/edit": {
+      "post": {
+        "tags": ["documents"],
+        "operationId": "editDocument",
+        "summary": "Fill a template (report generation)",
+        "description": "Scope: edit. Applies a list of edits to a .docx (content controls, bookmarks, placeholders, properties) or .xlsx (cells by reference or defined name) template and returns it in its format or as PDF. With strict (default) an edit that matches nothing fails the request with 422. Response headers X-Edits-Applied / X-Edits-Unmatched count the edits.",
+        "parameters": [{ "$ref": "#/components/parameters/Wait" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file", "edits"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary", "description": "Template: .docx or .xlsx." },
+                  "edits": { "type": "string", "description": "JSON array of Edit objects (a form value, or a file part for lists above 4 MB); at most RestApi:MaxEdits." },
+                  "to": { "type": "string", "enum": ["docx", "xlsx", "pdf"], "description": "Default: the template's own format." },
+                  "strict": { "type": "boolean", "default": true }
+                }
+              },
+              "example": {
+                "file": "(binary) Hợp đồng.docx",
+                "edits": "[{\"op\":\"setControl\",\"tag\":\"ho_ten\",\"value\":\"Nguyễn Văn An\"},{\"op\":\"setBookmark\",\"name\":\"SoHopDong\",\"text\":\"12/2026/HĐ\"},{\"op\":\"replaceText\",\"find\":\"{{ngay}}\",\"with\":\"10/11/2026\"},{\"op\":\"setProperties\",\"props\":{\"title\":\"Hợp đồng 12/2026\"}}]",
+                "to": "pdf"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/File" },
+          "202": { "$ref": "#/components/responses/Accepted" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "413": { "$ref": "#/components/responses/Problem" },
+          "422": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/documents/inspect": {
+      "post": {
+        "tags": ["documents"],
+        "operationId": "inspectDocument",
+        "summary": "Format, variant, encryption and macros of a file",
+        "description": "Scope: inspect. The format is detected from the content, not the file name. Macros are never run. An encrypted file is reported with opened=false.",
+        "parameters": [{ "$ref": "#/components/parameters/Wait" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": { "file": { "type": "string", "format": "binary" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Facts about the file.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Inspection" },
+                "example": { "fileName": "Biểu mẫu.docm", "format": "docx", "variant": "docm", "encrypted": false, "opened": true, "macros": true, "kind": "document", "paragraphs": 42 }
+              }
+            }
+          },
+          "202": { "$ref": "#/components/responses/Accepted" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "413": { "$ref": "#/components/responses/Problem" },
+          "422": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}": {
+      "get": {
+        "tags": ["jobs"],
+        "operationId": "getJob",
+        "summary": "Status of a job of the caller",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": {
+          "200": {
+            "description": "The job.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } }
+          },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}/result": {
+      "get": {
+        "tags": ["jobs"],
+        "operationId": "getJobResult",
+        "summary": "Output of a finished job of the caller",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/File" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "409": {
+            "description": "The job has not succeeded (queued, running or failed): its status.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } }
+          },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKey": { "type": "apiKey", "in": "header", "name": "X-Api-Key", "description": "Key issued by the administrator (RestApi:Keys); scopes: convert, merge, edit, inspect." },
+      "Bearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "OIDC user token or host service token (unless RestApi:AllowBearer is false)." }
+    },
+    "parameters": {
+      "Wait": {
+        "name": "wait",
+        "in": "query",
+        "schema": { "type": "boolean", "default": true },
+        "description": "true: answer with the result when it is ready within Worker:WaitTimeout (else 202). false: always 202."
+      },
+      "JobId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+    },
+    "responses": {
+      "File": {
+        "description": "The produced file (Content-Type and Content-Disposition tell its type and name).",
+        "headers": {
+          "X-Edits-Applied": { "schema": { "type": "integer" }, "description": "edit only: edits that changed something." },
+          "X-Edits-Unmatched": { "schema": { "type": "integer" }, "description": "edit only: edits that matched nothing." }
+        },
+        "content": {
+          "application/pdf": { "schema": { "type": "string", "format": "binary" } },
+          "application/zip": { "schema": { "type": "string", "format": "binary" } },
+          "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+        }
+      },
+      "Accepted": {
+        "description": "The job is queued or still running; poll statusUrl (also in the Location header).",
+        "headers": { "Location": { "schema": { "type": "string" } } },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Job" },
+            "example": { "id": "0f3c0f7a4a5e4b0c9d0e8f1a2b3c4d5e", "kind": "merge", "status": "queued", "error": null, "statusUrl": "/api/v1/jobs/0f3c0f7a4a5e4b0c9d0e8f1a2b3c4d5e", "resultUrl": null, "createdAt": "2026-11-10T08:00:00Z", "completedAt": null }
+          }
+        }
+      },
+      "Problem": {
+        "description": "Error (RFC 7807): 400 bad input, 401 missing or invalid credentials, 403 missing scope, 404 unknown job, 413 file too large, 422 the file could not be processed, 429 rate limit (Retry-After).",
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/Problem" },
+            "example": { "status": 400, "detail": "Cannot convert '.docx' to 'xlsx' (supported: pdf, docx, odt, txt)." }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["convert", "merge", "edit", "inspect"] },
+          "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed"] },
+          "error": { "type": "string", "nullable": true },
+          "statusUrl": { "type": "string" },
+          "resultUrl": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "completedAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" }
+        }
+      },
+      "Inspection": {
+        "type": "object",
+        "properties": {
+          "fileName": { "type": "string" },
+          "format": { "type": "string", "nullable": true, "description": "docx, xlsx, pptx, doc, xls, xlsb, ppt, odt, ods, odp; null when an encrypted file could not be opened." },
+          "variant": { "type": "string", "nullable": true, "description": "OOXML package variant: docx, docm, dotx, dotm, xlsx, xlsm, xltx, xltm, pptx, pptm, potx, potm, ppsx, ppsm." },
+          "encrypted": { "type": "boolean" },
+          "opened": { "type": "boolean" },
+          "macros": { "type": "boolean" },
+          "kind": { "type": "string", "enum": ["document", "spreadsheet", "presentation"] },
+          "paragraphs": { "type": "integer" },
+          "slides": { "type": "integer" },
+          "sheets": {
+            "type": "array",
+            "items": { "type": "object", "properties": { "name": { "type": "string" }, "cells": { "type": "integer", "nullable": true } } }
+          },
+          "error": { "type": "string" }
+        }
+      },
+      "Edit": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/SetControl" },
+          { "$ref": "#/components/schemas/SetBookmark" },
+          { "$ref": "#/components/schemas/ReplaceText" },
+          { "$ref": "#/components/schemas/SetProperties" },
+          { "$ref": "#/components/schemas/SetCell" }
+        ],
+        "discriminator": { "propertyName": "op" }
+      },
+      "SetControl": {
+        "type": "object",
+        "required": ["op"],
+        "description": ".docx: fill every inline content control with this tag and / or title. value: text, a list item, an ISO 8601 date, or true / false for a check box.",
+        "properties": {
+          "op": { "type": "string", "enum": ["setControl"] },
+          "tag": { "type": "string" },
+          "title": { "type": "string" },
+          "value": {}
+        },
+        "example": { "op": "setControl", "tag": "ho_ten", "value": "Nguyễn Văn An" }
+      },
+      "SetBookmark": {
+        "type": "object",
+        "required": ["op", "name"],
+        "description": ".docx: replace the text of a bookmark of the main text (within one paragraph).",
+        "properties": {
+          "op": { "type": "string", "enum": ["setBookmark"] },
+          "name": { "type": "string" },
+          "text": { "type": "string" }
+        },
+        "example": { "op": "setBookmark", "name": "SoHopDong", "text": "12/2026/HĐ" }
+      },
+      "ReplaceText": {
+        "type": "object",
+        "required": ["op", "find"],
+        "description": ".docx: replace every occurrence of a literal placeholder; a line feed in 'with' starts a paragraph.",
+        "properties": {
+          "op": { "type": "string", "enum": ["replaceText"] },
+          "find": { "type": "string" },
+          "with": { "type": "string" },
+          "matchCase": { "type": "boolean", "default": false },
+          "wholeWord": { "type": "boolean", "default": false }
+        },
+        "example": { "op": "replaceText", "find": "{{ngay}}", "with": "10/11/2026" }
+      },
+      "SetProperties": {
+        "type": "object",
+        "required": ["op", "props"],
+        "description": ".docx: document properties (absent: unchanged, empty: removed).",
+        "properties": {
+          "op": { "type": "string", "enum": ["setProperties"] },
+          "props": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "subject": { "type": "string" },
+              "author": { "type": "string" },
+              "keywords": { "type": "string" },
+              "comments": { "type": "string" },
+              "category": { "type": "string" },
+              "status": { "type": "string" },
+              "company": { "type": "string" },
+              "manager": { "type": "string" }
+            }
+          }
+        },
+        "example": { "op": "setProperties", "props": { "title": "Hợp đồng 12/2026", "author": "Phòng Kinh doanh" } }
+      },
+      "SetCell": {
+        "type": "object",
+        "required": ["op", "ref"],
+        "description": ".xlsx: set a cell by reference (B7, 'Sổ 1'!B7) or defined name; a string starting with = is a formula; null clears the cell.",
+        "properties": {
+          "op": { "type": "string", "enum": ["setCell"] },
+          "ref": { "type": "string" },
+          "value": {}
+        },
+        "example": { "op": "setCell", "ref": "TyGia", "value": 25000 }
+      }
+    }
+  }
+}

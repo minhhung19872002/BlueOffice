@@ -4,6 +4,9 @@
     <ProjectReference Include="..\BlueOffice.Infrastructure\BlueOffice.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Rest\openapi.v1.json" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.11" />

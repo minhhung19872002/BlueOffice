@@ -1,0 +1,11 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+image /ppt/media/image3.png 48.0,113.8 417.6x278.4 crop=None
+path n=5 [48.0 113.8 465.6 392.2] stroke=#404040ff w2.25
+transform [1.000 0.000 0.000 1.000 48.0 396.2]
+  text 18.0pt 184.2,20.7 #000000ff "Phố "
+  text 18.0pt 216.5,20.7 #000000ff "cổ"
+pop transform

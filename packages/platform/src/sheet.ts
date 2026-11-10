@@ -10,6 +10,7 @@ import type { TableCommand } from './sheetTable';
 import type {
   GlyphOutline,
   PageDisplayList,
+  SheetPeer,
   SlideSmartArtColors,
   SlideSmartArtItem,
   SlideSmartArtLayout,
@@ -1486,6 +1487,13 @@ export interface SheetHost {
   /** Applies a replica change (`WasmCollab.takeRemote`). */
   collabApply?(change: string): Promise<WorkbookInfo>;
   collabStop?(): Promise<void>;
+  /**
+   * Live collaboration: publish this user's selection (sheet name + A1 range) as
+   * presence. Hosts without collaboration omit it.
+   */
+  collabSelect?(sheet: string, range: string): void;
+  /** Collaborators' selected cells / ranges (presence), on every change. */
+  onSheetPeers?(listener: (peers: SheetPeer[]) => void): () => void;
 }
 
 /** A `bo-collab` change envelope (cells, meta, texts …) as JSON. */

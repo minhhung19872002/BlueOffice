@@ -1387,6 +1387,8 @@ export interface CollabChange {
 export interface PeerRects {
   caret: CaretRect | null;
   rects: SelRect[];
+  /** The paragraph the caret is in, on the caret's page (margin bar). */
+  para?: CaretRect | null;
 }
 
 /** A collaborator shown in the document. */
@@ -1403,6 +1405,19 @@ export interface SlidePeer {
   color: string;
   slide: number;
   rect: SlideBox;
+  /** On the slide without a selected object (`rect` is empty). */
+  slideOnly?: boolean;
+}
+
+/** A collaborator's selected BlueSheet cell / range (awareness `cell`). */
+export interface SheetPeer {
+  clientId: number;
+  name: string;
+  color: string;
+  /** Sheet name. */
+  sheet: string;
+  /** A1 range on that sheet, e.g. `B2:C4` or `B2`. */
+  range: string;
 }
 
 // ---------------------------------------------------------------- slide editing (mirrors bo_engine::slide_edit)
@@ -2132,7 +2147,7 @@ export interface SlideEditResult {
   hits?: number[];
   error?: string;
   /** While collaborating: the change to share and the selected object key. */
-  collab?: { change: CollabChange; shape?: string };
+  collab?: { change: CollabChange; shape?: string; slide?: string };
   /** Comment threads of the current slide. */
   comments?: SlideThreadInfo[];
   /** Check document report (`inspect` and the inspector commands). */

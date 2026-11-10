@@ -832,7 +832,12 @@ function EditorInner({
       state.showPeers
         ? state.peers.map((p) => {
             const name = p.name || t('collab.anonymous');
-            return { ...p, name, label: t('collab.editing', { name }) };
+            return {
+              ...p,
+              name,
+              label: t('collab.editing', { name }),
+              paraLabel: t('collab.inParagraph', { name }),
+            };
           })
         : [],
     );

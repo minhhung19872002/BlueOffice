@@ -854,3 +854,26 @@ circle.handle {
   outline: 2px solid var(--bo-accent, #2f6fd6);
   outline-offset: -2px;
 }
+
+/* Live collaboration: collaborators on a slide (initials badges on the thumbnail). */
+.thumbPeers {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.peerBadge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border-radius: 9px;
+  border: 1.5px solid #fff;
+  background: #57606a;
+  color: #fff;
+  font: 600 10px/15px var(--bo-font-ui, system-ui, sans-serif);
+  text-align: center;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+}

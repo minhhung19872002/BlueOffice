@@ -7,7 +7,8 @@
  * shares cell inputs only (last writer wins per cell).
  */
 import type { CollabEngine } from './index';
-import { isEmptyChange, type ChangeLike } from './live';
+import { isEmptyChange, type ChangeLike, type CollabUser } from './live';
+import { cellPresence, sheetPeersOf, type SheetPeerView } from './presence';
 
 /** The `WasmCollab` surface used here (crates/bo-wasm/src/collab.rs). */
 export interface WasmCollabLike {
@@ -127,25 +128,88 @@ export function parseCellKey(a1: string): [number, number] | null {
  *
  * Call `remoteApplied()` after the collab client reports remote frames and
  * `seed()` when the server asks this editor to publish the file.
+ *
+ * With `user`, presence is shared too: `collabSelect(sheet, range)` publishes
+ * this user's selection and `onSheetPeers` reports the collaborators' ones.
  */
 export function collabSheetHost<H extends SheetLike>(
   host: H,
   replica: WasmCollabLike,
   flush: () => void,
-): H & { remoteApplied(): Promise<void>; seed(): Promise<void>; dispose(): void } {
-  if (host.collabStart && host.collabLocal && host.collabApply && replica.applyLocal) {
-    return engineSheetHost(host, replica, flush);
-  }
-  return cellSheetHost(host, replica, flush);
+  user?: CollabUser,
+): Wrapped<H> {
+  const w =
+    host.collabStart && host.collabLocal && host.collabApply && replica.applyLocal
+      ? engineSheetHost(host, replica, flush)
+      : cellSheetHost(host, replica, flush);
+  return withPresence(w, replica, flush, user);
 }
 
-type Wrapped<H> = H & { remoteApplied(): Promise<void>; seed(): Promise<void>; dispose(): void };
+/** What the wrapped sheet host adds. */
+export interface SheetCollab {
+  remoteApplied(): Promise<void>;
+  seed(): Promise<void>;
+  dispose(): void;
+  /** Publishes this user's selected cell / range. */
+  collabSelect(sheet: string, range: string): void;
+  /** Collaborators' selected cells / ranges, on every remote change and presence update. */
+  onSheetPeers(listener: (peers: SheetPeerView[]) => void): () => void;
+}
+
+type Wrapped<H> = H & SheetCollab;
+type Bound<H> = H & { remoteApplied(): Promise<void>; seed(): Promise<void>; dispose(): void };
+
+/** Adds selection presence (awareness `cell`) to a wrapped sheet host. */
+function withPresence<H>(
+  w: Bound<H>,
+  replica: WasmCollabLike,
+  flush: () => void,
+  user: CollabUser | undefined,
+): Wrapped<H> {
+  const listeners = new Set<(peers: SheetPeerView[]) => void>();
+  let last = '';
+  let lastPeers = '[]';
+  const report = () => {
+    if (!listeners.size) return;
+    const json = replica.peersJson();
+    if (json === lastPeers) return;
+    lastPeers = json;
+    const peers = sheetPeersOf(json);
+    listeners.forEach((l) => l(peers));
+  };
+  const remoteApplied = w.remoteApplied;
+  const dispose = w.dispose;
+  const out = w as Wrapped<H>;
+  out.remoteApplied = async () => {
+    await remoteApplied();
+    report();
+  };
+  out.collabSelect = (sheet: string, range: string) => {
+    if (!user) return;
+    const cell = cellPresence(sheet, range);
+    if (cell === last) return;
+    last = cell;
+    const p: Presence = { ...user, cell };
+    replica.setPresence(JSON.stringify(p));
+    flush();
+  };
+  out.onSheetPeers = (l) => {
+    listeners.add(l);
+    l(sheetPeersOf(replica.peersJson()));
+    return () => listeners.delete(l);
+  };
+  out.dispose = () => {
+    listeners.clear();
+    dispose();
+  };
+  return out;
+}
 
 function engineSheetHost<H extends SheetLike>(
   host: H,
   replica: WasmCollabLike,
   flush: () => void,
-): Wrapped<H> {
+): Bound<H> {
   const listeners = new Set<() => void>();
   let phase: 'closed' | 'live' = 'closed';
   let tail: Promise<unknown> = Promise.resolve();
@@ -180,7 +244,7 @@ function engineSheetHost<H extends SheetLike>(
     await applyRemote(replica.fullState?.() ?? '');
   };
 
-  const wrapped = Object.create(host) as Wrapped<H>;
+  const wrapped = Object.create(host) as Bound<H>;
   const local =
     <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
     (...a: A): Promise<R> =>
@@ -241,7 +305,7 @@ function cellSheetHost<H extends SheetLike>(
   host: H,
   replica: WasmCollabLike,
   flush: () => void,
-): Wrapped<H> {
+): Bound<H> {
   const listeners = new Set<() => void>();
   let known = new Map<string, string>(
     Object.entries(JSON.parse(replica.cellsJson()) as Record<string, string>),
@@ -262,7 +326,7 @@ function cellSheetHost<H extends SheetLike>(
     flush();
   };
 
-  const wrapped = Object.create(host) as Wrapped<H>;
+  const wrapped = Object.create(host) as Bound<H>;
   wrapped.setInputs = async (sheet, cells) => {
     await host.setInputs(sheet, cells);
     await share(sheet, cells);

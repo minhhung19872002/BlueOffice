@@ -97,3 +97,12 @@ export function mentionFields(
     ...(assignee ? { task: { assignee: person(assignee) } } : {}),
   };
 }
+
+/** Up to two initials of a display name ("Trần Thị Bình" gives "TB"); "?" when empty (presence badges). */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/u).filter(Boolean);
+  if (!words.length) return '?';
+  const first = [...(words[0] ?? '')][0] ?? '';
+  const last = words.length > 1 ? ([...(words[words.length - 1] ?? '')][0] ?? '') : '';
+  return (first + last).toLocaleUpperCase();
+}

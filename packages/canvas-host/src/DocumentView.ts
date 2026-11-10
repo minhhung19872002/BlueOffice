@@ -78,11 +78,15 @@ interface PageSlot {
 export interface PeerMark {
   caret: CaretRect | null;
   rects: SelRect[];
+  /** The paragraph the collaborator's caret is in (bar in the left margin). */
+  para?: CaretRect | null;
   color: string;
   /** Name shown next to the caret. */
   name: string;
   /** Accessible description (localised by the editor). */
   label: string;
+  /** Accessible description of the margin bar (default: `label`). */
+  paraLabel?: string;
 }
 
 export class DocumentView {
@@ -154,7 +158,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1.5px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(51,120,220,.32);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-peer-bar{position:absolute;width:3px;border-radius:2px;pointer-events:none}.bo-peer-bar-name{position:absolute;right:6px;top:0;padding:0 4px;border-radius:3px;color:#fff;font:600 10px/14px system-ui,sans-serif;white-space:nowrap;opacity:.9}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
       document.head.appendChild(st);
     }
   }
@@ -382,6 +386,32 @@ export class DocumentView {
   }
 
   private drawPeers(k: number): void {
+    // Margin bars: one per collaborator, side by side when they share a paragraph.
+    const bars = new Map<string, number>();
+    for (const p of this.peers) {
+      const b = p.para;
+      const slot = b ? this.slots[b.page] : undefined;
+      if (!b || !slot) continue;
+      const at = `${b.page}:${Math.round(b.y)}`;
+      const n = bars.get(at) ?? 0;
+      bars.set(at, n + 1);
+      const el = document.createElement('div');
+      el.className = 'bo-peer-bar';
+      el.dataset.testid = 'peer-bar';
+      el.setAttribute('role', 'img');
+      el.setAttribute('aria-label', p.paraLabel ?? p.label);
+      el.title = p.paraLabel ?? p.label;
+      const left = Math.max(2, b.x * k - 12 - n * 6);
+      el.style.cssText = `left:${left}px;top:${b.y * k}px;height:${Math.max(b.h * k, 4)}px;background:${p.color};`;
+      if (n === 0) {
+        const tag = document.createElement('span');
+        tag.className = 'bo-peer-bar-name';
+        tag.textContent = p.name;
+        tag.style.background = p.color;
+        el.appendChild(tag);
+      }
+      slot.overlay.appendChild(el);
+    }
     for (const p of this.peers) {
       for (const r of p.rects) {
         const slot = this.slots[r.page];

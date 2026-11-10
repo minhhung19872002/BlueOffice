@@ -337,3 +337,4 @@ export * from './sheet';
 export * from './live';
 export * from './doc';
 export * from './slide';
+export * from './presence';

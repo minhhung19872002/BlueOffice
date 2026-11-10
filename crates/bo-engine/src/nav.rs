@@ -173,6 +173,17 @@ pub fn caret_rect(layout: &LayoutDocument, pos: Pos) -> Option<CaretRect> {
     })
 }
 
+/// Where an inline object at `pos` stands: its page, the caret x at its start and the baseline of its
+/// line (equations are placed on the baseline, CORE-MATH-010). `None` for rotated (vertical) lines.
+pub fn object_origin(layout: &LayoutDocument, pos: Pos) -> Option<(usize, f32, f32)> {
+    let lines = body_lines(layout);
+    let (_, page, l) = line_of(&lines, pos)?;
+    if l.rotation.is_some() {
+        return None;
+    }
+    Some((page, caret_x(l, pos.offset), l.baseline))
+}
+
 /// Vertical extent of the paragraph holding `pos` on the page of its caret:
 /// `x` is the left edge of its lines, `y`/`h` span from the top of its first
 /// line to the bottom of its last line on that page (presence bars).

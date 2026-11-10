@@ -16,6 +16,7 @@
 use bo_model::slide::{XmlElement, XmlNode};
 use bo_text::math::{MathConstants, Stretched};
 use bo_text::{FaceId, FontManager};
+use std::collections::HashMap;
 
 /// A glyph run of the math box (y = baseline offset, positive downwards).
 #[derive(Debug, Clone)]
@@ -39,6 +40,44 @@ pub(crate) struct MathBox {
     pub runs: Vec<MathRun>,
     /// Rules (x1, y1, x2, y2, width), y relative to the baseline.
     pub rules: Vec<(f32, f32, f32, f32, f32)>,
+    /// Geometry of the slots laid out in this box (id in pre-order, see [`slot_ids`]).
+    pub slots: Vec<(usize, MathSlotBox)>,
+}
+
+/// Where a slot of an equation (the zone or an argument of a structure, ECMA-376 Part 1, §22.1.2) is,
+/// for the caret inside the equation (CORE-MATH-010): coordinates in points from the left edge and the
+/// baseline of the equation (y down).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct MathSlotBox {
+    /// Left edge of the slot.
+    pub x: f32,
+    /// Width of the slot (an empty slot keeps a placeholder's width).
+    pub w: f32,
+    /// Top of the slot (a caret's top).
+    pub top: f32,
+    /// Bottom of the slot.
+    pub bottom: f32,
+    /// x of each caret stop, by offset in the slot (characters of runs, one per structure).
+    pub stops: Vec<f32>,
+    /// Box of each node of the slot: left, right, top, bottom.
+    pub items: Vec<[f32; 4]>,
+}
+
+impl MathSlotBox {
+    fn shift(&mut self, dx: f32, dy: f32) {
+        self.x += dx;
+        self.top += dy;
+        self.bottom += dy;
+        for x in &mut self.stops {
+            *x += dx;
+        }
+        for b in &mut self.items {
+            b[0] += dx;
+            b[1] += dx;
+            b[2] += dy;
+            b[3] += dy;
+        }
+    }
 }
 
 impl MathBox {
@@ -56,6 +95,9 @@ impl MathBox {
             r.1 += dy;
             r.3 += dy;
         }
+        for (_, g) in &mut self.slots {
+            g.shift(dx, dy);
+        }
         self
     }
 
@@ -67,6 +109,7 @@ impl MathBox {
         let b = b.shifted(dx, dy);
         self.runs.extend(b.runs);
         self.rules.extend(b.rules);
+        self.slots.extend(b.slots);
     }
 
     /// Horizontal concatenation on a common baseline.
@@ -93,6 +136,8 @@ pub(crate) struct MathCtx<'a> {
     pub math: Option<(FaceId, MathConstants)>,
     /// Display style (`m:oMathPara`): full-size fractions, large operators.
     pub display: bool,
+    /// Slot elements (by address) and their pre-order id ([`slot_ids`]).
+    pub slot_ids: HashMap<usize, usize>,
 }
 
 /// The Mathematical Italic letter for `c` (Unicode Mathematical Alphanumeric Symbols, with the
@@ -320,8 +365,108 @@ impl MathCtx<'_> {
     }
 
     fn children(&mut self, el: &XmlElement, size: f32) -> MathBox {
-        let items: Vec<MathBox> = el.elements().filter_map(|c| self.node(c, size)).collect();
-        MathBox::row(items)
+        self.slot_row(el, size, false)
+    }
+
+    /// The nodes of `el` in a row (letters upright for a function name); a slot ([`slot_ids`]) records
+    /// its geometry, and an empty one keeps the width of a placeholder (CORE-MATH-010).
+    fn slot_row(&mut self, el: &XmlElement, size: f32, upright: bool) -> MathBox {
+        let id = self.slot_ids.get(&std::ptr::from_ref(el).addr()).copied();
+        let mut items = Vec::new();
+        // Caret stops inside each node (`None`: an empty run, which has no offset).
+        let mut inner: Vec<Option<Vec<f32>>> = Vec::new();
+        for c in el.elements() {
+            let b = if upright && c.local() == "r" {
+                Some(self.text(&run_text(c), size, true))
+            } else {
+                self.node(c, size)
+            };
+            let Some(b) = b else { continue };
+            if id.is_some() {
+                inner.push(if c.local() != "r" {
+                    Some(Vec::new())
+                } else if run_text(c).is_empty() {
+                    None
+                } else {
+                    Some(self.run_stops(c, size, upright))
+                });
+            }
+            items.push(b);
+        }
+        let Some(id) = id else {
+            return MathBox::row(items);
+        };
+        let mut g = MathSlotBox {
+            top: -size * 0.75,
+            bottom: size * 0.25,
+            stops: vec![0.0],
+            ..MathSlotBox::default()
+        };
+        let mut x = 0.0;
+        for (b, stops) in items.iter().zip(&inner) {
+            g.items.push([x, x + b.w, -b.asc, b.desc]);
+            g.top = g.top.min(-b.asc);
+            g.bottom = g.bottom.max(b.desc);
+            if let Some(stops) = stops {
+                g.stops.extend(stops.iter().map(|s| x + s));
+                g.stops.push(x + b.w);
+            }
+            x += b.w;
+        }
+        let mut out = if items.is_empty() {
+            // An empty slot: room for a placeholder.
+            MathBox {
+                w: size * 0.6,
+                asc: size * 0.65,
+                desc: size * 0.05,
+                ..MathBox::default()
+            }
+        } else {
+            MathBox::row(items)
+        };
+        g.w = out.w;
+        out.slots.push((id, g));
+        out
+    }
+
+    /// x of the caret stops inside a run (after each character but the last), as [`MathCtx::node`]
+    /// lays the run out.
+    fn run_stops(&mut self, el: &XmlElement, size: f32, upright: bool) -> Vec<f32> {
+        let text = run_text(el);
+        let n = text.chars().count();
+        (1..n)
+            .map(|k| {
+                let prefix: String = text.chars().take(k).collect();
+                if upright {
+                    self.text(&prefix, size, true).w
+                } else {
+                    self.run_box(el, &prefix, size).w
+                }
+            })
+            .collect()
+    }
+
+    /// A run (`m:r`, §22.1.2.98) holding `text`: italic letters unless `m:sty` / `m:nor` say otherwise
+    /// (§22.1.2.90, §22.1.2.73), a little room around operators.
+    fn run_box(&mut self, el: &XmlElement, text: &str, size: f32) -> MathBox {
+        let sty = el
+            .kid("rPr")
+            .and_then(|p| p.kid("sty"))
+            .and_then(|s| s.val());
+        let nor = el.kid("rPr").and_then(|p| p.kid("nor")).is_some();
+        let upright = nor || matches!(sty, Some("p" | "b"));
+        // Operators get a little room (thick spaces around relations, §22.1.2 spacing).
+        let spaced: String = text
+            .chars()
+            .flat_map(|c| {
+                if "=<>≤≥≠≈±∓+−×÷→←⇒⇔∈∉⊂⊆∪∩".contains(c) {
+                    vec!['\u{2005}', c, '\u{2005}']
+                } else {
+                    vec![c]
+                }
+            })
+            .collect();
+        self.text(&spaced, size, upright)
     }
 
     fn arg(&mut self, el: &XmlElement, name: &str, size: f32) -> MathBox {
@@ -348,30 +493,8 @@ impl MathCtx<'_> {
             n if n.ends_with("Pr") => return None,
             // §22.1.2.98 r: text run (m:t); §22.1.2.90 sty p/b = upright.
             "r" => {
-                let text: String = el
-                    .elements()
-                    .filter(|e| e.local() == "t")
-                    .map(text_of)
-                    .collect();
-                let sty = el
-                    .kid("rPr")
-                    .and_then(|p| p.kid("sty"))
-                    .and_then(|s| s.val());
-                let nor = el.kid("rPr").and_then(|p| p.kid("nor")).is_some();
-                let upright = nor || matches!(sty, Some("p" | "b"));
-                // Operators get a little room (thick spaces around relations, §22.1.2 spacing).
-                let spaced: String = text
-                    .chars()
-                    .flat_map(|c| {
-                        if "=<>≤≥≠≈±∓+−×÷→←⇒⇔∈∉⊂⊆∪∩".contains(c)
-                        {
-                            vec!['\u{2005}', c, '\u{2005}']
-                        } else {
-                            vec![c]
-                        }
-                    })
-                    .collect();
-                self.text(&spaced, size, upright)
+                let text = run_text(el);
+                self.run_box(el, &text, size)
             }
             // §22.1.2.36 f: fraction.
             "f" => {
@@ -1036,22 +1159,7 @@ impl MathCtx<'_> {
 
     /// Children of `el` with letters upright (function names).
     fn upright_children(&mut self, el: &XmlElement, size: f32) -> MathBox {
-        let items: Vec<MathBox> = el
-            .elements()
-            .filter_map(|c| {
-                if c.local() == "r" {
-                    let text: String = c
-                        .elements()
-                        .filter(|e| e.local() == "t")
-                        .map(text_of)
-                        .collect();
-                    Some(self.text(&text, size, true))
-                } else {
-                    self.node(c, size)
-                }
-            })
-            .collect();
-        MathBox::row(items)
+        self.slot_row(el, size, true)
     }
 
     /// Rows of cells: columns centred (matrix) or left aligned, rows centred on the axis.
@@ -1115,6 +1223,103 @@ impl Kid for XmlElement {
     }
 }
 
+/// Text of a run (its `m:t` elements, §22.1.2.116).
+fn run_text(el: &XmlElement) -> String {
+    el.elements()
+        .filter(|e| e.local() == "t")
+        .map(text_of)
+        .collect()
+}
+
+/// `true` when a property flag of `el` is on (`m:degHide`, `m:subHide`, … with no value or a true one).
+fn flag(el: &XmlElement, pr: &str, name: &str) -> bool {
+    el.kid(pr)
+        .and_then(|p| p.kid(name))
+        .is_some_and(|e| e.val().is_none_or(|v| matches!(v, "1" | "on" | "true")))
+}
+
+/// The slot elements of a zone by address, numbered in pre-order: the zone (`m:oMath`, the first one of
+/// an `m:oMathPara`) and the shown arguments of its structures in reading order — the slots of the
+/// tree `bo_math::from_omml` reads (`bo_math::edit::all_slots`). Hidden radical degrees and n-ary
+/// limits (degHide, subHide / supHide of radPr and naryPr, §22.1.2) and empty ones are not slots.
+pub(crate) fn slot_ids(root: &XmlElement) -> HashMap<usize, usize> {
+    fn slot(el: &XmlElement, ids: &mut HashMap<usize, usize>) {
+        let n = ids.len();
+        ids.insert(std::ptr::from_ref(el).addr(), n);
+        for c in el.elements() {
+            node(c, ids);
+        }
+    }
+    fn shown(el: &XmlElement) -> bool {
+        el.elements().any(|c| !c.local().ends_with("Pr"))
+    }
+    fn args(el: &XmlElement, names: &[&str], ids: &mut HashMap<usize, usize>) {
+        for name in names {
+            if let Some(k) = el.kid(name) {
+                slot(k, ids);
+            }
+        }
+    }
+    fn node(el: &XmlElement, ids: &mut HashMap<usize, usize>) {
+        match el.local() {
+            l if l.ends_with("Pr") || l == "r" => {}
+            "f" => args(el, &["num", "den"], ids),
+            "sSup" | "sSub" | "sSubSup" => args(el, &["e", "sub", "sup"], ids),
+            "rad" => {
+                if let Some(d) = el
+                    .kid("deg")
+                    .filter(|d| !flag(el, "radPr", "degHide") && shown(d))
+                {
+                    slot(d, ids);
+                }
+                args(el, &["e"], ids);
+            }
+            "nary" => {
+                for (name, hide) in [("sub", "subHide"), ("sup", "supHide")] {
+                    if let Some(d) = el
+                        .kid(name)
+                        .filter(|d| !flag(el, "naryPr", hide) && shown(d))
+                    {
+                        slot(d, ids);
+                    }
+                }
+                args(el, &["e"], ids);
+            }
+            "func" => args(el, &["fName", "e"], ids),
+            "limLow" | "limUpp" => args(el, &["e", "lim"], ids),
+            "d" | "eqArr" => {
+                for c in el.elements().filter(|c| c.local() == "e") {
+                    slot(c, ids);
+                }
+            }
+            "m" => {
+                for r in el.elements().filter(|r| r.local() == "mr") {
+                    for c in r.elements().filter(|c| c.local() == "e") {
+                        slot(c, ids);
+                    }
+                }
+            }
+            "acc" | "bar" => args(el, &["e"], ids),
+            // Containers (box, groupChr, …): their content.
+            _ => {
+                for c in el.elements() {
+                    node(c, ids);
+                }
+            }
+        }
+    }
+    let mut ids = HashMap::new();
+    let zone = if root.local() == "oMathPara" {
+        root.elements().find(|e| e.local() == "oMath")
+    } else {
+        Some(root)
+    };
+    if let Some(z) = zone {
+        slot(z, &mut ids);
+    }
+    ids
+}
+
 fn text_of(el: &XmlElement) -> String {
     el.children
         .iter()
@@ -1166,12 +1371,14 @@ pub(crate) fn layout_math(
     let el = bo_drawingml::dom::parse(xml.as_bytes(), "/word/document.xml").ok()?;
     let math = math.and_then(|f| fonts.math_constants(f).map(|c| (f, c)));
     let display = el.local() == "oMathPara";
+    let ids = slot_ids(&el);
     let mut cx = MathCtx {
         fonts,
         upright,
         italic,
         math,
         display,
+        slot_ids: ids,
     };
     let mut b = cx.children(&el, size);
     // A little room around the zone.
@@ -1335,6 +1542,20 @@ mod tests {
         let (_, sign_x, _) = sign[0];
         assert!(bar.unwrap().0 > sign_x);
     }
+}
+
+/// Slot geometry of a laid-out equation (CORE-MATH-010): its extents and every slot by its pre-order
+/// index (`bo_math::edit::all_slots`).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct EquationGeometry {
+    /// Advance width (points).
+    pub w: f32,
+    /// Height above the baseline.
+    pub asc: f32,
+    /// Depth below the baseline.
+    pub desc: f32,
+    /// The slots: the zone first.
+    pub slots: Vec<MathSlotBox>,
 }
 
 /// A glyph run of an [`EquationGlyphs`]: position (x, y from the baseline), face, size, text and

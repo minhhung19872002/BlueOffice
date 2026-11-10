@@ -1195,6 +1195,9 @@ pub struct Session {
     /// Formatting applied to the next typed text (collapsed-selection formatting).
     pending: Option<RunProps>,
     typing: bool,
+    /// The equation (its start) last edited in place by typing ([`Session::replace_equation`]
+    /// with `group`): the next such edit of it joins the same undo step.
+    math_group: Option<Pos>,
     version: u64,
     /// Track-changes mode (§17.13.5): new edits are recorded as revisions.
     track: bool,
@@ -1272,6 +1275,7 @@ impl Session {
             redo: Vec::new(),
             pending: None,
             typing: false,
+            math_group: None,
             version: 0,
             track,
             author: DEFAULT_AUTHOR.to_owned(),
@@ -2035,6 +2039,74 @@ impl Session {
         })
     }
 
+    /// Replace the Office Math zone that starts at `at` with `xml` (an equation edited in place,
+    /// CORE-MATH-010; ECMA-376 Part 1, §22.1.2.77 oMath): its run formatting is kept and the caret
+    /// is left just after it. With `group`, the change joins the previous one when that was a grouped
+    /// edit of the same equation with nothing in between (one undo step per typed group).
+    pub fn replace_equation(&mut self, at: Pos, xml: &str, group: bool) -> Result<()> {
+        let mergeable = group && self.math_group == Some(at);
+        let prev_after = self.undo.last().map(|t| t.after);
+        let math = RunContent::Markup(bo_model::Raw::new(xml, 0));
+        self.edit(|tx, _| {
+            let (path, p, mut atoms) = tx.atoms(at.para)?;
+            let mut off = 0;
+            let mut found = None;
+            for (i, a) in atoms.iter().enumerate() {
+                if off == at.offset
+                    && matches!(&a.1, RunContent::Markup(r) if bo_model::index::is_math_xml(&r.xml))
+                {
+                    found = Some(i);
+                    break;
+                }
+                off += para::atom_len(&a.1);
+            }
+            let i = found.ok_or(EditError::BadPosition)?;
+            let len = para::atom_len(&math);
+            atoms[i].1 = math.clone();
+            tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            Ok(Selection::caret(Pos::new(at.para, at.offset + len)))
+        })?;
+        if mergeable
+            && self.undo.len() >= 2
+            && prev_after == Some(self.undo[self.undo.len() - 1].before)
+        {
+            let last = self.undo.pop();
+            if let (Some(last), Some(prev)) = (last, self.undo.last_mut()) {
+                prev.ops.extend(last.ops);
+                prev.after = last.after;
+            }
+        }
+        self.math_group = group.then_some(at);
+        Ok(())
+    }
+
+    /// The next in-place equation edit starts a new undo step.
+    pub fn end_math_group(&mut self) {
+        self.math_group = None;
+    }
+
+    /// The OMML of the equation that starts at `at`, if there is one.
+    #[must_use]
+    pub fn equation_at(&self, at: Pos) -> Option<String> {
+        let paths = body_paragraphs(&self.doc);
+        let p = para_at(&self.doc, paths.get(at.para)?)?;
+        let mut off = 0;
+        for (_, c) in para::flatten(p) {
+            if off == at.offset {
+                if let RunContent::Markup(raw) = &c {
+                    if bo_model::index::is_math_xml(&raw.xml) {
+                        return Some(raw.xml.to_string());
+                    }
+                }
+            }
+            if off > at.offset {
+                break;
+            }
+            off += para::atom_len(&c);
+        }
+        None
+    }
+
     /// The equation the selection covers exactly (or the one just before a collapsed caret): its range
     /// and its OMML.
     #[must_use]
@@ -2490,6 +2562,7 @@ impl Session {
                 }
                 self.selection = after;
                 self.typing = false;
+                self.math_group = None;
                 Ok(after)
             }
             Err(e) => {
@@ -2542,6 +2615,7 @@ impl Session {
         self.version += 1;
         self.redo.push(t);
         self.typing = false;
+        self.math_group = None;
         true
     }
 
@@ -2558,6 +2632,7 @@ impl Session {
         self.version += 1;
         self.undo.push(t);
         self.typing = false;
+        self.math_group = None;
         true
     }
 

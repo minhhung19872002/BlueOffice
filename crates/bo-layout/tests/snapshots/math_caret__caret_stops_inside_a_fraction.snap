@@ -1,0 +1,38 @@
+---
+source: crates/bo-layout/tests/math_caret.rs
+expression: rounded(&g)
+---
+[
+  {
+    "bottom": 7.4,
+    "stops": [
+      1.0,
+      21.4
+    ],
+    "top": -11.0,
+    "w": 20.5,
+    "x": 1.0
+  },
+  {
+    "bottom": -4.9,
+    "stops": [
+      8.9,
+      13.5
+    ],
+    "top": -13.3,
+    "w": 4.7,
+    "x": 8.9
+  },
+  {
+    "bottom": 9.1,
+    "stops": [
+      2.2,
+      6.5,
+      16.8,
+      20.2
+    ],
+    "top": 0.7,
+    "w": 18.1,
+    "x": 2.2
+  }
+]

@@ -923,6 +923,10 @@ function EditorInner({
         v.setSelection(caret, rects, lower ? false : scroll);
         second?.setSelection(caret, rects, lower ? scroll : false);
       },
+      setMathMarks: (m) => {
+        v.setMathMarks(m ?? null);
+        splitView.current?.setMathMarks(m ?? null);
+      },
     };
     // Spelling marks follow edits after a short pause (the engine caches unchanged paragraphs).
     let spellTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1669,9 +1673,11 @@ function EditorInner({
     r.register({
       id: 'edit.escape',
       shortcut: 'Escape',
-      isEnabled: (s) => s.painter !== 'off' || !!s.edit?.story || s.focusMode,
+      isEnabled: (s) => s.painter !== 'off' || !!s.edit?.math || !!s.edit?.story || s.focusMode,
       run: async (s) => {
-        if (s.painter !== 'off') {
+        // In an equation edited in place: leave it, the caret after it.
+        if (s.edit?.math) await run({ cmd: 'mathMove', motion: 'exit' });
+        else if (s.painter !== 'off') {
           store.setState({ painter: 'off' });
           await run({ cmd: 'cancelFormat' });
         } else if (s.edit?.story) await run({ cmd: 'closeHeaderFooter' });
@@ -1963,6 +1969,12 @@ function EditorInner({
       id: 'equation.professional',
       isEnabled: (s) => hasDoc(s) && !!s.edit?.equation?.isLinear,
       run: () => run({ cmd: 'equationFormat', linear: false }),
+    });
+    // Put the caret into the equation to edit it in place (CORE-MATH-010).
+    r.register({
+      id: 'equation.editInPlace',
+      isEnabled: (s) => hasDoc(s) && !!s.edit?.equation && !s.edit.math,
+      run: () => run({ cmd: 'mathEnter', end: true }),
     });
 
     // View.
@@ -3791,6 +3803,7 @@ function EditorInner({
               <SquareFunction size={ICON} />,
             ),
             item('equation.linear', 'commands.equation.linear', <TextCursorInput size={ICON} />),
+            item('equation.editInPlace', 'commands.equation.editInPlace', <Pencil size={ICON} />),
           ],
         },
         {

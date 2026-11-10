@@ -169,3 +169,4 @@ cung cấp).
 - [0012](docs/adr/0012-bluescript-quickjs-sandbox.md) BlueScript: QuickJS (WASM, MIT) trong Web Worker riêng, API qua cầu JSON allow-list, một lần chạy = một bước hoàn tác, script lưu theo người dùng
 - [0013](docs/adr/0013-headless-bluescript-runtime.md) BlueScript headless trên server: QuickJS-ng (`rquickjs`, MIT) trong `bo-cli script run`, chạy đúng bundle API của trình duyệt, lịch chạy lưu phiên bản mới (`Scripts:ScheduleEnabled` mặc định tắt)
 - [0014](docs/adr/0014-web-addins.md) Add-in web: iframe sandbox + CSP, JSON-RPC qua postMessage, quyền kiểm từng lệnh, dùng lại API BlueScript, danh mục tổ chức trên server (mặc định tắt)
+- [0015](docs/adr/0015-math-caret-in-place-equation-editing.md) Sửa phương trình tại chỗ: con trỏ toán (vị trí phương trình + đường dẫn ô + offset) trong engine, sửa trên cây `bo_math::Node`, mỗi thay đổi một op thay đối tượng, hình học ô từ layout

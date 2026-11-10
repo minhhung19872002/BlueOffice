@@ -682,16 +682,7 @@ fn math_object(
     st: &RunStyle,
     fonts: &mut FontManager,
 ) -> Option<(Image, Arc<Drawing>, f32)> {
-    let family = fonts.info(st.face).family.clone();
-    let bold = fonts.info(st.face).bold;
-    let upright = fonts.resolve(&family, bold, false).unwrap_or(st.face);
-    let italic = fonts.resolve(&family, bold, true).unwrap_or(upright);
-    // The document's math font (OMML default Cambria Math, §22.1.2.61 mathFont) or a substitute with a
-    // MATH table (bundled STIX Two Math); the text font when none has one.
-    let math = fonts
-        .resolve("cambria math", false, false)
-        .filter(|f| fonts.math_constants(*f).is_some());
-    let b = crate::math::layout_math(xml, st.size, fonts, upright, italic, math)?;
+    let b = math_box(xml, st, fonts)?;
     let top = b.asc;
     let fragments = b
         .runs
@@ -763,6 +754,56 @@ fn math_object(
         }),
         b.desc,
     ))
+}
+
+/// An Office Math zone laid out in the style of its run: upright and italic faces of the run's family
+/// and the document's math font (OMML default Cambria Math, §22.1.2.61 mathFont) or a substitute with
+/// a MATH table (bundled STIX Two Math); the text font when none has one.
+fn math_box(xml: &str, st: &RunStyle, fonts: &mut FontManager) -> Option<crate::math::MathBox> {
+    let family = fonts.info(st.face).family.clone();
+    let bold = fonts.info(st.face).bold;
+    let upright = fonts.resolve(&family, bold, false).unwrap_or(st.face);
+    let italic = fonts.resolve(&family, bold, true).unwrap_or(upright);
+    let math = fonts
+        .resolve("cambria math", false, false)
+        .filter(|f| fonts.math_constants(*f).is_some());
+    crate::math::layout_math(xml, st.size, fonts, upright, italic, math)
+}
+
+/// Slot geometry (CORE-MATH-010) of the equation at index offset `offset` of `para`, laid out from
+/// `xml` (the zone as written from its tree) in the style of the equation's run, as the paragraph lays
+/// it out: coordinates from the equation's left edge (its caret stop) and the line's baseline.
+pub fn equation_geometry(
+    doc: &bo_model::Document,
+    fonts: &mut FontManager,
+    para: &Paragraph,
+    offset: usize,
+    xml: &str,
+) -> Option<crate::math::EquationGeometry> {
+    let (_, spans) = para_index(para);
+    let sp = spans.iter().find(|sp| {
+        sp.start == offset
+            && matches!(
+                para.runs.get(sp.run).and_then(|r| r.content.get(sp.item)),
+                Some(RunContent::Markup(raw)) if bo_model::index::is_math_xml(&raw.xml)
+            )
+    })?;
+    let props = crate::style::para_props(doc, para);
+    let base = para_style_run(doc, &props);
+    let rp = run_props(doc, &base, &para.runs.get(sp.run)?.props);
+    let st = run_style(doc, fonts, &rp)?;
+    let b = math_box(xml, &st, fonts)?;
+    let n = b.slots.iter().map(|s| s.0 + 1).max().unwrap_or(0);
+    let mut slots = vec![crate::math::MathSlotBox::default(); n];
+    for (id, g) in b.slots {
+        slots[id] = g;
+    }
+    Some(crate::math::EquationGeometry {
+        w: b.w,
+        asc: b.asc,
+        desc: b.desc,
+        slots,
+    })
 }
 
 /// Lay out the shape / text box of drawing object `img` at index offset `at`.

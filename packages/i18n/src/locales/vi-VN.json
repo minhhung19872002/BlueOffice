@@ -421,7 +421,8 @@
     },
     "equation": {
       "linear": "Dạng tuyến tính",
-      "professional": "Dạng chuyên nghiệp"
+      "professional": "Dạng chuyên nghiệp",
+      "editInPlace": "Sửa phương trình tại chỗ"
     },
     "fields": {
       "toggleCodes": "Hiện mã trường (Alt+F9)",

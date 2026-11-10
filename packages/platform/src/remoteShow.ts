@@ -135,8 +135,9 @@ const OPEN = 1;
 /** Reconnect attempts in a row before a dropped connection is given up. */
 const MAX_RETRIES = 20;
 
+/** The page's origin: `''` = the server answers `/api` on the same origin (like the other proxies). */
 function origin(): string {
-  return typeof location !== 'undefined' ? location.href : 'http://localhost/';
+  return typeof location !== 'undefined' ? `${location.origin}/` : 'http://localhost/';
 }
 
 /** Absolute HTTP(S) URL of `path` on the server. */

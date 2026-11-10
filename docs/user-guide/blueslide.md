@@ -225,6 +225,21 @@ Lệnh khác trong nhóm:
 - **Liên kết tới trình chiếu tuỳ chỉnh:** chọn một hình, gắn một trình chiếu tuỳ chỉnh; khi chiếu, bấm vào hình sẽ
   chiếu bộ đó.
 
+### Trình chiếu từ xa
+
+Cần máy chủ BlueOffice của đơn vị (mở tệp từ kho tài liệu, hoặc đã đăng nhập); máy chủ chưa bật thì hộp thoại báo lý do.
+
+- **Điều khiển từ điện thoại:** hộp thoại hiện mã QR và liên kết. Quét mã bằng điện thoại (cùng mạng với máy chủ) để
+  có các nút **Tiếp**, **Trước**, **Màn hình đen**, **Kết thúc trình chiếu** (hoặc **Bắt đầu trình chiếu** khi chưa
+  chiếu), cùng ảnh slide hiện tại / tiếp theo, ghi chú và đồng hồ. Mã chỉ dùng được một lần và hết hạn sau 5 phút; bấm
+  **Tạo mã mới** để có mã khác, **Thu hồi quyền điều khiển** để ngắt điện thoại.
+- **Trình chiếu trực tuyến:** bấm **Bắt đầu trình chiếu trực tuyến** rồi gửi **Liên kết cho người xem**. Người xem thấy
+  đúng slide và bước hiệu ứng bạn đang chiếu (không tự chuyển trang được); hộp thoại cho biết số người đang xem. Bấm
+  **Kết thúc trình chiếu trực tuyến** để dừng — liên kết hết hiệu lực. Lưu ý: người xem nhận bản trình bày hiện tại.
+- **Phụ đề trực tiếp:** **Thiết lập phụ đề** chọn ngôn ngữ nói, dịch sang ngôn ngữ khác (khi có dịch vụ dịch), vị trí
+  (dưới / trên) và cỡ chữ; nút **Phụ đề trực tiếp** bật / tắt. Lời nói hiện thành chữ ở mép slide khi đang trình
+  chiếu; chưa có bộ nhận dạng giọng nói thì không bật được và hộp thoại giải thích.
+
 ### Ghi
 
 1. Bấm **Ghi từ slide này** hoặc **Ghi từ đầu**.

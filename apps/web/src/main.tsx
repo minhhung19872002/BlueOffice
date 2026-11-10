@@ -327,8 +327,8 @@ async function standalone(): Promise<void> {
  */
 function present(route: { kind: 'remote' | 'watch'; token: string }): void {
   const options = { baseUrl: api };
-  const lang =
-    params.get('lang') === 'en-US' || /^en\b/i.test(navigator.language) ? 'en-US' : language;
+  // Vietnamese unless the link asks for English (?lang=en-US), like the editors.
+  const lang = language;
   document.documentElement.lang = lang;
   root.render(
     <StrictMode>

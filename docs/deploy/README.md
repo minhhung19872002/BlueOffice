@@ -72,8 +72,9 @@ docker compose -f deploy/docker-compose.yml build web
 ### Reverse proxy
 
 - Chuyển tiếp `https://office.<domain>/` → `http://127.0.0.1:8081/` (container `web`; `api` ở 8080 chỉ cần cho mạng nội bộ).
-- **Bật WebSocket** cho đường dẫn `/collab/` (header `Upgrade`/`Connection`), timeout đọc ≥ 120 s
-  (server gửi keep-alive 30 s).
+- **Bật WebSocket** cho đường dẫn `/collab/` và `/api/present` (header `Upgrade`/`Connection`), timeout đọc
+  ≥ 120 s (server gửi keep-alive 30 s). `/api/present` là điều khiển trình chiếu từ điện thoại và trình chiếu trực
+  tuyến (xem mục "Trình chiếu từ xa" bên dưới).
 - `client_max_body_size` ≥ `MAX_UPLOAD_BYTES` (mặc định 200 MB).
 - Ví dụ nginx:
 
@@ -92,6 +93,27 @@ location / {
     client_max_body_size 210m;
 }
 ```
+
+### Trình chiếu từ xa (điện thoại, trực tuyến, phụ đề)
+
+BlueSlide › Trình chiếu › nhóm "Trình chiếu từ xa" (SLIDE-REMOTE-001):
+
+- **Điều khiển từ điện thoại**: hộp thoại hiện mã QR + liên kết `/remote/<mã>`; điện thoại quét mã (mã dùng một lần,
+  hết hạn sau 5 phút) rồi chuyển trang, bật màn hình đen, kết thúc trình chiếu. Điện thoại phải **mở được địa chỉ của
+  máy chủ**: người trình bày cần mở BlueOffice bằng tên miền / địa chỉ LAN (không phải `localhost`, hộp thoại sẽ cảnh
+  báo), điện thoại ở cùng mạng (Wi-Fi nội bộ) hoặc qua VPN. Không cần Internet, không dùng dịch vụ bên thứ ba.
+- **Trình chiếu trực tuyến**: người xem mở liên kết `/watch/<token>`; bản trình bày được tải lên máy chủ (giới hạn
+  `Present__MaxDeckBytes`, cần quyền tải xuống tệp) và người xem theo dõi trang + bước hiệu ứng đang chiếu.
+- **Phụ đề trực tiếp**: dùng dịch vụ đọc chính tả đã cấu hình ([dictation.md](dictation.md)) — hoặc bộ nhận dạng của
+  trình duyệt — và dịch qua dịch vụ dịch nếu có ([translation.md](translation.md)). Chưa cấu hình thì nút phụ đề báo lý
+  do và không bật được.
+- Cấu hình (`appsettings.json` mục `Present`, hoặc biến môi trường): `Present__Enabled` (mặc định `true`),
+  `Present__PairingTtl` (`00:05:00`), `Present__MaxLifetime` (`12:00:00`), `Present__IdleTimeout` (`00:30:00`),
+  `Present__MaxDeckBytes`, `Present__MaxViewers` (200), `Present__MaxPerOwner` (5), `Present__CommandLimit` /
+  `Present__CommandWindow`, `Present__RequestLimit` / `Present__RequestWindow`. An toàn thông tin: [security.md](security.md) §10.2.
+- Web shell build riêng với API ở địa chỉ khác: `VITE_BO_PRESENT_URL` (mặc định cùng origin, `off` = tắt trong giao diện).
+- Buổi trình chiếu nằm trong bộ nhớ của instance `api`; với nhiều instance, mọi `/api/present` phải tới cùng một instance
+  (`deploy/web/nginx-multi.conf` gửi về `api-1`).
 
 ### Nhiều instance `api`
 Phiên soạn thảo và phòng cộng tác nằm trong bộ nhớ của một instance, nên mọi yêu cầu của **một file** phải tới cùng

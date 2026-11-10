@@ -66,6 +66,7 @@ impl WasmEngine {
         name: &str,
         password: Option<String>,
     ) -> Result<String, JsError> {
+        heap::reserve_for_document(bytes);
         let info = self
             .inner
             .open_with_password(bytes, name, password.as_deref())

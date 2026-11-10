@@ -40,6 +40,7 @@ pub mod pivot;
 pub mod render;
 pub mod rowcol;
 pub mod scenario;
+pub mod shift;
 pub mod slicer;
 pub mod solver;
 pub(crate) mod solver_ga;

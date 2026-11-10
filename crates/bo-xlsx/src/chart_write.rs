@@ -928,12 +928,37 @@ pub(crate) fn relationship_targets(text: &str) -> Vec<(String, String)> {
 /// oneCellAnchor, §20.5.2.33 twoCellAnchor) holding the chart with `rel_id`,
 /// with the anchor's qualified name.
 fn anchor_span(text: &str, rel_id: &str) -> Option<(usize, usize, String)> {
-    anchor_span_at(text, &format!(":id=\"{rel_id}\""))
+    anchor_span_of(text, &format!(":id=\"{rel_id}\""))
 }
 
-/// Byte range and qualified name of the drawing anchor holding the attribute text `needle`.
-pub(crate) fn anchor_span_at(text: &str, needle: &str) -> Option<(usize, usize, String)> {
-    let id_at = text.find(needle)?;
+/// Byte range and qualified name of the drawing anchor holding the first `needle`.
+pub(crate) fn anchor_span_of(text: &str, needle: &str) -> Option<(usize, usize, String)> {
+    anchor_span_at(text, text.find(needle)?)
+}
+
+/// Start of the first element `<local …>` (any prefix) whose `name` attribute is `name`.
+fn named_element(text: &str, local: &str, name: &str) -> Option<usize> {
+    let attr = format!(" name=\"{}\"", escape(name));
+    let mut from = 0;
+    while let Some(p) = text[from..].find('<') {
+        let at = from + p;
+        from = at + 1;
+        let tag_end = text[at..].find('>').map_or(text.len(), |e| at + e);
+        let tag = &text[at + 1..tag_end];
+        let qname = tag
+            .split(|c: char| c.is_whitespace() || c == '/')
+            .next()
+            .unwrap_or_default();
+        let l = qname.rsplit_once(':').map_or(qname, |(_, l)| l);
+        if l == local && tag.contains(&attr) {
+            return Some(at);
+        }
+    }
+    None
+}
+
+/// Byte range and qualified name of the drawing anchor holding byte `id_at`.
+fn anchor_span_at(text: &str, id_at: usize) -> Option<(usize, usize, String)> {
     let head = &text[..id_at];
     let (start, qname) = ["twoCellAnchor", "oneCellAnchor", "absoluteAnchor"]
         .iter()
@@ -973,6 +998,16 @@ fn element_span(text: &str, prefix: &str, name: &str) -> Option<(usize, usize)> 
     Some((s, e))
 }
 
+/// A drawing frame located by an element's `name`: (element local name, its `name`, text
+/// the anchor must hold, cells).
+type Frame<'a> = (
+    &'static str,
+    &'a str,
+    Option<&'static str>,
+    CellRef,
+    Option<CellRef>,
+);
+
 /// The drawing anchors of the file charts of `sheet` whose cells no longer
 /// match the model (rows or columns inserted / deleted, §20.5.2.15 from,
 /// §20.5.2.32 to): only the `col` / `row` values change, offsets and the rest
@@ -1009,12 +1044,63 @@ pub(crate) fn sync_anchors(
             overrides.insert(drawing, patched.into_bytes());
         }
     }
+    // Slicer / timeline frames ([MS-XLSX] `sle:slicer`, `tsle:timeslicer` by `name`) and
+    // SmartArt frames (§20.5.2.16 graphicFrame `cNvPr/@name` with `dgm:relIds`) read from
+    // the file: their drawing anchors follow the model cells.
+    let mut frames: Vec<Frame<'_>> = Vec::new();
+    for s in ws.slicers.iter().filter(|s| !s.part.is_empty()) {
+        frames.push(("slicer", &s.name, None, s.from, s.to));
+    }
+    for t in ws.timelines.iter().filter(|t| !t.part.is_empty()) {
+        frames.push(("timeslicer", &t.name, None, t.from, t.to));
+    }
+    for d in ws.diagrams.iter().filter(|d| !d.name.is_empty()) {
+        frames.push(("cNvPr", &d.name, Some("relIds"), d.from, d.to));
+    }
+    if frames.is_empty() {
+        return;
+    }
+    for r in ws
+        .rels
+        .iter()
+        .filter(|r| !r.external && r.rel_type.ends_with("/drawing"))
+    {
+        let current = overrides.get(&r.target).cloned().or_else(|| {
+            wb.opaque
+                .parts
+                .iter()
+                .find(|p| p.name == r.target)
+                .map(|p| p.data.clone())
+        });
+        let Some(mut text) = current.and_then(|d| String::from_utf8(d).ok()) else {
+            continue;
+        };
+        let mut changed = false;
+        for (local, name, must, from, to) in &frames {
+            let Some(at) = named_element(&text, local, name) else {
+                continue;
+            };
+            let Some((s, e, _)) = anchor_span_at(&text, at) else {
+                continue;
+            };
+            if must.is_some_and(|m| !text[s..e].contains(m)) {
+                continue;
+            }
+            if let Some(p) = sync_anchor_at(&text, at, *from, *to) {
+                text = p;
+                changed = true;
+            }
+        }
+        if changed {
+            overrides.insert(r.target.clone(), text.into_bytes());
+        }
+    }
 }
 
 /// `text` with the `from` (and `to`) cell of the anchor of `rel_id` set to the
 /// given cells; `None` when they already match.
 fn sync_anchor(text: &str, rel_id: &str, from: CellRef, to: Option<CellRef>) -> Option<String> {
-    sync_anchor_span(text, anchor_span(text, rel_id)?, from, to)
+    sync_anchor_at(text, text.find(&format!(":id=\"{rel_id}\""))?, from, to)
 }
 
 /// `text` with the cells of the SmartArt frame whose `dgm:relIds@r:dm` is `rel_dm` (§21.4.2.6)
@@ -1025,20 +1111,12 @@ pub(crate) fn sync_diagram_anchor(
     from: CellRef,
     to: Option<CellRef>,
 ) -> Option<String> {
-    sync_anchor_span(
-        text,
-        anchor_span_at(text, &format!(":dm=\"{rel_dm}\""))?,
-        from,
-        to,
-    )
+    sync_anchor_at(text, text.find(&format!(":dm=\"{rel_dm}\""))?, from, to)
 }
 
-fn sync_anchor_span(
-    text: &str,
-    (s, e, qname): (usize, usize, String),
-    from: CellRef,
-    to: Option<CellRef>,
-) -> Option<String> {
+/// [`sync_anchor`] for the anchor holding byte `at`.
+fn sync_anchor_at(text: &str, at: usize, from: CellRef, to: Option<CellRef>) -> Option<String> {
+    let (s, e, qname) = anchor_span_at(text, at)?;
     let prefix = qname
         .rsplit_once(':')
         .map_or(String::new(), |(p, _)| format!("{p}:"));
@@ -1230,6 +1308,69 @@ pub fn remove_chart(wb: &mut Workbook, sheet: usize, index: usize) -> bool {
 mod tests {
     use super::*;
     use bo_model::sheet::CellRef;
+
+    // source: [MS-XLSX] sle:slicer / tsle:timeslicer frames; ECMA-376 Part 1, §20.5.2.33
+    #[test]
+    fn slicer_timeline_and_smartart_frames_follow_their_cells() {
+        use bo_model::sheet::{OpaquePart, OpaqueRel, SheetDiagram, Slicer, Timeline};
+        let m = |c: u32, r: u32| {
+            format!("<xdr:col>{c}</xdr:col><xdr:colOff>7</xdr:colOff><xdr:row>{r}</xdr:row><xdr:rowOff>9</xdr:rowOff>")
+        };
+        let anchor = |inner: &str| {
+            format!(
+                "<xdr:twoCellAnchor editAs=\"oneCell\"><xdr:from>{}</xdr:from><xdr:to>{}</xdr:to>{inner}<xdr:clientData/></xdr:twoCellAnchor>",
+                m(1, 2),
+                m(3, 8)
+            )
+        };
+        let drawing = format!(
+            "<xdr:wsDr xmlns:xdr=\"x\">{}{}{}</xdr:wsDr>",
+            anchor("<mc:AlternateContent><mc:Choice Requires=\"a14\"><xdr:graphicFrame><xdr:nvGraphicFramePr><xdr:cNvPr id=\"2\" name=\"Tỉnh\"/></xdr:nvGraphicFramePr><a:graphic><a:graphicData><sle:slicer xmlns:sle=\"s\" name=\"Tỉnh\"/></a:graphicData></a:graphic></xdr:graphicFrame></mc:Choice></mc:AlternateContent>"),
+            anchor("<xdr:graphicFrame><a:graphic><a:graphicData><tsle:timeslicer xmlns:tsle=\"t\" name=\"Ngày\"/></a:graphicData></a:graphic></xdr:graphicFrame>"),
+            anchor("<xdr:graphicFrame><xdr:nvGraphicFramePr><xdr:cNvPr id=\"4\" name=\"Diagram 1\"/></xdr:nvGraphicFramePr><a:graphic><a:graphicData><dgm:relIds r:dm=\"rId1\"/></a:graphicData></a:graphic></xdr:graphicFrame>")
+        );
+        let mut wb = Workbook::new();
+        wb.opaque.parts.push(OpaquePart {
+            name: "/xl/drawings/drawing1.xml".into(),
+            content_type: None,
+            data: drawing.into_bytes(),
+        });
+        let ws = &mut wb.sheets[0];
+        ws.rels.push(OpaqueRel {
+            id: "rId1".into(),
+            rel_type: REL_DRAWING.into(),
+            target: "/xl/drawings/drawing1.xml".into(),
+            external: false,
+        });
+        // Two rows inserted above (slicer), a column before (timeline), unchanged (diagram).
+        ws.slicers.push(Slicer {
+            name: "Tỉnh".into(),
+            part: "/xl/slicers/slicer1.xml".into(),
+            from: CellRef::new(4, 1),
+            to: Some(CellRef::new(10, 3)),
+            ..Slicer::default()
+        });
+        ws.timelines.push(Timeline {
+            name: "Ngày".into(),
+            part: "/xl/timelines/timeline1.xml".into(),
+            from: CellRef::new(2, 2),
+            to: Some(CellRef::new(8, 4)),
+            ..Timeline::default()
+        });
+        ws.diagrams.push(SheetDiagram {
+            name: "Diagram 1".into(),
+            from: CellRef::new(2, 1),
+            to: Some(CellRef::new(8, 3)),
+            ..SheetDiagram::default()
+        });
+        let mut overrides = std::collections::HashMap::new();
+        sync_anchors(&wb, 0, &mut overrides);
+        let out = String::from_utf8(overrides["/xl/drawings/drawing1.xml"].clone()).unwrap();
+        let anchors: Vec<&str> = out.split("<xdr:twoCellAnchor").skip(1).collect();
+        assert!(anchors[0].contains(&m(1, 4)) && anchors[0].contains(&m(3, 10)));
+        assert!(anchors[1].contains(&m(2, 2)) && anchors[1].contains(&m(4, 8)));
+        assert!(anchors[2].contains(&m(1, 2)) && anchors[2].contains(&m(3, 8)));
+    }
 
     fn chart(kind: ChartKind) -> Chart {
         Chart {

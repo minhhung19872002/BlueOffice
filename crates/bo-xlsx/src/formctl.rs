@@ -1044,6 +1044,140 @@ fn remove_top_level(xml: &str, needle: &str) -> Option<String> {
     changed.then_some(out)
 }
 
+/// `xml` with the `col` / `colOff` / `row` / `rowOff` texts of its first `tag` element
+/// (local name, ECMA-376 Part 1 §20.5.2.15 `CT_Marker`) set to `cell` and `off` (EMU).
+fn patch_marker(xml: &str, tag: &str, cell: CellRef, off: (i64, i64)) -> Option<String> {
+    let ts = tags(xml);
+    let k = ts
+        .iter()
+        .position(|t| t.kind == TagKind::Open && t.local(xml) == tag)?;
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    for (j, t) in ts.iter().enumerate().skip(k + 1) {
+        if t.kind == TagKind::Close && t.local(xml) == tag {
+            break;
+        }
+        if t.kind != TagKind::Open {
+            continue;
+        }
+        let v = match t.local(xml) {
+            "col" => cell.col.to_string(),
+            "colOff" => off.0.to_string(),
+            "row" => cell.row.to_string(),
+            "rowOff" => off.1.to_string(),
+            _ => continue,
+        };
+        if let Some(close) = ts.get(j + 1).filter(|n| n.kind == TagKind::Close) {
+            edits.push((t.end, close.start, v));
+        }
+    }
+    let mut out = xml.to_owned();
+    for (s, e, v) in edits.into_iter().rev() {
+        out.replace_range(s..e, &v);
+    }
+    Some(out)
+}
+
+/// `xml` (a `controlPr/anchor` entry or a drawing anchor) with its `from` / `to` markers set.
+fn patch_markers(xml: &str, a: &ControlAnchor) -> Option<String> {
+    let x = patch_marker(xml, "from", a.from, a.from_off)?;
+    patch_marker(&x, "to", a.to, a.to_off)
+}
+
+/// Writes the anchors of the file's controls whose placement no longer matches the model
+/// (rows / columns inserted or deleted, or the control moved): the `controls` entry
+/// ([MS-XLSX] `controlPr/anchor`, EMU), the VML shape (`x:Anchor`, pixels) and the
+/// DrawingML twin of the shape ([MS-ODRAWXML] `a14:compatExt/@spid`, §20.5.2.33
+/// `twoCellAnchor`). Everything else stays as read.
+fn sync_control_anchors(
+    ws: &Worksheet,
+    unknown: &mut [RawXml],
+    ctx: &mut WriteCtx<'_>,
+    in_file: &[FormControl],
+) {
+    for c in ws.form_controls.iter().filter(|c| !c.is_new()) {
+        let Some(f) = in_file.iter().find(|f| f.shape_id == c.shape_id) else {
+            continue;
+        };
+        if f.anchor == c.anchor {
+            continue;
+        }
+        // `controls` entries (§18.3.1.19 `control` with `controlPr/anchor`).
+        for u in unknown.iter_mut() {
+            let ts = tags(&u.xml);
+            let mut spans = Vec::new();
+            for (k, t) in ts.iter().enumerate() {
+                if t.kind == TagKind::Open && t.local(&u.xml) == "controls" {
+                    spans.extend(child_spans(&ts, k).0);
+                }
+            }
+            spans.sort_unstable();
+            let mut out = u.xml.clone();
+            for (s, e) in spans.into_iter().rev() {
+                let entry = &u.xml[s..e];
+                if entry_shape_id(entry) != Some(c.shape_id) || !entry.contains("anchor") {
+                    continue;
+                }
+                if let Some(p) = patch_markers(entry, &c.anchor) {
+                    out.replace_range(s..e, &p);
+                }
+            }
+            u.xml = out;
+        }
+        // VML shape `x:Anchor`.
+        if !c.vml_part.is_empty() {
+            if let Some(xml) = ctx
+                .current(&c.vml_part)
+                .and_then(|d| String::from_utf8(d).ok())
+            {
+                let shape = vml_shapes(&xml).into_iter().find(|s| s.id == c.shape_id);
+                let want = vml_anchor(&c.anchor);
+                if let Some(s) =
+                    shape.filter(|s| s.anchor().map(|a| vml_anchor(&a)) != Some(want.clone()))
+                {
+                    let sx = &xml[s.span.0..s.span.1];
+                    let ts = tags(sx);
+                    let open = ts
+                        .iter()
+                        .position(|t| t.kind == TagKind::Open && t.local(sx) == "Anchor");
+                    if let Some(k) = open {
+                        if let Some(close) = ts.get(k + 1).filter(|t| t.kind == TagKind::Close) {
+                            let (a, b) = (s.span.0 + ts[k].end, s.span.0 + close.start);
+                            let out = format!("{}{want}{}", &xml[..a], &xml[b..]);
+                            ctx.overrides.insert(c.vml_part.clone(), out.into_bytes());
+                        }
+                    }
+                }
+            }
+        }
+        // The DrawingML twin in the sheet's drawing part.
+        let needle = format!("spid=\"_x0000_s{}\"", c.shape_id);
+        for r in ws
+            .rels
+            .iter()
+            .filter(|r| !r.external && r.rel_type.ends_with("/drawing"))
+        {
+            let Some(xml) = ctx
+                .current(&r.target)
+                .and_then(|d| String::from_utf8(d).ok())
+            else {
+                continue;
+            };
+            let ts = tags(&xml);
+            let Some(root) = ts.iter().position(|t| t.kind == TagKind::Open) else {
+                continue;
+            };
+            let (kids, _) = child_spans(&ts, root);
+            let Some((s, e)) = kids.into_iter().find(|&(s, e)| xml[s..e].contains(&needle)) else {
+                continue;
+            };
+            if let Some(p) = patch_markers(&xml[s..e], &c.anchor) {
+                let out = format!("{}{p}{}", &xml[..s], &xml[e..]);
+                ctx.overrides.insert(r.target.clone(), out.into_bytes());
+            }
+        }
+    }
+}
+
 /// Shape id of a `controls` entry span.
 fn entry_shape_id(entry: &str) -> Option<u32> {
     let ts = tags(entry);
@@ -1094,6 +1228,8 @@ pub(crate) fn write_controls(
         .iter()
         .filter(|c| c.dirty && !c.is_new() && c.kind != FormControlKind::ActiveX)
         .collect();
+    // Controls moved by inserted / deleted rows and columns (or moved by the user).
+    sync_control_anchors(ws, &mut unknown, ctx, &in_file);
     if removed.is_empty() && new.is_empty() && dirty.is_empty() {
         return unknown;
     }

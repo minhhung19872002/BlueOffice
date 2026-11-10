@@ -7,9 +7,9 @@
 //! (see [`crate::calc`]); with [`crate::calc::NoFormulas`] it is left unchanged.
 
 use crate::calc::{Dimension, FormulaAdjuster, StructuralChange};
+use crate::shift::{lost_ref, AnchorMode, RefShift};
 use bo_model::sheet::{
-    CellRange, CellRef, ChartAnchor, ColInfo, PaneState, TableColumn, Workbook, Worksheet,
-    MAX_COLS, MAX_ROWS,
+    CellRef, ChartAnchor, ColInfo, PaneState, TableColumn, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
 };
 use std::collections::BTreeMap;
 
@@ -32,97 +32,6 @@ impl std::fmt::Display for EditError {
 }
 
 impl std::error::Error for EditError {}
-
-/// Maps indexes along one axis through an insertion or deletion.
-#[derive(Debug, Clone, Copy)]
-struct Shift {
-    at: u32,
-    count: u32,
-    insert: bool,
-    max: u32,
-}
-
-impl Shift {
-    /// New index of `i`, or `None` if it is deleted / pushed past the limit.
-    fn index(self, i: u32) -> Option<u32> {
-        if i < self.at {
-            return Some(i);
-        }
-        if self.insert {
-            let n = i.checked_add(self.count)?;
-            (n < self.max).then_some(n)
-        } else if i < self.at + self.count {
-            None
-        } else {
-            Some(i - self.count)
-        }
-    }
-
-    /// New inclusive span `a..=b`: insertions inside a span grow it; deletions
-    /// shrink it; `None` when the span disappears entirely.
-    fn span(self, a: u32, b: u32) -> Option<(u32, u32)> {
-        if self.insert {
-            let na = self.index(a)?;
-            let nb = if b >= self.at {
-                b.saturating_add(self.count).min(self.max - 1)
-            } else {
-                b
-            };
-            Some((na, nb))
-        } else {
-            let end = self.at + self.count; // exclusive
-            if a >= self.at && b < end {
-                return None;
-            }
-            let na = if a < self.at {
-                a
-            } else if a < end {
-                self.at
-            } else {
-                a - self.count
-            };
-            let nb = if b < self.at {
-                b
-            } else if b < end {
-                self.at - 1
-            } else {
-                b - self.count
-            };
-            Some((na, nb))
-        }
-    }
-}
-
-struct Mapper {
-    shift: Shift,
-    dim: Dimension,
-}
-
-impl Mapper {
-    fn cell(&self, c: CellRef) -> Option<CellRef> {
-        Some(match self.dim {
-            Dimension::Rows => CellRef::new(self.shift.index(c.row)?, c.col),
-            Dimension::Cols => CellRef::new(c.row, self.shift.index(c.col)?),
-        })
-    }
-
-    fn range(&self, r: CellRange) -> Option<CellRange> {
-        Some(match self.dim {
-            Dimension::Rows => {
-                let (a, b) = self.shift.span(r.first.row, r.last.row)?;
-                CellRange::new(CellRef::new(a, r.first.col), CellRef::new(b, r.last.col))
-            }
-            Dimension::Cols => {
-                let (a, b) = self.shift.span(r.first.col, r.last.col)?;
-                CellRange::new(CellRef::new(r.first.row, a), CellRef::new(r.last.row, b))
-            }
-        })
-    }
-
-    fn ranges(&self, v: &mut Vec<CellRange>) {
-        *v = v.iter().filter_map(|r| self.range(*r)).collect();
-    }
-}
 
 /// Insert `count` empty rows before zero-based row `at` of sheet `sheet`.
 pub fn insert_rows(
@@ -193,17 +102,9 @@ fn structural(
         .ok_or(EditError::NoSuchSheet)?
         .name
         .clone();
-    let m = Mapper {
-        shift: Shift {
-            at,
-            count,
-            insert,
-            max,
-        },
-        dim,
-    };
+    let m = RefShift::new(dim, at, count, insert);
     if let Some(ws) = wb.sheets.get_mut(sheet) {
-        move_sheet_content(ws, &m);
+        move_sheet_content(ws, m);
     }
     let change = StructuralChange {
         sheet: name,
@@ -217,7 +118,7 @@ fn structural(
 }
 
 #[allow(clippy::too_many_lines)]
-fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
+fn move_sheet_content(ws: &mut Worksheet, m: RefShift) {
     // Cells.
     let cells = std::mem::take(&mut ws.cells);
     ws.cells = cells
@@ -233,7 +134,7 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
             let rows = std::mem::take(&mut ws.rows);
             ws.rows = rows
                 .into_iter()
-                .filter_map(|(r, info)| Some((m.shift.index(r)?, info)))
+                .filter_map(|(r, info)| Some((m.index(r)?, info)))
                 .collect::<BTreeMap<_, _>>();
         }
         Dimension::Cols => {
@@ -241,7 +142,7 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
             ws.cols = cols
                 .into_iter()
                 .filter_map(|c| {
-                    let (min, max) = m.shift.span(c.min, c.max)?;
+                    let (min, max) = m.span(c.min, c.max)?;
                     Some(ColInfo { min, max, ..c })
                 })
                 .collect();
@@ -277,7 +178,7 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
         let old = t.range;
         let Some(new) = m.range(old) else { continue };
         if m.dim == Dimension::Cols {
-            let s = m.shift;
+            let s = m;
             let mut cols = Vec::with_capacity(t.columns.len());
             let mut next_id = t.columns.iter().map(|c| c.id).max().unwrap_or(0) + 1;
             let originals = t.columns.clone();
@@ -308,7 +209,7 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
                     af.columns = std::mem::take(&mut af.columns)
                         .into_iter()
                         .filter_map(|mut fc| {
-                            let abs = m.shift.index(base_old + fc.col_id)?;
+                            let abs = m.index(base_old + fc.col_id)?;
                             fc.col_id = abs.checked_sub(base_new)?;
                             Some(fc)
                         })
@@ -335,12 +236,8 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
         if *split >= 1.0 {
             let n = *split as u32;
             // Frozen indices 0..n that survive, plus those inserted before n.
-            let kept = (0..n).filter(|&i| m.shift.index(i).is_some()).count() as u32;
-            let added = if m.shift.insert && m.shift.at < n {
-                m.shift.count
-            } else {
-                0
-            };
+            let kept = (0..n).filter(|&i| m.index(i).is_some()).count() as u32;
+            let added = if m.insert && m.at < n { m.count } else { 0 };
             *split = f64::from(kept + added);
         }
         if let Some(c) = p.top_left_cell.as_deref().and_then(CellRef::parse) {
@@ -358,29 +255,97 @@ fn move_sheet_content(ws: &mut Worksheet, m: &Mapper) {
     // Chart anchors (§20.5.2.33 twoCellAnchor: moves and sizes with the cells;
     // §20.5.2.24 oneCellAnchor: its top-left cell moves; an absolute anchor stays).
     for ch in &mut ws.charts {
-        match ch.anchor {
-            ChartAnchor::TwoCell => {
-                let to = ch.to.unwrap_or(ch.from);
-                if let Some(r) = m.range(CellRange::new(ch.from, to)) {
-                    ch.from = r.first;
-                    if ch.to.is_some() {
-                        ch.to = Some(r.last);
-                    }
+        let mode = match ch.anchor {
+            ChartAnchor::TwoCell => AnchorMode::MoveAndSize,
+            ChartAnchor::OneCell => AnchorMode::Move,
+            ChartAnchor::Absolute => AnchorMode::Fixed,
+        };
+        (ch.from, ch.to) = m.cells_anchor(ch.from, ch.to, mode);
+    }
+    // Slicer, timeline and SmartArt frames (§20.5.2.33 twoCellAnchor; [MS-XLSX]
+    // `sle:slicer` / `tsle:timeslicer` frames): moved and sized with their cells.
+    let frame = |from: &mut CellRef, to: &mut Option<CellRef>| {
+        (*from, *to) = m.cells_anchor(*from, *to, AnchorMode::MoveAndSize);
+    };
+    for s in &mut ws.slicers {
+        frame(&mut s.from, &mut s.to);
+    }
+    for t in &mut ws.timelines {
+        frame(&mut t.from, &mut t.to);
+    }
+    for d in &mut ws.diagrams {
+        frame(&mut d.from, &mut d.to);
+    }
+    // Form controls ([MS-XLSX] `controlPr/anchor` with `moveWithCells`, the default Excel
+    // writes): they move with their top-left cell and keep their size. Their linked cell
+    // and input range are formulas, rewritten in `adjust_formulas`.
+    for c in &mut ws.form_controls {
+        c.anchor = m.anchor(&c.anchor, AnchorMode::Move);
+    }
+    // Sparklines ([MS-XLSX] `x14:sparkline` `xm:sqref`): drawn in one cell, gone with it;
+    // a group left without sparklines is removed. Data ranges: `adjust_formulas`.
+    for g in &mut ws.sparkline_groups {
+        g.sparklines = std::mem::take(&mut g.sparklines)
+            .into_iter()
+            .filter_map(|mut sp| {
+                sp.location = m.cell(sp.location)?;
+                Some(sp)
+            })
+            .collect();
+    }
+    ws.sparkline_groups.retain(|g| !g.sparklines.is_empty());
+    // Threaded comments ([MS-XLSX] `CT_ThreadedComment/@ref`) follow their cell, like notes.
+    ws.threaded_comments = std::mem::take(&mut ws.threaded_comments)
+        .into_iter()
+        .filter_map(|mut c| {
+            c.cell = m.cell(c.cell)?;
+            Some(c)
+        })
+        .collect();
+    // Scenarios (§18.3.1 `scenarios`): changing cells follow their cells; a deleted one
+    // leaves the scenario, a scenario without changing cells is removed.
+    if let Some(sc) = &mut ws.scenarios {
+        m.ranges(&mut sc.sqref);
+        for s in &mut sc.items {
+            s.cells = std::mem::take(&mut s.cells)
+                .into_iter()
+                .filter_map(|mut ic| {
+                    ic.cell = m.cell(ic.cell)?;
+                    Some(ic)
+                })
+                .collect();
+        }
+        sc.items.retain(|s| !s.cells.is_empty());
+        let n = sc.items.len() as u32;
+        sc.current = sc.current.filter(|&i| i < n);
+        sc.show = sc.show.filter(|&i| i < n);
+        if sc.items.is_empty() {
+            ws.scenarios = None;
+        }
+    }
+    // The AutoFilter's sort state (§18.3.1.92 `sortState`, §18.3.1.91 `sortCondition`).
+    if let Some(af) = &mut ws.auto_filter {
+        if let Some(ss) = &mut af.sort_state {
+            match m.range(ss.range) {
+                Some(r) => {
+                    ss.range = r;
+                    ss.conditions = std::mem::take(&mut ss.conditions)
+                        .into_iter()
+                        .filter_map(|mut sc| {
+                            sc.range = m.range(sc.range)?;
+                            Some(sc)
+                        })
+                        .collect();
                 }
+                None => af.sort_state = None,
             }
-            ChartAnchor::OneCell => {
-                if let Some(c) = m.range(CellRange::new(ch.from, ch.from)) {
-                    ch.from = c.first;
-                }
-            }
-            ChartAnchor::Absolute => {}
         }
     }
     let breaks = match m.dim {
         Dimension::Rows => &mut ws.page_setup.row_breaks,
         Dimension::Cols => &mut ws.page_setup.col_breaks,
     };
-    *breaks = breaks.iter().filter_map(|&b| m.shift.index(b)).collect();
+    *breaks = breaks.iter().filter_map(|&b| m.index(b)).collect();
 }
 
 fn new_table_column(id: u32, existing: &[TableColumn]) -> TableColumn {
@@ -461,6 +426,33 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
                 }
             }
         }
+        // Form control linked cells and input ranges ([MS-XLSX] `fmlaLink`, `fmlaRange`):
+        // a reference to deleted cells unlinks the control (no `#REF!` link is kept).
+        for c in &mut ws.form_controls {
+            for s in [&mut c.link, &mut c.input_range] {
+                let Some(text) = s.as_deref() else { continue };
+                if let Some(n) = adj.adjust(text, host, change) {
+                    *s = (!lost_ref(&n)).then_some(n);
+                    c.dirty = true;
+                }
+            }
+        }
+        // Sparkline data and date ranges ([MS-XLSX] `x14:sparkline/xm:f`,
+        // `x14:sparklineGroup/xm:f`): a range whose cells are all deleted is dropped
+        // (the sparkline then draws nothing).
+        for g in &mut ws.sparkline_groups {
+            let ranges = g
+                .sparklines
+                .iter_mut()
+                .map(|sp| &mut sp.formula)
+                .chain(std::iter::once(&mut g.date_range));
+            for s in ranges {
+                let Some(text) = s.as_deref() else { continue };
+                if let Some(n) = adj.adjust(text, host, change) {
+                    *s = (!lost_ref(&n)).then_some(n);
+                }
+            }
+        }
         for t in &mut ws.tables {
             for c in &mut t.columns {
                 for s in [&mut c.calculated_formula, &mut c.totals_row_formula]
@@ -479,8 +471,8 @@ mod tests {
     use super::*;
     use crate::calc::NoFormulas;
     use bo_model::sheet::{
-        AutoFilter, Cell, CellValue, Comment, DataValidation, FilterColumn, Hyperlink, RowInfo,
-        Table,
+        AutoFilter, Cell, CellRange, CellValue, Comment, DataValidation, FilterColumn, Hyperlink,
+        RowInfo, Table,
     };
 
     fn r(s: &str) -> CellRange {
@@ -666,5 +658,84 @@ mod tests {
         insert_rows(&mut wb, 0, 0, 1, &NoFormulas).unwrap();
         assert!(wb.sheets[0].cell(MAX_ROWS - 1, 0).is_none());
         assert!(insert_rows(&mut wb, 0, 0, 0, &NoFormulas).is_ok());
+    }
+
+    // source: [MS-XLSX] CT_ThreadedComment/@ref; ECMA-376 Part 1, §18.3.1 scenarios,
+    // §18.3.1.92 sortState
+    #[test]
+    fn threaded_comments_scenarios_and_sort_state_follow_rows() {
+        use bo_model::sheet::{
+            Scenario, ScenarioCell, Scenarios, SortCondition, SortState, ThreadedComment,
+        };
+        let mut wb = wb();
+        let ws = &mut wb.sheets[0];
+        ws.threaded_comments = vec![
+            ThreadedComment {
+                cell: CellRef::new(1, 0),
+                ..ThreadedComment::default()
+            },
+            ThreadedComment {
+                cell: CellRef::new(3, 0),
+                ..ThreadedComment::default()
+            },
+        ];
+        let sc = |r: u32| ScenarioCell {
+            cell: CellRef::new(r, 1),
+            ..ScenarioCell::default()
+        };
+        ws.scenarios = Some(Scenarios {
+            current: Some(1),
+            sqref: vec![r("C1:C5")],
+            items: vec![
+                Scenario {
+                    name: "A".into(),
+                    cells: vec![sc(0), sc(3)],
+                    ..Scenario::default()
+                },
+                Scenario {
+                    name: "B".into(),
+                    cells: vec![sc(1)],
+                    ..Scenario::default()
+                },
+            ],
+            ..Scenarios::default()
+        });
+        if let Some(af) = ws.auto_filter.as_mut() {
+            af.sort_state = Some(SortState {
+                range: r("A2:D5"),
+                conditions: vec![SortCondition {
+                    range: r("B2:B5"),
+                    ..SortCondition::default()
+                }],
+                ..SortState::default()
+            });
+        }
+        // Delete row 2.
+        delete_rows(&mut wb, 0, 1, 1, &NoFormulas).unwrap();
+        let ws = &wb.sheets[0];
+        let cells: Vec<String> = ws
+            .threaded_comments
+            .iter()
+            .map(|c| c.cell.to_string())
+            .collect();
+        assert_eq!(cells, ["A3"]);
+        let s = ws.scenarios.as_ref().unwrap();
+        assert_eq!(s.items.len(), 1);
+        assert_eq!(s.current, None);
+        assert_eq!(s.sqref, vec![r("C1:C4")]);
+        let moved: Vec<String> = s.items[0]
+            .cells
+            .iter()
+            .map(|c| c.cell.to_string())
+            .collect();
+        assert_eq!(moved, ["B1", "B3"]);
+        let ss = ws
+            .auto_filter
+            .as_ref()
+            .unwrap()
+            .sort_state
+            .as_ref()
+            .unwrap();
+        assert_eq!((ss.range, ss.conditions[0].range), (r("A2:D4"), r("B2:B4")));
     }
 }

@@ -187,7 +187,7 @@ pub fn remove_diagram(wb: &mut Workbook, sheet: usize, index: usize) -> bool {
     if let Some(p) = wb.opaque.parts.iter_mut().find(|p| p.name == dpath) {
         if let Ok(text) = std::str::from_utf8(&p.data) {
             if let Some((s, e, _)) =
-                crate::chart_write::anchor_span_at(text, &format!(":dm=\"{}\"", d.rel_dm))
+                crate::chart_write::anchor_span_of(text, &format!(":dm=\"{}\"", d.rel_dm))
             {
                 let mut t = text.to_owned();
                 t.replace_range(s..e, "");

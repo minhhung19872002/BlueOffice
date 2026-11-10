@@ -50,7 +50,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Ký số | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-sign, sigline.rs | 🟡 | + dòng chữ ký BlueDoc, nhiều chữ ký (CORE-SIGLINE-001); thiếu Sheet/Slide |
 | Kiểm tra tài liệu / tiếp cận | all | — | ✅ | ✅ | — | ✅ | ✅ | — | inspect.rs | 🟡 | rà soát nội dung, trợ năng, tương thích (CORE-INSPECT-001); thiếu ngăn bên, sửa nhanh Sheet |
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
-| BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp |
+| BlueScript / recorder | all | — | — | ✅ | — | ✅ | ✅ | ✅ | packages/script tests, bluescript.spec | 🟡 | sandbox QuickJS trong Worker, API Doc/Sheet/Slide, ngăn soạn mã, một lần chạy = một bước hoàn tác (CORE-SCRIPT-001); chưa recorder, chưa lưu trong tệp; chạy theo lịch trên máy chủ (QuickJS trong bo-cli, CORE-SCRIPT-004); chuyển VBA → bản nháp (CORE-SCRIPT-003) |
 | Add-in | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
 | BlueAI (provider LLM) | all | — | ✅ | ✅ | — | ✅ | ✅ | — | AiTests (.NET), ai tests, blueai.spec | ✅ | CORE-AI-001: mặc định tắt, qua máy chủ; viết lại/tóm tắt/soạn nháp, slide từ dàn ý, gợi ý công thức (kiểm bằng engine), phân tích |
 | Định dạng phụ (SYLK, DIF, PRN, DBF, EPUB, mở PDF) | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | bo-tabular, pdf_import, secondary-formats.spec | 🟡 | CORE-FMT-004; thiếu XPS, WPD/WPS, bố cục PDF |

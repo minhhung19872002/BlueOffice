@@ -44,6 +44,7 @@ mod edit_cmd;
 mod fidelity;
 mod sample;
 mod sign_cmd;
+mod slide_album;
 mod slide_edits;
 mod slide_samples;
 mod templates;

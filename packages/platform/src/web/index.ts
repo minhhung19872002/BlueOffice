@@ -135,6 +135,51 @@ export class WebFileAccess implements FileAccess {
     });
   }
 
+  async openFiles(accept: string[]): Promise<OpenedFile[]> {
+    const read = async (f: {
+      name: string;
+      arrayBuffer(): Promise<ArrayBuffer>;
+    }): Promise<OpenedFile> => ({
+      name: f.name,
+      bytes: new Uint8Array(await f.arrayBuffer()),
+    });
+    if (this.fs) {
+      try {
+        const hs = await this.fs.showOpenFilePicker({
+          multiple: true,
+          types: [
+            {
+              description: accept.join(', '),
+              accept: { 'application/octet-stream': accept.filter((a) => a.startsWith('.')) },
+            },
+          ],
+        });
+        return await Promise.all(hs.map(async (h) => read(await h.getFile())));
+      } catch (e) {
+        if (isAbort(e)) return [];
+        // Picker refused (e.g. cross-origin iframe): fall back to the input element.
+      }
+    }
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = accept.join(',');
+      input.style.display = 'none';
+      input.addEventListener('change', async () => {
+        const files = [...(input.files ?? [])];
+        input.remove();
+        resolve(await Promise.all(files.map(read)));
+      });
+      input.addEventListener('cancel', () => {
+        input.remove();
+        resolve([]);
+      });
+      document.body.appendChild(input);
+      input.click();
+    });
+  }
+
   async saveFile(bytes: Uint8Array, suggestedName: string, mime: string): Promise<string | null> {
     const blob = new Blob([bytes as BlobPart], { type: mime });
     if (this.fs) {

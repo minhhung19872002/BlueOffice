@@ -12,6 +12,7 @@
 //! everything that was not touched.
 
 pub mod action;
+pub mod album;
 pub mod build;
 pub mod chart;
 pub mod clip;
@@ -37,6 +38,7 @@ pub mod page_master;
 pub mod picture;
 pub mod present;
 pub mod record;
+pub mod reuse;
 pub mod rich;
 pub mod sections;
 pub mod show;
@@ -567,6 +569,16 @@ pub enum SlideCommand {
         #[serde(default)]
         indices: Option<Vec<usize>>,
     },
+    /// Insert slides of the deck read by `reuseOpen` after the current slide
+    /// (SLIDE-ALBUM-001, see [`reuse`]).
+    ReuseSlides {
+        /// 0-based slide indices of the source deck, in insertion order.
+        indices: Vec<usize>,
+        /// Keep source formatting: the slides bring their own layout, master
+        /// and theme instead of taking a matching layout of this deck.
+        #[serde(default)]
+        keep_source: bool,
+    },
     /// `RRGGBB` or `None` for no fill.
     SetFill {
         /// Fill colour of the selected shapes.
@@ -849,6 +861,7 @@ impl SlideCommand {
             | SlideCommand::MoveSlide { .. }
             | SlideCommand::CopySlides { .. }
             | SlideCommand::CutSlides { .. }
+            | SlideCommand::ReuseSlides { .. }
             | SlideCommand::SetNotes { .. }
             | SlideCommand::SetTransition { .. }
             | SlideCommand::SetCustomShow { .. }
@@ -3074,7 +3087,7 @@ fn paste_slides(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &clip::Clip, deck: u64) 
             .source
             .as_deref()
             .ok_or(EditError::Refused("clipOtherDeck"))?;
-        return paste_slides_from(tx, sel, slides, src);
+        return paste_slides_from(tx, sel, slides, src, false);
     }
     let first = if tx.pres.slides.is_empty() {
         0
@@ -3161,6 +3174,44 @@ fn match_layout(
         }
     }
     best.map(|b| b.0)
+}
+
+/// Layout of the target deck with the same design as source layout `sl` (keep
+/// source formatting): equal layout, master and theme content, as left by an
+/// earlier import of it or by a deck made from the same design.
+fn same_design(
+    pres: &Presentation,
+    src: &clip::SlideSource,
+    sl: &bo_model::slide::SlideLayout,
+    fit: &SizeFit,
+) -> Option<usize> {
+    let sm = src.masters.get(sl.master)?;
+    let st = src.themes.get(sm.theme)?;
+    // Compared as they would be imported (fitted to the target slide size).
+    let mut want_layout = sl.data.shapes.clone();
+    fit.apply(&mut want_layout);
+    let mut want_master = sm.data.shapes.clone();
+    fit.apply(&mut want_master);
+    pres.layouts.iter().position(|l| {
+        let Some(m) = pres.masters.get(l.master) else {
+            return false;
+        };
+        let Some(t) = pres.themes.get(m.theme) else {
+            return false;
+        };
+        l.kind == sl.kind
+            && l.data.name == sl.data.name
+            && l.data.background == sl.data.background
+            && l.data.shapes == want_layout
+            && l.clr_map_ovr == sl.clr_map_ovr
+            && m.data.background == sm.data.background
+            && m.data.shapes == want_master
+            && m.clr_map == sm.clr_map
+            && m.text_styles == sm.text_styles
+            && t.colors == st.colors
+            && t.fonts == st.fonts
+            && t.formats == st.formats
+    })
 }
 
 /// Copies parts targeted by the relationships of imported parts under new names.
@@ -3321,13 +3372,19 @@ impl SizeFit {
 /// Paste slides copied from another deck: each slide gets the target deck's
 /// layout of the same name, else the closest by placeholder types, else its own
 /// layout imported with its master and theme (§19.3.1.39, §19.3.1.42, §20.1.6.9);
-/// pictures and media come along; relationships stay valid.
+/// pictures and media come along; relationships stay valid. `keep` (keep source
+/// formatting): a slide only takes a layout of the target deck that is the same
+/// design as its own, otherwise its layout, master and theme are imported.
 fn paste_slides_from(
     tx: &mut Tx<'_>,
     sel: &mut SlideSel,
     slides: &[bo_model::slide::Slide],
     src: &clip::SlideSource,
+    keep: bool,
 ) -> R<()> {
+    if slides.is_empty() {
+        return refuse("noSlide");
+    }
     let before = ops::PresFields::of(tx.pres);
     let mut after = before.clone();
     let mut carrier = PartCarrier {
@@ -3360,7 +3417,11 @@ fn paste_slides_from(
             .ok_or(EditError::Refused("noLayout"))?;
         let layout = if let Some(&(_, t)) = layouts.iter().find(|(o, _)| *o == s.layout) {
             t
-        } else if let Some(t) = match_layout(tx.pres, sl, s) {
+        } else if let Some(t) = if keep {
+            same_design(tx.pres, src, sl, &fit)
+        } else {
+            match_layout(tx.pres, sl, s)
+        } {
             t
         } else {
             // Import the layout, its master and the master's theme.
@@ -3527,6 +3588,12 @@ impl Engine {
         if let Some(r) = self.compare_deck_json(json) {
             return r;
         }
+        if let Some(r) = self.reuse_json(json) {
+            return r;
+        }
+        if let Some(r) = Self::new_deck_json(json) {
+            return r;
+        }
         if let Some(sc) = serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| crate::security::SecurityCommand::parse(&v))
@@ -3682,6 +3749,7 @@ impl Engine {
             let ed = &mut self.slides;
             let fonts = &mut self.fonts;
             let clipboard = &mut self.slide_clip;
+            let reuse_src = self.slide_reuse.as_deref();
             let deck = self.deck_seq;
             ed.clamp(pres);
             let history = matches!(
@@ -4355,6 +4423,18 @@ impl Engine {
                         }
                     }
                     None => out.error = Some("noClip".into()),
+                },
+                SlideCommand::ReuseSlides {
+                    ref indices,
+                    keep_source,
+                } => match reuse_src {
+                    Some(src) => {
+                        let (slides, source) = reuse::pick(src, indices);
+                        ed.mutate(pres, &mut out, |tx, sel| {
+                            paste_slides_from(tx, sel, &slides, &source, keep_source)
+                        });
+                    }
+                    None => out.error = Some("noReuseSource".into()),
                 },
                 SlideCommand::CopySlides { ref indices }
                 | SlideCommand::CutSlides { ref indices } => {

@@ -74,6 +74,27 @@ describe('web file access (File System Access API)', () => {
     expect(fs.written).toEqual(['Báo cáo.docx', 'Báo cáo (bản in).pdf']);
   });
 
+  it('opens several files at once (photo album); cancel gives none', async () => {
+    const fs = fakeFs({ 'a.png': new Uint8Array([1]), 'b.png': new Uint8Array([2]) });
+    const asked: (boolean | undefined)[] = [];
+    const files = new WebFileAccess({
+      ...fs.pickers,
+      showOpenFilePicker: async (o) => {
+        asked.push(o.multiple);
+        const first = await fs.pickers.showOpenFilePicker(o);
+        return [...first, ...(await fs.pickers.showOpenFilePicker(o))];
+      },
+    });
+    fs.picks.push('a.png', 'b.png');
+    expect(await files.openFiles(['.png'])).toEqual([
+      { name: 'a.png', bytes: new Uint8Array([1]) },
+      { name: 'b.png', bytes: new Uint8Array([2]) },
+    ]);
+    expect(asked).toEqual([true]);
+    fs.picks.push(null);
+    expect(await files.openFiles(['.png'])).toEqual([]);
+  });
+
   it('treats a cancelled picker as cancel', async () => {
     const fs = fakeFs({});
     const files = new WebFileAccess(fs.pickers);

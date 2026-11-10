@@ -1,0 +1,213 @@
+/* Photo album dialog, outline import and the reuse slides pane (SLIDE-ALBUM-001). */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.note {
+  margin: 0;
+  color: var(--bo-text-muted, #555);
+  font-size: 12px;
+}
+
+.warn {
+  margin: 0;
+  color: var(--bo-warning, #8a5a00);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  color: var(--bo-danger, #b3261e);
+  font-size: 12px;
+}
+
+.pictures {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  min-height: 72px;
+  margin: 8px 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+  list-style: none;
+}
+
+.picture {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.picture:focus-within {
+  background: var(--bo-hover, rgba(31, 95, 191, 0.08));
+}
+
+.pictureThumb {
+  width: 48px;
+  height: 36px;
+  object-fit: contain;
+  background: var(--bo-surface-2, #f2f2f2);
+  flex: none;
+}
+
+.pictureName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.options label {
+  display: contents;
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.checks label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fieldset {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+}
+
+.fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.outlinePreview {
+  max-height: 260px;
+  margin: 8px 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+  list-style: none;
+}
+
+.outlineTitle {
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.outlineBullet {
+  color: var(--bo-text-muted, #444);
+}
+
+/* Reuse slides pane. */
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.paneStandalone {
+  composes: pane;
+  width: 280px;
+  border-left: 1px solid var(--bo-border, #ccc);
+  background: var(--bo-surface, #fff);
+}
+
+.paneHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.source {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slides {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 80px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+  list-style: none;
+}
+
+.slide {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.slide:focus-visible {
+  border-color: var(--bo-accent, #1f5fbf);
+}
+
+.slide[aria-selected='true'] {
+  background: var(--bo-selected, rgba(31, 95, 191, 0.16));
+}
+
+.slideThumb {
+  width: 96px;
+  flex: none;
+  border: 1px solid var(--bo-border, #ccc);
+  background: #fff;
+}
+
+.slideThumbEmpty {
+  composes: slideThumb;
+  height: 54px;
+}
+
+.slideLabel {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.slideNumber {
+  display: block;
+  color: var(--bo-text-muted, #555);
+}

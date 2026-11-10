@@ -160,6 +160,10 @@ export function collabSlideHost<H extends SlideEngineLike>(
       }),
     slideCommand: (cmd: { cmd: string }) =>
       local(async () => {
+        // Commands joined into one undo step (`historyLen` … `mergeHistory`: a photo
+        // album, a BlueScript run) are one collaborative undo step too.
+        if (cmd.cmd === 'historyLen') queue.holdClock(true);
+        else if (cmd.cmd === 'undo' || cmd.cmd === 'redo') queue.holdClock(false);
         if (
           phase === 'live' &&
           (cmd.cmd === 'undo' || cmd.cmd === 'redo') &&
@@ -172,7 +176,11 @@ export function collabSlideHost<H extends SlideEngineLike>(
           if (ch) return (await host.slideCollabApply(ch)) as R;
           return (await host.slideCommand({ cmd: 'state' })) as R;
         }
-        return (await host.slideCommand(cmd)) as R;
+        try {
+          return (await host.slideCommand(cmd)) as R;
+        } finally {
+          if (cmd.cmd === 'mergeHistory') queue.holdClock(false);
+        }
       }),
     slideInsertPicture: (bytes: Uint8Array, name: string) =>
       local(async () => (await host.slideInsertPicture(bytes, name)) as R),

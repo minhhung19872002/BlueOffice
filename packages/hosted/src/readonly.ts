@@ -98,6 +98,11 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'unlockWrite',
   // Compare with another version (CORE-VERSION-001).
   'compareDeck',
+  // Reuse slides (SLIDE-ALBUM-001): reading the other deck changes nothing.
+  'reuseOpen',
+  'reuseClose',
+  // An empty deck for a photo album: a file, the open deck is untouched.
+  'newDeck',
 ]);
 
 /** BlueSheet `exec` commands that only read. */

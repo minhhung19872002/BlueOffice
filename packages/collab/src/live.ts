@@ -27,6 +27,8 @@ export interface ReplicaLike {
   fullState(): string;
   undo(): boolean;
   redo(): boolean;
+  /** Closes the current undo group (the next local change starts a new one). */
+  stopCapturing?(): void;
   canUndo(): boolean;
   canRedo(): boolean;
 }
@@ -73,6 +75,12 @@ export class LiveQueue {
   private pending = 0;
   private held: Uint8Array[] = [];
   private replies: Uint8Array[] = [];
+  /**
+   * While set the replica's clock stands still: the replica groups undo steps
+   * by time, so the local changes of a batch stay one group whatever arrives
+   * in between (see `holdClock`).
+   */
+  private clockHeld = false;
   /** Give this to `CollabClient` instead of the raw replica. */
   readonly engine: CollabEngine;
 
@@ -91,7 +99,7 @@ export class LiveQueue {
           this.held.push(frame);
           return [];
         }
-        replica.setTime(Date.now());
+        this.tick();
         const replies = unpack(replica.receive(frame));
         this.onFrames();
         return replies;
@@ -103,6 +111,28 @@ export class LiveQueue {
 
   get busy(): boolean {
     return this.pending > 0;
+  }
+
+  private tick(): void {
+    if (!this.clockHeld) this.replica.setTime(Date.now());
+  }
+
+  /**
+   * Start (`true`) or end (`false`) a batch of local changes that is one undo
+   * step: the undo group is closed at both ends and the clock does not advance
+   * in between.
+   */
+  holdClock(on: boolean): void {
+    if (on === this.clockHeld) return;
+    if (on) {
+      this.replica.setTime(Date.now());
+      this.replica.stopCapturing?.();
+      this.clockHeld = true;
+    } else {
+      this.clockHeld = false;
+      this.replica.stopCapturing?.();
+      this.replica.setTime(Date.now());
+    }
   }
 
   /** Runs `f` after the queued tasks. */
@@ -129,7 +159,7 @@ export class LiveQueue {
   /** Delivers the frames held while busy (their replies go out with the next flush). */
   private release(): void {
     if (!this.held.length) return;
-    this.replica.setTime(Date.now());
+    this.tick();
     for (const f of this.held.splice(0)) {
       try {
         this.replies.push(...unpack(this.replica.receive(f)));

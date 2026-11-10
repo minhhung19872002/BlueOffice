@@ -2788,6 +2788,66 @@
         "belowFrontLeft": "Dưới, trước, trái",
         "belowFrontRight": "Dưới, trước, phải"
       }
+    },
+    "album": {
+      "command": "Album ảnh",
+      "title": "Album ảnh",
+      "add": "Thêm ảnh…",
+      "empty": "Chưa có ảnh nào.",
+      "summary": "{{pictures}} ảnh trên {{slides}} slide",
+      "pictures": "Ảnh của album, theo thứ tự",
+      "moveUp": "Đưa {{name}} lên trên",
+      "moveDown": "Đưa {{name}} xuống dưới",
+      "remove": "Bỏ {{name}}",
+      "layout": "Số ảnh mỗi slide",
+      "layouts": {
+        "fit": "Một ảnh, lớn bằng slide",
+        "one": "Một ảnh",
+        "two": "Hai ảnh",
+        "four": "Bốn ảnh"
+      },
+      "frame": "Khung ảnh",
+      "frames": {
+        "rect": "Chữ nhật",
+        "rounded": "Bo tròn góc",
+        "outline": "Viền mảnh"
+      },
+      "titles": "Tiêu đề slide phía trên ảnh",
+      "captions": "Chú thích dưới mỗi ảnh (tên tệp)",
+      "target": "Đặt album",
+      "targetAppend": "Sau slide hiện tại",
+      "targetNew": "Trong bản trình chiếu mới",
+      "name": "Tên album",
+      "defaultTitle": "Album ảnh",
+      "unsaved": "Bản trình chiếu đang mở có thay đổi chưa lưu; bản trình chiếu mới sẽ thay thế nó trong cửa sổ này.",
+      "create": "Tạo album",
+      "doneSkipped": "Đã tạo album: {{pictures}} ảnh trên {{slides}} slide. Không đọc được dưới dạng ảnh: {{skipped}}."
+    },
+    "outlineImport": {
+      "command": "Slide từ dàn ý",
+      "title": "Slide từ dàn ý",
+      "from": "Tệp: {{name}}",
+      "hint": "Đề mục cấp cao nhất thành tiêu đề slide, các cấp bên dưới thành dấu đầu dòng. Slide được thêm sau slide hiện tại.",
+      "preview": "Các slide tạo từ dàn ý",
+      "untitled": "(không có tiêu đề)",
+      "empty": "Tệp này không có nội dung để tạo slide.",
+      "unreadable": "Không đọc được tệp này dưới dạng văn bản.",
+      "insert": "Thêm {{count}} slide"
+    },
+    "reuse": {
+      "command": "Dùng lại slide",
+      "title": "Dùng lại slide",
+      "close": "Đóng",
+      "open": "Mở bản trình chiếu…",
+      "hint": "Mở một bản trình chiếu khác để chọn slide từ đó.",
+      "reading": "Đang đọc bản trình chiếu…",
+      "unreadable": "Không đọc được tệp này dưới dạng bản trình chiếu.",
+      "source": "{{name}} — {{count}} slide",
+      "slides": "Slide của bản trình chiếu kia",
+      "slideN": "Slide {{n}}",
+      "keepSource": "Giữ định dạng nguồn",
+      "insert": "Chèn slide đã chọn ({{count}})",
+      "insertAll": "Chèn tất cả"
     }
   },
   "review": {

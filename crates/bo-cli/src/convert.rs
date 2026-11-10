@@ -39,7 +39,6 @@ pub struct Facts {
 }
 
 /// Detect and read `bytes`. Encrypted OOXML needs `password`.
-#[cfg(test)]
 pub fn load(bytes: &[u8], password: Option<&str>) -> Result<(Loaded, Facts), Error> {
     load_named(bytes, "", password)
 }

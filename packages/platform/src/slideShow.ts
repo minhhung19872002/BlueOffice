@@ -130,3 +130,60 @@ export interface DisplayService {
    */
   open(query: string, target: DisplayTarget): Promise<import('./types').MessageBus | null>;
 }
+
+// ------------------------------------------------------------------ recording (SLIDE-REC-001)
+
+/** Corner of the slide for the recorded camera picture. */
+export type SlideCameraCorner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
+
+/** A recorded clip for `saveRecording`: base64 bytes and MIME type. */
+export interface SlideRecordedClip {
+  data: string;
+  mime: string;
+}
+
+/** One ink stroke drawn while recording; `times` are ms from the slide's start. */
+export interface SlideRecordedStroke {
+  points: [number, number][];
+  times: number[];
+  color: string;
+  width: number;
+  highlighter?: boolean;
+}
+
+/** The recording of one slide (`bo_engine::slide_edit::record::SlideRecordingIn`). */
+export interface SlideRecordingInput {
+  slide: number;
+  /** Time on the slide → `advTm`. */
+  durationMs?: number;
+  /** Times of the clicks that played effects (ms from the slide's start). */
+  clicks?: number[];
+  ink?: SlideRecordedStroke[];
+  narration?: SlideRecordedClip;
+  camera?: SlideRecordedClip & { corner?: SlideCameraCorner; aspect?: number };
+}
+
+/** What one slide has recorded. */
+export interface SlideRecordingInfo {
+  slide: number;
+  /** Shape id of the narration clip. */
+  narration: number | null;
+  camera: number | null;
+  /** Shape ids of recorded ink. */
+  ink: number[];
+  /** `advTm` (ms). */
+  timingMs: number | null;
+}
+
+export type SlideRecordCommand =
+  | { cmd: 'recordingInfo' }
+  | {
+      cmd: 'saveRecording';
+      slides: SlideRecordingInput[];
+      names?: { narration?: string; camera?: string; ink?: string };
+    }
+  | {
+      cmd: 'clearRecording';
+      scope?: 'current' | 'all';
+      what?: 'recording' | 'timings' | 'all';
+    };

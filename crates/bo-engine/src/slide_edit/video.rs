@@ -63,6 +63,8 @@ impl Default for VideoOptions {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SlideSpan {
+    /// 0-based slide shown (hidden slides are left out of the video).
+    pub slide: usize,
     /// Start of the slide's transition.
     pub start_ms: u64,
     /// Duration of the transition into the slide.
@@ -124,6 +126,7 @@ pub fn timeline(slides: &[SlideTiming], opts: &VideoOptions) -> (Vec<SlideSpan>,
             let anims: u64 = s.steps.iter().map(|&d| u64::from(d)).sum();
             let len = tr + dwell.max(anims).max(1);
             let span = SlideSpan {
+                slide: 0,
                 start_ms: at,
                 transition_ms: tr,
                 length_ms: len,
@@ -200,6 +203,7 @@ impl Engine {
         let (fw, fh) = frame_size(opts.width, w, h);
         opts.width = fw;
         let mut slides = Vec::with_capacity(count);
+        let mut shown = Vec::with_capacity(count);
         for i in 0..count {
             let hidden = self
                 .pres
@@ -220,8 +224,32 @@ impl Engine {
                 advance_after_ms: show.transition.as_ref().and_then(|t| t.advance_after_ms),
                 steps: steps(&show.animations, show.clicks),
             };
+            shown.push(i);
+            // A recorded narration's icon is hidden in the show (showWhenStopped="0").
+            let narration: Vec<u32> = show
+                .media
+                .iter()
+                .filter(|m| m.recorded == Some(super::record::RecKind::Narration))
+                .map(|m| m.id)
+                .collect();
             slides.push(SlideData {
-                layers: show.layers.into_iter().map(|l| l.page).collect(),
+                layers: show
+                    .layers
+                    .into_iter()
+                    .map(|l| {
+                        let hidden = !l.backdrop
+                            && !l.ids.is_empty()
+                            && l.ids.iter().all(|id| narration.contains(id));
+                        if hidden {
+                            bo_render::PageList {
+                                commands: Vec::new(),
+                                ..l.page
+                            }
+                        } else {
+                            l.page
+                        }
+                    })
+                    .collect(),
                 anims: show.animations,
                 transition: show.transition,
                 timing,
@@ -231,7 +259,10 @@ impl Engine {
             return Err(EngineError::BadCommand("no slides".into()));
         }
         let timings: Vec<SlideTiming> = slides.iter().map(|s| s.timing.clone()).collect();
-        let (spans, duration_ms) = timeline(&timings, &opts);
+        let (mut spans, duration_ms) = timeline(&timings, &opts);
+        for (s, i) in spans.iter_mut().zip(&shown) {
+            s.slide = *i;
+        }
         let info = VideoInfo {
             width: fw,
             height: fh,

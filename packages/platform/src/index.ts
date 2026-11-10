@@ -42,12 +42,20 @@ export * from './slideMaster';
 export * from './slideViews';
 export * from './slideShow';
 export * from './slideInk';
-export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcodecs';
+export {
+  WebCodecsVideo,
+  VIDEO_CODECS,
+  bitrateFor,
+  encodeAudioWebCodecs,
+  hasAudioEncoder,
+  hasWebCodecs,
+} from './webcodecs';
 export * from './sheetDataTools';
 export * from './speech';
 export * from './translation';
 export * from './queryData';
 export * from './dictation';
+export * from './mediaCapture';
 export {
   OidcSession,
   fetchOidcConfig,

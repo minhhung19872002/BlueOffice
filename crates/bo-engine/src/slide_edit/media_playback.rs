@@ -331,7 +331,7 @@ fn remove_children(el: &mut XmlElement, local: &str) {
         .retain(|c| !matches!(c, XmlNode::Element(e) if e.local() == local));
 }
 
-fn parse_el(xml: &str) -> R<XmlElement> {
+pub(crate) fn parse_el(xml: &str) -> R<XmlElement> {
     bo_drawingml::dom::parse(xml.as_bytes(), "/media").map_err(|_| EditError::Refused("badMedia"))
 }
 
@@ -455,7 +455,7 @@ fn media_call(id: u32, cmd: &str, preset: u32) -> R<XmlElement> {
     ))
 }
 
-fn start_effect(id: u32, mode: &str) -> R<Animation> {
+pub(crate) fn start_effect(id: u32, mode: &str) -> R<Animation> {
     let (cmd, preset, trigger, shape) = match mode {
         "auto" => ("playFrom(0.0)", 1, AnimTrigger::AfterPrevious, None),
         "seq" => ("playFrom(0.0)", 1, AnimTrigger::OnClick, None),
@@ -481,7 +481,7 @@ fn start_effect(id: u32, mode: &str) -> R<Animation> {
 
 /// A new media node of clip `id` (§19.5 CT_TLMediaNodeVideo / CT_TLMediaNodeAudio):
 /// started by its call effects (`delay="indefinite"`), full volume.
-fn new_media_node(id: u32, video: bool) -> R<XmlElement> {
+pub(crate) fn new_media_node(id: u32, video: bool) -> R<XmlElement> {
     let tag = if video { "p:video" } else { "p:audio" };
     parse_el(&format!(
         concat!(

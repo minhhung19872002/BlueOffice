@@ -43,6 +43,14 @@ export class InkLayer {
   private readonly bySlide = new Map<number, SlideInkStroke[]>();
   private live: { slide: number; stroke: SlideInkStroke } | null = null;
   private version = 0;
+  /** Time of each point of a stroke (ms), while a clock is set (recording a show). */
+  private readonly times = new WeakMap<SlideInkStroke, number[]>();
+  private clock: (() => number) | null = null;
+
+  /** Time stamps for new points (SLIDE-REC-001); `null`: strokes are not timed. */
+  setClock(clock: (() => number) | null): void {
+    this.clock = clock;
+  }
 
   /** Changes on every edit (React keys / redraws). */
   get rev(): number {
@@ -59,6 +67,7 @@ export class InkLayer {
     const list = this.bySlide.get(slide) ?? [];
     list.push(stroke);
     this.bySlide.set(slide, list);
+    if (this.clock) this.times.set(stroke, [this.clock()]);
     this.live = { slide, stroke };
     this.version++;
   }
@@ -70,7 +79,17 @@ export class InkLayer {
     const last = s.points[s.points.length - 1]!;
     if (Math.hypot(last[0] - p[0], last[1] - p[1]) < 0.5) return;
     s.points.push(p);
+    const t = this.times.get(s);
+    if (t && this.clock) t.push(Math.max(t[t.length - 1] ?? 0, this.clock()));
     this.version++;
+  }
+
+  /** Strokes of `slide` with the time of each point where they were timed. */
+  timed(slide: number): (SlideInkStroke & { times?: number[] })[] {
+    return this.strokes(slide).map((s) => {
+      const t = this.times.get(s);
+      return t && t.length === s.points.length ? { ...s, times: [...t] } : { ...s };
+    });
   }
 
   end(): void {

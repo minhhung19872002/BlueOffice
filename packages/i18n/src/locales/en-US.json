@@ -2192,7 +2192,8 @@
     "videoFps": "Frames per second",
     "videoSeconds": "Seconds on each slide",
     "videoTimings": "Use the slide timings that are set",
-    "videoNarration": "Include narration (not available)",
+    "videoNarration": "Include narration and camera recordings",
+    "videoNoAudio": "This browser cannot encode audio: the video is made without narration (the camera picture is kept).",
     "videoLoop": "Repeat the animation",
     "videoProgress": "Frame {{done}} of {{total}}",
     "videoCancelled": "Export cancelled",
@@ -5950,5 +5951,43 @@
       "cycle": "Query {{detail}} refers to itself.",
       "atStep": "Step {{step}}: {{error}}"
     }
+  },
+  "showRecord": {
+    "groupRecord": "Record",
+    "recordFromCurrent": "Record from this slide",
+    "recordFromStart": "Record from the start",
+    "clearTimingCurrent": "Clear the timing of this slide",
+    "clearTimingAll": "Clear the timings of all slides",
+    "clearRecordingCurrent": "Clear the recording of this slide",
+    "clearRecordingAll": "Clear the recordings of all slides",
+    "playNarration": "Play narrations",
+    "setupTitle": "Record the slide show",
+    "microphone": "Record narration (microphone)",
+    "camera": "Record the camera",
+    "cameraCorner": "Camera picture:",
+    "corner": {
+      "topLeft": "Top left",
+      "topRight": "Top right",
+      "bottomLeft": "Bottom left",
+      "bottomRight": "Bottom right"
+    },
+    "noDevices": "Recording audio and video is not available here: only timings and ink are recorded.",
+    "hint": "Each slide keeps its own recording; going back to a slide records it again.",
+    "start": "Start recording",
+    "cancel": "Cancel",
+    "recording": "Recording",
+    "paused": "Recording paused",
+    "pause": "Pause",
+    "resume": "Resume",
+    "restartSlide": "Record this slide again",
+    "stop": "Stop",
+    "slideTime": "Time on this slide",
+    "totalTime": "Total time",
+    "denied": "Access to the microphone or camera was refused: only timings and ink are recorded.",
+    "keepRecording": "Save the recording ({{n}} slides, total {{total}})",
+    "narrationName": "Narration",
+    "cameraName": "Camera",
+    "inkName": "Ink",
+    "preview": "Camera preview"
   }
 }

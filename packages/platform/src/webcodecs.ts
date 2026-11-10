@@ -1,14 +1,98 @@
 /**
  * Video encoding through the browser's WebCodecs `VideoEncoder` (W3C WebCodecs), shared by
  * the web platform and the desktop webview. The encoder belongs to the browser / operating
- * system; BlueOffice only feeds it frames and muxes the result itself.
+ * system; BlueOffice only feeds it frames and muxes the result itself. Narration goes through
+ * WebCodecs `AudioEncoder`: AAC-LC (`mp4a.40.2`) for MP4, Opus for WebM.
  */
 import type {
+  AudioSource,
+  EncodedAudioChunkData,
+  EncodedAudioTrack,
   EncodedVideoChunkData,
   VideoCodecChoice,
   VideoEncoderSession,
   VideoEncoding,
 } from './types';
+
+/** Sample frames per `AudioData` handed to the encoder. */
+const AUDIO_BLOCK = 4800;
+
+/** Whether this browser has WebCodecs audio encoding. */
+export function hasAudioEncoder(): boolean {
+  return typeof AudioEncoder !== 'undefined' && typeof AudioData !== 'undefined';
+}
+
+/** Encode `source` with WebCodecs (`null` when the codec is not available). */
+export async function encodeAudioWebCodecs(
+  container: 'mp4' | 'webm',
+  source: AudioSource,
+  signal?: AbortSignal,
+): Promise<EncodedAudioTrack | null> {
+  if (!hasAudioEncoder()) return null;
+  const codec = container === 'mp4' ? 'aac' : 'opus';
+  const cfg: AudioEncoderConfig = {
+    codec: codec === 'aac' ? 'mp4a.40.2' : 'opus',
+    sampleRate: source.sampleRate,
+    numberOfChannels: source.channels,
+    bitrate: 96_000,
+  };
+  if (codec === 'aac') (cfg as AudioEncoderConfig & { aac?: unknown }).aac = { format: 'aac' };
+  try {
+    const ok = await AudioEncoder.isConfigSupported(cfg);
+    if (!ok.supported) return null;
+  } catch {
+    return null;
+  }
+  const chunks: EncodedAudioChunkData[] = [];
+  let description: Uint8Array | null = null;
+  let failure: Error | null = null;
+  const enc = new AudioEncoder({
+    output: (chunk, meta) => {
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      chunks.push({ data, timestampUs: chunk.timestamp, durationUs: chunk.duration ?? 0 });
+      const d = meta?.decoderConfig?.description;
+      if (d && !description) {
+        description = ArrayBuffer.isView(d)
+          ? new Uint8Array(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength))
+          : new Uint8Array(d.slice(0));
+      }
+    },
+    error: (e) => {
+      failure = e instanceof Error ? e : new Error(String(e));
+    },
+  });
+  try {
+    enc.configure(cfg);
+    for (let at = 0; at < source.frames; at += AUDIO_BLOCK) {
+      if (signal?.aborted) throw new Error('export.cancelled');
+      if (failure) throw failure;
+      const n = Math.min(AUDIO_BLOCK, source.frames - at);
+      const planes = source.read(at, n);
+      const data = new Float32Array(n * source.channels);
+      planes.forEach((p, k) => data.set(p.subarray(0, n), k * n));
+      const frame = new AudioData({
+        format: 'f32-planar',
+        sampleRate: source.sampleRate,
+        numberOfFrames: n,
+        numberOfChannels: source.channels,
+        timestamp: Math.round((at * 1e6) / source.sampleRate),
+        data,
+      });
+      try {
+        enc.encode(frame);
+      } finally {
+        frame.close();
+      }
+      while (enc.encodeQueueSize > 16) await new Promise((r) => setTimeout(r, 5));
+    }
+    await enc.flush();
+    if (failure) throw failure;
+  } finally {
+    if (enc.state !== 'closed') enc.close();
+  }
+  return { codec, sampleRate: source.sampleRate, channels: source.channels, description, chunks };
+}
 
 /** Codecs tried in order: H.264 (MP4) High / Main / Baseline level 4.0, then VP9 and VP8 (WebM). */
 export const VIDEO_CODECS: VideoCodecChoice[] = [
@@ -43,6 +127,10 @@ export function hasWebCodecs(): boolean {
 }
 
 export class WebCodecsVideo implements VideoEncoding {
+  encodeAudio(container: 'mp4' | 'webm', source: AudioSource, signal?: AbortSignal) {
+    return encodeAudioWebCodecs(container, source, signal);
+  }
+
   async probe(width: number, height: number, fps: number): Promise<VideoCodecChoice | null> {
     if (!hasWebCodecs()) return null;
     for (const c of VIDEO_CODECS) {

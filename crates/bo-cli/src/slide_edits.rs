@@ -537,6 +537,81 @@ pub fn sample_wav() -> Vec<u8> {
     w
 }
 
+/// Recorded slide shows (SLIDE-REC-001): narration on every slide; camera, timed ink and
+/// recorded clicks; rehearsed timings only (with "advance on click" off on one slide).
+pub const RECORDING_DECKS: [&str; 3] = [
+    "slide-rec-narration.pptx",
+    "slide-rec-camera-ink.pptx",
+    "slide-rec-timings.pptx",
+];
+
+fn recording_decks(base: &[(&'static str, Vec<u8>)]) -> Vec<(&'static str, Vec<u8>)> {
+    use base64::Engine as _;
+    let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+    let wav = b64(&sample_wav());
+    let (mp4, _) = media_clips();
+    let mp4 = b64(&mp4);
+    let names = r#""names":{"narration":"Lời thuyết minh","camera":"Camera","ink":"Mực"}"#;
+    let narration = |slide: usize, ms: u32| {
+        format!(
+            r#"{{"slide":{slide},"durationMs":{ms},"narration":{{"data":"{wav}","mime":"audio/wav"}}}}"#
+        )
+    };
+    let mut out = Vec::new();
+    let open = |name: &str| {
+        let (_, b) = base.iter().find(|(n, _)| *n == name)?;
+        let mut e = Engine::with_bundled_fonts();
+        e.open(b, "base.pptx").ok()?;
+        Some(e)
+    };
+    if let Some(mut e) = open("slide-text-bullets.pptx") {
+        let slides = format!("{},{}", narration(0, 6500), narration(1, 4200));
+        let _ = e.slide_command_json(&format!(
+            r#"{{"cmd":"saveRecording","slides":[{slides}],{names}}}"#
+        ));
+        if let Ok(b) = e.save_pptx() {
+            out.push((RECORDING_DECKS[0], b));
+        }
+    }
+    if let Some(mut e) = open("slide-shapes-presets.pptx") {
+        let _ = e.slide_command_json(r#"{"cmd":"select","ids":[10]}"#);
+        let _ = e.slide_command_json(r#"{"cmd":"addAnimation","effect":"fade"}"#);
+        let _ = e.slide_command_json(r#"{"cmd":"select","ids":[11]}"#);
+        let _ = e.slide_command_json(r#"{"cmd":"addAnimation","effect":"wipe","direction":"l"}"#);
+        let ink = concat!(
+            r#"[{"points":[[120,300],[160,320],[200,300],[240,320]],"times":[2500,2540,2580,2620],"color":"D7261E","width":2},"#,
+            r#"{"points":[[300,120],[420,120]],"times":[5200,5400],"color":"FFE600","width":14,"highlighter":true}]"#
+        );
+        let _ = e.slide_command_json(&format!(
+            concat!(
+                r#"{{"cmd":"saveRecording","slides":[{{"slide":0,"durationMs":9000,"clicks":[1500],"#,
+                r#""ink":{ink},"narration":{{"data":"{wav}","mime":"audio/wav"}},"#,
+                r#""camera":{{"data":"{mp4}","mime":"video/mp4","corner":"bottomLeft"}}}}],{names}}}"#
+            ),
+            ink = ink,
+            wav = wav,
+            mp4 = mp4,
+            names = names
+        ));
+        if let Ok(b) = e.save_pptx() {
+            out.push((RECORDING_DECKS[1], b));
+        }
+    }
+    if let Some(mut e) = open("slide-text-bullets.pptx") {
+        let _ = e.slide_command_json(r#"{"cmd":"goTo","slide":1}"#);
+        let _ = e.slide_command_json(
+            r#"{"cmd":"setTransition","transition":{"kind":"fade","advanceOnClick":false}}"#,
+        );
+        let _ = e.slide_command_json(
+            r#"{"cmd":"setTimings","timings":[{"slide":0,"ms":3200},{"slide":1,"ms":7450}],"useTimings":true}"#,
+        );
+        if let Ok(b) = e.save_pptx() {
+            out.push((RECORDING_DECKS[2], b));
+        }
+    }
+    out
+}
+
 /// Every transition of the catalog (SLIDE-ANIM-002), one slide each with its last variant, a sound
 /// on the first slide and "stop the sound" on the second.
 pub const TRANSITIONS_DECK: &str = "slide-edit-transitions-all.pptx";
@@ -635,6 +710,7 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = animations_deck(base) {
         out.push((ANIMATIONS_DECK, d));
     }
+    out.extend(recording_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
         for (name, h, v) in FLIPPED {
             if let Some(d) = flipped_connectors(b, *h, *v) {
@@ -662,7 +738,10 @@ mod tests {
             }
         }
         let decks = decks(&base, &crate::slide_samples::sample_png());
-        assert_eq!(decks.len(), SCRIPTS.len() + FLIPPED.len() + 2);
+        assert_eq!(
+            decks.len(),
+            SCRIPTS.len() + FLIPPED.len() + 2 + RECORDING_DECKS.len()
+        );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(!p.slides.is_empty(), "{name}");

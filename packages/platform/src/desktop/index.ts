@@ -55,6 +55,7 @@ import { webSpeech } from '../speech';
 import { fromBase64 } from '../web/signing';
 import type { PickedFolder, QueryDataSources } from '../sheetQuery';
 import { webDictation } from '../dictation';
+import { webMediaCapture } from '../mediaCapture';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -788,6 +789,8 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
       const dictation = webDictation();
       return dictation ? { dictation } : {};
     })(),
+    // Microphone / camera through getUserMedia + MediaRecorder (recorded shows, SLIDE-REC-001).
+    media: webMediaCapture(),
     displays: new DesktopDisplays(call),
     images: new FetchRemoteImages(),
     dataSources: new DesktopQueryData(call),

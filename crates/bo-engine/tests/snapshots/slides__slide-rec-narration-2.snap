@@ -1,0 +1,56 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 36.0 24.0]
+  text 44.0pt 7.2,57.4 #000000ff "Nội "
+  text 44.0pt 78.9,57.4 #000000ff "dung "
+  text 44.0pt 178.9,57.4 #000000ff "chính"
+pop transform
+transform [1.000 0.000 0.000 1.000 36.0 126.0]
+  text 28.0pt 7.2,26.8 #000000ff "•"
+  text 28.0pt 25.2,26.8 #000000ff "Mục "
+  text 28.0pt 82.0,26.8 #000000ff "tiêu "
+  text 28.0pt 132.6,26.8 #000000ff "năm "
+  text 28.0pt 189.4,26.8 #000000ff "2026"
+  text 24.0pt 43.2,64.3 #000000ff "–"
+  text 24.0pt 61.2,64.3 #000000ff "Tăng "
+  text 24.0pt 111.8,64.3 #000000ff "doanh "
+  text 24.0pt 179.3,64.3 #000000ff "thu "
+  text 24.0pt 217.9,64.3 #000000ff "15%"
+  text 24.0pt 43.2,100.7 #000000ff "–"
+  text 24.0pt 61.2,100.7 #000000ff "Mở "
+  text 24.0pt 101.0,100.7 #000000ff "rộng "
+  text 24.0pt 151.0,100.7 #000000ff "thị "
+  text 24.0pt 182.6,100.7 #000000ff "trường "
+  text 24.0pt 256.6,100.7 #000000ff "miền "
+  text 24.0pt 311.3,100.7 #000000ff "Trung"
+  text 20.0pt 79.2,133.7 #000000ff "•"
+  text 20.0pt 97.2,133.7 #000000ff "Đà "
+  text 20.0pt 123.8,133.7 #000000ff "Nẵng, "
+  text 20.0pt 175.9,133.7 #000000ff "Huế, "
+  text 20.0pt 218.4,133.7 #000000ff "Quảng "
+  text 20.0pt 276.4,133.7 #000000ff "Nam"
+  text 28.0pt 7.2,172.3 #000000ff "•"
+  text 28.0pt 25.2,172.3 #000000ff "Kế "
+  text 28.0pt 59.5,172.3 #000000ff "hoạch "
+  text 28.0pt 135.3,172.3 #000000ff "triển "
+  text 28.0pt 195.8,172.3 #000000ff "khai"
+  text 24.0pt 43.2,209.8 #000000ff "–"
+  text 24.0pt 61.2,209.8 #000000ff "Quý "
+  text 24.0pt 106.2,209.8 #000000ff "I: "
+  text 24.0pt 124.1,209.8 #000000ff "khảo "
+  text 24.0pt 177.2,209.8 #000000ff "sát"
+  text 18.0pt 115.2,241.1 #000000ff "–"
+  text 18.0pt 133.2,241.1 #000000ff "Cấp "
+  text 18.0pt 164.9,241.1 #000000ff "4: "
+  text 18.0pt 183.0,241.1 #000000ff "chi "
+  text 18.0pt 208.2,241.1 #000000ff "tiết"
+  text 18.0pt 151.2,270.9 #000000ff "»"
+  text 18.0pt 169.2,270.9 #000000ff "Cấp "
+  text 18.0pt 200.9,270.9 #000000ff "5: "
+  text 18.0pt 219.0,270.9 #000000ff "ghi "
+  text 18.0pt 245.1,270.9 #000000ff "chú"
+pop transform
+image /ppt/media/image2.png 916.0,496.0 32.0x32.0 crop=None

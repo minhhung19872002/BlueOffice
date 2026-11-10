@@ -47,6 +47,8 @@ export function ExportVideoDialog({ slide, video, onClose, run }: ExportVideoDia
   const [seconds, setSeconds] = useState(5);
   const [useTimings, setUseTimings] = useState(true);
   const [loop, setLoop] = useState(true);
+  // Recorded narration and camera (SLIDE-REC-001).
+  const [narration, setNarration] = useState(true);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -89,7 +91,15 @@ export function ExportVideoDialog({ slide, video, onClose, run }: ExportVideoDia
     setProgress({ done: 0, total: 0 });
     try {
       await run(
-        { format, width, fps, secondsPerSlide: seconds, useTimings, loop },
+        {
+          format,
+          width,
+          fps,
+          secondsPerSlide: seconds,
+          useTimings,
+          loop,
+          ...(format === 'video' ? { narration } : {}),
+        },
         (done, total) => setProgress({ done, total }),
         ctl.signal,
       );
@@ -235,7 +245,13 @@ export function ExportVideoDialog({ slide, video, onClose, run }: ExportVideoDia
           {t('slideEditor.videoTimings')}
         </label>
         <label className={styles.check}>
-          <input type="checkbox" data-testid="export-video-narration" checked={false} disabled />
+          <input
+            type="checkbox"
+            data-testid="export-video-narration"
+            checked={narration && format === 'video'}
+            disabled={format !== 'video'}
+            onChange={(e) => setNarration(e.target.checked)}
+          />
           {t('slideEditor.videoNarration')}
         </label>
         {gif && (

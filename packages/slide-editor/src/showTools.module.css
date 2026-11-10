@@ -248,3 +248,48 @@
   opacity: 0.7;
   font-size: 12px;
 }
+
+/* Recording a show (SLIDE-REC-001). */
+.recDot,
+.recDotPaused {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5484d;
+}
+
+.recDotPaused {
+  background: #9ca3af;
+}
+
+.camera {
+  position: fixed;
+  z-index: 1040;
+  width: 22vw;
+  max-width: 360px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #111;
+  pointer-events: none;
+}
+
+.camTopLeft {
+  top: 64px;
+  left: 16px;
+}
+
+.camTopRight {
+  top: 64px;
+  right: 16px;
+}
+
+.camBottomLeft {
+  bottom: 16px;
+  left: 16px;
+}
+
+.camBottomRight {
+  bottom: 16px;
+  right: 16px;
+}

@@ -215,7 +215,17 @@ class WebWindow implements WindowManager {
   }
 }
 
-class WebShell implements ShellIntegration {
+/**
+ * Whether `url` may leave the app: `http(s)://host…` or `mailto:…`, written
+ * plainly (no whitespace or control characters anywhere).
+ */
+export function isExternalUrl(url: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0020\u007f-\u009f\s]/.test(url)) return false;
+  return /^https?:\/\/[^/]/i.test(url) || /^mailto:[^\s]/i.test(url);
+}
+
+export class WebShell implements ShellIntegration {
   private recent = new LocalRecentFiles();
   async recentFiles() {
     return this.recent.list();
@@ -225,6 +235,22 @@ class WebShell implements ShellIntegration {
   }
   onOpenRequest(): () => void {
     return () => {};
+  }
+  /**
+   * A link followed in a slide show (SLIDE-ACTION-001): a new tab that cannot
+   * reach this page (`rel="noopener noreferrer"`). Anything but `http`, `https`
+   * and `mailto` is refused here too, whatever the caller checked.
+   */
+  async openExternal(url: string): Promise<void> {
+    if (!isExternalUrl(url)) throw new Error('openExternal.refused');
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 }
 

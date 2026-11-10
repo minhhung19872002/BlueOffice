@@ -1,0 +1,155 @@
+/* Hyperlinks and actions (SLIDE-ACTION-001): dialogs and the prompts of the show. */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--bo-border, #ccc);
+}
+
+.tab,
+.tabOn {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tabOn {
+  border-bottom-color: var(--bo-accent, #1f5fbf);
+  font-weight: 600;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 150px;
+  margin-bottom: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.warn {
+  margin: 0;
+  color: var(--bo-warning, #8a5a00);
+  font-size: 12px;
+}
+
+.slides {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 6px;
+  max-height: 260px;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+}
+
+.place {
+  padding: 4px 8px;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.placeOn {
+  border-color: var(--bo-accent, #1f5fbf);
+  outline: 2px solid var(--bo-accent, #1f5fbf);
+  outline-offset: -1px;
+}
+
+.slide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  font-size: 12px;
+}
+
+.slide span {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid var(--bo-border, #ccc);
+  border-radius: 4px;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.buttonFace {
+  fill: var(--bo-accent, #1f5fbf);
+}
+
+.buttonMark {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Over the show: "open this address?" and "blocked". */
+.prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(480px, 86%);
+  padding: 14px 16px;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: #fff;
+  color: #1b1b1b;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 45%);
+  font-size: 14px;
+  cursor: default;
+}
+
+.target {
+  padding: 4px 6px;
+  overflow-wrap: anywhere;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 7%);
+  font-size: 13px;
+}
+
+/* A hot area of the show flashing when its action runs (highlightClick). */
+.flash {
+  background: rgb(255 255 255 / 45%);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 85%);
+  transition: none;
+}

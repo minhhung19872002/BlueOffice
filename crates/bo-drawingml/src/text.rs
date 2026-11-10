@@ -78,6 +78,12 @@ const RPR: &[&str] = &[
     "a:extLst",
 ];
 
+/// Sort key of child `name` in the `CT_TextCharacterProperties` sequence
+/// (§21.1.2.3.9 rPr), for [`Extra::key`](bo_model::slide::Extra).
+pub fn rpr_key(name: &str) -> u16 {
+    crate::dom::key_for(RPR, name, 0)
+}
+
 /// §21.1.2.3.7 latin (and ea, cs, sym, buFont).
 pub fn parse_font(el: &XmlElement) -> TextFont {
     let mut bag = AttrBag::of(el);

@@ -33,6 +33,9 @@ pub struct RenderOptions {
     pub layer: Option<ShapeRange>,
     /// Leave out ink content parts (ink replay draws them itself).
     pub hide_ink: bool,
+    /// Hyperlinks followed in the running show ([`crate::link_key`]): their text is
+    /// drawn in the theme's followed-hyperlink colour (§20.1.6.2 folHlink).
+    pub followed: Vec<String>,
 }
 
 /// Top-level shapes `start..end` of a slide, optionally over its backdrop.
@@ -1579,6 +1582,9 @@ fn draw_shape_text(
         theme: cx.theme,
         colors: cx.colors(None),
         slide_number: cx.slide_number,
+        part: cx.part,
+        rels: cx.rels,
+        followed: &cx.opts.followed,
     };
     let mut cmds = Vec::new();
     // Text rotation follows the shape unless bodyPr@upright is set.
@@ -1647,6 +1653,10 @@ pub fn shape_text_geometry(
             ph_clr: None,
         },
         slide_number: slide + 1,
+        // Geometry only: link colours do not move the text.
+        part: "",
+        rels: &[],
+        followed: &[],
     };
     Some(crate::text_layout::text_geometry(
         tb,
@@ -1761,6 +1771,10 @@ pub fn table_cell_text_geometry(
             ph_clr: None,
         },
         slide_number: slide + 1,
+        // Geometry only: link colours do not move the text.
+        part: "",
+        rels: &[],
+        followed: &[],
     };
     let g = crate::text_layout::text_geometry(&tb, &bp, &stack, [0.0, 0.0, w, h], &env, fonts);
     Some((g, [x0, y0, w, h]))
@@ -1931,6 +1945,9 @@ fn draw_chart_frame(
         theme: cx.theme,
         colors: cx.colors(None),
         slide_number: cx.slide_number,
+        part: cx.part,
+        rels: cx.rels,
+        followed: &cx.opts.followed,
     };
     let stack = TextStyleStack::default();
     let color = |c: Option<&ChartColor>, i: usize| -> Rgba {
@@ -2017,6 +2034,9 @@ fn draw_table(cx: &Ctx<'_>, t: &Table, fonts: &mut FontManager, out: &mut Vec<Co
         theme: cx.theme,
         colors: cx.colors(None),
         slide_number: cx.slide_number,
+        part: cx.part,
+        rels: cx.rels,
+        followed: &cx.opts.followed,
     };
     let stack = TextStyleStack {
         layers: cx

@@ -197,7 +197,10 @@
       "formProperties": "Tuỳ chọn trường biểu mẫu…",
       "dropCap": "Chữ hoa đầu đoạn",
       "signatureLine": "Dòng chữ ký…",
-      "smartart": "SmartArt"
+      "smartart": "SmartArt",
+      "link": "Chèn liên kết",
+      "action": "Thiết lập hành động",
+      "actionButtons": "Nút hành động"
     },
     "layout": {
       "margins": "Lề",
@@ -393,6 +396,9 @@
       "shortcuts": "Tùy biến phím tắt…",
       "customizeRibbon": "Tùy biến ribbon…",
       "customizeQat": "Tùy biến thanh truy cập nhanh…"
+    },
+    "link": {
+      "remove": "Bỏ liên kết"
     }
   },
   "status": {
@@ -6189,6 +6195,125 @@
       "error": "Lỗi: {{message}}",
       "suggestions": "Gợi ý",
       "help": "Hàm tổng hợp SUM, AVERAGE, MIN, MAX, COUNT, COUNTROWS, DISTINCTCOUNT trên Bảng[Cột]; DIVIDE(a, b, giá trị thay thế); CALCULATE(biểu thức, FILTER(Bảng, điều kiện), ALL(Bảng[Cột])); RELATED(Bảng[Cột]) trong cột tính toán; [Số đo] dùng lại một số đo."
+    }
+  },
+  "slideActions": {
+    "group": "Liên kết",
+    "link": "Liên kết",
+    "action": "Hành động",
+    "buttons": "Nút hành động",
+    "removeLink": "Bỏ liên kết",
+    "linkTitle": "Chèn liên kết",
+    "actionTitle": "Thiết lập hành động",
+    "buttonsTitle": "Nút hành động",
+    "buttonsHint": "Nút được chèn kèm hành động thường dùng của nó; đổi hành động trong Chèn › Hành động.",
+    "ok": "OK",
+    "cancel": "Huỷ",
+    "open": "Mở",
+    "linkTo": "Liên kết tới",
+    "scopeText": "Áp dụng cho đoạn chữ đang chọn: “{{text}}”",
+    "scopeShape": "Áp dụng cho hình đang chọn",
+    "scopeNone": "Hãy chọn một hình hoặc một đoạn chữ trước.",
+    "locked": "Hình này có hành động riêng (phát clip hoặc mở đối tượng nhúng) nên không gán liên kết được.",
+    "kind": {
+      "url": "Trang web",
+      "place": "Vị trí trong bài này",
+      "show": "Trình chiếu tuỳ chỉnh",
+      "mail": "Thư điện tử",
+      "file": "Tệp"
+    },
+    "address": "Địa chỉ",
+    "urlHint": "Chỉ địa chỉ bắt đầu bằng http:// hoặc https:// được mở khi trình chiếu (sau khi hỏi lại).",
+    "jump": {
+      "first": "Trang đầu",
+      "prev": "Trang trước",
+      "next": "Trang sau",
+      "last": "Trang cuối"
+    },
+    "noShows": "Bài này chưa có trình chiếu tuỳ chỉnh.",
+    "showReturn": "Chiếu xong thì quay lại trang có liên kết",
+    "mailAddress": "Địa chỉ thư",
+    "mailSubject": "Tiêu đề thư",
+    "filePath": "Đường dẫn tệp",
+    "fileHint": "Liên kết tới tệp được lưu trong bài nhưng BlueSlide không mở tệp khi trình chiếu.",
+    "tooltip": "Chú thích khi rê chuột",
+    "on": {
+      "click": "Khi bấm chuột",
+      "hover": "Khi rê chuột qua"
+    },
+    "none": "Không làm gì",
+    "hyperlinkTo": "Liên kết tới:",
+    "to": {
+      "next": "Trang sau",
+      "prev": "Trang trước",
+      "first": "Trang đầu",
+      "last": "Trang cuối",
+      "lastViewed": "Trang vừa xem",
+      "end": "Kết thúc trình chiếu",
+      "slide": "Trang…",
+      "customShow": "Trình chiếu tuỳ chỉnh…",
+      "url": "Địa chỉ web…",
+      "file": "Tệp khác…"
+    },
+    "hoverExternal": "Địa chỉ web không tự mở khi chỉ rê chuột qua; người xem phải bấm vào.",
+    "sound": "Phát âm thanh:",
+    "soundNone": "[Không có âm thanh]",
+    "soundStop": "[Dừng âm thanh đang phát]",
+    "soundFile": "Âm thanh khác (tệp .wav)…",
+    "builtin": {
+      "click": "Tiếng bấm",
+      "beep": "Tiếng bíp",
+      "chime": "Tiếng chuông",
+      "drum": "Tiếng trống"
+    },
+    "listen": "Nghe thử",
+    "highlightClick": "Làm nổi hình khi bấm",
+    "highlightHover": "Làm nổi hình khi rê chuột qua",
+    "neverRun": "Hành động hiện có ({{what}}) được giữ nguyên trong tệp nhưng BlueSlide không bao giờ chạy nó. Chọn hành động khác để thay thế.",
+    "blocked": {
+      "program": "chạy chương trình",
+      "macro": "chạy macro",
+      "file": "mở tệp",
+      "presentation": "mở bài trình chiếu khác",
+      "unknown": "hành động không rõ",
+      "url": "địa chỉ không được phép"
+    },
+    "button": {
+      "actionButtonBackPrevious": "Lùi / Trước",
+      "actionButtonForwardNext": "Tiến / Sau",
+      "actionButtonBeginning": "Về đầu",
+      "actionButtonEnd": "Tới cuối",
+      "actionButtonHome": "Trang chủ",
+      "actionButtonReturn": "Quay lại",
+      "actionButtonInformation": "Thông tin",
+      "actionButtonHelp": "Trợ giúp",
+      "actionButtonDocument": "Tài liệu",
+      "actionButtonSound": "Âm thanh",
+      "actionButtonMovie": "Phim",
+      "actionButtonBlank": "Nút trống"
+    },
+    "openTitle": "Mở địa chỉ này bên ngoài BlueSlide?",
+    "openMail": "Soạn thư tới địa chỉ này?",
+    "openHint": "Liên kết nằm trong bài trình chiếu. Chỉ mở nếu bạn tin địa chỉ này.",
+    "blockedNotice": {
+      "program": "BlueSlide không chạy chương trình từ bài trình chiếu.",
+      "macro": "BlueSlide không chạy macro từ bài trình chiếu.",
+      "file": "BlueSlide không mở tệp từ liên kết trong bài trình chiếu.",
+      "presentation": "BlueSlide không mở bài trình chiếu khác từ liên kết.",
+      "scheme": "Loại địa chỉ này không được phép mở.",
+      "unknown": "Hành động này không được hỗ trợ nên không được chạy.",
+      "noHost": "Không mở được địa chỉ này trên thiết bị hiện tại."
+    },
+    "blockedHint": "Hành động vẫn được giữ nguyên trong tệp.",
+    "err": {
+      "noSelection": "Hãy chọn một hình hoặc một đoạn chữ trước.",
+      "badLink": "Địa chỉ hoặc đường dẫn không hợp lệ.",
+      "badSound": "Tệp âm thanh phải là tệp .wav (tối đa 8 MB).",
+      "noSlide": "Không còn trang đó trong bài.",
+      "noCustomShow": "Không còn trình chiếu tuỳ chỉnh đó.",
+      "unsafeAction": "BlueSlide không tạo hành động chạy chương trình hay macro.",
+      "unsupportedLink": "Chưa gán được liên kết cho chữ trong ô bảng.",
+      "masterView": "Không gán hành động trong chế độ xem bản cái."
     }
   },
   "docStyles": {

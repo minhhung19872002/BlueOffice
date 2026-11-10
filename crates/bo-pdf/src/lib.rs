@@ -18,15 +18,17 @@ mod xmp;
 
 pub use icc::{srgb_profile, SRGB_DESCRIPTION};
 pub use options::{
-    Attachment, Bookmark, ExportChoices, PdfA, PdfDate, PdfOptions, Role, StructKid, StructNode,
+    Attachment, Bookmark, ExportChoices, LinkTarget, PdfA, PdfDate, PdfLink, PdfOptions, Role,
+    StructKid, StructNode,
 };
 pub use tags::{auto_grid, auto_paragraphs};
 
 use bo_render::{Command, DisplayList, GradientStop, ImageSource, Paint, PathSeg, Rgba, Stroke};
 use bo_text::{FaceId, FontManager};
 use pdf_writer::types::{
-    AssociationKind, CidFontType, FontFlags, FunctionShadingType, LineCapStyle, LineJoinStyle,
-    OutputIntentSubtype, PageMode, SystemInfo, UnicodeCmap,
+    ActionType, AnnotationFlags, AnnotationType, AssociationKind, CidFontType, FontFlags,
+    FunctionShadingType, LineCapStyle, LineJoinStyle, OutputIntentSubtype, PageMode, SystemInfo,
+    UnicodeCmap,
 };
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use std::collections::{BTreeMap, HashMap};
@@ -57,6 +59,20 @@ struct FontUse {
     /// new gid → unicode text
     to_unicode: BTreeMap<u16, String>,
     font_ref: Ref,
+}
+
+/// A URI as 7-bit ASCII (ISO 32000-1 §12.6.4.7): bytes outside the printable
+/// ASCII range are percent-encoded as UTF-8 (RFC 3986 §2.1).
+fn ascii_uri(u: &str) -> String {
+    let mut out = String::with_capacity(u.len());
+    for b in u.bytes() {
+        if b.is_ascii_graphic() {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 fn compress(data: &[u8]) -> Vec<u8> {
@@ -174,6 +190,8 @@ pub fn write_pdf_with_options(
     let mut image_refs: HashMap<String, Option<Ref>> = HashMap::new();
     let mut alpha_refs: BTreeMap<u8, Ref> = BTreeMap::new();
     let no_marks = Vec::new();
+    // Link annotations (ISO 32000-1 §12.5.6.5), written once every page has its id.
+    let mut annots: Vec<(Ref, &PdfLink, f32)> = Vec::new();
     for (page_index, page) in list.pages.iter().enumerate() {
         let page_id = alloc();
         let content_id = alloc();
@@ -400,10 +418,23 @@ pub fn write_pdf_with_options(
         id_hash.update(&raw);
         let data = compress(&raw);
         pdf.stream(content_id, &data).filter(Filter::FlateDecode);
+        let first_annot = annots.len();
+        for l in opts.links.iter().filter(|l| l.page == page_index) {
+            let ok = match &l.target {
+                LinkTarget::Uri(u) => !u.is_empty(),
+                LinkTarget::Page(p) => *p < list.pages.len(),
+            };
+            if ok && l.rect.iter().all(|v| v.is_finite()) && l.rect[2] > 0.0 && l.rect[3] > 0.0 {
+                annots.push((alloc(), l, page.height));
+            }
+        }
         let mut p = pdf.page(page_id);
         p.media_box(Rect::new(0.0, 0.0, page.width, page.height));
         p.parent(pages_id);
         p.contents(content_id);
+        if annots.len() > first_annot {
+            p.annotations(annots[first_annot..].iter().map(|(id, _, _)| *id));
+        }
         if prepared
             .as_ref()
             .is_some_and(|s| s.page_has_marks(page_index))
@@ -538,6 +569,35 @@ pub fn write_pdf_with_options(
             cmap.pair_with_multiple(*gid, s.chars());
         }
         pdf.stream(cmap_id, &cmap.finish());
+    }
+
+    for (id, l, page_h) in &annots {
+        let [x, y, w, rh] = l.rect;
+        let mut a = pdf.annotation(*id);
+        a.subtype(AnnotationType::Link);
+        a.rect(Rect::new(x, page_h - y - rh, x + w, page_h - y));
+        // No visible border: the page content already shows the link.
+        a.border(0.0, 0.0, 0.0, None);
+        // ISO 19005-1 §6.5.3 / 19005-2 §6.3.2: annotations are printed (F = Print).
+        a.flags(AnnotationFlags::PRINT);
+        match &l.target {
+            LinkTarget::Uri(u) => {
+                let uri = ascii_uri(u);
+                a.action()
+                    .action_type(ActionType::Uri)
+                    .uri(Str(uri.as_bytes()));
+            }
+            LinkTarget::Page(p) => {
+                if let Some(page) = page_ids.get(*p) {
+                    a.action()
+                        .action_type(ActionType::GoTo)
+                        .destination()
+                        .page(*page)
+                        .fit();
+                }
+            }
+        }
+        a.finish();
     }
 
     pdf.pages(pages_id)
@@ -1343,6 +1403,62 @@ mod tests {
         let s = String::from_utf8_lossy(&bytes);
         assert!(s.contains("/MediaBox [0 0 595 842]"));
         assert!(s.trim_end().ends_with("%%EOF"));
+    }
+
+    // source: ISO 32000-1 §12.5.6.5 (link annotations), §12.6.4.7 (URI actions),
+    // §12.6.4.2 (go-to actions), §12.3.2.2 (explicit destinations).
+    #[test]
+    fn link_annotations_for_urls_and_pages() {
+        let page = || PageList {
+            width: 720.0,
+            height: 540.0,
+            commands: vec![],
+        };
+        let list = DisplayList {
+            pages: vec![page(), page(), page()],
+        };
+        let link = |page, rect, target| PdfLink { page, rect, target };
+        let opts = PdfOptions {
+            links: vec![
+                link(
+                    0,
+                    [60.0, 330.0, 100.0, 20.0],
+                    LinkTarget::Uri("https://example.vn/tài liệu".into()),
+                ),
+                link(0, [200.0, 400.0, 50.0, 50.0], LinkTarget::Page(2)),
+                // Left out: no such target page, no such page, empty box.
+                link(1, [0.0, 0.0, 10.0, 10.0], LinkTarget::Page(7)),
+                link(9, [0.0, 0.0, 10.0, 10.0], LinkTarget::Page(0)),
+                link(1, [0.0, 0.0, 0.0, 10.0], LinkTarget::Page(0)),
+            ],
+            ..PdfOptions::default()
+        };
+        let bytes = write_pdf_with_options(
+            &list,
+            &FontManager::new(),
+            &PdfMeta::default(),
+            &BTreeMap::<String, Vec<u8>>::new(),
+            &opts,
+        )
+        .unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert_eq!(s.matches("/Subtype /Link").count(), 2, "{s}");
+        // Page space has its origin at the bottom: y = 540 − 330 − 20 … 540 − 330.
+        assert!(s.contains("/Rect [60 190 160 210]"), "{s}");
+        assert!(s.contains("/Rect [200 90 250 140]"), "{s}");
+        assert!(s.contains("/S /URI"), "{s}");
+        assert!(
+            s.contains("/URI (https://example.vn/t%C3%A0i%20li%E1%BB%87u)"),
+            "{s}"
+        );
+        assert!(s.contains("/S /GoTo"), "{s}");
+        assert!(s.contains("/Fit]"), "{s}");
+        assert!(s.contains("/F 4"), "{s}");
+        // Only the first page lists annotations.
+        assert_eq!(s.matches("/Annots [").count(), 1, "{s}");
+        // No links: no annotations at all.
+        let plain = write_pdf(&list, &FontManager::new(), &PdfMeta::default()).unwrap();
+        assert!(!String::from_utf8_lossy(&plain).contains("/Annots"));
     }
 
     #[test]

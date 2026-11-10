@@ -249,7 +249,49 @@ từ file (CLAUDE.md, clippy). Cùng một lõi chạy trong worker (`bo-cli`), 
 - Mở URL ra ngoài chỉ dùng cho đăng nhập host trên desktop: `open_url` chỉ chấp nhận `http(s)://`, không khoảng trắng/ký
   tự điều khiển, ≤ 8192 ký tự (`apps/desktop/src-tauri/src/shell.rs` → `external_url`), gọi trình duyệt không qua shell.
 - Khác với mô tả "chặn khi chưa được người dùng cho phép" của prompt §5.9: hiện **không có cơ chế cho phép** — tài nguyên
-  ngoài luôn bị bỏ qua, và cũng chưa có thao tác mở hyperlink trong tài liệu.
+  ngoài luôn bị bỏ qua. Thao tác mở hyperlink duy nhất là trong trình chiếu BlueSlide (§10.1).
+
+### 10.1 Liên kết & hành động trong trình chiếu BlueSlide (SLIDE-ACTION-001) — [Đã có]
+
+Hình và đoạn chữ của slide có thể mang hành động khi bấm / khi rê chuột (ECMA-376 Part 1 §21.1.2.3.5 `a:hlinkClick`,
+§21.1.2.3.6 `a:hlinkHover`, §21.1.2.3.7 `a:hlinkMouseOver`; thuộc tính `action` dạng `ppaction://…`). Tệp do người khác
+gửi tới là dữ liệu không tin cậy, nên trình chiếu theo đúng một chính sách, cài ở **hai lớp độc lập**:
+`bo_engine::slide_edit::action::safety` (engine gắn nhãn `internal` / `external` / `blocked` cho từng vùng bấm) và
+`packages/slide-editor/src/actions.ts` → `actionPolicy` (giao diện tự phân loại lại từ chính hành động; nhãn của engine
+chỉ có thể làm chặt hơn, không bao giờ nới lỏng).
+
+| Hành động | Trong trình chiếu |
+|---|---|
+| Nhảy trong bài: trang sau/trước/đầu/cuối, trang vừa xem, một trang cụ thể (`hlinksldjump`), trình chiếu tuỳ chỉnh (`customshow`), kết thúc | Chạy ngay, không hỏi |
+| Âm thanh nhúng (`a:snd`, chỉ WAV nằm trong gói), dừng âm thanh (`endSnd`), làm nổi hình (`highlightClick`) | Chạy ngay |
+| Địa chỉ `http://`, `https://`, `mailto:` | **Hỏi lại** (hiện nguyên địa chỉ), chỉ mở khi người dùng bấm "Mở"; không bao giờ mở chỉ vì rê chuột qua |
+| `ppaction://program` (chạy chương trình) | **Không bao giờ chạy** — hiện thông báo đã chặn |
+| `ppaction://macro` | **Không bao giờ chạy** (BlueOffice không có trình thông dịch macro, §9) |
+| `ppaction://hlinkfile`, `ppaction://hlinkpres` (tệp / bài trình chiếu khác), mọi đích `file:` hay đường dẫn cục bộ/UNC | **Không bao giờ mở** |
+| Scheme khác (`javascript:`, `data:`, `vbscript:`, `ms-*:`, `ftp:`, deep link `bluedoc://`…) | **Không bao giờ mở** |
+| `action` không nhận ra | **Không bao giờ chạy**; giữ nguyên từng byte khi lưu |
+
+- Địa chỉ được coi là hợp lệ chỉ khi viết "thẳng": không khoảng trắng, không ký tự điều khiển ở bất kỳ đâu (chặn kiểu
+  `java\tscript:`), `http(s)` phải có `//host`. Kiểm ba lần: engine (`allowed_url`), giao diện trước khi hỏi và ngay
+  trước khi mở (`isAllowedUrl`), và nền tảng: web `WebShell.openExternal` (`isExternalUrl`, mở tab mới với
+  `rel="noopener noreferrer"` nên trang đích không với tới được cửa sổ BlueSlide); desktop `open_url` → `external_url`
+  (chỉ `http(s)`, gọi trình duyệt hệ thống không qua shell — `mailto:` trên desktop vì thế bị từ chối và báo "không mở
+  được").
+- Hành động bị chặn **không bị xoá**: mở rồi lưu giữ nguyên phần tử và quan hệ (test
+  `saving_keeps_every_action_as_it_was`). Trình soạn thảo từ chối *tạo* hành động chạy chương trình / macro / không rõ
+  (`unsafeAction`); hộp thoại Chèn › Hành động hiện "được giữ nguyên nhưng không bao giờ chạy" và chỉ cho thay bằng hành
+  động khác.
+- Âm thanh của hành động chỉ nhận tệp RIFF/WAVE ≤ 8 MB do người dùng chọn hoặc âm dựng sẵn do BlueSlide tự tổng hợp
+  (`builtinWav`); không tải âm thanh từ mạng.
+- Xuất PDF chỉ giữ chú thích liên kết (ISO 32000-1 §12.5.6.5) cho địa chỉ `http(s)`/`mailto` và cho các bước nhảy tới
+  trang; hành động bị chặn không xuất hiện trong PDF.
+- Test: `crates/bo-engine/src/slide_edit/action.rs` (`only_web_and_mail_urls_may_be_opened`,
+  `programs_macros_files_and_unknown_actions_are_blocked`), `crates/bo-engine/tests/slide_action.rs`
+  (`unsafe_and_unknown_actions_are_blocked_and_cannot_be_created`), `packages/slide-editor/test/actions.test.ts`,
+  `actionDialogs.test.tsx`, `packages/platform/test/web-pal.test.ts`, E2E `tests/e2e/specs/slide-actions.spec.ts`;
+  corpus `tests/corpus/slide/slide-action-unsafe.pptx`.
+- Hạn chế: mở địa chỉ trong chế độ toàn màn hình khiến trình duyệt rời toàn màn hình (phiên chiếu kết thúc); liên kết
+  trong ô bảng chưa bấm được khi chiếu.
 
 ## 11. Chữ ký số
 
@@ -320,6 +362,7 @@ từ file (CLAUDE.md, clippy). Cùng một lõi chạy trong worker (`bo-cli`), 
 | Fuzzing | Đã có | `fuzz/fuzz_targets/`, CI job `fuzz`, `crates/bo-engine/tests/fuzz_smoke.rs` |
 | Macro không thực thi, giữ nguyên, cảnh báo (BlueDoc) | Đã có | `crates/bo-binary/src/vba.rs`; test `macros_are_reported_and_kept` |
 | Không tải tài nguyên ngoài | Đã có | không có HTTP client trong `crates/`; `bo-docx/src/reader.rs`, `bo-pptx/src/render.rs` |
+| Hành động trong trình chiếu: chương trình/macro/tệp không bao giờ chạy, URL ngoài phải hỏi | Đã có | §10.1; `crates/bo-engine/src/slide_edit/action.rs`, `packages/slide-editor/src/actions.ts` |
 | Chữ ký số PAdES/OOXML | Đã có (CLI; chưa B-T, chưa kiểm chuỗi CA) | `crates/bo-sign`; ADR-0007 |
 | Desktop CSP + capability tối thiểu | Đã có | `apps/desktop/src-tauri/tauri.conf.json`, `capabilities/default.json` |
 | Ghi log tập trung (stdout) + OTel | Đã có / Vận hành gom log | `Program.cs` (Serilog), `Common/HealthAndTelemetry.cs` |

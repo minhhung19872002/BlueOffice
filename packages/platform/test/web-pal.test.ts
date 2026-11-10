@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserClipboard } from '../src/shared';
-import { WebFileAccess, fileSystemAccess, type FsFileHandle, type FsPickers } from '../src/web';
+import {
+  WebFileAccess,
+  WebShell,
+  fileSystemAccess,
+  isExternalUrl,
+  type FsFileHandle,
+  type FsPickers,
+} from '../src/web';
 
 /** In-memory File System Access API: one directory of named files. */
 function fakeFs(files: Record<string, Uint8Array>) {
@@ -147,5 +154,59 @@ describe('rich web clipboard', () => {
     writes = stub(false);
     await new BrowserClipboard().writeHtml('<i>t</i>', 't');
     expect(writes).toEqual([{ 'text/plain': 't' }]);
+  });
+});
+
+// source: docs/security.md — links followed from a slide show (SLIDE-ACTION-001).
+describe('opening a link outside the app (web)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('accepts web and mail addresses only', () => {
+    for (const ok of ['https://example.vn/a?b=1', 'http://localhost:5173', 'mailto:a@example.vn']) {
+      expect(isExternalUrl(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      'file:///C:/Windows/System32/calc.exe',
+      'javascript:alert(1)',
+      'data:text/html,x',
+      'blob:https://example.vn/1',
+      'bluedoc://open?file=x',
+      'https:///x',
+      'https://exa mple.vn',
+      ' https://example.vn',
+      'java\tscript:alert(1)',
+      'mailto:',
+      '',
+    ]) {
+      expect(isExternalUrl(bad), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('opens a new tab that cannot reach the app, and refuses everything else', async () => {
+    const clicked: { href: string; target: string; rel: string }[] = [];
+    const anchor = () => {
+      const a = {
+        href: '',
+        target: '',
+        rel: '',
+        style: {} as Record<string, string>,
+        click: () => clicked.push({ href: a.href, target: a.target, rel: a.rel }),
+        remove: () => undefined,
+      };
+      return a;
+    };
+    vi.stubGlobal('document', {
+      createElement: () => anchor(),
+      body: { appendChild: () => undefined },
+    });
+    const shell = new WebShell();
+    await shell.openExternal('https://example.vn/blueoffice');
+    expect(clicked).toEqual([
+      { href: 'https://example.vn/blueoffice', target: '_blank', rel: 'noopener noreferrer' },
+    ]);
+    for (const bad of ['file:///C:/Windows/System32/calc.exe', 'javascript:alert(1)']) {
+      await expect(shell.openExternal(bad)).rejects.toThrow('openExternal.refused');
+    }
+    expect(clicked).toHaveLength(1);
   });
 });

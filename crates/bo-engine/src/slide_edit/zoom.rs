@@ -221,6 +221,14 @@ pub fn show_links(pres: &Presentation, slide: usize, placed: &[Placed]) -> Vec<L
                     ret: o.props.return_to_parent,
                     transition_ms: o.props.transition_ms,
                 },
+                on: super::action::Trigger::Click,
+                text: false,
+                tooltip: None,
+                highlight: false,
+                sound: None,
+                safety: super::action::Safety::Internal,
+                key: format!("zoom:{slide}:{}:{}", p.id, out.len()),
+                history: false,
             });
         }
     }

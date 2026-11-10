@@ -238,6 +238,10 @@ export function runLink(
       };
       return { run: r, pos: arrive(r, 0, clicks, 'transition') };
     }
+    default:
+      // Web addresses, files, programs, macros, unknown actions: nothing moves here
+      // (the editor asks before opening an address and never runs the others).
+      return { run, pos };
   }
 }
 

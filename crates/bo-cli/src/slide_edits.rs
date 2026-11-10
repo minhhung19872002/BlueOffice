@@ -708,6 +708,193 @@ fn animations_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// Hyperlinks and actions (SLIDE-ACTION-001): linked text (slide, URL, mail) with a
+/// custom show, a file link and a hover sound; action buttons on every slide;
+/// actions BlueSlide never runs (program, macro, file, other deck, unknown).
+pub const ACTION_DECKS: [&str; 3] = [
+    "slide-action-links.pptx",
+    "slide-action-buttons.pptx",
+    "slide-action-unsafe.pptx",
+];
+
+/// Text of the linked text box of the first action deck and its three ranges
+/// (characters): a slide link, a web link, a mail link.
+pub const ACTION_TEXT: &str = "Xem trang 3 · Trang web Bluestar · Gửi thư";
+
+fn action_decks(base: &[(&'static str, Vec<u8>)]) -> Vec<(&'static str, Vec<u8>)> {
+    use base64::Engine as _;
+    use bo_model::slide::{Rel, XmlElement, XmlNode};
+    let wav = base64::engine::general_purpose::STANDARD.encode(sample_wav());
+    let open = || {
+        let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+        let mut e = Engine::with_bundled_fonts();
+        e.open(b, "base.pptx").ok()?;
+        // Four slides at least: the links jump between them.
+        while e.presentation().map_or(4, |p| p.slides.len()) < 4 {
+            e.slide_command_json(r#"{"cmd":"addSlide"}"#).ok()?;
+        }
+        e.slide_command_json(r#"{"cmd":"goTo","slide":0}"#).ok()?;
+        Some(e)
+    };
+    let mut out = Vec::new();
+    // 1. Linked text, a custom show, a file link, a hover sound.
+    if let Some(mut e) = open() {
+        let cmds = [
+            format!(
+                r#"{{"cmd":"insertTextBox","text":"{ACTION_TEXT}","rect":{{"x":60,"y":330,"w":560,"h":40}}}}"#
+            ),
+            r#"{"cmd":"textSelect","start":0,"end":11}"#.into(),
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"slide","slide":2},"tooltip":"Đi tới trang 3"}}"#.into(),
+            r#"{"cmd":"textSelect","start":14,"end":32}"#.into(),
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"url","url":"https://example.vn/blueoffice"},"tooltip":"Mở trang web"}}"#.into(),
+            r#"{"cmd":"textSelect","start":35,"end":42}"#.into(),
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"url","url":"mailto:lienhe@example.vn?subject=BlueSlide"}}}"#.into(),
+            r#"{"cmd":"setCustomShow","name":"Phụ lục","slides":[2,3]}"#.into(),
+            r#"{"cmd":"insertShape","preset":"roundRect","rect":{"x":60,"y":400,"w":150,"h":50}}"#.into(),
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"customShow","id":0,"return":true},"tooltip":"Xem phụ lục rồi quay lại"}}"#.into(),
+            r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":240,"y":400,"w":150,"h":50}}"#.into(),
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"file","path":"bao-cao.docx"}}}"#.into(),
+            r#"{"cmd":"insertShape","preset":"rect","rect":{"x":420,"y":400,"w":150,"h":50}}"#.into(),
+            format!(
+                r#"{{"cmd":"actionSet","on":"hover","spec":{{"target":{{"kind":"none"}},"highlight":true,"sound":{{"kind":"file","name":"chuông.wav","data":"{wav}"}}}}}}"#
+            ),
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"lastViewed"}}}"#.into(),
+        ];
+        for c in &cmds {
+            let _ = e.slide_command_json(c);
+        }
+        if let Ok(b) = e.save_pptx() {
+            out.push((ACTION_DECKS[0], b));
+        }
+    }
+    // 2. Action buttons with their usual jumps on every slide; a sound button.
+    if let Some(mut e) = open() {
+        let n = e.presentation().map_or(0, |p| p.slides.len());
+        let buttons = [
+            "actionButtonBeginning",
+            "actionButtonBackPrevious",
+            "actionButtonForwardNext",
+            "actionButtonEnd",
+            "actionButtonHome",
+            "actionButtonReturn",
+        ];
+        for slide in 0..n {
+            let _ = e.slide_command_json(&format!(r#"{{"cmd":"goTo","slide":{slide}}}"#));
+            for (i, b) in buttons.iter().enumerate() {
+                let _ = e.slide_command_json(&format!(
+                    r#"{{"cmd":"actionButton","preset":"{b}","rect":{{"x":{},"y":470,"w":44,"h":44}}}}"#,
+                    60 + 54 * i
+                ));
+            }
+        }
+        let _ = e.slide_command_json(r#"{"cmd":"goTo","slide":0}"#);
+        let _ = e.slide_command_json(
+            r#"{"cmd":"actionButton","preset":"actionButtonSound","rect":{"x":400,"y":470,"w":44,"h":44}}"#,
+        );
+        let _ = e.slide_command_json(&format!(
+            r#"{{"cmd":"actionSet","spec":{{"target":{{"kind":"none"}},"highlight":true,"sound":{{"kind":"file","name":"bấm.wav","data":"{wav}"}}}}}}"#
+        ));
+        let _ = e.slide_command_json(
+            r#"{"cmd":"actionButton","preset":"actionButtonInformation","rect":{"x":454,"y":470,"w":44,"h":44}}"#,
+        );
+        let _ = e.slide_command_json(
+            r#"{"cmd":"actionSet","spec":{"target":{"kind":"url","url":"https://example.vn/huong-dan"},"sound":{"kind":"stop"}}}"#,
+        );
+        if let Ok(b) = e.save_pptx() {
+            out.push((ACTION_DECKS[1], b));
+        }
+    }
+    // 3. Actions that are kept and never run. The editor refuses to create them,
+    // so they are written into the model (§21.1.2.3.5 hlinkClick, §21.1.2.3.6 hlinkHover).
+    if let Some(mut e) = open() {
+        for i in 0..6 {
+            let _ = e.slide_command_json(&format!(
+                r#"{{"cmd":"insertShape","preset":"rect","rect":{{"x":{},"y":400,"w":80,"h":50}}}}"#,
+                40 + 90 * i
+            ));
+        }
+        let made = e.save_pptx().ok().and_then(|b| bo_pptx::read_pptx(&b).ok());
+        if let Some(mut p) = made {
+            const HYPERLINK: &str =
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+            // (element, action, external target, tooltip)
+            let actions: [(&str, Option<&str>, Option<&str>, &str); 6] = [
+                (
+                    "a:hlinkClick",
+                    Some("ppaction://program"),
+                    Some("file:///C:/Windows/System32/calc.exe"),
+                    "Chương trình",
+                ),
+                (
+                    "a:hlinkClick",
+                    Some("ppaction://macro?name=TuDongChay"),
+                    None,
+                    "Macro",
+                ),
+                (
+                    "a:hlinkClick",
+                    Some("ppaction://hlinkfile"),
+                    Some("bao-cao.xlsx"),
+                    "Tệp",
+                ),
+                (
+                    "a:hlinkClick",
+                    Some("ppaction://hlinkpres?slideindex=2&slidetitle=Mở đầu"),
+                    Some("bai-khac.pptx"),
+                    "Bài trình chiếu khác",
+                ),
+                (
+                    "a:hlinkHover",
+                    Some("ppaction://frobnicate?x=1"),
+                    None,
+                    "Không rõ",
+                ),
+                (
+                    "a:hlinkClick",
+                    None,
+                    Some("file:///C:/Windows/System32/cmd.exe"),
+                    "URL file:",
+                ),
+            ];
+            let slide = &mut p.slides[0];
+            let first = slide.data.shapes.len().saturating_sub(actions.len());
+            for (k, (name, action, target, tip)) in actions.iter().enumerate() {
+                let mut rid = String::new();
+                if let Some(t) = target {
+                    rid = format!("rIdA{}", k + 1);
+                    slide.info.rels.push(Rel {
+                        id: rid.clone(),
+                        rel_type: HYPERLINK.into(),
+                        target: (*t).into(),
+                        external: true,
+                    });
+                }
+                let mut h = XmlElement::new(name);
+                h.attrs.push(("r:id".into(), rid));
+                if let Some(a) = action {
+                    h.attrs.push(("action".into(), (*a).into()));
+                }
+                h.attrs.push(("tooltip".into(), (*tip).into()));
+                let Some(n) = slide.data.shapes.get_mut(first + k) else {
+                    continue;
+                };
+                let mut el = bo_pptx::write_node(n);
+                // cNvPr is the first child of the nv*Pr element.
+                if let Some(XmlNode::Element(nv)) = el.children.first_mut() {
+                    if let Some(XmlNode::Element(cnv)) = nv.children.first_mut() {
+                        cnv.children.push(XmlNode::Element(h));
+                    }
+                }
+                *n = bo_pptx::parse_node(&el);
+            }
+            if let Ok(b) = bo_pptx::write_pptx(&p) {
+                out.push((ACTION_DECKS[2], b));
+            }
+        }
+    }
+    out
+}
+
 /// Edited decks, built from the generated base decks.
 pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
@@ -741,6 +928,7 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
         out.push((ANIMATIONS_DECK, d));
     }
     out.extend(recording_decks(base));
+    out.extend(action_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
         for (name, h, v) in FLIPPED {
             if let Some(d) = flipped_connectors(b, *h, *v) {
@@ -770,7 +958,7 @@ mod tests {
         let decks = decks(&base, &crate::slide_samples::sample_png());
         assert_eq!(
             decks.len(),
-            SCRIPTS.len() + FLIPPED.len() + 2 + RECORDING_DECKS.len()
+            SCRIPTS.len() + FLIPPED.len() + 2 + RECORDING_DECKS.len() + ACTION_DECKS.len()
         );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));

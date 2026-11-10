@@ -1625,6 +1625,8 @@ export type SlideCommand =
   | import('./slideViews').SlideViewCommand
   /** Custom shows, show setup, timings, show links, kept ink (SLIDE-SHOW-001). */
   | import('./slideShow').SlidePresentCommand
+  /** Hyperlinks and actions of shapes and text (SLIDE-ACTION-001). */
+  | import('./slideShow').SlideActionCommand
   /** Draw tab ink: add, erase, read (CORE-INK-001). */
   | import('./slideInk').SlideInkCommand
   /** Recorded slide shows: save / clear / read (SLIDE-REC-001). */
@@ -2279,6 +2281,8 @@ export interface SlideEditResult {
   model3d?: import('./slideModel3d').SlideModel3dInfo;
   /** Answer of `model3dMesh`. */
   model3dMesh?: import('./slideModel3d').SlideModel3dMesh;
+  /** Hyperlinks and actions of the selection (answer of the `action*` commands). */
+  action?: import('./slideShow').SlideActionInfo;
   /** The selected zoom (SLIDE-ZOOM-001). */
   zoom?: import('./slideZoom').SlideZoomInfo;
 }
@@ -2608,7 +2612,11 @@ export interface ShellIntegration {
   /** A small persisted user setting (JSON text), e.g. the BlueDrive sync folders. */
   getSetting?(key: string): Promise<string | null>;
   setSetting?(key: string, value: string | null): Promise<void>;
-  /** Opens a web page in the system browser (host sign-in). */
+  /**
+   * Opens a web page (host sign-in, a link followed in a slide show) outside the
+   * app: the system browser on desktop, a new tab without an opener on the web.
+   * Only `http`, `https` and — where the host can — `mailto` URLs; rejects the rest.
+   */
   openExternal?(url: string): Promise<void>;
   /** Sign-in redirects to the app (`bluedoc://auth?code=…&state=…`). */
   onAuthCallback?(handler: (url: string) => void): () => void;

@@ -222,9 +222,17 @@ impl LayoutCache {
     pub fn stats(&self) -> (u64, u64) {
         (self.hits, self.misses)
     }
-    /// Drop everything (e.g. after fonts change).
+    /// Drop everything (e.g. after fonts change, or when the document closes).
     pub fn clear(&mut self) {
-        self.map.clear();
+        self.map = HashMap::new();
+    }
+    /// Number of cached paragraph layouts (memory diagnostics).
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+    /// True when nothing is cached.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
     }
 }
 
@@ -572,7 +580,7 @@ fn split_by_level(
             }
             if k == 0 && j == chars.len() {
                 p.level = l;
-                out.push(p.clone());
+                out.push(p);
                 break;
             }
             let b0 = chars[k].0;
@@ -1194,13 +1202,16 @@ fn layout_uncached(
             segs.push(cur_segs);
         }
     }
-    while let Some(word) = queue.pop_front() {
+    while let Some(mut word) = queue.pop_front() {
         let is_first = lines.is_empty();
         let start_x = indent_left + if is_first { first } else { 0.0 };
         let max = avail(is_first);
-        let mut trial = cur.clone();
-        trial.extend(word.pieces.iter().cloned());
-        let (_, ink) = position(&trial, start_x, &tab_ctx);
+        // Measure the line with the word appended, then take the word back: moving the
+        // pieces avoids cloning the whole line for every word (CORE-PERF-001).
+        let base = cur.len();
+        cur.append(&mut word.pieces);
+        let (_, ink) = position(&cur, start_x, &tab_ctx);
+        word.pieces = cur.split_off(base);
         if ink > max + 0.01 {
             // §17.15.1.10 autoHyphenation: the first part of the word and a hyphen.
             let split = hyph

@@ -512,6 +512,7 @@ impl Engine {
     pub fn load(&mut self, doc: Document, name: &str) -> Result<DocInfo> {
         let opts = self.options();
         self.layout.reset();
+        self.release_document_caches();
         let all = BlockChanges::everything();
         let shown = views::view_document(&doc, self.view_layout);
         self.view_changed = false;
@@ -725,6 +726,16 @@ impl Engine {
         self.sec.mark_saved();
     }
 
+    /// Drop what the closed document left in the caches shared across documents:
+    /// paragraph layouts, shaped runs and spelling results keyed by content (fields that
+    /// read the clock change the keys at every open), which otherwise kept the layouts of
+    /// closed documents until their size limits (CORE-PERF-001).
+    fn release_document_caches(&mut self) {
+        self.cache.clear();
+        self.fonts.clear_caches();
+        self.spell.invalidate();
+    }
+
     /// Open a `.pptx` presentation (BlueSlide).
     pub fn open_pptx(&mut self, bytes: &[u8], name: &str) -> Result<DocInfo> {
         let pres = bo_pptx::read_pptx(bytes)?;
@@ -737,6 +748,7 @@ impl Engine {
         pres: bo_model::slide::Presentation,
         name: &str,
     ) -> Result<DocInfo> {
+        self.release_document_caches();
         let mut images = BTreeMap::new();
         let mut pages = Vec::with_capacity(pres.slides.len());
         for i in 0..pres.slides.len() {
@@ -754,6 +766,11 @@ impl Engine {
         self.layout.reset();
         self.doc_display.clear();
         self.page_markup.clear();
+        self.print_cache.clear();
+        self.smartart_png.clear();
+        self.hf = None;
+        self.note = None;
+        self.textbox = None;
         self.display = Some(DisplayList { pages });
         self.pres = Some(pres);
         self.images = images;

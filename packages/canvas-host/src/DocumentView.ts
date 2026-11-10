@@ -635,6 +635,8 @@ export class DocumentView {
     window.removeEventListener('mouseup', this.onMouseUp);
     this.ime.dispose();
     this.scroller.remove();
+    // Decoded pictures of the closed document (CORE-PERF-001: no leak across documents).
+    this.images.clear();
   }
 
   private onWheel = (e: WheelEvent) => {

@@ -27,6 +27,8 @@
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
 //! bo-cli sample-big <out.docx> [--pages 300]  # §5 benchmark document (text + pictures)
+//! bo-cli sample-big <out.docx> --pages 1000 --rich  # + headings, tables, footnotes, fields (CORE-PERF-001)
+//! bo-cli sample-big-deck <out.pptx> [--slides 300 --videos 6 --video-kb 4096]  # pictures + video deck
 //! bo-cli bench input.docx [--iterations 5]
 //! bo-cli validate <file-or-dir>... [--json] [--openxml auto|require|off] [--validator PATH]
 //! bo-cli fidelity-report [--no-validate] [--corpus DIR] [--report FILE] [--history FILE]
@@ -222,6 +224,25 @@ enum Cmd {
         image_every: usize,
         /// Number of different image parts the pictures cycle through.
         #[arg(long, default_value_t = 40)]
+        distinct: usize,
+        /// Realistic content (CORE-PERF-001): headings, tables with SEQ captions,
+        /// one footnote per page, header and PAGE / NUMPAGES footer.
+        #[arg(long)]
+        rich: bool,
+    },
+    /// Write the CORE-PERF-001 benchmark deck: N slides with pictures, some with video.
+    SampleBigDeck {
+        out: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        slides: usize,
+        /// Slides with an embedded video part.
+        #[arg(long, default_value_t = 6)]
+        videos: usize,
+        /// Size of each video part in KiB.
+        #[arg(long, default_value_t = 4096)]
+        video_kb: usize,
+        /// Number of different picture parts the slides cycle through.
+        #[arg(long, default_value_t = 30)]
         distinct: usize,
     },
     /// Write the §5 benchmark workbook: 1 000 000 cells, 100 000 of them formulas.
@@ -801,8 +822,27 @@ fn run(cli: Cli) -> R {
             pages,
             image_every,
             distinct,
+            rich,
         } => {
-            write_file(&out, &corpus::big_document(pages, image_every, distinct)?)?;
+            let bytes = if rich {
+                corpus::big_document_rich(pages, distinct)?
+            } else {
+                corpus::big_document(pages, image_every, distinct)?
+            };
+            write_file(&out, &bytes)?;
+            println!("{}", out.display());
+        }
+        Cmd::SampleBigDeck {
+            out,
+            slides,
+            videos,
+            video_kb,
+            distinct,
+        } => {
+            write_file(
+                &out,
+                &slide_samples::big_deck(slides, videos, video_kb, distinct),
+            )?;
             println!("{}", out.display());
         }
         Cmd::SampleBigSheet { out } => {

@@ -70,8 +70,15 @@ impl Package {
     /// central directory only (nothing is inflated). Hosts use it to size their
     /// heap before opening big files; `None` when the bytes are not a ZIP file.
     pub fn xml_size(bytes: &[u8]) -> Option<u64> {
+        Self::part_sizes(bytes).map(|(xml, _)| xml)
+    }
+
+    /// Declared uncompressed sizes of a ZIP package's parts, from the central directory
+    /// only: (XML and relationship parts, every other part such as media). `None` when
+    /// the bytes are not a ZIP file.
+    pub fn part_sizes(bytes: &[u8]) -> Option<(u64, u64)> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).ok()?;
-        let mut total = 0u64;
+        let (mut xml_total, mut other) = (0u64, 0u64);
         for i in 0..zip.len() {
             let Ok(f) = zip.by_index_raw(i) else {
                 continue;
@@ -81,10 +88,12 @@ impl Package {
                 n.ends_with(".xml") || n.ends_with(".rels")
             });
             if xml {
-                total = total.saturating_add(f.size());
+                xml_total = xml_total.saturating_add(f.size());
+            } else {
+                other = other.saturating_add(f.size());
             }
         }
-        Some(total)
+        Some((xml_total, other))
     }
 
     /// Read a package from ZIP bytes.

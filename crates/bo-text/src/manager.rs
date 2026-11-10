@@ -155,6 +155,18 @@ impl FontManager {
         ids
     }
 
+    /// Drop the cached shaping results (the faces stay loaded). Hosts call it when a
+    /// document closes so that runs of documents no longer open are not kept
+    /// (CORE-PERF-001: memory returns to a plateau after opening many documents).
+    pub fn clear_caches(&mut self) {
+        self.shape_cache = HashMap::new();
+    }
+
+    /// Number of cached shaping results (memory diagnostics).
+    pub fn cached_shapes(&self) -> usize {
+        self.shape_cache.len()
+    }
+
     /// Load every `.ttf`/`.otf`/`.ttc` in a directory (native targets only).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn add_fonts_from_dir(&mut self, dir: &std::path::Path) -> usize {

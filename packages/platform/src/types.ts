@@ -2725,4 +2725,6 @@ export interface Platform {
   translation?: import('./translation').TranslationProvider;
   /** Folders and web pages for Get & Transform data (SHEET-PQ-001; absent: files only). */
   dataSources?: import('./sheetQuery').QueryDataSources;
+  /** Speech to text for dictation (absent where the platform cannot listen; CORE-LANG-002). */
+  dictation?: import('./dictation').DictationProvider;
 }

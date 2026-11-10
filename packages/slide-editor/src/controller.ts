@@ -17,6 +17,8 @@ export class SlideController {
   private busy = false;
   /** Last repeatable command (F4, CORE-UI-004). */
   readonly repeats = new RepeatTracker<SlideCommand>(SLIDE_REPEATABLE);
+  /** The latest result, as soon as it arrives (dictation reads it between renders). */
+  last: SlideEditResult | null = null;
 
   constructor(
     private readonly engine: EngineHost,
@@ -28,6 +30,7 @@ export class SlideController {
     const p = this.queue.then(async () => {
       try {
         const r = await f();
+        this.last = r;
         this.onResult(r);
         return r;
       } catch (e) {

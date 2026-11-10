@@ -101,6 +101,8 @@ export class DocumentView {
   private readonly images: ImageStore;
   private dragging = false;
   private caret: CaretRect | null = null;
+  /** Interim dictation text shown at the caret (not in the document; CORE-LANG-002). */
+  private dictationPreview: string | null = null;
   private peers: PeerMark[] = [];
   /** Misspelt words (red wavy underline, never printed). */
   private spelling: SpellMark[] = [];
@@ -279,6 +281,7 @@ export class DocumentView {
     }
     this.drawPeers(k);
     this.drawSpelling(k);
+    this.drawDictationPreview(k);
     if (caret) {
       const slot = this.slots[caret.page];
       if (slot) {
@@ -294,6 +297,35 @@ export class DocumentView {
         }
       }
     }
+  }
+
+  /**
+   * Dictation: the interim text, underlined, at the caret — only drawn, not in the document
+   * (`null` hides it).
+   */
+  setDictationPreview(text: string | null): void {
+    if (text === this.dictationPreview) return;
+    this.dictationPreview = text || null;
+    this.setSelection(this.caret, this.lastRects, false);
+  }
+
+  private drawDictationPreview(k: number): void {
+    const caret = this.caret;
+    const text = this.dictationPreview;
+    if (!caret || !text) return;
+    const slot = this.slots[caret.page];
+    if (!slot) return;
+    const d = document.createElement('div');
+    d.className = 'bo-dictation-preview';
+    d.dataset.testid = 'dictation-preview';
+    d.textContent = text;
+    const h = caret.h * k;
+    d.style.cssText =
+      `position:absolute;left:${caret.x * k}px;top:${caret.y * k}px;height:${h}px;` +
+      `line-height:${h}px;font-size:${Math.max(8, h * 0.72)}px;white-space:pre;` +
+      'pointer-events:none;color:#555;background:rgba(255,255,255,0.85);' +
+      'text-decoration:underline dotted;text-underline-offset:2px;padding:0 1px;';
+    slot.overlay.appendChild(d);
   }
 
   /** Highlight every find match (drawn under the selection); `[]` clears. */

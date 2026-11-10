@@ -24,6 +24,7 @@ import { WebSigning } from './signing';
 import { WebCodecsVideo } from '../webcodecs';
 import { webSpeech } from '../speech';
 import { ServerTranslationProvider } from '../translation';
+import { defaultDictation } from '../dictation';
 import { WebDisplays, presentationReceiverBus } from './displays';
 import { FetchRemoteImages } from '../remoteImages';
 import { createBrowserQueryData } from '../queryData';
@@ -304,6 +305,22 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
           }),
         }
       : {}),
+    // Dictation (CORE-LANG-002): VITE_BO_DICTATION = auto (default: the BlueOffice server when an
+    // administrator configured speech to text there, else the browser's recogniser) | browser |
+    // server | off; VITE_BO_DICTATION_URL names the server (same origin by default).
+    ...((): Pick<Platform, 'dictation'> => {
+      const dictation = defaultDictation({
+        mode: env.VITE_BO_DICTATION,
+        server: {
+          baseUrl: env.VITE_BO_DICTATION_URL ?? '',
+          headers: async (): Promise<Record<string, string>> => {
+            const token = await (opts.auth?.getAccessToken() ?? Promise.resolve(null));
+            return token ? { Authorization: `Bearer ${token}` } : {};
+          },
+        },
+      });
+      return dictation ? { dictation } : {};
+    })(),
     displays: new WebDisplays(),
     images: new FetchRemoteImages(),
     // Get & Transform (SHEET-PQ-001): folders from a directory picker; web pages through the

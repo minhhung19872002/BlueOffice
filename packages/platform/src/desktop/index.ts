@@ -54,6 +54,7 @@ import { FetchRemoteImages } from '../remoteImages';
 import { webSpeech } from '../speech';
 import { fromBase64 } from '../web/signing';
 import type { PickedFolder, QueryDataSources } from '../sheetQuery';
+import { webDictation } from '../dictation';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
@@ -781,6 +782,12 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     video: new WebCodecsVideo(),
     // The webview's Web Speech API (WebView2: the Windows voices) for read aloud.
     speech: webSpeech(),
+    // The webview's recogniser when it has one (WebView2 may not; CORE-LANG-002); the
+    // dictation UI says so when it is missing or fails to start.
+    ...((): Pick<Platform, 'dictation'> => {
+      const dictation = webDictation();
+      return dictation ? { dictation } : {};
+    })(),
     displays: new DesktopDisplays(call),
     images: new FetchRemoteImages(),
     dataSources: new DesktopQueryData(call),

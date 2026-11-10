@@ -184,6 +184,7 @@ import {
   ImagePlus,
   ScanText,
   Volume2,
+  Mic,
   SquareTerminal,
   Braces,
   Database,
@@ -221,6 +222,9 @@ import {
   fromBase64,
   planOpen,
   ReadAloudLink,
+  DictationLink,
+  registerDictationCommands,
+  useDictation,
   registerReadAloudCommands,
   registerTranslateCommands,
   TranslateLink,
@@ -242,6 +246,7 @@ import {
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
+import { sheetDictationTarget } from './dictation';
 import { asTextInput, translateCells, type CellTranslateMode } from './translate';
 import { useSheetQueries } from './queries';
 import {
@@ -1577,6 +1582,57 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     readAloudLink.attach(readAloud, beginRead);
   });
 
+  // Dictation (CORE-LANG-002): into the active cell editor at its caret (an in-place edit of
+  // the active cell opens when none is). The target reads the editor through refs.
+  const dictLive = useRef({ edit, selection, sheet, host });
+  useEffect(() => {
+    dictLive.current = { edit, selection, sheet, host };
+  });
+  const dictationTarget = useCallback(() => {
+    const input = () => (lastInput.current === 'bar' ? barRef.current : inputRef.current);
+    const set = (text: string, caret: number, pos?: CellPos) => {
+      const live = dictLive.current;
+      const next: EditState = live.edit
+        ? { ...live.edit, text }
+        : { pos: pos ?? live.selection.active, text, inPlace: true };
+      live.edit = next;
+      setEdit(next);
+      setBarText(text);
+      if (inputRef.current) inputRef.current.value = text;
+      if (barRef.current) barRef.current.value = text;
+      const el = input();
+      el?.setSelectionRange(caret, caret);
+      requestAnimationFrame(() => el?.setSelectionRange(caret, caret));
+    };
+    return sheetDictationTarget({
+      editing: () => {
+        const el = input();
+        if (!dictLive.current.edit || !el) return null;
+        const text = el.value;
+        return {
+          text,
+          start: el.selectionStart ?? text.length,
+          end: el.selectionEnd ?? text.length,
+        };
+      },
+      begin: async () => {
+        const { host: h, sheet: sh, selection: sel } = dictLive.current;
+        if (!h) return null;
+        const pos = sel.active;
+        const c = await h.cell(sh, pos.row, pos.col);
+        lastInput.current = 'cell';
+        set(c.input, c.input.length, pos);
+        return { text: c.input, start: c.input.length, end: c.input.length };
+      },
+      set: (text, caret) => set(text, caret),
+    });
+  }, []);
+  const dictation = useDictation(platform.dictation, dictationTarget);
+  const [dictationLink] = useState(() => new DictationLink());
+  useEffect(() => {
+    dictationLink.attach(dictation);
+  });
+
   // Translation (CORE-LANG-001): the active cell in the pane; the selected cells in place or
   // into new columns.
   const translate = useTranslate(platform.translation, platform.clipboard);
@@ -2147,6 +2203,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('review.spelling', async () => toggleSpelling(), {
       ...has,
       isChecked: () => asYouType,
+    });
+    registerDictationCommands(reg, {
+      enabled: (st) => st.hasWorkbook,
+      current: () => dictationLink.current(),
     });
     registerReadAloudCommands(reg, {
       enabled: (st) => st.hasWorkbook,
@@ -2806,6 +2866,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   }, [
     openSmartArt,
     readAloudLink,
+    dictationLink,
     beginTranslate,
     auditTrace,
     auditCalculate,
@@ -3657,6 +3718,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('cells.hideCols', t('sheetEditor.hideCols'), <EyeOff size={s} />, 'small'),
               item('cells.unhideCols', t('sheetEditor.unhideCols'), <Eye size={s} />, 'small'),
             ],
+          },
+          {
+            id: 'voice',
+            label: t('ribbon.groups.speech'),
+            items: [item('edit.dictate', t('commands.edit.dictate'), <Mic size={18} />)],
           },
           {
             id: 'editing',
@@ -5571,6 +5637,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <SheetCheckDocumentDialog exec={exec} goTo={goToRange} onClose={common.onClose} />
       )}
       {readAloud.bar}
+      {dictation.bar}
       {translate.pane}
       {queries.element}
       <SheetEditSpelling

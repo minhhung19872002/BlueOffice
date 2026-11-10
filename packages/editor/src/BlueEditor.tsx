@@ -211,6 +211,7 @@ import {
   Bookmark,
   Scale,
   Volume2,
+  Mic,
   Network,
   Pencil,
   Palette,
@@ -336,6 +337,9 @@ import { PrintPanel } from './print/PrintPanel';
 import { useReadAloud, type ReadAloud } from './ReadAloudBar';
 import { registerReadAloudCommands } from './readAloudCommands';
 import { docReadRequest } from './docReadAloud';
+import { useDictation, type Dictation } from './DictationBar';
+import { registerDictationCommands } from './dictationCommands';
+import { docDictationTarget } from './docDictation';
 import { useTranslate, type TranslateAction } from './TranslatePane';
 import { TranslateLink, registerTranslateCommands } from './translateCommands';
 import {
@@ -821,6 +825,23 @@ function EditorInner({
       controller.current = null;
     };
   }, [app, platform, store, fail, measure, i18nInstance, objectHub]);
+  // Dictation (CORE-LANG-002): at the caret through the controller; interim text drawn by the view.
+  const dictationTarget = useCallback(
+    () =>
+      controller.current
+        ? docDictationTarget(
+            platform.engine,
+            (c) => controller.current?.run(c) ?? Promise.resolve(null),
+            () => view.current,
+          )
+        : null,
+    [platform.engine],
+  );
+  const dictation = useDictation(platform.dictation, dictationTarget);
+  const dictationRef = useRef<Dictation | null>(null);
+  useEffect(() => {
+    dictationRef.current = dictation;
+  });
 
   // Rulers follow the caret's page and the panels' layout.
   useEffect(() => measure(), [measure, state.showRuler, state.doc, state.panel]);
@@ -1993,6 +2014,10 @@ function EditorInner({
         await controller.current?.run({ cmd: 'setGrammar', on: !s.grammarOn });
       },
     });
+    registerDictationCommands(r, {
+      enabled: hasDoc,
+      current: () => dictationRef.current,
+    });
     registerReadAloudCommands(r, {
       enabled: hasDoc,
       begin: async () => {
@@ -3135,6 +3160,11 @@ function EditorInner({
             s('style.heading1', 'commands.format.styleHeading1', <Heading1 size={SMALL} />),
             s('style.heading2', 'commands.format.styleHeading2', <Heading2 size={SMALL} />),
           ],
+        },
+        {
+          id: 'voice',
+          label: t('ribbon.groups.speech'),
+          items: [item('edit.dictate', 'commands.edit.dictate', <Mic size={ICON} />)],
         },
         {
           id: 'editing',
@@ -5028,6 +5058,7 @@ function EditorInner({
         />
       )}
       {readAloud.bar}
+      {dictation.bar}
       {translate.pane}
       <FileBackstage
         app="doc"

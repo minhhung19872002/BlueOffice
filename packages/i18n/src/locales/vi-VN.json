@@ -135,7 +135,10 @@
       "find": "Tìm",
       "replace": "Thay thế",
       "pasteSpecial": "Dán đặc biệt…",
-      "repeat": "Lặp lại thao tác"
+      "repeat": "Lặp lại thao tác",
+      "dictate": "Đọc chính tả",
+      "dictatePause": "Tạm dừng hoặc tiếp tục đọc chính tả",
+      "dictateStop": "Dừng đọc chính tả"
     },
     "format": {
       "fontDialog": "Hiệu ứng ký tự…",
@@ -5354,6 +5357,31 @@
       "shapeRotated": "Xoay hoặc lật hình",
       "formatChanged": "Đổi định dạng",
       "contentChanged": "Đổi ảnh, biểu đồ hoặc nội dung"
+    }
+  },
+  "dictation": {
+    "bar": "Điều khiển đọc chính tả",
+    "status": {
+      "idle": "Đã dừng",
+      "listening": "Đang nghe…",
+      "paused": "Đã tạm dừng",
+      "error": "Không nghe được"
+    },
+    "pause": "Tạm dừng",
+    "resume": "Tiếp tục nghe",
+    "stop": "Dừng đọc chính tả",
+    "language": "Ngôn ngữ",
+    "errors": {
+      "noPermission": "Chưa được phép dùng micrô. Hãy cho phép truy cập micrô rồi thử lại.",
+      "noDevice": "Không tìm thấy micrô hoặc không mở được micrô.",
+      "network": "Không kết nối được dịch vụ nhận dạng giọng nói.",
+      "unavailable": "Đọc chính tả chưa dùng được ở đây (chưa có bộ nhận dạng giọng nói hoặc quản trị viên chưa cấu hình).",
+      "unsupportedLanguage": "Bộ nhận dạng không hỗ trợ ngôn ngữ này.",
+      "unauthorized": "Cần đăng nhập để đọc chính tả.",
+      "tooLarge": "Câu nói quá dài, hãy ngắt nghỉ thường xuyên hơn.",
+      "rateLimited": "Dịch vụ nhận dạng đang bận, hãy thử lại sau.",
+      "upstream": "Dịch vụ nhận dạng giọng nói bị lỗi.",
+      "noTarget": "Hãy đặt con trỏ vào chỗ cần nhập chữ (khối chữ hoặc ô) rồi thử lại."
     }
   },
   "readAloud": {

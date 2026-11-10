@@ -5,6 +5,7 @@ using BlueOffice.Api.Auth;
 using BlueOffice.Api.Collab;
 using BlueOffice.Api.Common;
 using BlueOffice.Api.Files;
+using BlueOffice.Api.Dictation;
 using BlueOffice.Api.Jobs;
 using BlueOffice.Api.Scripts;
 using BlueOffice.Api.Sessions;
@@ -91,6 +92,9 @@ builder.Services.AddWebDataProxy(config);
 
 // Translation proxy (CORE-LANG-001): off unless Translation:Provider is configured (docs/deploy/translation.md).
 builder.Services.AddTranslation(config);
+
+// Dictation proxy (CORE-LANG-002): off unless Dictation:Provider is configured (docs/deploy/dictation.md).
+builder.Services.AddDictation(config);
 builder.Services.AddSingleton<CollabMaintenanceService>();
 if (serveApi)
 {
@@ -198,6 +202,7 @@ app.MapHostBrowseEndpoints();
 app.MapRevocationProxy();
 app.MapWebDataProxy();
 app.MapTranslation();
+app.MapDictation();
 
 app.Run();
 

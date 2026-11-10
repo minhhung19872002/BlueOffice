@@ -47,6 +47,7 @@ export * from './sheetDataTools';
 export * from './speech';
 export * from './translation';
 export * from './queryData';
+export * from './dictation';
 export {
   OidcSession,
   fetchOidcConfig,

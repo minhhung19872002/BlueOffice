@@ -18,7 +18,7 @@ import type {
   StoredDocument,
   VersionHistory,
 } from '@blueoffice/platform';
-import { ServerTranslationProvider, variantOf } from '@blueoffice/platform';
+import { ServerTranslationProvider, defaultDictation, variantOf } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
 import { OfflineError, reach, type OfflineSaves } from './offline';
 
@@ -455,6 +455,20 @@ export function hostedPlatform(
       headers: () => ({ 'x-session-token': session.sessionToken }),
       fetch: (url, init) => fetchImpl(url, init),
     }),
+    // Dictation through the session's server when configured there, else the base platform's
+    // (CORE-LANG-002).
+    ...((): Pick<Platform, 'dictation'> => {
+      const dictation =
+        defaultDictation({
+          mode: 'server',
+          server: {
+            baseUrl: api,
+            session: session.sessionId,
+            headers: () => ({ 'x-session-token': session.sessionToken }),
+          },
+        }) ?? base.dictation;
+      return dictation ? { dictation } : {};
+    })(),
     ...(mode.editable ? { scriptSchedules: sessionScriptSchedules(api, session, fetchImpl) } : {}),
     files: {
       openFile: base.files.openFile.bind(base.files),

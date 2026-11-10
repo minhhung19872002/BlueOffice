@@ -10,6 +10,7 @@
 
 mod collab_cmds;
 mod print;
+mod query_cmds;
 mod sheet_cmds;
 mod shell;
 mod sign_cmds;
@@ -762,6 +763,9 @@ fn main() {
             collab_cmds::engine_slide_collab_peers,
             bundled_fonts,
             pick_file,
+            query_cmds::pick_folder,
+            query_cmds::read_folder,
+            query_cmds::fetch_web,
             read_file,
             save_file,
             print_pdf,

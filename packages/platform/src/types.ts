@@ -2723,4 +2723,6 @@ export interface Platform {
   speech?: import('./speech').SpeechProvider;
   /** Translation (absent where none is configured; CORE-LANG-001). */
   translation?: import('./translation').TranslationProvider;
+  /** Folders and web pages for Get & Transform data (SHEET-PQ-001; absent: files only). */
+  dataSources?: import('./sheetQuery').QueryDataSources;
 }

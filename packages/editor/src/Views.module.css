@@ -337,6 +337,24 @@
   opacity: 0.6;
 }
 
+/* Split view: the bar between the two panes (drag, arrows; double-click removes it). */
+.splitBar {
+  position: absolute;
+  z-index: 3;
+  height: 6px;
+  box-sizing: border-box;
+  background: var(--bo-surface-2);
+  border-top: 1px solid var(--bo-border);
+  border-bottom: 1px solid var(--bo-border);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.splitBar:hover,
+.splitBar:focus-visible {
+  background: var(--bo-app-accent, var(--bo-accent));
+}
+
 .focusExit:hover,
 .focusExit:focus-visible {
   opacity: 1;

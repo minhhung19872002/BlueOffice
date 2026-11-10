@@ -96,7 +96,8 @@
       "mergeRules": "Trường & quy tắc",
       "mergeCreate": "Tạo",
       "automation": "Tự động hóa",
-      "language": "Ngôn ngữ"
+      "language": "Ngôn ngữ",
+      "window": "Cửa sổ"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -298,7 +299,8 @@
       "translateCells": "Dịch ô chọn sang cột mới",
       "translateCellsInPlace": "Dịch ô chọn tại chỗ",
       "translateDeck": "Dịch bản trình chiếu",
-      "translateShapes": "Dịch các hình đã chọn"
+      "translateShapes": "Dịch các hình đã chọn",
+      "wordCount": "Đếm từ"
     },
     "references": {
       "insertToc": "Mục lục",
@@ -393,6 +395,14 @@
       "shortcuts": "Tùy biến phím tắt…",
       "customizeRibbon": "Tùy biến ribbon…",
       "customizeQat": "Tùy biến thanh truy cập nhanh…"
+    },
+    "window": {
+      "new": "Cửa sổ mới",
+      "arrangeAll": "Sắp xếp tất cả",
+      "split": "Tách",
+      "sideBySide": "Xem song song",
+      "syncScroll": "Cuộn đồng bộ",
+      "resetPosition": "Đặt lại vị trí cửa sổ"
     }
   },
   "status": {
@@ -5672,7 +5682,14 @@
         "compact": "Gọn",
         "touch": "Cảm ứng"
       },
-      "proofingLanguage": "Ngôn ngữ soát lỗi…"
+      "proofingLanguage": "Ngôn ngữ soát lỗi…",
+      "themeLabel": "Giao diện",
+      "themes": {
+        "auto": "Theo hệ thống",
+        "light": "Sáng",
+        "dark": "Tối",
+        "hc": "Tương phản cao"
+      }
     },
     "describe": {
       "file_new": "Tài liệu trống.",
@@ -6337,5 +6354,86 @@
       "badFile": "Không đọc được tệp dưới dạng tài liệu .docx hoặc .dotx.",
       "failed": "Không thay đổi được kiểu."
     }
+  },
+  "statusBar": {
+    "customize": "Tùy chỉnh thanh trạng thái",
+    "reset": "Đặt lại mặc định",
+    "items": {
+      "page": "Số trang",
+      "words": "Số từ",
+      "proofing": "Trạng thái soát lỗi",
+      "language": "Ngôn ngữ",
+      "trackChanges": "Theo dõi thay đổi",
+      "capsLock": "Caps Lock",
+      "overtype": "Chế độ ghi đè",
+      "viewButtons": "Nút chế độ xem",
+      "zoomSlider": "Thanh trượt thu phóng",
+      "zoom": "Tỷ lệ thu phóng",
+      "cellMode": "Chế độ ô",
+      "macro": "Macro",
+      "filter": "Chế độ lọc",
+      "average": "Trung bình",
+      "count": "Số ô có dữ liệu",
+      "numericalCount": "Số ô chứa số",
+      "min": "Nhỏ nhất",
+      "max": "Lớn nhất",
+      "sum": "Tổng",
+      "slide": "Số trang chiếu",
+      "notes": "Ghi chú",
+      "comments": "Bình luận",
+      "fit": "Vừa trang chiếu với cửa sổ"
+    },
+    "wordsSelected": "{{selected}} / {{count}} từ",
+    "proofingErrors": "Có lỗi cần soát",
+    "proofingClean": "Không có lỗi cần soát",
+    "trackChangesOn": "Theo dõi thay đổi: Bật",
+    "trackChangesOff": "Theo dõi thay đổi: Tắt",
+    "on": "Bật",
+    "off": "Tắt",
+    "overtype": "Ghi đè",
+    "insert": "Chèn",
+    "capsLock": "Caps Lock",
+    "views": "Chế độ xem",
+    "zoomSlider": "Thu phóng",
+    "zoomPercent": "Thu phóng {{value}}% (nhấp để về 100%)",
+    "zoomPercentFit": "Thu phóng {{value}}% (nhấp để vừa cửa sổ)",
+    "enter": "Nhập",
+    "numericalCount": "Số ô chứa số",
+    "min": "Nhỏ nhất",
+    "max": "Lớn nhất",
+    "macro": "Có macro",
+    "filterMode": "Chế độ lọc",
+    "calculating": "Đang tính…",
+    "notes": "Ghi chú",
+    "comments": "Bình luận",
+    "fit": "Vừa trang chiếu với cửa sổ"
+  },
+  "wordCount": {
+    "title": "Đếm từ",
+    "close": "Đóng",
+    "selection": "Vùng chọn",
+    "document": "Tài liệu",
+    "pages": "Trang",
+    "words": "Từ",
+    "chars": "Ký tự (không tính dấu cách)",
+    "charsWithSpaces": "Ký tự (tính cả dấu cách)",
+    "paragraphs": "Đoạn",
+    "includeNotes": "Tính cả hộp văn bản, cước chú và chú thích cuối"
+  },
+  "windows": {
+    "message": "{{text}}",
+    "newWindowDesktop": "Đã mở một cửa sổ mới. Trên máy tính, mỗi cửa sổ mở một tài liệu riêng.",
+    "arrangeHint": "Trên web, hãy kéo thẻ trình duyệt ra thành cửa sổ riêng rồi xếp cạnh nhau (phím Windows + ←/→).",
+    "arranged": "Đã sắp xếp {{count}} cửa sổ.",
+    "noOtherWindow": "Chưa có cửa sổ nào khác để xem song song. Hãy mở tài liệu thứ hai trong cửa sổ hoặc thẻ khác.",
+    "compareWith": "Xem song song với",
+    "cancel": "Hủy",
+    "untitled": "Chưa đặt tên",
+    "sharedWindow": "Cửa sổ dùng chung tài liệu",
+    "sideBySideWith": "Song song với: {{name}}",
+    "splitBar": "Thanh tách (kéo hoặc dùng phím mũi tên; nhấp đúp để bỏ tách)",
+    "splitPane": "Ngăn thứ hai",
+    "splitUnfroze": "Đã bỏ cố định ngăn để tách.",
+    "splitToFreeze": "Đã chuyển vạch tách thành ngăn cố định."
   }
 }

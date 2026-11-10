@@ -230,6 +230,16 @@ fn batch_formats_several_ranges_in_one_undo_step_and_stats_count_once() {
     assert_eq!(s["sum"], 16.0);
     assert_eq!(s["numbers"], 4);
     assert_eq!(s["count"], 5);
+    assert_eq!(s["average"], 4.0);
+    // Minimum and maximum of the numbers (status bar; CORE-UI-007).
+    assert_eq!(s["min"], 1.0);
+    assert_eq!(s["max"], 10.0);
+    let none = exec(
+        &mut e,
+        &json!({"cmd": "rangeStats", "sheet": 0, "ranges": [rng(40, 40, 41, 41)]}),
+    )
+    .unwrap();
+    assert!(none["min"].is_null() && none["max"].is_null() && none["average"].is_null());
     // A failing command rolls the batch back.
     let err = exec(
         &mut e,

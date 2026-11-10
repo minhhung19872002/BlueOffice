@@ -1245,6 +1245,9 @@ pub struct EditResult {
     /// Style management answer (style commands, DOC-STYLE-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style_mgr: Option<Box<crate::doc_styles::StyleMgrOut>>,
+    /// Word count of the document and the selection (`wordCount`, CORE-UI-007).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub word_count: Option<crate::word_count::WordCountInfo>,
 }
 
 impl crate::Engine {
@@ -1285,6 +1288,10 @@ impl crate::Engine {
         }
         if let Some(tc) = crate::translate::TranslateCommand::parse(&v) {
             let r = self.doc_translate_command(tc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        if let Some(wc) = crate::word_count::WordCountCommand::parse(&v) {
+            let r = self.doc_word_count(&wc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         if let Some(sc) = crate::speech::SpeechCommand::parse(&v) {
@@ -2426,6 +2433,7 @@ impl crate::Engine {
             speech: None,
             translation: None,
             style_mgr: None,
+            word_count: None,
         })
     }
 }

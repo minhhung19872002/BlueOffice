@@ -3,6 +3,7 @@ export * from './session';
 export * from './readonly';
 export * from './collab';
 export * from './open';
+export * from './windowSession';
 export * from './HostedBanner';
 export * from './HostedChrome';
 export * from './dirty';

@@ -40,8 +40,26 @@
 }
 
 .bo-root *:focus-visible {
-  outline: 2px solid var(--bo-focus);
+  outline: var(--bo-chrome-focus-width, 2px) solid var(--bo-focus);
   outline-offset: 1px;
+}
+
+/* Canvas chrome of BlueDoc (caret, selection): two-toned in high contrast (CORE-UI-007). */
+.bo-root .bo-caret {
+  background: var(--bo-chrome-caret);
+  box-shadow: 0 0 0 1px var(--bo-chrome-halo);
+  forced-color-adjust: none;
+}
+.bo-root .bo-sel {
+  background: var(--bo-chrome-selection);
+  opacity: var(--bo-chrome-selection-alpha);
+  forced-color-adjust: none;
+}
+[data-theme='hc'] .bo-caret {
+  width: 2.5px;
+}
+[data-theme='hc'] .bo-sel {
+  outline: 1px solid var(--bo-chrome-cursor);
 }
 
 /* Icons: the accent part follows the app accent; high contrast draws it in the text colour. */
@@ -61,7 +79,13 @@
 /* Windows high contrast / forced colours: let system colours through and keep focus visible. */
 @media (forced-colors: active) {
   .bo-root *:focus-visible {
-    outline: 2px solid Highlight;
+    outline: 3px solid Highlight;
+  }
+  .bo-root .bo-caret {
+    width: 2.5px;
+  }
+  .bo-root .bo-sel {
+    outline: 1px solid var(--bo-chrome-cursor);
   }
   .bo-icon-accent {
     color: CanvasText;

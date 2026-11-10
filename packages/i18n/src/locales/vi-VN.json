@@ -16,7 +16,22 @@
     "mode": {
       "simplified": "Ribbon đơn giản",
       "collapse": "Thu gọn ribbon",
-      "expand": "Mở rộng ribbon"
+      "expand": "Mở rộng ribbon",
+      "autoHide": "Tự ẩn ribbon",
+      "showRibbon": "Hiện ribbon"
+    },
+    "objectTabs": {
+      "equation": "Phương trình",
+      "ink": "Mực",
+      "object": "Đối tượng",
+      "groupEquation": "Phương trình",
+      "groupConvert": "Chuyển đổi",
+      "groupPens": "Bút",
+      "groupErase": "Tẩy",
+      "groupReplay": "Phát lại",
+      "groupObject": "Đối tượng nhúng",
+      "groupLinks": "Liên kết",
+      "groupArrange": "Sắp xếp"
     },
     "context": {
       "table": "Công cụ bảng",

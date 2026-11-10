@@ -65,6 +65,7 @@ export {
 export {
   getRibbonPrefs,
   setRibbonPrefs,
+  toggleRibbonAutoHide,
   toggleRibbonCollapsed,
   toggleRibbonSimplified,
   useRibbonPrefs,

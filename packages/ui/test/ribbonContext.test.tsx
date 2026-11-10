@@ -15,7 +15,7 @@ import {
 } from '../src';
 
 afterEach(cleanup);
-beforeEach(() => setRibbonPrefs({ simplified: false, collapsed: false }));
+beforeEach(() => setRibbonPrefs({ simplified: false, collapsed: false, autoHide: false }));
 
 const noop = () => {};
 const group = (id: string, n = 2): RibbonGroup => ({
@@ -41,6 +41,8 @@ const labels = {
   simplified: 'Simplified ribbon',
   collapse: 'Collapse',
   expand: 'Expand',
+  autoHide: 'Auto-hide',
+  showRibbon: 'Show ribbon',
 };
 
 /** Ribbon with the tab state kept by a parent, as the editors do. */
@@ -188,6 +190,7 @@ describe('simplified and collapsed ribbon', () => {
     expect(JSON.parse(localStorage.getItem('bo.ribbon')!)).toEqual({
       simplified: true,
       collapsed: false,
+      autoHide: false,
     });
     const { container } = render(<Ribbon tabs={[tab]} labels={labels} />);
     expect(container.querySelector('[role="tabpanel"]')).not.toBeNull();
@@ -210,5 +213,84 @@ describe('simplified and collapsed ribbon', () => {
     });
     expect(getRibbonPrefs().collapsed).toBe(false);
     expect(container.querySelector('[role="tabpanel"]')).not.toBeNull();
+  });
+});
+
+describe('auto-hidden ribbon (UI-RIBBON-003)', () => {
+  let ran = 0;
+  const tab: RibbonTab = {
+    id: 'home',
+    label: 'Home',
+    groups: [
+      { id: 'g', label: 'G', items: [{ id: 'x.run', label: 'Run', onSelect: () => (ran += 1) }] },
+    ],
+  };
+  const tabs = [tab, insert];
+
+  it('hides everything but a bar; a click on the bar shows it until a command runs', () => {
+    ran = 0;
+    const { container } = render(<Ribbon tabs={tabs} labels={labels} />);
+    fireEvent.click(screen.getByTestId('ribbon-autohide'));
+    expect(getRibbonPrefs().autoHide).toBe(true);
+    expect(JSON.parse(localStorage.getItem('bo.ribbon')!)).toMatchObject({ autoHide: true });
+    expect(screen.getByTestId('ribbon').getAttribute('data-autohide')).toBe('true');
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(container.querySelector('[role="tabpanel"]')).toBeNull();
+    const bar = screen.getByTestId('ribbon-autohide-bar');
+    expect(bar.getAttribute('aria-label')).toBe('Show ribbon');
+
+    fireEvent.click(bar);
+    expect(screen.getByTestId('ribbon-revealed')).toBeTruthy();
+    expect(screen.getByTestId('ribbon').getAttribute('data-revealed')).toBe('true');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Home', 'Insert']);
+    // Switching tabs keeps it shown; running a command hides it again.
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Insert' }));
+    expect(screen.getByTestId('ribbon-revealed')).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Home' }));
+    fireEvent.click(container.querySelector('button[data-command="x.run"]')!);
+    expect(ran).toBe(1);
+    expect(screen.queryByTestId('ribbon-revealed')).toBeNull();
+    expect(screen.getByTestId('ribbon-autohide-bar')).toBeTruthy();
+  });
+
+  it('shows on Alt with KeyTips, hides on Escape or an outside click, and can be turned off', () => {
+    setRibbonPrefs({ autoHide: true });
+    render(
+      <>
+        <Ribbon tabs={tabs} labels={labels} />
+        <div data-testid="outside" />
+      </>,
+    );
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft' });
+      fireEvent.keyUp(window, { key: 'Alt', code: 'AltLeft' });
+    });
+    expect(screen.getByTestId('ribbon-revealed')).toBeTruthy();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    // Escape leaves the KeyTips, a second Escape hides the ribbon.
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+    expect(screen.queryByTestId('ribbon-revealed')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('ribbon-autohide-bar'));
+    expect(screen.getByTestId('ribbon-revealed')).toBeTruthy();
+    act(() => {
+      fireEvent.mouseDown(screen.getByTestId('outside'));
+    });
+    expect(screen.queryByTestId('ribbon-revealed')).toBeNull();
+
+    // The toggle in the shown ribbon turns the mode off: the ribbon stays in place.
+    fireEvent.click(screen.getByTestId('ribbon-autohide-bar'));
+    fireEvent.click(screen.getByTestId('ribbon-autohide'));
+    expect(getRibbonPrefs().autoHide).toBe(false);
+    expect(screen.queryByTestId('ribbon-autohide-bar')).toBeNull();
+    expect(screen.queryByTestId('ribbon-revealed')).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.getByRole('tabpanel')).toBeTruthy();
   });
 });

@@ -97,6 +97,7 @@ import {
 } from '@blueoffice/ui';
 import { pictureTabLabels, registerPictureCommands } from './pictureTools';
 import { objectPlatform, objectToolsLabels, registerObjectCommands } from './objectTools';
+import { docObjectContexts, docObjectTabs } from './objectContexts';
 import {
   AArrowDown,
   AArrowUp,
@@ -412,7 +413,8 @@ import { commandLabel, shortcutCommands, useContextMenu, type OpenContextMenu } 
  * Contexts whose tab is activated when they appear (CORE-UI-001);
  * the caret moves through table cells while typing: the Table tab only shows.
  */
-const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'table');
+// Caret contexts (a table cell, an equation the caret follows while typing) only show.
+const AUTO_CONTEXTS = RIBBON_CONTEXTS.filter((c) => c !== 'table' && c !== 'equation');
 
 /** Options controlled by the embedding host (prompt §3.5). */
 export interface HostConfig {
@@ -3430,7 +3432,16 @@ function EditorInner({
           },
         ]
       : [];
-  const contextTabs = [...tableTab, ...pictureTab, ...smartArtTab, ...headerFooterTab];
+  // Equation and embedded object tabs (CORE-UI-008); the object tab comes before the picture
+  // tab its preview also shows, so selecting an object activates it.
+  const objectTabs = docObjectTabs(t, item, docObjectContexts(state.edit));
+  const contextTabs = [
+    ...tableTab,
+    ...objectTabs,
+    ...pictureTab,
+    ...smartArtTab,
+    ...headerFooterTab,
+  ];
 
   const tabs: RibbonTab[] = [
     {

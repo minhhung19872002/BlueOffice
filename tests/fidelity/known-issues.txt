@@ -2,3 +2,4 @@
 # Lines here are reported under "Đã biết" and do not fail CI.
 for type 'CellValues { }' | Ô t="d" (ngày ISO 8601) hợp lệ theo ECMA-376 Part 1 §18.18.11 ST_CellType; OpenXmlValidator chưa chấp nhận giá trị <v> dạng xsd:dateTime. Corpus cố ý giữ để kiểm round-trip.
 main:smartTag' | w:smartTag hợp lệ trong CT_P theo ECMA-376 Part 1 §17.5.1.9 (custom markup, Transitional); DocumentFormat.OpenXml chỉ chấp nhận ở Office 2007 (Word 2010+ bỏ smart tag) nên báo lỗi khi kiểm theo Office 2019. Corpus cố ý giữ để kiểm round-trip lossless.
+main:m' is a leaf element | a14:m (Office Math trong đoạn văn của hình, [MS-ODRAWXML]) chứa m:oMathPara / m:oMath (OMML, ECMA-376 Part 1 §22.1) như ứng dụng tham chiếu vẫn ghi; DocumentFormat.OpenXml mô hình a14:m là phần tử lá nên báo lỗi cả ở nhánh mc:Choice. Corpus slide-equation.pptx cố ý giữ để kiểm phát hiện hình phương trình (CORE-UI-008).

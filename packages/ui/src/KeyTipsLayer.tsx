@@ -26,6 +26,11 @@ export interface KeyTipsLayerProps {
   overrides?: Readonly<Record<string, string>>;
   /** Fires with true when KeyTips show, false when they go away. */
   onActive?: (active: boolean) => void;
+  /**
+   * Called just before KeyTips show (Alt / F10), in the same update: an auto-hidden ribbon
+   * shows its tab strip so the letters can be placed on it.
+   */
+  onShow?: () => void;
 }
 
 /** Ribbon key presses handled once even when several ribbons are mounted. */
@@ -93,13 +98,21 @@ function activate(el: HTMLElement) {
  * letters to run it. Escape steps back (typed letters → tab strip → off); Alt, a click or
  * leaving the window turns them off.
  */
-export function KeyTipsLayer({ root, tabs, file, onTab, overrides, onActive }: KeyTipsLayerProps) {
+export function KeyTipsLayer({
+  root,
+  tabs,
+  file,
+  onTab,
+  overrides,
+  onActive,
+  onShow,
+}: KeyTipsLayerProps) {
   const [level, setLevel] = useState<Level | null>(null);
   const [typed, setTyped] = useState('');
   const [targets, setTargets] = useState<Target[]>([]);
-  const state = useRef({ level, typed, targets, tabs, file, onTab, overrides });
+  const state = useRef({ level, typed, targets, tabs, file, onTab, overrides, onShow });
   useLayoutEffect(() => {
-    state.current = { level, typed, targets, tabs, file, onTab, overrides };
+    state.current = { level, typed, targets, tabs, file, onTab, overrides, onShow };
   });
   const alt = useRef({ down: false, clean: false });
   const tabsKey = `${file?.label ?? ''}|${tabs.map((t) => `${t.id}:${t.label}`).join(',')}`;
@@ -166,6 +179,7 @@ export function KeyTipsLayer({ root, tabs, file, onTab, overrides, onActive }: K
           if (seen.has(e) || modalOpen()) return;
           seen.add(e);
           e.preventDefault();
+          s.onShow?.();
           setLevel({ level: 'tabs' });
         }
         return;
@@ -219,7 +233,10 @@ export function KeyTipsLayer({ root, tabs, file, onTab, overrides, onActive }: K
       seen.add(e);
       e.preventDefault();
       if (state.current.level) exit();
-      else if (!modalOpen()) setLevel({ level: 'tabs' });
+      else if (!modalOpen()) {
+        state.current.onShow?.();
+        setLevel({ level: 'tabs' });
+      }
     };
     const onMouse = () => {
       alt.current.clean = false;

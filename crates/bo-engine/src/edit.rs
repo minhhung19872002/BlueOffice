@@ -1838,7 +1838,11 @@ impl crate::Engine {
                                 s.set_selection(sel);
                             }
                         }
-                        s.insert_equation(&crate::equation::build(&text, latex, display))?;
+                        let at =
+                            s.insert_equation(&crate::equation::build(&text, latex, display))?;
+                        // The caret goes after the new equation (typing / Enter continue the text;
+                        // the equation commands still find it just before the caret).
+                        s.set_selection(Selection::caret(at.focus));
                     }
                     Command::InsertRuby { ruby, replace } => {
                         if replace {
@@ -1852,7 +1856,9 @@ impl crate::Engine {
                         if let Some((sel, xml)) = s.selected_equation() {
                             if let Some(new) = crate::equation::reformat(&xml, linear) {
                                 s.set_selection(sel);
-                                s.insert_equation(&new)?;
+                                let at = s.insert_equation(&new)?;
+                                // As after inserting one: the caret just after the equation.
+                                s.set_selection(Selection::caret(at.focus));
                             }
                         }
                     }

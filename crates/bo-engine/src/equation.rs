@@ -199,6 +199,48 @@ mod tests {
         assert_eq!(r.equation.unwrap().linear, "a/b");
     }
 
+    // After inserting an equation or switching its form, the caret is just after it (not the
+    // equation selected): Enter starts a new paragraph and keeps the equation, typing goes there.
+    #[test]
+    fn enter_after_an_inserted_or_switched_equation_keeps_it() {
+        for switch in [false, true] {
+            let mut e = engine("Ta có ");
+            e.command(Command::Move {
+                motion: crate::nav::Motion::DocEnd,
+                extend: false,
+            })
+            .unwrap();
+            let r = e
+                .command(Command::InsertEquation {
+                    text: "x^2+1".into(),
+                    latex: false,
+                    display: false,
+                    replace: false,
+                    numbered: None,
+                })
+                .unwrap();
+            let after = bo_edit::Pos::new(0, "Ta có ".len() + '\u{FFFC}'.len_utf8());
+            assert_eq!(r.selection, bo_edit::Selection::caret(after));
+            assert!(r.equation.is_some());
+            if switch {
+                let r = e.command(Command::EquationFormat { linear: true }).unwrap();
+                assert_eq!(r.selection, bo_edit::Selection::caret(after));
+                assert!(r.equation.unwrap().is_linear);
+            }
+            let r = e.command(Command::SplitParagraph).unwrap();
+            assert_eq!(r.selection.focus.para, 1);
+            let r = e
+                .command(Command::InsertText {
+                    text: "tiếp".into(),
+                })
+                .unwrap();
+            assert!(r.equation.is_none(), "switch {switch}");
+            let s = e.session.as_ref().unwrap();
+            assert_eq!(s.para_text(0).unwrap(), "Ta có \u{FFFC}");
+            assert_eq!(s.para_text(1).unwrap(), "tiếp");
+        }
+    }
+
     #[test]
     fn display_detection_and_wrapping() {
         let x = build("a/b", false, true);

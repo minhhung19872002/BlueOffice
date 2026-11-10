@@ -43,7 +43,7 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Ink | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Mô hình 3D | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Cộng tác thời gian thực | all | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | collab tests + E2E | ✅ | |
-| Comment luồng | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu @mention, giao việc |
+| Comment luồng | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests, mentions.rs, mentions.test.tsx, server tests | ✅ | @mention (people part docx, mentions xlsx, ext pptx), thông báo host/e-mail, giao việc (CORE-COMMENT-001) |
 | Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests, bo-sheet diff, slide_compare, showChanges/compareVersions tests | 🟡 | so sánh Doc/Sheet/Slide + Hiện thay đổi (CORE-VERSION-001); chưa tách theo từng phiên bản trung gian |
 | Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop, protection.rs | 🟡 | + đánh dấu bản cuối, khuyến nghị chỉ đọc, vùng được sửa, nhãn độ mật (CORE-SEC-001); thiếu mật khẩu kiểu cũ w:hash |
 | Ký số | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-sign, sigline.rs | 🟡 | + dòng chữ ký BlueDoc, nhiều chữ ký (CORE-SIGLINE-001); thiếu Sheet/Slide |
@@ -55,6 +55,8 @@ ngưỡng sau khi làm mới các trang biểu đồ (bộ vẽ nay dùng cỡ c
 | Định dạng mẫu/macro (.dotx…) | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | variants.rs, bo-cli tests | 🟡 | 14 biến thể theo content type, lưu thành giữ/bỏ VBA, mở mẫu thành tài liệu mới, .thmx (CORE-FMT-001); thiếu bỏ XLM macro |
 | PDF/A, PDF có thẻ | all | — | — | ✅ | — | ✅ | ✅ | — | bo-pdf/tests/pdfa.rs, bo-engine/tests/pdf_export.rs | 🟡 | PDF/A-1b/2b/3b, cây cấu trúc, dấu trang từ đề mục/slide/sheet, hộp thoại Xuất PDF (CORE-FMT-002); chưa kiểm bằng veraPDF |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |
+| Ribbon: tab ngữ cảnh, ribbon đơn giản, thu gọn | all | — | ✅ | — | — | ✅ | ✅ | — | ribbonContext.test.tsx, ribbon-context.spec | ✅ | CORE-UI-001; ngữ cảnh phương trình/ink/đối tượng chưa phát hiện từ vùng chọn |
+| Ngăn tác vụ dock/float | all | — | ✅ | — | — | ✅ | ✅ | — | taskPanes.test.tsx, ui-task-panes.spec | 🟡 | CORE-UI-006: dock trái/phải, nổi, tab, đổi cỡ, nhớ bố cục, F6; ngăn Styles (Doc), Selection (Slide); ngăn sửa đổi chưa chuyển, chưa có Format Shape |
 
 ## BlueDoc
 

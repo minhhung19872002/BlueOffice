@@ -13,11 +13,25 @@ public sealed class WebDataProxyTests
     /// <summary>A local HTTP server answering a page and a 404.</summary>
     private static (HttpListener Listener, string Base) Serve(byte[] page)
     {
-        var port = Random.Shared.Next(20000, 60000);
-        var l = new HttpListener();
-        var b = $"http://127.0.0.1:{port}/";
-        l.Prefixes.Add(b);
-        l.Start();
+        // A random port may already be taken (other test runs on the machine): try another.
+        HttpListener l;
+        string b;
+        for (var attempt = 0; ; attempt++)
+        {
+            var port = Random.Shared.Next(20000, 60000);
+            l = new HttpListener();
+            b = $"http://127.0.0.1:{port}/";
+            l.Prefixes.Add(b);
+            try
+            {
+                l.Start();
+                break;
+            }
+            catch (HttpListenerException) when (attempt < 20)
+            {
+                l.Close();
+            }
+        }
         _ = Task.Run(async () =>
         {
             while (l.IsListening)

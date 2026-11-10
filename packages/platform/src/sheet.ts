@@ -7,7 +7,14 @@ import type { InspectCommand } from './inspect';
 import type { DataToolsCommand } from './sheetDataTools';
 import type { SparklineCommand } from './sparkline';
 import type { TableCommand } from './sheetTable';
-import type { GlyphOutline, PageDisplayList } from './types';
+import type {
+  GlyphOutline,
+  PageDisplayList,
+  SlideSmartArtColors,
+  SlideSmartArtItem,
+  SlideSmartArtLayout,
+  SlideSmartArtStyle,
+} from './types';
 
 export interface SheetSummary {
   name: string;
@@ -115,6 +122,8 @@ export type SheetHit =
   | { kind: 'filterButton'; row: number; col: number }
   /** A chart, and the cell under the point. */
   | { kind: 'chart'; index: number; row: number; col: number }
+  /** A SmartArt diagram (CORE-SMART-005), and the cell under the point. */
+  | { kind: 'smartArt'; index: number; row: number; col: number }
   | { kind: 'corner' }
   | { kind: 'none' };
 
@@ -770,6 +779,7 @@ export type SheetCommand =
       yTitle?: string;
     }
   | { cmd: 'deleteChart'; sheet: number; index: number }
+  | SheetSmartArtCommand
   | {
       cmd: 'moveChart';
       sheet: number;
@@ -1264,6 +1274,53 @@ export interface SlicerInfo {
   from: [number, number];
   to: [number, number];
   items: { label: string; selected: boolean }[];
+}
+
+/**
+ * SmartArt in BlueSheet (CORE-SMART-005, `bo_engine::sheet::smartart_cmd`): the BlueOffice layout
+ * library over a range of cells; anchors are `[row, col]`, `to` the cell holding the bottom-right
+ * corner. `insertSmartArt` / `setSmartArt` return `{ index, smartArt }`.
+ */
+export type SheetSmartArtCommand =
+  | {
+      cmd: 'insertSmartArt';
+      sheet: number;
+      layout: SlideSmartArtLayout;
+      items: SlideSmartArtItem[];
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+      from?: [number, number];
+      to?: [number, number];
+    }
+  | {
+      cmd: 'setSmartArt';
+      sheet: number;
+      index: number;
+      layout?: SlideSmartArtLayout;
+      items?: SlideSmartArtItem[];
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+    }
+  | { cmd: 'smartArtInfo'; sheet: number; index: number }
+  | {
+      cmd: 'moveSmartArt';
+      sheet: number;
+      index: number;
+      from: [number, number];
+      to: [number, number];
+    }
+  | { cmd: 'deleteSmartArt'; sheet: number; index: number };
+
+/** A SmartArt diagram of a sheet (result of `smartArtInfo`). */
+export interface SheetSmartArtInfo {
+  index: number;
+  name: string;
+  layout: SlideSmartArtLayout;
+  items: SlideSmartArtItem[];
+  colors: SlideSmartArtColors;
+  style: SlideSmartArtStyle;
+  from: [number, number];
+  to: [number, number];
 }
 
 export interface ChartInfo {

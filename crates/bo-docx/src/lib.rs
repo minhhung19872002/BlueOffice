@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod custom_xml;
+pub mod diagram;
 mod forms;
 mod ole;
 mod picture;

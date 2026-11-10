@@ -245,6 +245,8 @@ export interface FormatState {
   picture?: PictureState | null;
   /** A picture the picture tools act on is at the selection (CORE-PIC-001). */
   pictureTools?: boolean;
+  /** A SmartArt is at the selection (CORE-SMART-005). */
+  smartArt?: boolean;
   /** Proofing language of the selection (§17.3.2.20 lang, BCP 47), null when not set. */
   lang?: string | null;
   /** Spelling and grammar are not checked (§17.3.2.21 noProof). */
@@ -617,6 +619,7 @@ export type EditCommand =
   /** Embedded / linked workbooks (CORE-EMBED-001). */
   | import('./ole').OleCommand
   | import('./speech').DocSpeechCommand
+  | DocSmartArtCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   | { cmd: 'setSelection'; selection: Selection }
@@ -940,8 +943,48 @@ export interface ClipPayload {
   png?: string;
 }
 
+/**
+ * SmartArt in BlueDoc (CORE-SMART-005, `bo_engine::doc_smartart`): insert from the BlueOffice
+ * layout library at the selection, read / change the selected one (text pane, layout, look).
+ */
+export type DocSmartArtCommand =
+  | {
+      cmd: 'insertSmartArt';
+      layout: SlideSmartArtLayout;
+      items: SlideSmartArtItem[];
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+      /** Points (default: the text width, 9:16). */
+      width?: number;
+      height?: number;
+      /** Float with square wrapping instead of inline. */
+      floating?: boolean;
+    }
+  | {
+      cmd: 'setSmartArt';
+      layout?: SlideSmartArtLayout;
+      items?: SlideSmartArtItem[];
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+    }
+  | { cmd: 'smartArtInfo' };
+
+/** The SmartArt at the selection of a document (mirrors `bo_engine::doc_smartart::DocSmartArt`). */
+export interface DocSmartArtInfo {
+  layout: SlideSmartArtLayout;
+  items: SlideSmartArtItem[];
+  colors: SlideSmartArtColors;
+  style: SlideSmartArtStyle;
+  /** Frame size in points. */
+  width: number;
+  height: number;
+  floating: boolean;
+}
+
 /** Result of an editing command. */
 export interface EditResult {
+  /** The SmartArt at the selection after a SmartArt command (`null`: none). */
+  smartArt?: DocSmartArtInfo | null;
   info: DocInfo;
   selection: Selection;
   caret: CaretRect | null;

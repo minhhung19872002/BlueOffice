@@ -909,7 +909,7 @@ fn chart_anchor(wb: &Workbook, sheet: usize, index: usize) -> Option<(String, St
 }
 
 /// `(Id, Target)` of every `Relationship` element of a `.rels` part.
-fn relationship_targets(text: &str) -> Vec<(String, String)> {
+pub(crate) fn relationship_targets(text: &str) -> Vec<(String, String)> {
     let attr = |el: &str, name: &str| -> Option<String> {
         let at = el.find(&format!(" {name}=\""))? + name.len() + 3;
         let end = el[at..].find('"')? + at;
@@ -928,8 +928,12 @@ fn relationship_targets(text: &str) -> Vec<(String, String)> {
 /// oneCellAnchor, §20.5.2.33 twoCellAnchor) holding the chart with `rel_id`,
 /// with the anchor's qualified name.
 fn anchor_span(text: &str, rel_id: &str) -> Option<(usize, usize, String)> {
-    let needle = format!(":id=\"{rel_id}\"");
-    let id_at = text.find(&needle)?;
+    anchor_span_at(text, &format!(":id=\"{rel_id}\""))
+}
+
+/// Byte range and qualified name of the drawing anchor holding the attribute text `needle`.
+pub(crate) fn anchor_span_at(text: &str, needle: &str) -> Option<(usize, usize, String)> {
+    let id_at = text.find(needle)?;
     let head = &text[..id_at];
     let (start, qname) = ["twoCellAnchor", "oneCellAnchor", "absoluteAnchor"]
         .iter()
@@ -1010,7 +1014,31 @@ pub(crate) fn sync_anchors(
 /// `text` with the `from` (and `to`) cell of the anchor of `rel_id` set to the
 /// given cells; `None` when they already match.
 fn sync_anchor(text: &str, rel_id: &str, from: CellRef, to: Option<CellRef>) -> Option<String> {
-    let (s, e, qname) = anchor_span(text, rel_id)?;
+    sync_anchor_span(text, anchor_span(text, rel_id)?, from, to)
+}
+
+/// `text` with the cells of the SmartArt frame whose `dgm:relIds@r:dm` is `rel_dm` (§21.4.2.6)
+/// set to `from` / `to`; `None` when they already match.
+pub(crate) fn sync_diagram_anchor(
+    text: &str,
+    rel_dm: &str,
+    from: CellRef,
+    to: Option<CellRef>,
+) -> Option<String> {
+    sync_anchor_span(
+        text,
+        anchor_span_at(text, &format!(":dm=\"{rel_dm}\""))?,
+        from,
+        to,
+    )
+}
+
+fn sync_anchor_span(
+    text: &str,
+    (s, e, qname): (usize, usize, String),
+    from: CellRef,
+    to: Option<CellRef>,
+) -> Option<String> {
     let prefix = qname
         .rsplit_once(':')
         .map_or(String::new(), |(p, _)| format!("{p}:"));

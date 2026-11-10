@@ -1056,6 +1056,89 @@ fn corpus_smartart_is_found() {
     }
 }
 
+/// CORE-SMART-005: an edited file diagram is rewritten in place (same relationships, moved
+/// anchor); a new diagram gets its five parts, content types, relationships from the sheet drawing
+/// and a `dgm:relIds` frame (§21.4.2.6); untouched parts stay byte-for-byte.
+#[test]
+fn smartart_edited_and_new_round_trip() {
+    use bo_model::diagram::{DiagramPart, DiagramXml};
+    const DSP: &str = "http://schemas.microsoft.com/office/drawing/2008/diagram";
+    let src = build(&smartart(1));
+    let mut wb = read_xlsx(&src).unwrap();
+    let data = |text: &str, rel: &str| {
+        format!(r#"<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt modelId="{{1}}" type="doc"/><dgm:pt modelId="{{2}}"><dgm:t><a:bodyPr/><a:p><a:r><a:t>{text}</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:extLst><a:ext uri="{DSP}"><dsp:dataModelExt xmlns:dsp="{DSP}" relId="{rel}" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/></a:ext></dgm:extLst></dgm:dataModel>"#).into_bytes()
+    };
+    let parts = |text: &str, rel: &str| {
+        DiagramXml {
+        data: data(text, rel),
+        layout: b"<dgm:layoutDef xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"/>".to_vec(),
+        style: b"<dgm:styleDef xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"/>".to_vec(),
+        colors: b"<dgm:colorsDef xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"/>".to_vec(),
+        drawing: format!("<dsp:drawing xmlns:dsp=\"{DSP}\"><dsp:spTree/></dsp:drawing>").into_bytes(),
+    }
+    };
+    {
+        let d = &mut wb.sheets[0].diagrams[0];
+        assert_eq!(d.data, "/xl/diagrams/data1.xml");
+        assert_eq!(d.layout, "/xl/diagrams/layout1.xml");
+        assert_eq!(d.rel_dm, "rId1");
+        // The file's drawing relationship (rId5) is kept.
+        d.xml = Some(Box::new(parts("Sửa", "rId5")));
+        d.from = m::CellRef::new(2, 3);
+        d.to = Some(m::CellRef::new(9, 10));
+        d.moved = true;
+    }
+    let mut fresh = m::SheetDiagram {
+        from: m::CellRef::new(12, 0),
+        to: Some(m::CellRef::new(20, 5)),
+        part: "/xl/diagrams/drawing2.xml".into(),
+        name: "SmartArt mới".into(),
+        data: "/xl/diagrams/data2.xml".into(),
+        layout: "/xl/diagrams/layout2.xml".into(),
+        style: "/xl/diagrams/quickStyle2.xml".into(),
+        colors: "/xl/diagrams/colors2.xml".into(),
+        ..m::SheetDiagram::default()
+    };
+    fresh.xml = Some(Box::new(parts(
+        "Mới",
+        bo_model::diagram::DRAWING_REL_PLACEHOLDER,
+    )));
+    wb.sheets[0].diagrams.push(fresh);
+    let saved = write_xlsx(&wb).unwrap();
+    let back = read_xlsx(&saved).unwrap();
+    let d = &back.sheets[0].diagrams;
+    assert_eq!(d.len(), 2);
+    assert_eq!(d[0].from, m::CellRef::new(2, 3));
+    assert_eq!(d[0].to, Some(m::CellRef::new(9, 10)));
+    assert_eq!(d[0].part, "/xl/diagrams/drawing1.xml");
+    // The new frame's data model names its drawing part through the sheet drawing's relationship.
+    assert_eq!(d[1].part, "/xl/diagrams/drawing2.xml");
+    assert_eq!(d[1].data, "/xl/diagrams/data2.xml");
+    assert_eq!(d[1].colors, "/xl/diagrams/colors2.xml");
+    assert_eq!(d[1].from, m::CellRef::new(12, 0));
+    assert_eq!(d[1].name, "SmartArt mới");
+    let pkg = Package::read(&saved, &Limits::default()).unwrap();
+    let text = |n: &str| String::from_utf8(pkg.part(n).unwrap().data.clone()).unwrap();
+    assert!(text("/xl/diagrams/data1.xml").contains("Sửa"));
+    assert!(text("/xl/diagrams/data1.xml").contains(r#"relId="rId5""#));
+    assert!(!text("/xl/diagrams/data2.xml").contains("rIdBoDiagramDrawing"));
+    let ct = pkg.content_types().unwrap();
+    for k in DiagramPart::ALL {
+        let name = format!("/xl/diagrams/{}2.xml", k.stem());
+        assert_eq!(ct.get(&name), Some(k.content_type().as_str()), "{name}");
+    }
+    // A save without edits keeps every diagram part as read.
+    let again = write_xlsx(&read_xlsx(&src).unwrap()).unwrap();
+    let (a, b) = (
+        Package::read(&src, &Limits::default()).unwrap(),
+        Package::read(&again, &Limits::default()).unwrap(),
+    );
+    for n in ["data1", "layout1", "quickStyle1", "colors1", "drawing1"] {
+        let n = format!("/xl/diagrams/{n}.xml");
+        assert_eq!(a.part(&n).unwrap().data, b.part(&n).unwrap().data, "{n}");
+    }
+}
+
 fn extensions(i: usize) -> Book {
     let root = r#" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x15 xr" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision""#;
     let pre = format!(

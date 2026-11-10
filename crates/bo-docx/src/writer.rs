@@ -106,6 +106,11 @@ struct Writer<'d> {
     sdt_depth: usize,
     /// Form fields (§17.16.17) begun and not yet ended in the current paragraph.
     form_depth: usize,
+    /// Parts of the new / edited SmartArt diagrams written so far, with the bytes to store
+    /// (the data model naming its drawing relationship; CORE-SMART-005).
+    diagram_parts: std::collections::BTreeMap<String, Vec<u8>>,
+    /// Media parts written as pictures (a file diagram without its parts is one).
+    picture_media: std::collections::BTreeSet<String>,
 }
 
 /// Serialize a document to `.docx` bytes.
@@ -132,6 +137,8 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         in_endnote: false,
         sdt_depth: 0,
         form_depth: 0,
+        diagram_parts: std::collections::BTreeMap::new(),
+        picture_media: std::collections::BTreeSet::new(),
     };
     w.write_main(&main)?;
     w.write_styles(&main)?;
@@ -827,8 +834,12 @@ impl Writer<'_> {
             let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref());
             return Self::frame(img, id, "Shape", &graphic);
         }
+        if let Some(names) = crate::diagram::own_parts(self.doc, img) {
+            return self.diagram(img, &names);
+        }
         self.drawing_id += 1;
         let id = self.drawing_id;
+        self.picture_media.insert(img.media.clone());
         let rid = self.rels.id_for(REL_IMAGE, &img.media, false);
         let (cx, cy) = (img.width.0, img.height.0);
         let crop = img.crop.map_or(String::new(), |c| {
@@ -859,6 +870,38 @@ impl Writer<'_> {
             "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{PIC_NS}\"><pic:pic xmlns:pic=\"{PIC_NS}\"><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"Picture {id}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r=\"{R_NS}\" r:embed=\"{rid}\">{fx}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm{rot}><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"{prst}\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
         );
         Self::frame(img, id, "Picture", &graphic)
+    }
+
+    /// A SmartArt frame BlueOffice created or edited (CORE-SMART-005): `a:graphicData` with
+    /// `dgm:relIds` (ECMA-376 Part 1, §21.4.2.6) naming the data model, layout, quick style and
+    /// colours parts, plus the drawing part relationship ([MS-ODRAWXML] diagramDrawing) that the
+    /// data model's `dsp:dataModelExt@relId` names; `names` in `DiagramPart::ALL` order.
+    fn diagram(&mut self, img: &Image, names: &[String; 5]) -> String {
+        use bo_model::diagram::{self, DiagramPart};
+        let ids: Vec<String> = DiagramPart::ALL
+            .iter()
+            .zip(names)
+            .map(|(k, n)| self.rels.id_for(&k.rel_type(), n, false))
+            .collect();
+        for (k, n) in DiagramPart::ALL.iter().zip(names) {
+            let Some(bytes) = self.doc.media.get(n) else {
+                continue;
+            };
+            let bytes = if *k == DiagramPart::Data {
+                diagram::set_drawing_rel(bytes, &ids[4])
+            } else {
+                bytes.as_ref().clone()
+            };
+            self.diagram_parts.insert(n.clone(), bytes);
+        }
+        self.drawing_id += 1;
+        let id = self.drawing_id;
+        let graphic = format!(
+            "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{}\">{}</a:graphicData></a:graphic>",
+            diagram::URI_DIAGRAM,
+            diagram::rel_ids_xml(&ids[0], &ids[1], &ids[2], &ids[3])
+        );
+        Self::frame(img, id, "Diagram", &graphic)
     }
 
     /// A text-path or picture shape (watermarks) as VML in `w:pict` (ECMA-376 Part 1,
@@ -1858,7 +1901,24 @@ impl Writer<'_> {
     fn write_media(&mut self) -> Result<()> {
         self.drop_removed_media();
         let mut ct = self.pkg.content_types()?;
+        // Parts of new / edited SmartArt (§21.4) with their content types; diagram parts of the
+        // media that no frame shows any more are left out.
+        for (name, data) in &self.diagram_parts {
+            if self.pkg.part(name).is_none() {
+                self.pkg.put_part(name, data.clone());
+                if let Some((k, _, _)) = bo_model::diagram::split_name(name) {
+                    ct.set_override(name, &k.content_type());
+                }
+            }
+        }
         for (name, data) in &self.doc.media {
+            if self.diagram_parts.contains_key(name)
+                || (name.contains("/diagrams/")
+                    && bo_model::diagram::split_name(name).is_some()
+                    && !self.picture_media.contains(name))
+            {
+                continue;
+            }
             // A re-embedded object (CORE-EMBED-001) replaces its part; other parts of
             // the source stay (e.g. a SmartArt drawing part whose rendering lives here).
             let reembedded = name.starts_with("/word/embeddings/")

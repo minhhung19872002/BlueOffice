@@ -668,7 +668,10 @@ fn write_charts(
     }
     let new: Vec<&bo_model::sheet::Chart> =
         ws.charts.iter().filter(|c| c.part.is_empty()).collect();
-    if new.is_empty() && extra_anchors.is_empty() {
+    // New SmartArt frames (CORE-SMART-005); edited file diagrams are rewritten in place.
+    crate::diagram_write::write_edited(wb, ws, overrides);
+    let new_diagrams = crate::diagram_write::new_diagrams(ws);
+    if new.is_empty() && extra_anchors.is_empty() && new_diagrams.is_empty() {
         return None;
     }
     let is_ex = |c: &bo_model::sheet::Chart| c.plots.first().is_some_and(|p| p.kind.is_ex());
@@ -727,6 +730,14 @@ fn write_charts(
         .map(|(i, (c, id))| anchor_xml(c, base_id + i as u32, id))
         .collect();
     anchors.push_str(extra_anchors);
+    let (rels_bytes, diagram_anchors) = crate::diagram_write::append_new(
+        rels_bytes,
+        &dpath,
+        &new_diagrams,
+        base_id + new.len() as u32 + 100,
+        out_parts,
+    );
+    anchors.push_str(&diagram_anchors);
     if opaque(&rels_name).is_some() {
         overrides.insert(rels_name, rels_bytes);
     } else {

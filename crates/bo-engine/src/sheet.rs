@@ -41,6 +41,7 @@ mod print_job;
 pub mod protect;
 mod scenario_cmd;
 mod security_cmd;
+mod smartart_cmd;
 mod solver_cmd;
 mod sortfilter_cmd;
 mod sparkline_cmd;
@@ -67,12 +68,14 @@ fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, 
             if out.contains_key(&d.part) {
                 continue;
             }
-            let Some(xml) = wb
-                .opaque
-                .parts
-                .iter()
-                .find(|p| p.name.eq_ignore_ascii_case(&d.part))
-            else {
+            // A new or edited diagram (CORE-SMART-005) is drawn from its own parts.
+            let Some(xml) = d.xml.as_ref().map(|x| x.drawing.as_slice()).or_else(|| {
+                wb.opaque
+                    .parts
+                    .iter()
+                    .find(|p| p.name.eq_ignore_ascii_case(&d.part))
+                    .map(|p| p.data.as_slice())
+            }) else {
                 continue;
             };
             let to = d.to.unwrap_or(CellRef::new(
@@ -83,14 +86,26 @@ fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, 
             let h = g.row_y(to.row) - g.row_y(d.from.row);
             #[allow(clippy::cast_possible_truncation)]
             let (we, he) = ((w * EMU_PER_PT) as i64, (h * EMU_PER_PT) as i64);
-            if let Some(commands) =
-                bo_pptx::diagram::render_drawing(&xml.data, &d.part, we, he, fonts)
-            {
+            if let Some(commands) = bo_pptx::diagram::render_drawing(xml, &d.part, we, he, fonts) {
                 out.insert(d.part.clone(), DrawingOverlay { w, h, commands });
             }
         }
     }
     out
+}
+
+/// Fingerprint of the SmartArt diagrams of a workbook (anchors, parts and new / edited drawings).
+fn diagrams_key(wb: &Workbook) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (i, ws) in wb.sheets.iter().enumerate() {
+        for d in &ws.diagrams {
+            (i, &d.part, d.from.row, d.from.col).hash(&mut h);
+            d.to.map(|t| (t.row, t.col)).hash(&mut h);
+            d.xml.as_ref().map(|x| &x.drawing).hash(&mut h);
+        }
+    }
+    h.finish()
 }
 
 /// Summary of an open workbook.
@@ -196,6 +211,15 @@ pub enum HitInfo {
         /// 0-based column of the cell under the point.
         col: u32,
     },
+    /// A SmartArt diagram on the sheet (CORE-SMART-005), and the cell under the point.
+    SmartArt {
+        /// 0-based index of the diagram in the sheet.
+        index: usize,
+        /// 0-based row of the cell under the point.
+        row: u32,
+        /// 0-based column of the cell under the point.
+        col: u32,
+    },
     /// The top-left corner (select all).
     Corner,
     /// Outside the grid.
@@ -287,8 +311,10 @@ pub struct SheetEngine {
     save_variant: Option<crate::variant::Variant>,
     /// Cells the last legacy-font conversion changed.
     legacy_converted: usize,
-    /// SmartArt drawing fallbacks of the open workbook, drawn once on load.
+    /// SmartArt drawing fallbacks of the open workbook, drawn on load and when a diagram changes.
     drawings: Arc<BTreeMap<String, DrawingOverlay>>,
+    /// Fingerprint of the diagrams `drawings` were drawn for.
+    drawings_key: u64,
     /// Package parts the document inspector drops on the next save.
     scrub: crate::inspect::package::Scrub,
     /// Final mark, labels and read-only state (CORE-SEC-001).
@@ -683,6 +709,7 @@ impl SheetEngine {
             save_variant: None,
             legacy_converted: 0,
             drawings: Arc::default(),
+            drawings_key: 0,
             scrub: crate::inspect::package::Scrub::default(),
             sec: crate::security::FileSecurity::default(),
             open_ranges: Vec::new(),
@@ -902,6 +929,7 @@ impl SheetEngine {
             }
         }
         self.drawings = Arc::new(diagram_overlays(&wb, &mut self.fonts));
+        self.drawings_key = diagrams_key(&wb);
         self.clip = None;
         self.collab = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
@@ -1007,8 +1035,20 @@ impl SheetEngine {
         }
     }
 
+    /// Draw the SmartArt diagrams again when one was inserted, edited, moved or deleted (or such
+    /// an edit was undone).
+    fn refresh_drawings(&mut self) {
+        let Some(wb) = self.wb.as_ref() else { return };
+        let key = diagrams_key(wb);
+        if key != self.drawings_key {
+            self.drawings = Arc::new(diagram_overlays(wb, &mut self.fonts));
+            self.drawings_key = key;
+        }
+    }
+
     /// Display list of the visible part of a sheet.
     pub fn render(&mut self, req: &ViewRequest) -> Result<PageList> {
+        self.refresh_drawings();
         self.geometry(req.sheet)?;
         let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
         let geom = self
@@ -1057,16 +1097,41 @@ impl SheetEngine {
     /// AutoFilter buttons and charts included).
     pub fn hit_test(&mut self, req: &ViewRequest, x: f64, y: f64) -> Result<HitInfo> {
         const EDGE: f64 = 3.0;
-        let (charts, filter) = {
+        let (charts, filter, diagrams) = {
             let ws = self.sheet(req.sheet)?;
             (
                 ws.charts.iter().map(|c| (c.from, c.to)).collect::<Vec<_>>(),
                 ws.auto_filter.as_ref().map(|a| a.range),
+                ws.diagrams
+                    .iter()
+                    .map(|d| (d.from, d.to))
+                    .collect::<Vec<_>>(),
             )
         };
         let (layout, geom) = self.layout(req)?;
         let hit = layout.hit_test(geom, x, y);
-        // Charts are drawn above the cells.
+        // Charts and SmartArt are drawn above the cells.
+        if let Hit::Cell(under) = hit {
+            for (i, (from, to)) in diagrams.iter().enumerate().rev() {
+                let to = to.unwrap_or(bo_model::sheet::CellRef::new(
+                    from.row.saturating_add(10),
+                    from.col.saturating_add(6),
+                ));
+                let (Some(a), Some(b)) = (
+                    layout.cell_screen_rect(geom, from.row, from.col),
+                    layout.cell_screen_rect(geom, to.row, to.col),
+                ) else {
+                    continue;
+                };
+                if x >= a.x && x < b.x && y >= a.y && y < b.y {
+                    return Ok(HitInfo::SmartArt {
+                        index: i,
+                        row: under.row,
+                        col: under.col,
+                    });
+                }
+            }
+        }
         if matches!(hit, Hit::Cell(_)) {
             for (i, (from, to)) in charts.iter().enumerate().rev() {
                 let to = to.unwrap_or(bo_model::sheet::CellRef::new(

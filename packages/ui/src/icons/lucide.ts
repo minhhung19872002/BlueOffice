@@ -440,6 +440,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'slide.new': lucide(SquarePlus),
   'slide.paste': lucide(ClipboardPaste),
   'smartart.edit': lucide(Pencil),
+  'smartart.delete': lucide(Trash2),
   'smartart.toShapes': lucide(Shapes),
   'style.heading1': lucide(Heading1),
   'style.heading2': lucide(Heading2),

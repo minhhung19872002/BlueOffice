@@ -8,6 +8,7 @@ import {
   PasswordDialog,
   SaveAsTypeDialog,
   SavePasswordPanel,
+  SmartArtDialog,
   SymbolPanel,
   PrintPanel,
   clipboardHistory,
@@ -22,6 +23,7 @@ import {
   registerObjectCommands,
   useReadAloud,
   type ClipItem,
+  type SmartArtDraft,
 } from '@blueoffice/editor';
 import { slideReadRequest } from './readAloud';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
@@ -184,7 +186,6 @@ import {
   slideChartDesignGroups,
   slideGalleryLoader,
 } from './chartStyles';
-import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { SlideCheckDocumentDialog } from './inspect';
 import { SlideController } from './controller';
 import { SlideSpellDialog, SlideSpellLayer, useSlideSpelling } from './spelling';

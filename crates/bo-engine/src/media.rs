@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Picture size (EMU) of every media part referenced by a picture.
-fn sizes(doc: &Document) -> BTreeMap<String, (i64, i64)> {
+pub(crate) fn sizes(doc: &Document) -> BTreeMap<String, (i64, i64)> {
     fn visit(blocks: &[Block], out: &mut BTreeMap<String, (i64, i64)>) {
         for b in blocks {
             match b {

@@ -192,6 +192,8 @@ import {
   Bookmark,
   Scale,
   Volume2,
+  Network,
+  Pencil,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
@@ -308,6 +310,7 @@ import { registerReadAloudCommands } from './readAloudCommands';
 import { docReadRequest } from './docReadAloud';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
+import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 
 /** Options controlled by the embedding host (prompt §3.5). */
 export interface HostConfig {
@@ -427,6 +430,11 @@ function EditorInner({
   /** Clipboard history panel (Home › Clipboard launcher). */
   const [clipPanel, setClipPanel] = useState(false);
   const [equationTemplates, setEquationTemplates] = useState<{ id: string; linear: string }[]>([]);
+  /** SmartArt dialog (CORE-SMART-005): insert from the layout library or edit the selected one. */
+  const [smartArtDialog, setSmartArtDialog] = useState<{
+    mode: 'insert' | 'edit';
+    initial: SmartArtDraft;
+  } | null>(null);
   const dialogOpen = state.dialog;
   useEffect(() => {
     if (dialogOpen !== 'equation' || equationTemplates.length > 0) return;
@@ -1470,6 +1478,38 @@ function EditorInner({
       isChecked: formsLocked,
       run: () => store.setState({ dialog: 'protectForms' }),
     });
+    // SmartArt (CORE-SMART-005): the BlueSlide layout library, inline at the selection.
+    r.register({
+      id: 'insert.smartart',
+      isEnabled: hasDoc,
+      run: () =>
+        setSmartArtDialog({
+          mode: 'insert',
+          initial: {
+            layout: 'process',
+            items: [1, 2, 3].map((n) => ({
+              text: i18nInstance.t('slideEditor.smartart.sampleItem', { n }),
+              level: 0,
+            })),
+            colors: 'colorful',
+            style: 'fill',
+          },
+        }),
+    });
+    r.register({
+      id: 'smartart.edit',
+      isEnabled: (s) => hasDoc(s) && !!s.edit?.format.smartArt,
+      run: async () => {
+        const r = await controller.current?.run({ cmd: 'smartArtInfo' });
+        const a = r?.smartArt;
+        if (a) {
+          setSmartArtDialog({
+            mode: 'edit',
+            initial: { layout: a.layout, items: a.items, colors: a.colors, style: a.style },
+          });
+        }
+      },
+    });
     r.register({
       id: 'insert.equation',
       shortcut: 'Alt+=',
@@ -2393,6 +2433,24 @@ function EditorInner({
       }),
     hub: objectHub,
   });
+  // SmartArt tab (CORE-SMART-005) for the diagram at the selection.
+  const smartArtTab: RibbonTab[] = fs?.smartArt
+    ? [
+        {
+          id: 'smartart',
+          label: t('slideEditor.smartart.tab'),
+          groups: [
+            {
+              id: 'smartartEdit',
+              label: t('slideEditor.smartart.group'),
+              items: [
+                item('smartart.edit', 'slideEditor.smartart.textPane', <Pencil size={ICON} />),
+              ],
+            },
+          ],
+        },
+      ]
+    : [];
   // Status bar: proofing language of the selection (§17.3.2.20 lang).
   const languageLabel = fs?.lang
     ? (PROOF_LANGUAGES as readonly string[]).includes(fs.lang)
@@ -2774,6 +2832,7 @@ function EditorInner({
             item('insert.image', 'commands.insert.image', <Image size={ICON} />),
             item('object.insert', 'commands.object.insert', <FileSpreadsheet size={ICON} />),
             s('object.updateLinks', 'commands.object.updateLinks', <RefreshCw size={SMALL} />),
+            item('insert.smartart', 'commands.insert.smartart', <Network size={ICON} />),
           ],
         },
         {
@@ -3450,7 +3509,7 @@ function EditorInner({
       {app === 'doc' ? (
         <>
           <CommandSearch
-            tabs={[...tabs, ...tableTab, ...pictureTab]}
+            tabs={[...tabs, ...tableTab, ...pictureTab, ...smartArtTab]}
             open={searchOpen}
             onClose={() => {
               setSearchOpen(false);
@@ -3464,9 +3523,11 @@ function EditorInner({
           />
           {!(state.focusMode && state.doc) && (
             <Ribbon
-              tabs={[...tabs, ...tableTab, ...pictureTab]}
+              tabs={[...tabs, ...tableTab, ...pictureTab, ...smartArtTab]}
               value={
-                (tab === 'table' && !fs?.table) || (tab === 'pictureFormat' && !picture.tab)
+                (tab === 'table' && !fs?.table) ||
+                (tab === 'pictureFormat' && !picture.tab) ||
+                (tab === 'smartart' && !fs?.smartArt)
                   ? 'home'
                   : tab
               }
@@ -3630,6 +3691,28 @@ function EditorInner({
                 toTable={state.dialog === 'textToTable'}
                 run={runCommand}
                 onClose={closeDialog}
+              />
+            )}
+            {smartArtDialog && (
+              <SmartArtDialog
+                mode={smartArtDialog.mode}
+                initial={smartArtDialog.initial}
+                onClose={() => {
+                  setSmartArtDialog(null);
+                  focusDoc();
+                }}
+                onApply={(d) => {
+                  const mode = smartArtDialog.mode;
+                  setSmartArtDialog(null);
+                  void runCommand(
+                    mode === 'insert'
+                      ? { cmd: 'insertSmartArt', ...d }
+                      : { cmd: 'setSmartArt', ...d },
+                  ).then((r) => {
+                    if (r?.error) fail('errors.smartArt', r.error);
+                    focusDoc();
+                  });
+                }}
               />
             )}
             {state.dialog === 'equation' && (

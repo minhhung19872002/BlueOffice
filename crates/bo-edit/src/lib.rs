@@ -38,6 +38,7 @@ pub mod revisions;
 pub mod section;
 pub mod shapes;
 pub mod sigline;
+pub mod smartart;
 pub mod table;
 pub mod table_tools;
 
@@ -500,6 +501,8 @@ pub struct FormatState {
     pub table: Option<TableState>,
     /// Floating picture at the selection (§20.4.2.3 anchor).
     pub picture: Option<picture::PictureState>,
+    /// A SmartArt is at the selection (CORE-SMART-005).
+    pub smart_art: bool,
     /// A picture the picture tools act on is at the selection (CORE-PIC-001).
     pub picture_tools: bool,
     /// Advanced character formatting (Font dialog).
@@ -3231,6 +3234,7 @@ impl Session {
             table: self.table_state(),
             picture: self.picture_state(),
             picture_tools: self.tools_target().is_some(),
+            smart_art: self.smartart_target().is_some(),
             advanced: charfx::CharAdvanced::of(&r),
         }
     }

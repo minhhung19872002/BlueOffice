@@ -229,6 +229,7 @@ import {
   SlidersHorizontal,
   LockKeyhole,
   BookOpen,
+  BookOpenText,
   Globe,
   ScrollText,
   Focus,
@@ -375,6 +376,8 @@ import { NavigationPane } from './NavigationPane';
 import { XmlMappingPane } from './XmlMappingPane';
 import { OutlineView } from './OutlineView';
 import { ReadMode } from './ReadMode';
+import { FocusedReader } from './FocusedReader';
+import { docReaderBlocks, readerStart } from './docFocusedReader';
 import { PrintPanel } from './print/PrintPanel';
 import { useReadAloud, type ReadAloud } from './ReadAloudBar';
 import { registerReadAloudCommands } from './readAloudCommands';
@@ -2601,6 +2604,24 @@ function EditorInner({
         },
       });
     }
+    // Focused reader (CORE-LANG-004): the document's text, reflowed for reading.
+    r.register({
+      id: 'view.focusedReader',
+      isEnabled: hasDoc,
+      isChecked: (s) => s.focusedReader !== null,
+      run: async (s) => {
+        if (s.focusedReader) {
+          store.setState({ focusedReader: null });
+          view.current?.focus();
+          return;
+        }
+        readAloudRef.current?.stop();
+        const blocks = await docReaderBlocks(platform.engine, i18nInstance.language || 'vi-VN');
+        store.setState({
+          focusedReader: { blocks, start: readerStart(blocks, s.edit?.selection.focus.p) },
+        });
+      },
+    });
     r.register({
       id: 'view.focus',
       isEnabled: hasDoc,
@@ -4250,6 +4271,7 @@ function EditorInner({
             item('view.outline', 'commands.view.outline', <ListTree size={ICON} />),
             item('view.draft', 'commands.view.draft', <ScrollText size={ICON} />),
             item('view.focus', 'commands.view.focus', <Focus size={ICON} />),
+            item('view.focusedReader', 'commands.view.focusedReader', <BookOpenText size={ICON} />),
           ],
         },
         {
@@ -4957,6 +4979,20 @@ function EditorInner({
                   const back = beforeRead.current;
                   store.setState({ viewMode: back === 'read' ? 'print' : back });
                   requestAnimationFrame(() => view.current?.scrollToPage(page));
+                  view.current?.focus();
+                }}
+              />
+            )}
+            {state.focusedReader && state.doc && (
+              <FocusedReader
+                name={state.doc.name}
+                blocks={state.focusedReader.blocks}
+                start={state.focusedReader.start}
+                speech={platform.speech}
+                settings={platform.shell}
+                highContrast={resolvedTheme === 'hc'}
+                onExit={() => {
+                  store.setState({ focusedReader: null });
                   view.current?.focus();
                 }}
               />

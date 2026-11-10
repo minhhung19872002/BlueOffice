@@ -15,6 +15,7 @@ import type {
 } from '@blueoffice/platform';
 import type { ThemeSetting } from '@blueoffice/ui';
 import { createStore } from 'zustand/vanilla';
+import type { ReaderBlock } from './FocusedReader';
 import type { ReferenceDialogId } from './ReferenceDialogs';
 
 export type Status =
@@ -162,6 +163,8 @@ export interface EditorState {
   viewMode: 'print' | 'web' | 'draft' | 'outline' | 'read';
   /** Focus mode: ribbon and status bar hidden. */
   focusMode: boolean;
+  /** Focused reader (CORE-LANG-004): its text and the block to start at (null: closed). */
+  focusedReader: { blocks: ReaderBlock[]; start: number } | null;
   /** Navigation pane tab (null: closed). */
   navPane: 'headings' | 'pages' | 'results' | null;
   /** Open task panes besides navigation (CORE-UI-006), in opening order. */
@@ -211,6 +214,7 @@ export const initialState = (language: Language, theme: ThemeSetting): EditorSta
   proofErrors: null,
   viewMode: 'print',
   focusMode: false,
+  focusedReader: null,
   navPane: null,
   taskPanes: [],
   showMarks: false,

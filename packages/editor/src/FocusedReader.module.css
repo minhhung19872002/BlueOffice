@@ -1,0 +1,218 @@
+/* Focused reader (CORE-LANG-004). The page colours come from the reader's own palettes
+   (inline custom properties); without them — the app's high-contrast theme — the app tokens
+   apply. */
+
+.root {
+  --r-bg: var(--bo-bg, #000);
+  --r-text: var(--bo-text, #fff);
+  --r-muted: var(--bo-text-muted, #fff);
+  --r-bar: var(--bo-surface, #000);
+  --r-border: var(--bo-border, #fff);
+  --r-mark-bg: var(--bo-focus, #ffd600);
+  --r-mark-text: #000;
+  --r-focus: var(--bo-focus, #ffd600);
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--r-bg);
+  color: var(--r-text);
+  font: 14px var(--bo-font, system-ui, sans-serif);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--r-border);
+  background: var(--r-bar);
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.button,
+.toggle,
+.select,
+.showTools {
+  min-height: 30px;
+  border: 1px solid var(--r-border);
+  border-radius: 6px;
+  background: var(--r-bg);
+  color: var(--r-text);
+  font: inherit;
+}
+
+.button,
+.showTools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.toggle[aria-pressed='true'] {
+  background: var(--r-text);
+  color: var(--r-bg);
+}
+
+.button:disabled,
+.toggle:disabled,
+.select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.select {
+  padding: 0 4px;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--r-text);
+}
+
+.value {
+  min-width: 52px;
+  text-align: center;
+  color: var(--r-text);
+}
+
+.button:focus-visible,
+.toggle:focus-visible,
+.select:focus-visible,
+.showTools:focus-visible,
+.scroller:focus-visible {
+  outline: 2px solid var(--r-focus);
+  outline-offset: 2px;
+}
+
+.showTools {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 22px;
+}
+
+.scroller {
+  flex: 1;
+  overflow-y: auto;
+  outline-offset: -2px;
+}
+
+.page {
+  position: relative;
+  min-height: 100%;
+  padding: 32px 24px 64px;
+  box-sizing: border-box;
+}
+
+/* Any line can reach the middle of the view. */
+.page[data-line-focus] {
+  padding-top: 50vh;
+  padding-bottom: 50vh;
+}
+
+.column {
+  max-width: var(--r-column);
+  margin: 0 auto;
+  font-family: var(--bo-font, system-ui, sans-serif);
+  font-size: var(--r-size);
+  line-height: var(--r-line);
+  letter-spacing: var(--r-letter);
+  word-spacing: var(--r-word);
+  overflow-wrap: break-word;
+}
+
+.para {
+  margin: 0 0 0.9em;
+}
+
+.heading {
+  margin: 1.1em 0 0.5em;
+  font-size: 1.3em;
+  font-weight: 700;
+  line-height: max(1.25, calc(var(--r-line) * 0.85));
+}
+
+h1.heading {
+  font-size: 1.6em;
+}
+
+h2.heading {
+  font-size: 1.4em;
+}
+
+.empty {
+  color: var(--r-muted);
+}
+
+/* Syllable mark: a dot before every syllable but the first (not part of the text). */
+.syllable::before {
+  content: '\00b7';
+  color: var(--r-muted);
+  letter-spacing: 0;
+  margin: 0 0.06em;
+}
+
+.spoken {
+  border-radius: 3px;
+  background: var(--r-mark-bg);
+  color: var(--r-mark-text);
+  box-shadow: 0 0 0 2px var(--r-mark-bg);
+}
+
+.spoken .syllable::before {
+  color: var(--r-mark-text);
+}
+
+/* Line focus: the text outside the focused lines is dimmed. */
+.dim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--r-bg);
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .spoken {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: 0 0 0 2px Highlight;
+  }
+
+  .toggle[aria-pressed='true'] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .dim {
+    background: Canvas;
+  }
+}

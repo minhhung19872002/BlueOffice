@@ -688,6 +688,16 @@ export type SheetCommand =
   | import('./cellMedia').CellMediaCommand
   /** Tables (SHEET-TABLE-001). */
   | TableCommand
+  /**
+   * Choices of the next `exportPdf` (CORE-FMT-002): PDF/A part, tagged PDF and
+   * bookmarks (one per sheet). Returns the choices.
+   */
+  | {
+      cmd: 'setPdfExport';
+      pdfa?: import('./slideExport').PdfAPart | null;
+      tagged?: boolean;
+      bookmarks?: boolean;
+    }
   /** TCVN3 / VNI text → Unicode (legacy Vietnamese fonts); one undo step. */
   | { cmd: 'convertLegacyText' }
   /** Threaded comments of a sheet ([MS-XLSX] threaded comments) → `SheetThreadInfo[]`. */

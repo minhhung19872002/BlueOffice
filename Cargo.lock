@@ -548,6 +548,7 @@ dependencies = [
  "bo-model",
  "bo-odf",
  "bo-opc",
+ "bo-pdf",
  "bo-pptx",
  "bo-sheet",
  "bo-sign",
@@ -770,6 +771,8 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "pdf-writer",
  "png",
+ "serde",
+ "serde_json",
  "subsetter",
  "thiserror 2.0.21",
 ]

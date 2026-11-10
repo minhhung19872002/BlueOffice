@@ -101,7 +101,8 @@
       "printNow": "In ngay",
       "verifySignatures": "Kiểm tra chữ ký",
       "checkUpdates": "Kiểm tra cập nhật",
-      "signLine": "Ký vào dòng chữ ký…"
+      "signLine": "Ký vào dòng chữ ký…",
+      "exportPdfOptions": "Xuất PDF/A, PDF có thẻ…"
     },
     "edit": {
       "paste": "Dán",
@@ -5326,5 +5327,20 @@
     "nothing": "Không có chữ nào để đọc.",
     "error": "Không đọc to được ({{error}}).",
     "withNotes": "Đọc cả ghi chú"
+  },
+  "pdfExport": {
+    "title": "Xuất PDF",
+    "conformance": "Chuẩn lưu trữ (PDF/A)",
+    "none": "PDF thường",
+    "part1b": "PDF/A-1b (ISO 19005-1)",
+    "part2b": "PDF/A-2b (ISO 19005-2)",
+    "part3b": "PDF/A-3b (ISO 19005-3, đính kèm tệp gốc)",
+    "tagged": "PDF có thẻ (cấu trúc cho trình đọc màn hình)",
+    "bookmarks": "Tạo dấu trang từ đề mục",
+    "note1b": "PDF/A-1b không cho phép trong suốt: độ mờ được trộn lên nền trắng, bóng mờ bị bỏ.",
+    "export": "Xuất",
+    "cancel": "Huỷ",
+    "bookmarksSlides": "Tạo dấu trang từ tiêu đề trang chiếu",
+    "bookmarksSheets": "Tạo dấu trang từ tên trang tính"
   }
 }

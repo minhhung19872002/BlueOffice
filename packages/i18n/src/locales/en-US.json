@@ -101,7 +101,8 @@
       "printNow": "Print now",
       "verifySignatures": "Verify signatures",
       "checkUpdates": "Check for updates",
-      "signLine": "Sign a signature line…"
+      "signLine": "Sign a signature line…",
+      "exportPdfOptions": "Export PDF/A, tagged PDF…"
     },
     "edit": {
       "paste": "Paste",
@@ -5326,5 +5327,20 @@
     "nothing": "There is no text to read.",
     "error": "Could not read aloud ({{error}}).",
     "withNotes": "Include notes"
+  },
+  "pdfExport": {
+    "title": "Export PDF",
+    "conformance": "Archival standard (PDF/A)",
+    "none": "Plain PDF",
+    "part1b": "PDF/A-1b (ISO 19005-1)",
+    "part2b": "PDF/A-2b (ISO 19005-2)",
+    "part3b": "PDF/A-3b (ISO 19005-3, embeds the source file)",
+    "tagged": "Tagged PDF (structure for screen readers)",
+    "bookmarks": "Create bookmarks from headings",
+    "note1b": "PDF/A-1b allows no transparency: opacity is mixed over white and soft shadows are left out.",
+    "export": "Export",
+    "cancel": "Cancel",
+    "bookmarksSlides": "Create bookmarks from slide titles",
+    "bookmarksSheets": "Create bookmarks from sheet names"
   }
 }

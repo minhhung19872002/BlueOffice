@@ -287,8 +287,8 @@ enum UndoEntry {
 
 /// The sheet engine.
 pub struct SheetEngine {
-    fonts: FontManager,
-    name: String,
+    pub(crate) fonts: FontManager,
+    pub(crate) name: String,
     wb: Option<Workbook>,
     geometry: Vec<Option<SheetGeometry>>,
     locale: Locale,
@@ -331,6 +331,8 @@ pub struct SheetEngine {
     web_images: cell_media_cmd::WebImages,
     /// Sheets of the last print preview (CORE-PRINT-001).
     print_cache: crate::print::PreviewCache,
+    /// PDF/A part, tagged PDF and bookmarks of `export_pdf` (CORE-FMT-002).
+    pub(crate) pdf_export: bo_pdf::ExportChoices,
 }
 
 impl Default for SheetEngine {
@@ -718,6 +720,7 @@ impl SheetEngine {
             spell: crate::spell::SpellState::default(),
             web_images: cell_media_cmd::WebImages::default(),
             print_cache: crate::print::PreviewCache::default(),
+            pdf_export: bo_pdf::ExportChoices::default(),
         }
     }
 

@@ -49,4 +49,21 @@ export interface PackageExport {
   kind: 'package';
 }
 
-export type SlideExportOptions = HandoutExport | NotesExport | ImageExport | PackageExport;
+/**
+ * The open document or deck as PDF (CORE-FMT-002): PDF/A level B conformance
+ * (ISO 19005-1/-2/-3; `3b` embeds the source file), tagged PDF (logical
+ * structure, ISO 32000-1 §14.8) and bookmarks (§12.3.3) from headings, slide
+ * titles or sheet names. Also served for BlueDoc by `exportSlides`.
+ */
+export interface PdfExport {
+  kind: 'pdf';
+  pdfa?: PdfAPart;
+  tagged?: boolean;
+  bookmarks?: boolean;
+}
+
+/** PDF/A part, conformance level B. */
+export type PdfAPart = '1b' | '2b' | '3b';
+
+export type SlideExportOptions =
+  HandoutExport | NotesExport | ImageExport | PackageExport | PdfExport;

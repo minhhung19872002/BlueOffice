@@ -619,7 +619,59 @@ pub fn build_display_list(layout: &LayoutDocument, fonts: &FontManager) -> Displ
 
 /// Display list of one laid-out page (see [`build_display_list`]).
 pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
+    page_list(page, fonts, None)
+}
+
+/// What a range of a page's commands draws (for the logical structure of
+/// tagged PDF: ranges follow the source lines and pictures of the layout).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpanSource {
+    /// A text line (its paragraph is `LineSource`).
+    Line(LineSource),
+    /// A picture with this media id.
+    Image(String),
+}
+
+/// Commands `start..end` of a page list come from `source`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandSpan {
+    /// First command.
+    pub start: usize,
+    /// End (exclusive).
+    pub end: usize,
+    /// Origin of the commands.
+    pub source: SpanSource,
+}
+
+/// [`build_page_list`] plus the source of each text line and picture, in
+/// painting order (commands of page decoration, shapes and rules have none).
+pub fn build_page_list_spans(page: &Page, fonts: &FontManager) -> (PageList, Vec<CommandSpan>) {
+    let mut spans = Vec::new();
+    let list = page_list(page, fonts, Some(&mut spans));
+    (list, spans)
+}
+
+fn page_list(
+    page: &Page,
+    fonts: &FontManager,
+    mut spans: Option<&mut Vec<CommandSpan>>,
+) -> PageList {
     let mut commands = Vec::new();
+    let mut span = |commands: &Vec<Command>, start: usize, source: SpanSource| {
+        if let Some(s) = spans.as_deref_mut() {
+            if commands.len() > start {
+                s.push(CommandSpan {
+                    start,
+                    end: commands.len(),
+                    source,
+                });
+            }
+        }
+    };
+    let item_source = |item: &PageItem| match item {
+        PageItem::Image { media, .. } => Some(SpanSource::Image(media.clone())),
+        _ => None,
+    };
     // Page colour (ECMA-376 Part 1, §17.2.1 background) under everything.
     if let Some(c) = page.decor.background {
         commands.push(Command::FillRect {
@@ -637,14 +689,24 @@ pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
         }
     }
     for item in page.items.iter().filter(|i| i.layer() == Layer::Back) {
+        let start = commands.len();
         item_commands(item, &mut commands);
+        if let Some(src) = item_source(item) {
+            span(&commands, start, src);
+        }
     }
     let boxed = |l: &Line| matches!(l.source, LineSource::TextBox { .. });
     for line in page.lines.iter().filter(|l| !boxed(l)) {
+        let start = commands.len();
         line_commands(line, fonts, &mut commands);
+        span(&commands, start, SpanSource::Line(line.source));
     }
     for item in page.items.iter().filter(|i| i.layer() == Layer::Front) {
+        let start = commands.len();
         item_commands(item, &mut commands);
+        if let Some(src) = item_source(item) {
+            span(&commands, start, src);
+        }
     }
     if !page.decor.borders_behind {
         for item in &page.decor.borders {
@@ -653,7 +715,9 @@ pub fn build_page_list(page: &Page, fonts: &FontManager) -> PageList {
     }
     // Text box text goes over its shape (§17.17.1 txbxContent).
     for line in page.lines.iter().filter(|l| boxed(l)) {
+        let start = commands.len();
         line_commands(line, fonts, &mut commands);
+        span(&commands, start, SpanSource::Line(line.source));
     }
     PageList {
         width: page.width,

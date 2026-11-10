@@ -76,6 +76,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `file.editTemplate` | Lucide (ISC) `FilePenLine` |
 | `file.exportDocs` | Lucide (ISC) `FileOutput` |
 | `file.exportPdf` | Lucide (ISC) `FileDown` |
+| `file.exportPdfOptions` | Lucide (ISC) `FileDown` |
 | `file.exportPng` | Lucide (ISC) `FileImage` |
 | `file.exportSignedPdf` | Lucide (ISC) `FileDown` |
 | `file.exportVideo` | Lucide (ISC) `FilePlay` |

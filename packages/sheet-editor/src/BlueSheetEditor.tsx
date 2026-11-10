@@ -187,6 +187,7 @@ import {
   useFileProtection,
   MacroBanner,
   PasswordDialog,
+  PdfExportDialog,
   SaveAsTypeDialog,
   SavePasswordPanel,
   SmartArtDialog,
@@ -529,6 +530,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [templateFile, setTemplateFile] = useState<PendingFile | null>(null);
   /** "Save as" file type dialog. */
   const [saveAsType, setSaveAsType] = useState(false);
+  /** PDF/A, tagged PDF and bookmarks dialog (CORE-FMT-002). */
+  const [pdfOptions, setPdfOptions] = useState(false);
   const [fileName, setFileName] = useState('');
   const [sheet, setSheet] = useState(0);
   const [selection, setSelection] = useState<Selection>(single({ row: 0, col: 0 }));
@@ -1789,6 +1792,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       has,
     );
+    add('file.exportPdfOptions', async () => setPdfOptions(true), has);
     const printNow = async (s: SheetEditorState) =>
       platform.print.printPdf(await s.host.exportPdf(), baseName());
     // The print panel (sheets, selection, titles, gridlines, pages per sheet, preview).
@@ -3124,6 +3128,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               ),
               item('file.saveCsv', t('sheetEditor.saveCsv'), <Table2 size={s} />, 'small'),
               item('file.exportPdf', t('sheetEditor.exportPdf'), <FileDown size={s} />, 'small'),
+              item(
+                'file.exportPdfOptions',
+                t('commands.file.exportPdfOptions'),
+                <FileDown size={s} />,
+                'small',
+              ),
               item('file.print', t('sheetEditor.print'), <Printer size={s} />, 'small'),
             ],
           },
@@ -4205,6 +4215,33 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       </div>
       {macroBanner && <MacroBanner inline onDismiss={() => setMacroBanner(false)} />}
+      {pdfOptions && (
+        <PdfExportDialog
+          app="sheet"
+          onClose={() => setPdfOptions(false)}
+          onExport={(c) => {
+            void (async () => {
+              try {
+                // The choices hold for one export; plain PDF afterwards.
+                const { pdfa, tagged, bookmarks } = c;
+                await host.exec({ cmd: 'setPdfExport', pdfa, tagged, bookmarks });
+                let pdf: Uint8Array;
+                try {
+                  pdf = await host.exportPdf();
+                } finally {
+                  await host.exec({ cmd: 'setPdfExport' });
+                }
+                const base =
+                  fileName.replace(/\.(xlsx|xlsm|xltx|xltm|csv)$/i, '') ||
+                  t('sheetEditor.untitled');
+                await platform.files.saveFile(pdf, `${base}.pdf`, 'application/pdf');
+              } catch (e) {
+                fail(e);
+              }
+            })();
+          }}
+        />
+      )}
       <SaveAsTypeDialog
         open={saveAsType}
         app="sheet"

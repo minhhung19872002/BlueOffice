@@ -26,6 +26,9 @@ use bo_sheet::headerfooter::{self as hf, HfAlign, HfBase, HfContext, HfFormat};
 use bo_sheet::render::{render_viewport, RenderOptions};
 use bo_sheet::viewport::Viewport;
 
+/// Printed pages of every visible sheet plus (sheet name, first page index).
+pub(crate) type PrintedPages = (Vec<PageList>, Vec<(String, usize)>);
+
 /// Points per inch.
 const PT_PER_IN: f64 = 72.0;
 /// Height of the printed column-heading band (points).
@@ -1031,15 +1034,21 @@ impl SheetEngine {
         Ok(serde_json::json!({ "pages": n, "page": p }))
     }
 
-    /// PDF of every visible sheet laid out by its page setup.
-    pub fn export_pdf(&mut self) -> Result<Vec<u8>> {
+    /// Printed pages of every visible sheet, with each sheet's name and first
+    /// page index (sheets without pages are left out of the list of firsts).
+    pub(crate) fn printed_pages(&mut self) -> Result<PrintedPages> {
         let n = self.wb()?.sheets.len();
         let mut pages = Vec::new();
+        let mut firsts = Vec::new();
         for sheet in 0..n {
             if self.info()?.sheets.get(sheet).is_some_and(|s| s.hidden) {
                 continue;
             }
-            pages.extend(self.print_pages(sheet)?);
+            let more = self.print_pages(sheet)?;
+            if !more.is_empty() {
+                firsts.push((self.wb()?.sheets[sheet].name.clone(), pages.len()));
+            }
+            pages.extend(more);
         }
         if pages.is_empty() {
             pages.push(PageList {
@@ -1048,6 +1057,17 @@ impl SheetEngine {
                 commands: Vec::new(),
             });
         }
+        Ok((pages, firsts))
+    }
+
+    /// PDF of every visible sheet laid out by its page setup, with the export
+    /// choices set by `setPdfExport` (CORE-FMT-002).
+    pub fn export_pdf(&mut self) -> Result<Vec<u8>> {
+        if self.pdf_export != bo_pdf::ExportChoices::default() {
+            let c = self.pdf_export;
+            return self.export_pdf_with(&c);
+        }
+        let (pages, _) = self.printed_pages()?;
         // Pictures in cells and IMAGE pictures (SHEET-CELL-001).
         let images = self.media_of(&pages);
         bo_pdf::write_pdf_with_images(

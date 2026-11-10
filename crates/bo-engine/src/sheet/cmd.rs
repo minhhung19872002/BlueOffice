@@ -248,6 +248,19 @@ pub enum SheetCommand {
         /// Inspector categories.
         categories: Vec<crate::inspect::Category>,
     },
+    /// Choices of the next PDF exports (CORE-FMT-002): PDF/A part (`"1b"`,
+    /// `"2b"`, `"3b"`), tagged PDF and bookmarks. Returns the choices.
+    SetPdfExport {
+        /// PDF/A part; absent = plain PDF.
+        #[serde(default)]
+        pdfa: Option<bo_pdf::PdfA>,
+        /// Write the logical structure.
+        #[serde(default)]
+        tagged: bool,
+        /// Write bookmarks (one per sheet).
+        #[serde(default)]
+        bookmarks: bool,
+    },
     /// Convert cells in legacy Vietnamese fonts (TCVN3 / VNI) to Unicode; one
     /// undo step. Returns `{ "converted": n }`.
     ConvertLegacyText,
@@ -2038,6 +2051,18 @@ impl SheetEngine {
         let locale = self.locale;
         self.guard(&cmd)?;
         match cmd {
+            C::SetPdfExport {
+                pdfa,
+                tagged,
+                bookmarks,
+            } => {
+                self.pdf_export = bo_pdf::ExportChoices {
+                    pdfa,
+                    tagged,
+                    bookmarks,
+                };
+                Ok(json!(self.pdf_export))
+            }
             C::ConvertLegacyText => Ok(json!({ "converted": self.convert_legacy_text()? })),
             C::Comments { sheet } => Ok(json!(self.comment_threads(sheet)?)),
             C::AddComment {

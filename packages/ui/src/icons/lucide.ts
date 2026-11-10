@@ -265,6 +265,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'file.editTemplate': lucide(FilePenLine),
   'file.exportDocs': lucide(FileOutput),
   'file.exportPdf': lucide(FileDown),
+  'file.exportPdfOptions': lucide(FileDown),
   'file.exportPng': lucide(FileImage),
   'file.exportSignedPdf': lucide(FileDown),
   'file.exportVideo': lucide(FileVideo),

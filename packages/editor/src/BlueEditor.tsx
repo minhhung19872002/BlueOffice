@@ -16,6 +16,7 @@ import type {
   OpenedFile,
   ParaFormat,
   DocPasteMode,
+  PdfExport,
   Platform,
   RecentFile,
   SigningDefaults,
@@ -297,6 +298,7 @@ import {
   LineNumbersDialog,
   TextDirectionDialog,
 } from './LayoutDialogs';
+import { PdfExportDialog } from './PdfExportDialog';
 import { CombineCharsDialog, FontEffectsDialog, PhoneticGuideDialog } from './FontEffectsDialog';
 import { isReferenceDialog, ReferenceDialog } from './ReferenceDialogs';
 import { Rulers, type PageBox } from './Ruler';
@@ -402,6 +404,8 @@ function EditorInner({
   /** "Save as" file type dialog, and the type it picked (for `file.saveAsType`). */
   const [saveAsType, setSaveAsType] = useState(false);
   const saveAsExt = useRef<string | null>(null);
+  /** PDF export with the choices of the PDF export dialog (CORE-FMT-002). */
+  const exportPdfWith = useRef<((choices: PdfExport) => void) | null>(null);
   /** Signature line chosen in "sign a signature line", signed by the next "Ký số". */
   const pendingLine = useRef<LineChoice | null>(null);
   const signLineRef = useRef<((choice: LineChoice) => void) | null>(null);
@@ -777,20 +781,30 @@ function EditorInner({
   );
 
   /** PDF of the printed pages (the web and draft views lay out other pages for the screen). */
-  const printLayoutPdf = useCallback(async (): Promise<Uint8Array> => {
-    const mode = store.getState().viewMode;
-    if (mode !== 'web' && mode !== 'draft') return platform.engine.exportPdf();
-    await controller.current?.run({ cmd: 'setViewLayout', mode: 'print' });
-    try {
-      return await platform.engine.exportPdf();
-    } finally {
-      const width = Math.floor(view.current?.contentWidthPt() ?? 0);
-      sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
-      await controller.current?.run(
-        mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
-      );
-    }
-  }, [platform, store]);
+  const printLayoutPdf = useCallback(
+    async (choices?: PdfExport): Promise<Uint8Array> => {
+      // PDF/A, tagged PDF and bookmarks (CORE-FMT-002) go through the export bridge.
+      const pdf = () => {
+        const e = platform.engine;
+        if (!choices) return e.exportPdf();
+        if (!e.exportSlides) throw new Error('exportSlides');
+        return e.exportSlides(choices);
+      };
+      const mode = store.getState().viewMode;
+      if (mode !== 'web' && mode !== 'draft') return pdf();
+      await controller.current?.run({ cmd: 'setViewLayout', mode: 'print' });
+      try {
+        return await pdf();
+      } finally {
+        const width = Math.floor(view.current?.contentWidthPt() ?? 0);
+        sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
+        await controller.current?.run(
+          mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
+        );
+      }
+    },
+    [platform, store],
+  );
 
   // Collaborators' carets (live collaboration), drawn by the view.
   useEffect(() => {
@@ -854,10 +868,10 @@ function EditorInner({
     };
     const fmt = (format: CharFormat) => run({ cmd: 'formatText', format });
     const para = (format: ParaFormat) => run({ cmd: 'formatParagraph', format });
-    const exportPdf = async () => {
+    const exportPdf = async (choices?: PdfExport) => {
       store.setState({ status: { kind: 'busy', key: 'status.exporting' } });
       try {
-        const pdf = await printLayoutPdf();
+        const pdf = await printLayoutPdf(choices);
         const name = (store.getState().doc?.name ?? 'document').replace(/\.[^.]+$/, '') + '.pdf';
         const saved = await platform.files.saveFile(pdf, name, 'application/pdf');
         store.setState({
@@ -992,7 +1006,14 @@ function EditorInner({
       id: 'file.exportPdf',
       shortcut: 'Ctrl+Shift+E',
       isEnabled: hasDoc,
-      run: exportPdf,
+      run: () => exportPdf(),
+    });
+    // PDF/A, tagged PDF and bookmarks from headings (CORE-FMT-002).
+    exportPdfWith.current = (c: PdfExport) => void exportPdf(c);
+    r.register({
+      id: 'file.exportPdfOptions',
+      isEnabled: (s) => hasDoc(s) && !!platform.engine.exportSlides,
+      run: () => store.setState({ dialog: 'pdfExport' }),
     });
     // Digital signatures (ADR-0007): sign a copy of the document or a PDF export.
     const canSign = (s: EditorState) => !!s.doc && !!platform.signing;
@@ -2624,6 +2645,11 @@ function EditorInner({
           label: t('ribbon.groups.output'),
           items: [
             item('file.exportPdf', 'commands.file.exportPdf', <FileDown size={ICON} />),
+            item(
+              'file.exportPdfOptions',
+              'commands.file.exportPdfOptions',
+              <FileDown size={ICON} />,
+            ),
             item('file.print', 'commands.file.print', <Printer size={ICON} />),
             ...(registry.has('file.checkUpdates')
               ? [
@@ -3880,6 +3906,13 @@ function EditorInner({
             )}
             {state.dialog === 'lineNumbers' && (
               <LineNumbersDialog run={runCommand} language={state.language} onClose={closeDialog} />
+            )}
+            {state.dialog === 'pdfExport' && (
+              <PdfExportDialog
+                app="doc"
+                onClose={closeDialog}
+                onExport={(c) => exportPdfWith.current?.(c)}
+              />
             )}
             {state.dialog === 'hyphenation' && (
               <HyphenationDialog run={runCommand} language={state.language} onClose={closeDialog} />

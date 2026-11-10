@@ -140,7 +140,8 @@ pub fn ring() -> Scene {
         let u = i as f32 / n_major as f32 * std::f32::consts::TAU;
         for j in 0..n_minor {
             let v = j as f32 / n_minor as f32 * std::f32::consts::TAU;
-            let (cu, su, cv, sv) = (u.cos(), u.sin(), v.cos(), v.sin());
+            // Portable libm: the GLB (and so the corpus) is the same on every platform.
+            let (cu, su, cv, sv) = (libm::cosf(u), libm::sinf(u), libm::cosf(v), libm::sinf(v));
             p.positions
                 .push([(big + small * cv) * cu, small * sv, (big + small * cv) * su]);
             p.normals.push([cv * cu, sv, cv * su]);

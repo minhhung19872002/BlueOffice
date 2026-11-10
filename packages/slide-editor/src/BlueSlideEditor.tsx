@@ -19,6 +19,9 @@ import {
   registerPictureCommands,
   ReadAloudLink,
   registerReadAloudCommands,
+  DictationLink,
+  registerDictationCommands,
+  useDictation,
   registerTranslateCommands,
   TranslateLink,
   translatedName,
@@ -41,6 +44,7 @@ import {
   type OpenContextMenu,
 } from '@blueoffice/editor';
 import { slideReadRequest } from './readAloud';
+import { slideDictationTarget } from './dictation';
 import {
   applyDeckTexts,
   editedSelection,
@@ -217,6 +221,7 @@ import {
   MessageSquareText,
   Shapes,
   Volume2,
+  Mic,
   SquareTerminal,
 } from 'lucide-react';
 import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
@@ -709,6 +714,21 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const ctrl = useMemo(() => new SlideController(engine, apply, fail), [engine, apply, fail]);
   // Stop recording waits for queued commands (CORE-SCRIPT-002).
   useEffect(() => recorder.setSettle(() => ctrl.idle()), [recorder, ctrl]);
+  // Dictation (CORE-LANG-002): into the text being edited, one setText per phrase.
+  const dictationTarget = useCallback(
+    () =>
+      slideDictationTarget({
+        run: (c) => ctrl.run(c),
+        latest: () => ctrl.last,
+        idle: () => ctrl.idle(),
+      }),
+    [ctrl],
+  );
+  const dictation = useDictation(platform.dictation, dictationTarget);
+  const [dictationLink] = useState(() => new DictationLink());
+  useEffect(() => {
+    dictationLink.attach(dictation);
+  });
 
   // The engine ended text editing (other command, slide change): close the editor.
   useEffect(() => {
@@ -1918,6 +1938,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => asYouType,
       run: async () => toggleSpelling(),
     });
+    registerDictationCommands(reg, {
+      enabled: deck,
+      current: () => dictationLink.current(),
+    });
     registerReadAloudCommands(reg, {
       enabled: deck,
       begin: async () => {
@@ -2188,6 +2212,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     return reg;
   }, [
     readAloudLink,
+    dictationLink,
     translateLink,
     readNotes,
     uiLang,
@@ -2720,6 +2745,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('format.noFill', t('slideEditor.noFill'), <Slash size={16} />, sm),
               item('format.line', t('slideEditor.lineColor'), <PenLine size={16} />, sm),
             ],
+          },
+          {
+            id: 'voice',
+            label: t('ribbon.groups.speech'),
+            items: [item('edit.dictate', t('commands.edit.dictate'), <Mic size={18} />)],
           },
           {
             id: 'show',
@@ -4331,6 +4361,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {readAloud.bar}
+      {dictation.bar}
       {translate.pane}
     </div>
   );

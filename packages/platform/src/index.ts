@@ -45,6 +45,7 @@ export { WebCodecsVideo, VIDEO_CODECS, bitrateFor, hasWebCodecs } from './webcod
 export * from './sheetDataTools';
 export * from './speech';
 export * from './translation';
+export * from './dictation';
 export {
   OidcSession,
   fetchOidcConfig,

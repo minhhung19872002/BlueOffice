@@ -55,6 +55,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `edit.copy` | Lucide (ISC) `Copy` |
 | `edit.cut` | Lucide (ISC) `Scissors` |
 | `edit.delete` | Lucide (ISC) `Trash` |
+| `edit.dictate` | Lucide (ISC) `Mic` |
 | `edit.duplicate` | Lucide (ISC) `Copy` |
 | `edit.fillDown` | Lucide (ISC) `ArrowDownToLine` |
 | `edit.fillRight` | Lucide (ISC) `ArrowRightToLine` |

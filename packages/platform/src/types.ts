@@ -2723,4 +2723,6 @@ export interface Platform {
   speech?: import('./speech').SpeechProvider;
   /** Translation (absent where none is configured; CORE-LANG-001). */
   translation?: import('./translation').TranslationProvider;
+  /** Speech to text for dictation (absent where the platform cannot listen; CORE-LANG-002). */
+  dictation?: import('./dictation').DictationProvider;
 }

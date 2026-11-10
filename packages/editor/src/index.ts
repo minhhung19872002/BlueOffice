@@ -157,3 +157,29 @@ export {
   translateDocumentSegments,
   translatedName,
 } from './docTranslate';
+// Dictation shared with BlueSheet / BlueSlide (CORE-LANG-002).
+export {
+  DICTATION_COMMANDS,
+  DictationSession,
+  applyTokens,
+  composeDictation,
+  diffEdit,
+  normalizeWord,
+  parseDictation,
+  sentenceStart,
+  type ComposeOptions,
+  type DictationBreaks,
+  type DictationEdit,
+  type DictationListener,
+  type DictationState,
+  type DictationTarget,
+  type DictationToken,
+} from './dictation';
+export { useDictation, type Dictation } from './DictationBar';
+export {
+  DICTATE_SHORTCUT,
+  DICTATION_COMMANDS_IDS,
+  DictationLink,
+  registerDictationCommands,
+} from './dictationCommands';
+export { DOC_LINE_BREAK, docDictationTarget, type DictationPreviewer } from './docDictation';

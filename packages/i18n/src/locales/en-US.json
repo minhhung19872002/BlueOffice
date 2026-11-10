@@ -135,7 +135,10 @@
       "find": "Find",
       "replace": "Replace",
       "pasteSpecial": "Paste special…",
-      "repeat": "Repeat last action"
+      "repeat": "Repeat last action",
+      "dictate": "Dictate",
+      "dictatePause": "Pause or resume dictation",
+      "dictateStop": "Stop dictation"
     },
     "format": {
       "fontDialog": "Character effects…",
@@ -5354,6 +5357,31 @@
       "shapeRotated": "Shape rotated or flipped",
       "formatChanged": "Formatting changed",
       "contentChanged": "Picture, chart or content changed"
+    }
+  },
+  "dictation": {
+    "bar": "Dictation controls",
+    "status": {
+      "idle": "Stopped",
+      "listening": "Listening…",
+      "paused": "Paused",
+      "error": "Not listening"
+    },
+    "pause": "Pause",
+    "resume": "Resume listening",
+    "stop": "Stop dictation",
+    "language": "Language",
+    "errors": {
+      "noPermission": "Microphone access is not allowed. Allow it and try again.",
+      "noDevice": "No microphone was found, or it cannot be opened.",
+      "network": "The speech recognition service cannot be reached.",
+      "unavailable": "Dictation is not available here (no speech recogniser, or none configured by the administrator).",
+      "unsupportedLanguage": "The recogniser does not support this language.",
+      "unauthorized": "Sign in to dictate.",
+      "tooLarge": "That phrase was too long; pause more often.",
+      "rateLimited": "The recognition service is busy; try again later.",
+      "upstream": "The speech recognition service failed.",
+      "noTarget": "Place the caret where the text should go (a text box or a cell) and try again."
     }
   },
   "readAloud": {

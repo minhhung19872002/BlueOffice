@@ -2714,6 +2714,8 @@ export interface Platform {
   versions?: import('./versions').VersionHistory;
   /** People to @mention in comments + their notifications (hosted sessions; CORE-COMMENT-001). */
   people?: import('./people').PeopleDirectory;
+  /** Scheduled BlueScript runs of the open file (hosted sessions; CORE-SCRIPT-002). */
+  scriptSchedules?: import('./scriptSchedules').ScriptSchedules;
   /** Text to speech for read aloud (absent where the platform cannot speak). */
   speech?: import('./speech').SpeechProvider;
 }

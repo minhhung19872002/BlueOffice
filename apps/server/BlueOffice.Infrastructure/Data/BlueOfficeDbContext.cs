@@ -35,6 +35,9 @@ public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(
     /// <summary>Collaboration update log (snapshots + incremental batches), see <see cref="Storage.DatabaseObjectStore"/>.</summary>
     public DbSet<Storage.CollabLogEntry> CollabLog => Set<Storage.CollabLogEntry>();
 
+    /// <summary>Scheduled BlueScript runs (CORE-SCRIPT-002).</summary>
+    public DbSet<ScriptSchedule> ScriptSchedules => Set<ScriptSchedule>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -87,6 +90,22 @@ public abstract class BlueOfficeDbContext(DbContextOptions options) : DbContext(
             e.HasIndex(x => x.RoomKey);
             e.Property(x => x.RoomKey).HasMaxLength(320);
             e.Property(x => x.FileId).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<ScriptSchedule>(e =>
+        {
+            e.HasIndex(x => new { x.Host, x.FileId, x.UserId });
+            e.HasIndex(x => new { x.Enabled, x.NextRunAt });
+            e.Property(x => x.Id).HasMaxLength(32);
+            e.Property(x => x.Host).HasMaxLength(64);
+            e.Property(x => x.FileId).HasMaxLength(256);
+            e.Property(x => x.FileName).HasMaxLength(255);
+            e.Property(x => x.UserId).HasMaxLength(256);
+            e.Property(x => x.UserName).HasMaxLength(256);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Cron).HasMaxLength(120);
+            e.Property(x => x.LastStatus).HasMaxLength(16);
+            e.Property(x => x.LastError).HasMaxLength(2000);
         });
 
         modelBuilder.Entity<Storage.CollabLogEntry>(e =>

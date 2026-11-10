@@ -11,6 +11,10 @@ export interface SavedScript {
   code: string;
   /** Unix ms of the last save. */
   updated: number;
+  /** Keyboard shortcut that runs it (`Ctrl+Alt+1` form; CORE-SCRIPT-002). */
+  shortcut?: string;
+  /** Shown as a Quick Access Toolbar button (CORE-SCRIPT-002). */
+  quickAccess?: boolean;
 }
 
 /** Key/value storage (a `Storage` subset). */
@@ -23,7 +27,12 @@ export interface ScriptStore {
   list(): SavedScript[];
   save(script: Omit<SavedScript, 'id' | 'updated'> & { id?: string }): SavedScript;
   remove(id: string): void;
+  /** Changes of the saved scripts of this application (any store instance of the same storage). */
+  subscribe(fn: () => void): () => void;
 }
+
+/** Listeners by storage key: every store of an application hears the saves of the others. */
+const listeners = new Map<string, Set<() => void>>();
 
 /** Size cap of one script (characters). */
 export const MAX_SCRIPT_CHARS = 200_000;
@@ -70,6 +79,7 @@ export function scriptStore(app: string, storage: KeyValueStorage = defaultStora
     } catch {
       // quota / blocked: the pane keeps the text
     }
+    listeners.get(key)?.forEach((l) => l());
   };
   return {
     list: () => read().sort((a, b) => a.name.localeCompare(b.name)),
@@ -81,6 +91,8 @@ export function scriptStore(app: string, storage: KeyValueStorage = defaultStora
         name: s.name.trim().slice(0, 200) || 'Script',
         code: s.code.slice(0, MAX_SCRIPT_CHARS),
         updated: Date.now(),
+        ...(s.shortcut ? { shortcut: s.shortcut.slice(0, 40) } : {}),
+        ...(s.quickAccess ? { quickAccess: true } : {}),
       };
       const i = list.findIndex((x) => x.id === id);
       if (i >= 0) list[i] = saved;
@@ -90,6 +102,12 @@ export function scriptStore(app: string, storage: KeyValueStorage = defaultStora
     },
     remove(id) {
       write(read().filter((x) => x.id !== id));
+    },
+    subscribe(fn) {
+      let set = listeners.get(key);
+      if (!set) listeners.set(key, (set = new Set()));
+      set.add(fn);
+      return () => void set.delete(fn);
     },
   };
 }

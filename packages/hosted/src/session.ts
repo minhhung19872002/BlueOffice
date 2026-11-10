@@ -13,6 +13,8 @@ import type {
   OpenedFile,
   PeopleDirectory,
   Platform,
+  ScriptSchedule,
+  ScriptSchedules,
   StoredDocument,
   VersionHistory,
 } from '@blueoffice/platform';
@@ -188,6 +190,59 @@ export function sessionVersions(
       if (restored) session.file = { ...session.file, version: restored };
       onRestored?.(restored);
       return { version: restored };
+    },
+  };
+}
+
+/**
+ * Server schedules of BlueScript runs of the session file (CORE-SCRIPT-002,
+ * `GET|POST /api/sessions/{id}/schedules`, `DELETE …/schedules/{sid}`).
+ * Creating one needs edit permission; a 400 is a malformed cron expression.
+ */
+export function sessionScriptSchedules(
+  api: string,
+  session: HostedSession,
+  fetchImpl: FetchLike,
+): ScriptSchedules {
+  const base = `${api}/api/sessions/${encodeURIComponent(session.sessionId)}/schedules`;
+  const headers = { 'x-session-token': session.sessionToken };
+  const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  const parse = (v: Record<string, unknown>): ScriptSchedule => ({
+    id: String(v.id ?? ''),
+    name: str(v.name) ?? '',
+    cron: str(v.cron) ?? '',
+    enabled: v.enabled !== false,
+    nextRunAt: str(v.nextRunAt),
+    lastRunAt: str(v.lastRunAt),
+    lastStatus: str(v.lastStatus),
+    lastError: str(v.lastError),
+  });
+  return {
+    list: async () => {
+      const res = await fetchImpl(base, { headers });
+      if (!res.ok) throw new Error(`session.schedules ${res.status}`);
+      const body = (await res.json()) as { schedules?: unknown };
+      const list = Array.isArray(body.schedules)
+        ? (body.schedules as Record<string, unknown>[])
+        : [];
+      return list.map(parse);
+    },
+    create: async (input) => {
+      const res = await fetchImpl(base, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: true, ...input }),
+      });
+      if (res.status === 400) throw new Error('schedule.invalidCron');
+      if (!res.ok) throw new Error(`session.schedule ${res.status}`);
+      return parse((await res.json()) as Record<string, unknown>);
+    },
+    remove: async (id) => {
+      const res = await fetchImpl(`${base}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (!res.ok && res.status !== 404) throw new Error(`session.unschedule ${res.status}`);
     },
   };
 }
@@ -393,6 +448,7 @@ export function hostedPlatform(
     storage,
     versions: sessionVersions(api, session, mode, fetchImpl, opts.onRestored),
     people: sessionPeople(api, session, fetchImpl),
+    ...(mode.editable ? { scriptSchedules: sessionScriptSchedules(api, session, fetchImpl) } : {}),
     files: {
       openFile: base.files.openFile.bind(base.files),
       // Same-format saves go back to the host; other formats (PDF, CSV) go to the disk.

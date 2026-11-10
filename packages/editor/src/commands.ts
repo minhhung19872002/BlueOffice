@@ -50,6 +50,15 @@ export class CommandRegistry<S> {
     return true;
   }
 
+  /** The command bound to `shortcut` (`Ctrl+Shift+K` form, any case or modifier order). */
+  findByShortcut(shortcut: string): Command<S> | undefined {
+    const combo = normalizeShortcut(shortcut);
+    for (const c of this.commands.values()) {
+      if (c.shortcut && normalizeShortcut(c.shortcut) === combo) return c;
+    }
+    return undefined;
+  }
+
   /** Find the command bound to a keyboard event (by key, else by physical key: Ctrl+Shift+8 = Ctrl+*). */
   match(
     e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'> &
@@ -60,14 +69,15 @@ export class CommandRegistry<S> {
     if (physical) combos.push(shortcutOf({ ...e, key: physical }));
     for (const combo of combos) {
       for (const c of this.commands.values()) {
-        if (c.shortcut && normalize(c.shortcut) === combo) return c;
+        if (c.shortcut && normalizeShortcut(c.shortcut) === combo) return c;
       }
     }
     return undefined;
   }
 }
 
-function normalize(s: string): string {
+/** Canonical form of a shortcut: `ctrl+shift+alt+key`, lower case. */
+export function normalizeShortcut(s: string): string {
   const parts = s.split('+').map((p) => p.trim().toLowerCase());
   const key = parts.pop() ?? '';
   const mods = ['ctrl', 'shift', 'alt'].filter((m) => parts.includes(m));

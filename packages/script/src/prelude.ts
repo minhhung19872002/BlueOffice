@@ -269,6 +269,8 @@ export function callToSource(call: ApiCall): string {
       return 'await doc.insertPageBreak();';
     case 'doc.command':
       return `await doc.command(${a[0]});`;
+    case 'doc.setParagraphStyle':
+      return `await (await doc.paragraph(${a[0]})).setStyle(${a[1]});`;
     case 'sheet.setValues':
     case 'sheet.setFormulas':
     case 'sheet.format': {
@@ -277,12 +279,40 @@ export function callToSource(call: ApiCall): string {
       ];
       return `await (await workbook.sheet(${a[0]})).range(${a[1]}).${fn}(${a[2]});`;
     }
+    case 'sheet.fill':
+      return `await (await workbook.sheet(${a[0]})).range(${a[1]}).setValue(${a[2]});`;
+    case 'sheet.clear':
+      return `await (await workbook.sheet(${a[0]})).range(${a[1]}).clear(${a[2]});`;
+    case 'sheet.merge':
+      return `await (await workbook.sheet(${a[0]})).range(${a[1]}).merge(${a[2]});`;
+    case 'sheet.borders':
+      return `await (await workbook.sheet(${a[0]})).range(${a[1]}).borders(${a.slice(2, 5).join(', ')});`;
+    case 'sheet.add':
+      return `await workbook.addSheet(${a[0] === 'null' ? '' : a[0]});`;
+    case 'sheet.rename':
+      return `await (await workbook.sheet(${a[0]})).rename(${a[1]});`;
     case 'sheet.command':
       return `await workbook.command(${a[0]});`;
     case 'slide.setText':
-      return `await (await presentation.slide(${a[0]}).shapes).find((s) => s.id === ${a[1]})?.setText(${a[2]});`;
+    case 'slide.formatText':
+    case 'slide.setFill':
+    case 'slide.setLine':
+    case 'slide.move': {
+      const fn = {
+        setText: 'setText',
+        formatText: 'format',
+        setFill: 'setFill',
+        setLine: 'setLine',
+        move: 'move',
+      }[name as 'setText'];
+      return `await (await presentation.slide(${a[0]}).shapes).find((s) => s.id === ${a[1]})?.${fn}(${a.slice(2).join(', ')});`;
+    }
+    case 'slide.setNotes':
+      return `await presentation.slide(${a[0]}).setNotes(${a[1]});`;
     case 'slide.command':
       return `await presentation.command(${a[0]});`;
+    case 'note':
+      return `// ${String(call.args[0] ?? '').replace(/[\r\n]+/g, ' ')}`;
     default:
       return `// ${ns}.${name}(${a.join(', ')})`;
   }

@@ -4,8 +4,10 @@ import styles from './TitleBar.module.css';
 
 /** One quick-access command (Save, Undo, Redo, …) drawn as an icon button. */
 export interface QuickAccessItem {
-  /** Command id; also the icon name. */
+  /** Command id; also the icon name unless `icon` is set. */
   id: string;
+  /** Icon name when it differs from the command id (a bound script: `script.run`). */
+  icon?: string;
   label: string;
   shortcut?: string;
   enabled?: boolean;
@@ -58,7 +60,7 @@ export function TitleBar(p: TitleBarProps) {
               disabled={q.enabled === false}
               onClick={q.onSelect}
             >
-              <Icon name={q.id} size={16} />
+              <Icon name={q.icon ?? q.id} size={16} />
             </button>
           ))}
         </div>

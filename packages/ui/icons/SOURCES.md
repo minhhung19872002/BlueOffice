@@ -240,6 +240,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `review.viewFinal` | Lucide (ISC) `Eye` |
 | `review.viewMarkup` | Lucide (ISC) `Eye` |
 | `review.viewOriginal` | Lucide (ISC) `Eye` |
+| `script.run` | Lucide (ISC) `Play` |
 | `sheet.add` | Lucide (ISC) `Plus` |
 | `sheet.delete` | Lucide (ISC) `Trash` |
 | `sheet.rename` | Lucide (ISC) `Table2` |

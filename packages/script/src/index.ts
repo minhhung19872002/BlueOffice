@@ -25,4 +25,12 @@ export {
 } from './runner';
 export { scriptStore, type SavedScript, type ScriptStore } from './store';
 export { BLUESCRIPT_DTS, complete, apiNames } from './completion';
-export { ScriptPane, type ScriptPaneProps } from './ScriptPane';
+export { ScriptPane, shortcutFromEvent, type ScriptPaneProps } from './ScriptPane';
+export {
+  ScriptRecorder,
+  recordEngine,
+  recordSheetHost,
+  rangeAddress,
+  columnName,
+  type RecorderEvent,
+} from './recorder';

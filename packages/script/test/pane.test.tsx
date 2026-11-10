@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ScriptHost } from '../src/host';
 import { inlineRunner } from '../src/runner';
+import { ScriptRecorder } from '../src/recorder';
 import { ScriptPane } from '../src/ScriptPane';
 import { scriptStore } from '../src/store';
 
@@ -89,5 +90,38 @@ describe('ScriptPane', () => {
     const names = [...list.querySelectorAll('[role=option]')].map((o) => o.textContent ?? '');
     expect(names.some((n) => n.startsWith('addSheet'))).toBe(true);
     expect(names.some((n) => n.startsWith('sheets'))).toBe(true);
+  });
+
+  it('records actions into the editor and binds a saved script (CORE-SCRIPT-002)', async () => {
+    const rec = new ScriptRecorder('sheet');
+    const host: ScriptHost = { app: 'sheet', call: async () => null };
+    const store = scriptStore('sheet', memory());
+    wrap(
+      <ScriptPane
+        app="sheet"
+        host={() => host}
+        runner={inlineRunner()}
+        store={store}
+        recorder={rec}
+        checkShortcut={(s) => (s === 'Ctrl+B' ? 'Bold' : null)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('script-record'));
+    await waitFor(() => expect(rec.recording).toBe(true));
+    expect(screen.getByTestId('script-recording')).toBeTruthy();
+    rec.sheetInputs(0, [[1, 2, 'x']]);
+    fireEvent.click(screen.getByTestId('script-record'));
+    const code = screen.getByTestId('script-code') as HTMLTextAreaElement;
+    await waitFor(() => expect(code.value).toContain('range("C2").setValues([["x"]]);'));
+    expect(screen.queryByTestId('script-recording')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('script-save'));
+    const input = screen.getByTestId('script-shortcut');
+    fireEvent.keyDown(input, { key: 'b', ctrlKey: true });
+    expect(screen.getByTestId('script-bind-error').textContent).toContain('Bold');
+    fireEvent.keyDown(input, { key: '1', ctrlKey: true, altKey: true });
+    fireEvent.click(screen.getByTestId('script-qat'));
+    expect(store.list()[0]).toMatchObject({ shortcut: 'Ctrl+Alt+1', quickAccess: true });
+    expect((screen.getByTestId('script-shortcut') as HTMLInputElement).value).toBe('Ctrl+Alt+1');
   });
 });

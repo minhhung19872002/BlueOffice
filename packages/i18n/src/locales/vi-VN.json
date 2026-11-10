@@ -225,7 +225,8 @@
       "navigationPane": "Ngăn điều hướng",
       "stylesPane": "Ngăn kiểu",
       "formattingMarks": "Ký hiệu định dạng",
-      "scriptEditor": "Trình soạn BlueScript"
+      "scriptEditor": "Trình soạn BlueScript",
+      "recordScript": "Ghi thao tác"
     },
     "review": {
       "readAloud": "Đọc to",
@@ -5441,6 +5442,38 @@
       "doc": "// BlueScript – tự động hóa BlueDoc. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nconst paras = await doc.paragraphs;\nconsole.log('Số đoạn:', paras.length);\nconst hits = await doc.find('BlueOffice');\nconsole.log('Số kết quả:', hits.length);\n",
       "sheet": "// BlueScript – tự động hóa BlueSheet. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nconst r = sheet.range('A1:B3');\nconsole.log(await r.values);\n// await r.format({ bold: true });\n",
       "slide": "// BlueScript – tự động hóa BlueSlide. Ctrl+Space: gợi ý, Ctrl+Enter: chạy.\nfor (const s of await presentation.slides) {\n  const shapes = await s.shapes;\n  console.log('Trang', s.index + 1, shapes.map((x) => x.text).filter(Boolean));\n}\n"
+    },
+    "record": "Ghi thao tác",
+    "recordStop": "Dừng ghi",
+    "recordStarted": "Đang ghi: các thao tác sửa tài liệu sẽ thành script.",
+    "recordStopped": "Đã dừng ghi; script đã mở trong trình soạn — hãy lưu lại.",
+    "recordingNote": "● Đang ghi thao tác…",
+    "recordedName": "Script đã ghi",
+    "recordedHeader": "Script ghi từ thao tác",
+    "recordedEmpty": "Không có thao tác nào được ghi.",
+    "runBound": "Chạy script “{{name}}”",
+    "boundFailed": "Script lỗi — {{message}}",
+    "bind": {
+      "shortcut": "Phím tắt",
+      "shortcutHint": "Nhấn tổ hợp phím (Backspace: bỏ)",
+      "quickAccess": "Nút trên thanh truy cập nhanh",
+      "conflict": "{{shortcut}} đã dùng cho “{{command}}”.",
+      "invalid": "{{shortcut}} không dùng được: cần Ctrl hoặc Alt (hoặc phím F1–F12)."
+    },
+    "schedule": {
+      "cron": "Lịch chạy trên máy chủ",
+      "cronHint": "phút giờ ngày tháng thứ (UTC), ví dụ 0 7 * * 1-5",
+      "add": "Đặt lịch",
+      "list": "Lịch chạy của tệp này",
+      "remove": "Bỏ",
+      "created": "Đã đặt lịch chạy “{{name}}”.",
+      "invalidCron": "Lịch không hợp lệ (5 trường: phút giờ ngày tháng thứ).",
+      "failed": "Không đặt được lịch.",
+      "status": {
+        "succeeded": "lần trước: thành công",
+        "failed": "lần trước: lỗi",
+        "unavailable": "máy chủ chưa có bộ chạy script"
+      }
     }
   },
   "backstage": {

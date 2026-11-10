@@ -1,5 +1,5 @@
 import { DocumentView } from '@blueoffice/canvas-host';
-import { SpellMenu, loadIgnoredWords, loadUserWords, saveUserWord } from './SpellMenu';
+import { loadIgnoredWords, loadUserWords, saveUserWord } from './SpellMenu';
 import {
   LanguageDialog,
   PROOF_LANGUAGES,
@@ -21,6 +21,7 @@ import type {
   RecentFile,
   SigningDefaults,
   SignRequest,
+  SpellInfo,
   StoredDocument,
   TableEdit,
   ViewLayoutMode,
@@ -57,6 +58,17 @@ import {
   type TaskPaneDef,
   type RibbonTab,
   type ThemeSetting,
+  DOC_MENUS,
+  MiniToolbar,
+  Popover,
+  isContextMenuKey,
+  menuPointOf,
+  registryMenuLookup,
+  resolveMenu,
+  ribbonMenuLookup,
+  type DocMenuContext,
+  type MenuLine,
+  type RibbonItem,
 } from '@blueoffice/ui';
 import { pictureTabLabels, registerPictureCommands } from './pictureTools';
 import { objectPlatform, objectToolsLabels, registerObjectCommands } from './objectTools';
@@ -336,6 +348,8 @@ import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { FileBackstage, type BackstagePropertiesAccess } from './FileBackstage';
+import { useCustomShortcuts } from './ShortcutsDialog';
+import { commandLabel, shortcutCommands, useContextMenu, type OpenContextMenu } from './commandUi';
 
 /**
  * Contexts whose tab is activated when they appear (CORE-UI-001);
@@ -375,6 +389,30 @@ export const AUTOSAVE_KEY = 'bluedoc.autosave.docx';
 export const AUTOSAVE_NAME_KEY = 'bluedoc.autosave.name';
 
 type Registry = CommandRegistry<EditorState>;
+
+/** An open BlueDoc context menu (CORE-UI-003). */
+type DocMenu = OpenContextMenu & { context: DocMenuContext; spell?: SpellInfo };
+
+/** Right click on a page, from the document view. */
+interface DocContextEvent {
+  page: number;
+  x: number;
+  y: number;
+  clientX: number;
+  clientY: number;
+  target: EventTarget | null;
+}
+
+/** What the selection is in, for its context menu. */
+function docMenuContext(s: EditorState): DocMenuContext {
+  const f = s.edit?.format;
+  if (f?.pictureTools || f?.picture) return 'picture';
+  if (f?.smartArt) return 'shape';
+  if (f?.table) return 'table';
+  const story = s.edit?.story?.kind;
+  if (story === 'header' || story === 'footer') return 'header';
+  return 'text';
+}
 
 let painterClickAt = 0;
 /** Whether this Format Painter click follows the previous one closely (double click). */
@@ -423,6 +461,13 @@ function EditorInner({
   const resolvedTheme = useResolvedTheme(state.theme);
   const density = useDensity();
   const viewHost = useRef<HTMLDivElement>(null);
+  // Command UI (CORE-UI-003 / 004): context menu, mini toolbar, shortcut dialog.
+  const contextMenuAt = useRef<(e: DocContextEvent) => Promise<void>>(async () => {});
+  const menuAtCaret = useRef<() => void>(() => {});
+  /** When Shift+F10 opened the menu: the browser's own keyboard context menu event follows. */
+  const keyMenuAt = useRef(0);
+  const ribbonTabsRef = useRef<RibbonTab[]>([]);
+  const [mini, setMini] = useState<{ x: number; y: number } | null>(null);
   const view = useRef<DocumentView | null>(null);
   // Read aloud (CORE-LANG-003): the commands reach the hook through a ref.
   const readAloud = useReadAloud(platform.speech, 'paragraph');
@@ -650,6 +695,15 @@ function EditorInner({
       onInput: (e) => controller.current?.input(e),
       onPointer: (e) => {
         controller.current?.pointer(e);
+        if (e.type === 'down') setMini(null);
+        // Mouse-up after selecting text: the mini toolbar near the pointer.
+        if (e.type === 'up' && e.clientX !== undefined && store.getState().painter === 'off') {
+          const at = { x: e.clientX, y: e.clientY ?? 0 };
+          void controller.current?.query({ cmd: 'state' }).then(() => {
+            const sel = store.getState().edit?.selection;
+            if (sel && (sel.anchor.p !== sel.focus.p || sel.anchor.o !== sel.focus.o)) setMini(at);
+          });
+        }
         // Double-click an embedded workbook: its editing grid (CORE-EMBED-001).
         if (e.type === 'down' && e.count === 2) void objectHub.activate();
         // Format Painter: the formatting goes to what was clicked or selected.
@@ -686,14 +740,8 @@ function EditorInner({
             ? store.getState().review?.revisions.find((x) => x.id === id && !x.story)
             : undefined,
         ),
-      // Right click on a misspelt word: corrections and dictionary actions.
-      onContextMenu: (e) => {
-        void controller.current?.run({ cmd: 'spellAt', page: e.page, x: e.x, y: e.y }).then((r) => {
-          store.setState({
-            spellMenu: r?.spell ? { x: e.clientX, y: e.clientY, info: r.spell } : null,
-          });
-        });
-      },
+      // Right click: the context menu of what is under the pointer (spelling first).
+      onContextMenu: (e) => void contextMenuAt.current(e),
     });
     view.current = v;
     // Spelling marks follow edits after a short pause (the engine caches unchanged paragraphs).
@@ -917,6 +965,7 @@ function EditorInner({
 
   /** Actions of the picture tools tab (CORE-PIC-001), behind the `picture.*` commands. */
   const [pictureHub] = useState(() => new PictureActionsHub());
+  const [shortcutsShown, setShortcutsShown] = useState(false);
   // Command callbacks only dereference refs when executed (event time), never during render.
   /* eslint-disable react-hooks/refs */
   const registry: Registry = useMemo(() => {
@@ -1183,6 +1232,20 @@ function EditorInner({
       shortcut: 'Ctrl+A',
       isEnabled: hasDoc,
       run: () => run({ cmd: 'selectAll' }),
+    });
+    // F4: the last formatting / insertion again at the selection (CORE-UI-004).
+    r.register({
+      id: 'edit.repeat',
+      shortcut: 'F4',
+      isEnabled: hasDoc,
+      run: async () => {
+        await controller.current?.repeat();
+        view.current?.focus();
+      },
+    });
+    r.register({
+      id: 'options.shortcuts',
+      run: () => setShortcutsShown(true),
     });
     r.register({
       id: 'edit.copy',
@@ -2523,6 +2586,12 @@ function EditorInner({
       const target = e.target as HTMLElement | null;
       // Inputs of dialogs keep their own keys (except global file shortcuts).
       const inForm = !!target && target.tagName === 'INPUT';
+      if (isContextMenuKey(e) && viewHost.current?.contains(target)) {
+        e.preventDefault();
+        keyMenuAt.current = Date.now();
+        menuAtCaret.current();
+        return;
+      }
       const c = registry.match(e);
       if (!c || (inForm && !c.id.startsWith('file.') && c.id !== 'edit.find')) return;
       e.preventDefault();
@@ -2531,6 +2600,18 @@ function EditorInner({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [registry, store]);
+
+  // The user's keyboard shortcuts (CORE-UI-004), applied over the registry's defaults.
+  const shortcuts = useCustomShortcuts({
+    app: 'doc',
+    registry,
+    store: platform.shell,
+    files: platform.files,
+    commands: () =>
+      shortcutCommands(ribbonTabsRef.current, registry, (id) => commandLabel(i18nInstance, id)),
+    open: shortcutsShown,
+    onOpenChange: setShortcutsShown,
+  });
 
   const runCommand = useCallback(
     (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
@@ -3835,6 +3916,214 @@ function EditorInner({
           ...(reviewingDock === 'bottom' ? { bottom: REVIEWING_SIZE.bottom } : {}),
         }
       : undefined;
+  // Context menus (CORE-UI-003): commands of what is under the pointer, resolved from the
+  // ribbon (so the contextual tab of the object the right click selected is there).
+  const allRibbonTabs = [...tabs, ...contextTabs];
+  const menuLookup = ribbonMenuLookup(
+    allRibbonTabs,
+    registryMenuLookup(
+      registry,
+      () => store.getState(),
+      (id) => commandLabel(i18nInstance, id),
+      (id) => void registry.execute(id, store.getState()),
+    ),
+  );
+  const docMenuLines = (m: DocMenu): MenuLine[] => {
+    const lines: MenuLine[] = [];
+    const sp = m.spell;
+    if (m.context === 'spelling' && sp) {
+      if (sp.rule) lines.push({ heading: t(`grammar.${sp.rule}`), testId: 'grammar-rule' });
+      if (sp.suggestions.length === 0) lines.push({ heading: t('spell.noSuggestions') });
+      for (const word of sp.suggestions)
+        lines.push({
+          id: `spell.pick.${word}`,
+          label: word,
+          emphasis: true,
+          onSelect: () => {
+            void controller.current
+              ?.run({
+                cmd: 'setSelection',
+                selection: {
+                  anchor: { p: sp.para, o: sp.start },
+                  focus: { p: sp.para, o: sp.end },
+                },
+              })
+              .then(() => controller.current?.run({ cmd: 'insertText', text: word }));
+          },
+        });
+      lines.push({ separator: true });
+      lines.push({
+        id: 'spell.ignoreAll',
+        label: t('spell.ignoreAll'),
+        onSelect: () =>
+          void controller.current?.run(
+            sp.rule
+              ? { cmd: 'grammarIgnore', rule: sp.rule, text: sp.word }
+              : { cmd: 'spellIgnore', word: sp.word },
+          ),
+      });
+      if (!sp.rule)
+        lines.push({
+          id: 'spell.addToDictionary',
+          label: t('spell.addToDictionary'),
+          onSelect: () => {
+            saveUserWord(sp.word);
+            void controller.current?.run({ cmd: 'spellAddWord', word: sp.word });
+          },
+        });
+      lines.push({ separator: true });
+    }
+    return [...lines, ...resolveMenu(DOC_MENUS[m.context], menuLookup)];
+  };
+  const docMenu = useContextMenu<DocMenu>(t('contextMenu.label'), docMenuLines, focusDoc);
+  useEffect(() => {
+    ribbonTabsRef.current = allRibbonTabs;
+  });
+  const openDocMenu = docMenu.open;
+  // The right click (DocumentView callback) and Shift+F10 reach the menu through refs.
+  useEffect(() => {
+    contextMenuAt.current = async (e) => {
+      const c = controller.current;
+      if (!c || !store.getState().doc || Date.now() - keyMenuAt.current < 600) return;
+      setMini(null);
+      const at = { x: e.clientX, y: e.clientY };
+      const balloon =
+        e.target instanceof Element
+          ? e.target.closest<HTMLElement>('[data-testid="markup-balloon"][data-kind="comment"]')
+          : null;
+      if (balloon) {
+        const id = Number(balloon.dataset.id);
+        if (Number.isFinite(id)) await c.run({ cmd: 'selectComment', id });
+        openDocMenu({ ...at, context: 'comment' });
+        return;
+      }
+      const r = await c.query({ cmd: 'spellAt', page: e.page, x: e.x, y: e.y });
+      if (r?.spell) {
+        openDocMenu({ ...at, context: 'spelling', spell: r.spell, testId: 'spell-menu' });
+        return;
+      }
+      // A right click outside the selection moves the caret there first.
+      const inside = (store.getState().edit?.rects ?? []).some(
+        (b) =>
+          b.page === e.page && e.x >= b.x && e.x <= b.x + b.w && e.y >= b.y && e.y <= b.y + b.h,
+      );
+      if (!inside)
+        await c.run({ cmd: 'click', page: e.page, x: e.x, y: e.y, extend: false, count: 1 });
+      openDocMenu({ ...at, context: docMenuContext(store.getState()) });
+    };
+    menuAtCaret.current = () => {
+      if (!store.getState().doc) return;
+      const host = viewHost.current;
+      const sels = host?.querySelectorAll('.bo-sel');
+      const at =
+        menuPointOf(host?.querySelector('.bo-caret')) ??
+        menuPointOf(sels?.[sels.length - 1]) ??
+        menuPointOf(host);
+      if (at) openDocMenu({ ...at, context: docMenuContext(store.getState()) });
+    };
+  });
+
+  // Mini toolbar (CORE-UI-003): the font group's commands near a selection made with the mouse.
+  const miniIds = [
+    'format.bold',
+    'format.italic',
+    'format.underline',
+    'format.grow',
+    'format.shrink',
+    'format.bullets',
+    'format.numbering',
+    'format.painter',
+  ];
+  const homeItems = new Map<string, RibbonItem>(
+    tabs.flatMap((tb) => tb.groups.flatMap((g) => g.items.map((i) => [i.id, i] as const))),
+  );
+  const miniItems: RibbonItem[] = mini
+    ? [
+        custom(
+          'format.fontFamily',
+          <FontFamilyPicker
+            format={fs}
+            fonts={state.fonts}
+            run={runCommand}
+            disabled={noDoc}
+            onDone={focusDoc}
+            testId="mini-font-family"
+          />,
+        ),
+        custom(
+          'format.fontSize',
+          <FontSizeBox
+            format={fs}
+            run={runCommand}
+            disabled={noDoc}
+            onDone={focusDoc}
+            testId="mini-font-size"
+          />,
+        ),
+        ...miniIds.flatMap((id) => homeItems.get(id) ?? []),
+        custom(
+          'format.color',
+          <ColorPicker
+            kind="color"
+            label={t('commands.format.color')}
+            testId="mini-text-color"
+            value={fs?.color}
+            disabled={noDoc}
+            onPick={(hex) => void runFocus({ cmd: 'formatText', format: { kind: 'color', hex } })}
+          />,
+        ),
+        custom(
+          'format.highlight',
+          <ColorPicker
+            kind="highlight"
+            label={t('commands.format.highlight')}
+            testId="mini-highlight-color"
+            value={fs?.highlight}
+            disabled={noDoc}
+            onPick={(hex) =>
+              void runFocus({ cmd: 'formatText', format: { kind: 'highlight', hex } })
+            }
+          />,
+        ),
+        custom(
+          'mini.styles',
+          <Popover
+            label={t('miniToolbar.styles')}
+            testId="mini-styles"
+            disabled={noDoc}
+            trigger={<span>{t('miniToolbar.styles')} ▾</span>}
+          >
+            {(close) => (
+              <div role="menu" aria-label={t('miniToolbar.styles')}>
+                {['style.normal', 'style.title', 'style.heading1', 'style.heading2'].flatMap(
+                  (id) => {
+                    const it = homeItems.get(id);
+                    return it
+                      ? [
+                          <button
+                            key={id}
+                            type="button"
+                            role="menuitem"
+                            data-mini-command={id}
+                            style={{ display: 'block', width: '100%', textAlign: 'left' }}
+                            onClick={() => {
+                              close();
+                              setMini(null);
+                              it.onSelect();
+                            }}
+                          >
+                            {it.label}
+                          </button>,
+                        ]
+                      : [];
+                  },
+                )}
+              </div>
+            )}
+          </Popover>,
+        ),
+      ]
+    : [];
   const goToPara = (para: number) =>
     void runFocus({
       cmd: 'setSelection',
@@ -4478,38 +4767,17 @@ function EditorInner({
                 onCancel={() => store.setState({ passwordPrompt: null })}
               />
             )}
-            {state.spellMenu && (
-              <SpellMenu
-                menu={state.spellMenu}
-                onPick={(text) => {
-                  const m = store.getState().spellMenu;
-                  store.setState({ spellMenu: null });
-                  if (!m) return;
-                  const { para, start, end } = m.info;
-                  void controller.current
-                    ?.run({
-                      cmd: 'setSelection',
-                      selection: { anchor: { p: para, o: start }, focus: { p: para, o: end } },
-                    })
-                    .then(() => controller.current?.run({ cmd: 'insertText', text }));
-                }}
-                onIgnore={(word) => {
-                  const rule = store.getState().spellMenu?.info.rule;
-                  store.setState({ spellMenu: null });
-                  if (rule) {
-                    void controller.current?.run({ cmd: 'grammarIgnore', rule, text: word });
-                    return;
-                  }
-                  void controller.current?.run({ cmd: 'spellIgnore', word });
-                }}
-                onAdd={(word) => {
-                  store.setState({ spellMenu: null });
-                  saveUserWord(word);
-                  void controller.current?.run({ cmd: 'spellAddWord', word });
-                }}
-                onClose={() => store.setState({ spellMenu: null })}
+            {docMenu.element}
+            {mini && miniItems.length > 0 && !docMenu.menu && (
+              <MiniToolbar
+                x={mini.x}
+                y={mini.y}
+                items={miniItems}
+                label={t('miniToolbar.label')}
+                onClose={() => setMini(null)}
               />
             )}
+            {shortcuts.element}
             {state.legacyNotice > 0 && (
               <div
                 className={styles.macroBar}

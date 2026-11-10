@@ -66,6 +66,8 @@ export interface SlideOverlayProps {
   onExitEdit: () => void;
   /** Keyboard shortcut inside the text (Ctrl+B, …); true when handled. */
   onTextShortcut?: (e: KeyboardEvent) => boolean;
+  /** Mouse-up after selecting text in the edited shape (viewport point; mini toolbar). */
+  onTextSelectEnd?: (at: { x: number; y: number }) => void;
   label: string;
   editorLabel: string;
   /** Tooltips of adjust handles and connector ends. */
@@ -128,6 +130,7 @@ export function SlideOverlay({
   onActivateObject,
   onExitEdit,
   onTextShortcut,
+  onTextSelectEnd,
   label,
   editorLabel,
   adjustLabel = '',
@@ -366,6 +369,7 @@ export function SlideOverlay({
     if (textDrag.current) {
       textDrag.current = null;
       svgRef.current?.releasePointerCapture?.(e.pointerId);
+      onTextSelectEnd?.({ x: e.clientX, y: e.clientY });
       return;
     }
     const d = drag.current;

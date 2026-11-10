@@ -36,7 +36,7 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
   *Xong khi:* 3 app dùng chung khung; test unit vai trò ARIA landmark; E2E đo chiều cao. **Đã có:** `TitleBar` (`packages/ui`, `<header>` 40px trên dải màu nhấn `--bo-app-accent-strong`: dấu app, thanh truy cập nhanh Lưu/Hoàn tác/Làm lại từ registry, tên tài liệu + trạng thái lưu, chỗ cho ô tìm lệnh và nút bên phải), hàng thẻ ribbon nối cùng dải màu nhấn, icon ribbon theo màu nhấn app, `StatusBar` 24px nền `--bo-surface-2`; dùng ở cả BlueDoc/BlueSheet/BlueSlide (ẩn khi trình chiếu); test `titlebar.test.tsx`, E2E `ui-frame.spec.ts` (chiều cao, màu nhấn từng app, hoàn tác từ thanh truy cập nhanh). Ô tìm lệnh: UI-FRAME-003; avatar cộng tác/Chia sẻ/tài khoản trong khung: theo từng app khi có.
 - [ ] **UI-FRAME-002** (P1) Thanh truy cập nhanh tùy biến (thêm/bớt lệnh, nhớ theo người dùng). *Xong khi:* test thêm/bớt.
 - [x] **UI-FRAME-003** (P0) Ô tìm lệnh Ctrl+Q / Alt+Q: tìm trong registry (nhãn, từ khóa, không dấu), chạy lệnh, gợi ý tìm
-  trong tài liệu. *Xong khi:* unit test xếp hạng; E2E định dạng chữ bằng ô tìm lệnh. **Đã có:** `CommandSearch` + `searchRank` (`packages/ui`): lệnh lấy từ ribbon (một lần mỗi id, bỏ control tuỳ biến), xếp hạng đầu nhãn > đầu từ > chứa > mọi từ trong nhãn/đường dẫn/id, bỏ dấu tiếng Việt (đ → d), lệnh bật trước lệnh tắt; Ctrl+Q / Alt+Q và ô trên thanh tiêu đề ở cả 3 app; ↑/↓/Enter/Esc, ARIA combobox/listbox; test `command-search.test.tsx`, E2E `ui-frame.spec.ts` (Alt+Q → "dam" → Enter in đậm; mở từ thanh tiêu đề BlueSheet). Gợi ý tìm trong tài liệu/trợ giúp: chưa có.
+  trong tài liệu. *Xong khi:* unit test xếp hạng; E2E định dạng chữ bằng ô tìm lệnh. **Đã có:** `CommandSearch` + `searchRank` (`packages/ui`): lệnh lấy từ ribbon (một lần mỗi id, bỏ control tuỳ biến), xếp hạng đầu nhãn > đầu từ > chứa > mọi từ trong nhãn/đường dẫn/id, bỏ dấu tiếng Việt (đ → d), lệnh bật trước lệnh tắt; Ctrl+Q / Alt+Q và ô trên thanh tiêu đề ở cả 3 app; ↑/↓/Enter/Esc, ARIA combobox/listbox; test `command-search.test.tsx`, E2E `ui-frame.spec.ts` (Alt+Q → "dam" → Enter in đậm; mở từ thanh tiêu đề BlueSheet). **CORE-UI-003:** trước khi gõ hiện "Dùng gần đây" (lệnh đã chạy từ ô tìm, nhớ theo trình duyệt), sau kết quả là "Lệnh liên quan" (lệnh cùng nhóm ribbon với kết quả đầu; `relatedCommands`). Gợi ý tìm trong tài liệu/trợ giúp: chưa có.
 - [ ] **UI-FRAME-004** (P1) Thanh trạng thái theo app (trang/từ, ngôn ngữ, ô chọn + thống kê, chế độ xem, thanh trượt zoom),
   chuột phải chọn mục hiển thị. *Xong khi:* test bật/tắt mục.
 - [ ] **UI-FRAME-005** (P1) Ngăn tác vụ phải dock/resize, nhiều ngăn xếp tab. *Xong khi:* test resize + đóng/mở.
@@ -110,7 +110,19 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 - [ ] **UI-COMP-001** (P0) Bảng chọn màu (theme 10×6, chuẩn, gần đây, HEX/RGB/HSL, hút màu, Tự động/Không màu).
 - [ ] **UI-COMP-002** (P0) Bộ chọn bảng (lưới rê chuột, Chèn bảng…, chuyển văn bản thành bảng).
 - [ ] **UI-COMP-003** (P1) Bộ chọn font (tên bằng chính font, font chủ đề, gần đây, tìm, cảnh báo font thay thế).
-- [ ] **UI-COMP-004** (P1) Menu chuột phải từ registry + thanh định dạng nổi.
+- [x] **UI-COMP-004** (P1) Menu chuột phải từ registry + thanh định dạng nổi. **Đã có (CORE-UI-003):** `ContextMenu`
+  (`packages/ui`, `role="menu"`, ↑/↓/Home/End bỏ qua lệnh tắt, Enter/Space chạy, Esc/Tab/nhấp ngoài đóng; phím hoạt động cả khi
+  tiêu điểm ở ô nhập của editor) + bảng menu theo ngữ cảnh `contextMenus.ts` (`DOC_MENUS` văn bản/bảng/ảnh/hình/đầu-chân
+  trang/bình luận/chính tả, `SHEET_MENUS` ô/tiêu đề hàng/tiêu đề cột/thẻ trang tính/biểu đồ/ảnh trong ô, `SLIDE_MENUS`
+  hình/chữ đang sửa/ảnh/bảng/biểu đồ/thu nhỏ trang chiếu/vùng trống); mục là lệnh registry lấy nhãn, trạng thái bật, phím tắt
+  từ ribbon (`ribbonMenuLookup`, lệnh không có trên ribbon qua `registryMenuLookup`). Chuột phải chọn đối tượng dưới con trỏ
+  nếu nó chưa nằm trong vùng chọn; Shift+F10 / phím menu mở ở con trỏ soạn thảo / vùng chọn. BlueDoc: gợi ý chính tả gộp vào
+  đầu menu (`spell-menu`), bình luận khi chuột phải vào bóng bình luận. BlueSheet: thẻ trang tính có "Màu tab…" (bảng màu cũ).
+  Thanh định dạng nổi `MiniToolbar` khi thả chuột sau khi chọn chữ (BlueDoc: phông, cỡ, tăng/giảm, đậm/nghiêng/gạch chân, màu
+  chữ, tô sáng, dấu đầu dòng, đánh số, chổi định dạng, Kiểu; BlueSlide khi đang sửa chữ trong hình), mờ dần theo khoảng cách
+  con trỏ, đóng khi gõ / nhấp nơi khác. Test `ui/test/contextMenu.test.tsx`, `miniToolbar.test.tsx`, E2E `command-ui.spec.ts`.
+  *Thiếu:* BlueSheet/BlueSlide vẫn dùng menu chính tả riêng (`SpellMenu`) cho từ sai; menu con (cascading); hình trong BlueDoc
+  chỉ SmartArt (chưa có hình vẽ tự do).
 - [ ] **UI-COMP-005** (P1) Hộp thoại nhóm dạng tab có xem trước + Đặt làm mặc định (Phông chữ, Đoạn văn, Định dạng ô, Thiết lập
   trang).
 - [ ] **UI-COMP-006** (P1) Ngăn Định dạng đối tượng (mục thu gọn: Tô, Đường viền, Hiệu ứng, Kích thước, Văn bản).
@@ -118,12 +130,24 @@ icon. Làm xen kẽ với `docs/parity/BACKLOG.md`.
 
 ## Bàn phím & a11y (§9)
 
-- [ ] **UI-KEYTIPS-001** (P0) KeyTips: Alt hiện gợi ý trên tab rồi lệnh; tự gán không trùng trong phạm vi; bộ theo nhãn Việt +
-  tùy chọn theo nhãn Anh. *Xong khi:* unit test gán không trùng; E2E định dạng chữ bằng KeyTips.
+- [x] **UI-KEYTIPS-001** (P0) KeyTips: Alt hiện gợi ý trên tab rồi lệnh; tự gán không trùng trong phạm vi; bộ theo nhãn Việt +
+  tùy chọn theo nhãn Anh. *Xong khi:* unit test gán không trùng; E2E định dạng chữ bằng KeyTips. **Đã có (CORE-UI-004):**
+  `assignKeyTips` (`packages/ui/src/keyTips.ts`: chữ cái lấy từ nhãn đang hiển thị theo ngôn ngữ giao diện, bỏ dấu; ưu tiên chữ
+  đầu mỗi từ; không trùng và không là tiền tố của nhau trong một phạm vi; hai ký tự khi hết chữ; ổn định khi thêm mục cuối;
+  bảng `KEYTIP_OVERRIDES` — Tệp = F, Đậm/Nghiêng/Gạch chân = 1/2/3 — và prop `keyTipOverrides`) + `KeyTipsLayer` trong `Ribbon`:
+  nhấn-thả Alt (hoặc F10) hiện chữ trên nút Tệp và các tab, gõ chữ của tab mở tab (cả khi ribbon thu gọn) rồi hiện chữ trên lệnh,
+  nhóm thu gọn và nút "…"; ô nhập (phông, cỡ chữ) được đưa tiêu điểm; Esc lùi một bậc; Alt / nhấp chuột / rời cửa sổ tắt;
+  Alt+phím khác (Alt+Q) không bật. Test `ui/test/keyTips.test.tsx`, E2E `command-ui.spec.ts`.
 - [ ] **UI-A11Y-001** (P0) axe trong E2E cho khung 3 app (light/dark/hc), không vi phạm mức serious/critical.
 - [ ] **UI-A11Y-002** (P0) F6 / Shift+F6 vòng giữa vùng; thứ tự focus; viền focus rõ.
 - [ ] **UI-KEYS-001** (P1) Bổ sung phím tắt "dự kiến" trong [`shortcuts.md`](shortcuts.md).
-- [ ] **UI-KEYS-002** (P2) Cấu hình lại phím tắt trong Tùy chọn.
+- [x] **UI-KEYS-002** (P2) Cấu hình lại phím tắt trong Tùy chọn. **Đã có (CORE-UI-004):** lệnh `options.shortcuts` (Tệp ›
+  Tùy chọn › "Tùy biến phím tắt…") mở `ShortcutsDialog` (`packages/editor`): mọi lệnh ribbon + lệnh có phím tắt mặc định, tìm
+  theo tên/phím, Đổi (nhấn tổ hợp mới), Bỏ, Mặc định, Khôi phục tất cả; tổ hợp đã dùng báo tên lệnh đang giữ và chỉ gán khi xác
+  nhận (lệnh kia mất phím); phím không hợp lệ (thiếu Ctrl/Alt, Tab/Enter/Shift+F10…) bị từ chối. `CommandRegistry` giữ phím
+  người dùng đè lên mặc định (`setShortcutOverrides`, `conflicts`, `defaultShortcut`); lưu theo người dùng, theo app
+  (`blueoffice.shortcuts.<app>` qua `shell.getSetting`/`setSetting`, web: `localStorage`); xuất/nhập tệp JSON
+  (`blueoffice-shortcuts`, từ chối tệp của app khác). Test `editor/test/shortcuts.test.tsx`, E2E `command-ui.spec.ts`.
 
 ## Đa ngôn ngữ (§10)
 

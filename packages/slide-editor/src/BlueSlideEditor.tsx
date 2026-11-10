@@ -34,6 +34,11 @@ import {
   type BackstagePropertiesAccess,
   type ClipItem,
   type SmartArtDraft,
+  commandLabel,
+  shortcutCommands,
+  useContextMenu,
+  useCustomShortcuts,
+  type OpenContextMenu,
 } from '@blueoffice/editor';
 import { slideReadRequest } from './readAloud';
 import {
@@ -96,6 +101,15 @@ import {
   type RibbonTab,
   type TaskPaneDef,
   type ThemeSetting,
+  MiniToolbar,
+  SLIDE_MENUS,
+  isContextMenuKey,
+  menuPointOf,
+  registryMenuLookup,
+  resolveMenu,
+  ribbonMenuLookup,
+  type RibbonItem,
+  type SlideMenuContext,
 } from '@blueoffice/ui';
 import {
   AArrowDown,
@@ -206,7 +220,16 @@ import {
   SquareTerminal,
 } from 'lucide-react';
 import { recordEngine, ScriptPane, ScriptRecorder, slideScriptHost } from '@blueoffice/script';
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { AnimationPane } from './AnimationPane';
 import { SelectionPane } from './SelectionPane';
 import { AudienceLink } from './audience';
@@ -325,6 +348,41 @@ export type SlideView =
   'normal' | 'sorter' | 'reading' | 'show' | 'presenter' | 'outline' | 'notesPage';
 
 /** State passed to registry commands. */
+/** An open BlueSlide context menu (CORE-UI-003). */
+type SlideMenu = OpenContextMenu & { context: SlideMenuContext };
+
+/** Commands of the slide mini toolbar (text being edited), from the Home tab. */
+const SLIDE_MINI = [
+  'format.bold',
+  'format.italic',
+  'format.underline',
+  'format.grow',
+  'format.shrink',
+  'format.color',
+  'format.highlight',
+  'format.bullets',
+  'format.numbering',
+  'format.alignLeft',
+  'format.alignCenter',
+  'format.alignRight',
+];
+
+/** What a slide selection is, for its context menu. */
+export function slideMenuContext(r: {
+  selection: { kind: string }[];
+  table?: unknown;
+  textEdit?: unknown;
+}): SlideMenuContext {
+  if (r.textEdit) return r.table ? 'table' : 'text';
+  if (r.table) return 'table';
+  const s = r.selection;
+  if (s.length === 0) return 'canvas';
+  if (s.every((x) => x.kind === 'picture')) return 'picture';
+  if (s.length === 1 && s[0]?.kind === 'chart') return 'chart';
+  if (s.length === 1 && s[0]?.kind === 'table') return 'table';
+  return 'shape';
+}
+
 export interface SlideEditorState extends MasterState, SectionState, PageMasterState {
   hasDeck: boolean;
   current: number;
@@ -1465,6 +1523,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   /** Draw tab tools (CORE-INK-001), behind `draw.*`. */
   const [drawHub] = useState(() => new DrawActionsHub());
+  const [shortcutsShown, setShortcutsShown] = useState(false);
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
     const guard = async (f: () => Promise<unknown>) => {
@@ -1736,6 +1795,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }
       });
     reg.register({ id: 'edit.copy', shortcut: 'Ctrl+C', isEnabled: deck, run: copyCmd(false) });
+    // F4: the last formatting / insertion again (CORE-UI-004).
+    reg.register({
+      id: 'edit.repeat',
+      shortcut: 'F4',
+      isEnabled: deck,
+      run: () => guard(() => ctrl.repeat()),
+    });
+    reg.register({ id: 'options.shortcuts', run: () => setShortcutsShown(true) });
     reg.register({ id: 'edit.cut', shortcut: 'Ctrl+X', isEnabled: deck, run: copyCmd(true) });
     reg.register({
       id: 'edit.paste',
@@ -2297,11 +2364,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   });
   const extraTabs = [...(picture.tab ? [picture.tab] : []), ...mediaTools.tabs];
 
+  /** Opens the slide context menu (set once the menu exists, below). */
+  const slideMenuOpen = useRef<(m: SlideMenu) => void>(() => {});
+  /** When Shift+F10 opened the menu: the browser's own keyboard context menu event follows. */
+  const keyMenuAt = useRef(-Infinity);
   // Shortcuts typed inside the shape text (format.*, edit.*).
   const textShortcut = useCallback(
     (e: KeyboardEvent) => {
       const cmd = registry.match(e);
-      if (!cmd || !/^(format|edit\.(undo|redo))/.test(cmd.id)) return false;
+      if (!cmd || !/^(format|edit\.(undo|redo|repeat))/.test(cmd.id)) return false;
       exec(cmd.id);
       return true;
     },
@@ -2381,6 +2452,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           return;
         }
       }
+      if (isContextMenuKey(e) && view === 'normal' && count > 0) {
+        e.preventDefault();
+        keyMenuAt.current = e.timeStamp;
+        const thumb = document.activeElement?.closest('[data-slide-thumbs] button');
+        if (thumb) {
+          slideMenuOpen.current({
+            ...(menuPointOf(thumb) ?? { x: 0, y: 0 }),
+            context: 'thumbnail',
+          });
+          return;
+        }
+        const sel = slideRef.current?.querySelector('[data-testid="selection-box"]');
+        const at = menuPointOf(sel) ?? menuPointOf(slideRef.current);
+        if (at && edit) slideMenuOpen.current({ ...at, context: slideMenuContext(edit) });
+        return;
+      }
       const cmd = registry.match(e);
       if (cmd) {
         e.preventDefault();
@@ -2452,7 +2539,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     pos.slide,
   ]);
 
+  // The user's keyboard shortcuts (CORE-UI-004).
+  const ribbonTabsRef = useRef<RibbonTab[]>([]);
+  const shortcuts = useCustomShortcuts({
+    app: 'slide',
+    registry,
+    store: platform.shell,
+    files: platform.files,
+    commands: () =>
+      shortcutCommands(ribbonTabsRef.current, registry, (id) => commandLabel(i18n, id)),
+    open: shortcutsShown,
+    onOpenChange: setShortcutsShown,
+  });
+  const shortcutsVersion = shortcuts.version;
   const ribbonTabs: RibbonTab[] = useMemo(() => {
+    // Rebuilt when the user's shortcuts change (tooltips show them).
+    void shortcutsVersion;
     const item = (
       id: string,
       label: string,
@@ -3113,7 +3215,71 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     setup.useTimings,
     loadWarpPreviews,
     draw.state,
+    shortcutsVersion,
   ]);
+
+  // Context menus (CORE-UI-003): shape, picture, table, chart, text, thumbnail, empty slide.
+  const allRibbonTabs = [...ribbonTabs, ...extraTabs];
+  const menuLookup = ribbonMenuLookup(
+    allRibbonTabs,
+    registryMenuLookup(
+      registry,
+      () => state,
+      (id) => commandLabel(i18n, id),
+      (id) => exec(id),
+    ),
+  );
+  const slideMenu = useContextMenu<SlideMenu>(t('contextMenu.label'), (m) =>
+    resolveMenu(SLIDE_MENUS[m.context], menuLookup),
+  );
+  useEffect(() => {
+    ribbonTabsRef.current = allRibbonTabs;
+    slideMenuOpen.current = slideMenu.open;
+  });
+  const latestEdit = useRef(edit);
+  useEffect(() => {
+    latestEdit.current = edit;
+  }, [edit]);
+  /** Right click on the slide: select what is under the pointer, then its menu. */
+  const onSlideContextMenu = async (e: ReactMouseEvent) => {
+    e.preventDefault();
+    if (e.timeStamp - keyMenuAt.current < 600) return;
+    const at = { x: e.clientX, y: e.clientY };
+    setMini(null);
+    const cur = latestEdit.current;
+    if (editing && cur) {
+      slideMenu.open({ ...at, context: slideMenuContext(cur) });
+      return;
+    }
+    const box = slideRef.current?.getBoundingClientRect();
+    const size = info?.pages[shown] ?? slideSize;
+    if (!box || box.width === 0) return;
+    const x = ((e.clientX - box.left) / box.width) * size.width;
+    const y = ((e.clientY - box.top) / box.height) * size.height;
+    const h = await ctrl.run({ cmd: 'hitTest', x, y });
+    const hits = h?.hits ?? [];
+    const selected = new Set((cur?.selection ?? []).map((s) => s.id));
+    let r = h;
+    if (hits.length === 0) r = await ctrl.run({ cmd: 'select', ids: [] });
+    else if (!hits.some((id) => selected.has(id))) r = await ctrl.run({ cmd: 'click', x, y });
+    if (r) slideMenu.open({ ...at, context: slideMenuContext(r) });
+  };
+
+  // Mini toolbar over text selected with the mouse in a shape (CORE-UI-003).
+  const [mini, setMini] = useState<{ x: number; y: number } | null>(null);
+  const homeItems = new Map<string, RibbonItem>(
+    ribbonTabs.flatMap((tb) => tb.groups.flatMap((g) => g.items.map((i) => [i.id, i] as const))),
+  );
+  const miniItems = SLIDE_MINI.flatMap((id) => {
+    const it = homeItems.get(id);
+    return it && !it.render ? [it] : [];
+  });
+  const onTextSelectEnd = (at: { x: number; y: number }) => {
+    void ctrl.idle().then(() => {
+      const te = latestEdit.current?.textEdit;
+      if (te && te.start !== te.end) setMini(at);
+    });
+  };
 
   const revision = (i: number) => epoch * 1_000_000 + (revs[i] ?? 0);
   const canvas = (index: number, width: number, className?: string) => (
@@ -3260,6 +3426,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             }
             aria-current={i === shown}
             onClick={() => goTo(i)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (e.timeStamp - keyMenuAt.current < 600) return;
+              if (i !== shown) goTo(i);
+              slideMenu.open({ x: e.clientX, y: e.clientY, context: 'thumbnail' });
+            }}
             onDragStart={(e) => {
               setDragFrom(i);
               e.dataTransfer?.setData('text/plain', String(i));
@@ -3352,6 +3524,17 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       {picture.dialogs}
       {objects.dialogs}
       {mediaTools.dialogs}
+      {slideMenu.element}
+      {mini && miniItems.length > 0 && !slideMenu.menu && editing && (
+        <MiniToolbar
+          x={mini.x}
+          y={mini.y}
+          items={miniItems}
+          label={t('miniToolbar.label')}
+          onClose={() => setMini(null)}
+        />
+      )}
+      {shortcuts.element}
       <CommandSearch
         tabs={[...ribbonTabs, ...extraTabs]}
         open={searchOpen}
@@ -3490,6 +3673,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   ref={slideRef}
                   tabIndex={-1}
                   style={{ width: main.width, height: main.height }}
+                  onContextMenu={(e) => void onSlideContextMenu(e)}
+                  onPointerDown={() => setMini(null)}
                 >
                   {canvas(shown, main.width, styles.mainSlide)}
                   {asYouType && !state.masterView && (
@@ -3514,6 +3699,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     onStartEdit={startEdit}
                     onExitEdit={exitEdit}
                     onTextShortcut={textShortcut}
+                    onTextSelectEnd={onTextSelectEnd}
                     label={t('slideEditor.editor')}
                     editorLabel={t('slideEditor.textEditor')}
                     adjustLabel={t('slideEditor.adjustHandle')}

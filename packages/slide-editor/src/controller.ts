@@ -4,6 +4,7 @@ import type {
   SlideEditResult,
   SlideTransform,
 } from '@blueoffice/platform';
+import { RepeatTracker, SLIDE_REPEATABLE } from '@blueoffice/editor';
 
 /**
  * Sends slide commands to the engine one at a time (the engine holds the
@@ -14,6 +15,8 @@ export class SlideController {
   private queue: Promise<unknown> = Promise.resolve();
   private pending: SlideCommand | null = null;
   private busy = false;
+  /** Last repeatable command (F4, CORE-UI-004). */
+  readonly repeats = new RepeatTracker<SlideCommand>(SLIDE_REPEATABLE);
 
   constructor(
     private readonly engine: EngineHost,
@@ -38,7 +41,14 @@ export class SlideController {
 
   /** Run a command after the previous ones. */
   run(cmd: SlideCommand): Promise<SlideEditResult | null> {
+    this.repeats.record(cmd);
     return this.enqueue(() => this.engine.slideCommand(cmd));
+  }
+
+  /** Send the last repeatable command again (F4); null when there is none. */
+  repeat(): Promise<SlideEditResult | null> {
+    const c = this.repeats.get();
+    return c ? this.enqueue(() => this.engine.slideCommand(c)) : Promise.resolve(null);
   }
 
   /** Insert a picture on the current slide. */

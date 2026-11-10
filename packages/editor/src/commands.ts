@@ -14,6 +14,11 @@ export interface Command<S> {
 
 export class CommandRegistry<S> {
   private commands = new Map<string, Command<S>>();
+  /** User shortcuts (CORE-UI-004): a combo replaces the default, `null` removes it. */
+  private overrides = new Map<string, string | null>();
+  private repeatable: ((id: string) => boolean) | null = null;
+  /** Last command run through `execute` that `repeatable` accepted (F4 "repeat"). */
+  lastRepeatable: string | null = null;
 
   register(cmd: Command<S>): () => void {
     if (this.commands.has(cmd.id)) throw new Error(`command already registered: ${cmd.id}`);
@@ -25,8 +30,46 @@ export class CommandRegistry<S> {
     return this.commands.has(id);
   }
 
+  /** The command, with its effective shortcut (the user's one when customised). */
   get(id: string): Command<S> | undefined {
-    return this.commands.get(id);
+    const c = this.commands.get(id);
+    if (!c || !this.overrides.has(id)) return c;
+    return { ...c, shortcut: this.overrides.get(id) ?? undefined };
+  }
+
+  /** Shortcut the command was registered with (before user changes). */
+  defaultShortcut(id: string): string | undefined {
+    return this.commands.get(id)?.shortcut;
+  }
+
+  /** Effective shortcut of a command. */
+  shortcut(id: string): string | undefined {
+    if (this.overrides.has(id)) return this.overrides.get(id) ?? undefined;
+    return this.commands.get(id)?.shortcut;
+  }
+
+  /** Replace the user shortcuts (`null`: shortcut removed); unknown ids are kept for later. */
+  setShortcutOverrides(map: Readonly<Record<string, string | null>>): void {
+    this.overrides = new Map(Object.entries(map));
+  }
+
+  shortcutOverrides(): Record<string, string | null> {
+    return Object.fromEntries(this.overrides);
+  }
+
+  /** Commands remembered for "repeat last command" (F4); see `lastRepeatable`. */
+  trackRepeat(pred: (id: string) => boolean): void {
+    this.repeatable = pred;
+  }
+
+  /** Commands whose effective shortcut is `shortcut` (any form), optionally but one. */
+  conflicts(shortcut: string, except?: string): string[] {
+    const combo = normalizeShortcut(shortcut);
+    return [...this.commands.keys()].filter((id) => {
+      if (id === except) return false;
+      const s = this.shortcut(id);
+      return !!s && normalizeShortcut(s) === combo;
+    });
   }
 
   ids(): string[] {
@@ -46,6 +89,7 @@ export class CommandRegistry<S> {
   async execute(id: string, state: S): Promise<boolean> {
     const c = this.commands.get(id);
     if (!c || !(c.isEnabled?.(state) ?? true)) return false;
+    if (this.repeatable?.(id)) this.lastRepeatable = id;
     await c.run(state);
     return true;
   }
@@ -53,8 +97,9 @@ export class CommandRegistry<S> {
   /** The command bound to `shortcut` (`Ctrl+Shift+K` form, any case or modifier order). */
   findByShortcut(shortcut: string): Command<S> | undefined {
     const combo = normalizeShortcut(shortcut);
-    for (const c of this.commands.values()) {
-      if (c.shortcut && normalizeShortcut(c.shortcut) === combo) return c;
+    for (const id of this.commands.keys()) {
+      const s = this.shortcut(id);
+      if (s && normalizeShortcut(s) === combo) return this.get(id);
     }
     return undefined;
   }
@@ -67,8 +112,13 @@ export class CommandRegistry<S> {
     const combos = [shortcutOf(e)];
     const physical = /^(?:Digit|Key)([0-9A-Z])$/.exec(e.code ?? '')?.[1];
     if (physical) combos.push(shortcutOf({ ...e, key: physical }));
+    // User shortcuts first, so a combo moved to another command wins over its default owner.
     for (const combo of combos) {
-      for (const c of this.commands.values()) {
+      for (const [id, s] of this.overrides) {
+        if (s && this.commands.has(id) && normalizeShortcut(s) === combo) return this.get(id);
+      }
+      for (const [id, c] of this.commands) {
+        if (this.overrides.has(id)) continue;
         if (c.shortcut && normalizeShortcut(c.shortcut) === combo) return c;
       }
     }

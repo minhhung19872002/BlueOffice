@@ -2,7 +2,8 @@
 
 Phím tắt khai báo cùng command trong registry (`packages/editor/src/commands.ts`, `packages/sheet-editor`,
 `packages/slide-editor`). Cột "Trạng thái": **có** = đã gắn trong registry, **dự kiến** = sẽ gắn ở hạng mục UI tương ứng.
-Trên macOS, Ctrl ⇒ ⌘. Người dùng cấu hình lại được ở Tùy chọn › Tùy biến phím tắt (UI-KEYS-002).
+Trên macOS, Ctrl ⇒ ⌘. Người dùng cấu hình lại được ở Tệp › Tùy chọn › Tùy biến phím tắt (UI-KEYS-002, CORE-UI-004):
+phím người dùng đè lên cột dưới đây, lưu theo app, xuất/nhập JSON.
 
 ## Chung (cả ba app)
 
@@ -22,8 +23,10 @@ Trên macOS, Ctrl ⇒ ⌘. Người dùng cấu hình lại được ở Tùy ch
 | Ctrl+F / Ctrl+H | Tìm / Thay thế | có |
 | Ctrl+B / Ctrl+I / Ctrl+U | Đậm / Nghiêng / Gạch chân | có |
 | Ctrl+K | Chèn liên kết | dự kiến |
-| Ctrl+Q / Alt+Q | Ô tìm lệnh | dự kiến (UI-FRAME-003) |
-| Alt | Phím gợi ý (KeyTips) | dự kiến (UI-KEYTIPS-001) |
+| Ctrl+Q / Alt+Q | Ô tìm lệnh (gần đây, liên quan) | có |
+| Alt (nhấn rồi thả) / F10 | Phím gợi ý (KeyTips): chữ trên tab → chữ trên lệnh; Esc lùi một bậc | có |
+| Shift+F10 / phím menu | Menu ngữ cảnh tại con trỏ soạn thảo / vùng chọn | có |
+| F4 | Lặp lại thao tác cuối (`edit.repeat`; BlueSheet khi sửa công thức: đổi kiểu tham chiếu) | có |
 | F6 / Shift+F6 | Chuyển vùng: dải lệnh → tài liệu → ngăn tác vụ → thanh trạng thái | dự kiến (UI-A11Y-002) |
 | F7 | Chính tả & ngữ pháp | dự kiến |
 | Ctrl+F1 | Thu/mở dải lệnh | dự kiến (UI-RIBBON-003) |
@@ -68,7 +71,7 @@ Trên macOS, Ctrl ⇒ ⌘. Người dùng cấu hình lại được ở Tùy ch
 | Ctrl+1 | Định dạng ô | có |
 | Ctrl+Shift+L | Bật/tắt lọc | có |
 | F2 | Sửa ô | có (lưới) |
-| F4 | Đổi kiểu tham chiếu tuyệt đối/tương đối khi sửa công thức | dự kiến |
+| F4 | Khi sửa công thức: tham chiếu tại con trỏ A1 → $A$1 → A$1 → $A1 → A1 (cả hai đầu vùng); ngoài ra lặp lại định dạng / chèn-xoá hàng cột cuối | có |
 | Alt+= | Tổng tự động | dự kiến |
 | Shift+F3 | Chèn hàm | dự kiến |
 | F9 / Shift+F9 | Tính ngay / tính trang tính | dự kiến |

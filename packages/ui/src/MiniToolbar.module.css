@@ -1,0 +1,57 @@
+.bar {
+  position: fixed;
+  z-index: 55;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  max-width: 420px;
+  padding: 4px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1b2430);
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  font: 12px var(--bo-font, system-ui, sans-serif);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bar {
+    transition: opacity 120ms linear;
+  }
+}
+
+.button {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.button:hover:not([aria-disabled='true']) {
+  background: var(--bo-hover, #eef2f8);
+}
+
+.button[aria-pressed='true'] {
+  background: var(--bo-active, #dfe6f2);
+}
+
+.button[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--bo-focus, #1f6feb);
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+}

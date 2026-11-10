@@ -134,7 +134,8 @@
       "selectAll": "Chọn tất cả",
       "find": "Tìm",
       "replace": "Thay thế",
-      "pasteSpecial": "Dán đặc biệt…"
+      "pasteSpecial": "Dán đặc biệt…",
+      "repeat": "Lặp lại thao tác"
     },
     "format": {
       "fontDialog": "Hiệu ứng ký tự…",
@@ -378,6 +379,9 @@
       "edit": "Sửa đối tượng nhúng",
       "updateLinks": "Cập nhật liên kết",
       "saveCopy": "Lưu bản sao sổ làm việc nhúng"
+    },
+    "options": {
+      "shortcuts": "Tùy biến phím tắt…"
     }
   },
   "status": {
@@ -3744,7 +3748,9 @@
   "commandSearch": {
     "title": "Tìm lệnh",
     "placeholder": "Tìm lệnh (Alt+Q)",
-    "noResults": "Không có lệnh nào khớp"
+    "noResults": "Không có lệnh nào khớp",
+    "recent": "Dùng gần đây",
+    "related": "Lệnh liên quan"
   },
   "design": {
     "themes": {
@@ -5612,5 +5618,39 @@
       "cancelled": "Đã hủy dịch.",
       "sameLanguage": "Văn bản đã ở ngôn ngữ đích."
     }
+  },
+  "contextMenu": {
+    "label": "Menu ngữ cảnh",
+    "tabColor": "Màu tab…",
+    "spelling": "Gợi ý chính tả"
+  },
+  "miniToolbar": {
+    "label": "Thanh định dạng nổi",
+    "styles": "Kiểu"
+  },
+  "shortcuts": {
+    "title": "Tùy biến phím tắt",
+    "search": "Tìm lệnh hoặc phím tắt",
+    "command": "Lệnh",
+    "shortcut": "Phím tắt",
+    "actions": "Thao tác",
+    "change": "Đổi",
+    "remove": "Bỏ",
+    "reset": "Mặc định",
+    "resetAll": "Khôi phục tất cả",
+    "assign": "Gán",
+    "reassign": "Vẫn gán",
+    "cancel": "Huỷ",
+    "close": "Đóng",
+    "custom": "(đã đổi)",
+    "pressKeys": "Nhấn tổ hợp phím mới cho {{command}}",
+    "invalid": "Cần Ctrl hoặc Alt kèm một phím, hoặc một phím chức năng F1–F12.",
+    "conflict": "Đang gán cho: {{commands}}. Gán lại sẽ bỏ phím này ở lệnh đó.",
+    "export": "Xuất…",
+    "import": "Nhập…",
+    "exported": "Đã xuất phím tắt.",
+    "imported": "Đã nhập {{count}} thay đổi phím tắt.",
+    "importInvalid": "Tệp không phải bảng phím tắt BlueOffice.",
+    "importWrongApp": "Tệp phím tắt này dành cho ứng dụng khác."
   }
 }

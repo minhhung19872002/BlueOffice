@@ -37,12 +37,14 @@ export function FontFamilyPicker({
   run,
   disabled,
   onDone,
+  testId = 'font-family',
 }: {
   format: FormatState | null | undefined;
   fonts: FontChoice[];
   run: Run;
   disabled: boolean;
   onDone: () => void;
+  testId?: string;
 }) {
   const { t } = useTranslation();
   const current = format?.font ?? '';
@@ -50,7 +52,7 @@ export function FontFamilyPicker({
   return (
     <select
       className={styles.fontFamily}
-      data-testid="font-family"
+      data-testid={testId}
       aria-label={t('font.family')}
       title={t('font.family')}
       disabled={disabled}
@@ -79,11 +81,13 @@ export function FontSizeBox({
   run,
   disabled,
   onDone,
+  testId = 'font-size',
 }: {
   format: FormatState | null | undefined;
   run: Run;
   disabled: boolean;
   onDone: () => void;
+  testId?: string;
 }) {
   const { t } = useTranslation();
   const size = format?.sizeHalfPoints != null ? format.sizeHalfPoints / 2 : null;
@@ -103,7 +107,7 @@ export function FontSizeBox({
     <>
       <input
         className={styles.fontSize}
-        data-testid="font-size"
+        data-testid={testId}
         aria-label={t('font.size')}
         title={t('font.size')}
         list="bo-font-sizes"

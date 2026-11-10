@@ -7,6 +7,7 @@ import type {
   ClipboardAccess,
 } from '@blueoffice/platform';
 import { keyToCommand } from './keys';
+import { DOC_REPEATABLE, RepeatTracker } from './repeat';
 import { clipboardHistory, type ClipboardHistory, type ClipItem } from './clipboard/history';
 import {
   DEFAULT_PASTE,
@@ -46,6 +47,8 @@ export class DocController {
   /** Clipboard history copies are added to. */
   history: ClipboardHistory = clipboardHistory;
   private pasteListener: ((r: DocPasteRecord | null) => void) | null = null;
+  /** Last repeatable edit (F4, CORE-UI-004). */
+  readonly repeats = new RepeatTracker<EditCommand>(DOC_REPEATABLE);
 
   constructor(
     private readonly engine: EngineHost,
@@ -73,7 +76,18 @@ export class DocController {
    * Any other edit or click ends the chance to change the last paste's mode. */
   run(cmd: EditCommand): Promise<EditResult | null> {
     this.setPaste(null);
+    this.repeats.record(cmd);
     return this.exec(cmd);
+  }
+
+  /** Send the last repeatable edit again at the current selection (F4); null when none. */
+  repeat(): Promise<EditResult | null> {
+    const c = this.repeats.get();
+    if (!c) return Promise.resolve(null);
+    this.setPaste(null);
+    // The repeated text is not joined to what is typed next.
+    this.repeats.endRun();
+    return this.exec(c);
   }
 
   /** Default paste modes for new pastes. */

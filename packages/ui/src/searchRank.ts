@@ -67,3 +67,46 @@ export function searchCommands(entries: SearchEntry[], query: string, limit = 12
   scored.sort((a, b) => a.rank - b.rank || a.i - b.i);
   return scored.slice(0, limit).map((s) => s.e);
 }
+
+/**
+ * Commands of the best match's ribbon group not already found ("related" suggestions), in
+ * ribbon order, enabled first.
+ */
+export function relatedCommands(
+  entries: SearchEntry[],
+  found: SearchEntry[],
+  limit = 3,
+): SearchEntry[] {
+  const top = found[0];
+  if (!top) return [];
+  const ids = new Set(found.map((f) => f.id));
+  return entries
+    .filter((e) => e.path === top.path && !ids.has(e.id))
+    .sort((a, b) => Number(b.enabled) - Number(a.enabled))
+    .slice(0, limit);
+}
+
+const RECENT_KEY = 'bo.commandSearch.recent';
+const RECENT_MAX = 10;
+
+/** Commands last run from the search box, newest first (per browser: a convenience). */
+export function loadRecentCommands(): string[] {
+  try {
+    const raw = globalThis.localStorage?.getItem(RECENT_KEY);
+    const v: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remember a command run from the search box; returns the new list. */
+export function pushRecentCommand(id: string): string[] {
+  const next = [id, ...loadRecentCommands().filter((x) => x !== id)].slice(0, RECENT_MAX);
+  try {
+    globalThis.localStorage?.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    // Storage unavailable: the list lives for this session only.
+  }
+  return next;
+}

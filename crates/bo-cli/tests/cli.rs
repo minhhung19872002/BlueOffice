@@ -748,3 +748,62 @@ fn edit_merge_each_and_inspect_json() {
     assert_eq!(info["encrypted"], true, "{info}");
     assert_eq!(info["opened"], false, "{info}");
 }
+
+#[test]
+fn script_run_edits_saves_and_reports() {
+    let dir = scratch("script");
+    let script = dir.join("s.js");
+    std::fs::write(
+        &script,
+        "await doc.appendParagraph('Chạy theo lịch');\nconsole.log('xong');\nreturn (await doc.paragraphs).length;\n",
+    )
+    .unwrap();
+    let out = dir.join("out.docx");
+    let report = stdout(&run(bin()
+        .args(["script", "run"])
+        .arg(corpus("doc/phase1-sample.docx"))
+        .arg("--script")
+        .arg(&script)
+        .arg("--out")
+        .arg(&out)
+        .arg("--json")));
+    let r: serde_json::Value = serde_json::from_str(&report).unwrap();
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["app"], "doc", "{r}");
+    assert_eq!(r["modified"], true, "{r}");
+    assert_eq!(r["logs"][0]["text"], "xong", "{r}");
+    assert!(r["value"].as_u64().unwrap() > 1, "{r}");
+    assert!(r["calls"].as_u64().unwrap() >= 2, "{r}");
+    // The saved document has the new paragraph.
+    let check = dir.join("check.js");
+    std::fs::write(
+        &check,
+        "return (await doc.text).endsWith('Chạy theo lịch');",
+    )
+    .unwrap();
+    let again = stdout(&run(bin()
+        .args(["script", "run"])
+        .arg(&out)
+        .arg("--script")
+        .arg(&check)
+        .arg("--json")));
+    let again: serde_json::Value = serde_json::from_str(&again).unwrap();
+    assert_eq!(again["value"], true, "{again}");
+
+    // A failing script: exit code 1, the report on stdout, no output file.
+    std::fs::write(&script, "while (true) {}").unwrap();
+    let failed = dir.join("failed.docx");
+    let res = bin()
+        .args(["script", "run"])
+        .arg(corpus("doc/phase1-sample.docx"))
+        .arg("--script")
+        .arg(&script)
+        .args(["--timeout", "200", "--json", "--out"])
+        .arg(&failed)
+        .output()
+        .unwrap();
+    assert!(!res.status.success());
+    let r: serde_json::Value = serde_json::from_slice(&res.stdout).unwrap();
+    assert_eq!(r["error"]["kind"], "timeout", "{r}");
+    assert!(!failed.exists());
+}

@@ -22,6 +22,10 @@ export class ScriptApiError extends Error {
 
 export type Handler = (...args: unknown[]) => Promise<unknown>;
 
+/** Message of a value thrown by a host call, as the script sees it. */
+export const errorText = (e: unknown): string =>
+  e instanceof Error ? e.message : typeof e === 'string' ? e : (JSON.stringify(e) ?? String(e));
+
 /** A host from a table of handlers: unknown methods are refused. */
 export function dispatcher(table: Record<string, Handler>): ScriptCall {
   return async (method, args) => {

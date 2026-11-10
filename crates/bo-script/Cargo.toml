@@ -1,0 +1,17 @@
+[package]
+name = "bo-script"
+description = "Headless BlueScript runtime (CORE-SCRIPT-004): QuickJS (rquickjs) with the same object API as the browser sandbox, mapped onto the native engine; time, memory, stack, call and output limits."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-engine = { workspace = true, features = ["bundled-fonts"] }
+# QuickJS-ng compiled from C by rquickjs-sys (MIT); no feature beyond `std`.
+rquickjs = { version = "0.14", default-features = false, features = ["std"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

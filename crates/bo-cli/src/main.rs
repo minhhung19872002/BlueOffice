@@ -26,6 +26,7 @@
 //! bo-cli merge <template.docx> <data.csv|xlsx|vcf|json> --to docx|pdf|zip --out <out> [--pattern "«Field»"] [--each pdf|docx]  # mail merge
 //! bo-cli edit <template.docx|xlsx> --edits edits.json --out <out> [--to pdf] [--strict]  # fill controls, bookmarks, placeholders, properties, cells
 //! bo-cli inspect file --vba [--json]             # VBA module sources, read-only ([MS-OVBA])
+//! bo-cli script run <file> --script s.js [--out out.ext] [--timeout ms] [--memory mb] [--json]  # BlueScript headless
 //! bo-cli sample-macros <dir>                 # macro-enabled corpus files (tests/corpus/macro)
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
@@ -46,6 +47,7 @@ mod edit_cmd;
 mod fidelity;
 mod macro_samples;
 mod sample;
+mod script_cmd;
 mod sign_cmd;
 mod slide_album;
 mod slide_edits;
@@ -255,6 +257,11 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
+    /// BlueScript without an editor (CORE-SCRIPT-004).
+    Script {
+        #[command(subcommand)]
+        action: ScriptAction,
+    },
     /// Write the BlueSlide corpus decks into a directory.
     SampleSlides { dir: PathBuf },
     /// Write the built-in BlueDoc templates (.docx) and their thumbnails (.png).
@@ -346,6 +353,42 @@ enum Cmd {
         /// The script to run (default: scripts/fidelity-report.mjs of the repository).
         #[arg(long)]
         script: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScriptAction {
+    /// Run a script on a document in an isolated QuickJS runtime (no filesystem, network
+    /// or timers; same `doc` / `workbook` / `presentation` API as the editor) and print a
+    /// report: logs, returned value, error with line / column, counters. Exit code 1 when
+    /// the script fails (the report is still printed).
+    Run {
+        input: PathBuf,
+        /// The script (JavaScript, BlueScript API).
+        #[arg(long)]
+        script: PathBuf,
+        /// Save the document here after a successful run (format from the extension:
+        /// docx / pptx / xlsx / csv / pdf).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Wall-clock limit in milliseconds.
+        #[arg(long, default_value_t = 30_000)]
+        timeout: u64,
+        /// Heap limit of the script in MiB.
+        #[arg(long, default_value_t = 64)]
+        memory: usize,
+        /// Maximum number of API calls.
+        #[arg(long, default_value_t = 200_000)]
+        max_calls: u64,
+        /// Maximum console output plus returned value, in KiB.
+        #[arg(long, default_value_t = 1024)]
+        max_output: usize,
+        /// BlueSheet input locale.
+        #[arg(long, default_value = "vi-VN", value_parser = ["vi-VN", "en-US"])]
+        locale: String,
+        /// Print the report as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -946,6 +989,35 @@ fn run(cli: Cli) -> R {
             }
             write_file(&out, &bytes)?;
             println!("{}", serde_json::to_string(&report)?);
+        }
+        Cmd::Script {
+            action:
+                ScriptAction::Run {
+                    input,
+                    script,
+                    out,
+                    timeout,
+                    memory,
+                    max_calls,
+                    max_output,
+                    locale,
+                    json,
+                },
+        } => {
+            let ok = script_cmd::run(&script_cmd::ScriptRun {
+                input,
+                script,
+                out,
+                timeout_ms: timeout,
+                memory_mb: memory,
+                max_calls,
+                max_output_kb: max_output,
+                locale,
+                json,
+            })?;
+            if !ok {
+                return Err("script failed".into());
+            }
         }
         Cmd::SampleBig {
             out,

@@ -42,7 +42,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | WordArt / text warp | all | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | — | shape_effects.rs | 🟡 | 40 preset prstTxWarp, viền/tô chữ ở BlueSlide (CORE-SHAPE-002); Doc/Sheet chưa |
 | Ảnh: crop, xoay, alpha | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus images-* | 🟡 | thiếu chỉnh màu, xoá nền |
 | Ink | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
-| Mô hình 3D | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
+| Mô hình 3D | all | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | bo-model3d, slide_model3d.rs, slide-model3d.spec | 🟡 | glTF/GLB/OBJ/STL, am3d đọc/ghi, xoay/zoom + trình chiếu ở BlueSlide (CORE-3DMODEL-001); Doc chỉ hiện/giữ, Sheet chỉ giữ |
 | Cộng tác thời gian thực | all | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | collab tests + E2E, collab_objects.rs | ✅ | đối tượng mới + hiện ai đang sửa đoạn/ô/slide (CORE-COLLAB-001, `docs/collab-coverage.md`); cùng một part/thiết lập: người ghi sau thắng |
 | Comment luồng | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests, mentions.rs, mentions.test.tsx, server tests | ✅ | @mention (people part docx, mentions xlsx, ext pptx), thông báo host/e-mail, giao việc (CORE-COMMENT-001) |
 | Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests, bo-sheet diff, slide_compare, showChanges/compareVersions tests | 🟡 | so sánh Doc/Sheet/Slide + Hiện thay đổi (CORE-VERSION-001); chưa tách theo từng phiên bản trung gian |
@@ -120,7 +120,7 @@ tô màu đoạn di chuyển) → làm mới baseline, 0 vượt ngưỡng. Chư
 | Morph | ✅ | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Audio/video | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus media-*, slide_media.rs | ✅ | trim, fade, bookmark, phụ đề WebVTT, chế độ bắt đầu (SLIDE-MEDIA-001) |
 | Trình chiếu + Presenter | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, slide_present.rs | 🟡 | custom show, tập dượt, bút/laser, phóng, kiosk (SLIDE-SHOW-001); thiếu thuyết minh |
-| Ghi thuyết trình / xuất video | — | — | 🟡 | — | 🟡 | 🟡 | — | slide_video.rs, video.test | 🟡 | xuất GIF/PNG mọi nơi, MP4/WebM qua WebCodecs (SLIDE-EXPORT-001); chưa ghi thuyết trình |
+| Ghi thuyết trình / xuất video | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_video.rs, video.test, slide_record.rs, slide-record.spec | 🟡 | ghi thuyết minh/camera/nét vẽ/thời gian vào .pptx, phát lại (SLIDE-REC-001); xuất MP4/WebM có tiếng + camera (web), GIF/PNG mọi nơi; desktop chưa thử thiết bị thật |
 | Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); thiếu media liên kết |
 | SmartArt | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus, smartart.spec | ✅ | chèn từ thư viện bố cục, ngăn văn bản, bố cục/màu/kiểu, chuyển thành hình |
 | Comment hiện đại | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |

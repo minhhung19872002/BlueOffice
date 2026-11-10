@@ -213,6 +213,10 @@ public sealed class WopiClient(IHttpClientFactory httpFactory, WopiProofKeys pro
         throw new HostNotSupportedException("versions");
 
     /// <inheritdoc />
+    public Task<HostContent> GetVersionContentsAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct) =>
+        throw new HostNotSupportedException("versions");
+
+    /// <inheritdoc />
     public Task<HostPutResult> RestoreVersionAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct) =>
         throw new HostNotSupportedException("restore");
 

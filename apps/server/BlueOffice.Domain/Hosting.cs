@@ -161,6 +161,9 @@ public interface IHostStorage
     /// <summary>Version history, newest first.</summary>
     Task<IReadOnlyList<HostVersion>> GetVersionsAsync(HostCallContext ctx, string fileId, CancellationToken ct);
 
+    /// <summary>Content of one version of the history (open read-only, compare); 404 if unknown.</summary>
+    Task<HostContent> GetVersionContentsAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct);
+
     /// <summary>Restores an old version as the new current version.</summary>
     Task<HostPutResult> RestoreVersionAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct);
 

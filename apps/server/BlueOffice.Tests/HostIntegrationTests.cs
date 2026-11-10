@@ -312,6 +312,14 @@ public sealed class HostIntegrationTests : IAsyncLifetime
         var versions = await c.GetFromJsonAsync<JsonElement>(new Uri($"/api/sessions/{Sid(s1)}/versions", UriKind.Relative));
         Assert.Equal<string>(["2", "1"], versions.GetProperty("versions").EnumerateArray().Select(v => v.GetProperty("version").GetString()!).ToArray());
 
+        // Older version bytes (compare / preview) without changing the current version.
+        var v1 = await c.GetAsync(new Uri($"/api/sessions/{Sid(s1)}/versions/1/contents", UriKind.Relative));
+        Assert.Equal(HttpStatusCode.OK, v1.StatusCode);
+        Assert.Equal("a", Encoding.UTF8.GetString(await v1.Content.ReadAsByteArrayAsync()));
+        Assert.Equal("1", v1.Headers.GetValues("X-Version").Single());
+        Assert.Equal("b", Encoding.UTF8.GetString(await c.GetByteArrayAsync(new Uri($"/api/sessions/{Sid(s1)}/contents", UriKind.Relative))));
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync(new Uri($"/api/sessions/{Sid(s1)}/versions/9/contents", UriKind.Relative))).StatusCode);
+
         var restored = await (await c.PostAsync(new Uri($"/api/sessions/{Sid(s1)}/versions/1/restore", UriKind.Relative), null)).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("3", restored.GetProperty("version").GetString());
         Assert.Equal("a", Encoding.UTF8.GetString(await c.GetByteArrayAsync(new Uri($"/api/sessions/{Sid(s1)}/contents", UriKind.Relative))));
@@ -328,6 +336,8 @@ public sealed class HostIntegrationTests : IAsyncLifetime
         // Viewer cannot restore.
         var s3 = await OpenAsync("u3", id);
         Assert.Equal(HttpStatusCode.Forbidden, (await SessionClient(s3).PostAsync(new Uri($"/api/sessions/{Sid(s3)}/versions/1/restore", UriKind.Relative), null)).StatusCode);
+        // …but a viewer can read an older version to compare.
+        Assert.Equal("a", Encoding.UTF8.GetString(await SessionClient(s3).GetByteArrayAsync(new Uri($"/api/sessions/{Sid(s3)}/versions/1/contents", UriKind.Relative))));
     }
 
     [Fact]

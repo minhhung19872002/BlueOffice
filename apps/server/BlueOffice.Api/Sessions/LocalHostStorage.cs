@@ -82,10 +82,30 @@ public sealed class LocalHostStorage(IServiceScopeFactory scopes) : IHostStorage
     public Task<IReadOnlyList<HostVersion>> GetVersionsAsync(HostCallContext ctx, string fileId, CancellationToken ct) => RunAsync(ctx, fileId, async (sp, user, id) =>
     {
         var list = await sp.GetRequiredService<FileService>().ListVersionsAsync(user.Id, id, ct);
+        // Author names for the version history pane.
+        var authors = list.Select(v => v.CreatedBy).Distinct().ToList();
+        var names = await sp.GetRequiredService<BlueOfficeDbContext>().Users
+            .Where(u => authors.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         IReadOnlyList<HostVersion> r = list.Select(v => new HostVersion(
             v.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), v.Size, v.CreatedAt,
-            new HostUser(v.CreatedBy.ToString(), "", null), v.Note)).ToList();
+            new HostUser(v.CreatedBy.ToString(), names.GetValueOrDefault(v.CreatedBy, ""), null), v.Note)).ToList();
         return r;
+    }, ct);
+
+    /// <inheritdoc />
+    public Task<HostContent> GetVersionContentsAsync(HostCallContext ctx, string fileId, string version, CancellationToken ct) => RunAsync(ctx, fileId, async (sp, user, id) =>
+    {
+        var n = int.TryParse(version, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var x)
+            ? x
+            : throw new HostException(404, "Version not found.");
+        var (_, v, s) = await sp.GetRequiredService<FileService>().OpenContentAsync(user.Id, user.DisplayName, id, n, auditDownload: false, ct);
+        await using (s)
+        {
+            using var ms = new MemoryStream();
+            await s.CopyToAsync(ms, ct);
+            return new HostContent(ms.ToArray(), v.Number.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
     }, ct);
 
     /// <inheritdoc />

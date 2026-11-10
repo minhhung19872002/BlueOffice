@@ -249,6 +249,7 @@ import { sheetReadUnits } from './readAloud';
 import { sheetDictationTarget } from './dictation';
 import { asTextInput, translateCells, type CellTranslateMode } from './translate';
 import { useSheetQueries } from './queries';
+import { useDataModel } from './dataModel';
 import {
   SheetClipboardUi,
   sheetPasteCommand,
@@ -1275,6 +1276,28 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     togglePane: toggleQueries,
     paneOpen: queriesOpen,
   } = queries;
+
+  // Data model (SHEET-DM-001): tables, relationships, measures, pivot tables over the model.
+  const dataModel = useDataModel({
+    host,
+    labels: pivotLabels,
+    onChanged: refreshInfo,
+    onPivot: (s, index) => {
+      if (!host) return;
+      void host
+        .exec<PivotInfo[]>({ cmd: 'pivots', sheet: s })
+        .then((list) => {
+          const p = list?.[index];
+          setSheet(s);
+          setPivotPanel(true);
+          if (p) setSelection(single({ row: p.location.r0, col: p.location.c0 }));
+          setStatus(t('sheetModel.created'));
+        })
+        .catch(fail);
+    },
+    fail,
+  });
+  const { open: openModel, createPivot: modelPivot } = dataModel;
 
   /** Open the SmartArt dialog on diagram `index` of sheet `sh` (CORE-SMART-005). */
   const openSmartArt = useCallback(
@@ -2716,6 +2739,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       isChecked: () => queriesOpen,
     });
     add('data.refreshAll', () => queryRefresh(), { shortcut: 'Ctrl+Alt+F5' });
+    add('data.modelTables', () => openModel('tables'));
+    add('data.modelRelationships', () => openModel('relationships'));
+    add('data.modelMeasures', () => openModel('measures'));
+    add('data.modelPivot', () => modelPivot());
     const outlineGroup = (rows: boolean, ungroup: boolean) => (s: SheetEditorState) => {
       const r = rangeOf(s.selection);
       return exec({
@@ -2917,6 +2944,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     queryRefresh,
     toggleQueries,
     queriesOpen,
+    openModel,
+    modelPivot,
   ]);
 
   // Saved scripts on a shortcut / the Quick Access Toolbar (CORE-SCRIPT-002).
@@ -4094,6 +4123,31 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('data.fromWeb', t('sheetQuery.ribbon.fromWeb'), <Globe size={s} />, 'small'),
               item('data.queries', t('sheetQuery.ribbon.queries'), <Database size={18} />),
               item('data.refreshAll', t('sheetQuery.ribbon.refreshAll'), <RefreshCw size={18} />),
+            ],
+          },
+          {
+            id: 'dataModel',
+            label: t('sheetModel.group'),
+            items: [
+              item('data.modelTables', t('sheetModel.ribbon.tables'), <Database size={18} />),
+              item(
+                'data.modelRelationships',
+                t('sheetModel.ribbon.relationships'),
+                <Network size={s} />,
+                'small',
+              ),
+              item(
+                'data.modelMeasures',
+                t('sheetModel.ribbon.measures'),
+                <Sigma size={s} />,
+                'small',
+              ),
+              item(
+                'data.modelPivot',
+                t('sheetModel.ribbon.pivot'),
+                <TableProperties size={s} />,
+                'small',
+              ),
             ],
           },
           {
@@ -5640,6 +5694,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {dictation.bar}
       {translate.pane}
       {queries.element}
+      {dataModel.element}
       <SheetEditSpelling
         host={host}
         inputs={spellInputs}

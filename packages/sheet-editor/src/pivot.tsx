@@ -71,6 +71,28 @@ export function pivotSelectionItems(
   return null;
 }
 
+/**
+ * Field list groups: over the data model, one group per table (its columns, then the
+ * measures whose home table it is); otherwise one unnamed group of every field.
+ */
+export function modelGroups(p: PivotInfo): { table: string | null; fields: number[] }[] {
+  if (!p.model) return [{ table: null, fields: p.fields.map((_, i) => i) }];
+  const out: { table: string | null; fields: number[] }[] = [];
+  const order = p.fields
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => Number(!!a.f.measure) - Number(!!b.f.measure) || a.i - b.i);
+  for (const { f, i } of order) {
+    const table = f.table ?? null;
+    let g = out.find((x) => x.table === table);
+    if (!g) {
+      g = { table, fields: [] };
+      out.push(g);
+    }
+    g.fields.push(i);
+  }
+  return out;
+}
+
 /** The pivot table whose cells contain the given cell. */
 export function pivotAt(list: PivotInfo[], row: number, col: number): PivotInfo | null {
   return list.find((p) => contains(p.area, row, col)) ?? null;
@@ -300,7 +322,10 @@ export function PivotPanel({
     setAreas(areasOf(pivot));
   }
 
-  const fieldName = (f: number) => pivot.fields[f]?.name ?? '';
+  const fieldName = (f: number) => {
+    const fl = pivot.fields[f];
+    return (pivot.model ? fl?.column : null) ?? fl?.name ?? '';
+  };
   const valueName = (field: number, fn: PivotFunction) =>
     t('sheetEditor.pivot.valueName', {
       fn: t(`sheetEditor.pivot.fn.${fn}`),
@@ -336,8 +361,18 @@ export function PivotPanel({
 
   const addTo = (a: PivotAreas, area: Area, field: number, at?: number): PivotAreas => {
     if (area === 'values') {
-      const fn: PivotFunction = numeric(pivot.fields[field]?.items ?? []) ? 'sum' : 'count';
+      const fl = pivot.fields[field];
       const values = [...a.values];
+      if (fl?.measure) {
+        // A measure is its own summary: its value field carries its name.
+        values.splice(at ?? values.length, 0, {
+          field,
+          function: 'sum',
+          name: fl.column ?? fl.name,
+        });
+        return { ...a, values };
+      }
+      const fn: PivotFunction = numeric(fl?.items ?? []) ? 'sum' : 'count';
       values.splice(at ?? values.length, 0, { field, function: fn, name: valueName(field, fn) });
       return { ...a, values };
     }
@@ -366,9 +401,13 @@ export function PivotPanel({
       void apply({ ...withoutAxis(areas, f), values: areas.values.filter((v) => v.field !== f) });
     } else {
       const fl = pivot.fields[f];
-      // Numbers go to Values; dates and text to Rows; calculated fields are values only.
+      // Numbers go to Values; dates and text to Rows; calculated fields and measures are
+      // values only.
       const toValues =
-        !!fl && (fl.formula !== null || (!fl.date && !fl.derived && numeric(fl.items)));
+        !!fl &&
+        (fl.measure === true ||
+          fl.formula !== null ||
+          (!fl.date && !fl.derived && numeric(fl.items)));
       void apply(addTo(areas, toValues ? 'values' : 'rows', f));
     }
   };
@@ -469,21 +508,41 @@ export function PivotPanel({
         onDragOver={(e) => e.preventDefault()}
         onDrop={dropOutside}
       >
-        {pivot.fields.map((f, i) => (
-          <label
-            key={i}
-            className={styles.pivotField}
-            draggable
-            onDragStart={(e) => onDragStart(e, { field: i, from: 'list', idx: -1 })}
-          >
-            <input
-              type="checkbox"
-              data-testid={`pivot-field-${i}`}
-              checked={used(i)}
-              onChange={() => toggle(i)}
-            />
-            <span>{f.name}</span>
-          </label>
+        {modelGroups(pivot).map((g) => (
+          <div key={g.table ?? ''} role="group" aria-label={g.table ?? undefined}>
+            {g.table !== null && (
+              <div className={styles.pivotAreaTitle} data-testid={`pivot-group-${g.table}`}>
+                {g.table}
+              </div>
+            )}
+            {g.fields.map((i) => {
+              const f = pivot.fields[i];
+              if (!f) return null;
+              return (
+                <label
+                  key={i}
+                  className={styles.pivotField}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, { field: i, from: 'list', idx: -1 })}
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`pivot-field-${i}`}
+                    checked={used(i)}
+                    onChange={() => toggle(i)}
+                  />
+                  <span>
+                    {f.measure && (
+                      <span title={t('sheetEditor.pivot.modelMeasure')} aria-hidden>
+                        fx{' '}
+                      </span>
+                    )}
+                    {pivot.model ? (f.column ?? f.name) : f.name}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         ))}
       </div>
       <p className={styles.hint}>{t('sheetEditor.pivot.dragHint')}</p>
@@ -511,7 +570,7 @@ export function PivotPanel({
                 onDragStart={(e) => onDragStart(e, { field: c.field, from: area, idx })}
               >
                 <span className={styles.pivotChipLabel}>{c.label}</span>
-                {area === 'values' && (
+                {area === 'values' && !pivot.fields[c.field]?.measure && (
                   <select
                     aria-label={t('sheetEditor.pivot.summarize')}
                     data-testid={`pivot-fn-${idx}`}

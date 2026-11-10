@@ -758,6 +758,38 @@ describe('BlueSlideEditor', () => {
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'selectNext', back: true }));
   });
 
+  it(
+    'inserts library icons as SVG pictures named after the icon',
+    { timeout: 40_000 },
+    async () => {
+      const { p, cmds } = fakePlatform();
+      render(<BlueSlideEditor platform={p} language="vi-VN" />);
+      await openDeck(p);
+      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+      fireEvent.click(await waitFor(() => document.querySelector('[data-command="insert.icon"]')!));
+      await screen.findByRole('dialog', { name: 'Chèn biểu tượng' });
+      fireEvent.change(await screen.findByTestId('icon-search'), { target: { value: 'lich' } });
+      fireEvent.doubleClick(
+        await screen.findByRole('gridcell', { name: 'Lịch' }, { timeout: 20_000 }),
+      );
+      await waitFor(() =>
+        expect(cmds()).toContainEqual({
+          cmd: 'pictureInsertSvg',
+          data: expect.any(String),
+          name: 'Lịch',
+        }),
+      );
+      const sent = cmds().find((c) => c.cmd === 'pictureInsertSvg') as { data: string };
+      const svg = new TextDecoder().decode(
+        Uint8Array.from(atob(sent.data), (ch) => ch.charCodeAt(0)),
+      );
+      expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
+      expect(svg).toContain('<title>Calendar</title>');
+      fireEvent.keyDown(screen.getByTestId('icon-panel'), { key: 'Escape' });
+      expect(screen.queryByTestId('icon-panel')).toBeNull();
+    },
+  );
+
   it('inserts symbols into the edited text, else into a new text box', async () => {
     const { p, cmds } = fakePlatform();
     render(<BlueSlideEditor platform={p} language="vi-VN" />);

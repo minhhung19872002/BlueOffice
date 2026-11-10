@@ -196,6 +196,7 @@
       "pageBreak": "Ngắt trang",
       "sectionBreak": "Ngắt phần",
       "symbol": "Ký tự đặc biệt",
+      "icon": "Biểu tượng",
       "header": "Đầu trang",
       "footer": "Chân trang",
       "pageNumber": "Số trang",
@@ -251,6 +252,7 @@
       "outline": "Dàn ý",
       "readMode": "Chế độ đọc",
       "focus": "Tập trung",
+      "focusedReader": "Trình đọc tập trung",
       "navigationPane": "Ngăn điều hướng",
       "stylesPane": "Ngăn kiểu",
       "formattingMarks": "Ký hiệu định dạng",
@@ -3765,6 +3767,22 @@
     "ok": "Đồng ý",
     "cancel": "Huỷ"
   },
+  "iconLibrary": {
+    "title": "Chèn biểu tượng",
+    "search": "Tìm theo tên hoặc từ khoá (có dấu hoặc không dấu)",
+    "category": "Nhóm",
+    "allCategories": "Tất cả các nhóm",
+    "grid": "Thư viện biểu tượng",
+    "loading": "Đang tải thư viện biểu tượng…",
+    "loadError": "Không tải được thư viện biểu tượng",
+    "noResults": "Không có biểu tượng nào khớp",
+    "found": "{{count}} biểu tượng",
+    "selected": "Đã chọn {{count}} biểu tượng",
+    "clear": "Bỏ chọn",
+    "insert": "Chèn",
+    "close": "Đóng",
+    "failed": "Không chèn được biểu tượng"
+  },
   "symbolPicker": {
     "title": "Chèn ký hiệu",
     "symbolsTab": "Ký hiệu",
@@ -5630,6 +5648,40 @@
       "upstream": "Dịch vụ nhận dạng giọng nói bị lỗi.",
       "noTarget": "Hãy đặt con trỏ vào chỗ cần nhập chữ (khối chữ hoặc ô) rồi thử lại."
     }
+  },
+  "reader": {
+    "title": "Trình đọc tập trung",
+    "tools": "Công cụ đọc",
+    "close": "Đóng trình đọc (Esc)",
+    "textSize": "Cỡ chữ",
+    "smaller": "Giảm cỡ chữ",
+    "larger": "Tăng cỡ chữ",
+    "textSizeValue": "{{size}} px",
+    "wideSpacing": "Giãn chữ",
+    "lineSpacing": "Giãn dòng",
+    "column": "Độ rộng cột",
+    "columns": {
+      "narrow": "Hẹp",
+      "medium": "Vừa",
+      "wide": "Rộng"
+    },
+    "theme": "Màu trang",
+    "themes": {
+      "light": "Sáng",
+      "sepia": "Nâu giấy",
+      "dark": "Tối"
+    },
+    "themeHighContrast": "Đang dùng giao diện tương phản cao của ứng dụng",
+    "lineFocus": "Tập trung dòng",
+    "lineFocusOff": "Tắt",
+    "lineFocusLines": "{{count}} dòng",
+    "syllables": "Tách âm tiết",
+    "focus": "Ẩn công cụ",
+    "showTools": "Hiện công cụ đọc",
+    "play": "Đọc to",
+    "stopReading": "Dừng đọc",
+    "text": "Nội dung của {{name}}",
+    "empty": "Tài liệu chưa có chữ nào để đọc."
   },
   "readAloud": {
     "bar": "Điều khiển đọc to",

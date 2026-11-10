@@ -123,6 +123,7 @@ import {
   MoveHorizontal,
   MoveVertical,
   Omega,
+  Shapes,
   PaintBucket,
   Paintbrush,
   Palette,
@@ -240,6 +241,8 @@ import {
   SavePasswordPanel,
   SmartArtDialog,
   SymbolPanel,
+  IconPanel,
+  insertSheetIcons,
   PrintPanel,
   clipboardHistory,
   fromBase64,
@@ -734,6 +737,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
   /** Symbol picker panel (insert into the cell being edited, else the active cell). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  const [iconsOpen, setIconsOpen] = useState(false);
   /** Clipboard history panel (Edit group launcher). */
   const [clipPanel, setClipPanel] = useState(false);
   /** The last paste of copied cells while its mode can change (paste options button). */
@@ -2537,6 +2541,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       { isEnabled: (s) => s.smartArt !== null },
     );
     add('insert.symbol', async () => setSymbolsOpen(true), has);
+    add('insert.icon', async () => setIconsOpen(true), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
     add('insert.table', (s) => exec({ cmd: 'createTable', sheet: s.sheet, range: rng(s) }), has);
     registerSparklineCommands(add, {
@@ -4114,7 +4119,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           {
             id: 'symbols',
             label: t('ribbon.groups.symbols'),
-            items: [item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />)],
+            items: [
+              item('insert.symbol', t('commands.insert.symbol'), <Omega size={18} />),
+              item('insert.icon', t('commands.insert.icon'), <Shapes size={18} />),
+            ],
           },
         ],
       },
@@ -5535,6 +5543,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             onInsert={insertSymbol}
             onClose={() => {
               setSymbolsOpen(false);
+              focusInput();
+            }}
+          />
+        )}
+        {iconsOpen && (
+          <IconPanel
+            onInsert={(icons) =>
+              insertSheetIcons(
+                (cmd) => exec(cmd),
+                { sheet, row: selection.active.row, col: selection.active.col },
+                icons,
+              ).catch(fail)
+            }
+            onClose={() => {
+              setIconsOpen(false);
               focusInput();
             }}
           />

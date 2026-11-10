@@ -161,6 +161,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `insert.footer` | Lucide (ISC) `PanelBottom` |
 | `insert.footnote` | Lucide (ISC) `StickyNote` |
 | `insert.header` | Lucide (ISC) `PanelTop` |
+| `insert.icon` | Lucide (ISC) `Shapes` |
 | `insert.image` | Lucide (ISC) `Image` |
 | `insert.media` | Lucide (ISC) `Clapperboard` |
 | `insert.pageBreak` | Lucide (ISC) `SquareSplitVertical` |

@@ -85,6 +85,15 @@ export {
 } from './ProtectionPanels';
 export type { EditorState } from './store';
 export { SymbolPanel, useSymbolPickerLabels } from './SymbolPanel';
+export { IconPanel, useIconLibraryLabels } from './IconPanel';
+export {
+  insertDocIcons,
+  insertSheetIcons,
+  insertSlideIcons,
+  type DocIconTarget,
+  type IconRaster,
+  type SlideIconTarget,
+} from './insertIcons';
 export { CheckDocumentDialog, type CheckDocumentBridge, type CheckTab } from './CheckDocument';
 export { DocCheckDocumentDialog, docCheckBridge } from './DocCheckDocument';
 export { ClipboardPanel, previewText } from './clipboard/ClipboardPanel';
@@ -161,6 +170,30 @@ export {
   registerReadAloudCommands,
 } from './readAloudCommands';
 export { docReadRequest, docUnits, type SpeechHighlighter } from './docReadAloud';
+// Focused reader (CORE-LANG-004).
+export {
+  FocusedReader,
+  groupLines,
+  lineOf,
+  lineWindow,
+  type FocusedReaderProps,
+  type ReaderBlock,
+  type ReaderLine,
+  type WordBox,
+} from './FocusedReader';
+export {
+  DEFAULT_READER_PREFS,
+  READER_PALETTES,
+  READER_PREFS_KEY,
+  contrast,
+  loadReaderPrefs,
+  parseReaderPrefs,
+  saveReaderPrefs,
+  type ReaderPrefs,
+  type ReaderTheme,
+} from './focusedReaderPrefs';
+export { docReaderBlocks, readerStart } from './docFocusedReader';
+export { HYPHENATION_LIMITS, SYLLABLE_LIMITS, hyphenPoints, syllables } from './syllables';
 // SmartArt dialog shared with BlueSheet / BlueSlide (CORE-SMART-005).
 export {
   SMARTART_LAYOUTS,

@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn tiles_windows_side_by_side_then_in_a_grid() {
-        assert!(tile_windows(0, (0.0, 0.0, 1200.0, 800.0)).is_empty());
+        assert_eq!(tile_windows(0, (0.0, 0.0, 1200.0, 800.0)).len(), 0);
         assert_eq!(
             tile_windows(2, (10.0, 20.0, 1200.0, 800.0)),
             vec![(10.0, 20.0, 600.0, 800.0), (610.0, 20.0, 600.0, 800.0)]

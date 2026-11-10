@@ -606,9 +606,11 @@ impl LineNumberRestart {
 pub struct LineNumbering {
     /// `w:countBy`: numbers shown on multiples of this value (1 = every line).
     pub count_by: u16,
-    /// `w:start` as stored: the first number is `start + 1` (files written by
-    /// common word processors store the starting number less one; an absent
-    /// attribute starts at 1).
+    /// `w:start` as stored: the first number is `start + 1`. The standard calls it the
+    /// starting value; [MS-OI29500] 2.1.215 (Part 1 §17.6.8 notes a–b) says Office reads
+    /// it as the count of numbers skipped at each (re)start ("3 means to start numbering
+    /// at 4") and keeps it within 0..=32767; BlueOffice follows that for interoperability.
+    /// An absent attribute starts at 1.
     pub start: u32,
     /// `w:distance`: gap between the numbers and the text; `None` = automatic.
     pub distance: Option<Twips>,

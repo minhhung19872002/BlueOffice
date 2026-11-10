@@ -225,7 +225,7 @@ pub fn formatted_result(
     }
 }
 
-/// Numbers of bookmarks for calculated fields (§17.16.5.1 `=` formulas).
+/// Numbers of bookmarks for calculated fields (§17.16.3 `=` formulas).
 struct Bookmarks(std::collections::HashMap<String, String>);
 
 impl FormulaEnv for Bookmarks {
@@ -847,7 +847,7 @@ impl Session {
     }
 
     /// Recalculate the computed text form fields: `calculated` ones evaluate the `=` expression
-    /// of their default text against the bookmarks (§17.16.5.1), `currentDate` / `currentTime`
+    /// of their default text against the bookmarks (§17.16.3), `currentDate` / `currentTime`
     /// show the clock; each in its format. Returns how many results changed (one undo step).
     pub fn recalc_form_fields(&mut self) -> Result<usize> {
         let env = self.fields_now();

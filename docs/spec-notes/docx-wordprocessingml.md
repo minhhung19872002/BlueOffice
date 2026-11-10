@@ -33,10 +33,10 @@ chỉnh sửa `crates/bo-edit/src/*`.
   rPrChange §17.13.5.31, pPrChange §17.13.5.29, ins/del dấu đoạn §17.13.5.16/.15, hàng §17.13.5.19/.12,
   tcPrChange §17.13.5.36, tblPrChange §17.13.5.34, sectPrChange §17.13.5.32 (`crates/bo-edit/src/revisions.rs`).
 - **Field** — §17.16.18 fldChar, §17.16.23 instrText, §17.16.19 fldSimple, §17.16.22 hyperlink; cập nhật TOC
-  §17.16.5.68, SEQ §17.16.5.56, REF §17.16.5.49, PAGEREF §17.16.5.42, MERGEFIELD §17.16.5.35, switch định dạng số
+  §17.16.5.68, SEQ §17.16.5.56, REF §17.16.5.51, PAGEREF §17.16.5.45, MERGEFIELD §17.16.5.35, switch định dạng số
   §17.16.4.3 (`crates/bo-edit/src/fields.rs`, `crates/bo-edit/src/merge.rs`); PAGE/NUMPAGES/SECTIONPAGES tính ở
   layout (`crates/bo-layout/src/paragraph.rs`).
-- **Mục lục hình/bảng, chỉ mục, bảng trích dẫn** — TOC `\c`/`\a` (§17.16.5.68) lấy đoạn có SEQ; INDEX §17.16.5.28
+- **Mục lục hình/bảng, chỉ mục, bảng trích dẫn** — TOC `\c`/`\a` (§17.16.5.68) lấy đoạn có SEQ; INDEX §17.16.5.29
   từ XE §17.16.5.72 (`"chính:phụ"`, `\b \i \r \t \f`; INDEX `\e \l \g \k \h \p \r \f \b \z`, `\c` = section liên tục
   có cột); TOA §17.16.5.67 từ TA §17.16.5.62 (`\l \s \c`; TOA `\c \h \p \e \l \g \b`; tên nhóm do BlueDoc tự đặt).
   Dấu dẫn của số trang giữ ở tab phải của đoạn đầu trường. Sắp xếp tiếng Việt theo `collate.rs`. Chuyển chú thích

@@ -974,7 +974,7 @@ fn page_field(blocks: &[Block]) -> Option<&Paragraph> {
         .find(|p| is_page_field(p))
 }
 
-/// The paragraph shows a PAGE field (§17.16.5.43).
+/// The paragraph shows a PAGE field (§17.16.5.44).
 fn is_page_field(p: &Paragraph) -> bool {
     p.runs.iter().flat_map(|r| &r.content).any(|c| match c {
         RunContent::Field { instr, .. } => instr

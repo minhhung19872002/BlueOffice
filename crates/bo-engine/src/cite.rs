@@ -1,5 +1,5 @@
 //! BlueDoc citations and bibliography (CORE-CITE-001): sources in the bibliography part
-//! (ECMA-376 Part 1, §22.6), `CITATION` (§17.16.5.8) and `BIBLIOGRAPHY` (§17.16.5.5) fields
+//! (ECMA-376 Part 1, §22.6), `CITATION` (§17.16.5.8) and `BIBLIOGRAPHY` (§17.16.5.7) fields
 //! formatted by BlueOffice's own reference styles, BibTeX / RIS import and BibTeX export.
 //! Every edit is one undo step of the editing session (see `bo_edit::cite`).
 

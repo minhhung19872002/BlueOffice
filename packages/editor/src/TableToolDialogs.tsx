@@ -1,6 +1,6 @@
 /**
  * Dialogs of the BlueDoc table tools (ECMA-376 Part 1, §17.4): sort rows, cell formula
- * (§17.16.5.1 `=` field) and converting text to a table and back.
+ * (§17.16.3 `=` field) and converting text to a table and back.
  */
 import { useTranslation } from '@blueoffice/i18n';
 import type { EditCommand, EditResult, TableSortKey, TableState } from '@blueoffice/platform';
@@ -159,7 +159,7 @@ export function SortDialog({
   );
 }
 
-/** Functions offered by the formula dialog (§17.16.5.1). */
+/** Functions offered by the formula dialog (§17.16.3). */
 export const FORMULA_FUNCTIONS = [
   'SUM',
   'AVERAGE',

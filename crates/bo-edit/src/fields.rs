@@ -1,7 +1,7 @@
 //! Field updating (ECMA-376 Part 1, §17.16): tables of contents and of figures
-//! (§17.16.5.68 TOC), indexes (§17.16.5.28 INDEX), tables of authorities (§17.16.5.67
-//! TOA), caption numbers (§17.16.5.56 SEQ), cross-references (§17.16.5.49 REF,
-//! §17.16.5.42 PAGEREF) and mail-merge fields (§17.16.5.35 MERGEFIELD).
+//! (§17.16.5.68 TOC), indexes (§17.16.5.29 INDEX), tables of authorities (§17.16.5.67
+//! TOA), caption numbers (§17.16.5.56 SEQ), cross-references (§17.16.5.51 REF,
+//! §17.16.5.45 PAGEREF) and mail-merge fields (§17.16.5.35 MERGEFIELD).
 //!
 //! Page numbers come from the layout: callers pass the displayed page number of
 //! every body paragraph (by paragraph id, see `bo_model::index`).
@@ -174,8 +174,8 @@ impl TocRange {
     }
 }
 
-/// Fields whose result is a run of paragraphs (§17.16.5.68 TOC, §17.16.5.28 INDEX,
-/// §17.16.5.67 TOA, §17.16.5.5 BIBLIOGRAPHY).
+/// Fields whose result is a run of paragraphs (§17.16.5.68 TOC, §17.16.5.29 INDEX,
+/// §17.16.5.67 TOA, §17.16.5.7 BIBLIOGRAPHY).
 const BLOCK_FIELDS: [&str; 4] = ["TOC", "INDEX", "TOA", "BIBLIOGRAPHY"];
 
 /// TOC / INDEX / TOA fields among the top-level paragraphs of a block list.
@@ -420,7 +420,7 @@ pub fn builtin_field_style(id: &str) -> Option<Style> {
         s.ppr.space_after = Some(Twips(100));
         return Some(s);
     }
-    // Index levels: each level indented a step more, wrapped lines hang (§17.16.5.28).
+    // Index levels: each level indented a step more, wrapped lines hang (§17.16.5.29).
     if let Some(n) = id.strip_prefix("Index").and_then(|n| n.parse::<i32>().ok()) {
         if !(1..=9).contains(&n) {
             return None;
@@ -617,7 +617,7 @@ fn splice_block_field(blocks: &mut Vec<Block>, t: &TocRange, entries: Vec<Paragr
     }
 }
 
-/// Recompute only the citations (§17.16.5.8 CITATION) and bibliographies (§17.16.5.5
+/// Recompute only the citations (§17.16.5.8 CITATION) and bibliographies (§17.16.5.7
 /// BIBLIOGRAPHY) from the document's sources — no page numbers needed.
 pub(crate) fn update_cite(doc: &Document) -> FieldUpdate {
     let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
@@ -830,7 +830,7 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
     let (n, set_vars) = evaluate_all(doc, &mut sections, env);
     count += n;
 
-    // ---- 4. REF / PAGEREF (§17.16.5.49, §17.16.5.42) against the updated text.
+    // ---- 4. REF / PAGEREF (§17.16.5.51, §17.16.5.45) against the updated text.
     let probe = Document {
         sections: doc
             .sections

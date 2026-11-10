@@ -1,6 +1,6 @@
 //! References tab through the JSON command bridge with the real layout: index (XE / INDEX),
 //! table of figures (TOC `\c`), table of authorities (TA / TOA) and footnote ↔ endnote
-//! conversion (ECMA-376 Part 1, §17.16.5.28, §17.16.5.62, §17.16.5.67, §17.16.5.68,
+//! conversion (ECMA-376 Part 1, §17.16.5.29, §17.16.5.62, §17.16.5.67, §17.16.5.68,
 //! §17.16.5.72, §17.11). Page breaks put each marked paragraph on a known page; the
 //! expected entries are worked out by hand.
 // Tests may unwrap: a panic is a test failure.

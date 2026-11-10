@@ -138,7 +138,7 @@ pub enum FormFieldKind {
 }
 
 impl FormFieldKind {
-    /// The field instruction keyword (§17.16.5.20 / .19 / .21).
+    /// The field instruction keyword (§17.16.5.22 / .20 / .21).
     #[must_use]
     pub fn keyword(&self) -> &'static str {
         match self {

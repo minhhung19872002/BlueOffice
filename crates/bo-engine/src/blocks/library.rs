@@ -270,7 +270,7 @@ fn footers() -> Vec<(&'static str, &'static str, Vec<Block>)> {
     ]
 }
 
-// ---- page numbers (§17.16.5.43 PAGE, §17.16.5.41 NUMPAGES) --------------------------
+// ---- page numbers (§17.16.5.44 PAGE, §17.16.5.42 NUMPAGES) --------------------------
 
 /// (name, description, gallery, content): `pgNumB` goes to the footer, `pgNumT` to
 /// the header (§17.18.15 `ST_DocPartGallery`).

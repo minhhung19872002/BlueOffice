@@ -4,7 +4,7 @@
  * what to leave out), "Manage sources" (master list of the user ↔ list of the document,
  * BibTeX / RIS import, BibTeX export) and "Bibliography" (with a heading). Sources live in
  * the document's bibliography part (ECMA-376 Part 1, §22.6); citations are `CITATION`
- * fields (§17.16.5.8) and the list a `BIBLIOGRAPHY` field (§17.16.5.5). Each action is one
+ * fields (§17.16.5.8) and the list a `BIBLIOGRAPHY` field (§17.16.5.7). Each action is one
  * engine command (one undo step).
  */
 import { useTranslation } from '@blueoffice/i18n';

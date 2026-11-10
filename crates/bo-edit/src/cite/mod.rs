@@ -1,7 +1,7 @@
 //! Citations and bibliography (CORE-CITE-001): the document's sources live in its
 //! bibliography part (ECMA-376 Part 1, §22.6 `b:Sources`, a custom XML part §15.2.4);
 //! citations are `CITATION` fields (§17.16.5.8) and the reference list a `BIBLIOGRAPHY`
-//! field (§17.16.5.5) whose results are written by BlueOffice's own style formatters
+//! field (§17.16.5.7) whose results are written by BlueOffice's own style formatters
 //! ([`style`]). Every command here is one undo step that changes the sources part and
 //! refreshes every citation and bibliography.
 
@@ -116,7 +116,7 @@ impl Context {
         n
     }
 
-    /// The paragraphs of a bibliography field (`BIBLIOGRAPHY [\l lcid]`, §17.16.5.5).
+    /// The paragraphs of a bibliography field (`BIBLIOGRAPHY [\l lcid]`, §17.16.5.7).
     pub(crate) fn bibliography(&self, instr: &str, styles: &mut Vec<String>) -> Vec<Paragraph> {
         let lcid = bo_model::field::switch_values(instr, "\\l")
             .into_iter()
@@ -514,7 +514,7 @@ impl Session {
     }
 
     /// Insert a bibliography at the caret: an optional heading paragraph (style
-    /// `Heading1`) and the `BIBLIOGRAPHY` field (§17.16.5.5; `lcid`: language of the words
+    /// `Heading1`) and the `BIBLIOGRAPHY` field (§17.16.5.7; `lcid`: language of the words
     /// the style adds), filled from the sources.
     ///
     /// # Errors

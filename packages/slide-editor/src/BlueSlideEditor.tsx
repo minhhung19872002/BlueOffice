@@ -748,8 +748,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const showMacros = macroViewer.show;
   // Asked of the engine host itself: looking at macros is not a recorded action.
   const loadMacros = useCallback(
-    () =>
-      platform.engine.slideCommand({ cmd: 'vbaProject' }) as unknown as Promise<VbaProjectInfo>,
+    () => platform.engine.slideCommand({ cmd: 'vbaProject' }) as unknown as Promise<VbaProjectInfo>,
     [platform.engine],
   );
   /** Selection pane: the slide's objects in z-order (CORE-UI-006). */
@@ -1604,7 +1603,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   // Clipboard: own copies carry a marker so pasting prefers the full internal
   // copy; pictures and text from other programs become a picture / text box.
   const toSystem = useCallback(
-    (r: SlideEditResult | null) => {
+    async (r: SlideEditResult | null): Promise<void> => {
       const c = r?.clipboard;
       if (!c) return;
       const kind = r?.clip === 'slides' ? 'slides' : 'shapes';
@@ -1617,10 +1616,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       try {
         const cb = platform.clipboard;
         const png = c.png ? fromBase64(c.png) : undefined;
-        const done = cb.writeItems
+        await (cb.writeItems
           ? cb.writeItems({ text: c.text, html, png })
-          : cb.writeHtml(html, c.text);
-        void done.catch(() => {});
+          : cb.writeHtml(html, c.text));
       } catch {
         /* no system clipboard: the internal copy still works */
       }
@@ -1704,18 +1702,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             .find((i) => i.type === 'image/png' || i.type === 'image/jpeg')
             ?.getAsFile()
         : null;
+      // Read now: the event's data is gone once the handler returns.
+      const text = d?.getData('text/plain') || undefined;
+      const html = d?.getData('text/html') || undefined;
       void (async () => {
-        const sys: ClipboardContent = {
-          text: d?.getData('text/plain') || undefined,
-          html: d?.getData('text/html') || undefined,
+        // A copy still in flight is newer than this event's content.
+        const sys = await ctrl.clipboardForPaste(async () => ({
+          text,
+          html,
           image: file ? new Uint8Array(await file.arrayBuffer()) : undefined,
-        };
+        }));
         await pasteFrom(sys);
       })().catch(fail);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [view, info, pasteFrom, fail]);
+  }, [view, info, pasteFrom, fail, ctrl]);
 
   const baseName = useCallback(
     () => fileName.replace(/\.pptx$/i, '') || t('slideEditor.untitled'),
@@ -2278,9 +2280,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     const copyCmd = (cut: boolean) => (s: SlideEditorState) =>
       guard(async () => {
         if (inThumbs()) {
-          toSystem(await ctrl.run({ cmd: cut ? 'cutSlides' : 'copySlides', indices: [s.current] }));
+          await ctrl.copy(
+            { cmd: cut ? 'cutSlides' : 'copySlides', indices: [s.current] },
+            toSystem,
+          );
         } else if (s.hasSelection) {
-          toSystem(await ctrl.run({ cmd: cut ? 'cut' : 'copy' }));
+          await ctrl.copy({ cmd: cut ? 'cut' : 'copy' }, toSystem);
         }
       });
     reg.register({ id: 'edit.copy', shortcut: 'Ctrl+C', isEnabled: deck, run: copyCmd(false) });
@@ -2299,23 +2304,29 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isEnabled: deck,
       run: () =>
         guard(async () => {
-          const sys = await Promise.resolve()
-            .then(() => platform.clipboard.read?.())
-            .catch(() => undefined);
-          await pasteFrom(sys ?? null);
+          const sys = await ctrl.clipboardForPaste(() =>
+            Promise.resolve()
+              .then(() => platform.clipboard.read?.())
+              .catch(() => undefined),
+          );
+          await pasteFrom(sys);
         }),
     });
     reg.register({
       id: 'slide.copy',
       isEnabled: deck,
       run: (s) =>
-        guard(async () => toSystem(await ctrl.run({ cmd: 'copySlides', indices: [s.current] }))),
+        guard(async () => {
+          await ctrl.copy({ cmd: 'copySlides', indices: [s.current] }, toSystem);
+        }),
     });
     reg.register({
       id: 'slide.cut',
       isEnabled: deck,
       run: (s) =>
-        guard(async () => toSystem(await ctrl.run({ cmd: 'cutSlides', indices: [s.current] }))),
+        guard(async () => {
+          await ctrl.copy({ cmd: 'cutSlides', indices: [s.current] }, toSystem);
+        }),
     });
     simple('slide.paste', { cmd: 'paste' }, (s) => s.hasDeck && s.clip === 'slides');
 

@@ -78,6 +78,33 @@ for (const [i, file] of files.entries()) {
     t = performance.now();
     for (let p = 0; p < info.pageCount; p++) engine.pageJson(p);
     const all = performance.now() - t;
+    // BlueDoc open set-up (CORE-MISC-003): the five commands the editor used to send one
+    // after another, then the one `openSetup` call that replaces them (median of 5 runs,
+    // engine time only: in the browser each command is also a worker round trip).
+    const setup = {};
+    if (name.toLowerCase().endsWith('.docx')) {
+      const run = (c) => JSON.parse(engine.command(JSON.stringify(c)));
+      const names = ['An', 'an@example.com'];
+      const steps = [
+        { cmd: 'setAuthor', name: 'An' },
+        { cmd: 'setIdentity', names },
+        { cmd: 'autoCorrect', reset: true },
+        { cmd: 'state' },
+        { cmd: 'fontList' },
+      ];
+      const one = { cmd: 'openSetup', author: 'An', names, resetAutoCorrect: true, fonts: true };
+      const median = (f) => {
+        const ts = [];
+        for (let k = 0; k < 5; k++) {
+          const s = performance.now();
+          f();
+          ts.push(performance.now() - s);
+        }
+        return ts.sort((a, b) => a - b)[2];
+      };
+      setup.setupFiveCommandsMs = median(() => steps.forEach(run));
+      setup.setupOpenSetupMs = median(() => run(one));
+    }
     results.push({
       file: name,
       sizeMB: bytes.length / MB,
@@ -85,6 +112,7 @@ for (const [i, file] of files.entries()) {
       openFirstPageMs: first,
       openFirstPageCpuMs: firstCpu,
       allDisplayListsMs: all,
+      ...setup,
       wasmMemoryMB: memory(),
       baseMemoryMB: before,
     });

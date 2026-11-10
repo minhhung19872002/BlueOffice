@@ -72,6 +72,7 @@ export const DOC_READ: ReadonlySet<string> = new Set([
   'spelling',
   'showFormattingMarks',
   'setAuthor',
+  'openSetup',
   'historyLen',
   'mergeHistory',
   'docProperties',

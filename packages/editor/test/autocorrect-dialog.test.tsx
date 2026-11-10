@@ -9,6 +9,7 @@ import {
   AutoCorrectDialog,
   autoCorrectCommand,
   loadAutoCorrect,
+  openSetupCommand,
   saveAutoCorrect,
 } from '../src/AutoCorrectDialog';
 
@@ -112,5 +113,23 @@ describe('AutoCorrectDialog', () => {
     expect(autoCorrectCommand(o)).toEqual({ cmd: 'autoCorrect', options: o });
     localStorage.setItem('bo.doc.autocorrect', '{not json');
     expect(loadAutoCorrect()).toBeNull();
+  });
+
+  it('builds the one-call document-open set-up (CORE-MISC-003)', () => {
+    const o = defaults();
+    expect(openSetupCommand('An', ['An', 'an@x.vn'], o, true)).toEqual({
+      cmd: 'openSetup',
+      author: 'An',
+      names: ['An', 'an@x.vn'],
+      autoCorrect: o,
+      fonts: true,
+    });
+    expect(openSetupCommand('', [], null, false)).toEqual({
+      cmd: 'openSetup',
+      author: '',
+      names: [],
+      resetAutoCorrect: true,
+      fonts: false,
+    });
   });
 });

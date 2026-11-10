@@ -57,6 +57,8 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   // Session settings, not document content (sent when a document opens).
   'autoCorrect',
   'proofOptions',
+  // Author, identity, AutoCorrect, state and fonts in one call (CORE-MISC-003).
+  'openSetup',
 ]);
 
 /**

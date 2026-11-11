@@ -851,6 +851,30 @@ pub fn cmd_set_show_setup(tx: &mut Tx<'_>, setup: &ShowSetup) -> R<()> {
     store_setup(tx, setup)
 }
 
+/// Hide slides from the show or show them again (§19.3.1.38 sld@show): `hidden`
+/// absent toggles, following the first slide. One undo step.
+pub fn cmd_hide_slides(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    slides: Option<Vec<usize>>,
+    hidden: Option<bool>,
+) -> R<()> {
+    let n = tx.pres.slides.len();
+    let targets = slides.unwrap_or_else(|| vec![sel.slide]);
+    let Some(&first) = targets.first() else {
+        return refuse("noSlide");
+    };
+    if targets.iter().any(|&i| i >= n) {
+        return refuse("noSlide");
+    }
+    let hide = hidden.unwrap_or(tx.pres.slides[first].show != Some(false));
+    for i in targets {
+        // A shown slide carries no attribute (the default).
+        tx.fields(i, |f| f.show = hide.then_some(false))?;
+    }
+    Ok(())
+}
+
 /// Set the rehearsed (or typed) timings of slides; `use_timings` also turns
 /// the setup's "use timings" on or off.
 pub fn cmd_set_timings(

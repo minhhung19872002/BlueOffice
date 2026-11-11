@@ -207,6 +207,8 @@ export type SlidePresentCommand =
       timings: { slide: number; ms: number | null }[];
       useTimings?: boolean;
     }
+  /** Hide slides from the show / show them again (absent `hidden`: toggle; default: current slide). */
+  | { cmd: 'hideSlides'; slides?: number[]; hidden?: boolean }
   | { cmd: 'setShowLink'; action: SlideLinkAction }
   | { cmd: 'keepInk'; ink: { slide: number; strokes: SlideInkStroke[] }[]; name?: string };
 

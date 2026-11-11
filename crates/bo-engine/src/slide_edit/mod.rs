@@ -710,6 +710,15 @@ pub enum SlideCommand {
         #[serde(default)]
         use_timings: Option<bool>,
     },
+    /// Hide slides from the show / show them again (§19.3.1.38 sld@show).
+    HideSlides {
+        /// Slides (0-based); absent = the current slide.
+        #[serde(default)]
+        slides: Option<Vec<usize>>,
+        /// `true` hides, `false` shows; absent toggles.
+        #[serde(default)]
+        hidden: Option<bool>,
+    },
     /// Hyperlink of the selected shapes in the show (§21.1.2.3.5 hlinkClick).
     SetShowLink {
         /// What clicking the shape does.
@@ -917,6 +926,7 @@ impl SlideCommand {
             | SlideCommand::SetTransition { .. }
             | SlideCommand::SetCustomShow { .. }
             | SlideCommand::SetTimings { .. }
+            | SlideCommand::HideSlides { .. }
             | SlideCommand::KeepInk { .. }
             | SlideCommand::AddAnimation { .. }
             | SlideCommand::AddComment { .. }
@@ -4669,6 +4679,11 @@ impl Engine {
                 } => {
                     ed.mutate(pres, &mut out, |tx, _| {
                         present::cmd_set_timings(tx, &timings, use_timings)
+                    });
+                }
+                SlideCommand::HideSlides { slides, hidden } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        present::cmd_hide_slides(tx, sel, slides, hidden)
                     });
                 }
                 SlideCommand::SetShowLink { action } => {

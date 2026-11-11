@@ -322,6 +322,35 @@ fn rehearsed_timings_are_written_as_adv_tm() {
 }
 
 #[test]
+fn hidden_slides_are_written_as_show_0_and_left_out_of_the_show() {
+    let mut e = open("slide-text-bullets.pptx");
+    // Hide the current slide (a toggle), then slide 3 by index.
+    run(&mut e, r#"{"cmd":"goTo","slide":1}"#);
+    run(&mut e, r#"{"cmd":"hideSlides"}"#);
+    assert_eq!(state(&mut e).presenting.unwrap().hidden, vec![1]);
+    run(&mut e, r#"{"cmd":"hideSlides","slides":[2],"hidden":true}"#);
+    assert_eq!(state(&mut e).presenting.unwrap().hidden, vec![1, 2]);
+    let bytes = save(&e, "present-hidden.pptx");
+    // §19.3.1.38: sld@show="0" on the hidden slides only.
+    assert!(!part_text(&bytes, "/ppt/slides/slide1.xml").contains(r#"show="0""#));
+    assert!(part_text(&bytes, "/ppt/slides/slide2.xml").contains(r#"show="0""#));
+    assert!(part_text(&bytes, "/ppt/slides/slide3.xml").contains(r#"show="0""#));
+    let mut back = Engine::with_bundled_fonts();
+    back.open(&bytes, "back.pptx").unwrap();
+    assert_eq!(state(&mut back).presenting.unwrap().hidden, vec![1, 2]);
+    // The same command on a hidden slide shows it again; each change is one undo step.
+    run(&mut e, r#"{"cmd":"hideSlides"}"#);
+    assert_eq!(state(&mut e).presenting.unwrap().hidden, vec![2]);
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(state(&mut e).presenting.unwrap().hidden, vec![1, 2]);
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(state(&mut e).presenting.unwrap().hidden, [] as [usize; 0]);
+    let r = try_run(&mut e, r#"{"cmd":"hideSlides","slides":[9]}"#);
+    assert_eq!(r.error.as_deref(), Some("noSlide"));
+}
+
+#[test]
 fn hyperlinks_start_custom_shows() {
     let mut e = open("slide-text-bullets.pptx");
     run(

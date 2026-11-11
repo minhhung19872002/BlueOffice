@@ -3072,7 +3072,26 @@
       "category": "hạng mục {{n}}",
       "point": "chuỗi {{s}}, hạng mục {{c}}",
       "node": "khối {{n}}"
-    }
+    },
+    "find": {
+      "group": "Tìm kiếm",
+      "title": "Tìm",
+      "replaceTitle": "Tìm và thay thế",
+      "what": "Tìm gì",
+      "with": "Thay bằng",
+      "matchCase": "Phân biệt hoa thường",
+      "wholeWord": "Chỉ tìm nguyên từ",
+      "next": "Tìm tiếp",
+      "replace": "Thay thế",
+      "replaceAll": "Thay tất cả",
+      "close": "Đóng",
+      "notFound": "Không tìm thấy.",
+      "found": "Tìm thấy ở slide {{slide}}.",
+      "replaced": "Đã thay {{count}} chỗ."
+    },
+    "fontSize": "Cỡ chữ",
+    "newDeck": "Bản trình chiếu mới",
+    "hideSlide": "Ẩn slide"
   },
   "review": {
     "title": "Xem lại",

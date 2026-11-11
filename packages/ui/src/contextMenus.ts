@@ -214,6 +214,7 @@ export const SLIDE_MENUS: Record<SlideMenuContext, MenuSpec> = {
     'slide.new',
     'slide.duplicate',
     'slide.delete',
+    'slide.hide',
     '-',
     'slide.cut',
     'slide.copy',

@@ -2583,6 +2583,13 @@ pub fn generate(dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
             "| `doc/{name}` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/doc_charts.rs`) | chart: {desc} |\n"
         ));
     }
+    // SmartArt written by BlueDoc's own SmartArt commands (CORE-SMART-004).
+    for (name, desc, bytes) in crate::doc_diagrams::documents()? {
+        std::fs::write(dir.join(name), bytes)?;
+        readme.push_str(&format!(
+            "| `doc/{name}` | Tự sinh: `cargo run -p bo-cli -- corpus tests/corpus/doc` (`crates/bo-cli/src/doc_diagrams.rs`) | smartart: {desc} |\n"
+        ));
+    }
     // Mail-merge data sources (invented names) for the merge-* templates.
     let records = merge_records();
     let csv: String = records

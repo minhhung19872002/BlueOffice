@@ -527,6 +527,45 @@ export function SmartArtPaneToggle({
   );
 }
 
+/**
+ * The frame of the selected diagram and the box of its current shape (the one a click picked or
+ * the text pane's caret is on), drawn over the document like the selection of a shape inside a
+ * diagram in the office suites. `frame` / `node` are boxes in the caller's pixels.
+ */
+export function SmartArtSelection({
+  frame,
+  node,
+  nodeIndex,
+  position = 'absolute',
+}: {
+  frame: { left: number; top: number; width: number; height: number } | null;
+  node: { left: number; top: number; width: number; height: number } | null;
+  nodeIndex: number | null;
+  position?: 'absolute' | 'fixed';
+}) {
+  return (
+    <>
+      {frame && (
+        <div
+          className={styles.frame}
+          style={{ position, ...frame }}
+          aria-hidden="true"
+          data-testid="smartart-frame"
+        />
+      )}
+      {node && nodeIndex !== null && (
+        <div
+          className={styles.nodeMark}
+          style={{ position, ...node }}
+          aria-hidden="true"
+          data-testid="smartart-node-selection"
+          data-node={nodeIndex}
+        />
+      )}
+    </>
+  );
+}
+
 /** A live preview over the diagram's frame (the layout / colours / style under the pointer). */
 export function SmartArtLivePreview({ svg, style }: { svg: string; style: CSSProperties }) {
   return (

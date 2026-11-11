@@ -607,8 +607,15 @@ fn parse_plot(g: &Node) -> ChartPlot {
         .and_then(|v| v.trim().trim_end_matches('%').parse::<i32>().ok())
         .filter(|v| g.name.starts_with("bar") && *v != if stacked { 100 } else { 0 })
         .map(|v| v.clamp(-100, 100));
+    // §21.2.2.50 doughnutChart holeSize (ST_HoleSize, 1..=90 %).
+    let hole_size = (g.name == "doughnutChart")
+        .then(|| g.val_of("holeSize"))
+        .flatten()
+        .and_then(|v| v.trim().trim_end_matches('%').parse::<u32>().ok())
+        .map(|v| v.clamp(1, 90));
     ChartPlot {
         overlap,
+        hole_size,
         of_pie,
         drop_lines: g.child("dropLines").is_some(),
         hi_low_lines: g.child("hiLowLines").is_some() && g.name != "stockChart",

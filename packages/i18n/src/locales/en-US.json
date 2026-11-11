@@ -5869,7 +5869,41 @@
     },
     "chartItems": "Items of {{name}}",
     "selectAll": "(Select all)",
-    "keepOne": "Keep at least one item."
+    "keepOne": "Keep at least one item.",
+    "dragStart": "Drag to move the start of the selection",
+    "dragEnd": "Drag to move the end of the selection",
+    "newStyle": {
+      "button": "New style…",
+      "slicerTitle": "New slicer style",
+      "timelineTitle": "New timeline style",
+      "name": "Name",
+      "slicerName": "Slicer style {{n}}",
+      "timelineName": "Timeline style {{n}}",
+      "elements": "Elements",
+      "format": "Element format",
+      "fill": "Fill colour",
+      "text": "Text colour",
+      "border": "Border colour",
+      "bold": "Bold",
+      "italic": "Italic",
+      "useFill": "Fill",
+      "useText": "Set text colour",
+      "useBorder": "Border",
+      "clear": "Clear format",
+      "formatted": "formatted",
+      "preview": "Preview",
+      "sample": "Item {{n}}",
+      "nameNeeded": "Enter a style name.",
+      "element": {
+        "whole": "Whole slicer",
+        "header": "Header",
+        "selected": "Selected item with data",
+        "unselected": "Unselected item with data",
+        "wholeTimeline": "Whole timeline",
+        "selectedTime": "Selected time block",
+        "unselectedTime": "Unselected time block"
+      }
+    }
   },
   "pictureTools": {
     "tab": "Picture tools",

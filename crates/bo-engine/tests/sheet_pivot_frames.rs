@@ -493,6 +493,145 @@ fn timeline_show_options_and_scroll_position_round_trip() {
     assert_eq!(t["scrollDay"], Value::Null);
 }
 
+/// New Slicer Style / New Timeline Style: a custom style with a format per element is one undo
+/// step, is offered with the frames (`customStyles`), draws them with its colours once chosen,
+/// and comes back from the saved file; a name in use is refused.
+#[test]
+fn new_slicer_and_timeline_styles() {
+    let mut e = with_pivots();
+    run(
+        &mut e,
+        json!({ "cmd": "insertPivotSlicer", "sheet": 1, "pivot": 0, "field": 0 }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "insertTimeline", "sheet": 1, "pivot": 0, "field": 2 }),
+    );
+    let depth = e.history_len();
+    run(
+        &mut e,
+        json!({ "cmd": "createFrameStyle", "sheet": 1, "name": "Bộ lọc xanh",
+            "whole": { "fill": "#F2F7FC", "border": "#1F4E79" },
+            "header": { "text": "#1F4E79", "bold": true },
+            "selected": { "fill": "#2E75B6", "text": "#FFFFFF" },
+            "unselected": { "fill": "#DDEBF7", "text": "#595959" } }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "createFrameStyle", "sheet": 1, "name": "Dòng cam", "timeline": true,
+            "selected": { "fill": "#C55A11" }, "whole": { "border": "#BF8F00" } }),
+    );
+    assert_eq!(e.history_len(), depth + 2, "one undo step each");
+    // Same name again (either kind), a built-in name: refused.
+    for bad in [
+        json!({ "cmd": "createFrameStyle", "sheet": 1, "name": "Bộ lọc xanh" }),
+        json!({ "cmd": "createFrameStyle", "sheet": 1, "name": "Dòng cam" }),
+        json!({ "cmd": "createFrameStyle", "sheet": 1, "name": "SlicerStyleLight3" }),
+    ] {
+        assert!(exec(&mut e, &bad).is_err(), "{bad}");
+    }
+    let s = &run(&mut e, json!({ "cmd": "slicers", "sheet": 1 }))[0];
+    assert_eq!(s["customStyles"], json!(["Bộ lọc xanh"]));
+    let t = &run(&mut e, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    assert_eq!(t["customStyles"], json!(["Dòng cam"]));
+    // Not applied until chosen; then the frame takes its colours.
+    assert_eq!(s["style"], "SlicerStyleLight1");
+    run(
+        &mut e,
+        json!({ "cmd": "slicerOptions", "sheet": 1, "index": 0, "style": "Bộ lọc xanh" }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "timelineOptions", "sheet": 1, "index": 0, "style": "Dòng cam" }),
+    );
+    let check = |e: &mut SheetEngine| {
+        let s = &run(e, json!({ "cmd": "slicers", "sheet": 1 }))[0];
+        let c = &s["colors"];
+        assert_eq!(s["style"], "Bộ lọc xanh");
+        assert_eq!(
+            (c["selected"].clone(), c["selectedText"].clone()),
+            (json!("#2E75B6"), json!("#FFFFFF"))
+        );
+        assert_eq!(
+            (c["unselected"].clone(), c["unselectedText"].clone()),
+            (json!("#DDEBF7"), json!("#595959"))
+        );
+        assert_eq!(
+            (
+                c["background"].clone(),
+                c["border"].clone(),
+                c["headerText"].clone()
+            ),
+            (json!("#F2F7FC"), json!("#1F4E79"), json!("#1F4E79"))
+        );
+        let t = &run(e, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+        assert_eq!(t["style"], "Dòng cam");
+        assert_eq!(
+            (
+                t["colors"]["selected"].clone(),
+                t["colors"]["border"].clone()
+            ),
+            (json!("#C55A11"), json!("#BF8F00"))
+        );
+    };
+    check(&mut e);
+    let bytes = e.save("xlsx", 0).unwrap();
+    // For the validator (`bo-cli validate`): BO_FRAME_STYLES_OUT=<file>.
+    if let Ok(out) = std::env::var("BO_FRAME_STYLES_OUT") {
+        std::fs::write(out, &bytes).unwrap();
+    }
+    let mut e2 = SheetEngine::new();
+    e2.open(&bytes, "t.xlsx").unwrap();
+    check(&mut e2);
+    let s = &run(&mut e2, json!({ "cmd": "slicers", "sheet": 1 }))[0];
+    assert_eq!(s["customStyles"], json!(["Bộ lọc xanh"]));
+    // Undo takes the styles away again (the choice first).
+    e.undo().unwrap();
+    e.undo().unwrap();
+    e.undo().unwrap();
+    let s = &run(&mut e, json!({ "cmd": "slicers", "sheet": 1 }))[0];
+    assert_eq!(s["customStyles"], json!(["Bộ lọc xanh"]));
+    e.undo().unwrap();
+    let s = &run(&mut e, json!({ "cmd": "slicers", "sheet": 1 }))[0];
+    assert_eq!(s["customStyles"], json!([]));
+}
+
+/// Changing the time level keeps the chosen dates: the first quarter of 2024 chosen, then months
+/// → January to March 2024 are selected and the pivot table keeps the quarter's total.
+#[test]
+fn time_level_change_keeps_the_selection() {
+    let mut e = with_pivots();
+    run(
+        &mut e,
+        json!({ "cmd": "insertTimeline", "sheet": 1, "pivot": 0, "field": 2 }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "timelineOptions", "sheet": 1, "index": 0, "level": 1 }),
+    );
+    // Q1 2024: 2024-01-01 = 45292 … 2024-03-31 = 45382: 10 + 5 + 7 + 2 = 24.
+    run(
+        &mut e,
+        json!({ "cmd": "timelineSelect", "sheet": 1, "index": 0, "start": 45292, "end": 45382 }),
+    );
+    assert_eq!(shown(&e, 1, 5, 1), "24");
+    run(
+        &mut e,
+        json!({ "cmd": "timelineOptions", "sheet": 1, "index": 0, "level": 2 }),
+    );
+    let t = &run(&mut e, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    let on: Vec<&str> = t["periods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["selected"] == true)
+        .map(|p| p["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(on, ["01/2024", "02/2024", "03/2024"]);
+    assert_eq!(t["filtered"], true);
+    assert_eq!(shown(&e, 1, 5, 1), "24");
+}
+
 #[test]
 fn deleting_a_pivot_table_detaches_its_frames() {
     let mut e = with_pivots();

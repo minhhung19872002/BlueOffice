@@ -34,6 +34,7 @@ import type {
   PdfExport,
   Platform,
   RecentFile,
+  SelRect,
   SigningDefaults,
   SignRequest,
   SpellInfo,
@@ -450,6 +451,7 @@ import {
 import {
   SmartArtLivePreview,
   SmartArtPaneToggle,
+  SmartArtSelection,
   SmartArtTextPane,
   registerSmartArtTools,
   smartArtDesignGroups,
@@ -3508,16 +3510,75 @@ function EditorInner({
       live = false;
     };
   }, [onSmart, state.edit]);
-  /** The diagram's box on screen: the selection marks over it (viewport px). */
-  const smartBox = (): { left: number; top: number; width: number; height: number } | null => {
-    const marks = [...document.querySelectorAll('.bo-sel')].map((m) => m.getBoundingClientRect());
-    if (marks.length === 0) return null;
-    const left = Math.min(...marks.map((m) => m.left));
-    const top = Math.min(...marks.map((m) => m.top));
-    const right = Math.max(...marks.map((m) => m.right));
-    const bottom = Math.max(...marks.map((m) => m.bottom));
-    return { left, top, width: right - left, height: bottom - top };
-  };
+  /** A box on page `page` (points) on screen (viewport px), or null when it is not shown. */
+  const pageBoxOnScreen = useCallback(
+    (b: SelRect | null | undefined) => {
+      const r = b ? view.current?.pageRect(b.page) : null;
+      const pg = b ? store.getState().doc?.pages[b.page] : null;
+      if (!b || !r || !pg || pg.width <= 0) return null;
+      const k = r.width / pg.width;
+      return { left: r.left + b.x * k, top: r.top + b.y * k, width: b.w * k, height: b.h * k };
+    },
+    [store],
+  );
+  /** The diagram's frame on screen (viewport px): where the engine laid it out. */
+  const smartBox = useCallback(() => pageBoxOnScreen(docSmart?.frame), [pageBoxOnScreen, docSmart]);
+  // The current shape's box (page points), marked inside the frame.
+  const [smartNodeAt, setSmartNodeAt] = useState<SelRect | null>(null);
+  const smartNodeBox = docSmart && smartNode !== null ? smartNodeAt : null;
+  useEffect(() => {
+    if (!docSmart || smartNode === null) return undefined;
+    let live = true;
+    void controller.current?.query({ cmd: 'smartArtNodeAt', node: smartNode }).then((r) => {
+      if (live) setSmartNodeAt(r?.smartArtNode ?? null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [docSmart, smartNode]);
+  // The frame and the current shape on screen, measured after layout and again when the page
+  // scrolls or the window changes size.
+  type ScreenBox = { left: number; top: number; width: number; height: number };
+  const [smartScreen, setSmartScreen] = useState<{
+    frame: ScreenBox | null;
+    node: ScreenBox | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!docSmart) return undefined;
+    let raf = 0;
+    const on = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() =>
+        setSmartScreen({
+          frame: pageBoxOnScreen(docSmart.frame),
+          node: pageBoxOnScreen(smartNodeBox),
+        }),
+      );
+    };
+    on();
+    window.addEventListener('scroll', on, true);
+    window.addEventListener('resize', on);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', on, true);
+      window.removeEventListener('resize', on);
+    };
+  }, [docSmart, smartNodeBox, pageBoxOnScreen]);
+  // A click on a shape inside the diagram selects that shape (the current shape of Add Shape,
+  // Promote / Demote and the text pane), as in the office suites.
+  useEffect(() => {
+    const c = controller.current;
+    if (!c) return undefined;
+    c.onClicked = (e, r) => {
+      if (!r?.format.smartArt) return;
+      void c
+        .query({ cmd: 'smartArtNodeAt', page: e.page, x: e.x, y: e.y })
+        .then((n) => setSmartNode(n?.smartArtNode?.node ?? null));
+    };
+    return () => {
+      c.onClicked = null;
+    };
+  });
   const latestPreview = useMemo(() => latestOnly(), []);
   const smartApplyDoc = useCallback(
     async (c: EditCommand) => {
@@ -5987,24 +6048,30 @@ function EditorInner({
               />
             )}
             {docSmart &&
-              !smartPane &&
+              smartScreen?.frame &&
               (() => {
-                const b = smartBox();
-                return b ? (
-                  <SmartArtPaneToggle
-                    open={false}
-                    label={t('slideEditor.smartart.pane.toggle')}
-                    style={{ position: 'fixed', left: b.left, top: b.top + b.height / 2 }}
-                    onToggle={() => setSmartPane(true)}
-                  />
-                ) : null;
-              })()}
-            {smartPreview &&
-              (() => {
-                const b = smartBox();
-                return b ? (
-                  <SmartArtLivePreview svg={smartPreview} style={{ position: 'fixed', ...b }} />
-                ) : null;
+                // The selected diagram: its frame with the text pane arrow on the left edge, the
+                // current shape marked, the live preview of a gallery choice over it.
+                const b = smartScreen.frame;
+                return (
+                  <>
+                    <SmartArtSelection
+                      position="fixed"
+                      frame={b}
+                      node={smartPreview || !smartNodeBox ? null : smartScreen.node}
+                      nodeIndex={smartNode}
+                    />
+                    {smartPreview && (
+                      <SmartArtLivePreview svg={smartPreview} style={{ position: 'fixed', ...b }} />
+                    )}
+                    <SmartArtPaneToggle
+                      open={smartPane}
+                      label={t('slideEditor.smartart.pane.toggle')}
+                      style={{ position: 'fixed', left: b.left, top: b.top + b.height / 2 }}
+                      onToggle={() => setSmartPane((v) => !v)}
+                    />
+                  </>
+                );
               })()}
             {state.dialog === 'equation' && (
               <EquationDialog

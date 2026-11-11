@@ -886,6 +886,45 @@ fn smartart_pictures_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// Assistant shapes and right-to-left diagrams (CORE-SMART-004): an organisation chart with an
+/// assistant of the top shape and of a second-level shape (ST_PtType `asst`, ECMA-376 Part 1,
+/// §21.4.3 `dgm:pt`), the same chart right to left, then a process, a cycle and a picture strip
+/// laid out right to left (the layout variable `dgm:dir val="rev"`), each made with the Design
+/// tab commands (`insertSmartArt`, `setSmartArt`).
+pub const SMARTART_ASSISTANT_RTL_DECK: &str = "slide-edit-smartart-assistant-rtl.pptx";
+
+fn smartart_assistant_rtl_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    let org = r#"[{"text":"Giám đốc"},{"text":"Thư ký","level":1,"assistant":true},{"text":"Kỹ thuật","level":1},{"text":"Trợ lý kỹ thuật","level":2,"assistant":true},{"text":"Phát triển","level":2},{"text":"Kinh doanh","level":1}]"#;
+    let steps =
+        r#"[{"text":"Tiếp nhận"},{"text":"Xử lý"},{"text":"Phê duyệt"},{"text":"Trả kết quả"}]"#;
+    let mut cmds = Vec::new();
+    for (layout, items, colors, rtl) in [
+        ("hierarchy", org, "colorful", false),
+        ("hierarchy", org, "blue", true),
+        ("process", steps, "green", true),
+        ("cycle", steps, "orange", true),
+        ("pictureStrip", steps, "purple", true),
+    ] {
+        cmds.push(r#"{"cmd":"addSlide"}"#.to_owned());
+        cmds.push(format!(
+            r#"{{"cmd":"insertSmartArt","layout":"{layout}","items":{items},"colors":"{colors}","style":"fill"}}"#
+        ));
+        if rtl {
+            cmds.push(r#"{"cmd":"setSmartArt","rtl":true}"#.to_owned());
+        }
+    }
+    for c in &cmds {
+        let r = e.slide_command_json(c).ok()?;
+        if r.contains("\"error\":\"") {
+            return None;
+        }
+    }
+    e.save_pptx().ok()
+}
+
 /// Hyperlinks and actions (SLIDE-ACTION-001): linked text (slide, URL, mail) with a
 /// custom show, a file link and a hover sound; action buttons on every slide;
 /// actions BlueSlide never runs (program, macro, file, other deck, unknown).
@@ -1117,6 +1156,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = smartart_pictures_deck(base) {
         out.push((SMARTART_PICTURES_DECK, d));
     }
+    if let Some(d) = smartart_assistant_rtl_deck(base) {
+        out.push((SMARTART_ASSISTANT_RTL_DECK, d));
+    }
     out.extend(recording_decks(base));
     out.extend(action_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
@@ -1148,7 +1190,7 @@ mod tests {
         let decks = decks(&base, &crate::slide_samples::sample_png());
         assert_eq!(
             decks.len(),
-            SCRIPTS.len() + FLIPPED.len() + 6 + RECORDING_DECKS.len() + ACTION_DECKS.len()
+            SCRIPTS.len() + FLIPPED.len() + 7 + RECORDING_DECKS.len() + ACTION_DECKS.len()
         );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -1200,6 +1242,52 @@ mod transition_tests {
             seen.push(l);
         }
         assert_eq!(seen, Layout::ALL);
+    }
+
+    // source: ECMA-376 Part 1, §21.4.3 dgm:pt (ST_PtType `asst`) and the layout variable
+    // `dgm:dir` (`rev`): the assistant and right-to-left deck reads back with two assistants on
+    // each organisation chart and four diagrams right to left, the outline unchanged.
+    #[test]
+    fn assistant_and_right_to_left_deck_reads_back() {
+        use bo_pptx::diagram_layout as dl;
+        /// (nodes, assistants) of an outline.
+        fn count(n: &[dl::DiagramNode]) -> (usize, usize) {
+            n.iter().fold((0, 0), |(all, asst), x| {
+                let (a, b) = count(&x.children);
+                (all + 1 + a, asst + usize::from(x.assistant) + b)
+            })
+        }
+        let base = crate::slide_samples::base_decks();
+        let bytes = smartart_assistant_rtl_deck(&base).expect("deck");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&bytes, "assistant-rtl.pptx").unwrap();
+        let p = e.presentation().unwrap();
+        let mut got = Vec::new();
+        for s in &p.slides {
+            let Some(data) = s
+                .info
+                .rels
+                .iter()
+                .find(|r| r.rel_type.ends_with("/diagramData"))
+                .map(|r| bo_opc::resolve_target(&s.info.part_name, &r.target))
+            else {
+                continue;
+            };
+            let bytes = p.part_data(&data).unwrap();
+            let (nodes, _) = dl::parse_data_model(bytes, &data).unwrap();
+            let (all, assistants) = count(&nodes);
+            got.push((all, assistants, dl::look_of(bytes, &data).rtl));
+        }
+        assert_eq!(
+            got,
+            [
+                (6, 2, false),
+                (6, 2, true),
+                (4, 0, true),
+                (4, 0, true),
+                (4, 0, true)
+            ]
+        );
     }
 
     #[test]

@@ -125,9 +125,9 @@ clip 385.0,460.3 200.0x130.0
       rect 152.0,72.7 4.8x4.8 #2fa36bff
       text 6.0pt 158.6,76.7 "Miền "
       text 6.0pt 172.6,76.7 "Nam"
-      path n=7 [76.0 8.0 89.7 90.0] fill=#2e6db4ff
-      path n=5 [59.2 88.1 103.5 114.9] fill=#f28c28ff
-      path n=7 [42.5 36.5 76.0 111.1] fill=#2fa36bff
+      path n=7 [76.0 8.0 96.6 102.5] fill=#2e6db4ff
+      path n=5 [50.9 99.6 103.5 114.9] fill=#f28c28ff
+      path n=7 [42.5 22.2 76.0 111.1] fill=#2fa36bff
     pop transform
   pop transform
 pop clip

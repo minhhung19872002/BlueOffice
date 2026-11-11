@@ -34,6 +34,7 @@ import type {
   ChartElementsPatch,
   ChartInfo,
   SheetSmartArtInfo,
+  SmartArtFrameNode,
   SmartArtPreview,
   PasteMode,
   PivotInfo,
@@ -296,6 +297,7 @@ import {
   type SmartArtPreviewLoader,
   SmartArtLivePreview,
   SmartArtPaneToggle,
+  SmartArtSelection,
   SmartArtTextPane,
   registerSmartArtTools,
   smartArtDesignGroups,
@@ -2092,6 +2094,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setSmartPane,
     ],
   );
+  // The current shape's box in the frame (shares of it): marked like a shape selected inside a
+  // diagram.
+  const [smartNodeAt, setSmartNodeBox] = useState<SmartArtFrameNode | null>(null);
+  const smartNodeBox = smartArt !== null && smartNode !== null ? smartNodeAt : null;
+  useEffect(() => {
+    if (!host || smartArt === null || smartNode === null) return;
+    let live = true;
+    void host
+      .exec<SmartArtFrameNode | null>({ cmd: 'smartArtNodeAt', sheet, index: smartArt, node: smartNode })
+      .then((n) => {
+        if (live) setSmartNodeBox(n ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [host, sheet, smartArt, smartNode, smartInfo]);
   /** Open the SmartArt dialog on diagram `index` of sheet `sh` (CORE-SMART-005). */
   const openSmartArt = useCallback(
     async (sh: number, index: number) => {
@@ -5515,9 +5534,30 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setFilterMenu({ col: hit.col, x: e.clientX, y: e.clientY + 4 });
     } else if (hit.kind === 'smartArt') {
       setSmartArt(hit.index);
+      const at = point(e);
       const a = await host
         .exec<SheetSmartArtInfo>({ cmd: 'smartArtInfo', sheet, index: hit.index })
         .catch(() => null);
+      if (a && at && !e.shiftKey && !multi) {
+        // A click on a shape inside the diagram selects that shape (the current shape of Add
+        // Shape, Promote / Demote and the text pane), as in the office suites.
+        const index = hit.index;
+        void host
+          .rangeRect(view, a.from[0], a.from[1], a.to[0] - 1, a.to[1] - 1)
+          .then((r) =>
+            r && r.w > 0 && r.h > 0
+              ? host.exec<SmartArtFrameNode | null>({
+                  cmd: 'smartArtNodeAt',
+                  sheet,
+                  index,
+                  x: (at.x - r.x) / r.w,
+                  y: (at.y - r.y) / r.h,
+                })
+              : null,
+          )
+          .then((n) => setSmartNode(n?.node ?? null))
+          .catch(() => {});
+      }
       if (a) {
         drag.current = {
           kind: 'chart',
@@ -8083,6 +8123,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     height: smartBox.h,
                   }}
                 >
+                  {!smartPreview && smartNodeBox && (
+                    <SmartArtSelection
+                      frame={null}
+                      nodeIndex={smartNode}
+                      node={{
+                        left: smartNodeBox.x * smartBox.w,
+                        top: smartNodeBox.y * smartBox.h,
+                        width: smartNodeBox.w * smartBox.w,
+                        height: smartNodeBox.h * smartBox.h,
+                      }}
+                    />
+                  )}
                   {smartPreview && (
                     <SmartArtLivePreview
                       svg={smartPreview}
@@ -9597,6 +9649,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           connections={frameDialog.pivots ?? []}
           customStyles={frameDialog.customStyles}
           show={'periods' in frameDialog ? timelineShowOf(frameDialog) : undefined}
+          colors={frameDialog.colors}
+          onCreateStyle={async (s) => {
+            // New Slicer / Timeline Style: one undo step; the frames list then offers it.
+            try {
+              await host.exec({
+                cmd: 'createFrameStyle',
+                sheet,
+                name: s.name,
+                timeline: dialog.frames === 'timeline',
+                ...s.formats,
+              });
+            } finally {
+              await refreshInfo();
+            }
+          }}
           onClose={() => setDialog(null)}
           onApply={async (o) => {
             const index = dialog.index;

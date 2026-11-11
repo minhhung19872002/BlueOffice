@@ -45,6 +45,7 @@ mod blocks;
 mod convert;
 mod corpus;
 mod doc_charts;
+mod doc_diagrams;
 mod edit_cmd;
 mod fidelity;
 mod macro_samples;

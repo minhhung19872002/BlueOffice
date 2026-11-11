@@ -89,6 +89,23 @@ pub enum DocSmartArtCommand {
         #[serde(default)]
         rtl: Option<bool>,
     },
+    /// The shape of the SmartArt at the selection under point (`x`, `y`) of page `page`
+    /// (points), or — with `node` — that node's text box: answers `{ smartArtNode }` (`null`:
+    /// none), the box in page points.
+    SmartArtNodeAt {
+        /// 0-based page of the point.
+        #[serde(default)]
+        page: Option<usize>,
+        /// Point from the page's left edge.
+        #[serde(default)]
+        x: Option<f64>,
+        /// Point from the page's top edge.
+        #[serde(default)]
+        y: Option<f64>,
+        /// Index of a node in the text outline (instead of a point).
+        #[serde(default)]
+        node: Option<usize>,
+    },
 }
 
 impl DocSmartArtCommand {
@@ -102,6 +119,7 @@ impl DocSmartArtCommand {
                 | "smartArtInfo"
                 | "smartArtToShapes"
                 | "smartArtPreviews"
+                | "smartArtNodeAt"
         ) {
             return None;
         }
@@ -129,6 +147,43 @@ pub struct DocSmartArt {
     pub height: f64,
     /// Floating (anchored) frame.
     pub floating: bool,
+    /// Where the frame is drawn (the SmartArt tools sit on it); `None` while it is not laid out.
+    pub frame: Option<DocFrame>,
+}
+
+/// A frame on a page of the document (points from the page's top-left corner).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct DocFrame {
+    /// 0-based page.
+    pub page: usize,
+    /// Left edge.
+    pub x: f64,
+    /// Top edge.
+    pub y: f64,
+    /// Width.
+    pub w: f64,
+    /// Height.
+    pub h: f64,
+}
+
+/// A shape of the SmartArt at the selection, picked on its page (`smartArtNodeAt`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocSmartNode {
+    /// Index of the node in the text outline.
+    pub node: usize,
+    /// The node's text.
+    pub text: String,
+    /// 0-based page.
+    pub page: usize,
+    /// Box of the shape on the page (points).
+    pub x: f64,
+    /// Top edge (points).
+    pub y: f64,
+    /// Width (points).
+    pub w: f64,
+    /// Height (points).
+    pub h: f64,
 }
 
 fn look(
@@ -260,6 +315,82 @@ impl crate::Engine {
             width: img.width.0 as f64 / EMU_PT,
             height: img.height.0 as f64 / EMU_PT,
             floating: img.anchor.is_some(),
+            frame: self.picture_frame(&img.media),
+        })
+    }
+
+    /// Where the picture of media part `media` is drawn: the first page item showing it.
+    fn picture_frame(&self, media: &str) -> Option<DocFrame> {
+        let layout = self.layout()?;
+        layout.pages.iter().enumerate().find_map(|(page, p)| {
+            p.items.iter().find_map(|it| match it {
+                bo_layout::PageItem::Image {
+                    x,
+                    y,
+                    w,
+                    h,
+                    media: m,
+                    ..
+                } if m == media => Some(DocFrame {
+                    page,
+                    x: f64::from(*x),
+                    y: f64::from(*y),
+                    w: f64::from(*w),
+                    h: f64::from(*h),
+                }),
+                _ => None,
+            })
+        })
+    }
+
+    /// The shape of the SmartArt at the selection under a point of a page, or node `node`'s
+    /// text box (`smartArtNodeAt`).
+    fn doc_smartart_node(
+        &self,
+        at: Option<(usize, f64, f64)>,
+        node: Option<usize>,
+    ) -> Option<DocSmartNode> {
+        let s = self.session.as_ref()?;
+        let img = s.smartart()?;
+        let frame = self.picture_frame(&img.media)?;
+        if frame.w <= 0.0 || frame.h <= 0.0 {
+            return None;
+        }
+        let r = read(s.doc(), &img)?;
+        let share = match at {
+            Some((page, x, y)) if node.is_none() => {
+                if page != frame.page {
+                    return None;
+                }
+                Some(((x - frame.x) / frame.w, (y - frame.y) / frame.h))
+            }
+            _ => None,
+        };
+        if share.is_some_and(|(fx, fy)| !(0.0..=1.0).contains(&fx) || !(0.0..=1.0).contains(&fy)) {
+            return None;
+        }
+        // The frame's drawing part (its media) when it has one.
+        let drawing = diagram::split_name(&img.media)
+            .filter(|(k, _, _)| *k == diagram::DiagramPart::Drawing)
+            .and_then(|_| s.doc().media.get(&img.media))
+            .map(|b| (b.as_slice(), img.media.as_str()));
+        let (name, data) = &r.src.data;
+        let hit = crate::smartart::frame_node(
+            (data, name),
+            r.src.layout.as_ref().map(|l| l.1.as_slice()),
+            drawing,
+            (img.width.0, img.height.0),
+            share,
+            node,
+        )?;
+        Some(DocSmartNode {
+            node: hit.node,
+            text: hit.text,
+            page: frame.page,
+            x: frame.x + hit.x * frame.w,
+            y: frame.y + hit.y * frame.h,
+            w: hit.w * frame.w,
+            h: hit.h * frame.h,
         })
     }
 
@@ -292,12 +423,21 @@ impl crate::Engine {
                 ),
             }));
         }
+        if let DocSmartArtCommand::SmartArtNodeAt { page, x, y, node } = cmd {
+            let at = match (page, x, y) {
+                (Some(p), Some(x), Some(y)) => Some((p, x, y)),
+                _ => None,
+            };
+            return Ok(serde_json::json!({
+                "smartArtNode": self.doc_smartart_node(at, node),
+            }));
+        }
         let read_only = self.sec.read_only;
         let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
         let res: std::result::Result<(), String> = match cmd {
-            DocSmartArtCommand::SmartArtInfo | DocSmartArtCommand::SmartArtPreviews { .. } => {
-                Ok(())
-            }
+            DocSmartArtCommand::SmartArtInfo
+            | DocSmartArtCommand::SmartArtPreviews { .. }
+            | DocSmartArtCommand::SmartArtNodeAt { .. } => Ok(()),
             _ if read_only => Err(crate::security::READ_ONLY.into()),
             DocSmartArtCommand::InsertSmartArt {
                 layout,
@@ -587,6 +727,62 @@ mod tests {
             .iter()
             .map(|(t, l)| json!({"text": t, "level": l}))
             .collect::<Vec<_>>())
+    }
+
+    // source: black-box Office SmartArt: a click on a shape inside the selected diagram selects
+    // that shape (the frame tools sit on the diagram where it is laid out); a process flows left
+    // to right, right to left once reversed.
+    #[test]
+    fn frame_and_shape_under_a_point() {
+        let mut e = engine();
+        let r = run(
+            &mut e,
+            json!({"cmd": "insertSmartArt", "layout": "process",
+                "items": items(&[("Một", 0), ("Hai", 0), ("Ba", 0)]), "width": 360, "height": 120}),
+        );
+        let f = &r["smartArt"]["frame"];
+        assert_eq!(f["page"], 0, "{r}");
+        let (fx, fy) = (f["x"].as_f64().unwrap(), f["y"].as_f64().unwrap());
+        let (fw, fh) = (f["w"].as_f64().unwrap(), f["h"].as_f64().unwrap());
+        assert!((fw - 360.0).abs() < 0.5 && (fh - 120.0).abs() < 0.5, "{f}");
+        let node = |e: &mut Engine, v: serde_json::Value| {
+            let mut v = v;
+            v["cmd"] = json!("smartArtNodeAt");
+            run(e, v)["smartArtNode"].clone()
+        };
+        let boxes: Vec<serde_json::Value> =
+            (0..3).map(|k| node(&mut e, json!({ "node": k }))).collect();
+        for (k, b) in boxes.iter().enumerate() {
+            assert_eq!(b["node"], k);
+            let (x, y) = (b["x"].as_f64().unwrap(), b["y"].as_f64().unwrap());
+            let (w, h) = (b["w"].as_f64().unwrap(), b["h"].as_f64().unwrap());
+            assert!(
+                x >= fx - 0.01 && x + w <= fx + fw + 0.01,
+                "inside the frame: {b}"
+            );
+            assert!(
+                y >= fy - 0.01 && y + h <= fy + fh + 0.01,
+                "inside the frame: {b}"
+            );
+            // A click in the middle of the shape picks it.
+            let hit = node(
+                &mut e,
+                json!({ "page": 0, "x": x + w / 2.0, "y": y + h / 2.0 }),
+            );
+            assert_eq!(hit["node"], k);
+            assert_eq!(hit["text"], b["text"]);
+        }
+        let x_of = |b: &serde_json::Value| b["x"].as_f64().unwrap();
+        assert!(x_of(&boxes[0]) < x_of(&boxes[1]) && x_of(&boxes[1]) < x_of(&boxes[2]));
+        assert_eq!(boxes[1]["text"], "Hai");
+        // Outside the frame, on another page: nothing.
+        assert!(node(&mut e, json!({ "page": 0, "x": fx + fw + 20.0, "y": fy })).is_null());
+        assert!(node(&mut e, json!({ "page": 3, "x": fx + 5.0, "y": fy + 5.0 })).is_null());
+        // Right to left: the first shape is now the rightmost.
+        run(&mut e, json!({"cmd": "setSmartArt", "rtl": true}));
+        let first = node(&mut e, json!({ "node": 0 }));
+        let last = node(&mut e, json!({ "node": 2 }));
+        assert!(x_of(&first) > x_of(&last), "{first} {last}");
     }
 
     // source: black-box Office SmartArt Design tab (CORE-SMART-004): Add Assistant, Right to Left

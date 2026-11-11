@@ -2305,6 +2305,10 @@ pub struct ChartPlot {
     /// grouping (0 clustered, 100 stacked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overlap: Option<i32>,
+    /// `c:holeSize` of a doughnut group (ECMA-376 Part 1, §21.2.2.50 doughnutChart; ST_HoleSize
+    /// 1..=90 percent of the outer radius); `None` = 50 %.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hole_size: Option<u32>,
 }
 
 /// The split of a pie of pie / bar of pie (ECMA-376 Part 1, §21.2.2.126 ofPieChart children

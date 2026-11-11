@@ -243,6 +243,7 @@ export {
   SMARTART_COMMANDS,
   SmartArtLivePreview,
   SmartArtPaneToggle,
+  SmartArtSelection,
   SmartArtTextPane,
   canSmartArtAction,
   latestOnly,

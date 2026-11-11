@@ -1223,6 +1223,20 @@ export type SheetCommand =
     }
   /** First day the strip of a timeline shows (serial; absent: from the start). Not an undo step. */
   | { cmd: 'timelineScroll'; sheet: number; index: number; day?: number }
+  /**
+   * New Slicer Style / New Timeline Style: a custom style of the workbook with a format per
+   * element (absent: the default look); saved in the styles part. One undo step.
+   */
+  | {
+      cmd: 'createFrameStyle';
+      sheet: number;
+      name: string;
+      timeline?: boolean;
+      whole?: FrameElementFormat;
+      header?: FrameElementFormat;
+      selected?: FrameElementFormat;
+      unselected?: FrameElementFormat;
+    }
   /** The pivot tables a timeline filters. */
   | {
       cmd: 'timelineConnect';
@@ -1500,6 +1514,16 @@ export interface FrameColors {
   unselectedText?: string;
 }
 
+/** The format of one element of a new slicer or timeline style (colours `#RRGGBB`). */
+export interface FrameElementFormat {
+  fill?: string;
+  text?: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** A thin border all around in this colour. */
+  border?: string;
+}
+
 /** A pivot table a slicer or timeline may filter (every pivot table on its cache). */
 export interface FrameConnection {
   sheet: number;
@@ -1662,6 +1686,11 @@ export type SheetSmartArtCommand =
   | { cmd: 'deleteSmartArt'; sheet: number; index: number }
   /** Replace the diagram by a group of ordinary shapes in the same cells (one undo step). */
   | { cmd: 'smartArtToShapes'; sheet: number; index: number }
+  /**
+   * The shape of a diagram under a point (`x`, `y`: shares 0..1 of its frame), or node `node`'s
+   * text box: the result is a `SmartArtFrameNode` or `null`. A query.
+   */
+  | { cmd: 'smartArtNodeAt'; sheet: number; index: number; x?: number; y?: number; node?: number }
   /** Thumbnails of every layout of the library: the result is `{ previews }`. */
   | {
       cmd: 'smartArtPreviews';

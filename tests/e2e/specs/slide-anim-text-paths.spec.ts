@@ -135,7 +135,8 @@ test('draws a motion path, reverses, locks and edits it, saves and reopens', asy
   const before = await page.getByTestId('motion-path-0').getAttribute('d');
   await page.getByTestId('anim-reverse-path-0').click();
   await expect(page.getByTestId('motion-path-0')).not.toHaveAttribute('d', before ?? '');
-  await page.getByTestId('anim-lock-path-0').check();
+  // A controlled checkbox: it turns checked when the engine answers, so click and wait.
+  await page.getByTestId('anim-lock-path-0').click();
   await expect(page.getByTestId('anim-lock-path-0')).toBeChecked();
   // Edit points: drag the end a little.
   await page.getByTestId('anim-edit-path-0').click();

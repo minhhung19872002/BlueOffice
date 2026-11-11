@@ -109,6 +109,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.cellStyles` | Lucide (ISC) `Palette` |
 | `format.changeCase` | Lucide (ISC) `CaseSensitive` |
 | `format.clear` | Lucide (ISC) `RemoveFormatting` |
+| `format.clearChar` | Lucide (ISC) `RemoveFormatting` |
 | `format.clearConditional` | Lucide (ISC) `Eraser` |
 | `format.color` | Lucide (ISC) `Baseline` |
 | `format.combineChars` | Lucide (ISC) `Rows2` |

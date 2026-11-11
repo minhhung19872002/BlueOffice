@@ -103,6 +103,8 @@ test('BlueSlide: underlines text box words, corrects while editing, F7 walks the
   await expect(page.getByTestId('slide-status')).toHaveText(/^Slide 2 \/ \d+$/);
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await page.getByRole('button', { name: 'Hộp văn bản' }).click();
+  // The button arms the drawing pointer; Enter puts the object in the middle of the slide.
+  await page.keyboard.press('Enter');
   const tb = (await page.getByTestId('selection-box').first().boundingBox())!;
   await page.mouse.dblclick(tb.x + tb.width / 2, tb.y + tb.height / 2);
   const editor = page.getByTestId('slide-text-editor');

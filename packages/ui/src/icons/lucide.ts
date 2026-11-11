@@ -304,6 +304,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'format.cellStyles': lucide(Palette),
   'format.cells': lucide(PencilLine),
   'format.clear': lucide(RemoveFormatting),
+  'format.clearChar': lucide(RemoveFormatting),
   'format.clearConditional': lucide(Eraser),
   'format.color': lucide(Baseline),
   'format.combineChars': lucide(Rows2),

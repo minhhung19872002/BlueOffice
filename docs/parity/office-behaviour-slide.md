@@ -249,7 +249,7 @@ sự kiện có vẽ phần tử đó.
 | Ngăn slide | Slide hiện tại được tô viền; kéo slide hiện vạch nơi thả | Đúng | Đúng; thêm tô nền cho các slide được chọn | giống (E2E) |
 | Vùng slide | Slide ở giữa nền xám, có bóng | Đúng | Đúng | giống (E2E) |
 | Thanh trạng thái | Slide n / m, ghi chú, các dạng xem, thanh trượt thu phóng, vừa cửa sổ | Đúng ("Slide 1 / 3" — cách viết của BlueOffice) | Đúng | giống (E2E) |
-| Thứ tự nhóm tab Trang đầu | Hoàn tác · Bảng tạm · Slide · Phông · Đoạn văn · Vẽ · Chỉnh sửa | Tệp · Bảng tạm · Slide · Hoàn tác · Phông · Tìm · Đoạn văn · Vẽ · Giọng nói · Trình chiếu | Hoàn tác · Bảng tạm (thêm Sao định dạng) · Slide · Phông (thêm chỉ số trên / dưới, đổi chữ hoa thường, xoá định dạng ký tự, nút góc mở hộp thoại Phông) · Đoạn văn · Vẽ · Tìm (Chỉnh sửa) · Giọng nói · Trình chiếu · Tệp | **đã sửa** (E2E) — nhóm Tệp vẫn giữ ở cuối tab (BlueOffice không bỏ các nút mở / lưu nhanh) |
+| Thứ tự nhóm tab Trang đầu | Hoàn tác · Bảng tạm · Slide · Phông · Đoạn văn · Vẽ · Chỉnh sửa | Tệp · Bảng tạm · Slide · Hoàn tác · Phông · Tìm · Đoạn văn · Vẽ · Giọng nói · Trình chiếu | Tệp · Hoàn tác · Bảng tạm (thêm Sao định dạng) · Slide · Phông (thêm chỉ số trên / dưới, đổi chữ hoa thường, xoá định dạng ký tự, nút góc mở hộp thoại Phông) · Đoạn văn · Vẽ · Tìm (Chỉnh sửa) · Giọng nói · Trình chiếu | **đã sửa** (E2E) — **còn khác**: nhóm Tệp (Mới / Mở / Lưu…, riêng của BlueOffice) vẫn đứng đầu tab; đặt ở cuối thì ở cửa sổ 1366 px nó bị gập vào menu và nút Mở không còn trên ribbon. |
 | Con trỏ chuột | Chữ thập khi vẽ hình, chổi khi cầm định dạng | — | Chữ thập khi vẽ; con trỏ "chép" khi cầm chổi định dạng | đã sửa (biểu tượng con trỏ là của hệ điều hành, không phải hình chổi) |
 
 ## Lỗi phát hiện khi kiểm thử đợt 2

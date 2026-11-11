@@ -219,7 +219,7 @@ fn header_and_footer_on_slides() {
         &mut e,
         r#"{"cmd":"headerFooter","all":true,"spec":{"slideNumber":true,"footer":"Bluestar","date":{"text":"11/11/2026","auto":false},"notOnTitle":true}}"#,
     );
-    assert!(hf_kinds(&e, 0).is_empty());
+    assert_eq!(hf_kinds(&e, 0), Vec::<String>::new());
     for i in 1..3 {
         let mut k = hf_kinds(&e, i);
         k.sort();

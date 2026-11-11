@@ -411,6 +411,9 @@ public sealed class PresentTests : IAsyncLifetime
         // A connected presenter keeps it alive until the hard limit (12 hours).
         var b = await CreateAsync();
         await using var wb = await PresenterWs(b);
+        // The server announces `peers` once it has registered the presenter's socket; before
+        // that the presentation still counts as idle (seen on a slow CI runner).
+        await wb.WaitEventAsync("peers");
         var tb = await BroadcastAsync(b);
         _clock.Advance(TimeSpan.FromHours(2));
         Assert.Equal(HttpStatusCode.OK, (await DeckAsync(tb)).StatusCode);

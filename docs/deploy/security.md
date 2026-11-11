@@ -300,7 +300,9 @@ Sửa trong mã nhờ bộ kiểm tra này:
 
 Còn lại / cần người quyết định: bộ nhớ dàn trang vẫn tuyến tính theo độ dài văn bản (~40 byte/ký tự) — khuyến nghị
 giới hạn bộ nhớ container cho `worker` (§7.2) với tệp rất lớn. Macro của
-`.doc`/`.xls` cũ mất khi lưu sang `.docx`/`.xlsx` (giao diện vẫn báo "giữ nguyên nhưng không chạy" khi mở).
+`.doc`/`.xls`/`.ppt` cũ: từ nay được giữ — kiểu lưu mặc định là `.docm`/`.xlsm`/`.pptm`, `vbaProject.bin` dựng lại từ
+storage dự án VBA của tệp cũ (`bo_binary::vba::legacy_project_bin`, [MS-OVBA]); chữ ký số của dự án bị bỏ (kèm cảnh
+báo) vì không còn hợp lệ trong vỏ mới; chọn tường minh `.docx`/`.xlsx` thì hộp thoại Lưu thành báo macro sẽ bị bỏ.
 
 ## 9. Macro không thực thi
 

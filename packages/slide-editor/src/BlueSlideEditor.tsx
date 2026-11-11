@@ -4660,7 +4660,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }}
       />
       {macroBanner && view === 'normal' && (
-        <MacroBanner inline onView={showMacros} onDismiss={() => setMacroBanner(false)} />
+        <MacroBanner
+          inline
+          onView={showMacros}
+          signatureDropped={!!info?.vbaSignatureDropped}
+          onDismiss={() => setMacroBanner(false)}
+        />
       )}
       {view === 'normal' && <FileProtectionUi app="slide" p={protection} name={fileName} />}
       {passwordPrompt && (

@@ -600,9 +600,227 @@ pub fn carry_over(src: &Package, dst: &mut Package) -> Result<bool> {
     Ok(true)
 }
 
+/// The VBA project of a legacy binary file, rebuilt as a `vbaProject.bin`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyProject {
+    /// The compound file: the project storage's streams and storages at its root.
+    pub bin: Vec<u8>,
+    /// The project was signed: its signature streams were left out (a signature
+    /// covers the project in its old container and no longer verifies).
+    pub signature_dropped: bool,
+}
+
+/// Names of the VBA project signature streams kept in the project storage
+/// ([MS-OSHARED] digital signature of a VBA project: `\x05DigitalSignature`,
+/// `\x05DigitalSignatureEx`, `\x05DigitalSignatureExt`).
+fn is_signature_stream(name: &str) -> bool {
+    name.starts_with("\u{5}DigitalSignature")
+}
+
+/// Build a `vbaProject.bin` from the VBA project of a legacy binary file: the project
+/// storage of a `.doc` ([MS-DOC] `Macros`) or `.xls` ([MS-XLS] `_VBA_PROJECT_CUR`), or
+/// the project storage record of a `.ppt` ([MS-PPT] VBAInfoContainer). [MS-OVBA]: that
+/// storage has the structure of the root of `vbaProject.bin` (`PROJECT`, `VBA/dir`,
+/// module streams, designer storages…), so its streams and storages are copied as
+/// they are into a new compound file. Signature streams are left out (see
+/// [`LegacyProject::signature_dropped`]). `Ok(None)`: no VBA project.
+pub fn legacy_project_bin(bytes: &[u8]) -> Result<Option<LegacyProject>> {
+    if !is_compound_file(bytes) {
+        return Ok(None);
+    }
+    let probe = Cfb::open(bytes)?;
+    let (source, root) = if let Some(root) = ["/Macros", "/_VBA_PROJECT_CUR"]
+        .into_iter()
+        .find(|r| probe.has(&format!("{r}/VBA/dir")))
+    {
+        (bytes.to_vec(), root)
+    } else if probe.has("/PowerPoint Document") {
+        match crate::ppt::vba_storage(bytes)? {
+            Some(storage) if is_compound_file(&storage) => (storage, ""),
+            _ => return Ok(None),
+        }
+    } else {
+        return Ok(None);
+    };
+    drop(probe);
+    let mut src = cfb::CompoundFile::open(Cursor::new(source))?;
+    let prefix = format!("{root}/");
+    let entries: Vec<(String, bool)> = src
+        .walk()
+        .filter(|e| !e.is_root())
+        .map(|e| (e.path().to_string_lossy().replace('\\', "/"), e.is_stream()))
+        .filter(|(p, _)| root.is_empty() || p.starts_with(&prefix))
+        .collect();
+    let mut dst = cfb::CompoundFile::create(Cursor::new(Vec::new()))?;
+    let mut signature_dropped = false;
+    let mut total = 0u64;
+    for (path, is_stream) in entries {
+        let rel = &path[root.len()..];
+        if rel.is_empty() || rel == "/" {
+            continue;
+        }
+        let name = rel.rsplit('/').next().unwrap_or(rel);
+        if is_stream && is_signature_stream(name) {
+            signature_dropped = true;
+            continue;
+        }
+        if is_stream {
+            let mut data = Vec::new();
+            src.open_stream(&path)?
+                .take(MAX_PROJECT_BIN.saturating_sub(total))
+                .read_to_end(&mut data)?;
+            total += data.len() as u64;
+            if total >= MAX_PROJECT_BIN {
+                return Err(malformed("VBA project storage too large"));
+            }
+            let mut out = dst.create_stream(rel)?;
+            std::io::Write::write_all(&mut out, &data)?;
+        } else {
+            dst.create_storage(rel)?;
+        }
+    }
+    dst.flush()?;
+    Ok(Some(LegacyProject {
+        bin: dst.into_inner().into_inner(),
+        signature_dropped,
+    }))
+}
+
+/// Add `bin` as the VBA project of `dst` (an OPC package whose main part is reached
+/// through the package `officeDocument` relationship, ECMA-376 Part 2 §9.3): the
+/// `vbaProject.bin` part next to the main part with its content type override
+/// (Part 2 §10.1.2.2.3), the `vbaProject` relationship from the main part
+/// ([MS-OFFMACRO2]) and the macro-enabled content type of the main part. A project
+/// already there is replaced. Returns whether the package has a main part.
+pub fn attach_project(dst: &mut Package, bin: &[u8]) -> Result<bool> {
+    let Some(main) = dst.related_part("/", bo_opc::REL_OFFICE_DOCUMENT)? else {
+        return Ok(false);
+    };
+    let dir = main.rsplit_once('/').map_or("", |(d, _)| d);
+    let part = format!("{dir}/vbaProject.bin");
+    dst.put_part(&part, bin.to_vec());
+    let mut types = dst.content_types()?;
+    types.set_override(&part, CT_VBA_PROJECT);
+    if let Some(enabled) = types.get(&main).and_then(macro_enabled_content_type) {
+        types.set_override(&main, enabled);
+    }
+    dst.set_content_types(&types);
+    let mut rels = dst.relationships(&main)?;
+    rels.retain(|r| r.rel_type != REL_VBA_PROJECT);
+    let mut n = rels.len() + 1;
+    while rels.iter().any(|r| r.id == format!("rId{n}")) {
+        n += 1;
+    }
+    rels.push(Relationship {
+        id: format!("rId{n}"),
+        rel_type: REL_VBA_PROJECT.to_owned(),
+        target: "vbaProject.bin".to_owned(),
+        mode: TargetMode::Internal,
+    });
+    dst.set_relationships(&main, &rels);
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `host` with `project`'s entries copied under `root` (how the binary formats
+    /// keep a VBA project), plus `extra` streams there.
+    fn graft(host: &[u8], root: &str, project: &[u8], extra: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut src = cfb::CompoundFile::open(Cursor::new(project)).unwrap();
+        let entries: Vec<(String, bool)> = src
+            .walk()
+            .filter(|e| !e.is_root())
+            .map(|e| (e.path().to_string_lossy().replace('\\', "/"), e.is_stream()))
+            .collect();
+        let mut dst = cfb::CompoundFile::open(Cursor::new(host.to_vec())).unwrap();
+        dst.create_storage(root).unwrap();
+        for (path, is_stream) in entries {
+            let target = format!("{root}{path}");
+            if is_stream {
+                let mut data = Vec::new();
+                src.open_stream(&path)
+                    .unwrap()
+                    .read_to_end(&mut data)
+                    .unwrap();
+                dst.create_stream(&target)
+                    .unwrap()
+                    .write_all(&data)
+                    .unwrap();
+            } else {
+                dst.create_storage(&target).unwrap();
+            }
+        }
+        for (name, data) in extra {
+            dst.create_stream(format!("{root}/{name}"))
+                .unwrap()
+                .write_all(data)
+                .unwrap();
+        }
+        dst.flush().unwrap();
+        dst.into_inner().into_inner()
+    }
+
+    #[test]
+    fn legacy_project_storage_becomes_a_vba_project_bin() {
+        let host = crate::test_util::cfb_file(&[("/WordDocument", vec![0; 16])], &[]);
+        assert_eq!(legacy_project_bin(&host).unwrap(), None);
+        assert_eq!(legacy_project_bin(b"PK\x03\x04").unwrap(), None);
+        for (root, kind) in [("/Macros", "doc"), ("/_VBA_PROJECT_CUR", "sheet")] {
+            let project = crate::vba_write::sample_project(kind).unwrap();
+            let want = read_vba_project(&project).unwrap();
+            let file = graft(&host, root, &project, &[]);
+            let got = legacy_project_bin(&file).unwrap().unwrap();
+            assert!(!got.signature_dropped);
+            // The rebuilt project reads as the original, from its root.
+            let cf = cfb::CompoundFile::open(Cursor::new(&got.bin)).unwrap();
+            assert!(cf.is_stream("/VBA/dir") && cf.is_stream("/PROJECT"));
+            assert!(!cf.exists("/WordDocument") && !cf.exists(root));
+            assert_eq!(read_vba_project(&got.bin).unwrap(), want);
+            // A signed project: the signature streams are left out and reported.
+            let signed = graft(
+                &host,
+                root,
+                &project,
+                &[
+                    ("\u{5}DigitalSignature", b"sig"),
+                    ("\u{5}DigitalSignatureEx", b"sig"),
+                ],
+            );
+            let got = legacy_project_bin(&signed).unwrap().unwrap();
+            assert!(got.signature_dropped);
+            let cf = cfb::CompoundFile::open(Cursor::new(&got.bin)).unwrap();
+            assert!(cf.walk().all(|e| !e.name().starts_with('\u{5}')));
+            assert_eq!(read_vba_project(&got.bin).unwrap(), want);
+        }
+    }
+
+    #[test]
+    fn attach_project_adds_part_relationship_and_types() {
+        let mut dst = package(DOC_CT, false);
+        assert!(attach_project(&mut dst, b"bin").unwrap());
+        // Attaching again replaces the project (one relationship).
+        assert!(attach_project(&mut dst, b"bin2").unwrap());
+        let out = Package::read(&dst.write().unwrap(), &bo_opc::Limits::default()).unwrap();
+        assert_eq!(out.part("/word/vbaProject.bin").unwrap().data, b"bin2");
+        let ct = out.content_types().unwrap();
+        assert_eq!(ct.get("/word/vbaProject.bin"), Some(CT_VBA_PROJECT));
+        assert_eq!(
+            ct.get("/word/document.xml"),
+            Some("application/vnd.ms-word.document.macroEnabled.main+xml")
+        );
+        let rels = out.relationships("/word/document.xml").unwrap();
+        assert_eq!(
+            rels.iter()
+                .filter(|r| r.rel_type == REL_VBA_PROJECT && r.target == "vbaProject.bin")
+                .count(),
+            1
+        );
+        assert!(has_macros(&out.write().unwrap()));
+        assert!(!attach_project(&mut Package::new(), b"bin").unwrap());
+    }
 
     /// Wrap raw bytes as uncompressed chunks ([MS-OVBA] §2.4.1.3.10 compressing raw chunks).
     fn raw_container(data: &[u8]) -> Vec<u8> {

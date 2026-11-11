@@ -39,6 +39,8 @@ export interface DocInfo {
    * file's, by its main part's content type, unless `saveFormat` changed it.
    */
   variant?: string;
+  /** The VBA project of the opened legacy file was signed: the signature is left out on save. */
+  vbaSignatureDropped?: boolean;
 }
 
 /** Error messages of `EngineHost.open` for protected files. */

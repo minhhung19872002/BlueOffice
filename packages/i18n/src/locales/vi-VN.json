@@ -3150,6 +3150,7 @@
   },
   "security": {
     "macroWarning": "Tài liệu chứa macro — macro sẽ được giữ nguyên nhưng không chạy",
+    "macroSignatureDropped": "Dự án macro có chữ ký số; chữ ký không chuyển được sang kiểu tệp mới nên sẽ bị bỏ khi lưu (mã macro vẫn được giữ).",
     "viewMacros": "Xem macro",
     "dismiss": "Đóng",
     "passwordTitle": "Cần mật khẩu",

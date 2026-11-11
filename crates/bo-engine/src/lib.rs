@@ -173,7 +173,12 @@ pub struct DocInfo {
     pub legacy_converted: usize,
     /// Package variant (file extension: `docx`, `dotm`, `ppsx`, …) the next save
     /// produces — the opened file's unless `saveFormat` changed it (CORE-FMT-001).
+    /// A legacy binary file with a VBA project saves as the macro-enabled variant.
     pub variant: Option<String>,
+    /// The VBA project of the opened legacy file was signed: the signature cannot be
+    /// carried into the new file type and is left out when saving.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub vba_signature_dropped: bool,
 }
 
 impl DocInfo {
@@ -319,6 +324,9 @@ pub struct Engine {
     file_variant: Option<variant::Variant>,
     /// Variant the next saves produce when it differs (`saveFormat`).
     save_variant: Option<variant::Variant>,
+    /// VBA project of the opened legacy binary file (`.doc`, `.ppt`) rebuilt as a
+    /// `vbaProject.bin`: added to saves of a macro-enabled variant.
+    legacy_vba: Option<bo_binary::vba::LegacyProject>,
     /// Live collaboration binding of the open document (BlueDoc).
     collab: Option<collab::DocCollab>,
     /// Live collaboration binding of the open presentation (BlueSlide).
@@ -473,6 +481,8 @@ impl Engine {
             self.vba = vba_view::of_open_file(macros, bytes);
             if is_zip {
                 self.file_variant = variant::detect(bytes).or(self.file_variant);
+            } else {
+                self.keep_legacy_vba(macros, bytes, variant::Variant::Pptm);
             }
             // An encrypted deck is saved with the same password unless changed.
             self.save_password = if encrypted {
@@ -542,6 +552,8 @@ impl Engine {
         self.vba = vba_view::of_open_file(macros, bytes);
         if is_zip {
             self.file_variant = variant::detect(bytes).or(self.file_variant);
+        } else if bytes.starts_with(CFB_SIGNATURE) {
+            self.keep_legacy_vba(macros, bytes, variant::Variant::Docm);
         }
         // An encrypted document is saved with the same password unless changed.
         self.save_password = if encrypted {
@@ -598,6 +610,7 @@ impl Engine {
         self.legacy_converted = 0;
         self.save_password = None;
         self.file_variant = Some(variant::Variant::Docx);
+        self.legacy_vba = None;
         self.save_variant = None;
         self.display = None;
         self.goal_x = None;
@@ -829,6 +842,7 @@ impl Engine {
         self.macros = false;
         self.vba = None;
         self.file_variant = Some(variant::Variant::Pptx);
+        self.legacy_vba = None;
         self.save_variant = None;
         self.deck_seq += 1;
         self.collab = None;
@@ -1006,6 +1020,10 @@ impl Engine {
                 .save_variant
                 .or(self.file_variant)
                 .map(|v| v.ext().to_owned()),
+            vba_signature_dropped: self
+                .legacy_vba
+                .as_ref()
+                .is_some_and(|p| p.signature_dropped),
         })
     }
 
@@ -1253,8 +1271,38 @@ impl Engine {
         Ok(())
     }
 
+    /// A legacy binary file (`.doc`, `.ppt`) with a VBA project: keep the project,
+    /// rebuilt as a `vbaProject.bin`, and save as the macro-enabled variant `enabled`
+    /// by default (the name takes its extension).
+    fn keep_legacy_vba(&mut self, macros: bool, bytes: &[u8], enabled: variant::Variant) {
+        self.legacy_vba = None;
+        if !macros {
+            return;
+        }
+        if let Ok(Some(p)) = bo_binary::vba::legacy_project_bin(bytes) {
+            self.legacy_vba = Some(p);
+            self.file_variant = Some(enabled);
+            self.save_variant = None;
+            if !self.name.is_empty() {
+                self.name = with_ext(&self.name, enabled.ext());
+            }
+        }
+    }
+
     /// Writer output re-typed as the chosen variant (CORE-FMT-001).
     fn apply_variant(&self, bytes: Vec<u8>) -> Result<Vec<u8>> {
+        // A project from a legacy file: the writer's package has none; add it to a
+        // macro-enabled target, then re-type the package as the target.
+        if let Some(p) = &self.legacy_vba {
+            if let Some(v) = self.save_variant.or(self.file_variant) {
+                let bytes = if v.macros() {
+                    variant::attach_vba(&bytes, &p.bin)?
+                } else {
+                    bytes
+                };
+                return Ok(variant::convert(&bytes, v)?.bytes);
+            }
+        }
         match self.save_variant {
             Some(v) if Some(v) != self.file_variant => Ok(variant::convert(&bytes, v)?.bytes),
             _ => Ok(bytes),

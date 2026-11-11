@@ -310,6 +310,15 @@ pub fn convert(bytes: &[u8], target: Variant) -> Result<Converted> {
     })
 }
 
+/// `bytes` (a saved package) with `bin` as its VBA project
+/// ([`bo_binary::vba::attach_project`]: part, [MS-OFFMACRO2] relationship, content types).
+pub fn attach_vba(bytes: &[u8], bin: &[u8]) -> Result<Vec<u8>> {
+    let mut pkg = Package::read(bytes, &Limits::default()).map_err(opc)?;
+    bo_binary::vba::attach_project(&mut pkg, bin)
+        .map_err(|e| EngineError::Format(e.to_string()))?;
+    pkg.write().map_err(opc)
+}
+
 /// The package a template creates: the same content re-typed as the matching
 /// document ([`Variant::document`]); other packages unchanged.
 pub fn new_from_template(bytes: &[u8]) -> Result<Vec<u8>> {

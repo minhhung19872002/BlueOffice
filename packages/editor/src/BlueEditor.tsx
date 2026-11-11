@@ -5786,6 +5786,11 @@ function EditorInner({
             {state.macroWarning && (
               <div className={styles.macroBar} role="status" data-testid="macro-warning">
                 <span>{t('security.macroWarning')}</span>
+                {state.doc?.vbaSignatureDropped && (
+                  <span data-testid="macro-signature-dropped">
+                    {t('security.macroSignatureDropped')}
+                  </span>
+                )}
                 <button type="button" onClick={showMacros} data-testid="macro-warning-view">
                   {t('security.viewMacros')}
                 </button>

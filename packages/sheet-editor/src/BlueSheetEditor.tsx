@@ -5267,7 +5267,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       </div>
       {macroBanner && (
-        <MacroBanner inline onView={showMacros} onDismiss={() => setMacroBanner(false)} />
+        <MacroBanner
+          inline
+          onView={showMacros}
+          signatureDropped={!!info?.vbaSignatureDropped}
+          onDismiss={() => setMacroBanner(false)}
+        />
       )}
       {pdfOptions && (
         <PdfExportDialog

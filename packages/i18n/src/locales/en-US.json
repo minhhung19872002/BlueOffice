@@ -3150,6 +3150,7 @@
   },
   "security": {
     "macroWarning": "This document contains macros — they are kept but never run.",
+    "macroSignatureDropped": "The macro project is digitally signed; the signature cannot move to the new file type and is left out when saving (the macro code is kept).",
     "viewMacros": "View macros",
     "dismiss": "Close",
     "passwordTitle": "Password required",

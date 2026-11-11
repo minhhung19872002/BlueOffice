@@ -24,6 +24,7 @@ mod clip_picture;
 pub mod collab;
 pub mod custom_xml;
 pub mod design;
+pub mod doc_chart;
 mod doc_ole;
 mod doc_picture;
 pub mod doc_smartart;
@@ -1056,7 +1057,12 @@ impl Engine {
             .doc_display
             .get(index)
             .ok_or(EngineError::PageOutOfRange(index))?;
-        Ok(cell.get_or_init(|| build_page_list(page, &self.fonts)))
+        Ok(cell.get_or_init(|| {
+            let mut list = build_page_list(page, &self.fonts);
+            // Charts are drawn as vectors (CORE-CHART-007 in BlueDoc).
+            self.smartart_png.vectorize(&mut list);
+            list
+        }))
     }
 
     /// Display list of the whole open document or presentation.

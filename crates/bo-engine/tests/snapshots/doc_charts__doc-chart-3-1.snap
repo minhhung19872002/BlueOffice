@@ -1,0 +1,77 @@
+---
+source: crates/bo-engine/tests/doc_charts.rs
+expression: summary(&page.commands)
+---
+text 13.0pt 85.1,68.3 "Phân tích dòng tiền"
+text 13.0pt 85.1,338.4 "Phễu bán hàng"
+text 13.0pt 85.1,608.4 "Giá và khối lượng giao dịch"
+clip 85.1,71.6 425.2x255.1
+  transform [1.000 0.000 0.000 1.000 85.1 71.6]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      text 15.6pt 181.7,22.4 "Dòng "
+      text 15.6pt 218.7,22.4 "tiền"
+      rect 47.6,238.1 9.3x9.3 #2e6db4ff
+      text 11.6pt 60.4,245.8 "Tăng"
+      rect 157.6,238.1 9.3x9.3 #f28c28ff
+      text 11.6pt 170.4,245.8 "Giảm"
+      rect 267.6,238.1 9.3x9.3 #2fa36bff
+      text 11.6pt 280.4,245.8 "Tổng"
+      line 52.4,212.0 → 419.2,212.0
+      text 11.6pt 43.5,216.0 "0"
+      line 52.4,176.8 → 419.2,176.8
+      text 11.6pt 37.6,180.7 "20"
+      line 52.4,141.5 → 419.2,141.5
+      text 11.6pt 37.6,145.5 "40"
+      line 52.4,106.3 → 419.2,106.3
+      text 11.6pt 37.6,110.3 "60"
+      line 52.4,71.1 → 419.2,71.1
+      text 11.6pt 37.6,75.0 "80"
+      line 52.4,35.8 → 419.2,35.8
+      text 11.6pt 31.8,39.8 "100"
+      rect 67.1,123.9 44.0x88.1 #2e6db4ff
+      line 111.1,123.9 → 140.4,123.9
+      rect 140.4,71.1 44.0x52.9 #2e6db4ff
+      line 184.4,71.1 → 213.8,71.1
+      rect 213.8,71.1 44.0x35.2 #f28c28ff
+      line 257.8,106.3 → 287.1,106.3
+      rect 287.1,106.3 44.0x26.4 #f28c28ff
+      line 331.2,132.7 → 360.5,132.7
+      rect 360.5,53.4 44.0x79.3 #2e6db4ff
+      line 52.4,212.0 → 419.2,212.0
+      text 11.6pt 73.1,225.7 "Đầu "
+      text 11.6pt 94.6,225.7 "kỳ"
+      text 11.6pt 153.5,225.7 "Thu"
+      text 11.6pt 228.3,225.7 "Chi"
+      text 11.6pt 293.0,225.7 "Đầu "
+      text 11.6pt 314.5,225.7 "tư"
+      text 11.6pt 365.4,225.7 "Cuối "
+      text 11.6pt 389.1,225.7 "kỳ"
+    pop transform
+  pop transform
+pop clip
+clip 85.1,341.7 425.2x255.1
+  transform [1.000 0.000 0.000 1.000 85.1 341.7]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      rect 157.6,238.1 9.3x9.3 #2e6db4ff
+      text 11.6pt 170.4,245.8 "Khách "
+      text 11.6pt 201.6,245.8 "hàng"
+      rect 75.6,10.5 343.6x47.2 #2e6db4ff
+      text 11.6pt 235.6,38.0 "1200"
+      text 11.6pt 33.3,38.0 "Tiếp "
+      text 11.6pt 56.1,38.0 "cận"
+      rect 155.8,66.6 183.3x47.2 #2e6db4ff
+      text 11.6pt 238.6,94.2 "640"
+      text 11.6pt 25.9,94.2 "Quan "
+      text 11.6pt 54.0,94.2 "tâm"
+      rect 217.3,122.8 60.1x47.2 #2e6db4ff
+      text 11.6pt 238.6,150.3 "210"
+      text 11.6pt 38.3,150.3 "Báo "
+      text 11.6pt 58.9,150.3 "giá"
+      rect 236.6,178.9 21.5x47.2 #2e6db4ff
+      text 11.6pt 241.5,206.5 "75"
+      text 11.6pt 13.6,206.5 "Ký "
+      text 11.6pt 27.0,206.5 "hợp "
+      text 11.6pt 48.5,206.5 "đồng"
+    pop transform
+  pop transform
+pop clip

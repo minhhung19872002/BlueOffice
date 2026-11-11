@@ -692,7 +692,8 @@ fn chartex_charts_are_made_moved_and_edited_on_slides() {
     let xml = String::from_utf8_lossy(&slide_xml(&back, slide)).into_owned();
     let (x, y) = last.xfrm.off.unwrap();
     assert_eq!(
-        xml.matches(&format!("<a:off x=\"{x}\" y=\"{y}\"/>")).count(),
+        xml.matches(&format!("<a:off x=\"{x}\" y=\"{y}\"/>"))
+            .count(),
         2,
         "{xml}"
     );

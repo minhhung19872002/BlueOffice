@@ -113,6 +113,8 @@ struct Writer<'d> {
     diagram_parts: std::collections::BTreeMap<String, Vec<u8>>,
     /// Media parts written as pictures (a file diagram without its parts is one).
     picture_media: std::collections::BTreeSet<String>,
+    /// Chart parts whose frames BlueOffice wrote (new / edited charts and moved file charts).
+    chart_media: std::collections::BTreeSet<String>,
 }
 
 /// Serialize a document to `.docx` bytes.
@@ -141,6 +143,7 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         form_depth: 0,
         diagram_parts: std::collections::BTreeMap::new(),
         picture_media: std::collections::BTreeSet::new(),
+        chart_media: std::collections::BTreeSet::new(),
     };
     w.write_main(&main)?;
     w.write_styles(&main)?;
@@ -631,7 +634,9 @@ impl Writer<'_> {
                         Some(r)
                             if !r.xml.is_empty()
                                 && img.shape.is_none()
-                                && (!Self::image_changed(img) || img.media.ends_with(".xml")) =>
+                                && (!Self::image_changed(img)
+                                    || (img.media.ends_with(".xml")
+                                        && !bo_model::chart_part::is_chart_name(&img.media))) =>
                         {
                             self.patched_picture(&r.xml, img)
                         }
@@ -862,6 +867,17 @@ impl Writer<'_> {
         if let Some(names) = crate::diagram::own_parts(self.doc, img) {
             return self.diagram(img, &names);
         }
+        if bo_model::chart_part::is_chart_name(&img.media) {
+            if let Some(ex) = self
+                .doc
+                .media
+                .get(&img.media)
+                .filter(|b| bo_model::chart_part::is_chart_xml(b))
+                .map(|b| bo_model::chart_part::is_chartex_xml(b))
+            {
+                return self.chart(img, ex);
+            }
+        }
         self.drawing_id += 1;
         let id = self.drawing_id;
         self.picture_media.insert(img.media.clone());
@@ -932,6 +948,53 @@ impl Writer<'_> {
             diagram::rel_ids_xml(&ids[0], &ids[1], &ids[2], &ids[3])
         );
         Self::frame(img, id, "Diagram", &graphic)
+    }
+
+    /// A chart frame (ECMA-376 Part 1, §21.2.2.27 chart in `a:graphicData`); a chartex frame
+    /// ([MS-ODRAWXML] 2.24 `cx:chart`) goes into an `mc:AlternateContent` choice (Part 3, §10.2.1)
+    /// requiring its chartex namespace, with a text fallback.
+    fn chart(&mut self, img: &Image, ex: bool) -> String {
+        use bo_model::chart_part as cp;
+        let rel = if ex { cp::REL_CHARTEX } else { cp::REL_CHART };
+        let rid = self.rels.id_for(rel, &img.media, false);
+        self.chart_media.insert(img.media.clone());
+        self.drawing_id += 1;
+        let id = self.drawing_id;
+        let (uri, inner) = if ex {
+            (
+                cp::NS_CX,
+                format!(
+                    "<cx:chart xmlns:cx=\"{}\" xmlns:r=\"{R_NS}\" r:id=\"{rid}\"/>",
+                    cp::NS_CX
+                ),
+            )
+        } else {
+            (
+                cp::URI_CHART,
+                format!(
+                    "<c:chart xmlns:c=\"{}\" xmlns:r=\"{R_NS}\" r:id=\"{rid}\"/>",
+                    cp::URI_CHART
+                ),
+            )
+        };
+        let graphic = format!(
+            "<a:graphic xmlns:a=\"{A_NS}\"><a:graphicData uri=\"{uri}\">{inner}</a:graphicData></a:graphic>"
+        );
+        let frame = Self::frame(img, id, "Chart", &graphic);
+        if !ex {
+            return frame;
+        }
+        let layout = self
+            .doc
+            .media
+            .get(&img.media)
+            .map(|b| cp::chartex_layout(b))
+            .unwrap_or_default();
+        let (prefix, ns) = cp::chartex_requires(&layout);
+        format!(
+            "<mc:AlternateContent xmlns:mc=\"{MC_NS}\"><mc:Choice xmlns:{prefix}=\"{ns}\" Requires=\"{prefix}\">{frame}</mc:Choice><mc:Fallback><w:t xml:space=\"preserve\">{}</w:t></mc:Fallback></mc:AlternateContent>",
+            escape(cp::CHARTEX_FALLBACK)
+        )
     }
 
     /// A text-path or picture shape (watermarks) as VML in `w:pict` (ECMA-376 Part 1,
@@ -2038,6 +2101,39 @@ impl Writer<'_> {
     fn write_media(&mut self) -> Result<()> {
         self.drop_removed_media();
         let mut ct = self.pkg.content_types()?;
+        // Chart parts BlueOffice wrote (§21.2.2.29 chartSpace, [MS-ODRAWXML] chartex) with their
+        // content types and the relationship to the embedded workbook (§21.2.2.63 externalData,
+        // §15.2.11 package); chart parts no frame shows any more are left out.
+        for name in &self.chart_media {
+            let Some(data) = self.doc.media.get(name) else {
+                continue;
+            };
+            if self.pkg.part(name).is_some() {
+                continue;
+            }
+            self.pkg.put_part(name, data.as_ref().clone());
+            ct.set_override(
+                name,
+                if bo_model::chart_part::is_chartex_xml(data) {
+                    bo_model::chart_part::CT_CHARTEX
+                } else {
+                    bo_model::chart_part::CT_CHART
+                },
+            );
+            let book = bo_model::chart_part::workbook_of(name);
+            if self.doc.media.contains_key(&book) {
+                let file = book.rsplit('/').next().unwrap_or_default();
+                self.pkg.set_relationships(
+                    name,
+                    &[Relationship {
+                        id: bo_model::chart_part::WORKBOOK_REL_ID.into(),
+                        rel_type: bo_model::ole::REL_PACKAGE.into(),
+                        target: format!("../embeddings/{file}"),
+                        mode: TargetMode::Internal,
+                    }],
+                );
+            }
+        }
         // Parts of new / edited SmartArt (§21.4) with their content types; diagram parts of the
         // media that no frame shows any more are left out.
         for (name, data) in &self.diagram_parts {
@@ -2049,7 +2145,28 @@ impl Writer<'_> {
             }
         }
         for (name, data) in &self.doc.media {
+            // Chart parts (and their workbooks) of no written frame are not BlueOffice's to add.
+            let chart_owner = if name.to_ascii_lowercase().ends_with(".xlsx") {
+                self.doc
+                    .media
+                    .keys()
+                    .find(|c| {
+                        bo_model::chart_part::is_chart_name(c)
+                            && bo_model::chart_part::workbook_of(c) == *name
+                    })
+                    .cloned()
+            } else {
+                None
+            };
+            let unshown_chart = |n: &String| {
+                bo_model::chart_part::is_chart_name(n)
+                    && self.pkg.part(n).is_none()
+                    && !self.chart_media.contains(n)
+            };
             if self.diagram_parts.contains_key(name)
+                || self.chart_media.contains(name)
+                || unshown_chart(name)
+                || chart_owner.as_ref().is_some_and(unshown_chart)
                 || (name.contains("/diagrams/")
                     && bo_model::diagram::split_name(name).is_some()
                     && !self.picture_media.contains(name))

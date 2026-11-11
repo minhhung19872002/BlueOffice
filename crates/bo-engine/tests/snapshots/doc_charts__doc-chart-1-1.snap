@@ -1,0 +1,78 @@
+---
+source: crates/bo-engine/tests/doc_charts.rs
+expression: summary(&page.commands)
+---
+text 13.0pt 85.1,68.3 "Doanh thu theo quý"
+text 13.0pt 85.1,338.4 "Biểu đồ trên tổng hợp doanh thu hai chi nhánh."
+text 13.0pt 85.1,608.4 "Xu hướng cả năm."
+clip 85.1,71.6 425.2x255.1
+  transform [1.000 0.000 0.000 1.000 85.1 71.6]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      text 15.6pt 148.4,22.4 "Doanh "
+      text 15.6pt 193.8,22.4 "thu "
+      text 15.6pt 219.0,22.4 "(tỷ "
+      text 15.6pt 239.6,22.4 "đồng)"
+      rect 102.6,238.1 9.3x9.3 #2e6db4ff
+      text 11.6pt 115.4,245.8 "Hà "
+      text 11.6pt 130.7,245.8 "Nội"
+      rect 212.6,238.1 9.3x9.3 #f28c28ff
+      text 11.6pt 225.4,245.8 "Đà "
+      text 11.6pt 240.8,245.8 "Nẵng"
+      line 52.4,212.0 → 419.2,212.0
+      text 11.6pt 43.5,216.0 "0"
+      line 52.4,168.0 → 419.2,168.0
+      text 11.6pt 43.5,171.9 "5"
+      line 52.4,123.9 → 419.2,123.9
+      text 11.6pt 37.6,127.9 "10"
+      line 52.4,79.9 → 419.2,79.9
+      text 11.6pt 37.6,83.8 "15"
+      line 52.4,35.8 → 419.2,35.8
+      text 11.6pt 37.6,39.8 "20"
+      line 52.4,212.0 → 419.2,212.0
+      text 11.6pt 84.4,225.7 "Quý "
+      text 11.6pt 106.2,225.7 "1"
+      text 11.6pt 176.1,225.7 "Quý "
+      text 11.6pt 197.9,225.7 "2"
+      text 11.6pt 267.8,225.7 "Quý "
+      text 11.6pt 289.6,225.7 "3"
+      text 11.6pt 359.5,225.7 "Quý "
+      text 11.6pt 381.3,225.7 "4"
+      rect 79.9,101.9 18.3x110.1 #2e6db4ff
+      rect 98.2,140.7 18.3x71.4 #f28c28ff
+      rect 171.6,75.5 18.3x136.5 #2e6db4ff
+      rect 189.9,129.2 18.3x82.8 #f28c28ff
+      rect 263.3,95.7 18.3x116.3 #2e6db4ff
+      rect 281.6,123.9 18.3x88.1 #f28c28ff
+      rect 355.0,64.0 18.3x148.0 #2e6db4ff
+      rect 373.3,101.0 18.3x111.0 #f28c28ff
+    pop transform
+  pop transform
+pop clip
+clip 85.1,341.7 425.2x255.1
+  transform [1.000 0.000 0.000 1.000 85.1 341.7]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      text 15.6pt 173.7,22.4 "Tăng "
+      text 15.6pt 206.7,22.4 "trưởng"
+      rect 323.1,135.9 9.3x9.3 #2e6db4ff
+      text 11.6pt 335.9,143.5 "Chỉ "
+      text 11.6pt 353.5,143.5 "số"
+      rect 52.4,35.8 264.8x194.7 #f7f9fcff
+      line 52.4,230.6 → 317.1,230.6
+      text 11.6pt 43.5,234.5 "0"
+      line 52.4,165.7 → 317.1,165.7
+      text 11.6pt 37.6,169.6 "50"
+      line 52.4,100.7 → 317.1,100.7
+      text 11.6pt 31.8,104.7 "100"
+      line 52.4,35.8 → 317.1,35.8
+      text 11.6pt 31.8,39.8 "150"
+      line 52.4,230.6 → 317.1,230.6
+      text 11.6pt 68.7,244.3 "T1"
+      text 11.6pt 112.8,244.3 "T2"
+      text 11.6pt 156.9,244.3 "T3"
+      text 11.6pt 201.1,244.3 "T4"
+      text 11.6pt 245.2,244.3 "T5"
+      text 11.6pt 289.3,244.3 "T6"
+      path n=6 [74.4 81.3 295.1 100.7] fill=none
+    pop transform
+  pop transform
+pop clip

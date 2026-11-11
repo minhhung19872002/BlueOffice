@@ -38,6 +38,28 @@ export interface SheetSummary {
   protected: boolean;
   /** `tabColor` as `RRGGBB` (§18.3.1.93). */
   tabColor: string | null;
+  /** The row / column outline (absent when the sheet has none). */
+  outline?: SheetOutlineInfo;
+}
+
+/** One group of the outline bar (`bo_sheet::outline::OutlineGroup`). */
+export interface SheetOutlineGroup {
+  /** 1 = outermost. */
+  level: number;
+  first: number;
+  last: number;
+  /** Summary row / column (where the +/− button sits), `null` at the sheet edge. */
+  summary: number | null;
+  /** Every row / column of the detail is hidden. */
+  collapsed: boolean;
+}
+
+/** Row / column outline of a sheet (`bo_engine::OutlineInfo`). */
+export interface SheetOutlineInfo {
+  rowLevels: number;
+  colLevels: number;
+  rows: SheetOutlineGroup[];
+  cols: SheetOutlineGroup[];
 }
 
 /** A threaded comment thread anchored on a cell. */

@@ -255,6 +255,7 @@ describe('temporary views and the ribbon', () => {
       'view.pageLayout',
       'view.customViews',
       'view.showFormulas',
+      'view.outlineSymbols',
       'view.tempViews',
     ]);
   });

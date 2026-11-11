@@ -150,4 +150,5 @@ export type DataToolsCommand =
   | { cmd: 'autoOutline'; sheet: number; range?: Rng | null }
   | { cmd: 'clearOutline'; sheet: number; range?: Rng | null }
   | { cmd: 'outlineShowLevel'; sheet: number; rows: boolean; level: number }
+  | { cmd: 'outlineDetail'; sheet: number; rows: boolean; at: number; show: boolean }
   | { cmd: 'invalidCells'; sheet: number };

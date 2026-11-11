@@ -14,7 +14,7 @@ hành vi đã sửa hoặc xác nhận có khẳng định trong
 [`tests/e2e/specs/office-behaviour-sheet-data.spec.ts`](../../tests/e2e/specs/office-behaviour-sheet-data.spec.ts)
 (nhóm theo thẻ ribbon; giá trị mong đợi tính tay từ dữ liệu của từng ca).
 
-**Tổng kết:** 58 hành động — **giống: 30**, **đã sửa: 21**, **còn khác: 7** (lý do ở từng dòng),
+**Tổng kết:** 58 hành động — **giống: 29**, **đã sửa: 23**, **còn khác: 6** (lý do ở từng dòng),
 **thiếu chưa làm: 0** trong phạm vi hằng ngày (các mục "còn khác" là khác biệt nhỏ hoặc cần quyết
 định).
 
@@ -97,9 +97,9 @@ trị tính tay (ca "common functions…" trong spec). Trước khi sửa, mọi
 | Hành động | Bảng tính quen dùng | BlueSheet trước | Trạng thái |
 |---|---|---|---|
 | Xoá trùng lặp | Hộp thoại chọn cột, "dữ liệu có tiêu đề", báo số dòng xoá | Có | giống |
-| Tách văn bản thành cột | Trình hướng dẫn phân cách / độ rộng cố định | Có (một hộp thoại) | giống (khác bố cục: một bước thay vì ba) |
+| Tách văn bản thành cột | Trình hướng dẫn ba bước: kiểu chia → dấu phân cách / vị trí ngắt → định dạng từng cột (chọn cột trong bản xem trước) + nơi đặt; Quay lại / Tiếp / Hoàn tất ở mọi bước | Một hộp thoại gộp | **đã sửa** — trình hướng dẫn ba bước (`sheet-outline-tools.spec.ts`); vị trí ngắt cố định vẫn gõ bằng số thay vì bấm trên thước |
 | Xác thực dữ liệu kiểu danh sách + mũi tên chọn trong ô | Có, Alt+↓ mở danh sách | Có | giống |
-| Nhóm / bỏ nhóm, Tổng phụ | Có | Có (thiếu thanh +/− cạnh lưới — BACKLOG SHEET-DATA-002) | còn khác — thanh dàn ý |
+| Nhóm / bỏ nhóm, Tổng phụ | Có; thanh dàn ý cạnh lưới: nút mức 1…n+1, dấu −/+ ở hàng tổng, Ctrl+8 ẩn/hiện ký hiệu | Thiếu thanh +/− cạnh lưới | **đã sửa** — thanh dàn ý hàng/cột, Hiện/Ẩn chi tiết (mỗi lần một bước hoàn tác), nhóm con thu gọn vẫn thu gọn khi mở nhóm ngoài |
 | Alt+Shift+→ / Alt+Shift+← | Nhóm / bỏ nhóm: cả cột được chọn → nhóm cột, cả hàng → nhóm hàng, các ô → hỏi Hàng/Cột (mặc định Hàng) | Không có phím tắt | **đã sửa** — các ô thì nhóm hàng luôn (không hỏi) |
 | Alt+F1 biểu đồ mặc định | Biểu đồ cột cụm của vùng dữ liệu, trên trang hiện tại, được chọn | Không có phím tắt | **đã sửa** |
 | F11 biểu đồ trên trang biểu đồ riêng | Tạo trang biểu đồ | Không có (chưa có kiểu trang biểu đồ) | còn khác — cần trang biểu đồ (chartsheet) trong mô hình |
@@ -131,7 +131,6 @@ trị tính tay (ca "common functions…" trong spec). Trước khi sửa, mọi
 2. Thiếu `)` được tự thêm, không có hộp hỏi "có sửa thành …?".
 3. "Thứ 2" kéo xuống đếm tới "Thứ 8" (không có danh sách tuần dạng số).
 4. Menu lọc: một hộp chọn điều kiện thay vì menu con Bộ lọc số / văn bản / ngày.
-5. Thanh dàn ý +/− cạnh lưới chưa có (đã ghi ở SHEET-DATA-002).
-6. F11 (trang biểu đồ) chưa có.
-7. Nút Điền trên ribbon là các nút riêng (Xuống, Phải, Chuỗi…) thay vì một nút thả xuống có
+5. F11 (trang biểu đồ) chưa có.
+6. Nút Điền trên ribbon là các nút riêng (Xuống, Phải, Chuỗi…) thay vì một nút thả xuống có
    Lên / Trái / Căn đều; Điền lên / sang trái chưa có lệnh riêng (kéo tay cầm lên / sang trái thì có).

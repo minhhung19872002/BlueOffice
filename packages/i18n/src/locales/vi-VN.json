@@ -1778,6 +1778,12 @@
         "varp": "Phương sai (tổng thể)"
       },
       "split": {
+        "stepTitle": "Tách văn bản thành cột — bước {{step}}/3",
+        "back": "< Quay lại",
+        "next": "Tiếp >",
+        "finish": "Hoàn tất",
+        "dateKind": "Ngày",
+        "dateOrder": "Thứ tự ngày",
         "title": "Tách văn bản thành cột",
         "kind": "Cách tách",
         "delimited": "Theo ký tự phân cách",
@@ -5036,6 +5042,23 @@
       "models3d": "Mô hình 3D"
     }
   },
+  "sheetOutline": {
+    "row": {
+      "bar": "Dàn ý hàng",
+      "level": "Hiện mức hàng {{n}}",
+      "show": "Hiện chi tiết của hàng {{n}}",
+      "hide": "Ẩn chi tiết của hàng {{n}}"
+    },
+    "col": {
+      "bar": "Dàn ý cột",
+      "level": "Hiện mức cột {{n}}",
+      "show": "Hiện chi tiết của cột {{n}}",
+      "hide": "Ẩn chi tiết của cột {{n}}"
+    },
+    "showDetail": "Hiện chi tiết",
+    "hideDetail": "Ẩn chi tiết",
+    "symbols": "Ký hiệu dàn ý"
+  },
   "sheetAudit": {
     "tab": "Công thức",
     "groupAudit": "Kiểm tra công thức",
@@ -5127,7 +5150,7 @@
       "maxIterations": "Số lần lặp tối đa",
       "maxChange": "Dừng khi giá trị thay đổi ít hơn",
       "precision": "Tính theo độ chính xác hiển thị",
-      "precisionWarn": "Số được làm tròn theo số chữ số thập phân định dạng hiển thị trước khi dùng trong công thức.",
+      "precisionWarn": "Dữ liệu sẽ mất độ chính xác vĩnh viễn: số đã lưu được làm tròn theo số chữ số thập phân định dạng hiển thị (một bước hoàn tác).",
       "invalid": "Nhập số lần lặp nguyên từ 1 đến {{max}} và mức thay đổi từ 0 trở lên."
     }
   },
@@ -5142,6 +5165,7 @@
     "groupTemp": "Dạng xem trang tính",
     "tempViews": "Dạng xem tạm…",
     "pageLabel": "Trang {{n}}",
+    "areaEdge": "Kéo để đổi vùng in",
     "breakManual": "Ngắt trang thủ công — kéo để di chuyển",
     "breakAuto": "Ngắt trang tự động — kéo để đặt ngắt trang thủ công",
     "breakPreview": "Vùng trang và ngắt trang",

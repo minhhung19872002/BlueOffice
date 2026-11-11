@@ -670,7 +670,13 @@ fn relink(
 /// Give a node and its children fresh shape ids.
 fn renumber(n: &mut ShapeNode, next: &mut u32) {
     let nv = match n {
-        ShapeNode::Shape(s) => Some(&mut s.nv),
+        ShapeNode::Shape(s) => {
+            // What only a shape of a drawing part has ([MS-ODRAWXML] `dsp:sp@modelId`, its text
+            // transform `dsp:txXfrm`) is no part of a slide's shape (§19.3.1.43 sp).
+            s.attrs.retain(|(k, _)| k != "modelId");
+            s.extra.retain(|e| e.xml.local() != "txXfrm");
+            Some(&mut s.nv)
+        }
         ShapeNode::Picture(p) => Some(&mut p.nv),
         ShapeNode::Connector(c) => Some(&mut c.nv),
         ShapeNode::Frame(f) => Some(&mut f.nv),

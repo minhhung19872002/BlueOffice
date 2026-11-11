@@ -188,6 +188,18 @@ fn picture_nodes_are_stored_drawn_replaced_removed_and_kept() {
         })
         .collect();
     assert_eq!(embeds.len(), 2);
+    // Nothing of the drawing part's own vocabulary is left on the slide's shapes.
+    assert!(group.children.iter().all(|n| match n {
+        ShapeNode::Shape(s) => s.attrs.iter().all(|(k, _)| k != "modelId"),
+        _ => true,
+    }));
+    let converted = e.save_pptx().unwrap();
+    if let Ok(dir) = std::env::var("BO_SMARTART_OUT") {
+        std::fs::write(format!("{dir}/smartart-slide-converted.pptx"), &converted).unwrap();
+    }
+    let pkg = bo_opc::Package::read(&converted, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8_lossy(&pkg.part(&s.info.part_name).unwrap().data).into_owned();
+    assert!(!xml.contains("modelId"), "{xml}");
     for rid in &embeds {
         let rel = s.info.rels.iter().find(|r| &r.id == rid).unwrap();
         assert!(rel.rel_type.ends_with("/image"), "{rel:?}");

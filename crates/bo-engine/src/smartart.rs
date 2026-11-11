@@ -81,10 +81,20 @@ fn render_frame(
     img: &bo_model::Image,
     bytes: &[u8],
     theme: Option<&bo_model::slide::Theme>,
+    pkg: &mut Option<Option<bo_opc::Package>>,
     fonts: &mut FontManager,
 ) -> Option<Vec<u8>> {
     let size = (img.width.0, img.height.0);
-    let Some(src) = bo_docx::diagram::diagram_source(doc, img) else {
+    // A file diagram's other parts are in the source package: opened once for all diagrams.
+    let pkg = img
+        .src
+        .is_some()
+        .then(|| {
+            pkg.get_or_insert_with(|| bo_docx::diagram::source_package(doc))
+                .as_ref()
+        })
+        .flatten();
+    let Some(src) = bo_docx::diagram::diagram_source_in(doc, img, pkg) else {
         return render_png(bytes, size.0, size.1, fonts);
     };
     // The media part is the drawing part, or (without one) the data model part.
@@ -226,6 +236,8 @@ impl SmartArtImages {
         // The document theme gives the chart colours and the scheme colours of diagrams; read
         // once, when a chart or diagram is drawn.
         let mut theme: Option<Option<bo_model::slide::Theme>> = None;
+        // The source package, opened when the first file diagram is drawn.
+        let mut pkg: Option<Option<bo_opc::Package>> = None;
         // The frame of each diagram part (the first that shows it).
         let mut frames: BTreeMap<&str, &bo_model::Image> = BTreeMap::new();
         for img in crate::media::pictures(doc) {
@@ -248,7 +260,7 @@ impl SmartArtImages {
                         Some(img) if diagram::is_group_name(&name) => {
                             render_group(doc, img, bytes, theme.as_ref(), fonts)
                         }
-                        Some(img) => render_frame(doc, img, bytes, theme.as_ref(), fonts),
+                        Some(img) => render_frame(doc, img, bytes, theme.as_ref(), &mut pkg, fonts),
                         None => render_png(bytes, w, h, fonts),
                     };
                     if let Some(png) = png {

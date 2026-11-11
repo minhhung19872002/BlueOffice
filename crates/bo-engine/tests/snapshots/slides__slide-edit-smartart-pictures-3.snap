@@ -1,0 +1,51 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  clip path n=6 [0.0 4.4 79.0 83.4]
+    image /ppt/media/image4.png 0.0,4.4 79.0x79.0 crop=Some([0.33333, 0.0, 0.33333, 0.0])
+  pop clip
+  path n=6 [0.0 4.4 79.0 83.4] stroke=#2e8b57ff w2.00
+  path n=9 [98.2 4.4 768.0 83.4] fill=#2e8b57ff
+  path n=9 [98.2 4.4 768.0 83.4] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 98.2 4.4]
+    text 11.0pt 319.9,37.9 #ffffffff "Hà "
+    text 11.0pt 334.5,37.9 #ffffffff "Nội"
+    text 8.8pt 319.2,49.2 #ffffffff "• "
+    text 8.8pt 325.6,49.2 #ffffffff "Thủ "
+    text 8.8pt 341.1,49.2 #ffffffff "đô"
+  pop transform
+  clip path n=6 [0.0 92.1 79.0 171.1]
+    image /ppt/media/image5.png 0.0,92.1 79.0x79.0 crop=Some([0.0, 0.25, 0.0, 0.25])
+  pop clip
+  path n=6 [0.0 92.1 79.0 171.1] stroke=#2e8b57ff w2.00
+  path n=9 [98.2 92.1 768.0 171.1] fill=#2e8b57ff
+  path n=9 [98.2 92.1 768.0 171.1] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 98.2 92.1]
+    text 19.0pt 319.3,46.0 #ffffffff "Huế"
+  pop transform
+  clip path n=6 [0.0 179.9 79.0 258.9]
+    image /ppt/media/image6.png 0.0,179.9 79.0x79.0 crop=None
+  pop clip
+  path n=6 [0.0 179.9 79.0 258.9] stroke=#2e8b57ff w2.00
+  path n=9 [98.2 179.9 768.0 258.9] fill=#2e8b57ff
+  path n=9 [98.2 179.9 768.0 258.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 98.2 179.9]
+    text 19.0pt 302.1,46.0 #ffffffff "Đà "
+    text 19.0pt 327.4,46.0 #ffffffff "Nẵng"
+  pop transform
+  path n=6 [0.0 267.6 79.0 346.6] fill=#e7ecf2ff
+  path n=6 [0.0 267.6 79.0 346.6] stroke=#2e8b57ff w2.00
+  path n=4 [19.7 299.2 59.2 322.9] fill=#b4bfccff
+  path n=4 [19.7 299.2 59.2 322.9] stroke=#ffffffff w1.00
+  path n=6 [47.4 287.4 57.3 297.3] fill=#b4bfccff
+  path n=6 [47.4 287.4 57.3 297.3] stroke=#ffffffff w1.00
+  path n=9 [98.2 267.6 768.0 346.6] fill=#2e8b57ff
+  path n=9 [98.2 267.6 768.0 346.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 98.2 267.6]
+    text 19.0pt 303.0,46.0 #ffffffff "Cần "
+    text 19.0pt 336.6,46.0 #ffffffff "Thơ"
+  pop transform
+pop transform

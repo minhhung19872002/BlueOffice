@@ -92,8 +92,11 @@ test('BlueSlide: own name, previews, a node picture and on-canvas text edit', as
   await expect(dialog.getByTestId('smartart-pictures').locator('li')).toHaveText(['Hà Nội']);
   await dialog.getByRole('button', { name: 'Huỷ' }).click();
   // One undo step takes the edit back; redo brings it again.
-  await page.getByTestId('slide-overlay').click({ position: { x: 5, y: 5 } });
+  await page.mouse.click(at.x, at.y);
+  await expect(page.getByRole('tab', { name: NAME })).toBeVisible();
   await page.keyboard.press('Control+z');
+  await page.mouse.click(at.x, at.y);
+  await expect(page.getByRole('tab', { name: NAME })).toBeVisible();
   await page.mouse.dblclick(at.x, at.y);
   await expect(editor).toHaveValue('Huế');
   await editor.press('Escape');

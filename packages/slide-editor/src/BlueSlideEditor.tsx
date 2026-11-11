@@ -1735,7 +1735,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         at,
       });
     },
-    [edit],
+    [edit, ctrl],
   );
 
   /** Edit the text of a table cell on the canvas (the engine placed the caret). */

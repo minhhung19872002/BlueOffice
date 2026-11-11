@@ -93,6 +93,23 @@ fn rel_ids(xml: &str) -> Option<(String, [Option<String>; 3])> {
 /// wrote, else through the main document part's relationships in the source package.
 #[must_use]
 pub fn diagram_source(doc: &Document, img: &Image) -> Option<DiagramSource> {
+    diagram_source_in(doc, img, None)
+}
+
+/// The source package of the document, read once for several [`diagram_source_in`] calls.
+#[must_use]
+pub fn source_package(doc: &Document) -> Option<Package> {
+    Package::read(&doc.source.as_ref()?.bytes, &Limits::default()).ok()
+}
+
+/// [`diagram_source`] reading a file diagram's parts from `pkg` (the document's source package,
+/// [`source_package`]) instead of opening the package again.
+#[must_use]
+pub fn diagram_source_in(
+    doc: &Document,
+    img: &Image,
+    pkg: Option<&Package>,
+) -> Option<DiagramSource> {
     let get = |k: DiagramPart| {
         let n = diagram::sibling(&img.media, k)?;
         let b = doc.media.get(&n)?;
@@ -133,7 +150,13 @@ pub fn diagram_source(doc: &Document, img: &Image) -> Option<DiagramSource> {
     }
     let src = doc.source.as_ref()?;
     let (dm, [lo, qs, cs]) = rel_ids(&img.src.as_ref()?.xml)?;
-    let pkg = Package::read(&src.bytes, &Limits::default()).ok()?;
+    let owned;
+    let pkg = if let Some(p) = pkg {
+        p
+    } else {
+        owned = Package::read(&src.bytes, &Limits::default()).ok()?;
+        &owned
+    };
     let rels = pkg.relationships(&src.main_part).ok()?;
     let part = |id: &str| {
         let r = rels.iter().find(|r| r.id == id)?;

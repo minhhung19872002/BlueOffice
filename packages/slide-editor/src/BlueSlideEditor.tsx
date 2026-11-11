@@ -163,6 +163,7 @@ import {
   AlignEndHorizontal,
   AlignEndVertical,
   AlignHorizontalDistributeCenter,
+  AlignJustify,
   AlignLeft,
   AlignRight,
   AlignStartHorizontal,
@@ -180,6 +181,7 @@ import {
   Blend,
   Bold,
   BookOpen,
+  BoxSelect,
   BringToFront,
   Cast,
   ChartArea,
@@ -201,8 +203,10 @@ import {
   CornerDownRight,
   Eraser,
   Eye,
+  EyeOff,
   FileDown,
   FileImage,
+  FilePlus,
   FileStack,
   Files,
   Film,
@@ -240,8 +244,10 @@ import {
   Printer,
   Redo2,
   Rows3,
+  Replace,
   Save,
   Scissors,
+  Search,
   SendToBack,
   Slash,
   SlidersHorizontal,
@@ -319,7 +325,16 @@ import { SlideController } from './controller';
 import { SlideSpellDialog, SlideSpellLayer, useSlideSpelling } from './spelling';
 import { SlideVersionsPane } from './compareVersions';
 import { useAlbumTools } from './album/useAlbumTools';
-import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
+import {
+  FONT_SIZES,
+  fromEditorText,
+  hexOf,
+  isTypingKey,
+  nudgeCommand,
+  steppedSize,
+  toEditorText,
+} from './editing';
+import { FindReplaceDialog } from './findReplace';
 import {
   SlideClipboardUi,
   selectionCorner,
@@ -522,6 +537,17 @@ export interface SlideEditorState
   /** The point editor is open on the selected shape. */
   editingPoints?: boolean;
 }
+
+/** Is the keyboard focus on the slide (not in the ribbon, a pane or the slide panel)? */
+const onStage = () =>
+  !!document.activeElement?.closest('[tabindex]')?.querySelector('[data-testid="slide-overlay"]');
+
+/** Keyboard focus to the slide (the element around the overlay that takes the keys). */
+const focusStage = () =>
+  (
+    document.querySelector('[data-testid="slide-overlay"]')?.closest('[tabindex]') as
+      HTMLElement | null | undefined
+  )?.focus();
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 /** File name without the extension of a deck variant (CORE-FMT-001). */
@@ -1304,6 +1330,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       setBlack(false);
       setWhite(false);
       if (a !== 'next' && a !== 'prev' && a !== 'first' && a !== 'last') return;
+      // On the end screen the next step (key or click) leaves the show.
+      if (a === 'next' && pos.slide >= count && (view === 'show' || view === 'presenter')) {
+        endShow();
+        return;
+      }
       const clicks = (i: number) => showCache.peek(i)?.clicks ?? 0;
       setPlay((x) => {
         const r0 = x.run.order.length ? x.run : newRun(Array.from({ length: count }, (_, i) => i));
@@ -1311,7 +1342,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         return { ...x, run: r.run, pos: placed(x.pos, r.pos) };
       });
     },
-    [count, showCache, placed],
+    [count, showCache, placed, pos.slide, view, endShow],
   );
 
   /** A followed text link takes the theme's followed colour the next time its slide shows. */
@@ -1710,7 +1741,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   }, [view, endShow]);
 
   const startEdit = useCallback(
-    (shape: SlideShapeInfo, at?: { x: number; y: number }) => {
+    (
+      shape: SlideShapeInfo,
+      at?: { x: number; y: number },
+      how?: { selectAll?: boolean; insert?: string },
+    ) => {
       if (shape.kind === 'chart') {
         if (edit?.chart) setChartDialog({ mode: 'edit', initial: chartDraftOf(edit.chart) });
         return;
@@ -1727,6 +1762,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         rect: shape.rect,
         size: edit?.format.size ?? 18,
         at,
+        ...how,
       });
     },
     [edit],
@@ -1762,6 +1798,50 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     run({ cmd: 'textExit' });
     slideRef.current?.focus();
   }, [run]);
+
+  /**
+   * Ctrl+Enter in a text: the next text placeholder of the slide gets the caret; after the
+   * last one a new slide follows (the layout a new slide gets here) and its first
+   * placeholder is edited.
+   */
+  const nextPlaceholder = useCallback(
+    async (selected?: number) => {
+      const from = selected ?? editingRef.current?.id;
+      editingRef.current = null;
+      setEditing(null);
+      const cur = await ctrl.run({ cmd: 'textExit' });
+      if (!cur) return;
+      const editFirst = async (ids: number[]): Promise<boolean> => {
+        for (const id of ids) {
+          const r = await ctrl.run({ cmd: 'select', ids: [id] });
+          const sh = r?.selection[0];
+          if (sh && sh.id === id && sh.placeholder !== null && sh.editableText) {
+            editingRef.current = { id, confirmed: false };
+            setEditing({
+              id,
+              text: sh.text ?? '',
+              rect: sh.rect,
+              size: r?.format.size ?? 18,
+              selectAll: true,
+            });
+            return true;
+          }
+        }
+        return false;
+      };
+      const ids = (cur.objects ?? []).map((o) => o.id);
+      const at = from === undefined ? -1 : ids.indexOf(from);
+      if (await editFirst(ids.slice(at + 1))) return;
+      const added = await ctrl.run({ cmd: 'addSlide' });
+      if (!added || added.error) {
+        slideRef.current?.focus();
+        return;
+      }
+      setCurrent(added.slide);
+      if (!(await editFirst((added.objects ?? []).map((o) => o.id)))) slideRef.current?.focus();
+    },
+    [ctrl],
+  );
 
   const commitNotes = useCallback(() => {
     if (notesDraft === null) return;
@@ -2084,6 +2164,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   /** Draw tab tools (CORE-INK-001), behind `draw.*`. */
   const [drawHub] = useState(() => new DrawActionsHub());
   const [shortcutsShown, setShortcutsShown] = useState(false);
+  const [findMode, setFindMode] = useState<'find' | 'replace' | null>(null);
   // View › Window (CORE-UI-007): the other windows, side by side, New Window.
   const windowTools = useWindowTools({
     platform,
@@ -2132,6 +2213,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       shortcut?: string,
     ) => reg.register({ id, shortcut, isEnabled, run: () => run(cmd) });
 
+    // A new presentation: one title slide with empty placeholders.
+    reg.register({
+      id: 'file.new',
+      shortcut: 'Ctrl+N',
+      run: () =>
+        guard(async () => {
+          await ctrl.idle();
+          await engine.init();
+          const made = await engine.slideCommand({ cmd: 'newDeck' });
+          if (!made.file) throw new Error(made.error ?? 'newDeck');
+          await load(fromBase64(made.file), `${t('slideEditor.untitled')}.pptx`);
+        }),
+    });
     reg.register({
       id: 'file.open',
       shortcut: 'Ctrl+O',
@@ -2285,6 +2379,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     reg.register({
       id: 'view.selectionPane',
+      shortcut: 'Alt+F10',
       isEnabled: deck,
       isChecked: () => selectionOpen,
       run: () => setSelectionOpen((o) => !o),
@@ -2483,6 +2578,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     simple('edit.undo', { cmd: 'undo' }, (s) => s.canUndo, 'Ctrl+Z');
     simple('edit.redo', { cmd: 'redo' }, (s) => s.canRedo, 'Ctrl+Y');
     simple('edit.selectAll', { cmd: 'selectAll' }, deck, 'Ctrl+A');
+    // Find (Ctrl+F) and Replace (Ctrl+H) in the texts of the deck.
+    reg.register({
+      id: 'edit.find',
+      shortcut: 'Ctrl+F',
+      isEnabled: deck,
+      run: () => setFindMode('find'),
+    });
+    reg.register({
+      id: 'edit.replace',
+      shortcut: 'Ctrl+H',
+      isEnabled: deck,
+      run: () => setFindMode('replace'),
+    });
     simple('edit.duplicate', { cmd: 'duplicate' }, sel, 'Ctrl+D');
     reg.register({
       id: 'edit.delete',
@@ -2553,7 +2661,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
     // Slides.
     simple('slide.new', { cmd: 'addSlide' }, deck, 'Ctrl+M');
-    simple('slide.duplicate', { cmd: 'duplicateSlide' }, deck);
+    simple('slide.duplicate', { cmd: 'duplicateSlide' }, deck, 'Ctrl+Shift+D');
     // SLIDE-ALBUM-001: photo album (also without a deck: it can start a new one),
     // slides from an outline file, reuse slides of another presentation.
     reg.register({ id: 'insert.photoAlbum', run: async () => openAlbum() });
@@ -2565,16 +2673,23 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: async () => toggleReuse(),
     });
     simple('slide.delete', { cmd: 'deleteSlide' }, deck);
+    // Hide slide: the slide stays in the deck and is left out of the show (a toggle).
+    reg.register({
+      id: 'slide.hide',
+      isEnabled: deck,
+      isChecked: (s) => (edit?.presenting?.hidden ?? []).includes(s.current),
+      run: () => run({ cmd: 'hideSlides' }),
+    });
     // WCAG 2.5.7: reorder slides without dragging their thumbnails (also Ctrl+Shift+↑ / ↓).
     reg.register({
       id: 'slide.moveUp',
-      shortcut: 'Ctrl+Shift+ArrowUp',
+      shortcut: 'Ctrl+ArrowUp',
       isEnabled: (s) => s.hasDeck && s.current > 0,
       run: (s) => run({ cmd: 'moveSlide', from: s.current, to: s.current - 1 }),
     });
     reg.register({
       id: 'slide.moveDown',
-      shortcut: 'Ctrl+Shift+ArrowDown',
+      shortcut: 'Ctrl+ArrowDown',
       isEnabled: (s) => s.hasDeck && s.current + 1 < (s.count ?? 0),
       run: (s) => run({ cmd: 'moveSlide', from: s.current, to: s.current + 1 }),
     });
@@ -2588,23 +2703,34 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       text,
       'Ctrl+U',
     );
-    simple(
-      'format.grow',
-      { cmd: 'formatText', format: { kind: 'sizeBy', points: 2 } },
-      text,
-      'Ctrl+Shift+>',
-    );
-    simple(
-      'format.shrink',
-      { cmd: 'formatText', format: { kind: 'sizeBy', points: -2 } },
-      text,
-      'Ctrl+Shift+<',
-    );
+    // Grow / shrink go to the next / previous size of the font size list; a text of
+    // several sizes changes by 2 points each.
+    for (const [id, up, key] of [
+      ['format.grow', true, 'Ctrl+Shift+>'],
+      ['format.shrink', false, 'Ctrl+Shift+<'],
+    ] as const) {
+      reg.register({
+        id,
+        shortcut: key,
+        isEnabled: text,
+        run: () => {
+          const size = edit?.format.size;
+          run({
+            cmd: 'formatText',
+            format:
+              typeof size === 'number'
+                ? { kind: 'size', points: steppedSize(size, up) }
+                : { kind: 'sizeBy', points: up ? 2 : -2 },
+          });
+        },
+      });
+    }
     reg.register({ id: 'format.color', isEnabled: text, run: () => pickColor('font') });
     for (const [id, align, key] of [
       ['format.alignLeft', 'left', 'Ctrl+L'],
       ['format.alignCenter', 'center', 'Ctrl+E'],
       ['format.alignRight', 'right', 'Ctrl+R'],
+      ['format.justify', 'justify', 'Ctrl+J'],
     ] as const) {
       simple(id, { cmd: 'formatText', format: { kind: 'align', align } }, text, key);
     }
@@ -2643,7 +2769,24 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     reg.register({ id: 'format.line', isEnabled: sel, run: () => pickColor('line') });
 
     // Insert.
-    simple('insert.textBox', { cmd: 'insertTextBox', text: '' }, deck);
+    // A new text box or shape is selected with the keyboard on the slide: typing goes
+    // straight into it.
+    for (const [id, cmd] of [
+      ['insert.textBox', { cmd: 'insertTextBox', text: '' }],
+      ['insert.rect', { cmd: 'insertShape', preset: 'rect' }],
+      ['insert.ellipse', { cmd: 'insertShape', preset: 'ellipse' }],
+      ['insert.arrow', { cmd: 'insertShape', preset: 'rightArrow' }],
+      ['insert.triangle', { cmd: 'insertShape', preset: 'triangle' }],
+    ] as const) {
+      reg.register({
+        id,
+        isEnabled: deck,
+        run: () => {
+          run(cmd);
+          focusStage();
+        },
+      });
+    }
     reg.register({ id: 'insert.symbol', isEnabled: deck, run: async () => setSymbolsOpen(true) });
     reg.register({ id: 'insert.icon', isEnabled: deck, run: async () => setIconsOpen(true) });
     reg.register({
@@ -2801,6 +2944,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isChecked: () => commentsOpen,
       run: async () => setCommentsOpen((o) => !o),
     });
+    // Ctrl+Alt+M: the comments pane, ready for a new comment.
+    reg.register({
+      id: 'review.newComment',
+      shortcut: 'Ctrl+Alt+M',
+      isEnabled: deck,
+      run: async () => setCommentsOpen(true),
+    });
     // Status bar and View › Window (CORE-UI-007).
     reg.register({
       id: 'view.notes',
@@ -2869,14 +3019,6 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         setScriptOpen(true);
       },
     });
-    for (const [id, preset] of [
-      ['insert.rect', 'rect'],
-      ['insert.ellipse', 'ellipse'],
-      ['insert.arrow', 'rightArrow'],
-      ['insert.triangle', 'triangle'],
-    ] as const) {
-      simple(id, { cmd: 'insertShape', preset }, deck);
-    }
     simple('insert.table', { cmd: 'insertTable', rows: 3, cols: 3 }, deck);
     simple('insert.connector', { cmd: 'insertConnector' }, (s) => s.multi);
     simple(
@@ -2980,8 +3122,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
 
     // Arrange.
-    simple('arrange.front', { cmd: 'zOrder', to: 'front' }, sel);
-    simple('arrange.back', { cmd: 'zOrder', to: 'back' }, sel);
+    simple('arrange.front', { cmd: 'zOrder', to: 'front' }, sel, 'Ctrl+Shift+]');
+    simple('arrange.back', { cmd: 'zOrder', to: 'back' }, sel, 'Ctrl+Shift+[');
     simple('arrange.forward', { cmd: 'zOrder', to: 'forward' }, sel, 'Ctrl+]');
     simple('arrange.backward', { cmd: 'zOrder', to: 'backward' }, sel, 'Ctrl+[');
     simple('arrange.group', { cmd: 'group' }, (s) => s.multi, 'Ctrl+G');
@@ -3273,14 +3415,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   /** Opens the slide context menu (set once the menu exists, below). */
   const slideMenuOpen = useRef<(m: SlideMenu) => void>(() => {});
+  /** Digits typed in the show (a slide number, then Enter). */
+  const showDigits = useRef('');
   /** When Shift+F10 opened the menu: the browser's own keyboard context menu event follows. */
   const keyMenuAt = useRef(-Infinity);
   // Shortcuts typed inside the shape text (format.*, edit.*).
   const textShortcut = useCallback(
     (e: KeyboardEvent) => {
       const cmd = registry.match(e);
-      if (!cmd || !/^(format|edit\.(undo|redo|repeat))/.test(cmd.id)) return false;
-      exec(cmd.id);
+      // Inside a text Ctrl+] / Ctrl+[ change the font size (on a shape: its layer).
+      const inText: Record<string, string> = {
+        'arrange.forward': 'format.grow',
+        'arrange.backward': 'format.shrink',
+      };
+      const id = cmd ? (inText[cmd.id] ?? cmd.id) : '';
+      if (!/^(format|edit\.(undo|redo|repeat))/.test(id)) return false;
+      exec(id);
       return true;
     },
     [registry, exec],
@@ -3338,6 +3488,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             }
           }
         }
+        // A slide number, then Enter: that slide.
+        if (!kioskOn && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          if (/^[0-9]$/.test(e.key)) {
+            e.preventDefault();
+            showDigits.current = (showDigits.current + e.key).slice(-4);
+            return;
+          }
+          const typed = showDigits.current;
+          showDigits.current = '';
+          if (e.key === 'Enter' && typed) {
+            e.preventDefault();
+            const at = play.run.order.indexOf(Number(typed) - 1);
+            if (at >= 0) gotoShow(at);
+            return;
+          }
+        }
         const a = showAction(e.key);
         if (!a) return;
         e.preventDefault();
@@ -3384,8 +3550,69 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         if (at && edit) slideMenuOpen.current({ ...at, context: slideMenuContext(edit) });
         return;
       }
+      const mod = e.ctrlKey || e.metaKey;
+      // F12: Save as (next to the command's own shortcut).
+      if (e.key === 'F12' && !mod && !e.altKey && !e.shiftKey && count > 0) {
+        e.preventDefault();
+        exec('file.saveAs');
+        return;
+      }
+      const thumbFocus =
+        view === 'normal' &&
+        count > 0 &&
+        !state.masterView &&
+        !state.pageMaster &&
+        !!document.activeElement?.closest('[data-slide-thumbs]');
+      if (thumbFocus && !e.altKey) {
+        // The slide panel: Enter adds a slide, Backspace deletes, Ctrl+D / Ctrl+Shift+D
+        // duplicate, Ctrl+↑ / ↓ move the slide by one, Ctrl+Shift+↑ / ↓ to the start / end.
+        const k = e.key.toLowerCase();
+        const up = e.key === 'ArrowUp';
+        let did = true;
+        if (e.key === 'Enter' && !mod && !e.shiftKey) exec('slide.new');
+        else if (e.key === 'Backspace' && !mod) run({ cmd: 'deleteSlide', index: current });
+        else if (mod && k === 'd') exec('slide.duplicate');
+        else if (mod && (up || e.key === 'ArrowDown')) {
+          const to = e.shiftKey ? (up ? 0 : count - 1) : current + (up ? -1 : 1);
+          if (to >= 0 && to < count && to !== current) {
+            run({ cmd: 'moveSlide', from: current, to });
+          }
+        } else did = false;
+        if (did) {
+          e.preventDefault();
+          return;
+        }
+      }
+      if (
+        view === 'normal' &&
+        editingRef.current &&
+        isTypingKey(e) &&
+        (!document.activeElement || document.activeElement === document.body || onStage()) &&
+        !document.querySelector('[data-testid="slide-text-editor"]')
+      ) {
+        // Keys typed while the text editor is still opening follow the key that opened it.
+        e.preventDefault();
+        setEditing((x) => (x ? { ...x, insert: (x.insert ?? '') + e.key } : x));
+        return;
+      }
+      // The selection as the engine last reported it: a key typed right after a click must
+      // not act on the selection of the render before.
+      const sel = (ctrl.last ?? edit)?.selection ?? [];
+      const onSlide = view === 'normal' && !thumbFocus && sel.length > 0;
+      if (onSlide) {
+        // Arrows on the selected objects: move, Shift resize, Alt rotate (Ctrl: fine steps).
+        const one = sel.length === 1 ? sel[0]!.rect : null;
+        const n = nudgeCommand(e.key, { shift: e.shiftKey, ctrl: mod, alt: e.altKey }, one);
+        if (n) {
+          e.preventDefault();
+          run(n);
+          return;
+        }
+      }
       const cmd = registry.match(e);
       if (cmd) {
+        // Moving a slide from the keyboard belongs to the slide panel.
+        if (cmd.id === 'slide.moveUp' || cmd.id === 'slide.moveDown') return;
         e.preventDefault();
         exec(cmd.id);
         return;
@@ -3399,14 +3626,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           return;
         }
       }
-      const sel = edit?.selection ?? [];
-      if (view === 'normal' && sel.length > 0) {
-        const n = nudgeCommand(e.key, e.shiftKey);
-        if (n) {
-          e.preventDefault();
-          run(n);
-          return;
-        }
+      if (onSlide) {
         if (e.key === 'Backspace') {
           e.preventDefault();
           run({ cmd: 'delete' });
@@ -3416,9 +3636,30 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           run({ cmd: 'select', ids: [] });
           return;
         }
-        if ((e.key === 'Enter' || e.key === 'F2') && sel.length === 1) {
+        if (e.key === 'Enter' && mod && !e.shiftKey && !e.altKey && sel.length === 1) {
+          // Ctrl+Enter: the next text placeholder after the selected one.
           e.preventDefault();
-          startEdit(sel[0]!);
+          void nextPlaceholder(sel[0]!.id).catch(fail);
+          return;
+        }
+        if ((e.key === 'Enter' || e.key === 'F2') && !mod && !e.altKey && sel.length === 1) {
+          // The text of the selected shape, all of it selected.
+          e.preventDefault();
+          startEdit(sel[0]!, undefined, { selectAll: true });
+          return;
+        }
+        // Typing on a selected shape goes into its text, after what is there.
+        const a = document.activeElement;
+        const slideFocus = !a || a === document.body || !!slideRef.current?.contains(a);
+        if (
+          slideFocus &&
+          sel.length === 1 &&
+          sel[0]!.editableText &&
+          sel[0]!.kind === 'shape' &&
+          isTypingKey(e)
+        ) {
+          e.preventDefault();
+          startEdit(sel[0]!, undefined, { insert: e.key });
           return;
         }
       }
@@ -3455,7 +3696,24 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     black,
     white,
     pos.slide,
+    state.masterView,
+    state.pageMaster,
+    play.run.order,
+    gotoShow,
+    nextPlaceholder,
+    fail,
+    ctrl,
   ]);
+
+  // The keyboard focus of the slide panel follows the current slide (new, moved, deleted
+  // slides): the keys typed next act on the slide that is shown.
+  useEffect(() => {
+    const a = document.activeElement;
+    const nav = thumbsEl.current;
+    if (!nav || !a || !nav.contains(a) || !a.matches('[data-testid^="thumb-"]')) return;
+    const cur = nav.querySelector<HTMLElement>(`[data-testid="thumb-${current + 1}"]`);
+    if (cur && cur !== a) cur.focus();
+  }, [current, count]);
 
   // The user's keyboard shortcuts (CORE-UI-004).
   const ribbonTabsRef = useRef<RibbonTab[]>([]);
@@ -3514,6 +3772,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             id: 'file',
             label: t('slideEditor.groupFile'),
             items: [
+              item('file.new', t('commands.file.new'), <FilePlus size={18} />),
               item('file.open', t('slideEditor.open'), <FolderOpen size={18} />),
               item('file.save', t('slideEditor.save'), <Save size={18} />),
               item('file.saveAs', t('commands.file.saveAs'), <Save size={16} />, sm),
@@ -3572,6 +3831,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('slide.reuse', t('slideEditor.reuse.command'), <FileStack size={16} />, sm),
               item('slide.duplicate', t('slideEditor.duplicateSlide'), <CopyPlus size={16} />, sm),
               item('slide.delete', t('slideEditor.deleteSlide'), <Trash size={16} />, sm),
+              item('slide.hide', t('slideEditor.hideSlide'), <EyeOff size={16} />, sm),
               item('slide.moveUp', t('slideEditor.moveSlideUp'), <ArrowUp size={16} />, sm),
               item('slide.moveDown', t('slideEditor.moveSlideDown'), <ArrowDown size={16} />, sm),
               item('slide.copy', t('slideEditor.copySlide'), <Files size={16} />, sm),
@@ -3615,6 +3875,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             ],
           },
           {
+            id: 'find',
+            label: t('slideEditor.find.group'),
+            items: [
+              item('edit.find', t('commands.edit.find'), <Search size={16} />, sm),
+              item('edit.replace', t('commands.edit.replace'), <Replace size={16} />, sm),
+              item('edit.selectAll', t('commands.edit.selectAll'), <BoxSelect size={16} />, sm),
+            ],
+          },
+          {
             id: 'paragraph',
             label: t('slideEditor.groupParagraph'),
             items: [
@@ -3638,6 +3907,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 <AlignRight size={16} />,
                 sm,
                 f?.align === 'right',
+              ),
+              item(
+                'format.justify',
+                t('commands.format.justify'),
+                <AlignJustify size={16} />,
+                sm,
+                f?.align === 'justify',
               ),
               item('format.bullets', t('slideEditor.bullets'), <List size={16} />, sm, f?.bullets),
               item(
@@ -4523,6 +4799,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               edit?.masterView?.items[i] ? masterThumbLabel(t, edit.masterView.items[i]) : undefined
             }
             aria-current={i === shown}
+            data-hidden={
+              !edit?.masterView && edit?.presenting?.hidden.includes(i) ? 'true' : undefined
+            }
             aria-label={thumbLabel(i, outline[i], (k, o) => String(t(k, o)))}
             aria-describedby={`slide-a11y-thumb-${i}`}
             onClick={() => goTo(i)}
@@ -4646,6 +4925,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         />
       )}
       {shortcuts.element}
+      <FindReplaceDialog
+        mode={findMode}
+        onClose={() => setFindMode(null)}
+        run={(c) => ctrl.run(c)}
+        count={count}
+        current={current}
+        onError={fail}
+      />
       {ribbonCustom.element}
       {addins.element}
       <CommandSearch
@@ -4775,6 +5062,25 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   ))}
                 </select>
                 <select
+                  data-testid="slide-font-size"
+                  aria-label={t('slideEditor.fontSize')}
+                  disabled={!state.hasText}
+                  value={String(edit?.format.size ?? '')}
+                  onChange={(e) => {
+                    const points = Number(e.target.value);
+                    if (points > 0) run({ cmd: 'formatText', format: { kind: 'size', points } });
+                    refocusText();
+                  }}
+                >
+                  {[...new Set([edit?.format.size ?? null, ...FONT_SIZES])]
+                    .sort((a, b) => (a ?? 0) - (b ?? 0))
+                    .map((v) => (
+                      <option key={v ?? ''} value={String(v ?? '')} disabled={v === null}>
+                        {v === null ? '' : v.toLocaleString()}
+                      </option>
+                    ))}
+                </select>
+                <select
                   data-testid="slide-line-spacing"
                   aria-label={t('slideEditor.lineSpacing')}
                   disabled={!state.hasText}
@@ -4835,6 +5141,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     onStartEdit={startEdit}
                     onExitEdit={exitEdit}
                     onTextShortcut={textShortcut}
+                    onNextPlaceholder={() => void nextPlaceholder().catch(fail)}
                     onTextSelectEnd={onTextSelectEnd}
                     label={t('slideEditor.editor')}
                     editorLabel={t('slideEditor.textEditor')}
@@ -4923,7 +5230,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   )}
                 </div>
               ) : (
-                <p className={styles.empty}>{t('slideEditor.empty')}</p>
+                <div className={styles.empty}>
+                  <p>{t('slideEditor.empty')}</p>
+                  <button
+                    type="button"
+                    data-testid="new-presentation"
+                    onClick={() => exec('file.new')}
+                  >
+                    {t('slideEditor.newDeck')}
+                  </button>
+                </div>
               )}
             </div>
             {count > 0 && notesShown && !state.masterView && !state.pageMaster && (

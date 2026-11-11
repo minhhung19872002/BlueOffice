@@ -17,7 +17,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { SlideController } from './controller';
-import { fromEditorText, toEditorText } from './editing';
+import { constrainMove, fromEditorText, paragraphRange, toEditorText, wordRange } from './editing';
 import { nearestSite } from './editPoints';
 import shapeStyles from './shapeFormat.module.css';
 import styles from './SlideEditor.module.css';
@@ -35,6 +35,10 @@ export interface TextEditing {
   cell?: [number, number];
   /** Initial text selection (UTF-16 offsets) when the engine placed the caret. */
   sel?: [number, number];
+  /** Editing started from the keyboard on the selected shape (Enter, F2): all its text selected. */
+  selectAll?: boolean;
+  /** Editing started by typing on the selected shape: the typed text, added at the end. */
+  insert?: string;
 }
 
 const sameCell = (a?: [number, number], b?: [number, number]) =>
@@ -66,6 +70,8 @@ export interface SlideOverlayProps {
   onExitEdit: () => void;
   /** Keyboard shortcut inside the text (Ctrl+B, …); true when handled. */
   onTextShortcut?: (e: KeyboardEvent) => boolean;
+  /** Ctrl+Enter in the edited text: the next text placeholder, or a new slide. */
+  onNextPlaceholder?: () => void;
   /** Mouse-up after selecting text in the edited shape (viewport point; mini toolbar). */
   onTextSelectEnd?: (at: { x: number; y: number }) => void;
   label: string;
@@ -89,6 +95,8 @@ interface Drag {
   started: boolean;
   ready: boolean;
   last: SlideTransform | null;
+  /** Ctrl was down on a selected shape: a click without a drag takes it out of the selection. */
+  toggle?: { x: number; y: number };
 }
 
 /** Snap tolerance and handle size in CSS pixels. */
@@ -130,6 +138,7 @@ export function SlideOverlay({
   onActivateObject,
   onExitEdit,
   onTextShortcut,
+  onNextPlaceholder,
   onTextSelectEnd,
   label,
   editorLabel,
@@ -210,7 +219,30 @@ export function SlideOverlay({
         keepAspect: shift !== (single?.lockAspect ?? false),
       };
     }
-    return { kind: 'move', dx: x - d.sx, dy: y - d.sy };
+    // Shift keeps the move on one axis.
+    return { kind: 'move', ...constrainMove(x - d.sx, y - d.sy, shift) };
+  };
+
+  /** Ctrl+drag: a copy of the selection lands at the drop point, as one undo step. */
+  const dropCopy = async (t: SlideTransform, snap: boolean) => {
+    if (t.kind !== 'move') return;
+    const since = (await controller.run({ cmd: 'historyLen' }))?.history;
+    const before = edit?.selection[0]?.rect;
+    const dup = await controller.run({ cmd: 'duplicate' });
+    const after = dup?.selection[0]?.rect;
+    if (!dup || dup.error || !before || !after) return;
+    // The copy was placed a little off the original: move it by what is left.
+    await controller.run({
+      cmd: 'transform',
+      transform: {
+        kind: 'move',
+        dx: t.dx - (after.cx - before.cx),
+        dy: t.dy - (after.cy - before.cy),
+      },
+      snap,
+      tolerance: SNAP_PX / scale,
+    });
+    if (since !== undefined) await controller.run({ cmd: 'mergeHistory', since });
   };
 
   /** Caret to a slide point of the edited shape; coalesced while dragging. */
@@ -293,12 +325,22 @@ export function SlideOverlay({
     }
     const d: Drag = { mode: 'move', sx: p.x, sy: p.y, started: false, ready: false, last: null };
     drag.current = d;
-    const extend = e.shiftKey;
+    // Shift or Ctrl + click adds to / takes from the selection.
+    const ctrl = e.ctrlKey || e.metaKey;
+    const extend = e.shiftKey || ctrl;
     const g = gesture.current;
+    const selectedIds = new Set((edit?.selection ?? []).map((x) => x.id));
     void controller
       .run({ cmd: 'hitTest', x: p.x, y: p.y })
       .then((h) => {
         if (editingNow.current || gesture.current !== g) return null;
+        if (ctrl && h?.hits?.some((id) => selectedIds.has(id))) {
+          // Ctrl on a selected shape: a drag copies the selection, a plain click toggles it
+          // (the button may be up again already).
+          if (drag.current !== d) return controller.run({ cmd: 'click', x: p.x, y: p.y, extend });
+          d.toggle = { x: p.x, y: p.y };
+          return h;
+        }
         // Empty space: a drag draws a selection box (marquee).
         if (h?.hits && h.hits.length === 0) {
           if (!extend) void controller.run({ cmd: 'select', ids: [] });
@@ -312,7 +354,7 @@ export function SlideOverlay({
       })
       .then((r) => {
         if (drag.current !== d || d.mode === 'marquee') return;
-        if (!r || extend || r.selection.length === 0) drag.current = null;
+        if (!r || (extend && !ctrl) || r.selection.length === 0) drag.current = null;
         else d.ready = true;
       });
   };
@@ -377,6 +419,10 @@ export function SlideOverlay({
     svgRef.current?.releasePointerCapture?.(e.pointerId);
     live.current.active = false;
     setSnapSite(null);
+    if (d && !d.started && d.toggle) {
+      void controller.run({ cmd: 'click', x: d.toggle.x, y: d.toggle.y, extend: true });
+      return;
+    }
     if (!d?.started || d.mode === 'cells') return;
     const p = toPt(e);
     if (d.mode === 'adjust') {
@@ -407,7 +453,9 @@ export function SlideOverlay({
     }
     const t = d.ready ? transformOf(d, p.x, p.y, e.shiftKey) : d.last;
     controller.cancelPreview();
-    if (t) {
+    if (t && d.mode === 'move' && (e.ctrlKey || e.metaKey)) {
+      void dropCopy(t, !e.altKey);
+    } else if (t) {
       void controller.run({
         cmd: 'transform',
         transform: t,
@@ -417,8 +465,30 @@ export function SlideOverlay({
     }
   };
 
+  /** In the edited text: a double-click selects the word, a triple-click the paragraph. */
+  const selectAround = (e: ReactMouseEvent<SVGSVGElement>, paragraph: boolean) => {
+    if (!editing) return;
+    const p = toPt(e);
+    if (!inBox(editing.rect, p.x, p.y, 2 / scale)) return;
+    void controller
+      .run({ cmd: 'textHit', x: p.x, y: p.y })
+      .then((r) => {
+        const te = r?.textEdit;
+        if (!te) return null;
+        const [start, end] = (paragraph ? paragraphRange : wordRange)(te.text, te.start);
+        if (start === end) return null;
+        return controller.run({ cmd: 'textSelect', id: te.id, start, end, cell: te.cell });
+      })
+      .then((r) => {
+        if (r) setHitSeq((n) => n + 1);
+      });
+  };
+
   const onDoubleClick = (e: ReactMouseEvent<SVGSVGElement>) => {
-    if (editing) return;
+    if (editing) {
+      selectAround(e, false);
+      return;
+    }
     gesture.current += 1;
     const sel = edit?.selection ?? [];
     const one = sel.length === 1 ? sel[0] : undefined;
@@ -466,6 +536,9 @@ export function SlideOverlay({
           controller.cancelPreview();
         }}
         onDoubleClick={onDoubleClick}
+        onClick={(e) => {
+          if (e.detail === 3) selectAround(e, true);
+        }}
       >
         {edit?.placeholders.map((b, i) => boxRect(b, styles.placeholder, `ph${i}`))}
         {peers.map((p) => (
@@ -651,6 +724,8 @@ export function SlideOverlay({
           onExit={onExitEdit}
           onShortcut={onTextShortcut}
           onCell={onStartCellEdit}
+          onNextPlaceholder={onNextPlaceholder}
+          list={edit?.format.numbering ? 'numbering' : edit?.format.bullets ? 'bullets' : null}
         />
       )}
     </div>
@@ -669,6 +744,9 @@ interface TextEditorProps {
   onShortcut?: (e: KeyboardEvent) => boolean;
   /** Tab moved to another table cell. */
   onCell?: (te: SlideTextEdit) => void;
+  onNextPlaceholder?: () => void;
+  /** The list kind of the paragraph with the caret (Backspace at its start removes it). */
+  list: 'bullets' | 'numbering' | null;
 }
 
 /**
@@ -687,6 +765,8 @@ function TextEditor({
   onExit,
   onShortcut,
   onCell,
+  onNextPlaceholder,
+  list,
 }: TextEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
@@ -701,6 +781,10 @@ function TextEditor({
   // The engine's text when our last local edit was sent: a late result still carrying it (from
   // a command issued before that edit) must not overwrite what was typed since.
   const staleText = useRef<string | null>(null);
+  // The texts sent since the editor opened (the latest last). The engine echoes each of them;
+  // the effect that follows the engine may run after a later keystroke was already answered,
+  // so an echo of an earlier keystroke must not replace what is in the textarea now.
+  const sent = useRef<string[]>([]);
   const engineTextNow = useRef<string | undefined>(textEdit?.text);
   const latestEngineText = textEdit?.text;
   useEffect(() => {
@@ -733,6 +817,7 @@ function TextEditor({
     if (engineTextNow.current !== undefined && engineTextNow.current !== fromEditorText(ta.value))
       staleText.current = engineTextNow.current;
     inflight.current += 1;
+    sent.current = [...sent.current.slice(-63), fromEditorText(ta.value)];
     void controller
       .run({
         cmd: 'setText',
@@ -757,9 +842,20 @@ function TextEditor({
       ta.setSelectionRange(a, z);
       return;
     }
-    ta.setSelectionRange(ta.value.length, ta.value.length);
     const n = ta.value.length;
-    void controller.run({ cmd: 'textSelect', id: editing.id, start: n, end: n });
+    ta.setSelectionRange(editing.selectAll ? 0 : n, n);
+    void controller.run({
+      cmd: 'textSelect',
+      id: editing.id,
+      start: editing.selectAll ? 0 : n,
+      end: n,
+    });
+    if (editing.insert) {
+      // The keys that started the editing: typed at the end of the text (over the
+      // selection when the text was opened with all of it selected).
+      ta.setRangeText(editing.insert, editing.selectAll ? 0 : n, n, 'end');
+      sendText();
+    }
     if (editing.at) {
       void controller.run({ cmd: 'textHit', x: editing.at.x, y: editing.at.y }).then((r) => {
         const te = r?.textEdit;
@@ -776,6 +872,10 @@ function TextEditor({
     const ta = ref.current;
     if (!ta || engineText === undefined || composing.current || inflight.current > 0) return;
     if (engineText === staleText.current) return;
+    const echo = sent.current.lastIndexOf(engineText);
+    if (echo >= 0 && echo < sent.current.length - 1) return;
+    // Not something typed here (undo, formatting, a replacement): start over.
+    if (echo < 0) sent.current = [];
     const shown = toEditorText(engineText);
     if (ta.value !== shown) {
       ta.value = shown;
@@ -802,11 +902,37 @@ function TextEditor({
     touched.current = true;
     if (composing.current || e.nativeEvent.isComposing) return;
     const mod = e.ctrlKey || e.metaKey;
-    if (e.key === 'Escape') {
+    // Escape and F2 leave the text: the shape stays selected.
+    if (e.key === 'Escape' || (e.key === 'F2' && !mod && !e.altKey && !e.shiftKey)) {
       e.preventDefault();
       closed.current = true;
       onExit();
       return;
+    }
+    if (
+      e.key === 'Enter' &&
+      mod &&
+      !e.altKey &&
+      !e.shiftKey &&
+      !editing.cell &&
+      onNextPlaceholder
+    ) {
+      // Ctrl+Enter: on to the next text placeholder (a new slide after the last one).
+      e.preventDefault();
+      closed.current = true;
+      onNextPlaceholder();
+      return;
+    }
+    if (e.key === 'Backspace' && !mod && !e.altKey && list) {
+      // Backspace at the start of a bulleted / numbered paragraph first takes the bullet
+      // away; the paragraph and its text stay (the next Backspace joins the paragraphs).
+      const ta = e.currentTarget;
+      const at = ta.selectionStart;
+      if (at === ta.selectionEnd && (at === 0 || ta.value[at - 1] === '\n')) {
+        e.preventDefault();
+        void controller.run({ cmd: 'formatText', format: { kind: list, value: false } });
+        return;
+      }
     }
     if (e.key === 'Tab' && editing.cell) {
       // Tab / Shift+Tab in a table: next / previous cell, its text selected.
@@ -831,6 +957,7 @@ function TextEditor({
       const redo = e.key === 'y' || (e.key === 'Z' && e.shiftKey) || (e.key === 'z' && e.shiftKey);
       // Undo / redo may bring an earlier text back: follow the engine again.
       staleText.current = null;
+      sent.current = [];
       void controller.run({ cmd: redo ? 'redo' : 'undo' });
       return;
     }

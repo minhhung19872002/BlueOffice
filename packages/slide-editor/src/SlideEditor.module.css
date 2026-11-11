@@ -50,6 +50,15 @@
   opacity: 0.7;
 }
 
+/* A slide hidden from the show: its number struck through, its picture faded. */
+[data-hidden='true'] .thumbNo {
+  text-decoration: line-through;
+}
+
+[data-hidden='true'] canvas {
+  opacity: 0.45;
+}
+
 .thumb canvas,
 .thumbActive canvas,
 .sortItem canvas,

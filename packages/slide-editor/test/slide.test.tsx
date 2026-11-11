@@ -35,6 +35,8 @@ import {
   formatElapsed,
   fromEditorText,
   hexOf,
+  constrainMove,
+  isTypingKey,
   nudgeCommand,
   showAction,
   SlideController,
@@ -84,14 +86,49 @@ describe('editing helpers', () => {
     expect(fromEditorText('a b\r\nc')).toBe('a\u000bb\nc');
   });
 
-  it('nudges with arrows and parses colours', () => {
-    expect(nudgeCommand('ArrowLeft', false)).toEqual({
+  it('arrow keys move, resize and rotate like presentation programs do', () => {
+    // An arrow moves by one step of the default grid (1/12 inch = 6 pt); Ctrl is the fine step.
+    expect(nudgeCommand('ArrowLeft')).toEqual({
       cmd: 'transform',
-      transform: { kind: 'move', dx: -1, dy: 0 },
+      transform: { kind: 'move', dx: -6, dy: 0 },
       snap: false,
     });
-    expect(nudgeCommand('ArrowDown', true)).toMatchObject({ transform: { dy: 10 } });
-    expect(nudgeCommand('a', false)).toBeNull();
+    expect(nudgeCommand('ArrowDown', { ctrl: true })).toMatchObject({
+      transform: { kind: 'move', dx: 0, dy: 1 },
+    });
+    // Shift+arrows resize: → wider, ← narrower, ↑ taller, ↓ shorter.
+    expect(nudgeCommand('ArrowRight', { shift: true })).toMatchObject({
+      transform: { kind: 'resize', handle: 'e', dx: 6, dy: 0 },
+    });
+    expect(nudgeCommand('ArrowLeft', { shift: true })).toMatchObject({
+      transform: { kind: 'resize', handle: 'e', dx: -6, dy: 0 },
+    });
+    expect(nudgeCommand('ArrowUp', { shift: true })).toMatchObject({
+      transform: { kind: 'resize', handle: 's', dx: 0, dy: 6 },
+    });
+    expect(nudgeCommand('ArrowDown', { shift: true, ctrl: true })).toMatchObject({
+      transform: { kind: 'resize', handle: 's', dx: 0, dy: -1 },
+    });
+    // Alt+→ turns one object 15° clockwise: the pointer of the rotation handle at 15°.
+    const turn = nudgeCommand('ArrowRight', { alt: true }, { cx: 100, cy: 100, rot: 0 });
+    const tr = turn && turn.cmd === 'transform' ? turn.transform : null;
+    expect(tr?.kind).toBe('rotate');
+    if (tr?.kind === 'rotate') {
+      const angle = (Math.atan2(tr.x - 100, 100 - tr.y) * 180) / Math.PI;
+      expect(angle).toBeCloseTo(15, 6);
+    }
+    expect(nudgeCommand('ArrowUp', { alt: true }, { cx: 0, cy: 0, rot: 0 })).toBeNull();
+    expect(nudgeCommand('ArrowRight', { alt: true })).toBeNull();
+    expect(nudgeCommand('a')).toBeNull();
+    // Shift+drag stays on the axis of the larger offset.
+    expect(constrainMove(30, -4, true)).toEqual({ dx: 30, dy: 0 });
+    expect(constrainMove(3, -40, true)).toEqual({ dx: 0, dy: -40 });
+    expect(constrainMove(3, -40, false)).toEqual({ dx: 3, dy: -40 });
+    expect(isTypingKey({ key: 'a', ctrlKey: false, metaKey: false, altKey: false })).toBe(true);
+    expect(isTypingKey({ key: 'a', ctrlKey: true, metaKey: false, altKey: false })).toBe(false);
+    expect(isTypingKey({ key: 'Enter', ctrlKey: false, metaKey: false, altKey: false })).toBe(
+      false,
+    );
     expect(hexOf('#c00000')).toBe('C00000');
     expect(hexOf('red')).toBeNull();
   });
@@ -580,8 +617,16 @@ describe('BlueSlideEditor', () => {
     await screen.findByTestId('selection-box');
     expect(screen.getByTestId('handle-se')).toBeTruthy();
 
-    // Arrow nudges the selection by 1 pt, Shift by 10 pt.
+    // An arrow nudges the selection by a grid step (6 pt), Ctrl+arrow by a fine step.
     fireEvent.keyDown(window, { key: 'ArrowRight' });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({
+        cmd: 'transform',
+        transform: { kind: 'move', dx: 6, dy: 0 },
+        snap: false,
+      }),
+    );
+    fireEvent.keyDown(window, { key: 'ArrowRight', ctrlKey: true });
     await waitFor(() =>
       expect(cmds()).toContainEqual({
         cmd: 'transform',
@@ -710,6 +755,64 @@ describe('BlueSlideEditor', () => {
     screen.getByTestId('thumb-1').focus();
     fireEvent.keyDown(screen.getByTestId('thumb-1'), { key: 'c', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'copySlides', indices: [0] }));
+  });
+
+  it('slide panel keys and typing on a selected shape behave like presentation programs', async () => {
+    const { p, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    // Slide panel: Enter adds a slide, Ctrl+D duplicates the slide, Backspace deletes it,
+    // Ctrl+↓ moves it down, Ctrl+Shift+↓ to the end.
+    const thumb = screen.getByTestId('thumb-1');
+    thumb.focus();
+    fireEvent.keyDown(thumb, { key: 'Enter' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'addSlide' }));
+    fireEvent.keyDown(thumb, { key: 'd', ctrlKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'duplicateSlide' }));
+    expect(cmds()).not.toContainEqual({ cmd: 'duplicate' });
+    fireEvent.keyDown(thumb, { key: 'ArrowDown', ctrlKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'moveSlide', from: 0, to: 1 }));
+    fireEvent.keyDown(thumb, { key: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'moveSlide', from: 0, to: 2 }));
+    fireEvent.keyDown(thumb, { key: 'Backspace' });
+    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'deleteSlide', index: 0 }));
+
+    // On the slide: Ctrl+↓ is a fine nudge of the selected shape, not a slide move.
+    const overlay = screen.getByTestId('slide-overlay');
+    fireEvent.pointerDown(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    await screen.findByTestId('selection-box');
+    const moves = cmds().filter((c) => c.cmd === 'moveSlide').length;
+    fireEvent.keyDown(window, { key: 'ArrowDown', ctrlKey: true });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({
+        cmd: 'transform',
+        transform: { kind: 'move', dx: 0, dy: 1 },
+        snap: false,
+      }),
+    );
+    expect(cmds().filter((c) => c.cmd === 'moveSlide')).toHaveLength(moves);
+    // Shift+→ makes it wider.
+    fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
+    await waitFor(() =>
+      expect(cmds()).toContainEqual({
+        cmd: 'transform',
+        transform: { kind: 'resize', handle: 'e', dx: 6, dy: 0 },
+        snap: false,
+      }),
+    );
+    // Typing starts the text editing with the typed letter after the shape's text.
+    fireEvent.keyDown(window, { key: 'x' });
+    const ta = (await screen.findByTestId('slide-text-editor')) as HTMLTextAreaElement;
+    expect(ta.value).toBe('Tiêu đềx');
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'setText', id: 7, text: 'Tiêu đềx', merge: true }),
+      ),
+    );
+    // F2 leaves the text; Enter comes back with all of it selected.
+    fireEvent.keyDown(ta, { key: 'F2' });
+    await waitFor(() => expect(screen.queryByTestId('slide-text-editor')).toBeNull());
   });
 
   it('offers paste options after pasting copied shapes (undo + paste again)', async () => {

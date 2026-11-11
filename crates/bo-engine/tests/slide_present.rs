@@ -345,7 +345,7 @@ fn hidden_slides_are_written_as_show_0_and_left_out_of_the_show() {
     assert_eq!(state(&mut e).presenting.unwrap().hidden, vec![1, 2]);
     run(&mut e, r#"{"cmd":"undo"}"#);
     run(&mut e, r#"{"cmd":"undo"}"#);
-    assert!(state(&mut e).presenting.unwrap().hidden.is_empty());
+    assert_eq!(state(&mut e).presenting.unwrap().hidden, [] as [usize; 0]);
     let r = try_run(&mut e, r#"{"cmd":"hideSlides","slides":[9]}"#);
     assert_eq!(r.error.as_deref(), Some("noSlide"));
 }

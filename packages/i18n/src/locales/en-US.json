@@ -3064,7 +3064,26 @@
       "category": "category {{n}}",
       "point": "series {{s}}, category {{c}}",
       "node": "block {{n}}"
-    }
+    },
+    "find": {
+      "group": "Find",
+      "title": "Find",
+      "replaceTitle": "Find and replace",
+      "what": "Find what",
+      "with": "Replace with",
+      "matchCase": "Match case",
+      "wholeWord": "Whole words only",
+      "next": "Find next",
+      "replace": "Replace",
+      "replaceAll": "Replace all",
+      "close": "Close",
+      "notFound": "Not found.",
+      "found": "Found on slide {{slide}}.",
+      "replaced": "{{count}} replaced."
+    },
+    "fontSize": "Font size",
+    "newDeck": "New presentation",
+    "hideSlide": "Hide slide"
   },
   "review": {
     "title": "Review",

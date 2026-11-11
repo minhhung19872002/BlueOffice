@@ -767,12 +767,25 @@ export type SheetCommand =
   | { cmd: 'cellStyle'; sheet: number; range: SheetRange; name: string }
   | { cmd: 'clearFormats'; sheet: number; range: SheetRange }
   | { cmd: 'paintFormat'; sheet: number; from: SheetRange; to: SheetRange }
-  | { cmd: 'resize'; sheet: number; rows: boolean; first: number; last: number; size: number }
+  | {
+      cmd: 'resize';
+      sheet: number;
+      rows: boolean;
+      first: number;
+      last: number;
+      size: number;
+      /** Columns: `size` in characters, as the column width dialog shows it. */
+      chars?: boolean;
+    }
+  /** Row height in points or column width in characters → `{ size }`. */
+  | { cmd: 'sizeOf'; sheet: number; rows: boolean; index: number }
   | { cmd: 'autofit'; sheet: number; rows: boolean; first: number; last: number }
   | { cmd: 'hide'; sheet: number; rows: boolean; first: number; last: number; hidden: boolean }
   | { cmd: 'freeze'; sheet: number; rows: number; cols: number }
   | { cmd: 'merge'; sheet: number; range: SheetRange; across?: boolean; center?: boolean }
   | { cmd: 'unmerge'; sheet: number; range: SheetRange }
+  /** Insert / Delete cells: the cells of `range` shift down / up (`down`) or right / left. */
+  | { cmd: 'shiftCells'; sheet: number; range: SheetRange; down: boolean; insert: boolean }
   | {
       cmd: 'sort';
       sheet: number;

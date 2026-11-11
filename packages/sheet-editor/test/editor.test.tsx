@@ -507,7 +507,9 @@ describe('BlueSheetEditor', () => {
     const { p, saved } = platform(host);
     render(<BlueSheetEditor platform={p} language="en-US" />);
     await screen.findByRole('tab', { name: 'Sheet1' });
-    fireEvent.click(screen.getByText('Insert row'));
+    // Cells › Insert menu (the spreadsheet's Insert drop-down).
+    fireEvent.click(document.querySelector('[data-command="cells.insertMenu"]')!);
+    fireEvent.click(await screen.findByText('Insert row'));
     await waitFor(() => expect(host.structural).toHaveBeenCalledWith(0, true, 0, 1, false));
     const input = screen.getByLabelText('Cell editor');
     fireEvent.keyDown(input, { key: 'z', ctrlKey: true });
@@ -541,6 +543,54 @@ describe('BlueSheetEditor', () => {
     await waitFor(() => expect(document.querySelector('[data-format=".slk"]')).not.toBeNull());
     expect(document.querySelector('[data-format=".epub"]')).toBeNull();
   }, 30_000);
+
+  it('Home tab boxes, number shortcuts and Insert cells (spreadsheet behaviour)', async () => {
+    const { host } = fakeHost();
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const range = { r0: 0, c0: 0, r1: 0, c1: 0 };
+    // The font size box shows the active cell's size; Enter applies a typed one.
+    const size = screen.getByTestId('sheet-font-size') as HTMLInputElement;
+    await waitFor(() => expect(size.value).toBe('11'));
+    fireEvent.change(size, { target: { value: '14' } });
+    fireEvent.keyDown(size, { key: 'Enter' });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({
+        cmd: 'format',
+        sheet: 0,
+        range,
+        patch: { fontSize: 14 },
+      }),
+    );
+    // Increase font size: 11 → 12 (the next size of the list).
+    fireEvent.click(document.querySelector('[data-command="format.fontGrow"]')!);
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'format', patch: { fontSize: 12 } }),
+      ),
+    );
+    // Ctrl+Shift+! by its physical key: two decimals with thousands.
+    const input = screen.getByLabelText('Cell editor');
+    fireEvent.keyDown(input, { key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true });
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({ cmd: 'format', patch: { numFmt: '#,##0.00' } }),
+      ),
+    );
+    // Ctrl++ on a cell asks how to shift; OK keeps "shift cells down".
+    fireEvent.keyDown(input, { key: '+', code: 'Equal', ctrlKey: true, shiftKey: true });
+    fireEvent.click(await screen.findByTestId('cells-dialog-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({
+        cmd: 'shiftCells',
+        sheet: 0,
+        range,
+        down: true,
+        insert: true,
+      }),
+    );
+  });
 
   it('formats cells from the ribbon, shortcuts and the Format Cells dialog', async () => {
     const { host } = fakeHost();

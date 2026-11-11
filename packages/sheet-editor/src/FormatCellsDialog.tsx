@@ -2,6 +2,7 @@ import { useTranslation } from '@blueoffice/i18n';
 import type { BorderSpec, CellFormatState, StylePatch } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
 import { useState } from 'react';
+import { SHEET_FONTS } from './homeFormat';
 import { VERTICAL_TEXT, degreesToRotation, rotationToDegrees } from './orientation';
 import styles from './SheetEditor.module.css';
 
@@ -10,9 +11,11 @@ export interface NumberPreset {
   code: string;
 }
 
-type Tab = 'number' | 'alignment' | 'font' | 'border' | 'fill';
+/** Tabs of Format Cells (Ctrl+1), in the spreadsheet's order. */
+export type FormatCellsTab = 'number' | 'alignment' | 'font' | 'border' | 'fill' | 'protection';
+type Tab = FormatCellsTab;
 
-const FONTS = ['Calibri', 'Arial', 'Liberation Sans', 'Times New Roman', 'Noto Sans', 'Cambria'];
+const FONTS = SHEET_FONTS;
 const LINE_STYLES = ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double', 'hair'];
 const H_ALIGN = ['', 'left', 'center', 'right', 'justify', 'fill', 'distributed'];
 const V_ALIGN = ['', 'top', 'center'];
@@ -27,18 +30,21 @@ const unhex = (c: string) => c.replace('#', '').toUpperCase();
 export function FormatCellsDialog({
   open,
   initial,
+  tab: firstTab = 'number',
   presets,
   onClose,
   onApply,
 }: {
   open: boolean;
   initial: CellFormatState | null;
+  /** Tab shown first (Font for Ctrl+Shift+F, Border for "More borders"). */
+  tab?: Tab;
   presets: NumberPreset[];
   onClose: () => void;
   onApply: (patch: StylePatch, borders: BorderSpec[]) => void;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<Tab>('number');
+  const [tab, setTab] = useState<Tab>(firstTab);
   const [st, setSt] = useState<CellFormatState | null>(initial);
   const [borders, setBorders] = useState<BorderSpec[]>([]);
   const [lineStyle, setLineStyle] = useState('thin');
@@ -65,10 +71,12 @@ export function FormatCellsDialog({
     if (st.indent !== initial.indent) patch.indent = st.indent;
     if (st.rotation !== initial.rotation) patch.rotation = st.rotation;
     if (Boolean(st.shrink) !== Boolean(initial.shrink)) patch.shrink = Boolean(st.shrink);
+    if (st.locked !== initial.locked) patch.locked = st.locked;
+    if (st.formulaHidden !== initial.formulaHidden) patch.formulaHidden = st.formulaHidden;
     onApply(patch, borders);
   };
 
-  const tabs: Tab[] = ['number', 'alignment', 'font', 'border', 'fill'];
+  const tabs: Tab[] = ['number', 'alignment', 'font', 'border', 'fill', 'protection'];
   const presetId = presets.find((p) => p.code === st.numFmt)?.id ?? 'custom';
 
   return (
@@ -341,6 +349,30 @@ export function FormatCellsDialog({
             />
             {t('sheetEditor.fmt.noFill')}
           </label>
+        </div>
+      )}
+      {tab === 'protection' && (
+        // §18.8.33 protection: takes effect once the sheet is protected.
+        <div className={styles.form}>
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              data-testid="format-cells-locked"
+              checked={st.locked}
+              onChange={(e) => set({ locked: e.target.checked })}
+            />
+            {t('sheetEditor.fmt.locked')}
+          </label>
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              data-testid="format-cells-hidden"
+              checked={st.formulaHidden}
+              onChange={(e) => set({ formulaHidden: e.target.checked })}
+            />
+            {t('sheetEditor.fmt.formulaHidden')}
+          </label>
+          <p className={styles.hint}>{t('sheetEditor.fmt.protectionHint')}</p>
         </div>
       )}
     </Dialog>

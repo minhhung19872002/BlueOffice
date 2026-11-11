@@ -1,4 +1,28 @@
 import { SheetA11y } from './SheetA11y';
+import {
+  cellNear,
+  chromePage,
+  expandMerges,
+  geometryFromPage,
+  hitLocal,
+  rangeBox,
+  segSize,
+  type GridGeometry,
+  type LocalHit,
+} from './gridView';
+import { overlayCommands, parseColor } from './gridOverlay';
+import {
+  CELL_FONT_FAMILY,
+  bottomBaseline,
+  caretAt,
+  cellFontFor,
+  editorWidth,
+  loadCellFonts,
+  resizeTip,
+  wheelRows,
+  wheelScrollPt,
+  type FontMetrics,
+} from './gridFeel';
 import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from '@blueoffice/canvas-host';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
@@ -16,7 +40,9 @@ import type {
   PivotInfo,
   Platform,
   Rejection,
+  Rgba,
   SheetCommand,
+  SheetHit,
   SheetHost,
   SheetRange,
   SheetThreadInfo,
@@ -240,6 +266,7 @@ import { sheetSelection, useAddins } from '@blueoffice/addins';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -450,6 +477,7 @@ import {
   move,
   colName,
   parseA1,
+  parseNumber,
   parseTsv,
   pasteCells,
   rangeA1,
@@ -662,9 +690,30 @@ type DialogState =
 
 type MenuState = { kind: string; x: number; y: number };
 
+/** Cursors over the column / row headers: a small black arrow pointing into the grid. */
+const arrowCursor = (path: string, hx: number, hy: number, fallback: string) =>
+  `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='${path}' fill='black' stroke='white' stroke-width='1'/></svg>`,
+  )}") ${hx} ${hy}, ${fallback}`;
+const HEADER_CURSOR_DOWN = arrowCursor('M6.5 1.5h3v7h3l-4.5 6-4.5-6h3z', 8, 15, 's-resize');
+const HEADER_CURSOR_RIGHT = arrowCursor('M1.5 6.5v3h7v3l6-4.5-6-4.5v3z', 15, 8, 'e-resize');
+
+/** A 2D context for measuring text (shared; created on first use). */
+let measuring: CanvasRenderingContext2D | null | undefined;
+function measureContext(): CanvasRenderingContext2D | null {
+  if (measuring === undefined)
+    measuring =
+      typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  return measuring;
+}
+
 type Drag =
   | { kind: 'select' }
+  /** Dragging over the column (or row) headers from `anchor`. */
+  | { kind: 'headers'; rows: boolean; anchor: number }
   | { kind: 'fill'; source: Range }
+  /** Dragging the selection by its border (Ctrl: copy). */
+  | { kind: 'move'; source: Range; start: CellPos; to: Range | null }
   | { kind: 'resize'; rows: boolean; index: number; start: number; size: number }
   /** Moving (or, with 
 esize, sizing) a chart: anchors in cells. */
@@ -728,8 +777,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [zoom, setZoom] = useState(1);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [barText, setBarText] = useState('');
-  const [selRect, setSelRect] = useState<Rect | null>(null);
-  const [activeRect, setActiveRect] = useState<Rect | null>(null);
+  // From the engine when the drawn grid cannot be read (see localRects).
+  const [engineSelRect, setSelRect] = useState<Rect | null>(null);
+  const [engineActiveRect, setActiveRect] = useState<Rect | null>(null);
   const [status, setStatus] = useState('');
   // Quick Analysis panel and Insert › Recommended charts (CORE-DESIGN-001).
   const [quickOpen, setQuickOpen] = useState(false);
@@ -744,6 +794,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [revision, setRevision] = useState(0);
   const [loadSeq, setLoadSeq] = useState(0);
   const [fmt, setFmt] = useState<CellFormatState | null>(null);
+  // The in-cell editor draws with the cell's own bundled font (no jump of the text when
+  // editing starts); its metrics place the baseline where the engine draws it.
+  const cellFamily = cellFontFor(fmt?.fontName);
+  const [cellFontMetrics, setCellFontMetrics] = useState<Record<string, FontMetrics | null>>({});
+  useEffect(() => {
+    let live = true;
+    void loadCellFonts(platform.fonts, cellFamily).then(
+      (m) => live && setCellFontMetrics((f) => (cellFamily in f ? f : { ...f, [cellFamily]: m })),
+    );
+    return () => {
+      live = false;
+    };
+  }, [platform.fonts, cellFamily]);
   const [presets, setPresets] = useState<{ numberFormats: NumberPreset[]; cellStyles: string[] }>({
     numberFormats: [],
     cellStyles: [],
@@ -772,6 +835,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [chartBox, setChartBox] = useState<Rect | null>(null);
   const chartTarget = useRef<{ from: [number, number]; to: [number, number] } | null>(null);
   const [guide, setGuide] = useState<{ x?: number; y?: number } | null>(null);
+  /** Size tip shown while a column / row boundary is dragged (CSS px in the grid). */
+  const [sizeTip, setSizeTip] = useState<{ x: number; y: number; text: string } | null>(null);
+  /**
+   * Geometry of the grid as last drawn (points) and the zoom it was drawn at: clicks are
+   * hit-tested and the selection drawn from it in the same frame (no engine round trip).
+   */
+  const [grid, setGrid] = useState<{ g: GridGeometry; scale: number } | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const [cursor, setCursor] = useState('cell');
   const [chart, setChart] = useState<number | null>(null);
   /** The Format chart pane (CORE-CHART-005). */
@@ -853,7 +924,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [lastCopy, setLastCopy] = useState<string | null>(null);
   /** Other ranges of a Ctrl multi-range selection (the current one is `selection`). */
   const [extra, setExtra] = useState<Range[]>([]);
-  const [extraRects, setExtraRects] = useState<Rect[]>([]);
+  const [engineExtraRects, setExtraRects] = useState<Rect[]>([]);
   /** Sheet whose invalid data is circled (`null`: none). */
   const [circlesOn, setCirclesOn] = useState<number | null>(null);
   const [circleRects, setCircleRects] = useState<CircleRect[]>([]);
@@ -1053,7 +1124,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         canvas.height = Math.round(size.h * dpr);
         canvas.style.width = `${size.w}px`;
         canvas.style.height = `${size.h}px`;
-        renderPage(ctx, page, glyphs, scale * dpr, cellImages ?? undefined);
+        const sum = info.sheets[view.sheet];
+        const geom = geometryFromPage(page, {
+          rows: sum?.frozenRows ?? 0,
+          cols: sum?.frozenCols ?? 0,
+        });
+        // Neutral grid chrome, grid lines on device pixels; the selection layer redraws with
+        // the geometry of exactly this picture.
+        renderPage(
+          ctx,
+          chromePage(page, scale * dpr, geom),
+          glyphs,
+          scale * dpr,
+          cellImages ?? undefined,
+        );
+        setGrid(geom ? { g: geom, scale } : null);
         canvas.dataset.rendered = String(seq);
         // IMAGE formulas: fetch what the engine still needs, then draw again.
         if (await loadRequestedImages(host, platform.images)) setRevision((r) => r + 1);
@@ -1074,11 +1159,134 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (sheetName !== undefined) host?.collabSelect?.(sheetName, rangeA1(rangeOf(selection)));
   }, [host, sheetName, selection]);
 
+  // Selection rectangles from the drawn grid, before the browser paints (same frame as the
+  // mouse-down / key press); the engine is asked only when the grid could not be read.
+  const merges = summary?.merges;
+  const hasGrid = grid !== null;
+  const localBox = useCallback(
+    (r: Range): Rect | null => {
+      if (!grid) return null;
+      const b = rangeBox(grid.g, expandMerges(r, merges ?? []), hidden);
+      const k = grid.scale;
+      return b && { x: b.x * k, y: b.y * k, w: b.w * k, h: b.h * k };
+    },
+    [grid, merges, hidden],
+  );
+  const localRects = useMemo(() => {
+    if (!grid) return null;
+    const a = selection.active;
+    return {
+      sel: localBox(rangeOf(selection)),
+      active: localBox({ r0: a.row, c0: a.col, r1: a.row, c1: a.col }),
+      extra: extra.map(localBox).filter((x): x is Rect => !!x),
+    };
+  }, [grid, selection, extra, localBox]);
+  const selRect = localRects ? localRects.sel : engineSelRect;
+  const activeRect = localRects ? localRects.active : engineActiveRect;
+  const extraRects = localRects ? localRects.extra : engineExtraRects;
+
+  // Mouse wheel: three rows a notch, the top row lined up (touchpads scroll smoothly).
+  const wheelGrid = useRef(grid);
+  useEffect(() => {
+    wheelGrid.current = grid;
+  }, [grid]);
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const rows = wheelRows(e);
+      const g = wheelGrid.current;
+      if (rows === null || !g) return;
+      e.preventDefault();
+      el.scrollTop = Math.max(0, el.scrollTop + wheelScrollPt(g.g, rows) * g.scale);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // The selection layer: highlighted headers, shading, border and fill handle.
+  const [accent, setAccent] = useState<Rgba>([0x0b, 0x7a, 0x6b, 255]);
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const css = getComputedStyle(el).getPropertyValue('--bo-sheet-accent');
+    setAccent((a) => parseColor(css, a));
+  }, [theme]);
+  useLayoutEffect(() => {
+    const canvas = overlayRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(size.w * dpr);
+    const h = Math.round(size.h * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      canvas.style.width = `${size.w}px`;
+      canvas.style.height = `${size.h}px`;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!grid || !glyphs) return;
+    const last = info?.sheets[sheet];
+    const cmds = overlayCommands(
+      grid.g,
+      {
+        range: rangeOf(selection),
+        active: selection.active,
+        extra,
+        hidden,
+        merges: merges ?? [],
+        wholeRowsFrom: Math.max(last?.lastRow ?? 0, 999),
+        wholeColsFrom: Math.max(last?.lastCol ?? 0, 25),
+        accent,
+        showRange: chart === null && smartArt === null,
+        painter: painter !== null,
+      },
+      { s: grid.scale * dpr, dpr },
+    );
+    renderPage(
+      ctx,
+      { width: grid.g.width, height: grid.g.height, commands: cmds },
+      glyphs,
+      grid.scale * dpr,
+      undefined,
+      { transparent: true },
+    );
+    canvas.dataset.sel = rangeA1(rangeOf(selection));
+  }, [
+    grid,
+    glyphs,
+    selection,
+    extra,
+    hidden,
+    merges,
+    accent,
+    chart,
+    smartArt,
+    painter,
+    size,
+    info,
+    sheet,
+  ]);
+
   // Selection overlay + formula bar contents.
   useEffect(() => {
     if (!host || !info) return;
     const r = rangeOf(selection);
     let cancelled = false;
+    if (hasGrid) {
+      // Rectangles come from the drawn grid; only the formula bar needs the engine.
+      void host
+        .cell(sheet, selection.active.row, selection.active.col)
+        .then((cell) => {
+          if (!cancelled && !edit) setBarText(cell.input);
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
     void (async () => {
       const [rect, act, cell] = await Promise.all([
         host.rangeRect(view, r.r0, r.c0, r.r1, r.c1),
@@ -1099,11 +1307,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     return () => {
       cancelled = true;
     };
-  }, [host, info, sheet, selection, view, px, revision, edit]);
+  }, [host, info, sheet, selection, view, px, revision, edit, hasGrid]);
 
   // Overlays of the other ranges of a multi-range selection.
   useEffect(() => {
-    if (!host || !info || extra.length === 0) return;
+    if (!host || !info || extra.length === 0 || hasGrid) return;
     let cancelled = false;
     void Promise.all(extra.map((r) => host.rangeRect(view, r.r0, r.c0, r.r1, r.c1)))
       .then((rects) => {
@@ -1113,7 +1321,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     return () => {
       cancelled = true;
     };
-  }, [host, info, extra, view, px, revision]);
+  }, [host, info, extra, view, px, revision, hasGrid]);
 
   // Circles around invalid data: the list is fetched again after every edit, so a
   // corrected cell loses its circle.
@@ -3938,11 +4146,87 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     frameDrag.current = startFrameDrag;
   });
 
+  /** Hit test on the drawn grid (synchronous); `null` when the grid could not be read. */
+  const hitNow = (e: { clientX: number; clientY: number }): LocalHit | null => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!grid || !rect) return null;
+    return hitLocal(
+      grid.g,
+      (e.clientX - rect.left) / grid.scale,
+      (e.clientY - rect.top) / grid.scale,
+      { hidden, merges: merges ?? [], autoFilter: summary?.autoFilter ?? null },
+    );
+  };
+
+  /** Points of a client position on the drawn grid. */
+  const gridPoint = (e: { clientX: number; clientY: number }) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!grid || !rect) return null;
+    return { x: (e.clientX - rect.left) / grid.scale, y: (e.clientY - rect.top) / grid.scale };
+  };
+
+  /** Whether a client point is on the border of the selection (drag to move it). */
+  const onSelectionBorder = (e: { clientX: number; clientY: number }) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!selRect || !rect || extra.length > 0 || chart !== null) return false;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const { x: l, y: t, w, h } = selRect;
+    // A narrow band: 3 px outside the border, 2 px inside it.
+    const inside = x > l + 2 && x < l + w - 2 && y > t + 2 && y < t + h - 2;
+    const outer = x >= l - 3 && x <= l + w + 3 && y >= t - 3 && y <= t + h + 3;
+    // Not on the fill handle (bottom-right corner).
+    const handle = Math.abs(x - (l + w)) <= 6 && Math.abs(y - (t + h)) <= 6;
+    return outer && !inside && !handle;
+  };
+
   const onMouseDown = async (e: ReactMouseEvent) => {
     if (e.button !== 0) return;
-    if (edit) await commit();
-    const hit = await hitAt(e);
+    // The grid as drawn answers at once; the engine only when it could not be read, or when
+    // charts may cover the cells (they are not in the drawn geometry).
+    const local = hitNow(e);
+    const quick =
+      local !== null &&
+      local.kind !== 'none' &&
+      (local.kind !== 'cell' || !(summary?.charts ?? 0)) &&
+      !(local.kind === 'cell' && e.altKey);
+    if (
+      quick &&
+      local.kind === 'cell' &&
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      onSelectionBorder(e)
+    ) {
+      // Dragging the selection by its border moves it (Ctrl: copies it).
+      const at = gridPoint(e);
+      const start = at && cellNear(grid!.g, at.x, at.y);
+      if (start) {
+        e.preventDefault();
+        if (edit) await commit();
+        drag.current = { kind: 'move', source: rangeOf(selection), start, to: null };
+        focusInput();
+        return;
+      }
+    }
+    const before = selection;
+    if (edit) {
+      if (quick) void commit();
+      else await commit();
+    }
+    const hit = quick ? local : await hitAt(e);
     if (!hit || !host) return;
+    await gridMouseDown(e, hit, before, quick);
+  };
+
+  const gridMouseDown = async (
+    e: ReactMouseEvent,
+    hit: SheetHit | LocalHit,
+    before: Selection,
+    quick: boolean,
+  ) => {
+    if (!host) return;
+    const selection = before;
     const last = info?.sheets[sheet];
     setChart(null);
     setSmartArt(null);
@@ -3957,23 +4241,43 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       const p = { row: hit.row, col: hit.col };
       setSelection(e.shiftKey ? { ...selection, focus: p } : single(p));
       drag.current = { kind: 'select' };
+      focusInput();
+      if (quick) {
+        // Drawn already; the engine confirms what is under the point (a SmartArt diagram is
+        // not in the drawn geometry) and the selection goes back if it was one.
+        const eng = await hitAt(e);
+        if (eng && (eng.kind === 'smartArt' || eng.kind === 'chart')) {
+          drag.current = null;
+          setSelection(before);
+          await gridMouseDown(e, eng, before, false);
+          return;
+        }
+      }
       // A click on a checkbox toggles it (one undo step).
       const at = point(e);
       if (!e.shiftKey && !multi && at) {
-        const box = await host.rangeRect(view, hit.row, hit.col, hit.row, hit.col);
+        const local =
+          grid && rangeBox(grid.g, { r0: hit.row, c0: hit.col, r1: hit.row, c1: hit.col }, hidden);
+        const box = local ?? (await host.rangeRect(view, hit.row, hit.col, hit.row, hit.col));
         if (await clickCheckbox(host, (c) => exec(c), sheet, hit.row, hit.col, box, at.x, at.y))
           drag.current = null;
       }
     } else if (hit.kind === 'columnEdge' || hit.kind === 'rowEdge') {
       const rows = hit.kind === 'rowEdge';
       const index = rows ? hit.row : hit.col;
-      const r = rows
-        ? await host.rangeRect(view, index, 0, index, 0)
-        : await host.rangeRect(view, 0, index, 0, index);
       const start = rows ? e.clientY : e.clientX;
-      drag.current = { kind: 'resize', rows, index, start, size: r ? (rows ? r.h : r.w) : 0 };
+      const known = grid && segSize(grid.g, rows, index);
+      let size = known ?? 0;
+      if (known === null || known === undefined) {
+        const r = rows
+          ? await host.rangeRect(view, index, 0, index, 0)
+          : await host.rangeRect(view, 0, index, 0, index);
+        size = r ? (rows ? r.h : r.w) : 0;
+      }
+      drag.current = { kind: 'resize', rows, index, start, size };
       const at = point(e);
       if (at) setGuide(rows ? { y: at.y * scale } : { x: at.x * scale });
+      showSizeTip(e, rows, size);
     } else if (hit.kind === 'filterButton') {
       setFilterMenu({ col: hit.col, x: e.clientX, y: e.clientY + 4 });
     } else if (hit.kind === 'smartArt') {
@@ -4013,6 +4317,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           ? { ...selection, focus: to, anchor: { row: 0, col: selection.anchor.col } }
           : span({ row: 0, col: hit.col }, to),
       );
+      // Dragging over the headers selects several columns.
+      drag.current = {
+        kind: 'headers',
+        rows: false,
+        anchor: e.shiftKey ? selection.anchor.col : hit.col,
+      };
     } else if (hit.kind === 'rowHeader') {
       const to = { row: hit.row, col: Math.max(last?.lastCol ?? 0, 25) };
       setSelection(
@@ -4020,25 +4330,148 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           ? { ...selection, focus: to, anchor: { row: selection.anchor.row, col: 0 } }
           : span({ row: hit.row, col: 0 }, to),
       );
+      drag.current = {
+        kind: 'headers',
+        rows: true,
+        anchor: e.shiftKey ? selection.anchor.row : hit.row,
+      };
     } else if (hit.kind === 'corner') {
       setSelection(span({ row: 0, col: 0 }, { row: last?.lastRow ?? 0, col: last?.lastCol ?? 0 }));
     }
     focusInput();
   };
 
-  const onMouseMove = async (e: ReactMouseEvent) => {
+  /** Column-width / row-height tip next to the pointer while a boundary is dragged. */
+  const showSizeTip = (e: { clientX: number; clientY: number }, rows: boolean, sizePt: number) => {
+    const rect = scrollerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const { value, px: pixels } = resizeTip(rows, sizePt);
+    const num = new Intl.NumberFormat(i18n.language, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+    setSizeTip({
+      x: e.clientX - rect.left + 12,
+      y: e.clientY - rect.top - 28,
+      text: t(rows ? 'sheetEditor.gridFeel.heightTip' : 'sheetEditor.gridFeel.widthTip', {
+        value: num,
+        px: pixels,
+      }),
+    });
+  };
+
+  /** Pointer moves while a drag runs (listened on the window: drags may leave the grid). */
+  const onDragMove = async (e: MouseEvent) => {
     const d = drag.current;
-    if (d?.kind === 'resize') {
+    if (!d) return;
+    if (d.kind === 'resize') {
       const at = point(e);
       if (at) setGuide(d.rows ? { y: at.y * scale } : { x: at.x * scale });
+      const delta = ((d.rows ? e.clientY : e.clientX) - d.start) / scale;
+      showSizeTip(e, d.rows, Math.max(0, d.size + delta));
       return;
     }
-    if (d?.kind === 'select') {
+    const at = gridPoint(e);
+    const near = grid && at ? cellNear(grid.g, at.x, at.y) : null;
+    if (d.kind === 'headers') {
+      if (!near) return;
+      const last = info?.sheets[sheet];
+      setSelection(
+        d.rows
+          ? span(
+              { row: d.anchor, col: 0 },
+              { row: near.row, col: Math.max(last?.lastCol ?? 0, 25) },
+            )
+          : span(
+              { row: 0, col: d.anchor },
+              { row: Math.max(last?.lastRow ?? 0, 999), col: near.col },
+            ),
+      );
+      return;
+    }
+    if (d.kind === 'move') {
+      if (!near) return;
+      const dr = Math.max(near.row - d.start.row, -d.source.r0);
+      const dc = Math.max(near.col - d.start.col, -d.source.c0);
+      const to =
+        dr === 0 && dc === 0
+          ? null
+          : {
+              r0: d.source.r0 + dr,
+              c0: d.source.c0 + dc,
+              r1: d.source.r1 + dr,
+              c1: d.source.c1 + dc,
+            };
+      d.to = to;
+      setFillRect(to ? localBox(to) : null);
+      return;
+    }
+    if (d.kind === 'select') {
+      if (grid) {
+        // Live, from the drawn grid; past the edge the range stops at the last visible cell.
+        if (near)
+          setSelection((s) =>
+            s.focus.row === near.row && s.focus.col === near.col ? s : { ...s, focus: near },
+          );
+        return;
+      }
       const hit = await hitAt(e);
       if (hit?.kind === 'cell') {
         setSelection((s) => ({ ...s, focus: { row: hit.row, col: hit.col } }));
       }
       return;
+    }
+    if (d.kind === 'fill' && grid) {
+      if (!near) return;
+      const target = fillTarget(d.source, near);
+      fillTo.current = target;
+      setFillRect(target ? localBox(target) : null);
+      return;
+    }
+  };
+  const dragMove = useRef<(e: MouseEvent) => void>(() => {});
+  useEffect(() => {
+    dragMove.current = (e) => void onDragMove(e);
+  });
+  useEffect(() => {
+    const move = (e: MouseEvent) => dragMove.current(e);
+    window.addEventListener('mousemove', move);
+    return () => window.removeEventListener('mousemove', move);
+  }, []);
+
+  /** Hover cursor from the drawn grid (synchronous). */
+  const hoverCursor = (e: ReactMouseEvent): string | null => {
+    const hit = hitNow(e);
+    if (!hit) return null;
+    if (painter) return 'copy';
+    switch (hit.kind) {
+      case 'columnEdge':
+        return 'col-resize';
+      case 'rowEdge':
+        return 'row-resize';
+      case 'columnHeader':
+        return HEADER_CURSOR_DOWN;
+      case 'rowHeader':
+        return HEADER_CURSOR_RIGHT;
+      case 'filterButton':
+        return 'pointer';
+      case 'cell':
+        if (summary?.charts) return null;
+        return onSelectionBorder(e) ? 'move' : 'cell';
+      default:
+        return 'default';
+    }
+  };
+
+  const onMouseMove = async (e: ReactMouseEvent) => {
+    const d = drag.current;
+    if (d && d.kind !== 'chart' && (d.kind !== 'fill' || grid)) return;
+    if (!d) {
+      const c = hoverCursor(e);
+      if (c !== null) {
+        setCursor(c);
+        return;
+      }
     }
     if (d?.kind === 'chart') {
       const hit = await hitAt(e);
@@ -4097,6 +4530,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (!d || !host) return;
     if (d.kind === 'resize') {
       setGuide(null);
+      setSizeTip(null);
       const delta = ((d.rows ? e.clientY : e.clientX) - d.start) / scale;
       const sizePt = Math.max(0, d.size + delta);
       const r = rangeOf(selection);
@@ -4144,6 +4578,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           ),
         );
       }
+    } else if (d.kind === 'move') {
+      setFillRect(null);
+      const to = d.to;
+      if (to) {
+        // One undo step: cut (or, with Ctrl, copy) and paste at the drop place; the moved
+        // cells stay selected.
+        const copy = e.ctrlKey || e.metaKey;
+        void exec({
+          cmd: 'batch',
+          cmds: [
+            { cmd: 'copy', sheet, range: toRange(d.source), cut: !copy },
+            { cmd: 'paste', sheet, row: to.r0, col: to.c0 },
+          ],
+        }).then((r) => {
+          if (r !== null)
+            setSelection(span({ row: to.r0, col: to.c0 }, { row: to.r1, col: to.c1 }));
+        });
+      }
     } else if (d.kind === 'select' && painter) {
       const to = rangeOf(selection);
       setPainter(null);
@@ -4160,7 +4612,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   }, []);
 
   const onDoubleClick = async (e: ReactMouseEvent) => {
-    const hit = await hitAt(e);
+    const local = hitNow(e);
+    const hit =
+      local && local.kind !== 'none' && (local.kind !== 'cell' || !(summary?.charts ?? 0))
+        ? local
+        : await hitAt(e);
     if (!hit) return;
     if (hit.kind === 'columnEdge' || hit.kind === 'rowEdge') {
       const rows = hit.kind === 'rowEdge';
@@ -4178,8 +4634,95 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       const a = p && !p.model ? p.dataArea : null;
       if (a && hit.row >= a.r0 && hit.row <= a.r1 && hit.col >= a.c0 && hit.col <= a.c1)
         void drillDown(hit.row, hit.col);
-      else void startEdit(true);
+      else {
+        // Edit in place with the caret where the cell was double-clicked.
+        const clickX = e.clientX;
+        await startEdit(true);
+        placeCaret(clickX);
+      }
     }
+  };
+
+  /**
+   * Box, font and alignment of the in-cell editor: over the cell's border box with the
+   * cell's font and the engine's padding and baseline, so the text does not move when editing
+   * starts; it grows (right, or left for right-aligned text) to fit what is typed.
+   */
+  const cellEditorLayout = (r: Rect, e: EditState) => {
+    const sizePx = (fmt?.fontSize ?? 11) * scale;
+    const font = `${fmt?.italic ? 'italic ' : ''}${fmt?.bold ? 'bold ' : ''}${sizePx}px ${CELL_FONT_FAMILY(cellFamily)}`;
+    let ascent = sizePx * 0.8;
+    let descent = sizePx * 0.25;
+    let textW = sizePx * 0.5 * e.text.length;
+    const measureCtx = measureContext();
+    if (measureCtx) {
+      measureCtx.font = font;
+      const m = measureCtx.measureText(e.text);
+      textW = m.width;
+      const probe = measureCtx.measureText('Hg');
+      if (probe.fontBoundingBoxAscent) ascent = probe.fontBoundingBoxAscent;
+      if (probe.fontBoundingBoxDescent) descent = probe.fontBoundingBoxDescent;
+    }
+    const metrics = cellFontMetrics[cellFamily];
+    const baseline = metrics ? bottomBaseline(r.h, sizePx, metrics, zoom) : r.h - zoom - descent;
+    const lineH = ascent + descent;
+    const border = 2;
+    // The border box runs from one pixel before the cell to one pixel after it (like the
+    // selection border); text starts 2 px (scaled) inside the cell as the engine draws it.
+    const padTop = Math.max(0, baseline - ascent - (border - 1));
+    const boxH = r.h + 2;
+    const padBottom = Math.max(0, boxH - 2 * border - padTop - lineH);
+    const padX = Math.max(0, 2 * zoom - (border - 1));
+    const numeric = parseNumber(e.text, decimal) !== null;
+    const align: 'left' | 'right' | 'center' =
+      fmt?.hAlign === 'right' ||
+      (e.inPlace && numeric && (!fmt?.hAlign || fmt.hAlign === 'general'))
+        ? 'right'
+        : fmt?.hAlign === 'center'
+          ? 'center'
+          : 'left';
+    const maxW = align === 'right' ? r.x + r.w + 1 : size.w - r.x;
+    const width = editorWidth(textW, r.w + 2, padX + border, Math.max(r.w + 2, maxW));
+    const left = align === 'right' ? r.x + r.w + 1 - width : r.x - 1;
+    return {
+      align,
+      style: {
+        left,
+        top: r.y - 1,
+        width,
+        height: boxH,
+        padding: `${padTop}px ${padX}px ${padBottom}px ${padX}px`,
+        lineHeight: `${lineH}px`,
+        font,
+        textAlign: align,
+      } as const,
+    };
+  };
+
+  /** Puts the in-cell editor's caret at a client x (after the editor has been laid out). */
+  const placeCaret = (clientX: number) => {
+    const set = () => {
+      const el = inputRef.current;
+      const measureCtx = measureContext();
+      if (!el || !measureCtx) return;
+      const cs = getComputedStyle(el);
+      measureCtx.font = cs.font || `${cs.fontSize} ${cs.fontFamily}`;
+      const text = el.value;
+      const measure = (s: string) => measureCtx.measureText(s).width;
+      const b = el.getBoundingClientRect();
+      const l = b.left + parseFloat(cs.borderLeftWidth || '0') + parseFloat(cs.paddingLeft || '0');
+      const rr =
+        b.right - parseFloat(cs.borderRightWidth || '0') - parseFloat(cs.paddingRight || '0');
+      const w = measure(text);
+      const start =
+        cs.textAlign === 'right' ? rr - w : cs.textAlign === 'center' ? (l + rr - w) / 2 : l;
+      const i = caretAt(text, clientX - start, measure);
+      el.setSelectionRange(i, i);
+    };
+    requestAnimationFrame(() => {
+      set();
+      requestAnimationFrame(set);
+    });
   };
 
   /**
@@ -5804,6 +6347,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 onMouseMove={(e) => void onMouseMove(e)}
                 onDoubleClick={(e) => void onDoubleClick(e)}
               />
+              {/* Selection layer (headers, shading, border, fill handle), same frame as the click. */}
+              <canvas
+                ref={overlayRef}
+                aria-hidden="true"
+                data-testid="sheet-overlay"
+                className={styles.gridOverlay}
+              />
+              {sizeTip && (
+                <div
+                  className={styles.sizeTip}
+                  data-testid="resize-tip"
+                  role="status"
+                  style={{ left: sizeTip.x, top: Math.max(0, sizeTip.y) }}
+                >
+                  {sizeTip.text}
+                </div>
+              )}
               {/* The grid for screen readers (the canvas is pixels; WCAG 1.3.1 / 4.1.2). */}
               <SheetA11y
                 host={host}
@@ -6029,6 +6589,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               {fillRect && (
                 <div
                   className={styles.fillPreview}
+                  data-testid="fill-preview"
                   style={{
                     left: fillRect.x,
                     top: fillRect.y,
@@ -6103,15 +6664,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 }}
                 aria-label={t('sheetEditor.cellEditor')}
                 style={
-                  activeRect
-                    ? {
-                        left: activeRect.x,
-                        top: activeRect.y,
-                        minWidth: activeRect.w,
-                        height: activeRect.h,
-                        fontSize: 11 * scale,
-                      }
-                    : { left: -9999, top: 0 }
+                  activeRect && edit
+                    ? cellEditorLayout(activeRect, edit).style
+                    : activeRect
+                      ? {
+                          left: activeRect.x,
+                          top: activeRect.y,
+                          minWidth: activeRect.w,
+                          height: activeRect.h,
+                          fontSize: 11 * scale,
+                        }
+                      : { left: -9999, top: 0 }
                 }
                 autoComplete="off"
                 spellCheck={false}

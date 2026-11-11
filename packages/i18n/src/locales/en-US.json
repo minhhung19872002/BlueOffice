@@ -611,6 +611,10 @@
     "fillDown": "Fill down",
     "fillRight": "Fill right",
     "fillHandle": "Drag to AutoFill",
+    "gridFeel": {
+      "widthTip": "Width: {{value}} ({{px}} pixels)",
+      "heightTip": "Height: {{value}} ({{px}} pixels)"
+    },
     "freezePanes": "Freeze panes",
     "freezeTopRow": "Freeze top row",
     "freezeFirstCol": "Freeze first column",

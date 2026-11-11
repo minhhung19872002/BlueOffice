@@ -611,6 +611,10 @@
     "fillDown": "Điền xuống",
     "fillRight": "Điền sang phải",
     "fillHandle": "Kéo để điền tự động",
+    "gridFeel": {
+      "widthTip": "Rộng: {{value}} ({{px}} điểm ảnh)",
+      "heightTip": "Cao: {{value}} ({{px}} điểm ảnh)"
+    },
     "freezePanes": "Cố định ô",
     "freezeTopRow": "Cố định hàng đầu",
     "freezeFirstCol": "Cố định cột đầu",

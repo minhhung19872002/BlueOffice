@@ -413,6 +413,8 @@ pub fn plot_for(kind: &str) -> ChartPlot {
     };
     ChartPlot {
         vary_colors: matches!(k, ChartKind::Pie | ChartKind::Doughnut | ChartKind::OfPie),
+        // A new doughnut's hole, as inserted by spreadsheet and presentation applications.
+        hole_size: (k == ChartKind::Doughnut).then_some(INSERT_HOLE_SIZE),
         kind: k,
         bar_dir: dir.map(str::to_owned),
         grouping: grouping.map(str::to_owned),
@@ -591,6 +593,21 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
     refresh_one(wb, sheet, &mut data);
     init_map(wb, sheet, &mut data);
     Some(data)
+}
+
+/// Hole of a doughnut chart inserted from Insert › Charts: 75 % of the radius (§21.2.2.50
+/// doughnutChart `holeSize`; black-box reference behaviour of spreadsheet and presentation
+/// applications).
+pub const INSERT_HOLE_SIZE: u32 = 75;
+
+/// The hole of a doughnut group as a share of its radius (0 for other groups; 50 % without
+/// `holeSize`).
+fn hole_fraction(p: &ChartPlot) -> f64 {
+    if p.kind == ChartKind::Doughnut {
+        f64::from(p.hole_size.unwrap_or(50).clamp(1, 90)) / 100.0
+    } else {
+        0.0
+    }
 }
 
 /// The look a chart inserted from Insert › Charts gets, as spreadsheet applications give it
@@ -1633,7 +1650,7 @@ fn draw_body(
             } else {
                 draw_pie(
                     s.first(),
-                    p.kind == ChartKind::Doughnut,
+                    hole_fraction(p),
                     area,
                     (look, font, locale),
                     label,
@@ -3353,14 +3370,14 @@ fn wedge(cx: f64, cy: f64, r: f64, inner: f64, a0: f64, sw: f64) -> Vec<PathSeg>
 }
 
 /// A pie without formatting or labels (the parts of a pie of pie).
-fn draw_pie_plain(s: Option<&Ser>, doughnut: bool, area: [f64; 4], out: &mut Vec<Command>) {
+fn draw_pie_plain(s: Option<&Ser>, area: [f64; 4], out: &mut Vec<Command>) {
     let look = Look::new(
         &bo_model::chart_style::ChartFormat::default(),
         &default_color,
     );
     draw_pie(
         s,
-        doughnut,
+        0.0,
         area,
         (&look, 10.0, &Locale::default()),
         &mut |_, _, _, _, _, _| {},
@@ -3368,9 +3385,10 @@ fn draw_pie_plain(s: Option<&Ser>, doughnut: bool, area: [f64; 4], out: &mut Vec
     );
 }
 
+/// A pie, or a doughnut whose hole is `hole` of the radius (0 = a pie).
 fn draw_pie(
     s: Option<&Ser>,
-    doughnut: bool,
+    hole: f64,
     [l, t, r, b]: [f64; 4],
     (look, font, locale): (&Look, f64, &Locale),
     label: &mut LabelFn<'_>,
@@ -3392,7 +3410,7 @@ fn draw_pie(
     let room = if outside { font * 3.2 } else { 0.0 };
     let rad = ((((r - l).min(b - t) / 2.0 - 2.0 - room) / (1.0 + ex)).max(1.0)).max(1.0);
     let (cx, cy) = (f64::midpoint(l, r), f64::midpoint(t, b));
-    let inner = if doughnut { rad * 0.5 } else { 0.0 };
+    let inner = rad * hole.clamp(0.0, 0.9);
     let mut a = 0.0;
     for (i, v) in vals.iter().enumerate() {
         let sw = v / total * std::f64::consts::TAU;
@@ -3456,8 +3474,9 @@ fn draw_pie(
                 }
                 Look::put_label(&text, lx, ly, font, TEXT, label, out);
             } else {
-                let lr = match (doughnut, d.pos.as_deref()) {
-                    (true, _) => rad * 0.75,
+                // A doughnut's labels sit in the middle of its ring.
+                let lr = match (hole > 0.0, d.pos.as_deref()) {
+                    (true, _) => (rad + inner) / 2.0,
                     (false, Some("inEnd")) => rad * 0.8,
                     (false, Some("ctr")) => rad * 0.5,
                     (false, _) => rad * 0.62,
@@ -4163,7 +4182,7 @@ fn draw_of_pie(
     let Some(s) = s else { return };
     let n = s.vals.len();
     if n < 3 {
-        draw_pie_plain(Some(s), false, [l, t, r, b], out);
+        draw_pie_plain(Some(s), [l, t, r, b], out);
         return;
     }
     let vals: Vec<f64> = s.vals.iter().map(|v| v.unwrap_or(0.0).max(0.0)).collect();
@@ -4197,7 +4216,7 @@ fn draw_of_pie(
             .collect(),
     );
     let split_x = l + (r - l) * 0.6;
-    draw_pie_plain(Some(&main), false, [l, t, split_x, b], out);
+    draw_pie_plain(Some(&main), [l, t, split_x, b], out);
     if other <= 0.0 {
         return;
     }
@@ -4233,12 +4252,7 @@ fn draw_of_pie(
         }
     } else {
         let sub = plain(rest.iter().map(|i| vals[*i]).collect(), colors);
-        draw_pie_plain(
-            Some(&sub),
-            false,
-            [sx0, cy - h / 2.0, sx1, cy + h / 2.0],
-            out,
-        );
+        draw_pie_plain(Some(&sub), [sx0, cy - h / 2.0, sx1, cy + h / 2.0], out);
     }
 }
 
@@ -4474,6 +4488,57 @@ mod tests {
             &mut out,
         );
         (out, labels)
+    }
+
+    /// The hole of the first doughnut wedge drawn for `c`, as a share of the radius: the first
+    /// slice starts at 12 o'clock, so the centre's x is its first point's; its outer arc ends at
+    /// (cx + r·sin a, …) and the inner arc starts at (cx + h·sin a, …).
+    fn drawn_hole(wb: &Workbook, c: &Chart) -> f64 {
+        let (out, _) = draw(wb, c);
+        let segs = out
+            .iter()
+            .find_map(|cmd| match cmd {
+                Command::Path {
+                    segs,
+                    fill: Some(_),
+                    ..
+                } if segs.len() > 3 => Some(segs),
+                _ => None,
+            })
+            .expect("a wedge");
+        let PathSeg::M(cx, _) = segs[0] else {
+            panic!("wedge starts with a move")
+        };
+        let k = segs
+            .iter()
+            .position(|s| matches!(s, PathSeg::L(..)))
+            .expect("inner edge");
+        let (PathSeg::C(_, _, _, _, ox, _), PathSeg::L(ix, _)) = (&segs[k - 1], &segs[k]) else {
+            panic!("outer arc then inner edge")
+        };
+        f64::from(ix - cx) / f64::from(ox - cx)
+    }
+
+    /// A doughnut inserted from Insert › Charts has a hole of 75 % of the radius (§21.2.2.50
+    /// holeSize; black-box: spreadsheet applications insert doughnuts with 75), written as such,
+    /// read back and drawn with it; a doughnut without a hole size keeps 50 %.
+    #[test]
+    fn inserted_doughnut_hole_is_three_quarters() {
+        let wb = wb();
+        let mut c = new_chart(&wb, 0, CellRange::parse("A1:B4").unwrap(), "doughnut").unwrap();
+        insert_look(&mut c, None);
+        assert_eq!(c.plots[0].hole_size, Some(INSERT_HOLE_SIZE));
+        assert_eq!(INSERT_HOLE_SIZE, 75);
+        let xml = bo_xlsx::chart_write::chart_space_xml(&c);
+        assert!(xml.contains("<c:holeSize val=\"75\"/>"), "{xml}");
+        assert!((drawn_hole(&wb, &c) - 0.75).abs() < 1e-3);
+        let mut old = c.clone();
+        old.plots[0].hole_size = None;
+        assert!(bo_xlsx::chart_write::chart_space_xml(&old).contains("<c:holeSize val=\"50\"/>"));
+        assert!((drawn_hole(&wb, &old) - 0.5).abs() < 1e-3);
+        // Pies have no hole.
+        let pie = new_chart(&wb, 0, CellRange::parse("A1:B4").unwrap(), "pie").unwrap();
+        assert_eq!(pie.plots[0].hole_size, None);
     }
 
     /// Insert › Charts look: several series → placeholder title, legend at the bottom, clustered

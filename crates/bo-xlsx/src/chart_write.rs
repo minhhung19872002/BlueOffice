@@ -546,9 +546,11 @@ fn plot(
             return false;
         }
         ChartKind::Doughnut => {
+            // §21.2.2.50 doughnutChart holeSize (ST_HoleSize 1..=90).
+            let hole = p.hole_size.unwrap_or(50).clamp(1, 90);
             let _ = write!(
                 out,
-                "<c:doughnutChart><c:varyColors val=\"1\"/>{sers}<c:firstSliceAng val=\"0\"/><c:holeSize val=\"50\"/></c:doughnutChart>"
+                "<c:doughnutChart><c:varyColors val=\"1\"/>{sers}<c:firstSliceAng val=\"0\"/><c:holeSize val=\"{hole}\"/></c:doughnutChart>"
             );
             return false;
         }

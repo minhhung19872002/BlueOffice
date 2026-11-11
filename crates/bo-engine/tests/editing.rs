@@ -1070,7 +1070,10 @@ fn fillin_in_a_header_asks_and_updates() {
     let mut e = Engine::with_bundled_fonts();
     e.new_document("a.docx").unwrap();
     cmd(&mut e, r#"{"cmd":"insertText","text":"Thân"}"#);
-    cmd(&mut e, r#"{"cmd":"editHeaderFooter","page":0,"header":true}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"editHeaderFooter","page":0,"header":true}"#,
+    );
     cmd(
         &mut e,
         r#"{"cmd":"insertField","instr":"FILLIN \"Đơn vị?\" \\d \"Phòng A\""}"#,
@@ -1120,14 +1123,21 @@ fn control_properties_gallery_and_picture_round_trip() {
     assert_eq!(r["control"]["values"], serde_json::json!(["HN", "Huế"]));
     cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
     cmd(&mut e, r#"{"cmd":"insertText","text":" Ngày: "}"#);
-    cmd(&mut e, r#"{"cmd":"insertControl","kind":"date","placeholder":"Chọn ngày."}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"date","placeholder":"Chọn ngày."}"#,
+    );
     cmd(&mut e, r#"{"cmd":"setControlValue","value":"2026-11-12"}"#);
     let r = cmd(
         &mut e,
         r#"{"cmd":"setControlProps","props":{"title":"","tag":"","deleteLocked":false,"contentLocked":false,"dateFormat":"MMMM d, yyyy","dateLid":"en-US"}}"#,
     );
     assert_eq!(r["control"]["lid"], "en-US");
-    assert!(e.document().unwrap().plain_text().ends_with("November 12, 2026"));
+    assert!(e
+        .document()
+        .unwrap()
+        .plain_text()
+        .ends_with("November 12, 2026"));
     // Each next control at the start of a paragraph of its own.
     cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
     cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
@@ -1160,7 +1170,9 @@ fn control_properties_gallery_and_picture_round_trip() {
     assert!(xml.contains("<w15:color"));
     assert!(xml.contains("<w:listItem w:displayText=\"Hà Nội\" w:value=\"HN\"/>"));
     assert!(xml.contains("<w:lid w:val=\"en-US\"/>"));
-    assert!(xml.contains("<w:docPartList><w:docPartGallery w:val=\"Quick Parts\"/></w:docPartList>"));
+    assert!(
+        xml.contains("<w:docPartList><w:docPartGallery w:val=\"Quick Parts\"/></w:docPartList>")
+    );
     assert!(xml.contains("<w:picture/>") && xml.contains("<w:drawing>"));
     // Read back with the same properties.
     let mut f = Engine::with_bundled_fonts();

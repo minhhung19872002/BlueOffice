@@ -888,6 +888,56 @@ pub fn line_colors(
     }
     (fills, fonts)
 }
+
+/// Whether the first row of `range` looks like a row of column labels, the guess a
+/// spreadsheet's Sort / AutoFilter makes for "my data has headers":
+/// * every filled cell of the first row is text, and
+/// * in some column the first value below it is not text (a number, date, logical),
+///   or the first row is formatted differently (font or fill) from the second.
+///
+/// A block of text formatted alike, or with a number in its first row, has none.
+pub fn guess_header(wb: &Workbook, sheet: usize, range: CellRange) -> bool {
+    let Some(ws) = wb.sheets.get(sheet) else {
+        return false;
+    };
+    if range.rows() < 2 {
+        return false;
+    }
+    let (r0, c0, c1) = (
+        range.first.row,
+        range.first.col,
+        range.last.col.min(range.first.col + 1000),
+    );
+    let is_text = |v: &CellValue| matches!(v, CellValue::Text(_) | CellValue::RichText(_));
+    let has_value = |c: &&Cell| !matches!(c.value, CellValue::Empty);
+    let looks = |c: Option<&Cell>| {
+        c.and_then(|c| wb.styles.xf(c.style))
+            .map_or((0, 0), |x| (x.font_id, x.fill_id))
+    };
+    let mut any = false;
+    let mut typed_below = false;
+    let mut styled = false;
+    for col in c0..=c1 {
+        let top = ws.cell(r0, col);
+        let Some(head) = top.filter(has_value) else {
+            continue;
+        };
+        if !is_text(&head.value) {
+            return false;
+        }
+        any = true;
+        let below =
+            (r0 + 1..=range.last.row.min(r0 + 50)).find_map(|r| ws.cell(r, col).filter(has_value));
+        if below.is_some_and(|b| !is_text(&b.value)) {
+            typed_below = true;
+        }
+        if looks(top) != looks(ws.cell(r0 + 1, col)) {
+            styled = true;
+        }
+    }
+    any && (typed_below || styled)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1422,5 +1472,72 @@ mod sparse_tests {
             assert_eq!(ws.cells.len(), before.cells.len());
             assert!(ws.cells.values().all(|c| c.style != PLACEHOLDER_STYLE));
         }
+    }
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::guess_header;
+    use bo_model::sheet::{Cell, CellRange, CellValue, CellXf, Font, Workbook};
+
+    fn book(rows: &[&[&str]]) -> Workbook {
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        for (r, row) in rows.iter().enumerate() {
+            for (c, v) in row.iter().enumerate() {
+                let value = v
+                    .parse::<f64>()
+                    .map_or_else(|_| CellValue::Text((*v).into()), CellValue::Number);
+                ws.set_cell(r as u32, c as u32, Cell::new(value));
+            }
+        }
+        wb
+    }
+
+    #[test]
+    fn labels_over_numbers_are_a_header() {
+        let r = CellRange::parse("A1:B3").unwrap();
+        assert!(guess_header(
+            &book(&[&["Tên", "Điểm"], &["Lan", "7"], &["An", "9"]]),
+            0,
+            r
+        ));
+        // Numbers only: no header.
+        assert!(!guess_header(
+            &book(&[&["3", "1"], &["1", "2"], &["2", "3"]]),
+            0,
+            r
+        ));
+        // A number in the first row: no header.
+        assert!(!guess_header(
+            &book(&[&["Tên", "1"], &["Lan", "7"], &["An", "9"]]),
+            0,
+            r
+        ));
+        // Text over text, formatted alike: no header.
+        assert!(!guess_header(
+            &book(&[&["Tên", "Lớp"], &["Lan", "A"], &["An", "B"]]),
+            0,
+            r
+        ));
+    }
+
+    #[test]
+    fn a_bold_first_row_of_text_is_a_header() {
+        let mut wb = book(&[&["Tên", "Lớp"], &["Lan", "A"], &["An", "B"]]);
+        let font = wb.styles.add_font(Font {
+            bold: true,
+            ..Font::default()
+        });
+        let style = wb.styles.add_xf(CellXf {
+            font_id: font,
+            ..CellXf::default()
+        });
+        for c in 0..2 {
+            if let Some(cell) = wb.sheets[0].cells.get_mut(&(0, c)) {
+                cell.style = style;
+            }
+        }
+        assert!(guess_header(&wb, 0, CellRange::parse("A1:B3").unwrap()));
     }
 }

@@ -296,6 +296,176 @@ pub fn fill_series(source: &[CellValue], count: usize, opts: &FillOptions<'_>) -
     (0..count).map(cyclic).collect()
 }
 
+/// The kind of a series made with the Series dialog (Home › Fill › Series).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeriesKind {
+    /// Adds the step: 1, 3, 5…
+    Linear,
+    /// Multiplies by the step: 2, 4, 8…
+    Growth,
+    /// Dates by day, weekday (Monday–Friday), month or year.
+    Date(DateUnit),
+    /// As the fill handle would continue the first cell.
+    AutoFill,
+}
+
+/// Date step of a [`SeriesKind::Date`] series.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateUnit {
+    /// Calendar days.
+    Day,
+    /// Working days (Saturdays and Sundays skipped).
+    Weekday,
+    /// Months (the day kept, or the month's last day).
+    Month,
+    /// Years.
+    Year,
+}
+
+/// Fills `range` with a series from the first cell of each line (column when
+/// `in_columns`, else row): `step` added (or multiplied, or date units), stopping before
+/// a value past `stop`. Lines whose first cell is not a number are left as they are
+/// (except [`SeriesKind::AutoFill`]). The cells written take the first cell's style.
+/// Returns the number of cells written.
+#[allow(clippy::too_many_arguments)]
+pub fn fill_series_range(
+    wb: &mut Workbook,
+    sheet: usize,
+    range: CellRange,
+    in_columns: bool,
+    kind: SeriesKind,
+    step: f64,
+    stop: Option<f64>,
+    locale: &Locale,
+    adj: &dyn FormulaAdjuster,
+) -> usize {
+    let (lanes, len) = if in_columns {
+        (range.first.col..=range.last.col, range.rows())
+    } else {
+        (range.first.row..=range.last.row, range.cols())
+    };
+    if len < 2 || !step.is_finite() {
+        return 0;
+    }
+    let at = |lane: u32, i: u32| {
+        if in_columns {
+            (range.first.row + i, lane)
+        } else {
+            (lane, range.first.col + i)
+        }
+    };
+    let mut written = 0usize;
+    for lane in lanes {
+        if kind == SeriesKind::AutoFill {
+            let (r0, c0) = at(lane, 0);
+            let (r1, c1) = at(lane, len - 1);
+            let src = CellRange::new(
+                bo_model::sheet::CellRef::new(r0, c0),
+                bo_model::sheet::CellRef::new(r0, c0),
+            );
+            let tgt = CellRange::new(
+                bo_model::sheet::CellRef::new(r0, c0),
+                bo_model::sheet::CellRef::new(r1, c1),
+            );
+            if autofill(wb, sheet, src, tgt, locale, adj) {
+                written += (len - 1) as usize;
+            }
+            continue;
+        }
+        let Some(ws) = wb.sheets.get(sheet) else {
+            return written;
+        };
+        let (r0, c0) = at(lane, 0);
+        let Some(first) = ws.cell(r0, c0).cloned() else {
+            continue;
+        };
+        let CellValue::Number(start) = first.value else {
+            continue;
+        };
+        if first.formula.is_some() {
+            continue;
+        }
+        let day0 = days_from_civil(1899, 12, 30);
+        let mut values = Vec::new();
+        let mut v = start;
+        for i in 1..len {
+            let k = f64::from(i);
+            v = match kind {
+                SeriesKind::Linear | SeriesKind::Date(DateUnit::Day) => start + step * k,
+                SeriesKind::Growth => v * step,
+                // From the first date, so 31 January → 28 February → 31 March.
+                SeriesKind::Date(DateUnit::Month) => add_months(start, step as i64 * i64::from(i)),
+                SeriesKind::Date(DateUnit::Year) => {
+                    add_months(start, step as i64 * 12 * i64::from(i))
+                }
+                SeriesKind::Date(DateUnit::Weekday) => {
+                    // Step over Saturdays and Sundays, one working day at a time.
+                    let mut d = v;
+                    let mut left = step.abs().round() as i64;
+                    let dir = if step < 0.0 { -1.0 } else { 1.0 };
+                    while left > 0 {
+                        d += dir;
+                        // Days since 1970-01-01, a Thursday: weekday 0 = Sunday … 6 = Saturday.
+                        let wd = (day0 + d.floor() as i64 + 4).rem_euclid(7);
+                        if wd != 0 && wd != 6 {
+                            left -= 1;
+                        }
+                    }
+                    d
+                }
+                SeriesKind::AutoFill => v,
+            };
+            let v = (v * 1e12).round() / 1e12;
+            let past = stop.is_some_and(|s| {
+                let up = match kind {
+                    SeriesKind::Growth => step >= 1.0,
+                    _ => step >= 0.0,
+                };
+                if up {
+                    v > s
+                } else {
+                    v < s
+                }
+            });
+            if past {
+                break;
+            }
+            values.push(v);
+        }
+        let Some(ws) = wb.sheets.get_mut(sheet) else {
+            return written;
+        };
+        for (i, v) in values.into_iter().enumerate() {
+            let (r, c) = at(lane, i as u32 + 1);
+            let mut cell = first.clone();
+            cell.value = CellValue::Number(v);
+            ws.cells.insert((r, c), cell);
+            written += 1;
+        }
+    }
+    written
+}
+
+/// How the fill handle fills (the choices of the Auto Fill Options button).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FillMode {
+    /// Series where the source makes one (two numbers, dates, `Quý 1`, weekdays…),
+    /// a copy otherwise (a single number is copied).
+    #[default]
+    Auto,
+    /// The fill handle dragged with Ctrl held: a single number counts up by 1, and
+    /// what would have been a series is copied instead.
+    Toggle,
+    /// Copy the source cells as they are (repeated).
+    Copy,
+    /// Series, a single number counting up by 1.
+    Series,
+    /// Only the formats of the source; values stay.
+    Formats,
+    /// The values (series as [`FillMode::Auto`]) without the source's formats.
+    Values,
+}
+
 /// AutoFill `target` from `source` on sheet `sheet`. `target` must contain
 /// `source` and extend it in one direction (down, up, right or left). Styles
 /// repeat cyclically; formulas are moved through `adj` (see
@@ -307,6 +477,19 @@ pub fn autofill(
     target: CellRange,
     locale: &Locale,
     adj: &dyn FormulaAdjuster,
+) -> bool {
+    autofill_with(wb, sheet, source, target, locale, adj, FillMode::Auto)
+}
+
+/// [`autofill`] in one of the Auto Fill Options' ways.
+pub fn autofill_with(
+    wb: &mut Workbook,
+    sheet: usize,
+    source: CellRange,
+    target: CellRange,
+    locale: &Locale,
+    adj: &dyn FormulaAdjuster,
+    mode: FillMode,
 ) -> bool {
     let Some(ws) = wb.sheets.get(sheet) else {
         return false;
@@ -352,14 +535,25 @@ pub fn autofill(
             let id = wb.styles.xf(c.style).map_or(0, |x| x.num_fmt_id);
             NumberFormat::parse_with(&format_code(&wb.styles, id, locale), locale).is_date()
         });
-        let series = fill_series(
-            &values,
-            extra,
-            &FillOptions {
-                dates: is_date,
-                ..FillOptions::default()
-            },
-        );
+        let single_number = values.len() == 1 && matches!(values[0], CellValue::Number(_));
+        let lane_mode = match mode {
+            FillMode::Toggle if single_number && !is_date => FillMode::Series,
+            FillMode::Toggle => FillMode::Copy,
+            m => m,
+        };
+        let series = if lane_mode == FillMode::Copy {
+            (0..extra).map(|k| values[k % src_len].clone()).collect()
+        } else {
+            fill_series(
+                &values,
+                extra,
+                &FillOptions {
+                    dates: is_date,
+                    increment_single: lane_mode == FillMode::Series,
+                    ..FillOptions::default()
+                },
+            )
+        };
         for (k, v) in series.into_iter().enumerate() {
             let src = cells[k % src_len].clone();
             let offset = (k + src_len) as i64;
@@ -378,7 +572,18 @@ pub fn autofill(
                     (r, c - offset as u32)
                 }
             };
+            let existing = ws.cell(r, c);
+            if lane_mode == FillMode::Formats {
+                // The value stays; the style of the source cell comes along.
+                let mut cell = existing.cloned().unwrap_or_default();
+                cell.style = src.map_or(0, |s| s.style);
+                writes.push(((r, c), cell));
+                continue;
+            }
             let mut cell = src.unwrap_or_default();
+            if lane_mode == FillMode::Values {
+                cell.style = existing.map_or(0, |e| e.style);
+            }
             if let Some(f) = &mut cell.formula {
                 // Distance from the source cell the formula is copied from.
                 let (sr, sc) = if forward {
@@ -498,6 +703,61 @@ mod tests {
         assert_eq!(fill_series(&[t("Trung")], 2, &o), [t("Nam"), t("Bắc")]);
         assert_eq!(series(&[], 1), [CellValue::Empty]);
         assert_eq!(series(&[CellValue::Bool(true)], 1), [CellValue::Bool(true)]);
+    }
+
+    #[test]
+    fn series_dialog_steps_grows_dates_and_stops() {
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        ws.set_cell(0, 0, Cell::new(n(1.0)));
+        ws.set_cell(0, 1, Cell::new(n(2.0)));
+        // 2026-11-06 is a Friday (serial 46332).
+        ws.set_cell(0, 2, Cell::new(n(46_332.0)));
+        ws.set_cell(0, 3, Cell::new(n(46_053.0))); // 2026-01-31
+        let v = |wb: &Workbook, a1: &str| wb.sheets[0].cell_a1(a1).map(|c| c.value.clone());
+        let fill = |wb: &mut Workbook, r: &str, kind: SeriesKind, step: f64, stop: Option<f64>| {
+            fill_series_range(
+                wb,
+                0,
+                CellRange::parse(r).unwrap(),
+                true,
+                kind,
+                step,
+                stop,
+                &Locale::VI_VN,
+                &NoFormulas,
+            )
+        };
+        // Linear, step 3, stop 8: 1, 4, 7 (10 would pass the stop).
+        assert_eq!(
+            fill(&mut wb, "A1:A6", SeriesKind::Linear, 3.0, Some(8.0)),
+            2
+        );
+        assert_eq!(v(&wb, "A3"), Some(n(7.0)));
+        assert_eq!(v(&wb, "A4"), None);
+        // Growth ×2: 2, 4, 8, 16.
+        fill(&mut wb, "B1:B4", SeriesKind::Growth, 2.0, None);
+        assert_eq!(v(&wb, "B4"), Some(n(16.0)));
+        // Weekdays from Friday: Monday 9th, Tuesday 10th.
+        fill(
+            &mut wb,
+            "C1:C3",
+            SeriesKind::Date(DateUnit::Weekday),
+            1.0,
+            None,
+        );
+        assert_eq!(v(&wb, "C2"), Some(n(46_335.0)));
+        assert_eq!(v(&wb, "C3"), Some(n(46_336.0)));
+        // Months from 31 January: 28 February, 31 March (each from the start's day).
+        fill(
+            &mut wb,
+            "D1:D3",
+            SeriesKind::Date(DateUnit::Month),
+            1.0,
+            None,
+        );
+        assert_eq!(v(&wb, "D2"), Some(n(46_081.0)));
+        assert_eq!(v(&wb, "D3"), Some(n(46_112.0)));
     }
 
     #[test]

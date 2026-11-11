@@ -34,6 +34,7 @@ mod formctl_cmd;
 mod inspect_cmd;
 mod light_undo;
 pub mod model_cmd;
+mod names_cmd;
 mod ole_cmd;
 mod paste_opts;
 mod pivot_cmd;
@@ -770,6 +771,45 @@ fn input_to_cell_typed(
     (input_to_cell(input, old, locale), None)
 }
 
+/// The number format a newly entered formula gives a General cell, as spreadsheets do:
+/// `=TODAY()` / `=DATE(…)` show a date (§18.8.30 id 14), `=NOW()` a date and time
+/// (id 22); a formula built on a reference of the same sheet (`=A1`, `=A1+7`, `=A1-B1`,
+/// `=SUM(A1:A5)`, `MIN` / `MAX` / `AVERAGE`) takes the format of the first cell it reads
+/// when that one has a format (a date, a percentage, a currency).
+fn formula_number_format(
+    styles: &bo_model::sheet::Stylesheet,
+    ws: &bo_model::sheet::Worksheet,
+    text: &str,
+) -> Option<u32> {
+    use bo_formula::{BinaryOp, Expr, Reference};
+    fn first_ref(e: &Expr) -> Option<&Reference> {
+        match e {
+            Expr::Ref(r) => Some(r),
+            Expr::Binary(BinaryOp::Add | BinaryOp::Sub, a, _) | Expr::Unary(_, a) => first_ref(a),
+            Expr::Call { name, args }
+                if matches!(name.as_str(), "SUM" | "MIN" | "MAX" | "AVERAGE") =>
+            {
+                args.first().and_then(first_ref)
+            }
+            _ => None,
+        }
+    }
+    let e = bo_formula::parse(text).ok()?;
+    match &e {
+        Expr::Call { name, .. } if name == "TODAY" || name == "DATE" => return Some(14),
+        Expr::Call { name, .. } if name == "NOW" => return Some(22),
+        _ => {}
+    }
+    let r = first_ref(&e).filter(|r| r.sheet.is_none())?;
+    let (row, col, _, _) = r.bounds();
+    let id = ws
+        .cell(row, col)
+        .and_then(|c| styles.xf(c.style))
+        .map(|x| x.num_fmt_id)?;
+    // General and Text are not passed on.
+    (id != 0 && id != 49).then_some(id)
+}
+
 /// Style index giving `style` the built-in number format `fmt_id`, when its
 /// current format is General (§18.8.30 id 0); any other format (a date format
 /// chosen by the user, text `@`, …) is kept.
@@ -798,8 +838,11 @@ fn input_to_cell(input: &str, old: Option<&Cell>, locale: &Locale) -> Option<Cel
         return Some(cell);
     }
     if let Some(f) = input.strip_prefix('=').filter(|f| !f.trim().is_empty()) {
+        // `;` argument separators, decimal commas and open parentheses at the end, as
+        // typed with a vi-VN regional setting (§18.17 stores `,` and `.`).
+        let text = bo_formula::localized_input(f, locale.decimal).unwrap_or_else(|| f.to_owned());
         cell.formula = Some(Formula {
-            text: f.to_owned(),
+            text,
             ..Formula::default()
         });
         cell.value = CellValue::Empty;
@@ -1543,11 +1586,16 @@ impl SheetEngine {
                 .as_ref()
                 .and_then(|c| styles.xf(c.style))
                 .is_some_and(|x| x.num_fmt_id == 49);
-            let (cell, date_fmt) = if text_fmt {
+            let (cell, mut date_fmt) = if text_fmt {
                 (input_to_cell(input, prev.as_ref(), &locale), None)
             } else {
                 input_to_cell_typed(input, prev.as_ref(), &locale, date1904)
             };
+            if date_fmt.is_none() && !text_fmt {
+                if let Some(f) = cell.as_ref().and_then(|c| c.formula.as_ref()) {
+                    date_fmt = formula_number_format(styles, ws, &f.text);
+                }
+            }
             match cell {
                 Some(mut c) => {
                     if let Some(id) = date_fmt {

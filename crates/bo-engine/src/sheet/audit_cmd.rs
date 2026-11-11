@@ -245,7 +245,14 @@ impl SheetEngine {
             AuditCommand::EvaluateFormula { sheet, row, col } => {
                 self.evaluate_formula(sheet, row, col)
             }
-            AuditCommand::CheckFormula { formula } => Ok(check_formula(self.wb()?, &formula)),
+            AuditCommand::CheckFormula { formula } => {
+                // What typing it would store: `;` separators, decimal commas and
+                // parentheses left open are read as a vi-VN user means them.
+                let fixed = bo_formula::localized_input(&formula, self.locale.decimal);
+                let mut v = check_formula(self.wb()?, fixed.as_deref().unwrap_or(&formula));
+                v["fixed"] = fixed.map_or(Value::Null, Value::String);
+                Ok(v)
+            }
             AuditCommand::ErrorCheck { sheet, rules } => {
                 let wb = self.wb()?;
                 self.sheet(sheet)?;
@@ -580,16 +587,30 @@ mod tests {
         assert!(ok["error"].is_null());
         let syntax = run(
             &mut e,
-            &json!({"cmd": "checkFormula", "formula": "=SUM(A1:A3"}),
+            &json!({"cmd": "checkFormula", "formula": "=SUM(A1:A3))"}),
         );
         assert_eq!(syntax["ok"], json!(false));
         assert!(syntax["error"]["message"].is_string());
+        // A parenthesis left open at the end is closed (what typing it stores).
+        let open = run(
+            &mut e,
+            &json!({"cmd": "checkFormula", "formula": "=SUM(A1:A3"}),
+        );
+        assert_eq!(open["ok"], json!(true));
+        assert_eq!(open["fixed"], json!("=SUM(A1:A3)"));
         let unknown = run(
             &mut e,
             &json!({"cmd": "checkFormula", "formula": "=NOSUCHFUNCTION(A1)+SUM(A1)"}),
         );
         assert_eq!(unknown["ok"], json!(false));
         assert_eq!(unknown["unknownFunctions"], json!(["NOSUCHFUNCTION"]));
+        // Typed with `;` separators (vi-VN): read as the stored `,` form.
+        let semi = run(
+            &mut e,
+            &json!({"cmd": "checkFormula", "formula": "=IF(A1>1;A1;0)"}),
+        );
+        assert_eq!(semi["ok"], json!(true));
+        assert_eq!(semi["fixed"], json!("=IF(A1>1,A1,0)"));
         // Nothing was written or evaluated.
         assert_eq!(e.cell(0, 0, 0).unwrap().input, "5");
     }

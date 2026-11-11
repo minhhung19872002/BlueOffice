@@ -290,7 +290,7 @@ pub(crate) struct RelLine {
     pub baseline: f32,
     /// x relative to content left, y = 0 (baseline-relative glyph offsets).
     pub fragments: Vec<Fragment>,
-    pub carets: Vec<(u32, f32)>,
+    pub carets: crate::types::Carets,
     pub objects: Vec<RelObject>,
     /// Highlight rectangles: (x, w, color) spanning ascent..descent.
     pub highlights: Vec<(f32, f32, Color)>,
@@ -330,7 +330,8 @@ struct Piece {
     offsets: Vec<u32>,
     /// Label pieces have no caret positions.
     virtual_: bool,
-    image: Option<Image>,
+    /// Picture (boxed: pieces are kept per line, most of them text).
+    image: Option<Box<Image>>,
     drawing: Option<Arc<Drawing>>,
     /// Object height above baseline (pictures).
     obj_h: f32,
@@ -348,14 +349,65 @@ impl Piece {
     fn end(&self) -> u32 {
         self.offsets.last().copied().unwrap_or(0)
     }
+    /// The other fields, without the text, glyphs and offsets (copied separately).
+    fn clone_shallow(&self) -> Self {
+        Self {
+            style: self.style,
+            face: self.face,
+            kind: self.kind,
+            text: String::new(),
+            glyphs: Arc::from(Vec::new()),
+            width: self.width,
+            offsets: Vec::new(),
+            virtual_: self.virtual_,
+            image: self.image.clone(),
+            drawing: self.drawing.clone(),
+            obj_h: self.obj_h,
+            obj_d: self.obj_d,
+            note: self.note,
+            level: self.level,
+        }
+    }
+}
+
+/// Longest run of characters without a break opportunity laid out as one word. Longer
+/// runs (no natural language has such words; hostile or generated files do) are cut
+/// into chunks of [`CHUNK_CHARS`] characters at grapheme boundaries, and an overflowing
+/// chunk is cut where the line ends instead of being split into one word per grapheme:
+/// the memory and time of laying out such a run stay linear and small.
+const MAX_WORD_CHARS: usize = 4096;
+/// Characters per chunk of an over-long run (a few lines' worth: cutting a chunk at a
+/// line end copies the rest of it).
+const CHUNK_CHARS: usize = 256;
+
+/// Whether a word is a chunk of an over-long run (see [`MAX_WORD_CHARS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Chunk {
+    /// An ordinary word.
+    No,
+    /// The first chunk of a run: placed like a word.
+    First,
+    /// A following chunk: continues the line the previous chunk ended on.
+    Next,
 }
 
 #[derive(Debug, Clone)]
 struct Word {
     pieces: Vec<Piece>,
+    chunk: Chunk,
+    /// A chunk not shaped yet: its byte range of the index text (shaped when the line
+    /// breaker reaches it, so that one chunk at a time holds glyphs).
+    lazy: Option<(usize, usize)>,
 }
 
 impl Word {
+    fn new(pieces: Vec<Piece>) -> Self {
+        Self {
+            pieces,
+            chunk: Chunk::No,
+            lazy: None,
+        }
+    }
     fn brk(&self) -> Option<Kind> {
         self.pieces
             .iter()
@@ -730,7 +782,7 @@ fn math_object(
         source: crate::types::LineSource::Other,
         start: 0,
         end: 0,
-        carets: Vec::new(),
+        carets: crate::types::Carets::default(),
         rotation: None,
     };
     let emu = |pt: f32| bo_model::Emu((pt * 12_700.0).round() as i64);
@@ -1047,7 +1099,7 @@ fn layout_uncached(
             _ => pieces.push(special_piece(Kind::Tab, si, &styles, 0, true)),
         }
         if !pieces.is_empty() {
-            words.push(Word { pieces });
+            words.push(Word::new(pieces));
         }
     }
     let mut prev = 0;
@@ -1058,12 +1110,24 @@ fn layout_uncached(
     let levels = bidi_levels(&index_text, base_level == 1);
     for idx in breaks {
         if idx > prev {
-            let mut pieces = word_pieces(&atoms, prev, idx, &styles, fonts);
-            if let Some(lv) = &levels {
-                pieces = split_by_level(pieces, lv, &styles, fonts);
-            }
-            if !pieces.is_empty() {
-                words.push(Word { pieces });
+            let ranges = chunk_ranges(&index_text, prev, idx);
+            if ranges.len() > 1 {
+                // Chunks are shaped when reached (see `Word::lazy`).
+                for (k, range) in ranges.into_iter().enumerate() {
+                    words.push(Word {
+                        pieces: Vec::new(),
+                        chunk: if k == 0 { Chunk::First } else { Chunk::Next },
+                        lazy: Some(range),
+                    });
+                }
+            } else {
+                let mut pieces = word_pieces(&atoms, prev, idx, &styles, fonts);
+                if let Some(lv) = &levels {
+                    pieces = split_by_level(pieces, lv, &styles, fonts);
+                }
+                if !pieces.is_empty() {
+                    words.push(Word::new(pieces));
+                }
             }
         }
         prev = idx;
@@ -1073,7 +1137,8 @@ fn layout_uncached(
     // equation itself (unless it ends the paragraph).
     if !display_at.is_empty() {
         let mut out: Vec<Word> = Vec::with_capacity(words.len() + 2);
-        for w in words {
+        for mut w in words {
+            shape_lazy(&mut w, &atoms, &styles, fonts, levels.as_deref());
             let mut rest: Vec<Piece> = Vec::new();
             for p in w.pieces {
                 let display = p.kind == Kind::Object && display_at.contains_key(&p.start());
@@ -1102,6 +1167,8 @@ fn layout_uncached(
                     rest.push(brk(p.start()));
                     out.push(Word {
                         pieces: std::mem::take(&mut rest),
+                        chunk: w.chunk,
+                        lazy: None,
                     });
                 } else if let Some(prev) = out.last_mut() {
                     if prev.brk().is_none() {
@@ -1111,10 +1178,14 @@ fn layout_uncached(
                 let end = p.end();
                 let mut obj = vec![p];
                 obj.push(brk(end));
-                out.push(Word { pieces: obj });
+                out.push(Word::new(obj));
             }
             if !rest.is_empty() {
-                out.push(Word { pieces: rest });
+                out.push(Word {
+                    pieces: rest,
+                    chunk: w.chunk,
+                    lazy: None,
+                });
             }
         }
         // No empty line after an equation that ends the paragraph.
@@ -1169,7 +1240,11 @@ fn layout_uncached(
         let mut prev_h: Option<f32> = None;
         let mut row: Vec<(f32, f32)> = Vec::new();
         let mut cur_segs: Vec<(usize, f32, f32)> = Vec::new();
-        while let Some(word) = queue.pop_front() {
+        while let Some(mut word) = queue.pop_front() {
+            shape_lazy(&mut word, &atoms, &styles, fonts, levels.as_deref());
+            if word.pieces.is_empty() {
+                continue;
+            }
             let is_first = lines.is_empty();
             if row.is_empty() {
                 let h = prev_h.unwrap_or_else(|| {
@@ -1191,13 +1266,32 @@ fn layout_uncached(
                 queue.push_front(word);
                 continue;
             }
-            if overflow && cur.is_empty() && word.char_count() > 1 {
+            // A chunk of an over-long run is cut where the segment ends.
+            let cut = if overflow
+                && (word.chunk == Chunk::Next || (word.chunk == Chunk::First && cur.is_empty()))
+            {
+                let (_, used) = position(&cur[seg_start..], start_x, &tab_ctx);
+                fit_split(&word, max - used, cur.is_empty())
+            } else {
+                None
+            };
+            if cut.is_none() && overflow && cur.is_empty() && word.char_count() > 1 {
                 for w2 in explode(&word, fonts).into_iter().rev() {
                     queue.push_front(w2);
                 }
                 continue;
             }
-            let split = if overflow && !cur.is_empty() {
+            let end = if let Some((head, tail)) = cut {
+                cur.extend(head.pieces);
+                queue.push_front(tail);
+                in_row = 0;
+                Some(None)
+            } else {
+                None
+            };
+            let split = if end.is_some() {
+                None
+            } else if overflow && !cur.is_empty() && word.chunk == Chunk::No {
                 hyph.as_ref()
                     .filter(|h| h.limit == 0 || in_row < h.limit)
                     .and_then(|h| {
@@ -1215,7 +1309,9 @@ fn layout_uncached(
             } else {
                 None
             };
-            let end = if let Some((head, tail)) = split {
+            let end = if end.is_some() {
+                end
+            } else if let Some((head, tail)) = split {
                 cur.extend(head.pieces);
                 queue.push_front(tail);
                 hyph_lines.insert(lines.len());
@@ -1245,6 +1341,10 @@ fn layout_uncached(
         }
     }
     while let Some(mut word) = queue.pop_front() {
+        shape_lazy(&mut word, &atoms, &styles, fonts, levels.as_deref());
+        if word.pieces.is_empty() {
+            continue;
+        }
         let is_first = lines.is_empty();
         let start_x = indent_left + if is_first { first } else { 0.0 };
         let max = avail(is_first);
@@ -1254,7 +1354,21 @@ fn layout_uncached(
         cur.append(&mut word.pieces);
         let (_, ink) = position(&cur, start_x, &tab_ctx);
         word.pieces = cur.split_off(base);
-        if ink > max + 0.01 {
+        // A chunk of an over-long run continues the line and is cut where it ends.
+        if ink > max + 0.01
+            && (word.chunk == Chunk::Next || (word.chunk == Chunk::First && cur.is_empty()))
+        {
+            let (_, used) = position(&cur, start_x, &tab_ctx);
+            if let Some((head, tail)) = fit_split(&word, max - used, cur.is_empty()) {
+                cur.extend(head.pieces);
+                lines.push(std::mem::take(&mut cur));
+                line_breaks.push(None);
+                queue.push_front(tail);
+                in_row = 0;
+                continue;
+            }
+        }
+        if ink > max + 0.01 && word.chunk == Chunk::No {
             // §17.15.1.10 autoHyphenation: the first part of the word and a hyphen.
             let split = hyph
                 .as_ref()
@@ -1421,7 +1535,7 @@ fn layout_uncached(
                                 x: x0,
                                 w: p.width,
                                 h: p.obj_h,
-                                image: img.clone(),
+                                image: (**img).clone(),
                                 drawing: p.drawing.clone(),
                                 revision: st.revision,
                             });
@@ -1587,7 +1701,7 @@ fn layout_uncached(
             height,
             baseline,
             fragments: frags.into_iter().map(Draft::finish).collect(),
-            carets,
+            carets: carets.into(),
             objects,
             highlights,
             borders,
@@ -1735,7 +1849,187 @@ fn split_word(
     if head.is_empty() || tail.is_empty() {
         return None;
     }
-    Some((Word { pieces: head }, Word { pieces: tail }))
+    Some((Word::new(head), Word::new(tail)))
+}
+
+/// Shape a lazy chunk (see [`Word::lazy`]); its glyphs stay out of the shaping cache
+/// (they are shaped once). Other words are left as they are.
+fn shape_lazy(
+    word: &mut Word,
+    atoms: &[Atom],
+    styles: &[RunStyle],
+    fonts: &mut FontManager,
+    levels: Option<&[u8]>,
+) {
+    let Some((a, b)) = word.lazy.take() else {
+        return;
+    };
+    fonts.set_shape_caching(false);
+    let mut pieces = word_pieces(atoms, a, b, styles, fonts);
+    if let Some(lv) = levels {
+        pieces = split_by_level(pieces, lv, styles, fonts);
+    }
+    fonts.set_shape_caching(true);
+    word.pieces = pieces;
+}
+
+/// Byte ranges of the run `text[a..b]` (no break opportunity inside): the run itself, or
+/// chunks of [`CHUNK_CHARS`] characters cut at grapheme boundaries (UAX #29) when it is
+/// longer than [`MAX_WORD_CHARS`].
+fn chunk_ranges(text: &str, a: usize, b: usize) -> Vec<(usize, usize)> {
+    use unicode_segmentation::UnicodeSegmentation;
+    let Some(run) = text.get(a..b) else {
+        return vec![(a, b)];
+    };
+    // Bytes ≥ characters: a short run in bytes is short in characters.
+    if run.len() <= MAX_WORD_CHARS || run.chars().count() <= MAX_WORD_CHARS {
+        return vec![(a, b)];
+    }
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut chars = 0usize;
+    for (i, g) in run.grapheme_indices(true) {
+        let n = g.chars().count();
+        if chars > 0 && chars + n > CHUNK_CHARS {
+            out.push((a + start, a + i));
+            start = i;
+            chars = 0;
+        }
+        chars += n;
+    }
+    out.push((a + start, b));
+    out
+}
+
+/// Cut a chunk of an over-long run (see [`MAX_WORD_CHARS`]) where `room` points of ink
+/// end: the head holds the graphemes that fit (at least one when `force`), the tail the
+/// rest. Both reuse the shaped glyphs — the cut is at a cluster start that is also a
+/// grapheme boundary, so no glyph is split and nothing is shaped again. `None` when
+/// nothing fits (and not `force`) or the word cannot be cut there (a tab, an atom).
+fn fit_split(word: &Word, room: f32, force: bool) -> Option<(Word, Word)> {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut x = 0.0f32;
+    for (i, p) in word.pieces.iter().enumerate() {
+        let plain = p.kind == Kind::Text
+            && !p.glyphs.is_empty()
+            && p.image.is_none()
+            && p.note.is_none()
+            && !p.virtual_
+            && p.offsets.len() == p.text.chars().count() + 1;
+        match p.kind {
+            Kind::Tab => return None,
+            Kind::Space | Kind::LineBreak | Kind::PageBreak | Kind::ColumnBreak => {
+                x += p.width;
+                continue;
+            }
+            Kind::Text | Kind::Object => {}
+        }
+        if x + p.width <= room + 0.01 {
+            x += p.width;
+            continue;
+        }
+        let at_piece = |i: usize| {
+            (i > 0).then(|| {
+                (
+                    Word {
+                        pieces: word.pieces[..i].to_vec(),
+                        chunk: word.chunk,
+                        lazy: None,
+                    },
+                    Word {
+                        pieces: word.pieces[i..].to_vec(),
+                        chunk: Chunk::Next,
+                        lazy: None,
+                    },
+                )
+            })
+        };
+        if !plain {
+            return at_piece(i);
+        }
+        let len = p.text.len();
+        // Advance of the glyphs of each cluster, by byte; cluster starts.
+        let mut adv = vec![0i64; len + 1];
+        let mut starts = vec![false; len + 1];
+        for g in p.glyphs.iter() {
+            let c = (g.cluster as usize).min(len);
+            adv[c] += i64::from(g.x_advance);
+            starts[c] = true;
+        }
+        let total: i64 = adv.iter().sum();
+        let per_unit = p.width / total.max(1) as f32;
+        // The last cut that fits, else (forced, first piece) the first possible cut.
+        let mut best = None;
+        let mut first_cut = None;
+        let mut acc = 0i64;
+        let mut done = 0usize;
+        for (gi, g) in p.text.grapheme_indices(true) {
+            let k = gi + g.len();
+            acc += adv[done..k].iter().sum::<i64>();
+            done = k;
+            if k >= len || !starts[k] {
+                continue;
+            }
+            if x + acc as f32 * per_unit <= room + 0.01 {
+                best = Some(k);
+            } else {
+                first_cut.get_or_insert(k);
+                break;
+            }
+        }
+        let k = match best {
+            Some(k) => k,
+            None if i > 0 => return at_piece(i),
+            None if force => first_cut?,
+            None => return None,
+        };
+        let ci = p.text[..k].chars().count();
+        let head_adv: i64 = adv[..k].iter().sum();
+        let head_w = head_adv as f32 * per_unit;
+        let kc = u32::try_from(k).ok()?;
+        let mut head = word.pieces[..i].to_vec();
+        head.push(Piece {
+            text: p.text[..k].to_owned(),
+            glyphs: p
+                .glyphs
+                .iter()
+                .filter(|g| g.cluster < kc)
+                .copied()
+                .collect(),
+            width: head_w,
+            offsets: p.offsets[..=ci].to_vec(),
+            ..p.clone_shallow()
+        });
+        let mut tail = vec![Piece {
+            text: p.text[k..].to_owned(),
+            glyphs: p
+                .glyphs
+                .iter()
+                .filter(|g| g.cluster >= kc)
+                .map(|g| ShapedGlyph {
+                    cluster: g.cluster - kc,
+                    ..*g
+                })
+                .collect(),
+            width: p.width - head_w,
+            offsets: p.offsets[ci..].to_vec(),
+            ..p.clone_shallow()
+        }];
+        tail.extend(word.pieces[i + 1..].iter().cloned());
+        return Some((
+            Word {
+                pieces: head,
+                chunk: word.chunk,
+                lazy: None,
+            },
+            Word {
+                pieces: tail,
+                chunk: Chunk::Next,
+                lazy: None,
+            },
+        ));
+    }
+    None
 }
 
 /// Caret stops for a piece: one per original char boundary.
@@ -1779,9 +2073,20 @@ fn push_carets(
         adv_before.push(x);
         x += g.x_advance as f32 * scale + spacing;
     }
+    // The first glyph of a cluster at or after each character: with clusters in
+    // increasing order (left-to-right text) one forward scan finds them all.
+    let monotonic = p.glyphs.windows(2).all(|w| w[0].cluster <= w[1].cluster);
+    let mut gi = 0usize;
     for (k, (cb, _)) in p.text.char_indices().enumerate() {
-        let gi = p.glyphs.iter().position(|g| g.cluster as usize >= cb);
-        let cx = gi.map_or(x, |i| adv_before[i]);
+        let found = if monotonic {
+            while gi < p.glyphs.len() && (p.glyphs[gi].cluster as usize) < cb {
+                gi += 1;
+            }
+            (gi < p.glyphs.len()).then_some(gi)
+        } else {
+            p.glyphs.iter().position(|g| g.cluster as usize >= cb)
+        };
+        let cx = found.map_or(x, |i| adv_before[i]);
         carets.push((p.offsets[k], x0 + cx.min(width)));
     }
     carets.push((p.end(), x0 + width));
@@ -2102,7 +2407,7 @@ fn word_pieces(
                     width: img.width.to_pt(),
                     offsets: vec![at.start as u32, at.end as u32],
                     virtual_: false,
-                    image: Some(img.clone()),
+                    image: Some(Box::new(img.clone())),
                     drawing: at.drawing.clone(),
                     level: 0,
                     obj_h: img.height.to_pt(),
@@ -2175,10 +2480,8 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
             || p.offsets.len() != p.text.chars().count() + 1
         {
             match out.last_mut() {
-                Some(Word { pieces }) => pieces.push(p.clone()),
-                None => out.push(Word {
-                    pieces: vec![p.clone()],
-                }),
+                Some(Word { pieces, .. }) => pieces.push(p.clone()),
+                None => out.push(Word::new(vec![p.clone()])),
             }
             continue;
         }
@@ -2201,15 +2504,13 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
             let glyphs = fonts.shape(p.face, g);
             let width =
                 glyphs.iter().map(|x| i64::from(x.x_advance)).sum::<i64>() as f32 * per_unit;
-            out.push(Word {
-                pieces: vec![Piece {
-                    text: g.to_owned(),
-                    glyphs,
-                    width,
-                    offsets: p.offsets[ci..=ci + nc].to_vec(),
-                    ..template.clone()
-                }],
-            });
+            out.push(Word::new(vec![Piece {
+                text: g.to_owned(),
+                glyphs,
+                width,
+                offsets: p.offsets[ci..=ci + nc].to_vec(),
+                ..template.clone()
+            }]));
             ci += nc;
         }
     }
@@ -2219,6 +2520,30 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_runs_are_cut_into_chunks_at_grapheme_boundaries() {
+        // Short runs stay whole.
+        let short = "a".repeat(MAX_WORD_CHARS);
+        assert_eq!(chunk_ranges(&short, 0, short.len()), vec![(0, short.len())]);
+        // A long run: chunks of CHUNK_CHARS characters, contiguous, never splitting
+        // "e" from its combining acute accent.
+        let long: String = (0..MAX_WORD_CHARS + 500)
+            .map(|i| if i % 3 == 0 { "e\u{301}" } else { "x" })
+            .collect();
+        let r = chunk_ranges(&long, 0, long.len());
+        assert!(r.len() > 1);
+        assert_eq!(r.first().map(|c| c.0), Some(0));
+        assert_eq!(r.last().map(|c| c.1), Some(long.len()));
+        for w in r.windows(2) {
+            assert_eq!(w[0].1, w[1].0);
+        }
+        for &(a, b) in &r {
+            let chunk = &long[a..b];
+            assert!(chunk.chars().count() <= CHUNK_CHARS);
+            assert!(!chunk.starts_with('\u{301}'));
+        }
+    }
 
     #[test]
     fn tab_stops() {

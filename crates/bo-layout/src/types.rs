@@ -316,7 +316,7 @@ pub struct Line {
     /// End (exclusive) of the covered byte range.
     pub end: u32,
     /// Caret stops: (offset in paragraph index text, absolute x), ascending by offset.
-    pub carets: Vec<(u32, f32)>,
+    pub carets: Carets,
     /// Vertical text (ECMA-376 Part 1, §17.4.72 textDirection): the line is drawn
     /// rotated about a pivot; its own coordinates are those before the rotation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -425,13 +425,67 @@ impl Line {
             f.x += dx;
             f.y += dy;
         }
-        for c in &mut self.carets {
-            c.1 += dx;
-        }
+        self.carets.shift(dx);
         if let Some(r) = &mut self.rotation {
             r.cx += dx;
             r.cy += dy;
         }
+    }
+}
+
+/// Caret stops of a line, (offset, x) ascending by offset: shared between the
+/// paragraph cache, the incremental layout and the pages (8 bytes per character
+/// once, not per copy), each copy with its own horizontal shift.
+#[derive(Debug, Clone, Default)]
+pub struct Carets {
+    stops: Arc<[(u32, f32)]>,
+    dx: f32,
+}
+
+impl Carets {
+    /// Number of stops.
+    pub fn len(&self) -> usize {
+        self.stops.len()
+    }
+    /// No stops.
+    pub fn is_empty(&self) -> bool {
+        self.stops.is_empty()
+    }
+    /// Stop `i` (x shifted).
+    pub fn get(&self, i: usize) -> Option<(u32, f32)> {
+        self.stops.get(i).map(|&(o, x)| (o, x + self.dx))
+    }
+    /// First stop.
+    pub fn first(&self) -> Option<(u32, f32)> {
+        self.get(0)
+    }
+    /// Last stop.
+    pub fn last(&self) -> Option<(u32, f32)> {
+        self.stops.len().checked_sub(1).and_then(|i| self.get(i))
+    }
+    /// The stops in order (x shifted).
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (u32, f32)> + ExactSizeIterator + '_ {
+        let dx = self.dx;
+        self.stops.iter().map(move |&(o, x)| (o, x + dx))
+    }
+    /// Move every stop by `dx` (the shared stops are not copied).
+    pub fn shift(&mut self, dx: f32) {
+        self.dx += dx;
+    }
+}
+
+impl From<Vec<(u32, f32)>> for Carets {
+    fn from(v: Vec<(u32, f32)>) -> Self {
+        Self {
+            stops: v.into(),
+            dx: 0.0,
+        }
+    }
+}
+
+impl Serialize for Carets {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_seq(self.iter())
     }
 }
 

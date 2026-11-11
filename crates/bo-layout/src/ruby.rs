@@ -104,7 +104,7 @@ fn boxed(
         source: LineSource::Other,
         start: 0,
         end: 0,
-        carets: Vec::new(),
+        carets: crate::types::Carets::default(),
         rotation: None,
     };
     let emu = |pt: f32| Emu((pt * 12_700.0).round() as i64);

@@ -1989,6 +1989,18 @@ fn pdf_hostile(cfg: &Config) -> Vec<u8> {
     out
 }
 
+/// A document whose one paragraph is a run of `chars` letters without a break
+/// opportunity (memory of laying out over-long words).
+///
+/// # Errors
+/// If the package cannot be built.
+pub fn long_word_docx(chars: usize) -> Result<Vec<u8>> {
+    docx(&format!(
+        "<w:p><w:r><w:t>{}</w:t></w:r></w:p>",
+        noise(chars, 3)
+    ))
+}
+
 /// Every hostile sample, BlueDoc, BlueSheet, then BlueSlide.
 ///
 /// # Errors

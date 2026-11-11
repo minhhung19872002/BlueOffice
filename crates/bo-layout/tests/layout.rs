@@ -222,6 +222,60 @@ fn overlong_word_is_broken() {
     assert_eq!(joined, word);
 }
 
+/// A run of letters (with combining accents) far longer than the chunk limit of the
+/// line breaker: cut into full lines, chunk boundaries invisible, nothing lost, no mark
+/// separated from its base, carets on every character boundary.
+#[test]
+fn very_long_word_fills_whole_lines() {
+    let mut x = 0x2545_F491_4F6C_DD1Du64;
+    let mut word = String::new();
+    for i in 0..30_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        word.push(char::from(b'a' + u8::try_from(x % 26).unwrap()));
+        if i % 7 == 3 {
+            word.push('\u{0301}');
+        }
+    }
+    let l = run(&doc(vec![para(&word, ParaProps::default())]));
+    let setup = PageSetup::default();
+    let left = setup.margin_left.to_pt();
+    let right = setup.width.to_pt() - setup.margin_right.to_pt();
+    let lines: Vec<_> = l.pages.iter().flat_map(|p| p.lines.iter()).collect();
+    assert!(lines.len() > 20, "{} lines", lines.len());
+    let mut joined = String::new();
+    let mut carets = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        let text: String = line.fragments.iter().map(|f| f.text.to_string()).collect();
+        assert!(
+            !text.starts_with('\u{0301}'),
+            "line {i} starts with a combining mark"
+        );
+        let start = line.fragments.first().unwrap().x;
+        let end = line
+            .fragments
+            .iter()
+            .map(|f| f.x + f.width)
+            .fold(0.0, f32::max);
+        assert!((start - left).abs() < 0.01);
+        assert!(end <= right + 0.05, "line {i} overflows: {end} > {right}");
+        // Full lines: the next grapheme (≤ 13 pt wide at 13 pt) would not have fitted.
+        if i + 1 < lines.len() {
+            assert!(end > right - 13.0, "line {i} is short: ends at {end}");
+        }
+        let stops: Vec<_> = line.carets.iter().collect();
+        assert!(stops
+            .windows(2)
+            .all(|w| w[0].0 < w[1].0 && w[0].1 <= w[1].1));
+        carets += line.carets.len();
+        joined.push_str(&text);
+    }
+    assert_eq!(joined, word);
+    // One caret per character boundary, the boundary between two lines on both.
+    assert_eq!(carets, word.chars().count() + lines.len());
+}
+
 #[test]
 fn empty_paragraph_takes_a_line() {
     let l = run(&doc(vec![

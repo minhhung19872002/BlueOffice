@@ -86,6 +86,8 @@ pub struct FontManager {
     faces: Vec<Face>,
     by_family: HashMap<String, Vec<FaceId>>,
     shape_cache: HashMap<ShapeKey, Arc<[ShapedGlyph]>>,
+    /// Shaping results are not cached (see [`FontManager::set_shape_caching`]).
+    no_shape_cache: bool,
     resolve_cache: HashMap<(String, bool, bool), Option<FaceId>>,
     /// Installed OS fonts, loaded per family on first use (native hosts that opt in).
     #[cfg(not(target_arch = "wasm32"))]
@@ -160,6 +162,13 @@ impl FontManager {
     /// (CORE-PERF-001: memory returns to a plateau after opening many documents).
     pub fn clear_caches(&mut self) {
         self.shape_cache = HashMap::new();
+    }
+
+    /// Turn the shaping cache on (default) or off for the next calls. Text shaped once
+    /// and never again (the chunks of a huge unbroken run) is shaped with the cache off
+    /// so that its glyphs (20 bytes per character) are not kept.
+    pub fn set_shape_caching(&mut self, on: bool) {
+        self.no_shape_cache = !on;
     }
 
     /// Number of cached shaping results (memory diagnostics).
@@ -397,8 +406,8 @@ impl FontManager {
         kern: bool,
         features: &[([u8; 4], u32)],
     ) -> Arc<[ShapedGlyph]> {
-        let key = (id, kern, features.to_vec(), text.to_owned());
-        if let Some(g) = self.shape_cache.get(&key) {
+        let key = (!self.no_shape_cache).then(|| (id, kern, features.to_vec(), text.to_owned()));
+        if let Some(g) = key.as_ref().and_then(|k| self.shape_cache.get(k)) {
             return g.clone();
         }
         let f = &self.faces[id.0 as usize];
@@ -428,6 +437,9 @@ impl FontManager {
                     .collect()
             }
             None => Arc::from(Vec::new()),
+        };
+        let Some(key) = key else {
+            return glyphs;
         };
         if self.shape_cache.len() > 200_000 {
             self.shape_cache.clear();

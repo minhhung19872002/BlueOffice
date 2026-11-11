@@ -279,7 +279,7 @@ Kiểm tra:
 | `web-script.html` / `.mht` | script, handler, ảnh/CSS/iframe/font từ xa, meta refresh | Mở; script bị bỏ, không tải tài nguyên |
 | `pdf-actions.pdf` | `OpenAction` JavaScript, `Launch`, `URI`, `GoToR`, tệp nhúng | Mở (chỉ lấy chữ); không chạy hành động nào |
 | `image-huge-dimensions.docx` / `.xlsx` / `.pptx` | PNG 100 000², JPEG 65 500², GIF 65 535², BMP 10⁶² | Mở và vẽ trang không treo, không cấp phát theo kích thước khai báo; ảnh giữ nguyên khi lưu |
-| `oversized-string.docx` / `.xlsx` / `.pptx` | 1 MiB chữ liền không chỗ ngắt; mã kiểu 256 KiB | Mở: 11 s / ~750 MB heap (BlueDoc, debug), 1,7 s (BlueSheet), 3,4 s (BlueSlide) — trước khi sửa: **panic tràn số** và **thời gian bậc hai** |
+| `oversized-string.docx` / `.xlsx` / `.pptx` | 1 MiB chữ liền không chỗ ngắt; mã kiểu 256 KiB | Mở: 2,9 s / ~117 MB heap gồm lưu + mở lại (BlueDoc, debug; trước giới hạn từ dài: 11 s / ~750 MB), 1,7 s (BlueSheet), 3,4 s (BlueSlide) — trước khi sửa: **panic tràn số** và **thời gian bậc hai** |
 | `truncated.docx` / `.xlsx` / `.pptx` / `.doc` | gói / compound file bị cắt | Từ chối sạch ("Could not find EOCD", "unsupported file type") |
 
 Sửa trong mã nhờ bộ kiểm tra này:
@@ -291,9 +291,15 @@ Sửa trong mã nhờ bộ kiểm tra này:
    tuyến tính: 64 000 ký tự 0,8 s → 0,24 s).
 3. `bo-opc` (`package.rs`): tra part theo tên dùng chỉ mục (trước là quét tuyến tính mỗi lần → lưu gói 19 000 part mất
    15 s; nay ~2 s).
+4. `bo-layout` (`paragraph.rs`, `MAX_WORD_CHARS`): chuỗi không có chỗ ngắt dài hơn 4096 ký tự được chia thành khúc
+   256 ký tự (ranh giới grapheme), mỗi khúc chỉ được shape khi tới lượt và không vào cache shape; khúc tràn dòng được
+   cắt đúng chỗ hết dòng (dùng lại glyph, không shape lại) thay vì tách thành một từ cho mỗi grapheme. Kèm theo: điểm
+   chèn (`Carets`) của một dòng dùng chung giữa cache đoạn, bố cục tăng dần và trang; ảnh trong `Piece` được box.
+   Đo (`hostile_files.rs`, mở + vẽ trang đầu/cuối, debug): 1 MiB → 40,5 byte/ký tự, 8 MiB → 41,3 byte/ký tự
+   (trước: ~700 byte/ký tự); văn bản thường không đổi bố cục (mọi snapshot giữ nguyên).
 
-Còn lại / cần người quyết định: một "từ" không có chỗ ngắt dài hàng MiB tốn ~700 byte heap mỗi ký tự khi dàn trang
-(1 MiB → ~750 MB); chưa có giới hạn cứng — khuyến nghị giới hạn bộ nhớ container cho `worker` (§7.2). Macro của
+Còn lại / cần người quyết định: bộ nhớ dàn trang vẫn tuyến tính theo độ dài văn bản (~40 byte/ký tự) — khuyến nghị
+giới hạn bộ nhớ container cho `worker` (§7.2) với tệp rất lớn. Macro của
 `.doc`/`.xls` cũ mất khi lưu sang `.docx`/`.xlsx` (giao diện vẫn báo "giữ nguyên nhưng không chạy" khi mở).
 
 ## 9. Macro không thực thi

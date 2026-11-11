@@ -502,19 +502,28 @@ impl crate::Engine {
                         .map_err(|e| e.to_string());
                 }
                 let c = read(s.doc(), &img).ok_or("noChart")?;
+                let was_ex = sc::is_ex(&c);
                 let (c, d) = sc::edit_chart(c, &spec, &accents).map_err(|e| e.to_string())?;
-                // A file's chart part stays as read: the edit gets new parts beside it.
+                // A file's chart part stays as read: the edit gets new parts beside it. A change
+                // between the classic (c:) and chartex (cx:) families needs a part of the other
+                // kind too (§21.2.2.29 chartSpace / [MS-ODRAWXML] 2.24 cx:chartSpace).
+                let switched = sc::is_ex(&c) != was_ex;
                 let taken = source_parts(s.doc());
                 let in_source = taken.contains(&img.media.to_ascii_lowercase());
-                let name = if in_source {
+                let name = if in_source || switched {
                     new_part(s.doc(), sc::is_ex(&c), &taken)
                 } else {
                     img.media.clone()
                 };
-                let parts = parts_of(&name, &c, &d)?
+                let mut parts: Vec<(String, Option<Arc<Vec<u8>>>)> = parts_of(&name, &c, &d)?
                     .into_iter()
                     .map(|(n, b)| (n, Some(b)))
                     .collect();
+                if switched && !in_source {
+                    // The parts of the other family are no longer used.
+                    parts.push((img.media.clone(), None));
+                    parts.push((chart_part::workbook_of(&img.media), None));
+                }
                 let alt = c.title.clone().unwrap_or_default();
                 s.update_chart(parts, move |i| {
                     i.media = name;

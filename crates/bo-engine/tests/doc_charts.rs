@@ -238,9 +238,20 @@ fn chartex_types_are_written_in_alternate_content() {
         assert!(r["error"].is_null(), "{kind}: {r}");
         assert_eq!(r["chart"]["kind"], kind);
     }
-    // A chartex chart cannot become a classic one (one chart part family).
+    // A chartex chart becomes a classic one and back: a part of the other family each time
+    // (§21.2.2.29 chartSpace / [MS-ODRAWXML] 2.24), the data kept; undo goes back.
     let r = run(&mut e, json!({"cmd": "setChart", "kind": "column"}));
-    assert_eq!(r["error"], "badChart");
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(r["chart"]["kind"], "column");
+    let data = r["chart"]["data"].clone();
+    let r = run(&mut e, json!({"cmd": "setChart", "kind": "funnel"}));
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(r["chart"]["kind"], "funnel");
+    assert_eq!(r["chart"]["data"], data);
+    run(&mut e, json!({"cmd": "undo"}));
+    assert_eq!(e.doc_chart().unwrap().kind, "column");
+    run(&mut e, json!({"cmd": "redo"}));
+    assert_eq!(e.doc_chart().unwrap().kind, "funnel");
     let r = run(&mut e, json!({"cmd": "setChart", "title": "Phễu"}));
     assert!(r["error"].is_null(), "{r}");
     let bytes = e.save_docx().unwrap();

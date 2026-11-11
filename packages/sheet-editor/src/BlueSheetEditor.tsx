@@ -7726,6 +7726,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             onCell={(row, col) => setSelection(single({ row, col }))}
             onHeaderFooter={() => setDialog({ kind: 'pageSetup' })}
             regionRef={pageLayoutRef}
+            active={selection.active}
             onKeyDown={(e) => {
               const c = registry.match(e);
               if (c) {

@@ -76,6 +76,14 @@ pub enum ViewCommand {
         x: f64,
         y: f64,
     },
+    /// Where cell `row`, `col` is drawn on page `page` (points) → `{ x, y, w, h }` or
+    /// `null` when the page does not print it.
+    PageCellRect {
+        sheet: usize,
+        page: usize,
+        row: u32,
+        col: u32,
+    },
     /// Custom views of the workbook → `[{ name, guid, includePrintSettings, includeHiddenRowCol }]`.
     CustomViews,
     /// Saves the current view of every sheet under `name` (an existing view of
@@ -119,6 +127,7 @@ impl ViewCommand {
             "movePageBreak",
             "pageLayout",
             "pageHit",
+            "pageCellRect",
             "customViews",
             "addCustomView",
             "applyCustomView",
@@ -262,6 +271,12 @@ impl SheetEngine {
                 Ok(json!({ "pages": pages }))
             }
             ViewCommand::PageHit { sheet, page, x, y } => self.page_hit(sheet, page, x, y),
+            ViewCommand::PageCellRect {
+                sheet,
+                page,
+                row,
+                col,
+            } => self.page_cell_rect(sheet, page, row, col),
             ViewCommand::CustomViews => {
                 let wb = self.wb()?;
                 Ok(Value::Array(
@@ -486,6 +501,23 @@ impl SheetEngine {
             }
             Ok(json!({ "scale": rescale }))
         })
+    }
+
+    fn page_cell_rect(&mut self, sheet: usize, page: usize, row: u32, col: u32) -> Result<Value> {
+        let pages = self.page_layout(sheet)?;
+        let Some(cells) = pages.get(page).and_then(|p| p.cells.clone()) else {
+            return Ok(Value::Null);
+        };
+        if row < cells.rows.0 || row > cells.rows.1 || col < cells.cols.0 || col > cells.cols.1 {
+            return Ok(Value::Null);
+        }
+        let (ox, oy) = cells.origin;
+        let g = self.geometry(sheet)?;
+        let x = ox + (g.col_x(col) - g.col_x(cells.cols.0)) * cells.scale;
+        let y = oy + (g.row_y(row) - g.row_y(cells.rows.0)) * cells.scale;
+        let w = (g.col_x(col + 1) - g.col_x(col)) * cells.scale;
+        let h = (g.row_y(row + 1) - g.row_y(row)) * cells.scale;
+        Ok(json!({ "x": x, "y": y, "w": w, "h": h }))
     }
 
     fn page_hit(&mut self, sheet: usize, page: usize, x: f64, y: f64) -> Result<Value> {

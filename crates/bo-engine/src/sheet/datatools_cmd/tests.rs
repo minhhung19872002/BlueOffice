@@ -202,7 +202,11 @@ fn consolidate_values_and_links() {
     //   row 12 'Quý 2' =B3 =C3   / row 13 Lê
     let wb = e.workbook().unwrap();
     let ws = &wb.sheets[1];
-    let formula = |r: u32, c: u32| ws.cell(r, c).and_then(|x| x.formula.clone()).map(|f| f.text);
+    let formula = |r: u32, c: u32| {
+        ws.cell(r, c)
+            .and_then(|x| x.formula.clone())
+            .map(|f| f.text)
+    };
     assert_eq!(formula(6, 1).as_deref(), Some("Sheet1!$B$2"));
     assert_eq!(val(&e, 1, 6, 0), t("Sheet1"));
     assert_eq!(val(&e, 1, 7, 0), t("Táo"));
@@ -217,12 +221,17 @@ fn consolidate_values_and_links() {
     assert_eq!(val(&e, 1, 12, 3), n(4.0));
     // Outline: detail rows level 1 and hidden, summaries marked collapsed.
     let hidden: Vec<u32> = (5..13)
-        .filter(|r| ws.rows.get(r).is_some_and(|i| i.hidden && i.outline_level == 1))
+        .filter(|r| {
+            ws.rows
+                .get(r)
+                .is_some_and(|i| i.hidden && i.outline_level == 1)
+        })
         .collect();
     assert_eq!(hidden, vec![6, 8, 9, 11]);
-    assert!([7, 10, 12]
-        .iter()
-        .all(|r| ws.rows.get(r).is_some_and(|i| i.collapsed && i.outline_level == 0)));
+    assert!([7, 10, 12].iter().all(|r| ws
+        .rows
+        .get(r)
+        .is_some_and(|i| i.collapsed && i.outline_level == 0)));
     // A source changes: the links follow.
     e.set_input(0, 2, 1, "9").unwrap();
     assert_eq!(val(&e, 1, 10, 1), n(9.0));

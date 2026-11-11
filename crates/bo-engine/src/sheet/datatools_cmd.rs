@@ -305,7 +305,10 @@ impl SheetEngine {
             .flat_map(|c| c.sources.iter().copied())
             .filter(|_| o.links)
             .map(|(s, r, c)| {
-                let v = wb.sheets[s].cell(r, c).map(|x| x.value.clone()).unwrap_or_default();
+                let v = wb.sheets[s]
+                    .cell(r, c)
+                    .map(|x| x.value.clone())
+                    .unwrap_or_default();
                 ((s, r, c), v)
             })
             .collect();
@@ -341,10 +344,7 @@ impl SheetEngine {
                             }
                             let at = CellRef::new(sr, sc);
                             let link = bo_sheet::cells::abs_ref(&names[s], CellRange::new(at, at));
-                            let v = wb_values
-                                .get(&(s, sr, sc))
-                                .cloned()
-                                .unwrap_or_default();
+                            let v = wb_values.get(&(s, sr, sc)).cloned().unwrap_or_default();
                             put(ws, r, dc + left + j as u32, v, Some(Formula::normal(&link)));
                         }
                     }

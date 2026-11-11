@@ -800,7 +800,10 @@ mod tests {
         e.exec_json(&ins.to_string()).unwrap();
         assert_eq!(e.cell(0, 3, 0).unwrap().input, "=SUM(A1:A3)");
         assert_eq!(e.cell(0, 3, 0).unwrap().display, "3");
-        assert_eq!(run(&mut e, &json!({"cmd": "calcOptions"}))["needsCalc"], json!(true));
+        assert_eq!(
+            run(&mut e, &json!({"cmd": "calcOptions"}))["needsCalc"],
+            json!(true)
+        );
         // F9: 10 + 2.
         run(&mut e, &json!({"cmd": "calculate"}));
         assert_eq!(e.cell(0, 3, 0).unwrap().display, "12");

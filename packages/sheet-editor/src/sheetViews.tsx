@@ -514,6 +514,7 @@ function LayoutPage({
   revision,
   onCell,
   onHeaderFooter,
+  active,
   fail,
 }: {
   host: SheetHost;
@@ -525,6 +526,8 @@ function LayoutPage({
   revision: number;
   onCell: (row: number, col: number) => void;
   onHeaderFooter: () => void;
+  /** The active cell, outlined when this page prints it. */
+  active?: { row: number; col: number };
   fail: (e: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -560,6 +563,32 @@ function LayoutPage({
       live = false;
     };
   }, [host, glyphs, sheet, index, scale, revision, visible, fail]);
+  // The active cell's box on this page.
+  const [mark, setMark] = useState<ScreenRect | null>(null);
+  const cells = page.cells;
+  const on =
+    !!active &&
+    !!cells &&
+    active.row >= cells.r0 &&
+    active.row <= cells.r1 &&
+    active.col >= cells.c0 &&
+    active.col <= cells.c1;
+  const ar = active?.row ?? -1;
+  const ac = active?.col ?? -1;
+  useEffect(() => {
+    if (!on) {
+      setMark(null);
+      return;
+    }
+    let live = true;
+    void host
+      .exec<ScreenRect | null>({ cmd: 'pageCellRect', sheet, page: index, row: ar, col: ac })
+      .then((r) => live && setMark(r))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [host, sheet, index, on, ar, ac, revision]);
   const [ml, mr, mt, mb, mh, mf] = page.margins;
   const w = page.width * scale;
   const h = page.height * scale;
@@ -581,6 +610,18 @@ function LayoutPage({
       onClick={click}
     >
       <canvas ref={canvas} style={{ width: w, height: h }} />
+      {mark && (
+        <div
+          className={css.activeCell}
+          data-testid={`page-layout-active-${index}`}
+          style={{
+            left: mark.x * scale,
+            top: mark.y * scale,
+            width: mark.w * scale,
+            height: mark.h * scale,
+          }}
+        />
+      )}
       <div
         className={css.margins}
         style={{ left: ml * scale, top: mt * scale, right: mr * scale, bottom: mb * scale }}
@@ -633,6 +674,7 @@ export function PageLayoutView({
   onHeaderFooter,
   onKeyDown,
   regionRef,
+  active,
   fail,
 }: {
   host: SheetHost;
@@ -645,6 +687,8 @@ export function PageLayoutView({
   onKeyDown?: (e: ReactKeyboardEvent<HTMLDivElement>) => void;
   /** Receives the focusable pages element (the editor returns the focus to it). */
   regionRef?: MutableRefObject<HTMLDivElement | null>;
+  /** The active cell (outlined on its page). */
+  active?: { row: number; col: number };
   fail: (e: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -683,6 +727,7 @@ export function PageLayoutView({
           revision={revision}
           onCell={onCell}
           onHeaderFooter={onHeaderFooter}
+          active={active}
           fail={fail}
         />
       ))}

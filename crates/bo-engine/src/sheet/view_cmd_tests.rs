@@ -215,6 +215,41 @@ fn view_type_show_formulas_and_zoom() {
 }
 
 #[test]
+fn page_cell_rect_inverts_page_hit() {
+    let mut e = hundred_rows();
+    // A4 portrait, default margins: A1 at the left / top margin (0.7 in, 0.75 in).
+    let r = run(
+        &mut e,
+        json!({ "cmd": "pageCellRect", "sheet": 0, "page": 0, "row": 0, "col": 0 }),
+    );
+    assert!((r["x"].as_f64().unwrap() - 50.4).abs() < 1e-6, "{r}");
+    assert!((r["y"].as_f64().unwrap() - 54.0).abs() < 1e-6, "{r}");
+    assert!((r["h"].as_f64().unwrap() - 20.0).abs() < 1e-6, "{r}");
+    // Row 38 (index 37) is the second row of page 2: 20 pt below its top margin.
+    let r = run(
+        &mut e,
+        json!({ "cmd": "pageCellRect", "sheet": 0, "page": 1, "row": 37, "col": 0 }),
+    );
+    assert!((r["y"].as_f64().unwrap() - 74.0).abs() < 1e-6, "{r}");
+    // The middle of that rectangle hits the same cell.
+    let (x, y) = (
+        r["x"].as_f64().unwrap() + r["w"].as_f64().unwrap() / 2.0,
+        r["y"].as_f64().unwrap() + 10.0,
+    );
+    let hit = run(
+        &mut e,
+        json!({ "cmd": "pageHit", "sheet": 0, "page": 1, "x": x, "y": y }),
+    );
+    assert_eq!(hit, json!({ "row": 37, "col": 0 }));
+    // Not on that page.
+    let none = run(
+        &mut e,
+        json!({ "cmd": "pageCellRect", "sheet": 0, "page": 0, "row": 37, "col": 0 }),
+    );
+    assert!(none.is_null());
+}
+
+#[test]
 fn page_layout_and_hit_test() {
     let mut e = hundred_rows();
     let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));

@@ -96,6 +96,8 @@ export type SheetViewCommand =
       outlineSymbols?: boolean;
       zoom?: number;
     }
+  /** Cell rectangle on a page of the page layout view (points) → `{ x, y, w, h }` | `null`. */
+  | { cmd: 'pageCellRect'; sheet: number; page: number; row: number; col: number }
   /** → {@link BreakPreview}. */
   | { cmd: 'pageBreakPreview'; sheet: number }
   /** Moves (or with no `from`, inserts) a break; one undo step → `{ scale: number | null }`. */

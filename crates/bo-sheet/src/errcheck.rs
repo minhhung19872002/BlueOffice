@@ -417,10 +417,12 @@ pub fn set_cell_watches(ws: &mut Worksheet, cells: &[CellRef]) -> bool {
     }
     ws.unknown.retain(|x| !is_cell_watches(x));
     if !cells.is_empty() {
-        let items: String = cells
-            .iter()
-            .map(|c| format!("<cellWatch r=\"{}\"/>", escape(&c.to_string())))
-            .collect();
+        let mut items = String::new();
+        for c in cells {
+            items.push_str("<cellWatch r=\"");
+            items.push_str(&escape(&c.to_string()));
+            items.push_str("\"/>");
+        }
         ws.unknown.push(RawXml {
             after: "cellWatches".into(),
             xml: format!("<cellWatches>{items}</cellWatches>"),

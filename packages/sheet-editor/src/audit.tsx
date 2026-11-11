@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { a1, type Range } from './grid';
+import { ConfirmDialog } from './homeControls';
 import styles from './SheetEditor.module.css';
 import css from './audit.module.css';
 
@@ -920,6 +921,9 @@ export function CalcOptionsDialog({
   const [count, setCount] = useState('100');
   const [delta, setDelta] = useState('0.001');
   const [error, setError] = useState('');
+  // Turning precision as displayed on asks first, like the spreadsheet users know:
+  // stored numbers are rounded for good.
+  const [askPrecision, setAskPrecision] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void host
@@ -1044,7 +1048,10 @@ export function CalcOptionsDialog({
               type="checkbox"
               data-testid="calc-precision"
               checked={!opts.fullPrecision}
-              onChange={(e) => setOpts({ ...opts, fullPrecision: !e.target.checked })}
+              onChange={(e) => {
+                if (e.target.checked) setAskPrecision(true);
+                else setOpts({ ...opts, fullPrecision: true });
+              }}
             />
             {t('sheetAudit.opts.precision')}
           </label>
@@ -1055,6 +1062,18 @@ export function CalcOptionsDialog({
             <p className={styles.error} role="alert" data-testid="calc-error">
               {error}
             </p>
+          )}
+          {askPrecision && (
+            <ConfirmDialog
+              title={t('sheetAudit.opts.precisionConfirmTitle')}
+              message={t('sheetAudit.opts.precisionConfirm')}
+              testId="calc-precision-confirm"
+              onClose={() => setAskPrecision(false)}
+              onOk={() => {
+                setAskPrecision(false);
+                setOpts({ ...opts, fullPrecision: false });
+              }}
+            />
           )}
         </div>
       )}

@@ -275,6 +275,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
   type ReactNode,
 } from 'react';
 import {
@@ -403,6 +404,7 @@ import {
 import { ProtectSheetDialog, UnprotectDialog } from './protection';
 import { ScenarioDialog } from './scenarios';
 import {
+  EditSparklineDataDialog,
   InsertSparklinesDialog,
   SparklineOptionsDialog,
   groupAt,
@@ -790,6 +792,8 @@ type DialogState =
   | { kind: 'cells'; insert: boolean }
   /** Merging several filled cells keeps only the upper-left value. */
   | { kind: 'mergeWarn'; center: boolean; across: boolean }
+  /** Writing over cells that hold data: asked first, `run` does the write. */
+  | { kind: 'replaceWarn'; run: () => void }
   /** Create table: its range and whether the first row holds the names. */
   | { kind: 'table'; range: string; headers: boolean }
   | { kind: 'sort' }
@@ -810,6 +814,7 @@ type DialogState =
   | { kind: 'scenarios' }
   | { kind: 'sparklineInsert' }
   | { kind: 'sparklineOptions' }
+  | { kind: 'sparklineData'; single?: boolean }
   | { kind: 'tableRename' }
   | { kind: 'tableResize' }
   | { kind: 'tableTotals' }
@@ -1911,10 +1916,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // Keep the hidden/visible cell input focused so IME composition starts in it.
   const focusInput = useCallback(() => {
-    // Page layout view: the pages take the keys (the grid is not shown).
+    // Page layout view: the pages take the keys (the grid is not shown), or the cell
+    // editor drawn on a page while a cell is edited there.
     const pages = pageLayoutRef.current;
     if (pages?.isConnected) {
-      pages.focus({ preventScroll: true });
+      const cell = inputRef.current;
+      (cell && pages.contains(cell) ? cell : pages).focus({ preventScroll: true });
       return;
     }
     // Right away, so keys typed straight after (Name Box Enter, a click) reach the
@@ -2120,6 +2127,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     exec,
   });
   const { mode: viewMode, setMode: setViewMode, toggleFormulas, toggleOutlineSymbols } = sheetViews;
+  // Page layout view: when the editor drawn on a page goes away (Enter, Esc), the keys
+  // go back to the pages.
+  const editingNow = !!edit;
+  useEffect(() => {
+    if (viewMode !== 'pageLayout' || editingNow) return;
+    const a = document.activeElement;
+    if (!a || a === document.body) pageLayoutRef.current?.focus({ preventScroll: true });
+  }, [viewMode, editingNow]);
   const showingFormulas = !!sheetViews.state?.showFormulas;
   // The outline bar beside the grid (SHEET-DATA-002), unless hidden (Ctrl+8).
   const outlineShown = sheetViews.state?.outlineSymbols ?? true;
@@ -3790,6 +3805,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       exec: (cmd) => exec(cmd),
       openInsert: () => setDialog({ kind: 'sparklineInsert' }),
       openOptions: () => setDialog({ kind: 'sparklineOptions' }),
+      openEditData: (mode) =>
+        setDialog(
+          mode === 'single' ? { kind: 'sparklineData', single: true } : { kind: 'sparklineData' },
+        ),
     });
     registerTableCommands(add, {
       exec: (cmd) => exec(cmd),
@@ -5852,15 +5871,27 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         // One undo step: cut (or, with Ctrl, copy) and paste at the drop place; the moved
         // cells stay selected.
         const copy = e.ctrlKey || e.metaKey;
-        void exec({
-          cmd: 'batch',
-          cmds: [
-            { cmd: 'copy', sheet, range: toRange(d.source), cut: !copy },
-            { cmd: 'paste', sheet, row: to.r0, col: to.c0 },
-          ],
-        }).then((r) => {
-          if (r !== null)
-            setSelection(span({ row: to.r0, col: to.c0 }, { row: to.r1, col: to.c1 }));
+        const drop = () =>
+          void exec({
+            cmd: 'batch',
+            cmds: [
+              { cmd: 'copy', sheet, range: toRange(d.source), cut: !copy },
+              { cmd: 'paste', sheet, row: to.r0, col: to.c0 },
+            ],
+          }).then((r) => {
+            if (r !== null)
+              setSelection(span({ row: to.r0, col: to.c0 }, { row: to.r1, col: to.c1 }));
+          });
+        // Dropping onto cells that hold data asks first (the dragged cells themselves
+        // do not count).
+        void query<boolean>({
+          cmd: 'occupied',
+          sheet,
+          range: toRange(to),
+          except: toRange(d.source),
+        }).then((busy) => {
+          if (busy) setDialog({ kind: 'replaceWarn', run: drop });
+          else drop();
         });
       }
     } else if (d.kind === 'select' && painter) {
@@ -7418,6 +7449,53 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const cellMode = edit ? (edit.inPlace ? 'edit' : 'enter') : 'ready';
   // The cell editor shows on the edited cell's sheet (not while picking on another one).
   const editHere = !!edit && (edit.sheet ?? sheet) === sheet;
+  // Page layout view: the cell editor is drawn over the cell on its page (the grid and
+  // its editor are hidden); it is the cell input while it is shown.
+  const pageEditing = viewMode === 'pageLayout' && editHere;
+  const pageEditor =
+    pageEditing && edit
+      ? (fontScale: number) => (
+          <textarea
+            ref={(el) => {
+              (inputRef as MutableRefObject<HTMLTextAreaElement | null>).current = el;
+              if (el && !el.dataset.ready) {
+                el.dataset.ready = '1';
+                el.value = edit.text;
+                if (edit.inPlace) {
+                  lastInput.current = 'cell';
+                  el.focus({ preventScroll: true });
+                  el.setSelectionRange(el.value.length, el.value.length);
+                }
+              }
+            }}
+            rows={1}
+            data-testid="page-layout-cell-editor"
+            aria-label={t('sheetEditor.cellEditor')}
+            style={{ fontSize: 11 * fontScale }}
+            autoComplete="off"
+            spellCheck={false}
+            onFocus={() => {
+              lastInput.current = 'cell';
+            }}
+            onKeyDown={onKeyDown}
+            onSelect={(e) => setCaret(e.currentTarget.selectionEnd ?? 0)}
+            onInput={(e) =>
+              onInput(
+                e.currentTarget.value,
+                e.currentTarget,
+                (e.nativeEvent as InputEvent).inputType,
+              )
+            }
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={(e) => {
+              composing.current = false;
+              onInput(e.currentTarget.value, e.currentTarget);
+            }}
+          />
+        )
+      : undefined;
   // Overlays computed for the current text / mark only (older answers are ignored).
   const shownRefBoxes =
     edit && refBoxes && refBoxes.text === edit.text && refBoxes.sheet === (summary?.name ?? '')
@@ -7808,9 +7886,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             revision={revision}
             zoom={zoom}
             onCell={(row, col) => setSelection(single({ row, col }))}
+            onCellDouble={(row, col) => {
+              // Double-click edits the cell in place, on the page.
+              const pos = { row, col };
+              setSelection(single(pos));
+              void host.cell(sheet, row, col).then((c) => {
+                const text = editableInput(c);
+                setEdit({ pos, text, inPlace: true, sheet });
+                setBarText(text);
+              });
+            }}
             onHeaderFooter={() => setDialog({ kind: 'pageSetup' })}
             regionRef={pageLayoutRef}
             active={selection.active}
+            {...(pageEditor ? { editor: pageEditor } : {})}
             onKeyDown={(e) => {
               const c = registry.match(e);
               if (c) {
@@ -7832,13 +7921,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 e.preventDefault();
                 setSelection((cur) => move(cur, dir, e.shiftKey, 1, hidden));
               } else if (e.key.length === 1 || e.key === 'F2') {
+                // Typing on the page edits the selected cell in place (the editor is
+                // drawn over the cell on its page and takes the keys).
                 e.preventDefault();
-                void startEdit(true, e.key === 'F2' ? undefined : e.key).then(() => {
-                  const bar = barRef.current;
-                  if (!bar) return;
-                  bar.focus();
-                  bar.setSelectionRange(bar.value.length, bar.value.length);
-                });
+                void startEdit(true, e.key === 'F2' ? undefined : e.key);
               }
             }}
             fail={fail}
@@ -8358,48 +8444,50 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   )
                 </div>
               )}
-              <textarea
-                ref={inputRef}
-                rows={1}
-                className={editHere ? styles.cellEditorActive : styles.cellEditor}
-                data-coloured={editorRefs.length > 0 || undefined}
-                onFocus={() => {
-                  lastInput.current = 'cell';
-                }}
-                aria-label={t('sheetEditor.cellEditor')}
-                style={
-                  activeRect && edit
-                    ? cellEditorLayout(activeRect, edit, editLines).style
-                    : activeRect
-                      ? {
-                          left: activeRect.x,
-                          top: activeRect.y,
-                          minWidth: activeRect.w,
-                          height: activeRect.h,
-                          fontSize: 11 * scale,
-                        }
-                      : { left: -9999, top: 0 }
-                }
-                autoComplete="off"
-                spellCheck={false}
-                onKeyDown={onKeyDown}
-                onSelect={(e) => setCaret(e.currentTarget.selectionEnd ?? 0)}
-                onInput={(e) =>
-                  onInput(
-                    e.currentTarget.value,
-                    e.currentTarget,
-                    (e.nativeEvent as InputEvent).inputType,
-                  )
-                }
-                onCompositionStart={() => {
-                  composing.current = true;
-                  if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false, sheet });
-                }}
-                onCompositionEnd={(e) => {
-                  composing.current = false;
-                  onInput(e.currentTarget.value, e.currentTarget);
-                }}
-              />
+              {!pageEditing && (
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  className={editHere ? styles.cellEditorActive : styles.cellEditor}
+                  data-coloured={editorRefs.length > 0 || undefined}
+                  onFocus={() => {
+                    lastInput.current = 'cell';
+                  }}
+                  aria-label={t('sheetEditor.cellEditor')}
+                  style={
+                    activeRect && edit
+                      ? cellEditorLayout(activeRect, edit, editLines).style
+                      : activeRect
+                        ? {
+                            left: activeRect.x,
+                            top: activeRect.y,
+                            minWidth: activeRect.w,
+                            height: activeRect.h,
+                            fontSize: 11 * scale,
+                          }
+                        : { left: -9999, top: 0 }
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  onKeyDown={onKeyDown}
+                  onSelect={(e) => setCaret(e.currentTarget.selectionEnd ?? 0)}
+                  onInput={(e) =>
+                    onInput(
+                      e.currentTarget.value,
+                      e.currentTarget,
+                      (e.nativeEvent as InputEvent).inputType,
+                    )
+                  }
+                  onCompositionStart={() => {
+                    composing.current = true;
+                    if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false, sheet });
+                  }}
+                  onCompositionEnd={(e) => {
+                    composing.current = false;
+                    onInput(e.currentTarget.value, e.currentTarget);
+                  }}
+                />
+              )}
             </div>
             <div style={{ width: content.w * scale, height: content.h * scale }} />
           </div>
@@ -9092,6 +9180,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           }}
         />
       )}
+      {dialog?.kind === 'replaceWarn' && (
+        <ConfirmDialog
+          title={t('sheetEditor.replaceWarn.title')}
+          message={t('sheetEditor.replaceWarn.message')}
+          testId="replace-warning"
+          onClose={common.onClose}
+          onOk={() => {
+            const { run } = dialog;
+            common.onClose();
+            run();
+          }}
+        />
+      )}
       {dialog?.kind === 'mergeWarn' && (
         <ConfirmDialog
           title={t('sheetEditor.mergeWarn.title')}
@@ -9351,6 +9452,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <InsertSparklinesDialog
           sheet={sheet}
           selection={rangeOf(selection)}
+          exec={(cmd) => exec(cmd)}
+          onClose={common.onClose}
+        />
+      )}
+      {dialog?.kind === 'sparklineData' && sparkGroup && (
+        <EditSparklineDataDialog
+          sheet={sheet}
+          group={sparkGroup}
+          {...(dialog.single ? { single: selection.active } : {})}
           exec={(cmd) => exec(cmd)}
           onClose={common.onClose}
         />

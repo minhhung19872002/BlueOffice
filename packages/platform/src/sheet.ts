@@ -859,6 +859,8 @@ export type SheetCommand =
     }
   | { cmd: 'showAllData'; sheet: number }
   | { cmd: 'region'; sheet: number; range: SheetRange }
+  /** Whether a cell of `range` outside `except` holds data (answer `boolean`): asked before writing over cells. */
+  | { cmd: 'occupied'; sheet: number; range: SheetRange; except?: SheetRange | null }
   /** Where Ctrl+arrow lands from a cell (answer `{ row, col }`). */
   | {
       cmd: 'dataEdge';
@@ -1123,7 +1125,7 @@ export type SheetCommand =
     } & PrintSetupExtra)
   | { cmd: 'pageBreak'; sheet: number; row?: number; col?: number; remove?: boolean }
   | { cmd: 'resetPageBreaks'; sheet: number }
-  | { cmd: 'printPreview'; sheet: number; page?: number }
+  | { cmd: 'printPreview'; sheet: number; page?: number; layout?: boolean }
   | { cmd: 'setSavePassword'; password?: string }
   /** Package variant of the next `.xlsx` saves → `{ ok, variant }` / `{ ok: false, error }`. */
   | { cmd: 'saveFormat'; ext: string }

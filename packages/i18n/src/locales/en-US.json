@@ -1809,7 +1809,9 @@
         "errors": {
           "oneColumn": "Select cells in a single column.",
           "tooLarge": "The result does not fit on the sheet."
-        }
+        },
+        "ruler": "Break lines over the text",
+        "rulerHint": "Click the text to add a break line, drag a line to move it, drag it out of the text or double-click it to remove it."
       },
       "dedupe": {
         "title": "Delete repeated rows",
@@ -2184,6 +2186,10 @@
     },
     "smartArt": {
       "delete": "Delete smart diagram"
+    },
+    "replaceWarn": {
+      "title": "Replace cell contents",
+      "message": "The cells where the data goes are not empty. Replace their contents?"
     }
   },
   "recovery": {
@@ -5151,6 +5157,8 @@
       "maxChange": "Stop when values change by less than",
       "precision": "Calculate with the precision shown",
       "precisionWarn": "Numbers will permanently lose accuracy: stored numbers are rounded to the decimals their format shows (one undo step).",
+      "precisionConfirmTitle": "Precision as displayed",
+      "precisionConfirm": "Stored numbers will be rounded to the decimals their format shows. The lost digits cannot be recovered.",
       "invalid": "Enter a whole number of iterations from 1 to {{max}} and a change of 0 or more."
     }
   },
@@ -5547,7 +5555,14 @@
     "clear": "Clear",
     "clearGroup": "Clear group",
     "invalidRange": "Enter a valid cell range.",
-    "minMax": "The minimum must be less than the maximum."
+    "minMax": "The minimum must be less than the maximum.",
+    "groupData": "Data",
+    "editData": "Edit data",
+    "editSingle": "This sparkline's data",
+    "switch": "Switch rows and columns",
+    "editDataTitle": "Edit sparkline group data and location",
+    "editSingleTitle": "Edit the data of this sparkline",
+    "singleHint": "One row or one column, for example A2:D2 or Sheet2!A2:D2"
   },
   "cite": {
     "style": "Style",

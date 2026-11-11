@@ -1,10 +1,14 @@
 // @vitest-environment happy-dom
 import { createI18n, I18nextProvider } from '@blueoffice/i18n';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SheetCommand, SparklineGroupInfo } from '@blueoffice/platform';
 import {
+  EditSparklineDataDialog,
   InsertSparklinesDialog,
+  dataBlock,
+  groupLocation,
   SparklineOptionsDialog,
   groupAt,
   optionsPatch,
@@ -90,6 +94,68 @@ describe('helpers', () => {
   });
 });
 
+describe('EditSparklineDataDialog', () => {
+  const wrap = (n: ReactNode) => render(<I18nextProvider i18n={i18n}>{n}</I18nextProvider>);
+
+  it('proposes the block of data and the cells of the group', async () => {
+    expect(dataBlock(['Sheet1!A1:D1', 'Sheet1!A2:D2'])).toBe('Sheet1!A1:D2');
+    expect(dataBlock(["'Bảng 1'!A1:A3", "'Bảng 1'!B1:B3"])).toBe("'Bảng 1'!A1:B3");
+    expect(dataBlock(['Sheet1!A1:D1', 'Sheet2!A2:D2'])).toBe('');
+    expect(groupLocation(group())).toEqual({ r0: 0, c0: 5, r1: 1, c1: 5 });
+    const exec = vi.fn(async (_c: SheetCommand) => ({ ok: true }));
+    const onClose = vi.fn();
+    wrap(<EditSparklineDataDialog sheet={0} group={group()} exec={exec} onClose={onClose} />);
+    expect((screen.getByTestId('sparkline-edit-data-range') as HTMLInputElement).value).toBe(
+      'Sheet1!A1:D2',
+    );
+    expect((screen.getByTestId('sparkline-edit-data-location') as HTMLInputElement).value).toBe(
+      'F1:F2',
+    );
+    fireEvent.change(screen.getByTestId('sparkline-edit-data-location'), {
+      target: { value: 'G1:G2' },
+    });
+    fireEvent.click(screen.getByTestId('sparkline-edit-data-ok'));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(exec).toHaveBeenCalledWith({
+      cmd: 'sparklineData',
+      sheet: 0,
+      group: 0,
+      data: 'Sheet1!A1:D2',
+      location: { r0: 0, c0: 6, r1: 1, c1: 6 },
+    });
+  });
+
+  it('edits the data of one sparkline', async () => {
+    const exec = vi.fn(async (_c: SheetCommand) => ({ ok: true }));
+    const onClose = vi.fn();
+    wrap(
+      <EditSparklineDataDialog
+        sheet={1}
+        group={group()}
+        single={{ row: 1, col: 5 }}
+        exec={exec}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.queryByTestId('sparkline-edit-data-location')).toBeNull();
+    const input = screen.getByTestId('sparkline-edit-data-range') as HTMLInputElement;
+    expect(input.value).toBe('Sheet1!A2:D2');
+    fireEvent.change(input, { target: { value: '???' } });
+    fireEvent.click(screen.getByTestId('sparkline-edit-data-ok'));
+    expect(screen.getByRole('alert').textContent).toBe('Enter a valid cell range.');
+    fireEvent.change(input, { target: { value: 'B2:E2' } });
+    fireEvent.click(screen.getByTestId('sparkline-edit-data-ok'));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(exec).toHaveBeenCalledWith({
+      cmd: 'sparklineSingleData',
+      sheet: 1,
+      row: 1,
+      col: 5,
+      data: 'B2:E2',
+    });
+  });
+});
+
 describe('commands', () => {
   type St = { sheet: number; hasWorkbook: boolean; sparkline: SparklineGroupInfo | null };
   function setup(current: SparklineGroupInfo | null) {
@@ -103,15 +169,31 @@ describe('commands', () => {
     >();
     const exec = vi.fn(async (_c: SheetCommand) => ({ ok: true }));
     const openInsert = vi.fn();
+    const openEditData = vi.fn();
     registerSparklineCommands<St>((id, run, extra) => cmds.set(id, { run, ...extra }), {
       range: () => ({ r0: 0, c0: 5, r1: 1, c1: 5 }),
       exec,
       openInsert,
       openOptions: vi.fn(),
+      openEditData,
     });
     const st: St = { sheet: 2, hasWorkbook: true, sparkline: current };
-    return { cmds, exec, openInsert, st };
+    return { cmds, exec, openInsert, openEditData, st };
   }
+
+  it('opens Edit data and switches rows and columns', async () => {
+    const { cmds, exec, openEditData, st } = setup(group());
+    await cmds.get('sparkline.editData')?.run(st);
+    expect(openEditData).toHaveBeenLastCalledWith('group');
+    await cmds.get('sparkline.editSingle')?.run(st);
+    expect(openEditData).toHaveBeenLastCalledWith('single');
+    await cmds.get('sparkline.switch')?.run(st);
+    expect(exec).toHaveBeenLastCalledWith({ cmd: 'sparklineSwitch', sheet: 2, group: 0 });
+    // One sparkline: nothing to switch.
+    const one = group({ sparklines: [{ formula: 'Sheet1!A1:D1', location: { row: 0, col: 5 } }] });
+    expect(cmds.get('sparkline.switch')?.isEnabled?.({ ...st, sparkline: one })).toBe(false);
+    expect(cmds.get('sparkline.editData')?.isEnabled?.({ ...st, sparkline: null })).toBe(false);
+  });
 
   it('toggles flags and switches the type of the current group', async () => {
     const { cmds, exec, st } = setup(group());

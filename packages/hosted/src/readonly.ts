@@ -141,6 +141,7 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'presets',
   'formatState',
   'region',
+  'occupied',
   'dataEdge',
   'columnEntries',
   'filterValues',

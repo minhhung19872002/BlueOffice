@@ -276,6 +276,59 @@ fn page_layout_and_hit_test() {
 }
 
 #[test]
+fn page_layout_fills_the_page_with_cells() {
+    let mut e = hundred_rows();
+    let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));
+    let pages = r["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 3);
+    // The last page holds rows 73–100, then empty rows down to the bottom margin:
+    // (842 − 2 × 54) pt / 20 pt = 36 rows a page → rows 72..=107.
+    let c = &pages[2]["cells"];
+    assert_eq!((c["r0"].clone(), c["r1"].clone()), (json!(72), json!(107)));
+    // Across: as many columns as fit in 595 − 2 × 50.4 = 494.2 pt.
+    let g = e.geometry(0).unwrap().clone();
+    let (mut used, mut last) = (0.0, 0);
+    for col in 0..100 {
+        let w = g.col_width(col);
+        if used + w > 494.2 + 0.01 {
+            break;
+        }
+        used += w;
+        last = col;
+    }
+    assert!(last > 0);
+    assert_eq!(c["c1"], json!(last));
+    // Typing below the data on the last page: the hit lands on an empty row.
+    let (x, y) = (c["x"].as_f64().unwrap(), c["y"].as_f64().unwrap());
+    let h = run(
+        &mut e,
+        json!({ "cmd": "pageHit", "sheet": 0, "page": 2, "x": x + 5.0, "y": y + 30.0 * 20.0 + 1.0 }),
+    );
+    assert_eq!(h, json!({ "row": 102, "col": 0 }));
+    // An empty sheet: nothing to print, one page of empty cells in the layout view.
+    let mut e = engine();
+    let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));
+    assert_eq!(r["pages"].as_array().unwrap().len(), 1);
+    assert_eq!(r["pages"][0]["cells"]["r0"], json!(0));
+    assert!(r["pages"][0]["cells"]["r1"].as_u64().unwrap() > 20);
+    let p = run(&mut e, json!({ "cmd": "printPreview", "sheet": 0 }));
+    assert_eq!(p["pages"], json!(0));
+    let p = run(
+        &mut e,
+        json!({ "cmd": "printPreview", "sheet": 0, "layout": true }),
+    );
+    assert_eq!(p["pages"], json!(1));
+    // The sheet's own gridlines are drawn on the layout page (printing them is off).
+    let lines = p["page"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["op"] == "line")
+        .count();
+    assert!(lines > 20, "gridlines on the layout page: {lines}");
+}
+
+#[test]
 fn custom_views_save_apply_delete() {
     let mut e = hundred_rows();
     // Hidden row 5 (index 4), landscape, zoom 75 % with C4 active.

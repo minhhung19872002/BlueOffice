@@ -528,6 +528,17 @@ pub enum SheetCommand {
         /// Selected range.
         range: Rng,
     },
+    /// Whether any cell of `range` outside `except` holds data (read only): what a
+    /// command that writes over cells asks about first ("replace the data here?").
+    Occupied {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Cells about to be written.
+        range: Rng,
+        /// Cells the command reads from (overwriting them is expected).
+        #[serde(default)]
+        except: Option<Rng>,
+    },
     /// Where Ctrl+arrow lands from a cell (read only): the edge of the block of data, or
     /// the next filled cell, or the sheet edge (`{ "row", "col" }`).
     DataEdge {
@@ -1228,6 +1239,9 @@ pub enum SheetCommand {
         /// 0-based page index (clamped to the last page).
         #[serde(default)]
         page: usize,
+        /// The page as the page layout view shows it (full-page grid, screen gridlines).
+        #[serde(default)]
+        layout: bool,
     },
     /// Apply the theme of a theme file (`.thmx`) or of another document, workbook or
     /// presentation (base64 bytes; CORE-FMT-001). `{ok:false,error:"noTheme"}` when
@@ -1583,6 +1597,36 @@ pub enum SheetCommand {
         /// Remove every group with a sparkline in the range.
         #[serde(default)]
         whole_groups: bool,
+    },
+    /// Edit group location and data: the group shows `data` in `location` (settings
+    /// kept). One undo step.
+    SparklineData {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Group index (from `sparklines`).
+        group: usize,
+        /// Data range (A1, optionally sheet-qualified).
+        data: String,
+        /// Cells that show the sparklines.
+        location: Rng,
+    },
+    /// Edit the data of the sparkline in one cell. One undo step.
+    SparklineSingleData {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row of the sparkline.
+        row: u32,
+        /// 0-based column of the sparkline.
+        col: u32,
+        /// Data range (one row or column, optionally sheet-qualified).
+        data: String,
+    },
+    /// Split a group's data the other way (rows ↔ columns). One undo step.
+    SparklineSwitch {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Group index (from `sparklines`).
+        group: usize,
     },
     /// Timelines of a sheet with their periods and anchors.
     Timelines {
@@ -2572,6 +2616,9 @@ impl SheetEngine {
             | C::SparklineGroup { sheet, .. }
             | C::SparklineUngroup { sheet, .. }
             | C::SparklineClear { sheet, .. }
+            | C::SparklineData { sheet, .. }
+            | C::SparklineSingleData { sheet, .. }
+            | C::SparklineSwitch { sheet, .. }
             | C::InsertSlicer { sheet, .. }
             | C::InsertPivotSlicer { sheet, .. }
             | C::SlicerOptions { sheet, .. }
@@ -3118,6 +3165,19 @@ impl SheetEngine {
                 range,
                 whole_groups,
             } => self.sparkline_clear(sheet, range, whole_groups),
+            C::SparklineData {
+                sheet,
+                group,
+                data,
+                location,
+            } => self.sparkline_data(sheet, group, &data, location),
+            C::SparklineSingleData {
+                sheet,
+                row,
+                col,
+                data,
+            } => self.sparkline_single_data(sheet, row, col, &data),
+            C::SparklineSwitch { sheet, group } => self.sparkline_switch(sheet, group),
             C::Timelines { sheet } => self.timelines_list(sheet),
             C::InsertPivotSlicer {
                 sheet,
@@ -3582,6 +3642,24 @@ impl SheetEngine {
                     serde_json::to_value(Rng::of(current_region(ws, range.range())))
                         .unwrap_or(Value::Null),
                 )
+            }
+            C::Occupied {
+                sheet,
+                range,
+                except,
+            } => {
+                let ws = self.sheet(sheet)?;
+                let r = range.range();
+                let skip = except.map(Rng::range);
+                let found = ws
+                    .cells
+                    .range((r.first.row, 0)..=(r.last.row, u32::MAX))
+                    .any(|(&(rr, cc), cell)| {
+                        r.contains(CellRef::new(rr, cc))
+                            && non_empty(cell)
+                            && !skip.is_some_and(|x| x.contains(CellRef::new(rr, cc)))
+                    });
+                Ok(json!(found))
             }
             C::DataEdge {
                 sheet,
@@ -4483,7 +4561,11 @@ impl SheetEngine {
                     "extra": super::print_cmd::extra_json(ws),
                 }))
             }
-            C::PrintPreview { sheet, page } => self.print_preview(sheet, page),
+            C::PrintPreview {
+                sheet,
+                page,
+                layout,
+            } => self.print_preview(sheet, page, layout),
             C::PivotSource { sheet, range } => {
                 let ws = self.sheet(sheet)?;
                 let r = current_region(ws, range.range());
@@ -5960,6 +6042,34 @@ mod tests {
             back.info().unwrap().sheets[0].merges,
             Vec::<[u32; 4]>::new()
         );
+    }
+
+    #[test]
+    fn occupied_finds_data_outside_the_source() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "a,b").unwrap();
+        e.set_input(0, 1, 0, "c,d").unwrap();
+        let mut occupied = |r1: u32, c1: u32, except: Value| {
+            run(
+                &mut e,
+                json!({ "cmd": "occupied", "sheet": 0,
+                    "range": { "r0": 0, "c0": 0, "r1": r1, "c1": c1 }, "except": except }),
+            )
+        };
+        // A1:B2 minus the source A1:A2: column B is empty.
+        let src = json!({ "r0": 0, "c0": 0, "r1": 1, "c1": 0 });
+        assert_eq!(occupied(1, 1, src.clone()), json!(false));
+        // Without the exception the source itself counts.
+        assert_eq!(occupied(1, 1, Value::Null), json!(true));
+        e.set_input(0, 1, 1, "x").unwrap();
+        let mut occupied = |r1: u32, c1: u32, except: Value| {
+            run(
+                &mut e,
+                json!({ "cmd": "occupied", "sheet": 0,
+                    "range": { "r0": 0, "c0": 0, "r1": r1, "c1": c1 }, "except": except }),
+            )
+        };
+        assert_eq!(occupied(1, 1, src), json!(true));
     }
 
     #[test]

@@ -661,6 +661,29 @@ pub fn insert(
     data: &str,
     location: CellRange,
 ) -> Result<usize, String> {
+    let sparklines = layout(wb, sheet, data, location, None)?;
+    let ws = &mut wb.sheets[sheet];
+    remove_at(ws, |c| location.contains(c));
+    ws.sparkline_groups.push(SparklineGroup {
+        kind,
+        sparklines,
+        empty_as: SparklineEmpty::Gap,
+        line_weight: Some(DEFAULT_WEIGHT),
+        colors: default_colors(),
+        ..SparklineGroup::default()
+    });
+    Ok(ws.sparkline_groups.len() - 1)
+}
+
+/// The sparklines of `data` shown in `location` (see [`insert`]); `by_rows` forces how a
+/// data range that fits both ways is split ("switch row / column"): `prefer_rows`.
+fn layout(
+    wb: &Workbook,
+    sheet: usize,
+    data: &str,
+    location: CellRange,
+    prefer_rows: Option<bool>,
+) -> Result<Vec<Sparkline>, String> {
     let (dsheet, dr) =
         resolve_ref(wb, sheet, data).ok_or_else(|| "invalid data range".to_owned())?;
     let dname = quote_sheet(&wb.sheets.get(dsheet).ok_or("no such sheet")?.name);
@@ -716,10 +739,10 @@ pub fn insert(
         let rows_fit = drows == n;
         let cols_fit = dcols == n;
         // A location row pairs with data columns first, a location column with data rows.
-        let use_rows = if lrows > 1 {
-            rows_fit
-        } else {
-            !cols_fit && rows_fit
+        let use_rows = match prefer_rows {
+            Some(r) if (r && rows_fit) || (!r && cols_fit) => r,
+            _ if lrows > 1 => rows_fit,
+            _ => !cols_fit && rows_fit,
         };
         if use_rows {
             (0..n).map(by_rows).collect()
@@ -729,24 +752,105 @@ pub fn insert(
             return Err("the data does not match the location range".into());
         }
     };
-    let ws = &mut wb.sheets[sheet];
-    remove_at(ws, |c| location.contains(c));
-    ws.sparkline_groups.push(SparklineGroup {
-        kind,
-        sparklines: locations
-            .iter()
-            .zip(&ranges)
-            .map(|(loc, r)| Sparkline {
-                formula: Some(range_text(*r)),
-                location: *loc,
-            })
-            .collect(),
-        empty_as: SparklineEmpty::Gap,
-        line_weight: Some(DEFAULT_WEIGHT),
-        colors: default_colors(),
-        ..SparklineGroup::default()
-    });
-    Ok(ws.sparkline_groups.len() - 1)
+    Ok(locations
+        .iter()
+        .zip(&ranges)
+        .map(|(loc, r)| Sparkline {
+            formula: Some(range_text(*r)),
+            location: *loc,
+        })
+        .collect())
+}
+
+/// "Edit group location and data": group `group` shows `data` in `location` instead, with
+/// its settings kept; sparklines of other groups in `location` are removed.
+pub fn set_data(
+    wb: &mut Workbook,
+    sheet: usize,
+    group: usize,
+    data: &str,
+    location: CellRange,
+) -> Result<(), String> {
+    let sparklines = layout(wb, sheet, data, location, None)?;
+    let ws = wb.sheets.get_mut(sheet).ok_or("no such sheet")?;
+    if group >= ws.sparkline_groups.len() {
+        return Err("no such sparkline group".into());
+    }
+    for (i, g) in ws.sparkline_groups.iter_mut().enumerate() {
+        if i == group {
+            g.sparklines = sparklines.clone();
+        } else {
+            g.sparklines.retain(|s| !location.contains(s.location));
+        }
+    }
+    ws.sparkline_groups.retain(|g| !g.sparklines.is_empty());
+    Ok(())
+}
+
+/// "Edit single sparkline's data": the sparkline in cell `at` reads `data` (one row or
+/// one column, optionally sheet-qualified).
+pub fn set_single_data(
+    wb: &mut Workbook,
+    sheet: usize,
+    at: CellRef,
+    data: &str,
+) -> Result<(), String> {
+    let one = layout(wb, sheet, data, CellRange::single(at), None)?;
+    let ws = wb.sheets.get_mut(sheet).ok_or("no such sheet")?;
+    let (g, i) = self::at(ws, at).ok_or("no sparkline in the cell")?;
+    ws.sparkline_groups[g].sparklines[i].formula = one.into_iter().next().and_then(|s| s.formula);
+    Ok(())
+}
+
+/// "Switch row / column": the data of group `group` (the block its ranges cover) is split
+/// the other way — by columns instead of rows, or the reverse — when it fits both ways.
+pub fn switch_row_column(wb: &mut Workbook, sheet: usize, group: usize) -> Result<(), String> {
+    let g = wb
+        .sheets
+        .get(sheet)
+        .and_then(|ws| ws.sparkline_groups.get(group))
+        .ok_or("no such sparkline group")?;
+    let mut block: Option<(usize, CellRange)> = None;
+    let mut rows_split = true;
+    for s in &g.sparklines {
+        let f = s.formula.as_deref().ok_or("a sparkline has no data")?;
+        let (ds, r) = resolve_ref(wb, sheet, f).ok_or("invalid data range")?;
+        if r.first.row != r.last.row {
+            rows_split = false;
+        }
+        block = Some(match block {
+            None => (ds, r),
+            Some((bs, b)) if bs == ds => (
+                bs,
+                CellRange::new(
+                    CellRef::new(b.first.row.min(r.first.row), b.first.col.min(r.first.col)),
+                    CellRef::new(b.last.row.max(r.last.row), b.last.col.max(r.last.col)),
+                ),
+            ),
+            Some(_) => return Err("the data is on several sheets".into()),
+        });
+    }
+    let (ds, b) = block.ok_or("the group is empty")?;
+    let locs: Vec<CellRef> = g.sparklines.iter().map(|s| s.location).collect();
+    let loc = CellRange::new(
+        CellRef::new(
+            locs.iter().map(|c| c.row).min().unwrap_or(0),
+            locs.iter().map(|c| c.col).min().unwrap_or(0),
+        ),
+        CellRef::new(
+            locs.iter().map(|c| c.row).max().unwrap_or(0),
+            locs.iter().map(|c| c.col).max().unwrap_or(0),
+        ),
+    );
+    let n = u32::try_from(locs.len()).unwrap_or(u32::MAX);
+    if b.rows() != n || b.cols() != n {
+        return Err("the data does not fit the other way".into());
+    }
+    let name = quote_sheet(&wb.sheets.get(ds).ok_or("no such sheet")?.name);
+    let data = format!("{name}!{}:{}", b.first, b.last);
+    let sparklines = layout(wb, sheet, &data, loc, Some(!rows_split))?;
+    wb.sheets[sheet].sparkline_groups[group].sparklines = sparklines;
+    Ok(())
 }
 
 /// Changes the settings of group `group`.

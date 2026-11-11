@@ -1809,7 +1809,9 @@
         "errors": {
           "oneColumn": "Hãy chọn các ô trong một cột.",
           "tooLarge": "Kết quả vượt quá kích thước trang tính."
-        }
+        },
+        "ruler": "Đường ngắt trên văn bản",
+        "rulerHint": "Bấm vào văn bản để thêm đường ngắt, kéo một đường để dời, kéo ra khỏi văn bản hoặc bấm đúp để xoá."
       },
       "dedupe": {
         "title": "Xóa hàng trùng lặp",
@@ -2184,6 +2186,10 @@
     },
     "smartArt": {
       "delete": "Xoá sơ đồ thông minh"
+    },
+    "replaceWarn": {
+      "title": "Thay nội dung ô",
+      "message": "Các ô nơi dữ liệu được ghi vào không trống. Thay nội dung của chúng?"
     }
   },
   "recovery": {
@@ -5151,6 +5157,8 @@
       "maxChange": "Dừng khi giá trị thay đổi ít hơn",
       "precision": "Tính theo độ chính xác hiển thị",
       "precisionWarn": "Dữ liệu sẽ mất độ chính xác vĩnh viễn: số đã lưu được làm tròn theo số chữ số thập phân định dạng hiển thị (một bước hoàn tác).",
+      "precisionConfirmTitle": "Độ chính xác như hiển thị",
+      "precisionConfirm": "Số đã lưu sẽ được làm tròn theo số chữ số thập phân định dạng hiển thị. Không thể lấy lại các chữ số bị bỏ.",
       "invalid": "Nhập số lần lặp nguyên từ 1 đến {{max}} và mức thay đổi từ 0 trở lên."
     }
   },
@@ -5547,7 +5555,14 @@
     "clear": "Xóa",
     "clearGroup": "Xóa cả nhóm",
     "invalidRange": "Hãy nhập một vùng ô hợp lệ.",
-    "minMax": "Giá trị nhỏ nhất phải nhỏ hơn giá trị lớn nhất."
+    "minMax": "Giá trị nhỏ nhất phải nhỏ hơn giá trị lớn nhất.",
+    "groupData": "Dữ liệu",
+    "editData": "Sửa dữ liệu",
+    "editSingle": "Dữ liệu biểu đồ thu nhỏ này",
+    "switch": "Đổi hàng và cột",
+    "editDataTitle": "Sửa dữ liệu và vị trí nhóm biểu đồ thu nhỏ",
+    "editSingleTitle": "Sửa dữ liệu của biểu đồ thu nhỏ này",
+    "singleHint": "Một hàng hoặc một cột, ví dụ A2:D2 hoặc Sheet2!A2:D2"
   },
   "cite": {
     "style": "Kiểu",

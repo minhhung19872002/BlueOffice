@@ -103,4 +103,10 @@ export type SparklineCommand =
   /** Split the groups with a sparkline in a range → `{ groups }`. */
   | { cmd: 'sparklineUngroup'; sheet: number; range: SheetRange }
   /** Remove the sparklines in a range (or their whole groups) → `{ removed }`. */
-  | { cmd: 'sparklineClear'; sheet: number; range: SheetRange; wholeGroups?: boolean };
+  | { cmd: 'sparklineClear'; sheet: number; range: SheetRange; wholeGroups?: boolean }
+  /** Edit group location and data (settings kept). */
+  | { cmd: 'sparklineData'; sheet: number; group: number; data: string; location: SheetRange }
+  /** Edit the data of the sparkline in one cell. */
+  | { cmd: 'sparklineSingleData'; sheet: number; row: number; col: number; data: string }
+  /** Split a group's data the other way (rows ↔ columns). */
+  | { cmd: 'sparklineSwitch'; sheet: number; group: number };

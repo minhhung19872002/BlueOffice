@@ -267,6 +267,30 @@ fn offset_at(l: &Line, x: f32) -> usize {
     best.0 as usize
 }
 
+/// The point is on the mark of the check box control around the caret ([MS-DOCX]
+/// w14:checkbox): inside the rectangle of its content.
+pub fn click_on_checkbox(
+    layout: &LayoutDocument,
+    s: &bo_edit::Session,
+    page: usize,
+    x: f32,
+    y: f32,
+) -> bool {
+    let Some((cc, para, from, to)) = s.inline_control_range() else {
+        return false;
+    };
+    if !matches!(cc.kind, bo_model::ControlKind::Checkbox { .. }) || from >= to {
+        return false;
+    }
+    let sel = Selection {
+        anchor: Pos::new(para, from),
+        focus: Pos::new(para, to),
+    };
+    selection_rects(layout, sel)
+        .iter()
+        .any(|r| r.page == page && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
+}
+
 /// Position under a point of a page (nearest line, then nearest caret stop).
 pub fn hit_test(layout: &LayoutDocument, page: usize, x: f32, y: f32) -> Option<Pos> {
     let p = layout.pages.get(page)?;

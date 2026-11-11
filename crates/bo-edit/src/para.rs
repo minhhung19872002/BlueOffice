@@ -161,9 +161,12 @@ pub fn insert(atoms: &mut Vec<Atom>, off: usize, new: Vec<Atom>) {
     } else {
         i = past_field_end(atoms, i);
     }
-    let typed = new
-        .iter()
-        .any(|a| matches!(&a.1, RunContent::Text(t) if !t.is_empty()));
+    // Typed text or a picture (a picture control's content) replaces the placeholder.
+    let typed = new.iter().any(|a| match &a.1 {
+        RunContent::Text(t) => !t.is_empty(),
+        RunContent::Image(_) => true,
+        _ => false,
+    });
     if typed {
         if let Some(&s) = open.last() {
             if let RunContent::ControlStart(cc) = &mut atoms[s].1 {

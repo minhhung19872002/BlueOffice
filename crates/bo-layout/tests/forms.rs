@@ -112,3 +112,50 @@ fn check_box_of_a_fixed_size() {
     assert!((frag_size(None) - 12.0).abs() < 0.01);
     assert!((frag_size(Some(40)) - 20.0).abs() < 0.01);
 }
+
+/// Placeholder text of a content control (ECMA-376 Part 1, §17.5.2.39 showingPlcHdr) shows grey
+/// while its colour is automatic; filled-in content keeps its colour.
+#[test]
+fn content_control_placeholders_show_grey() {
+    use bo_model::{ContentControl, ControlKind};
+    let control = |placeholder: bool| {
+        RunContent::ControlStart(Box::new(ContentControl {
+            id: Some(1),
+            alias: None,
+            tag: None,
+            kind: ControlKind::Text { multi_line: false },
+            lock: None,
+            placeholder,
+            block: false,
+            props_xml: None,
+            data_binding: None,
+        }))
+    };
+    let colour = |l: &LayoutDocument, text: &str| {
+        l.pages[0].lines[0]
+            .fragments
+            .iter()
+            .find(|f| f.text.as_str().contains(text))
+            .map(|f| f.color)
+            .unwrap()
+    };
+    let grey = Color {
+        r: 0x80,
+        g: 0x80,
+        b: 0x80,
+    };
+    let l = layout(vec![
+        t("Tên "),
+        control(true),
+        t("Nhập tên"),
+        RunContent::ControlEnd(false),
+        t(" xong "),
+        control(false),
+        t("Lan"),
+        RunContent::ControlEnd(false),
+    ]);
+    assert_eq!(colour(&l, "Nhập"), grey);
+    assert_ne!(colour(&l, "Tên"), grey);
+    assert_ne!(colour(&l, "xong"), grey);
+    assert_ne!(colour(&l, "Lan"), grey);
+}

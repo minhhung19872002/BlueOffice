@@ -316,9 +316,11 @@ pub enum Command {
         /// Codes shown.
         on: bool,
     },
-    /// Insert an inline content control (§17.5.2.31 sdt) at the caret.
+    /// Insert an inline content control (§17.5.2.31 sdt) at the caret, or wrap the selected
+    /// paragraphs in a repeating section ([MS-DOCX] w15:repeatingSection).
     InsertControl {
-        /// `text` | `richText` | `checkbox` | `dropDown` | `comboBox` | `date`.
+        /// `text` | `richText` | `checkbox` | `dropDown` | `comboBox` | `date` | `picture` |
+        /// `repeatingSection` (its placeholder is the section's title).
         kind: String,
         /// Placeholder text shown until the control is filled.
         #[serde(default)]
@@ -334,6 +336,26 @@ pub enum Command {
         #[serde(default)]
         value: String,
     },
+    /// Add an item after the item of the repeating section around the caret ([MS-DOCX]
+    /// w15:repeatingSectionItem; the section's "+").
+    AddRepeatingItem,
+    /// Change the title, tag and locks of the content control around the caret (§17.5.2.1
+    /// alias, §17.5.2.42 tag, §17.5.2.23 lock).
+    SetControlProps {
+        /// The new properties.
+        props: bo_edit::controls::ControlProps,
+    },
+    /// Select the content of the inline content control around the caret.
+    SelectControlContent,
+    /// Select the next field (`forward`, F11) or the previous one (Shift+F11), wrapping around.
+    NextField {
+        /// `true` = next, `false` = previous.
+        #[serde(default = "yes")]
+        forward: bool,
+    },
+    /// The ASK / FILLIN questions an update of the fields asks (`fieldPrompts`; §17.16.5.4,
+    /// §17.16.5.20).
+    FieldPrompts,
     /// Insert a legacy form field (§17.16.17 ffData) at the caret.
     InsertFormField {
         /// `text` | `checkBox` | `dropDown`.
@@ -473,7 +495,11 @@ pub enum Command {
         forward: bool,
     },
     /// Update TOC, SEQ, REF and PAGEREF fields (ECMA-376 Part 1, §17.16).
-    UpdateFields,
+    UpdateFields {
+        /// Answers typed for the ASK / FILLIN questions, by prompt key (`fieldPrompts`).
+        #[serde(default)]
+        answers: std::collections::BTreeMap<String, String>,
+    },
     /// Insert a table of contents at the caret.
     InsertToc,
     /// Insert a table of figures (`TOC \c` / `\a`), an index (`INDEX`) or a table of
@@ -852,6 +878,9 @@ pub enum Command {
         /// Field instruction (e.g. `PAGE`).
         instr: String,
     },
+    /// Ctrl+F9 over a selection: the selected text becomes the code of a new field (§17.16.1)
+    /// that shows its result at once (`count` 0: nothing selected).
+    InsertFieldFromSelection,
     /// Insert a footnote (or endnote) at the caret (§17.11.14, §17.11.7).
     InsertNote {
         /// Insert an endnote instead of a footnote.
@@ -1220,6 +1249,9 @@ pub struct EditResult {
     /// The content control around the caret (§17.5.2 sdt).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub control: Option<ControlInfo>,
+    /// ASK / FILLIN questions of `fieldPrompts`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_prompts: Option<Vec<bo_edit::merge::rules::Prompt>>,
     /// The legacy form field at the caret (§17.16.17 ffData).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub form_field: Option<bo_edit::forms::FormFieldInfo>,
@@ -1659,6 +1691,7 @@ impl crate::Engine {
             }
         );
         let mut targets = None;
+        let mut field_prompts = None;
         let mut new_note = None;
         let mut corrected = None;
         {
@@ -1905,6 +1938,16 @@ impl crate::Engine {
                         // The new field shows its result at once (§17.16.5).
                         s.update_fields(&mut pages_of)?;
                     }
+                    Command::InsertFieldFromSelection => {
+                        let instr = s.selected_text().trim().to_owned();
+                        if instr.is_empty() {
+                            extra.1 = Some(0);
+                        } else {
+                            s.insert_field(&instr, "")?;
+                            s.update_fields(&mut pages_of)?;
+                            extra.1 = Some(1);
+                        }
+                    }
                     Command::InsertNote { endnote, text } => {
                         new_note = Some((endnote, s.insert_note(endnote, &text)?));
                     }
@@ -1945,6 +1988,14 @@ impl crate::Engine {
                                 _ => Selection::caret(p),
                             };
                             s.set_selection(new);
+                            if count == 1 && !extend {
+                                // A click in a placeholder selects all of it (§17.5.2.39); one on
+                                // a check box's mark toggles it ([MS-DOCX] w14:checkbox).
+                                s.select_control_placeholder();
+                                if nav::click_on_checkbox(layout, s, page, x, y) {
+                                    s.set_control_value("", true)?;
+                                }
+                            }
                             // A drag that follows extends by characters, words or paragraphs.
                             self.drag_origin = Some(if extend && count < 2 {
                                 (Selection::caret(sel.anchor), 1)
@@ -2014,6 +2065,10 @@ impl crate::Engine {
                     }
                     Command::SelectAll => {
                         s.select_all();
+                    }
+                    // Space on a selected check box toggles it ([MS-DOCX] w14:checkbox).
+                    Command::InsertText { text } if text == " " && s.checkbox_selected() => {
+                        s.set_control_value("", true)?;
                     }
                     Command::InsertText { text } => {
                         s.insert_text(&text)?;
@@ -2229,6 +2284,15 @@ impl crate::Engine {
                     Command::SetControlValue { value } => {
                         extra.1 = Some(usize::from(s.set_control_value(&value, true)?));
                     }
+                    Command::AddRepeatingItem => {
+                        extra.1 = Some(usize::from(s.add_repeating_item()?));
+                    }
+                    Command::SetControlProps { props } => {
+                        extra.1 = Some(usize::from(s.set_control_props(&props)?));
+                    }
+                    Command::SelectControlContent => {
+                        extra.1 = Some(usize::from(s.select_control_content()));
+                    }
                     Command::AcceptAllRevisions => {
                         extra.1 = Some(s.resolve_revisions(None, true)?);
                     }
@@ -2262,9 +2326,13 @@ impl crate::Engine {
                     Command::NextComment { forward } => {
                         extra.1 = s.next_comment(forward).map(|i| i.max(0) as usize);
                     }
-                    Command::UpdateFields => {
-                        extra.1 = Some(s.update_fields(&mut pages_of)?);
+                    Command::UpdateFields { answers } => {
+                        extra.1 = Some(s.update_fields_answered(&mut pages_of, answers)?);
                     }
+                    Command::NextField { forward } => {
+                        extra.1 = Some(usize::from(s.next_field(forward).is_some()));
+                    }
+                    Command::FieldPrompts => field_prompts = Some(s.field_prompts()),
                     Command::InsertToc => {
                         extra.1 = Some(s.insert_toc(&mut pages_of)?);
                     }
@@ -2448,6 +2516,7 @@ impl crate::Engine {
             r.highlights = Some(self.match_rects(r.matches.as_deref().unwrap_or_default()));
         }
         r.targets = targets;
+        r.field_prompts = field_prompts;
         r.corrected = corrected;
         if note_cmd {
             r.notes = self.session.as_ref().map(bo_edit::Session::notes);
@@ -2573,11 +2642,21 @@ impl crate::Engine {
                 .selected_equation()
                 .and_then(|(_, xml)| crate::equation::info(&xml)),
             ruby: s.selected_ruby().map(|(_, r)| r),
-            control: s.control_at_caret().map(|c| {
-                let mut i = ControlInfo::of(&c);
-                i.bound = s.control_binding_status();
-                i
-            }),
+            control: s
+                .control_at_caret()
+                .or_else(|| s.block_control_at_caret())
+                .map(|c| {
+                    let mut i = ControlInfo::of(&c);
+                    i.bound = s.control_binding_status();
+                    i.repeating = s.in_repeating_item();
+                    // The frame drawn around the control (with its title tab on top).
+                    i.frame = s
+                        .control_extent()
+                        .map(|x| nav::selection_rects(layout, x))
+                        .unwrap_or_default();
+                    i
+                }),
+            field_prompts: None,
             form_field: s.form_field_info(),
             protection: crate::forms::info(s),
             templates: None,
@@ -2741,6 +2820,14 @@ pub struct ControlInfo {
     /// The bound node exists (`false`: unbound, the control keeps its content).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bound: Option<bool>,
+    /// The control cannot be deleted (§17.5.2.23 lock `sdtLocked` / `sdtContentLocked`).
+    pub delete_locked: bool,
+    /// A block-level control (around paragraphs).
+    pub block: bool,
+    /// The caret is in an item of a repeating section (an item can be added after it).
+    pub repeating: bool,
+    /// Rectangles of the control's extent (its frame).
+    pub frame: Vec<SelRect>,
 }
 
 impl ControlInfo {
@@ -2775,6 +2862,7 @@ impl ControlInfo {
             ),
             K::Checkbox { checked, .. } => ("checkbox", vec![], Some(*checked), None, None),
             K::RepeatingSection => ("repeatingSection", vec![], None, None, None),
+            K::RepeatingSectionItem => ("repeatingSectionItem", vec![], None, None, None),
             K::Group => ("group", vec![], None, None, None),
             K::Other => ("other", vec![], None, None, None),
         };
@@ -2793,6 +2881,10 @@ impl ControlInfo {
             ),
             binding: c.data_binding.as_ref().map(|b| b.xpath.clone()),
             bound: None,
+            delete_locked: matches!(c.lock.as_deref(), Some("sdtLocked" | "sdtContentLocked")),
+            block: c.block,
+            repeating: false,
+            frame: Vec::new(),
         }
     }
 }

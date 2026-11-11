@@ -544,6 +544,13 @@ const FORM_SHADING: Color = Color {
     b: 0xD9,
 };
 
+/// Colour of the placeholder text of a content control (§17.5.2.39 showingPlcHdr).
+const PLACEHOLDER_GREY: Color = Color {
+    r: 0x80,
+    g: 0x80,
+    b: 0x80,
+};
+
 fn field_text(instr: &str, cached: &str, f: FieldContext) -> String {
     if f.codes {
         return format!("{{ {} }}", instr.trim());
@@ -950,10 +957,30 @@ fn layout_uncached(
     // variants of the run styles.
     let mut forms: Vec<bool> = Vec::new();
     let mut form_styles: HashMap<(usize, Option<u32>), usize> = HashMap::new();
+    // Inline content controls open here: whether each shows its placeholder (§17.5.2.39
+    // showingPlcHdr), and the grey variants of the run styles placeholder text is shown in.
+    let mut controls: Vec<bool> = Vec::new();
+    let mut placeholder_styles: HashMap<usize, usize> = HashMap::new();
     for sp in &spans {
         let run = &inp.para.runs[sp.run];
         let mut style = run_style_idx[sp.run];
         let item = &run.content[sp.item];
+        match item {
+            RunContent::ControlStart(cc) if !cc.block => controls.push(cc.placeholder),
+            RunContent::ControlEnd(false) => {
+                controls.pop();
+            }
+            _ => {}
+        }
+        // Placeholder text in an automatic colour shows grey, as editors show placeholders.
+        if controls.last() == Some(&true) && run_rps[sp.run].color.is_none() {
+            style = *placeholder_styles.entry(style).or_insert_with(|| {
+                let mut st = styles[style].clone();
+                st.color = PLACEHOLDER_GREY;
+                styles.push(st);
+                styles.len() - 1
+            });
+        }
         match item {
             RunContent::FormField(f) => forms.push(f.is_text()),
             RunContent::FormEnd => {

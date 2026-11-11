@@ -994,6 +994,7 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
                 });
             }
             "repeatingSection" => cc.kind = ControlKind::RepeatingSection,
+            "repeatingSectionItem" => cc.kind = ControlKind::RepeatingSectionItem,
             "group" => cc.kind = ControlKind::Group,
             "citation" | "bibliography" | "equation" | "docPartObj" | "docPartList" => {
                 cc.kind = ControlKind::Other;

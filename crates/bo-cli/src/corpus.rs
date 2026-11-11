@@ -1324,6 +1324,23 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    // Repeating sections ([MS-DOCX] w15:repeatingSection / w15:repeatingSectionItem), a picture
+    // control showing its placeholder (§17.5.2.26 picture, §17.5.2.39 showingPlcHdr) and a
+    // locked, titled text control (§17.5.2.1 alias, §17.5.2.42 tag, §17.5.2.23 lock).
+    let item = |id: u32, name: &str| {
+        format!(
+            r#"<w:sdt><w:sdtPr><w:id w:val="{id}"/><w15:repeatingSectionItem/></w:sdtPr><w:sdtContent><w:p><w:r><w:t xml:space="preserve">Thành viên: {name}</w:t></w:r></w:p></w:sdtContent></w:sdt>"#
+        )
+    };
+    v.push(("controls-04-repeating-picture.docx", "controls", "Phần lặp lại (w15:repeatingSection) có hai mục, điều khiển ảnh đang hiện chỗ giữ, điều khiển văn bản có tiêu đề/thẻ/khoá không cho xoá", Doc {
+        body: [
+            format!(r#"<w:sdt><w:sdtPr><w:alias w:val="Danh sách"/><w:tag w:val="thanh_vien"/><w:id w:val="4001"/><w15:repeatingSection/></w:sdtPr><w:sdtContent>{}{}</w:sdtContent></w:sdt>"#, item(4002, "An"), item(4003, "Bình")),
+            r#"<w:p><w:r><w:t xml:space="preserve">Ảnh: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Ảnh chân dung"/><w:id w:val="4004"/><w:showingPlcHdr/><w:picture/></w:sdtPr><w:sdtContent><w:r><w:t>Bấm vào đây để chèn ảnh.</w:t></w:r></w:sdtContent></w:sdt></w:p>"#.to_owned(),
+            r#"<w:p><w:r><w:t xml:space="preserve">Mã hồ sơ: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Mã hồ sơ"/><w:tag w:val="ma_ho_so"/><w:id w:val="4005"/><w:lock w:val="sdtLocked"/><w:text/></w:sdtPr><w:sdtContent><w:r><w:t>HS-2026-07</w:t></w:r></w:sdtContent></w:sdt></w:p>"#.to_owned(),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
     // ---- legacy form fields (§17.16.17 ffData) and forms protection (§17.15.1.29, §17.6.6)
     let ff = |name: &str, id: u32, ff: &str, instr: &str, result: &str| -> String {
         let sep = if result.is_empty() && instr != "FORMTEXT" {

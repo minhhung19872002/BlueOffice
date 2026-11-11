@@ -3688,6 +3688,10 @@ fn sdt_pr(cc: &ContentControl) -> String {
         ControlKind::RepeatingSection => {
             let _ = write!(s, "<w15:repeatingSection xmlns:w15=\"{W15}\"/>");
         }
+        // [MS-DOCX] w15:repeatingSectionItem.
+        ControlKind::RepeatingSectionItem => {
+            let _ = write!(s, "<w15:repeatingSectionItem xmlns:w15=\"{W15}\"/>");
+        }
         ControlKind::Group => s.push_str("<w:group/>"),
     }
     for (n, x) in &kept {
@@ -3723,6 +3727,7 @@ fn sdt_pr_unmodelled(xml: &str) -> Vec<(String, String)> {
         "w:group",
         "w14:checkbox",
         "w15:repeatingSection",
+        "w15:repeatingSectionItem",
     ];
     let wrapped =
         format!("<x xmlns:w=\"{W_NS}\" xmlns:w14=\"{W14}\" xmlns:w15=\"{W15}\">{xml}</x>");

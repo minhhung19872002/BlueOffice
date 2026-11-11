@@ -7,7 +7,8 @@
 
 use bo_drawingml::dom::{attr_int, parse_bool, El};
 use bo_model::slide::{
-    AnimClass, AnimEffect, AnimIterate, AnimTrigger, Animation, Extra, Timing, Transition,
+    AnimAfter, AnimClass, AnimEffect, AnimIterate, AnimOptions, AnimSound, AnimTarget, AnimTrigger,
+    Animation, Build, Extra, GraphicBuild, GraphicSub, ParaBuild, Timing, Transition,
     TransitionKind, TransitionSound, XmlElement, XmlNode,
 };
 
@@ -277,6 +278,158 @@ fn descendants<'a>(el: &'a XmlElement, out: &mut Vec<&'a XmlElement>) {
     }
 }
 
+/// A behaviour (§19.5 set, anim, animClr, …) whose time node is an after effect (§19.5.29
+/// cTn@afterEffect): what happens to the shape once the effect is done.
+fn is_after_behaviour(b: &XmlElement) -> bool {
+    b.child("p:cBhvr")
+        .and_then(|c| c.child("p:cTn"))
+        .and_then(|t| t.attr("afterEffect"))
+        .and_then(parse_bool)
+        .unwrap_or(false)
+}
+
+/// Descendants of an effect node without its after-effect behaviours and its sub time nodes
+/// (§19.5 subTnLst: the effect's sound): what the effect itself does.
+fn effect_descendants<'a>(el: &'a XmlElement, out: &mut Vec<&'a XmlElement>) {
+    for c in el.elements() {
+        if c.name == "p:subTnLst" || is_after_behaviour(c) {
+            continue;
+        }
+        out.push(c);
+        effect_descendants(c, out);
+    }
+}
+
+/// The part of the shape a §19.5 spTgt names: §19.5 txEl (pRg), bg, graphicEl (DrawingML chart /
+/// dgm, §20.1.2.2).
+fn parse_target(sp: &XmlElement) -> Option<AnimTarget> {
+    let c = sp.elements().next()?;
+    match c.local() {
+        "bg" => Some(AnimTarget::Background),
+        "txEl" => {
+            let r = c.child("p:pRg")?;
+            Some(AnimTarget::Paragraphs {
+                start: attr_int(r, "st")?,
+                end: attr_int(r, "end")?,
+            })
+        }
+        "graphicEl" => {
+            let g = c.elements().next()?;
+            match g.local() {
+                "chart" => Some(AnimTarget::Chart {
+                    series: attr_int(g, "seriesIdx").unwrap_or(-1),
+                    category: attr_int(g, "categoryIdx").unwrap_or(-1),
+                    step: g.attr("bldStep").unwrap_or("allPts").to_owned(),
+                }),
+                "dgm" => Some(AnimTarget::Diagram {
+                    id: g
+                        .attr("id")
+                        .unwrap_or("{00000000-0000-0000-0000-000000000000}")
+                        .to_owned(),
+                    step: g.attr("bldStep").unwrap_or("sp").to_owned(),
+                }),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The child of §19.5 spTgt naming target `t`.
+fn target_xml(t: &AnimTarget) -> XmlElement {
+    match t {
+        AnimTarget::Background => El::new("p:bg").done(),
+        AnimTarget::Paragraphs { start, end } => El::new("p:txEl")
+            .child(El::new("p:pRg").a("st", start).a("end", end).done())
+            .done(),
+        AnimTarget::Chart {
+            series,
+            category,
+            step,
+        } => El::new("p:graphicEl")
+            .child(
+                El::new("a:chart")
+                    .a("seriesIdx", series)
+                    .a("categoryIdx", category)
+                    .a("bldStep", step)
+                    .done(),
+            )
+            .done(),
+        AnimTarget::Diagram { id, step } => {
+            let mut d = El::new("a:dgm").a("id", id);
+            if step != "sp" {
+                d = d.a("bldStep", step);
+            }
+            El::new("p:graphicEl").child(d.done()).done()
+        }
+    }
+}
+
+/// Point every §19.5 spTgt of shape `spid` under `el` at `target` (its children replaced).
+fn put_target(el: &mut XmlElement, spid: u32, target: Option<&AnimTarget>) {
+    for c in &mut el.children {
+        let XmlNode::Element(e) = c else { continue };
+        if e.name == "p:spTgt" && attr_int::<u32>(e, "spid") == Some(spid) {
+            e.children = target
+                .map(|t| vec![XmlNode::Element(target_xml(t))])
+                .unwrap_or_default();
+        } else {
+            put_target(e, spid, target);
+        }
+    }
+}
+
+/// What happens after the effect, from its after-effect behaviours (§19.5.29 cTn@afterEffect): a
+/// §19.5.2 animClr / §19.5.66 set of a colour dims the shape, a set of `style.visibility` to
+/// `hidden` hides it.
+fn parse_after(ctn: &XmlElement) -> Option<AnimAfter> {
+    let kids = ctn.child("p:childTnLst")?;
+    let mut dim: Option<(u32, Vec<String>)> = None;
+    let mut hide = false;
+    for b in kids.elements().filter(|b| is_after_behaviour(b)) {
+        let mut d = Vec::new();
+        descendants(b, &mut d);
+        let attr = d
+            .iter()
+            .find(|e| e.name == "p:attrName")
+            .map(|e| e.text())
+            .unwrap_or_default();
+        if attr == "style.visibility" {
+            hide |= d
+                .iter()
+                .any(|e| e.name == "p:strVal" && e.attr("val") == Some("hidden"));
+            continue;
+        }
+        let rgb = d
+            .iter()
+            .find(|e| e.local() == "srgbClr")
+            .and_then(|e| e.attr("val"))
+            .and_then(|v| u32::from_str_radix(v, 16).ok());
+        if let Some(rgb) = rgb {
+            let e = dim.get_or_insert((rgb, Vec::new()));
+            if !e.1.contains(&attr) {
+                e.1.push(attr);
+            }
+        }
+    }
+    match (dim, hide) {
+        (Some((rgb, attrs)), _) => Some(AnimAfter::Dim { rgb, attrs }),
+        (None, true) => Some(AnimAfter::Hide),
+        _ => None,
+    }
+}
+
+/// The sound of an effect: §19.5 subTnLst → audio → cMediaNode → tgtEl → sndTgt.
+fn parse_sound(ctn: &XmlElement) -> Option<AnimSound> {
+    let mut d = Vec::new();
+    descendants(ctn.child("p:subTnLst")?, &mut d);
+    let s = d.into_iter().find(|e| e.name == "p:sndTgt")?;
+    Some(AnimSound {
+        embed: s.attr("r:embed")?.to_owned(),
+        name: s.attr("name").unwrap_or_default().to_owned(),
+    })
+}
+
 fn delay_of(ctn: &XmlElement) -> u32 {
     ctn.child("p:stCondLst")
         .and_then(|l| l.child("p:cond"))
@@ -293,11 +446,10 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
         _ => return None,
     };
     let mut all = Vec::new();
-    descendants(ctn, &mut all);
-    let shape_id = all
-        .iter()
-        .find(|e| e.name == "p:spTgt")
-        .and_then(|e| attr_int(e, "spid"))?;
+    effect_descendants(ctn, &mut all);
+    let sp_tgt = all.iter().find(|e| e.name == "p:spTgt")?;
+    let shape_id = attr_int(sp_tgt, "spid")?;
+    let target = parse_target(sp_tgt);
     let class = match ctn.attr("presetClass") {
         Some("entr") | None => AnimClass::Entrance,
         Some("exit") => AnimClass::Exit,
@@ -401,6 +553,13 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
         trigger_bookmark: None,
         iterate: ctn.child("p:iterate").map(parse_iterate),
         preset_subtype: attr_int(ctn, "presetSubtype"),
+        opts: AnimOptions {
+            target,
+            group_id: attr_int(ctn, "grpId"),
+            after: parse_after(ctn),
+            rewind: ctn.attr("fill") == Some("remove"),
+            sound: parse_sound(ctn),
+        },
         source: None,
     })
 }
@@ -558,11 +717,26 @@ fn seq_effects(
 ) {
     let mut all = Vec::new();
     descendants(seq, &mut all);
+    let first = out.len();
     // §19.5.53 par → §19.5.29 cTn of each effect, in document order.
     for par in all.into_iter().filter(|e| e.name == "p:par") {
         let Some(ctn) = par.child("p:cTn") else {
             continue;
         };
+        // An effect node that is an after effect (§19.5.29 cTn@afterEffect) hides the shape of an
+        // earlier effect at the start of a later click step: "hide on next click" of that effect.
+        if ctn.attr("afterEffect").and_then(parse_bool) == Some(true) {
+            if let Some(h) = parse_effect(ctn) {
+                if let Some(prev) = out[first..]
+                    .iter_mut()
+                    .rev()
+                    .find(|p| p.shape_id == h.shape_id && p.opts.target == h.opts.target)
+                {
+                    prev.opts.after = Some(AnimAfter::HideOnClick);
+                }
+            }
+            continue;
+        }
         if let Some(mut a) = parse_effect(ctn) {
             a.trigger_shape = shape;
             a.trigger_bookmark = bookmark.map(str::to_owned);
@@ -624,13 +798,333 @@ pub fn parse_timing(src: &XmlElement, key: u16) -> Timing {
             }
         }
     }
+    let builds = el
+        .child("p:bldLst")
+        .map(|l| l.elements().map(parse_build).collect())
+        .unwrap_or_default();
     Timing {
         animations,
         others,
+        builds,
         source: Some(Extra {
             key,
             xml: src.clone(),
         }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Builds (§19.5 bldLst)
+// ---------------------------------------------------------------------------
+
+/// One child of §19.5 bldLst: bldP (CT_TLBuildParagraph) and bldGraphic
+/// (CT_TLGraphicalObjectBuild) are modelled, the others kept as read.
+fn parse_build(el: &XmlElement) -> Build {
+    let (Some(spid), Some(grp)) = (attr_int::<u32>(el, "spid"), attr_int::<u32>(el, "grpId"))
+    else {
+        return Build::Other(el.clone());
+    };
+    match el.name.as_str() {
+        // A bldP with paragraph templates (tmplLst) is kept as read.
+        "p:bldP" if el.elements().next().is_none() => Build::Paragraph(ParaBuild {
+            shape_id: spid,
+            group_id: grp,
+            build: el.attr("build").unwrap_or("whole").to_owned(),
+            level: attr_int(el, "bldLvl").unwrap_or(1),
+            reverse: el.attr("rev").and_then(parse_bool).unwrap_or(false),
+            anim_bg: el.attr("animBg").and_then(parse_bool).unwrap_or(false),
+            attrs: el
+                .attrs
+                .iter()
+                .filter(|(k, _)| {
+                    !matches!(
+                        k.as_str(),
+                        "spid" | "grpId" | "build" | "bldLvl" | "rev" | "animBg"
+                    )
+                })
+                .cloned()
+                .collect(),
+        }),
+        "p:bldGraphic" => {
+            if el.child("p:bldAsOne").is_some() {
+                return Build::Graphic(GraphicBuild {
+                    shape_id: spid,
+                    group_id: grp,
+                    sub: None,
+                });
+            }
+            let Some(sub) = el.child("p:bldSub").and_then(|s| s.elements().next()) else {
+                return Build::Other(el.clone());
+            };
+            let sub = match sub.local() {
+                // DrawingML §20.1.2.2 bldChart (CT_AnimationChartBuildProperties).
+                "bldChart" => GraphicSub::Chart {
+                    build: sub.attr("bld").unwrap_or("allAtOnce").to_owned(),
+                    anim_bg: sub.attr("animBg").and_then(parse_bool).unwrap_or(true),
+                },
+                // DrawingML §20.1.2.2 bldDgm (CT_AnimationDgmBuildProperties).
+                "bldDgm" => GraphicSub::Diagram {
+                    build: sub.attr("bld").unwrap_or("allAtOnce").to_owned(),
+                    reverse: sub.attr("rev").and_then(parse_bool).unwrap_or(false),
+                },
+                _ => return Build::Other(el.clone()),
+            };
+            Build::Graphic(GraphicBuild {
+                shape_id: spid,
+                group_id: grp,
+                sub: Some(sub),
+            })
+        }
+        _ => Build::Other(el.clone()),
+    }
+}
+
+/// The element of a build (§19.5 bldP / bldGraphic).
+fn build_xml(b: &Build) -> XmlElement {
+    match b {
+        Build::Paragraph(p) => {
+            let mut e = El::new("p:bldP")
+                .a("spid", p.shape_id)
+                .a("grpId", p.group_id);
+            for (k, v) in &p.attrs {
+                e = e.a(k, v);
+            }
+            if p.build != "whole" {
+                e = e.a("build", &p.build);
+            }
+            if p.level != 1 {
+                e = e.a("bldLvl", p.level);
+            }
+            e.optb("animBg", p.anim_bg.then_some(true))
+                .optb("rev", p.reverse.then_some(true))
+                .done()
+        }
+        Build::Graphic(g) => {
+            let e = El::new("p:bldGraphic")
+                .a("spid", g.shape_id)
+                .a("grpId", g.group_id);
+            let inner = match &g.sub {
+                None => El::new("p:bldAsOne").done(),
+                Some(GraphicSub::Chart { build, anim_bg }) => El::new("p:bldSub")
+                    .child(
+                        El::new("a:bldChart")
+                            .a("bld", build)
+                            .optb("animBg", (!anim_bg).then_some(false))
+                            .done(),
+                    )
+                    .done(),
+                Some(GraphicSub::Diagram { build, reverse }) => El::new("p:bldSub")
+                    .child(
+                        El::new("a:bldDgm")
+                            .a("bld", build)
+                            .optb("rev", reverse.then_some(true))
+                            .done(),
+                    )
+                    .done(),
+            };
+            e.child(inner).done()
+        }
+        Build::Other(x) => x.clone(),
+    }
+}
+
+/// An effect node without its after-effect behaviours and sound: what the effect itself plays.
+fn without_extras(par: &XmlElement) -> XmlElement {
+    let mut p = par.clone();
+    for c in &mut p.children {
+        if let XmlNode::Element(ctn) = c {
+            if ctn.name == "p:cTn" {
+                strip_extras(ctn);
+            }
+        }
+    }
+    p
+}
+
+/// Remove the after-effect behaviours (§19.5.29 cTn@afterEffect) and the sound (§19.5 subTnLst
+/// holding an audio node with a sndTgt) of an effect cTn.
+fn strip_extras(ctn: &mut XmlElement) {
+    ctn.children.retain(|c| {
+        let XmlNode::Element(e) = c else { return true };
+        if e.name != "p:subTnLst" {
+            return true;
+        }
+        let mut d = Vec::new();
+        descendants(e, &mut d);
+        !d.iter().any(|x| x.name == "p:sndTgt")
+    });
+    for c in &mut ctn.children {
+        if let XmlNode::Element(e) = c {
+            if e.name == "p:childTnLst" {
+                e.children
+                    .retain(|b| !matches!(b, XmlNode::Element(x) if is_after_behaviour(x)));
+            }
+        }
+    }
+}
+
+/// §19.5.2 animClr of `attr` to sRGB `rgb`, an after effect starting at `delay` ms.
+fn after_color(ids: &mut Ids, spid: u32, delay: u32, attr: &str, rgb: u32) -> XmlElement {
+    El::new("p:animClr")
+        .a("clrSpc", "rgb")
+        .a("dir", "cw")
+        .child(
+            El::new("p:cBhvr")
+                .a("override", "childStyle")
+                .child(
+                    El::new("p:cTn")
+                        .a("id", ids.next())
+                        .a("dur", 1)
+                        .a("fill", "hold")
+                        .a("afterEffect", 1)
+                        .child(cond(&delay.to_string()))
+                        .done(),
+                )
+                .child(tgt(spid))
+                .child(attr_names(attr))
+                .done(),
+        )
+        .child(
+            El::new("p:to")
+                .child(El::new("a:srgbClr").a("val", format!("{rgb:06X}")).done())
+                .done(),
+        )
+        .done()
+}
+
+/// The after-effect behaviours of `a` (dim, hide once done), starting when one run of the effect
+/// (all its runs, when repeated a number of times) ends.
+fn after_behaviours(ids: &mut Ids, a: &Animation) -> Vec<XmlElement> {
+    let runs = match a.repeat {
+        Some(r) if r != u32::MAX => u64::from(a.dur_ms) * u64::from(r) / 1000,
+        _ => u64::from(a.dur_ms),
+    };
+    let end = u32::try_from(runs).unwrap_or(u32::MAX);
+    match &a.opts.after {
+        Some(AnimAfter::Dim { rgb, attrs }) => attrs
+            .iter()
+            .map(|at| after_color(ids, a.shape_id, end, at, *rgb))
+            .collect(),
+        Some(AnimAfter::Hide) => {
+            let mut s = set_visibility(ids, a.shape_id, end, false);
+            mark_after(&mut s);
+            vec![s]
+        }
+        Some(AnimAfter::HideOnClick) | None => Vec::new(),
+    }
+}
+
+/// Mark the time node of behaviour `b` as an after effect (§19.5.29 cTn@afterEffect).
+fn mark_after(b: &mut XmlElement) {
+    for c in &mut b.children {
+        let XmlNode::Element(bh) = c else { continue };
+        if bh.name != "p:cBhvr" {
+            continue;
+        }
+        for d in &mut bh.children {
+            if let XmlNode::Element(t) = d {
+                if t.name == "p:cTn" {
+                    t.attrs.push(("afterEffect".into(), "1".into()));
+                }
+            }
+        }
+    }
+}
+
+/// §19.5 subTnLst of an effect with sound `s`: an audio node (CT_TLMediaNodeAudio) starting with
+/// the effect node `effect_id` (cond `begin` of §19.5 tn), playing §19.5 sndTgt.
+fn sound_xml(ids: &mut Ids, effect_id: &str, s: &AnimSound) -> XmlElement {
+    let ctn = El::new("p:cTn")
+        .a("id", ids.next())
+        .a("display", 0)
+        .a("masterRel", "sameClick")
+        .child(
+            El::new("p:stCondLst")
+                .child(
+                    El::new("p:cond")
+                        .a("evt", "begin")
+                        .a("delay", 0)
+                        .child(El::new("p:tn").a("val", effect_id).done())
+                        .done(),
+                )
+                .done(),
+        )
+        .done();
+    El::new("p:subTnLst")
+        .child(
+            El::new("p:audio")
+                .child(
+                    El::new("p:cMediaNode")
+                        .child(ctn)
+                        .child(
+                            El::new("p:tgtEl")
+                                .child(
+                                    El::new("p:sndTgt")
+                                        .a("r:embed", &s.embed)
+                                        .a("name", &s.name)
+                                        .done(),
+                                )
+                                .done(),
+                        )
+                        .done(),
+                )
+                .done(),
+        )
+        .done()
+}
+
+/// Put the options of `a` into its effect node `par`: target, group, fill (rewind), after-effect
+/// behaviours and sound, replacing what the node had.
+fn put_options(ids: &mut Ids, par: &mut XmlElement, a: &Animation) {
+    let after = after_behaviours(ids, a);
+    if let Some(XmlNode::Element(ctn)) = par
+        .children
+        .iter_mut()
+        .find(|c| matches!(c, XmlNode::Element(e) if e.name == "p:cTn"))
+    {
+        put_node_options(ids, ctn, a, after);
+    }
+    put_target(par, a.shape_id, a.opts.target.as_ref());
+}
+
+fn put_node_options(ids: &mut Ids, ctn: &mut XmlElement, a: &Animation, after: Vec<XmlElement>) {
+    strip_extras(ctn);
+    // CT_TLCommonTimeNodeData attributes.
+    ctn.attrs.retain(|(k, _)| k != "grpId" && k != "fill");
+    // Before nodeType, where producers usually write them.
+    let at = ctn
+        .attrs
+        .iter()
+        .position(|(k, _)| k == "nodeType")
+        .unwrap_or(ctn.attrs.len());
+    let mut put = vec![(
+        "fill".to_owned(),
+        if a.opts.rewind { "remove" } else { "hold" }.to_owned(),
+    )];
+    if let Some(g) = a.opts.group_id {
+        put.push(("grpId".into(), g.to_string()));
+    }
+    ctn.attrs.splice(at..at, put);
+    if !after.is_empty() {
+        let has_kids = ctn.child("p:childTnLst").is_some();
+        if !has_kids {
+            ctn.children
+                .push(XmlNode::Element(El::new("p:childTnLst").done()));
+        }
+        for c in &mut ctn.children {
+            if let XmlNode::Element(k) = c {
+                if k.name == "p:childTnLst" {
+                    k.children
+                        .extend(after.iter().cloned().map(XmlNode::Element));
+                }
+            }
+        }
+    }
+    if let Some(s) = &a.opts.sound {
+        let id = ctn.attr("id").unwrap_or("0").to_owned();
+        let snd = sound_xml(ids, &id, s);
+        // subTnLst is the last child of CT_TLCommonTimeNodeData.
+        ctn.children.push(XmlNode::Element(snd));
     }
 }
 
@@ -655,7 +1149,7 @@ fn variant_by_play(
     let sig = |p: &crate::anim_play::EffectPlay| -> Vec<String> {
         p.tracks.iter().map(|t| format!("{:?}", t.kind)).collect()
     };
-    let have = sig(&effect_play(par, &base));
+    let have = sig(&effect_play(&without_extras(par), &base));
     d.dirs.iter().map(|(v, _)| *v).find(|v| {
         let probe = Animation {
             direction: Some((*v).to_owned()),
@@ -686,7 +1180,7 @@ fn path_by_play(a: &Animation, par: &XmlElement) -> Option<&'static str> {
                 _ => None,
             })
     };
-    let have = points(par)?;
+    let have = points(&without_extras(par))?;
     crate::anim_catalog::EFFECTS
         .iter()
         .filter(|d| d.class == crate::anim_catalog::Class::Path)
@@ -890,6 +1384,7 @@ fn reused_effect(ids: &mut Ids, a: &Animation, src: &XmlElement) -> XmlElement {
         }
         break;
     }
+    put_options(ids, &mut par, a);
     par
 }
 
@@ -1028,7 +1523,9 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
     if let Some(it) = &a.iterate {
         ctn = ctn.child(iterate_xml(it));
     }
-    El::new("p:par").child(ctn.child(kids.done()).done()).done()
+    let mut out = El::new("p:par").child(ctn.child(kids.done()).done()).done();
+    put_options(ids, &mut out, a);
+    out
 }
 
 /// A motion path drawn by the author (§19.5.4 animMotion, `path` in slide widths / heights from
@@ -1341,12 +1838,25 @@ fn click_pars(ids: &mut Ids, anims: &[&Animation], auto_first: bool) -> Vec<XmlE
         }
     }
     let mut out = Vec::new();
+    // Effects hidden at the start of the next click step ("hide on next click").
+    let mut pending: Vec<&Animation> = Vec::new();
     for (ci, groups) in clicks.iter().enumerate() {
         let first_auto = ci == 0 && auto_first;
         let mut group_pars = Vec::new();
         let mut t = 0u32;
-        for g in groups {
-            let effects: Vec<XmlElement> = g.iter().map(|a| effect_node(ids, a)).collect();
+        let hides = std::mem::take(&mut pending);
+        for (gi, g) in groups.iter().enumerate() {
+            let mut effects: Vec<XmlElement> = g.iter().map(|a| effect_node(ids, a)).collect();
+            if gi == 0 {
+                for h in &hides {
+                    effects.push(hide_node(ids, h, false));
+                }
+            }
+            pending.extend(
+                g.iter()
+                    .copied()
+                    .filter(|a| a.opts.after == Some(AnimAfter::HideOnClick)),
+            );
             group_pars.push(par(ids, &t.to_string(), effects));
             t += g
                 .iter()
@@ -1367,10 +1877,50 @@ fn click_pars(ids: &mut Ids, anims: &[&Animation], auto_first: bool) -> Vec<XmlE
             group_pars,
         ));
     }
+    // The last step's "hide on next click" effects: a click step of their own.
+    if !pending.is_empty() {
+        let hides: Vec<XmlElement> = pending
+            .iter()
+            .enumerate()
+            .map(|(k, h)| hide_node(ids, h, k == 0))
+            .collect();
+        let group = par(ids, "0", hides);
+        out.push(par(ids, "indefinite", vec![group]));
+    }
     out
 }
 
-fn build_timing(anims: &[Animation], others: &[XmlElement]) -> XmlElement {
+/// The after-effect node hiding the shape (part) of `a` at the start of a click step
+/// (§19.5.29 cTn@afterEffect, an exit "appear": §19.5.66 set of `style.visibility`).
+fn hide_node(ids: &mut Ids, a: &Animation, opens_step: bool) -> XmlElement {
+    let id = ids.next();
+    let mut set = set_visibility(ids, a.shape_id, 0, false);
+    put_target(&mut set, a.shape_id, a.opts.target.as_ref());
+    let mut ctn = El::new("p:cTn")
+        .a("id", id)
+        .a("presetID", 1)
+        .a("presetClass", "exit")
+        .a("presetSubtype", 0)
+        .a("fill", "hold");
+    if let Some(g) = a.opts.group_id {
+        ctn = ctn.a("grpId", g);
+    }
+    ctn = ctn
+        .a(
+            "nodeType",
+            if opens_step {
+                "clickEffect"
+            } else {
+                "withEffect"
+            },
+        )
+        .a("afterEffect", 1)
+        .child(cond("0"))
+        .child(El::new("p:childTnLst").child(set).done());
+    El::new("p:par").child(ctn.done()).done()
+}
+
+fn build_timing(anims: &[Animation], others: &[XmlElement], builds: &[Build]) -> XmlElement {
     let mut ids = Ids(2);
     let cond_lst = |name: &str, evt: &str| {
         El::new(name)
@@ -1479,25 +2029,42 @@ fn build_timing(anims: &[Animation], others: &[XmlElement]) -> XmlElement {
         renumber(&mut o, &mut ids);
         root = root.child(o);
     }
-    El::new("p:timing")
-        .child(
-            El::new("p:tnLst")
-                .child(
-                    El::new("p:par")
-                        .child(
-                            El::new("p:cTn")
-                                .a("id", 1)
-                                .a("dur", "indefinite")
-                                .a("restart", "never")
-                                .a("nodeType", "tmRoot")
-                                .child(root.done())
-                                .done(),
-                        )
-                        .done(),
-                )
-                .done(),
-        )
-        .done()
+    let mut timing = El::new("p:timing").child(
+        El::new("p:tnLst")
+            .child(
+                El::new("p:par")
+                    .child(
+                        El::new("p:cTn")
+                            .a("id", 1)
+                            .a("dur", "indefinite")
+                            .a("restart", "never")
+                            .a("nodeType", "tmRoot")
+                            .child(root.done())
+                            .done(),
+                    )
+                    .done(),
+            )
+            .done(),
+    );
+    // §19.5 bldLst: the builds of the effects written (a build without effects is left out).
+    let used: Vec<&Build> = builds
+        .iter()
+        .filter(|b| {
+            b.key().is_some_and(|(spid, grp)| {
+                anims
+                    .iter()
+                    .any(|a| a.shape_id == spid && a.opts.group_id == Some(grp))
+            })
+        })
+        .collect();
+    if !used.is_empty() {
+        let mut l = El::new("p:bldLst");
+        for b in used {
+            l = l.child(build_xml(b));
+        }
+        timing = timing.child(l.done());
+    }
+    timing.done()
 }
 
 /// Serialize timing: the source when the animations and the other time nodes are unchanged.
@@ -1508,14 +2075,14 @@ fn build_timing(anims: &[Animation], others: &[XmlElement]) -> XmlElement {
 pub fn write_timing(t: &Timing) -> Option<Extra> {
     if let Some(src) = &t.source {
         let p = parse_timing(&src.xml, src.key);
-        if p.animations == t.animations && p.others == t.others {
+        if p.animations == t.animations && p.others == t.others && p.builds == t.builds {
             return Some(src.clone());
         }
     }
     if t.animations.is_empty() && t.others.is_empty() {
         return None;
     }
-    let full = build_timing(&t.animations, &t.others);
+    let full = build_timing(&t.animations, &t.others, &t.builds);
     if t.animations.iter().all(|a| a.trigger_bookmark.is_none()) {
         return Some(Extra {
             key: KEY_TIMING,
@@ -1530,7 +2097,7 @@ pub fn write_timing(t: &Timing) -> Option<Extra> {
         .collect();
     let mut fallback = El::new("mc:Fallback");
     if !plain.is_empty() || !t.others.is_empty() {
-        fallback = fallback.child(build_timing(&plain, &t.others));
+        fallback = fallback.child(build_timing(&plain, &t.others, &t.builds));
     }
     let xml = El::new("mc:AlternateContent")
         .a("xmlns:mc", NS_MC)
@@ -1569,6 +2136,7 @@ mod tests {
             trigger_shape: None,
             trigger_bookmark: None,
             iterate: None,
+            opts: AnimOptions::default(),
             source: None,
         }
     }
@@ -1606,6 +2174,7 @@ mod tests {
         let t = Timing {
             animations: anims.clone(),
             others: vec![],
+            builds: vec![],
             source: None,
         };
         let x = write_timing(&t).unwrap();
@@ -1714,6 +2283,7 @@ mod tests {
         let only = Timing {
             animations: vec![],
             others: t.others.clone(),
+            builds: vec![],
             source: None,
         };
         assert!(write_timing(&only).is_some());
@@ -1728,6 +2298,7 @@ mod tests {
         let t = Timing {
             animations: vec![plain.clone(), a.clone()],
             others: vec![],
+            builds: vec![],
             source: None,
         };
         let w = write_timing(&t).unwrap();
@@ -1853,5 +2424,263 @@ mod tests {
         assert_eq!(motion_path(&par).as_deref(), Some("M 0 0 L 1 1 E"));
         let a = parse_effect(par.child("p:cTn").unwrap()).unwrap();
         assert_eq!((a.class, a.dur_ms, a.shape_id), (AnimClass::Path, 900, 7));
+    }
+
+    fn xml_text(el: &XmlElement) -> String {
+        let mut t = String::new();
+        bo_drawingml::dom::write_element(el, &mut t);
+        t
+    }
+
+    fn reparsed(t: &Timing) -> (Timing, String) {
+        let w = write_timing(t).unwrap();
+        let mut back = parse_timing(&w.xml, w.key);
+        for a in &mut back.animations {
+            a.preset_id = None;
+            a.preset_subtype = None;
+        }
+        back.source = None;
+        (back, xml_text(&w.xml))
+    }
+
+    // source: ECMA-376 Part 1, §19.5 spTgt children (bg, txEl/pRg, graphicEl with DrawingML chart /
+    // dgm, §20.1.2.2), §19.5.29 cTn@grpId and §19.5 bldLst (bldP, bldGraphic with bldSub /
+    // bldAsOne): every option is written where the schema puts it and read back unchanged.
+    #[test]
+    fn targets_and_builds_round_trip() {
+        let with = |trigger, target: Option<AnimTarget>, shape: u32| {
+            let mut a = anim(AnimEffect::Fade, None, trigger);
+            a.shape_id = shape;
+            a.opts.target = target;
+            a.opts.group_id = Some(0);
+            a
+        };
+        let anims = vec![
+            with(AnimTrigger::OnClick, Some(AnimTarget::Background), 4),
+            with(
+                AnimTrigger::WithPrevious,
+                Some(AnimTarget::Paragraphs { start: 0, end: 0 }),
+                4,
+            ),
+            with(
+                AnimTrigger::OnClick,
+                Some(AnimTarget::Paragraphs { start: 1, end: 2 }),
+                4,
+            ),
+            with(
+                AnimTrigger::OnClick,
+                Some(AnimTarget::Chart {
+                    series: 1,
+                    category: -1,
+                    step: "series".into(),
+                }),
+                5,
+            ),
+            with(
+                AnimTrigger::OnClick,
+                Some(AnimTarget::Diagram {
+                    id: "{11111111-2222-3333-4444-555555555555}".into(),
+                    step: "sp".into(),
+                }),
+                6,
+            ),
+            with(AnimTrigger::OnClick, None, 7),
+        ];
+        let builds = vec![
+            Build::Paragraph(ParaBuild {
+                shape_id: 4,
+                group_id: 0,
+                build: "p".into(),
+                level: 2,
+                reverse: true,
+                anim_bg: true,
+                attrs: vec![("uiExpand".into(), "1".into())],
+            }),
+            Build::Graphic(GraphicBuild {
+                shape_id: 5,
+                group_id: 0,
+                sub: Some(GraphicSub::Chart {
+                    build: "series".into(),
+                    anim_bg: false,
+                }),
+            }),
+            Build::Graphic(GraphicBuild {
+                shape_id: 6,
+                group_id: 0,
+                sub: Some(GraphicSub::Diagram {
+                    build: "lvlOne".into(),
+                    reverse: true,
+                }),
+            }),
+            Build::Graphic(GraphicBuild {
+                shape_id: 7,
+                group_id: 0,
+                sub: None,
+            }),
+            // No effect of shape 9: left out.
+            Build::Graphic(GraphicBuild {
+                shape_id: 9,
+                group_id: 0,
+                sub: None,
+            }),
+        ];
+        let t = Timing {
+            animations: anims.clone(),
+            others: vec![],
+            builds: builds.clone(),
+            source: None,
+        };
+        let (back, text) = reparsed(&t);
+        assert_eq!(back.animations, anims);
+        assert_eq!(back.builds, builds[..4].to_vec());
+        for frag in [
+            r#"<p:spTgt spid="4"><p:bg/></p:spTgt>"#,
+            r#"<p:spTgt spid="4"><p:txEl><p:pRg st="1" end="2"/></p:txEl></p:spTgt>"#,
+            r#"<p:spTgt spid="5"><p:graphicEl><a:chart seriesIdx="1" categoryIdx="-1" bldStep="series"/></p:graphicEl></p:spTgt>"#,
+            r#"<p:spTgt spid="6"><p:graphicEl><a:dgm id="{11111111-2222-3333-4444-555555555555}"/></p:graphicEl></p:spTgt>"#,
+            r#"<p:bldP spid="4" grpId="0" uiExpand="1" build="p" bldLvl="2" animBg="1" rev="1"/>"#,
+            r#"<p:bldGraphic spid="5" grpId="0"><p:bldSub><a:bldChart bld="series" animBg="0"/></p:bldSub></p:bldGraphic>"#,
+            r#"<p:bldGraphic spid="6" grpId="0"><p:bldSub><a:bldDgm bld="lvlOne" rev="1"/></p:bldSub></p:bldGraphic>"#,
+            r#"<p:bldGraphic spid="7" grpId="0"><p:bldAsOne/></p:bldGraphic>"#,
+            r#"grpId="0" nodeType="clickEffect""#,
+        ] {
+            assert!(text.contains(frag), "{frag}\n{text}");
+        }
+        assert!(!text.contains(r#"spid="9""#), "{text}");
+        // bldLst follows tnLst (CT_SlideTiming).
+        assert!(text.contains("</p:tnLst><p:bldLst>"), "{text}");
+        // Every behaviour of a paragraph effect targets the paragraphs.
+        assert_eq!(text.matches(r#"<p:pRg st="1" end="2"/>"#).count(), 2);
+    }
+
+    // source: a paragraph build as another application writes it (bldP build="p", effects with
+    // grpId and txEl targets): read into the model, written back verbatim while unchanged, and
+    // its build list survives an edit that regenerates the tree.
+    #[test]
+    fn a_paragraph_build_from_a_file_survives_edits() {
+        let fx = |id: u32, st: u32| {
+            format!(
+                r#"<p:par><p:cTn id="{id}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="{}" presetID="10" presetClass="entr" presetSubtype="0" grpId="0" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="{}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="3"><p:txEl><p:pRg st="{st}" end="{st}"/></p:txEl></p:spTgt></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set><p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="{}" dur="500"/><p:tgtEl><p:spTgt spid="3"><p:txEl><p:pRg st="{st}" end="{st}"/></p:txEl></p:spTgt></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>"#,
+                id + 1,
+                id + 2,
+                id + 3,
+                id + 4
+            )
+        };
+        let xml = format!(
+            r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{}{}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst><p:bldLst><p:bldP spid="3" grpId="0" build="p"/></p:bldLst></p:timing>"#,
+            fx(3, 0),
+            fx(8, 1)
+        );
+        let el = parse(xml.as_bytes(), "/t").unwrap();
+        let t = parse_timing(&el, KEY_TIMING);
+        assert_eq!(t.animations.len(), 2);
+        assert_eq!(
+            t.animations[1].opts.target,
+            Some(AnimTarget::Paragraphs { start: 1, end: 1 })
+        );
+        assert_eq!(t.animations[0].opts.group_id, Some(0));
+        let Build::Paragraph(p) = &t.builds[0] else {
+            panic!("{:?}", t.builds)
+        };
+        assert_eq!((p.shape_id, p.build.as_str(), p.level), (3, "p", 1));
+        assert_eq!(write_timing(&t).unwrap().xml, el);
+        let mut edited = t.clone();
+        edited.animations[1].dur_ms = 900;
+        let (back, text) = reparsed(&edited);
+        assert_eq!(back.builds, t.builds);
+        assert_eq!(back.animations[1].dur_ms, 900);
+        assert_eq!(back.animations[1].opts.target, t.animations[1].opts.target);
+        assert!(text.contains(r#"<p:bldLst><p:bldP spid="3" grpId="0" build="p"/></p:bldLst>"#));
+    }
+
+    // source: §19.5.29 cTn@afterEffect (dim: §19.5.2 animClr to a colour; hide: §19.5.66 set of
+    // style.visibility; hide on next click: an after-effect node opening the next step), cTn@fill
+    // `remove` (rewind) and the effect's sound (§19.5 subTnLst → audio → cMediaNode → sndTgt).
+    #[test]
+    fn after_effects_rewind_and_sound_round_trip() {
+        let mut dim = anim(AnimEffect::Fade, None, AnimTrigger::OnClick);
+        dim.opts.after = Some(AnimAfter::Dim {
+            rgb: 0x80_80_80,
+            attrs: vec!["style.color".into()],
+        });
+        dim.opts.sound = Some(AnimSound {
+            embed: "rId7".into(),
+            name: "chime.wav".into(),
+        });
+        let mut hide = anim(AnimEffect::Wipe, Some("l"), AnimTrigger::AfterPrevious);
+        hide.shape_id = 5;
+        hide.opts.after = Some(AnimAfter::Hide);
+        let mut rewind = anim(AnimEffect::FlyIn, Some("b"), AnimTrigger::OnClick);
+        rewind.shape_id = 6;
+        rewind.opts.rewind = true;
+        let mut on_click = anim(AnimEffect::Fade, None, AnimTrigger::OnClick);
+        on_click.shape_id = 7;
+        on_click.opts.after = Some(AnimAfter::HideOnClick);
+        on_click.opts.target = Some(AnimTarget::Paragraphs { start: 0, end: 0 });
+        // An effect kept as read (an emphasis) takes the options too.
+        let mut spin = anim(
+            AnimEffect::Named("spin".into()),
+            Some("cw"),
+            AnimTrigger::OnClick,
+        );
+        spin.class = AnimClass::Emphasis;
+        spin.shape_id = 8;
+        spin.source = Some(effect_xml(&spin));
+        spin.opts.after = Some(AnimAfter::HideOnClick);
+        spin.opts.rewind = true;
+        let anims = vec![dim, hide, rewind, on_click, spin];
+        let t = Timing {
+            animations: anims.clone(),
+            ..Timing::default()
+        };
+        // 4 clicks of effects and one more hiding the last one.
+        assert_eq!(t.click_count(), 5);
+        let (mut back, text) = reparsed(&t);
+        back.animations[4].source = anims[4].source.clone();
+        back.animations[4].direction = anims[4].direction.clone();
+        back.animations[4].effect = anims[4].effect.clone();
+        assert_eq!(back.animations, anims);
+        assert_eq!(back.click_count(), 5);
+        for frag in [
+            r#"afterEffect="1"><p:stCondLst><p:cond delay="500"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="4"/></p:tgtEl><p:attrNameLst><p:attrName>style.color</p:attrName></p:attrNameLst></p:cBhvr><p:to><a:srgbClr val="808080"/></p:to></p:animClr>"#,
+            r#"<p:tgtEl><p:sndTgt r:embed="rId7" name="chime.wav"/></p:tgtEl>"#,
+            r#"<p:cond evt="begin" delay="0"><p:tn val="#,
+            r#"fill="remove""#,
+            r#"<p:strVal val="hidden"/>"#,
+        ] {
+            assert!(text.contains(frag), "{frag}\n{text}");
+        }
+        // Step 4 (shape 8) also hides paragraph 0 of shape 7; step 5 only hides shape 8.
+        assert_eq!(
+            text.matches(r#"nodeType="clickEffect" afterEffect="1""#)
+                .count(),
+            1
+        );
+        assert_eq!(
+            text.matches(r#"nodeType="withEffect" afterEffect="1""#)
+                .count(),
+            1
+        );
+        // The after effects do not count in the effect's duration.
+        assert_eq!(back.animations[0].dur_ms, 500);
+        // What the effect plays leaves the sound and after effects out.
+        let x = effect_xml(&anims[0]);
+        let mut d = Vec::new();
+        effect_descendants(x.child("p:cTn").unwrap(), &mut d);
+        assert!(!d
+            .iter()
+            .any(|e| e.name == "p:animClr" || e.name == "p:sndTgt"));
+        // Options removed: none left in the XML.
+        let mut plain = t.clone();
+        for a in &mut plain.animations {
+            a.opts = AnimOptions::default();
+        }
+        let (_, text) = reparsed(&plain);
+        assert!(
+            !text.contains(r#"afterEffect="1""#) && !text.contains("sndTgt"),
+            "{text}"
+        );
+        assert!(!text.contains("remove"), "{text}");
     }
 }

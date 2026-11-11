@@ -674,6 +674,7 @@ fn ink_appear(id: u32) -> Animation {
         trigger_shape: None,
         trigger_bookmark: None,
         iterate: None,
+        opts: bo_model::slide::AnimOptions::default(),
         source: None,
     }
 }

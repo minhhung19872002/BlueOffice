@@ -476,6 +476,7 @@ pub(crate) fn start_effect(id: u32, mode: &str) -> R<Animation> {
         trigger_shape: shape,
         trigger_bookmark: None,
         iterate: None,
+        opts: bo_model::slide::AnimOptions::default(),
         source: Some(media_call(id, cmd, preset)?),
     })
 }

@@ -657,7 +657,7 @@ fn is_wav(b: &[u8]) -> bool {
 }
 
 /// The audio relationship of `slide` to the WAV `bytes` (one part per sound).
-fn ensure_sound(tx: &mut Tx<'_>, slide: usize, data: &str) -> R<String> {
+pub(super) fn ensure_sound(tx: &mut Tx<'_>, slide: usize, data: &str) -> R<String> {
     use base64::Engine as _;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data.trim())

@@ -1027,6 +1027,7 @@ mod tests {
             subtotals: vec![],
             trendlines: vec![],
             err_bars: None,
+            hidden: vec![],
         }
     }
 

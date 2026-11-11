@@ -36,6 +36,18 @@ pub struct RenderOptions {
     /// Hyperlinks followed in the running show ([`crate::link_key`]): their text is
     /// drawn in the theme's followed-hyperlink colour (§20.1.6.2 folHlink).
     pub followed: Vec<String>,
+    /// Draw only some elements of one chart or SmartArt frame (`cNvPr@id`): a slide show building
+    /// it element by element (ECMA-376 Part 1, §19.5 bldGraphic).
+    pub element_mask: Option<(u32, ElementMask)>,
+}
+
+/// The elements of a chart or SmartArt frame drawn (see [`RenderOptions::element_mask`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ElementMask {
+    /// Data points `(series, point)` of a chart (series counted across its plot groups).
+    ChartPoints(Vec<(usize, usize)>),
+    /// Top-level shapes of a SmartArt drawing, by index.
+    DiagramShapes(Vec<usize>),
 }
 
 /// Top-level shapes `start..end` of a slide, optionally over its backdrop.
@@ -1815,7 +1827,11 @@ fn draw_frame(
                     bo_xlsx::chart_write::parse_chart_part(data, &part)
                 });
             if let Some(chart) = chart {
-                draw_chart_frame(cx, &chart, r.2, r.3, fonts, &mut cmds);
+                let mask = match &cx.opts.element_mask {
+                    Some((id, ElementMask::ChartPoints(pts))) if *id == f.nv.id => Some(pts),
+                    _ => None,
+                };
+                draw_chart_frame(cx, &chart, r.2, r.3, mask, fonts, &mut cmds);
             }
         }
         // SmartArt (§21.4.2.6 dgm:relIds): the pre-rendered drawing part
@@ -1823,8 +1839,15 @@ fn draw_frame(
         GraphicContent::Other(gd) if f.uri == crate::diagram::URI_DIAGRAM => {
             let ext = f.xfrm.ext.unwrap_or((0, 0));
             let shapes = diagram_fallback(cx, gd).or_else(|| diagram_from_data(cx, gd, ext));
-            for node in shapes.unwrap_or_default() {
-                draw_node(cx, &node, Frame::root(), fonts, images, &mut cmds);
+            let mask = match &cx.opts.element_mask {
+                Some((id, ElementMask::DiagramShapes(k))) if *id == f.nv.id => Some(k),
+                _ => None,
+            };
+            for (k, node) in shapes.unwrap_or_default().iter().enumerate() {
+                if mask.is_some_and(|m| !m.contains(&k)) {
+                    continue;
+                }
+                draw_node(cx, node, Frame::root(), fonts, images, &mut cmds);
             }
         }
         // §19.3.2.4 oleObj: its preview picture (`p:pic`) fills the frame; the object
@@ -1936,6 +1959,7 @@ fn draw_chart_frame(
     chart: &bo_model::sheet::Chart,
     w: f64,
     h: f64,
+    mask: Option<&Vec<(usize, usize)>>,
     fonts: &mut FontManager,
     out: &mut Vec<Command>,
 ) {
@@ -2004,7 +2028,8 @@ fn draw_chart_frame(
     };
     // No sheets: references never resolve, the cached values are drawn.
     let wb = bo_model::sheet::Workbook::default();
-    bo_sheet::chart::draw_chart_with(
+    let shown = |s: usize, i: usize| mask.is_none_or(|m| m.contains(&(s, i)));
+    bo_sheet::chart::draw_chart_masked(
         &wb,
         0,
         chart,
@@ -2013,6 +2038,7 @@ fn draw_chart_frame(
         &bo_sheet::numfmt::Locale::default(),
         &color,
         false,
+        mask.map(|_| &shown as &bo_sheet::chart::PointMask<'_>),
         &mut label,
         out,
     );

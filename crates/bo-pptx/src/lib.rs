@@ -37,7 +37,7 @@ pub use pml::{parse_csld, parse_node, visit, write_csld, write_node, URI_TABLE};
 pub use read::read_pptx;
 pub use render::{
     render_level, render_slide, render_thumbnail, render_with, shape_text_geometry,
-    table_cell_text_geometry, RenderOptions, ShapeRange,
+    table_cell_text_geometry, ElementMask, RenderOptions, ShapeRange,
 };
 pub use text_layout::{link_key, CaretLine, TextGeometry};
 pub use write::write_pptx;

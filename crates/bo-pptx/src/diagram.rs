@@ -133,11 +133,243 @@ pub fn render_drawing(
         .map(|p| p.commands)
 }
 
+/// The nodes of a SmartArt and the node each drawn shape belongs to, for building it node by node
+/// in a slide show (DrawingML §20.1.2.2 bldDgm; §19.5 graphicEl → dgm targets).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DiagramBuild {
+    /// Content points (§21.4.3.8 pt of type `node` / `asst`) in reading order (depth first by
+    /// §21.4.3.1 cxn `srcOrd`): model id and level (1 = under the document point).
+    pub nodes: Vec<(String, u32)>,
+    /// For each top-level shape of the drawing part: the index in `nodes` of its node; `None` =
+    /// part of the background.
+    pub shapes: Vec<Option<usize>>,
+}
+
+fn text_of_el(el: &XmlElement) -> String {
+    let mut out = String::new();
+    for c in &el.children {
+        match c {
+            XmlNode::Text(t) if el.local() == "t" => out.push_str(t),
+            XmlNode::Element(e) => out.push_str(&text_of_el(e)),
+            XmlNode::Text(_) => {}
+        }
+    }
+    out
+}
+
+/// Who builds with whom in a SmartArt: its data model part and its drawing part ([MS-ODRAWXML]
+/// dsp:drawing). A shape's `modelId` names a node, a presentation point of one (`presOf`
+/// connection, `prSet@presAssocID`) or a connection's transition point (`parTrans` / `sibTrans`,
+/// built with the connection's destination node); shapes naming nothing known are matched to the
+/// nodes by their text, in order.
+#[must_use]
+pub fn diagram_build(
+    data_xml: &[u8],
+    data_part: &str,
+    drawing_xml: &[u8],
+    drawing_part: &str,
+) -> Option<DiagramBuild> {
+    let data = bo_drawingml::dom::parse(data_xml, data_part).ok()?;
+    let drawing = bo_drawingml::dom::parse(drawing_xml, drawing_part).ok()?;
+    if data.local() != "dataModel" || drawing.local() != "drawing" {
+        return None;
+    }
+    let kids = |el: &XmlElement, list: &str, item: &str| -> Vec<XmlElement> {
+        el.elements()
+            .find(|c| c.local() == list)
+            .map(|l| {
+                l.elements()
+                    .filter(|c| c.local() == item)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let pts = kids(&data, "ptLst", "pt");
+    let cxns = kids(&data, "cxnLst", "cxn");
+    let kind_of = |id: &str| {
+        pts.iter()
+            .find(|p| p.attr("modelId") == Some(id))
+            .map(|p| p.attr("type").unwrap_or("node"))
+    };
+    // parOf connections (§21.4.7.15 ST_CxnType, default parOf): (parent, order, child).
+    let mut links: Vec<(&str, u32, &str)> = cxns
+        .iter()
+        .filter(|c| c.attr("type").is_none_or(|t| t == "parOf"))
+        .filter_map(|c| {
+            Some((
+                c.attr("srcId")?,
+                c.attr("srcOrd").and_then(|o| o.parse().ok()).unwrap_or(0),
+                c.attr("destId")?,
+            ))
+        })
+        .collect();
+    links.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+    let content = |id: &str| matches!(kind_of(id), Some("node" | "asst"));
+    let mut nodes: Vec<(String, u32)> = Vec::new();
+    fn walk(
+        id: &str,
+        level: u32,
+        links: &[(&str, u32, &str)],
+        content: &dyn Fn(&str) -> bool,
+        out: &mut Vec<(String, u32)>,
+    ) {
+        if level > 32 {
+            return;
+        }
+        for l in links.iter().filter(|l| l.0 == id) {
+            if content(l.2) && !out.iter().any(|(n, _)| n == l.2) {
+                out.push((l.2.to_owned(), level));
+                walk(l.2, level + 1, links, content, out);
+            }
+        }
+    }
+    if let Some(doc) = pts.iter().find(|p| p.attr("type") == Some("doc")) {
+        walk(
+            doc.attr("modelId").unwrap_or_default(),
+            1,
+            &links,
+            &content,
+            &mut nodes,
+        );
+    }
+    if nodes.is_empty() {
+        for p in &pts {
+            let id = p.attr("modelId").unwrap_or_default();
+            if content(id) && !links.iter().any(|l| l.2 == id) {
+                nodes.push((id.to_owned(), 1));
+                walk(id, 2, &links, &content, &mut nodes);
+            }
+        }
+    }
+    let node_index = |id: &str| nodes.iter().position(|(n, _)| n == id);
+    // The node a model id stands for (a few hops: presentation point → transition → connection).
+    let resolve = |start: &str| -> Option<usize> {
+        let mut id = start.to_owned();
+        for _ in 0..4 {
+            if let Some(i) = node_index(&id) {
+                return Some(i);
+            }
+            let pt = pts.iter().find(|p| p.attr("modelId") == Some(id.as_str()));
+            let next = match pt.map(|p| p.attr("type").unwrap_or("node")) {
+                Some("pres") => pt
+                    .and_then(|p| p.elements().find(|c| c.local() == "prSet"))
+                    .and_then(|s| s.attr("presAssocID"))
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        cxns.iter()
+                            .find(|c| {
+                                c.attr("type") == Some("presOf")
+                                    && c.attr("destId") == Some(id.as_str())
+                            })
+                            .and_then(|c| c.attr("srcId"))
+                            .map(str::to_owned)
+                    }),
+                Some("parTrans" | "sibTrans") => pt
+                    .and_then(|p| p.attr("cxnId"))
+                    .and_then(|cx| cxns.iter().find(|c| c.attr("modelId") == Some(cx)))
+                    .and_then(|c| c.attr("destId"))
+                    .map(str::to_owned),
+                _ => None,
+            };
+            id = next?;
+        }
+        None
+    };
+    let tree = find(&drawing, "spTree")?;
+    let texts: Vec<String> = nodes
+        .iter()
+        .map(|(id, _)| {
+            pts.iter()
+                .find(|p| p.attr("modelId") == Some(id.as_str()))
+                .and_then(|p| p.elements().find(|c| c.local() == "t"))
+                .map(|t| text_of_el(t).trim().to_owned())
+                .unwrap_or_default()
+        })
+        .collect();
+    let mut used = vec![false; nodes.len()];
+    let mut shapes = Vec::new();
+    for e in tree
+        .elements()
+        .filter(|e| matches!(e.local(), "sp" | "grpSp" | "cxnSp" | "pic"))
+    {
+        let mut hit = e.attr("modelId").and_then(resolve);
+        if hit.is_none() {
+            let t = text_of_el(e).trim().to_owned();
+            if !t.is_empty() {
+                hit = (0..nodes.len()).find(|&i| !used[i] && texts[i] == t);
+                if let Some(i) = hit {
+                    used[i] = true;
+                }
+            }
+        }
+        shapes.push(hit);
+    }
+    Some(DiagramBuild { nodes, shapes })
+}
+
+/// The drawing part (name) and data part (name) of a SmartArt frame's graphic data, found through
+/// the relationships `rels` of the part `from` holding the frame.
+#[must_use]
+pub fn frame_parts(
+    graphic_data: &XmlElement,
+    rels: &[bo_model::slide::Rel],
+    from: &str,
+    part_data: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> Option<(String, String)> {
+    let target = |rid: &str| {
+        rels.iter()
+            .find(|r| r.id == rid && !r.external)
+            .map(|r| bo_opc::resolve_target(from, &r.target))
+    };
+    let data = target(data_rel_id(graphic_data)?)?;
+    let drawing = drawing_rel_id(&part_data(&data)?, &data)
+        .and_then(|rid| target(&rid))
+        .or_else(|| {
+            let mut it = rels
+                .iter()
+                .filter(|r| r.rel_type == REL_DIAGRAM_DRAWING && !r.external);
+            match (it.next(), it.next()) {
+                (Some(r), None) => Some(bo_opc::resolve_target(from, &r.target)),
+                _ => None,
+            }
+        })?;
+    Some((data, drawing))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const DSP: &str = "http://schemas.microsoft.com/office/drawing/2008/diagram";
+
+    // source: §21.4.3 data model (pt types node / pres / sibTrans, cxn parOf / presOf with srcOrd,
+    // prSet@presAssocID) — nodes in reading order with their levels; drawing shapes resolved to
+    // their node through their modelId, else by their text.
+    #[test]
+    fn diagram_nodes_and_their_shapes() {
+        let data = r#"<dgm:dataModel xmlns:dgm="d" xmlns:a="a"><dgm:ptLst><dgm:pt modelId="D" type="doc"/><dgm:pt modelId="B"><dgm:t><a:p><a:r><a:t>Hai</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="A"><dgm:t><a:p><a:r><a:t>Một</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="A1"><dgm:t><a:p><a:r><a:t>Một con</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="PA" type="pres"><dgm:prSet presAssocID="A"/></dgm:pt><dgm:pt modelId="T" type="sibTrans" cxnId="C2"/><dgm:pt modelId="PT" type="pres"/></dgm:ptLst><dgm:cxnLst><dgm:cxn modelId="C1" srcId="D" destId="A" srcOrd="0"/><dgm:cxn modelId="C2" srcId="D" destId="B" srcOrd="1" sibTransId="T"/><dgm:cxn modelId="C3" srcId="A" destId="A1" srcOrd="0"/><dgm:cxn modelId="C4" type="presOf" srcId="T" destId="PT"/></dgm:cxnLst></dgm:dataModel>"#;
+        let sp = |id: &str, text: &str| {
+            format!(
+                r#"<dsp:sp modelId="{id}"><dsp:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></dsp:txBody></dsp:sp>"#
+            )
+        };
+        let drawing = format!(
+            r#"<dsp:drawing xmlns:dsp="{DSP}" xmlns:a="a"><dsp:spTree><dsp:nvGrpSpPr/>{}{}{}{}{}</dsp:spTree></dsp:drawing>"#,
+            sp("PA", ""),
+            sp("PT", ""),
+            sp("X1", "Hai"),
+            sp("X2", "Một con"),
+            sp("X3", "")
+        );
+        let b = diagram_build(data.as_bytes(), "/d", drawing.as_bytes(), "/w").unwrap();
+        assert_eq!(
+            b.nodes,
+            vec![("A".into(), 1), ("A1".into(), 2), ("B".into(), 1)]
+        );
+        // PA → A (presAssocID); PT → T (presOf) → C2 → B; by text: B, A1; the last: background.
+        assert_eq!(b.shapes, vec![Some(0), Some(2), Some(2), Some(1), None]);
+    }
 
     #[test]
     fn drawing_part_shapes_and_ids() {

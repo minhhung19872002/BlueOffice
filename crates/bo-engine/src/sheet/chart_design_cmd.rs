@@ -28,17 +28,7 @@ impl SheetEngine {
             .charts
             .get(index)
             .ok_or_else(|| bad("no such chart"))?;
-        let mut live = c.clone();
-        // The live data of the chart (its references), as drawn on the sheet.
-        for (p, src) in live.plots.iter_mut().zip(&c.plots) {
-            for (s, from) in p.series.iter_mut().zip(&src.series) {
-                let (_, cats, vals) = bo_sheet::chart::series_data(wb, sheet, from, &self.locale);
-                if !vals.is_empty() {
-                    s.categories = cats;
-                    s.values = vals;
-                }
-            }
-        }
+        let live = self.live_chart(sheet, c);
         Ok(chart_design::gallery(
             &live,
             &cs::theme_accents(wb),
@@ -46,6 +36,31 @@ impl SheetEngine {
             h,
             &bo_sheet::chart::default_color,
         ))
+    }
+
+    /// Chart `c` of `sheet` with the live data of its references (names, categories, values), as
+    /// drawn on the sheet.
+    pub(super) fn live_chart(
+        &self,
+        sheet: usize,
+        c: &bo_model::sheet::Chart,
+    ) -> bo_model::sheet::Chart {
+        let mut live = c.clone();
+        let Ok(wb) = self.wb() else { return live };
+        for (p, src) in live.plots.iter_mut().zip(&c.plots) {
+            for (s, from) in p.series.iter_mut().zip(&src.series) {
+                let (name, cats, vals) =
+                    bo_sheet::chart::series_data(wb, sheet, from, &self.locale);
+                if name.is_some() {
+                    s.name = name;
+                }
+                if !vals.is_empty() {
+                    s.categories = cats;
+                    s.values = vals;
+                }
+            }
+        }
+        live
     }
 
     /// Applies a chart design `spec` to chart `index` on `sheet`.

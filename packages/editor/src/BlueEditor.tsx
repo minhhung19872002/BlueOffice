@@ -423,6 +423,7 @@ import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
 import { ChartDialog, type ChartDraft } from './chart/ChartDialog';
 import { SaveChartTemplateDialog } from './chart/chartDesign';
+import { ChartFormatPane } from './chart/ChartFormatPane';
 import {
   chartCommand,
   docChartTabs,
@@ -682,6 +683,8 @@ function EditorInner({
     initial: ChartDraft;
   } | null>(null);
   const [chartTemplateOpen, setChartTemplateOpen] = useState(false);
+  /** The Format chart pane (CORE-CHART-005). */
+  const [chartFormatOpen, setChartFormatOpen] = useState(false);
   // A chart just selected: read its type and wrapping for the Chart Design tab's checked state.
   const chartSelected =
     !!state.edit?.format.chart &&
@@ -2007,6 +2010,7 @@ function EditorInner({
       t: i18nInstance.t.bind(i18nInstance),
       run: async (c) => (await controller.current?.run(c)) ?? null,
       open: (mode, initial) => setChartDialog({ mode, initial }),
+      pane: { toggle: () => setChartFormatOpen((v) => !v) },
     });
     r.register({
       id: 'insert.equation',
@@ -3577,7 +3581,6 @@ function EditorInner({
       : [];
   // Chart Design tab (CORE-CHART-007) for the chart at the selection; its callbacks only run
   // engine commands when a control is used, never during render.
-  /* eslint-disable react-hooks/refs */
   const chartTabs = docChartTabs({
     t,
     item,
@@ -3596,8 +3599,12 @@ function EditorInner({
     load: chartGallery,
     apply: (spec) => void runCommand({ cmd: 'setChart', ...spec }),
     onSaveTemplate: () => setChartTemplateOpen(true),
+    elements: {
+      info: state.edit?.chart?.elements,
+      run: (id) => void registry.execute(id, store.getState()),
+      paneOpen: chartFormatOpen,
+    },
   });
-  /* eslint-enable react-hooks/refs */
   // Equation and embedded object tabs (CORE-UI-008); the object tab comes before the picture
   // tab its preview also shows, so selecting an object activates it.
   const objectTabs = docObjectTabs(t, item, docObjectContexts(state.edit));
@@ -4626,7 +4633,8 @@ function EditorInner({
     state.showRuler && !!state.doc && !state.focusMode && state.viewMode !== 'outline';
   const closeTaskPane = (id: string) => {
     if (addins.close(id)) return;
-    if (id === 'navigation') store.setState({ navPane: null });
+    if (id === 'chartFormat') setChartFormatOpen(false);
+    else if (id === 'navigation') store.setState({ navPane: null });
     else if (id === 'ai') ai.close();
     else if (id === 'thesaurus') thesaurus.close();
     else
@@ -4773,6 +4781,20 @@ function EditorInner({
         ),
       });
     }
+  }
+  if (chartFormatOpen && state.doc) {
+    paneDefs.push({
+      id: 'chartFormat',
+      title: t('chartFormat.title'),
+      icon: <SlidersHorizontal size={14} aria-hidden />,
+      closeTestId: 'chart-format-close',
+      content: (
+        <ChartFormatPane
+          info={state.edit?.format.chart ? state.edit.chart?.elements : undefined}
+          apply={(patch) => void runCommand({ cmd: 'setChart', elements: patch })}
+        />
+      ),
+    });
   }
   if (ai.active && state.doc) {
     paneDefs.push({

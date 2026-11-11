@@ -7,6 +7,8 @@ import type {
   BorderPreset,
   BorderSpec,
   CellFormatState,
+  ChartElementsInfo,
+  ChartElementsPatch,
   ChartInfo,
   SheetSmartArtInfo,
   PasteMode,
@@ -289,6 +291,9 @@ import {
   useRibbonCustomization,
   type OpenContextMenu,
   pictureTabLabels,
+  ChartFormatPane,
+  chartElementsGroup,
+  registerChartElementCommands,
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
 import { sheetReadUnits } from './readAloud';
@@ -466,6 +471,8 @@ export interface SheetEditorState {
   fmt: CellFormatState | null;
   /** Selected chart (click on a chart). */
   chart: number | null;
+  /** Elements of the selected chart and their options (CORE-CHART-005). */
+  chartElements: ChartElementsInfo | null;
   /** Selected SmartArt diagram (CORE-SMART-005). */
   smartArt: number | null;
   /** Pivot table containing the active cell. */
@@ -734,6 +741,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [guide, setGuide] = useState<{ x?: number; y?: number } | null>(null);
   const [cursor, setCursor] = useState('cell');
   const [chart, setChart] = useState<number | null>(null);
+  /** The Format chart pane (CORE-CHART-005). */
+  const [chartFormatOpen, setChartFormatOpen] = useState(false);
   /** Selected SmartArt diagram, its anchors and on-screen box (px) (CORE-SMART-005). */
   const [smartArt, setSmartArt] = useState<number | null>(null);
   const [smartInfo, setSmartInfo] = useState<SheetSmartArtInfo | null>(null);
@@ -1339,6 +1348,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
     },
     [host, refreshInfo, fail],
+  );
+
+  // One element change of the selected chart = one `chartDesign` command (one undo step).
+  const sendChartElements = useCallback(
+    (patch: ChartElementsPatch) => {
+      if (chart !== null) void exec({ cmd: 'chartDesign', sheet, index: chart, elements: patch });
+    },
+    [exec, sheet, chart],
   );
 
   /** Runs a read-only command (no refresh). */
@@ -2966,6 +2983,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('chart.edit', async (s) => setDialog({ kind: 'chart', index: s.chart }), {
       isEnabled: () => (summary?.charts ?? 0) > 0,
     });
+    // Add chart element choices and the Format chart pane (CORE-CHART-005).
+    registerChartElementCommands<SheetEditorState>(
+      (c) =>
+        add(c.id, async (s) => c.run(s), {
+          isEnabled: (s) => s.chart !== null && c.isEnabled(s),
+          ...(c.isChecked ? { isChecked: c.isChecked } : {}),
+        }),
+      {
+        t,
+        info: (s) => (s.chart !== null ? s.chartElements : null),
+        apply: (patch, s) => {
+          if (s.chart !== null)
+            void exec({ cmd: 'chartDesign', sheet: s.sheet, index: s.chart, elements: patch });
+        },
+        openPane: () => setChartFormatOpen((v) => !v),
+      },
+    );
     add(
       'chart.delete',
       async (s) => {
@@ -3334,6 +3368,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             hasWorkbook: !!info,
             fmt,
             chart,
+            chartElements: chart !== null ? (chartInfo?.elements ?? null) : null,
             smartArt,
             pivot: activePivot?.index ?? null,
             ranges: allRanges,
@@ -3347,6 +3382,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [
       host,
       sheet,
+      chartInfo,
       selection,
       info,
       fmt,
@@ -4934,35 +4970,44 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         id: 'chartDesign',
         context: 'chart',
         label: t('chartDesign.tab'),
-        groups: chartDesignGroups({
-          t,
-          sheet,
-          index: chart,
-          load: loadGallery,
-          exec: (cmd) => exec(cmd),
-          onSaveTemplate: () => setSaveTemplate(true),
-          onExportTemplate: () => {
-            if (!host) return;
-            void exportChartTemplate(
-              loadGallery,
-              host,
-              platform.files,
-              fileName.replace(/\.(xlsx|xlsm|csv)$/i, '') || t('sheetEditor.untitled'),
-            )
-              .then((saved) => {
-                if (saved) setStatus(t('chartDesign.templateSaved', { name: saved }));
-              })
-              .catch(fail);
-          },
-          onImportTemplate: () => {
-            if (!host) return;
-            void importChartTemplate(host, platform.files)
-              .then((name) => {
-                if (name) setStatus(t('chartDesign.templateSaved', { name }));
-              })
-              .catch(fail);
-          },
-        }),
+        groups: [
+          chartElementsGroup({
+            t,
+            info: chartInfo?.elements,
+            run,
+            enabled: true,
+            paneOpen: chartFormatOpen,
+          }),
+          ...chartDesignGroups({
+            t,
+            sheet,
+            index: chart,
+            load: loadGallery,
+            exec: (cmd) => exec(cmd),
+            onSaveTemplate: () => setSaveTemplate(true),
+            onExportTemplate: () => {
+              if (!host) return;
+              void exportChartTemplate(
+                loadGallery,
+                host,
+                platform.files,
+                fileName.replace(/\.(xlsx|xlsm|csv)$/i, '') || t('sheetEditor.untitled'),
+              )
+                .then((saved) => {
+                  if (saved) setStatus(t('chartDesign.templateSaved', { name: saved }));
+                })
+                .catch(fail);
+            },
+            onImportTemplate: () => {
+              if (!host) return;
+              void importChartTemplate(host, platform.files)
+                .then((name) => {
+                  if (name) setStatus(t('chartDesign.templateSaved', { name }));
+                })
+                .catch(fail);
+            },
+          }),
+        ],
       },
     ];
   }, [
@@ -4971,6 +5016,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     state,
     run,
     chart,
+    chartInfo,
+    chartFormatOpen,
     smartArt,
     sheet,
     loadGallery,
@@ -5902,6 +5949,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 ]
               : []),
             ...(queries.pane ? [queries.pane] : []),
+            ...(chartFormatOpen
+              ? [
+                  {
+                    id: 'chartFormat',
+                    title: t('chartFormat.title'),
+                    icon: <SlidersHorizontal size={14} aria-hidden />,
+                    closeTestId: 'chart-format-close',
+                    content: (
+                      <ChartFormatPane
+                        info={chart !== null ? chartInfo?.elements : undefined}
+                        apply={sendChartElements}
+                      />
+                    ),
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
             ...(ai.active
               ? [
                   {
@@ -5939,7 +6002,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                       ? setCommentsOpen(false)
                       : id === 'script'
                         ? setScriptOpen(false)
-                        : setVersionsOpen(false)
+                        : id === 'chartFormat'
+                          ? setChartFormatOpen(false)
+                          : setVersionsOpen(false)
           }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}

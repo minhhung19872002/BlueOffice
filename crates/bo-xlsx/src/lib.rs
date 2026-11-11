@@ -20,6 +20,8 @@ mod autofilter;
 mod cellctl;
 mod cf_ext;
 mod chart;
+#[cfg(test)]
+mod chart_elements_tests;
 mod chart_format;
 pub mod chart_write;
 pub mod chartex;

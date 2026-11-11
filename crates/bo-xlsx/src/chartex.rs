@@ -569,6 +569,7 @@ fn labels_of(s: &Node) -> Option<DataLabels> {
         series: on("seriesName"),
         percent: false,
         pos: d.attr("pos").map(str::to_owned),
+        ..DataLabels::default()
     };
     l.any().then_some(l)
 }

@@ -1,5 +1,6 @@
 export type * from './types';
 export type * from './chartDesign';
+export type * from './chartElements';
 export type * from './inspect';
 export type * from './vba';
 export type * from './audit';

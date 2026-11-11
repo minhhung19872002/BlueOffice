@@ -2307,11 +2307,13 @@ fn writer_chart_components(i: usize) -> m::Workbook {
         order,
         disp_eq: true,
         disp_r2: true,
+        ..m::Trendline::default()
     };
     let eb = |value_type: &str, value: f64| m::ErrorBars {
         kind: "both".into(),
         value_type: value_type.into(),
         value,
+        ..m::ErrorBars::default()
     };
     let p = &mut chart.plots[0];
     match i {
@@ -2333,6 +2335,283 @@ fn writer_chart_components(i: usize) -> m::Workbook {
             p.hi_low_lines = true;
             p.flag = true;
             chart.axes.date = true;
+        }
+    }
+    chart.dirty = true;
+    wb.sheets[0].charts.push(chart);
+    wb
+}
+
+/// Chart element options (CORE-CHART-005 / CORE-CHART-007, the "Format chart" pane): axis scales
+/// and units, logarithmic / reversed / secondary / date axes, tick marks, display units, number
+/// formats, minor gridlines, overlays, series lines and markers, data labels of series and
+/// points, every trend line type with its options, every error amount, a data table without
+/// keys, drop / high-low lines and up/down bars.
+fn writer_chart_format_elements(i: usize) -> m::Workbook {
+    use bo_model::chart_style::DataLabels;
+    let mut wb = m::Workbook::new();
+    let ws = &mut wb.sheets[0];
+    let text = |s: &str| m::Cell::new(m::CellValue::Text(s.into()));
+    let num = |v: f64| m::Cell::new(m::CellValue::Number(v));
+    let heads: [&str; 5] = match i {
+        1 => ["Tỉnh", "Kế hoạch", "Thực hiện", "Sai số +", "Sai số −"],
+        2 => ["Ngày", "Sản lượng", "Giá bán", "Sai số +", "Sai số −"],
+        _ => ["Liều", "Đáp ứng", "Đối chứng", "Sai số +", "Sai số −"],
+    };
+    for (c, h) in heads.iter().enumerate() {
+        ws.set_cell(0, c as u32, text(h));
+    }
+    let names = ["Hà Nội", "Huế", "Đà Nẵng", "Cần Thơ", "Hải Phòng", "Vinh"];
+    for r in 1..=6u32 {
+        let x = f64::from(r);
+        ws.set_cell(
+            r,
+            0,
+            match i {
+                1 => text(names[r as usize - 1]),
+                // The first days of six months (1 January 2026 = serial 46023).
+                2 => {
+                    num([46_023.0, 46_054.0, 46_082.0, 46_113.0, 46_143.0, 46_174.0]
+                        [r as usize - 1])
+                }
+                _ => num(x * 0.5),
+            },
+        );
+        let (a, b) = match i {
+            1 => (4.0 * 3f64.powf(x), 900.0 / x),
+            2 => (12_000.0 + 3_500.0 * x, 18.0 + 1.5 * x + (x % 2.0)),
+            _ => (2.0 * x * x - x + 3.0, 5.0 * x.powf(1.4)),
+        };
+        ws.set_cell(r, 1, num(a));
+        ws.set_cell(r, 2, num(b));
+        ws.set_cell(r, 3, num(0.4 * x));
+        ws.set_cell(r, 4, num(0.2 * x));
+    }
+    let (kind, range) = match i {
+        1 => ("column", "A1:C7"),
+        2 => ("line", "B1:C7"),
+        _ => ("scatter", "A1:C7"),
+    };
+    let mut chart = bo_sheet::chart::new_chart(&wb, 0, m::CellRange::parse(range).unwrap(), kind)
+        .expect("chart");
+    chart.title = Some(format!("Định dạng thành phần {i}"));
+    let tl = |kind: &str| m::Trendline {
+        kind: kind.into(),
+        ..m::Trendline::default()
+    };
+    let eb = |kind: &str, value_type: &str, value: f64| m::ErrorBars {
+        kind: kind.into(),
+        value_type: value_type.into(),
+        value,
+        ..m::ErrorBars::default()
+    };
+    match i {
+        1 => {
+            // Logarithmic value axis with a fixed maximum, minor gridlines, a number format and
+            // tick marks; data labels of one series, one point of its own; a polynomial trend line
+            // with its equation; percentage error bars without caps; overlapping columns.
+            chart.axes.log_base = Some(10.0);
+            chart.axes.max = Some(10_000.0);
+            chart.axes.min = Some(1.0);
+            chart.axes.val = m::AxisOptions {
+                num_fmt: Some("#,##0".into()),
+                minor_grid: true,
+                major_tick: Some("cross".into()),
+                minor_tick: Some("in".into()),
+                ..m::AxisOptions::default()
+            };
+            chart.axes.cat.major_tick = Some("none".into());
+            chart.y_title = Some("Tấn (thang log)".into());
+            chart.legend = Some("t".into());
+            chart.legend_overlay = true;
+            chart.format.gap_width = Some(80);
+            let p = &mut chart.plots[0];
+            p.overlap = Some(-10);
+            p.series[0].trendlines.push(m::Trendline {
+                order: 2,
+                disp_eq: true,
+                disp_r2: true,
+                name: Some("Xu hướng bậc 2".into()),
+                ..tl("poly")
+            });
+            p.series[0].err_bars = Some(m::ErrorBars {
+                no_end_cap: true,
+                ..eb("plus", "percentage", 15.0)
+            });
+            p.series[1].labels = Some(DataLabels {
+                value: true,
+                pos: Some("outEnd".into()),
+                num_fmt: Some("0.0".into()),
+                ..DataLabels::default()
+            });
+            p.series[1].point_labels = vec![
+                (
+                    0,
+                    DataLabels {
+                        value: true,
+                        category: true,
+                        separator: Some(": ".into()),
+                        pos: Some("inEnd".into()),
+                        ..DataLabels::default()
+                    },
+                ),
+                (5, DataLabels::default()),
+            ];
+            p.series[1].err_bars = Some(eb("both", "stdErr", 1.0));
+        }
+        2 => {
+            // Date axis by the month; the second series on a secondary axis with its own scale
+            // and title; display units; markers, a smooth line and line widths; moving average
+            // and exponential trend lines; custom error bars from ranges; a data table without
+            // keys; drop lines, high-low lines and up/down bars; the title over the plot.
+            for s in &mut chart.plots[0].series {
+                s.cat_ref = Some("Sheet1!$A$2:$A$7".into());
+                s.categories = [46_023, 46_054, 46_082, 46_113, 46_143, 46_174]
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
+            }
+            chart.axes.date = true;
+            chart.axes.cat.base_unit = Some("months".into());
+            chart.axes.cat.num_fmt = Some("mm/yyyy".into());
+            chart.axes.val = m::AxisOptions {
+                major_unit: Some(5_000.0),
+                minor_unit: Some(1_000.0),
+                disp_unit: Some("thousands".into()),
+                disp_unit_label: true,
+                minor_tick: Some("out".into()),
+                ..m::AxisOptions::default()
+            };
+            chart.axes.min = Some(10_000.0);
+            chart.axes.max = Some(35_000.0);
+            chart.title_overlay = true;
+            chart.axes.data_table = true;
+            chart.axes.table_no_keys = true;
+            let mut second = chart.plots[0].clone();
+            second.series.remove(0);
+            chart.plots[0].series.truncate(1);
+            second.secondary = true;
+            second.series[0].marker = Some(m::Marker {
+                symbol: "diamond".into(),
+                size: Some(8),
+            });
+            second.series[0].smooth = true;
+            second.series[0].line_w = Some(38_100);
+            second.series[0].trendlines.push(m::Trendline {
+                order: 3,
+                ..tl("movingAvg")
+            });
+            chart.axes.val2 = m::AxisOptions {
+                min: Some(15.0),
+                max: Some(30.0),
+                major_unit: Some(5.0),
+                num_fmt: Some("0.0".into()),
+                title: Some("Giá bán (nghìn đồng)".into()),
+                ..m::AxisOptions::default()
+            };
+            let p = &mut chart.plots[0];
+            p.drop_lines = true;
+            p.series[0].marker = Some(m::Marker {
+                symbol: "square".into(),
+                size: Some(6),
+            });
+            p.series[0].trendlines.push(m::Trendline {
+                forward: Some(0.5),
+                disp_eq: true,
+                ..tl("exp")
+            });
+            p.series[0].err_bars = Some(m::ErrorBars {
+                plus_ref: Some("Sheet1!$D$2:$D$7".into()),
+                minus_ref: Some("Sheet1!$E$2:$E$7".into()),
+                plus: (1..=6).map(|r| Some(0.4 * f64::from(r))).collect(),
+                minus: (1..=6).map(|r| Some(0.2 * f64::from(r))).collect(),
+                ..eb("both", "cust", 1.0)
+            });
+            chart.plots.push(second);
+            // A second chart: lines between two series with high-low lines and up/down bars, the
+            // value axis reversed and crossing at the maximum.
+            let mut lines =
+                bo_sheet::chart::new_chart(&wb, 0, m::CellRange::parse("D1:E7").unwrap(), "line")
+                    .expect("chart");
+            lines.from = m::CellRef::new(18, 0);
+            lines.to = Some(m::CellRef::new(33, 8));
+            lines.plots[0].hi_low_lines = true;
+            lines.plots[0].flag = true;
+            lines.axes.val.reverse = true;
+            lines.axes.cat.reverse = true;
+            lines.axes.val.crosses = Some("max".into());
+            lines.axes.cat.label_pos = Some("high".into());
+            lines.dirty = true;
+            chart.dirty = true;
+            wb.sheets[0].charts.push(chart);
+            wb.sheets[0].charts.push(lines);
+            return wb;
+        }
+        _ => {
+            // Scatter: X axis with fixed bounds and unit; linear through the origin extended both
+            // ways, power and logarithmic trend lines; error bars along X (fixed) and Y (standard
+            // deviation); the X axis crossing at a value; the legend at the left.
+            chart.axes.cat = m::AxisOptions {
+                min: Some(0.0),
+                max: Some(4.0),
+                major_unit: Some(0.5),
+                num_fmt: Some("0.0".into()),
+                crosses_at: Some(10.0),
+                minor_grid: true,
+                ..m::AxisOptions::default()
+            };
+            chart.format.cat_grid = true;
+            chart.x_title = Some("Liều (mg)".into());
+            chart.legend = Some("l".into());
+            let p = &mut chart.plots[0];
+            p.series[0].trendlines.push(m::Trendline {
+                forward: Some(0.5),
+                backward: Some(0.5),
+                intercept: Some(0.0),
+                disp_eq: true,
+                disp_r2: true,
+                ..tl("linear")
+            });
+            p.series[0].err_bars = Some(m::ErrorBars {
+                dir: Some("x".into()),
+                ..eb("both", "fixedVal", 0.1)
+            });
+            p.series[0].labels = Some(DataLabels {
+                value: true,
+                pos: Some("r".into()),
+                ..DataLabels::default()
+            });
+            p.series[1].trendlines.push(m::Trendline {
+                disp_eq: true,
+                ..tl("power")
+            });
+            p.series[1].trendlines.push(tl("log"));
+            p.series[1].err_bars = Some(eb("minus", "stdDev", 1.0));
+            p.series[1].marker = Some(m::Marker {
+                symbol: "triangle".into(),
+                size: Some(7),
+            });
+            // A pie with percentages outside, no leader lines, one slice pulled out.
+            let mut pie =
+                bo_sheet::chart::new_chart(&wb, 0, m::CellRange::parse("A1:B7").unwrap(), "pie")
+                    .expect("chart");
+            pie.from = m::CellRef::new(18, 0);
+            pie.to = Some(m::CellRef::new(33, 8));
+            pie.plots[0].series[0].explosion = 10;
+            pie.plots[0].series[0].labels = Some(DataLabels {
+                percent: true,
+                category: true,
+                pos: Some("outEnd".into()),
+                leader_lines: Some(false),
+                num_fmt: Some("0.0%".into()),
+                separator: Some(" – ".into()),
+                ..DataLabels::default()
+            });
+            pie.dirty = true;
+            chart.dirty = true;
+            wb.sheets[0].charts.push(chart);
+            wb.sheets[0].charts.push(pie);
+            return wb;
         }
     }
     chart.dirty = true;
@@ -3006,6 +3285,7 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-sheet", "BlueSheet writer: column width / row height, freeze panes, merge, AutoFilter, conditional formats, list validation, page setup + print titles", writer_sheet),
     ("writer-charts", "BlueSheet writer: inserted charts (column, column+line combo, doughnut, scatter) with axis titles and legend", writer_charts),
     ("writer-charts-components", "BlueSheet writer: chart components (linear trend line, fixed error bars, drop lines; exponential and polynomial trend lines, percentage error bars, data table, log axis; moving average, standard-deviation error bars, high-low lines, up/down bars, date axis)", writer_chart_components),
+    ("writer-charts-format-elements", "BlueSheet writer: chart element options (log axis with fixed bounds, minor gridlines, tick marks, number formats, overlapping columns, labels of a series and of single points, polynomial trend line with a name, percentage and standard-error bars; date axis by month, secondary axis with its own scale and title, display units, markers, smooth line, moving average and exponential trend lines, custom error bars, data table without keys, drop / high-low lines, up/down bars, reversed axes; scatter X axis with fixed bounds, linear trend line through the origin with forecast, power and logarithmic trend lines, error bars along X, pie labels outside)", writer_chart_format_elements),
     ("writer-charts-percent", "BlueSheet writer: 100 % stacked column, bar and area charts", writer_charts_percent),
     ("writer-charts-bubble", "BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values)", writer_charts_bubble),
     ("writer-charts-radar", "BlueSheet writer: radar charts (standard, with markers, filled)", writer_charts_radar),

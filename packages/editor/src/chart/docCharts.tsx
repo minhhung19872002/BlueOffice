@@ -8,6 +8,8 @@
 import type { useTranslation } from '@blueoffice/i18n';
 import type {
   ChartDesignSpec,
+  ChartElementsInfo,
+  ChartElementsPatch,
   ChartGallery,
   DocChartInfo,
   DocChartWrap,
@@ -20,6 +22,7 @@ import type { ReactNode } from 'react';
 import type { CommandRegistry } from '../commands';
 import type { ChartDraft } from './ChartDialog';
 import { chartDesignGroups, layoutTexts } from './chartDesign';
+import { chartElementsGroup, registerChartElementCommands } from './chartElements';
 
 type T = ReturnType<typeof useTranslation>['t'];
 
@@ -83,15 +86,28 @@ export interface DocChartDeps {
   run: (c: EditCommand) => Promise<EditResult | null | undefined>;
   /** Opens the chart dialog. */
   open: (mode: 'insert' | 'edit', initial: ChartDraft) => void;
+  /** The Format chart pane (CORE-CHART-005): shows or hides it. */
+  pane?: { toggle: () => void };
 }
 
 /** Registers `insert.chart`, `chart.edit`, `chart.type.*` and `chart.wrap.*`. */
 export function registerDocChartCommands<S extends ChartState>(
   r: CommandRegistry<S>,
-  { t, run, open }: DocChartDeps,
+  { t, run, open, pane }: DocChartDeps,
 ): void {
   const hasDoc = (s: S) => !!s.doc;
   const chart = (s: S) => hasDoc(s) && !!s.edit?.format.chart;
+  // Add chart element choices (`chart.el.*`) and the Format chart pane (`chart.format`): each
+  // choice is one `setChart` command with an `elements` patch.
+  registerChartElementCommands<S>(
+    (c) => r.register({ ...c, isEnabled: (s) => chart(s) && c.isEnabled(s) }),
+    {
+      t,
+      info: (s) => s.edit?.chart?.elements,
+      apply: (patch: ChartElementsPatch) => void run({ cmd: 'setChart', elements: patch }),
+      openPane: () => pane?.toggle(),
+    },
+  );
   r.register({
     id: 'insert.chart',
     isEnabled: hasDoc,
@@ -148,6 +164,7 @@ export function docChartTabs({
   load,
   apply,
   onSaveTemplate,
+  elements,
 }: {
   t: T;
   item: ItemFn;
@@ -156,6 +173,13 @@ export function docChartTabs({
   load: () => Promise<ChartGallery | null>;
   apply: (spec: ChartDesignSpec) => void;
   onSaveTemplate: () => void;
+  /** The Add chart element menu and the Format chart pane button (CORE-CHART-005). */
+  elements?: {
+    info: ChartElementsInfo | null | undefined;
+    /** Runs a registry command. */
+    run: (id: string) => void;
+    paneOpen: boolean;
+  };
 }): RibbonTab[] {
   if (!shown) return [];
   const groups: RibbonGroup[] = [
@@ -164,6 +188,7 @@ export function docChartTabs({
       label: t('slideEditor.groupChartData'),
       items: [item('chart.edit', 'slideEditor.editChart', icons.edit)],
     },
+    ...(elements ? [chartElementsGroup({ t, enabled: shown, ...elements })] : []),
     {
       id: 'chartType',
       label: t('slideEditor.chartType'),

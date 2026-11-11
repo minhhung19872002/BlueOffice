@@ -40,6 +40,15 @@ pub struct DataLabels {
     pub series: bool,
     /// §21.2.2.48 ST_DLblPos (`outEnd`, `inEnd`, `ctr`, `bestFit`, `t`, …); `None` = default.
     pub pos: Option<String>,
+    /// `c:showLeaderLines`: lines from the labels of a pie to their slices; `None` = on for pies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_lines: Option<bool>,
+    /// `c:numFmt@formatCode` of the values (not linked to the source).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_fmt: Option<String>,
+    /// `c:separator` between the parts of a label; `None` = `"; "`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub separator: Option<String>,
 }
 
 impl DataLabels {

@@ -408,6 +408,15 @@ fn want_text(
         .or_else(|| Some(fallback.to_owned()))
 }
 
+/// A layout or template sets the data labels of the whole chart: labels the series or single
+/// points had of their own (`c:ser/c:dLbls`) give way to them.
+fn clear_series_labels(c: &mut Chart) {
+    for s in c.plots.iter_mut().flat_map(|p| &mut p.series) {
+        s.labels = None;
+        s.point_labels.clear();
+    }
+}
+
 /// Applies quick layout `id`; titles the layout adds take `texts`; `false` for an unknown id.
 pub fn apply_layout(c: &mut Chart, id: &str, texts: &LayoutTexts) -> bool {
     let Some(l) = layout_of(id, is_pie(c)) else {
@@ -431,6 +440,7 @@ pub fn apply_layout(c: &mut Chart, id: &str, texts: &LayoutTexts) -> bool {
         c.axes.data_table = l.table;
     }
     c.format.data_labels = l.labels;
+    clear_series_labels(c);
     c.format.hide_val_grid = !l.val_grid;
     c.format.cat_grid = l.cat_grid;
     c.dirty = true;
@@ -519,6 +529,7 @@ pub fn apply_template(c: &mut Chart, t: &ChartTemplate, texts: &LayoutTexts) {
     }
     let palette = t.format.palette.clone();
     c.format = t.format.clone();
+    clear_series_labels(c);
     if !palette.is_empty() {
         set_palette(c, palette);
     }

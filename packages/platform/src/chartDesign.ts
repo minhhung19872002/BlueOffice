@@ -36,6 +36,8 @@ export type ChartDesignSpec = {
   colors?: string;
   layout?: string;
   texts?: ChartLayoutTexts;
+  /** Options of the chart's elements (CORE-CHART-005), applied last. */
+  elements?: import('./chartElements').ChartElementsPatch;
 };
 
 /** A gallery preview: preset id and its thumbnail (SVG drawn by the shared chart renderer). */

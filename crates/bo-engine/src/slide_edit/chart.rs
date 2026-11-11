@@ -67,6 +67,8 @@ pub struct ChartOut {
     pub data: ChartData,
     /// Has an embedded workbook.
     pub embedded: bool,
+    /// The chart's elements and their options ([`crate::chart_elements::info`]).
+    pub elements: serde_json::Value,
 }
 
 /// Fields of the set command (absent = unchanged).
@@ -428,6 +430,7 @@ pub fn chart_out(pres: &Presentation, slide: usize, id: u32) -> Option<ChartOut>
         legend: c.legend.clone(),
         data: data_of(&c),
         embedded,
+        elements: crate::chart_elements::info(&c),
     })
 }
 
@@ -761,7 +764,38 @@ pub(crate) fn edit_chart(
         return Err(EditError::Refused("badChart"));
     }
     let grouping = c.plots.first().and_then(|p| p.grouping.clone());
-    c.plots = plots_of(&kind, grouping, &d)?;
+    let fresh = series_of(&d);
+    let count: usize = c.plots.iter().map(|p| p.series.len()).sum();
+    if spec.kind.is_none() && c.plots.len() > 1 && count == fresh.len() && !is_ex(&c) {
+        // New data for a chart of several groups (a combination, a series on the secondary axis):
+        // the groups stay, each series takes its column of the grid.
+        for (s, n) in c.plots.iter_mut().flat_map(|p| &mut p.series).zip(fresh) {
+            s.point_labels.retain(|(i, _)| *i < n.values.len());
+            s.name = n.name;
+            s.name_ref = n.name_ref;
+            s.cat_ref = n.cat_ref;
+            s.val_ref = n.val_ref;
+            s.categories = n.categories;
+            s.values = n.values;
+        }
+    } else {
+        // The series are rebuilt from the grid: their element options (trend lines, error bars,
+        // data labels, markers) and those of their group (lines, overlap) stay with them.
+        let old = c.plots.clone();
+        let old_series: Vec<ChartSeries> = old.iter().flat_map(|p| p.series.clone()).collect();
+        c.plots = plots_of(&kind, grouping, &d)?;
+        crate::chart_elements::carry_series_options(&mut c, &old_series);
+        for (p, o) in c.plots.iter_mut().zip(&old) {
+            if p.kind == o.kind && p.three_d == o.three_d {
+                p.drop_lines = o.drop_lines;
+                p.hi_low_lines = o.hi_low_lines;
+                p.overlap = o.overlap;
+                if p.kind == ChartKind::Line {
+                    p.flag = o.flag;
+                }
+            }
+        }
+    }
     bo_sheet::chart::view_for_type(&mut c);
     if let Some(t) = &spec.title {
         c.title = Some(t.clone()).filter(|t| !t.is_empty());

@@ -1476,8 +1476,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   // The dialog of diagrams: layout thumbnails from the engine, node pictures from a file.
   const loadSmartArtPreviews = useCallback<SmartArtPreviewLoader>(
     async (colors, style) =>
-      (await host?.exec<{ previews: SmartArtPreview[] }>({ cmd: 'smartArtPreviews', colors, style }))
-        ?.previews ?? [],
+      (
+        await host?.exec<{ previews: SmartArtPreview[] }>({
+          cmd: 'smartArtPreviews',
+          colors,
+          style,
+        })
+      )?.previews ?? [],
     [host],
   );
   const pickSmartArtPicture = useMemo(() => smartArtPicturePicker(platform.files), [platform]);

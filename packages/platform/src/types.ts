@@ -2488,13 +2488,7 @@ export type SlideSmartArtLayout =
  * part another application wrote into the file (kept and used until a BlueOffice one is chosen).
  */
 export type SlideSmartArtColors =
-  | 'colorful'
-  | 'blue'
-  | 'green'
-  | 'orange'
-  | 'purple'
-  | 'gray'
-  | 'file';
+  'colorful' | 'blue' | 'green' | 'orange' | 'purple' | 'gray' | 'file';
 export type SlideSmartArtStyle = 'fill' | 'outline' | 'file';
 
 /** A thumbnail of a layout of the library (`smartArtPreviews`): an SVG document. */

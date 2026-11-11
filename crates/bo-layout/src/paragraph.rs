@@ -589,7 +589,8 @@ fn split_by_level(
             let st = &styles[p.style];
             let glyphs = shape_run(fonts, p.face, sub, st);
             let upem = f32::from(fonts.info(p.face).units_per_em);
-            let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
+            let width = glyphs.iter().map(|g| i64::from(g.x_advance)).sum::<i64>() as f32 * st.size
+                / upem
                 + st.spacing * glyphs.len() as f32;
             out.push(Piece {
                 text: sub.to_owned(),
@@ -1672,8 +1673,8 @@ fn hyphenate(
         let hw = fonts
             .shape_kern(last.face, "-", false)
             .iter()
-            .map(|g| g.x_advance)
-            .sum::<i32>() as f32
+            .map(|g| i64::from(g.x_advance))
+            .sum::<i64>() as f32
             * st.size
             / upem;
         let mut trial = cur.to_vec();
@@ -1714,7 +1715,9 @@ fn split_word(
             let upem = f32::from(fonts.info(p.face).units_per_em);
             let mut part = |t: &str, offs: &[u32]| {
                 let glyphs = shape_run(fonts, p.face, t, st);
-                let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
+                let width = glyphs.iter().map(|g| i64::from(g.x_advance)).sum::<i64>() as f32
+                    * st.size
+                    / upem
                     + st.spacing * glyphs.len() as f32;
                 Piece {
                     text: t.to_owned(),
@@ -2044,7 +2047,8 @@ fn text_pieces(
             let nc = t.chars().count();
             let glyphs = shape_run(fonts, face, t, st);
             let upem = f32::from(fonts.info(face).units_per_em);
-            let width = glyphs.iter().map(|g| g.x_advance).sum::<i32>() as f32 * st.size / upem
+            let width = glyphs.iter().map(|g| i64::from(g.x_advance)).sum::<i64>() as f32 * st.size
+                / upem
                 + st.spacing * glyphs.len() as f32;
             out.push(Piece {
                 style,
@@ -2178,19 +2182,32 @@ fn explode(word: &Word, fonts: &mut FontManager) -> Vec<Word> {
             }
             continue;
         }
-        let per_unit = p.width / p.glyphs.iter().map(|g| g.x_advance).sum::<i32>().max(1) as f32;
+        let per_unit = p.width
+            / p.glyphs
+                .iter()
+                .map(|g| i64::from(g.x_advance))
+                .sum::<i64>()
+                .max(1) as f32;
+        // The other fields of every grapheme piece, without the word's text and offsets:
+        // cloning the whole piece per grapheme made a long unbroken word quadratic.
+        let template = Piece {
+            text: String::new(),
+            offsets: Vec::new(),
+            ..p.clone()
+        };
         let mut ci = 0usize;
         for g in p.text.graphemes(true) {
             let nc = g.chars().count();
             let glyphs = fonts.shape(p.face, g);
-            let width = glyphs.iter().map(|x| x.x_advance).sum::<i32>() as f32 * per_unit;
+            let width =
+                glyphs.iter().map(|x| i64::from(x.x_advance)).sum::<i64>() as f32 * per_unit;
             out.push(Word {
                 pieces: vec![Piece {
                     text: g.to_owned(),
                     glyphs,
                     width,
                     offsets: p.offsets[ci..=ci + nc].to_vec(),
-                    ..p.clone()
+                    ..template.clone()
                 }],
             });
             ci += nc;

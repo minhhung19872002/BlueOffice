@@ -392,6 +392,46 @@ fn doc_pictures_and_smartart_added_at_once_keep_their_own_parts() {
     assert_eq!(info.items.len(), 3, "B's text reached A");
 }
 
+// source: ECMA-376 Part 1, §21.2.2.29 chart part + §21.2.2.63 embedded workbook as media parts of
+// the document (CORE-CHART-007 in BlueDoc): a chart inserted by A, its data and type edited by B.
+#[test]
+fn doc_chart_inserted_and_edited_by_two_peers_converges() {
+    let (mut a, mut b) = doc_pair("Một\nHai");
+    a.cmd(&json!({"cmd":"insertChart","kind":"column","title":"T",
+        "data":{"categories":["x","y"],"series":[{"name":"s","values":[1,2]}]}}));
+    settle(&mut a, &mut b);
+    assert_eq!(pictures(&a), pictures(&b));
+    let media = pictures(&b)
+        .into_iter()
+        .find(|(m, _)| m.contains("/charts/"))
+        .unwrap()
+        .0;
+    assert!(b
+        .engine
+        .document()
+        .unwrap()
+        .media
+        .contains_key(&bo_model::chart_part::workbook_of(&media)));
+    // B selects the chart (it is the first atom of A's paragraph) and edits it.
+    b.cmd(
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":1}}}),
+    );
+    let r = b.cmd(&json!({"cmd":"setChart","kind":"line",
+        "data":{"categories":["x","y"],"series":[{"name":"s","values":[1,5]}]}}));
+    assert!(r["error"].is_null(), "{r}");
+    settle(&mut a, &mut b);
+    assert_eq!(
+        a.engine.document().unwrap().media,
+        b.engine.document().unwrap().media
+    );
+    a.cmd(
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":1}}}),
+    );
+    let info = a.engine.doc_chart().unwrap();
+    assert_eq!(info.kind, "line", "B's type reached A");
+    assert_eq!(info.data.series[0].values, vec![Some(1.0), Some(5.0)]);
+}
+
 #[test]
 fn slide_comment_parts_rewritten_in_place_converge() {
     big_stack(|| {

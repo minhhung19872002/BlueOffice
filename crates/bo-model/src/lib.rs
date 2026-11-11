@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod change;
+pub mod chart_part;
 pub mod chart_style;
 pub mod custom_xml;
 pub mod diagram;

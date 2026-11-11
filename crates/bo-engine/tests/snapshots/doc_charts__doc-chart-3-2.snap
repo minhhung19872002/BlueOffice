@@ -1,0 +1,59 @@
+---
+source: crates/bo-engine/tests/doc_charts.rs
+expression: summary(&page.commands)
+---
+text 13.0pt 85.1,323.4 "Nguồn: số liệu minh hoạ."
+clip 85.1,56.7 425.2x255.1
+  transform [1.000 0.000 0.000 1.000 85.1 56.7]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      text 15.6pt 164.4,22.4 "Phiên "
+      text 15.6pt 203.9,22.4 "giao "
+      text 15.6pt 234.1,22.4 "dịch"
+      rect 6.0,238.1 9.3x9.3 #2e6db4ff
+      text 11.6pt 18.8,245.8 "Khối "
+      text 11.6pt 42.3,245.8 "lượng"
+      rect 88.6,238.1 9.3x9.3 #f28c28ff
+      text 11.6pt 101.4,245.8 "Mở"
+      rect 171.3,238.1 9.3x9.3 #2fa36bff
+      text 11.6pt 184.0,245.8 "Cao"
+      rect 253.9,238.1 9.3x9.3 #d64545ff
+      text 11.6pt 266.7,245.8 "Thấp"
+      rect 336.6,238.1 9.3x9.3 #7e57c2ff
+      text 11.6pt 349.3,245.8 "Đóng"
+      line 52.4,212.0 → 372.8,212.0
+      text 11.6pt 43.5,216.0 "0"
+      line 52.4,153.3 → 372.8,153.3
+      text 11.6pt 25.9,157.2 "1000"
+      line 52.4,94.6 → 372.8,94.6
+      text 11.6pt 25.9,98.5 "2000"
+      line 52.4,35.8 → 372.8,35.8
+      text 11.6pt 25.9,39.8 "3000"
+      text 11.6pt 375.8,216.0 "18"
+      text 11.6pt 375.8,171.9 "20"
+      text 11.6pt 375.8,127.9 "22"
+      text 11.6pt 375.8,83.8 "24"
+      text 11.6pt 375.8,39.8 "26"
+      line 52.4,212.0 → 372.8,212.0
+      text 11.6pt 86.5,225.7 "P1"
+      text 11.6pt 166.6,225.7 "P2"
+      text 11.6pt 246.7,225.7 "P3"
+      text 11.6pt 326.8,225.7 "P4"
+      rect 76.4,123.9 32.0x88.1 #2e6db4ff
+      rect 156.5,76.9 32.0x135.1 #2e6db4ff
+      rect 236.6,106.3 32.0x105.7 #2e6db4ff
+      rect 316.7,59.3 32.0x152.7 #2e6db4ff
+      line 92.4,123.9 → 92.4,190.0
+      rect 78.0,145.9 28.8x22.0 #ffffffff
+      path n=5 [78.0 145.9 106.9 168.0] fill=none
+      line 172.5,101.9 → 172.5,157.0
+      rect 158.1,112.9 28.8x33.0 #ffffffff
+      path n=5 [158.1 112.9 187.0 145.9] fill=none
+      line 252.7,101.9 → 252.7,168.0
+      rect 238.2,112.9 28.8x44.0 #3c4043ff
+      path n=5 [238.2 112.9 267.1 157.0] fill=none
+      line 332.8,77.7 → 332.8,141.5
+      rect 318.3,88.7 28.8x39.6 #ffffffff
+      path n=5 [318.3 88.7 347.2 128.3] fill=none
+    pop transform
+  pop transform
+pop clip

@@ -233,6 +233,7 @@
       "dropCap": "Chữ hoa đầu đoạn",
       "signatureLine": "Dòng chữ ký…",
       "smartart": "SmartArt",
+      "chart": "Biểu đồ",
       "link": "Chèn liên kết",
       "action": "Thiết lập hành động",
       "actionButtons": "Nút hành động",
@@ -416,6 +417,24 @@
       "textDirection": "Xoay chữ",
       "wrap": "Cho chữ bao quanh bảng"
     },
+    "chart": {
+      "edit": "Sửa dữ liệu biểu đồ",
+      "type": {
+        "column": "Đổi thành biểu đồ cột",
+        "bar": "Đổi thành biểu đồ thanh",
+        "line": "Đổi thành biểu đồ đường",
+        "area": "Đổi thành biểu đồ vùng",
+        "pie": "Đổi thành biểu đồ tròn"
+      },
+      "wrap": {
+        "inline": "Biểu đồ cùng dòng với chữ",
+        "square": "Bao quanh hình vuông",
+        "tight": "Bao quanh sát",
+        "topAndBottom": "Chữ trên và dưới",
+        "behind": "Biểu đồ sau chữ",
+        "inFront": "Biểu đồ trước chữ"
+      }
+    },
     "picture": {
       "position": "Vị trí ảnh"
     },
@@ -498,7 +517,8 @@
     "image": "Không chèn được ảnh: {{message}}",
     "sign": "Không ký được: {{message}}",
     "verify": "Không kiểm tra được chữ ký: {{message}}",
-    "smartArt": "Không chèn hoặc sửa được SmartArt."
+    "smartArt": "Không chèn hoặc sửa được SmartArt.",
+    "chart": "Không chèn hoặc sửa được biểu đồ."
   },
   "placeholder": {
     "sheet": "BlueSheet (bảng tính) sẽ được phát triển ở Phase 3.",
@@ -3571,6 +3591,17 @@
     "signOut": "Đăng xuất",
     "account": "Đã đăng nhập: {{name}}",
     "signInFailed": "Không đăng nhập được: {{message}}"
+  },
+  "docChart": {
+    "wrapGroup": "Ngắt dòng quanh",
+    "wrap": {
+      "inline": "Cùng dòng với chữ",
+      "square": "Hình vuông",
+      "tight": "Sát",
+      "topAndBottom": "Trên và dưới",
+      "behind": "Sau chữ",
+      "inFront": "Trước chữ"
+    }
   },
   "picture": {
     "position": "Vị trí ảnh",

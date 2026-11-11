@@ -54,6 +54,8 @@ export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
   'oleInfo',
   'oleLinks',
   'smartArtInfo',
+  'chartInfo',
+  'chartGallery',
   'speechText',
   'speechRects',
   'checkAdminFormat',

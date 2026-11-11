@@ -1,0 +1,133 @@
+---
+source: crates/bo-engine/tests/doc_charts.rs
+expression: summary(&page.commands)
+---
+clip 85.1,370.6 200.0x130.0
+  transform [1.000 0.000 0.000 1.000 85.1 370.6]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      rect 45.0,119.3 4.8x4.8 #2e6db4ff
+      text 6.0pt 51.6,123.3 "Thị "
+      text 6.0pt 60.4,123.3 "phần"
+      line 30.0,104.8 → 194.0,104.8
+      text 6.0pt 24.0,106.9 "0"
+      line 30.0,85.6 → 194.0,85.6
+      text 6.0pt 20.9,87.7 "10"
+      line 30.0,66.5 → 194.0,66.5
+      text 6.0pt 20.9,68.5 "20"
+      line 30.0,47.3 → 194.0,47.3
+      text 6.0pt 20.9,49.4 "30"
+      line 30.0,28.2 → 194.0,28.2
+      text 6.0pt 20.9,30.2 "40"
+      line 30.0,9.0 → 194.0,9.0
+      text 6.0pt 20.9,11.1 "50"
+      line 30.0,104.8 → 194.0,104.8
+      text 6.0pt 46.0,112.2 "Miền "
+      text 6.0pt 60.0,112.2 "Bắc"
+      text 6.0pt 98.1,112.2 "Miền "
+      text 6.0pt 112.1,112.2 "Trung"
+      text 6.0pt 153.9,112.2 "Miền "
+      text 6.0pt 167.9,112.2 "Nam"
+      path n=7 [57.3 24.3 166.7 104.8] fill=#2e6db4c8
+    pop transform
+  pop transform
+pop clip
+text 13.0pt 85.1,68.3 "Báo cáo thị phần"
+text 13.0pt 294.0,83.2 "Biểu đồ tròn, bao kiểu hình vuông. Nội dung "
+text 13.0pt 294.0,98.2 "minh hoạ cho việc ngắt dòng quanh khung biểu "
+text 13.0pt 294.0,113.1 "đồ đặt nổi trên trang, các dòng chữ chạy vòng "
+text 13.0pt 294.0,128.1 "qua khung theo kiểu bao quanh đã chọn. Nội "
+text 13.0pt 294.0,143.0 "dung minh hoạ cho việc ngắt dòng quanh khung "
+text 13.0pt 294.0,158.0 "biểu đồ đặt nổi trên trang, các dòng chữ chạy "
+text 13.0pt 294.0,172.9 "vòng qua khung theo kiểu bao quanh đã chọn. "
+text 13.0pt 294.0,187.9 "Nội dung minh hoạ cho việc ngắt dòng quanh "
+text 13.0pt 294.0,202.8 "khung biểu đồ đặt nổi trên trang, các dòng chữ "
+text 13.0pt 85.1,217.8 "chạy vòng qua khung theo kiểu bao quanh đã chọn. "
+text 13.0pt 85.1,232.7 "Biểu đồ thanh, bao sát. Nội dung minh hoạ cho "
+text 13.0pt 85.1,247.7 "việc ngắt dòng quanh khung biểu đồ đặt nổi "
+text 13.0pt 85.1,262.6 "trên trang, các dòng chữ chạy vòng qua khung "
+text 13.0pt 85.1,277.6 "theo kiểu bao quanh đã chọn. Nội dung minh "
+text 13.0pt 85.1,292.5 "hoạ cho việc ngắt dòng quanh khung biểu đồ "
+text 13.0pt 85.1,307.5 "đặt nổi trên trang, các dòng chữ chạy vòng qua "
+text 13.0pt 85.1,322.4 "khung theo kiểu bao quanh đã chọn. Nội dung "
+text 13.0pt 85.1,337.4 "minh hoạ cho việc ngắt dòng quanh khung biểu "
+text 13.0pt 85.1,352.3 "đồ đặt nổi trên trang, các dòng chữ chạy vòng "
+text 13.0pt 85.1,367.3 "qua khung theo kiểu bao quanh đã chọn. "
+text 13.0pt 85.1,382.2 "Biểu đồ vùng nằm sau chữ. Nội dung minh hoạ cho việc ngắt dòng quanh khung biểu đồ "
+text 13.0pt 85.1,397.2 "đặt nổi trên trang, các dòng chữ chạy vòng qua khung theo kiểu bao quanh đã chọn. Nội "
+text 13.0pt 85.1,412.1 "dung minh hoạ cho việc ngắt dòng quanh khung biểu đồ đặt nổi trên trang, các dòng chữ "
+text 13.0pt 85.1,427.1 "chạy vòng qua khung theo kiểu bao quanh đã chọn. Nội dung minh hoạ cho việc ngắt "
+text 13.0pt 85.1,442.0 "dòng quanh khung biểu đồ đặt nổi trên trang, các dòng chữ chạy vòng qua khung theo "
+text 13.0pt 85.1,457.0 "kiểu bao quanh đã chọn. "
+text 13.0pt 85.1,471.9 "Biểu đồ vành khuyên nằm trước chữ. Nội dung minh hoạ cho việc ngắt dòng quanh "
+text 13.0pt 85.1,486.8 "khung biểu đồ đặt nổi trên trang, các dòng chữ chạy vòng qua khung theo kiểu bao quanh "
+text 13.0pt 85.1,501.8 "đã chọn. Nội dung minh hoạ cho việc ngắt dòng quanh khung biểu đồ đặt nổi trên trang, "
+text 13.0pt 85.1,516.7 "các dòng chữ chạy vòng qua khung theo kiểu bao quanh đã chọn. Nội dung minh hoạ cho "
+text 13.0pt 85.1,531.7 "việc ngắt dòng quanh khung biểu đồ đặt nổi trên trang, các dòng chữ chạy vòng qua "
+text 13.0pt 85.1,546.6 "khung theo kiểu bao quanh đã chọn. "
+clip 85.1,71.6 200.0x130.0
+  transform [1.000 0.000 0.000 1.000 85.1 71.6]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      rect 152.0,53.5 4.8x4.8 #2e6db4ff
+      text 6.0pt 158.6,57.5 "Miền "
+      text 6.0pt 172.6,57.5 "Bắc"
+      rect 152.0,63.1 4.8x4.8 #f28c28ff
+      text 6.0pt 158.6,67.1 "Miền "
+      text 6.0pt 172.6,67.1 "Trung"
+      rect 152.0,72.7 4.8x4.8 #2fa36bff
+      text 6.0pt 158.6,76.7 "Miền "
+      text 6.0pt 172.6,76.7 "Nam"
+      path n=5 [76.0 8.0 76.0 65.0] fill=#2e6db4ff
+      path n=4 [76.0 65.0 103.5 114.9] fill=#f28c28ff
+      path n=5 [42.5 65.0 76.0 111.1] fill=#2fa36bff
+    pop transform
+  pop transform
+pop clip
+clip 345.0,221.1 200.0x130.0
+  transform [1.000 0.000 0.000 1.000 345.0 221.1]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      rect 45.0,119.3 4.8x4.8 #2e6db4ff
+      text 6.0pt 51.6,123.3 "Thị "
+      text 6.0pt 60.4,123.3 "phần"
+      line 39.6,6.0 → 39.6,104.8
+      text 6.0pt 38.1,111.7 "0"
+      line 70.5,6.0 → 70.5,104.8
+      text 6.0pt 67.4,111.7 "10"
+      line 101.4,6.0 → 101.4,104.8
+      text 6.0pt 98.3,111.7 "20"
+      line 132.2,6.0 → 132.2,104.8
+      text 6.0pt 129.2,111.7 "30"
+      line 163.1,6.0 → 163.1,104.8
+      text 6.0pt 160.1,111.7 "40"
+      line 194.0,6.0 → 194.0,104.8
+      text 6.0pt 191.0,111.7 "50"
+      line 39.6,6.0 → 39.6,104.8
+      text 6.0pt 13.9,90.4 "Miền "
+      text 6.0pt 27.9,90.4 "Bắc"
+      text 6.0pt 8.8,57.5 "Miền "
+      text 6.0pt 22.8,57.5 "Trung"
+      text 6.0pt 11.1,24.5 "Miền "
+      text 6.0pt 25.1,24.5 "Nam"
+      rect 39.6,81.7 129.7x13.2 #2e6db4ff
+      rect 39.6,48.8 55.6x13.2 #2e6db4ff
+      rect 39.6,15.9 123.5x13.2 #2e6db4ff
+    pop transform
+  pop transform
+pop clip
+clip 385.0,460.3 200.0x130.0
+  transform [1.000 0.000 0.000 1.000 385.0 460.3]
+    transform [1.000 0.000 0.000 1.000 0.0 0.0]
+      rect 152.0,53.5 4.8x4.8 #2e6db4ff
+      text 6.0pt 158.6,57.5 "Miền "
+      text 6.0pt 172.6,57.5 "Bắc"
+      rect 152.0,63.1 4.8x4.8 #f28c28ff
+      text 6.0pt 158.6,67.1 "Miền "
+      text 6.0pt 172.6,67.1 "Trung"
+      rect 152.0,72.7 4.8x4.8 #2fa36bff
+      text 6.0pt 158.6,76.7 "Miền "
+      text 6.0pt 172.6,76.7 "Nam"
+      path n=7 [76.0 8.0 89.7 90.0] fill=#2e6db4ff
+      path n=5 [59.2 88.1 103.5 114.9] fill=#f28c28ff
+      path n=7 [42.5 36.5 76.0 111.1] fill=#2fa36bff
+    pop transform
+  pop transform
+pop clip

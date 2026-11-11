@@ -60,6 +60,7 @@ const NEUTRAL = new Set<string>([
   'outline',
   'notes',
   'smartArtInfo',
+  'chartInfo',
   'chartGallery',
   'equationTemplates',
   'click',

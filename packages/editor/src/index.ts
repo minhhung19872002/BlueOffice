@@ -10,6 +10,20 @@ export {
 } from './windowTools';
 export { overtypeInsert } from './overtype';
 export { WordCountDialog } from './WordCountDialog';
+export {
+  CHART_KINDS,
+  ChartDialog,
+  fromGrid,
+  parseValue,
+  type ChartDialogProps,
+  type ChartDraft,
+} from './chart/ChartDialog';
+export {
+  SaveChartTemplateDialog,
+  chartDesignGroups,
+  chartDesignLabels,
+  layoutTexts,
+} from './chart/chartDesign';
 export { DOC_REPEATABLE, RepeatTracker, SLIDE_REPEATABLE } from './repeat';
 export {
   SHORTCUTS_FORMAT,

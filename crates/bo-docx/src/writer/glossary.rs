@@ -195,6 +195,7 @@ impl Writer<'_> {
             form_depth: 0,
             diagram_parts: std::collections::BTreeMap::new(),
             picture_media: std::collections::BTreeSet::new(),
+            chart_media: std::collections::BTreeSet::new(),
         };
         let res = sub.write_glossary_parts(g, &part, &dir, src.is_some());
         // Hand the package back whatever happened.
@@ -203,6 +204,7 @@ impl Writer<'_> {
         self.drawing_id = sub.drawing_id;
         self.diagram_parts.append(&mut sub.diagram_parts);
         self.picture_media.append(&mut sub.picture_media);
+        self.chart_media.append(&mut sub.chart_media);
         res?;
         self.rels.id_for(REL_GLOSSARY, &part, false);
         Ok(())

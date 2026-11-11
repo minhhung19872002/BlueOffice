@@ -90,6 +90,7 @@ pnpm desktop:dev                               # Tauri dev (port 1420)
 pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target/release/bluedoc.exe
 pnpm --filter @blueoffice/desktop build:bluesheet          # BlueSheet (vn.bluestar.bluesheet)
 pnpm --filter @blueoffice/desktop build:blueslide          # BlueSlide (vn.bluestar.blueslide)
+# Cả ba lệnh build đều ghi ra cùng tệp target/release/bluedoc.exe (app khác nhau ở cấu hình nhúng) → sao ra tên riêng sau mỗi lần build (vd out/desktop/bluesheet.exe)
 cargo install tauri-driver --locked                        # E2E desktop (WebDriver), cần msedgedriver khớp WebView2
 pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater,webdriver --config src-tauri/tauri.webdriver.conf.json   # bản E2E khi chạy với quyền admin (CI): WebView2 bỏ qua biến WEBVIEW2_* ở tiến trình elevated
 MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link); ca so ảnh P1.10 cần apps/web/dist

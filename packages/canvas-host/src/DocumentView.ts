@@ -129,7 +129,12 @@ export class DocumentView {
   /** Read aloud: the paragraph and the word being spoken (CORE-LANG-003). */
   private speechMarks: { word: SelRect[]; para: SelRect[] } = { word: [], para: [] };
   /** The content control around the caret: its extent and title (never printed). */
-  private controlFrame: { rects: SelRect[]; title: string | null } = { rects: [], title: null };
+  private controlFrame: {
+    rects: SelRect[];
+    title: string | null;
+    appearance: string | null;
+    color: string | null;
+  } = { rects: [], title: null, appearance: null, color: null };
   private readonly ime: ImeInput;
   /** Screen-reader mirror of the text of the pages in view (WCAG 1.3.1 / 4.1.2). */
   readonly a11y: DocMirror;
@@ -192,7 +197,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(0,0,0,.2);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-cc-frame{position:absolute;box-sizing:border-box;border:1px solid rgba(80,120,190,.75);pointer-events:none}.bo-cc-title{position:absolute;left:-1px;bottom:100%;padding:0 6px;border:1px solid rgba(80,120,190,.75);border-bottom:none;border-radius:3px 3px 0 0;background:#eef3fb;color:#1f3d6e;font:11px/16px system-ui,sans-serif;white-space:nowrap}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-math-zone{position:absolute;background:rgba(0,0,0,.05);pointer-events:none}.bo-math-slot{position:absolute;box-sizing:border-box;border:1px dotted #777;pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-peer-bar{position:absolute;width:3px;border-radius:2px;pointer-events:none}.bo-peer-bar-name{position:absolute;right:6px;top:0;padding:0 4px;border-radius:3px;color:#fff;font:600 10px/14px system-ui,sans-serif;white-space:nowrap;opacity:.9}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(0,0,0,.2);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-cc-frame{position:absolute;box-sizing:border-box;border:1px solid rgba(80,120,190,.75);pointer-events:none}.bo-cc-tag{position:absolute;box-sizing:border-box;padding:0 4px;border:1px solid rgba(80,120,190,.75);border-radius:3px;background:#eef3fb;color:#1f3d6e;font:10px system-ui,sans-serif;white-space:nowrap;pointer-events:none}.bo-cc-title{position:absolute;left:-1px;bottom:100%;padding:0 6px;border:1px solid rgba(80,120,190,.75);border-bottom:none;border-radius:3px 3px 0 0;background:#eef3fb;color:#1f3d6e;font:11px/16px system-ui,sans-serif;white-space:nowrap}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-math-zone{position:absolute;background:rgba(0,0,0,.05);pointer-events:none}.bo-math-slot{position:absolute;box-sizing:border-box;border:1px dotted #777;pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-peer-bar{position:absolute;width:3px;border-radius:2px;pointer-events:none}.bo-peer-bar-name{position:absolute;right:6px;top:0;padding:0 4px;border-radius:3px;color:#fff;font:600 10px/14px system-ui,sans-serif;white-space:nowrap;opacity:.9}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
       document.head.appendChild(st);
     }
   }
@@ -380,20 +385,58 @@ export class DocumentView {
    * The frame of the content control around the caret, with its title in a tab above it
    * (ECMA-376 Part 1, §17.5.2.1 alias); `[]` hides it.
    */
-  setControlFrame(rects: SelRect[], title: string | null): void {
+  setControlFrame(
+    rects: SelRect[],
+    title: string | null,
+    look: { appearance?: string | null; color?: string | null } = {},
+  ): void {
+    const appearance = look.appearance ?? null;
+    const color = look.color ?? null;
     const same =
       title === this.controlFrame.title &&
+      appearance === this.controlFrame.appearance &&
+      color === this.controlFrame.color &&
       rects.length === this.controlFrame.rects.length &&
       rects.every((r, i) => {
         const o = this.controlFrame.rects[i];
         return !!o && o.page === r.page && o.x === r.x && o.y === r.y && o.w === r.w && o.h === r.h;
       });
     if (same) return;
-    this.controlFrame = { rects, title };
+    this.controlFrame = { rects, title, appearance, color };
     this.setSelection(this.caret, this.lastRects, false);
   }
 
+  /**
+   * [MS-DOCX] w15:appearance: `hidden` draws nothing, `tags` a start and an end tag (with the
+   * title) instead of the box; w15:color colours the frame.
+   */
   private drawControlFrame(k: number): void {
+    const { appearance, color } = this.controlFrame;
+    if (appearance === 'hidden') return;
+    const hex = color && /^[0-9A-Fa-f]{6}$/.test(color) ? `#${color}` : null;
+    if (appearance === 'tags') {
+      const rects = this.controlFrame.rects;
+      const first = rects[0];
+      const last = rects[rects.length - 1];
+      if (!first || !last) return;
+      const tag = (r: SelRect, end: boolean) => {
+        const slot = this.slots[r.page];
+        if (!slot) return;
+        const d = document.createElement('div');
+        d.className = 'bo-cc-tag';
+        d.dataset.testid = end ? 'control-tag-end' : 'control-tag-start';
+        d.textContent = `${end ? '/' : ''}${this.controlFrame.title ?? ''}`;
+        const h = r.h * k;
+        d.style.cssText =
+          `top:${r.y * k}px;height:${h}px;line-height:${h}px;` +
+          (end ? `left:${(r.x + r.w) * k + 1}px;` : `right:calc(100% - ${r.x * k - 1}px);`) +
+          (hex ? `border-color:${hex};color:${hex};` : '');
+        slot.overlay.appendChild(d);
+      };
+      tag(first, false);
+      tag(last, true);
+      return;
+    }
     // One box per page around the control's rectangles.
     const boxes = new Map<number, { x0: number; y0: number; x1: number; y1: number }>();
     for (const r of this.controlFrame.rects) {
@@ -420,12 +463,15 @@ export class DocumentView {
       const pad = 2;
       d.style.cssText =
         `left:${b.x0 * k - pad}px;top:${b.y0 * k - pad}px;` +
-        `width:${(b.x1 - b.x0) * k + 2 * pad}px;height:${(b.y1 - b.y0) * k + 2 * pad}px;`;
+        `width:${(b.x1 - b.x0) * k + 2 * pad}px;height:${(b.y1 - b.y0) * k + 2 * pad}px;` +
+        (hex ? `border-color:${hex};` : '');
+      if (hex) d.dataset.color = hex;
       if (first && this.controlFrame.title) {
         const tab = document.createElement('div');
         tab.className = 'bo-cc-title';
         tab.dataset.testid = 'control-frame-title';
         tab.textContent = this.controlFrame.title;
+        if (hex) tab.style.borderColor = hex;
         d.appendChild(tab);
       }
       first = false;

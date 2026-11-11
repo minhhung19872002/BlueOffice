@@ -818,10 +818,19 @@ export type EditCommand =
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
   | { cmd: 'nextComment'; forward: boolean }
   | { cmd: 'insertToc' | 'crossReferenceTargets' }
-  /** Update the fields; `answers`: typed answers of the ASK / FILLIN questions by prompt key. */
-  | { cmd: 'updateFields'; answers?: Record<string, string> }
-  /** The ASK / FILLIN questions an update asks (`fieldPrompts`). */
-  | { cmd: 'fieldPrompts' }
+  /**
+   * Update the fields; `answers`: typed answers of the ASK / FILLIN questions by prompt key;
+   * `selection`: only the fields in the selection (F9; the field at the caret).
+   */
+  | { cmd: 'updateFields'; answers?: Record<string, string>; selection?: boolean }
+  /** The ASK / FILLIN questions an update asks (`fieldPrompts`; `selection` as `updateFields`). */
+  | { cmd: 'fieldPrompts'; selection?: boolean }
+  /** Shift+F9: the fields in the selection show their codes, or their results again. */
+  | { cmd: 'toggleFieldCodes' }
+  /** Ctrl+F9 with nothing selected: empty field braces, selected, showing their code. */
+  | { cmd: 'insertEmptyField' }
+  /** The code of the field the selection covers or the caret touches. */
+  | { cmd: 'setFieldCode'; instr: string }
   /** Ctrl+F9 over a selection: the selected text becomes a field's code (`count` 0: none). */
   | { cmd: 'insertFieldFromSelection' }
   /** Select the next (F11) or previous (Shift+F11) field, wrapping around. */
@@ -838,6 +847,8 @@ export type EditCommand =
   | { cmd: 'setControlValue'; value?: string }
   /** Add an item after the repeating-section item around the caret (its "+"). */
   | { cmd: 'addRepeatingItem' }
+  /** Delete the repeating-section item around the caret (not the last one). */
+  | { cmd: 'deleteRepeatingItem' }
   /** Title, tag and locks of the control around the caret (§17.5.2.1, §17.5.2.42, §17.5.2.23). */
   | { cmd: 'setControlProps'; props: ControlProps }
   /** Select the content of the inline control around the caret. */
@@ -1239,6 +1250,8 @@ export interface EditResult {
   control?: ControlInfo;
   /** ASK / FILLIN questions of `fieldPrompts`. */
   fieldPrompts?: import('./mailMerge').MergePrompt[];
+  /** The field the selection covers or the caret touches. */
+  field?: FieldAtCaret;
   /** The legacy form field at the caret. */
   formField?: FormFieldInfo;
   /** The document's editing restriction, when it has one. */
@@ -1362,7 +1375,17 @@ export type ControlKind =
   | 'comboBox'
   | 'date'
   | 'picture'
+  | 'buildingBlockGallery'
   | 'repeatingSection';
+
+/** How a content control is shown ([MS-DOCX] w15:appearance). */
+export type ControlAppearance = 'boundingBox' | 'tags' | 'hidden';
+
+/** An item of a list control (display text and value). */
+export interface ControlListItem {
+  displayText: string;
+  value: string;
+}
 
 /** Properties of a content control set in its properties dialog. */
 export interface ControlProps {
@@ -1372,6 +1395,17 @@ export interface ControlProps {
   deleteLocked: boolean;
   /** Its contents cannot be edited (`contentLocked`). */
   contentLocked: boolean;
+  /** How it is shown (default: bounding box). */
+  appearance?: ControlAppearance;
+  /** Frame colour `RRGGBB` (empty: none). */
+  color?: string;
+  /** Remove the control when its contents are edited. */
+  temporary?: boolean;
+  /** Items of a list control (omitted: unchanged). */
+  items?: ControlListItem[];
+  /** A date control's display format and language (omitted: unchanged). */
+  dateFormat?: string;
+  dateLid?: string;
 }
 
 /** A content control (§17.5.2 sdt) as the engine reports it. */
@@ -1401,6 +1435,26 @@ export interface ControlInfo {
   repeating: boolean;
   /** Rectangles of the control's extent, for its frame. */
   frame: SelRect[];
+  /** Values of the items of a list control (same order as `items`). */
+  values?: string[];
+  /** How it is shown (`null`: bounding box). */
+  appearance?: ControlAppearance | null;
+  /** Frame colour `RRGGBB`. */
+  color?: string | null;
+  /** Removed once its contents are edited. */
+  temporary?: boolean;
+  /** A date control's display language. */
+  lid?: string | null;
+  /** Gallery and category of a building block gallery control. */
+  gallery?: string | null;
+  category?: string | null;
+}
+
+/** The field the selection covers or the caret touches. */
+export interface FieldAtCaret {
+  code: string;
+  /** It shows its code instead of its result. */
+  codes: boolean;
 }
 
 /** Kind of a legacy form field (`FORMTEXT`, `FORMCHECKBOX`, `FORMDROPDOWN`). */

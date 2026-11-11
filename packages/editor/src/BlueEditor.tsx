@@ -2,6 +2,7 @@ import {
   DocumentView,
   MAX_ZOOM,
   MIN_ZOOM,
+  PX_PER_PT,
   type DocumentViewOptions,
   type ImeEvent,
 } from '@blueoffice/canvas-host';
@@ -23,8 +24,10 @@ import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
   EditCommand,
+  ControlInfo,
   MergePrompt,
   OpenedFile,
+  SelRect,
   ParaFormat,
   DocPasteMode,
   PdfExport,
@@ -41,6 +44,7 @@ import type {
 import {
   BLOCK_STORE_KEY,
   PASSWORD_REQUIRED,
+  blocksOfGroup,
   SPLIT_DEFAULT,
   SPLIT_MIN,
   THEME_MIME,
@@ -349,6 +353,13 @@ import {
   TablePropertiesDialog,
 } from './DocDialogs';
 import { ControlPropsDialog, FieldCodeDialog, FieldPromptDialog } from './FieldControlDialogs';
+import {
+  ControlDropDown,
+  FieldCodeEditor,
+  dropKind,
+  type GalleryBlock,
+  type ToClient,
+} from './ControlInPlace';
 import { AdminFormatDialog, TemplateDialog } from './TemplateDialogs';
 import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
 import {
@@ -629,6 +640,13 @@ function EditorInner({
     prompts: MergePrompt[];
     done: (answers: Record<string, string>) => void;
   } | null>(null);
+  /** Ctrl+F9: the field whose code is typed in place (its box on the page). */
+  const [fieldEdit, setFieldEdit] = useState<{ rect: SelRect; initial: string } | null>(null);
+  /** The list / calendar / gallery of the content control at the caret is open (its key). */
+  const [dropOpenFor, setDropOpenFor] = useState<string | null>(null);
+  const [galleryBlocks, setGalleryBlocks] = useState<GalleryBlock[]>([]);
+  /** F9 over the selection (or all fields), asking the ASK / FILLIN questions first. */
+  const askAndUpdate = useRef<((selection: boolean) => Promise<unknown>) | null>(null);
   const saveAsExt = useRef<string | null>(null);
   /** PDF export with the choices of the PDF export dialog (CORE-FMT-002). */
   const exportPdfWith = useRef<((choices: PdfExport) => void) | null>(null);
@@ -1026,7 +1044,10 @@ function EditorInner({
         // Protection state; highlighted editable regions follow the text.
         if (r.security) v.setRegionHighlights(r.security.regionRects ?? []);
         // The frame of the content control around the caret (with its title tab).
-        v.setControlFrame(r.control?.frame ?? [], r.control?.title ?? null);
+        v.setControlFrame(r.control?.frame ?? [], r.control?.title ?? null, {
+          appearance: r.control?.appearance ?? null,
+          color: r.control?.color ?? null,
+        });
         store.setState({
           edit: r,
           doc: r.info,
@@ -2422,14 +2443,19 @@ function EditorInner({
       run: finish('email'),
     });
     // References: TOC, captions, cross-references (ECMA-376 Part 1, §17.16).
-    const updateFields = async () => {
+    // `selection`: F9 updates the fields in the selection only (all of them with Ctrl+A).
+    const updateFieldsIn = async (selection: boolean) => {
       // ASK / FILLIN fields ask their questions first (their defaults when cancelled).
       const prompts =
-        (await controller.current?.query({ cmd: 'fieldPrompts' }))?.fieldPrompts ?? [];
+        (await controller.current?.query({ cmd: 'fieldPrompts', selection }))?.fieldPrompts ?? [];
       const answers = prompts.length
         ? await new Promise<Record<string, string>>((done) => setFieldAsk({ prompts, done }))
         : {};
-      const res = await controller.current?.run({ cmd: 'updateFields', answers });
+      return controller.current?.run({ cmd: 'updateFields', answers, selection });
+    };
+    askAndUpdate.current = updateFieldsIn;
+    const updateFields = async (selection = false) => {
+      const res = await updateFieldsIn(selection);
       if (res && !res.error)
         store.setState({
           status: {
@@ -2445,12 +2471,19 @@ function EditorInner({
       isEnabled: hasDoc,
       run: () => run({ cmd: 'insertToc' }),
     });
-    r.register({ id: 'references.updateToc', isEnabled: hasDoc, run: updateFields });
+    r.register({ id: 'references.updateToc', isEnabled: hasDoc, run: () => updateFields() });
     r.register({
       id: 'references.updateFields',
       shortcut: 'F9',
       isEnabled: hasDoc,
-      run: updateFields,
+      run: () => updateFields(true),
+    });
+    // Shift+F9: the field at the caret (the selected fields) shows its code, or its result.
+    r.register({
+      id: 'fields.toggleOne',
+      shortcut: 'Shift+F9',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'toggleFieldCodes' }),
     });
     r.register({
       id: 'fields.toggleCodes',
@@ -2503,7 +2536,11 @@ function EditorInner({
         const sel = s.edit?.selection;
         const collapsed = !sel || (sel.anchor.p === sel.focus.p && sel.anchor.o === sel.focus.o);
         if (collapsed) {
-          store.setState({ dialog: 'fieldCode' });
+          // Empty braces where the caret is, their code typed in place.
+          const res = await controller.current?.run({ cmd: 'insertEmptyField' });
+          const rect = res?.rects[0];
+          if (res && !res.error && rect) setFieldEdit({ rect, initial: '' });
+          else store.setState({ dialog: 'fieldCode' });
           return;
         }
         const res = await controller.current?.run({ cmd: 'insertFieldFromSelection' });
@@ -2512,6 +2549,11 @@ function EditorInner({
       },
     });
     // Content controls: properties, a picture for a picture control, Alt+Down opens the list.
+    r.register({
+      id: 'controls.deleteItem',
+      isEnabled: (s) => !!s.edit?.control?.repeating && !s.edit.control.locked,
+      run: () => run({ cmd: 'deleteRepeatingItem' }),
+    });
     r.register({
       id: 'controls.properties',
       isEnabled: (s) => !!s.edit?.control,
@@ -2529,7 +2571,12 @@ function EditorInner({
       id: 'controls.openList',
       shortcut: 'Alt+ArrowDown',
       isEnabled: (s) => !!s.edit?.control && !s.edit.control.locked,
-      run: () => {
+      run: (s) => {
+        // The list / calendar / gallery on the control itself.
+        if (dropKind(s.edit?.control)) {
+          setDropOpenFor(controlKey(s.edit?.control));
+          return;
+        }
         const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(
           '[data-testid="control-choose"], [data-testid="control-date"]',
         );
@@ -3659,6 +3706,87 @@ function EditorInner({
       focusDoc();
       return r;
     });
+  // The blocks a gallery control offers (§17.5.2 docPartGallery / docPartCategory), loaded
+  // when its list opens; "Quick Parts" and the other ribbon galleries by their group.
+  // The list is open while the caret stays in the control it was opened for.
+  const dropOpen = dropOpenFor !== null && dropOpenFor === controlKey(state.edit?.control);
+  const setDropOpen = (o: boolean) =>
+    setDropOpenFor(o ? controlKey(store.getState().edit?.control) : null);
+  const galleryControl = state.edit?.control?.kind === 'buildingBlockGallery';
+  const galleryName = state.edit?.control?.gallery ?? '';
+  const galleryCategory = state.edit?.control?.category ?? '';
+  useEffect(() => {
+    if (!dropOpen || !galleryControl) return;
+    void controller.current?.query({ cmd: 'buildingBlocks' }).then((r) => {
+      const list = r?.blocks?.list ?? [];
+      const groups: Record<string, Parameters<typeof blocksOfGroup>[1]> = {
+        'quick parts': 'quickParts',
+        autotext: 'quickParts',
+        headers: 'header',
+        footers: 'footer',
+        'page numbers': 'pageNumber',
+        'cover pages': 'coverPage',
+        'text boxes': 'textBox',
+        tables: 'table',
+      };
+      const group = groups[galleryName.toLowerCase()];
+      let blocks = group
+        ? blocksOfGroup(list, group)
+        : list.filter((b) => b.gallery === galleryName);
+      const inCategory = blocks.filter((b) => b.category === galleryCategory);
+      if (galleryCategory && inCategory.length) blocks = inCategory;
+      setGalleryBlocks(blocks.map((b) => ({ key: b.key, name: b.name })));
+    });
+  }, [dropOpen, galleryControl, galleryName, galleryCategory]);
+  const scrollerOf = () => view.current?.scroller;
+  /** Client rectangle of a rectangle of a page (points), for overlays on the document. */
+  const toClient: ToClient = (r) => {
+    const v = view.current;
+    const page = v?.pageRect(r.page);
+    if (!v || !page) return null;
+    const k = PX_PER_PT * v.zoom;
+    return { left: page.left + r.x * k, top: page.top + r.y * k, width: r.w * k, height: r.h * k };
+  };
+  /** Insert a field; an ASK / FILLIN field asks its question at once (§17.16.5.4, §17.16.5.20). */
+  const insertFieldAsking = async (instr: string) => {
+    const res = await controller.current?.run({ cmd: 'insertField', instr });
+    const kind = instr.trim().split(/\s+/)[0]?.toUpperCase();
+    if (res && !res.error && (kind === 'ASK' || kind === 'FILLIN'))
+      await askAndUpdate.current?.(true);
+    focusDoc();
+  };
+  /** The code typed in place after Ctrl+F9; F9 updates the field so it shows its result. */
+  const commitFieldCode = async (code: string, update: boolean) => {
+    setFieldEdit(null);
+    const c = controller.current;
+    if (!c) return;
+    await c.run({ cmd: 'setFieldCode', instr: code });
+    if (update) await askAndUpdate.current?.(true);
+    // The caret just after the field.
+    const sel = store.getState().edit?.selection;
+    if (sel) {
+      const end =
+        sel.anchor.p > sel.focus.p || (sel.anchor.p === sel.focus.p && sel.anchor.o > sel.focus.o)
+          ? sel.anchor
+          : sel.focus;
+      await c.run({ cmd: 'setSelection', selection: { anchor: end, focus: end } });
+    }
+    focusDoc();
+  };
+  /** A list item, a date or a building block picked on the control (its drop-down). */
+  const pickInControl = async (v: string) => {
+    setDropOpen(false);
+    const c = controller.current;
+    const control = store.getState().edit?.control;
+    if (!c || !control) return;
+    if (control.kind === 'buildingBlockGallery') {
+      await c.run({ cmd: 'selectControlContent' });
+      await c.run({ cmd: 'insertBuildingBlock', key: v });
+    } else {
+      await c.run({ cmd: 'setControlValue', value: v });
+    }
+    focusDoc();
+  };
   /** Page whose header / footer a gallery block replaces: the caret's. */
   const blockPage = state.edit?.caret?.page ?? state.page;
   /** A registry command at the bottom of a building block gallery. */
@@ -5856,8 +5984,35 @@ function EditorInner({
                 onClose={closeDialog}
                 onInsert={(instr) => {
                   closeDialog();
-                  void runFocus({ cmd: 'insertField', instr });
+                  void insertFieldAsking(instr);
                 }}
+              />
+            )}
+            {fieldEdit && (
+              <FieldCodeEditor
+                key={`${fieldEdit.rect.page}:${fieldEdit.rect.x}:${fieldEdit.rect.y}`}
+                rect={fieldEdit.rect}
+                initial={fieldEdit.initial}
+                toClient={toClient}
+                scroller={scrollerOf}
+                onCommit={(code, update) => void commitFieldCode(code, update)}
+              />
+            )}
+            {state.edit?.control && dropKind(state.edit.control) && !fieldEdit && (
+              <ControlDropDown
+                control={state.edit.control}
+                toClient={toClient}
+                scroller={scrollerOf}
+                open={dropOpen}
+                onOpenChange={(o) => {
+                  setDropOpen(o);
+                  if (!o) focusDoc();
+                }}
+                onPick={(v) => void pickInControl(v)}
+                blocks={galleryBlocks}
+                lang={
+                  state.edit.control.lid ?? (i18nInstance.language === 'en-US' ? 'en-US' : 'vi-VN')
+                }
               />
             )}
             {fieldAsk && (
@@ -5893,7 +6048,7 @@ function EditorInner({
                 onClose={closeDialog}
                 onInsert={(instr) => {
                   closeDialog();
-                  void runFocus({ cmd: 'insertField', instr });
+                  void insertFieldAsking(instr);
                 }}
               />
             )}
@@ -6588,4 +6743,9 @@ function EditorInner({
       />
     </div>
   );
+}
+
+/** Identity of the content control at the caret (its open list closes when the caret leaves). */
+function controlKey(c: ControlInfo | null | undefined): string {
+  return c ? `${c.kind}:${c.frame[0]?.page ?? ''}:${c.frame[0]?.y ?? ''}` : '';
 }

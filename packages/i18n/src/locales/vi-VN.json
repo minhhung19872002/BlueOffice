@@ -520,7 +520,8 @@
       "unlink": "Chuyển trường thành văn bản",
       "next": "Trường tiếp theo (F11)",
       "previous": "Trường trước (Shift+F11)",
-      "insertBraces": "Chèn cặp ngoặc trường (Ctrl+F9)"
+      "insertBraces": "Chèn cặp ngoặc trường (Ctrl+F9)",
+      "toggleOne": "Hiện / ẩn mã của trường này (Shift+F9)"
     },
     "outline": {
       "promote": "Nâng cấp đề mục",
@@ -554,7 +555,8 @@
     "controls": {
       "properties": "Thuộc tính điều khiển nội dung",
       "picture": "Chọn ảnh cho điều khiển",
-      "openList": "Mở danh sách của điều khiển (Alt+Mũi tên xuống)"
+      "openList": "Mở danh sách của điều khiển (Alt+Mũi tên xuống)",
+      "deleteItem": "Xoá mục lặp lại"
     }
   },
   "status": {
@@ -4542,13 +4544,15 @@
       "comboBox": "Hộp kết hợp",
       "date": "Chọn ngày",
       "picture": "Ảnh",
-      "repeatingSection": "Phần lặp lại"
+      "repeatingSection": "Phần lặp lại",
+      "buildingBlockGallery": "Thư viện khối dựng sẵn"
     },
     "defaultPlaceholder": "Bấm vào đây để nhập văn bản.",
     "defaultItem": "Chọn một mục.",
     "defaultDate": "Bấm vào đây để nhập ngày.",
     "defaultPicture": "Bấm vào đây để chèn ảnh.",
-    "sectionTitle": "Tiêu đề phần"
+    "sectionTitle": "Tiêu đề phần",
+    "defaultGallery": "Chọn một khối dựng sẵn."
   },
   "controlBar": {
     "label": "Điều khiển nội dung",
@@ -4560,7 +4564,12 @@
     "apply": "Áp dụng",
     "picture": "Chọn ảnh…",
     "addItem": "Thêm mục lặp lại",
-    "properties": "Thuộc tính…"
+    "properties": "Thuộc tính…",
+    "deleteItem": "Xoá mục lặp lại",
+    "openList": "Mở danh sách",
+    "openCalendar": "Mở lịch",
+    "openGallery": "Mở thư viện khối dựng sẵn",
+    "galleryEmpty": "Thư viện này chưa có khối nào."
   },
   "xmlMapping": {
     "title": "Ánh xạ dữ liệu XML",
@@ -8357,7 +8366,8 @@
     "title": "Mã trường",
     "label": "Mã trường",
     "hint": "Ví dụ: DATE \\@ \"dd/MM/yyyy\"",
-    "insert": "Chèn"
+    "insert": "Chèn",
+    "inPlace": "Mã trường — Enter để xong, F9 để cập nhật"
   },
   "fieldPrompt": {
     "title": "Trường hỏi thông tin",
@@ -8371,6 +8381,32 @@
     "locking": "Khoá",
     "deleteLocked": "Không thể xoá điều khiển",
     "contentLocked": "Không thể sửa nội dung",
-    "ok": "OK"
+    "ok": "OK",
+    "showAs": "Hiển thị dạng",
+    "showAsBox": "Khung bao",
+    "showAsTags": "Thẻ mở và đóng",
+    "showAsNone": "Không hiển thị",
+    "color": "Màu",
+    "colorAuto": "Tự động",
+    "temporary": "Xoá điều khiển khi nội dung được sửa",
+    "listItems": "Các mục danh sách",
+    "displayName": "Tên hiển thị",
+    "value": "Giá trị",
+    "add": "Thêm",
+    "modify": "Sửa",
+    "remove": "Xoá",
+    "moveUp": "Lên",
+    "moveDown": "Xuống",
+    "dateTitle": "Thuộc tính chọn ngày",
+    "dateFormat": "Hiển thị ngày theo định dạng",
+    "locale": "Ngôn ngữ",
+    "localeVi": "Tiếng Việt",
+    "localeEn": "Tiếng Anh (Mỹ)"
+  },
+  "calendar": {
+    "label": "Chọn ngày",
+    "prevMonth": "Tháng trước",
+    "nextMonth": "Tháng sau",
+    "today": "Hôm nay"
   }
 }

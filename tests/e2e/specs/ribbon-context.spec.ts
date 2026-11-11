@@ -123,7 +123,10 @@ test('doc: the Equation tab shows while the caret is at an equation', async ({ p
   await expect(cmd(page, 'equation.linear')).toBeEnabled();
   await cmd(page, 'equation.linear').click();
   await expect(cmd(page, 'equation.professional')).toBeEnabled();
-  // Typing after it on a new line leaves the equation: the tab goes.
+  // Typing after it on a new line leaves the equation: the tab goes. The format switch
+  // leaves the equation selected, and Enter on a selected equation opens its dialog
+  // (CORE-MATH-010): End puts the caret after it first.
+  await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('tiếp');
   await expect(band).toHaveCount(0);

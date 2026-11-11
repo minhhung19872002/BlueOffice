@@ -7963,7 +7963,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             sheet={sheet}
             revision={revision}
             zoom={zoom}
-            onCell={(row, col) => setSelection(single({ row, col }))}
+            onCell={(row, col) => {
+              // A click on another cell ends the edit on the page (Enter mode).
+              if (edit) void commit(single({ row, col }));
+              else setSelection(single({ row, col }));
+            }}
             onCellDouble={(row, col) => {
               // Double-click edits the cell in place, on the page.
               const pos = { row, col };
@@ -7979,6 +7983,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             active={selection.active}
             {...(pageEditor ? { editor: pageEditor } : {})}
             onKeyDown={(e) => {
+              // Keys of the cell editor on a page are its own (they bubble up to here).
+              if (e.target !== e.currentTarget) return;
               const c = registry.match(e);
               if (c) {
                 e.preventDefault();

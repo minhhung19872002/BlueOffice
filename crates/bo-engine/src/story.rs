@@ -451,7 +451,7 @@ pub(crate) fn sub_command(
             *cur_page = *page;
             if let Some(p) = nav::hit_test(layout, hit_page.unwrap_or(*page), *x, *y - dy) {
                 s.set_selection(match count {
-                    2 => s.word_at(p),
+                    2 => s.word_select_at(p),
                     3.. => s.paragraph_at(p),
                     _ if *extend => Selection {
                         anchor: sel.anchor,
@@ -478,6 +478,8 @@ pub(crate) fn sub_command(
                 Motion::Right => s.char_step(from, true),
                 Motion::WordLeft => s.word_boundary(from, false),
                 Motion::WordRight => s.word_boundary(from, true),
+                Motion::ParaUp => s.paragraph_boundary(from, false),
+                Motion::ParaDown => s.paragraph_boundary(from, true),
                 Motion::DocStart => Pos::new(0, 0),
                 Motion::DocEnd => {
                     let last = s.paragraph_count().saturating_sub(1);
@@ -509,6 +511,23 @@ pub(crate) fn sub_command(
         }
         Command::DeleteForward => {
             s.delete_forward()?;
+        }
+        Command::DeleteWordBackward => {
+            s.delete_word(false)?;
+        }
+        Command::DeleteWordForward => {
+            s.delete_word(true)?;
+        }
+        Command::SetLink { target, display } => {
+            s.set_link(target, display)?;
+        }
+        Command::ChangeCase { mode } => {
+            s.change_case(*mode)?;
+        }
+        Command::SelectSentence { page, x, y } => {
+            if let Some(p) = nav::hit_test(layout, hit_page.unwrap_or(*page), *x, *y - dy) {
+                s.set_selection(s.sentence_at(p));
+            }
         }
         Command::SplitParagraph => {
             s.split_paragraph()?;

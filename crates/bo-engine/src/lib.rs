@@ -284,6 +284,9 @@ pub struct Engine {
     display: Option<DisplayList>,
     /// Column kept across vertical caret moves.
     goal_x: Option<f32>,
+    /// What the last click selected and its unit (1 character, 2 word, 3 paragraph): a drag
+    /// that follows extends the selection by that unit.
+    pub(crate) drag_origin: Option<(bo_edit::Selection, u8)>,
     /// Open presentation (BlueSlide); pages of `display` are its slides.
     pres: Option<bo_model::slide::Presentation>,
     /// Images referenced by slide `Image` commands (part name -> bytes).
@@ -616,6 +619,7 @@ impl Engine {
         self.save_variant = None;
         self.display = None;
         self.goal_x = None;
+        self.drag_origin = None;
         self.pres = None;
         self.images.clear();
         self.smartart_png.clear();
@@ -828,6 +832,7 @@ impl Engine {
         self.session = None;
         self.saved_doc = None;
         self.goal_x = None;
+        self.drag_origin = None;
         self.layout.reset();
         self.doc_display.clear();
         self.page_markup.clear();

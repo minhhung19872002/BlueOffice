@@ -604,3 +604,181 @@ fn track_changes_paragraph_marks_and_formatting() {
     s.insert_text("y").unwrap();
     assert_eq!(s.revisions()[0].text, "x");
 }
+
+// ----------------------------------------------------- everyday keys of word processors
+
+#[test]
+fn double_click_takes_the_spaces_after_the_word_and_ctrl_click_a_sentence() {
+    let s = Session::new(doc(&["Câu một  ở đây. Câu hai."]));
+    let w = s.word_select_at(Pos::new(0, "Câu m".len()));
+    assert_eq!(
+        (w.anchor.offset, w.focus.offset),
+        ("Câu ".len(), "Câu một  ".len())
+    );
+    // The last word of the paragraph: nothing after it.
+    let w = s.word_select_at(Pos::new(0, "Câu một  ở đây. Câu h".len()));
+    assert_eq!(w.focus.offset, "Câu một  ở đây. Câu hai".len());
+    let st = s.sentence_at(Pos::new(0, 3));
+    assert_eq!(
+        (st.anchor.offset, st.focus.offset),
+        (0, "Câu một  ở đây. ".len())
+    );
+    let st = s.sentence_at(Pos::new(0, "Câu một  ở đây. Câ".len()));
+    assert_eq!(st.anchor.offset, "Câu một  ở đây. ".len());
+}
+
+#[test]
+fn ctrl_up_down_go_by_paragraph() {
+    let s = Session::new(doc(&["một hai", "ba", "bốn"]));
+    assert_eq!(s.paragraph_boundary(Pos::new(0, 2), true), Pos::new(1, 0));
+    assert_eq!(s.paragraph_boundary(Pos::new(1, 1), false), Pos::new(1, 0));
+    assert_eq!(s.paragraph_boundary(Pos::new(1, 0), false), Pos::new(0, 0));
+    assert_eq!(
+        s.paragraph_boundary(Pos::new(2, 1), true),
+        Pos::new(2, "bốn".len())
+    );
+}
+
+#[test]
+fn ctrl_backspace_and_ctrl_delete_delete_a_word() {
+    let mut s = Session::new(doc(&["một hai ba bốn", "sau"]));
+    caret(&mut s, 0, "một hai ba bốn".len());
+    s.delete_word(false).unwrap();
+    assert_eq!(texts(&s)[0], "một hai ba ");
+    caret(&mut s, 0, "một hai b".len());
+    s.delete_word(false).unwrap();
+    assert_eq!(texts(&s)[0], "một hai a ");
+    caret(&mut s, 0, 0);
+    s.delete_word(true).unwrap();
+    assert_eq!(texts(&s)[0], "hai a ");
+    // At the end of a paragraph Ctrl+Delete joins the next one, like Delete.
+    caret(&mut s, 0, "hai a ".len());
+    s.delete_word(true).unwrap();
+    assert_eq!(texts(&s), vec!["hai a sau"]);
+    // One undo step each.
+    assert!(s.undo());
+    assert_eq!(texts(&s), vec!["hai a ", "sau"]);
+}
+
+#[test]
+fn tab_at_the_start_of_a_paragraph_indents_and_backspace_removes_it() {
+    let mut s = Session::new(doc(&["đoạn", ""]));
+    caret(&mut s, 0, 0);
+    s.tab_key(false).unwrap();
+    assert_eq!(texts(&s)[0], "đoạn");
+    assert_eq!(s.format_state().first_line, 720);
+    // Again: the whole paragraph moves.
+    s.tab_key(false).unwrap();
+    assert_eq!(s.format_state().indent_left, 720);
+    s.tab_key(true).unwrap();
+    assert_eq!(s.format_state().first_line, 0);
+    s.tab_key(false).unwrap();
+    s.delete_backward().unwrap();
+    assert_eq!(s.format_state().first_line, 0);
+    assert_eq!(texts(&s), vec!["đoạn", ""]);
+    // Elsewhere (an empty paragraph, inside text) Tab types a tab character.
+    caret(&mut s, 1, 0);
+    s.tab_key(false).unwrap();
+    assert_eq!(texts(&s)[1], "\t");
+    caret(&mut s, 0, 2);
+    s.tab_key(true).unwrap();
+    assert_eq!(texts(&s)[0], "đoạn");
+}
+
+#[test]
+fn tab_at_the_start_of_a_list_item_changes_its_level() {
+    let mut s = Session::new(doc(&["một", "hai"]));
+    select(&mut s, (0, 0), (1, 1));
+    s.format_paragraphs(&ParaFormat::Numbering).unwrap();
+    caret(&mut s, 1, 0);
+    s.tab_key(false).unwrap();
+    let level = |s: &Session, i: usize| s.para_props(i).num.map(|n| n.ilvl);
+    assert_eq!(level(&s, 1), Some(1));
+    assert_eq!(texts(&s)[1], "hai");
+    s.tab_key(true).unwrap();
+    assert_eq!(level(&s, 1), Some(0));
+    // Inside the text of an item Tab is a tab character.
+    caret(&mut s, 1, 1);
+    s.tab_key(false).unwrap();
+    assert_eq!(texts(&s)[1], "h\tai");
+    assert_eq!(level(&s, 1), Some(0));
+}
+
+#[test]
+fn set_link_makes_the_selection_a_link_and_removes_it() {
+    let mut s = Session::new(doc(&["xem trang web"]));
+    select(&mut s, (0, "xem ".len()), (0, "xem trang".len()));
+    s.set_link("https://bluestar.vn", "").unwrap();
+    assert_eq!(texts(&s)[0], "xem trang web");
+    caret(&mut s, 0, "xem tr".len());
+    assert_eq!(
+        s.format_state().link.as_deref(),
+        Some("https://bluestar.vn")
+    );
+    assert!(s.format_state().underline);
+    // Nothing selected: the text to display is typed as a link, the caret after it.
+    caret(&mut s, 0, "xem trang web".len());
+    s.set_link("mailto:a@b.vn", " thư").unwrap();
+    assert_eq!(texts(&s)[0], "xem trang web thư");
+    assert_eq!(s.selection().focus.offset, "xem trang web thư".len());
+    // With the caret inside a link, removing takes away the whole link.
+    caret(&mut s, 0, "xem tr".len());
+    s.set_link("", "").unwrap();
+    assert_eq!(s.format_state().link, None);
+    caret(&mut s, 0, "xem t".len());
+    assert_eq!(s.format_state().link, None);
+    caret(&mut s, 0, "xem tr".len());
+    assert!(!s.format_state().underline);
+}
+#[test]
+fn change_case_cycles_and_keeps_the_selection() {
+    let mut s = Session::new(doc(&["xin chào việt nam. hai"]));
+    select(&mut s, (0, 0), (0, "xin chào việt nam".len()));
+    s.change_case(CaseMode::Cycle).unwrap();
+    assert_eq!(texts(&s)[0], "Xin Chào Việt Nam. hai");
+    s.change_case(CaseMode::Cycle).unwrap();
+    assert_eq!(texts(&s)[0], "XIN CHÀO VIỆT NAM. hai");
+    s.change_case(CaseMode::Cycle).unwrap();
+    assert_eq!(texts(&s)[0], "xin chào việt nam. hai");
+    let (a, b) = s.selection().ordered();
+    assert_eq!((a.offset, b.offset), (0, "xin chào việt nam".len()));
+    select(&mut s, (0, 0), (0, "xin chào việt nam. hai".len()));
+    s.change_case(CaseMode::Sentence).unwrap();
+    assert_eq!(texts(&s)[0], "Xin chào việt nam. Hai");
+    // Nothing selected: the word at the caret.
+    caret(&mut s, 0, 1);
+    s.change_case(CaseMode::Upper).unwrap();
+    assert_eq!(texts(&s)[0], "XIN chào việt nam. Hai");
+    assert!(s.undo());
+    assert_eq!(texts(&s)[0], "Xin chào việt nam. Hai");
+}
+
+#[test]
+fn reset_paragraph_formatting_keeps_the_style() {
+    let mut s = Session::new(doc(&["đoạn"]));
+    caret(&mut s, 0, 0);
+    s.apply_style("Heading1").unwrap();
+    s.format_paragraphs(&ParaFormat::Align {
+        align: Alignment::Center,
+    })
+    .unwrap();
+    s.format_paragraphs(&ParaFormat::Reset).unwrap();
+    assert_eq!(s.para_props(0).style.as_deref(), Some("Heading1"));
+    assert_eq!(s.para_props(0).align, None);
+}
+
+#[test]
+fn enter_after_bold_text_keeps_typing_bold() {
+    let mut s = Session::new(doc(&["Đậm"]));
+    select(&mut s, (0, 0), (0, "Đậm".len()));
+    s.format_text(&CharFormat::Bold).unwrap();
+    caret(&mut s, 0, "Đậm".len());
+    s.split_paragraph().unwrap();
+    assert!(s.format_state().bold);
+    s.insert_text("x").unwrap();
+    assert!(s.format_state().bold);
+    // Enter in the middle of a paragraph: the second part keeps its own formatting.
+    caret(&mut s, 0, "Đ".len());
+    s.split_paragraph().unwrap();
+    assert_eq!(texts(&s)[1], "ậm");
+}

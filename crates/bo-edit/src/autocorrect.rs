@@ -892,6 +892,115 @@ fn replace_range(
     }
 }
 
+impl Session {
+    /// Insert / edit a hyperlink (ECMA-376 Part 1, §17.16.22 hyperlink) at the selection, the
+    /// way the Insert Link dialog does: the selected text (within its first paragraph) becomes
+    /// the link, showing `display` when that differs from it; with nothing selected `display`
+    /// (or the address) is typed as the link. An empty `target` removes the links of the
+    /// selection. The caret goes after the link; one undo step.
+    pub fn set_link(&mut self, target: &str, display: &str) -> Result<Selection> {
+        let target = target.trim().to_owned();
+        let display = display.to_owned();
+        self.edit(move |tx, sel| {
+            let (a, b) = sel.ordered();
+            let paths = tx.paths();
+            let path = path_of(tx.doc, &paths, a.para)?;
+            let p = para_clone(tx.doc, &path)?;
+            let mut atoms = para::flatten(&p);
+            let len = para::len(&atoms);
+            let end = if a.para == b.para {
+                b.offset.min(len)
+            } else {
+                len
+            };
+            let text = bo_model::index::para_index_text(&p);
+            let current = text.get(a.offset..end).unwrap_or_default();
+            let display = match (display.is_empty(), current.is_empty()) {
+                (true, true) => target.clone(),
+                (true, false) => current.to_owned(),
+                _ => display.clone(),
+            };
+            if target.is_empty() {
+                // Nothing selected: the whole link at the caret.
+                let (from, to) = if a.offset == end {
+                    link_span(&atoms, a.offset).unwrap_or((a.offset, end))
+                } else {
+                    (a.offset, end)
+                };
+                let i = para::split_at(&mut atoms, from);
+                let j = para::split_at(&mut atoms, to);
+                for (r, _) in &mut atoms[i..j] {
+                    if r.link.take().is_some() {
+                        r.color = None;
+                        r.underline = None;
+                    }
+                }
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                return Ok(sel);
+            }
+            let (s, e) = if current.is_empty() || current != display {
+                let mut props = para::props_at(&atoms, a.offset);
+                link_props(&mut props, &target);
+                let before = para::len(&atoms);
+                replace_range(tx, &mut atoms, a.offset, end, &display, &props);
+                // Tracked: the replaced text stays (deleted) before the new text.
+                let kept = para::len(&atoms) + (end - a.offset) - before - display.len();
+                let s = a.offset + kept;
+                (s, s + display.len())
+            } else {
+                (a.offset, end)
+            };
+            let i = para::split_at(&mut atoms, s);
+            let j = para::split_at(&mut atoms, e);
+            for (r, _) in &mut atoms[i..j] {
+                link_props(r, &target);
+            }
+            tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            Ok(Selection::caret(Pos::new(a.para, e)))
+        })
+    }
+
+    /// Target of the hyperlink at the caret (or at the start of the selection).
+    pub fn link_at_selection(&self) -> Option<String> {
+        let (a, _) = self.selection().ordered();
+        let paths = body_paragraphs(self.doc());
+        let p = paths
+            .get(a.para)
+            .and_then(|path| crate::para_at(self.doc(), path))?;
+        let atoms = para::flatten(p);
+        let probe = |o: usize| para::props_at(&atoms, o).link;
+        probe(a.offset + 1)
+            .filter(|_| a.offset < para::len(&atoms))
+            .or_else(|| probe(a.offset))
+    }
+}
+
+/// Byte range of the hyperlink around `at` (the atoms before and after it with the same target).
+fn link_span(atoms: &[para::Atom], at: usize) -> Option<(usize, usize)> {
+    let mut pos = 0;
+    let spans: Vec<(usize, usize, Option<&String>)> = atoms
+        .iter()
+        .map(|(r, c)| {
+            let s = pos;
+            pos += para::atom_len(c);
+            (s, pos, r.link.as_ref())
+        })
+        .collect();
+    let i = spans
+        .iter()
+        .position(|&(s, e, l)| l.is_some() && s <= at && at <= e && s < e)?;
+    let target = spans[i].2;
+    let mut from = i;
+    while from > 0 && spans[from - 1].2 == target {
+        from -= 1;
+    }
+    let mut to = i;
+    while to + 1 < spans.len() && spans[to + 1].2 == target {
+        to += 1;
+    }
+    Some((spans[from].0, spans[to].1))
+}
+
 /// Hyperlink look: §17.3.2.6 color and §17.3.2.40 u single.
 pub(crate) fn link_props(r: &mut RunProps, target: &str) {
     r.link = Some(target.to_owned());

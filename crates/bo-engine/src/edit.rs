@@ -94,6 +94,33 @@ pub enum Command {
     DeleteBackward,
     /// Delete: delete the selection or the character after the caret.
     DeleteForward,
+    /// Ctrl+Backspace: delete the selection or back to the previous word boundary.
+    DeleteWordBackward,
+    /// Ctrl+Delete: delete the selection or up to the start of the next word.
+    DeleteWordForward,
+    /// Insert / edit a hyperlink at the selection (§17.16.22 hyperlink); an empty `target`
+    /// removes the links of the selection.
+    SetLink {
+        /// URL, `mailto:` address or `#bookmark`.
+        target: String,
+        /// Text shown for the link (empty: the selected text, else the address).
+        #[serde(default)]
+        display: String,
+    },
+    /// Change the case of the selection (Shift+F3 cycles).
+    ChangeCase {
+        /// How the letters change.
+        mode: bo_edit::CaseMode,
+    },
+    /// Ctrl+click: select the sentence at a point (with the spaces after it).
+    SelectSentence {
+        /// 0-based page index.
+        page: usize,
+        /// Horizontal position in points from the page's left edge.
+        x: f32,
+        /// Vertical position in points from the page's top edge.
+        y: f32,
+    },
     /// Enter: split the paragraph at the caret.
     SplitParagraph,
     /// Apply character formatting to the selection.
@@ -1804,8 +1831,8 @@ impl crate::Engine {
                     | Command::SetHyphenation { .. }
                     | Command::SetDropCap { .. } => {}
                     Command::Tab { back } => {
-                        if s.next_cell(back)?.is_none() && !back {
-                            s.insert_text("\t")?;
+                        if s.next_cell(back)?.is_none() {
+                            s.tab_key(back)?;
                         }
                     }
                     Command::TableEdit { edit } => {
@@ -1909,7 +1936,7 @@ impl crate::Engine {
                     } => {
                         if let Some(p) = nav::hit_test(layout, page, x, y) {
                             let new = match count {
-                                2 => s.word_at(p),
+                                2 => s.word_select_at(p),
                                 3.. => s.paragraph_at(p),
                                 _ if extend => Selection {
                                     anchor: sel.anchor,
@@ -1918,14 +1945,31 @@ impl crate::Engine {
                                 _ => Selection::caret(p),
                             };
                             s.set_selection(new);
+                            // A drag that follows extends by characters, words or paragraphs.
+                            self.drag_origin = Some(if extend && count < 2 {
+                                (Selection::caret(sel.anchor), 1)
+                            } else {
+                                (new, count.clamp(1, 3))
+                            });
+                        }
+                    }
+                    Command::SelectSentence { page, x, y } => {
+                        if let Some(p) = nav::hit_test(layout, page, x, y) {
+                            let new = s.sentence_at(p);
+                            s.set_selection(new);
+                            self.drag_origin = None;
                         }
                     }
                     Command::DragTo { page, x, y } => {
                         if let Some(p) = nav::hit_test(layout, page, x, y) {
-                            s.set_selection(Selection {
-                                anchor: sel.anchor,
-                                focus: p,
-                            });
+                            let new = match self.drag_origin {
+                                Some((origin, unit)) => nav::drag_selection(s, origin, unit, p),
+                                None => Selection {
+                                    anchor: sel.anchor,
+                                    focus: p,
+                                },
+                            };
+                            s.set_selection(new);
                         }
                     }
                     Command::Move { motion, extend } => {
@@ -1937,6 +1981,8 @@ impl crate::Engine {
                             Motion::Right => s.char_step(from, true),
                             Motion::WordLeft => s.word_boundary(from, false),
                             Motion::WordRight => s.word_boundary(from, true),
+                            Motion::ParaUp => s.paragraph_boundary(from, false),
+                            Motion::ParaDown => s.paragraph_boundary(from, true),
                             Motion::DocStart => Pos::new(0, 0),
                             Motion::DocEnd => {
                                 let last = s.paragraph_count().saturating_sub(1);
@@ -1991,6 +2037,18 @@ impl crate::Engine {
                     }
                     Command::DeleteForward => {
                         s.delete_forward()?;
+                    }
+                    Command::DeleteWordBackward => {
+                        s.delete_word(false)?;
+                    }
+                    Command::DeleteWordForward => {
+                        s.delete_word(true)?;
+                    }
+                    Command::SetLink { target, display } => {
+                        s.set_link(&target, &display)?;
+                    }
+                    Command::ChangeCase { mode } => {
+                        s.change_case(mode)?;
                     }
                     Command::SplitParagraph => {
                         let n = s.paragraph_count();

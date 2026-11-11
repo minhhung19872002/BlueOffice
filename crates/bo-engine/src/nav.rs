@@ -332,6 +332,71 @@ pub enum Motion {
     DocStart,
     /// To the end of the document (Ctrl+End).
     DocEnd,
+    /// To the start of this paragraph, or of the previous one when already there (Ctrl+Up).
+    ParaUp,
+    /// To the start of the next paragraph (Ctrl+Down).
+    ParaDown,
+}
+
+/// Selection of a mouse drag from what the click selected (`origin`, in `unit`s: 1 character,
+/// 2 word, 3 paragraph) to `p`. Like word processors, a character drag that leaves the word it
+/// started in selects whole words (the first word from its start, the word under the pointer
+/// with its spaces); a drag after a double / triple click extends by words / paragraphs.
+pub fn drag_selection(s: &bo_edit::Session, origin: Selection, unit: u8, p: Pos) -> Selection {
+    let (o0, o1) = origin.ordered();
+    let forward = p >= o0;
+    let ord = |sel: Selection| sel.ordered();
+    match unit {
+        3 => {
+            let at = s.paragraph_at(p);
+            if forward {
+                Selection {
+                    anchor: o0,
+                    focus: ord(at).1.max(o1),
+                }
+            } else {
+                Selection {
+                    anchor: o1,
+                    focus: ord(at).0,
+                }
+            }
+        }
+        2 => {
+            if forward {
+                Selection {
+                    anchor: o0,
+                    focus: ord(s.word_select_at(p)).1.max(o1),
+                }
+            } else {
+                Selection {
+                    anchor: o1,
+                    focus: ord(s.word_at(p)).0.min(o0),
+                }
+            }
+        }
+        _ => {
+            let first = s.word_at(o0);
+            let (w0, w1) = first.ordered();
+            let inside = p >= w0 && p <= w1;
+            if inside || w0 == w1 {
+                return Selection {
+                    anchor: o0,
+                    focus: p,
+                };
+            }
+            if forward {
+                Selection {
+                    anchor: w0,
+                    focus: ord(s.word_select_at(p)).1,
+                }
+            } else {
+                Selection {
+                    anchor: ord(s.word_select_at(o0)).1,
+                    focus: ord(s.word_at(p)).0,
+                }
+            }
+        }
+    }
 }
 
 /// Vertical/line motions; `goal_x` keeps the column across consecutive up/down moves.
@@ -456,5 +521,46 @@ mod tests {
         assert_eq!(p, Pos::new(0, 4));
         let (p, _) = vertical(&l, Pos::new(0, 1), Motion::PageDown, None).unwrap();
         assert_eq!(p.para, 1);
+    }
+
+    #[test]
+    fn drag_extends_by_words_once_it_leaves_the_first_word() {
+        use bo_model::{Block, Document, ParaProps, Paragraph, Run, RunProps, Section};
+        let text = "một hai ba bốn";
+        let doc = Document {
+            sections: vec![Section::new(vec![Block::Paragraph(Paragraph::new(
+                ParaProps::default(),
+                vec![Run::text(text, RunProps::default())],
+            ))])],
+            ..Default::default()
+        };
+        let s = bo_edit::Session::new(doc);
+        let at = |o: usize| Pos::new(0, o);
+        let span = |sel: Selection| (sel.anchor.offset, sel.focus.offset);
+        let start = "mộ".len();
+        let click = Selection::caret(at(start));
+        // Inside the first word: by characters.
+        assert_eq!(span(drag_selection(&s, click, 1, at(1))), (start, 1));
+        // Into the second word: whole words, the word under the pointer with its space.
+        let hai = "một h".len();
+        assert_eq!(
+            span(drag_selection(&s, click, 1, at(hai))),
+            (0, "một hai ".len())
+        );
+        // Backwards past the first word from the third one.
+        let click = Selection::caret(at("một hai b".len()));
+        assert_eq!(
+            span(drag_selection(&s, click, 1, at(1))),
+            ("một hai ba ".len(), 0)
+        );
+        // After a double click: by words.
+        let word = s.word_select_at(at(1));
+        assert_eq!(
+            span(drag_selection(&s, word, 2, at("một hai b".len()))),
+            (0, "một hai ba ".len())
+        );
+        // After a triple click: by paragraphs.
+        let para = s.paragraph_at(at(1));
+        assert_eq!(span(drag_selection(&s, para, 3, at(3))), (0, text.len()));
     }
 }

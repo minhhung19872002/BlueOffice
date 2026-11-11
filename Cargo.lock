@@ -551,6 +551,7 @@ dependencies = [
  "bo-crypto",
  "bo-docx",
  "bo-engine",
+ "bo-hostile",
  "bo-html",
  "bo-math",
  "bo-model",
@@ -679,6 +680,7 @@ dependencies = [
  "bo-encoding",
  "bo-engine",
  "bo-formula",
+ "bo-hostile",
  "bo-html",
  "bo-layout",
  "bo-math",
@@ -722,6 +724,15 @@ dependencies = [
  "proptest",
  "quick-xml",
  "regex",
+]
+
+[[package]]
+name = "bo-hostile"
+version = "0.1.0"
+dependencies = [
+ "bo-binary",
+ "cfb",
+ "zip",
 ]
 
 [[package]]

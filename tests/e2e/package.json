@@ -11,6 +11,7 @@
     "install-browsers": "playwright install chromium"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@blueoffice/editor-sdk": "workspace:*",
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.6",

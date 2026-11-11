@@ -76,7 +76,10 @@
   opacity: 0.5;
 }
 
-.navItem[aria-current='page'] {
+.navItem[aria-current='page'],
+.navItem[aria-current='page']:hover:not(:disabled) {
+  /* The hover tint is for the light-on-accent items; the current item keeps its surface so
+     its dark text keeps 4.5:1 (WCAG 1.4.3). */
   background: var(--bo-surface, #fff);
   color: var(--bo-text, #1b2430);
   font-weight: 600;
@@ -253,4 +256,10 @@
     opacity: 0;
     transform: translateX(-12px);
   }
+}
+
+/* WCAG 2.5.8 target size: form controls of the pages (Options selects, …) are at least 24 px tall. */
+.page select,
+.page input:not([type='checkbox']):not([type='radio']) {
+  min-height: 24px;
 }

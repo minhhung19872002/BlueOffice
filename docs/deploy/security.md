@@ -228,6 +228,74 @@ từ file (CLAUDE.md, clippy). Cùng một lõi chạy trong worker (`bo-cli`), 
   cả cây tiến trình (§7.1).
 - [Chưa có] giới hạn bộ nhớ cho tiến trình `bo-cli` ở tầng ứng dụng — dùng giới hạn container (§7.2).
 
+### 8.1 Kiểm tra tệp độc hại — [Đã có]
+
+Bộ mẫu **tự sinh** (không tải mã độc từ đâu cả): crate `crates/bo-hostile` (`bo_hostile::cases`), ghi ra đĩa bằng
+`bo-cli sample-hostile <thư-mục> [--http URL] [--file-url URL] [--unc \\host\share]`. "Tệp thực thi" trong mẫu chỉ là
+vài byte `MZ` + chữ thường, "macro" là dự án VBA do `bo_binary::vba_write` sinh từ mã nguồn — không mẫu nào chạy được.
+
+Kiểm tra:
+
+- `crates/bo-engine/tests/hostile_files.rs` → `hostile_files_open_safely`: mở từng mẫu bằng đúng engine (BlueDoc /
+  BlueSheet / BlueSlide) trên luồng có ngăn xếp 2 MiB (như WASM), vẽ trang đầu, cập nhật mọi trường (`updateFields`) /
+  tính lại sổ (`calculate`), lưu rồi mở lại bản đã lưu. Yêu cầu: không panic, xong trong **60 s** (bản debug, máy
+  tải nặng), heap đang dùng (đo bằng `stats_alloc`, lấy mẫu mỗi 1 ms) tăng **≤ 1 GiB**; mọi đích `http://` trỏ vào một
+  cổng TCP cục bộ mà test lắng nghe — **không được có kết nối nào**; mọi đích `file://` trỏ vào một tệp "canh gác" —
+  nội dung của nó **không được xuất hiện** trong văn bản, bản vẽ trang hay tệp đã lưu; mọi đoạn script mang chuỗi
+  `BO-HOSTILE-SCRIPT` — **không được lọt vào văn bản**; macro được báo và giữ nguyên byte; phần OLE, SVG, đích ngoài
+  được giữ khi lưu. `BO_HOSTILE_ONLY=<tên>` chạy một mẫu.
+- `engine_crates_cannot_reach_the_network_or_run_programs`: quét mã nguồn (không tính module test) của mọi crate mà
+  `bo-engine` phụ thuộc: không `std::net`, `TcpStream`, `UdpSocket`, `std::process::Command`, `reqwest`/`ureq`/`hyper`,
+  `libloading`; truy cập tệp (`std::fs`, `File::open`, `read_dir`) chỉ ở `bo-text/src/{manager,system}.rs` (font hệ
+  thống) và `bo-sheet/src/geo/dataset.rs` (bộ dữ liệu bản đồ của bản cài) — đường dẫn do host chọn, không bao giờ lấy
+  từ tài liệu; manifest không có crate HTTP client.
+- `tests/e2e/specs/hostile-files.spec.ts` (cần `bo-cli` đã build): mở các mẫu trong ứng dụng web, **chặn và ghi lại mọi
+  request** rời origin của ứng dụng (phải rỗng), không lỗi trang, tệp bị từ chối hiện "Không mở được tệp".
+- Desktop: lệnh Tauri duy nhất mở URL ra ngoài là `open_url` (chỉ `http(s)`, §10) và chỉ được gọi từ hộp thoại xác nhận
+  liên kết của trình chiếu (§10.1) — không có đường nào từ việc mở tệp gọi tới nó; xem lại thủ công khi thêm lệnh mới.
+
+| Mẫu | Đe doạ | Kết quả |
+|---|---|---|
+| `zip-bomb-ratio.docx` / `.xlsx` | part 24 MiB số 0, nén ~1000:1 | Từ chối: "compression ratio 1028" (`bo-opc` `Limits.max_ratio`) |
+| `zip-bomb-lying-size.docx` | như trên nhưng header khai 1000 byte | Từ chối: thư viện ZIP báo "larger than its declared uncompressed size"; đọc thực tế vẫn bị chặn ở `max_part_size` |
+| `zip-huge-declared.xlsx` | entry khai ~4 GiB | Từ chối trước khi giải nén |
+| `zip-nested.docx` | gói lồng 3 tầng, trong cùng là zip bomb | Mở; gói con chỉ là dữ liệu (không giải nén đệ quy), giữ nguyên khi lưu |
+| `zip-many-entries.docx` | 25 000 entry | Từ chối (`max_entries` 20 000) |
+| `zip-many-small-entries.xlsx` | 19 000 entry nhỏ | Mở, lưu, mở lại ~2 s (trước khi sửa: 15 s — xem "Sửa trong mã") |
+| `xml-deep-nesting.docx` | 100 000 content control lồng nhau | Từ chối: "content controls nested too deeply" (trước khi sửa: **tràn ngăn xếp**) |
+| `xml-deep-nesting.xlsx` / `.pptx` | 100 000 phần tử / nhóm hình lồng nhau | Từ chối: "maximum XML nesting depth exceeded" |
+| `xml-billion-laughs.docx` / `.xlsx`, `xml-quadratic-blowup.docx` / `.pptx` | khai báo entity mở rộng 10⁹ / 1,3 GB | Mở; DTD bị bỏ qua, `&lol9;` giữ dạng chữ, không mở rộng |
+| `xml-xxe.docx` / `.xlsx` / `.pptx` | entity ngoài `file:` / `http:`, DTD ngoài, entity tham số | Mở; không đọc tệp, không kết nối |
+| `external-relationships.docx`, `external-links.pptx`, `hyperlinks-unsafe.xlsx` | ảnh liên kết ngoài http/file/UNC, OLE liên kết, sub-document | Mở; không tải gì; đích được giữ khi lưu |
+| `hyperlinks-unsafe.docx` / `.xlsx`, `external-links.pptx` | liên kết `javascript:`, `vbscript:`, `file:`, UNC, `ppaction://program` | Mở; BlueDoc/BlueSheet không có thao tác mở liên kết; trình chiếu chặn theo §10.1 |
+| `ole-embedded-exe.docx` / `.xlsx` / `.pptx` | OLE "Package" chứa `.exe` | Mở; không bao giờ giải nén hay chạy; giữ nguyên byte khi lưu |
+| `macro-vba.docm` / `.xlsm` / `.pptm` | dự án VBA | Mở, cảnh báo macro, không chạy; giữ nguyên byte khi lưu |
+| `macro-legacy.doc` / `.xls` | VBA trong storage `Macros` / `_VBA_PROJECT_CUR` | Mở, cảnh báo macro, không chạy; **lưu thành .docx/.xlsx không mang macro** (định dạng không chứa được) — xem §15 |
+| `dde-fields.docx` | `DDEAUTO` / `DDE` gọi `cmd.exe` | Mở; trường giữ kết quả cũ, cập nhật trường không chạy gì |
+| `include-fields.docx` | `INCLUDEPICTURE` http, `INCLUDETEXT` file/UNC, `LINK` | Mở; cập nhật trường không đọc nguồn ngoài; mã trường giữ khi lưu |
+| `remote-template.docx` | `attachedTemplate` qua http | Mở; không tải mẫu; quan hệ giữ khi lưu |
+| `dde-external-links.xlsx` | `=cmd|' /C calc'!A0`, `ddeLink`, sổ ngoài UNC, `WEBSERVICE` / `FILTERXML` | Mở; tính lại ra lỗi / giá trị lưu sẵn, không liên lạc gì |
+| `svg-script.docx` / `.pptx` | SVG có `<script>`, `onload`, `href` ngoài, entity `file:` | Mở; không chạy script, không tải tham chiếu ngoài, không đọc entity `file:`; tệp SVG giữ nguyên khi lưu |
+| `web-script.html` / `.mht` | script, handler, ảnh/CSS/iframe/font từ xa, meta refresh | Mở; script bị bỏ, không tải tài nguyên |
+| `pdf-actions.pdf` | `OpenAction` JavaScript, `Launch`, `URI`, `GoToR`, tệp nhúng | Mở (chỉ lấy chữ); không chạy hành động nào |
+| `image-huge-dimensions.docx` / `.xlsx` / `.pptx` | PNG 100 000², JPEG 65 500², GIF 65 535², BMP 10⁶² | Mở và vẽ trang không treo, không cấp phát theo kích thước khai báo; ảnh giữ nguyên khi lưu |
+| `oversized-string.docx` / `.xlsx` / `.pptx` | 1 MiB chữ liền không chỗ ngắt; mã kiểu 256 KiB | Mở: 11 s / ~750 MB heap (BlueDoc, debug), 1,7 s (BlueSheet), 3,4 s (BlueSlide) — trước khi sửa: **panic tràn số** và **thời gian bậc hai** |
+| `truncated.docx` / `.xlsx` / `.pptx` / `.doc` | gói / compound file bị cắt | Từ chối sạch ("Could not find EOCD", "unsupported file type") |
+
+Sửa trong mã nhờ bộ kiểm tra này:
+
+1. `bo-docx` (`reader.rs`, `MAX_WRAPPER_DEPTH`): content control / `customXml` / `smartTag` lồng sâu hơn 96 mức XML bị
+   từ chối — trước đó ~120 mức đã làm tràn ngăn xếp 2 MiB (mỗi mức đệ quy qua bộ đọc khối/run).
+2. `bo-layout` (`paragraph.rs`): tổng độ rộng glyph cộng bằng `i64` (một từ dài cộng `i32` bị tràn số → panic ở bản
+   debug, sai bố cục ở bản release); ngắt khẩn cấp một từ quá dài không còn sao chép cả từ cho mỗi ký tự (bậc hai →
+   tuyến tính: 64 000 ký tự 0,8 s → 0,24 s).
+3. `bo-opc` (`package.rs`): tra part theo tên dùng chỉ mục (trước là quét tuyến tính mỗi lần → lưu gói 19 000 part mất
+   15 s; nay ~2 s).
+
+Còn lại / cần người quyết định: một "từ" không có chỗ ngắt dài hàng MiB tốn ~700 byte heap mỗi ký tự khi dàn trang
+(1 MiB → ~750 MB); chưa có giới hạn cứng — khuyến nghị giới hạn bộ nhớ container cho `worker` (§7.2). Macro của
+`.doc`/`.xls` cũ mất khi lưu sang `.docx`/`.xlsx` (giao diện vẫn báo "giữ nguyên nhưng không chạy" khi mở).
+
 ## 9. Macro không thực thi
 
 - [Đã có] BlueOffice **không có trình thông dịch VBA/XLM**. `crates/bo-binary/src/vba.rs`: chỉ phát hiện
@@ -453,6 +521,7 @@ Thiết kế: [ADR-0014](../adr/0014-web-addins.md); hướng dẫn quản trị
 | Giới hạn độ sâu XML, không mở rộng entity | Đã có | `crates/bo-opc/src/xml.rs` (`MAX_DEPTH`, `unescape`), `crates/bo-odf/src/dom.rs` |
 | Giới hạn parser nhị phân/công thức | Đã có | `crates/bo-binary/src/*.rs`, `crates/bo-formula/src/parser.rs` |
 | Fuzzing | Đã có | `fuzz/fuzz_targets/`, CI job `fuzz`, `crates/bo-engine/tests/fuzz_smoke.rs` |
+| Mở tệp độc hại (zip bomb, XXE, liên kết ngoài, macro, DDE, OLE…): không chạy, không tải, giới hạn thời gian/bộ nhớ | Đã có | §8.1; `crates/bo-hostile`, `crates/bo-engine/tests/hostile_files.rs`, `tests/e2e/specs/hostile-files.spec.ts` |
 | Macro không thực thi, giữ nguyên, cảnh báo (BlueDoc) | Đã có | `crates/bo-binary/src/vba.rs`; test `macros_are_reported_and_kept` |
 | Không tải tài nguyên ngoài | Đã có | không có HTTP client trong `crates/`; `bo-docx/src/reader.rs`, `bo-pptx/src/render.rs` |
 | Hành động trong trình chiếu: chương trình/macro/tệp không bao giờ chạy, URL ngoài phải hỏi | Đã có | §10.1; `crates/bo-engine/src/slide_edit/action.rs`, `packages/slide-editor/src/actions.ts` |
@@ -477,8 +546,9 @@ Thiết kế: [ADR-0014](../adr/0014-web-addins.md); hướng dẫn quản trị
    MinIO dùng tài khoản root cho ứng dụng.
 9. Chưa có WOPI proof key.
 10. Chữ ký số: chưa RFC 3161 (B-T), chưa kiểm chuỗi CA/thu hồi; chưa có trong UI/API.
-11. Cảnh báo macro chỉ có ở BlueDoc; RC4/CryptoAPI chưa hỗ trợ.
+11. Cảnh báo macro chỉ có ở BlueDoc; RC4/CryptoAPI chưa hỗ trợ. Macro của `.doc`/`.xls` cũ không được mang sang khi lưu thành `.docx`/`.xlsx` (§8.1).
 12. Desktop: `read_file` không giới hạn đường dẫn; token không lưu trong kho khoá hệ điều hành.
 13. CI chưa quét advisories (`cargo deny` không chạy `advisories`), chưa SBOM/quét image.
 14. Một instance `api` (phòng cộng tác trong bộ nhớ) — ảnh hưởng tính sẵn sàng; chưa HA.
 15. Token host có thể xuất hiện trong query string → cần che trong access log của nginx/reverse proxy.
+16. Một từ liền hàng MiB tốn ~700 byte heap mỗi ký tự khi dàn trang, chưa có giới hạn cứng (§8.1).

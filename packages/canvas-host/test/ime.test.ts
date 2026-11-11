@@ -13,6 +13,15 @@ function comp(type: string, data: string): CompositionEvent {
 const DECOMPOSED = 'việt';
 
 describe('ImeInput', () => {
+  it('is a named text box for assistive technology, not hidden (WCAG 4.1.2)', () => {
+    const ime = new ImeInput(document.body, () => {}, 'Nội dung tài liệu');
+    expect(ime.element.getAttribute('aria-hidden')).toBeNull();
+    expect(ime.element.getAttribute('aria-label')).toBe('Nội dung tài liệu');
+    expect(new ImeInput(document.body, () => {}).element.getAttribute('aria-label')).toBe(
+      'Document',
+    );
+  });
+
   it('commits composed Vietnamese text once, NFC-normalized', () => {
     const events: ImeEvent[] = [];
     const ime = new ImeInput(document.body, (e) => events.push(e));

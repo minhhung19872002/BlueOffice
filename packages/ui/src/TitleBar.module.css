@@ -102,7 +102,10 @@
   padding: 0 10px;
   min-width: 160px;
   border-radius: var(--bo-radius-sm, 4px);
-  background: rgb(255 255 255 / 14%);
+  /* A darker pill with a light edge: white text keeps 4.5:1 on every app accent (a white
+     tint over the BlueSheet teal gave 4.0:1, WCAG 1.4.3). */
+  background: rgb(0 0 0 / 16%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 28%);
   cursor: text;
   font-size: var(--bo-font-size-12, 12px);
 }

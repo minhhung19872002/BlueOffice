@@ -120,8 +120,9 @@
 
 .more {
   flex: none;
-  width: 22px;
-  height: 22px;
+  /* WCAG 2.5.8 target size: at least 24 × 24 CSS px. */
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: var(--bo-radius-sm, 4px);
   background: none;

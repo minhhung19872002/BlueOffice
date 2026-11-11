@@ -27,6 +27,7 @@
 //! bo-cli edit <template.docx|xlsx> --edits edits.json --out <out> [--to pdf] [--strict]  # fill controls, bookmarks, placeholders, properties, cells
 //! bo-cli inspect file --vba [--json]             # VBA module sources, read-only ([MS-OVBA])
 //! bo-cli script run <file> --script s.js [--out out.ext] [--timeout ms] [--memory mb] [--json]  # BlueScript headless
+//! bo-cli sample-hostile <dir>                # hostile files of the security tests (generated)
 //! bo-cli sample-macros <dir>                 # macro-enabled corpus files (tests/corpus/macro)
 //! bo-cli sample-slides <dir>                 # generate the BlueSlide corpus (tests/corpus/slide)
 //! bo-cli templates <dir>                     # write the BlueDoc templates + thumbnails (assets/templates/doc)
@@ -198,6 +199,18 @@ enum Cmd {
     },
     /// Write the macro-enabled corpus files (tests/corpus/macro): generated VBA projects.
     SampleMacros { dir: PathBuf },
+    /// Write the hostile sample files of the security tests (zip bombs, XXE, external
+    /// links, macros, DDE, OLE…; generated, never downloaded). The external targets
+    /// point at `--http` / `--file-url` / `--unc`.
+    SampleHostile {
+        dir: PathBuf,
+        #[arg(long, default_value = "http://127.0.0.1:9/hostile")]
+        http: String,
+        #[arg(long, default_value = "file:///etc/passwd")]
+        file_url: String,
+        #[arg(long, default_value = r"\\127.0.0.1\share\hostile")]
+        unc: String,
+    },
     /// Print the display list of a page as JSON.
     Dump {
         input: PathBuf,
@@ -772,6 +785,23 @@ fn run(cli: Cli) -> R {
                 let path = dir.join(name);
                 write_file(&path, &bytes)?;
                 println!("{}", path.display());
+            }
+        }
+        Cmd::SampleHostile {
+            dir,
+            http,
+            file_url,
+            unc,
+        } => {
+            let cfg = bo_hostile::Config {
+                http,
+                file_url,
+                unc,
+            };
+            for case in bo_hostile::cases(&cfg).map_err(|e| e.to_string())? {
+                let path = dir.join(&case.name);
+                write_file(&path, &case.bytes)?;
+                println!("{}  {:?}  {}", path.display(), case.expect, case.threat);
             }
         }
         Cmd::Inspect {

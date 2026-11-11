@@ -348,24 +348,30 @@ export function TaskPaneHost({
     if (inside || docked) focusApp?.();
   };
 
-  // F6 / Shift+F6: app → panes → app (document capture so editors do not swallow it).
+  // F6 / Shift+F6: app → panes → ribbon → status bar → app (document capture so editors do
+  // not swallow it). The ribbon and the status bar mark themselves with `data-f6-region`, so
+  // every region is reachable from the keyboard without a pointer (WCAG 2.1.1).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'F6' || e.ctrlKey || e.altKey || e.metaKey) return;
-      const list = [...regions.current.entries()]
+      const panes = [...regions.current.entries()]
         .sort(([a], [b]) => regionRank(a) - regionRank(b))
         .map(([, el]) => el)
         .filter((el) => el.isConnected);
+      const chrome = [...document.querySelectorAll<HTMLElement>('[data-f6-region]')].filter(
+        (el) => !el.closest('[hidden]') && getComputedStyle(el).display !== 'none',
+      );
+      const list = [...panes, ...chrome];
       if (list.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
       const at = list.findIndex((el) => el.contains(document.activeElement));
       const n = list.length;
-      // Positions 0..n-1 are panes, n is the app.
+      // Positions 0..n-1 are the regions, n is the app.
       const cur = at < 0 ? n : at;
       const next = (cur + (e.shiftKey ? n : 1)) % (n + 1);
       if (next === n) focusApp?.();
-      else list[next]?.focus();
+      else focusRegion(list[next]);
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
@@ -644,6 +650,25 @@ export function TaskPaneHost({
       </div>
     </>
   );
+}
+
+/**
+ * Move the keyboard into an F6 region: a pane takes focus itself; the ribbon gives it to its
+ * selected tab, the status bar to its first control (or itself).
+ */
+function focusRegion(el: HTMLElement | undefined) {
+  if (!el) return;
+  if (!el.dataset.f6Region) {
+    el.focus();
+    return;
+  }
+  const target =
+    el.querySelector<HTMLElement>('[role=tab][aria-selected=true]') ??
+    el.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select, [tabindex="0"]',
+    ) ??
+    el;
+  target.focus();
 }
 
 /** F6 order: left dock, right dock, then floating windows. */

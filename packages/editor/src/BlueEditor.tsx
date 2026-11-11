@@ -904,6 +904,8 @@ function EditorInner({
         ),
       // Right click: the context menu of what is under the pointer (spelling first).
       onContextMenu: (e) => void contextMenuAt.current(e),
+      inputLabel: i18nInstance.t('a11y.documentInput'),
+      pageLabel: (n) => i18nInstance.t('a11y.page', { n }),
     };
     paneOptions.current = viewOptions;
     const v = new DocumentView(viewHost.current, platform.engine, {
@@ -4540,7 +4542,9 @@ function EditorInner({
   };
   const closeDialog = () => {
     store.setState({ dialog: null });
-    view.current?.focus();
+    // After the dialog has unmounted: focusing while its focus trap is still mounted lost the
+    // focus to the page body (WCAG 2.4.3 — focus returns to the document).
+    requestAnimationFrame(() => view.current?.focus());
   };
 
   const rulersOn =

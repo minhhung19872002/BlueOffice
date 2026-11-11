@@ -136,6 +136,8 @@ import {
   PencilLine,
   Percent,
   Plus,
+  MoveLeft,
+  MoveRight,
   Printer,
   Redo2,
   RefreshCw,
@@ -2574,6 +2576,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       { isEnabled: () => (info?.sheets.length ?? 0) > 1 },
     );
+    // WCAG 2.5.7: reorder sheets without dragging their tabs.
+    const moveSheet = (by: -1 | 1) => async (s: SheetEditorState) => {
+      const to = s.sheet + by;
+      const r = await exec({ cmd: 'moveSheet', from: s.sheet, to });
+      if (r !== null) setSheet(to);
+    };
+    add('sheet.moveLeft', moveSheet(-1), { isEnabled: (s) => s.sheet > 0 });
+    add('sheet.moveRight', moveSheet(1), {
+      isEnabled: (s) => s.sheet + 1 < (info?.sheets.length ?? 0),
+    });
 
     // Comments ([MS-XLSX] threaded comments)
     add('review.comments', async () => setCommentsOpen((o) => !o), {
@@ -4153,6 +4165,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('sheet.add', t('sheetEditor.addSheet'), <Plus size={s} />, 'small'),
               item('sheet.rename', t('sheetEditor.renameSheet'), <Table2 size={s} />, 'small'),
               item('sheet.delete', t('sheetEditor.deleteSheet'), <Trash2 size={s} />, 'small'),
+              item(
+                'sheet.moveLeft',
+                t('sheetEditor.moveSheetLeft'),
+                <MoveLeft size={s} />,
+                'small',
+              ),
+              item(
+                'sheet.moveRight',
+                t('sheetEditor.moveSheetRight'),
+                <MoveRight size={s} />,
+                'small',
+              ),
             ],
           },
         ],
@@ -5096,7 +5120,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   return (
     <div
-      className={styles.root}
+      // `bo-root`: the shared theme rules (focus ring of every control, WCAG 2.4.7) apply here too.
+      className={`bo-root ${styles.root}`}
       data-theme={theme}
       data-app="sheet"
       data-load-seq={loadSeq}
@@ -5928,76 +5953,79 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           />
         )}
       </div>
-      <div className={styles.tabs} role="tablist" aria-label={t('sheetEditor.tabs')}>
-        {info?.sheets.map((s, i) =>
-          s.hidden ? null : renaming === i ? (
-            <input
-              key={i}
-              className={styles.tabRename}
-              defaultValue={s.name}
-              autoFocus
-              onBlur={() => setRenaming(null)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const name = e.currentTarget.value;
-                  setRenaming(null);
-                  void host.renameSheet(i, name).then(refreshInfo).catch(fail);
-                } else if (e.key === 'Escape') setRenaming(null);
-              }}
-            />
-          ) : (
-            <button
-              key={i}
-              type="button"
-              role="tab"
-              aria-selected={i === sheet}
-              className={i === sheet ? styles.tabActive : styles.tab}
-              data-testid={`sheet-tab-${i}`}
-              data-tab-color={s.tabColor ?? undefined}
-              style={s.tabColor ? { boxShadow: `inset 0 -4px 0 #${s.tabColor}` } : undefined}
-              draggable
-              onDragStart={(e) => {
-                setDragTab(i);
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', String(i));
-              }}
-              onDragOver={(e) => {
-                if (dragTab !== null) e.preventDefault();
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const from = dragTab ?? Number(e.dataTransfer.getData('text/plain'));
-                setDragTab(null);
-                if (!Number.isInteger(from) || from === i) return;
-                void exec({ cmd: 'moveSheet', from, to: i }).then((r) => {
-                  if (r !== null) setSheet(i);
-                });
-              }}
-              onDragEnd={() => setDragTab(null)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                if (i !== sheet) {
+      <div className={styles.tabs}>
+        {/* Only tabs inside the tab list (WAI-ARIA tabs pattern); "add sheet" sits beside it. */}
+        <div className={styles.tabList} role="tablist" aria-label={t('sheetEditor.tabs')}>
+          {info?.sheets.map((s, i) =>
+            s.hidden ? null : renaming === i ? (
+              <input
+                key={i}
+                className={styles.tabRename}
+                defaultValue={s.name}
+                autoFocus
+                onBlur={() => setRenaming(null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const name = e.currentTarget.value;
+                    setRenaming(null);
+                    void host.renameSheet(i, name).then(refreshInfo).catch(fail);
+                  } else if (e.key === 'Escape') setRenaming(null);
+                }}
+              />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                role="tab"
+                aria-selected={i === sheet}
+                className={i === sheet ? styles.tabActive : styles.tab}
+                data-testid={`sheet-tab-${i}`}
+                data-tab-color={s.tabColor ?? undefined}
+                style={s.tabColor ? { boxShadow: `inset 0 -4px 0 #${s.tabColor}` } : undefined}
+                draggable
+                onDragStart={(e) => {
+                  setDragTab(i);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', String(i));
+                }}
+                onDragOver={(e) => {
+                  if (dragTab !== null) e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = dragTab ?? Number(e.dataTransfer.getData('text/plain'));
+                  setDragTab(null);
+                  if (!Number.isInteger(from) || from === i) return;
+                  void exec({ cmd: 'moveSheet', from, to: i }).then((r) => {
+                    if (r !== null) setSheet(i);
+                  });
+                }}
+                onDragEnd={() => setDragTab(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (i !== sheet) {
+                    setSheet(i);
+                    setSelection(single({ row: 0, col: 0 }));
+                  }
+                  sheetMenu.open({ x: e.clientX, y: e.clientY - 4, context: 'sheetTab', sheet: i });
+                }}
+                onClick={() => {
                   setSheet(i);
                   setSelection(single({ row: 0, col: 0 }));
-                }
-                sheetMenu.open({ x: e.clientX, y: e.clientY - 4, context: 'sheetTab', sheet: i });
-              }}
-              onClick={() => {
-                setSheet(i);
-                setSelection(single({ row: 0, col: 0 }));
-                setChart(null);
-                scrollerRef.current?.scrollTo(0, 0);
-                focusInput();
-              }}
-              onDoubleClick={() => setRenaming(i)}
-            >
-              {s.protected && (
-                <Lock size={10} aria-label={t('sheetEditor.protection.protectedSheet')} />
-              )}
-              {s.name}
-            </button>
-          ),
-        )}
+                  setChart(null);
+                  scrollerRef.current?.scrollTo(0, 0);
+                  focusInput();
+                }}
+                onDoubleClick={() => setRenaming(i)}
+              >
+                {s.protected && (
+                  <Lock size={10} aria-label={t('sheetEditor.protection.protectedSheet')} />
+                )}
+                {s.name}
+              </button>
+            ),
+          )}
+        </div>
         <button
           type="button"
           className={styles.tabAdd}

@@ -483,6 +483,8 @@ export interface SlideEditorState
   extends MasterState, SectionState, PageMasterState, Model3dState, ZoomState {
   hasDeck: boolean;
   current: number;
+  /** Number of slides. */
+  count?: number;
   hasSelection: boolean;
   multi: boolean;
   hasText: boolean;
@@ -2532,6 +2534,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       run: async () => toggleReuse(),
     });
     simple('slide.delete', { cmd: 'deleteSlide' }, deck);
+    // WCAG 2.5.7: reorder slides without dragging their thumbnails (also Ctrl+Shift+↑ / ↓).
+    reg.register({
+      id: 'slide.moveUp',
+      shortcut: 'Ctrl+Shift+ArrowUp',
+      isEnabled: (s) => s.hasDeck && s.current > 0,
+      run: (s) => run({ cmd: 'moveSlide', from: s.current, to: s.current - 1 }),
+    });
+    reg.register({
+      id: 'slide.moveDown',
+      shortcut: 'Ctrl+Shift+ArrowDown',
+      isEnabled: (s) => s.hasDeck && s.current + 1 < (s.count ?? 0),
+      run: (s) => run({ cmd: 'moveSlide', from: s.current, to: s.current + 1 }),
+    });
 
     // Text formatting.
     simple('format.bold', { cmd: 'formatText', format: { kind: 'bold' } }, text, 'Ctrl+B');
@@ -3089,6 +3104,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     return {
       hasDeck: count > 0,
       current,
+      count,
       hasSelection: s.length > 0,
       multi: s.length > 1,
       // Selected shapes with text, or a table cell's text being edited.
@@ -3513,6 +3529,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               item('slide.reuse', t('slideEditor.reuse.command'), <FileStack size={16} />, sm),
               item('slide.duplicate', t('slideEditor.duplicateSlide'), <CopyPlus size={16} />, sm),
               item('slide.delete', t('slideEditor.deleteSlide'), <Trash size={16} />, sm),
+              item('slide.moveUp', t('slideEditor.moveSlideUp'), <ArrowUp size={16} />, sm),
+              item('slide.moveDown', t('slideEditor.moveSlideDown'), <ArrowDown size={16} />, sm),
               item('slide.copy', t('slideEditor.copySlide'), <Files size={16} />, sm),
               item('slide.cut', t('slideEditor.cutSlide'), <Scissors size={16} />, sm),
               item('slide.paste', t('slideEditor.pasteSlide'), <ClipboardPaste size={16} />, sm),

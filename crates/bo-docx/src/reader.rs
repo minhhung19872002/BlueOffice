@@ -29,6 +29,13 @@ use quick_xml::events::{BytesStart, Event};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+/// Deepest XML level at which a content control (§17.5.2), `customXml` (§17.5.1) or `smartTag`
+/// wrapper is still read. Each wrapper level recurses through the block / run readers, whose
+/// frames are large in unoptimised builds (~16 KiB per nested control measured on a 2 MiB
+/// thread); without this bound 120 nested controls overflow the stack before the generic XML
+/// depth limit (`bo_opc::xml::MAX_DEPTH`) is reached. Real documents nest a handful.
+const MAX_WRAPPER_DEPTH: usize = 96;
+
 /// ECMA-376 Part 1, §14.2.7 theme part relationship.
 const REL_THEME: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
 const REL_NUMBERING: &str =
@@ -837,6 +844,9 @@ fn read_sdt_block(
     before: usize,
     sect: &mut Option<Section>,
 ) -> Result<Vec<Block>> {
+    if r.depth() > MAX_WRAPPER_DEPTH {
+        return Err(r.err("content controls nested too deeply").into());
+    }
     let mut cc = None;
     let mut inner: Option<Vec<Block>> = None;
     children(r, |r, e, s, at| match name(e).as_slice() {
@@ -1128,6 +1138,9 @@ fn read_para_children(
                 });
             }
             // smartTag/customXml/sdt wrappers descend.
+            b"smartTag" | b"customXml" | b"sdt" if s && r.depth() > MAX_WRAPPER_DEPTH => {
+                return Err(r.err("content controls nested too deeply").into());
+            }
             b"smartTag" | b"customXml" if s => {
                 read_para_children(r, ctx, media, sect, p, rc)?;
             }

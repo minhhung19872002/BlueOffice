@@ -812,6 +812,9 @@ circle.handle {
 
 .chartGrid input {
   width: 90px;
+  /* WCAG 2.5.8: each cell field is a 24 px tall target. */
+  min-height: 24px;
+  box-sizing: border-box;
   border: none;
   padding: 3px 4px;
   background: transparent;
@@ -939,6 +942,9 @@ circle.handle {
 }
 
 .selItem {
+  /* WCAG 2.5.8 target size (24 CSS px) for each listed shape. */
+  min-height: 24px;
+  box-sizing: border-box;
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;

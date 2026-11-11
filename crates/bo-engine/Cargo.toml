@@ -64,6 +64,8 @@ cfb = "0.14"
 criterion.workspace = true
 # Heap bytes in use for the open/close leak test (CORE-PERF-001, tests/open_close_leak.rs).
 stats_alloc = "0.1.10"
+# Hostile sample files (tests/hostile_files.rs, BlueOffice-PARITY-PROMPT §9.4).
+bo-hostile = { path = "../bo-hostile" }
 
 [[bench]]
 name = "sheet_edit"

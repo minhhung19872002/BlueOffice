@@ -66,6 +66,8 @@ node scripts/bench-open-wasm.mjs <docx> <xlsx>           # thời gian mở + b�
 cargo run -p bo-cli -- sample-big out/big-1000.docx --pages 1000 --rich   # + bảng, chú thích, trường; sample-big-deck out/deck-300.pptx (ảnh + video) — docs/perf/open-perf.md
 cargo test --release -p bo-engine --test open_close_leak # heap sau mở/đóng 100 tài liệu; WASM: node scripts/leak-wasm.mjs 100 [tệp lớn…]
 cargo test -p bo-engine --test fuzz_smoke                # fuzz smoke (corpus đột biến, chạy được trên MSVC)
+cargo test -p bo-engine --test hostile_files             # tệp độc hại tự sinh (zip bomb, XXE, macro, DDE, OLE…): không chạy/không tải, giới hạn thời gian+heap (docs/deploy/security.md §8.1)
+cargo run -p bo-cli -- sample-hostile out/hostile        # ghi bộ mẫu độc hại (crate bo-hostile; --http/--file-url/--unc)
 pnpm fidelity                                            # round-trip corpus + OpenXmlValidator → docs/fidelity-report.md
 cargo run -p bo-cli -- validate <file-or-dir> [--json] [--openxml auto|require|off] [--choice]   # OPC cấu trúc + OpenXmlValidator (--choice: cả nhánh mc:Choice)
 cargo run -p bo-cli -- fidelity-report [--no-validate]   # chạy scripts/fidelity-report.mjs với chính bo-cli này (BO_CLI)
@@ -79,6 +81,7 @@ pnpm lint && pnpm typecheck && pnpm test       # test parity cần bo-cli (tự 
 pnpm license-check
 node scripts/gen-icon-library.mjs              # thư viện biểu tượng chèn (assets/icons/library + packages/ui/src/iconLibrary/data.json); sửa hình trong script rồi sinh lại
 pnpm --filter @blueoffice/e2e install-browsers && pnpm test:e2e   # cần web đã build + .NET 8; E2E_PORT=4391 nếu 4173 bận
+(cd tests/e2e && pnpm exec playwright test a11y.spec.ts a11y-keyboard.spec.ts)   # axe WCAG 2.2 AA (mọi vi phạm = lỗi) + đi qua bằng bàn phím; docs/ui/accessibility-audit.md
 pnpm --filter @blueoffice/e2e test:collab      # chỉ E2E cộng tác (tự dựng api + BlueDrive giả lập + proxy; COLLAB_PORT)
 node tests/e2e/collab/stack.mjs                # stack cộng tác để thử tay (COLLAB_STACK_VERBOSE=1)
 
@@ -136,6 +139,9 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 - BlueSheet: mọi lệnh sửa qua `SheetEngine::exec_json` / `SheetHost.exec` (`SheetCommand` trong `packages/platform/src/sheet.ts`);
   BlueSlide: `Engine::slide_command_json` / `EngineHost` (`SlideCommand`). Toạ độ engine luôn là point.
 - Cập nhật trạng thái cộng tác: sửa ô qua host bọc `collabSheetHost` (`packages/collab`); đừng ghi thẳng engine khi đang cộng tác.
+- Khả năng tiếp cận (WCAG 2.2 AA, `docs/ui/accessibility-audit.md`): UI mới phải qua `tests/e2e/specs/a11y.spec.ts`;
+  chữ màu accent dùng `--bo-*-accent-text`, nền mang chữ trắng dùng `--bo-*-accent-strong`; mục bấm ≥ 24 px; hộp thoại
+  dùng `Dialog` của `packages/ui` (trả focus); vùng khung mới cho F6 đánh dấu `data-f6-region`; thao tác kéo phải có lệnh thay thế.
 - Code UI/editor không gọi API trình duyệt/Tauri trực tiếp cho việc phụ thuộc nền tảng → đi qua `Platform`.
 - **Thứ tự font = FaceId**: `assets/fonts/manifest.json`, `crates/bo-engine/src/bundled.rs`, `FONT_FILES` trong desktop phải khớp (có test).
   Font hệ thống (desktop, `SystemFontIndex`) nạp lười, FaceId luôn **sau** font đóng gói; parity/so ảnh tắt bằng `BLUEOFFICE_SYSTEM_FONTS=0`.

@@ -247,4 +247,36 @@ describe('TaskPaneHost', () => {
     fireEvent.keyDown(screen.getByText('inside a'), { key: 'Escape' });
     expect(focusApp).toHaveBeenCalledTimes(2);
   });
+
+  it('F6 also reaches the ribbon (its selected tab) and the status bar, then the app', () => {
+    const s = memoryStorage();
+    const focusApp = vi.fn(() => screen.getByTestId('app').focus());
+    render(
+      <>
+        <div data-f6-region="ribbon">
+          <button type="button" role="tab" aria-selected="false">
+            Chèn
+          </button>
+          <button type="button" role="tab" aria-selected="true">
+            Trang đầu
+          </button>
+        </div>
+        <Harness ids={['a']} storage={s} focusApp={focusApp} />
+        <footer data-f6-region="status" tabIndex={-1} data-testid="status" />
+      </>,
+    );
+    screen.getByTestId('app').focus();
+    const f6 = (shiftKey = false) =>
+      act(() => void fireEvent.keyDown(document.activeElement!, { key: 'F6', shiftKey }));
+    f6();
+    expect(document.activeElement).toBe(screen.getByTestId('taskpane-dock-right'));
+    f6();
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Trang đầu' }));
+    f6();
+    expect(document.activeElement).toBe(screen.getByTestId('status'));
+    f6();
+    expect(document.activeElement).toBe(screen.getByTestId('app'));
+    f6(true);
+    expect(document.activeElement).toBe(screen.getByTestId('status'));
+  });
 });

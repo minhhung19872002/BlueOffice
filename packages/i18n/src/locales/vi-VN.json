@@ -528,6 +528,8 @@
     "addSheet": "Thêm trang tính",
     "renameSheet": "Đổi tên trang tính",
     "deleteSheet": "Xoá trang tính",
+    "moveSheetLeft": "Chuyển trang tính sang trái",
+    "moveSheetRight": "Chuyển trang tính sang phải",
     "zoomIn": "Phóng to",
     "zoomOut": "Thu nhỏ",
     "groupFile": "Tệp",
@@ -2200,6 +2202,8 @@
     "newSlide": "Slide mới",
     "duplicateSlide": "Nhân bản slide",
     "deleteSlide": "Xoá slide",
+    "moveSlideUp": "Chuyển slide lên",
+    "moveSlideDown": "Chuyển slide xuống",
     "addSlide": "+ Thêm slide",
     "undo": "Hoàn tác",
     "redo": "Làm lại",
@@ -7449,5 +7453,9 @@
       "storage": "Lưu dữ liệu riêng của add-in trên máy này",
       "network": "Kết nối tới {{origin}}"
     }
+  },
+  "a11y": {
+    "documentInput": "Nội dung tài liệu",
+    "page": "Trang {{n}}"
   }
 }

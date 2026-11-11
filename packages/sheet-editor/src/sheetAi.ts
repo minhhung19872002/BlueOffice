@@ -147,8 +147,10 @@ export function sheetAiFeatures({ t, target, changed }: SheetAiDeps): AiFeature[
         const answer = await ask({ task: 'formula', instruction: prompt, text: material?.text });
         const formula = extractFormula(answer);
         const check = await checkFormula(tg.host, formula);
-        if (!check.ok) {
+        if (!check.ok || check.fixed) {
           // Dropped: an unparsable formula or one calling functions the engine does not know.
+          // The leniency of typed input (`;`, decimal commas, `)` added) is for people at the
+          // keyboard: a suggestion must parse exactly as offered.
           throw new AiNotice(
             check.unknownFunctions.length
               ? t('ai.sheet.unknownFunctions', { names: check.unknownFunctions.join(', ') })
@@ -166,8 +168,8 @@ export function sheetAiFeatures({ t, target, changed }: SheetAiDeps): AiFeature[
                 // Into the cell that is active when the user confirms.
                 const now = target();
                 if (!now) return;
-                if (!(await checkFormula(now.host, formula)).ok)
-                  throw new AiNotice(t('ai.sheet.invalidFormula'));
+                const again = await checkFormula(now.host, formula);
+                if (!again.ok || again.fixed) throw new AiNotice(t('ai.sheet.invalidFormula'));
                 const { row, col } = now.active;
                 await now.host.setInputs(now.sheet, [[row, col, formula]]);
                 await changed?.();

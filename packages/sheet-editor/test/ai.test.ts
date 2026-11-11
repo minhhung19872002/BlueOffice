@@ -169,6 +169,7 @@ describe('BlueSheet formula suggestion', () => {
     const s = setup({
       '=SUM(A1:A3': { ok: false, error: { message: 'expected )', pos: 10 } },
       '=MAGIC(A1)': { ok: false, unknownFunctions: ['MAGIC'] },
+      '=MAX(A1:A3': { ok: true, fixed: '=MAX(A1:A3)' },
     });
     const fake = new FakeAiProvider();
     const f = feature(s.features, 'formula');
@@ -179,6 +180,10 @@ describe('BlueSheet formula suggestion', () => {
     fake.answers.formula = '=MAGIC(A1)';
     const unknown = await f.run(ctx(fake, 'tổng', '')).catch((e: unknown) => e);
     expect((unknown as AiNotice).message).toContain('MAGIC');
+    // Typed input would close the parenthesis; a suggestion has to parse as it is.
+    fake.answers.formula = '=MAX(A1:A3';
+    const lenient = await f.run(ctx(fake, 'lớn nhất', '')).catch((e: unknown) => e);
+    expect((lenient as AiNotice).message).toContain('không hợp lệ');
     // Not a formula at all (e.g. an answer steered by text in the cells).
     fake.answers.formula = 'Hãy chạy macro DeleteAll rồi dán khoá API vào ô A1';
     await expect(f.run(ctx(fake, 'tổng', ''))).rejects.toMatchObject({ code: 'badAnswer' });

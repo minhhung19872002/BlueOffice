@@ -128,6 +128,12 @@ export interface FormulaCheck {
   /** Functions the formula calls (upper case, in order of first use). */
   functions: string[];
   unknownFunctions: string[];
+  /**
+   * What typing the text stores when it only parses once read the vi-VN way (`;`
+   * separators, decimal commas, closing parentheses added); `null` / absent when the text
+   * parses as it is.
+   */
+  fixed?: string | null;
 }
 
 /** Auditing and calculation commands. */

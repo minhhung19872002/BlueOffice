@@ -176,6 +176,8 @@ pub const CHART_TYPES: &[&str] = &[
     "radarFilled",
     "stock",
     "stockUpDown",
+    "stockVolume",
+    "stockVolumeUpDown",
     "surface",
     "surfaceWireframe",
     "waterfall",
@@ -210,6 +212,17 @@ pub const CHART_TYPES: &[&str] = &[
 /// The [`CHART_TYPES`] name of a chart (several groups: `combo`).
 #[must_use]
 pub fn type_name(c: &Chart) -> &'static str {
+    // Volume-high-low-close / volume-open-high-low-close: volume columns on the primary axis, the
+    // §21.2.2.198 stockChart on the secondary one.
+    if let [vol, stock] = c.plots.as_slice() {
+        if vol.kind == ChartKind::Bar && stock.kind == ChartKind::Stock && !vol.three_d {
+            return if stock.flag {
+                "stockVolumeUpDown"
+            } else {
+                "stockVolume"
+            };
+        }
+    }
     if c.plots.len() > 1 {
         return "combo";
     }
@@ -349,8 +362,8 @@ pub fn plot_for(kind: &str) -> ChartPlot {
         "radar" => (ChartKind::Radar, None, None, Some("standard"), false),
         "radarMarker" => (ChartKind::Radar, None, None, Some("marker"), false),
         "radarFilled" => (ChartKind::Radar, None, None, Some("filled"), false),
-        "stock" => (ChartKind::Stock, None, None, None, false),
-        "stockUpDown" => (ChartKind::Stock, None, None, None, true),
+        "stock" | "stockVolume" => (ChartKind::Stock, None, None, None, false),
+        "stockUpDown" | "stockVolumeUpDown" => (ChartKind::Stock, None, None, None, true),
         "surface" => (ChartKind::Surface, None, None, None, false),
         "surfaceWireframe" => (ChartKind::Surface, None, None, None, true),
         "waterfall" => (ChartKind::Waterfall, None, None, None, false),
@@ -391,7 +404,8 @@ fn shape_series(kind: &str, plot: &mut ChartPlot) {
                 plot.series.push(y);
             }
         }
-        "stock" | "stockUpDown" => plot.series.truncate(4),
+        "stock" | "stockUpDown" | "stockVolume" => plot.series.truncate(4),
+        "stockVolumeUpDown" => plot.series.truncate(5),
         // One series: waterfall, funnel, pareto, histogram, treemap and sunburst.
         "waterfall" | "funnel" | "pareto" | "histogram" | "treemap" | "sunburst" | "regionMap" => {
             plot.series.truncate(1);
@@ -409,13 +423,26 @@ fn shape_series(kind: &str, plot: &mut ChartPlot) {
 /// columns, the others as lines).
 pub fn set_chart_type(chart: &mut Chart, kind: &str) {
     let series: Vec<ChartSeries> = chart.plots.drain(..).flat_map(|p| p.series).collect();
-    if kind == "combo" && series.len() > 1 {
-        let mut bars = plot_for("column");
-        let mut lines = plot_for("line");
+    chart.plots = arrange(kind, series);
+    view_for_type(chart);
+    chart.dirty = true;
+}
+
+/// The plot groups of a chart of type `kind` holding `series`: a combo chart puts the first series in
+/// columns and the others in lines; a volume stock chart (`stockVolume`, `stockVolumeUpDown`) puts the
+/// first series (the volume) in columns on the primary axis and the others in a §21.2.2.198
+/// stockChart on the secondary axis; every other type is one group.
+#[must_use]
+pub fn arrange(kind: &str, series: Vec<ChartSeries>) -> Vec<ChartPlot> {
+    let volume = matches!(kind, "stockVolume" | "stockVolumeUpDown");
+    if (kind == "combo" || volume) && series.len() > 1 {
+        let mut first = plot_for("column");
+        let mut rest = plot_for(if volume { kind } else { "line" });
+        rest.secondary = volume;
         let mut it = series.into_iter();
-        bars.series.extend(it.next());
-        lines.series.extend(it);
-        chart.plots = vec![bars, lines];
+        first.series.extend(it.next());
+        rest.series.extend(it);
+        vec![first, rest]
     } else {
         let mut p = plot_for(if kind == "combo" { "column" } else { kind });
         p.series = series;
@@ -423,10 +450,8 @@ pub fn set_chart_type(chart: &mut Chart, kind: &str) {
         if matches!(kind, "explodedPie" | "explodedPie3D") {
             shape_series("explodedPie", &mut p);
         }
-        chart.plots = vec![p];
+        vec![p]
     }
-    view_for_type(chart);
-    chart.dirty = true;
 }
 
 /// A 3-D chart gets the view of a new 3-D chart (§21.2.2.228 view3D) unless it has one; a flat chart
@@ -523,8 +548,8 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
         dirty: true,
         ..Chart::default()
     };
-    if kind == "combo" {
-        set_chart_type(&mut chart, "combo");
+    if matches!(kind, "combo" | "stockVolume" | "stockVolumeUpDown") {
+        set_chart_type(&mut chart, kind);
     }
     view_for_type(&mut chart);
     let mut data = chart.clone();
@@ -1131,12 +1156,28 @@ fn draw_body(
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
-    // §21.2.2.29 chart space spPr: the chart area's fill and border.
-    if framed || look.chart_fill.is_some() {
+    // §21.2.2.29 chart space spPr: the chart area's fill and border (§21.2.2.156 roundedCorners: one
+    // path with round corners).
+    if look.rounded && (framed || look.chart_fill.is_some() || look.chart_line.is_some()) {
+        let fill = (framed || look.chart_fill.is_some())
+            .then(|| look.chart_fill.unwrap_or(Rgba(255, 255, 255, 255)));
+        let line = (framed || look.chart_line.is_some()).then(|| look.chart_line.unwrap_or(FRAME));
+        out.push(Command::Path {
+            segs: look.area_path(w, h),
+            fill: fill.map(|color| Paint::Solid { color }),
+            stroke: line.map(|c| Stroke {
+                width: 0.5,
+                color: c,
+                dash: vec![],
+                cap: "butt".into(),
+                join: "round".into(),
+            }),
+        });
+    } else if framed || look.chart_fill.is_some() {
         let bg = look.chart_fill.unwrap_or(Rgba(255, 255, 255, 255));
         out.push(rect(0.0, 0.0, w, h, bg));
     }
-    if framed || look.chart_line.is_some() {
+    if !look.rounded && (framed || look.chart_line.is_some()) {
         let fc = look.chart_line.unwrap_or(FRAME);
         for c in [
             hline(0.0, w, 0.25, fc, 0.5),
@@ -1367,8 +1408,7 @@ fn draw_body(
             p,
             ss,
             [6.0, top, right, bottom],
-            font,
-            locale,
+            (font, locale, look),
             color,
             label,
             out,
@@ -1379,7 +1419,13 @@ fn draw_body(
         if let Some((p, s)) = plots.first() {
             let area = [6.0, top, right, bottom];
             if p.kind == ChartKind::OfPie {
-                draw_of_pie(s.first(), p.style.as_deref() == Some("bar"), area, out);
+                draw_of_pie(
+                    s.first(),
+                    p.style.as_deref() == Some("bar"),
+                    &p.of_pie.clone().unwrap_or_default(),
+                    area,
+                    out,
+                );
             } else {
                 draw_pie(
                     s.first(),
@@ -2903,8 +2949,7 @@ fn draw_ex(
     p: &ChartPlot,
     ss: &[Ser],
     [l, t, r, b]: [f64; 4],
-    font: f64,
-    locale: &Locale,
+    (font, locale, look): (f64, &Locale, &Look),
     color: &ColorFn<'_>,
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
@@ -2912,6 +2957,27 @@ fn draw_ex(
     let Some(s) = ss.first() else { return };
     let vals: Vec<f64> = s.vals.iter().map(|v| v.unwrap_or(0.0)).collect();
     let n = vals.len();
+    // Data labels ([MS-ODRAWXML] chartex cx:dataLabels): at the outer end of a column, centred with
+    // `pos="ctr"` / `inEnd`.
+    let centred = look
+        .labels
+        .as_ref()
+        .and_then(|d| d.pos.as_deref())
+        .is_some_and(|p| matches!(p, "ctr" | "inEnd" | "inBase"));
+    let column_label = |cat: &str,
+                        v: f64,
+                        [x, y, w, h]: [f64; 4],
+                        label: &mut LabelFn<'_>,
+                        out: &mut Vec<Command>| {
+        if let Some(text) = look.label_text(&s.name, cat, v, None, locale) {
+            let (cy, ink) = if centred {
+                (y + h / 2.0, Rgba(255, 255, 255, 255))
+            } else {
+                (y - font * 0.8, TEXT)
+            };
+            Look::put_label(&text, x + w / 2.0, cy, font, ink, label, out);
+        }
+    };
     match p.kind {
         // Waterfall: running total; totals from zero; increases / decreases / totals coloured.
         ChartKind::Waterfall => {
@@ -2938,13 +3004,10 @@ fn draw_ex(
             for (i, (a, z, k)) in bars.iter().enumerate() {
                 let x = pl + i as f64 * slot + slot * 0.2;
                 let (top, bot) = (y(a.max(*z)), y(a.min(*z)));
-                out.push(rect(
-                    x,
-                    top,
-                    slot * 0.6,
-                    (bot - top).max(0.5),
-                    color(None, *k),
-                ));
+                let bx = [x, top, slot * 0.6, (bot - top).max(0.5)];
+                look.bar(bx, color(None, *k), out);
+                let cat = s.cats.get(i).map_or("", String::as_str);
+                column_label(cat, vals[i], bx, label, out);
                 // Connector to the next bar at the running level.
                 if i + 1 < n {
                     out.push(hline(x + slot * 0.6, x + slot, y(*z), AXIS, 0.5));
@@ -2967,21 +3030,25 @@ fn draw_ex(
                     0.0
                 };
                 let y = t + i as f64 * slot;
-                out.push(rect(
-                    mid - w / 2.0,
-                    y + slot * 0.08,
-                    w,
-                    slot * 0.84,
-                    s.color,
-                ));
-                label(
-                    &fmt_num(*v, locale),
-                    [mid - w / 2.0, y, mid + w / 2.0, y + slot],
-                    Align::Center,
-                    font,
-                    Rgba(255, 255, 255, 255),
-                    out,
-                );
+                let pc = s.pts.get(i).copied().unwrap_or(s.color);
+                look.bar([mid - w / 2.0, y + slot * 0.08, w, slot * 0.84], pc, out);
+                // The value on each bar, or what the series' data labels show.
+                let cat = s.cats.get(i).map_or("", String::as_str);
+                let text = if look.labels.is_some() {
+                    look.label_text(&s.name, cat, *v, None, locale)
+                } else {
+                    Some(fmt_num(*v, locale))
+                };
+                if let Some(text) = text {
+                    label(
+                        &text,
+                        [mid - w / 2.0, y, mid + w / 2.0, y + slot],
+                        Align::Center,
+                        font,
+                        Rgba(255, 255, 255, 255),
+                        out,
+                    );
+                }
                 if let Some(c) = s.cats.get(i) {
                     label(c, [l, y, pl - 3.0, y + slot], Align::Right, font, TEXT, out);
                 }
@@ -3028,13 +3095,9 @@ fn draw_ex(
             let slot = (pr - pl) / k as f64;
             for (i, h) in heights.iter().enumerate() {
                 let top = pb - (h - vmin) / (vmax - vmin) * ph;
-                out.push(rect(
-                    pl + i as f64 * slot + 0.5,
-                    top,
-                    slot - 1.0,
-                    pb - top,
-                    s.color,
-                ));
+                let bx = [pl + i as f64 * slot + 0.5, top, slot - 1.0, pb - top];
+                look.bar(bx, s.color, out);
+                column_label(cats.get(i).map_or("", String::as_str), *h, bx, label, out);
             }
             cat_labels(&cats, pa, b, font, label, out);
             if p.kind == ChartKind::Pareto {
@@ -3197,6 +3260,31 @@ fn draw_ex(
                         Rgba(255, 255, 255, 255),
                         1.0,
                     ));
+                    // Data labels showing the value (or the series name) add a line under the name.
+                    let extra = look
+                        .labels
+                        .as_ref()
+                        .filter(|d| d.value || d.series)
+                        .map(|d| {
+                            let mut parts = Vec::new();
+                            if d.series {
+                                parts.push(s.name.clone());
+                            }
+                            if d.value {
+                                parts.push(fmt_num(vals[*k], locale));
+                            }
+                            parts.join("; ")
+                        });
+                    if let Some(text) = extra.filter(|_| w > font * 2.5 && h > font * 3.2) {
+                        label(
+                            &text,
+                            [x + 2.0, y + font * 1.5, x + w - 2.0, y + font * 3.1],
+                            Align::Left,
+                            font * 0.9,
+                            Rgba(255, 255, 255, 255),
+                            out,
+                        );
+                    }
                     if w > font * 2.5 && h > font * 1.6 {
                         let name = s.cats.get(*k).cloned().unwrap_or_default();
                         label(
@@ -3310,34 +3398,36 @@ fn circle(cx: f64, cy: f64, r: f64) -> Vec<PathSeg> {
     ]
 }
 
-/// §21.2.2.126 ofPieChart: the main pie with the last points gathered into one slice, and those
-/// points as a second pie or a stacked bar beside it (split: the last third of the points).
-fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec<Command>) {
+/// §21.2.2.126 ofPieChart: the main pie with the points of the second plot gathered into one slice,
+/// and those points as a second pie or a stacked bar beside it. Which points go there follows the
+/// chart's `splitType` / `splitPos` / `custSplit` (default: the last third); `secondPieSize` scales
+/// the second plot.
+fn draw_of_pie(
+    s: Option<&Ser>,
+    bar: bool,
+    split: &bo_model::sheet::OfPieSplit,
+    [l, t, r, b]: [f64; 4],
+    out: &mut Vec<Command>,
+) {
     let Some(s) = s else { return };
     let n = s.vals.len();
     if n < 3 {
         draw_pie_plain(Some(s), false, [l, t, r, b], out);
         return;
     }
-    let k = n.div_ceil(3);
     let vals: Vec<f64> = s.vals.iter().map(|v| v.unwrap_or(0.0).max(0.0)).collect();
-    let other: f64 = vals[n - k..].iter().sum();
+    let second = split.second(&vals);
+    let color_of = |i: usize| s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]);
+    let first: Vec<usize> = (0..n).filter(|i| !second[*i]).collect();
+    let rest: Vec<usize> = (0..n).filter(|i| second[*i]).collect();
+    let other: f64 = rest.iter().map(|i| vals[*i]).sum();
     let other_color = Rgba(0xA0, 0xA6, 0xAE, 255);
-    let main = Ser {
+    let plain = |vals: Vec<f64>, pts: Vec<Rgba>| Ser {
         name: s.name.clone(),
         cats: Vec::new(),
-        vals: vals[..n - k]
-            .iter()
-            .copied()
-            .chain([other])
-            .map(Some)
-            .collect(),
+        vals: vals.into_iter().map(Some).collect(),
         color: s.color,
-        pts: s.pts[..(n - k).min(s.pts.len())]
-            .iter()
-            .copied()
-            .chain([other_color])
-            .collect(),
+        pts,
         sizes: Vec::new(),
         explosion: 0,
         levels: Vec::new(),
@@ -3345,17 +3435,29 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
         trendlines: Vec::new(),
         err_bars: None,
     };
-    let split = l + (r - l) * 0.6;
-    draw_pie_plain(Some(&main), false, [l, t, split, b], out);
-    let total: f64 = vals[n - k..].iter().sum();
-    if total <= 0.0 {
+    let main = plain(
+        first.iter().map(|i| vals[*i]).chain([other]).collect(),
+        first
+            .iter()
+            .map(|i| color_of(*i))
+            .chain([other_color])
+            .collect(),
+    );
+    let split_x = l + (r - l) * 0.6;
+    draw_pie_plain(Some(&main), false, [l, t, split_x, b], out);
+    if other <= 0.0 {
         return;
     }
-    let (cy, h) = (f64::midpoint(t, b), (b - t) * 0.6);
-    let (sx0, sx1) = (split + (r - split) * 0.25, r - 4.0);
+    // The second plot is 60 % of the plot height at the default size (75 %).
+    let scale = f64::from(split.second_size.clamp(5, 200)) / 75.0;
+    let (cy, h) = (
+        f64::midpoint(t, b),
+        ((b - t) * 0.6 * scale).min((b - t) * 0.95),
+    );
+    let (sx0, sx1) = (split_x + (r - split_x) * 0.25, r - 4.0);
     // Connector lines from the gathered slice to the second plot.
-    let main_r = ((split - l).min(b - t) / 2.0 - 2.0).max(1.0);
-    let edge = f64::midpoint(l, split) + main_r * 0.9;
+    let main_r = ((split_x - l).min(b - t) / 2.0 - 2.0).max(1.0);
+    let edge = f64::midpoint(l, split_x) + main_r * 0.9;
     out.push(polyline(
         &[(edge, cy - main_r * 0.3), (sx0, cy - h / 2.0)],
         AXIS,
@@ -3366,32 +3468,18 @@ fn draw_of_pie(s: Option<&Ser>, bar: bool, [l, t, r, b]: [f64; 4], out: &mut Vec
         AXIS,
         0.75,
     ));
-    let colors: Vec<Rgba> = (n - k..n)
-        .map(|i| s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]))
-        .collect();
+    let colors: Vec<Rgba> = rest.iter().map(|i| color_of(*i)).collect();
     if bar {
         let bw = ((sx1 - sx0) * 0.5).min(h * 0.4);
         let x = f64::midpoint(sx0, sx1) - bw / 2.0;
         let mut y = cy - h / 2.0;
-        for (v, c) in vals[n - k..].iter().zip(&colors) {
-            let hh = v / total * h;
+        for (i, c) in rest.iter().zip(&colors) {
+            let hh = vals[*i] / other * h;
             out.push(rect(x, y, bw, hh, *c));
             y += hh;
         }
     } else {
-        let sub = Ser {
-            name: String::new(),
-            cats: Vec::new(),
-            vals: vals[n - k..].iter().copied().map(Some).collect(),
-            color: s.color,
-            pts: colors,
-            sizes: Vec::new(),
-            explosion: 0,
-            levels: Vec::new(),
-            subtotals: Vec::new(),
-            trendlines: Vec::new(),
-            err_bars: None,
-        };
+        let sub = plain(rest.iter().map(|i| vals[*i]).collect(), colors);
         draw_pie_plain(
             Some(&sub),
             false,
@@ -3834,5 +3922,191 @@ mod tests {
             let c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), kind).unwrap();
             assert_eq!(type_name(&c), *kind);
         }
+    }
+
+    /// Labels drawn for `c` with their boxes.
+    fn boxed_labels(wb: &Workbook, c: &Chart) -> (Vec<Command>, Vec<(String, [f64; 4])>) {
+        let mut labels = Vec::new();
+        let mut out = Vec::new();
+        draw_chart(
+            wb,
+            0,
+            c,
+            400.0,
+            250.0,
+            &Locale::VI_VN,
+            &mut |t, r, _, _, _, _| labels.push((t.to_owned(), r)),
+            &mut out,
+        );
+        (out, labels)
+    }
+
+    /// A sheet of sessions: volume, open, high, low, close.
+    fn stock_book() -> Workbook {
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        for (c, h) in ["Phiên", "KL", "Mở", "Cao", "Thấp", "Đóng"]
+            .iter()
+            .enumerate()
+        {
+            ws.set_cell(0, c as u32, Cell::new(CellValue::Text((*h).into())));
+        }
+        let rows = [
+            [1000.0, 20.0, 22.0, 19.0, 21.0],
+            [3000.0, 21.0, 23.0, 20.5, 22.5],
+            [2000.0, 22.5, 23.0, 20.0, 20.5],
+        ];
+        for (r, row) in rows.iter().enumerate() {
+            let r = r as u32 + 1;
+            ws.set_cell(r, 0, Cell::new(CellValue::Text(format!("N{r}"))));
+            for (c, v) in row.iter().enumerate() {
+                ws.set_cell(r, c as u32 + 1, Cell::new(CellValue::Number(*v)));
+            }
+        }
+        wb
+    }
+
+    #[test]
+    fn volume_stock_charts_put_prices_on_the_secondary_axis() {
+        let wb = stock_book();
+        // VOHLC: volume, open, high, low, close with up/down bars.
+        let c = new_chart(
+            &wb,
+            0,
+            CellRange::parse("A1:F4").unwrap(),
+            "stockVolumeUpDown",
+        )
+        .unwrap();
+        assert_eq!(c.plots.len(), 2);
+        assert_eq!(c.plots[0].kind, ChartKind::Bar);
+        assert_eq!(c.plots[0].series.len(), 1);
+        assert!(!c.plots[0].secondary);
+        assert_eq!(c.plots[1].kind, ChartKind::Stock);
+        assert!(c.plots[1].secondary && c.plots[1].flag);
+        assert_eq!(c.plots[1].series.len(), 4);
+        assert_eq!(type_name(&c), "stockVolumeUpDown");
+        let (out, labels) = boxed_labels(&wb, &c);
+        // Three volume columns in the first series colour.
+        let cols = out
+            .iter()
+            .filter(|c| matches!(c, Command::FillRect { color, .. } if *color == PALETTE[0]))
+            .count();
+        assert_eq!(cols, 3 + 1, "columns plus the legend swatch");
+        // The primary axis counts the volume (up to 3 000), the secondary one at the right the
+        // prices (0 to 25 in steps of 5).
+        assert!(labels.iter().any(|(t, r)| t == "3000" && r[0] < 100.0));
+        let right: Vec<&str> = labels
+            .iter()
+            .filter(|(_, r)| r[0] > 250.0 && r[2] < 330.0)
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(right.contains(&"25") && right.contains(&"20"), "{right:?}");
+        // Up/down bars: two rising sessions (white boxes), one falling (dark).
+        let boxes = out
+            .iter()
+            .filter(|c| {
+                matches!(c, Command::FillRect { color, .. }
+                if *color == Rgba(255, 255, 255, 255) || *color == TEXT)
+            })
+            .count();
+        assert!(boxes >= 3, "{boxes}");
+        // VHLC: three price series, no bars.
+        let mut c2 = c.clone();
+        set_chart_type(&mut c2, "stockVolume");
+        assert_eq!(c2.plots[1].series.len(), 4, "a type change keeps the data");
+        let c3 = new_chart(&wb, 0, CellRange::parse("A1:B4").unwrap(), "stockVolume").unwrap();
+        // A single series has no volume column: a plain stock group.
+        assert_eq!(type_name(&c3), "stock");
+    }
+
+    #[test]
+    fn of_pie_splits_choose_the_second_plot() {
+        use bo_model::sheet::OfPieSplit;
+        let v = [10.0, 17.0, 24.0, 31.0, 38.0, 8.0];
+        let split = |t: &str, pos: Option<f64>, custom: Vec<usize>| OfPieSplit {
+            split_type: t.into(),
+            pos,
+            custom,
+            ..OfPieSplit::default()
+        };
+        let idx = |s: &OfPieSplit| -> Vec<usize> {
+            s.second(&v)
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| **b)
+                .map(|(i, _)| i)
+                .collect()
+        };
+        assert_eq!(idx(&OfPieSplit::default()), vec![4, 5], "auto: last third");
+        assert_eq!(idx(&split("pos", Some(3.0), vec![])), vec![3, 4, 5]);
+        assert_eq!(idx(&split("val", Some(15.0), vec![])), vec![0, 5]);
+        // Shares of 128: 10 → 7.8 %, 8 → 6.25 %, 17 → 13.3 %.
+        assert_eq!(idx(&split("percent", Some(10.0), vec![])), vec![0, 5]);
+        assert_eq!(idx(&split("cust", None, vec![0, 2])), vec![0, 2]);
+        // A split leaving a plot empty falls back to the default.
+        assert_eq!(idx(&split("val", Some(1.0), vec![])), vec![4, 5]);
+        // Drawing: the bar of the second plot holds the chosen points' colours.
+        let mut wb = Workbook::new();
+        let ws = &mut wb.sheets[0];
+        ws.set_cell(0, 1, Cell::new(CellValue::Text("Giá trị".into())));
+        for (r, x) in v.iter().enumerate() {
+            let row = r as u32 + 1;
+            ws.set_cell(row, 0, Cell::new(CellValue::Text(format!("P{r}"))));
+            ws.set_cell(row, 1, Cell::new(CellValue::Number(*x)));
+        }
+        let mut c = new_chart(&wb, 0, CellRange::parse("A1:B7").unwrap(), "barOfPie").unwrap();
+        c.plots[0].of_pie = Some(split("cust", None, vec![0, 2]));
+        c.legend = None;
+        let (out, _) = draw(&wb, &c);
+        let bars: Vec<(f32, Rgba)> = out
+            .iter()
+            .filter_map(|c| match c {
+                Command::FillRect { x, h, color, .. } if *x > 260.0 && *h > 1.0 => {
+                    Some((*h, *color))
+                }
+                _ => None,
+            })
+            .filter(|(_, c)| *c == PALETTE[0] || *c == PALETTE[2])
+            .collect();
+        assert_eq!(bars.len(), 2, "{bars:?}");
+        // Bar heights in the ratio 10 : 24.
+        let (h0, h2) = (bars[0].0, bars[1].0);
+        assert!((h0 / h2 - 10.0 / 24.0).abs() < 1e-3, "{h0} {h2}");
+    }
+
+    #[test]
+    fn chartex_data_labels_and_rounded_corners_are_drawn() {
+        let wb = wb();
+        let mut c = new_chart(&wb, 0, CellRange::parse("A1:B4").unwrap(), "waterfall").unwrap();
+        let (_, before) = draw(&wb, &c);
+        c.format.data_labels = Some(bo_model::chart_style::DataLabels {
+            value: true,
+            ..Default::default()
+        });
+        let (_, after) = draw(&wb, &c);
+        // One label per bar: 10, 5 and 7.
+        for v in ["10", "5", "7"] {
+            let n = |l: &[String]| l.iter().filter(|t| *t == v).count();
+            assert_eq!(n(&after), n(&before) + 1, "{v}");
+        }
+        // Histogram bins: a count label on each column.
+        set_chart_type(&mut c, "histogram");
+        let (_, with) = draw(&wb, &c);
+        c.format.data_labels = None;
+        let (_, without) = draw(&wb, &c);
+        assert!(with.len() > without.len(), "{with:?}");
+        // §21.2.2.156 roundedCorners: the chart area becomes one path with curved corners.
+        let mut c = new_chart(&wb, 0, CellRange::parse("A1:C4").unwrap(), "column").unwrap();
+        let (square, _) = draw(&wb, &c);
+        c.format.rounded = true;
+        let (round, _) = draw(&wb, &c);
+        let curves = |cmds: &[Command]| {
+            cmds.iter()
+                .take(2)
+                .filter(|c| matches!(c, Command::Path { segs, .. } if segs.iter().filter(|s| matches!(s, PathSeg::C(..))).count() == 4))
+                .count()
+        };
+        assert_eq!(curves(&square), 0);
+        assert_eq!(curves(&round), 1);
     }
 }

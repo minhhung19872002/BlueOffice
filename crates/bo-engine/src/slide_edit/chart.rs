@@ -122,6 +122,8 @@ const MORE_KINDS: &[&str] = &[
     "radarFilled",
     "stock",
     "stockUpDown",
+    "stockVolume",
+    "stockVolumeUpDown",
     "surface",
     "column3D",
     "clusteredColumn3D",
@@ -140,7 +142,20 @@ const MORE_KINDS: &[&str] = &[
     "pie3D",
     "explodedPie3D",
     "surface3D",
+    // Chartex layouts ([MS-ODRAWXML] 2.24), stored in a `cx:chartSpace` part.
+    "waterfall",
+    "treemap",
+    "sunburst",
+    "histogram",
+    "pareto",
+    "boxWhisker",
+    "funnel",
 ];
+
+/// Is the chart a chartex chart (`cx:chartSpace` part, frame in `mc:AlternateContent`)?
+fn is_ex(c: &Chart) -> bool {
+    c.plots.first().is_some_and(|p| p.kind.is_ex())
+}
 
 /// An exploded pie pushes its slices out by a quarter of the radius (§21.2.2.62 explosion).
 fn explode(kind: &str, plot: &mut ChartPlot) {
@@ -182,6 +197,18 @@ fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
     })
 }
 
+/// Plot groups of a kind name holding the grid's series (a volume stock chart: volume columns plus
+/// a stock group on the secondary axis, `bo_sheet::chart::arrange`).
+fn plots_of(kind: &str, grouping: Option<String>, d: &ChartData) -> R<Vec<ChartPlot>> {
+    let mut plot = plot_of(kind, grouping)?;
+    if matches!(kind, "stockVolume" | "stockVolumeUpDown") {
+        return Ok(bo_sheet::chart::arrange(kind, series_of(d)));
+    }
+    plot.series = series_of(d);
+    explode(kind, &mut plot);
+    Ok(vec![plot])
+}
+
 fn data_of(c: &Chart) -> ChartData {
     let series: Vec<&ChartSeries> = c.plots.iter().flat_map(|p| &p.series).collect();
     let categories = series
@@ -190,6 +217,12 @@ fn data_of(c: &Chart) -> ChartData {
         .max_by_key(|c| c.len())
         .cloned()
         .unwrap_or_default();
+    // Histograms keep no categories: the points are numbered so that no value is dropped.
+    let n = series.iter().map(|s| s.values.len()).max().unwrap_or(0);
+    let mut categories = categories;
+    for i in categories.len()..n {
+        categories.push((i + 1).to_string());
+    }
     ChartData {
         series: series
             .iter()
@@ -292,6 +325,10 @@ fn workbook(d: &ChartData) -> R<Vec<u8>> {
 
 /// Chart part XML with the §21.2.2.63 externalData reference to `rid`.
 fn chart_xml(c: &Chart, rid: &str) -> Vec<u8> {
+    if is_ex(c) {
+        // [MS-ODRAWXML] chartex `cx:chartData/cx:externalData`.
+        return bo_xlsx::chartex::chartex_space_xml_with(c, Some(rid)).into_bytes();
+    }
     bo_xlsx::chart_write::chart_space_xml_with(c, Some(rid)).into_bytes()
 }
 
@@ -356,7 +393,7 @@ pub(super) fn put_part(
 /// Chart part of a graphic frame on a slide.
 fn chart_part_of(pres: &Presentation, slide: usize, n: &ShapeNode) -> Option<String> {
     let ShapeNode::Frame(f) = n else { return None };
-    if f.uri != bo_drawingml::chart::URI_CHART {
+    if f.uri != bo_drawingml::chart::URI_CHART && f.uri != bo_xlsx::chartex::CX_NS {
         return None;
     }
     let GraphicContent::Other(gd) = &f.content else {
@@ -370,7 +407,8 @@ fn chart_part_of(pres: &Presentation, slide: usize, n: &ShapeNode) -> Option<Str
 
 /// Is this node a chart frame?
 pub fn is_chart(n: &ShapeNode) -> bool {
-    matches!(n, ShapeNode::Frame(f) if f.uri == bo_drawingml::chart::URI_CHART)
+    matches!(n, ShapeNode::Frame(f)
+        if f.uri == bo_drawingml::chart::URI_CHART || f.uri == bo_xlsx::chartex::CX_NS)
 }
 
 /// The chart of shape `id` on a slide.
@@ -431,12 +469,12 @@ fn store(tx: &mut Tx<'_>, part: &str, c: &Chart, d: &ChartData) -> R<()> {
         None,
         rels_bytes(part, &rels),
     )?;
-    put_part(
-        tx,
-        part,
-        Some(bo_xlsx::chart_write::CT_CHART),
-        chart_xml(c, &rid),
-    )
+    let ct = if is_ex(c) {
+        bo_xlsx::chartex::CT_CHARTEX
+    } else {
+        bo_xlsx::chart_write::CT_CHART
+    };
+    put_part(tx, part, Some(ct), chart_xml(c, &rid))
 }
 
 fn default_data() -> ChartData {
@@ -496,7 +534,7 @@ fn slide_spec(
 ) -> crate::chart_design::DesignSpec {
     let mut spec = spec.clone();
     if let Some(t) = spec.template.as_mut() {
-        if bo_sheet::chart::plot_for(&t.kind).kind.is_ex() || t.kind == "combo" {
+        if bo_sheet::chart::plot_for(&t.kind).kind.is_ex() != is_ex(c) || t.kind == "combo" {
             bo_sheet::chart::type_name(c).clone_into(&mut t.kind);
         }
     }
@@ -547,9 +585,7 @@ fn legend_of(l: &str) -> R<Option<String>> {
 pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>) -> R<()> {
     let kind = spec.kind;
     let d = clean(spec.data.unwrap_or_else(default_data))?;
-    let mut plot = plot_of(kind, None)?;
-    plot.series = series_of(&d);
-    explode(kind, &mut plot);
+    let plots = plots_of(kind, None, &d)?;
     let legend = match spec.legend.as_deref() {
         Some(l) => legend_of(l)?,
         None => Some(
@@ -564,7 +600,7 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
     let rect = spec.rect;
     let mut c = Chart {
         title: spec.title.filter(|t| !t.is_empty()),
-        plots: vec![plot],
+        plots,
         legend,
         ..Chart::default()
     };
@@ -587,7 +623,16 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
         w: sw * 0.7,
         h: sh * 0.7,
     });
-    let part = build::unique_part(tx.pres, "/ppt/charts/chart", "xml");
+    let ex = is_ex(&c);
+    let part = build::unique_part(
+        tx.pres,
+        if ex {
+            "/ppt/charts/chartEx"
+        } else {
+            "/ppt/charts/chart"
+        },
+        "xml",
+    );
     store(tx, &part, &c, &d)?;
     let s = tx
         .pres
@@ -600,27 +645,44 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
         .unwrap_or_default();
     let id = next_shape_id(tx.pres, slide);
     let emu = |pt: f64| (pt * super::geom::EMU_PT).round() as i64;
-    let xml = format!(
-        concat!(
-            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Chart {id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>"#,
-            r#"<p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm>"#,
-            r#"<a:graphic><a:graphicData uri="{uri}"><c:chart xmlns:c="{c}" xmlns:r="{r}" r:id="{rid}"/></a:graphicData></a:graphic></p:graphicFrame>"#
-        ),
-        id = id,
-        x = emu(r.x),
-        y = emu(r.y),
-        cx = emu(r.w.max(1.0)),
-        cy = emu(r.h.max(1.0)),
-        uri = bo_drawingml::chart::URI_CHART,
-        c = NS_C,
-        r = NS_R,
-        rid = rid,
-    );
+    let xml = if ex {
+        // [MS-ODRAWXML] 2.24: the frame in an mc:AlternateContent choice with a text fallback.
+        bo_pptx::chartex_frame::new_frame_xml(
+            id,
+            &format!("Chart {id}"),
+            (emu(r.x), emu(r.y), emu(r.w.max(1.0)), emu(r.h.max(1.0))),
+            &rid,
+            bo_xlsx::chartex::requires(c.plots.first().map(|p| &p.kind)),
+            "Biểu đồ mở rộng (chartex): cần ứng dụng hỗ trợ để hiển thị.",
+        )
+    } else {
+        format!(
+            concat!(
+                r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Chart {id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>"#,
+                r#"<p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm>"#,
+                r#"<a:graphic><a:graphicData uri="{uri}"><c:chart xmlns:c="{c}" xmlns:r="{r}" r:id="{rid}"/></a:graphicData></a:graphic></p:graphicFrame>"#
+            ),
+            id = id,
+            x = emu(r.x),
+            y = emu(r.y),
+            cx = emu(r.w.max(1.0)),
+            cy = emu(r.h.max(1.0)),
+            uri = bo_drawingml::chart::URI_CHART,
+            c = NS_C,
+            r = NS_R,
+            rid = rid,
+        )
+    };
     let target = format!("../charts/{}", part.rsplit('/').next().unwrap_or_default());
+    let rel_type = if ex {
+        bo_xlsx::chartex::REL_CHARTEX.to_owned()
+    } else {
+        format!("{}chart", bo_pptx::RELATIONSHIP_NS)
+    };
     tx.fields(slide, |f| {
         f.rels.push(Rel {
             id: rid.clone(),
-            rel_type: format!("{}chart", bo_pptx::RELATIONSHIP_NS),
+            rel_type: rel_type.clone(),
             target,
             external: false,
         });
@@ -654,9 +716,6 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
         let design = slide_spec(&spec.design, &c);
         crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
             .map_err(|_| EditError::Refused("badChart"))?;
-        if c.plots.iter().any(|p| p.kind.is_ex()) {
-            return Err(EditError::Refused("badChart"));
-        }
         // The data is rewritten into the embedded workbook: the references follow it.
         let refs = series_of(&d);
         for (s, r) in c.plots.iter_mut().flat_map(|p| &mut p.series).zip(refs) {
@@ -675,11 +734,12 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
     } else {
         kind
     };
+    // A chart part holds one family: classic (c:) or chartex (cx:) types, not a change between them.
+    if bo_sheet::chart::plot_for(&kind).kind.is_ex() != is_ex(&c) && kind_name(&c) != kind {
+        return Err(EditError::Refused("badChart"));
+    }
     let grouping = c.plots.first().and_then(|p| p.grouping.clone());
-    let mut plot = plot_of(&kind, grouping)?;
-    plot.series = series_of(&d);
-    explode(&kind, &mut plot);
-    c.plots = vec![plot];
+    c.plots = plots_of(&kind, grouping, &d)?;
     bo_sheet::chart::view_for_type(&mut c);
     if let Some(t) = &spec.title {
         c.title = Some(t.clone()).filter(|t| !t.is_empty());

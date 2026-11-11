@@ -42,6 +42,10 @@ const PALETTE: [&str; 8] = [
 const CAT_AX: u32 = 50_010;
 const VAL_AX: u32 = 50_020;
 const SER_AX: u32 = 50_030;
+/// Axes of the groups on the secondary value axis (a hidden category axis and a value axis at the
+/// right).
+const CAT_AX2: u32 = 50_040;
+const VAL_AX2: u32 = 50_050;
 
 /// `<a:p>` rich text body of a title (§21.2.2.156 rich); a bold run (§21.1.2.3.9 rPr `b`).
 fn rich(out: &mut String, text: &str, bold: bool) {
@@ -301,6 +305,18 @@ fn axis_ids(out: &mut String) {
     let _ = write!(out, "<c:axId val=\"{CAT_AX}\"/><c:axId val=\"{VAL_AX}\"/>");
 }
 
+/// The axis ids of a 2-D group: the secondary pair when it is plotted on the secondary axis.
+fn group_axis_ids(out: &mut String, secondary: bool) {
+    if secondary {
+        let _ = write!(
+            out,
+            "<c:axId val=\"{CAT_AX2}\"/><c:axId val=\"{VAL_AX2}\"/>"
+        );
+    } else {
+        axis_ids(out);
+    }
+}
+
 /// Does a 3-D group need a series axis (§21.2.2.175 serAx)? Line and surface groups always have one,
 /// bar and area groups when their series stand one behind the other (`standard` grouping).
 fn needs_ser_ax(p: &ChartPlot) -> bool {
@@ -388,7 +404,13 @@ fn plot_3d(out: &mut String, p: &ChartPlot, sers: &str, gap: u32) -> Option<bool
 }
 
 /// One plot group (§21.2.2.16 barChart, §21.2.2.97 lineChart, …).
-fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) -> bool {
+fn plot(
+    out: &mut String,
+    p: &ChartPlot,
+    first_idx: usize,
+    fmt: &ChartFormat,
+    secondary: bool,
+) -> bool {
     let grouping = p.grouping.as_deref();
     let mut sers = String::new();
     for (i, s) in p.series.iter().enumerate() {
@@ -417,7 +439,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
             if g != "clustered" && g != "standard" {
                 out.push_str("<c:overlap val=\"100\"/>");
             }
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:barChart>");
         }
         ChartKind::Line | ChartKind::Area => {
@@ -443,7 +465,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
                 }
                 out.push_str("<c:marker val=\"1\"/>");
             }
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             let _ = write!(out, "</c:{tag}>");
         }
         ChartKind::Pie => {
@@ -465,7 +487,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
                 out,
                 "<c:scatterChart><c:scatterStyle val=\"lineMarker\"/><c:varyColors val=\"0\"/>{sers}"
             );
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:scatterChart>");
         }
         // §21.2.2.153 radarChart (radarStyle standard | marker | filled).
@@ -479,7 +501,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
                 out,
                 "<c:radarChart><c:radarStyle val=\"{style}\"/><c:varyColors val=\"0\"/>{sers}"
             );
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:radarChart>");
         }
         // §21.2.2.20 bubbleChart.
@@ -488,7 +510,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
                 out,
                 "<c:bubbleChart><c:varyColors val=\"0\"/>{sers}<c:bubbleScale val=\"100\"/><c:showNegBubbles val=\"0\"/>"
             );
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:bubbleChart>");
         }
         // §21.2.2.198 stockChart with high-low lines (§21.2.2.80) and up/down bars (§21.2.2.218).
@@ -497,7 +519,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
             if p.flag {
                 out.push_str("<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>");
             }
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:stockChart>");
         }
         // §21.2.2.203 surfaceChart (wireframe §21.2.2.230).
@@ -507,7 +529,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
                 "<c:surfaceChart><c:wireframe val=\"{}\"/>{sers}",
                 u8::from(p.flag)
             );
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:surfaceChart>");
         }
         // §21.2.2.126 ofPieChart (ofPieType pie | bar).
@@ -519,7 +541,32 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
             };
             let _ = write!(
                 out,
-                "<c:ofPieChart><c:ofPieType val=\"{ty}\"/><c:varyColors val=\"1\"/>{sers}<c:gapWidth val=\"100\"/><c:secondPieSize val=\"75\"/><c:serLines/></c:ofPieChart>"
+                "<c:ofPieChart><c:ofPieType val=\"{ty}\"/><c:varyColors val=\"1\"/>{sers}<c:gapWidth val=\"100\"/>"
+            );
+            // CT_OfPieChart: splitType?, splitPos?, custSplit?, secondPieSize?, serLines*.
+            // Without a split of its own the application default (auto) applies.
+            let split = p.of_pie.clone().unwrap_or_default();
+            let ty = match split.split_type.as_str() {
+                t @ ("pos" | "val" | "percent" | "cust") => t,
+                _ => "auto",
+            };
+            if p.of_pie.is_some() {
+                let _ = write!(out, "<c:splitType val=\"{ty}\"/>");
+            }
+            if let Some(v) = split.pos.filter(|v| v.is_finite() && ty != "cust") {
+                let _ = write!(out, "<c:splitPos val=\"{}\"/>", fmt_f64(v));
+            }
+            if ty == "cust" {
+                out.push_str("<c:custSplit>");
+                for i in &split.custom {
+                    let _ = write!(out, "<c:secondPiePt val=\"{i}\"/>");
+                }
+                out.push_str("</c:custSplit>");
+            }
+            let _ = write!(
+                out,
+                "<c:secondPieSize val=\"{}\"/><c:serLines/></c:ofPieChart>",
+                split.second_size.clamp(5, 200)
             );
             return false;
         }
@@ -529,7 +576,7 @@ fn plot(out: &mut String, p: &ChartPlot, first_idx: usize, fmt: &ChartFormat) ->
                 out,
                 "<c:barChart><c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"150\"/>"
             );
-            axis_ids(out);
+            group_axis_ids(out, secondary);
             out.push_str("</c:barChart>");
         }
     }
@@ -669,8 +716,12 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
     out.push_str("<c:plotArea><c:layout/>");
     let mut axes = false;
     let mut idx = 0;
+    // §21.2.2.226 valAx: groups on the secondary axis (beside groups on the primary one) refer to a
+    // second pair of axes.
+    let two_axes = chart.plots.iter().any(|p| p.secondary && !p.three_d)
+        && chart.plots.iter().any(|p| !p.secondary);
     for p in &chart.plots {
-        axes |= plot(&mut out, p, idx, fmt);
+        axes |= plot(&mut out, p, idx, fmt, two_axes && p.secondary && !p.three_d);
         idx += p.series.len();
     }
     if chart.plots.is_empty() {
@@ -725,6 +776,14 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
             Some(&chart.axes),
             &ax_sp,
         );
+        if two_axes {
+            // The secondary pair: a hidden category axis and a value axis crossing at the maximum
+            // (drawn at the right), §21.2.2.33 crosses `max`.
+            let _ = write!(
+                out,
+                "<c:catAx><c:axId val=\"{CAT_AX2}\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"1\"/><c:axPos val=\"b\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"{VAL_AX2}\"/><c:crosses val=\"autoZero\"/><c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/></c:catAx><c:valAx><c:axId val=\"{VAL_AX2}\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/><c:axPos val=\"r\"/><c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{ax_sp}<c:crossAx val=\"{CAT_AX2}\"/><c:crosses val=\"max\"/><c:crossBetween val=\"between\"/></c:valAx>"
+            );
+        }
         // §21.2.2.175 serAx: the depth axis of a 3-D chart whose series stand one behind the other.
         if chart.plots.iter().any(needs_ser_ax) {
             let _ = write!(
@@ -787,24 +846,7 @@ pub fn anchor_xml(chart: &Chart, shape_id: u32, rel_id: &str) -> String {
         // A chartex frame is an mc:AlternateContent choice (ECMA-376 Part 3, §10.2.1) for the
         // applications that know the chartex namespaces; others show the fallback text box.
         let cx = crate::chartex::CX_NS;
-        let kind = chart.plots.first().map(|p| &p.kind);
-        let (req, req_ns) = if kind == Some(&ChartKind::Funnel) {
-            (
-                "cx2",
-                "http://schemas.microsoft.com/office/drawing/2015/10/21/chartex",
-            )
-        } else if kind == Some(&ChartKind::RegionMap) {
-            // Region maps came with the 2016/5/10 chartex namespace ([MS-ODRAWXML] namespaces).
-            (
-                "cx4",
-                "http://schemas.microsoft.com/office/drawing/2016/5/10/chartex",
-            )
-        } else {
-            (
-                "cx1",
-                "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex",
-            )
-        };
+        let (req, req_ns) = crate::chartex::requires(chart.plots.first().map(|p| &p.kind));
         let _ = write!(
             out,
             "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"><mc:Choice xmlns:{req}=\"{req_ns}\" Requires=\"{req}\"><xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"{shape_id}\" name=\"Chart {shape_id}\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm><a:graphic><a:graphicData uri=\"{cx}\"><cx:chart xmlns:cx=\"{cx}\" xmlns:r=\"{R_NS}\" r:id=\"{}\"/></a:graphicData></a:graphic></xdr:graphicFrame></mc:Choice><mc:Fallback><xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{shape_id}\" name=\"Chart {shape_id}\"/><xdr:cNvSpPr><a:spLocks noTextEdit=\"1\"/></xdr:cNvSpPr></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr><xdr:txBody><a:bodyPr vertOverflow=\"clip\" horzOverflow=\"clip\"/><a:lstStyle/><a:p><a:r><a:rPr lang=\"vi-VN\" sz=\"1100\"/><a:t>{}</a:t></a:r></a:p></xdr:txBody></xdr:sp></mc:Fallback></mc:AlternateContent><xdr:clientData/></xdr:twoCellAnchor>",

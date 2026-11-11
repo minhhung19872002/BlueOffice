@@ -566,6 +566,8 @@ fn new_chart_types_on_slides() {
         ("barOfPie", "<c:ofPieType val=\"bar\"/>"),
         ("percentColumn", "<c:grouping val=\"percentStacked\"/>"),
         ("stockUpDown", "<c:upDownBars>"),
+        // Volume columns, prices on the secondary value axis (§21.2.2.226 valAx crossing at max).
+        ("stockVolumeUpDown", "<c:crosses val=\"max\"/>"),
         // CORE-CHART-003: 3-D groups with their view (§21.2.2.228) and series axis (§21.2.2.175).
         ("column3D", "<c:serAx>"),
         ("cylinder3D", "<c:shape val=\"cylinder\"/>"),
@@ -576,7 +578,9 @@ fn new_chart_types_on_slides() {
             "<c:area3DChart><c:grouping val=\"percentStacked\"/>",
         ),
     ] {
-        let data = if kind.starts_with("stock") {
+        let data = if kind == "stockVolumeUpDown" {
+            r#"{"categories":["N1","N2","N3"],"series":[{"name":"V","values":[900,1200,800]},{"name":"O","values":[10,11,12]},{"name":"H","values":[12,13,14]},{"name":"L","values":[9,10,11]},{"name":"C","values":[11,12,11]}]}"#
+        } else if kind.starts_with("stock") {
             r#"{"categories":["N1","N2","N3"],"series":[{"name":"O","values":[10,11,12]},{"name":"H","values":[12,13,14]},{"name":"L","values":[9,10,11]},{"name":"C","values":[11,12,11]}]}"#
         } else {
             r#"{"categories":["A","B","C","D"],"series":[{"name":"S1","values":[4,3,2,5]},{"name":"S2","values":[1,2,3,2]}]}"#
@@ -601,6 +605,112 @@ fn new_chart_types_on_slides() {
             .unwrap();
         assert!(xml.contains(element), "{kind}: {xml}");
     }
+}
+
+// source: [MS-ODRAWXML] 2.24 chartex (cx:chartSpace, cx:chartData/cx:externalData) in an
+// mc:AlternateContent frame (ECMA-376 Part 3, §10.2.1) — CORE-CHART-004 charts made on a slide.
+#[test]
+fn chartex_charts_are_made_moved_and_edited_on_slides() {
+    let mut e = open("slide-text-bullets.pptx");
+    let data = r#"{"categories":["Đầu kỳ","Bán hàng","Chi phí","Thuế"],"series":[{"name":"Dòng tiền","values":[100,60,-45,-12]}]}"#;
+    for (kind, requires) in [
+        ("waterfall", "Requires=\"cx1\""),
+        ("funnel", "Requires=\"cx2\""),
+        ("treemap", "Requires=\"cx1\""),
+    ] {
+        let r = run(
+            &mut e,
+            &format!(
+                r#"{{"cmd":"insertChart","kind":"{kind}","title":"Biểu đồ {kind}","data":{data}}}"#
+            ),
+        );
+        assert_eq!(r.selection[0].kind, "chart", "{kind}");
+        let c = r.chart.unwrap();
+        assert_eq!(c.kind, kind);
+        assert!(c.embedded, "{kind}");
+        assert_eq!(c.data.series[0].values[2], Some(-45.0));
+        let p = e.presentation().unwrap();
+        let part = p
+            .parts
+            .iter()
+            .rev()
+            .find(|x| x.name.starts_with("/ppt/charts/chartEx"))
+            .unwrap();
+        assert_eq!(
+            part.content_type.as_deref(),
+            Some("application/vnd.ms-office.chartex+xml")
+        );
+        let xml = String::from_utf8_lossy(&part.data);
+        assert!(xml.contains("<cx:externalData r:id="), "{xml}");
+        assert!(xml.contains(&format!("Biểu đồ {kind}")), "{xml}");
+        // The frame is written in its mc:AlternateContent choice.
+        let saved = String::from_utf8_lossy(&slide_xml(&e, r.slide)).into_owned();
+        assert!(saved.contains(requires), "{kind}");
+        assert!(saved.contains("<mc:Fallback>"), "{kind}");
+    }
+    // Moved: the choice frame and the fallback shape follow.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"transform","transform":{"kind":"move","dx":36,"dy":18},"snap":false}"#,
+    );
+    let slide = r.slide;
+    // Edited: title, data and formatting stay chartex; a classic type is refused.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setChart","title":"Cây sửa","data":{"categories":["A","B"],"series":[{"name":"S","values":[3,5]}]}}"#,
+    );
+    let c = r.chart.unwrap();
+    assert_eq!(
+        (c.kind.as_str(), c.title.as_deref()),
+        ("treemap", Some("Cây sửa"))
+    );
+    assert!(try_run(&mut e, r#"{"cmd":"setChart","kind":"column"}"#)
+        .error
+        .is_some());
+    let r = run(&mut e, r#"{"cmd":"setChart","kind":"sunburst"}"#);
+    assert_eq!(r.chart.unwrap().kind, "sunburst");
+    // Saved and reopened: three chartex charts, still charts, the moved one with both boxes moved.
+    let back = reopen(&e);
+    let p = back.presentation().unwrap();
+    let frames: Vec<_> = p.slides[slide]
+        .data
+        .shapes
+        .iter()
+        .filter_map(|n| match n {
+            ShapeNode::Frame(f) if f.uri.ends_with("/2014/chartex") => Some(f),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(frames.len(), 3);
+    let last = frames[2];
+    let alt = bo_pptx::chartex_frame::alternate_chartex_frame(last.alt.as_deref().unwrap())
+        .map(bo_pptx::parse_node);
+    let Some(ShapeNode::Frame(choice)) = alt else {
+        panic!("choice frame")
+    };
+    assert_eq!(choice.xfrm, last.xfrm);
+    let xml = String::from_utf8_lossy(&slide_xml(&back, slide)).into_owned();
+    let (x, y) = last.xfrm.off.unwrap();
+    assert_eq!(
+        xml.matches(&format!("<a:off x=\"{x}\" y=\"{y}\"/>")).count(),
+        2,
+        "{xml}"
+    );
+    let page = back.slide(slide).unwrap().to_json();
+    assert!(page.contains("Cây sửa") || page.contains("glyphs"));
+    if std::env::var_os("BO_WRITE_CORPUS").is_some() {
+        let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-edit-chartex.pptx");
+        std::fs::write(out, back.save_pptx().unwrap()).unwrap();
+    }
+}
+
+/// The saved XML of slide `i`.
+fn slide_xml(e: &Engine, i: usize) -> Vec<u8> {
+    let bytes = e.save_pptx().unwrap();
+    let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+    let name = &e.presentation().unwrap().slides[i].info.part_name;
+    pkg.part(name).unwrap().data.clone()
 }
 
 // source: [MS-PPTX] p159:morph — a duplicated slide keeps its shape names: every shape is a pair,

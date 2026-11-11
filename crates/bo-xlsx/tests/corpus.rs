@@ -1848,6 +1848,41 @@ fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
             }
             (if i == 3 { "stockUpDown" } else { "stock" }, rows)
         }
+        "stockvol" => {
+            // Volume-high-low-close (1), volume-open-high-low-close (2, 3: eight sessions).
+            let open = i >= 2;
+            let mut head = vec![text("Phiên"), text("Khối lượng")];
+            if open {
+                head.push(text("Mở cửa"));
+            }
+            head.extend(["Cao nhất", "Thấp nhất", "Đóng cửa"].map(text));
+            let mut rows = vec![head];
+            let closes: &[f64] = if i == 3 {
+                &[41.0, 42.5, 41.8, 43.2, 44.0, 43.1, 45.6, 46.2]
+            } else {
+                &[21.5, 22.8, 22.1, 23.9, 24.4, 23.6]
+            };
+            for (k, c) in closes.iter().enumerate() {
+                let o = if k == 0 { c - 0.5 } else { closes[k - 1] };
+                let mut row = vec![
+                    text(&format!("Ngày {}", k + 1)),
+                    num(12_000.0 + 1_500.0 * ((k * 3) % 5) as f64),
+                ];
+                if open {
+                    row.push(num(o));
+                }
+                row.extend([num(c.max(o) + 0.8), num(c.min(o) - 0.7), num(*c)]);
+                rows.push(row);
+            }
+            (
+                if open {
+                    "stockVolumeUpDown"
+                } else {
+                    "stockVolume"
+                },
+                rows,
+            )
+        }
         _ => {
             let kind = match (group, i) {
                 ("percent", 1) => "percentColumn",
@@ -1858,8 +1893,8 @@ fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
                 ("radar", _) => "radarFilled",
                 ("surface", 2) => "surfaceWireframe",
                 ("surface", _) => "surface",
-                ("ofpie", 1) => "pieOfPie",
-                ("ofpie", 2) => "barOfPie",
+                ("ofpie", 1) | ("ofpiesplit", 2) => "pieOfPie",
+                ("ofpie", 2) | ("ofpiesplit", _) => "barOfPie",
                 ("3dbar", 1) => "column3D",
                 ("3dbar", 2) => "cylinder3D",
                 ("3dbar", _) => "stackedBar3D",
@@ -1872,7 +1907,7 @@ fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
                 _ => "explodedPie",
             };
             let cats = ["Hà Nội", "Hải Phòng", "Huế", "Đà Nẵng", "Cần Thơ", "TP.HCM"];
-            let series = if group == "ofpie" || (group == "3dpie" && i < 3) {
+            let series = if group.starts_with("ofpie") || (group == "3dpie" && i < 3) {
                 1
             } else if group == "surface" && i == 3 {
                 5
@@ -1905,6 +1940,29 @@ fn writer_chart_kind(group: &str, i: usize) -> m::Workbook {
     let range = m::CellRange::new(m::CellRef::new(0, 0), m::CellRef::new(nr - 1, nc - 1));
     let mut chart = bo_sheet::chart::new_chart(&wb, 0, range, kind).expect("chart");
     chart.title = Some(format!("Biểu đồ {kind}"));
+    if group == "ofpiesplit" {
+        // §21.2.2.126 ofPieChart split: the last two points at full size; values below 15;
+        // the first and third points.
+        chart.plots[0].of_pie = Some(match i {
+            1 => m::OfPieSplit {
+                split_type: "pos".into(),
+                pos: Some(2.0),
+                second_size: 100,
+                ..m::OfPieSplit::default()
+            },
+            2 => m::OfPieSplit {
+                split_type: "val".into(),
+                pos: Some(15.0),
+                second_size: 60,
+                ..m::OfPieSplit::default()
+            },
+            _ => m::OfPieSplit {
+                split_type: "cust".into(),
+                custom: vec![0, 2],
+                ..m::OfPieSplit::default()
+            },
+        });
+    }
     wb.sheets[0].charts.push(chart);
     wb
 }
@@ -2116,6 +2174,55 @@ fn writer_chartex(kind: &str, i: usize) -> m::Workbook {
     wb
 }
 
+/// Formatted chartex charts with data labels ([MS-ODRAWXML] chartex `cx:dataLabels`, series /
+/// point / plot area / chart space `cx:spPr`, chart space `cx:txPr`): a waterfall with values at the
+/// bar ends and an own palette; a funnel with a chart fill, larger text and category + value labels;
+/// a treemap with value labels, a plot area fill and one point coloured on its own.
+fn writer_chartex_format(i: usize) -> m::Workbook {
+    use bo_model::chart_style::DataLabels;
+    let kind = match i {
+        1 => "waterfall",
+        2 => "funnel",
+        _ => "treemap",
+    };
+    let mut wb = writer_chartex(kind, if i == 3 { 1 } else { i });
+    let c = &mut wb.sheets[0].charts[0];
+    c.title = Some(format!("Biểu đồ {kind} có định dạng"));
+    let f = &mut c.format;
+    match i {
+        1 => {
+            f.palette = vec![m::ChartColor::Rgb(0x0033_7AB7)];
+            f.data_labels = Some(DataLabels {
+                value: true,
+                pos: Some("outEnd".into()),
+                ..DataLabels::default()
+            });
+        }
+        2 => {
+            f.chart_fill = Some(m::ChartColor::Rgb(0x00F4_F7FB));
+            f.chart_line = Some(m::ChartColor::Scheme("accent1".into()));
+            f.font_size = Some(1200);
+            f.text_color = Some(m::ChartColor::Rgb(0x0022_3344));
+            f.data_labels = Some(DataLabels {
+                value: true,
+                category: true,
+                pos: Some("ctr".into()),
+                ..DataLabels::default()
+            });
+        }
+        _ => {
+            f.plot_fill = Some(m::ChartColor::Rgb(0x00FA_FAF5));
+            f.data_labels = Some(DataLabels {
+                value: true,
+                ..DataLabels::default()
+            });
+            c.plots[0].series[0].point_fills = vec![(1, m::ChartColor::Scheme("accent4".into()))];
+        }
+    }
+    c.dirty = true;
+    wb
+}
+
 fn writer_chartex_map(i: usize) -> m::Workbook {
     writer_chartex("regionMap", i)
 }
@@ -2244,6 +2351,12 @@ fn writer_charts_radar(i: usize) -> m::Workbook {
 }
 fn writer_charts_stock(i: usize) -> m::Workbook {
     writer_chart_kind("stock", i)
+}
+fn writer_charts_stockvol(i: usize) -> m::Workbook {
+    writer_chart_kind("stockvol", i)
+}
+fn writer_charts_ofpiesplit(i: usize) -> m::Workbook {
+    writer_chart_kind("ofpiesplit", i)
 }
 fn writer_charts_surface(i: usize) -> m::Workbook {
     writer_chart_kind("surface", i)
@@ -2897,7 +3010,9 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-charts-bubble", "BlueSheet writer: bubble charts (one and two series of X, Y and size; negative values)", writer_charts_bubble),
     ("writer-charts-radar", "BlueSheet writer: radar charts (standard, with markers, filled)", writer_charts_radar),
     ("writer-charts-stock", "BlueSheet writer: stock charts (high-low-close; open-high-low-close; with up/down bars)", writer_charts_stock),
-    ("writer-charts-surface", "BlueSheet writer: surface charts (3 series; wireframe; 5 series)", writer_charts_surface),
+    ("writer-charts-stockvol", "BlueSheet writer: volume stock charts (volume-high-low-close; volume-open-high-low-close with up/down bars; eight sessions) with the price on a secondary axis", writer_charts_stockvol),
+    ("writer-charts-ofpiesplit", "BlueSheet writer: pie of pie / bar of pie splits (last 2 points at 100 %; values below 15 at 60 %; custom points)", writer_charts_ofpiesplit),
+    ("writer-charts-surface","BlueSheet writer: surface charts (3 series; wireframe; 5 series)", writer_charts_surface),
     ("writer-charts-ofpie", "BlueSheet writer: pie of pie, bar of pie and an exploded pie", writer_charts_ofpie),
     ("writer-charts-3dbar", "BlueSheet writer: 3-D columns (series one behind the other), 3-D cylinders, stacked 3-D bars", writer_charts_3dbar),
     ("writer-charts-3dline", "BlueSheet writer: 3-D line, 3-D area, 100 % stacked 3-D area", writer_charts_3dline),
@@ -2909,7 +3024,8 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-chartex-pareto", "BlueSheet writer: chartex pareto (categories sorted by count, cumulative line)", writer_chartex_pareto),
     ("writer-chartex-box", "BlueSheet writer: chartex box & whisker (one series; two series; an outlier)", writer_chartex_box),
     ("writer-chartex-funnel", "BlueSheet writer: chartex funnel (4, 3 and 5 stages)", writer_chartex_funnel),
-    ("writer-chartex-map", "BlueSheet writer: chartex region map (countries on a two-colour scale; diverging scale through zero, Robinson, all labels; categories)", writer_chartex_map),
+    ("writer-chartex-format", "BlueSheet writer: formatted chartex charts with data labels (waterfall with an own palette and values; funnel with chart fill, larger text, category + value; treemap with values, plot fill and a coloured point)", writer_chartex_format),
+    ("writer-chartex-map","BlueSheet writer: chartex region map (countries on a two-colour scale; diverging scale through zero, Robinson, all labels; categories)", writer_chartex_map),
     ("writer-pivots", "BlueSheet writer: pivot tables (rows + Sum; rows × columns with a report filter on another sheet; two row fields, four value fields, multi-item filter)", writer_pivots),
     ("writer-pivot-totals", "BlueSheet writer: pivot report settings (tabular with repeated labels + blank rows and column subtotals; outline with bottom subtotals, sort by value, top-N + label filter, medium style; compact with number format, % of total / parent, rank, value filter, hidden item, dark style)", writer_pivot_totals),
     ("writer-pivot-groups", "BlueSheet writer: pivot grouping and calculations (dates by years / quarters / months; numeric ranges × columns; years + months with a calculated field, difference from previous and running total)", writer_pivot_groups),
@@ -3817,6 +3933,10 @@ fn new_chart_types_round_trip() {
                 assert_eq!(pb.style, pa.style, "{ctx}");
                 assert_eq!(pb.flag, pa.flag, "{ctx}");
                 assert_eq!(pb.three_d, pa.three_d, "{ctx}");
+                assert_eq!(pb.secondary, pa.secondary, "{ctx}");
+                if pa.of_pie.is_some() {
+                    assert_eq!(pb.of_pie, pa.of_pie, "{ctx}");
+                }
                 assert_eq!(
                     (pb.drop_lines, pb.hi_low_lines),
                     (pa.drop_lines, pa.hi_low_lines),
@@ -3839,6 +3959,31 @@ fn new_chart_types_round_trip() {
                 ),
                 "writer-charts-stock" => {
                     assert_eq!(a.plots[0].series.len(), if i == 1 { 3 } else { 4 }, "{ctx}");
+                }
+                // Volume columns on the primary axis, prices in the stock group on the secondary.
+                "writer-charts-stockvol" => {
+                    assert_eq!(a.plots.len(), 2, "{ctx}");
+                    assert_eq!(a.plots[0].series.len(), 1, "{ctx}");
+                    assert_eq!(a.plots[1].series.len(), if i == 1 { 3 } else { 4 }, "{ctx}");
+                    assert!(b.plots[1].secondary && !b.plots[0].secondary, "{ctx}");
+                    let want = if i == 1 {
+                        "stockVolume"
+                    } else {
+                        "stockVolumeUpDown"
+                    };
+                    assert_eq!(bo_sheet::chart::type_name(b), want, "{ctx}");
+                }
+                // Formatting and data labels of chartex charts survive the save.
+                "writer-chartex-format" => {
+                    let mut want = a.format.clone();
+                    want.palette.clear();
+                    assert_eq!(b.format, want, "{ctx}");
+                    let (sa, sb) = (&a.plots[0].series[0], &b.plots[0].series[0]);
+                    assert_eq!(sb.point_fills, sa.point_fills, "{ctx}");
+                    // A palette colour is written on the series and read back as its own fill.
+                    if i == 1 {
+                        assert_eq!(sb.fill, Some(m::ChartColor::Rgb(0x0033_7AB7)), "{ctx}");
+                    }
                 }
                 _ => {}
             }

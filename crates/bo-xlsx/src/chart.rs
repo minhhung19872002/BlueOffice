@@ -345,18 +345,23 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
         }
         out.axes.date = axes.iter().any(|a| a.name == "dateAx");
         out.axes.data_table = pa.child("dTable").is_some();
-        // Groups whose value axis is the second c:valAx are on the secondary axis.
-        if let Some(second) = val_axes.get(1).and_then(|a| a.val_of("axId")) {
+        // Groups whose value axis (§21.2.2.9 axId) is the second c:valAx are on the secondary axis;
+        // scatter and bubble groups refer to two value axes of their own (X and Y): a group that
+        // also uses the first one is on the primary axes.
+        let id_of = |k: usize| val_axes.get(k).and_then(|a| a.val_of("axId"));
+        if let (Some(first), Some(second)) = (id_of(0), id_of(1)) {
             for (p, g) in out
                 .plots
                 .iter_mut()
                 .zip(pa.children.iter().filter(|c| c.name.ends_with("Chart")))
             {
-                p.secondary = g
-                    .children
-                    .iter()
-                    .filter(|c| c.name == "axId")
-                    .any(|c| c.attr("val") == Some(second.as_str()));
+                let uses = |id: &str| {
+                    g.children
+                        .iter()
+                        .filter(|c| c.name == "axId")
+                        .any(|c| c.attr("val") == Some(id))
+                };
+                p.secondary = uses(&second) && !uses(&first);
             }
         }
     }
@@ -426,7 +431,33 @@ fn parse_plot(g: &Node) -> ChartPlot {
         g.child(name)
             .is_some_and(|c| c.attr("val").is_none_or(|v| v == "1" || v == "true"))
     };
+    // §21.2.2.126 ofPieChart split: splitType, splitPos, custSplit/secondPiePt, secondPieSize.
+    let of_pie = (g.name == "ofPieChart").then(|| {
+        let d = bo_model::sheet::OfPieSplit::default();
+        bo_model::sheet::OfPieSplit {
+            split_type: g.val_of("splitType").unwrap_or(d.split_type),
+            pos: g
+                .val_of("splitPos")
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite()),
+            custom: g
+                .child("custSplit")
+                .map(|c| {
+                    c.children
+                        .iter()
+                        .filter(|p| p.name == "secondPiePt")
+                        .filter_map(|p| p.attr("val").and_then(|v| v.trim().parse().ok()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            second_size: g
+                .val_of("secondPieSize")
+                .and_then(|v| v.trim().trim_end_matches('%').parse::<u32>().ok())
+                .map_or(d.second_size, |v| v.clamp(5, 200)),
+        }
+    });
     ChartPlot {
+        of_pie,
         drop_lines: g.child("dropLines").is_some(),
         hi_low_lines: g.child("hiLowLines").is_some() && g.name != "stockChart",
         secondary: false,

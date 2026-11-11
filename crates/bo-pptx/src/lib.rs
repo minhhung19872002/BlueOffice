@@ -12,6 +12,7 @@ pub mod anim;
 pub mod anim_catalog;
 pub mod anim_play;
 pub mod build;
+pub mod chartex_frame;
 pub mod comments;
 pub mod diagram;
 pub mod diagram_layout;

@@ -180,20 +180,39 @@ pub(crate) fn plot_sp_pr(fmt: &ChartFormat) -> String {
 
 /// `c:spPr` and `c:txPr` of the chart space (§21.2.2.29: after `c:chart`).
 pub(crate) fn space_props(fmt: &ChartFormat) -> String {
+    space_props_in(fmt, "c")
+}
+
+/// A `c:spPr` (from [`series_sp_pr`] and the like) as the same shape properties under the chartex
+/// prefix `cx` ([MS-ODRAWXML] chartex `CT_ShapeProperties` is the DrawingML one).
+pub(crate) fn cx_sp_pr(c_sp_pr: &str) -> String {
+    let inner = c_sp_pr
+        .strip_prefix("<c:spPr>")
+        .and_then(|s| s.strip_suffix("</c:spPr>"))
+        .unwrap_or("");
+    format!("<cx:spPr>{inner}</cx:spPr>")
+}
+
+/// `spPr` and `txPr` of a chart space under namespace prefix `p` (`c` for §21.2.2.29, `cx` for a
+/// chartex `cx:chartSpace`, where they also follow the chart).
+pub(crate) fn space_props_in(fmt: &ChartFormat, p: &str) -> String {
     let mut out = String::new();
     if fmt.chart_fill.is_some() || fmt.chart_line.is_some() {
-        out.push_str("<c:spPr>");
+        let _ = write!(out, "<{p}:spPr>");
         if let Some(c) = &fmt.chart_fill {
             out.push_str(&solid(c));
         }
         if let Some(c) = &fmt.chart_line {
             out.push_str(&ln(c, OUTLINE_W));
         }
-        out.push_str("</c:spPr>");
+        let _ = write!(out, "</{p}:spPr>");
     }
     if fmt.text_color.is_some() || fmt.font_size.is_some() {
         // §21.1.2.3.2 defRPr: sz in hundredths of a point (100..=400000).
-        out.push_str("<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr");
+        let _ = write!(
+            out,
+            "<{p}:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr"
+        );
         if let Some(sz) = fmt.font_size {
             let _ = write!(out, " sz=\"{}\"", sz.clamp(100, 400_000));
         }
@@ -201,7 +220,10 @@ pub(crate) fn space_props(fmt: &ChartFormat) -> String {
         if let Some(c) = &fmt.text_color {
             out.push_str(&solid(c));
         }
-        out.push_str("</a:defRPr></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></c:txPr>");
+        let _ = write!(
+            out,
+            "</a:defRPr></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></{p}:txPr>"
+        );
     }
     out
 }

@@ -563,8 +563,8 @@ function LayoutPage({
       live = false;
     };
   }, [host, glyphs, sheet, index, scale, revision, visible, fail]);
-  // The active cell's box on this page.
-  const [mark, setMark] = useState<ScreenRect | null>(null);
+  // The active cell's box on this page (kept with the cell it belongs to).
+  const [mark, setMark] = useState<{ row: number; col: number; r: ScreenRect } | null>(null);
   const cells = page.cells;
   const on =
     !!active &&
@@ -576,19 +576,17 @@ function LayoutPage({
   const ar = active?.row ?? -1;
   const ac = active?.col ?? -1;
   useEffect(() => {
-    if (!on) {
-      setMark(null);
-      return;
-    }
+    if (!on) return;
     let live = true;
     void host
       .exec<ScreenRect | null>({ cmd: 'pageCellRect', sheet, page: index, row: ar, col: ac })
-      .then((r) => live && setMark(r))
+      .then((r) => live && setMark(r ? { row: ar, col: ac, r } : null))
       .catch(() => {});
     return () => {
       live = false;
     };
   }, [host, sheet, index, on, ar, ac, revision]);
+  const box = on && mark && mark.row === ar && mark.col === ac ? mark.r : null;
   const [ml, mr, mt, mb, mh, mf] = page.margins;
   const w = page.width * scale;
   const h = page.height * scale;
@@ -610,15 +608,15 @@ function LayoutPage({
       onClick={click}
     >
       <canvas ref={canvas} style={{ width: w, height: h }} />
-      {mark && (
+      {box && (
         <div
           className={css.activeCell}
           data-testid={`page-layout-active-${index}`}
           style={{
-            left: mark.x * scale,
-            top: mark.y * scale,
-            width: mark.w * scale,
-            height: mark.h * scale,
+            left: box.x * scale,
+            top: box.y * scale,
+            width: box.w * scale,
+            height: box.h * scale,
           }}
         />
       )}

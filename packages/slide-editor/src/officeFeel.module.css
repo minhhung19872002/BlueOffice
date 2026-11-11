@@ -1,0 +1,139 @@
+/* Insert › Table size grid. */
+.tablePicker {
+  position: fixed;
+  z-index: 60;
+  padding: 6px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 18%);
+  color: var(--bo-text, #1b1f24);
+  font-size: 12px;
+}
+
+.tableLabel {
+  padding: 2px 2px 6px;
+  font-weight: 600;
+}
+
+.tableGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tableRow {
+  display: flex;
+  gap: 2px;
+}
+
+.tableCell {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #9aa4b0);
+  border-radius: 0;
+  background: var(--bo-surface, #fff);
+  cursor: pointer;
+}
+
+.tableCell[data-on] {
+  border-color: var(--bo-slide-accent-strong, #ad1457);
+  background: color-mix(in srgb, var(--bo-slide-accent, #c2185b) 22%, transparent);
+}
+
+.tableCell:focus-visible {
+  outline: 2px solid var(--bo-focus, #2563eb);
+  outline-offset: 1px;
+}
+
+.tableTyped {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--bo-border, #d0d7de);
+}
+
+.tableTyped label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tableTyped input {
+  width: 52px;
+}
+
+.tableTyped button {
+  min-height: 24px;
+}
+
+/* Dialogs. */
+.form {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.form > label {
+  display: contents;
+}
+
+.check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 24px;
+}
+
+.effects {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+  margin: 10px 0;
+}
+
+.radios {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.indent {
+  margin-left: 24px;
+}
+
+/* Rulers along the slide. */
+.rulerH,
+.rulerV {
+  position: absolute;
+  overflow: visible;
+  background: var(--bo-surface, #fff);
+  pointer-events: none;
+}
+
+.rulerH {
+  left: 0;
+  top: -22px;
+}
+
+.rulerV {
+  left: -22px;
+  top: 0;
+}
+
+.rulerH line,
+.rulerV line {
+  stroke: #7a828d;
+  stroke-width: 1px;
+}
+
+.rulerH text,
+.rulerV text {
+  fill: #5a626d;
+  font-size: 9px;
+  font-family: var(--bo-font-ui, system-ui, sans-serif);
+}

@@ -98,6 +98,8 @@ test('inserts a shape, shows smart guides, adds a slide and edits notes', async 
   await openDeck(page, deck);
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await page.getByRole('button', { name: 'Hình elip' }).click();
+  // The button arms the drawing pointer; Enter puts the object in the middle of the slide.
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('selection-box')).toHaveCount(1);
   // A new shape is centred: dragging it slightly keeps it on the centre guide.
   const b = await selectionBox(page);

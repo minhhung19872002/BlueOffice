@@ -221,6 +221,8 @@ test('BlueSlide: inserts icons as SVG pictures with a PNG fallback; they survive
   await openDeck(first.path);
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await page.getByRole('button', { name: 'Hình elip' }).click();
+  // The button arms the drawing pointer; Enter puts the object in the middle of the slide.
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('status-modified')).toBeVisible();
   check((await save(page)).parts);
   expect(errors).toEqual([]);

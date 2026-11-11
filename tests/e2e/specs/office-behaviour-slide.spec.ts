@@ -333,6 +333,8 @@ test.describe('Objects on the slide', () => {
     // A new shape: Ctrl+D puts a copy a little down-right and selects the copy.
     await tab(page, 'Chèn');
     await page.getByRole('button', { name: 'Hình chữ nhật' }).click();
+    // The button arms the pointer; a click on the slide puts the shape there.
+    await clickSlide(page, 0.05, 0.85);
     await expect.poll(() => boxes(page)).toHaveLength(1);
     const [first] = await boxes(page);
     await page.keyboard.press('Control+d');
@@ -363,6 +365,7 @@ test.describe('Objects on the slide', () => {
     await page.getByTestId('thumb-2').click();
     await tab(page, 'Chèn');
     await page.getByRole('button', { name: 'Hình chữ nhật' }).click();
+    await clickSlide(page, 0.3, 0.7);
     await expect.poll(() => boxes(page)).toHaveLength(1);
     const [start] = await boxes(page);
     const scale = (await page.getByTestId('slide-overlay').boundingBox())!.width / 960;
@@ -597,6 +600,7 @@ test.describe('Home: text', () => {
     await openDeck(page);
     await tab(page, 'Chèn');
     await page.getByRole('button', { name: 'Hộp văn bản' }).click();
+    await clickSlide(page, 0.05, 0.85);
     await expect.poll(() => boxes(page)).toHaveLength(1);
     const [empty] = await boxes(page);
     await page.keyboard.type('Xin');
@@ -842,5 +846,377 @@ test.describe('File, View, status bar', () => {
     await clickSlide(page, 0.5, 0.12);
     await expect(page.getByTestId('selection-box')).toHaveCount(1);
     await expect(command(page, 'anim.in.fade')).toBeEnabled();
+  });
+});
+
+// ---------------------------------------------------------------- pass 2
+
+/** Text (or description) of each shape of the shown slide, as the screen-reader mirror has it. */
+async function shapeTexts(page: Page) {
+  return page
+    .locator('[data-testid="slide-a11y-mirror"] [data-shape]')
+    .evaluateAll((els) => els.map((e) => e.textContent || (e.getAttribute('aria-label') ?? '')));
+}
+
+/** Overlay point of slide point (x, y). */
+async function slidePoint(page: Page, x: number, y: number) {
+  const o = (await page.getByTestId('slide-overlay').boundingBox())!;
+  const s = o.width / 960;
+  return { x: o.x + x * s, y: o.y + y * s };
+}
+
+test.describe('Pass 2: inserting objects', () => {
+  test('a shape: click = default size at the point, drag = dragged size, Shift = square', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    await page.getByTestId('thumb-3').click();
+    await tab(page, 'Chèn');
+    const rect = page.getByRole('button', { name: 'Hình chữ nhật' });
+    // The button arms the pointer (pressed); nothing is inserted yet.
+    await rect.click();
+    await expect(rect).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('slide-overlay')).toHaveAttribute('data-drawing', 'shape');
+    // A click: 1 inch × 1 inch with its top-left corner at the point (on the 1/12 inch grid).
+    let p = await slidePoint(page, 60, 300);
+    await page.mouse.click(p.x, p.y);
+    await expect.poll(() => boxes(page)).toEqual([[60, 300, 72, 72]]);
+    await expect(page.getByTestId('slide-overlay')).not.toHaveAttribute('data-drawing', /./);
+    // A drag: the dragged box, the rubber band shown while dragging.
+    await rect.click();
+    p = await slidePoint(page, 300, 300);
+    const q = await slidePoint(page, 480, 396);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await page.mouse.move((p.x + q.x) / 2, (p.y + q.y) / 2, { steps: 3 });
+    await expect(page.getByTestId('draw-box')).toBeVisible();
+    await page.mouse.move(q.x, q.y, { steps: 3 });
+    await page.mouse.up();
+    await expect.poll(() => boxes(page)).toEqual([[300, 300, 180, 96]]);
+    // Shift while dragging: a square of the larger side.
+    await page.getByRole('button', { name: 'Hình elip' }).click();
+    p = await slidePoint(page, 600, 300);
+    const r = await slidePoint(page, 720, 360);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await page.keyboard.down('Shift');
+    await page.mouse.move(r.x, r.y, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+    await expect.poll(() => boxes(page)).toEqual([[600, 300, 120, 120]]);
+    // Esc leaves the drawing pointer without inserting; Enter inserts in the middle.
+    await rect.click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('slide-overlay')).not.toHaveAttribute('data-drawing', /./);
+    await rect.click();
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await boxes(page))[0]?.slice(2)).toEqual([240, 135]);
+    // Each insertion is one undo step.
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+a');
+    await expect(page.getByTestId('selection-box')).toHaveCount(5);
+  });
+
+  test('a text box drawn by dragging takes the dragged width, typing goes in', async ({ page }) => {
+    await openDeck(page);
+    await page.getByTestId('thumb-3').click();
+    await tab(page, 'Chèn');
+    await page.getByRole('button', { name: 'Hộp văn bản' }).click();
+    const p = await slidePoint(page, 120, 420);
+    const q = await slidePoint(page, 420, 432);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await page.mouse.move(q.x, q.y, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(async () => (await boxes(page))[0]?.slice(0, 3)).toEqual([120, 420, 300]);
+    await page.keyboard.type('Ghi chú');
+    await expect(editor(page)).toHaveValue('Ghi chú');
+  });
+
+  test('Insert › Table: the size grid shows columns × rows, a click inserts it', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    await page.getByTestId('thumb-3').click();
+    await tab(page, 'Chèn');
+    await command(page, 'insert.table').click();
+    const picker = page.getByTestId('table-size-picker');
+    await expect(picker).toBeVisible();
+    await picker.locator('[data-cell="4x3"]').hover();
+    await expect(page.getByTestId('table-size-label')).toHaveText('Bảng 4 × 3');
+    await expect(picker.locator('[data-on]')).toHaveCount(12);
+    await picker.locator('[data-cell="4x3"]').click();
+    await expect(picker).toHaveCount(0);
+    await expect.poll(() => boxes(page)).toHaveLength(1);
+    // Its cells: 4 columns × 3 rows (double-click edits a cell; Tab goes to the next cell).
+    const b = (await page.getByTestId('selection-box').first().boundingBox())!;
+    await page.mouse.dblclick(b.x + 10, b.y + 8);
+    await expect(page.locator('[data-testid^="table-cell"]')).toHaveCount(12);
+    await expect(editor(page)).toBeFocused();
+    await page.keyboard.type('A');
+    await expect(editor(page)).toHaveValue('A');
+    await page.keyboard.press('Tab');
+    await expect(editor(page)).toHaveValue('');
+    await page.keyboard.type('B');
+    await expect(editor(page)).toHaveValue('B');
+    // Shift+Tab: back to the first cell, its text selected.
+    await page.keyboard.press('Shift+Tab');
+    await expect(editor(page)).toHaveValue('A');
+    await page.keyboard.press('Escape');
+    // The keyboard: arrows move in the grid, Esc closes it.
+    await command(page, 'insert.table').click();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByTestId('table-size-label')).toHaveText('Bảng 2 × 2');
+    await page.keyboard.press('Escape');
+    await expect(picker).toHaveCount(0);
+  });
+});
+
+test.describe('Pass 2: slide panel selection', () => {
+  test('Shift / Ctrl+click select several slides; delete, hide, duplicate act on all', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    const [a, b, c] = await titles(page, 3);
+    const sel = () =>
+      page
+        .locator('[data-testid^="thumb-"][data-selected="true"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
+    await page.getByTestId('thumb-1').click();
+    await page.getByTestId('thumb-3').click({ modifiers: ['Shift'] });
+    await expect.poll(sel).toEqual(['thumb-1', 'thumb-2', 'thumb-3']);
+    await page.getByTestId('thumb-2').click({ modifiers: ['Control'] });
+    await expect.poll(sel).toEqual(['thumb-1', 'thumb-3']);
+    // Hide slide: both selected slides.
+    await command(page, 'slide.hide').click();
+    await expect(page.getByTestId('thumb-1')).toHaveAttribute('data-hidden', 'true');
+    await expect(page.getByTestId('thumb-3')).toHaveAttribute('data-hidden', 'true');
+    await expect(page.getByTestId('thumb-2')).not.toHaveAttribute('data-hidden', 'true');
+    await page.keyboard.press('Control+z');
+    // Ctrl+D: the copies follow the last selected slide, in order.
+    await page.getByTestId('thumb-1').click();
+    await page.getByTestId('thumb-3').click({ modifiers: ['Control'] });
+    await page.keyboard.press('Control+d');
+    await expect(thumbs(page)).toHaveCount(5);
+    expect(await titles(page, 5)).toEqual([a, b, c, a, c]);
+    // Delete: all the selected slides, one undo step brings them back.
+    await page.getByTestId('thumb-4').click();
+    await page.getByTestId('thumb-5').click({ modifiers: ['Shift'] });
+    await page.keyboard.press('Delete');
+    await expect(thumbs(page)).toHaveCount(3);
+    await page.keyboard.press('Control+z');
+    await expect(thumbs(page)).toHaveCount(5);
+    // Ctrl+A in the slide panel: every slide.
+    await page.getByTestId('thumb-1').click();
+    await page.keyboard.press('Control+a');
+    await expect.poll(async () => (await sel()).length).toBe(5);
+    // A plain click: one slide again.
+    await page.getByTestId('thumb-2').click();
+    await expect.poll(sel).toEqual([]);
+  });
+});
+
+test.describe('Pass 2: formatting', () => {
+  test('format painter: one use on a click, kept on a double-click until Esc', async ({ page }) => {
+    await openDeck(page);
+    await selectTitle(page);
+    // The title made italic (it is not italic in the file).
+    await page.keyboard.press('Control+i');
+    await expect(command(page, 'format.italic')).toHaveAttribute('aria-pressed', 'true');
+    await tab(page, 'Trang đầu');
+    await command(page, 'format.painter').click();
+    await expect(page.getByTestId('slide-overlay')).toHaveAttribute('data-painting', 'true');
+    // A click on the subtitle paints it; the painter is put away.
+    await clickSlide(page, 0.5, 0.55);
+    await expect(page.getByTestId('slide-overlay')).not.toHaveAttribute('data-painting', /./);
+    await expect(command(page, 'format.italic')).toHaveAttribute('aria-pressed', 'true');
+    // One undo step takes the painted formatting away.
+    await page.keyboard.press('Control+z');
+    await clickSlide(page, 0.5, 0.55);
+    await expect(command(page, 'format.italic')).toHaveAttribute('aria-pressed', 'false');
+    // Double-click: kept for several shapes, Esc puts it away.
+    await selectTitle(page);
+    await command(page, 'format.painter').dblclick();
+    await expect(command(page, 'format.painter')).toHaveAttribute('aria-pressed', 'true');
+    await clickSlide(page, 0.5, 0.55);
+    await expect(command(page, 'format.italic')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('slide-overlay')).toHaveAttribute('data-painting', 'true');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('slide-overlay')).not.toHaveAttribute('data-painting', /./);
+  });
+
+  test('Ctrl+Shift+= superscript, Ctrl+= subscript, toggles; Ctrl+T the font dialog', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    await selectTitle(page);
+    await page.keyboard.press('Enter');
+    await expect(editor(page)).toBeFocused();
+    await page.keyboard.press('Control+Shift+Equal');
+    await expect(command(page, 'format.superscript')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Control+Equal');
+    await expect(command(page, 'format.subscript')).toHaveAttribute('aria-pressed', 'true');
+    await expect(command(page, 'format.superscript')).toHaveAttribute('aria-pressed', 'false');
+    await page.keyboard.press('Control+Equal');
+    await expect(command(page, 'format.subscript')).toHaveAttribute('aria-pressed', 'false');
+    // The font dialog: small capitals and 2 pt spacing, applied as one undo step.
+    await page.keyboard.press('Control+t');
+    const dialog = page.getByTestId('font-dialog');
+    await expect(dialog).toBeVisible();
+    // It opens with the selection's formatting (the size shown in the ribbon's size box).
+    const size = await page.getByTestId('slide-font-size').inputValue();
+    await expect(page.getByTestId('font-dialog-size')).toHaveValue(size);
+    await page.getByTestId('font-dialog-small-caps').check();
+    await page.getByTestId('font-dialog-spacing').fill('2');
+    await page.getByTestId('font-dialog-ok').click();
+    await expect(dialog).toHaveCount(0);
+    await page.keyboard.press('Control+Shift+f');
+    await expect(page.getByTestId('font-dialog-small-caps')).toBeChecked();
+    await expect(page.getByTestId('font-dialog-spacing')).toHaveValue('2');
+    await page.getByRole('button', { name: 'Huỷ' }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+t');
+    await expect(page.getByTestId('font-dialog-small-caps')).not.toBeChecked();
+    await expect(page.getByTestId('font-dialog-spacing')).toHaveValue('0');
+  });
+
+  test('Shift+F3 cycles the case of the selected text, Ctrl+Space clears its formatting', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    await selectTitle(page);
+    await page.keyboard.press('Enter');
+    await expect(editor(page)).toBeFocused();
+    // "Báo cáo kết quả kinh doanh": mixed case → UPPER → Each Word → lower.
+    await page.keyboard.press('Shift+F3');
+    await expect(editor(page)).toHaveValue('BÁO CÁO KẾT QUẢ KINH DOANH');
+    await page.keyboard.press('Shift+F3');
+    await expect(editor(page)).toHaveValue('Báo Cáo Kết Quả Kinh Doanh');
+    await page.keyboard.press('Shift+F3');
+    await expect(editor(page)).toHaveValue('báo cáo kết quả kinh doanh');
+    // The selection stays on the text.
+    expect(await editState(page)).toMatchObject({ start: 0, end: 26 });
+    // Ctrl+Space: italic and superscript go, the placeholder's formatting comes back.
+    await page.keyboard.press('Control+i');
+    await page.keyboard.press('Control+Shift+Equal');
+    await expect(command(page, 'format.italic')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Control+Space');
+    await expect(command(page, 'format.italic')).toHaveAttribute('aria-pressed', 'false');
+    await expect(command(page, 'format.superscript')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('Ctrl+Alt+V: paste special as shapes, picture or text only', async ({ page }) => {
+    await openDeck(page);
+    await selectTitle(page);
+    await page.keyboard.press('Control+c');
+    await page.keyboard.press('Control+Alt+v');
+    const dialog = page.getByTestId('paste-special-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId('paste-special-theme')).toBeChecked();
+    await expect(page.getByTestId('paste-special-keep')).toBeVisible();
+    await expect(page.getByTestId('paste-special-text')).toBeVisible();
+    await page.getByTestId('paste-special-text').check();
+    await page.getByTestId('paste-special-ok').click();
+    await expect(dialog).toHaveCount(0);
+    // Text only: a new text box with the title's text.
+    await expect.poll(async () => (await shapeNames(page)).length).toBe(3);
+    await expect
+      .poll(async () => (await shapeTexts(page)).filter((n) => n.includes('Báo cáo')).length)
+      .toBe(2);
+  });
+});
+
+test.describe('Pass 2: view aids, header and footer, the show', () => {
+  test('Shift+F9 gridlines, Alt+F9 guides (draggable), View › Ruler', async ({ page }) => {
+    await openDeck(page);
+    await clickSlide(page, 0.02, 0.98);
+    await page.keyboard.press('Shift+F9');
+    await expect(page.getByTestId('slide-gridlines')).toBeVisible();
+    await page.keyboard.press('Shift+F9');
+    await expect(page.getByTestId('slide-gridlines')).toHaveCount(0);
+    await page.keyboard.press('Alt+F9');
+    const guides = page.getByTestId('static-guide');
+    await expect(guides).toHaveCount(2);
+    // The vertical guide through the centre, dragged 2 inches to the right.
+    const v = await slidePoint(page, 480, 30);
+    const to = await slidePoint(page, 624, 30);
+    await page.mouse.move(v.x, v.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(async () =>
+        Math.round(
+          Number(
+            await page.locator('[data-testid="static-guide"][data-axis="x"]').getAttribute('x1'),
+          ),
+        ),
+      )
+      .toBe(624);
+    await page.keyboard.press('Alt+F9');
+    await expect(guides).toHaveCount(0);
+    await tab(page, 'Xem');
+    await command(page, 'view.ruler').click();
+    await expect(page.getByTestId('ruler-h')).toBeVisible();
+    await expect(page.getByTestId('ruler-v')).toBeVisible();
+    await command(page, 'view.ruler').click();
+    await expect(page.getByTestId('ruler-h')).toHaveCount(0);
+  });
+
+  test('Insert › Header & Footer: slide number and footer on all but the title slide', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    await tab(page, 'Chèn');
+    await command(page, 'insert.headerFooter').click();
+    const dialog = page.getByTestId('header-footer-dialog');
+    await expect(dialog).toBeVisible();
+    await page.getByTestId('hf-number').check();
+    await page.getByTestId('hf-footer').check();
+    await page.getByTestId('hf-footer-text').fill('Bluestar');
+    await page.getByTestId('hf-not-title').check();
+    await page.getByTestId('hf-apply-all').click();
+    await expect(dialog).toHaveCount(0);
+    // The title slide has none; the others show the footer text and their number.
+    await expect.poll(async () => (await shapeNames(page)).length).toBe(2);
+    await page.getByTestId('thumb-2').click();
+    await expect.poll(async () => (await shapeNames(page)).length).toBe(4);
+    await expect.poll(async () => (await shapeTexts(page)).join('|')).toContain('Bluestar');
+    await expect.poll(async () => (await shapeTexts(page)).join('|')).toContain('2');
+    // The dialog opens with what the slide has.
+    await command(page, 'insert.headerFooter').click();
+    await expect(page.getByTestId('hf-number')).toBeChecked();
+    await expect(page.getByTestId('hf-footer-text')).toHaveValue('Bluestar');
+    await expect(page.getByTestId('hf-not-title')).toBeChecked();
+    await page.getByRole('button', { name: 'Huỷ' }).click();
+    // One undo step for all the slides.
+    await page.keyboard.press('Control+z');
+    await expect.poll(async () => (await shapeNames(page)).length).toBe(2);
+  });
+
+  test('in the show: H shows the hidden slide that follows, Ctrl+H hides the pointer', async ({
+    page,
+  }) => {
+    await openDeck(page);
+    await page.getByTestId('thumb-2').click();
+    await command(page, 'slide.hide').click();
+    await expect(page.getByTestId('thumb-2')).toHaveAttribute('data-hidden', 'true');
+    await page.keyboard.press('F5');
+    const stage = page.getByTestId('show-stage');
+    await expect(stage).toHaveAttribute('data-slide', '0');
+    await page.keyboard.press('h');
+    await expect(stage).toHaveAttribute('data-slide', '1');
+    // H does nothing when no hidden slide follows; the show goes on after the hidden one.
+    await page.keyboard.press('h');
+    await expect(stage).toHaveAttribute('data-slide', '1');
+    await page.keyboard.press('ArrowRight');
+    await expect(stage).toHaveAttribute('data-slide', '2');
+    await page.keyboard.press('Control+h');
+    await expect(page.locator('[data-pointer-hidden="true"]')).toHaveCount(1);
+    await page.keyboard.press('Control+a');
+    await expect(page.locator('[data-pointer-hidden="true"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
   });
 });

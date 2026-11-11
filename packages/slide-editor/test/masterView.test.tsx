@@ -188,7 +188,7 @@ describe('BlueSlide master commands', () => {
     const run = (c: SlideCommand) => sent.push(c);
     const tabs = [
       masterTab(t, item, state, run),
-      designTab(t, item, design, { hasDeck: true, masterView: false }, 3, run),
+      designTab(t, item, design, { hasDeck: true, masterView: false }, [3], run),
     ];
     render(
       <I18nextProvider i18n={i18n}>

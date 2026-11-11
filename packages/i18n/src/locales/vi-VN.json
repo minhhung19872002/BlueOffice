@@ -266,7 +266,9 @@
         "toggle": "đẢO hOA / tHƯỜNG"
       },
       "painter": "Sao định dạng",
-      "quickAnalysis": "Phân tích nhanh"
+      "quickAnalysis": "Phân tích nhanh",
+      "copyFormat": "Sao chép định dạng",
+      "pasteFormat": "Dán định dạng"
     },
     "insert": {
       "table": "Bảng",
@@ -306,7 +308,8 @@
       "saveBlock": "Lưu vùng chọn thành khối dựng sẵn…",
       "blocksOrganizer": "Quản lý khối dựng sẵn…",
       "autoText": "Chèn khối có tên vừa gõ trước con trỏ",
-      "chartRecommended": "Biểu đồ đề xuất"
+      "chartRecommended": "Biểu đồ đề xuất",
+      "headerFooter": "Đầu trang và chân trang"
     },
     "layout": {
       "margins": "Lề",
@@ -350,7 +353,9 @@
       "styleInspector": "Trình kiểm tra kiểu",
       "revealFormatting": "Hiện định dạng",
       "styleOrganizer": "Trình sắp xếp kiểu",
-      "newStyle": "Kiểu mới"
+      "newStyle": "Kiểu mới",
+      "gridlines": "Đường lưới",
+      "guides": "Đường gióng"
     },
     "review": {
       "readAloud": "Đọc to",
@@ -8233,5 +8238,67 @@
       "loading": "Đang tải danh sách hàm…",
       "none": "Không có hàm nào khớp."
     }
+  },
+  "slideFeel": {
+    "ok": "OK",
+    "cancel": "Huỷ",
+    "table": {
+      "title": "Kích thước bảng",
+      "size": "Bảng {{cols}} × {{rows}}",
+      "cols": "Số cột",
+      "rows": "Số hàng",
+      "insert": "Chèn bảng"
+    },
+    "font": {
+      "title": "Phông chữ",
+      "face": "Phông",
+      "style": "Kiểu",
+      "styles": {
+        "regular": "Thường",
+        "italic": "Nghiêng",
+        "bold": "Đậm",
+        "boldItalic": "Đậm nghiêng"
+      },
+      "size": "Cỡ",
+      "color": "Màu chữ",
+      "underline": "Gạch chân",
+      "effects": "Hiệu ứng",
+      "strike": "Gạch ngang",
+      "doubleStrike": "Gạch ngang đôi",
+      "superscript": "Chỉ số trên",
+      "subscript": "Chỉ số dưới",
+      "offset": "Độ lệch (%)",
+      "smallCaps": "Chữ hoa nhỏ",
+      "allCaps": "Tất cả chữ hoa",
+      "spacing": "Giãn cách ký tự (pt)"
+    },
+    "pasteSpecial": {
+      "title": "Dán đặc biệt",
+      "as": "Dán dưới dạng",
+      "empty": "Bảng tạm không có gì để dán."
+    },
+    "hf": {
+      "title": "Đầu trang và chân trang",
+      "include": "Hiện trên slide",
+      "date": "Ngày và giờ",
+      "auto": "Tự động cập nhật ({{date}})",
+      "fixed": "Cố định",
+      "number": "Số slide",
+      "footer": "Chân trang",
+      "footerText": "Nội dung chân trang",
+      "notOnTitle": "Không hiện trên slide tiêu đề",
+      "apply": "Áp dụng",
+      "applyAll": "Áp dụng cho tất cả"
+    },
+    "painter": {
+      "on": "Sao định dạng: bấm vào một hình hoặc chọn chữ để áp định dạng.",
+      "locked": "Sao định dạng (giữ): áp cho nhiều chỗ, bấm Esc để thôi."
+    },
+    "draw": {
+      "shape": "Bấm hoặc kéo trên slide để vẽ hình (Esc để thôi).",
+      "text": "Bấm hoặc kéo trên slide để đặt hộp văn bản (Esc để thôi)."
+    },
+    "guideCm": "{{value}} cm",
+    "guideIn": "{{value}} in"
   }
 }

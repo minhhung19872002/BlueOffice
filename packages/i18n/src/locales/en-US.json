@@ -266,7 +266,9 @@
         "toggle": "sWAP cASE"
       },
       "painter": "Format Painter",
-      "quickAnalysis": "Quick analysis"
+      "quickAnalysis": "Quick analysis",
+      "copyFormat": "Copy formatting",
+      "pasteFormat": "Paste formatting"
     },
     "insert": {
       "table": "Table",
@@ -306,7 +308,8 @@
       "saveBlock": "Save selection as building block…",
       "blocksOrganizer": "Building Blocks Organizer…",
       "autoText": "Insert the block named before the caret",
-      "chartRecommended": "Recommended charts"
+      "chartRecommended": "Recommended charts",
+      "headerFooter": "Header and footer"
     },
     "layout": {
       "margins": "Margins",
@@ -350,7 +353,9 @@
       "styleInspector": "Style Inspector",
       "revealFormatting": "Reveal formatting",
       "styleOrganizer": "Style Organizer",
-      "newStyle": "New style"
+      "newStyle": "New style",
+      "gridlines": "Gridlines",
+      "guides": "Guides"
     },
     "review": {
       "readAloud": "Read aloud",
@@ -8233,5 +8238,67 @@
       "loading": "Loading the functions…",
       "none": "No function matches."
     }
+  },
+  "slideFeel": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "table": {
+      "title": "Table size",
+      "size": "{{cols}} × {{rows}} table",
+      "cols": "Columns",
+      "rows": "Rows",
+      "insert": "Insert table"
+    },
+    "font": {
+      "title": "Font",
+      "face": "Font",
+      "style": "Style",
+      "styles": {
+        "regular": "Regular",
+        "italic": "Italic",
+        "bold": "Bold",
+        "boldItalic": "Bold italic"
+      },
+      "size": "Size",
+      "color": "Font colour",
+      "underline": "Underline",
+      "effects": "Effects",
+      "strike": "Strikethrough",
+      "doubleStrike": "Double strikethrough",
+      "superscript": "Superscript",
+      "subscript": "Subscript",
+      "offset": "Offset (%)",
+      "smallCaps": "Small capitals",
+      "allCaps": "All capitals",
+      "spacing": "Character spacing (pt)"
+    },
+    "pasteSpecial": {
+      "title": "Paste special",
+      "as": "Paste as",
+      "empty": "There is nothing on the clipboard to paste."
+    },
+    "hf": {
+      "title": "Header and footer",
+      "include": "Show on the slide",
+      "date": "Date and time",
+      "auto": "Update automatically ({{date}})",
+      "fixed": "Fixed",
+      "number": "Slide number",
+      "footer": "Footer",
+      "footerText": "Footer text",
+      "notOnTitle": "Don't show on the title slide",
+      "apply": "Apply",
+      "applyAll": "Apply to all"
+    },
+    "painter": {
+      "on": "Copy formatting: click a shape or select text to apply the formatting.",
+      "locked": "Copy formatting (kept on): apply it to several places, Esc to stop."
+    },
+    "draw": {
+      "shape": "Click or drag on the slide to draw the shape (Esc to stop).",
+      "text": "Click or drag on the slide to place the text box (Esc to stop)."
+    },
+    "guideCm": "{{value}} cm",
+    "guideIn": "{{value}} in"
   }
 }

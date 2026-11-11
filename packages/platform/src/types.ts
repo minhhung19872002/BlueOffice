@@ -1676,6 +1676,13 @@ export interface SlideFormatState {
   level: number;
   /** Line spacing multiple (`null` = single / exact points). */
   lineSpacing: number | null;
+  /** Baseline shift in 1/1000 % (positive superscript, negative subscript, 0 on the line). */
+  baseline?: number;
+  /** Capitalisation (`small` / `all`; `null` = as typed). */
+  caps?: 'small' | 'all' | null;
+  /** Character spacing in points (`null` = normal). */
+  spacing?: number | null;
+  doubleStrike?: boolean;
 }
 
 /** Text being edited inside a shape (offsets in UTF-16 code units). */
@@ -1709,7 +1716,32 @@ export type SlideTextFormat =
   | { kind: 'font'; typeface: string }
   | { kind: 'align'; align: SlideAlign }
   | { kind: 'level'; delta: number }
-  | { kind: 'lineSpacing'; value: number };
+  | { kind: 'lineSpacing'; value: number }
+  /** Superscript (30000) / subscript (-25000) in 1/1000 % of the size; 0 removes it. */
+  | { kind: 'baseline'; value: number }
+  | { kind: 'caps'; value: 'small' | 'all' | null }
+  /** Character spacing in points (0 = normal). */
+  | { kind: 'spacing'; points: number }
+  | { kind: 'doubleStrike'; value?: boolean }
+  /** Reset the character formatting to what the placeholder gives (Ctrl+Space). */
+  | { kind: 'clearChar' };
+
+/** Header and footer of slides (Insert › Header & Footer). */
+export interface SlideHfSpec {
+  /** Date: the text shown, updated when the deck opens (`auto`) or fixed. */
+  date?: { text: string; auto: boolean };
+  slideNumber: boolean;
+  footer?: string;
+  /** Leave the slides of the title slide layout without them. */
+  notOnTitle: boolean;
+}
+
+/** Top-level shapes of the current slide as a click hits them (`shapeBoxes`), bottom to top. */
+export interface SlideShapeBoxes {
+  tolerance: number;
+  /** Each shape's selection box and the boxes a click hits (a group: its shapes). */
+  shapes: { id: number; rect: SlideBox; boxes: SlideBox[] }[];
+}
 
 /** Type of a freeform anchor point (how its control points move together). */
 export type SlidePointType = 'corner' | 'smooth' | 'symmetric';
@@ -1860,6 +1892,12 @@ export type SlideCommand =
   | { cmd: 'selectNext'; back?: boolean }
   | { cmd: 'click'; x: number; y: number; extend?: boolean; deep?: boolean }
   | { cmd: 'hitTest'; x: number; y: number; deep?: boolean }
+  /** Boxes of the current slide's shapes for a hit test in the editor (changes nothing). */
+  | { cmd: 'shapeBoxes' }
+  /** Format painter: take the formatting of the selection / apply it to the selection. */
+  | { cmd: 'copyFormat' | 'pasteFormat' }
+  | { cmd: 'headerFooterInfo' }
+  | { cmd: 'headerFooter'; spec: SlideHfSpec; slides?: number[]; all?: boolean }
   | {
       cmd: 'transform';
       transform: SlideTransform;
@@ -2591,6 +2629,10 @@ export interface SlideEditResult {
   layouts: { index: number; name: string; kind: string | null }[];
   preview?: SlidePreview;
   hits?: number[];
+  /** Answer of `shapeBoxes`. */
+  shapeBoxes?: SlideShapeBoxes;
+  /** Answer of `headerFooterInfo`. */
+  headerFooter?: SlideHfSpec;
   /** Undo history length (`historyLen`, `mergeHistory`). */
   history?: number;
   error?: string;

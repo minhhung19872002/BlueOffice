@@ -4,6 +4,8 @@ import type {
   SlideCommand,
   SlideEditResult,
   SlidePreview,
+  SlideRect,
+  SlideShapeBoxes,
   SlideShapeInfo,
   SlideTextEdit,
   SlideTransform,
@@ -17,7 +19,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { SlideController } from './controller';
-import { constrainMove, fromEditorText, paragraphRange, toEditorText, wordRange } from './editing';
+import {
+  boxHandles,
+  constrainMove,
+  drawnRect,
+  fromEditorText,
+  hitShape,
+  paragraphRange,
+  snapTo,
+  toEditorText,
+  wordRange,
+} from './editing';
 import { nearestSite } from './editPoints';
 import shapeStyles from './shapeFormat.module.css';
 import styles from './SlideEditor.module.css';
@@ -83,10 +95,29 @@ export interface SlideOverlayProps {
   onStartCellEdit?: (te: SlideTextEdit) => void;
   /** Collaborators' selected objects on this slide (live collaboration). */
   peers?: { clientId: number; name: string; color: string; rect: SlideBox; label: string }[];
+  /**
+   * Drawing a new object (Insert › Shapes / Text box): a click puts it at its default size,
+   * a drag at the dragged size; `onDraw` gets its box (slide points).
+   */
+  drawing?: 'shape' | 'text' | null;
+  onDraw?: (rect: SlideRect) => void;
+  /** The format painter is loaded: a click on a shape (or a text selection) applies it. */
+  painting?: boolean;
+  onPaint?: () => void;
+  /** Gridlines shown every `step` points; drawn objects snap to them. */
+  grid?: { show: boolean; step: number } | null;
+  /** Drawing guides (vertical lines at `x`, horizontal at `y`, slide points); draggable. */
+  guides?: { x: number[]; y: number[] } | null;
+  /** A guide was dragged (`to` null: dragged off the slide, removed). */
+  onGuideMove?: (axis: 'x' | 'y', index: number, to: number | null) => void;
+  /** Labels of a guide's position while it is dragged. */
+  guideLabel?: (points: number) => string;
 }
 
 interface Drag {
-  mode: 'move' | 'resize' | 'rotate' | 'marquee' | 'adjust' | 'cxnEnd' | 'cells';
+  mode: 'move' | 'resize' | 'rotate' | 'marquee' | 'adjust' | 'cxnEnd' | 'cells' | 'draw' | 'guide';
+  /** Guide being dragged: axis and index. */
+  guide?: ['x' | 'y', number];
   handle?: HandleKind;
   /** Adjust handle index / connector end. */
   index?: number;
@@ -146,6 +177,14 @@ export function SlideOverlay({
   connectorLabel = '',
   onStartCellEdit,
   peers = [],
+  drawing = null,
+  onDraw,
+  painting = false,
+  onPaint,
+  grid = null,
+  guides = null,
+  onGuideMove,
+  guideLabel,
 }: SlideOverlayProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -183,6 +222,34 @@ export function SlideOverlay({
   );
   // Connection site a dragged connector end will snap to (CORE-SHAPE-001).
   const [snapSite, setSnapSite] = useState<[number, number] | null>(null);
+  // The boxes of the slide's shapes as a click hits them (`shapeBoxes`): a click is hit-tested
+  // here and its selection drawn at once, the engine's own click confirms it.
+  const hitBoxes = useRef<{ slide: number; boxes: SlideShapeBoxes } | null>(null);
+  const boxesAsked = useRef(false);
+  const ensureBoxes = () => {
+    if (hitBoxes.current || boxesAsked.current || !edit) return;
+    boxesAsked.current = true;
+    void controller.query({ cmd: 'shapeBoxes' }).then((r) => {
+      boxesAsked.current = false;
+      if (r?.shapeBoxes) hitBoxes.current = { slide: r.slide, boxes: r.shapeBoxes };
+    });
+  };
+  // Any change of the slide makes the boxes stale.
+  useEffect(() => {
+    if (!edit) return;
+    const h = hitBoxes.current;
+    if (h && (h.slide !== edit.slide || edit.dirty.length > 0 || edit.slidesChanged)) {
+      hitBoxes.current = null;
+    }
+  }, [edit]);
+  // The selection as drawn before the engine answered a click.
+  const [opt, setOpt] = useState<{ ids: number[]; boxes: SlideBox[] } | null>(null);
+  // The box being drawn (Insert › Shapes / Text box).
+  const [drawBox, setDrawBox] = useState<SlideRect | null>(null);
+  // Position of the guide being dragged.
+  const [guideAt, setGuideAt] = useState<{ axis: 'x' | 'y'; index: number; pos: number } | null>(
+    null,
+  );
   const table = edit?.table;
   const tableFrame = table && edit?.selection.find((s) => s.id === table.id)?.rect;
   const textEdit: SlideTextEdit | null =
@@ -205,6 +272,12 @@ export function SlideOverlay({
       x: ((e.clientX - r.left) / r.width) * slide.width,
       y: ((e.clientY - r.top) / r.height) * slide.height,
     };
+  };
+
+  /** A drawn point snapped to the grid (snap to grid is on by default, as in the reference). */
+  const snapped = (q: { x: number; y: number }) => {
+    const step = grid?.step ?? 6;
+    return { x: snapTo(q.x, step, step / 2), y: snapTo(q.y, step, step / 2) };
   };
 
   const transformOf = (d: Drag, x: number, y: number, shift: boolean): SlideTransform => {
@@ -285,6 +358,25 @@ export function SlideOverlay({
     }
     e.preventDefault();
     svgRef.current?.setPointerCapture?.(e.pointerId);
+    if (drawing) {
+      // Insert › Shapes / Text box: a click or a drag on the slide places the new object.
+      drag.current = { mode: 'draw', sx: p.x, sy: p.y, started: false, ready: true, last: null };
+      return;
+    }
+    const guideEl = (e.target as Element).getAttribute('data-guide');
+    if (guideEl) {
+      const [axis, i] = guideEl.split(':') as ['x' | 'y', string];
+      drag.current = {
+        mode: 'guide',
+        guide: [axis, Number(i)],
+        sx: p.x,
+        sy: p.y,
+        started: false,
+        ready: true,
+        last: null,
+      };
+      return;
+    }
     // Table editing: cells are selected with the pointer, Shift/drag extends.
     if (table && tableFrame) {
       if (inBox(tableFrame, p.x, p.y)) {
@@ -330,6 +422,47 @@ export function SlideOverlay({
     const extend = e.shiftKey || ctrl;
     const g = gesture.current;
     const selectedIds = new Set((edit?.selection ?? []).map((x) => x.id));
+    const known = hitBoxes.current?.slide === edit?.slide ? hitBoxes.current?.boxes : undefined;
+    if (known) {
+      // The hit test runs here: the selection is drawn on this mouse-down, the engine's
+      // `click` (same rule) confirms it a moment later.
+      const hit = hitShape(known, p.x, p.y);
+      const boxOf = (id: number) => known.shapes.find((x) => x.id === id)?.rect;
+      if (hit === null) {
+        // Empty space: nothing selected (unless extending); a drag draws a selection box.
+        d.mode = 'marquee';
+        d.ready = true;
+        if (!extend) {
+          setOpt({ ids: [], boxes: [] });
+          void controller.run({ cmd: 'select', ids: [] }).then(() => setOpt(null));
+        }
+        return;
+      }
+      if (ctrl && selectedIds.has(hit)) {
+        // Ctrl on a selected shape: a drag copies the selection, a plain click takes it out.
+        d.toggle = { x: p.x, y: p.y };
+        d.ready = true;
+        return;
+      }
+      let ids = [...selectedIds];
+      if (!extend) {
+        if (!selectedIds.has(hit)) ids = [hit];
+      } else if (selectedIds.has(hit)) {
+        ids = ids.filter((id) => id !== hit);
+      } else {
+        ids.push(hit);
+      }
+      const shown = ids.map((id) => boxOf(id) ?? edit?.selection.find((x) => x.id === id)?.rect);
+      if (shown.every((b): b is SlideBox => !!b)) setOpt({ ids, boxes: shown });
+      // Shift+click only changes the selection; a plain or Ctrl press may start a drag.
+      d.ready = !(extend && !ctrl);
+      void controller.run({ cmd: 'click', x: p.x, y: p.y, extend }).then((r) => {
+        setOpt(null);
+        if (drag.current === d && (!r || r.selection.length === 0)) drag.current = null;
+        if (r && painting && !extend) onPaint?.();
+      });
+      return;
+    }
     void controller
       .run({ cmd: 'hitTest', x: p.x, y: p.y })
       .then((h) => {
@@ -353,6 +486,7 @@ export function SlideOverlay({
         return controller.run({ cmd: 'click', x: p.x, y: p.y, extend });
       })
       .then((r) => {
+        if (r && painting && !extend && r.selection.length > 0) onPaint?.();
         if (drag.current !== d || d.mode === 'marquee') return;
         if (!r || (extend && !ctrl) || r.selection.length === 0) drag.current = null;
         else d.ready = true;
@@ -360,6 +494,7 @@ export function SlideOverlay({
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (!editing) ensureBoxes();
     if (editing) {
       if (textDrag.current) {
         const p = toPt(e);
@@ -374,6 +509,21 @@ export function SlideOverlay({
       return;
     }
     d.started = true;
+    if (d.mode === 'draw') {
+      setDrawBox(
+        drawnRect(snapped({ x: d.sx, y: d.sy }), snapped(p), {
+          square: e.shiftKey,
+          text: drawing === 'text',
+        }),
+      );
+      return;
+    }
+    if (d.mode === 'guide') {
+      const [axis, index] = d.guide ?? ['x', 0];
+      const pos = axis === 'x' ? p.x : p.y;
+      setGuideAt({ axis, index, pos: Math.round(pos * 2) / 2 });
+      return;
+    }
     if (d.mode === 'cells') {
       runLive({ cmd: 'tableHit', x: p.x, y: p.y, extend: true });
       return;
@@ -411,7 +561,9 @@ export function SlideOverlay({
     if (textDrag.current) {
       textDrag.current = null;
       svgRef.current?.releasePointerCapture?.(e.pointerId);
-      onTextSelectEnd?.({ x: e.clientX, y: e.clientY });
+      // The format painter goes onto the text just selected.
+      if (painting) onPaint?.();
+      else onTextSelectEnd?.({ x: e.clientX, y: e.clientY });
       return;
     }
     const d = drag.current;
@@ -421,6 +573,29 @@ export function SlideOverlay({
     setSnapSite(null);
     if (d && !d.started && d.toggle) {
       void controller.run({ cmd: 'click', x: d.toggle.x, y: d.toggle.y, extend: true });
+      return;
+    }
+    if (d?.mode === 'draw') {
+      const p = toPt(e);
+      setDrawBox(null);
+      const a = snapped({ x: d.sx, y: d.sy });
+      onDraw?.(
+        drawnRect(a, d.started ? snapped(p) : null, {
+          square: e.shiftKey,
+          text: drawing === 'text',
+        }),
+      );
+      return;
+    }
+    if (d?.mode === 'guide' && d.guide) {
+      const p = toPt(e);
+      setGuideAt(null);
+      if (!d.started) return;
+      const [axis, i] = d.guide;
+      const pos = axis === 'x' ? p.x : p.y;
+      const max = axis === 'x' ? slide.width : slide.height;
+      // Dragged off the slide: the guide is removed.
+      onGuideMove?.(axis, i, pos < 0 || pos > max ? null : Math.round(pos * 2) / 2);
       return;
     }
     if (!d?.started || d.mode === 'cells') return;
@@ -512,10 +687,13 @@ export function SlideOverlay({
   };
 
   const hs = HANDLE_PX / scale;
-  const showHandles = !preview && !editing && !table && edit?.bounds;
+  const optBox = opt?.boxes.length === 1 ? opt.boxes[0] : undefined;
+  const showHandles = !preview && !editing && !table && (opt ? !!optBox : !!edit?.bounds);
+  // Before the engine answered a click: the handles of the box drawn here.
+  const handles = opt ? (optBox ? boxHandles(optBox) : []) : (edit?.handles ?? []);
   const caret = textEdit?.caret;
-  const rotHandle = edit?.handles.find((h) => h.kind === 'rot');
-  const topCenter = edit?.handles.find((h) => h.kind === 'n');
+  const rotHandle = handles.find((h) => h.kind === 'rot');
+  const topCenter = handles.find((h) => h.kind === 'n');
 
   return (
     <div className={styles.overlay} style={{ width, height }}>
@@ -523,6 +701,8 @@ export function SlideOverlay({
         ref={svgRef}
         className={styles.overlaySvg}
         data-testid="slide-overlay"
+        data-drawing={drawing ?? undefined}
+        data-painting={painting ? 'true' : undefined}
         role="application"
         aria-label={label}
         width={width}
@@ -541,6 +721,50 @@ export function SlideOverlay({
           if (e.detail === 3) selectAround(e, true);
         }}
       >
+        {grid?.show && (
+          <GridLines width={slide.width} height={slide.height} step={grid.step * 12} />
+        )}
+        {guides &&
+          [
+            ...guides.x.map((v, i) => ['x', i, v] as const),
+            ...guides.y.map((v, i) => ['y', i, v] as const),
+          ].map(([axis, i, v]) => {
+            const moving = guideAt?.axis === axis && guideAt.index === i;
+            const pos = moving ? guideAt.pos : v;
+            return (
+              <g key={`guide-${axis}${i}`}>
+                <line
+                  className={styles.staticGuide}
+                  data-testid="static-guide"
+                  data-axis={axis}
+                  x1={axis === 'x' ? pos : -slide.width}
+                  x2={axis === 'x' ? pos : slide.width * 2}
+                  y1={axis === 'y' ? pos : -slide.height}
+                  y2={axis === 'y' ? pos : slide.height * 2}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <line
+                  className={styles.guideGrip}
+                  data-guide={`${axis}:${i}`}
+                  x1={axis === 'x' ? pos : 0}
+                  x2={axis === 'x' ? pos : slide.width}
+                  y1={axis === 'y' ? pos : 0}
+                  y2={axis === 'y' ? pos : slide.height}
+                  style={{ cursor: axis === 'x' ? 'col-resize' : 'row-resize' }}
+                />
+                {moving && guideLabel && (
+                  <text
+                    className={styles.guideTip}
+                    x={axis === 'x' ? pos + 4 / scale : 4 / scale}
+                    y={axis === 'y' ? pos - 4 / scale : 14 / scale}
+                    style={{ fontSize: 11 / scale }}
+                  >
+                    {guideLabel(pos - (axis === 'x' ? slide.width : slide.height) / 2)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
         {edit?.placeholders.map((b, i) => boxRect(b, styles.placeholder, `ph${i}`))}
         {peers.map((p) => (
           <g key={`peer${p.clientId}`} data-testid="peer-selection" aria-label={p.label}>
@@ -560,9 +784,13 @@ export function SlideOverlay({
           ? boxRect(textEdit?.rect ?? editing.rect, styles.editingFrame, 'edit', {
               'data-testid': 'text-editing-frame',
             })
-          : edit?.selection.map((s) =>
-              boxRect(s.rect, styles.selected, s.id, { 'data-testid': 'selection-box' }),
-            )}
+          : opt
+            ? opt.boxes.map((b, i) =>
+                boxRect(b, styles.selected, `o${opt.ids[i]}`, { 'data-testid': 'selection-box' }),
+              )
+            : edit?.selection.map((s) =>
+                boxRect(s.rect, styles.selected, s.id, { 'data-testid': 'selection-box' }),
+              )}
         {table?.cells.map((cell) => {
           const [r0, c0, r1, c1] = table.sel;
           const inside = cell.row >= r0 && cell.row <= r1 && cell.col >= c0 && cell.col <= c1;
@@ -589,7 +817,11 @@ export function SlideOverlay({
             vectorEffect="non-scaling-stroke"
           />
         )}
-        {showHandles && edit.selection.length > 1 && boxRect(edit.bounds!, styles.bounds, 'b')}
+        {showHandles &&
+          !opt &&
+          edit?.bounds &&
+          edit.selection.length > 1 &&
+          boxRect(edit.bounds, styles.bounds, 'b')}
         {showHandles && rotHandle && topCenter && (
           <line
             className={styles.rotLine}
@@ -601,8 +833,27 @@ export function SlideOverlay({
           />
         )}
         {showHandles &&
-          edit.handles.map((h) =>
+          handles.map((h) =>
             h.kind === 'rot' ? (
+              <g key={h.kind}>
+                <circle
+                  className={styles.rotHandle}
+                  data-handle={h.kind}
+                  data-testid={`handle-${h.kind}`}
+                  cx={h.x}
+                  cy={h.y}
+                  r={hs * 0.6}
+                  vectorEffect="non-scaling-stroke"
+                />
+                {/* A circular arrow inside: the rotation handle, not a sizing one. */}
+                <path
+                  className={styles.rotArrow}
+                  d={`M${h.x + hs * 0.32} ${h.y - hs * 0.12}A${hs * 0.32} ${hs * 0.32} 0 1 1 ${h.x + hs * 0.1} ${h.y - hs * 0.3}`}
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            ) : (
+              // Round sizing handles, white with an outline.
               <circle
                 key={h.kind}
                 className={styles.handle}
@@ -611,25 +862,14 @@ export function SlideOverlay({
                 cx={h.x}
                 cy={h.y}
                 r={hs / 2}
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : (
-              <rect
-                key={h.kind}
-                className={styles.handle}
-                data-handle={h.kind}
-                data-testid={`handle-${h.kind}`}
-                x={h.x - hs / 2}
-                y={h.y - hs / 2}
-                width={hs}
-                height={hs}
                 style={{ cursor: `${h.kind}-resize` }}
                 vectorEffect="non-scaling-stroke"
               />
             ),
           )}
         {showHandles &&
-          edit.sites?.map(([x, y], i) => (
+          !opt &&
+          edit?.sites?.map(([x, y], i) => (
             <path
               key={`site${i}`}
               className={styles.site}
@@ -648,7 +888,8 @@ export function SlideOverlay({
           />
         )}
         {showHandles &&
-          edit.connector?.ends.map(([x, y], i) => (
+          !opt &&
+          edit?.connector?.ends.map(([x, y], i) => (
             <circle
               key={`cxn${i}`}
               className={edit.connector?.attached[i] ? styles.cxnAttached : styles.cxnEnd}
@@ -663,7 +904,8 @@ export function SlideOverlay({
             </circle>
           ))}
         {showHandles &&
-          edit.adjust.map((h) => (
+          !opt &&
+          edit?.adjust.map((h) => (
             <path
               key={`adj${h.index}`}
               className={styles.adjust}
@@ -675,7 +917,20 @@ export function SlideOverlay({
               <title>{adjustLabel}</title>
             </path>
           ))}
-        {preview?.boxes.map((b, i) => boxRect(b, styles.ghost, `g${i}`))}
+        {preview?.boxes.map((b, i) =>
+          boxRect(b, styles.ghost, `g${i}`, { 'data-testid': 'drag-outline' }),
+        )}
+        {drawBox && (
+          <rect
+            className={styles.drawBox}
+            data-testid="draw-box"
+            x={drawBox.x}
+            y={drawBox.y}
+            width={drawBox.w}
+            height={drawBox.h}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {marquee && (
           <rect
             className={styles.marquee}
@@ -730,6 +985,27 @@ export function SlideOverlay({
         />
       )}
     </div>
+  );
+}
+
+/** Gridlines every `step` points, running out from the centre of the slide. */
+function GridLines({ width, height, step }: { width: number; height: number; step: number }) {
+  if (step <= 0) return null;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let x = width / 2; x > 0; x -= step) xs.push(x);
+  for (let x = width / 2 + step; x < width; x += step) xs.push(x);
+  for (let y = height / 2; y > 0; y -= step) ys.push(y);
+  for (let y = height / 2 + step; y < height; y += step) ys.push(y);
+  return (
+    <g className={styles.gridLines} data-testid="slide-gridlines" pointerEvents="none">
+      {xs.map((x) => (
+        <line key={`x${x}`} x1={x} x2={x} y1={0} y2={height} vectorEffect="non-scaling-stroke" />
+      ))}
+      {ys.map((y) => (
+        <line key={`y${y}`} x1={0} x2={width} y1={y} y2={y} vectorEffect="non-scaling-stroke" />
+      ))}
+    </g>
   );
 }
 
@@ -962,7 +1238,7 @@ function TextEditor({
       void controller.run({ cmd: redo ? 'redo' : 'undo' });
       return;
     }
-    if (mod && onShortcut?.(e.nativeEvent)) e.preventDefault();
+    if ((mod || e.key === 'F3') && onShortcut?.(e.nativeEvent)) e.preventDefault();
   };
 
   return (

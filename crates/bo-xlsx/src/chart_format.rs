@@ -50,9 +50,19 @@ const SHADOW: &str = "<a:effectLst><a:outerShdw blurRad=\"38100\" dist=\"19050\"
 
 /// The `c:spPr` of a series (or data point) in colour `c` with the treatment of `fmt`.
 pub(crate) fn series_sp_pr(c: &ChartColor, fmt: &ChartFormat, line: bool) -> String {
+    series_sp_pr_w(c, fmt, line, None)
+}
+
+/// [`series_sp_pr`] with a line width of the series' own (EMU).
+pub(crate) fn series_sp_pr_w(
+    c: &ChartColor,
+    fmt: &ChartFormat,
+    line: bool,
+    own_w: Option<u32>,
+) -> String {
     let mut out = String::from("<c:spPr>");
     if line {
-        let w = fmt.line_w.unwrap_or(LINE_W);
+        let w = own_w.or(fmt.line_w).unwrap_or(LINE_W).min(20_116_800);
         let _ = write!(
             out,
             "<a:ln w=\"{w}\" cap=\"rnd\">{}<a:round/></a:ln>",
@@ -97,6 +107,24 @@ pub(crate) fn series_sp_pr(c: &ChartColor, fmt: &ChartFormat, line: bool) -> Str
     out
 }
 
+/// §21.2.2.106 marker of a series with a marker of its own (§21.2.2.174 symbol, size).
+pub(crate) fn own_marker(c: &ChartColor, m: &bo_model::sheet::Marker) -> String {
+    let symbol = match m.symbol.as_str() {
+        s @ ("circle" | "dash" | "diamond" | "dot" | "plus" | "square" | "star" | "triangle"
+        | "x" | "auto") => s,
+        _ => "none",
+    };
+    if symbol == "none" {
+        return "<c:marker><c:symbol val=\"none\"/></c:marker>".to_owned();
+    }
+    format!(
+        "<c:marker><c:symbol val=\"{symbol}\"/><c:size val=\"{}\"/><c:spPr>{}{}</c:spPr></c:marker>",
+        m.size.unwrap_or(5).clamp(2, 72),
+        solid(c),
+        ln(&ChartColor::Rgb(0xFF_FFFF), OUTLINE_W)
+    )
+}
+
 /// §21.2.2.106 marker of a line / radar series.
 pub(crate) fn marker(c: &ChartColor, fmt: &ChartFormat) -> String {
     if fmt.markers {
@@ -116,9 +144,12 @@ pub(crate) fn data_labels(fmt: &ChartFormat, kind: &ChartKind, grouping: Option<
     let Some(d) = fmt.data_labels.as_ref().filter(|d| d.any()) else {
         return String::new();
     };
-    if *kind == ChartKind::Surface {
-        return String::new();
-    }
+    labels_xml(Some(d), &[], kind, grouping)
+}
+
+/// The settings of one label set (CT_DLbls group / CT_DLbl, in schema order): numFmt, dLblPos, the
+/// show switches and separator; `leader` adds showLeaderLines (dLbls of pies only).
+fn label_body(d: &DataLabels, kind: &ChartKind, grouping: Option<&str>, leader: bool) -> String {
     let pie = matches!(
         kind,
         ChartKind::Pie | ChartKind::Doughnut | ChartKind::OfPie
@@ -133,7 +164,14 @@ pub(crate) fn data_labels(fmt: &ChartFormat, kind: &ChartKind, grouping: Option<
         ChartKind::Line | ChartKind::Scatter => matches!(*p, "t" | "b" | "l" | "r" | "ctr"),
         _ => false,
     });
-    let mut out = String::from("<c:dLbls>");
+    let mut out = String::new();
+    if let Some(code) = d.num_fmt.as_deref().filter(|c| !c.is_empty()) {
+        let _ = write!(
+            out,
+            "<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>",
+            escape(code)
+        );
+    }
     if let Some(p) = pos {
         let _ = write!(out, "<c:dLblPos val=\"{p}\"/>");
     }
@@ -146,8 +184,48 @@ pub(crate) fn data_labels(fmt: &ChartFormat, kind: &ChartKind, grouping: Option<
         b(d.series),
         b(d.percent && pie)
     );
-    if pie {
-        out.push_str("<c:showLeaderLines val=\"1\"/>");
+    if let Some(sep) = d.separator.as_deref().filter(|s| !s.is_empty()) {
+        let _ = write!(out, "<c:separator>{}</c:separator>", escape(sep));
+    }
+    if pie && leader {
+        let _ = write!(
+            out,
+            "<c:showLeaderLines val=\"{}\"/>",
+            b(d.leader_lines.unwrap_or(true))
+        );
+    }
+    out
+}
+
+/// A `c:dLbls` element: the labels of single points (dLbl; one that shows nothing is
+/// `c:delete`d), then the settings of all (`None`, or showing nothing: `c:delete` — every switch
+/// off when points keep labels of their own). Empty when there is nothing to write.
+pub(crate) fn labels_xml(
+    all: Option<&DataLabels>,
+    points: &[(usize, DataLabels)],
+    kind: &ChartKind,
+    grouping: Option<&str>,
+) -> String {
+    if *kind == ChartKind::Surface || (all.is_none() && points.is_empty()) {
+        return String::new();
+    }
+    let mut out = String::from("<c:dLbls>");
+    let mut pts: Vec<&(usize, DataLabels)> = points.iter().collect();
+    pts.sort_by_key(|(i, _)| *i);
+    pts.dedup_by_key(|(i, _)| *i);
+    for (i, d) in pts {
+        let _ = write!(out, "<c:dLbl><c:idx val=\"{i}\"/>");
+        if d.any() {
+            out.push_str(&label_body(d, kind, grouping, false));
+        } else {
+            out.push_str("<c:delete val=\"1\"/>");
+        }
+        out.push_str("</c:dLbl>");
+    }
+    match all.filter(|d| d.any()) {
+        Some(d) => out.push_str(&label_body(d, kind, grouping, true)),
+        None if points.is_empty() => out.push_str("<c:delete val=\"1\"/>"),
+        None => out.push_str(&label_body(&DataLabels::default(), kind, grouping, true)),
     }
     out.push_str("</c:dLbls>");
     out
@@ -269,7 +347,12 @@ fn flag(n: &Node, name: &str) -> bool {
         .is_some_and(|v| v == "1" || v == "true")
 }
 
-fn labels_of(d: &Node) -> Option<DataLabels> {
+/// The settings of a `c:dLbls` / `c:dLbl` element; one that is deleted or shows nothing reads as
+/// the default (nothing shown).
+pub(crate) fn labels_all(d: &Node) -> DataLabels {
+    if flag(d, "delete") {
+        return DataLabels::default();
+    }
     let l = DataLabels {
         value: flag(d, "showVal"),
         percent: flag(d, "showPercent"),
@@ -279,7 +362,34 @@ fn labels_of(d: &Node) -> Option<DataLabels> {
             .child("dLblPos")
             .and_then(|p| p.attr("val"))
             .map(str::to_owned),
+        // On by default where it is written (pies): only "off" is kept.
+        leader_lines: d
+            .child("showLeaderLines")
+            .and_then(|c| c.attr("val"))
+            .filter(|v| *v == "0" || *v == "false")
+            .map(|_| false),
+        num_fmt: d
+            .child("numFmt")
+            .filter(|n| {
+                !n.attr("sourceLinked")
+                    .is_some_and(|v| v == "1" || v == "true")
+            })
+            .and_then(|n| n.attr("formatCode"))
+            .map(str::to_owned),
+        separator: d
+            .child("separator")
+            .map(|s| s.text.clone())
+            .filter(|s| !s.is_empty()),
     };
+    if l.any() {
+        l
+    } else {
+        DataLabels::default()
+    }
+}
+
+fn labels_of(d: &Node) -> Option<DataLabels> {
+    let l = labels_all(d);
     l.any().then_some(l)
 }
 
@@ -353,10 +463,7 @@ pub(crate) fn read_format(dom: &Node, chart: &Node) -> ChartFormat {
             .filter(|w| *w != 150);
     }
     let ser = g.children.iter().find(|c| c.name == "ser");
-    f.data_labels = g
-        .child("dLbls")
-        .or_else(|| ser.and_then(|s| s.child("dLbls")))
-        .and_then(labels_of);
+    f.data_labels = g.child("dLbls").and_then(labels_of);
     let Some(s) = ser else { return f };
     // Pies keep their treatment on the data points.
     let sp = s.child("spPr").or_else(|| {

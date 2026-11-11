@@ -36,6 +36,9 @@ pub struct DesignSpec {
     pub layout: Option<String>,
     /// Titles a layout or template adds (localised by the UI).
     pub texts: LayoutTexts,
+    /// Options of the chart's elements (CORE-CHART-005: axes, gridlines, series, data labels,
+    /// trend lines, error bars, …), applied last.
+    pub elements: Option<Box<crate::chart_elements::ElementsPatch>>,
 }
 
 impl DesignSpec {
@@ -45,6 +48,7 @@ impl DesignSpec {
             && self.style.is_none()
             && self.colors.is_none()
             && self.layout.is_none()
+            && self.elements.is_none()
     }
 }
 
@@ -67,6 +71,9 @@ pub fn apply(c: &mut Chart, spec: &DesignSpec, accents: &[u32; 6]) -> Result<(),
         if !cs::apply_layout(c, id, &spec.texts) {
             return Err(format!("unknown quick layout '{id}'"));
         }
+    }
+    if let Some(e) = &spec.elements {
+        crate::chart_elements::apply(c, e)?;
     }
     c.dirty = true;
     Ok(())

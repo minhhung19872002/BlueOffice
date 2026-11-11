@@ -3586,6 +3586,7 @@ impl SheetEngine {
                                 "series": c.plots.iter().map(|p| p.series.len()).sum::<usize>(),
                                 "editable": true,
                                 "map": map_info(self.wb().ok(), sheet, c),
+                                "elements": crate::chart_elements::info(&self.live_chart(sheet, c)),
                             })
                         })
                         .collect(),

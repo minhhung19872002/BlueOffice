@@ -1028,6 +1028,7 @@ mod tests {
             trendlines: vec![],
             err_bars: None,
             hidden: vec![],
+            opts: crate::chart::elements::SerOpts::default(),
         }
     }
 

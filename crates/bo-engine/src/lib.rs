@@ -19,6 +19,7 @@ pub mod blocks;
 #[cfg(feature = "bundled-fonts")]
 mod bundled;
 pub mod chart_design;
+pub mod chart_elements;
 pub mod cite;
 mod clip_picture;
 pub mod collab;

@@ -111,6 +111,14 @@ impl Look {
                 if let Some(gw) = self.grid_w {
                     *w = gw as f32;
                 }
+            } else if *c == super::elements::GRID_MINOR {
+                // Minor gridlines: a lighter, thinner version of the major ones.
+                if let Some(g) = self.grid {
+                    *c = tint(g, 0.5);
+                }
+                if let Some(gw) = self.grid_w {
+                    *w = (gw * 0.6) as f32;
+                }
             } else if *c == AXIS {
                 if let Some(a) = self.axis {
                     *c = a;

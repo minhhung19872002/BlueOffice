@@ -1532,6 +1532,12 @@ pub struct Chart {
     /// Region map options (chartex `regionMap` layout, CORE-CHART-006).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map: Option<MapOptions>,
+    /// `c:title/c:overlay`: the title is drawn over the plot area instead of above it.
+    #[serde(default)]
+    pub title_overlay: bool,
+    /// `c:legend/c:overlay`: the legend is drawn over the plot area instead of beside it.
+    #[serde(default)]
+    pub legend_overlay: bool,
 }
 
 /// Options of a region map ([MS-ODRAWXML] chartex `cx:series@layoutId="regionMap"`: the series'
@@ -1631,6 +1637,93 @@ pub struct ChartAxes {
     /// §21.2.2.228 view3D of a 3-D chart.
     #[serde(default)]
     pub view3d: Option<View3D>,
+    /// More options of the primary value axis (its `min` / `max` / `log_base` are the fields above).
+    #[serde(default)]
+    pub val: AxisOptions,
+    /// Options of the category axis (the X value axis of a scatter / bubble chart).
+    #[serde(default)]
+    pub cat: AxisOptions,
+    /// Options of the secondary value axis.
+    #[serde(default)]
+    pub val2: AxisOptions,
+    /// `c:dTable/c:showKeys` is off: the data table has no legend keys.
+    #[serde(default)]
+    pub table_no_keys: bool,
+}
+
+/// Options of one chart axis (ECMA-376 Part 1, §21.2.2 `c:catAx` / `c:valAx` / `c:dateAx` children).
+/// Every field defaults to "automatic".
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AxisOptions {
+    /// `c:scaling/c:min`. Not used for the primary value axis ([`ChartAxes::min`]).
+    pub min: Option<f64>,
+    /// `c:scaling/c:max`. Not used for the primary value axis ([`ChartAxes::max`]).
+    pub max: Option<f64>,
+    /// `c:scaling/c:logBase` (2..=1000). Not used for the primary value axis ([`ChartAxes::log_base`]).
+    pub log_base: Option<f64>,
+    /// `c:majorUnit`: distance between major ticks / gridlines.
+    pub major_unit: Option<f64>,
+    /// `c:minorUnit`.
+    pub minor_unit: Option<f64>,
+    /// `c:scaling/c:orientation` is `maxMin`: values (categories) in reverse order.
+    pub reverse: bool,
+    /// `c:crosses`: `min` or `max`; `None` = `autoZero` (unless `crosses_at`). Where this axis sits
+    /// along the axis it crosses.
+    pub crosses: Option<String>,
+    /// `c:crossesAt`: the value (category number) on the crossing axis where this axis sits.
+    pub crosses_at: Option<f64>,
+    /// `c:dispUnits/c:builtInUnit` (ST_BuiltInUnit: `hundreds`, `thousands`, … `trillions`).
+    pub disp_unit: Option<String>,
+    /// `c:dispUnits/c:dispUnitsLbl`: the unit is shown beside the axis.
+    pub disp_unit_label: bool,
+    /// `c:numFmt@formatCode` of the tick labels (not linked to the source).
+    pub num_fmt: Option<String>,
+    /// `c:majorTickMark` (ST_TickMark: `cross`, `in`, `none`, `out`); `None` = as the application
+    /// draws it.
+    pub major_tick: Option<String>,
+    /// `c:minorTickMark`.
+    pub minor_tick: Option<String>,
+    /// `c:tickLblPos` (ST_TickLblPos: `high`, `low`, `nextTo`, `none`).
+    pub label_pos: Option<String>,
+    /// `c:minorGridlines` present.
+    pub minor_grid: bool,
+    /// `c:delete`: the axis is not shown.
+    pub deleted: bool,
+    /// `c:baseTimeUnit` of a date axis (ST_TimeUnit: `days`, `months`, `years`).
+    pub base_unit: Option<String>,
+    /// Title of the secondary value axis (the primary titles are [`Chart::x_title`] / [`Chart::y_title`]).
+    pub title: Option<String>,
+}
+
+impl AxisOptions {
+    /// Factor of `c:builtInUnit` (1 without display units).
+    #[must_use]
+    pub fn unit_factor(&self) -> f64 {
+        match self.disp_unit.as_deref() {
+            Some("hundreds") => 1e2,
+            Some("thousands") => 1e3,
+            Some("tenThousands") => 1e4,
+            Some("hundredThousands") => 1e5,
+            Some("millions") => 1e6,
+            Some("tenMillions") => 1e7,
+            Some("hundredMillions") => 1e8,
+            Some("billions") => 1e9,
+            Some("trillions") => 1e12,
+            _ => 1.0,
+        }
+    }
+}
+
+/// §21.2.2.106 marker of a series: §21.2.2.174 symbol and size.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Marker {
+    /// ST_MarkerStyle: `circle`, `dash`, `diamond`, `dot`, `none`, `plus`, `square`, `star`,
+    /// `triangle`, `x`.
+    pub symbol: String,
+    /// Size in points (2..=72); `None` = 5.
+    pub size: Option<u32>,
 }
 
 /// §21.2.2.228 view3D: how a 3-D chart is seen.
@@ -1679,26 +1772,54 @@ impl View3D {
 
 /// §21.2.2.211 trendline.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Trendline {
     /// §21.2.2.212 trendlineType: `linear`, `exp`, `log`, `poly`, `power`, `movingAvg`.
     pub kind: String,
     /// Polynomial order (§21.2.2.130) or moving-average period (§21.2.2.136).
     pub order: u32,
     /// §21.2.2.51 dispEq.
+    #[serde(alias = "dispEq")]
     pub disp_eq: bool,
     /// §21.2.2.50 dispRSqr.
+    #[serde(alias = "dispR2")]
     pub disp_r2: bool,
+    /// `c:name`: the name shown in the legend; `None` = automatic (no legend entry of its own).
+    pub name: Option<String>,
+    /// `c:forward`: how far the line is extended past the last point (axis units; categories).
+    pub forward: Option<f64>,
+    /// `c:backward`: how far the line is extended before the first point.
+    pub backward: Option<f64>,
+    /// `c:intercept`: the value the line takes at x = 0 (linear, polynomial and exponential fits).
+    pub intercept: Option<f64>,
 }
 
 /// §21.2.2.58 errBars.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ErrorBars {
     /// §21.2.2.58 errBarType: `both`, `plus`, `minus`.
     pub kind: String,
     /// §21.2.2.59 errValType: `fixedVal`, `percentage`, `stdDev`, `stdErr`, `cust`.
+    #[serde(alias = "valueType")]
     pub value_type: String,
     /// §21.2.2.229 val.
     pub value: f64,
+    /// `c:noEndCap`: the bars end without a cap.
+    #[serde(alias = "noEndCap")]
+    pub no_end_cap: bool,
+    /// `c:errDir` of an XY series: `x` or `y`; `None` = the value direction.
+    pub dir: Option<String>,
+    /// Custom amounts above the points (`c:plus`, cached or literal), one per point.
+    pub plus: Vec<Option<f64>>,
+    /// Custom amounts below the points (`c:minus`).
+    pub minus: Vec<Option<f64>>,
+    /// Range of the custom amounts above (`c:plus/c:numRef/c:f`).
+    #[serde(alias = "plusRef")]
+    pub plus_ref: Option<String>,
+    /// Range of the custom amounts below (`c:minus/c:numRef/c:f`).
+    #[serde(alias = "minusRef")]
+    pub minus_ref: Option<String>,
 }
 
 /// A SmartArt graphic frame on a sheet (`xdr:graphicFrame` with
@@ -2103,6 +2224,10 @@ pub struct ChartPlot {
     /// `splitPos`, `custSplit`, `secondPieSize`); `None` = the defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub of_pie: Option<OfPieSplit>,
+    /// `c:overlap` of a bar group (−100..=100 percent of a bar); `None` = the default of the
+    /// grouping (0 clustered, 100 stacked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlap: Option<i32>,
 }
 
 /// The split of a pie of pie / bar of pie (ECMA-376 Part 1, §21.2.2.126 ofPieChart children
@@ -2204,6 +2329,22 @@ pub struct ChartSeries {
     /// Error bars (value direction).
     #[serde(default)]
     pub err_bars: Option<ErrorBars>,
+    /// Line width of the series in EMU (`c:spPr/a:ln@w`); `None` = the chart format's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_w: Option<u32>,
+    /// Marker of a line / scatter / radar series; `None` = the chart format's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<Marker>,
+    /// `c:smooth`: the line is drawn as a smooth curve.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub smooth: bool,
+    /// Data labels of this series (`c:ser/c:dLbls`); `None` = the chart's
+    /// ([`crate::chart_style::ChartFormat::data_labels`]). A value showing nothing turns them off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<crate::chart_style::DataLabels>,
+    /// Data labels of single points (`c:dLbls/c:dLbl`): (point index, label).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub point_labels: Vec<(usize, crate::chart_style::DataLabels)>,
 }
 
 // ---------------------------------------------------------------------------

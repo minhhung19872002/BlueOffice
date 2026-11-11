@@ -15,6 +15,9 @@ use bo_model::sheet::{
 };
 use bo_render::{Command, Paint, PathSeg, Rgba, Stroke};
 
+mod elements;
+#[cfg(test)]
+mod elements_tests;
 mod look;
 mod map;
 mod three_d;
@@ -117,6 +120,37 @@ pub fn series_data(
     (name, cats, vals)
 }
 
+/// Numbers of a referenced range (`None` for cells without a number); `None` when the reference
+/// does not resolve.
+fn range_numbers(wb: &Workbook, sheet: usize, f: Option<&str>) -> Option<Vec<Option<f64>>> {
+    let (si, r) = resolve_ref(wb, sheet, f?)?;
+    Some(
+        range_cells(wb, si, r)
+            .into_iter()
+            .map(|c| match c.map(|c| &c.value) {
+                Some(CellValue::Number(n)) => Some(*n),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+/// Error bars with the live values of their custom ranges (plus, minus).
+fn live_err_bars(
+    wb: &Workbook,
+    sheet: usize,
+    e: &bo_model::sheet::ErrorBars,
+) -> bo_model::sheet::ErrorBars {
+    let mut e = e.clone();
+    if let Some(v) = range_numbers(wb, sheet, e.plus_ref.as_deref()) {
+        e.plus = v;
+    }
+    if let Some(v) = range_numbers(wb, sheet, e.minus_ref.as_deref()) {
+        e.minus = v;
+    }
+    e
+}
+
 /// Refreshes the cached values of every chart from its ranges (before saving).
 pub fn refresh_caches(wb: &mut Workbook, locale: &Locale) {
     for si in 0..wb.sheets.len() {
@@ -131,6 +165,7 @@ pub fn refresh_caches(wb: &mut Workbook, locale: &Locale) {
                         s.name = name;
                         s.categories = cats;
                         s.values = vals;
+                        s.err_bars = s.err_bars.as_ref().map(|e| live_err_bars(wb, si, e));
                     }
                 }
                 // A map of categories caches its value texts too.
@@ -1064,6 +1099,8 @@ struct Ser {
     /// Points left out of the drawing (a slide show building the chart element by element);
     /// empty = none.
     hidden: Vec<bool>,
+    /// Line, marker and data label options of the series.
+    opts: elements::SerOpts,
 }
 
 impl Ser {
@@ -1206,9 +1243,27 @@ pub fn draw_chart_masked(
         let c = if c == TEXT { ink.unwrap_or(c) } else { c };
         label(t, r, a, size, c, out);
     };
+    let mut legend = (0, 0);
     draw_body(
-        wb, sheet, chart, w, h, locale, &pal, framed, &look, mask, &mut text, out,
+        wb,
+        sheet,
+        chart,
+        w,
+        h,
+        locale,
+        &pal,
+        framed,
+        &look,
+        mask,
+        &mut legend,
+        &mut text,
+        out,
     );
+    // overlay: a legend over the plot is painted after it.
+    if chart.legend_overlay && legend.1 > legend.0 && legend.1 <= out.len() {
+        let cmds: Vec<Command> = out.drain(legend.0..legend.1).collect();
+        out.extend(cmds);
+    }
     if let Some(cmds) = out.get_mut(start..) {
         look.recolor(cmds);
     }
@@ -1226,6 +1281,7 @@ fn draw_body(
     framed: bool,
     look: &Look,
     mask: Option<&PointMask<'_>>,
+    legend_span: &mut (usize, usize),
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
@@ -1278,7 +1334,10 @@ fn draw_body(
             TEXT,
             out,
         );
-        top += th + 2.0;
+        // overlay: the title takes no room of its own.
+        if !chart.title_overlay {
+            top += th + 2.0;
+        }
     }
     // Series with colours (index across all plots).
     let mut idx = 0usize;
@@ -1325,8 +1384,9 @@ fn draw_body(
                 levels: s.levels.clone(),
                 subtotals: s.subtotals.clone(),
                 trendlines: s.trendlines.clone(),
-                err_bars: s.err_bars.clone(),
+                err_bars: s.err_bars.as_ref().map(|e| live_err_bars(wb, sheet, e)),
                 hidden,
+                opts: elements::SerOpts::of(s),
             });
             idx += 1;
         }
@@ -1395,13 +1455,26 @@ fn draw_body(
             })
             .collect()
     } else {
+        // Series, then the trend lines with a name of their own (name).
         plots
             .iter()
             .flat_map(|(_, s)| s.iter().map(|s| (s.name.clone(), s.color)))
+            .chain(plots.iter().flat_map(|(_, s)| {
+                s.iter().flat_map(|s| {
+                    s.trendlines
+                        .iter()
+                        .filter_map(|t| t.name.clone().filter(|n| !n.is_empty()))
+                        .map(|n| (n, s.color))
+                })
+            }))
             .collect()
     };
     let mut right = w - 6.0;
     let mut bottom = h - 6.0;
+    let mut left0 = 6.0;
+    // An overlaid legend (§21.2.2.132) takes no room from the plot.
+    let overlay = chart.legend_overlay;
+    legend_span.0 = out.len();
     if let Some(pos) = chart.legend.as_deref() {
         if !entries.is_empty() {
             let row = font * 1.6;
@@ -1422,7 +1495,8 @@ fn draw_body(
                     );
                     x += cell;
                 }
-                if pos == "b" {
+                if overlay {
+                } else if pos == "b" {
                     bottom = y - 2.0;
                 } else {
                     top += row + 2.0;
@@ -1431,12 +1505,14 @@ fn draw_body(
                 let lw = (w * 0.24).clamp(40.0, 140.0);
                 let total = row * entries.len() as f64;
                 let mut y = top + ((bottom - top) - total).max(0.0) / 2.0;
-                let x = w - lw;
+                // §21.2.2.94 legendPos `l`: at the left.
+                let at_left = pos == "l";
+                let x = if at_left { 4.0 } else { w - lw };
                 for (name, c) in &entries {
                     out.push(rect(x, y + row * 0.3, font * 0.8, font * 0.8, *c));
                     label(
                         name,
-                        [x + font * 1.1, y, w - 2.0, y + row],
+                        [x + font * 1.1, y, x + lw - 2.0, y + row],
                         Align::Left,
                         font,
                         TEXT,
@@ -1444,10 +1520,16 @@ fn draw_body(
                     );
                     y += row;
                 }
-                right = w - lw - 6.0;
+                if overlay {
+                } else if at_left {
+                    left0 = lw + 6.0;
+                } else {
+                    right = w - lw - 6.0;
+                }
             }
         }
     }
+    legend_span.1 = out.len();
     // 3-D groups (§21.2.2.15 bar3DChart, …) are drawn as solids.
     let solid = plots.first().filter(|(p, _)| {
         p.three_d
@@ -1470,7 +1552,7 @@ fn draw_body(
             p,
             ss,
             &view,
-            [6.0, top, right, bottom],
+            [left0, top, right, bottom],
             font,
             locale,
             color,
@@ -1483,7 +1565,7 @@ fn draw_body(
         draw_ex(
             p,
             ss,
-            [6.0, top, right, bottom],
+            [left0, top, right, bottom],
             (font, locale, look),
             color,
             label,
@@ -1493,7 +1575,7 @@ fn draw_body(
     }
     if pie {
         if let Some((p, s)) = plots.first() {
-            let area = [6.0, top, right, bottom];
+            let area = [left0, top, right, bottom];
             if p.kind == ChartKind::OfPie {
                 draw_of_pie(
                     s.first(),
@@ -1516,7 +1598,7 @@ fn draw_body(
         return;
     }
     if let Some((p, ss)) = plots.first().filter(|(p, _)| p.kind == ChartKind::Radar) {
-        draw_radar(p, ss, [6.0, top, right, bottom], font, locale, label, out);
+        draw_radar(p, ss, [left0, top, right, bottom], font, locale, label, out);
         return;
     }
     if surface {
@@ -1524,7 +1606,7 @@ fn draw_body(
             draw_surface(
                 ss,
                 &bands,
-                [6.0, top, right, bottom],
+                [left0, top, right, bottom],
                 font,
                 color,
                 label,
@@ -1534,7 +1616,7 @@ fn draw_body(
         return;
     }
     // Axis titles.
-    let mut left = 6.0;
+    let mut left = left0;
     if let Some(t) = chart.x_title.as_deref().filter(|t| !t.is_empty()) {
         let th = font * 1.6;
         label(
@@ -1564,6 +1646,31 @@ fn draw_body(
         );
         out.push(Command::PopTransform);
         left += th;
+    }
+    // Title of the secondary value axis, at the right.
+    if let Some(t) = chart
+        .axes
+        .val2
+        .title
+        .as_deref()
+        .filter(|t| !t.is_empty() && plots.iter().any(|(p, _)| p.secondary))
+    {
+        let th = font * 1.6;
+        let (cx, cy) = (right - th / 2.0, f64::midpoint(top, bottom));
+        out.push(Command::PushTransform {
+            m: [0.0, -1.0, 1.0, 0.0, cx as f32, cy as f32],
+        });
+        let half = (bottom - top) / 2.0;
+        label(
+            t,
+            [-half, -th / 2.0, half, th / 2.0],
+            Align::Center,
+            font,
+            TEXT,
+            out,
+        );
+        out.push(Command::PopTransform);
+        right -= th;
     }
     if let Some((p, ss)) = solid {
         let view = chart
@@ -1603,15 +1710,58 @@ fn draw_body(
         out,
     );
     if let Some((pl, pr, n)) = geo.filter(|_| table_rows > 0) {
-        data_table(
-            &plots,
-            [left, plot_bottom, right, bottom],
-            (pl, pr, n),
-            font,
-            locale,
-            label,
-            out,
-        );
+        // A reversed category axis reverses the table's columns with it.
+        let horizontal = plots
+            .iter()
+            .all(|(p, _)| p.kind == ChartKind::Bar && p.bar_dir.as_deref() == Some("bar"));
+        let m = elements::Mirror {
+            x: (chart.axes.cat.reverse && !horizontal).then_some(left + right),
+            y: None,
+        };
+        let (pl, pr) = if m.any() {
+            (left + right - pr, left + right - pl)
+        } else {
+            (pl, pr)
+        };
+        mirrored(m, label, out, &mut |label, out| {
+            data_table(
+                &plots,
+                [left, plot_bottom, right, bottom],
+                (pl, pr, n),
+                (font, !chart.axes.table_no_keys),
+                locale,
+                label,
+                out,
+            );
+        });
+    }
+}
+
+/// Runs `draw` with the plot mirrored by `m` (a reversed axis): label boxes are mirrored as they
+/// are placed, shapes after they are drawn.
+fn mirrored(
+    m: elements::Mirror,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+    draw: &mut dyn FnMut(&mut LabelFn<'_>, &mut Vec<Command>),
+) {
+    if !m.any() {
+        draw(label, out);
+        return;
+    }
+    let start = out.len();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    {
+        let mut lab =
+            |t: &str, r: [f64; 4], a: Align, size: f64, c: Rgba, out: &mut Vec<Command>| {
+                let from = out.len();
+                label(t, m.rect(r), m.align(a), size, c, out);
+                spans.push((from - start, out.len() - start));
+            };
+        draw(&mut lab, out);
+    }
+    if let Some(cmds) = out.get_mut(start..) {
+        m.apply(cmds, &spans);
     }
 }
 
@@ -1621,7 +1771,7 @@ fn data_table(
     plots: &[(&ChartPlot, Vec<Ser>)],
     [l, t, _r, b]: [f64; 4],
     (pl, pr, n): (f64, f64, usize),
-    font: f64,
+    (font, keys): (f64, bool),
     locale: &Locale,
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
@@ -1632,16 +1782,24 @@ fn data_table(
     let mut y = t + row;
     out.push(hline(l, pr, y, GRID, 0.5));
     for s in series {
-        out.push(rect(
-            l + 2.0,
-            y + row * 0.3,
-            font * 0.8,
-            font * 0.8,
-            s.color,
-        ));
+        // showKeys: the legend key beside the series name.
+        if keys {
+            out.push(rect(
+                l + 2.0,
+                y + row * 0.3,
+                font * 0.8,
+                font * 0.8,
+                s.color,
+            ));
+        }
         label(
             &s.name,
-            [l + font * 1.1, y, pl - 2.0, y + row],
+            [
+                l + if keys { font * 1.1 } else { 2.0 },
+                y,
+                pl - 2.0,
+                y + row,
+            ],
             Align::Left,
             font,
             TEXT,
@@ -1669,9 +1827,44 @@ fn data_table(
 }
 
 /// Draws the axes and plots of a category / XY chart; returns the plot's left and right edges and the
-/// number of categories (for the data table), `None` when there is nothing to draw.
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+/// number of categories (for the data table), `None` when there is nothing to draw. A reversed
+/// axis (orientation `maxMin`) mirrors the plot along its direction.
+#[allow(clippy::too_many_arguments)]
 fn draw_xy(
+    plots: &[(&ChartPlot, Vec<Ser>)],
+    area: [f64; 4],
+    font: f64,
+    locale: &Locale,
+    axes: &bo_model::sheet::ChartAxes,
+    look: &Look,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) -> Option<(f64, f64, usize)> {
+    let horizontal = plots
+        .iter()
+        .all(|(p, _)| p.kind == ChartKind::Bar && p.bar_dir.as_deref() == Some("bar"));
+    // The category axis runs across (down for horizontal bars), the value axis the other way.
+    let (rev_x, rev_y) = if horizontal {
+        (axes.val.reverse, axes.cat.reverse)
+    } else {
+        (axes.cat.reverse, axes.val.reverse)
+    };
+    let m = elements::Mirror {
+        x: rev_x.then_some(area[0] + area[2]),
+        y: rev_y.then_some(area[1] + area[3]),
+    };
+    let mut geo = None;
+    mirrored(m, label, out, &mut |label, out| {
+        geo = draw_xy_plain(plots, area, font, locale, axes, look, label, out);
+    });
+    geo.map(|(pl, pr, n)| match m.x {
+        Some(sum) => (sum - pr, sum - pl, n),
+        None => (pl, pr, n),
+    })
+}
+
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn draw_xy_plain(
     plots: &[(&ChartPlot, Vec<Ser>)],
     [l, t, r, b]: [f64; 4],
     font: f64,
@@ -1752,10 +1945,14 @@ fn draw_xy(
         for s in ss {
             if let Some(e) = &s.err_bars {
                 let vs: Vec<f64> = s.vals.iter().flatten().copied().collect();
-                for v in &vs {
-                    let d = err_amount(e, *v, &vs);
-                    vmax = vmax.max(v + d);
-                    vmin = vmin.min(v - d);
+                if e.dir.as_deref() == Some("x") {
+                    continue;
+                }
+                for (i, v) in s.vals.iter().enumerate() {
+                    let Some(v) = v else { continue };
+                    let (up, down) = err_amounts(e, i, *v, &vs);
+                    vmax = vmax.max(v + up);
+                    vmin = vmin.min(v - down);
                 }
             }
         }
@@ -1763,52 +1960,43 @@ fn draw_xy(
     if vmax <= vmin {
         vmax = vmin + 1.0;
     }
-    // §21.2.2.100 logBase: the axis runs over powers of the base (values ≤ 0 are not shown).
-    let log = axes.log_base.filter(|b| *b > 1.0);
+    // §21.2.2.100 logBase: the axis runs over powers of the base (values ≤ 0 are not shown);
+    // §21.2.2.111 min / §21.2.2.106 max / majorUnit fix the bounds and the unit.
     let positive_min = plots
         .iter()
         .flat_map(|(_, s)| s.iter().flat_map(|s| s.vals.iter().flatten().copied()))
         .filter(|v| *v > 0.0)
         .fold(f64::MAX, f64::min);
-    let tf = |v: f64| match log {
-        Some(base) => v.max(1e-300).log(base),
-        None => v,
-    };
-    let untf = |t: f64| match log {
-        Some(base) => base.powf(t),
-        None => t,
-    };
-    let (vmin, vmax, step) = if log.is_some() {
-        let lo = if positive_min < f64::MAX {
-            tf(positive_min).floor()
-        } else {
-            0.0
-        };
-        let hi = tf(vmax.max(untf(lo + 1.0))).ceil();
-        (lo, hi.max(lo + 1.0), 1.0)
-    } else {
-        auto_scale(vmin, vmax, axes.min, axes.max)
-    };
-    let (vmin, vmax) = if vmax > vmin {
-        (vmin, vmax)
-    } else {
-        (vmin, vmin + step)
-    };
+    let scale1 = elements::val_scale(
+        vmin,
+        vmax,
+        positive_min,
+        (axes.min, axes.max),
+        axes.log_base,
+        axes.val.major_unit,
+    );
+    let log = scale1.log;
+    let (vmin, vmax) = (scale1.lo, scale1.hi);
+    let untf = |t: f64| scale1.untf(t);
     // Secondary value axis (§21.2.2.226 valAx crossing at the right).
     let secondary = plots.iter().any(|(p, _)| p.secondary);
     // The same automatic scale as the primary axis: from zero, or from the data for the prices of a
     // volume stock chart (CORE-CHART-002).
-    let (smin, smax, sstep) = {
+    let scale2 = {
         let (mut lo, mut hi) = if prices_only(true) {
             (f64::INFINITY, f64::NEG_INFINITY)
         } else {
             (0.0_f64, 0.0_f64)
         };
+        let mut positive = f64::MAX;
         for (_, ss) in plots.iter().filter(|(p, _)| p.secondary) {
             for s in ss {
                 for v in s.vals.iter().flatten() {
                     lo = lo.min(*v);
                     hi = hi.max(*v);
+                    if *v > 0.0 {
+                        positive = positive.min(*v);
+                    }
                 }
             }
         }
@@ -1818,7 +2006,8 @@ fn draw_xy(
         if hi <= lo {
             hi = lo + 1.0;
         }
-        auto_scale(lo, hi, None, None)
+        let o = &axes.val2;
+        elements::val_scale(lo, hi, positive, (o.min, o.max), o.log_base, o.major_unit)
     };
     // Scatter X range.
     let xs_of = |s: &Ser| -> Vec<f64> {
@@ -1835,9 +2024,19 @@ fn draw_xy(
     if scatter {
         for (_, ss) in plots {
             for s in ss {
-                for x in xs_of(s) {
-                    xmin = xmin.min(x);
-                    xmax = xmax.max(x);
+                let xs = xs_of(s);
+                for x in &xs {
+                    xmin = xmin.min(*x);
+                    xmax = xmax.max(*x);
+                }
+                // forward / backward: a trend line extended past the data
+                // widens the axis.
+                let (a, z) = xs
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(a, z), x| (a.min(*x), z.max(*x)));
+                for tl in s.trendlines.iter().filter(|_| !xs.is_empty()) {
+                    xmin = xmin.min(a - tl.backward.unwrap_or(0.0).max(0.0));
+                    xmax = xmax.max(z + tl.forward.unwrap_or(0.0).max(0.0));
                 }
             }
         }
@@ -1845,61 +2044,93 @@ fn draw_xy(
             xmax = xmin + 1.0;
         }
     }
-    let xstep = nice_step(xmax - xmin, 5.0);
+    // The X axis of a scatter chart: its own unit and bounds (the category axis options).
+    let x_fixed = scatter
+        && (axes.cat.min.is_some() || axes.cat.max.is_some() || axes.cat.major_unit.is_some());
+    let xstep = axes
+        .cat
+        .major_unit
+        .filter(|u| scatter && u.is_finite() && *u > 0.0 && (xmax - xmin) / *u <= 400.0)
+        .unwrap_or_else(|| nice_step(xmax - xmin, 5.0));
     let (xmin, xmax) = if scatter {
-        (
-            (xmin / xstep).floor() * xstep,
-            (xmax / xstep).ceil() * xstep,
-        )
+        let lo = axes.cat.min.unwrap_or((xmin / xstep).floor() * xstep);
+        let hi = axes.cat.max.unwrap_or((xmax / xstep).ceil() * xstep);
+        if hi > lo {
+            (lo, hi)
+        } else {
+            (lo, lo + xstep)
+        }
     } else {
         (0.0, 1.0)
     };
+    let xtol = if x_fixed { 1e-6 } else { 0.5 };
     let label_w = font * 4.0;
     let label_h = font * 1.6;
-    let right_w = if secondary && !horizontal {
+    // tickLblPos / delete of the axes.
+    let val_labels = !axes.val.deleted && axes.val.label_pos.as_deref() != Some("none");
+    let cat_labels = !axes.cat.deleted && axes.cat.label_pos.as_deref() != Some("none");
+    // Value labels at the far side: `high`, or the axis crossing at the maximum (§21.2.2.33).
+    let val_high = !horizontal
+        && (axes.val.label_pos.as_deref() == Some("high")
+            || axes.val.crosses.as_deref() == Some("max"));
+    let cat_high = !horizontal && axes.cat.label_pos.as_deref() == Some("high");
+    let right_w = if (secondary || val_high) && !horizontal {
         label_w
     } else {
         0.0
     };
     let (pl, pt, pr, pb) = if horizontal {
         (l + label_w * 1.4, t, r, b - label_h)
+    } else if cat_high {
+        (l + label_w, t + label_h, r - right_w, b - font * 0.5)
     } else {
         (l + label_w, t + font * 0.5, r - right_w, b - label_h)
     };
     let (pw, ph) = ((pr - pl).max(1.0), (pb - pt).max(1.0));
     // On a log axis values at or below the axis minimum (bars from zero) start at the bottom.
-    let vpos1 = |v: f64| {
-        let f = (tf(v) - vmin) / (vmax - vmin);
-        if log.is_some() {
-            f.max(0.0)
-        } else {
-            f
-        }
-    };
-    let vpos2 = |v: f64| (v - smin) / (smax - smin);
+    let vpos1 = |v: f64| scale1.pos(v);
+    let vpos2 = |v: f64| scale2.pos(v);
     let vpos = vpos1;
     // §21.2.2.145 plot area spPr.
     if let Some(pf) = look.plot_fill {
         out.push(rect(pl, pt, pw, ph, pf));
     }
+    // minorGridlines of the value axis, under the major ones.
+    if axes.val.minor_grid {
+        for f in scale1.minor(axes.val.minor_unit) {
+            out.push(if horizontal {
+                vline(pl + f * pw, pt, pb, elements::GRID_MINOR, 0.35)
+            } else {
+                hline(pl, pr, pb - f * ph, elements::GRID_MINOR, 0.35)
+            });
+        }
+    }
     // Gridlines + value labels (on a log axis, at each power of the base).
-    let mut tv = vmin;
-    let mut guard = 0;
-    while tv <= vmax + step * 0.5 && guard < 60 {
+    for tv in scale1.ticks() {
         let v = untf(tv);
-        let f = (tv - vmin) / (vmax - vmin);
-        let text = fmt_num(v, locale);
+        let f = scale1.frac(tv);
+        let text = elements::fmt_tick(v, &axes.val, locale);
         if horizontal {
             let x = pl + f * pw;
             if look.val_grid {
                 out.push(vline(x, pt, pb, GRID, 0.5));
             }
-            label(
-                &text,
-                [x - label_w / 2.0, pb, x + label_w / 2.0, b],
-                Align::Center,
-                font,
-                TEXT,
+            if val_labels {
+                label(
+                    &text,
+                    [x - label_w / 2.0, pb, x + label_w / 2.0, b],
+                    Align::Center,
+                    font,
+                    TEXT,
+                    out,
+                );
+            }
+            elements::tick(
+                axes.val.major_tick.as_deref(),
+                (x, pb),
+                true,
+                -1.0,
+                elements::tick_len(false),
                 out,
             );
         } else {
@@ -1907,41 +2138,97 @@ fn draw_xy(
             if look.val_grid {
                 out.push(hline(pl, pr, y, GRID, 0.5));
             }
-            label(
-                &text,
-                [l, y - label_h / 2.0, pl - 3.0, y + label_h / 2.0],
-                Align::Right,
-                font,
-                TEXT,
+            if val_labels && val_high {
+                label(
+                    &text,
+                    [pr + 3.0, y - label_h / 2.0, r, y + label_h / 2.0],
+                    Align::Left,
+                    font,
+                    TEXT,
+                    out,
+                );
+            } else if val_labels {
+                label(
+                    &text,
+                    [l, y - label_h / 2.0, pl - 3.0, y + label_h / 2.0],
+                    Align::Right,
+                    font,
+                    TEXT,
+                    out,
+                );
+            }
+            elements::tick(
+                axes.val.major_tick.as_deref(),
+                (pl, y),
+                false,
+                1.0,
+                elements::tick_len(false),
                 out,
             );
         }
-        tv += step;
-        guard += 1;
     }
-    if secondary && !horizontal {
-        let mut v = smin;
-        let mut guard = 0;
-        while v <= smax + sstep * 0.5 && guard < 60 {
-            let y = pb - vpos2(v) * ph;
+    // minorTickMark of the value axis.
+    if axes.val.minor_tick.is_some() {
+        for f in scale1.minor(axes.val.minor_unit) {
+            let (at, along_x, inward) = if horizontal {
+                ((pl + f * pw, pb), true, -1.0)
+            } else {
+                ((pl, pb - f * ph), false, 1.0)
+            };
+            elements::tick(
+                axes.val.minor_tick.as_deref(),
+                at,
+                along_x,
+                inward,
+                elements::tick_len(true),
+                out,
+            );
+        }
+    }
+    // dispUnitsLbl: the unit of the value labels, in the corner of the plot.
+    if let Some(unit) = elements::unit_label(&axes.val).filter(|_| val_labels) {
+        label(
+            &unit,
+            [pl + 2.0, pt, pl + label_w * 1.5, pt + label_h],
+            Align::Left,
+            font,
+            TEXT,
+            out,
+        );
+    }
+    if secondary
+        && !horizontal
+        && !axes.val2.deleted
+        && axes.val2.label_pos.as_deref() != Some("none")
+    {
+        for tv in scale2.ticks() {
+            let y = pb - scale2.frac(tv) * ph;
             label(
-                &fmt_num(v, locale),
+                &elements::fmt_tick(scale2.untf(tv), &axes.val2, locale),
                 [pr + 3.0, y - label_h / 2.0, r, y + label_h / 2.0],
                 Align::Left,
                 font,
                 TEXT,
                 out,
             );
-            v += sstep;
-            guard += 1;
         }
     }
-    let zero = if log.is_some() {
-        0.0
-    } else {
-        vpos(0.0_f64.clamp(vmin, vmax))
+    // Where the category axis sits on the value axis: at zero, or crossesAt /
+    // §21.2.2.33 crosses of the category axis (bars and areas start there).
+    let base_v = match (axes.cat.crosses_at, axes.cat.crosses.as_deref()) {
+        (Some(v), _) => Some(v),
+        (None, Some("max")) => Some(untf(vmax)),
+        (None, Some("min")) => Some(untf(vmin)),
+        _ => None,
     };
-    if horizontal {
+    let floor_v = base_v.unwrap_or(0.0);
+    let zero = match base_v {
+        Some(v) => vpos(v).clamp(0.0, 1.0),
+        None if log.is_some() => 0.0,
+        None => vpos(0.0_f64.clamp(vmin, vmax)),
+    };
+    if axes.cat.deleted {
+    } else if horizontal {
         out.push(vline(pl + zero * pw, pt, pb, AXIS, 0.75));
     } else {
         out.push(hline(pl, pr, pb - zero * ph, AXIS, 0.75));
@@ -1953,7 +2240,7 @@ fn draw_xy(
         if scatter {
             let mut x = xmin;
             let mut guard = 0;
-            while x <= xmax + xstep * 0.5 && guard < 60 {
+            while x <= xmax + xstep * xtol && guard < 60 {
                 out.push(vline(
                     pl + (x - xmin) / (xmax - xmin) * pw,
                     pt,
@@ -1975,23 +2262,84 @@ fn draw_xy(
             }
         }
     }
+    // minorGridlines of the category axis: through the middle of each category (at a
+    // fifth of the X unit of a scatter chart); majorTickMark between the categories.
+    if axes.cat.minor_grid {
+        if scatter {
+            let u = axes
+                .cat
+                .minor_unit
+                .filter(|u| *u > 0.0 && (xmax - xmin) / *u <= 600.0)
+                .unwrap_or(xstep / 5.0);
+            let mut x = xmin + u;
+            let mut guard = 0;
+            while x < xmax - u * 1e-6 && guard < 600 {
+                out.push(vline(
+                    pl + (x - xmin) / (xmax - xmin) * pw,
+                    pt,
+                    pb,
+                    elements::GRID_MINOR,
+                    0.35,
+                ));
+                x += u;
+                guard += 1;
+            }
+        } else {
+            for i in 0..ncat {
+                let o = (i as f64 + 0.5) * slot;
+                out.push(if horizontal {
+                    hline(pl, pr, pb - o, elements::GRID_MINOR, 0.35)
+                } else {
+                    vline(pl + o, pt, pb, elements::GRID_MINOR, 0.35)
+                });
+            }
+        }
+    }
+    if axes.cat.major_tick.is_some() && !axes.cat.deleted && !scatter {
+        for i in 0..=ncat {
+            let o = i as f64 * slot;
+            let (at, along_x, inward) = if horizontal {
+                ((pl + zero * pw, pb - o), false, 1.0)
+            } else {
+                ((pl + o, pb - zero * ph), true, -1.0)
+            };
+            elements::tick(
+                axes.cat.major_tick.as_deref(),
+                at,
+                along_x,
+                inward,
+                elements::tick_len(false),
+                out,
+            );
+        }
+    }
     if scatter {
         let mut x = xmin;
         let mut guard = 0;
-        while x <= xmax + xstep * 0.5 && guard < 60 {
+        while x <= xmax + xstep * xtol && guard < 60 {
             let px = pl + (x - xmin) / (xmax - xmin) * pw;
-            label(
-                &fmt_num(x, locale),
-                [px - label_w / 2.0, pb + 1.0, px + label_w / 2.0, b],
-                Align::Center,
-                font,
-                TEXT,
+            if cat_labels {
+                label(
+                    &elements::fmt_tick(x, &axes.cat, locale),
+                    [px - label_w / 2.0, pb + 1.0, px + label_w / 2.0, b],
+                    Align::Center,
+                    font,
+                    TEXT,
+                    out,
+                );
+            }
+            elements::tick(
+                axes.cat.major_tick.as_deref(),
+                (px, pb),
+                true,
+                -1.0,
+                elements::tick_len(false),
                 out,
             );
             x += xstep;
             guard += 1;
         }
-    } else {
+    } else if cat_labels {
         let cats: Vec<String> = (0..ncat)
             .map(|i| {
                 plots
@@ -2000,13 +2348,29 @@ fn draw_xy(
                     .find_map(|s| s.cats.get(i).filter(|c| !c.is_empty()).cloned())
                     .unwrap_or_else(|| (i + 1).to_string())
             })
-            // §21.2.2.39 dateAx: serial-number categories shown as dates (dd/mm/yyyy).
+            // numFmt of the axis formats numeric categories.
+            .map(|c| {
+                match (
+                    axes.cat.num_fmt.as_deref().filter(|f| !f.is_empty()),
+                    c.trim().parse::<f64>().ok(),
+                ) {
+                    (Some(code), Some(v)) => (elements::fmt_code(v, Some(code), locale), true),
+                    _ => (c, false),
+                }
+            })
+            // §21.2.2.39 dateAx: serial-number categories shown as dates (dd/mm/yyyy; by the
+            // month or the year with a baseTimeUnit of months / years).
             .map(
-                |c| match c.trim().parse::<f64>().ok().filter(|_| axes.date) {
-                    Some(serial) => crate::numfmt::serial_to_datetime(serial, false, 0)
-                        .map_or(c.clone(), |d| {
-                            format!("{:02}/{:02}/{}", d.day, d.month, d.year)
-                        }),
+                |(c, done)| match c.trim().parse::<f64>().ok().filter(|_| axes.date && !done) {
+                    Some(serial) => {
+                        crate::numfmt::serial_to_datetime(serial, false, 0).map_or(c.clone(), |d| {
+                            match axes.cat.base_unit.as_deref() {
+                                Some("months") => format!("{:02}/{}", d.month, d.year),
+                                Some("years") => format!("{}", d.year),
+                                _ => format!("{:02}/{:02}/{}", d.day, d.month, d.year),
+                            }
+                        })
+                    }
                     None => c,
                 },
             )
@@ -2019,13 +2383,19 @@ fn draw_xy(
                 label(c, [l, y, pl - 3.0, y + slot], Align::Right, font, TEXT, out);
             } else if i % every == 0 {
                 let x = pl + i as f64 * slot;
+                // tickLblPos `high`: above the plot.
+                let (y0, y1) = if cat_high {
+                    (t, pt - 1.0)
+                } else {
+                    (pb + 1.0, b)
+                };
                 label(
                     c,
                     [
                         x - slot * (every as f64 - 1.0) / 2.0,
-                        pb + 1.0,
+                        y0,
                         x + slot * (every as f64 + 1.0) / 2.0,
-                        b,
+                        y1,
                     ],
                     Align::Center,
                     font,
@@ -2050,11 +2420,7 @@ fn draw_xy(
                 let stacked = stacked_of(p);
                 let gap = look.gap / nbar_groups;
                 let group = slot / (1.0 + gap);
-                let bar = if stacked {
-                    group
-                } else {
-                    group / ss.len().max(1) as f64
-                };
+                let (bar, pitch) = bar_layout(p, group, ss.len());
                 for i in 0..ncat {
                     let total: f64 = ss.iter().map(|s| val(s, i).abs()).sum();
                     let (mut pos, mut neg) = (0.0, 0.0);
@@ -2072,13 +2438,13 @@ fn draw_xy(
                             }
                             (base, base + v)
                         } else {
-                            (0.0, v)
+                            (floor_v, v)
                         };
                         let (a, z) = (vpos(from), vpos(to));
                         let (lo, hi) = (a.min(z), a.max(z));
                         let off = i as f64 * slot
                             + (slot - group) / 2.0
-                            + if stacked { 0.0 } else { si as f64 * bar };
+                            + if stacked { 0.0 } else { si as f64 * pitch };
                         let c = s.pts.get(i).copied().unwrap_or(s.color);
                         let bx = if horizontal {
                             [pl + lo * pw, pb - off - bar, (hi - lo) * pw, bar]
@@ -2093,17 +2459,43 @@ fn draw_xy(
                         // a stacked one.
                         let total = if percent_of(p) { Some(v / 100.0) } else { None };
                         let cat = s.cats.get(i).map_or("", String::as_str);
-                        if let Some(text) = look.label_text(&s.name, cat, val(s, i), total, locale)
+                        let Some(d) = elements::labels_at(look.labels.as_ref(), s, i) else {
+                            continue;
+                        };
+                        if let Some(text) =
+                            elements::label_text(d, &s.name, cat, val(s, i), total, locale)
                         {
-                            let centre = stacked
-                                || look.labels.as_ref().and_then(|d| d.pos.as_deref())
-                                    == Some("ctr");
-                            let (x, y) = match (horizontal, centre) {
-                                (_, true) => (bx[0] + bx[2] / 2.0, bx[1] + bx[3] / 2.0),
-                                (true, false) => (bx[0] + bx[2] + font * 1.2, bx[1] + bx[3] / 2.0),
-                                (false, false) => (bx[0] + bx[2] / 2.0, bx[1] - font * 0.8),
+                            // §21.2.2.48 dLblPos: `ctr`, inside at the end / the base, else
+                            // outside the end (the middle of a stacked bar).
+                            let pos = d.pos.as_deref();
+                            let inside = matches!(pos, Some("inEnd" | "inBase"));
+                            let centre = pos == Some("ctr") || (stacked && !inside);
+                            // The end of the bar is away from its base: down / left when negative.
+                            let far = (to < from) != (pos == Some("inBase"));
+                            let (x, y) = match (horizontal, centre, inside) {
+                                (_, true, _) => (bx[0] + bx[2] / 2.0, bx[1] + bx[3] / 2.0),
+                                (true, _, true) => (
+                                    if far {
+                                        bx[0] + font * 1.2
+                                    } else {
+                                        bx[0] + bx[2] - font * 1.2
+                                    },
+                                    bx[1] + bx[3] / 2.0,
+                                ),
+                                (false, _, true) => (
+                                    bx[0] + bx[2] / 2.0,
+                                    if far {
+                                        bx[1] + bx[3] - font * 0.8
+                                    } else {
+                                        bx[1] + font * 0.8
+                                    },
+                                ),
+                                (true, false, false) => {
+                                    (bx[0] + bx[2] + font * 1.2, bx[1] + bx[3] / 2.0)
+                                }
+                                (false, false, false) => (bx[0] + bx[2] / 2.0, bx[1] - font * 0.8),
                             };
-                            let ink = if centre {
+                            let ink = if centre || inside {
                                 Rgba(255, 255, 255, 255)
                             } else {
                                 TEXT
@@ -2138,9 +2530,10 @@ fn draw_xy(
                         pb - vpos(if stacked {
                             base[i]
                         } else {
-                            0.0_f64.clamp(vmin, vmax)
+                            floor_v.clamp(vmin, vmax)
                         }) * ph
                     };
+                    let line_w = s.opts.line_w.unwrap_or(look.line_w);
                     if s.masked() {
                         // Built point by point: each shown point brings the piece of line / area
                         // from the point before it.
@@ -2156,13 +2549,15 @@ fn draw_xy(
                                 ];
                                 look.shape(segs, [pl, pt, pr, pb], s.color, out);
                             } else {
-                                out.push(polyline(&[a, z], s.color, look.line_w));
+                                out.push(polyline(&[a, z], s.color, line_w));
                             }
                         }
                         if p.kind != ChartKind::Area {
                             let shown: Vec<(f64, f64)> =
                                 (0..ncat).filter(|i| s.shown(*i)).map(|i| pts[i]).collect();
-                            look.markers(&shown, s.color, out);
+                            if !elements::own_markers(s, &shown, out) {
+                                look.markers(&shown, s.color, out);
+                            }
                         }
                     } else if p.kind == ChartKind::Area {
                         let mut segs = Vec::with_capacity(ncat * 2 + 2);
@@ -2178,7 +2573,7 @@ fn draw_xy(
                                 - vpos(if stacked {
                                     base[i]
                                 } else {
-                                    0.0_f64.clamp(vmin, vmax)
+                                    floor_v.clamp(vmin, vmax)
                                 }) * ph;
                             segs.push(PathSeg::L(pts[i].0 as f32, y as f32));
                         }
@@ -2199,20 +2594,25 @@ fn draw_xy(
                             look.shape(segs, [pl, pt, pr, pb], s.color, out);
                         }
                     } else {
-                        out.push(polyline(&pts, s.color, look.line_w));
-                        look.markers(&pts, s.color, out);
+                        out.push(elements::series_line(s, &pts, line_w));
+                        if !elements::own_markers(s, &pts, out) {
+                            look.markers(&pts, s.color, out);
+                        }
                     }
-                    if look.labels.is_some() {
-                        for (i, (x, y)) in pts.iter().enumerate() {
-                            if !s.shown(i) {
-                                continue;
-                            }
-                            let cat = s.cats.get(i).map_or("", String::as_str);
-                            if let Some(text) =
-                                look.label_text(&s.name, cat, share(s, i), None, locale)
-                            {
-                                Look::put_label(&text, *x, y - font * 0.9, font, TEXT, label, out);
-                            }
+                    for (i, (x, y)) in pts.iter().enumerate() {
+                        if !s.shown(i) {
+                            continue;
+                        }
+                        let Some(d) = elements::labels_at(look.labels.as_ref(), s, i) else {
+                            continue;
+                        };
+                        let cat = s.cats.get(i).map_or("", String::as_str);
+                        if let Some(text) =
+                            elements::label_text(d, &s.name, cat, share(s, i), None, locale)
+                        {
+                            // §21.2.2.48 dLblPos of a line: above by default.
+                            let (dx, dy) = point_label_offset(d.pos.as_deref(), &text, font);
+                            Look::put_label(&text, x + dx, y + dy, font, TEXT, label, out);
                         }
                     }
                     if stacked {
@@ -2234,7 +2634,17 @@ fn draw_xy(
                         }
                         let px = pl + (x - xmin) / (xmax - xmin) * pw;
                         let py = pb - vpos(y) * ph;
-                        out.push(rect(px - 2.5, py - 2.5, 5.0, 5.0, s.color));
+                        if !elements::own_markers(s, &[(px, py)], out) {
+                            out.push(rect(px - 2.5, py - 2.5, 5.0, 5.0, s.color));
+                        }
+                        let Some(d) = elements::labels_at(look.labels.as_ref(), s, i) else {
+                            continue;
+                        };
+                        let cat = s.cats.get(i).map_or("", String::as_str);
+                        if let Some(text) = elements::label_text(d, &s.name, cat, y, None, locale) {
+                            let (dx, dy) = point_label_offset(d.pos.as_deref(), &text, font);
+                            Look::put_label(&text, px + dx, py + dy, font, TEXT, label, out);
+                        }
                     }
                 }
             }
@@ -2394,8 +2804,8 @@ fn draw_xy(
             let bar_x = |i: usize| -> f64 {
                 if p.kind == ChartKind::Bar && !stacked_of(p) {
                     let group = slot / (1.0 + look.gap);
-                    let bar = group / ss.len().max(1) as f64;
-                    pl + i as f64 * slot + (slot - group) / 2.0 + si as f64 * bar + bar / 2.0
+                    let (bar, pitch) = bar_layout(p, group, ss.len());
+                    pl + i as f64 * slot + (slot - group) / 2.0 + si as f64 * pitch + bar / 2.0
                 } else {
                     x_of(i)
                 }
@@ -2409,7 +2819,33 @@ fn draw_xy(
                 }
             };
             if let Some(e) = &s.err_bars {
-                if !horizontal {
+                let cap = if e.no_end_cap {
+                    0.0
+                } else {
+                    (slot * 0.08).clamp(2.0, 6.0)
+                };
+                if !horizontal && scatter_plot && e.dir.as_deref() == Some("x") {
+                    // errDir `x`: bars along the X axis of an XY series.
+                    let all: Vec<f64> = xs.clone();
+                    for (i, v) in s.vals.iter().enumerate() {
+                        let Some(v) = v else { continue };
+                        let (up, down) = err_amounts(e, i, xs[i], &all);
+                        let (hi, lo) = match e.kind.as_str() {
+                            "plus" => (xs[i] + up, xs[i]),
+                            "minus" => (xs[i], xs[i] - down),
+                            _ => (xs[i] + up, xs[i] - down),
+                        };
+                        let y = pb - vpos(*v) * ph;
+                        let to_px = |x: f64| pl + (x - xmin) / (xmax - xmin) * pw;
+                        out.push(hline(to_px(lo), to_px(hi), y, TEXT, 0.75));
+                        if cap > 0.0 && e.kind != "minus" {
+                            out.push(vline(to_px(hi), y - cap, y + cap, TEXT, 0.75));
+                        }
+                        if cap > 0.0 && e.kind != "plus" {
+                            out.push(vline(to_px(lo), y - cap, y + cap, TEXT, 0.75));
+                        }
+                    }
+                } else if !horizontal {
                     let vs: Vec<f64> = s.vals.iter().flatten().copied().collect();
                     let mean = if vs.is_empty() {
                         0.0
@@ -2420,20 +2856,20 @@ fn draw_xy(
                         let Some(v) = v else { continue };
                         // Standard-deviation bars sit around the mean of the series.
                         let centre = if e.value_type == "stdDev" { mean } else { *v };
-                        let d = err_amount(e, *v, &vs);
+                        let (up, down) = err_amounts(e, i, *v, &vs);
                         let (hi, lo) = match e.kind.as_str() {
-                            "plus" => (centre + d, centre),
-                            "minus" => (centre, centre - d),
-                            _ => (centre + d, centre - d),
+                            "plus" => (centre + up, centre),
+                            "minus" => (centre, centre - down),
+                            _ => (centre + up, centre - down),
                         };
                         let x = px_of(i);
                         let (yh, yl) = (pb - vpos(hi) * ph, pb - vpos(lo) * ph);
                         out.push(vline(x, yh, yl, TEXT, 0.75));
-                        let cap = (slot * 0.08).clamp(2.0, 6.0);
-                        if e.kind != "minus" {
+                        // noEndCap.
+                        if cap > 0.0 && e.kind != "minus" {
                             out.push(hline(x - cap, x + cap, yh, TEXT, 0.75));
                         }
-                        if e.kind != "plus" {
+                        if cap > 0.0 && e.kind != "plus" {
                             out.push(hline(x - cap, x + cap, yl, TEXT, 0.75));
                         }
                     }
@@ -2457,6 +2893,19 @@ fn draw_xy(
                 let (x0, x1) = pts.iter().fold((f64::MAX, f64::MIN), |(a, z), (x, _)| {
                     (a.min(*x), z.max(*x))
                 });
+                // forward / backward: the line extended past the data (as far
+                // as the plot goes on a category axis).
+                let (x0, x1) = if tl.kind == "movingAvg" {
+                    (x0, x1)
+                } else {
+                    let a = x0 - tl.backward.unwrap_or(0.0).max(0.0);
+                    let z = x1 + tl.forward.unwrap_or(0.0).max(0.0);
+                    if scatter_plot {
+                        (a.max(xmin), z.min(xmax))
+                    } else {
+                        (a.max(0.5), z.min(ncat as f64 + 0.5))
+                    }
+                };
                 let to_px = |x: f64| {
                     if scatter_plot {
                         pl + (x - xmin) / (xmax - xmin) * pw
@@ -2513,8 +2962,10 @@ fn draw_xy(
                 if let Some((x, y)) = curve.last() {
                     // One block of labels per series, stacked upwards so that they do not overlap.
                     let lift = font * 1.4 * (lines.len() * si) as f64;
+                    // A line running off the top of the plot keeps its labels inside it.
+                    let above = (pt - (y - lift - font * 1.4 * lines.len() as f64)).max(0.0);
                     for (k, text) in lines.iter().enumerate() {
-                        let yy = y - lift - font * 1.4 * (lines.len() - k) as f64;
+                        let yy = y - lift - font * 1.4 * (lines.len() - k) as f64 + above;
                         label(
                             text,
                             [x - font * 12.0, yy, *x, yy + font * 1.4],
@@ -2559,6 +3010,56 @@ fn err_amount(e: &bo_model::sheet::ErrorBars, v: f64, all: &[f64]) -> f64 {
     }
 }
 
+/// Error amounts (above, below) of point `i` with value `v`: the custom amounts of a `cust` set
+/// (plus / minus), else [`err_amount`] both ways.
+fn err_amounts(e: &bo_model::sheet::ErrorBars, i: usize, v: f64, all: &[f64]) -> (f64, f64) {
+    if e.value_type == "cust" {
+        let at = |pts: &[Option<f64>]| {
+            // One amount for every point, or one per point.
+            let p = if pts.len() == 1 {
+                pts.first()
+            } else {
+                pts.get(i)
+            };
+            p.copied().flatten().map_or(0.0, f64::abs)
+        };
+        return (at(&e.plus), at(&e.minus));
+    }
+    let d = err_amount(e, v, all);
+    (d, d)
+}
+
+/// Width of one bar and the distance from one bar of a category to the next, for `n` series
+/// sharing a group `group` wide: bars side by side, or overlapping by overlap
+/// (percent of a bar; negative = a gap between them).
+fn bar_layout(p: &ChartPlot, group: f64, n: usize) -> (f64, f64) {
+    let n = n.max(1) as f64;
+    if matches!(p.grouping.as_deref(), Some("stacked" | "percentStacked")) {
+        return (group, group);
+    }
+    match p.overlap {
+        Some(o) => {
+            let step = 1.0 - f64::from(o.clamp(-100, 100)) / 100.0;
+            let bar = group / (1.0 + (n - 1.0) * step);
+            (bar, bar * step)
+        }
+        None => (group / n, group / n),
+    }
+}
+
+/// Offset of the centre of a data label from its point (§21.2.2.48 dLblPos `t`, `b`, `l`, `r`,
+/// `ctr`; above by default).
+fn point_label_offset(pos: Option<&str>, text: &str, font: f64) -> (f64, f64) {
+    let half = font * (text.chars().count() as f64 * 0.3 + 0.9);
+    match pos {
+        Some("b") => (0.0, font * 0.9),
+        Some("l") => (-half, 0.0),
+        Some("r") => (half, 0.0),
+        Some("ctr") => (0.0, 0.0),
+        _ => (0.0, -font * 0.9),
+    }
+}
+
 /// A number with at most `digits` decimals (trailing zeros dropped), in the locale.
 fn fmt_dec(v: f64, digits: usize, locale: &Locale) -> String {
     let s = format!("{v:.digits$}");
@@ -2586,6 +3087,33 @@ impl Fit {
         if pts.len() < 2 {
             return None;
         }
+        // intercept: the fit goes through the set value at x = 0.
+        let through = t.intercept.filter(|c| c.is_finite());
+        let c = match (t.kind.as_str(), through) {
+            ("linear", Some(c0)) => elements::fit_through(pts, c0, 1)?,
+            ("poly", Some(c0)) => {
+                let k = (t.order.clamp(2, 6) as usize).min(pts.len());
+                elements::fit_through(pts, c0, k)?
+            }
+            ("exp", Some(c0)) if c0 > 0.0 => {
+                let q: Vec<(f64, f64)> = pts
+                    .iter()
+                    .filter(|(_, y)| *y > 0.0)
+                    .map(|(x, y)| (*x, y.ln()))
+                    .collect();
+                let c = elements::fit_through(&q, c0.ln(), 1)?;
+                vec![c0, c[1]]
+            }
+            _ => Self::free(t, pts)?,
+        };
+        Some(Fit {
+            kind: t.kind.clone(),
+            c,
+        })
+    }
+
+    /// Coefficients of the least squares fit with a free intercept.
+    fn free(t: &bo_model::sheet::Trendline, pts: &[(f64, f64)]) -> Option<Vec<f64>> {
         // Linear fit of (g(x), h(y)) by the LINEST solver: returns (intercept, slope).
         let line = |pts: &[(f64, f64)]| -> Option<(f64, f64)> {
             let x: Vec<Vec<f64>> = pts.iter().map(|(x, _)| vec![*x]).collect();
@@ -2638,10 +3166,7 @@ impl Fit {
                 vec![a, b]
             }
         };
-        Some(Fit {
-            kind: t.kind.clone(),
-            c,
-        })
+        Some(c)
     }
 
     fn at(&self, x: f64) -> Option<f64> {
@@ -2813,7 +3338,13 @@ fn draw_pie(
     }
     // §21.2.2.65 explosion: slices pushed out by a share of the radius (the pie shrinks to fit).
     let ex = f64::from(s.explosion.min(400)) / 100.0;
-    let rad = (((r - l).min(b - t) / 2.0 - 2.0) / (1.0 + ex)).max(1.0);
+    // Labels outside the slices take room around the pie.
+    let outside = (0..s.vals.len()).any(|i| {
+        elements::labels_at(look.labels.as_ref(), s, i)
+            .is_some_and(|d| d.pos.as_deref() == Some("outEnd"))
+    });
+    let room = if outside { font * 3.2 } else { 0.0 };
+    let rad = ((((r - l).min(b - t) / 2.0 - 2.0 - room) / (1.0 + ex)).max(1.0)).max(1.0);
     let (cx, cy) = (f64::midpoint(l, r), f64::midpoint(t, b));
     let inner = if doughnut { rad * 0.5 } else { 0.0 };
     let mut a = 0.0;
@@ -2852,12 +3383,42 @@ fn draw_pie(
                 out,
             );
         }
-        // §21.2.2.49 data labels inside the slice.
+        // §21.2.2.49 data labels inside the slice; §21.2.2.48 dLblPos `outEnd`: outside it, with
+        // a leader line.
         let cat = s.cats.get(i).map_or("", String::as_str);
-        if let Some(text) = look.label_text(&s.name, cat, *v, Some(v / total), locale) {
-            let lr = if doughnut { rad * 0.75 } else { rad * 0.62 };
-            let (lx, ly) = (cx + ox + lr * mid.sin(), cy + oy - lr * mid.cos());
-            Look::put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
+        let text = elements::labels_at(look.labels.as_ref(), s, i).and_then(|d| {
+            elements::label_text(d, &s.name, cat, *v, Some(v / total), locale).map(|t| (d, t))
+        });
+        if let Some((d, text)) = text {
+            if d.pos.as_deref() == Some("outEnd") {
+                let half = font * (text.chars().count() as f64 * 0.3 + 0.5);
+                let lr = rad * 1.1 + font * 0.7;
+                let (lx, ly) = (
+                    cx + ox + lr * mid.sin() + half * mid.sin(),
+                    cy + oy - lr * mid.cos(),
+                );
+                if d.leader_lines != Some(false) {
+                    out.push(Command::Line {
+                        x1: (cx + ox + rad * mid.sin()) as f32,
+                        y1: (cy + oy - rad * mid.cos()) as f32,
+                        x2: (cx + ox + rad * 1.08 * mid.sin()) as f32,
+                        y2: (cy + oy - rad * 1.08 * mid.cos()) as f32,
+                        width: 0.5,
+                        color: AXIS,
+                        dash: None,
+                    });
+                }
+                Look::put_label(&text, lx, ly, font, TEXT, label, out);
+            } else {
+                let lr = match (doughnut, d.pos.as_deref()) {
+                    (true, _) => rad * 0.75,
+                    (false, Some("inEnd")) => rad * 0.8,
+                    (false, Some("ctr")) => rad * 0.5,
+                    (false, _) => rad * 0.62,
+                };
+                let (lx, ly) = (cx + ox + lr * mid.sin(), cy + oy - lr * mid.cos());
+                Look::put_label(&text, lx, ly, font, Rgba(255, 255, 255, 255), label, out);
+            }
         }
         a += sw;
     }
@@ -3578,6 +4139,7 @@ fn draw_of_pie(
         subtotals: Vec::new(),
         trendlines: Vec::new(),
         err_bars: None,
+        opts: elements::SerOpts::default(),
         hidden: Vec::new(),
     };
     let main = plain(
@@ -3925,6 +4487,7 @@ mod tests {
             order,
             disp_eq: true,
             disp_r2: true,
+            ..bo_model::sheet::Trendline::default()
         }
     }
 
@@ -3978,6 +4541,7 @@ mod tests {
             kind: "both".into(),
             value_type: t.into(),
             value: v,
+            ..bo_model::sheet::ErrorBars::default()
         };
         let all = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
         let sd = (32.0_f64 / 7.0).sqrt();
@@ -3996,6 +4560,7 @@ mod tests {
             kind: "both".into(),
             value_type: "fixedVal".into(),
             value: 1.0,
+            ..bo_model::sheet::ErrorBars::default()
         });
         c.axes.data_table = true;
         let (_, labels) = draw(&wb, &c);

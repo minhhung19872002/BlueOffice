@@ -63,9 +63,14 @@ fn rich(out: &mut String, text: &str, bold: bool) {
 
 /// §21.2.2.210 title.
 fn title(out: &mut String, text: &str, bold: bool) {
+    title_with(out, text, bold, false);
+}
+
+/// §21.2.2.210 title with its overlay switch.
+fn title_with(out: &mut String, text: &str, bold: bool, overlay: bool) {
     out.push_str("<c:title>");
     rich(out, text, bold);
-    out.push_str("<c:overlay val=\"0\"/></c:title>");
+    let _ = write!(out, "<c:overlay val=\"{}\"/></c:title>", u8::from(overlay));
 }
 
 /// Colour of series (or pie point) `i` without a colour of its own: the format's palette, else
@@ -135,7 +140,8 @@ fn fill_xml(c: &bo_model::sheet::ChartColor) -> String {
 /// One `c:ser` (§21.2.2.150 and the per-type variants: CT_BarSer, CT_LineSer, CT_PieSer, CT_AreaSer,
 /// CT_ScatterSer, CT_RadarSer, CT_BubbleSer, CT_SurfaceSer; children in schema order).
 #[allow(clippy::too_many_lines)]
-fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: &ChartFormat) {
+fn series(out: &mut String, p: &ChartPlot, s: &ChartSeries, idx: usize, fmt: &ChartFormat) {
+    let kind = &p.kind;
     let color = s
         .fill
         .as_ref()
@@ -171,12 +177,17 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
         // Stock series draw only their high–low lines and ticks (§21.2.2.198).
         out.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr><c:marker><c:symbol val=\"none\"/></c:marker>");
     } else if !pie {
-        out.push_str(&cf::series_sp_pr(&color, fmt, line_like));
+        out.push_str(&cf::series_sp_pr_w(&color, fmt, line_like, s.line_w));
     }
-    match kind {
-        ChartKind::Bar | ChartKind::Bubble => out.push_str("<c:invertIfNegative val=\"0\"/>"),
-        ChartKind::Line | ChartKind::Radar => out.push_str(&cf::marker(&color, fmt)),
-        ChartKind::Scatter => {
+    match (kind, &s.marker) {
+        (ChartKind::Bar | ChartKind::Bubble, _) => {
+            out.push_str("<c:invertIfNegative val=\"0\"/>");
+        }
+        (ChartKind::Line | ChartKind::Radar | ChartKind::Scatter, Some(m)) => {
+            out.push_str(&cf::own_marker(&color, m));
+        }
+        (ChartKind::Line | ChartKind::Radar, None) => out.push_str(&cf::marker(&color, fmt)),
+        (ChartKind::Scatter, None) => {
             out.push_str("<c:marker><c:symbol val=\"circle\"/><c:size val=\"5\"/></c:marker>");
         }
         _ => {}
@@ -208,6 +219,15 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
             );
         }
     }
+    // §21.2.2.49 dLbls of the series (its own settings, the labels of single points).
+    if *kind != ChartKind::Stock {
+        out.push_str(&cf::labels_xml(
+            s.labels.as_ref(),
+            &s.point_labels,
+            kind,
+            p.grouping.as_deref(),
+        ));
+    }
     // §21.2.2.211 trendline*, §21.2.2.58 errBars (after dPt / dLbls, before the data).
     if matches!(
         kind,
@@ -218,7 +238,13 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
                 k @ ("exp" | "log" | "poly" | "power" | "movingAvg") => k,
                 _ => "linear",
             };
-            let _ = write!(out, "<c:trendline><c:trendlineType val=\"{ty}\"/>");
+            // CT_Trendline: name?, spPr?, trendlineType, order?, period?, forward?, backward?,
+            // intercept?, dispRSqr?, dispEq?.
+            out.push_str("<c:trendline>");
+            if let Some(n) = t.name.as_deref().filter(|n| !n.is_empty()) {
+                let _ = write!(out, "<c:name>{}</c:name>", escape(n));
+            }
+            let _ = write!(out, "<c:trendlineType val=\"{ty}\"/>");
             match ty {
                 "poly" => {
                     let _ = write!(out, "<c:order val=\"{}\"/>", t.order.clamp(2, 6));
@@ -227,6 +253,20 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
                     let _ = write!(out, "<c:period val=\"{}\"/>", t.order.max(2));
                 }
                 _ => {}
+            }
+            if ty != "movingAvg" {
+                if let Some(v) = t.forward.filter(|v| v.is_finite() && *v > 0.0) {
+                    let _ = write!(out, "<c:forward val=\"{}\"/>", fmt_f64(v));
+                }
+                if let Some(v) = t.backward.filter(|v| v.is_finite() && *v > 0.0) {
+                    let _ = write!(out, "<c:backward val=\"{}\"/>", fmt_f64(v));
+                }
+            }
+            if let Some(v) = t
+                .intercept
+                .filter(|v| v.is_finite() && matches!(ty, "linear" | "poly" | "exp"))
+            {
+                let _ = write!(out, "<c:intercept val=\"{}\"/>", fmt_f64(v));
             }
             let _ = write!(
                 out,
@@ -241,19 +281,41 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
                 _ => "both",
             };
             let vt = match e.value_type.as_str() {
-                k @ ("percentage" | "stdDev" | "stdErr") => k,
+                k @ ("percentage" | "stdDev" | "stdErr" | "cust") => k,
                 _ => "fixedVal",
             };
-            // CT_ErrBars: errDir (not for bar / line / area: only XY series take a direction).
+            // CT_ErrBars: errDir (not for bar / line / area: only XY series take a direction),
+            // errBarType, errValType, noEndCap, plus, minus, val.
             out.push_str("<c:errBars>");
             if matches!(kind, ChartKind::Scatter | ChartKind::Bubble) {
-                out.push_str("<c:errDir val=\"y\"/>");
+                let dir = if e.dir.as_deref() == Some("x") {
+                    "x"
+                } else {
+                    "y"
+                };
+                let _ = write!(out, "<c:errDir val=\"{dir}\"/>");
             }
             let _ = write!(
                 out,
-                "<c:errBarType val=\"{ty}\"/><c:errValType val=\"{vt}\"/><c:noEndCap val=\"0\"/><c:val val=\"{}\"/></c:errBars>",
-                e.value
+                "<c:errBarType val=\"{ty}\"/><c:errValType val=\"{vt}\"/><c:noEndCap val=\"{}\"/>",
+                u8::from(e.no_end_cap)
             );
+            if vt == "cust" {
+                // plus / minus: a range with its cache, or literal numbers.
+                for (tag, f, pts) in [
+                    ("plus", &e.plus_ref, &e.plus),
+                    ("minus", &e.minus_ref, &e.minus),
+                ] {
+                    if f.is_some() || !pts.is_empty() {
+                        let _ = write!(out, "<c:{tag}>");
+                        num_ref(out, f.as_deref(), pts);
+                        let _ = write!(out, "</c:{tag}>");
+                    }
+                }
+                out.push_str("</c:errBars>");
+            } else {
+                let _ = write!(out, "<c:val val=\"{}\"/></c:errBars>", e.value);
+            }
         }
     }
     if matches!(kind, ChartKind::Scatter | ChartKind::Bubble) {
@@ -283,7 +345,7 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
             }
             out.push_str("</c:bubbleSize><c:bubble3D val=\"0\"/></c:ser>");
         } else {
-            out.push_str("<c:smooth val=\"0\"/></c:ser>");
+            let _ = write!(out, "<c:smooth val=\"{}\"/></c:ser>", u8::from(s.smooth));
         }
         return;
     }
@@ -296,7 +358,8 @@ fn series(out: &mut String, kind: &ChartKind, s: &ChartSeries, idx: usize, fmt: 
     num_ref(out, s.val_ref.as_deref(), &s.values);
     out.push_str("</c:val>");
     if matches!(kind, ChartKind::Line | ChartKind::Stock) {
-        out.push_str("<c:smooth val=\"0\"/>");
+        let smooth = s.smooth && *kind == ChartKind::Line && !p.three_d;
+        let _ = write!(out, "<c:smooth val=\"{}\"/>", u8::from(smooth));
     }
     out.push_str("</c:ser>");
 }
@@ -414,7 +477,7 @@ fn plot(
     let grouping = p.grouping.as_deref();
     let mut sers = String::new();
     for (i, s) in p.series.iter().enumerate() {
-        series(&mut sers, &p.kind, s, first_idx + i, fmt);
+        series(&mut sers, p, s, first_idx + i, fmt);
     }
     // §21.2.2.49 dLbls follows the series in every chart group that has it.
     sers.push_str(&cf::data_labels(fmt, &p.kind, grouping));
@@ -436,8 +499,15 @@ fn plot(
                 out,
                 "<c:barChart><c:barDir val=\"{dir}\"/><c:grouping val=\"{g}\"/><c:varyColors val=\"0\"/>{sers}<c:gapWidth val=\"{gap}\"/>"
             );
-            if g != "clustered" && g != "standard" {
-                out.push_str("<c:overlap val=\"100\"/>");
+            // overlap: the group's own, else 100 for stacked bars.
+            match p.overlap {
+                Some(v) => {
+                    let _ = write!(out, "<c:overlap val=\"{}\"/>", v.clamp(-100, 100));
+                }
+                None if g != "clustered" && g != "standard" => {
+                    out.push_str("<c:overlap val=\"100\"/>");
+                }
+                None => {}
             }
             group_axis_ids(out, secondary);
             out.push_str("</c:barChart>");
@@ -583,53 +653,139 @@ fn plot(
     true
 }
 
-/// §21.2.2.25 catAx / §21.2.2.226 valAx.
-#[allow(clippy::too_many_arguments)]
-fn axis(
-    out: &mut String,
-    tag: &str,
+/// One axis to write.
+struct AxisSpec<'a> {
+    /// `catAx`, `valAx` or `dateAx`.
+    tag: &'a str,
     id: u32,
     cross: u32,
-    pos: &str,
-    title_text: Option<&str>,
-    grid: &str,
-    scale: Option<&bo_model::sheet::ChartAxes>,
-    sp_pr: &str,
-) {
+    /// axPos.
+    pos: &'a str,
+    title: Option<&'a str>,
+    /// The `c:majorGridlines` element, or empty.
+    grid: &'a str,
+    /// (logBase, min, max) of §21.2.2.160 scaling.
+    scale: (Option<f64>, Option<f64>, Option<f64>),
+    opts: &'a bo_model::sheet::AxisOptions,
+    sp_pr: &'a str,
+    /// §21.2.2.33 crosses when the options give none (`autoZero`; `max` for a secondary value axis).
+    crosses: &'a str,
+}
+
+/// §21.2.2.25 catAx / §21.2.2.226 valAx / §21.2.2.39 dateAx (children in schema order).
+fn axis(out: &mut String, a: &AxisSpec<'_>) {
+    let (tag, o) = (a.tag, a.opts);
     // §21.2.2.160 scaling: logBase?, orientation, max?, min?.
-    let _ = write!(out, "<c:{tag}><c:axId val=\"{id}\"/><c:scaling>");
-    if let Some(b) = scale.and_then(|a| a.log_base).filter(|b| *b >= 2.0) {
+    let _ = write!(out, "<c:{tag}><c:axId val=\"{}\"/><c:scaling>", a.id);
+    if let Some(b) = a.scale.0.filter(|b| *b >= 2.0 && *b <= 1000.0) {
         let _ = write!(out, "<c:logBase val=\"{b}\"/>");
     }
-    out.push_str("<c:orientation val=\"minMax\"/>");
-    if let Some(v) = scale.and_then(|a| a.max) {
+    let _ = write!(
+        out,
+        "<c:orientation val=\"{}\"/>",
+        if o.reverse { "maxMin" } else { "minMax" }
+    );
+    if let Some(v) = a.scale.2 {
         let _ = write!(out, "<c:max val=\"{v}\"/>");
     }
-    if let Some(v) = scale.and_then(|a| a.min) {
+    if let Some(v) = a.scale.1 {
         let _ = write!(out, "<c:min val=\"{v}\"/>");
     }
     let _ = write!(
         out,
-        "</c:scaling><c:delete val=\"0\"/><c:axPos val=\"{pos}\"/>"
+        "</c:scaling><c:delete val=\"{}\"/><c:axPos val=\"{}\"/>",
+        u8::from(o.deleted),
+        a.pos
     );
-    // §21.2.2.100 majorGridlines.
-    out.push_str(grid);
-    if let Some(t) = title_text.filter(|t| !t.is_empty()) {
+    // §21.2.2.100 majorGridlines, minorGridlines (the same line).
+    out.push_str(a.grid);
+    if o.minor_grid {
+        if a.grid.is_empty() || a.grid == "<c:majorGridlines/>" {
+            out.push_str("<c:minorGridlines/>");
+        } else {
+            out.push_str(&a.grid.replace("majorGridlines", "minorGridlines"));
+        }
+    }
+    if let Some(t) = a.title.filter(|t| !t.is_empty()) {
         title(out, t, false);
     }
-    if tag == "valAx" {
+    // numFmt: the axis' own format, else linked to the source for a value axis.
+    if let Some(code) = o.num_fmt.as_deref().filter(|c| !c.is_empty()) {
+        let _ = write!(
+            out,
+            "<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>",
+            escape(code)
+        );
+    } else if tag == "valAx" {
         out.push_str("<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/>");
     }
+    let tick = |v: &Option<String>, auto: &'static str| match v.as_deref() {
+        Some("cross") => "cross",
+        Some("in") => "in",
+        Some("none") => "none",
+        Some("out") => "out",
+        _ => auto,
+    };
+    let lbl = match o.label_pos.as_deref() {
+        Some("high") => "high",
+        Some("low") => "low",
+        Some("none") => "none",
+        _ => "nextTo",
+    };
     let _ = write!(
         out,
-        "<c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{sp_pr}<c:crossAx val=\"{cross}\"/><c:crosses val=\"autoZero\"/>"
+        "<c:majorTickMark val=\"{}\"/><c:minorTickMark val=\"{}\"/><c:tickLblPos val=\"{lbl}\"/>{}<c:crossAx val=\"{}\"/>",
+        tick(&o.major_tick, "out"),
+        tick(&o.minor_tick, "none"),
+        a.sp_pr,
+        a.cross
     );
+    // crossesAt, else §21.2.2.33 crosses.
+    match (o.crosses_at.filter(|v| v.is_finite()), o.crosses.as_deref()) {
+        (Some(v), _) => {
+            let _ = write!(out, "<c:crossesAt val=\"{}\"/>", fmt_f64(v));
+        }
+        (None, Some(c @ ("min" | "max" | "autoZero"))) => {
+            let _ = write!(out, "<c:crosses val=\"{c}\"/>");
+        }
+        _ => {
+            let _ = write!(out, "<c:crosses val=\"{}\"/>", a.crosses);
+        }
+    }
+    let units = |out: &mut String| {
+        if let Some(v) = o.major_unit.filter(|v| v.is_finite() && *v > 0.0) {
+            let _ = write!(out, "<c:majorUnit val=\"{}\"/>", fmt_f64(v));
+        }
+        if let Some(v) = o.minor_unit.filter(|v| v.is_finite() && *v > 0.0) {
+            let _ = write!(out, "<c:minorUnit val=\"{}\"/>", fmt_f64(v));
+        }
+    };
     match tag {
-        "valAx" => out.push_str("<c:crossBetween val=\"between\"/>"),
+        "valAx" => {
+            out.push_str("<c:crossBetween val=\"between\"/>");
+            units(out);
+            // dispUnits: builtInUnit, dispUnitsLbl.
+            if let Some(u) = o.disp_unit.as_deref().filter(|_| o.unit_factor() > 1.0) {
+                let _ = write!(out, "<c:dispUnits><c:builtInUnit val=\"{u}\"/>");
+                if o.disp_unit_label {
+                    out.push_str("<c:dispUnitsLbl/>");
+                }
+                out.push_str("</c:dispUnits>");
+            }
+        }
         // §21.2.2.39 dateAx: no label alignment; the base time unit.
-        "dateAx" => out.push_str(
-            "<c:auto val=\"1\"/><c:lblOffset val=\"100\"/><c:baseTimeUnit val=\"days\"/>",
-        ),
+        "dateAx" => {
+            let unit = match o.base_unit.as_deref() {
+                Some("months") => "months",
+                Some("years") => "years",
+                _ => "days",
+            };
+            let _ = write!(
+                out,
+                "<c:auto val=\"1\"/><c:lblOffset val=\"100\"/><c:baseTimeUnit val=\"{unit}\"/>"
+            );
+            units(out);
+        }
         _ => out.push_str("<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>"),
     }
     let _ = write!(out, "</c:{tag}>");
@@ -669,7 +825,7 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
     out.push_str("<c:chart>");
     match chart.title.as_deref().filter(|t| !t.is_empty()) {
         Some(t) => {
-            title(&mut out, t, fmt.title_bold);
+            title_with(&mut out, t, fmt.title_bold, chart.title_overlay);
             out.push_str("<c:autoTitleDeleted val=\"0\"/>");
         }
         None => out.push_str("<c:autoTitleDeleted val=\"1\"/>"),
@@ -754,34 +910,79 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
         };
         let grid = cf::gridlines(fmt);
         let ax_sp = cf::axis_sp_pr(fmt);
+        let ax = &chart.axes;
         axis(
             &mut out,
-            cat_tag,
-            CAT_AX,
-            VAL_AX,
-            cat_pos,
-            cat_title,
-            if fmt.cat_grid { &grid } else { "" },
-            None,
-            &ax_sp,
+            &AxisSpec {
+                tag: cat_tag,
+                id: CAT_AX,
+                cross: VAL_AX,
+                pos: cat_pos,
+                title: cat_title,
+                grid: if fmt.cat_grid { &grid } else { "" },
+                // The X axis of a scatter / bubble chart has a scale of its own.
+                scale: if scatter {
+                    (ax.cat.log_base, ax.cat.min, ax.cat.max)
+                } else {
+                    (None, None, None)
+                },
+                opts: &ax.cat,
+                sp_pr: &ax_sp,
+                crosses: "autoZero",
+            },
         );
         axis(
             &mut out,
-            "valAx",
-            VAL_AX,
-            CAT_AX,
-            val_pos,
-            val_title,
-            if fmt.hide_val_grid { "" } else { &grid },
-            Some(&chart.axes),
-            &ax_sp,
+            &AxisSpec {
+                tag: "valAx",
+                id: VAL_AX,
+                cross: CAT_AX,
+                pos: val_pos,
+                title: val_title,
+                grid: if fmt.hide_val_grid { "" } else { &grid },
+                scale: (ax.log_base, ax.min, ax.max),
+                opts: &ax.val,
+                sp_pr: &ax_sp,
+                crosses: "autoZero",
+            },
         );
         if two_axes {
-            // The secondary pair: a hidden category axis and a value axis crossing at the maximum
-            // (drawn at the right), §21.2.2.33 crosses `max`.
-            let _ = write!(
-                out,
-                "<c:catAx><c:axId val=\"{CAT_AX2}\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"1\"/><c:axPos val=\"b\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"{VAL_AX2}\"/><c:crosses val=\"autoZero\"/><c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/></c:catAx><c:valAx><c:axId val=\"{VAL_AX2}\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/><c:axPos val=\"r\"/><c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{ax_sp}<c:crossAx val=\"{CAT_AX2}\"/><c:crosses val=\"max\"/><c:crossBetween val=\"between\"/></c:valAx>"
+            // The secondary pair: a hidden category axis (in the order of the primary one) and a
+            // value axis crossing at the maximum (drawn at the right), §21.2.2.33 crosses `max`.
+            let hidden = bo_model::sheet::AxisOptions {
+                deleted: true,
+                reverse: ax.cat.reverse,
+                ..bo_model::sheet::AxisOptions::default()
+            };
+            axis(
+                &mut out,
+                &AxisSpec {
+                    tag: "catAx",
+                    id: CAT_AX2,
+                    cross: VAL_AX2,
+                    pos: "b",
+                    title: None,
+                    grid: "",
+                    scale: (None, None, None),
+                    opts: &hidden,
+                    sp_pr: "",
+                    crosses: "autoZero",
+                },
+            );
+            axis(
+                &mut out,
+                &AxisSpec {
+                    tag: "valAx",
+                    id: VAL_AX2,
+                    cross: CAT_AX2,
+                    pos: "r",
+                    title: ax.val2.title.as_deref(),
+                    grid: "",
+                    scale: (ax.val2.log_base, ax.val2.min, ax.val2.max),
+                    opts: &ax.val2,
+                    sp_pr: &ax_sp,
+                    crosses: "max",
+                },
             );
         }
         // §21.2.2.175 serAx: the depth axis of a 3-D chart whose series stand one behind the other.
@@ -793,7 +994,11 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
         }
         // §21.2.2.54 dTable.
         if chart.axes.data_table {
-            out.push_str("<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"1\"/></c:dTable>");
+            let _ = write!(
+                out,
+                "<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"{}\"/></c:dTable>",
+                u8::from(!chart.axes.table_no_keys)
+            );
         }
     }
     out.push_str(&cf::plot_sp_pr(fmt));
@@ -805,7 +1010,8 @@ pub fn chart_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
         };
         let _ = write!(
             out,
-            "<c:legend><c:legendPos val=\"{pos}\"/><c:overlay val=\"0\"/></c:legend>"
+            "<c:legend><c:legendPos val=\"{pos}\"/><c:overlay val=\"{}\"/></c:legend>",
+            u8::from(chart.legend_overlay)
         );
     }
     out.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");

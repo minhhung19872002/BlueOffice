@@ -301,6 +301,8 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
         let rich = t.path(&["tx", "rich"]).map(|r| r.texts("t"));
         let cached = t.path(&["tx", "strRef"]).map(|s| s.texts("v"));
         out.title = rich.or(cached).filter(|s| !s.is_empty());
+        // overlay.
+        out.title_overlay = on_val(t, "overlay");
     } else if deleted {
         out.title = None;
     }
@@ -309,8 +311,8 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
         for g in pa.children.iter().filter(|c| c.name.ends_with("Chart")) {
             out.plots.push(parse_plot(g));
         }
-        // §21.2.2.25 catAx / §21.2.2.226 valAx titles (the first value axis is
-        // vertical unless the plot is a horizontal bar chart).
+        // §21.2.2.25 catAx / §21.2.2.226 valAx / §21.2.2.39 dateAx: the axes of the first group
+        // are the primary pair; a group on another value axis is on the secondary one.
         let title_of = |ax: &Node| {
             ax.child("title")
                 .and_then(|t| t.path(&["tx", "rich"]).map(|r| r.texts("t")))
@@ -325,44 +327,96 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
             .iter()
             .filter(|c| matches!(c.name.as_str(), "catAx" | "valAx" | "dateAx"))
             .collect();
-        let cat = axes
+        let groups: Vec<&Node> = pa
+            .children
             .iter()
-            .find(|a| a.name != "valAx")
-            .or_else(|| axes.first())
-            .and_then(|a| title_of(a));
-        let val = axes
+            .filter(|c| c.name.ends_with("Chart"))
+            .collect();
+        // (category-like axis, value axis) of a group by its §21.2.2.9 axId references.
+        let pair_of = |g: &Node| -> (Option<&Node>, Option<&Node>) {
+            let own: Vec<&Node> = g
+                .children
+                .iter()
+                .filter(|c| c.name == "axId")
+                .filter_map(|c| c.attr("val"))
+                .filter_map(|id| {
+                    axes.iter()
+                        .copied()
+                        .find(|a| a.val_of("axId").as_deref() == Some(id))
+                })
+                .collect();
+            let cat = own
+                .iter()
+                .copied()
+                .find(|a| a.name != "valAx")
+                .or_else(|| own.first().copied().filter(|_| own.len() >= 2));
+            let val = own
+                .iter()
+                .copied()
+                .find(|a| a.name == "valAx" && !cat.is_some_and(|c| std::ptr::eq(c, *a)));
+            (cat, val)
+        };
+        let pairs: Vec<(Option<&Node>, Option<&Node>)> =
+            groups.iter().map(|g| pair_of(g)).collect();
+        let (mut cat, mut val) = pairs
             .iter()
-            .rfind(|a| a.name == "valAx")
-            .and_then(|a| title_of(a));
-        (out.x_title, out.y_title) = if horizontal { (val, cat) } else { (cat, val) };
-        // §21.2.2.160 scaling of the first value axis: logBase, min, max.
-        let num = |n: &Node, name: &str| n.val_of(name).and_then(|v| v.trim().parse::<f64>().ok());
-        let val_axes: Vec<&&Node> = axes.iter().filter(|a| a.name == "valAx").collect();
-        if let Some(sc) = val_axes.first().and_then(|a| a.child("scaling")) {
-            out.axes.log_base = num(sc, "logBase");
-            out.axes.min = num(sc, "min");
-            out.axes.max = num(sc, "max");
+            .copied()
+            .find(|(_, v)| v.is_some())
+            .unwrap_or((None, None));
+        if val.is_none() {
+            // Axes not referenced by the groups: the first category-like axis and the first value
+            // axis beside it (two value axes: X then Y).
+            let vals: Vec<&Node> = axes.iter().copied().filter(|a| a.name == "valAx").collect();
+            cat = axes
+                .iter()
+                .copied()
+                .find(|a| a.name != "valAx")
+                .or_else(|| vals.first().copied().filter(|_| vals.len() >= 2));
+            val = vals
+                .iter()
+                .copied()
+                .find(|a| !cat.is_some_and(|c| std::ptr::eq(c, *a)));
+        }
+        let mut val2 = None;
+        if let Some(first) = val {
+            for (p, (_, v)) in out.plots.iter_mut().zip(&pairs) {
+                if let Some(v) = v.filter(|v| !std::ptr::eq(*v, first)) {
+                    p.secondary = true;
+                    val2 = val2.or(Some(v));
+                }
+            }
+        }
+        let cat_title = cat.and_then(title_of);
+        let val_title = val.and_then(title_of);
+        (out.x_title, out.y_title) = if horizontal {
+            (val_title, cat_title)
+        } else {
+            (cat_title, val_title)
+        };
+        if let Some(v) = val {
+            let mut o = axis_options(v);
+            // The primary value axis keeps its scale in the chart's own fields.
+            out.axes.log_base = o.log_base.take();
+            out.axes.min = o.min.take();
+            out.axes.max = o.max.take();
+            out.axes.val = o;
+        }
+        if let Some(c) = cat {
+            out.axes.cat = axis_options(c);
+        }
+        if let Some(v) = val2 {
+            out.axes.val2 = axis_options(v);
+            out.axes.val2.title = title_of(v);
+            // A secondary value axis crosses at the maximum unless told otherwise.
+            out.axes.val2.crosses = v.val_of("crosses").filter(|c| c != "max");
         }
         out.axes.date = axes.iter().any(|a| a.name == "dateAx");
-        out.axes.data_table = pa.child("dTable").is_some();
-        // Groups whose value axis (§21.2.2.9 axId) is the second c:valAx are on the secondary axis;
-        // scatter and bubble groups refer to two value axes of their own (X and Y): a group that
-        // also uses the first one is on the primary axes.
-        let id_of = |k: usize| val_axes.get(k).and_then(|a| a.val_of("axId"));
-        if let (Some(first), Some(second)) = (id_of(0), id_of(1)) {
-            for (p, g) in out
-                .plots
-                .iter_mut()
-                .zip(pa.children.iter().filter(|c| c.name.ends_with("Chart")))
-            {
-                let uses = |id: &str| {
-                    g.children
-                        .iter()
-                        .filter(|c| c.name == "axId")
-                        .any(|c| c.attr("val") == Some(id))
-                };
-                p.secondary = uses(&second) && !uses(&first);
-            }
+        // §21.2.2.54 dTable (showKeys).
+        if let Some(t) = pa.child("dTable") {
+            out.axes.data_table = true;
+            out.axes.table_no_keys = t
+                .val_of("showKeys")
+                .is_some_and(|v| v == "0" || v == "false");
         }
     }
     // §21.2.2.228 view3D, kept for 3-D chart groups.
@@ -387,9 +441,11 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
     }
     // Shape and text properties of the chart's elements (CORE-CHART-007).
     out.format = crate::chart_format::read_format(&dom, chart);
+    normalise_series(&mut out);
     // §21.2.2.93 legend
     if let Some(l) = chart.child("legend") {
         out.legend = Some(l.val_of("legendPos").unwrap_or_else(|| "r".into()));
+        out.legend_overlay = on_val(l, "overlay");
     }
     // §21.2.2.142 pivotSource (pivot charts) and the c14:pivotOptions field buttons.
     if let Some(ps) = dom.child("pivotSource") {
@@ -410,6 +466,91 @@ pub(crate) fn parse_chart_space(data: &[u8], part: &str) -> Option<Chart> {
         });
     }
     Some(out)
+}
+
+/// Child `name` has a true `val` (`<c:x val="1"/>`; absent element or value = false).
+fn on_val(n: &Node, name: &str) -> bool {
+    n.val_of(name).is_some_and(|v| v == "1" || v == "true")
+}
+
+fn num_of(n: &Node, name: &str) -> Option<f64> {
+    n.val_of(name)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+}
+
+/// The options of an axis element (§21.2.2.25 catAx, §21.2.2.226 valAx, §21.2.2.39 dateAx).
+/// Values the writer emits for "automatic" (major ticks outside, no minor ticks, labels next to
+/// the axis, crossing at zero, a base unit of days) are read back as `None`.
+fn axis_options(ax: &Node) -> bo_model::sheet::AxisOptions {
+    let mut o = bo_model::sheet::AxisOptions::default();
+    // §21.2.2.160 scaling: logBase, orientation, max, min.
+    if let Some(sc) = ax.child("scaling") {
+        o.log_base = num_of(sc, "logBase");
+        o.min = num_of(sc, "min");
+        o.max = num_of(sc, "max");
+        o.reverse = sc.val_of("orientation").as_deref() == Some("maxMin");
+    }
+    o.deleted = on_val(ax, "delete");
+    o.minor_grid = ax.child("minorGridlines").is_some();
+    // numFmt: a format of its own when it is not linked to the source cells.
+    o.num_fmt = ax
+        .child("numFmt")
+        .filter(|n| {
+            !n.attr("sourceLinked")
+                .is_some_and(|v| v == "1" || v == "true")
+        })
+        .and_then(|n| n.attr("formatCode"))
+        .map(str::to_owned);
+    let pick = |name: &str, auto: &str| ax.val_of(name).filter(|v| v != auto);
+    o.major_tick = pick("majorTickMark", "out");
+    o.minor_tick = pick("minorTickMark", "none");
+    o.label_pos = pick("tickLblPos", "nextTo");
+    // §21.2.2.33 crosses / crossesAt.
+    o.crosses = pick("crosses", "autoZero");
+    o.crosses_at = num_of(ax, "crossesAt");
+    o.major_unit = num_of(ax, "majorUnit");
+    o.minor_unit = num_of(ax, "minorUnit");
+    // dispUnits: builtInUnit, dispUnitsLbl.
+    if let Some(d) = ax.child("dispUnits") {
+        o.disp_unit = d.val_of("builtInUnit");
+        o.disp_unit_label = d.child("dispUnitsLbl").is_some();
+    }
+    o.base_unit = pick("baseTimeUnit", "days");
+    o
+}
+
+/// Series options the writer derives from the chart format (line width, markers) are kept on a
+/// series only where they differ from it.
+fn normalise_series(c: &mut Chart) {
+    let fmt = &c.format;
+    for p in &mut c.plots {
+        let line_like = matches!(
+            p.kind,
+            ChartKind::Line | ChartKind::Scatter | ChartKind::Radar
+        );
+        for s in &mut p.series {
+            if !line_like || s.line_w == fmt.line_w {
+                s.line_w = None;
+            }
+            let auto = match p.kind {
+                ChartKind::Line | ChartKind::Radar if fmt.markers => Some(("circle", Some(6))),
+                ChartKind::Line | ChartKind::Radar => Some(("none", None)),
+                ChartKind::Scatter => Some(("circle", Some(5))),
+                _ => None,
+            };
+            let same = match (&s.marker, auto) {
+                (Some(m), Some((sym, size))) => {
+                    m.symbol == sym && (sym == "none" || m.size == size)
+                }
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            if same {
+                s.marker = None;
+            }
+        }
+    }
 }
 
 fn parse_plot(g: &Node) -> ChartPlot {
@@ -456,7 +597,18 @@ fn parse_plot(g: &Node) -> ChartPlot {
                 .map_or(d.second_size, |v| v.clamp(5, 200)),
         }
     });
+    // overlap of a bar group, when it is not the default of the grouping.
+    let stacked = matches!(
+        g.val_of("grouping").as_deref(),
+        Some("stacked" | "percentStacked")
+    );
+    let overlap = g
+        .val_of("overlap")
+        .and_then(|v| v.trim().trim_end_matches('%').parse::<i32>().ok())
+        .filter(|v| g.name.starts_with("bar") && *v != if stacked { 100 } else { 0 })
+        .map(|v| v.clamp(-100, 100));
     ChartPlot {
+        overlap,
         of_pie,
         drop_lines: g.child("dropLines").is_some(),
         hi_low_lines: g.child("hiLowLines").is_some() && g.name != "stockChart",
@@ -574,6 +726,31 @@ fn parse_series(s: &Node) -> ChartSeries {
             .child("ln")
             .and_then(|l| l.child("solidFill"))
             .and_then(color_of);
+        out.line_w = sp
+            .child("ln")
+            .and_then(|l| l.attr("w"))
+            .and_then(|w| w.trim().parse().ok());
+    }
+    // §21.2.2.106 marker: §21.2.2.174 symbol, size.
+    if let Some(m) = s.child("marker") {
+        if let Some(symbol) = m.val_of("symbol") {
+            out.marker = Some(bo_model::sheet::Marker {
+                symbol,
+                size: m.val_of("size").and_then(|v| v.trim().parse().ok()),
+            });
+        }
+    }
+    // smooth.
+    out.smooth = on_val(s, "smooth");
+    // §21.2.2.49 dLbls of the series and dLbl of single points.
+    if let Some(d) = s.child("dLbls") {
+        out.labels = Some(crate::chart_format::labels_all(d));
+        for l in d.children.iter().filter(|c| c.name == "dLbl") {
+            if let Some(i) = l.val_of("idx").and_then(|v| v.trim().parse::<usize>().ok()) {
+                out.point_labels
+                    .push((i, crate::chart_format::labels_all(l)));
+            }
+        }
     }
     // §21.2.2.52 dPt: per-point fills.
     for d in s.children.iter().filter(|c| c.name == "dPt") {
@@ -606,14 +783,35 @@ fn parse_series(s: &Node) -> ChartSeries {
             order,
             disp_eq: flag("dispEq"),
             disp_r2: flag("dispRSqr"),
+            name: t
+                .child("name")
+                .map(|n| n.text.clone())
+                .filter(|n| !n.is_empty()),
+            forward: num_of(t, "forward").filter(|v| *v > 0.0),
+            backward: num_of(t, "backward").filter(|v| *v > 0.0),
+            intercept: num_of(t, "intercept"),
         });
     }
-    // §21.2.2.58 errBars (the value direction: no errDir, or y).
-    if let Some(e) = s
-        .children
+    // §21.2.2.58 errBars: the value direction (no errDir, or y), else the X direction of an XY series.
+    let bars: Vec<&Node> = s.children.iter().filter(|c| c.name == "errBars").collect();
+    if let Some(e) = bars
         .iter()
-        .find(|c| c.name == "errBars" && c.val_of("errDir").is_none_or(|d| d == "y"))
+        .find(|c| c.val_of("errDir").is_none_or(|d| d == "y"))
+        .or_else(|| bars.first())
     {
+        let custom = |name: &str| -> (Option<String>, Vec<Option<f64>>) {
+            e.child(name).map_or((None, Vec::new()), |n| {
+                let (f, pts) = data_ref(n);
+                (
+                    f,
+                    pts.into_iter()
+                        .map(|p| p.and_then(|v| v.trim().parse::<f64>().ok()))
+                        .collect(),
+                )
+            })
+        };
+        let (plus_ref, plus) = custom("plus");
+        let (minus_ref, minus) = custom("minus");
         out.err_bars = Some(bo_model::sheet::ErrorBars {
             kind: e.val_of("errBarType").unwrap_or_else(|| "both".into()),
             value_type: e.val_of("errValType").unwrap_or_else(|| "fixedVal".into()),
@@ -621,6 +819,12 @@ fn parse_series(s: &Node) -> ChartSeries {
                 .val_of("val")
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(1.0),
+            no_end_cap: on_val(e, "noEndCap"),
+            dir: e.val_of("errDir").filter(|d| d == "x"),
+            plus,
+            minus,
+            plus_ref,
+            minus_ref,
         });
     }
     out

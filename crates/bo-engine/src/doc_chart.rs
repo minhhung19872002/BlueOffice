@@ -143,6 +143,8 @@ pub struct DocChart {
     pub wrap: String,
     /// Chart part name.
     pub part: String,
+    /// The chart's elements and their options ([`crate::chart_elements::info`]).
+    pub elements: serde_json::Value,
 }
 
 /// The wrapping name of a frame.
@@ -392,6 +394,7 @@ impl crate::Engine {
             height: img.height.0 as f64 / EMU_PT,
             wrap: wrap_of(&img).to_owned(),
             part: img.media.clone(),
+            elements: crate::chart_elements::info(&c),
         })
     }
 

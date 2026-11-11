@@ -192,10 +192,40 @@ fn consolidate_values_and_links() {
                 "function": "average", "topRow": true, "leftCol": true, "links": true,
                 "dest": { "sheet": 1, "row": 5, "col": 0 } }),
     );
+    // Linked: each summary row follows one detail row per source feeding it, with
+    // links to the source cells; the details are grouped and collapsed.
+    //   row 6  Q1 Q2 Q3          (labels)
+    //   row 7  Sheet1  =B2 =C2   (detail, hidden)
+    //   row 8  Táo  AVERAGE(B7:B7) …
+    //   row 9  Sheet1  =B3 =C3   / row 10 'Quý 2' =B2 =C2 (Q2, Q3)
+    //   row 11 Cam  AVERAGE(B9:B10) → 5, (7 + 1) / 2 = 4, 2
+    //   row 12 'Quý 2' =B3 =C3   / row 13 Lê
     let wb = e.workbook().unwrap();
-    let f = wb.sheets[1].cell(7, 2).unwrap().formula.clone().unwrap();
-    assert_eq!(f.text, "AVERAGE(Sheet1!$C$3,'Quý 2'!$B$2)");
-    assert_eq!(val(&e, 1, 7, 2), n(4.0));
+    let ws = &wb.sheets[1];
+    let formula = |r: u32, c: u32| ws.cell(r, c).and_then(|x| x.formula.clone()).map(|f| f.text);
+    assert_eq!(formula(6, 1).as_deref(), Some("Sheet1!$B$2"));
+    assert_eq!(val(&e, 1, 6, 0), t("Sheet1"));
+    assert_eq!(val(&e, 1, 7, 0), t("Táo"));
+    assert_eq!(formula(7, 1).as_deref(), Some("AVERAGE(B7)"));
+    assert_eq!(formula(9, 2).as_deref(), Some("'Quý 2'!$B$2"));
+    assert_eq!(formula(10, 2).as_deref(), Some("AVERAGE(C9:C10)"));
+    assert_eq!(val(&e, 1, 10, 0), t("Cam"));
+    assert_eq!(val(&e, 1, 10, 1), n(5.0));
+    assert_eq!(val(&e, 1, 10, 2), n(4.0));
+    assert_eq!(val(&e, 1, 10, 3), n(2.0));
+    assert_eq!(val(&e, 1, 12, 0), t("Lê"));
+    assert_eq!(val(&e, 1, 12, 3), n(4.0));
+    // Outline: detail rows level 1 and hidden, summaries marked collapsed.
+    let hidden: Vec<u32> = (5..13)
+        .filter(|r| ws.rows.get(r).is_some_and(|i| i.hidden && i.outline_level == 1))
+        .collect();
+    assert_eq!(hidden, vec![6, 8, 9, 11]);
+    assert!([7, 10, 12]
+        .iter()
+        .all(|r| ws.rows.get(r).is_some_and(|i| i.collapsed && i.outline_level == 0)));
+    // A source changes: the links follow.
+    e.set_input(0, 2, 1, "9").unwrap();
+    assert_eq!(val(&e, 1, 10, 1), n(9.0));
     // The output may not cover a source.
     let err = fail(
         &mut e,

@@ -17,8 +17,13 @@ use serde_json::{json, Value};
 const PREVIEW_ROWS: u32 = 20;
 /// Most cells listed by `invalidCells`.
 const MAX_INVALID: usize = 10_000;
-/// `bo_formula` / ECMA-376 §18.17.2: at most 255 function arguments.
-const MAX_ARGS: usize = 255;
+
+/// Index of the Consolidate source holding cell `(sheet, row, col)`.
+fn source_of(sources: &[ConsolidateSource], sheet: usize, row: u32, col: u32) -> Option<usize> {
+    sources
+        .iter()
+        .position(|x| x.sheet == sheet && x.range.contains(CellRef::new(row, col)))
+}
 
 fn bad(msg: impl Into<String>) -> EngineError {
     EngineError::Sheet(msg.into())
@@ -254,6 +259,28 @@ impl SheetEngine {
             return Err(bad("consolidate: noData"));
         }
         let (top, left) = (u32::from(o.top_row), u32::from(o.left_col));
+        // With links, each summary row comes after one detail row per source that
+        // feeds it (the link formulas), grouped and collapsed.
+        let details: Vec<Vec<usize>> = if o.links {
+            table
+                .cells
+                .iter()
+                .map(|row| {
+                    let mut ks = std::collections::BTreeSet::new();
+                    for cell in row.iter().flatten() {
+                        for &(s, r, c) in &cell.sources {
+                            if let Some(k) = source_of(&sources, s, r, c) {
+                                ks.insert(k);
+                            }
+                        }
+                    }
+                    ks.into_iter().collect()
+                })
+                .collect()
+        } else {
+            vec![Vec::new(); table.cells.len()]
+        };
+        let body_rows = body_rows + details.iter().map(|d| d.len() as u32).sum::<u32>();
         let (h, w) = (body_rows + top, body_cols + left);
         if o.dest.row.saturating_add(h) > MAX_ROWS || o.dest.col.saturating_add(w) > MAX_COLS {
             return Err(bad("consolidate: tooLarge"));
@@ -269,6 +296,19 @@ impl SheetEngine {
             return Err(bad("consolidate: overlap"));
         }
         let names: Vec<String> = wb.sheets.iter().map(|s| s.name.clone()).collect();
+        // Current values of the linked source cells.
+        let wb_values: std::collections::HashMap<(usize, u32, u32), CellValue> = table
+            .cells
+            .iter()
+            .flatten()
+            .flatten()
+            .flat_map(|c| c.sources.iter().copied())
+            .filter(|_| o.links)
+            .map(|(s, r, c)| {
+                let v = wb.sheets[s].cell(r, c).map(|x| x.value.clone()).unwrap_or_default();
+                ((s, r, c), v)
+            })
+            .collect();
         let (dr, dc, ds) = (o.dest.row, o.dest.col, o.dest.sheet);
         self.edit(ds, Recalc::All, |wb, _| {
             let ws = &mut wb.sheets[ds];
@@ -283,33 +323,57 @@ impl SheetEngine {
                     put(ws, dr, dc + left + j as u32, v.clone(), None);
                 }
             }
-            if let Some(labels) = &table.row_labels {
-                for (i, v) in labels.iter().enumerate() {
-                    put(ws, dr + top + i as u32, dc, v.clone(), None);
-                }
-            }
+            // Row by row: the detail rows (links), then the labelled summary row.
+            let mut r = dr + top;
             for (i, row) in table.cells.iter().enumerate() {
+                let first = r;
+                for &k in &details[i] {
+                    // One detail row per source: a link to each of its cells.
+                    let src = sources[k];
+                    if left > 0 {
+                        put(ws, r, dc, CellValue::Text(names[src.sheet].clone()), None);
+                    }
+                    for (j, cell) in row.iter().enumerate() {
+                        let Some(cell) = cell else { continue };
+                        for &(s, sr, sc) in &cell.sources {
+                            if source_of(&sources, s, sr, sc) != Some(k) {
+                                continue;
+                            }
+                            let at = CellRef::new(sr, sc);
+                            let link = bo_sheet::cells::abs_ref(&names[s], CellRange::new(at, at));
+                            let v = wb_values
+                                .get(&(s, sr, sc))
+                                .cloned()
+                                .unwrap_or_default();
+                            put(ws, r, dc + left + j as u32, v, Some(Formula::normal(&link)));
+                        }
+                    }
+                    r += 1;
+                }
+                if let Some(label) = table.row_labels.as_ref().and_then(|l| l.get(i)) {
+                    put(ws, r, dc, label.clone(), None);
+                }
                 for (j, cell) in row.iter().enumerate() {
                     let Some(cell) = cell else { continue };
-                    let (r, c) = (dr + top + i as u32, dc + left + j as u32);
-                    let f = (o.links && !cell.sources.is_empty() && cell.sources.len() <= MAX_ARGS)
-                        .then(|| {
-                            let args: Vec<String> = cell
-                                .sources
-                                .iter()
-                                .map(|&(s, sr, sc)| {
-                                    let at = CellRef::new(sr, sc);
-                                    bo_sheet::cells::abs_ref(&names[s], CellRange::new(at, at))
-                                })
-                                .collect();
-                            Formula::normal(&format!(
-                                "{}({})",
-                                o.function.function_name(),
-                                args.join(",")
-                            ))
-                        });
+                    let c = dc + left + j as u32;
+                    let f = if o.links && r > first {
+                        // The summary of its detail rows (§18.3.1.73 outline).
+                        let span = CellRange::new(CellRef::new(first, c), CellRef::new(r - 1, c));
+                        Some(Formula::normal(&format!(
+                            "{}({})",
+                            o.function.function_name(),
+                            span
+                        )))
+                    } else {
+                        None
+                    };
                     put(ws, r, c, cell.value.clone(), f);
                 }
+                if o.links && r > first {
+                    outline::group(ws, true, first, r - 1, false);
+                    outline::set_detail(ws, true, r, false, true);
+                }
+                r += 1;
             }
             Ok(json!({ "sheet": ds, "range": Rng::of(out) }))
         })

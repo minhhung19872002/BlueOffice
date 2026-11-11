@@ -3,6 +3,7 @@
 use crate::content_types::ContentTypes;
 use crate::rels::{self, rels_part_name, resolve_target, Relationship, TargetMode};
 use crate::{OpcError, Result};
+use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 
 /// Zip-bomb and resource limits applied when reading untrusted packages.
@@ -44,6 +45,10 @@ pub struct Part {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Package {
     parts: Vec<Part>,
+    /// Position of each part by ASCII-lowercased name (§9.1.1.1 compares part names
+    /// case-insensitively). Without it every lookup is a scan, and a package with
+    /// thousands of parts (20 000 are allowed) costs quadratic time to save.
+    index: HashMap<String, usize>,
 }
 
 /// Name of the content types stream.
@@ -52,7 +57,7 @@ pub const CONTENT_TYPES: &str = "/[Content_Types].xml";
 impl Package {
     /// Create an empty package with an empty content-type stream.
     pub fn new() -> Self {
-        let mut p = Package { parts: Vec::new() };
+        let mut p = Package::default();
         p.set_content_types(&ContentTypes {
             defaults: vec![
                 (
@@ -146,7 +151,13 @@ impl Package {
             }
             parts.push(Part { name, data });
         }
-        let pkg = Package { parts };
+        let mut pkg = Package::default();
+        for p in parts {
+            // A name repeated in the archive: the first entry wins, as lookups always did.
+            if pkg.part(&p.name).is_none() {
+                pkg.put_part(&p.name, p.data);
+            }
+        }
         if pkg.part(CONTENT_TYPES).is_none() {
             return Err(OpcError::MissingPart(CONTENT_TYPES.into()));
         }
@@ -182,20 +193,16 @@ impl Package {
 
     /// Look up a part by name (ASCII case-insensitive, §9.1.1.1).
     pub fn part(&self, name: &str) -> Option<&Part> {
-        self.parts
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(name))
+        self.parts.get(*self.index.get(&name.to_ascii_lowercase())?)
     }
 
     /// Insert or replace a part's bytes (keeps the original position when replacing).
     pub fn put_part(&mut self, name: &str, data: Vec<u8>) {
-        if let Some(p) = self
-            .parts
-            .iter_mut()
-            .find(|p| p.name.eq_ignore_ascii_case(name))
-        {
+        let key = name.to_ascii_lowercase();
+        if let Some(p) = self.index.get(&key).and_then(|&i| self.parts.get_mut(i)) {
             p.data = data;
         } else {
+            self.index.insert(key, self.parts.len());
             self.parts.push(Part {
                 name: name.to_owned(),
                 data,
@@ -220,11 +227,15 @@ impl Package {
 
     /// Remove a part (and nothing else).
     pub fn remove_part(&mut self, name: &str) -> Option<Part> {
-        let i = self
+        let i = *self.index.get(&name.to_ascii_lowercase())?;
+        let removed = self.parts.remove(i);
+        self.index = self
             .parts
             .iter()
-            .position(|p| p.name.eq_ignore_ascii_case(name))?;
-        Some(self.parts.remove(i))
+            .enumerate()
+            .map(|(k, p)| (p.name.to_ascii_lowercase(), k))
+            .collect();
+        Some(removed)
     }
 
     /// Parsed content types.
@@ -381,5 +392,29 @@ mod tests {
             }
         }
         assert!(n >= 2);
+    }
+
+    /// §9.1.1.1: part names compare case-insensitively; lookups stay right after
+    /// replacing and removing parts, and many parts are handled without a scan per
+    /// lookup (hostile packages hold up to `max_entries` parts).
+    #[test]
+    fn part_index_follows_puts_and_removes() {
+        let mut pkg = Package::new();
+        for i in 0..20_000 {
+            pkg.put_part(&format!("/media/p{i}.bin"), vec![1]);
+        }
+        for i in 0..20_000 {
+            pkg.put_part(&format!("/MEDIA/P{i}.BIN"), vec![2]);
+        }
+        assert_eq!(pkg.parts().len(), 20_001);
+        assert_eq!(pkg.part("/Media/p19999.bin").unwrap().data, vec![2]);
+        assert_eq!(
+            pkg.remove_part("/media/p0.bin").unwrap().name,
+            "/media/p0.bin"
+        );
+        assert!(pkg.part("/media/p0.bin").is_none());
+        assert_eq!(pkg.part("/media/p1.bin").unwrap().name, "/media/p1.bin");
+        let back = Package::read(&pkg.write().unwrap(), &Limits::default()).unwrap();
+        assert_eq!(back, pkg);
     }
 }

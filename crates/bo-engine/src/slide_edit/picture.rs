@@ -227,7 +227,7 @@ pub(super) fn drop_if_unused(tx: &mut Tx<'_>, old: &str) -> R<()> {
 }
 
 /// New relationship of `slide` to `part`; returns its id.
-fn add_rel(tx: &mut Tx<'_>, slide: usize, part: &str) -> R<String> {
+pub(super) fn add_rel(tx: &mut Tx<'_>, slide: usize, part: &str) -> R<String> {
     let s = tx.pres.slides.get(slide).ok_or(OpError::NoSlide(slide))?;
     let rid = (1..=s.info.rels.len() + 1)
         .map(|n| format!("rId{n}"))

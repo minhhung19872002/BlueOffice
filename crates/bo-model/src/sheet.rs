@@ -421,6 +421,9 @@ pub struct Worksheet {
     /// drawing fallback (read-only, see [`SheetDiagram`]).
     #[serde(default)]
     pub diagrams: Vec<SheetDiagram>,
+    /// Groups of shapes on the sheet (drawn above the cells).
+    #[serde(default)]
+    pub shape_groups: Vec<SheetShapeGroup>,
     /// Slicers of the sheet ([MS-XLSX] slicers and slicer caches).
     #[serde(default)]
     pub slicers: Vec<Slicer>,
@@ -1860,6 +1863,31 @@ pub struct SheetDiagram {
     /// The anchor cells were changed (the frame's anchor is rewritten on save).
     #[serde(default)]
     pub moved: bool,
+}
+
+/// A group of shapes on a sheet: an `xdr:grpSp` (ECMA-376 Part 1, §20.5.2.17) in a two-cell
+/// anchor (§20.5.2.33) — what "Convert to shapes" makes of a diagram (CORE-SMART-004), or a
+/// group of preset shapes with text read from the file.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetShapeGroup {
+    /// Top-left anchor cell (zero-based).
+    pub from: CellRef,
+    /// Bottom-right anchor cell (`None`: one-cell anchor).
+    pub to: Option<CellRef>,
+    /// Key of the group's drawing for the renderer, unique in the workbook
+    /// ([`crate::diagram::group_name`]).
+    pub key: String,
+    /// The `xdr:grpSp` element: `xdr:sp` shapes (§20.5.2.29) with DrawingML shape properties
+    /// and text bodies, and nested groups. Picture fills name their image part
+    /// (`a:blip@r:embed="/xl/media/…"`); the writer gives them relationships.
+    pub grp_sp: String,
+    /// Image parts the group adds to the package (absolute name, bytes).
+    #[serde(default)]
+    pub images: Vec<(String, Vec<u8>)>,
+    /// The group is in the file's drawing part (kept there as read); `false`: written on save.
+    #[serde(default)]
+    pub in_file: bool,
 }
 
 /// A slicer: a box of item buttons that filters a pivot table field or a table column

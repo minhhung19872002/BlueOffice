@@ -1492,7 +1492,17 @@ export type SheetSmartArtCommand =
       from: [number, number];
       to: [number, number];
     }
-  | { cmd: 'deleteSmartArt'; sheet: number; index: number };
+  | { cmd: 'deleteSmartArt'; sheet: number; index: number }
+  /** Replace the diagram by a group of ordinary shapes in the same cells (one undo step). */
+  | { cmd: 'smartArtToShapes'; sheet: number; index: number }
+  /** Thumbnails of every layout of the library: the result is `{ previews }`. */
+  | {
+      cmd: 'smartArtPreviews';
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+      width?: number;
+      height?: number;
+    };
 
 /** A SmartArt diagram of a sheet (result of `smartArtInfo`). */
 export interface SheetSmartArtInfo {

@@ -44,3 +44,33 @@
 .form label.pane {
   flex: 1 1 100%;
 }
+
+.thumb {
+  width: 60px;
+  height: 40px;
+  vertical-align: middle;
+  margin-right: 4px;
+  border: 1px solid var(--bo-border, #d0d4da);
+  border-radius: 3px;
+  background: #fff;
+}
+
+.pictures {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.nodePicture {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  vertical-align: middle;
+  margin-right: 4px;
+  border-radius: 2px;
+}

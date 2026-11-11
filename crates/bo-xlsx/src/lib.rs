@@ -30,6 +30,7 @@ mod csv;
 mod custom_views;
 pub mod diagram_write;
 pub mod formctl;
+mod group;
 mod pivot;
 pub mod pivot_write;
 mod read;

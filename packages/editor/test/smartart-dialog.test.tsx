@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
 import { createI18n, I18nextProvider } from '@blueoffice/i18n';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  clearSmartArtPreviews,
   editOutline,
   itemsOf,
   nodeAtCaret,
+  realignPictures,
   SMARTART_LAYOUTS,
   SMARTART_LIBRARY,
   SmartArtDialog,
+  smartArtPicturePicker,
   textOf,
   type SmartArtDraft,
 } from '../src/SmartArtDialog';
@@ -200,5 +203,246 @@ describe('SmartArt node operations', () => {
     expect(pane.value).toBe('A\n\tA1\n\tA2\nB\n\tB1\nC');
     fireEvent.click(screen.getByTestId('smartart-ok'));
     expect(onApply.mock.calls[0]?.[0].items).toEqual(outline);
+  });
+});
+
+// ADR-0006: the feature is named with BlueOffice's own words in the interface.
+describe('Naming of the diagram feature', () => {
+  it('shows "Smart diagram" / "Sơ đồ thông minh", never the trademark', () => {
+    for (const [lang, name] of [
+      ['en-US', 'Smart diagram'],
+      ['vi-VN', 'Sơ đồ thông minh'],
+    ] as const) {
+      const tr = createI18n(lang);
+      expect(tr.t('slideEditor.smartart.tab')).toBe(name);
+      expect(tr.t('slideEditor.smartart.button')).toBe(name);
+      expect(tr.t('commands.insert.smartart')).toBe(name);
+      for (const key of [
+        'slideEditor.smartart.insertTitle',
+        'slideEditor.smartart.editTitle',
+        'errors.smartArt',
+        'sheetEditor.smartArt.delete',
+      ]) {
+        expect(tr.t(key).toLowerCase()).toContain(name.toLowerCase());
+        expect(tr.t(key)).not.toMatch(/smartart/i);
+      }
+    }
+    wrap(<SmartArtDialog mode="insert" initial={draft} onApply={() => {}} onClose={() => {}} />);
+    expect(screen.getByRole('dialog').textContent).toContain('Insert smart diagram');
+    expect(screen.getByRole('dialog').textContent).not.toMatch(/smartart/i);
+  });
+});
+
+// CORE-SMART-004: layout thumbnails drawn by the engine, loaded once per colours and look.
+describe('SmartArt layout previews', () => {
+  const svg = (l: string) => `<svg xmlns="http://www.w3.org/2000/svg"><!--${l}--></svg>`;
+  const loader = () =>
+    vi.fn(async (colors: string, style: string) =>
+      SMARTART_LAYOUTS.map((layout) => ({ layout, svg: svg(`${layout}:${colors}:${style}`) })),
+    );
+
+  it('shows a thumbnail on every layout and reloads them for other colours', async () => {
+    clearSmartArtPreviews();
+    const load = loader();
+    wrap(
+      <SmartArtDialog
+        mode="insert"
+        initial={draft}
+        loadPreviews={load}
+        onApply={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('smartart-preview-process')).toBeTruthy());
+    for (const l of SMARTART_LAYOUTS) {
+      const img = screen.getByTestId(`smartart-preview-${l}`) as HTMLImageElement;
+      expect(decodeURIComponent(img.src)).toContain(`<!--${l}:colorful:fill-->`);
+    }
+    expect(load).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByTestId('smartart-colors'), { target: { value: 'green' } });
+    await waitFor(() =>
+      expect(
+        decodeURIComponent((screen.getByTestId('smartart-preview-cycle') as HTMLImageElement).src),
+      ).toContain('cycle:green:fill'),
+    );
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches the thumbnails across dialogs', async () => {
+    clearSmartArtPreviews();
+    const load = loader();
+    const open = () =>
+      wrap(
+        <SmartArtDialog
+          mode="insert"
+          initial={draft}
+          loadPreviews={load}
+          onApply={() => {}}
+          onClose={() => {}}
+        />,
+      );
+    open();
+    await waitFor(() => expect(screen.getByTestId('smartart-preview-list')).toBeTruthy());
+    cleanup();
+    // Another dialog (another app's loader would do): no second engine call.
+    open();
+    await waitFor(() => expect(screen.getByTestId('smartart-preview-list')).toBeTruthy());
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists the layouts by name when the thumbnails cannot be loaded', async () => {
+    clearSmartArtPreviews();
+    const load = vi.fn(async () => {
+      throw new Error('no engine');
+    });
+    wrap(
+      <SmartArtDialog
+        mode="insert"
+        initial={draft}
+        loadPreviews={load}
+        onApply={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await act(async () => {});
+    expect(screen.queryByTestId('smartart-preview-process')).toBeNull();
+    expect(screen.getByTestId('smartart-layout-process')).toBeTruthy();
+  });
+});
+
+// CORE-SMART-003: a picture per node — choose, replace, remove; pictures follow their nodes.
+describe('SmartArt node pictures', () => {
+  const pictured: SmartArtDraft = {
+    layout: 'picture',
+    colors: 'colorful',
+    style: 'fill',
+    items: [
+      { text: 'A', level: 0, picture: 'rIdImg1' },
+      { text: 'B', level: 0 },
+      { text: 'C', level: 0, picture: 'rIdImg2' },
+    ],
+  };
+  const URL_1 = 'data:image/png;base64,AAAA';
+
+  it('keeps pictures by index when texts change and by text when lines come or go', () => {
+    const before = pictured.items;
+    const pics = before.map((i) => i.picture);
+    expect(realignPictures(before, pics, itemsOf('A2\nB2\nC2'))).toEqual(pics);
+    // A line inserted before C: C keeps its picture, the new line has none.
+    expect(realignPictures(before, pics, itemsOf('A\nB\nNew\nC'))).toEqual([
+      'rIdImg1',
+      undefined,
+      undefined,
+      'rIdImg2',
+    ]);
+    expect(realignPictures(before, pics, itemsOf('C\nA'))).toEqual(['rIdImg2', 'rIdImg1']);
+  });
+
+  it('chooses, replaces and removes the picture of the node at the caret', async () => {
+    const onApply = vi.fn();
+    const pick = vi.fn(async () => URL_1);
+    wrap(
+      <SmartArtDialog
+        mode="edit"
+        initial={pictured}
+        pickPicture={pick}
+        onApply={onApply}
+        onClose={() => {}}
+      />,
+    );
+    const pane = screen.getByTestId('smartart-text') as HTMLTextAreaElement;
+    const list = () =>
+      [...screen.getByTestId('smartart-pictures').querySelectorAll('li')].map(
+        (li) => `${li.getAttribute('data-node')}:${li.textContent}`,
+      );
+    expect(list()).toEqual(['0:A', '2:C']);
+    // Caret in "B": no picture yet → choose one.
+    pane.setSelectionRange(2, 2);
+    fireEvent.select(pane);
+    expect(screen.getByTestId('smartart-node-picture').textContent).toBe('Picture…');
+    expect((screen.getByTestId('smartart-node-removePicture') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('smartart-node-picture'));
+    });
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(list()).toEqual(['0:A', '1:B', '2:C']);
+    expect(screen.getByTestId('smartart-node-picture').textContent).toBe('Replace picture…');
+    // Caret in "A": remove its picture.
+    pane.setSelectionRange(0, 0);
+    fireEvent.select(pane);
+    fireEvent.click(screen.getByTestId('smartart-node-removePicture'));
+    expect(list()).toEqual(['1:B', '2:C']);
+    // Move "C" up with its picture, then retype "A".
+    pane.setSelectionRange(4, 4);
+    fireEvent.select(pane);
+    fireEvent.click(screen.getByTestId('smartart-node-up'));
+    expect(pane.value).toBe('A\nC\nB');
+    fireEvent.change(pane, { target: { value: 'Alpha\nC\nB' } });
+    fireEvent.click(screen.getByTestId('smartart-ok'));
+    expect(onApply.mock.calls[0]?.[0].items).toEqual([
+      { text: 'Alpha', level: 0 },
+      { text: 'C', level: 0, picture: 'rIdImg2' },
+      { text: 'B', level: 0, picture: URL_1 },
+    ]);
+  });
+
+  it('has no picture buttons without a file picker; a cancelled choice changes nothing', async () => {
+    wrap(<SmartArtDialog mode="edit" initial={pictured} onApply={() => {}} onClose={() => {}} />);
+    expect(screen.queryByTestId('smartart-node-picture')).toBeNull();
+    cleanup();
+    const onApply = vi.fn();
+    wrap(
+      <SmartArtDialog
+        mode="edit"
+        initial={pictured}
+        pickPicture={async () => null}
+        onApply={onApply}
+        onClose={() => {}}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('smartart-node-picture'));
+    });
+    fireEvent.click(screen.getByTestId('smartart-ok'));
+    expect(onApply.mock.calls[0]?.[0].items).toEqual(pictured.items);
+  });
+
+  it('reads a chosen file through the platform as a data URL', async () => {
+    const files = {
+      openFile: vi.fn(async () => ({ name: 'anh.PNG', bytes: new Uint8Array([137, 80, 78, 71]) })),
+      saveFile: async () => null,
+    };
+    expect(await smartArtPicturePicker(files)()).toBe('data:image/png;base64,iVBORw==');
+    expect(files.openFile).toHaveBeenCalledWith(['.png', '.jpg', '.jpeg']);
+    files.openFile.mockResolvedValueOnce({ name: 'a.jpg', bytes: new Uint8Array([255, 216]) });
+    expect(await smartArtPicturePicker(files)()).toBe('data:image/jpeg;base64,/9g=');
+    const none = { openFile: async () => null, saveFile: async () => null };
+    expect(await smartArtPicturePicker(none)()).toBeNull();
+  });
+});
+
+// CORE-SMART-003: a diagram of another application keeps its own colours and look.
+describe('SmartArt colours and look of the file', () => {
+  it('offers "From the file" only for a diagram that has its own definitions', () => {
+    const onApply = vi.fn();
+    wrap(
+      <SmartArtDialog
+        mode="edit"
+        initial={{ ...draft, colors: 'file', style: 'file' }}
+        onApply={onApply}
+        onClose={() => {}}
+      />,
+    );
+    const colors = screen.getByTestId('smartart-colors') as HTMLSelectElement;
+    expect(colors.value).toBe('file');
+    expect([...colors.options].map((o) => o.textContent)).toContain('From the file');
+    fireEvent.click(screen.getByTestId('smartart-ok'));
+    expect(onApply.mock.calls[0]?.[0]).toMatchObject({ colors: 'file', style: 'file' });
+    cleanup();
+    wrap(<SmartArtDialog mode="edit" initial={draft} onApply={() => {}} onClose={() => {}} />);
+    const plain = screen.getByTestId('smartart-colors') as HTMLSelectElement;
+    expect([...plain.options].map((o) => o.value)).not.toContain('file');
   });
 });

@@ -1,0 +1,51 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  clip path n=5 [12.8 8.8 243.2 111.4]
+    image /ppt/media/image1.png 12.8,8.8 230.4x102.7 crop=Some([0.12598, 0.0, 0.12598, 0.0])
+  pop clip
+  path n=5 [12.8 8.8 243.2 111.4] stroke=#1f6fb2ff w2.00
+  path n=9 [12.8 119.3 243.2 166.7] fill=#1f6fb2ff
+  path n=9 [12.8 119.3 243.2 166.7] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 12.8 119.3]
+    text 8.0pt 104.3,22.5 #ffffffff "Hà "
+    text 8.0pt 114.9,22.5 #ffffffff "Nội"
+    text 6.4pt 103.8,30.8 #ffffffff "• "
+    text 6.4pt 108.4,30.8 #ffffffff "Thủ "
+    text 6.4pt 119.7,30.8 #ffffffff "đô"
+  pop transform
+  clip path n=5 [268.8 8.8 499.2 111.4]
+    image /ppt/media/image2.png 268.8,8.8 230.4x102.7 crop=Some([0.0, 0.3886, 0.0, 0.3886])
+  pop clip
+  path n=5 [268.8 8.8 499.2 111.4] stroke=#2e8b57ff w2.00
+  path n=9 [268.8 119.3 499.2 166.7] fill=#2e8b57ff
+  path n=9 [268.8 119.3 499.2 166.7] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 268.8 119.3]
+    text 11.0pt 106.1,27.5 #ffffffff "Huế"
+  pop transform
+  clip path n=5 [524.8 8.8 755.2 111.4]
+    image /ppt/media/image3.png 524.8,8.8 230.4x102.7 crop=Some([0.0, 0.2772, 0.0, 0.2772])
+  pop clip
+  path n=5 [524.8 8.8 755.2 111.4] stroke=#c2571aff w2.00
+  path n=9 [524.8 119.3 755.2 166.7] fill=#c2571aff
+  path n=9 [524.8 119.3 755.2 166.7] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 524.8 119.3]
+    text 11.0pt 96.2,27.5 #ffffffff "Đà "
+    text 11.0pt 110.8,27.5 #ffffffff "Nẵng"
+  pop transform
+  path n=5 [12.8 184.3 243.2 286.9] fill=#e7ecf2ff
+  path n=5 [12.8 184.3 243.2 286.9] stroke=#7b4ba0ff w2.00
+  path n=4 [102.3 225.3 153.7 256.1] fill=#b4bfccff
+  path n=4 [102.3 225.3 153.7 256.1] stroke=#ffffffff w1.00
+  path n=6 [138.3 209.9 151.1 222.8] fill=#b4bfccff
+  path n=6 [138.3 209.9 151.1 222.8] stroke=#ffffffff w1.00
+  path n=9 [12.8 294.8 243.2 342.2] fill=#7b4ba0ff
+  path n=9 [12.8 294.8 243.2 342.2] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 12.8 294.8]
+    text 11.0pt 96.8,27.5 #ffffffff "Cần "
+    text 11.0pt 116.2,27.5 #ffffffff "Thơ"
+  pop transform
+pop transform

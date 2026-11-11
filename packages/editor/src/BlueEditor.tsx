@@ -420,7 +420,12 @@ import {
 } from './docTranslate';
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
-import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
+import {
+  SmartArtDialog,
+  smartArtPicturePicker,
+  type SmartArtDraft,
+  type SmartArtPreviewLoader,
+} from './SmartArtDialog';
 import { ChartDialog, type ChartDraft } from './chart/ChartDialog';
 import { SaveChartTemplateDialog } from './chart/chartDesign';
 import { ChartFormatPane } from './chart/ChartFormatPane';
@@ -2005,6 +2010,16 @@ function EditorInner({
         }
       },
     });
+    // Convert to shapes (CORE-SMART-004): the diagram becomes a group of ordinary shapes.
+    r.register({
+      id: 'smartart.toShapes',
+      isEnabled: (s) => hasDoc(s) && !!s.edit?.format.smartArt,
+      run: async () => {
+        const res = await controller.current?.run({ cmd: 'smartArtToShapes' });
+        if (res?.error) fail('errors.smartArt', res.error);
+        view.current?.focus();
+      },
+    });
     // Charts (CORE-CHART-007): BlueSlide's chart types, dialog and design, in the document.
     registerDocChartCommands(r, {
       t: i18nInstance.t.bind(i18nInstance),
@@ -3166,6 +3181,14 @@ function EditorInner({
     (c: EditCommand) => controller.current?.run(c) ?? Promise.resolve(null),
     [],
   );
+  // The dialog of diagrams: layout thumbnails from the engine, node pictures from a file.
+  const loadSmartArtPreviews = useCallback<SmartArtPreviewLoader>(
+    // A query: its answer is not an edit result to apply to the view.
+    async (colors, style) =>
+      (await controller.current?.query({ cmd: 'smartArtPreviews', colors, style }))?.previews ?? [],
+    [],
+  );
+  const pickSmartArtPicture = useMemo(() => smartArtPicturePicker(platform.files), [platform]);
   const scriptHost = useCallback(
     () =>
       store.getState().doc
@@ -3291,6 +3314,7 @@ function EditorInner({
               label: t('slideEditor.smartart.group'),
               items: [
                 item('smartart.edit', 'slideEditor.smartart.textPane', <Pencil size={ICON} />),
+                item('smartart.toShapes', 'slideEditor.smartart.toShapes', <Shapes size={ICON} />),
               ],
             },
           ],
@@ -5417,6 +5441,8 @@ function EditorInner({
               <SmartArtDialog
                 mode={smartArtDialog.mode}
                 initial={smartArtDialog.initial}
+                loadPreviews={loadSmartArtPreviews}
+                pickPicture={pickSmartArtPicture}
                 onClose={() => {
                   setSmartArtDialog(null);
                   focusDoc();

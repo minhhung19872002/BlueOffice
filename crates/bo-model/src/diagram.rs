@@ -149,6 +149,28 @@ pub fn set_drawing_rel(data: &[u8], rid: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Directory segment of the shape groups of a document or workbook (see [`group_name`]).
+pub const GROUP_SEGMENT: &str = "/shapegroups/";
+
+/// Media name of shape group number `n` of the package whose main directory is `root`
+/// (`/word`, `/xl`). A group of shapes — what "Convert to shapes" makes of a diagram
+/// (CORE-SMART-004), or a group of preset shapes read from a file — is held as a DrawingML shape
+/// tree in the form of a diagram drawing part (`dsp:drawing`, [MS-ODRAWXML]): the shapes in EMU of
+/// the group's child space (`dsp:grpSpPr/a:xfrm/a:chExt`), picture fills naming their image part
+/// (`a:blip@r:embed="/word/media/…"`). It is not a part of the saved package: the writers turn it
+/// into the group element of their format (`wpg:wgp`, `xdr:grpSp`).
+#[must_use]
+pub fn group_name(root: &str, n: usize) -> String {
+    format!("{root}{GROUP_SEGMENT}drawing{n}.xml")
+}
+
+/// Is `name` the media name of a shape group ([`group_name`])?
+#[must_use]
+pub fn is_group_name(name: &str) -> bool {
+    name.contains(GROUP_SEGMENT)
+        && split_name(name).is_some_and(|(k, _, _)| k == DiagramPart::Drawing)
+}
+
 /// `dgm:relIds` (§21.4.2.6) naming the four parts by relationship id, namespaces declared.
 #[must_use]
 pub fn rel_ids_xml(dm: &str, lo: &str, qs: &str, cs: &str) -> String {
@@ -172,6 +194,14 @@ pub struct DiagramXml {
     pub colors: Vec<u8>,
     /// Drawing part.
     pub drawing: Vec<u8>,
+    /// The relationships part shared by the data model part and the drawing part: the images of
+    /// the nodes' picture fills (§20.1.8.14 blipFill; targets relative to the diagram directory).
+    /// Empty: no pictures.
+    #[serde(default)]
+    pub rels: Vec<u8>,
+    /// Image parts the diagram adds to the package (absolute name, bytes).
+    #[serde(default)]
+    pub images: Vec<(String, Vec<u8>)>,
 }
 
 impl DiagramXml {

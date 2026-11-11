@@ -14,6 +14,8 @@ import {
   useWindowTools,
   SavePasswordPanel,
   SmartArtDialog,
+  smartArtPicturePicker,
+  type SmartArtPreviewLoader,
   SymbolPanel,
   IconPanel,
   insertSlideIcons,
@@ -87,6 +89,7 @@ import type {
   SlidePeer,
   SlidePreview,
   SlideShapeInfo,
+  SlideSmartArtNode,
   SlideShowInfo,
   SlideTextEdit,
   SlideTransitionKind,
@@ -320,6 +323,7 @@ import { SlideSpellDialog, SlideSpellLayer, useSlideSpelling } from './spelling'
 import { SlideVersionsPane } from './compareVersions';
 import { useAlbumTools } from './album/useAlbumTools';
 import { fromEditorText, hexOf, nudgeCommand, toEditorText } from './editing';
+import { SmartArtNodeEditor } from './SmartArtNodeEditor';
 import {
   SlideClipboardUi,
   selectionCorner,
@@ -833,6 +837,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     mode: 'insert' | 'edit';
     initial: SmartArtDraft;
   } | null>(null);
+  /** The diagram node whose text is edited on the canvas (CORE-SMART-004). */
+  const [nodeEdit, setNodeEdit] = useState<SlideSmartArtNode | null>(null);
   // 3D models (CORE-3DMODEL-001): pan & zoom mode and the alt text dialog.
   // Pan & zoom is on for one model (off once another object is selected).
   const [panZoomFor, setPanZoomFor] = useState<number | null>(null);
@@ -1716,7 +1722,17 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         return;
       }
       if (shape.kind === 'smartart') {
-        if (edit?.smartart) setSmartArtDialog({ mode: 'edit', initial: edit.smartart });
+        // On a node: its text is edited in place; elsewhere in the frame: the text pane.
+        const pane = () => {
+          if (edit?.smartart) setSmartArtDialog({ mode: 'edit', initial: edit.smartart });
+        };
+        if (!at) {
+          pane();
+          return;
+        }
+        void ctrl
+          .run({ cmd: 'smartArtNodeAt', id: shape.id, x: at.x, y: at.y })
+          .then((r) => (r?.smartartNode ? setNodeEdit(r.smartartNode) : pane()));
         return;
       }
       if (!shape.editableText) return;
@@ -1729,7 +1745,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         at,
       });
     },
-    [edit],
+    [edit, ctrl],
   );
 
   /** Edit the text of a table cell on the canvas (the engine placed the caret). */
@@ -1919,6 +1935,24 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       },
     }),
     [t],
+  );
+  const loadSmartArtPreviews = useCallback<SmartArtPreviewLoader>(
+    async (colors, style) =>
+      (await ctrl.run({ cmd: 'smartArtPreviews', colors, style }))?.smartartPreviews ?? [],
+    [ctrl],
+  );
+  const pickSmartArtPicture = useMemo(() => smartArtPicturePicker(platform.files), [platform]);
+  /** Commit (or drop) the text of the node edited on the canvas: one undo step. */
+  const endNodeEdit = useCallback(
+    (text: string | null) => {
+      const n = nodeEdit;
+      setNodeEdit(null);
+      if (n && text !== null && text.trim() && text.trim() !== n.text) {
+        run({ cmd: 'setSmartArtNodeText', id: n.id, node: n.node, text });
+      }
+      slideRef.current?.focus();
+    },
+    [nodeEdit, run],
   );
   const openSmartArt = useCallback(() => {
     const s = edit?.smartart;
@@ -4853,6 +4887,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     info={edit?.pageMaster}
                     scale={main.width / (slideSize.width || 1)}
                   />
+                  {nodeEdit && edit?.slide === shown && (
+                    <SmartArtNodeEditor
+                      key={`${nodeEdit.id}:${nodeEdit.node}`}
+                      node={nodeEdit}
+                      scale={main.width / (slideSize.width || 1)}
+                      label={t('slideEditor.smartart.nodeEditor')}
+                      onDone={endNodeEdit}
+                    />
+                  )}
                   {state.editingPoints && edit?.freeform && edit.slide === shown && (
                     <EditPointsOverlay
                       key={edit.freeform.id}
@@ -5438,6 +5481,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         <SmartArtDialog
           mode={smartArtDialog.mode}
           initial={smartArtDialog.initial}
+          loadPreviews={loadSmartArtPreviews}
+          pickPicture={pickSmartArtPicture}
           onClose={() => setSmartArtDialog(null)}
           onApply={applySmartArt}
         />

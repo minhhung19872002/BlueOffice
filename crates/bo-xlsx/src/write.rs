@@ -716,9 +716,15 @@ fn write_charts(
     let new: Vec<&bo_model::sheet::Chart> =
         ws.charts.iter().filter(|c| c.part.is_empty()).collect();
     // New SmartArt frames (CORE-SMART-005); edited file diagrams are rewritten in place.
-    crate::diagram_write::write_edited(wb, ws, overrides);
+    crate::diagram_write::write_edited(wb, ws, overrides, out_parts);
     let new_diagrams = crate::diagram_write::new_diagrams(ws);
-    if new.is_empty() && extra_anchors.is_empty() && new_diagrams.is_empty() {
+    // New groups of shapes (CORE-SMART-004: a diagram converted to shapes).
+    let new_groups = crate::group::new_groups(ws);
+    if new.is_empty()
+        && extra_anchors.is_empty()
+        && new_diagrams.is_empty()
+        && new_groups.is_empty()
+    {
         return None;
     }
     let is_ex = |c: &bo_model::sheet::Chart| c.plots.first().is_some_and(|p| p.kind.is_ex());
@@ -785,6 +791,15 @@ fn write_charts(
         out_parts,
     );
     anchors.push_str(&diagram_anchors);
+    let (rels_bytes, group_anchors) = crate::group::append_new(
+        rels_bytes,
+        &dpath,
+        &new_groups,
+        base_id + new.len() as u32 + 100 + 10 * new_diagrams.len() as u32,
+        &|name| opaque(name).is_some(),
+        out_parts,
+    );
+    anchors.push_str(&group_anchors);
     if opaque(&rels_name).is_some() {
         overrides.insert(rels_name, rels_bytes);
     } else {

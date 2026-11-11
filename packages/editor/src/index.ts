@@ -232,6 +232,8 @@ export { HYPHENATION_LIMITS, SYLLABLE_LIMITS, hyphenPoints, syllables } from './
 export {
   SMARTART_LAYOUTS,
   SmartArtDialog,
+  smartArtPicturePicker,
+  type SmartArtPreviewLoader,
   itemsOf as smartArtItemsOf,
   textOf as smartArtTextOf,
   type SmartArtDraft,

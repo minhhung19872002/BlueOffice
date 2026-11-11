@@ -467,6 +467,12 @@ impl SheetEngine {
             C::CellMedia { id } => {
                 let bytes: Option<Vec<u8>> = if id.starts_with("url:") {
                     self.web_images.bytes.get(&id).map(|b| b.to_vec())
+                } else if id.starts_with('/') {
+                    // An image part a diagram or a group of shapes shows.
+                    self.wb
+                        .as_ref()
+                        .and_then(|wb| super::smartart_cmd::image_bytes(wb, &id))
+                        .map(<[u8]>::to_vec)
                 } else {
                     self.wb.as_ref().and_then(|wb| {
                         wb.sheets
@@ -560,6 +566,11 @@ impl SheetEngine {
             }
             let bytes = if image.starts_with("url:") {
                 self.web_images.bytes.get(image).map(|b| b.to_vec())
+            } else if image.starts_with('/') {
+                self.wb
+                    .as_ref()
+                    .and_then(|wb| super::smartart_cmd::image_bytes(wb, image))
+                    .map(<[u8]>::to_vec)
             } else {
                 self.wb.as_ref().and_then(|wb| {
                     wb.sheets

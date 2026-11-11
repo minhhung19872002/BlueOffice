@@ -1340,7 +1340,10 @@ fn read_run(
             b"drawing" if s => {
                 let img = read_drawing(r, ctx, media)?;
                 let raw = Raw::new(r.slice(before, r.pos()), 0);
-                match img.or_else(|| drawing_shape(&raw.xml, ctx, media)) {
+                match drawing_group(&raw.xml, ctx, media)
+                    .or(img)
+                    .or_else(|| drawing_shape(&raw.xml, ctx, media))
+                {
                     Some(img) => run
                         .content
                         .push(RunContent::Image(Box::new(with_src(img, raw)))),
@@ -1351,7 +1354,8 @@ fn read_run(
             // (DrawingML choice or VML fallback), else verbatim.
             b"AlternateContent" if s => {
                 let raw = capture(r, true, before)?;
-                match alternate_content_picture(&raw.xml, ctx, media)
+                match drawing_group(&raw.xml, ctx, media)
+                    .or_else(|| alternate_content_picture(&raw.xml, ctx, media))
                     .or_else(|| drawing_shape(&raw.xml, ctx, media))
                 {
                     Some(img) => run
@@ -1609,6 +1613,67 @@ fn txbx_blocks(
             _ => {}
         }
     }
+}
+
+/// A group of preset shapes with text (`wpg:wgp`, [MS-ODRAWXML] wordprocessingGroup) in the XML of
+/// a `w:drawing` or `mc:AlternateContent`: its shapes become the media of a shape group
+/// (`bo_model::diagram::group_name`, see the `group` module), drawn as they are. Other groups
+/// (pictures, canvases, custom geometry) keep the handling they had.
+fn drawing_group(
+    xml: &str,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Option<Image> {
+    use crate::shape::find_local;
+    if !xml.contains(":wgp") {
+        return None;
+    }
+    let dom = bo_drawingml::dom::parse(xml.as_bytes(), &ctx.part).ok()?;
+    if find_local(&dom, "wpc").is_some() {
+        return None;
+    }
+    let wgp = find_local(&dom, "wgp")?;
+    let mut pictures: Vec<String> = Vec::new();
+    let tree = {
+        let mut blip = |rid: &str| {
+            let name = ctx.target(rid)?;
+            ctx.pkg.part(&name)?;
+            pictures.push(name.clone());
+            Some(name)
+        };
+        crate::group::drawing_from_wgp(wgp, &mut blip)?
+    };
+    // Position and extent from the DrawingML container (§20.4.2.3 / §20.4.2.8).
+    let mut r = XmlReader::new(xml.as_bytes(), &ctx.part);
+    let mut img = loop {
+        match r.read().ok()? {
+            Event::Start(e) if name(&e) == b"drawing" => {
+                break read_drawing_frame(&mut r, ctx, media).ok()?;
+            }
+            Event::Eof => return None,
+            _ => {}
+        }
+    };
+    for p in pictures {
+        if let Some(part) = ctx.pkg.part(&p) {
+            media
+                .entry(p)
+                .or_insert_with(|| Arc::new(part.data.clone()));
+        }
+    }
+    let root = ctx.part.rsplit_once('/').map_or("/word", |(dir, _)| dir);
+    let mut n = 1;
+    let group = loop {
+        let cand = bo_model::diagram::group_name(root, n);
+        if !media.contains_key(&cand) {
+            break cand;
+        }
+        n += 1;
+    };
+    media.insert(group.clone(), Arc::new(tree.into_bytes()));
+    img.media = group;
+    img.shape = None;
+    Some(img)
 }
 
 /// A shape or text box (`wps:wsp`, else the VML fallback `w:pict`) in the XML of a

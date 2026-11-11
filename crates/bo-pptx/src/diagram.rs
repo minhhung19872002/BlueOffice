@@ -67,6 +67,38 @@ pub fn drawing_rel_id(data_xml: &[u8], part: &str) -> Option<String> {
 /// Top-level shapes of a diagram drawing part (`dsp:drawing/dsp:spTree`),
 /// coordinates in EMU relative to the graphic frame.
 pub fn drawing_shapes(xml: &[u8], part: &str) -> Option<Vec<ShapeNode>> {
+    drawing_shapes_with(xml, part, None)
+}
+
+/// The absolute name of the image part behind a relationship id of a diagram part.
+pub type Resolve<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+/// Pictures of a diagram part (`a:blip@r:embed` / `@r:link`, ECMA-376 Part 1, §20.1.8.13) name
+/// relationships of that part, not of the part holding the frame: each id is replaced by the
+/// absolute name of its image part, which the renderer takes as it is.
+fn resolve_blips(el: &mut XmlElement, resolve: Resolve<'_>) {
+    if el.local() == "blip" {
+        for (k, v) in &mut el.attrs {
+            if k == "r:embed" || k == "r:link" {
+                // An id that does not resolve names nothing (never a relationship of the frame's part).
+                *v = resolve(v).unwrap_or_default();
+            }
+        }
+    }
+    for c in &mut el.children {
+        if let XmlNode::Element(e) = c {
+            resolve_blips(e, resolve);
+        }
+    }
+}
+
+/// [`drawing_shapes`] with the part's pictures resolved through `resolve` (the relationships of
+/// the drawing part).
+pub fn drawing_shapes_with(
+    xml: &[u8],
+    part: &str,
+    resolve: Option<Resolve<'_>>,
+) -> Option<Vec<ShapeNode>> {
     let root = bo_drawingml::dom::parse(xml, part).ok()?;
     if root.local() != "drawing" {
         return None;
@@ -77,16 +109,237 @@ pub fn drawing_shapes(xml: &[u8], part: &str) -> Option<Vec<ShapeNode>> {
         if matches!(e.local(), "sp" | "grpSp" | "cxnSp" | "pic") {
             let mut e = e.clone();
             rename(&mut e);
+            if let Some(r) = resolve {
+                resolve_blips(&mut e, r);
+            }
             out.push(crate::parse_node(&e));
         }
     }
     Some(out)
 }
 
+/// The media of a shape group (`bo_model::diagram::group_name`) for a frame of `w` × `h` EMU
+/// laid out for `child` EMU: the shape tree `drawing` (a `dsp:drawing`) with that child space on
+/// its group properties (§20.1.7.5 xfrm: `a:chOff` / `a:chExt`) and its picture fills naming
+/// their image parts (`resolve`: the image part of a relationship id of the drawing part).
+#[must_use]
+pub fn group_tree(drawing: &[u8], child: (i64, i64), resolve: Resolve<'_>) -> Option<Vec<u8>> {
+    let mut root = bo_drawingml::dom::parse(drawing, "/group.xml").ok()?;
+    if root.local() != "drawing" {
+        return None;
+    }
+    let tree = root.children.iter_mut().find_map(|c| match c {
+        XmlNode::Element(e) if e.local() == "spTree" => Some(e),
+        _ => None,
+    })?;
+    resolve_blips(tree, resolve);
+    let (cx, cy) = child;
+    let mut pr = XmlElement::new("dsp:grpSpPr");
+    let mut xfrm = XmlElement::new("a:xfrm");
+    for (name, a, b, x, y) in [
+        ("a:off", "x", "y", 0, 0),
+        ("a:ext", "cx", "cy", cx, cy),
+        ("a:chOff", "x", "y", 0, 0),
+        ("a:chExt", "cx", "cy", cx, cy),
+    ] {
+        let mut e = XmlElement::new(name);
+        e.attrs = vec![(a.into(), x.to_string()), (b.into(), y.to_string())];
+        xfrm.children.push(XmlNode::Element(e));
+    }
+    pr.children.push(XmlNode::Element(xfrm));
+    let mut placed = false;
+    for c in &mut tree.children {
+        if let XmlNode::Element(e) = c {
+            if e.local() == "grpSpPr" {
+                *e = pr.clone();
+                placed = true;
+            }
+        }
+    }
+    if !placed {
+        tree.children.insert(0, XmlNode::Element(pr));
+    }
+    if !root.attrs.iter().any(|(k, _)| k == "xmlns:r") {
+        root.attrs.push((
+            "xmlns:r".into(),
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships".into(),
+        ));
+    }
+    Some(bo_drawingml::dom::to_part_xml(&root))
+}
+
+/// The shapes of a shape group's media ([`group_tree`]) for a frame of `w` × `h` EMU: one group
+/// whose child space is the size the shapes were laid out for, so a resized frame scales them.
+#[must_use]
+pub fn group_shapes(xml: &[u8], part: &str, (w, h): (i64, i64)) -> Option<Vec<ShapeNode>> {
+    use bo_model::slide::{GroupShape, ShapeProps, Xfrm};
+    let root = bo_drawingml::dom::parse(xml, part).ok()?;
+    let tree = find(&root, "spTree")?;
+    let child = tree
+        .elements()
+        .find(|e| e.local() == "grpSpPr")
+        .and_then(|g| find(g, "chExt"))
+        .and_then(|e| {
+            Some((
+                e.attr("cx")?.parse::<i64>().ok()?,
+                e.attr("cy")?.parse::<i64>().ok()?,
+            ))
+        })
+        .filter(|(cw, ch)| *cw > 0 && *ch > 0)
+        .unwrap_or((w, h));
+    let children = drawing_shapes(xml, part)?;
+    Some(vec![ShapeNode::Group(Box::new(GroupShape {
+        props: ShapeProps {
+            xfrm: Some(Xfrm {
+                off: Some((0, 0)),
+                ext: Some((w, h)),
+                ch_off: Some((0, 0)),
+                ch_ext: Some(child),
+                ..Xfrm::default()
+            }),
+            ..ShapeProps::default()
+        },
+        children,
+        ..GroupShape::default()
+    }))])
+}
+
+/// The shapes of a sheet's shape group (`xdr:grpSp`, ECMA-376 Part 1, §20.5.2.17: its shapes are
+/// DrawingML as a slide's are) fitted to a frame of `w` × `h` EMU; picture fills name their
+/// image part.
+#[must_use]
+pub fn sheet_group_shapes(grp_sp: &str, (w, h): (i64, i64)) -> Option<Vec<ShapeNode>> {
+    fn to_p(el: &mut XmlElement) {
+        if let Some(local) = el.name.strip_prefix("xdr:") {
+            el.name = format!("p:{local}");
+        }
+        for c in &mut el.children {
+            if let XmlNode::Element(e) = c {
+                to_p(e);
+            }
+        }
+    }
+    let mut root = bo_drawingml::dom::parse(grp_sp.as_bytes(), "/group.xml").ok()?;
+    if root.local() != "grpSp" {
+        return None;
+    }
+    to_p(&mut root);
+    let mut node = crate::parse_node(&root);
+    let ShapeNode::Group(g) = &mut node else {
+        return None;
+    };
+    let mut x = g.props.xfrm.clone().unwrap_or_default();
+    // The anchor gives the place and size; the child space stays the group's own.
+    let child = x.ch_ext.or(x.ext).unwrap_or((w, h));
+    x.ch_off = Some(x.ch_off.or(x.off).unwrap_or((0, 0)));
+    x.ch_ext = Some(child);
+    x.off = Some((0, 0));
+    x.ext = Some((w, h));
+    g.props.xfrm = Some(x);
+    Some(vec![node])
+}
+
+/// Draw `shapes` (EMU, in a `w` × `h` box) as vector commands; the images they show are added
+/// to `images` (by part name).
+pub fn render_shapes(
+    shapes: Vec<ShapeNode>,
+    assets: &DiagramAssets<'_>,
+    (w, h): (i64, i64),
+    fonts: &mut bo_text::FontManager,
+    images: &mut std::collections::BTreeMap<String, Vec<u8>>,
+) -> Option<Vec<bo_render::Command>> {
+    if shapes.is_empty() || w <= 0 || h <= 0 {
+        return None;
+    }
+    let n = shapes.len();
+    let pres = shapes_presentation(shapes, assets, (w, h));
+    let opts = crate::RenderOptions {
+        layer: Some(crate::ShapeRange {
+            start: 0,
+            end: n,
+            backdrop: false,
+        }),
+        ..crate::RenderOptions::default()
+    };
+    crate::render_with(&pres, 0, fonts, images, &opts)
+        .ok()
+        .map(|p| p.commands)
+}
+
+/// Relationship type of an image part (ECMA-376 Part 1, §15.2.14).
+pub const REL_IMAGE: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+
+/// The image relationships (id, absolute part name) of a diagram part `part` from its
+/// relationships part `rels_xml`.
+#[must_use]
+pub fn image_rels(rels_xml: &[u8], part: &str) -> Vec<(String, String)> {
+    bo_opc::parse_relationships(rels_xml, &bo_opc::rels_part_name(part))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.rel_type == REL_IMAGE && r.mode == bo_opc::TargetMode::Internal)
+        .map(|r| (r.id, bo_opc::resolve_target(part, &r.target)))
+        .collect()
+}
+
+/// The relationships part of a diagram part in directory `<x>/diagrams` whose pictures
+/// (id, absolute part name) are `images`; the data model part and the drawing part of a diagram
+/// BlueOffice writes share one such list.
+#[must_use]
+pub fn image_rels_xml(part: &str, images: &[(String, String)]) -> Vec<u8> {
+    let mut s = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
+    );
+    for (id, name) in images {
+        s.push_str(&format!(
+            "<Relationship Id=\"{}\" Type=\"{REL_IMAGE}\" Target=\"{}\"/>",
+            bo_opc::xml::escape(id),
+            bo_opc::xml::escape(&relative(part, name)),
+        ));
+    }
+    s.push_str("</Relationships>");
+    s.into_bytes()
+}
+
+/// `target` relative to the directory of part `from` (both absolute part names).
+fn relative(from: &str, target: &str) -> String {
+    let dir: Vec<&str> = from.split('/').filter(|s| !s.is_empty()).collect();
+    let dir = &dir[..dir.len().saturating_sub(1)];
+    let to: Vec<&str> = target.split('/').filter(|s| !s.is_empty()).collect();
+    let common = dir.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut out: Vec<&str> = vec![".."; dir.len() - common];
+    out.extend(&to[common..]);
+    out.join("/")
+}
+
 /// Shapes of a diagram in a `w`×`h` EMU frame from either its drawing part or, for a SmartArt saved
 /// without one, its data model part (laid out by [`crate::diagram_layout`]).
 pub fn diagram_shapes(xml: &[u8], part: &str, w: i64, h: i64) -> Option<Vec<ShapeNode>> {
-    drawing_shapes(xml, part).or_else(|| crate::diagram_layout::synth(xml, part, None, w, h))
+    diagram_shapes_with(xml, part, &DiagramContext::default(), w, h)
+}
+
+/// What a diagram part is drawn with besides its own XML.
+#[derive(Clone, Copy, Default)]
+pub struct DiagramContext<'a> {
+    /// The image part of a relationship id of the part.
+    pub resolve: Option<Resolve<'a>>,
+    /// The layout definition part (for a data model laid out by BlueOffice).
+    pub layout: Option<&'a [u8]>,
+    /// The diagram's own quick style and colours (for a data model laid out by BlueOffice).
+    pub defs: Option<&'a crate::diagram_layout::Defs>,
+}
+
+/// [`diagram_shapes`] with the diagram's pictures and definitions.
+pub fn diagram_shapes_with(
+    xml: &[u8],
+    part: &str,
+    cx: &DiagramContext<'_>,
+    w: i64,
+    h: i64,
+) -> Option<Vec<ShapeNode>> {
+    drawing_shapes_with(xml, part, cx.resolve).or_else(|| {
+        crate::diagram_layout::synth_with(xml, part, cx.layout, cx.defs, cx.resolve, w, h)
+    })
 }
 
 /// Draw a diagram drawing part as vector commands in a `w`×`h` EMU box
@@ -98,18 +351,95 @@ pub fn render_drawing(
     h: i64,
     fonts: &mut bo_text::FontManager,
 ) -> Option<Vec<bo_render::Command>> {
-    use bo_model::slide::{CommonSlideData, Presentation, Slide, SlideSize};
-    let shapes = diagram_shapes(xml, part, w, h)?;
-    if shapes.is_empty() || w <= 0 || h <= 0 {
-        return None;
+    let mut images = std::collections::BTreeMap::new();
+    render_drawing_with(
+        xml,
+        part,
+        &DiagramContext::default(),
+        &DiagramAssets::default(),
+        (w, h),
+        fonts,
+        &mut images,
+    )
+}
+
+/// What the shapes of a diagram outside a presentation are drawn with: the theme its scheme
+/// colours and style references resolve against, and its image parts.
+#[derive(Clone, Copy, Default)]
+pub struct DiagramAssets<'a> {
+    /// The document's theme.
+    pub theme: Option<&'a bo_model::slide::Theme>,
+    /// Bytes of an image part by absolute name.
+    pub image: Option<ImageBytes<'a>>,
+}
+
+/// Bytes of an image part by absolute name.
+pub type ImageBytes<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
+
+/// A one-slide presentation of `w`×`h` EMU holding `shapes` (a diagram drawn outside BlueSlide),
+/// with the image parts the shapes name.
+#[must_use]
+pub fn shapes_presentation(
+    shapes: Vec<ShapeNode>,
+    assets: &DiagramAssets<'_>,
+    (w, h): (i64, i64),
+) -> bo_model::slide::Presentation {
+    use bo_model::slide::{
+        CommonSlideData, Presentation, RawPart, Slide, SlideLayout, SlideMaster, SlideSize,
+    };
+    fn blips(n: &ShapeNode, out: &mut Vec<String>) {
+        let mut fill = |p: &bo_model::slide::ShapeProps| {
+            if let Some(bo_model::slide::Fill::Picture(b)) = &p.fill {
+                out.extend(b.embed.clone());
+            }
+        };
+        match n {
+            ShapeNode::Shape(s) => fill(&s.props),
+            ShapeNode::Picture(p) => out.extend(p.blip.embed.clone()),
+            ShapeNode::Group(g) => {
+                for c in &g.children {
+                    blips(c, out);
+                }
+            }
+            _ => {}
+        }
     }
-    let n = shapes.len();
-    let pres = Presentation {
+    let mut names = Vec::new();
+    for s in &shapes {
+        blips(s, &mut names);
+    }
+    names.sort();
+    names.dedup();
+    let parts = names
+        .into_iter()
+        .filter(|n| n.starts_with('/'))
+        .filter_map(|n| {
+            let data = assets.image.and_then(|f| f(&n))?;
+            Some(RawPart {
+                name: n,
+                content_type: None,
+                data,
+            })
+        })
+        .collect();
+    Presentation {
         slide_size: SlideSize {
             cx: w,
             cy: h,
             kind: None,
         },
+        // The theme is reached through a master and a layout (both empty).
+        themes: assets.theme.cloned().into_iter().collect(),
+        masters: assets
+            .theme
+            .map(|_| SlideMaster::default())
+            .into_iter()
+            .collect(),
+        layouts: assets
+            .theme
+            .map(|_| SlideLayout::default())
+            .into_iter()
+            .collect(),
         slides: vec![Slide {
             data: CommonSlideData {
                 shapes,
@@ -117,8 +447,28 @@ pub fn render_drawing(
             },
             ..Slide::default()
         }],
+        parts,
         ..Presentation::default()
-    };
+    }
+}
+
+/// [`render_drawing`] with the diagram's pictures, definitions and theme; the images the drawing
+/// shows are added to `images` (by part name).
+pub fn render_drawing_with(
+    xml: &[u8],
+    part: &str,
+    cx: &DiagramContext<'_>,
+    assets: &DiagramAssets<'_>,
+    (w, h): (i64, i64),
+    fonts: &mut bo_text::FontManager,
+    images: &mut std::collections::BTreeMap<String, Vec<u8>>,
+) -> Option<Vec<bo_render::Command>> {
+    let shapes = diagram_shapes_with(xml, part, cx, w, h)?;
+    if shapes.is_empty() || w <= 0 || h <= 0 {
+        return None;
+    }
+    let n = shapes.len();
+    let pres = shapes_presentation(shapes, assets, (w, h));
     let opts = crate::RenderOptions {
         layer: Some(crate::ShapeRange {
             start: 0,
@@ -127,8 +477,7 @@ pub fn render_drawing(
         }),
         ..crate::RenderOptions::default()
     };
-    let mut images = std::collections::BTreeMap::new();
-    crate::render_with(&pres, 0, fonts, &mut images, &opts)
+    crate::render_with(&pres, 0, fonts, images, &opts)
         .ok()
         .map(|p| p.commands)
 }

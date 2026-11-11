@@ -9,6 +9,7 @@
 mod custom_xml;
 pub mod diagram;
 mod forms;
+mod group;
 mod mentions;
 mod ole;
 mod picture;

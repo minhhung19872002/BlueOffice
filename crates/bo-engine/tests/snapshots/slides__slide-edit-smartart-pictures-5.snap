@@ -1,0 +1,39 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=9 [0.0 120.1 147.7 230.9] fill=#1f6fb2ff
+  path n=9 [0.0 120.1 147.7 230.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 120.1]
+    text 15.0pt 53.4,53.2 #ffffffff "Hà "
+    text 15.0pt 73.3,53.2 #ffffffff "Nội"
+    text 12.0pt 52.4,68.6 #ffffffff "• "
+    text 12.0pt 61.1,68.6 #ffffffff "Thủ "
+    text 12.0pt 82.3,68.6 #ffffffff "đô"
+  pop transform
+  path n=8 [155.1 153.3 199.4 197.7] fill=#a6a6a6ff
+  path n=8 [155.1 153.3 199.4 197.7] stroke=#ffffffff w1.00
+  path n=9 [206.8 120.1 354.5 230.9] fill=#1f6fb2ff
+  path n=9 [206.8 120.1 354.5 230.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 206.8 120.1]
+    text 20.0pt 57.4,62.2 #ffffffff "Huế"
+  pop transform
+  path n=8 [361.8 153.3 406.2 197.7] fill=#a6a6a6ff
+  path n=8 [361.8 153.3 406.2 197.7] stroke=#ffffffff w1.00
+  path n=9 [413.5 120.1 561.2 230.9] fill=#1f6fb2ff
+  path n=9 [413.5 120.1 561.2 230.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 413.5 120.1]
+    text 20.0pt 39.3,62.2 #ffffffff "Đà "
+    text 20.0pt 65.9,62.2 #ffffffff "Nẵng"
+  pop transform
+  path n=8 [568.6 153.3 612.9 197.7] fill=#a6a6a6ff
+  path n=8 [568.6 153.3 612.9 197.7] stroke=#ffffffff w1.00
+  path n=9 [620.3 120.1 768.0 230.9] fill=#1f6fb2ff
+  path n=9 [620.3 120.1 768.0 230.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 620.3 120.1]
+    text 20.0pt 40.3,62.2 #ffffffff "Cần "
+    text 20.0pt 75.6,62.2 #ffffffff "Thơ"
+  pop transform
+pop transform

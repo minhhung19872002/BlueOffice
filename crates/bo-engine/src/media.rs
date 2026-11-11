@@ -10,17 +10,17 @@ use bo_text::FontManager;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Picture size (EMU) of every media part referenced by a picture.
-pub(crate) fn sizes(doc: &Document) -> BTreeMap<String, (i64, i64)> {
-    fn visit(blocks: &[Block], out: &mut BTreeMap<String, (i64, i64)>) {
+/// Every picture of the document (body, text boxes, headers, footers, notes) that shows a media
+/// part, in document order.
+pub(crate) fn pictures(doc: &Document) -> Vec<&bo_model::Image> {
+    fn visit<'a>(blocks: &'a [Block], out: &mut Vec<&'a bo_model::Image>) {
         for b in blocks {
             match b {
                 Block::Paragraph(p) => {
                     for c in p.runs.iter().flat_map(|r| &r.content) {
                         if let RunContent::Image(img) = c {
                             if !img.media.is_empty() {
-                                out.entry(img.media.clone())
-                                    .or_insert((img.width.0, img.height.0));
+                                out.push(img);
                             }
                             if let Some(t) = img.shape.as_ref().and_then(|s| s.text.as_ref()) {
                                 visit(t, out);
@@ -37,7 +37,7 @@ pub(crate) fn sizes(doc: &Document) -> BTreeMap<String, (i64, i64)> {
             }
         }
     }
-    let mut out = BTreeMap::new();
+    let mut out = Vec::new();
     for s in &doc.sections {
         visit(&s.blocks, &mut out);
         for set in [&s.headers, &s.footers] {
@@ -48,6 +48,16 @@ pub(crate) fn sizes(doc: &Document) -> BTreeMap<String, (i64, i64)> {
     }
     for b in doc.footnotes.values().chain(doc.endnotes.values()) {
         visit(b, &mut out);
+    }
+    out
+}
+
+/// Picture size (EMU) of every media part referenced by a picture.
+pub(crate) fn sizes(doc: &Document) -> BTreeMap<String, (i64, i64)> {
+    let mut out = BTreeMap::new();
+    for img in pictures(doc) {
+        out.entry(img.media.clone())
+            .or_insert((img.width.0, img.height.0));
     }
     out
 }

@@ -1,13 +1,15 @@
 import { useTranslation } from '@blueoffice/i18n';
 import type {
+  FileAccess,
   SlideSmartArtCategory,
   SlideSmartArtColors,
   SlideSmartArtItem,
   SlideSmartArtLayout,
   SlideSmartArtStyle,
+  SmartArtPreview,
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import styles from './SmartArtDialog.module.css';
 
 /** The BlueOffice layout library by category (`bo_pptx::diagram_layout::Layout::ALL`). */
@@ -56,6 +58,87 @@ export function textOf(items: SlideSmartArtItem[]): string {
 /** What the node buttons of the text pane do to the node at the caret. */
 export type SmartArtNodeOp = 'add' | 'remove' | 'promote' | 'demote' | 'up' | 'down';
 
+/**
+ * Thumbnails of the layouts by colours and look. The engine draws the same thumbnails in every
+ * app, so one cache serves BlueDoc, BlueSheet and BlueSlide for the life of the page.
+ */
+const previewCache = new Map<string, Promise<SmartArtPreview[]>>();
+
+/** Loads the layout thumbnails for colours `colors` and look `style` (from the engine). */
+export type SmartArtPreviewLoader = (
+  colors: SlideSmartArtColors,
+  style: SlideSmartArtStyle,
+) => Promise<SmartArtPreview[]>;
+
+/** The cached thumbnails for `colors` / `style` (a failed load is not kept). */
+export function smartArtPreviews(
+  load: SmartArtPreviewLoader,
+  colors: SlideSmartArtColors,
+  style: SlideSmartArtStyle,
+): Promise<SmartArtPreview[]> {
+  // A diagram's own colours / look are in its file: the library is shown in the defaults.
+  const c = colors === 'file' ? 'colorful' : colors;
+  const s = style === 'file' ? 'fill' : style;
+  const key = `${c}|${s}`;
+  let hit = previewCache.get(key);
+  if (!hit) {
+    hit = load(c, s).catch((e: unknown) => {
+      previewCache.delete(key);
+      throw e;
+    });
+    previewCache.set(key, hit);
+  }
+  return hit;
+}
+
+/** Forget the cached thumbnails (tests). */
+export function clearSmartArtPreviews(): void {
+  previewCache.clear();
+}
+
+/**
+ * `pickPicture` of the dialog: a PNG / JPEG file chosen through the platform's file dialog, as a
+ * `data:` URL (the engine reads the format from the bytes).
+ */
+export function smartArtPicturePicker(files: FileAccess): () => Promise<string | null> {
+  return async () => {
+    const file = await files.openFile(['.png', '.jpg', '.jpeg']);
+    if (!file) return null;
+    let bin = '';
+    const bytes = file.bytes;
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    const mime = /\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg';
+    return `data:${mime};base64,${btoa(bin)}`;
+  };
+}
+
+/** An SVG document as an image source. */
+function svgSrc(svg: string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * The pictures of the nodes after the outline was retyped: unchanged when the number of nodes is
+ * the same (texts were edited), else each node keeps the picture of the first old node with its
+ * text (lines were added or removed).
+ */
+export function realignPictures(
+  before: SlideSmartArtItem[],
+  pictures: (string | undefined)[],
+  after: SlideSmartArtItem[],
+): (string | undefined)[] {
+  if (before.length === after.length) return after.map((_, i) => pictures[i]);
+  const used = new Set<number>();
+  return after.map((it) => {
+    const k = before.findIndex((b, i) => !used.has(i) && pictures[i] && b.text === it.text);
+    if (k < 0) return undefined;
+    used.add(k);
+    return pictures[k];
+  });
+}
+
 export const SMARTART_NODE_OPS: SmartArtNodeOp[] = [
   'add',
   'remove',
@@ -71,7 +154,7 @@ function clampLevels(items: SlideSmartArtItem[]): SlideSmartArtItem[] {
   return items.map((i) => {
     const level = Math.min(i.level, prev + 1);
     prev = level;
-    return { text: i.text, level };
+    return { ...i, level };
   });
 }
 
@@ -105,7 +188,7 @@ export function editOutline(
   }
   const end = subtreeEnd(src, index);
   const shift = (by: number) =>
-    src.map((it, k) => (k >= index && k < end ? { text: it.text, level: it.level + by } : it));
+    src.map((it, k) => (k >= index && k < end ? { ...it, level: it.level + by } : it));
   switch (op) {
     case 'add':
       return {
@@ -114,7 +197,7 @@ export function editOutline(
       };
     case 'remove': {
       const kept = src
-        .map((it, k) => (k > index && k < end ? { text: it.text, level: it.level - 1 } : it))
+        .map((it, k) => (k > index && k < end ? { ...it, level: it.level - 1 } : it))
         .filter((_, k) => k !== index);
       return { items: clampLevels(kept), index: Math.max(0, Math.min(index, kept.length - 1)) };
     }
@@ -171,8 +254,9 @@ export interface SmartArtDraft {
 }
 
 /**
- * Insert a SmartArt or edit the selected one: the layout library by category, colours, look and
- * the text pane (an indented outline with node buttons: add, remove, promote, demote, move).
+ * Insert a SmartArt or edit the selected one: the layout library by category (with thumbnails
+ * drawn by the engine), colours, look and the text pane (an indented outline with node buttons:
+ * add, remove, promote, demote, move, and the node's picture: choose / replace, remove).
  * Shared by BlueSlide, BlueDoc and BlueSheet (CORE-SMART-003/004/005).
  */
 export function SmartArtDialog({
@@ -180,17 +264,49 @@ export function SmartArtDialog({
   initial,
   onApply,
   onClose,
+  loadPreviews,
+  pickPicture,
 }: {
   mode: 'insert' | 'edit';
   initial: SmartArtDraft;
   onApply: (d: SmartArtDraft) => void;
   onClose: () => void;
+  /** Layout thumbnails from the engine (none: the library shows names only). */
+  loadPreviews?: SmartArtPreviewLoader;
+  /** Lets the user choose a PNG / JPEG picture; resolves its `data:` URL (`null`: cancelled). */
+  pickPicture?: () => Promise<string | null>;
 }) {
   const { t } = useTranslation();
   const [layout, setLayout] = useState<SlideSmartArtLayout>(initial.layout);
-  const [text, setText] = useState(textOf(initial.items));
+  const [text, setTextOnly] = useState(textOf(initial.items));
+  /** The picture of each node (index in the outline): an id the diagram has, or a new `data:` URL. */
+  const [pictures, setPictures] = useState<(string | undefined)[]>(
+    initial.items.map((i) => i.picture),
+  );
   const [colors, setColors] = useState<SlideSmartArtColors>(initial.colors);
   const [style, setStyle] = useState<SlideSmartArtStyle>(initial.style);
+  const [previews, setPreviews] = useState<Map<SlideSmartArtLayout, string>>(new Map());
+  /** The node the caret of the text pane is in. */
+  const [caretNode, setCaretNode] = useState(0);
+  useEffect(() => {
+    if (!loadPreviews) return;
+    let live = true;
+    smartArtPreviews(loadPreviews, colors, style).then(
+      (list) => {
+        if (live) setPreviews(new Map(list.map((p) => [p.layout, p.svg])));
+      },
+      // No thumbnails: the library still lists every layout by name.
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [loadPreviews, colors, style]);
+  /** The outline was retyped: the pictures follow their nodes. */
+  const setText = (next: string) => {
+    setPictures((p) => realignPictures(itemsOf(text), p, itemsOf(next)));
+    setTextOnly(next);
+  };
   const pane = useRef<HTMLTextAreaElement>(null);
   /** Caret to restore after a node button rewrote the outline. */
   const caret = useRef<number | null>(null);
@@ -202,9 +318,24 @@ export function SmartArtDialog({
       caret.current = null;
     }
   }, [text]);
-  const items = itemsOf(text);
+  const items: SlideSmartArtItem[] = itemsOf(text).map((it, i) =>
+    pictures[i] ? { ...it, picture: pictures[i] } : it,
+  );
+  const caretAt = () => nodeAtCaret(text, pane.current?.selectionStart ?? text.length);
+  const setPicture = (node: number, picture: string | undefined) =>
+    setPictures((p) => {
+      const next = items.map((_, i) => p[i]);
+      next[node] = picture;
+      return next;
+    });
+  const choosePicture = async () => {
+    const node = caretAt();
+    const url = await pickPicture?.();
+    if (url) setPicture(node, url);
+    pane.current?.focus();
+  };
   const nodeOp = (op: SmartArtNodeOp) => {
-    const at = nodeAtCaret(text, pane.current?.selectionStart ?? text.length);
+    const at = caretAt();
     const r = editOutline(
       items,
       at,
@@ -212,6 +343,7 @@ export function SmartArtDialog({
       t('slideEditor.smartart.sampleItem', { n: items.length + 1 }),
     );
     const next = textOf(r.items);
+    setCaretNode(r.index);
     // The caret goes to the end of the node's line.
     caret.current = next
       .split('\n')
@@ -222,8 +354,13 @@ export function SmartArtDialog({
       el?.focus();
       el?.setSelectionRange(caret.current, caret.current);
       caret.current = null;
-    } else setText(next);
+    } else {
+      // The nodes moved with their pictures.
+      setPictures(r.items.map((i) => i.picture));
+      setTextOnly(next);
+    }
   };
+  const pictured = items.map((it, i) => ({ it, i })).filter((x) => !!x.it.picture);
   return (
     <Dialog
       open
@@ -263,18 +400,29 @@ export function SmartArtDialog({
               <span className={styles.categoryName}>
                 {t(`slideEditor.smartart.categories.${g.category}`)}
               </span>
-              {g.layouts.map((l) => (
-                <label key={l} className={styles.layout}>
-                  <input
-                    type="radio"
-                    name="smartart-layout"
-                    data-testid={`smartart-layout-${l}`}
-                    checked={layout === l}
-                    onChange={() => setLayout(l)}
-                  />{' '}
-                  {t(`slideEditor.smartart.layouts.${l}`)}
-                </label>
-              ))}
+              {g.layouts.map((l) => {
+                const svg = previews.get(l);
+                return (
+                  <label key={l} className={styles.layout}>
+                    <input
+                      type="radio"
+                      name="smartart-layout"
+                      data-testid={`smartart-layout-${l}`}
+                      checked={layout === l}
+                      onChange={() => setLayout(l)}
+                    />{' '}
+                    {svg && (
+                      <img
+                        className={styles.thumb}
+                        data-testid={`smartart-preview-${l}`}
+                        src={svgSrc(svg)}
+                        alt=""
+                      />
+                    )}
+                    {t(`slideEditor.smartart.layouts.${l}`)}
+                  </label>
+                );
+              })}
             </div>
           ))}
         </fieldset>
@@ -285,6 +433,9 @@ export function SmartArtDialog({
             value={colors}
             onChange={(e) => setColors(e.target.value as SlideSmartArtColors)}
           >
+            {initial.colors === 'file' && (
+              <option value="file">{t('slideEditor.smartart.palette.file')}</option>
+            )}
             {SMARTART_COLORS.map((c) => (
               <option key={c} value={c}>
                 {t(`slideEditor.smartart.palette.${c}`)}
@@ -299,6 +450,9 @@ export function SmartArtDialog({
             value={style}
             onChange={(e) => setStyle(e.target.value as SlideSmartArtStyle)}
           >
+            {initial.style === 'file' && (
+              <option value="file">{t('slideEditor.smartart.styles.file')}</option>
+            )}
             <option value="fill">{t('slideEditor.smartart.styles.fill')}</option>
             <option value="outline">{t('slideEditor.smartart.styles.outline')}</option>
           </select>
@@ -320,7 +474,49 @@ export function SmartArtDialog({
               {t(`slideEditor.smartart.node.${op}`)}
             </button>
           ))}
+          {pickPicture && (
+            <>
+              <button
+                type="button"
+                data-testid="smartart-node-picture"
+                disabled={items.length === 0}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void choosePicture()}
+              >
+                {t(
+                  pictures[caretNode]
+                    ? 'slideEditor.smartart.node.replacePicture'
+                    : 'slideEditor.smartart.node.picture',
+                )}
+              </button>
+              <button
+                type="button"
+                data-testid="smartart-node-removePicture"
+                disabled={!pictures[caretNode]}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setPicture(caretAt(), undefined)}
+              >
+                {t('slideEditor.smartart.node.removePicture')}
+              </button>
+            </>
+          )}
         </div>
+        {pictured.length > 0 && (
+          <ul
+            className={styles.pictures}
+            data-testid="smartart-pictures"
+            aria-label={t('slideEditor.smartart.pictures')}
+          >
+            {pictured.map(({ it, i }) => (
+              <li key={i} data-node={i}>
+                {it.picture?.startsWith('data:') && (
+                  <img className={styles.nodePicture} src={it.picture} alt="" />
+                )}
+                {it.text}
+              </li>
+            ))}
+          </ul>
+        )}
         <label className={styles.pane}>
           {t('slideEditor.smartart.textPane')}
           <textarea
@@ -329,7 +525,13 @@ export function SmartArtDialog({
             rows={7}
             value={text}
             spellCheck={false}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaretNode(nodeAtCaret(e.target.value, e.target.selectionStart));
+            }}
+            onSelect={(e) =>
+              setCaretNode(nodeAtCaret(text, e.currentTarget.selectionStart ?? text.length))
+            }
             onKeyDown={(e) => {
               // Tab / Shift+Tab demote / promote the current line.
               if (e.key !== 'Tab') return;
@@ -344,7 +546,10 @@ export function SmartArtDialog({
             style={{ width: '100%', font: '14px system-ui, sans-serif', tabSize: 2 }}
           />
         </label>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>{t('slideEditor.smartart.hint')}</div>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          {t('slideEditor.smartart.hint')}
+          {pickPicture && ` ${t('slideEditor.smartart.pictureHint')}`}
+        </div>
       </div>
     </Dialog>
   );

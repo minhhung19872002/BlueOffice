@@ -801,6 +801,50 @@ pub enum SlideCommand {
         #[serde(default)]
         id: Option<u32>,
     },
+    /// Change the text of one node of SmartArt `id` (default: the selected one): the edit of a
+    /// node on the canvas, one undo step.
+    SetSmartArtNodeText {
+        /// Shape id of the frame; `None` = the selected SmartArt.
+        #[serde(default)]
+        id: Option<u32>,
+        /// Index of the node in the text outline.
+        node: usize,
+        /// New text.
+        text: String,
+    },
+    /// The node of SmartArt `id` (default: the selected one) at slide point (`x`, `y`), or node
+    /// `node`: answers `smartartNode` (its index, text and the box showing it), nothing when the
+    /// point is on no node.
+    SmartArtNodeAt {
+        /// Shape id of the frame; `None` = the selected SmartArt.
+        #[serde(default)]
+        id: Option<u32>,
+        /// Slide point.
+        #[serde(default)]
+        x: Option<f64>,
+        /// Slide point.
+        #[serde(default)]
+        y: Option<f64>,
+        /// Index of the node in the text outline (instead of a point).
+        #[serde(default)]
+        node: Option<usize>,
+    },
+    /// Thumbnails of every layout of the library in `colors` / `style`: answers
+    /// `smartartPreviews` (`[{ layout, svg }]`).
+    SmartArtPreviews {
+        /// Colours (default `colorful`).
+        #[serde(default)]
+        colors: Option<String>,
+        /// Look (default `fill`).
+        #[serde(default)]
+        style: Option<String>,
+        /// Thumbnail width in points (default 96).
+        #[serde(default)]
+        width: Option<f64>,
+        /// Thumbnail height in points (default 64).
+        #[serde(default)]
+        height: Option<f64>,
+    },
     /// Change type, title, legend or data of chart `id` (default: the selected one).
     SetChart {
         /// Shape id of the chart's graphic frame; `None` = the selected chart.
@@ -1252,6 +1296,12 @@ pub struct SlideEditResult {
     /// The selected SmartArt (layout and text outline).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smartart: Option<smartart::SmartArtOut>,
+    /// Answer of `smartArtNodeAt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smartart_node: Option<smartart::SmartNodeOut>,
+    /// Answer of `smartArtPreviews`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smartart_previews: Option<serde_json::Value>,
     /// Answer of the `show` command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show: Option<show::ShowOut>,
@@ -1381,6 +1431,9 @@ pub struct SlideEditor {
 struct Outcome {
     touched: BTreeSet<usize>,
     all: bool,
+    /// A preserved part changed (a diagram's or chart's parts: what the current slide shows may
+    /// have changed although no shape did).
+    parts: bool,
     preview: Option<Preview>,
     hits: Option<Vec<u32>>,
     /// Undo history length asked for by `historyLen` / `mergeHistory`.
@@ -1396,6 +1449,10 @@ struct Outcome {
     chart_gallery: Option<serde_json::Value>,
     /// Text warp previews asked for by `shapeEffects` / `warpPreviews`.
     warp_previews: Option<Vec<effects::WarpPreview>>,
+    /// Node asked for by `smartArtNodeAt`.
+    smartart_node: Option<smartart::SmartNodeOut>,
+    /// Layout thumbnails asked for by `smartArtPreviews`.
+    smartart_previews: Option<serde_json::Value>,
 }
 
 impl Outcome {
@@ -1403,7 +1460,8 @@ impl Outcome {
         for op in ops {
             match op {
                 SlideOp::Slides { .. } => self.all = true,
-                SlideOp::Parts { .. } | SlideOp::Pres { .. } => {}
+                SlideOp::Parts { .. } => self.parts = true,
+                SlideOp::Pres { .. } => {}
                 _ => {
                     if let Some(s) = op.touched_slide() {
                         self.touched.insert(s);
@@ -4735,6 +4793,37 @@ impl Engine {
                         smartart::cmd_smartart_to_shapes(tx, sel, id)
                     });
                 }
+                SlideCommand::SetSmartArtNodeText { id, node, text } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        smartart::cmd_set_smartart_node_text(tx, sel, id, node, &text)
+                    });
+                }
+                SlideCommand::SmartArtNodeAt { id, x, y, node } => {
+                    out.smartart_node =
+                        smartart::smartart_node_at(pres, &ed.sel, id, x.zip(y), node);
+                }
+                SlideCommand::SmartArtPreviews {
+                    colors,
+                    style,
+                    width,
+                    height,
+                } => {
+                    match smartart::look(
+                        bo_pptx::diagram_layout::Look::default(),
+                        colors.as_deref(),
+                        style.as_deref(),
+                    ) {
+                        Ok(look) => {
+                            out.smartart_previews = Some(crate::smartart::layout_previews(
+                                look,
+                                width.unwrap_or(96.0),
+                                height.unwrap_or(64.0),
+                                fonts,
+                            ));
+                        }
+                        Err(code) => out.error = Some(code.into()),
+                    }
+                }
                 SlideCommand::SetChart { id, spec } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         chart::cmd_set_chart(tx, sel, id, &spec)
@@ -5262,7 +5351,13 @@ impl Engine {
             self.rerender_slides()?;
             (0..count).collect()
         } else {
-            let d: Vec<usize> = out.touched.iter().copied().filter(|&i| i < count).collect();
+            let mut touched = out.touched.clone();
+            if out.parts {
+                // Parts are edited for an object of the current slide (also when undone / redone:
+                // the selection goes back to that slide).
+                touched.insert(self.slides.sel.slide);
+            }
+            let d: Vec<usize> = touched.iter().copied().filter(|&i| i < count).collect();
             for &i in &d {
                 self.refresh_slide(i)?;
             }
@@ -5474,6 +5569,8 @@ impl Engine {
                 [one] => smartart::smartart_out(pres, slide, one.id),
                 _ => None,
             },
+            smartart_node: out.smartart_node,
+            smartart_previews: out.smartart_previews,
             show: None,
             file: None,
             presenting: Some(present::present_out(pres)),

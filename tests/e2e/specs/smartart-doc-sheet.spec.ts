@@ -19,7 +19,7 @@ async function insertProcess(page: Page) {
 }
 
 async function editToHierarchy(page: Page) {
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await cmd(page, 'smartart.edit').click();
   const dialog = page.getByTestId('smartart-dialog');
   const pane = dialog.getByTestId('smartart-text');
@@ -35,7 +35,7 @@ async function editToHierarchy(page: Page) {
 }
 
 async function expectEdited(page: Page) {
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await cmd(page, 'smartart.edit').click();
   const dialog = page.getByTestId('smartart-dialog');
   await expect(dialog.getByTestId('smartart-text')).toHaveValue('Giám đốc\n\tKỹ thuật');
@@ -51,10 +51,10 @@ test('BlueDoc: inserts and edits a SmartArt, kept after save and reopen', async 
   await page.goto('/doc');
   await page.getByTestId('new-document').click();
   await expect(page.getByTestId('caret')).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toHaveCount(0);
   await insertProcess(page);
   // The new diagram stays selected, with its own ribbon tab.
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
   await editToHierarchy(page);
 
   const download = page.waitForEvent('download');
@@ -69,7 +69,7 @@ test('BlueDoc: inserts and edits a SmartArt, kept after save and reopen', async 
   await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
   // Select the whole (one-paragraph) document: the diagram.
   await page.keyboard.press('Control+a');
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
   await expectEdited(page);
   expect(errors).toEqual([]);
 });
@@ -83,7 +83,7 @@ test('BlueSheet: inserts, edits and deletes a SmartArt, kept after save and reop
   await expect(page.getByTestId('sheet-canvas')).toHaveAttribute('data-rendered', /\d+/);
   await insertProcess(page);
   await expect(page.getByTestId('smartart-selection')).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
   await editToHierarchy(page);
 
   await page.getByLabel('Ô đang nhập').focus();
@@ -105,9 +105,9 @@ test('BlueSheet: inserts, edits and deletes a SmartArt, kept after save and reop
   await expectEdited(page);
 
   // Delete it from its tab.
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await cmd(page, 'smartart.delete').click();
   await expect(page.getByTestId('smartart-selection')).toHaveCount(0);
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

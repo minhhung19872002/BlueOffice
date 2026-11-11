@@ -29,6 +29,7 @@ export const DOC_QUERY_COMMANDS: readonly string[] = [
   'oleInfo',
   'oleLinks',
   'smartArtInfo',
+  'smartArtPreviews',
   'vbaProject',
   'checkAdminFormat',
   'docProperties',

@@ -278,9 +278,9 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 | `W` hoặc `,`                           | Màn hình trắng                      |
 | `Esc`                                  | Thoát trình chiếu                   |
 
-### Dàn ý và SmartArt
+### Dàn ý và Sơ đồ thông minh
 
 | Phím                | Tác dụng                              |
 | ------------------- | ------------------------------------- |
 | `Enter`             | Thêm một ý (dạng xem **Dàn ý**)       |
-| `Tab` / `Shift+Tab` | Hạ cấp / nâng cấp ý hoặc mục SmartArt |
+| `Tab` / `Shift+Tab` | Hạ cấp / nâng cấp ý hoặc mục sơ đồ thông minh |

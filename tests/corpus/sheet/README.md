@@ -60,6 +60,9 @@ Kiểm thử round-trip: `cargo test -p bo-xlsx --test corpus corpus_roundtrip -
 | `smartart-1.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 1) | tự sinh, `corpus.rs::smartart` |
 | `smartart-2.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 2) | tự sinh, `corpus.rs::smartart` |
 | `smartart-3.xlsx` | SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback (biến thể 3) | tự sinh, `corpus.rs::smartart` |
+| `shapegroup-1.xlsx` | a diagram converted to shapes: xdr:grpSp of preset xdr:sp shapes with text in a two-cell anchor, a nested group and a picture fill with an image relationship (biến thể 1) | tự sinh, `corpus.rs::shapegroup` |
+| `shapegroup-2.xlsx` | a diagram converted to shapes: xdr:grpSp of preset xdr:sp shapes with text in a two-cell anchor, a nested group and a picture fill with an image relationship (biến thể 2) | tự sinh, `corpus.rs::shapegroup` |
+| `shapegroup-3.xlsx` | a diagram converted to shapes: xdr:grpSp of preset xdr:sp shapes with text in a two-cell anchor, a nested group and a picture fill with an image relationship (biến thể 3) | tự sinh, `corpus.rs::shapegroup` |
 | `threaded-1.xlsx` | threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes (biến thể 1) | tự sinh, `corpus.rs::threaded` |
 | `threaded-2.xlsx` | threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes (biến thể 2) | tự sinh, `corpus.rs::threaded` |
 | `threaded-3.xlsx` | threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes (biến thể 3) | tự sinh, `corpus.rs::threaded` |

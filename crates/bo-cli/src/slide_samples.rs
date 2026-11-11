@@ -2602,6 +2602,11 @@ pub fn sample_png() -> Vec<u8> {
     png_image(48, 32, false, [46, 117, 182])
 }
 
+/// A `w` × `h` picture tinted `tint` (the node pictures of the diagram decks).
+pub fn sample_png_of(w: u32, h: u32, tint: [u8; 3]) -> Vec<u8> {
+    png_image(w, h, false, tint)
+}
+
 /// Decks generated from markup.
 pub fn base_decks() -> Vec<(&'static str, Vec<u8>)> {
     let mut v = Vec::new();

@@ -10,6 +10,7 @@
 use super::cmd::Recalc;
 use super::{SheetEngine, MAX_COLS, MAX_ROWS};
 use crate::slide_edit::smartart::SmartItem;
+use crate::smartart::Pictures;
 use crate::{EngineError, Result};
 use bo_model::diagram::{self, DiagramXml, DRAWING_REL_PLACEHOLDER};
 use bo_model::sheet::{CellRef, SheetDiagram, Workbook};
@@ -95,6 +96,29 @@ pub enum SmartArtCommand {
         /// 0-based index of the diagram in the sheet.
         index: usize,
     },
+    /// Replace diagram `index` by a group of ordinary shapes drawn as it shows (an `xdr:grpSp`
+    /// in the same cells), one undo step.
+    SmartArtToShapes {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the diagram in the sheet.
+        index: usize,
+    },
+    /// Thumbnails of every layout of the library: the result is `{ previews: [{ layout, svg }] }`.
+    SmartArtPreviews {
+        /// Colours (default `colorful`).
+        #[serde(default)]
+        colors: Option<String>,
+        /// Look (default `fill`).
+        #[serde(default)]
+        style: Option<String>,
+        /// Thumbnail width in points (default 96).
+        #[serde(default)]
+        width: Option<f64>,
+        /// Thumbnail height in points (default 64).
+        #[serde(default)]
+        height: Option<f64>,
+    },
 }
 
 impl SmartArtCommand {
@@ -106,6 +130,8 @@ impl SmartArtCommand {
             "smartArtInfo",
             "moveSmartArt",
             "deleteSmartArt",
+            "smartArtToShapes",
+            "smartArtPreviews",
         ];
         let name = v.get("cmd")?.as_str()?;
         if !NAMES.contains(&name) {
@@ -120,7 +146,9 @@ impl SmartArtCommand {
             | SmartArtCommand::SetSmartArt { sheet, .. }
             | SmartArtCommand::SmartArtInfo { sheet, .. }
             | SmartArtCommand::MoveSmartArt { sheet, .. }
-            | SmartArtCommand::DeleteSmartArt { sheet, .. } => *sheet,
+            | SmartArtCommand::DeleteSmartArt { sheet, .. }
+            | SmartArtCommand::SmartArtToShapes { sheet, .. } => *sheet,
+            SmartArtCommand::SmartArtPreviews { .. } => 0,
         }
     }
 }
@@ -136,14 +164,6 @@ fn look(base: Look, colors: Option<&str>, style: Option<&str>) -> Result<Look> {
             None => base.fill,
         },
     })
-}
-
-fn outline(items: &[SmartItem]) -> Vec<(String, usize)> {
-    items
-        .iter()
-        .filter(|i| !i.text.trim().is_empty())
-        .map(|i| (i.text.trim().to_owned(), i.level))
-        .collect()
 }
 
 fn cell([r, c]: [u32; 2]) -> CellRef {
@@ -173,30 +193,84 @@ fn opaque<'a>(wb: &'a Workbook, name: &str) -> Option<&'a [u8]> {
         .map(|p| p.data.as_slice())
 }
 
-/// Data model part name, its bytes and the layout definition's bytes (if any).
-type Sources<'a> = (&'a str, &'a [u8], Option<&'a [u8]>);
-
-/// Data model (name, bytes) and layout definition of a diagram: its own parts once edited, else
-/// the file's.
-fn sources<'a>(wb: &'a Workbook, d: &'a SheetDiagram) -> Option<Sources<'a>> {
-    if let Some(x) = &d.xml {
-        return Some((
-            d.data.as_str(),
-            x.data.as_slice(),
-            Some(x.layout.as_slice()),
-        ));
-    }
-    Some((d.data.as_str(), opaque(wb, &d.data)?, opaque(wb, &d.layout)))
+/// Bytes of an image part: the file's, or one a diagram or a group of shapes adds.
+pub(crate) fn image_bytes<'a>(wb: &'a Workbook, name: &str) -> Option<&'a [u8]> {
+    opaque(wb, name).or_else(|| {
+        wb.sheets.iter().find_map(|ws| {
+            ws.diagrams
+                .iter()
+                .filter_map(|d| d.xml.as_ref())
+                .flat_map(|x| &x.images)
+                .chain(ws.shape_groups.iter().flat_map(|g| &g.images))
+                .find(|(n, _)| n == name)
+                .map(|(_, b)| b.as_slice())
+        })
+    })
 }
 
-/// Outline, category and look of a diagram's data model.
+/// The parts a diagram is read from: its own once edited, else the file's.
+pub(crate) struct Sources<'a> {
+    /// Data model part name.
+    pub name: &'a str,
+    /// Data model.
+    pub data: &'a [u8],
+    /// Layout definition.
+    pub layout: Option<&'a [u8]>,
+    /// Quick style.
+    pub style: Option<&'a [u8]>,
+    /// Colours.
+    pub colors: Option<&'a [u8]>,
+    /// Image relationships of the data model part (the pictures of the nodes).
+    pub pictures: Pictures,
+    /// Image relationships of the drawing part.
+    pub drawing_pictures: Pictures,
+}
+
+impl Sources<'_> {
+    /// The diagram's own quick style and colours.
+    pub fn defs(&self) -> dl::Defs {
+        dl::Defs::parse(self.style, self.colors)
+    }
+}
+
+/// Data model, definitions and pictures of a diagram: its own parts once edited, else the file's.
+pub(crate) fn sources<'a>(wb: &'a Workbook, d: &'a SheetDiagram) -> Option<Sources<'a>> {
+    let rels = |bytes: Option<&[u8]>, part: &str| {
+        bytes
+            .filter(|b| !b.is_empty())
+            .map(|b| bo_pptx::diagram::image_rels(b, part))
+            .unwrap_or_default()
+    };
+    if let Some(x) = &d.xml {
+        return Some(Sources {
+            name: d.data.as_str(),
+            data: x.data.as_slice(),
+            layout: Some(x.layout.as_slice()),
+            style: Some(x.style.as_slice()),
+            colors: Some(x.colors.as_slice()),
+            pictures: rels(Some(&x.rels), &d.data),
+            drawing_pictures: rels(Some(&x.rels), &d.part),
+        });
+    }
+    Some(Sources {
+        name: d.data.as_str(),
+        data: opaque(wb, &d.data)?,
+        layout: opaque(wb, &d.layout),
+        style: opaque(wb, &d.style),
+        colors: opaque(wb, &d.colors),
+        pictures: rels(opaque(wb, &bo_opc::rels_part_name(&d.data)), &d.data),
+        drawing_pictures: rels(opaque(wb, &bo_opc::rels_part_name(&d.part)), &d.part),
+    })
+}
+
+/// Outline, layout and look of a diagram's data model.
 fn read(wb: &Workbook, d: &SheetDiagram) -> Option<(Vec<dl::DiagramNode>, Layout, Look)> {
-    let (name, data, layout) = sources(wb, d)?;
-    let (nodes, lo) = dl::parse_data_model(data, name)?;
+    let src = sources(wb, d)?;
+    let (nodes, lo) = dl::parse_data_model(src.data, src.name)?;
     Some((
         nodes,
-        dl::layout_of(lo.as_deref(), layout),
-        dl::look_of(data, name),
+        dl::layout_of(lo.as_deref(), src.layout),
+        dl::look_of(src.data, src.name),
     ))
 }
 
@@ -204,10 +278,7 @@ fn info_json(wb: &Workbook, index: usize, d: &SheetDiagram) -> Value {
     let Some((nodes, cat, lk)) = read(wb, d) else {
         return Value::Null;
     };
-    let items: Vec<SmartItem> = dl::outline_of(&nodes)
-        .into_iter()
-        .map(|(text, level)| SmartItem { text, level })
-        .collect();
+    let items: Vec<SmartItem> = crate::smartart::items_of(&nodes);
     let to =
         d.to.unwrap_or(CellRef::new(d.from.row + 10, d.from.col + 6));
     json!({
@@ -239,6 +310,89 @@ fn fresh_number(wb: &Workbook) -> usize {
     n
 }
 
+/// New image parts of a command: names no part of the workbook has.
+struct NewImages {
+    taken: Vec<String>,
+    added: Vec<(String, Vec<u8>)>,
+}
+
+impl NewImages {
+    fn new(wb: &Workbook) -> NewImages {
+        let mut taken: Vec<String> = wb.opaque.parts.iter().map(|p| p.name.clone()).collect();
+        for ws in &wb.sheets {
+            taken.extend(
+                ws.diagrams
+                    .iter()
+                    .filter_map(|d| d.xml.as_ref())
+                    .flat_map(|x| &x.images)
+                    .chain(ws.shape_groups.iter().flat_map(|g| &g.images))
+                    .map(|(n, _)| n.clone()),
+            );
+        }
+        NewImages {
+            taken,
+            added: Vec::new(),
+        }
+    }
+
+    fn store(&mut self, pic: crate::smartart::NewPicture) -> String {
+        let mut n = 1;
+        let name = loop {
+            let cand = format!("/xl/media/image{n}.{}", pic.ext);
+            if !self.taken.iter().any(|t| t.eq_ignore_ascii_case(&cand)) {
+                break cand;
+            }
+            n += 1;
+        };
+        self.taken.push(name.clone());
+        self.added.push((name.clone(), pic.data));
+        name
+    }
+
+    fn bytes(&self, name: &str) -> Option<&[u8]> {
+        self.added
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b.as_slice())
+    }
+}
+
+/// The relationships part the data model part and the drawing part of a sheet diagram share
+/// (targets are relative to `/xl/diagrams`); empty without pictures.
+fn rels_xml(pictures: &Pictures) -> Vec<u8> {
+    if pictures.is_empty() {
+        Vec::new()
+    } else {
+        bo_pptx::diagram::image_rels_xml(&format!("{DIR}/data.xml"), pictures)
+    }
+}
+
+/// The parts of a diagram as the model holds them, with its pictures: the images it added
+/// before (`prev`) or adds now (`new`) that its nodes still use.
+fn diagram_xml(
+    built: dl::DiagramParts,
+    pictures: &Pictures,
+    prev: Option<&DiagramXml>,
+    new: &NewImages,
+) -> DiagramXml {
+    let images = prev
+        .into_iter()
+        .flat_map(|x| x.images.iter())
+        .chain(&new.added)
+        .filter(|(n, _)| pictures.iter().any(|(_, p)| p == n))
+        .cloned()
+        .collect();
+    DiagramXml {
+        data: built.data,
+        layout: built.layout,
+        style: built.style,
+        colors: built.colors,
+        drawing: built.drawing,
+        rels: rels_xml(pictures),
+        images,
+    }
+}
+
 impl SheetEngine {
     /// Frame size (EMU) of the cells `from` … `to`.
     fn frame_emu(&mut self, sheet: usize, from: CellRef, to: CellRef) -> Result<(i64, i64)> {
@@ -256,7 +410,10 @@ impl SheetEngine {
     pub(super) fn smartart_command(&mut self, cmd: SmartArtCommand) -> Result<Value> {
         let sheet = cmd.sheet();
         let ws = self.sheet(sheet)?;
-        if !matches!(cmd, SmartArtCommand::SmartArtInfo { .. }) {
+        if !matches!(
+            cmd,
+            SmartArtCommand::SmartArtInfo { .. } | SmartArtCommand::SmartArtPreviews { .. }
+        ) {
             if self.sec.read_only {
                 return Err(bad(crate::security::READ_ONLY));
             }
@@ -287,8 +444,10 @@ impl SheetEngine {
             } => {
                 let cat = Layout::parse(&layout).ok_or_else(|| bad("badSmartArt"))?;
                 let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
-                let lines = outline(&items);
-                let nodes = dl::nodes_from_outline(&lines);
+                let mut new = NewImages::new(self.wb()?);
+                let (nodes, pictures) =
+                    crate::smartart::nodes_of(&items, &Vec::new(), &mut |p| Ok(new.store(p)))
+                        .map_err(bad)?;
                 if nodes.is_empty() {
                     return Err(bad("badSmartArt"));
                 }
@@ -299,7 +458,18 @@ impl SheetEngine {
                 );
                 let (from, to) = span(from, to);
                 let ext = self.frame_emu(sheet, from, to)?;
-                let built = dl::build_parts(&nodes, cat, lk, ext, DRAWING_REL_PLACEHOLDER);
+                let size = |rid: &str| {
+                    let (_, name) = pictures.iter().find(|(id, _)| id == rid)?;
+                    crate::edit::image_size(new.bytes(name)?)
+                };
+                let styling = dl::Styling {
+                    look: lk,
+                    defs: None,
+                    picture_size: Some(&size),
+                };
+                let built =
+                    dl::build_parts_with(&nodes, cat, &styling, ext, DRAWING_REL_PLACEHOLDER);
+                let xml = diagram_xml(built, &pictures, None, &new);
                 let index = self.edit(sheet, Recalc::No, |wb, _| {
                     let names = diagram::part_names(DIR, fresh_number(wb));
                     let ws = &mut wb.sheets[sheet];
@@ -307,19 +477,13 @@ impl SheetEngine {
                         from,
                         to: Some(to),
                         part: names[4].clone(),
-                        name: format!("SmartArt {}", ws.diagrams.len() + 1),
+                        name: format!("Diagram {}", ws.diagrams.len() + 1),
                         data: names[0].clone(),
                         layout: names[1].clone(),
                         style: names[2].clone(),
                         colors: names[3].clone(),
                         rel_dm: String::new(),
-                        xml: Some(Box::new(DiagramXml {
-                            data: built.data,
-                            layout: built.layout,
-                            style: built.style,
-                            colors: built.colors,
-                            drawing: built.drawing,
-                        })),
+                        xml: Some(Box::new(xml)),
                         moved: false,
                     });
                     Ok(ws.diagrams.len() - 1)
@@ -339,49 +503,53 @@ impl SheetEngine {
                 ..
             } => {
                 check_index(index)?;
-                let (d, old) = {
+                let d = self.wb()?.sheets[sheet].diagrams[index].clone();
+                let to =
+                    d.to.unwrap_or(CellRef::new(d.from.row + 10, d.from.col + 6));
+                let ext = self.frame_emu(sheet, d.from, to)?;
+                let xml = {
                     let wb = self.wb()?;
-                    let d = wb.sheets[sheet].diagrams[index].clone();
-                    let old = read(wb, &d).ok_or_else(|| bad("noSmartArt"))?;
+                    let (old_nodes, old_cat, old_look) =
+                        read(wb, &d).ok_or_else(|| bad("noSmartArt"))?;
+                    let src = sources(wb, &d).ok_or_else(|| bad("noSmartArt"))?;
                     // A file diagram keeps the drawing relationship its data model names (none:
                     // the data model names no drawing); a new one gets it when written.
                     let rel = if d.rel_dm.is_empty() {
                         DRAWING_REL_PLACEHOLDER.to_owned()
                     } else {
-                        sources(wb, &d)
-                            .and_then(|(_, data, _)| {
-                                bo_pptx::diagram::drawing_rel_id(data, &d.data)
-                            })
-                            .unwrap_or_default()
+                        bo_pptx::diagram::drawing_rel_id(src.data, &d.data).unwrap_or_default()
                     };
-                    (d, (old, rel))
+                    let cat = match layout.as_deref() {
+                        Some(l) => Layout::parse(l).ok_or_else(|| bad("badSmartArt"))?,
+                        None => old_cat,
+                    };
+                    let lk = look(old_look, colors.as_deref(), style.as_deref())?;
+                    let mut new = NewImages::new(wb);
+                    let (nodes, pictures) = if let Some(i) = items.as_deref() {
+                        crate::smartart::nodes_of(i, &src.pictures, &mut |p| Ok(new.store(p)))
+                            .map_err(bad)?
+                    } else {
+                        let used = crate::smartart::used_pictures(&old_nodes, &src.pictures);
+                        (old_nodes, used)
+                    };
+                    if nodes.is_empty() {
+                        return Err(bad("badSmartArt"));
+                    }
+                    let size = |rid: &str| {
+                        let (_, name) = pictures.iter().find(|(id, _)| id == rid)?;
+                        crate::edit::image_size(new.bytes(name).or_else(|| image_bytes(wb, name))?)
+                    };
+                    let defs = src.defs();
+                    let styling = dl::Styling {
+                        look: lk,
+                        defs: Some(&defs),
+                        picture_size: Some(&size),
+                    };
+                    let built = dl::build_parts_with(&nodes, cat, &styling, ext, &rel);
+                    diagram_xml(built, &pictures, d.xml.as_deref(), &new)
                 };
-                let ((old_nodes, old_cat, old_look), rel) = old;
-                let cat = match layout.as_deref() {
-                    Some(l) => Layout::parse(l).ok_or_else(|| bad("badSmartArt"))?,
-                    None => old_cat,
-                };
-                let lk = look(old_look, colors.as_deref(), style.as_deref())?;
-                let nodes = match items.as_deref() {
-                    Some(i) => dl::nodes_from_outline(&outline(i)),
-                    None => old_nodes,
-                };
-                if nodes.is_empty() {
-                    return Err(bad("badSmartArt"));
-                }
-                let to =
-                    d.to.unwrap_or(CellRef::new(d.from.row + 10, d.from.col + 6));
-                let ext = self.frame_emu(sheet, d.from, to)?;
-                let built = dl::build_parts(&nodes, cat, lk, ext, &rel);
                 self.edit(sheet, Recalc::No, |wb, _| {
-                    let d = &mut wb.sheets[sheet].diagrams[index];
-                    d.xml = Some(Box::new(DiagramXml {
-                        data: built.data,
-                        layout: built.layout,
-                        style: built.style,
-                        colors: built.colors,
-                        drawing: built.drawing,
-                    }));
+                    wb.sheets[sheet].diagrams[index].xml = Some(Box::new(xml));
                     Ok(())
                 })?;
                 let wb = self.wb()?;
@@ -397,19 +565,34 @@ impl SheetEngine {
                 let (from, to) = span(cell(from), cell(to));
                 // The drawing is laid out again for the new frame size (a file diagram is then
                 // written as edited).
-                let resized = {
+                let ext = self.frame_emu(sheet, from, to)?;
+                let drawing = {
                     let wb = self.wb()?;
                     let d = &wb.sheets[sheet].diagrams[index];
-                    read(wb, d).map(|r| (r, d.clone()))
+                    d.xml
+                        .as_ref()
+                        .and_then(|_| Some((read(wb, d)?, sources(wb, d)?)))
+                        .map(|((nodes, cat, lk), src)| {
+                            let size = |rid: &str| {
+                                let (_, name) = src.pictures.iter().find(|(id, _)| id == rid)?;
+                                crate::edit::image_size(image_bytes(wb, name)?)
+                            };
+                            let defs = src.defs();
+                            let styling = dl::Styling {
+                                look: lk,
+                                defs: Some(&defs),
+                                picture_size: Some(&size),
+                            };
+                            dl::drawing_xml_with(&nodes, cat, &styling, ext.0, ext.1).into_bytes()
+                        })
                 };
-                let ext = self.frame_emu(sheet, from, to)?;
                 self.edit(sheet, Recalc::No, |wb, _| {
                     let d = &mut wb.sheets[sheet].diagrams[index];
                     d.from = from;
                     d.to = Some(to);
                     d.moved = true;
-                    if let (Some(x), Some(((nodes, cat, lk), _))) = (d.xml.as_mut(), resized) {
-                        x.drawing = dl::drawing_xml(&nodes, cat, lk, ext.0, ext.1).into_bytes();
+                    if let (Some(x), Some(drawing)) = (d.xml.as_mut(), drawing) {
+                        x.drawing = drawing;
                     }
                     Ok(())
                 })?;
@@ -424,6 +607,98 @@ impl SheetEngine {
                         Err(bad("noSmartArt"))
                     }
                 })
+            }
+            SmartArtCommand::SmartArtToShapes { index, .. } => {
+                check_index(index)?;
+                let d = self.wb()?.sheets[sheet].diagrams[index].clone();
+                let to =
+                    d.to.unwrap_or(CellRef::new(d.from.row + 10, d.from.col + 6));
+                let ext = self.frame_emu(sheet, d.from, to)?;
+                let (grp_sp, images) = {
+                    let wb = self.wb()?;
+                    let src = sources(wb, &d).ok_or_else(|| bad("noSmartArt"))?;
+                    // The drawing as it shows: the drawing part, else the data model laid out.
+                    let own = d.xml.as_ref().map(|x| x.drawing.clone());
+                    let file = (d.part != d.data)
+                        .then(|| opaque(wb, &d.part).map(<[u8]>::to_vec))
+                        .flatten();
+                    let (drawing, rels) = if let Some(x) = own.or(file) {
+                        (x, &src.drawing_pictures)
+                    } else {
+                        let (nodes, cat, lk) = read(wb, &d).ok_or_else(|| bad("noSmartArt"))?;
+                        let defs = src.defs();
+                        let styling = dl::Styling {
+                            look: lk,
+                            defs: Some(&defs),
+                            picture_size: None,
+                        };
+                        (
+                            dl::drawing_xml_with(&nodes, cat, &styling, ext.0, ext.1).into_bytes(),
+                            &src.pictures,
+                        )
+                    };
+                    let resolve = |rid: &str| {
+                        rels.iter()
+                            .find(|(id, _)| id == rid)
+                            .map(|(_, name)| name.clone())
+                    };
+                    let grp = crate::smartart::sheet_group_xml(&drawing, ext, &resolve)
+                        .ok_or_else(|| bad("noSmartArt"))?;
+                    // The pictures the diagram added go with the group; the file's stay parts.
+                    let images: Vec<(String, Vec<u8>)> = rels
+                        .iter()
+                        .filter(|(_, name)| opaque(wb, name).is_none())
+                        .filter_map(|(_, name)| {
+                            Some((name.clone(), image_bytes(wb, name)?.to_vec()))
+                        })
+                        .collect();
+                    (grp, images)
+                };
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let mut n = 1;
+                    let key = loop {
+                        let cand = diagram::group_name("/xl", n);
+                        if wb
+                            .sheets
+                            .iter()
+                            .flat_map(|s| &s.shape_groups)
+                            .all(|g| g.key != cand)
+                        {
+                            break cand;
+                        }
+                        n += 1;
+                    };
+                    if !bo_xlsx::diagram_write::remove_diagram(wb, sheet, index) {
+                        return Err(bad("noSmartArt"));
+                    }
+                    wb.sheets[sheet]
+                        .shape_groups
+                        .push(bo_model::sheet::SheetShapeGroup {
+                            from: d.from,
+                            to: Some(to),
+                            key,
+                            grp_sp,
+                            images,
+                            in_file: false,
+                        });
+                    Ok(json!({ "ok": true }))
+                })
+            }
+            SmartArtCommand::SmartArtPreviews {
+                colors,
+                style,
+                width,
+                height,
+            } => {
+                let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
+                Ok(json!({
+                    "previews": crate::smartart::layout_previews(
+                        lk,
+                        width.unwrap_or(96.0),
+                        height.unwrap_or(64.0),
+                        &mut self.fonts,
+                    ),
+                }))
             }
         }
     }
@@ -579,5 +854,246 @@ mod tests {
             &mut e,
             json!({"cmd": "deleteSmartArt", "sheet": 0, "index": 3}),
         );
+    }
+
+    /// A `w` × `h` PNG of one colour as a `data:` URL.
+    fn png_url(w: u32, h: u32, rgb: [u8; 3]) -> String {
+        use base64::Engine as _;
+        let rgba: Vec<u8> = (0..w * h)
+            .flat_map(|_| [rgb[0], rgb[1], rgb[2], 255])
+            .collect();
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD
+                .encode(bo_model3d::scene::encode_png(w, h, &rgba))
+        )
+    }
+
+    fn save(e: &mut SheetEngine, name: &str) -> Vec<u8> {
+        let bytes = e.save("xlsx", 0).unwrap();
+        // BO_SMARTART_OUT=<dir>: keep the file for `bo-cli validate`.
+        if let Ok(dir) = std::env::var("BO_SMARTART_OUT") {
+            std::fs::write(format!("{dir}/{name}"), &bytes).unwrap();
+        }
+        bytes
+    }
+
+    fn view() -> crate::sheet::ViewRequest {
+        crate::sheet::ViewRequest {
+            sheet: 0,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            width: 900.0,
+            height: 500.0,
+        }
+    }
+
+    // source: ECMA-376 Part 1, §20.1.8.14 blipFill in `dgm:pt/dgm:spPr` and the drawing part;
+    // Part 2 relationships of both parts; §20.5.2.17 grpSp for the converted diagram.
+    #[test]
+    fn picture_nodes_and_convert_to_shapes_on_a_sheet() {
+        let mut e = SheetEngine::new();
+        e.new_workbook("Book").unwrap();
+        let (red, blue) = (png_url(40, 10, [200, 30, 30]), png_url(8, 8, [30, 30, 200]));
+        let r = run(
+            &mut e,
+            &json!({"cmd": "insertSmartArt", "sheet": 0, "layout": "pictureStrip", "from": [1, 1], "items": [
+                {"text": "Hà Nội", "level": 0, "picture": red},
+                {"text": "Huế", "level": 0},
+                {"text": "Đà Nẵng", "level": 0, "picture": blue},
+            ]}),
+        );
+        assert_eq!(r["smartArt"]["items"][0]["picture"], "rIdImg1");
+        assert_eq!(r["smartArt"]["items"][2]["picture"], "rIdImg2");
+        // Drawn over the cells with both pictures; their bytes are served to the canvas.
+        let page = e.render(&view()).unwrap().to_json();
+        assert_eq!(page.matches("/xl/media/image").count(), 2, "{page}");
+        let m = run(
+            &mut e,
+            &json!({"cmd": "cellMedia", "id": "/xl/media/image1.png"}),
+        );
+        assert!(m.as_str().is_some_and(|b| b.starts_with("iVBOR")), "{m}");
+        // Replace, move and remove pictures; the layout change keeps them.
+        let green = png_url(4, 4, [30, 200, 30]);
+        let r = run(
+            &mut e,
+            &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "layout": "picture", "items": [
+                {"text": "Hà Nội", "level": 0, "picture": green},
+                {"text": "Huế", "level": 0, "picture": "rIdImg1"},
+                {"text": "Đà Nẵng", "level": 0},
+            ]}),
+        );
+        assert_eq!(r["smartArt"]["items"][0]["picture"], "rIdImg3");
+        assert_eq!(r["smartArt"]["items"][1]["picture"], "rIdImg1");
+        let bytes = save(&mut e, "smartart-sheet-pictures.xlsx");
+        let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        assert_eq!(
+            pkg.parts()
+                .iter()
+                .filter(|p| p.name.starts_with("/xl/media/"))
+                .count(),
+            2,
+            "the removed picture is not written"
+        );
+        for part in ["/xl/diagrams/data1.xml", "/xl/diagrams/drawing1.xml"] {
+            let rels = pkg.relationships(part).unwrap();
+            assert_eq!(rels.len(), 2, "{part}");
+            for r in rels {
+                assert!(pkg.part(&bo_opc::resolve_target(part, &r.target)).is_some());
+            }
+        }
+        // Reopened: the pictures are read from the file; edited in place they are kept.
+        let mut back = SheetEngine::new();
+        back.open(&bytes, "back.xlsx").unwrap();
+        let i = run(
+            &mut back,
+            &json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(i["items"][0]["picture"], "rIdImg3");
+        assert_eq!(i["items"][1]["picture"], "rIdImg1");
+        assert_eq!(
+            back.render(&view())
+                .unwrap()
+                .to_json()
+                .matches("/xl/media/image")
+                .count(),
+            2
+        );
+        let r = run(
+            &mut back,
+            &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "colors": "green"}),
+        );
+        assert_eq!(r["smartArt"]["items"][1]["picture"], "rIdImg1");
+        let again = back.save("xlsx", 0).unwrap();
+        let pkg = bo_opc::Package::read(&again, &bo_opc::Limits::default()).unwrap();
+        assert_eq!(
+            pkg.relationships("/xl/diagrams/data1.xml").unwrap().len(),
+            2
+        );
+        // Convert to shapes: the diagram is gone, a group of shapes takes its cells.
+        let r = run(
+            &mut e,
+            &json!({"cmd": "smartArtToShapes", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(r["ok"], true);
+        assert!(e
+            .exec_json(&json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}).to_string())
+            .is_err());
+        let page = e.render(&view()).unwrap().to_json();
+        assert_eq!(
+            page.matches("/xl/media/image").count(),
+            2,
+            "still drawn with its pictures"
+        );
+        let bytes = save(&mut e, "smartart-sheet-converted.xlsx");
+        let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        assert!(pkg.parts().iter().all(|p| !p.name.contains("/diagrams/")));
+        let drawing = pkg
+            .parts()
+            .iter()
+            .find(|p| p.name.starts_with("/xl/drawings/drawing"))
+            .unwrap();
+        let x = String::from_utf8_lossy(&drawing.data).into_owned();
+        assert_eq!(
+            x.matches("<xdr:grpSp ").count() + x.matches("<xdr:grpSp>").count(),
+            1,
+            "{x}"
+        );
+        // Three cards: a frame and a caption each, plus the two marks of the empty frame.
+        assert_eq!(x.matches("<xdr:sp macro=\"\" textlink=\"\">").count(), 8);
+        assert!(x.contains("<a:t>Hà Nội</a:t>"));
+        let rels = pkg.relationships(&drawing.name).unwrap();
+        assert_eq!(
+            rels.iter()
+                .filter(|r| r.rel_type.ends_with("/image"))
+                .count(),
+            2
+        );
+        for r in rels.iter().filter(|r| r.rel_type.ends_with("/image")) {
+            assert!(x.contains(&format!("r:embed=\"{}\"", r.id)));
+            assert!(pkg
+                .part(&bo_opc::resolve_target(&drawing.name, &r.target))
+                .is_some());
+        }
+        // Reopened: the group is read from the drawing and drawn; saving keeps the drawing part.
+        let mut back = SheetEngine::new();
+        back.open(&bytes, "back.xlsx").unwrap();
+        assert_eq!(
+            back.render(&view())
+                .unwrap()
+                .to_json()
+                .matches("/xl/media/image")
+                .count(),
+            2
+        );
+        let again = back.save("xlsx", 0).unwrap();
+        let pkg2 = bo_opc::Package::read(&again, &bo_opc::Limits::default()).unwrap();
+        assert_eq!(pkg2.part(&drawing.name).unwrap().data, drawing.data);
+        // One undo step brings the diagram back.
+        e.undo().unwrap();
+        let i = run(
+            &mut e,
+            &json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(i["layout"], "picture");
+        // Layout thumbnails for the dialog.
+        let p = run(
+            &mut e,
+            &json!({"cmd": "smartArtPreviews", "colors": "gray"}),
+        );
+        assert_eq!(p["previews"].as_array().unwrap().len(), 17);
+    }
+
+    const FILE_COLORS: &str = r#"<dgm:colorsDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" uniqueId="urn:example/colors/test1"><dgm:styleLbl name="node1"><dgm:fillClrLst meth="repeat"><a:srgbClr val="AA1122"/><a:srgbClr val="11AA22"/></dgm:fillClrLst></dgm:styleLbl></dgm:colorsDef>"#;
+
+    // source: ECMA-376 Part 1, §21.4 colorsDef — the file's own colours on a sheet.
+    #[test]
+    fn the_files_own_colours_on_a_sheet() {
+        let mut e = SheetEngine::new();
+        e.new_workbook("Book").unwrap();
+        run(
+            &mut e,
+            &json!({"cmd": "insertSmartArt", "sheet": 0, "layout": "process", "from": [1, 1], "items": items(&[("Một", 0), ("Hai", 0), ("Ba", 0)])}),
+        );
+        // As another application writes it: its own colours part, named on the document point.
+        let bytes = e.save("xlsx", 0).unwrap();
+        let mut pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        pkg.put_part("/xl/diagrams/colors1.xml", FILE_COLORS.as_bytes().to_vec());
+        let d =
+            String::from_utf8(pkg.part("/xl/diagrams/data1.xml").unwrap().data.clone()).unwrap();
+        let at = d.find("csTypeId=\"").unwrap() + 10;
+        let end = at + d[at..].find('"').unwrap();
+        pkg.put_part(
+            "/xl/diagrams/data1.xml",
+            format!("{}urn:example/colors/test1{}", &d[..at], &d[end..]).into_bytes(),
+        );
+        let mut f = SheetEngine::new();
+        f.open(&pkg.write().unwrap(), "file.xlsx").unwrap();
+        let i = run(
+            &mut f,
+            &json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(i["colors"], "file");
+        let r = run(
+            &mut f,
+            &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "items": items(&[("Một", 0), ("Hai", 0), ("Ba", 0), ("Bốn", 0)])}),
+        );
+        assert_eq!(r["smartArt"]["colors"], "file");
+        let saved = f.save("xlsx", 0).unwrap();
+        let out = bo_opc::Package::read(&saved, &bo_opc::Limits::default()).unwrap();
+        assert_eq!(
+            out.part("/xl/diagrams/colors1.xml").unwrap().data,
+            FILE_COLORS.as_bytes()
+        );
+        let drawing = String::from_utf8_lossy(&out.part("/xl/diagrams/drawing1.xml").unwrap().data)
+            .into_owned();
+        assert_eq!(drawing.matches(r#"<a:srgbClr val="AA1122"/>"#).count(), 2);
+        assert_eq!(drawing.matches(r#"<a:srgbClr val="11AA22"/>"#).count(), 2);
+        assert!(!drawing.contains("1F6FB2"));
+        let r = run(
+            &mut f,
+            &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "colors": "blue"}),
+        );
+        assert_eq!(r["smartArt"]["colors"], "blue");
     }
 }

@@ -1665,6 +1665,46 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         ]),
         ..Doc::default()
     }));
+    // A diagram converted to shapes (CORE-SMART-004): [MS-ODRAWXML] wordprocessingGroup `wpg:wgp`
+    // (cNvGrpSpPr, grpSpPr with the child space, then shapes) of wordprocessingShape `wps:wsp`
+    // (cNvPr, cNvSpPr, spPr, txbx with §17.17.1 txbxContent, bodyPr), as BlueDoc writes it.
+    let wsp = |id: u32, x: i64, prst: &str, fill: &str, text: &str| {
+        let txbx = if text.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"<wps:txbx><w:txbxContent><w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:color w:val="FFFFFF"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr><w:t xml:space="preserve">{text}</w:t></w:r></w:p></w:txbxContent></wps:txbx>"#
+            )
+        };
+        format!(
+            r#"<wps:wsp><wps:cNvPr id="{id}" name="Shape {id}"/><wps:cNvSpPr/><wps:spPr><a:xfrm><a:off x="{x}" y="0"/><a:ext cx="1500000" cy="900000"/></a:xfrm><a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{fill}<a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></wps:spPr>{txbx}<wps:bodyPr anchor="ctr" wrap="square" lIns="45720" rIns="45720" tIns="45720" bIns="45720"><a:normAutofit/></wps:bodyPr></wps:wsp>"#
+        )
+    };
+    let solid = |rgb: &str| format!(r#"<a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill>"#);
+    let group = format!(
+        r#"<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="5400000" cy="900000"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="71" name="Nhóm 71" descr="Tiếp nhận, Thẩm định, Trả kết quả"/><wp:cNvGraphicFramePr/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"><wpg:wgp xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="5400000" cy="900000"/><a:chOff x="0" y="0"/><a:chExt cx="6900000" cy="900000"/></a:xfrm></wpg:grpSpPr>{}{}{}{}</wpg:wgp></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#,
+        wsp(72, 0, "homePlate", &solid("1F6FB2"), "Tiếp nhận"),
+        wsp(73, 1_800_000, "chevron", &solid("2E8B57"), "Thẩm định"),
+        wsp(74, 3_600_000, "chevron", &solid("C2571A"), "Trả kết quả"),
+        // A shape filled with a picture (§20.1.8.14 blipFill), as a picture node becomes.
+        wsp(
+            75,
+            5_400_000,
+            "ellipse",
+            r#"<a:blipFill><a:blip r:embed="rId30"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>"#,
+            ""
+        ),
+    );
+    v.push(("smartart-05-converted.docx", "smartart", "Sơ đồ đã chuyển thành hình: wpg:wgp gồm các wps:wsp hình dựng sẵn có chữ (quy trình 3 bước) và một hình tô ảnh, không gian con khác kích thước khung", Doc {
+        body: [
+            p("Quy trình (đã chuyển thành hình):"),
+            format!("<w:p>{group}</w:p>"),
+            lorem(1),
+        ].concat(),
+        sect: s.clone(),
+        images: vec![("rId30".into(), png(8, 8, [46, 117, 182]))],
+        ..Doc::default()
+    }));
     v.push(("smartart-01-fallback-picture.docx", "smartart", "mc:AlternateContent có mc:Fallback là ảnh (hiển thị ảnh thay cho Choice), trong đoạn và trong ô bảng", Doc {
         body: [
             format!("<w:p>{}</w:p>", alt_pic(31, "rId30")),

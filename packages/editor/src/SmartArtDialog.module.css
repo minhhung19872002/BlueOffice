@@ -10,3 +10,37 @@
   flex-direction: column;
   gap: 2px;
 }
+
+.library {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.category {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.categoryName {
+  flex: 0 0 110px;
+  font-weight: 600;
+}
+
+.form label.layout {
+  display: inline;
+}
+
+.nodeBar {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.form label.pane {
+  flex: 1 1 100%;
+}

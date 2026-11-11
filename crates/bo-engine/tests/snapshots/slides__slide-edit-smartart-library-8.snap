@@ -1,0 +1,51 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=5 [381.1 49.1 386.9 175.5] fill=#a6a6a6ff
+  path n=5 [381.1 49.1 386.9 175.5] stroke=#ffffffff w1.00
+  path n=5 [384.0 172.6 510.4 178.4] fill=#a6a6a6ff
+  path n=5 [384.0 172.6 510.4 178.4] stroke=#ffffffff w1.00
+  path n=5 [381.1 175.5 386.9 301.9] fill=#a6a6a6ff
+  path n=5 [381.1 175.5 386.9 301.9] stroke=#ffffffff w1.00
+  path n=5 [257.6 172.6 384.0 178.4] fill=#a6a6a6ff
+  path n=5 [257.6 172.6 384.0 178.4] stroke=#ffffffff w1.00
+  path n=6 [334.9 -0.0 433.1 98.3] fill=#2e8b57ff
+  path n=6 [334.9 -0.0 433.1 98.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 334.9 0.0]
+    text 20.0pt 28.4,43.8 #ffffffff "Thiết "
+    text 20.0pt 39.9,68.2 #ffffffff "kế"
+  pop transform
+  path n=6 [461.2 126.4 559.5 224.6] fill=#c2571aff
+  path n=6 [461.2 126.4 559.5 224.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 461.2 126.4]
+    text 20.0pt 34.8,43.8 #ffffffff "Xây "
+    text 20.0pt 27.9,68.2 #ffffffff "dựng"
+  pop transform
+  path n=6 [334.9 252.7 433.1 351.0] fill=#7b4ba0ff
+  path n=6 [334.9 252.7 433.1 351.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 334.9 252.7]
+    text 20.0pt 28.7,43.8 #ffffffff "Kiểm "
+    text 20.0pt 34.5,68.2 #ffffffff "thử"
+  pop transform
+  path n=6 [208.5 126.4 306.8 224.6] fill=#b8860bff
+  path n=6 [208.5 126.4 306.8 224.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 208.5 126.4]
+    text 20.0pt 34.0,43.8 #ffffffff "Vận "
+    text 20.0pt 28.6,68.2 #ffffffff "hành"
+  pop transform
+  path n=6 [324.3 115.8 443.7 235.2] fill=#1f6fb2ff
+  path n=6 [324.3 115.8 443.7 235.2] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 324.3 115.8]
+    text 11.0pt 40.6,52.7 #ffffffff "Khảo "
+    text 11.0pt 65.6,52.7 #ffffffff "sát"
+    text 8.8pt 37.9,64.0 #ffffffff "• "
+    text 8.8pt 44.2,64.0 #ffffffff "Phỏng "
+    text 8.8pt 68.8,64.0 #ffffffff "vấn"
+    text 8.8pt 44.6,74.8 #ffffffff "• "
+    text 8.8pt 51.0,74.8 #ffffffff "Số "
+    text 8.8pt 61.7,74.8 #ffffffff "liệu"
+  pop transform
+pop transform

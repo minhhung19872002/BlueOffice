@@ -792,6 +792,49 @@ fn anim_build_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// The SmartArt layout library (CORE-SMART-003): one slide per layout of
+/// `bo_pptx::diagram_layout::Layout`, each inserted through `insertSmartArt` (data model, layout
+/// definition, quick style, colours and drawing parts), with sub-items, and the palettes and looks
+/// in turn.
+pub const SMARTART_LIBRARY_DECK: &str = "slide-edit-smartart-library.pptx";
+
+fn smartart_library_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    use bo_pptx::diagram_layout::{Category, Layout};
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    let colors = ["colorful", "blue", "green", "orange", "purple", "gray"];
+    for (i, layout) in Layout::ALL.into_iter().enumerate() {
+        let items = match layout.category() {
+            Category::Hierarchy => {
+                r#"[{"text":"Giám đốc"},{"text":"Kỹ thuật","level":1},{"text":"Phát triển","level":2},{"text":"Kiểm thử","level":2},{"text":"Kinh doanh","level":1},{"text":"Bán hàng","level":2}]"#
+            }
+            Category::Picture => {
+                r#"[{"text":"Hà Nội"},{"text":"Thủ đô","level":1},{"text":"Huế"},{"text":"Đà Nẵng"},{"text":"Cần Thơ"}]"#
+            }
+            _ => {
+                r#"[{"text":"Khảo sát"},{"text":"Phỏng vấn","level":1},{"text":"Số liệu","level":1},{"text":"Thiết kế"},{"text":"Xây dựng"},{"text":"Kiểm thử"},{"text":"Vận hành"}]"#
+            }
+        };
+        let style = if i % 5 == 4 { "outline" } else { "fill" };
+        let cmds = [
+            r#"{"cmd":"addSlide"}"#.to_owned(),
+            format!(
+                r#"{{"cmd":"insertSmartArt","layout":"{}","items":{items},"colors":"{}","style":"{style}"}}"#,
+                layout.name(),
+                colors[i % colors.len()]
+            ),
+        ];
+        for c in &cmds {
+            let r = e.slide_command_json(c).ok()?;
+            if r.contains("\"error\":\"") {
+                return None;
+            }
+        }
+    }
+    e.save_pptx().ok()
+}
+
 /// Hyperlinks and actions (SLIDE-ACTION-001): linked text (slide, URL, mail) with a
 /// custom show, a file link and a hover sound; action buttons on every slide;
 /// actions BlueSlide never runs (program, macro, file, other deck, unknown).
@@ -1017,6 +1060,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = anim_build_deck(base) {
         out.push((ANIM_BUILD_DECK, d));
     }
+    if let Some(d) = smartart_library_deck(base) {
+        out.push((SMARTART_LIBRARY_DECK, d));
+    }
     out.extend(recording_decks(base));
     out.extend(action_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
@@ -1048,7 +1094,7 @@ mod tests {
         let decks = decks(&base, &crate::slide_samples::sample_png());
         assert_eq!(
             decks.len(),
-            SCRIPTS.len() + FLIPPED.len() + 4 + RECORDING_DECKS.len() + ACTION_DECKS.len()
+            SCRIPTS.len() + FLIPPED.len() + 5 + RECORDING_DECKS.len() + ACTION_DECKS.len()
         );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -1063,6 +1109,45 @@ mod transition_tests {
 
     // source: ECMA-376 Part 1, §19.3.1.50 transition, §19.3.1.42 sndAc; [MS-PPTX] 2.3 p14 / p15 —
     // every catalog transition with its last variant is read back as itself after saving.
+    // source: ECMA-376 Part 1, §21.4 (dgm:relIds, dataModel, layoutDef) — CORE-SMART-003: every
+    // layout of the library is written with its five parts and reads back as the same layout.
+    #[test]
+    fn every_smartart_layout_survives_saving() {
+        use bo_pptx::diagram_layout::{self as dl, Layout};
+        let base = crate::slide_samples::base_decks();
+        let bytes = smartart_library_deck(&base).expect("deck");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&bytes, "library.pptx").unwrap();
+        let p = e.presentation().unwrap();
+        let mut seen = Vec::new();
+        for s in &p.slides {
+            let rel = |ty: &str| {
+                s.info
+                    .rels
+                    .iter()
+                    .find(|r| r.rel_type.ends_with(ty))
+                    .map(|r| bo_opc::resolve_target(&s.info.part_name, &r.target))
+            };
+            let Some(data) = rel("/diagramData") else {
+                continue;
+            };
+            let layout = rel("/diagramLayout").unwrap();
+            for ty in ["/diagramQuickStyle", "/diagramColors", "/diagramDrawing"] {
+                assert!(p.part_data(&rel(ty).unwrap()).is_some(), "{ty}");
+            }
+            let (nodes, lo) = dl::parse_data_model(p.part_data(&data).unwrap(), &data).unwrap();
+            assert_ne!(nodes.len(), 0);
+            let l = dl::layout_of(lo.as_deref(), p.part_data(&layout));
+            // The layout part names the category (§21.4.2.3 cat) for other applications.
+            assert_eq!(dl::category(None, p.part_data(&layout)), l.category());
+            let drawing = rel("/diagramDrawing").unwrap();
+            let shapes = bo_pptx::diagram::drawing_shapes(p.part_data(&drawing).unwrap(), &drawing);
+            assert!(shapes.unwrap().len() >= nodes.len(), "{l:?}");
+            seen.push(l);
+        }
+        assert_eq!(seen, Layout::ALL);
+    }
+
     #[test]
     fn every_transition_survives_saving() {
         let base = crate::slide_samples::base_decks();

@@ -1,0 +1,53 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=6 [0.0 -0.0 351.0 351.0] fill=#ffffffff
+  path n=6 [0.0 -0.0 351.0 351.0] stroke=#2e8b57ff w2.00
+  path n=6 [35.1 35.1 315.9 315.9] fill=#ffffffff
+  path n=6 [35.1 35.1 315.9 315.9] stroke=#2e8b57ff w2.00
+  path n=6 [70.2 70.2 280.8 280.8] fill=#ffffffff
+  path n=6 [70.2 70.2 280.8 280.8] stroke=#2e8b57ff w2.00
+  path n=6 [105.3 105.3 245.7 245.7] fill=#ffffffff
+  path n=6 [105.3 105.3 245.7 245.7] stroke=#2e8b57ff w2.00
+  path n=6 [140.4 140.4 210.6 210.6] fill=#ffffffff
+  path n=6 [140.4 140.4 210.6 210.6] stroke=#2e8b57ff w2.00
+  path n=5 [175.5 156.9 381.7 159.0] fill=#a6a6a6ff
+  path n=5 [175.5 156.9 381.7 159.0] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 381.7 140.4]
+    text 8.0pt 3.6,12.5 #1f1f1fff "Khảo "
+    text 8.0pt 21.8,12.5 #1f1f1fff "sát"
+    text 6.4pt 3.6,20.7 #1f1f1fff "• "
+    text 6.4pt 8.2,20.7 #1f1f1fff "Phỏng "
+    text 6.4pt 26.1,20.7 #1f1f1fff "vấn"
+    text 6.4pt 3.6,28.5 #1f1f1fff "• "
+    text 6.4pt 8.2,28.5 #1f1f1fff "Số "
+    text 6.4pt 16.0,28.5 #1f1f1fff "liệu"
+  pop transform
+  path n=5 [175.5 121.8 381.7 123.9] fill=#a6a6a6ff
+  path n=5 [175.5 121.8 381.7 123.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 381.7 105.3]
+    text 8.0pt 3.6,20.3 #1f1f1fff "Thiết "
+    text 8.0pt 22.0,20.3 #1f1f1fff "kế"
+  pop transform
+  path n=5 [175.5 86.7 381.7 88.8] fill=#a6a6a6ff
+  path n=5 [175.5 86.7 381.7 88.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 381.7 70.2]
+    text 8.0pt 3.6,20.3 #1f1f1fff "Xây "
+    text 8.0pt 16.9,20.3 #1f1f1fff "dựng"
+  pop transform
+  path n=5 [175.5 51.6 381.7 53.7] fill=#a6a6a6ff
+  path n=5 [175.5 51.6 381.7 53.7] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 381.7 35.1]
+    text 8.0pt 3.6,20.3 #1f1f1fff "Kiểm "
+    text 8.0pt 21.8,20.3 #1f1f1fff "thử"
+  pop transform
+  path n=5 [175.5 16.5 381.7 18.6] fill=#a6a6a6ff
+  path n=5 [175.5 16.5 381.7 18.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 381.7 0.0]
+    text 8.0pt 3.6,20.3 #1f1f1fff "Vận "
+    text 8.0pt 17.5,20.3 #1f1f1fff "hành"
+  pop transform
+pop transform

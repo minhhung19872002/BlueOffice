@@ -1,0 +1,53 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=6 [337.7 -0.0 430.3 92.6] fill=#5f6b7aff
+  path n=6 [337.7 -0.0 430.3 92.6] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 337.7 0.0]
+    text 9.0pt 30.7,40.6 #ffffffff "Khảo "
+    text 9.0pt 51.2,40.6 #ffffffff "sát"
+    text 7.2pt 28.5,49.9 #ffffffff "• "
+    text 7.2pt 33.7,49.9 #ffffffff "Phỏng "
+    text 7.2pt 53.8,49.9 #ffffffff "vấn"
+    text 7.2pt 34.0,58.7 #ffffffff "• "
+    text 7.2pt 39.2,58.7 #ffffffff "Số "
+    text 7.2pt 48.0,58.7 #ffffffff "liệu"
+  pop transform
+  path n=6 [460.6 89.3 553.2 181.9] fill=#5f6b7aff
+  path n=6 [460.6 89.3 553.2 181.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 460.6 89.3]
+    text 20.0pt 25.6,40.9 #ffffffff "Thiết "
+    text 20.0pt 37.1,65.4 #ffffffff "kế"
+  pop transform
+  path n=6 [413.6 233.7 506.2 326.3] fill=#5f6b7aff
+  path n=6 [413.6 233.7 506.2 326.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 413.6 233.7]
+    text 20.0pt 32.0,40.9 #ffffffff "Xây "
+    text 20.0pt 25.1,65.4 #ffffffff "dựng"
+  pop transform
+  path n=6 [261.8 233.7 354.4 326.3] fill=#5f6b7aff
+  path n=6 [261.8 233.7 354.4 326.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 261.8 233.7]
+    text 20.0pt 25.9,40.9 #ffffffff "Kiểm "
+    text 20.0pt 31.7,65.4 #ffffffff "thử"
+  pop transform
+  path n=6 [214.8 89.3 307.4 181.9] fill=#5f6b7aff
+  path n=6 [214.8 89.3 307.4 181.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 214.8 89.3]
+    text 20.0pt 31.2,40.9 #ffffffff "Vận "
+    text 20.0pt 25.8,65.4 #ffffffff "hành"
+  pop transform
+  path n=8 [444.1 57.7 473.0 82.6] fill=#a6a6a6ff
+  path n=8 [444.1 57.7 473.0 82.6] stroke=#ffffffff w1.00
+  path n=8 [495.9 198.6 516.3 230.8] fill=#a6a6a6ff
+  path n=8 [495.9 198.6 516.3 230.8] stroke=#ffffffff w1.00
+  path n=8 [367.8 295.4 400.2 313.9] fill=#a6a6a6ff
+  path n=8 [367.8 295.4 400.2 313.9] stroke=#ffffffff w1.00
+  path n=8 [250.2 200.0 270.5 232.3] fill=#a6a6a6ff
+  path n=8 [250.2 200.0 270.5 232.3] stroke=#ffffffff w1.00
+  path n=8 [292.2 59.4 321.2 84.3] fill=#a6a6a6ff
+  path n=8 [292.2 59.4 321.2 84.3] stroke=#ffffffff w1.00
+pop transform

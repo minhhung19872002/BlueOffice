@@ -1,0 +1,43 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=6 [0.0 123.1 174.5 227.9] fill=#c2571aff
+  path n=6 [0.0 123.1 174.5 227.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 123.1]
+    text 10.0pt 56.8,46.0 #ffffffff "Khảo "
+    text 10.0pt 79.6,46.0 #ffffffff "sát"
+    text 8.0pt 54.4,56.3 #ffffffff "• "
+    text 8.0pt 60.1,56.3 #ffffffff "Phỏng "
+    text 8.0pt 82.5,56.3 #ffffffff "vấn"
+    text 8.0pt 60.5,66.1 #ffffffff "• "
+    text 8.0pt 66.3,66.1 #ffffffff "Số "
+    text 8.0pt 76.0,66.1 #ffffffff "liệu"
+  pop transform
+  path n=7 [148.4 123.1 322.9 227.9] fill=#c2571aff
+  path n=7 [148.4 123.1 322.9 227.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 148.4 123.1]
+    text 20.0pt 66.6,47.0 #ffffffff "Thiết "
+    text 20.0pt 78.1,71.4 #ffffffff "kế"
+  pop transform
+  path n=7 [296.7 123.1 471.3 227.9] fill=#c2571aff
+  path n=7 [296.7 123.1 471.3 227.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 296.7 123.1]
+    text 20.0pt 73.0,47.0 #ffffffff "Xây "
+    text 20.0pt 66.0,71.4 #ffffffff "dựng"
+  pop transform
+  path n=7 [445.1 123.1 619.6 227.9] fill=#c2571aff
+  path n=7 [445.1 123.1 619.6 227.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 445.1 123.1]
+    text 20.0pt 66.8,47.0 #ffffffff "Kiểm "
+    text 20.0pt 72.6,71.4 #ffffffff "thử"
+  pop transform
+  path n=7 [593.5 123.1 768.0 227.9] fill=#c2571aff
+  path n=7 [593.5 123.1 768.0 227.9] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 593.5 123.1]
+    text 20.0pt 72.1,47.0 #ffffffff "Vận "
+    text 20.0pt 66.7,71.4 #ffffffff "hành"
+  pop transform
+pop transform

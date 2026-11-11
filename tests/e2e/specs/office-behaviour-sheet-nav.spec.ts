@@ -513,3 +513,52 @@ test.describe('Home: undo granularity', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe('Home: selection on the grid', () => {
+  test('the headers of the selection are highlighted; no fill handle while typing', async ({
+    page,
+  }) => {
+    const errors = await openSheet(page);
+    await goTo(page, 'B2:C4');
+    const cols = page.getByTestId('header-mark-cols');
+    const rows = page.getByTestId('header-mark-rows');
+    const handle = page.getByTestId('fill-handle');
+    await expect(handle).toBeVisible();
+    const sel = (await handle.locator('..').boundingBox())!;
+    const c = (await cols.boundingBox())!;
+    const r = (await rows.boundingBox())!;
+    // The column headers B:C span the selection's width, the row headers 2:4 its height.
+    expect(Math.abs(c.x - sel.x)).toBeLessThan(2);
+    expect(Math.abs(c.width - sel.width)).toBeLessThan(2);
+    expect(c.y + c.height).toBeLessThanOrEqual(sel.y + 1);
+    expect(Math.abs(r.y - sel.y)).toBeLessThan(2);
+    expect(Math.abs(r.height - sel.height)).toBeLessThan(2);
+    expect(r.x + r.width).toBeLessThanOrEqual(sel.x + 1);
+    await page.keyboard.type('1');
+    await expect(handle).toHaveCount(0);
+    await page.keyboard.press('Enter');
+    await expect(handle).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe('Home: Go To', () => {
+  test('F5 and Ctrl+G open Go To; Enter selects the reference and nothing leaks into the cell', async ({
+    page,
+  }) => {
+    const errors = await openSheet(page);
+    await goTo(page, 'A1');
+    for (const key of ['F5', 'Control+g']) {
+      await page.keyboard.press(key);
+      const dialog = page.getByTestId('goto-dialog');
+      await expect(dialog).toBeVisible();
+      await page.getByTestId('goto-ref').fill(key === 'F5' ? 'C7' : 'B2:D3');
+      await page.getByTestId('goto-ref').press('Enter');
+      await expect(dialog).toHaveCount(0);
+      await expect(nameBox(page)).toHaveValue(key === 'F5' ? 'C7' : 'B2:D3');
+      await expect(mode(page)).toHaveAttribute('data-mode', 'ready');
+      await expect(editor(page)).toHaveValue('');
+    }
+    expect(errors).toEqual([]);
+  });
+});

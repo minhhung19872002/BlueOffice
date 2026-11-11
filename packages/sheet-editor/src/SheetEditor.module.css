@@ -140,21 +140,34 @@
   z-index: 1;
 }
 
+/* Highlight of the headers of the selected columns / rows. */
+.headerMarkCols,
+.headerMarkRows {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: rgb(11 122 107 / 16%);
+}
+
+.headerMarkCols {
+  border-bottom: 2px solid var(--bo-sheet-accent, #0b7a6b);
+}
+
+.headerMarkRows {
+  border-right: 2px solid var(--bo-sheet-accent, #0b7a6b);
+}
+
 /* The moving border around copied / cut cells. */
 .copyMark {
   position: absolute;
   box-sizing: border-box;
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
   background:
-    linear-gradient(90deg, var(--bo-sheet-accent, #0b7a6b) 50%, transparent 50%) repeat-x top / 8px
-      2px,
-    linear-gradient(90deg, var(--bo-sheet-accent, #0b7a6b) 50%, transparent 50%) repeat-x bottom /
-      8px 2px,
-    linear-gradient(0deg, var(--bo-sheet-accent, #0b7a6b) 50%, transparent 50%) repeat-y left / 2px
-      8px,
-    linear-gradient(0deg, var(--bo-sheet-accent, #0b7a6b) 50%, transparent 50%) repeat-y right / 2px
-      8px;
+    linear-gradient(90deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-x top / 8px 2px,
+    linear-gradient(90deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-x bottom / 8px 2px,
+    linear-gradient(0deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-y left / 2px 8px,
+    linear-gradient(0deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-y right / 2px 8px;
   animation: copyMarch 0.6s linear infinite;
 }
 

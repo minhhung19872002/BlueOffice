@@ -785,7 +785,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [copyMark, setCopyMark] = useState<{ sheet: number; range: Range; cut: boolean } | null>(
     null,
   );
-  const [copyRect, setCopyRect] = useState<Rect | null>(null);
+  const [copyRect, setCopyRect] = useState<{ mark: object; rect: Rect | null } | null>(null);
+  /** Size of the row / column headers on screen (px), for their selection highlight. */
+  const [headers, setHeaders] = useState<{ w: number; h: number } | null>(null);
   /** Caret of the edit (argument hint, completion list). */
   const [caret, setCaret] = useState(0);
   /** Function names of the engine (completion while typing a formula). */
@@ -805,10 +807,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     /** Only the sheet is picked so far (`Sheet2!`): the next arrow / click picks the cell. */
     pending?: boolean;
   } | null>(null);
+  /** Enter after a run of Tabs goes to the next row of the column the run started in. */
+  const tabRun = useRef<{ startCol: number; at: CellPos } | null>(null);
   /** Text entries of the column around the edited cell (AutoComplete). */
   const entries = useRef<{ key: string; list: string[] } | null>(null);
   /** Boxes of the references of the formula being typed (coloured borders). */
-  const [refBoxes, setRefBoxes] = useState<(Rect & { color: string })[]>([]);
+  const [refBoxes, setRefBoxes] = useState<{
+    text: string;
+    sheet: string;
+    boxes: (Rect & { color: string })[];
+  } | null>(null);
   /** The active cell has a data validation rule (inputs are checked). */
   const [hasRule, setHasRule] = useState(false);
   const [painter, setPainter] = useState<Range | null>(null);
@@ -1031,7 +1039,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         throw e;
       }
     },
-    [host, load, t],
+    [host, load, t, setPasswordPrompt],
   );
 
   useEffect(() => {
@@ -1167,10 +1175,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const editHome = info?.sheets[edit?.sheet ?? sheet]?.name;
   useEffect(() => {
     const refs = editText ? formulaRefs(editText) : [];
-    if (!host || !refs.length) {
-      setRefBoxes((b) => (b.length ? [] : b));
-      return;
-    }
+    if (!host || !editText || !refs.length) return;
     let cancelled = false;
     const here = refs.filter(
       (r) => (r.sheet ?? editHome)?.toLowerCase() === sheetName?.toLowerCase(),
@@ -1185,7 +1190,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           const b = px(x);
           if (b) boxes.push({ ...b, color: here[i]!.color });
         });
-        setRefBoxes(boxes);
+        setRefBoxes({ text: editText, sheet: sheetName ?? '', boxes });
       })
       .catch(() => {});
     return () => {
@@ -1195,20 +1200,34 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // The moving border of the copied cells.
   useEffect(() => {
-    if (!host || !copyMark || copyMark.sheet !== sheet) {
-      setCopyRect(null);
-      return;
-    }
+    if (!host || !copyMark || copyMark.sheet !== sheet) return;
     let cancelled = false;
     const r = copyMark.range;
     void host
       .rangeRect(view, r.r0, r.c0, r.r1, r.c1)
-      .then((x) => !cancelled && setCopyRect(px(x)))
+      .then((x) => !cancelled && setCopyRect({ mark: copyMark, rect: px(x) }))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [host, copyMark, sheet, view, px]);
+
+  // The header sizes: the top-left corner of A1 when nothing is scrolled.
+  useEffect(() => {
+    if (!host || !info) return;
+    let cancelled = false;
+    void host
+      .rangeRect({ ...view, scrollX: 0, scrollY: 0 }, 0, 0, 0, 0)
+      .then((r) => {
+        const b = px(r);
+        if (!cancelled && b)
+          setHeaders((h) => (h && h.w === b.x && h.h === b.y ? h : { w: b.x, h: b.y }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, view, px]);
 
   // Circles around invalid data: the list is fetched again after every edit, so a
   // corrected cell loses its circle.
@@ -1609,7 +1628,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         initial: { layout: a.layout, items: a.items, colors: a.colors, style: a.style },
       });
     },
-    [host],
+    [host, setSmartArtDialog],
   );
 
   // Workbook views (SHEET-VIEW-001): view type, show formulas, temporary views.
@@ -1786,7 +1805,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [t],
   );
 
-  const shownSheet = sheet;
   const commit = useCallback(
     async (next?: Selection) => {
       if (!host || !edit) {
@@ -1795,9 +1813,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
       const e = edit;
       // The edited cell's sheet (references may have been picked on another one).
-      const sheet = e.sheet ?? shownSheet;
+      const target = e.sheet ?? sheet;
       setEdit(null);
-      if (sheet !== shownSheet) setSheet(sheet);
+      if (target !== sheet) setSheet(target);
       // An entry ends the copy mark (the marked cells can no longer be pasted with Enter).
       setCopyMark(null);
       if (inputRef.current) inputRef.current.value = '';
@@ -1808,7 +1826,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           // Cells with a validation rule are checked by the engine (§18.3.1.32).
           const r = await host.exec<{ rejected: Rejection | null; warning: Rejection | null }>({
             cmd: 'setInputs',
-            sheet,
+            sheet: target,
             cells: [[e.pos.row, e.pos.col, e.text]],
             validate: true,
           });
@@ -1833,12 +1851,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           await host.exec({
             cmd: 'batch',
             cmds: [
-              { cmd: 'setInputs', sheet, cells: [[e.pos.row, e.pos.col, e.text]] },
-              { cmd: 'format', sheet, range: at, patch: { numFmt: e.numFmt } },
+              { cmd: 'setInputs', sheet: target, cells: [[e.pos.row, e.pos.col, e.text]] },
+              { cmd: 'format', sheet: target, range: at, patch: { numFmt: e.numFmt } },
             ],
           });
         } else {
-          await host.setInputs(sheet, [[e.pos.row, e.pos.col, e.text]]);
+          await host.setInputs(target, [[e.pos.row, e.pos.col, e.text]]);
         }
         await refreshInfo();
       } catch (err) {
@@ -1846,7 +1864,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
       focusInput();
     },
-    [host, edit, shownSheet, refreshInfo, fail, focusInput, hasRule, t],
+    [host, edit, sheet, refreshInfo, fail, focusInput, hasRule, t],
   );
 
   const cancelEdit = useCallback(() => {
@@ -1919,7 +1937,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setChart(null);
       void reveal(s);
     },
-    [reveal],
+    [reveal, setChart],
   );
 
   // The latest `select` (it changes with the scroll position), the cell editor and whether a
@@ -3893,8 +3911,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     return false;
   };
 
-  /** Enter after a run of Tabs goes to the next row of the column the run started in. */
-  const tabRun = useRef<{ startCol: number; at: CellPos } | null>(null);
   const tabFrom = (s: Selection, back: boolean): Selection => {
     const next = advance(s, back ? 'left' : 'right');
     const one = cellsOf(rangeOf(s)) === 1;
@@ -5972,6 +5988,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const cellMode = edit ? (edit.inPlace ? 'edit' : 'enter') : 'ready';
   // The cell editor shows on the edited cell's sheet (not while picking on another one).
   const editHere = !!edit && (edit.sheet ?? sheet) === sheet;
+  // Overlays computed for the current text / mark only (older answers are ignored).
+  const shownRefBoxes =
+    edit && refBoxes && refBoxes.text === edit.text && refBoxes.sheet === (summary?.name ?? '')
+      ? refBoxes.boxes
+      : [];
+  const copyBox = copyMark && copyRect?.mark === copyMark ? copyRect.rect : null;
   const editorRefs = editHere && edit ? formulaRefs(edit.text) : [];
   const editLines = edit ? edit.text.split('\n').length : 1;
   const call = edit ? callAt(edit.text, Math.min(caret, edit.text.length)) : null;
@@ -6399,26 +6421,53 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 />
               )}
               <PeerSelections boxes={peerBoxes} />
+              {selRect && chart === null && headers && (
+                <>
+                  {/* The headers of the selected columns and rows are highlighted. */}
+                  <div
+                    className={styles.headerMarkCols}
+                    data-testid="header-mark-cols"
+                    style={{
+                      left: Math.max(headers.w, selRect.x),
+                      top: 0,
+                      width: Math.max(0, selRect.x + selRect.w - Math.max(headers.w, selRect.x)),
+                      height: headers.h,
+                    }}
+                  />
+                  <div
+                    className={styles.headerMarkRows}
+                    data-testid="header-mark-rows"
+                    style={{
+                      left: 0,
+                      top: Math.max(headers.h, selRect.y),
+                      width: headers.w,
+                      height: Math.max(0, selRect.y + selRect.h - Math.max(headers.h, selRect.y)),
+                    }}
+                  />
+                </>
+              )}
               {selRect && chart === null && (
                 <div
                   className={painter ? styles.selectionPainter : styles.selection}
                   style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
                 >
-                  <div
-                    className={styles.fillHandle}
-                    data-testid="fill-handle"
-                    title={t('sheetEditor.fillHandle')}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      drag.current = { kind: 'fill', source: rangeOf(selection) };
-                    }}
-                    onDoubleClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void fillDownToData();
-                    }}
-                  />
+                  {!edit && (
+                    <div
+                      className={styles.fillHandle}
+                      data-testid="fill-handle"
+                      title={t('sheetEditor.fillHandle')}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        drag.current = { kind: 'fill', source: rangeOf(selection) };
+                      }}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void fillDownToData();
+                      }}
+                    />
+                  )}
                 </div>
               )}
               {selRect && chart === null && !edit && (r.r0 !== r.r1 || r.c0 !== r.c1) && (
@@ -6637,20 +6686,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   ))}
                 </div>
               )}
-              {copyMark?.sheet === sheet && copyRect && (
+              {copyMark?.sheet === sheet && copyBox && (
                 <div
                   className={styles.copyMark}
                   data-testid="copy-mark"
                   style={{
-                    left: copyRect.x,
-                    top: copyRect.y,
-                    width: copyRect.w,
-                    height: copyRect.h,
+                    left: copyBox.x,
+                    top: copyBox.y,
+                    width: copyBox.w,
+                    height: copyBox.h,
                   }}
                 />
               )}
               {edit &&
-                refBoxes.map((b, i) => (
+                shownRefBoxes.map((b, i) => (
                   <div
                     key={i}
                     className={styles.refBox}

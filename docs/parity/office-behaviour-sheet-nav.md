@@ -60,6 +60,7 @@ Trạng thái: **giống** = đã giống trước đợt này; **đã sửa** =
 | F5 / Ctrl+G | Hộp thoại Đi tới | Đúng | giống |
 | Hộp tên: gõ địa chỉ hoặc tên đã đặt | Chọn vùng đó | Đúng; Enter trong Hộp tên lại rơi một dấu xuống dòng vào ô nhập sau khi đổi sang `textarea` | giống (đã chặn dấu xuống dòng lạc) |
 | Chọn cả cột / hàng / trang | Cả 1 048 576 hàng / 16 384 cột; Hộp tên hiện ô hiện hành (`C1`) hoặc `C:C` khi đang kéo | Vùng hàng đã dùng (ít nhất 1000 hàng, 26 cột); Hộp tên hiện cả vùng (`C1:C1000`) | còn khác — giữ quy ước sẵn có của BlueSheet (tiêu đề cột/hàng, lệnh định dạng chạy trên vùng hữu hạn); đổi cách Hộp tên hiển thị sẽ ảnh hưởng các đặc tả E2E khác |
+| Hiển thị vùng chọn | Viền đậm, ô vuông điều khiển điền ở góc, **tiêu đề hàng / cột của vùng được tô sáng**; khi đang gõ không có ô điều khiển điền | Viền đậm và ô điều khiển điền; tiêu đề không tô sáng; ô điều khiển điền vẫn hiện (đè lên ô nhập) khi gõ | đã sửa |
 | Ctrl+mũi tên qua hàng / cột ẩn | Bỏ qua hàng / cột ẩn | Chưa bỏ qua | còn khác — chưa làm |
 
 ## Gõ công thức
@@ -95,7 +96,7 @@ Trạng thái: **giống** = đã giống trước đợt này; **đã sửa** =
 
 | Thao tác | Hành vi tham chiếu | BlueSheet trước | Trạng thái |
 | --- | --- | --- | --- |
-| Đường viền nhấp nháy sau Ctrl+C / Ctrl+X | Còn tới khi Esc, gõ một mục, hoặc dán vùng cắt | Không có | đã sửa |
+| Đường viền nhấp nháy sau Ctrl+C / Ctrl+X | Viền nét đứt chạy quanh vùng, còn tới khi Esc, gõ một mục, hoặc dán vùng cắt | Không có | đã sửa |
 | Enter khi có vùng đang được đánh dấu sao chép | Dán một lần rồi bỏ đánh dấu | Chỉ di chuyển xuống | đã sửa |
 | Ctrl+V | Dán, vùng sao chép vẫn được đánh dấu để dán tiếp | Dán được | đã sửa (đánh dấu) |
 | Dán vào vùng chọn là bội số kích thước đã sao chép | Lặp lại cho đủ vùng | Đúng | giống |
@@ -120,6 +121,8 @@ Trạng thái: **giống** = đã giống trước đợt này; **đã sửa** =
 
 ## Còn khác
 
+- Gõ một tên mới vào Hộp tên chưa đặt tên cho vùng chọn (bảng tính tham chiếu tạo tên đã đặt);
+  engine chưa có lệnh đặt tên — thuộc phần Name Manager của khu vực **data**.
 - Hộp tên hiện cả vùng chọn (`B2:C3`) thay vì ô hiện hành; chọn cả cột / hàng / trang là vùng
   hữu hạn (xem trên).
 - Ctrl+mũi tên chưa bỏ qua hàng / cột ẩn; Ctrl+A trong bảng (Table) chưa có ba bậc (dữ liệu →

@@ -16,6 +16,7 @@ pub mod cite;
 mod collate;
 pub mod comments;
 pub mod compare;
+pub mod controls;
 pub mod custom_xml;
 pub mod design;
 pub mod fields;
@@ -1583,6 +1584,89 @@ impl Session {
         &self.field_env
     }
 
+    /// Every field of the main text in document order, as (paragraph, from, to) index-text spans:
+    /// simple and complex fields (§17.16.19 fldSimple, §17.16.18 fldChar) and legacy form fields
+    /// (§17.16.17).
+    fn field_spans(&self) -> Vec<(usize, usize, usize)> {
+        let mut out = Vec::new();
+        for (pid, path) in body_paragraphs(&self.doc).iter().enumerate() {
+            let Some(p) = para_at(&self.doc, path) else {
+                continue;
+            };
+            let atoms = para::flatten(p);
+            let mut starts = Vec::with_capacity(atoms.len() + 1);
+            let mut pos = 0;
+            for a in &atoms {
+                starts.push(pos);
+                pos += para::atom_len(&a.1);
+            }
+            starts.push(pos);
+            let mut spans: Vec<(usize, usize, usize)> = fields::para_fields(&atoms)
+                .into_iter()
+                .map(|(_, a, b)| (pid, starts[a], starts[b + 1]))
+                .collect();
+            let mut open = None;
+            for (i, a) in atoms.iter().enumerate() {
+                match a.1 {
+                    RunContent::FormField(_) => open = Some(i),
+                    RunContent::FormEnd => {
+                        if let Some(s) = open.take() {
+                            spans.push((pid, starts[s], starts[i + 1]));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            spans.sort_unstable();
+            out.extend(spans);
+        }
+        out
+    }
+
+    /// Select the next field after the selection (`forward`, F11) or the one before it
+    /// (Shift+F11), wrapping around the document. Returns the new selection, `None` when the
+    /// document has no field.
+    pub fn next_field(&mut self, forward: bool) -> Option<Selection> {
+        let all = self.field_spans();
+        let (a, b) = self.selection.ordered();
+        let is_current =
+            |s: &(usize, usize, usize)| a == Pos::new(s.0, s.1) && b == Pos::new(s.0, s.2);
+        let next = if forward {
+            all.iter()
+                .find(|s| (s.0, s.1) >= (b.para, b.offset) && !is_current(s))
+                .or_else(|| all.first())
+        } else {
+            all.iter()
+                .rev()
+                .find(|s| (s.0, s.2) <= (a.para, a.offset) && !is_current(s))
+                .or_else(|| all.last())
+        }?;
+        self.selection = Selection {
+            anchor: Pos::new(next.0, next.1),
+            focus: Pos::new(next.0, next.2),
+        };
+        Some(self.selection)
+    }
+
+    /// The ASK / FILLIN questions an update of the fields asks (§17.16.5.4, §17.16.5.20).
+    #[must_use]
+    pub fn field_prompts(&self) -> Vec<merge::rules::Prompt> {
+        fields::prompts(&self.doc)
+    }
+
+    /// Update the fields with the answers typed for their ASK / FILLIN questions (by the keys
+    /// of [`Session::field_prompts`]; a missing one: the default answer).
+    pub fn update_fields_answered(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+        answers: std::collections::BTreeMap<String, String>,
+    ) -> Result<usize> {
+        self.field_env.answers = answers;
+        let r = self.update_fields(pages_of);
+        self.field_env.answers.clear();
+        r
+    }
+
     /// Lock (`Some(true)`), unlock (`Some(false)`) or unlink (`None`: the result becomes plain
     /// text) the fields in the selection — a caret acts on the field it touches (§17.16.18
     /// fldLock). Returns the number of fields (one undo step).
@@ -1867,6 +1951,29 @@ impl Session {
         })
     }
 
+    /// The selected text (index text; paragraphs joined by spaces), e.g. the code Ctrl+F9 puts
+    /// between field braces.
+    #[must_use]
+    pub fn selected_text(&self) -> String {
+        let (a, b) = self.selection.ordered();
+        let mut parts = Vec::new();
+        for id in a.para..=b.para {
+            let t = self.para_text(id).unwrap_or_default();
+            let from = if id == a.para {
+                a.offset.min(t.len())
+            } else {
+                0
+            };
+            let to = if id == b.para {
+                b.offset.min(t.len())
+            } else {
+                t.len()
+            };
+            parts.push(t.get(from..to.max(from)).unwrap_or_default().to_owned());
+        }
+        parts.join(" ")
+    }
+
     /// Insert a simple field (§17.16.19 fldSimple) with its current result at the caret.
     pub fn insert_field(&mut self, instr: &str, cached: &str) -> Result<Selection> {
         let field = RunContent::Field {
@@ -1901,8 +2008,9 @@ impl Session {
     }
 
     /// Insert an inline content control (§17.5.2.31 sdt) of `kind` (`text`, `richText`,
-    /// `checkbox`, `dropDown`, `comboBox`, `date`) at the caret, showing `placeholder` (a
-    /// checkbox shows ☐); the content is selected. List controls offer `items`.
+    /// `checkbox`, `dropDown`, `comboBox`, `date`, `picture`) at the caret, showing `placeholder`
+    /// (a checkbox shows ☐); the content is selected. List controls offer `items`. A
+    /// `repeatingSection` wraps the selected paragraphs instead (`placeholder`: its title).
     pub fn insert_control(
         &mut self,
         kind: &str,
@@ -1925,6 +2033,9 @@ impl Session {
                 full_date: None,
                 store_as: Some("dateTime".into()),
             },
+            // §17.5.2.26 picture: the placeholder until a picture replaces it.
+            "picture" => ControlKind::Picture,
+            "repeatingSection" => return self.insert_repeating_section(placeholder),
             _ => return Err(EditError::Unsupported(format!("control {kind}"))),
         };
         let checkbox = matches!(ck, ControlKind::Checkbox { .. });
@@ -2045,9 +2156,10 @@ impl Session {
                 ));
                 bo_model::field::format_date(&d, format, vi)
             }
-            ControlKind::Group | ControlKind::RepeatingSection | ControlKind::Picture => {
-                return Ok(false)
-            }
+            ControlKind::Group
+            | ControlKind::RepeatingSection
+            | ControlKind::RepeatingSectionItem
+            | ControlKind::Picture => return Ok(false),
             _ => value.to_owned(),
         };
         cc.placeholder = false;

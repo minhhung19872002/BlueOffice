@@ -37,6 +37,10 @@ const control = (patch: Partial<ControlInfo> = {}): ControlInfo => ({
   format: null,
   placeholder: false,
   locked: false,
+  deleteLocked: false,
+  block: false,
+  repeating: false,
+  frame: [],
   ...patch,
 });
 

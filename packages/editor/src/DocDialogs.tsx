@@ -1123,6 +1123,8 @@ const CONTROL_KINDS: ControlKind[] = [
   'dropDown',
   'comboBox',
   'date',
+  'picture',
+  'repeatingSection',
 ];
 
 /** Insert a content control (§17.5.2 sdt): its kind, placeholder and list items. */
@@ -1145,7 +1147,11 @@ export function ControlDialog({
         ? t('controlDialog.defaultItem')
         : k === 'date'
           ? t('controlDialog.defaultDate')
-          : t('controlDialog.defaultPlaceholder'),
+          : k === 'picture'
+            ? t('controlDialog.defaultPicture')
+            : k === 'repeatingSection'
+              ? ''
+              : t('controlDialog.defaultPlaceholder'),
     );
   };
   const insert = () =>
@@ -1198,7 +1204,9 @@ export function ControlDialog({
       </label>
       {kind !== 'checkbox' && (
         <label className={styles.field}>
-          {t('controlDialog.placeholder')}
+          {kind === 'repeatingSection'
+            ? t('controlDialog.sectionTitle')
+            : t('controlDialog.placeholder')}
           <input
             data-testid="control-placeholder"
             value={placeholder}
@@ -1221,8 +1229,21 @@ export function ControlDialog({
   );
 }
 
-/** The content control around the caret: toggle, pick an item or a date. */
-export function ControlBar({ control, run }: { control: ControlInfo; run: Run }) {
+/**
+ * The content control around the caret: toggle, pick an item or a date, choose a picture, add a
+ * repeating-section item ("+"), open its properties. Alt+Down opens the list / date picker.
+ */
+export function ControlBar({
+  control,
+  run,
+  onProperties,
+  onPicture,
+}: {
+  control: ControlInfo;
+  run: Run;
+  onProperties?: () => void;
+  onPicture?: () => void;
+}) {
   const { t } = useTranslation();
   const [value, setValue] = useState('');
   const known = (CONTROL_KINDS as string[]).includes(control.kind);
@@ -1291,6 +1312,38 @@ export function ControlBar({ control, run }: { control: ControlInfo; run: Run })
           value={control.date?.slice(0, 10) ?? ''}
           onChange={(e) => e.target.value !== '' && set(e.target.value)}
         />
+      )}
+      {!control.locked && control.kind === 'picture' && onPicture && (
+        <button
+          type="button"
+          data-testid="control-picture"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onPicture}
+        >
+          {t('controlBar.picture')}
+        </button>
+      )}
+      {control.repeating && !control.locked && (
+        <button
+          type="button"
+          data-testid="control-add-item"
+          title={t('controlBar.addItem')}
+          aria-label={t('controlBar.addItem')}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => void run({ cmd: 'addRepeatingItem' })}
+        >
+          +
+        </button>
+      )}
+      {onProperties && (
+        <button
+          type="button"
+          data-testid="control-properties"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onProperties}
+        >
+          {t('controlBar.properties')}
+        </button>
       )}
     </div>
   );

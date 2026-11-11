@@ -958,7 +958,9 @@ fn run(cli: Cli) -> R {
         }
         Cmd::Fields { input, out } => {
             let mut engine = open(&input)?;
-            let r = engine.command(bo_engine::Command::UpdateFields)?;
+            let r = engine.command(bo_engine::Command::UpdateFields {
+                answers: std::collections::BTreeMap::new(),
+            })?;
             if let Some(e) = r.error {
                 return Err(e.into());
             }

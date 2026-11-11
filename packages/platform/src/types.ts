@@ -817,7 +817,15 @@ export type EditCommand =
   | { cmd: 'resolveComment'; id: number; done: boolean }
   | { cmd: 'deleteComment' | 'selectComment'; id: number }
   | { cmd: 'nextComment'; forward: boolean }
-  | { cmd: 'updateFields' | 'insertToc' | 'crossReferenceTargets' }
+  | { cmd: 'insertToc' | 'crossReferenceTargets' }
+  /** Update the fields; `answers`: typed answers of the ASK / FILLIN questions by prompt key. */
+  | { cmd: 'updateFields'; answers?: Record<string, string> }
+  /** The ASK / FILLIN questions an update asks (`fieldPrompts`). */
+  | { cmd: 'fieldPrompts' }
+  /** Ctrl+F9 over a selection: the selected text becomes a field's code (`count` 0: none). */
+  | { cmd: 'insertFieldFromSelection' }
+  /** Select the next (F11) or previous (Shift+F11) field, wrapping around. */
+  | { cmd: 'nextField'; forward: boolean }
   /** Lock / unlock the fields in the selection (§17.16.18 fldLock). */
   | { cmd: 'lockFields'; lock: boolean }
   /** Fields in the selection become their results as plain text. */
@@ -828,6 +836,12 @@ export type EditCommand =
   | { cmd: 'insertControl'; kind: ControlKind; placeholder?: string; items?: string[] }
   /** Fill the control around the caret: toggle a checkbox, pick an item, set a date (ISO) or text. */
   | { cmd: 'setControlValue'; value?: string }
+  /** Add an item after the repeating-section item around the caret (its "+"). */
+  | { cmd: 'addRepeatingItem' }
+  /** Title, tag and locks of the control around the caret (§17.5.2.1, §17.5.2.42, §17.5.2.23). */
+  | { cmd: 'setControlProps'; props: ControlProps }
+  /** Select the content of the inline control around the caret. */
+  | { cmd: 'selectControlContent' }
   /** Insert a legacy form field (§17.16.17 ffData) at the caret. */
   | { cmd: 'insertFormField'; kind: FormFieldKind }
   /** Change the properties of the form field at the caret (its kind stays). */
@@ -1223,6 +1237,8 @@ export interface EditResult {
   ruby?: RubySpec;
   /** The content control around the caret. */
   control?: ControlInfo;
+  /** ASK / FILLIN questions of `fieldPrompts`. */
+  fieldPrompts?: import('./mailMerge').MergePrompt[];
   /** The legacy form field at the caret. */
   formField?: FormFieldInfo;
   /** The document's editing restriction, when it has one. */
@@ -1338,11 +1354,29 @@ export type AutoCorrectRule =
   | 'link';
 
 /** Kinds of content control the editor inserts. */
-export type ControlKind = 'text' | 'richText' | 'checkbox' | 'dropDown' | 'comboBox' | 'date';
+export type ControlKind =
+  | 'text'
+  | 'richText'
+  | 'checkbox'
+  | 'dropDown'
+  | 'comboBox'
+  | 'date'
+  | 'picture'
+  | 'repeatingSection';
+
+/** Properties of a content control set in its properties dialog. */
+export interface ControlProps {
+  title: string;
+  tag: string;
+  /** The control cannot be deleted (`sdtLocked`). */
+  deleteLocked: boolean;
+  /** Its contents cannot be edited (`contentLocked`). */
+  contentLocked: boolean;
+}
 
 /** A content control (§17.5.2 sdt) as the engine reports it. */
 export interface ControlInfo {
-  kind: ControlKind | 'picture' | 'repeatingSection' | 'group' | 'other';
+  kind: ControlKind | 'repeatingSectionItem' | 'group' | 'other';
   title: string | null;
   tag: string | null;
   /** Display texts of a list control. */
@@ -1359,6 +1393,14 @@ export interface ControlInfo {
   binding?: string;
   /** The bound node exists (`false`: unbound, the cached content stays). */
   bound?: boolean;
+  /** The control cannot be deleted. */
+  deleteLocked: boolean;
+  /** A block-level control (around paragraphs). */
+  block: boolean;
+  /** The caret is in an item of a repeating section (one can be added after it). */
+  repeating: boolean;
+  /** Rectangles of the control's extent, for its frame. */
+  frame: SelRect[];
 }
 
 /** Kind of a legacy form field (`FORMTEXT`, `FORMCHECKBOX`, `FORMDROPDOWN`). */

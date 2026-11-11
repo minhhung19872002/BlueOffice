@@ -366,6 +366,75 @@ pub fn bookmarks(doc: &Document) -> Vec<Bookmark> {
     out
 }
 
+/// The reference mark of the first footnote / endnote inside each bookmark (§17.16.5.41
+/// NOTEREF), numbered as displayed: in document order, restarting per section when the note
+/// properties say so (§17.11.19 numRestart), in their number format (§17.11.17 numFmt).
+pub(crate) fn note_marks(doc: &Document) -> HashMap<String, String> {
+    use bo_model::{NoteRestart, NumFormat};
+    let mut out: HashMap<String, String> = HashMap::new();
+    let mut numbers: HashMap<(bool, i32), String> = HashMap::new();
+    let (mut foot, mut end) = (0i32, 0i32);
+    let mut section = usize::MAX;
+    // id → name of bookmarks still open.
+    let mut open: HashMap<String, String> = HashMap::new();
+    for path in body_paragraphs(doc) {
+        let Some(p) = para_at(doc, &path) else {
+            continue;
+        };
+        let si = path[0];
+        let (fp, ep) = (doc.footnote_props(si), doc.endnote_props(si));
+        if si != section {
+            if section == usize::MAX || fp.restart == Some(NoteRestart::EachSect) {
+                foot = fp.start.map_or(0, |n| n as i32 - 1);
+            }
+            if section == usize::MAX || ep.restart == Some(NoteRestart::EachSect) {
+                end = ep.start.map_or(0, |n| n as i32 - 1);
+            }
+            section = si;
+        }
+        let atoms = para::flatten(p);
+        let marks = bookmark_marks(&atoms);
+        for (i, (props, c)) in atoms.iter().enumerate() {
+            for (_, name, id) in marks.iter().filter(|m| m.0 == i) {
+                match name {
+                    Some(n) => {
+                        open.insert(id.clone(), n.clone());
+                    }
+                    None => {
+                        open.remove(id);
+                    }
+                }
+            }
+            if props.del.is_some() {
+                continue;
+            }
+            let key = match c {
+                RunContent::FootnoteRef(id) => (false, *id),
+                RunContent::EndnoteRef(id) => (true, *id),
+                _ => continue,
+            };
+            let mark = numbers
+                .entry(key)
+                .or_insert_with(|| {
+                    if key.0 {
+                        end += 1;
+                        let f = ep.fmt.clone().unwrap_or(NumFormat::LowerRoman);
+                        bo_model::format_number(end, &f)
+                    } else {
+                        foot += 1;
+                        let f = fp.fmt.clone().unwrap_or(NumFormat::Decimal);
+                        bo_model::format_number(foot, &f)
+                    }
+                })
+                .clone();
+            for n in open.values() {
+                out.entry(n.clone()).or_insert_with(|| mark.clone());
+            }
+        }
+    }
+    out
+}
+
 /// Largest bookmark id (`w:id`) in the main text.
 pub(crate) fn max_bookmark_id(doc: &Document) -> i64 {
     let mut m = 0;
@@ -848,6 +917,7 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
         .into_iter()
         .map(|b| (b.name, b.text.trim().to_owned()))
         .collect();
+    let notes = note_marks(doc);
     visit_fields(&mut sections, &mut |instr, cached| {
         let kind = field_kind(instr);
         let args = field_args(instr);
@@ -864,6 +934,8 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
                 .get(name)
                 .filter(|p| **p > 0)
                 .map(ToString::to_string),
+            // §17.16.5.41 NOTEREF: the mark of the note in the bookmark.
+            "NOTEREF" => notes.get(name).cloned(),
             _ => None,
         };
         if let Some(v) = v {
@@ -910,6 +982,35 @@ pub struct FieldEnv {
     pub user_address: String,
     /// §17.15.1.17 docVars (DOCVARIABLE).
     pub vars: std::collections::BTreeMap<String, String>,
+    /// Answers typed for the ASK / FILLIN questions of this update, by prompt key
+    /// (`ASK:<bookmark>`, `FILLIN:<prompt>`, see [`prompts`]); a missing one: the default (`\d`).
+    pub answers: std::collections::BTreeMap<String, String>,
+}
+
+/// The ASK (§17.16.5.4) and FILLIN (§17.16.5.20) questions an update of the unlocked fields of
+/// the body asks, in document order (each key once).
+pub fn prompts(doc: &Document) -> Vec<crate::merge::rules::Prompt> {
+    let mut out: Vec<crate::merge::rules::Prompt> = Vec::new();
+    let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
+    for blocks in &mut sections {
+        walk(blocks, None, &mut |p, _| {
+            for c in p.runs.iter().flat_map(|r| &r.content) {
+                if let RunContent::Field {
+                    instr,
+                    locked: false,
+                    ..
+                } = c
+                {
+                    if let Some(q) = crate::merge::rules::prompt_of(instr) {
+                        if !out.iter().any(|o| o.key == q.key) {
+                            out.push(q);
+                        }
+                    }
+                }
+            }
+        });
+    }
+    out
 }
 
 /// Field kinds whose result this module computes (the others keep their cached result: links,
@@ -1293,8 +1394,10 @@ fn evaluate_all(
                             text(String::new())
                         }
                         "ASK" | "FILLIN" => {
-                            // No prompt while updating: the default answer (\d).
-                            let d = switch_values(instr, "\\d").first().cloned();
+                            // The answer typed in the prompt, else the default answer (\d).
+                            let typed = crate::merge::rules::prompt_of(instr)
+                                .and_then(|q| env.answers.get(&q.key).cloned());
+                            let d = typed.or_else(|| switch_values(instr, "\\d").first().cloned());
                             if kind == "ASK" {
                                 if let (Some(n), Some(v)) = (arg(1), d.clone()) {
                                     vars.insert(n.to_ascii_lowercase(), v);
@@ -1650,6 +1753,7 @@ mod eval_tests {
             user_initials: String::new(),
             user_address: "Hà Nội".into(),
             vars,
+            ..FieldEnv::default()
         }
     }
 
@@ -1770,5 +1874,134 @@ mod eval_tests {
         assert_eq!(r(2, 1), "30");
         assert_eq!(r(3, 0), "60");
         assert_eq!(r(3, 1), "2.0");
+    }
+
+    // source: ECMA-376 Part 1, §17.16.5.41 NOTEREF — the reference mark of the note in the
+    // bookmark, numbered as displayed (§17.11.17 numFmt: endnotes lower Roman by default).
+    #[test]
+    fn noteref_shows_the_note_mark() {
+        let bm = |id: i64, name: &str, inner: RunContent| -> Paragraph {
+            let (s, e) = bookmark_xml(id, name);
+            Paragraph::new(
+                ParaProps::default(),
+                vec![
+                    Run::text("Văn bản", RunProps::default()),
+                    Run {
+                        props: RunProps::default(),
+                        content: vec![RunContent::Markup(s), inner, RunContent::Markup(e)],
+                    },
+                ],
+            )
+        };
+        let doc = Document {
+            sections: vec![Section {
+                blocks: vec![
+                    Block::Paragraph(bm(1, "ChuThich1", RunContent::FootnoteRef(5))),
+                    Block::Paragraph(bm(2, "ChuThich2", RunContent::FootnoteRef(9))),
+                    Block::Paragraph(bm(3, "CuoiSach", RunContent::EndnoteRef(1))),
+                    Block::Paragraph(field("NOTEREF ChuThich2 \\h")),
+                    Block::Paragraph(field("NOTEREF CuoiSach")),
+                    Block::Paragraph(field("NOTEREF KhongCo")),
+                ],
+                ..Section::default()
+            }],
+            ..Document::default()
+        };
+        let up = update(&doc, &[], &env());
+        let out = &up.sections[0];
+        assert_eq!(result(&out[3]), "2");
+        assert_eq!(result(&out[4]), "i");
+        // An unknown bookmark keeps the result the field had.
+        assert_eq!(result(&out[5]), "?");
+    }
+
+    // source: ECMA-376 Part 1, §17.16.5.4 ASK / §17.16.5.20 FILLIN — the answer typed when the
+    // field is updated replaces the default (\d); REF of the ASK bookmark reads it.
+    #[test]
+    fn ask_and_fillin_use_the_typed_answers() {
+        let doc = Document {
+            sections: vec![Section {
+                blocks: vec![
+                    Block::Paragraph(field("ASK Ten \"Tên khách hàng?\" \\d \"Lan\"")),
+                    Block::Paragraph(field("FILLIN \"Ghi chú?\" \\d \"Không có\"")),
+                    Block::Paragraph(field("REF Ten")),
+                    Block::Paragraph(field("FILLIN \"Ghi chú?\"")),
+                ],
+                ..Section::default()
+            }],
+            ..Document::default()
+        };
+        let q = prompts(&doc);
+        let keys: Vec<(&str, &str, &str)> = q
+            .iter()
+            .map(|p| (p.key.as_str(), p.prompt.as_str(), p.default.as_str()))
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                ("ASK:Ten", "Tên khách hàng?", "Lan"),
+                ("FILLIN:Ghi chú?", "Ghi chú?", "Không có"),
+            ]
+        );
+        // No answers: the defaults.
+        let up = update(&doc, &[], &env());
+        assert_eq!(result(&up.sections[0][1]), "Không có");
+        assert_eq!(result(&up.sections[0][2]), "Lan");
+        let mut e = env();
+        e.answers.insert("ASK:Ten".into(), "Minh".into());
+        e.answers
+            .insert("FILLIN:Ghi chú?".into(), "Giao gấp".into());
+        let up = update(&doc, &[], &e);
+        assert_eq!(result(&up.sections[0][1]), "Giao gấp");
+        assert_eq!(result(&up.sections[0][2]), "Minh");
+        assert_eq!(result(&up.sections[0][3]), "Giao gấp");
+    }
+
+    // F11 / Shift+F11: the next / previous field is selected, wrapping around the document.
+    #[test]
+    fn next_and_previous_field() {
+        use crate::{Pos, Selection, Session};
+        let mut p = field("PAGE");
+        p.runs.insert(0, Run::text("Trang ", RunProps::default()));
+        p.runs.push(Run::text(" / ", RunProps::default()));
+        p.runs.push(field("NUMPAGES").runs.remove(0));
+        let doc = Document {
+            sections: vec![Section {
+                blocks: vec![
+                    Block::Paragraph(Paragraph::new(
+                        ParaProps::default(),
+                        vec![Run::text("Mở đầu", RunProps::default())],
+                    )),
+                    Block::Paragraph(p),
+                    Block::Paragraph(field("DATE")),
+                ],
+                ..Section::default()
+            }],
+            ..Document::default()
+        };
+        let mut s = Session::new(doc);
+        let span = |para: usize, from: usize, to: usize| Selection {
+            anchor: Pos::new(para, from),
+            focus: Pos::new(para, to),
+        };
+        // A field is one object character (its cached result is not part of the index text).
+        let len = crate::para::atom_len(&RunContent::Field {
+            instr: "PAGE".into(),
+            cached: "?".into(),
+            locked: false,
+        });
+        let page = span(1, 6, 6 + len);
+        let numpages = span(1, 6 + len + 3, 6 + 2 * len + 3);
+        let date = span(2, 0, len);
+        assert_eq!(s.next_field(true), Some(page));
+        assert_eq!(s.next_field(true), Some(numpages));
+        assert_eq!(s.next_field(true), Some(date));
+        assert_eq!(s.next_field(true), Some(page));
+        assert_eq!(s.next_field(false), Some(date));
+        assert_eq!(s.next_field(false), Some(numpages));
+        s.set_selection(Selection::caret(Pos::new(0, 2)));
+        assert_eq!(s.next_field(false), Some(date));
+        let empty = Session::new(Document::default()).next_field(true);
+        assert_eq!(empty, None);
     }
 }

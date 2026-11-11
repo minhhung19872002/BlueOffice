@@ -239,6 +239,7 @@ impl Session {
             bo_model::ControlKind::Picture
                 | bo_model::ControlKind::Group
                 | bo_model::ControlKind::RepeatingSection
+                | bo_model::ControlKind::RepeatingSectionItem
         ) {
             return Err(err("notBindable"));
         }

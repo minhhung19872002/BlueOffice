@@ -558,3 +558,12 @@
 .ccBar input {
   font-size: 12px;
 }
+
+/* Ctrl+F9: the field code between its braces. */
+.fieldCodeBraces {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, monospace;
+}

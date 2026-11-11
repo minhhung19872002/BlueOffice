@@ -517,7 +517,10 @@
       "toggleCodes": "Hiện mã trường (Alt+F9)",
       "lock": "Khoá trường",
       "unlock": "Mở khoá trường",
-      "unlink": "Chuyển trường thành văn bản"
+      "unlink": "Chuyển trường thành văn bản",
+      "next": "Trường tiếp theo (F11)",
+      "previous": "Trường trước (Shift+F11)",
+      "insertBraces": "Chèn cặp ngoặc trường (Ctrl+F9)"
     },
     "outline": {
       "promote": "Nâng cấp đề mục",
@@ -547,6 +550,11 @@
       "sideBySide": "Xem song song",
       "syncScroll": "Cuộn đồng bộ",
       "resetPosition": "Đặt lại vị trí cửa sổ"
+    },
+    "controls": {
+      "properties": "Thuộc tính điều khiển nội dung",
+      "picture": "Chọn ảnh cho điều khiển",
+      "openList": "Mở danh sách của điều khiển (Alt+Mũi tên xuống)"
     }
   },
   "status": {
@@ -4532,11 +4540,15 @@
       "checkbox": "Hộp kiểm",
       "dropDown": "Danh sách thả xuống",
       "comboBox": "Hộp kết hợp",
-      "date": "Chọn ngày"
+      "date": "Chọn ngày",
+      "picture": "Ảnh",
+      "repeatingSection": "Phần lặp lại"
     },
     "defaultPlaceholder": "Bấm vào đây để nhập văn bản.",
     "defaultItem": "Chọn một mục.",
-    "defaultDate": "Bấm vào đây để nhập ngày."
+    "defaultDate": "Bấm vào đây để nhập ngày.",
+    "defaultPicture": "Bấm vào đây để chèn ảnh.",
+    "sectionTitle": "Tiêu đề phần"
   },
   "controlBar": {
     "label": "Điều khiển nội dung",
@@ -4545,7 +4557,10 @@
     "value": "Giá trị",
     "date": "Ngày",
     "locked": "Nội dung bị khoá",
-    "apply": "Áp dụng"
+    "apply": "Áp dụng",
+    "picture": "Chọn ảnh…",
+    "addItem": "Thêm mục lặp lại",
+    "properties": "Thuộc tính…"
   },
   "xmlMapping": {
     "title": "Ánh xạ dữ liệu XML",
@@ -8328,5 +8343,25 @@
     },
     "guideCm": "{{value}} cm",
     "guideIn": "{{value}} in"
+  },
+  "fieldCode": {
+    "title": "Mã trường",
+    "label": "Mã trường",
+    "hint": "Ví dụ: DATE \\@ \"dd/MM/yyyy\"",
+    "insert": "Chèn"
+  },
+  "fieldPrompt": {
+    "title": "Trường hỏi thông tin",
+    "ok": "OK",
+    "noText": "Nhập giá trị:"
+  },
+  "controlProps": {
+    "title": "Thuộc tính điều khiển nội dung",
+    "name": "Tiêu đề",
+    "tag": "Thẻ",
+    "locking": "Khoá",
+    "deleteLocked": "Không thể xoá điều khiển",
+    "contentLocked": "Không thể sửa nội dung",
+    "ok": "OK"
   }
 }

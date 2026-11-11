@@ -128,6 +128,8 @@ export class DocumentView {
   private mathMarks: MathState | null = null;
   /** Read aloud: the paragraph and the word being spoken (CORE-LANG-003). */
   private speechMarks: { word: SelRect[]; para: SelRect[] } = { word: [], para: [] };
+  /** The content control around the caret: its extent and title (never printed). */
+  private controlFrame: { rects: SelRect[]; title: string | null } = { rects: [], title: null };
   private readonly ime: ImeInput;
   /** Screen-reader mirror of the text of the pages in view (WCAG 1.3.1 / 4.1.2). */
   readonly a11y: DocMirror;
@@ -190,7 +192,7 @@ export class DocumentView {
       const st = document.createElement('style');
       st.id = 'bo-caret-style';
       st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(0,0,0,.2);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-math-zone{position:absolute;background:rgba(0,0,0,.05);pointer-events:none}.bo-math-slot{position:absolute;box-sizing:border-box;border:1px dotted #777;pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-peer-bar{position:absolute;width:3px;border-radius:2px;pointer-events:none}.bo-peer-bar-name{position:absolute;right:6px;top:0;padding:0 4px;border-radius:3px;color:#fff;font:600 10px/14px system-ui,sans-serif;white-space:nowrap;opacity:.9}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
+        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(0,0,0,.2);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-cc-frame{position:absolute;box-sizing:border-box;border:1px solid rgba(80,120,190,.75);pointer-events:none}.bo-cc-title{position:absolute;left:-1px;bottom:100%;padding:0 6px;border:1px solid rgba(80,120,190,.75);border-bottom:none;border-radius:3px 3px 0 0;background:#eef3fb;color:#1f3d6e;font:11px/16px system-ui,sans-serif;white-space:nowrap}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-math-zone{position:absolute;background:rgba(0,0,0,.05);pointer-events:none}.bo-math-slot{position:absolute;box-sizing:border-box;border:1px dotted #777;pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-peer-bar{position:absolute;width:3px;border-radius:2px;pointer-events:none}.bo-peer-bar-name{position:absolute;right:6px;top:0;padding:0 4px;border-radius:3px;color:#fff;font:600 10px/14px system-ui,sans-serif;white-space:nowrap;opacity:.9}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
       document.head.appendChild(st);
     }
   }
@@ -300,6 +302,7 @@ export class DocumentView {
     this.drawFindMarks(k);
     this.drawRegionMarks(k);
     this.drawMathMarks(k);
+    this.drawControlFrame(k);
     for (const r of rects) {
       const slot = this.slots[r.page];
       if (!slot) continue;
@@ -371,6 +374,63 @@ export class DocumentView {
       'pointer-events:none;color:#555;background:rgba(255,255,255,0.85);' +
       'text-decoration:underline dotted;text-underline-offset:2px;padding:0 1px;';
     slot.overlay.appendChild(d);
+  }
+
+  /**
+   * The frame of the content control around the caret, with its title in a tab above it
+   * (ECMA-376 Part 1, §17.5.2.1 alias); `[]` hides it.
+   */
+  setControlFrame(rects: SelRect[], title: string | null): void {
+    const same =
+      title === this.controlFrame.title &&
+      rects.length === this.controlFrame.rects.length &&
+      rects.every((r, i) => {
+        const o = this.controlFrame.rects[i];
+        return !!o && o.page === r.page && o.x === r.x && o.y === r.y && o.w === r.w && o.h === r.h;
+      });
+    if (same) return;
+    this.controlFrame = { rects, title };
+    this.setSelection(this.caret, this.lastRects, false);
+  }
+
+  private drawControlFrame(k: number): void {
+    // One box per page around the control's rectangles.
+    const boxes = new Map<number, { x0: number; y0: number; x1: number; y1: number }>();
+    for (const r of this.controlFrame.rects) {
+      const b = boxes.get(r.page);
+      boxes.set(
+        r.page,
+        b
+          ? {
+              x0: Math.min(b.x0, r.x),
+              y0: Math.min(b.y0, r.y),
+              x1: Math.max(b.x1, r.x + r.w),
+              y1: Math.max(b.y1, r.y + r.h),
+            }
+          : { x0: r.x, y0: r.y, x1: r.x + r.w, y1: r.y + r.h },
+      );
+    }
+    let first = true;
+    for (const [page, b] of boxes) {
+      const slot = this.slots[page];
+      if (!slot) continue;
+      const d = document.createElement('div');
+      d.className = 'bo-cc-frame';
+      d.dataset.testid = 'control-frame';
+      const pad = 2;
+      d.style.cssText =
+        `left:${b.x0 * k - pad}px;top:${b.y0 * k - pad}px;` +
+        `width:${(b.x1 - b.x0) * k + 2 * pad}px;height:${(b.y1 - b.y0) * k + 2 * pad}px;`;
+      if (first && this.controlFrame.title) {
+        const tab = document.createElement('div');
+        tab.className = 'bo-cc-title';
+        tab.dataset.testid = 'control-frame-title';
+        tab.textContent = this.controlFrame.title;
+        d.appendChild(tab);
+      }
+      first = false;
+      slot.overlay.appendChild(d);
+    }
   }
 
   /** Highlight every find match (drawn under the selection); `[]` clears. */

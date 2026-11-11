@@ -2193,6 +2193,8 @@ pub enum ControlKind {
     },
     /// [MS-DOCX] w15:repeatingSection.
     RepeatingSection,
+    /// [MS-DOCX] w15:repeatingSectionItem: one item of a repeating section.
+    RepeatingSectionItem,
     /// §17.5.2.15 group.
     Group,
     /// Another kind (citation, bibliography, equation, doc-part gallery…).

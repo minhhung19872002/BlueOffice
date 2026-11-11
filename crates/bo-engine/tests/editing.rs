@@ -670,6 +670,212 @@ fn lock_unlink_and_show_field_codes() {
 // source: ECMA-376 Part 1, §17.5.2 content controls (sdt) — inserted, filled (checkbox, list,
 // date), saved and read back with their kind and value.
 #[test]
+fn repeating_sections_pictures_and_control_properties() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Thành viên: "}"#);
+    // A repeating section around the paragraph; the caret is in its only item.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"repeatingSection","placeholder":"Danh sách"}"#,
+    );
+    assert_eq!(r["control"]["kind"], "repeatingSection");
+    assert_eq!(r["control"]["title"], "Danh sách");
+    assert_eq!(r["control"]["block"], true);
+    assert_eq!(r["control"]["repeating"], true);
+    assert_ne!(r["control"]["frame"], serde_json::json!([]));
+    // Its "+": a second item, the caret at its start.
+    let r = cmd(&mut e, r#"{"cmd":"addRepeatingItem"}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(r["selection"]["focus"]["p"], 1);
+    assert_eq!(r["control"]["kind"], "repeatingSection");
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    // A picture control in the new item, then its properties.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"picture","placeholder":"Ảnh chân dung"}"#,
+    );
+    assert_eq!(r["control"]["kind"], "picture");
+    assert_eq!(r["control"]["placeholder"], true);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setControlProps","props":{"title":"Ảnh","tag":"anh","deleteLocked":true,"contentLocked":false}}"#,
+    );
+    assert_eq!(r["count"], 1);
+    assert_eq!(r["control"]["title"], "Ảnh");
+    assert_eq!(r["control"]["tag"], "anh");
+    assert_eq!(r["control"]["deleteLocked"], true);
+    assert_eq!(r["control"]["locked"], false);
+    // Saved with w15 repeating sections (two items) and read back the same.
+    let saved = e.save_docx().unwrap();
+    let pkg = bo_opc::Package::read(&saved, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert_eq!(xml.matches("w15:repeatingSectionItem").count(), 2);
+    assert_eq!(xml.matches("<w15:repeatingSection ").count(), 1);
+    assert!(xml.contains("<w:alias w:val=\"Ảnh\"/><w:tag w:val=\"anh\"/>"));
+    assert!(xml.contains("<w:lock w:val=\"sdtLocked\"/>"));
+    assert!(xml.contains("<w:picture/>"));
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    let r = cmd(
+        &mut f,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":2},"focus":{"p":0,"o":2}}}"#,
+    );
+    assert_eq!(r["control"]["kind"], "repeatingSection");
+    assert_eq!(r["control"]["repeating"], true);
+    let r = cmd(&mut f, r#"{"cmd":"addRepeatingItem"}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(
+        f.document()
+            .unwrap()
+            .plain_text()
+            .matches("Thành viên")
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn fields_next_prompts_and_checkbox_by_keyboard_and_mouse() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Tên: "}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertField","instr":"FILLIN \"Tên khách?\" \\d \"Lan\""}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":" trang "}"#);
+    cmd(&mut e, r#"{"cmd":"insertField","instr":"PAGE"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"fieldPrompts"}"#);
+    assert_eq!(r["fieldPrompts"][0]["key"], "FILLIN:Tên khách?");
+    assert_eq!(r["fieldPrompts"][0]["default"], "Lan");
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"updateFields","answers":{"FILLIN:Tên khách?":"Minh"}}"#,
+    );
+    assert!(r.get("error").is_none());
+    assert_eq!(e.document().unwrap().plain_text(), "Tên: Minh trang 1");
+    // F11 from the start selects the first field, then the next; Shift+F11 goes back.
+    cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":0}}}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"nextField","forward":true}"#);
+    assert_eq!(r["selection"]["anchor"]["o"], "Tên: ".len());
+    let r = cmd(&mut e, r#"{"cmd":"nextField","forward":true}"#);
+    let page_at = r["selection"]["anchor"]["o"].as_u64().unwrap();
+    assert!(page_at > "Tên: ".len() as u64);
+    let r = cmd(&mut e, r#"{"cmd":"nextField","forward":false}"#);
+    assert_eq!(r["selection"]["anchor"]["o"], "Tên: ".len());
+    // A check box: Space toggles it when selected; a click on its mark toggles it too.
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" Đồng ý "}"#);
+    let r = cmd(&mut e, r#"{"cmd":"insertControl","kind":"checkbox"}"#);
+    assert_eq!(r["control"]["checked"], false);
+    let r = cmd(&mut e, r#"{"cmd":"insertText","text":" "}"#);
+    assert_eq!(r["control"]["checked"], true);
+    let mark = r["rects"][0].clone();
+    let (page, x, y) = (
+        mark["page"].as_u64().unwrap(),
+        mark["x"].as_f64().unwrap() + mark["w"].as_f64().unwrap() / 2.0,
+        mark["y"].as_f64().unwrap() + mark["h"].as_f64().unwrap() / 2.0,
+    );
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"click","page":{page},"x":{x},"y":{y}}}"#),
+    );
+    assert_eq!(r["control"]["checked"], false);
+    // A click in a placeholder selects all of it.
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" "}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"text","placeholder":"Nhập ghi chú."}"#,
+    );
+    let ph = r["rects"][0].clone();
+    let x = ph["x"].as_f64().unwrap() + ph["w"].as_f64().unwrap() / 3.0;
+    let y = ph["y"].as_f64().unwrap() + ph["h"].as_f64().unwrap() / 2.0;
+    let r = cmd(
+        &mut e,
+        &format!(r#"{{"cmd":"click","page":0,"x":{x},"y":{y}}}"#),
+    );
+    let (a, b) = (
+        r["selection"]["anchor"]["o"].as_u64().unwrap(),
+        r["selection"]["focus"]["o"].as_u64().unwrap(),
+    );
+    assert_eq!(b - a, "Nhập ghi chú.".len() as u64);
+}
+
+#[test]
+fn corpus_repeating_section_round_trips_and_grows() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc/controls-04-repeating-picture.docx");
+    let bytes = std::fs::read(path).unwrap();
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&bytes, "r.docx").unwrap();
+    // Untouched, the file saves its controls as read.
+    let again = e.save_docx().unwrap();
+    let xml = |b: &[u8]| {
+        let pkg = bo_opc::Package::read(b, &bo_opc::Limits::default()).unwrap();
+        String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap()
+    };
+    assert_eq!(xml(&again).matches("w15:repeatingSectionItem").count(), 2);
+    // In the second item: "+" adds a third after it.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":1,"o":3},"focus":{"p":1,"o":3}}}"#,
+    );
+    assert_eq!(r["control"]["kind"], "repeatingSection");
+    assert_eq!(r["control"]["title"], "Danh sách");
+    let r = cmd(&mut e, r#"{"cmd":"addRepeatingItem"}"#);
+    assert_eq!(r["count"], 1);
+    let saved = e.save_docx().unwrap();
+    assert_eq!(xml(&saved).matches("w15:repeatingSectionItem").count(), 3);
+    // Still one section (the other matches are its items).
+    assert_eq!(xml(&saved).matches("<w15:repeatingSection").count(), 4);
+    let texts = e.document().unwrap().plain_text();
+    assert!(
+        texts.contains("Thành viên: Bình\nThành viên: Bình\nẢnh"),
+        "{texts}"
+    );
+    // The picture control shows its placeholder; the text control cannot be deleted.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":3,"o":8},"focus":{"p":3,"o":8}}}"#,
+    );
+    assert_eq!(r["control"]["kind"], "picture");
+    assert_eq!(r["control"]["placeholder"], true);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":4,"o":15},"focus":{"p":4,"o":15}}}"#,
+    );
+    assert_eq!(r["control"]["deleteLocked"], true);
+    assert_eq!(r["control"]["tag"], "ma_ho_so");
+}
+
+#[test]
+fn ctrl_f9_turns_the_selected_text_into_a_field() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Mục SECTION"}"#);
+    // Nothing selected: nothing to wrap.
+    let r = cmd(&mut e, r#"{"cmd":"insertFieldFromSelection"}"#);
+    assert_eq!(r["count"], 0);
+    let from = "Mục ".len();
+    let to = "Mục SECTION".len();
+    cmd(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":0,"o":{from}}},"focus":{{"p":0,"o":{to}}}}}}}"#
+        ),
+    );
+    let r = cmd(&mut e, r#"{"cmd":"insertFieldFromSelection"}"#);
+    assert_eq!(r["count"], 1);
+    // The field shows its result at once (SECTION → 1, ECMA-376 Part 1 SECTION field).
+    assert_eq!(e.document().unwrap().plain_text(), "Mục 1");
+}
+
+#[test]
 fn content_controls_insert_fill_and_save() {
     let mut e = Engine::with_bundled_fonts();
     e.new_document("a.docx").unwrap();

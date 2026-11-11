@@ -189,9 +189,9 @@ Các loại biểu đồ tạo được:
 
 > **Hạn chế:** thẻ Định dạng chưa xem trước trực tiếp trên ô khi trỏ chuột (chỉ có mô tả).
 
-### SmartArt, Biểu đồ thu nhỏ, Ảnh trong ô, Ô đánh dấu
+### Sơ đồ thông minh, Biểu đồ thu nhỏ, Ảnh trong ô, Ô đánh dấu
 
-- **SmartArt:** chèn sơ đồ; cách dùng giống BlueDoc ([bluedoc.md](bluedoc.md#smartart)).
+- **Sơ đồ thông minh:** chèn sơ đồ; cách dùng giống BlueDoc ([bluedoc.md](bluedoc.md#sơ-đồ-thông-minh)).
 - **Biểu đồ thu nhỏ:** biểu đồ nằm gọn trong một ô. Trong hộp thoại **Chèn biểu đồ thu nhỏ**, chọn vùng dữ liệu và
   ô đặt. Chỉnh bằng tab **Biểu đồ thu nhỏ** ([xem bên dưới](#tab-biểu-đồ-thu-nhỏ)).
 - **Ảnh trong ô:** đặt một ảnh vào trong ô đang chọn. **Văn bản thay thế của ảnh** ghi mô tả cho trình đọc màn
@@ -438,9 +438,9 @@ Hiện khi ô đang chọn có biểu đồ thu nhỏ.
 - **Kiểu dáng › Màu và trục**.
 - **Nhóm:** **Nhóm**, **Bỏ nhóm**, **Xóa**, **Xóa cả nhóm**.
 
-### Tab SmartArt
+### Tab Sơ đồ thông minh
 
-Hiện khi chọn sơ đồ: **Ngăn văn bản**, **Xoá SmartArt**.
+Hiện khi chọn sơ đồ: **Ngăn văn bản**, **Xoá Sơ đồ thông minh**.
 
 ## Giới hạn về kích thước
 

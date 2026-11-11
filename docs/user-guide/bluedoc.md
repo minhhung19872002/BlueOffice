@@ -17,7 +17,7 @@ Tương thích định dạng Microsoft Word (`.docx`). Danh sách định dạn
 - [Tab Gửi thư (trộn thư)](#tab-gửi-thư-trộn-thư)
 - [Tab Xem lại](#tab-xem-lại)
 - [Tab Xem](#tab-xem)
-- [Tab ngữ cảnh: Bảng, Định dạng ảnh, Đầu & chân trang, SmartArt](#tab-ngữ-cảnh)
+- [Tab ngữ cảnh: Bảng, Định dạng ảnh, Đầu & chân trang, Sơ đồ thông minh](#tab-ngữ-cảnh)
 - [Bảo vệ văn bản](#bảo-vệ-văn-bản)
 - [Dòng chữ ký](#dòng-chữ-ký)
 - [Chưa hỗ trợ](#chưa-hỗ-trợ)
@@ -140,13 +140,13 @@ Bấm **Chèn › Đối tượng › Ảnh** và chọn tệp `.png`, `.jpg` ho
 > trong cửa sổ BlueSheet riêng. Đối tượng nhúng do phần mềm khác tạo hiện bằng ảnh xem trước và được giữ nguyên khi
 > lưu; ảnh xem trước dạng EMF / WMF chưa hiển thị.
 
-### SmartArt
+### Sơ đồ thông minh
 
-1. Bấm **Chèn › Đối tượng › SmartArt**.
-2. Trong hộp thoại **Chèn SmartArt**, chọn nhóm bố cục: **Danh sách**, **Quy trình**, **Chu trình**, **Phân cấp**,
+1. Bấm **Chèn › Đối tượng › Sơ đồ thông minh**.
+2. Trong hộp thoại **Chèn Sơ đồ thông minh**, chọn nhóm bố cục: **Danh sách**, **Quy trình**, **Chu trình**, **Phân cấp**,
    **Ma trận**, **Kim tự tháp**, **Quan hệ**.
 3. Gõ nội dung: mỗi dòng là một mục, `Tab` để hạ cấp, `Shift+Tab` để nâng cấp. Bấm **Chèn**.
-4. Chọn sơ đồ, mở tab **SmartArt › Sơ đồ › Ngăn văn bản** để sửa chữ, đổi **Bố cục**, **Màu**, **Kiểu**.
+4. Chọn sơ đồ, mở tab **Sơ đồ thông minh › Sơ đồ › Ngăn văn bản** để sửa chữ, đổi **Bố cục**, **Màu**, **Kiểu**.
 
 ### Ký hiệu
 
@@ -422,9 +422,9 @@ Hiện khi đang sửa đầu trang hoặc chân trang.
 - Các tuỳ chọn **Trang đầu khác**, **Trang chẵn lẻ khác**; **Chèn số trang**, **Chèn tổng số trang**.
 - **Đóng đầu/chân trang** để trở về thân văn bản.
 
-### Tab SmartArt
+### Tab Sơ đồ thông minh
 
-Hiện khi chọn một sơ đồ SmartArt: **Ngăn văn bản** để sửa nội dung, bố cục, màu và kiểu.
+Hiện khi chọn một sơ đồ thông minh: **Ngăn văn bản** để sửa nội dung, bố cục, màu và kiểu.
 
 ## Bảo vệ văn bản
 

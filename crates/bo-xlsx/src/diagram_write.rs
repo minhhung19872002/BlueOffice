@@ -134,7 +134,7 @@ fn anchor_xml(d: &SheetDiagram, shape_id: u32, ids: &[String]) -> String {
         d.from.col.saturating_add(6),
     ));
     let name = if d.name.is_empty() {
-        format!("SmartArt {shape_id}")
+        format!("Diagram {shape_id}")
     } else {
         d.name.clone()
     };

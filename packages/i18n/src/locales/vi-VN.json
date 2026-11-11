@@ -232,7 +232,7 @@
       "formProperties": "Tuỳ chọn trường biểu mẫu…",
       "dropCap": "Chữ hoa đầu đoạn",
       "signatureLine": "Dòng chữ ký…",
-      "smartart": "SmartArt",
+      "smartart": "Sơ đồ thông minh",
       "chart": "Biểu đồ",
       "link": "Chèn liên kết",
       "action": "Thiết lập hành động",
@@ -517,7 +517,7 @@
     "image": "Không chèn được ảnh: {{message}}",
     "sign": "Không ký được: {{message}}",
     "verify": "Không kiểm tra được chữ ký: {{message}}",
-    "smartArt": "Không chèn hoặc sửa được SmartArt.",
+    "smartArt": "Không chèn hoặc sửa được sơ đồ thông minh.",
     "chart": "Không chèn hoặc sửa được biểu đồ."
   },
   "placeholder": {
@@ -1932,7 +1932,7 @@
       "decorative": "Chỉ để trang trí (không cần mô tả)"
     },
     "smartArt": {
-      "delete": "Xoá SmartArt"
+      "delete": "Xoá sơ đồ thông minh"
     }
   },
   "recovery": {
@@ -2660,11 +2660,11 @@
       "resolved": "đã xử lý"
     },
     "smartart": {
-      "button": "SmartArt",
-      "tab": "SmartArt",
+      "button": "Sơ đồ thông minh",
+      "tab": "Sơ đồ thông minh",
       "group": "Sơ đồ",
-      "insertTitle": "Chèn SmartArt",
-      "editTitle": "Sửa SmartArt",
+      "insertTitle": "Chèn sơ đồ thông minh",
+      "editTitle": "Sửa sơ đồ thông minh",
       "insert": "Chèn",
       "apply": "Áp dụng",
       "layout": "Bố cục",
@@ -3827,7 +3827,7 @@
     "inSlide": "Trang chiếu {{n}}",
     "inSlideTable": "Trang chiếu {{n}}, bảng",
     "inSlideNotes": "Trang chiếu {{n}}, ghi chú",
-    "inSlideSmartArt": "Trang chiếu {{n}}, sơ đồ SmartArt"
+    "inSlideSmartArt": "Trang chiếu {{n}}, sơ đồ thông minh"
   },
   "grammar": {
     "extraSpace": "Thừa dấu cách",
@@ -4380,7 +4380,7 @@
     "feature": {
       "contentControls": "Điều khiển nội dung",
       "equations": "Phương trình",
-      "smartArt": "Đồ họa SmartArt",
+      "smartArt": "Sơ đồ thông minh",
       "charts": "Biểu đồ",
       "modernCharts": "Kiểu biểu đồ mới (thác nước, bản đồ cây…)",
       "tables": "Bảng",
@@ -7612,7 +7612,7 @@
       "connector": "đường nối",
       "table": "bảng",
       "chart": "biểu đồ",
-      "smartart": "sơ đồ SmartArt",
+      "smartart": "sơ đồ thông minh",
       "model3d": "mô hình 3D",
       "zoom": "thu phóng",
       "object": "đối tượng",

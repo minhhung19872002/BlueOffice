@@ -232,7 +232,7 @@
       "formProperties": "Form field options…",
       "dropCap": "Large initial",
       "signatureLine": "Signature line…",
-      "smartart": "SmartArt",
+      "smartart": "Smart diagram",
       "chart": "Chart",
       "link": "Insert link",
       "action": "Action settings",
@@ -517,7 +517,7 @@
     "image": "Could not insert the picture: {{message}}",
     "sign": "Could not sign: {{message}}",
     "verify": "Could not verify the signatures: {{message}}",
-    "smartArt": "The SmartArt could not be inserted or changed.",
+    "smartArt": "The smart diagram could not be inserted or changed.",
     "chart": "The chart could not be inserted or changed."
   },
   "placeholder": {
@@ -1932,7 +1932,7 @@
       "decorative": "Decorative only (no description needed)"
     },
     "smartArt": {
-      "delete": "Delete SmartArt"
+      "delete": "Delete smart diagram"
     }
   },
   "recovery": {
@@ -2660,11 +2660,11 @@
       "resolved": "resolved"
     },
     "smartart": {
-      "button": "SmartArt",
-      "tab": "SmartArt",
+      "button": "Smart diagram",
+      "tab": "Smart diagram",
       "group": "Diagram",
-      "insertTitle": "Insert SmartArt",
-      "editTitle": "Edit SmartArt",
+      "insertTitle": "Insert smart diagram",
+      "editTitle": "Edit smart diagram",
       "insert": "Insert",
       "apply": "Apply",
       "layout": "Layout",
@@ -3827,7 +3827,7 @@
     "inSlide": "Slide {{n}}",
     "inSlideTable": "Slide {{n}}, table",
     "inSlideNotes": "Slide {{n}}, speaker notes",
-    "inSlideSmartArt": "Slide {{n}}, SmartArt diagram"
+    "inSlideSmartArt": "Slide {{n}}, smart diagram"
   },
   "grammar": {
     "extraSpace": "Extra space",
@@ -4380,7 +4380,7 @@
     "feature": {
       "contentControls": "Content controls",
       "equations": "Equations",
-      "smartArt": "SmartArt graphics",
+      "smartArt": "Smart diagrams",
       "charts": "Charts",
       "modernCharts": "Newer chart types (waterfall, treemap…)",
       "tables": "Tables",
@@ -7612,7 +7612,7 @@
       "connector": "connector",
       "table": "table",
       "chart": "chart",
-      "smartart": "SmartArt diagram",
+      "smartart": "smart diagram",
       "model3d": "3D model",
       "zoom": "zoom",
       "object": "object",

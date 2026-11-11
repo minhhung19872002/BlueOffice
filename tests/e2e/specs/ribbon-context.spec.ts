@@ -50,7 +50,7 @@ test('doc: a new SmartArt activates its tab once; it goes with the selection', a
   await expect(dialog).toHaveCount(0);
   const band = ribbon(page).locator('[data-context-group="smartArt"]');
   await expect(band).toContainText('Công cụ sơ đồ');
-  await expect(activeTab(page)).toHaveText('SmartArt');
+  await expect(activeTab(page)).toHaveText('Sơ đồ thông minh');
   await expect(cmd(page, 'smartart.edit')).toBeVisible();
   // Back to Insert while the diagram stays selected: not activated again.
   await page.getByRole('tab', { name: 'Chèn' }).click();

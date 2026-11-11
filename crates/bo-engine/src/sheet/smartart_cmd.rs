@@ -307,7 +307,7 @@ impl SheetEngine {
                         from,
                         to: Some(to),
                         part: names[4].clone(),
-                        name: format!("SmartArt {}", ws.diagrams.len() + 1),
+                        name: format!("Diagram {}", ws.diagrams.len() + 1),
                         data: names[0].clone(),
                         layout: names[1].clone(),
                         style: names[2].clone(),

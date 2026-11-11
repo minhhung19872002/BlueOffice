@@ -37,7 +37,7 @@ describe('BlueSlide accessibility', () => {
     expect(shapeSummary(SHAPES[1]!, t)).toBe('Sales up Costs down');
     expect(shapeSummary(SHAPES[2]!, t)).toBe('picture: Bar chart of sales');
     expect(shapeSummary(SHAPES[3]!, t)).toBe('chart: Chart 4');
-    expect(shapeSummary(SHAPES[4]!, t)).toBe('SmartArt diagram: Process in three steps');
+    expect(shapeSummary(SHAPES[4]!, t)).toBe('smart diagram: Process in three steps');
     expect(selectionAnnouncement([], t)).toBe('');
     expect(selectionAnnouncement([shapeInfo(3, 'shape', 'Sales up')], t)).toBe('Sales up selected');
     expect(selectionAnnouncement([shapeInfo(4, 'picture', null)], t)).toBe(
@@ -63,7 +63,7 @@ describe('BlueSlide accessibility', () => {
     ).toEqual([
       'picture: Bar chart of sales',
       'chart: Chart 4',
-      'SmartArt diagram: Process in three steps',
+      'smart diagram: Process in three steps',
     ]);
     // Reading order: title, body, then the graphics.
     expect([...region.children].map((e) => e.getAttribute('data-shape'))).toEqual([
@@ -74,7 +74,7 @@ describe('BlueSlide accessibility', () => {
       '6',
     ]);
     expect(document.getElementById('d0')?.textContent).toBe(
-      'Sales up Costs down. picture: Bar chart of sales. chart: Chart 4. SmartArt diagram: Process in three steps',
+      'Sales up Costs down. picture: Bar chart of sales. chart: Chart 4. smart diagram: Process in three steps',
     );
     const live = screen.getByTestId('slide-a11y-live');
     expect(live.textContent).toBe('');

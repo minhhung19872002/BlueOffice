@@ -227,7 +227,7 @@ pub fn cmd_insert_smartart(
     let id = next_shape_id(tx.pres, slide);
     let xml = format!(
         concat!(
-            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="SmartArt {id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>"#,
+            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{id}" name="Diagram {id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>"#,
             r#"<p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm>"#,
             r#"<a:graphic><a:graphicData uri="{uri}"><dgm:relIds xmlns:dgm="{dgm}" xmlns:r="{r}" r:dm="{dm}" r:lo="{lo}" r:qs="{qs}" r:cs="{cs}"/></a:graphicData></a:graphic></p:graphicFrame>"#
         ),

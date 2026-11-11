@@ -59,6 +59,7 @@ khi dùng.
 | Slicer | Slicer (bộ lọc nút) |
 | Timeline | Dòng thời gian |
 | Sparkline | Biểu đồ thu nhỏ |
+| Smart diagram (tên riêng của BlueOffice cho sơ đồ định dạng `dgm:` của OOXML; không dùng nhãn hiệu "SmartArt" trên giao diện) | Sơ đồ thông minh |
 | Conditional formatting | Định dạng có điều kiện |
 | Data validation | Xác thực dữ liệu |
 | Goal Seek | Tìm giá trị đích |

@@ -27,17 +27,17 @@ test('inserts, edits and converts a SmartArt; kept after save and reopen', async
 
   // Insert: a process of three steps typed in the text pane.
   await page.getByRole('tab', { name: 'Chèn' }).click();
-  await page.getByRole('button', { name: 'SmartArt' }).click();
+  await page.getByRole('button', { name: 'Sơ đồ thông minh' }).click();
   const dialog = page.getByTestId('smartart-dialog');
   await expect(dialog.getByTestId('smartart-layout-process')).toBeChecked();
   await dialog.getByTestId('smartart-text').fill('Tiếp nhận\nXử lý\nTrả kết quả');
   await dialog.getByTestId('smartart-ok').click();
   await expect(dialog).toHaveCount(0);
   // Selected, with its own ribbon tab.
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
 
   // Text pane: a hierarchy with two departments under the director (Tab demotes a line).
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
   await expect(dialog.getByTestId('smartart-text')).toHaveValue('Tiếp nhận\nXử lý\nTrả kết quả');
   await dialog.getByTestId('smartart-layout-hierarchy').check();
@@ -70,8 +70,8 @@ test('inserts, edits and converts a SmartArt; kept after save and reopen', async
   // Click inside the diagram's frame (centre of the slide).
   const slideBox = (await page.getByTestId('slide-overlay').boundingBox())!;
   await page.mouse.click(slideBox.x + slideBox.width * 0.5, slideBox.y + slideBox.height * 0.52);
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
   await expect(dialog.getByTestId('smartart-text')).toHaveValue(
     'Giám đốc\n\tKỹ thuật\n\tKinh doanh',
@@ -83,6 +83,6 @@ test('inserts, edits and converts a SmartArt; kept after save and reopen', async
 
   // Convert to shapes: the SmartArt tab goes away (a group of shapes is selected).
   await page.getByRole('button', { name: 'Chuyển thành hình' }).click();
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

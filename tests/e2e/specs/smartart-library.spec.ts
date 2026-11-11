@@ -27,7 +27,7 @@ test('library layouts and node buttons of the text pane', async ({ page }) => {
 
   // The library: eight categories, each with its layouts; insert a chevron process.
   await page.getByRole('tab', { name: 'Chèn' }).click();
-  await page.getByRole('button', { name: 'SmartArt' }).click();
+  await page.getByRole('button', { name: 'Sơ đồ thông minh' }).click();
   const dialog = page.getByTestId('smartart-dialog');
   for (const c of [
     'list',
@@ -63,10 +63,10 @@ test('library layouts and node buttons of the text pane', async ({ page }) => {
   await expect(pane).toHaveValue('Hà Nội\n\tĐà Nẵng\nHuế');
   await dialog.getByTestId('smartart-ok').click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
 
   // Text pane again: the chevron layout is the one checked; switch to a picture layout.
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
   await expect(dialog.getByTestId('smartart-layout-processChevron')).toBeChecked();
   await expect(pane).toHaveValue('Hà Nội\n\tĐà Nẵng\nHuế');
@@ -87,8 +87,8 @@ test('library layouts and node buttons of the text pane', async ({ page }) => {
   await expect(page.getByTestId('slide-status')).toHaveText(/^Slide 2 \/ \d+$/);
   const slideBox = (await page.getByTestId('slide-overlay').boundingBox())!;
   await page.mouse.click(slideBox.x + slideBox.width * 0.5, slideBox.y + slideBox.height * 0.4);
-  await expect(page.getByRole('tab', { name: 'SmartArt' })).toBeVisible();
-  await page.getByRole('tab', { name: 'SmartArt' }).click();
+  await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
   await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
   await expect(dialog.getByTestId('smartart-layout-pictureStrip')).toBeChecked();
   await expect(dialog.getByTestId('smartart-text')).toHaveValue('Hà Nội\n\tĐà Nẵng\nHuế');

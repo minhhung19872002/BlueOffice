@@ -593,6 +593,52 @@ pub fn new_chart(wb: &Workbook, sheet: usize, range: CellRange, kind: &str) -> O
     Some(data)
 }
 
+/// The look a chart inserted from Insert › Charts gets, as spreadsheet applications give it
+/// (black-box reference behaviour):
+/// - title: the series name when the chart plots one named series, otherwise `placeholder`
+///   (the localized "Chart Title"; `None` = no title);
+/// - legend: at the bottom when there are several series, for the slices of a pie, doughnut or
+///   pie / bar of pie and for a waterfall (increase / decrease / total), at the top for a treemap
+///   (its top-level categories); no legend for a single series otherwise;
+/// - clustered 2-D columns 219 % apart (§21.2.2.75 gapWidth) overlapping −27 % (§21.2.2.131
+///   overlap), clustered 2-D bars 182 % apart; stacked groups keep 150 % and a full overlap.
+///
+/// Region maps keep the defaults of their own options.
+pub fn insert_look(chart: &mut Chart, placeholder: Option<&str>) {
+    let Some(first) = chart.plots.first() else {
+        return;
+    };
+    let kind = first.kind.clone();
+    if kind == ChartKind::RegionMap {
+        return;
+    }
+    let series: Vec<&ChartSeries> = chart.plots.iter().flat_map(|p| &p.series).collect();
+    let one_name = match series.as_slice() {
+        [s] => s.name.clone().filter(|n| !n.trim().is_empty()),
+        _ => None,
+    };
+    chart.title = one_name.or_else(|| placeholder.map(str::to_owned).filter(|t| !t.is_empty()));
+    chart.legend = match kind {
+        ChartKind::Pie | ChartKind::Doughnut | ChartKind::OfPie | ChartKind::Waterfall => {
+            Some("b".into())
+        }
+        ChartKind::Treemap => Some("t".into()),
+        _ if series.len() > 1 => Some("b".into()),
+        _ => None,
+    };
+    let clustered_2d = first.kind == ChartKind::Bar
+        && !first.three_d
+        && matches!(first.grouping.as_deref(), None | Some("clustered"));
+    if clustered_2d {
+        let horizontal = first.bar_dir.as_deref() == Some("bar");
+        chart.format.gap_width = Some(if horizontal { 182 } else { 219 });
+        if let Some(p) = chart.plots.first_mut().filter(|_| !horizontal) {
+            p.overlap = Some(-27);
+        }
+    }
+    chart.dirty = true;
+}
+
 /// Gives a region map without map options its defaults for its data (CORE-CHART-006): the area level
 /// from the location names (countries, else provinces), a map of categories when the values are
 /// texts, labels where they fit. Other charts are left alone.
@@ -4428,6 +4474,49 @@ mod tests {
             &mut out,
         );
         (out, labels)
+    }
+
+    /// Insert › Charts look: several series → placeholder title, legend at the bottom, clustered
+    /// columns 219 % apart overlapping −27 %; one named series → its name as the title and no
+    /// legend; pies keep a legend for their slices; bars 182 % apart; stacked groups untouched.
+    #[test]
+    fn inserted_charts_get_the_default_look() {
+        let wb = wb();
+        let all = CellRange::parse("A1:C4").unwrap();
+        let one = CellRange::parse("A1:B4").unwrap();
+        let mut c = new_chart(&wb, 0, all, "column").unwrap();
+        insert_look(&mut c, Some("Tiêu đề biểu đồ"));
+        assert_eq!(c.title.as_deref(), Some("Tiêu đề biểu đồ"));
+        assert_eq!(c.legend.as_deref(), Some("b"));
+        assert_eq!(
+            (c.format.gap_width, c.plots[0].overlap),
+            (Some(219), Some(-27))
+        );
+        let mut c = new_chart(&wb, 0, one, "line").unwrap();
+        insert_look(&mut c, Some("Tiêu đề biểu đồ"));
+        assert_eq!(
+            (c.title.as_deref(), c.legend.as_deref()),
+            (Some("2024"), None)
+        );
+        let mut c = new_chart(&wb, 0, one, "pie").unwrap();
+        insert_look(&mut c, None);
+        assert_eq!(
+            (c.title.as_deref(), c.legend.as_deref()),
+            (Some("2024"), Some("b"))
+        );
+        let mut c = new_chart(&wb, 0, all, "bar").unwrap();
+        insert_look(&mut c, None);
+        assert_eq!((c.title, c.format.gap_width), (None, Some(182)));
+        assert_eq!(c.plots[0].overlap, None);
+        let mut c = new_chart(&wb, 0, all, "stackedColumn").unwrap();
+        insert_look(&mut c, None);
+        assert_eq!((c.format.gap_width, c.plots[0].overlap), (None, None));
+        // The written chart part carries the look (§21.2.2.75 gapWidth, §21.2.2.131 overlap).
+        let mut c = new_chart(&wb, 0, all, "column").unwrap();
+        insert_look(&mut c, None);
+        let xml = bo_xlsx::chart_write::chart_space_xml(&c);
+        assert!(xml.contains("<c:gapWidth val=\"219\"/><c:overlap val=\"-27\"/>"));
+        assert!(xml.contains("<c:legendPos val=\"b\"/>"));
     }
 
     #[test]

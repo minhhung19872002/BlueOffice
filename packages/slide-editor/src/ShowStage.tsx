@@ -192,12 +192,11 @@ export function MorphOutlineSvg({
   height: number;
   slide: { width: number; height: number };
 }) {
-  const [k, setK] = useState(0);
+  // Without animation frames (or time) the outlines are drawn as they end.
+  const animated = typeof requestAnimationFrame === 'function' && duration > 0;
+  const [k, setK] = useState(animated ? 0 : 1);
   useEffect(() => {
-    if (typeof requestAnimationFrame !== 'function' || duration <= 0) {
-      setK(1);
-      return;
-    }
+    if (!animated) return;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
@@ -207,7 +206,7 @@ export function MorphOutlineSvg({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [outline, duration]);
+  }, [outline, duration, animated]);
   return (
     <svg
       className={styles.showCanvas}
@@ -405,6 +404,11 @@ export function ShowStage({
   useEffect(() => {
     onIdleRef.current = onIdle;
   }, [onIdle]);
+  /** Where effect sounds come from, and whether the stage plays sound at all. */
+  const soundRef = useRef({ engine, media });
+  useEffect(() => {
+    soundRef.current = { engine, media };
+  }, [engine, media]);
   const size = show ?? slide;
   const height = size.width > 0 ? Math.round((width * size.height) / size.width) : 0;
   const ready = show !== null && show.slide === pos.slide;
@@ -515,9 +519,10 @@ export function ShowStage({
     const out: (Animation | null)[] = [];
     const parts = pieceRefs.current[e.layer];
     const pieces = partRefs.current[e.layer];
-    if (e.sound && media) {
+    if (e.sound && soundRef.current.media) {
       const part = e.sound;
-      soundTimers.current.push(setTimeout(() => playEffectSound(engine, part), opts.delay));
+      const host = soundRef.current.engine;
+      soundTimers.current.push(setTimeout(() => playEffectSound(host, part), opts.delay));
     }
     if (e.parts && pieces) {
       for (const k of e.parts) out.push(animate(pieces[k], e.frames, opts));

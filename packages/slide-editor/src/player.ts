@@ -101,7 +101,8 @@ export function visibility(show: SlideShowInfo, click: number, started = false):
   const f = fold(show, click, started, (a) =>
     a.layer != null && onLayer(a) ? [String(a.layer)] : [],
   );
-  return show.layers.map((_, i) => f[String(i)] ?? true);
+  const n = Math.max(show.layers.length, ...show.animations.map((a) => (a.layer ?? -1) + 1));
+  return Array.from({ length: n }, (_, i) => f[String(i)] ?? true);
 }
 
 /**

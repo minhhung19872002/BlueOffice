@@ -781,7 +781,7 @@ fn anim_build_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
         r#"{"cmd":"addSlide"}"#.into(),
         r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":300,"y":200,"w":200,"h":200}}"#.into(),
         r#"{"cmd":"setText","text":"Hộp"}"#.into(),
-        r#"{"cmd":"setTransition","transition":{"kind":"morph"}}"#.into(),
+        r#"{"cmd":"setTransition","transition":{"kind":"morph","durMs":2500}}"#.into(),
     ];
     for c in &cmds {
         let r = e.slide_command_json(c).ok()?;

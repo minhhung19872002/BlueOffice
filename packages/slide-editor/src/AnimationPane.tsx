@@ -694,8 +694,9 @@ export function AnimationPane({
                           <label className={styles.check}>
                             <input
                               type="checkbox"
+                              key={`anim-build-reverse-${a.index}-${String(a.build.reverse)}`}
                               data-testid={`anim-build-reverse-${a.index}`}
-                              checked={a.build.reverse}
+                              defaultChecked={a.build.reverse}
                               onChange={(e) => set({ buildReverse: e.target.checked })}
                             />
                             {t('slideEditor.buildReverse')}
@@ -705,8 +706,9 @@ export function AnimationPane({
                           <label className={styles.check}>
                             <input
                               type="checkbox"
+                              key={`anim-build-bg-${a.index}-${String(a.build.bg)}`}
                               data-testid={`anim-build-bg-${a.index}`}
-                              checked={a.build.bg}
+                              defaultChecked={a.build.bg}
                               onChange={(e) => set({ buildBg: e.target.checked })}
                             />
                             {a.build.kind === 'chart'
@@ -748,8 +750,9 @@ export function AnimationPane({
                         <label className={styles.check}>
                           <input
                             type="checkbox"
+                            key={`anim-rewind-${a.index}-${String(a.rewind === true)}`}
                             data-testid={`anim-rewind-${a.index}`}
-                            checked={a.rewind === true}
+                            defaultChecked={a.rewind === true}
                             onChange={(e) => set({ rewind: e.target.checked })}
                           />
                           {t('slideEditor.rewind')}
@@ -800,8 +803,9 @@ export function AnimationPane({
                         <label className={styles.check}>
                           <input
                             type="checkbox"
+                            key={`anim-lock-path-${a.index}-${String(a.pathLocked === true)}`}
                             data-testid={`anim-lock-path-${a.index}`}
-                            checked={a.pathLocked === true}
+                            defaultChecked={a.pathLocked === true}
                             onChange={(e) => set({ lockPath: e.target.checked })}
                           />
                           {t('slideEditor.lockPath')}

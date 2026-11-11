@@ -23,6 +23,7 @@ import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
   EditCommand,
+  MergePrompt,
   OpenedFile,
   ParaFormat,
   DocPasteMode,
@@ -347,6 +348,7 @@ import {
   PicturePositionDialog,
   TablePropertiesDialog,
 } from './DocDialogs';
+import { ControlPropsDialog, FieldCodeDialog, FieldPromptDialog } from './FieldControlDialogs';
 import { AdminFormatDialog, TemplateDialog } from './TemplateDialogs';
 import { ConvertDialog, FormulaDialog, SortDialog } from './TableToolDialogs';
 import {
@@ -622,6 +624,11 @@ function EditorInner({
   const templateFile = useRef<OpenedFile | null>(null);
   /** "Save as" file type dialog, and the type it picked (for `file.saveAsType`). */
   const [saveAsType, setSaveAsType] = useState(false);
+  /** ASK / FILLIN questions asked while the fields update (§17.16.5.4, §17.16.5.20). */
+  const [fieldAsk, setFieldAsk] = useState<{
+    prompts: MergePrompt[];
+    done: (answers: Record<string, string>) => void;
+  } | null>(null);
   const saveAsExt = useRef<string | null>(null);
   /** PDF export with the choices of the PDF export dialog (CORE-FMT-002). */
   const exportPdfWith = useRef<((choices: PdfExport) => void) | null>(null);
@@ -1018,6 +1025,8 @@ function EditorInner({
         else if (r.dirty.length) v.setFindHighlights([]);
         // Protection state; highlighted editable regions follow the text.
         if (r.security) v.setRegionHighlights(r.security.regionRects ?? []);
+        // The frame of the content control around the caret (with its title tab).
+        v.setControlFrame(r.control?.frame ?? [], r.control?.title ?? null);
         store.setState({
           edit: r,
           doc: r.info,
@@ -2414,7 +2423,13 @@ function EditorInner({
     });
     // References: TOC, captions, cross-references (ECMA-376 Part 1, §17.16).
     const updateFields = async () => {
-      const res = await controller.current?.run({ cmd: 'updateFields' });
+      // ASK / FILLIN fields ask their questions first (their defaults when cancelled).
+      const prompts =
+        (await controller.current?.query({ cmd: 'fieldPrompts' }))?.fieldPrompts ?? [];
+      const answers = prompts.length
+        ? await new Promise<Record<string, string>>((done) => setFieldAsk({ prompts, done }))
+        : {};
+      const res = await controller.current?.run({ cmd: 'updateFields', answers });
       if (res && !res.error)
         store.setState({
           status: {
@@ -2465,6 +2480,68 @@ function EditorInner({
       shortcut: 'Ctrl+Shift+F9',
       isEnabled: hasDoc,
       run: () => run({ cmd: 'unlinkFields' }),
+    });
+    // F11 / Shift+F11: the next / previous field is selected.
+    r.register({
+      id: 'fields.next',
+      shortcut: 'F11',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'nextField', forward: true }),
+    });
+    r.register({
+      id: 'fields.previous',
+      shortcut: 'Shift+F11',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'nextField', forward: false }),
+    });
+    // Ctrl+F9: field braces — the selected text becomes the field code, else the code is typed.
+    r.register({
+      id: 'fields.insertBraces',
+      shortcut: 'Ctrl+F9',
+      isEnabled: hasDoc,
+      run: async (s) => {
+        const sel = s.edit?.selection;
+        const collapsed = !sel || (sel.anchor.p === sel.focus.p && sel.anchor.o === sel.focus.o);
+        if (collapsed) {
+          store.setState({ dialog: 'fieldCode' });
+          return;
+        }
+        const res = await controller.current?.run({ cmd: 'insertFieldFromSelection' });
+        if (res && !res.error && res.count === 0) store.setState({ dialog: 'fieldCode' });
+        view.current?.focus();
+      },
+    });
+    // Content controls: properties, a picture for a picture control, Alt+Down opens the list.
+    r.register({
+      id: 'controls.properties',
+      isEnabled: (s) => !!s.edit?.control,
+      run: () => store.setState({ dialog: 'controlProps' }),
+    });
+    r.register({
+      id: 'controls.picture',
+      isEnabled: (s) => s.edit?.control?.kind === 'picture' && !s.edit.control.locked,
+      run: async () => {
+        const res = await controller.current?.run({ cmd: 'selectControlContent' });
+        if (res && !res.error) await r.execute('insert.image', store.getState());
+      },
+    });
+    r.register({
+      id: 'controls.openList',
+      shortcut: 'Alt+ArrowDown',
+      isEnabled: (s) => !!s.edit?.control && !s.edit.control.locked,
+      run: () => {
+        const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(
+          '[data-testid="control-choose"], [data-testid="control-date"]',
+        );
+        if (!el) return;
+        el.focus();
+        try {
+          el.showPicker();
+        } catch {
+          // Not allowed here (no user gesture / unsupported): the focused list still opens with
+          // Alt+Down / Space.
+        }
+      },
     });
     r.register({
       id: 'references.insertCaption',
@@ -5533,7 +5610,14 @@ function EditorInner({
             {(state.edit?.story?.kind === 'header' || state.edit?.story?.kind === 'footer') && (
               <HeaderFooterBar story={state.edit.story} run={runCommand} />
             )}
-            {state.edit?.control && <ControlBar control={state.edit.control} run={runCommand} />}
+            {state.edit?.control && (
+              <ControlBar
+                control={state.edit.control}
+                run={runCommand}
+                onProperties={() => store.setState({ dialog: 'controlProps' })}
+                onPicture={() => void registry.execute('controls.picture', store.getState())}
+              />
+            )}
             {state.edit?.formField && (
               <FormFieldBar
                 info={state.edit.formField}
@@ -5765,6 +5849,35 @@ function EditorInner({
             )}
             {state.dialog === 'adminFormat' && (
               <AdminFormatDialog run={runCommand} onClose={closeDialog} />
+            )}
+            {state.dialog === 'fieldCode' && (
+              <FieldCodeDialog
+                initial=""
+                onClose={closeDialog}
+                onInsert={(instr) => {
+                  closeDialog();
+                  void runFocus({ cmd: 'insertField', instr });
+                }}
+              />
+            )}
+            {fieldAsk && (
+              <FieldPromptDialog
+                prompts={fieldAsk.prompts}
+                onDone={(answers) => {
+                  setFieldAsk(null);
+                  fieldAsk.done(answers);
+                }}
+              />
+            )}
+            {state.dialog === 'controlProps' && state.edit?.control && (
+              <ControlPropsDialog
+                control={state.edit.control}
+                onClose={closeDialog}
+                onApply={(props) => {
+                  closeDialog();
+                  void runFocus({ cmd: 'setControlProps', props });
+                }}
+              />
             )}
             {state.dialog === 'control' && (
               <ControlDialog

@@ -332,6 +332,16 @@ import {
   registerChartElementCommands,
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
+import {
+  argumentHint,
+  callAt,
+  canPoint,
+  formulaRefs,
+  functionMatches,
+  functionPrefix,
+  mirrorParts,
+  refText,
+} from './formulaEdit';
 import { sheetReadUnits } from './readAloud';
 import { sheetDictationTarget } from './dictation';
 import { asTextInput, translateCells, type CellTranslateMode } from './translate';
@@ -641,6 +651,8 @@ interface EditState {
   inPlace: boolean;
   /** Number format the cell takes when the proposed formula is entered (auto total). */
   numFmt?: string;
+  /** Sheet of the edited cell (another sheet may be shown while picking references). */
+  sheet?: number;
 }
 
 type DialogState =
@@ -711,6 +723,8 @@ type Drag =
   | { kind: 'select' }
   /** Dragging over the column (or row) headers from `anchor`. */
   | { kind: 'headers'; rows: boolean; anchor: number }
+  /** Picking a reference for the formula being typed. */
+  | { kind: 'point' }
   | { kind: 'fill'; source: Range }
   /** Dragging the selection by its border (Ctrl: copy). */
   | { kind: 'move'; source: Range; start: CellPos; to: Range | null }
@@ -780,6 +794,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   // From the engine when the drawn grid cannot be read (see localRects).
   const [engineSelRect, setSelRect] = useState<Rect | null>(null);
   const [engineActiveRect, setActiveRect] = useState<Rect | null>(null);
+  /** The formula bar shows several lines (Ctrl+Shift+U). */
+  const [barExpanded, setBarExpanded] = useState(false);
   const [status, setStatus] = useState('');
   // Quick Analysis panel and Insert › Recommended charts (CORE-DESIGN-001).
   const [quickOpen, setQuickOpen] = useState(false);
@@ -825,7 +841,44 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null);
   const [dvList, setDvList] = useState<string[] | null>(null);
-  const [dvOpen, setDvOpen] = useState(false);
+  /** The open drop-down of entries under the active cell (validation list or Alt+Down). */
+  const [pick, setPick] = useState<{ items: string[]; index: number } | null>(null);
+  /** Cells marked by the last copy / cut (moving border) until Esc, an entry or a paste. */
+  const [copyMark, setCopyMark] = useState<{ sheet: number; range: Range; cut: boolean } | null>(
+    null,
+  );
+  const [copyRect, setCopyRect] = useState<{ mark: object; rect: Rect | null } | null>(null);
+  /** Size of the row / column headers on screen (px), for their selection highlight. */
+  const [headers, setHeaders] = useState<{ w: number; h: number } | null>(null);
+  /** Caret of the edit (argument hint, completion list). */
+  const [caret, setCaret] = useState(0);
+  /** Function names of the engine (completion while typing a formula). */
+  const fnNames = useRef<string[] | null>(null);
+  /** Completion list of function names: where the typed name starts, the matches. */
+  const [fnPick, setFnPick] = useState<{ from: number; items: string[]; index: number } | null>(
+    null,
+  );
+  /** The reference being picked with the arrow keys / mouse (point mode). */
+  const picking = useRef<{
+    start: number;
+    end: number;
+    anchor: CellPos;
+    focus: CellPos;
+    /** Sheet the reference is picked on. */
+    sheet?: number;
+    /** Only the sheet is picked so far (`Sheet2!`): the next arrow / click picks the cell. */
+    pending?: boolean;
+  } | null>(null);
+  /** Enter after a run of Tabs goes to the next row of the column the run started in. */
+  const tabRun = useRef<{ startCol: number; at: CellPos } | null>(null);
+  /** Text entries of the column around the edited cell (AutoComplete). */
+  const entries = useRef<{ key: string; list: string[] } | null>(null);
+  /** Boxes of the references of the formula being typed (coloured borders). */
+  const [refBoxes, setRefBoxes] = useState<{
+    text: string;
+    sheet: string;
+    boxes: (Rect & { color: string })[];
+  } | null>(null);
   /** The active cell has a data validation rule (inputs are checked). */
   const [hasRule, setHasRule] = useState(false);
   const [painter, setPainter] = useState<Range | null>(null);
@@ -906,8 +959,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const barRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const barRef = useRef<HTMLTextAreaElement>(null);
   const spellInputs = useMemo(() => [inputRef, barRef], []);
   /** Input that last had the caret while editing (the symbol picker inserts there). */
   const lastInput = useRef<'cell' | 'bar'>('cell');
@@ -1056,7 +1109,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         throw e;
       }
     },
-    [host, load, t],
+    [host, load, t, setPasswordPrompt],
   );
 
   useEffect(() => {
@@ -1323,6 +1376,66 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     };
   }, [host, info, extra, view, px, revision, hasGrid]);
 
+  // Coloured borders around the references of the formula being typed (those of this sheet).
+  const editText = edit?.text;
+  // References without a sheet name are on the edited cell's sheet.
+  const editHome = info?.sheets[edit?.sheet ?? sheet]?.name;
+  useEffect(() => {
+    const refs = editText ? formulaRefs(editText) : [];
+    if (!host || !editText || !refs.length) return;
+    let cancelled = false;
+    const here = refs.filter(
+      (r) => (r.sheet ?? editHome)?.toLowerCase() === sheetName?.toLowerCase(),
+    );
+    void Promise.all(
+      here.map((r) => host.rangeRect(view, r.range.r0, r.range.c0, r.range.r1, r.range.c1)),
+    )
+      .then((rects) => {
+        if (cancelled) return;
+        const boxes: (Rect & { color: string })[] = [];
+        rects.forEach((x, i) => {
+          const b = px(x);
+          if (b) boxes.push({ ...b, color: here[i]!.color });
+        });
+        setRefBoxes({ text: editText, sheet: sheetName ?? '', boxes });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, editText, view, px, sheetName, editHome]);
+
+  // The moving border of the copied cells.
+  useEffect(() => {
+    if (!host || !copyMark || copyMark.sheet !== sheet) return;
+    let cancelled = false;
+    const r = copyMark.range;
+    void host
+      .rangeRect(view, r.r0, r.c0, r.r1, r.c1)
+      .then((x) => !cancelled && setCopyRect({ mark: copyMark, rect: px(x) }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, copyMark, sheet, view, px]);
+
+  // The header sizes: the top-left corner of A1 when nothing is scrolled.
+  useEffect(() => {
+    if (!host || !info) return;
+    let cancelled = false;
+    void host
+      .rangeRect({ ...view, scrollX: 0, scrollY: 0 }, 0, 0, 0, 0)
+      .then((r) => {
+        const b = px(r);
+        if (!cancelled && b)
+          setHeaders((h) => (h && h.w === b.x && h.h === b.y ? h : { w: b.x, h: b.y }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, info, view, px]);
+
   // Circles around invalid data: the list is fetched again after every edit, so a
   // corrected cell loses its circle.
   useEffect(() => {
@@ -1398,7 +1511,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setFmt(f ?? null);
       setDvList(dv?.list ?? null);
       setHasRule(!!dv?.kind);
-      setDvOpen(false);
+      setPick(null);
     })().catch(() => {});
     return () => {
       cancelled = true;
@@ -1722,7 +1835,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         initial: { layout: a.layout, items: a.items, colors: a.colors, style: a.style },
       });
     },
-    [host],
+    [host, setSmartArtDialog],
   );
 
   // Workbook views (SHEET-VIEW-001): view type, show formulas, temporary views.
@@ -1906,7 +2019,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         return;
       }
       const e = edit;
+      // The edited cell's sheet (references may have been picked on another one).
+      const target = e.sheet ?? sheet;
       setEdit(null);
+      if (target !== sheet) setSheet(target);
+      // An entry ends the copy mark (the marked cells can no longer be pasted with Enter).
+      setCopyMark(null);
       if (inputRef.current) inputRef.current.value = '';
       // Move first so typing that follows lands in the next cell.
       if (next) setSelection(next);
@@ -1915,7 +2033,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           // Cells with a validation rule are checked by the engine (§18.3.1.32).
           const r = await host.exec<{ rejected: Rejection | null; warning: Rejection | null }>({
             cmd: 'setInputs',
-            sheet,
+            sheet: target,
             cells: [[e.pos.row, e.pos.col, e.text]],
             validate: true,
           });
@@ -1940,12 +2058,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           await host.exec({
             cmd: 'batch',
             cmds: [
-              { cmd: 'setInputs', sheet, cells: [[e.pos.row, e.pos.col, e.text]] },
-              { cmd: 'format', sheet, range: at, patch: { numFmt: e.numFmt } },
+              { cmd: 'setInputs', sheet: target, cells: [[e.pos.row, e.pos.col, e.text]] },
+              { cmd: 'format', sheet: target, range: at, patch: { numFmt: e.numFmt } },
             ],
           });
         } else {
-          await host.setInputs(sheet, [[e.pos.row, e.pos.col, e.text]]);
+          await host.setInputs(target, [[e.pos.row, e.pos.col, e.text]]);
         }
         await refreshInfo();
       } catch (err) {
@@ -1967,7 +2085,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       if (!host) return;
       const pos = selection.active;
       const text = initial ?? (await host.cell(sheet, pos.row, pos.col)).input;
-      setEdit({ pos, text, inPlace });
+      setEdit({ pos, text, inPlace, sheet });
       setBarText(text);
       if (inputRef.current) inputRef.current.value = text;
       focusInput();
@@ -2026,7 +2144,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setChart(null);
       void reveal(s);
     },
-    [reveal],
+    [reveal, setChart],
   );
 
   // The latest `select` (it changes with the scroll position), the cell editor and whether a
@@ -2273,6 +2391,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           cells.push([row, col, '']);
         }
     }
+    setCopyMark(null);
     if (cells.length) {
       await host.setInputs(sheet, cells);
       await refreshInfo();
@@ -2293,6 +2412,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       const text = res?.text ?? '';
       setLastCopy(text);
       setLastCut(cut);
+      setCopyMark({ sheet, range: r, cut });
       clipboardHistory.push({ app: 'sheet', kind: 'cells', text });
       await platform.clipboard.writeText(text);
       setStatus(cut ? t('sheetEditor.cutDone') : t('sheetEditor.copied'));
@@ -2338,6 +2458,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setSelection(sel);
     await refreshInfo();
     setPasteUi(lastCut ? null : (old) => ({ n: (old?.n ?? 0) + 1, mode: 'all', base, sel }));
+    // Cut cells move once: their mark ends with the paste (copied ones stay marked).
+    if (lastCut) setCopyMark(null);
     return true;
   }, [host, selection, sheet, refreshInfo, lastCut]);
 
@@ -2406,6 +2528,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setSelection(span({ row: r.r0, col: r.c0 }, { row: lastRow, col: lastCol }));
     await refreshInfo();
   }, [host, platform, selection, sheet, refreshInfo, ownPaste, lastCopy]);
+
+  /** Enter with copied cells marked: paste them once and end the mark. */
+  const enterPaste = useCallback(async () => {
+    if (!(await ownPaste())) await paste();
+    setCopyMark(null);
+  }, [ownPaste, paste]);
 
   /** One command per range of the selection, as one undo step when there are several. */
   const onAllRanges = useCallback(
@@ -2773,6 +2901,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('edit.find', open({ kind: 'find', replace: false }), { shortcut: 'Ctrl+F' });
     add('edit.replace', open({ kind: 'find', replace: true }), { shortcut: 'Ctrl+H' });
     add('edit.goto', open({ kind: 'goto' }), { shortcut: 'Ctrl+G' });
+    add('view.formulaBar', async () => setBarExpanded((x) => !x), {
+      shortcut: 'Ctrl+Shift+U',
+    });
 
     // Font
     const toggle = (key: 'bold' | 'italic' | 'strike') => (s: SheetEditorState) =>
@@ -3898,26 +4029,335 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     ArrowRight: 'right',
   };
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+  /** Whole columns / rows of the selection, as a click on their headers selects them. */
+  const wholeColumns = (s: Selection): Selection => {
+    const r = rangeOf(s);
+    const last = Math.max(info?.sheets[sheet]?.lastRow ?? 0, 999);
+    return { anchor: { row: 0, col: r.c0 }, focus: { row: last, col: r.c1 }, active: s.active };
+  };
+  const wholeRows = (s: Selection): Selection => {
+    const r = rangeOf(s);
+    const last = Math.max(info?.sheets[sheet]?.lastCol ?? 0, 25);
+    return { anchor: { row: r.r0, col: 0 }, focus: { row: r.r1, col: last }, active: s.active };
+  };
+
+  /**
+   * Ready-mode movement and selection keys of the reference spreadsheet: Ctrl+arrows to the
+   * edge of the data (Shift extends), Home, Ctrl+Home, Ctrl+End, Ctrl+Space / Shift+Space,
+   * Ctrl+A (current region, then the sheet), Alt+PgUp / Alt+PgDn. True when handled.
+   */
+  const navigate = (e: ReactKeyboardEvent<HTMLElement>): boolean => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    const key = e.key;
+    const last = info?.sheets[sheet];
+    // Moves the focus (Shift) or the active cell to `p`.
+    const to = (p: CellPos) =>
+      select(
+        e.shiftKey ? { anchor: selection.anchor, focus: p, active: selection.active } : single(p),
+      );
+    if (ctrl && !e.altKey && key.toLowerCase() === 'a' && !e.shiftKey) {
+      e.preventDefault();
+      const whole = span(
+        { row: 0, col: 0 },
+        { row: Math.max(last?.lastRow ?? 0, 999), col: Math.max(last?.lastCol ?? 0, 25) },
+      );
+      const cur = rangeOf(selection);
+      const a = selection.active;
+      void query<SheetRange>({
+        cmd: 'region',
+        sheet,
+        range: { r0: a.row, c0: a.col, r1: a.row, c1: a.col },
+      }).then((g) => {
+        const lone = !g || (g.r0 === g.r1 && g.c0 === g.c1);
+        const same =
+          !!g && g.r0 === cur.r0 && g.c0 === cur.c0 && g.r1 === cur.r1 && g.c1 === cur.c1;
+        if (lone || same) select({ ...whole, active: a });
+        else
+          select({ anchor: { row: g.r0, col: g.c0 }, focus: { row: g.r1, col: g.c1 }, active: a });
+      });
+      return true;
+    }
+    if (key === ' ' && !e.altKey && ctrl !== e.shiftKey) {
+      e.preventDefault();
+      select(ctrl ? wholeColumns(selection) : wholeRows(selection));
+      return true;
+    }
+    if (key === 'Home' && !e.altKey) {
+      e.preventDefault();
+      const from = e.shiftKey ? selection.focus : selection.active;
+      // Ctrl+Home: the first cell of the scrolling pane (below / right of frozen panes).
+      to(
+        ctrl
+          ? { row: summary?.frozenRows ?? 0, col: summary?.frozenCols ?? 0 }
+          : { row: from.row, col: 0 },
+      );
+      return true;
+    }
+    if (key === 'End' && ctrl && !e.altKey) {
+      e.preventDefault();
+      to({ row: last?.lastRow ?? 0, col: last?.lastCol ?? 0 });
+      return true;
+    }
+    if ((key === 'PageDown' || key === 'PageUp') && e.altKey && !ctrl) {
+      e.preventDefault();
+      const cols = Math.max(1, Math.floor(size.w / (48 * scale)));
+      select(move(selection, key === 'PageDown' ? 'right' : 'left', e.shiftKey, cols, hidden));
+      return true;
+    }
+    const dir = navKey[key];
+    if (dir && ctrl && !e.altKey) {
+      e.preventDefault();
+      const from = e.shiftKey ? selection.focus : selection.active;
+      void query<CellPos>({ cmd: 'dataEdge', sheet, row: from.row, col: from.col, dir }).then(
+        (p) => {
+          if (p) to({ row: p.row, col: p.col });
+        },
+      );
+      return true;
+    }
+    return false;
+  };
+
+  const tabFrom = (s: Selection, back: boolean): Selection => {
+    const next = advance(s, back ? 'left' : 'right');
+    const one = cellsOf(rangeOf(s)) === 1;
+    const run = tabRun.current;
+    const continued = run && run.at.row === s.active.row && run.at.col === s.active.col;
+    tabRun.current = one
+      ? { startCol: continued ? run.startCol : s.active.col, at: next.active }
+      : null;
+    return next;
+  };
+  const enterFrom = (s: Selection, up: boolean): Selection => {
+    const run = tabRun.current;
+    tabRun.current = null;
+    const one = cellsOf(rangeOf(s)) === 1;
+    if (!one) return advance(s, up ? 'up' : 'down');
+    const next = move(s, up ? 'up' : 'down', false, 1, hidden);
+    if (!up && run && run.at.row === s.active.row && run.at.col === s.active.col)
+      return single({ row: next.active.row, col: run.startCol });
+    return next;
+  };
+
+  /** Puts `text` in the edit (both editors) with the caret / selection `from..to`. */
+  const setEditText = (text: string, from: number, to = from, patch?: Partial<EditState>) => {
+    if (!edit) return;
+    setEdit({ ...edit, ...patch, text });
+    setBarText(text);
+    const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+    if (inputRef.current) inputRef.current.value = text;
+    if (barRef.current && barRef.current !== el) barRef.current.value = text;
+    el?.setSelectionRange(from, to);
+    requestAnimationFrame(() => el?.setSelectionRange(from, to));
+    setCaret(to);
+  };
+
+  /**
+   * Point mode: an arrow key (or a click) while the caret can take a reference puts the
+   * reference of the moved cell there; more arrows move it, Shift extends it.
+   */
+  const pointMove = (dir: Direction | null, extend: boolean, at?: CellPos) => {
+    if (!edit) return;
+    const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+    const p = picking.current;
+    const caretAt = el?.selectionStart ?? edit.text.length;
+    const base = p ?? { start: caretAt, end: caretAt, anchor: edit.pos, focus: edit.pos };
+    let anchor = base.anchor;
+    let focus = base.focus;
+    const live = !!p && !p.pending;
+    if (at) {
+      if (extend && live) focus = at;
+      else anchor = focus = at;
+    } else if (dir) {
+      const s = move({ anchor, focus, active: focus }, dir, extend && live, 1, hidden);
+      if (extend && live) focus = s.focus;
+      else anchor = focus = s.focus;
+    }
+    // A reference to another sheet than the edited cell's carries the sheet name.
+    const home = edit.sheet ?? sheet;
+    const ref = refText(
+      {
+        r0: Math.min(anchor.row, focus.row),
+        c0: Math.min(anchor.col, focus.col),
+        r1: Math.max(anchor.row, focus.row),
+        c1: Math.max(anchor.col, focus.col),
+      },
+      sheet !== home ? info?.sheets[sheet]?.name : undefined,
+    );
+    const text = edit.text.slice(0, base.start) + ref + edit.text.slice(base.end);
+    picking.current = { start: base.start, end: base.start + ref.length, anchor, focus, sheet };
+    setEditText(text, base.start + ref.length);
+  };
+
+  /** Whether the caret of the formula being typed can take a picked reference now. */
+  const pointable = (): boolean => {
+    if (!edit) return false;
+    const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+    return !!picking.current || canPoint(edit.text, el?.selectionStart ?? edit.text.length);
+  };
+
+  /** A sheet tab clicked while picking: `Sheet2!` goes into the formula, that sheet shows. */
+  const pointSheet = (i: number) => {
+    if (!edit) return;
+    const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+    const p = picking.current;
+    const caretAt = el?.selectionStart ?? edit.text.length;
+    const start = p?.start ?? caretAt;
+    const end = p?.end ?? caretAt;
+    const home = edit.sheet ?? sheet;
+    const name = info?.sheets[i]?.name ?? '';
+    const prefix =
+      i === home ? '' : refText({ r0: 0, c0: 0, r1: 0, c1: 0 }, name).replace(/A1$/, '');
+    const text = edit.text.slice(0, start) + prefix + edit.text.slice(end);
+    const a1 = { row: 0, col: 0 };
+    picking.current = {
+      start,
+      end: start + prefix.length,
+      anchor: a1,
+      focus: a1,
+      sheet: i,
+      pending: true,
+    };
+    setEdit({ ...edit, text, sheet: home });
+    setBarText(text);
+    if (inputRef.current) inputRef.current.value = text;
+    setSheet(i);
+    setCaret(start + prefix.length);
+    requestAnimationFrame(() => {
+      el?.focus({ preventScroll: true });
+      el?.setSelectionRange(start + prefix.length, start + prefix.length);
+    });
+  };
+
+  /** Accepts the highlighted function of the completion list: `NAME(` replaces the prefix. */
+  const acceptFunction = (name: string) => {
+    if (!edit || !fnPick) return;
+    const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+    const caretAt = el?.selectionStart ?? edit.text.length;
+    const text = `${edit.text.slice(0, fnPick.from)}${name}(${edit.text.slice(caretAt)}`;
+    setFnPick(null);
+    setEditText(text, fnPick.from + name.length + 1);
+  };
+
+  /** Ctrl+Enter: the entry goes into every selected cell, the selection stays. */
+  const fillEntry = async () => {
+    if (!host || !edit) return;
+    const e = edit;
+    setEdit(null);
+    setFnPick(null);
+    setCopyMark(null);
+    picking.current = null;
+    if (inputRef.current) inputRef.current.value = '';
+    await exec({
+      cmd: 'fillInputs',
+      sheet,
+      row: e.pos.row,
+      col: e.pos.col,
+      text: e.text,
+      ranges: allRanges.map(toRange),
+    });
+    focusInput();
+  };
+
+  /** Keys while a cell is being edited, in the cell or in the formula bar (same rules). */
+  const onEditKey = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (!edit) return;
+    const el = e.currentTarget;
+    const plain = !e.ctrlKey && !e.altKey && !e.metaKey;
+    if (fnPick && fnPick.items.length && plain) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const n = fnPick.items.length;
+        setFnPick({ ...fnPick, index: (fnPick.index + (e.key === 'ArrowDown' ? 1 : n - 1)) % n });
+        return;
+      }
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        acceptFunction(fnPick.items[fnPick.index]!);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setFnPick(null);
+        return;
+      }
+    }
+    if (e.key === 'Enter' && e.altKey && !e.ctrlKey) {
+      // A line break inside the cell.
+      e.preventDefault();
+      const a = el.selectionStart ?? edit.text.length;
+      const b = el.selectionEnd ?? a;
+      picking.current = null;
+      setEditText(`${edit.text.slice(0, a)}\n${edit.text.slice(b)}`, a + 1);
+      return;
+    }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      void fillEntry();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      picking.current = null;
+      setFnPick(null);
+      void commit(enterFrom(selection, e.shiftKey));
+    } else if (e.key === 'Tab' && plain) {
+      e.preventDefault();
+      picking.current = null;
+      setFnPick(null);
+      void commit(tabFrom(selection, e.shiftKey));
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      picking.current = null;
+      setFnPick(null);
+      cancelEdit();
+    } else if (e.key === 'F2' && plain) {
+      // Enter mode ⇄ Edit mode.
+      e.preventDefault();
+      picking.current = null;
+      setEdit({ ...edit, inPlace: !edit.inPlace });
+    } else if (navKey[e.key] && !edit.inPlace && !e.altKey) {
+      e.preventDefault();
+      const caretAt = el.selectionStart ?? edit.text.length;
+      if (!e.ctrlKey && !e.metaKey && (picking.current || canPoint(edit.text, caretAt))) {
+        pointMove(navKey[e.key]!, e.shiftKey);
+        return;
+      }
+      tabRun.current = null;
+      void commit(move(selection, navKey[e.key]!, false, 1, hidden));
+    } else if (e.key === 'F4' && plain) {
+      e.preventDefault();
+      cycleRefIn(el);
+    }
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (composing.current || e.nativeEvent.isComposing) return;
     if (edit) {
-      if (e.key === 'Enter' && !e.altKey) {
-        e.preventDefault();
-        void commit(advance(selection, e.shiftKey ? 'up' : 'down'));
-      } else if (e.key === 'Tab') {
-        e.preventDefault();
-        void commit(advance(selection, e.shiftKey ? 'left' : 'right'));
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelEdit();
-      } else if (navKey[e.key] && !edit.inPlace) {
-        e.preventDefault();
-        void commit(move(selection, navKey[e.key]!, false, 1, hidden));
-      } else if (e.key === 'F4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        cycleRefIn(e.currentTarget);
-      }
+      onEditKey(e);
       return;
+    }
+    if (pick) {
+      // The pick list (Alt+Down): arrows choose, Enter writes the entry, Esc closes.
+      const n = pick.items.length;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setPick({ ...pick, index: (pick.index + (e.key === 'ArrowDown' ? 1 : n - 1)) % n });
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const v = pick.items[pick.index];
+        setPick(null);
+        if (v !== undefined) choosePick(v);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPick(null);
+        return;
+      }
+      setPick(null);
     }
     if (isContextMenuKey(e)) {
       e.preventDefault();
@@ -3930,20 +4370,27 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         });
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-      e.preventDefault();
-      const last = info?.sheets[sheet];
-      select(span({ row: 0, col: 0 }, { row: last?.lastRow ?? 0, col: last?.lastCol ?? 0 }));
-      return;
-    }
+    if (navigate(e)) return;
     if (e.key === 'F5') {
       e.preventDefault();
       run('edit.goto');
       return;
     }
-    if (e.altKey && e.key === 'ArrowDown' && dvList) {
+    if (e.altKey && e.key === 'ArrowDown' && !e.ctrlKey && !e.shiftKey) {
+      // The validation list, else the text entries of the column (pick from the list).
       e.preventDefault();
-      setDvOpen(true);
+      if (dvList) setPick({ items: dvList, index: 0 });
+      else {
+        const a = selection.active;
+        void query<string[]>({ cmd: 'columnEntries', sheet, row: a.row, col: a.col }).then(
+          (list) => {
+            const items = [...(list ?? [])].sort((x, y) =>
+              x.localeCompare(y, i18n.language, { sensitivity: 'base' }),
+            );
+            if (items.length) setPick({ items, index: 0 });
+          },
+        );
+      }
       return;
     }
     if (
@@ -3979,27 +4426,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setPainter(null);
       return;
     }
+    if (e.key === 'Escape' && copyMark) {
+      setCopyMark(null);
+      return;
+    }
     const dir = navKey[e.key];
     if (dir) {
       e.preventDefault();
-      const step = e.ctrlKey || e.metaKey ? 50 : 1;
-      select(move(selection, dir, e.shiftKey, step, hidden));
+      tabRun.current = null;
+      select(move(selection, dir, e.shiftKey, 1, hidden));
     } else if (e.key === 'PageDown' || e.key === 'PageUp') {
       e.preventDefault();
+      tabRun.current = null;
       const rows = Math.max(1, Math.floor(size.h / (20 * scale)));
       select(move(selection, e.key === 'PageDown' ? 'down' : 'up', e.shiftKey, rows, hidden));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
-      const r = rangeOf(selection);
-      const one = cellsOf(r) === 1;
-      select(
-        one
-          ? move(selection, e.shiftKey ? 'up' : 'down', false, 1, hidden)
-          : advance(selection, e.shiftKey ? 'up' : 'down'),
-      );
-    } else if (e.key === 'Tab') {
+      // With cells marked by a copy, Enter pastes them once and ends the mark.
+      if (copyMark && !e.shiftKey) {
+        tabRun.current = null;
+        void enterPaste();
+        return;
+      }
+      select(enterFrom(selection, e.shiftKey));
+    } else if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
-      select(advance(selection, e.shiftKey ? 'left' : 'right'));
+      select(tabFrom(selection, e.shiftKey));
     } else if (e.key === 'F2') {
       e.preventDefault();
       void startEdit(true);
@@ -4043,7 +4495,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   };
 
   // F4 in a formula: the reference at the caret cycles A1 → $A$1 → A$1 → $A1 (CORE-UI-004).
-  const cycleRefIn = (el: HTMLInputElement) => {
+  const cycleRefIn = (el: HTMLTextAreaElement) => {
     if (!edit) return;
     const c = cycleReference(edit.text, el.selectionEnd ?? el.value.length);
     if (!c) return;
@@ -4088,14 +4540,79 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     }
   };
 
+  /** An entry of the pick list (validation list / Alt+Down) written into the active cell. */
+  const choosePick = (v: string) => {
+    void exec({
+      cmd: 'setInputs',
+      sheet,
+      cells: [[selection.active.row, selection.active.col, v]],
+    }).then(focusInput);
+  };
+
   // Typing (including IME output) lands in the input and switches to edit mode.
-  const onInput = (text: string) => {
-    if (edit) {
-      setEdit({ ...edit, text });
-      setBarText(text);
-    } else {
-      setEdit({ pos: selection.active, text, inPlace: false });
-      setBarText(text);
+  const onInput = (text: string, el?: HTMLTextAreaElement, inputType?: string) => {
+    // An Enter whose key went elsewhere (Name Box, a dialog) and whose line break landed here.
+    if (!edit && (inputType === 'insertLineBreak' || text === '\n')) {
+      if (el) el.value = '';
+      return;
+    }
+    const pos = edit?.pos ?? selection.active;
+    const next: EditState = edit ? { ...edit, text } : { pos, text, inPlace: false, sheet };
+    // Typing ends the reference being picked with the arrows.
+    picking.current = null;
+    const at = el?.selectionEnd ?? text.length;
+    setCaret(at);
+    // Function names completing the one being typed (Tab accepts).
+    const fn = functionPrefix(text, at);
+    if (fn) {
+      const show = (names: string[]) => {
+        const items = functionMatches(names, fn.prefix);
+        setFnPick(items.length ? { from: fn.from, items, index: 0 } : null);
+      };
+      if (fnNames.current) show(fnNames.current);
+      else
+        void query<{ names: string[] }>({ cmd: 'functionList' }).then((r) => {
+          fnNames.current = [...(r?.names ?? [])].sort();
+          // Only if the same name is still being typed (more keys may have come meanwhile).
+          const now = el ? functionPrefix(el.value, el.selectionEnd ?? el.value.length) : fn;
+          if (now?.from === fn.from && now.prefix === fn.prefix) show(fnNames.current);
+        });
+    } else setFnPick(null);
+    setEdit(next);
+    setBarText(text);
+    // AutoComplete: typed text (at the end of the entry, not a deletion) completed from the
+    // column's entries when exactly one of them starts with it; the rest stays selected.
+    const typing = !inputType || inputType.startsWith('insert');
+    if (
+      el &&
+      !next.inPlace &&
+      typing &&
+      text &&
+      !text.startsWith('=') &&
+      at === text.length &&
+      parseNumber(text, decimal) === null
+    ) {
+      const key = `${revision}:${sheet}:${pos.row}:${pos.col}`;
+      const complete = (list: string[]) => {
+        if (el.value !== text) return;
+        const low = text.toLocaleLowerCase();
+        // The entries are distinct ignoring case: one hit is one possible completion.
+        const hits = list.filter((v) => v.toLocaleLowerCase().startsWith(low));
+        if (hits.length !== 1 || hits[0]!.length <= text.length) return;
+        const full = text + hits[0]!.slice(text.length);
+        el.value = full;
+        el.setSelectionRange(text.length, full.length);
+        setEdit({ ...next, text: full });
+        setBarText(full);
+      };
+      if (entries.current?.key === key) complete(entries.current.list);
+      else
+        void query<string[]>({ cmd: 'columnEntries', sheet, row: pos.row, col: pos.col }).then(
+          (list) => {
+            entries.current = { key, list: list ?? [] };
+            complete(entries.current.list);
+          },
+        );
     }
   };
 
@@ -4182,6 +4699,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   const onMouseDown = async (e: ReactMouseEvent) => {
     if (e.button !== 0) return;
+    if (edit) {
+      // A click while the caret of a formula can take a reference picks the clicked cell.
+      const el = lastInput.current === 'bar' ? barRef.current : inputRef.current;
+      const at = el?.selectionStart ?? edit.text.length;
+      if (picking.current || canPoint(edit.text, at)) {
+        e.preventDefault();
+        const now = hitNow(e);
+        const hit = now?.kind === 'cell' ? now : await hitAt(e);
+        if (hit?.kind === 'cell') {
+          pointMove(null, e.shiftKey && !!picking.current, { row: hit.row, col: hit.col });
+          drag.current = { kind: 'point' };
+        }
+        return;
+      }
+    }
     // The grid as drawn answers at once; the engine only when it could not be read, or when
     // charts may cover the cells (they are not in the drawn geometry).
     const local = hitNow(e);
@@ -4421,6 +4953,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
       return;
     }
+    if (d.kind === 'point') {
+      // Dragging while picking a reference: the picked range grows to the cell under the mouse.
+      let cell: CellPos | null = near;
+      if (!cell) {
+        const hit = await hitAt(e);
+        if (hit?.kind === 'cell') cell = { row: hit.row, col: hit.col };
+      }
+      const p = picking.current;
+      if (cell && p && (p.focus.row !== cell.row || p.focus.col !== cell.col))
+        pointMove(null, true, { row: cell.row, col: cell.col });
+      return;
+    }
     if (d.kind === 'fill' && grid) {
       if (!near) return;
       const target = fillTarget(d.source, near);
@@ -4648,7 +5192,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
    * cell's font and the engine's padding and baseline, so the text does not move when editing
    * starts; it grows (right, or left for right-aligned text) to fit what is typed.
    */
-  const cellEditorLayout = (r: Rect, e: EditState) => {
+  const cellEditorLayout = (r: Rect, e: EditState, lines = 1) => {
     const sizePx = (fmt?.fontSize ?? 11) * scale;
     const font = `${fmt?.italic ? 'italic ' : ''}${fmt?.bold ? 'bold ' : ''}${sizePx}px ${CELL_FONT_FAMILY(cellFamily)}`;
     let ascent = sizePx * 0.8;
@@ -4657,8 +5201,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     const measureCtx = measureContext();
     if (measureCtx) {
       measureCtx.font = font;
-      const m = measureCtx.measureText(e.text);
-      textW = m.width;
+      // Alt+Enter lines: the widest one sets the width.
+      textW = Math.max(...e.text.split('\n').map((l) => measureCtx.measureText(l).width));
       const probe = measureCtx.measureText('Hg');
       if (probe.fontBoundingBoxAscent) ascent = probe.fontBoundingBoxAscent;
       if (probe.fontBoundingBoxDescent) descent = probe.fontBoundingBoxDescent;
@@ -4670,8 +5214,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     // The border box runs from one pixel before the cell to one pixel after it (like the
     // selection border); text starts 2 px (scaled) inside the cell as the engine draws it.
     const padTop = Math.max(0, baseline - ascent - (border - 1));
-    const boxH = r.h + 2;
-    const padBottom = Math.max(0, boxH - 2 * border - padTop - lineH);
+    // Each further line (Alt+Enter) adds one line height.
+    const boxH = r.h + 2 + Math.max(0, lines - 1) * lineH;
+    const padBottom = Math.max(0, boxH - 2 * border - padTop - lineH * Math.max(1, lines));
     const padX = Math.max(0, 2 * zoom - (border - 1));
     const numeric = parseNumber(e.text, decimal) !== null;
     const align: 'left' | 'right' | 'center' =
@@ -5989,6 +6534,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 10 }).format(n);
   // Status bar texts (also the current values in its "customise" checklist).
   const cellMode = edit ? (edit.inPlace ? 'edit' : 'enter') : 'ready';
+  // The cell editor shows on the edited cell's sheet (not while picking on another one).
+  const editHere = !!edit && (edit.sheet ?? sheet) === sheet;
+  // Overlays computed for the current text / mark only (older answers are ignored).
+  const shownRefBoxes =
+    edit && refBoxes && refBoxes.text === edit.text && refBoxes.sheet === (summary?.name ?? '')
+      ? refBoxes.boxes
+      : [];
+  const copyBox = copyMark && copyRect?.mark === copyMark ? copyRect.rect : null;
+  const editorRefs = editHere && edit ? formulaRefs(edit.text) : [];
+  const editLines = edit ? edit.text.split('\n').length : 1;
+  const call = edit ? callAt(edit.text, Math.min(caret, edit.text.length)) : null;
+  const hint = call ? argumentHint(call.name, call.arg) : null;
   const filterMode = !!summary?.autoFilter && (summary?.hiddenRows.length ?? 0) > 0;
   // Fewer than two filled cells: nothing to summarise (the bar stays empty).
   const filledStats = shownStats && shownStats.count > 1 ? shownStats : null;
@@ -6210,7 +6767,10 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           aria-label={t('sheetEditor.nameBox')}
           defaultValue={rangeA1(r)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onNameBox(e.currentTarget.value);
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onNameBox(e.currentTarget.value);
+            }
           }}
           onFocus={(e) => e.currentTarget.select()}
           onBlur={(e) => {
@@ -6222,33 +6782,45 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           }}
         />
         <span className={styles.fx}>fx</span>
-        <input
+        <textarea
           className={styles.formulaInput}
           ref={barRef}
+          rows={barExpanded ? 4 : 1}
+          data-expanded={barExpanded || undefined}
           aria-label={t('sheetEditor.formulaBar')}
           value={barText}
+          spellCheck={false}
           onFocus={() => {
             lastInput.current = 'bar';
-            if (!edit) setEdit({ pos: selection.active, text: barText, inPlace: true });
+            if (!edit) setEdit({ pos: selection.active, text: barText, inPlace: true, sheet });
           }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionEnd ?? 0)}
           onChange={(e) => {
-            setBarText(e.target.value);
-            setEdit({ pos: edit?.pos ?? selection.active, text: e.target.value, inPlace: true });
-            if (inputRef.current) inputRef.current.value = e.target.value;
+            const el = e.currentTarget;
+            if (inputRef.current) inputRef.current.value = el.value;
+            onInput(el.value, el, (e.nativeEvent as InputEvent).inputType);
+            setEdit((cur) => cur && { ...cur, inPlace: true });
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              void commit(advance(selection, 'down'));
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              cancelEdit();
-            } else if (e.key === 'F4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-              e.preventDefault();
-              cycleRefIn(e.currentTarget);
-            }
+            if (composing.current || e.nativeEvent.isComposing) return;
+            if (!edit && e.key === 'Escape') return;
+            onEditKey(e);
           }}
         />
+        <button
+          type="button"
+          className={styles.barExpand}
+          data-testid="formula-bar-expand"
+          aria-label={t(
+            barExpanded ? 'sheetEditor.collapseFormulaBar' : 'sheetEditor.expandFormulaBar',
+          )}
+          title={`${t(barExpanded ? 'sheetEditor.collapseFormulaBar' : 'sheetEditor.expandFormulaBar')} (Ctrl+Shift+U)`}
+          aria-expanded={barExpanded}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setBarExpanded((x) => !x)}
+        >
+          {barExpanded ? '▴' : '▾'}
+        </button>
       </div>
       {macroBanner && (
         <MacroBanner
@@ -6414,26 +6986,53 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 />
               )}
               <PeerSelections boxes={peerBoxes} />
+              {selRect && chart === null && headers && (
+                <>
+                  {/* The headers of the selected columns and rows are highlighted. */}
+                  <div
+                    className={styles.headerMarkCols}
+                    data-testid="header-mark-cols"
+                    style={{
+                      left: Math.max(headers.w, selRect.x),
+                      top: 0,
+                      width: Math.max(0, selRect.x + selRect.w - Math.max(headers.w, selRect.x)),
+                      height: headers.h,
+                    }}
+                  />
+                  <div
+                    className={styles.headerMarkRows}
+                    data-testid="header-mark-rows"
+                    style={{
+                      left: 0,
+                      top: Math.max(headers.h, selRect.y),
+                      width: headers.w,
+                      height: Math.max(0, selRect.y + selRect.h - Math.max(headers.h, selRect.y)),
+                    }}
+                  />
+                </>
+              )}
               {selRect && chart === null && (
                 <div
                   className={painter ? styles.selectionPainter : styles.selection}
                   style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
                 >
-                  <div
-                    className={styles.fillHandle}
-                    data-testid="fill-handle"
-                    title={t('sheetEditor.fillHandle')}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      drag.current = { kind: 'fill', source: rangeOf(selection) };
-                    }}
-                    onDoubleClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void fillDownToData();
-                    }}
-                  />
+                  {!edit && (
+                    <div
+                      className={styles.fillHandle}
+                      data-testid="fill-handle"
+                      title={t('sheetEditor.fillHandle')}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        drag.current = { kind: 'fill', source: rangeOf(selection) };
+                      }}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void fillDownToData();
+                      }}
+                    />
+                  )}
                 </div>
               )}
               {selRect && chart === null && !edit && (r.r0 !== r.r1 || r.c0 !== r.c1) && (
@@ -6617,13 +7216,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   }}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setDvOpen((o) => !o);
+                    setPick((p) => (p ? null : { items: dvList, index: 0 }));
                   }}
                 >
                   ▾
                 </button>
               )}
-              {dvOpen && dvList && activeRect && (
+              {pick && activeRect && (
                 <div
                   className={styles.dvList}
                   role="listbox"
@@ -6634,21 +7233,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     minWidth: activeRect.w,
                   }}
                 >
-                  {dvList.map((v) => (
+                  {pick.items.map((v, i) => (
                     <button
                       key={v}
                       type="button"
                       role="option"
-                      aria-selected={false}
+                      aria-selected={i === pick.index}
                       className={styles.menuItem}
+                      data-current={i === pick.index || undefined}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        setDvOpen(false);
-                        void exec({
-                          cmd: 'setInputs',
-                          sheet,
-                          cells: [[selection.active.row, selection.active.col, v]],
-                        }).then(focusInput);
+                        setPick(null);
+                        choosePick(v);
                       }}
                     >
                       {v}
@@ -6656,16 +7252,112 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   ))}
                 </div>
               )}
-              <input
+              {copyMark?.sheet === sheet && copyBox && (
+                <div
+                  className={styles.copyMark}
+                  data-testid="copy-mark"
+                  style={{
+                    left: copyBox.x,
+                    top: copyBox.y,
+                    width: copyBox.w,
+                    height: copyBox.h,
+                  }}
+                />
+              )}
+              {edit &&
+                shownRefBoxes.map((b, i) => (
+                  <div
+                    key={i}
+                    className={styles.refBox}
+                    data-testid="ref-box"
+                    data-color={b.color}
+                    style={{ left: b.x, top: b.y, width: b.w, height: b.h, borderColor: b.color }}
+                  />
+                ))}
+              {editHere && edit && activeRect && editorRefs.length > 0 && (
+                <div
+                  className={styles.cellEditorMirror}
+                  aria-hidden="true"
+                  data-testid="cell-editor-mirror"
+                  style={{
+                    left: activeRect.x,
+                    top: activeRect.y,
+                    minWidth: activeRect.w,
+                    lineHeight: `${Math.max(1, activeRect.h - 4)}px`,
+                    fontSize: 11 * scale,
+                  }}
+                >
+                  {mirrorParts(edit.text, editorRefs).map((p, i) =>
+                    p.color ? (
+                      <span key={i} style={{ color: p.color }} data-ref-color={p.color}>
+                        {p.text}
+                      </span>
+                    ) : (
+                      <span key={i}>{p.text}</span>
+                    ),
+                  )}
+                </div>
+              )}
+              {editHere && activeRect && fnPick && fnPick.items.length > 0 && (
+                <div
+                  className={styles.fnList}
+                  role="listbox"
+                  aria-label={t('sheetEditor.functionList')}
+                  data-testid="function-list"
+                  style={{
+                    left: activeRect.x,
+                    top: activeRect.y + activeRect.h * editLines + 2,
+                  }}
+                >
+                  {fnPick.items.map((n, i) => (
+                    <div
+                      key={n}
+                      role="option"
+                      aria-selected={i === fnPick.index}
+                      data-current={i === fnPick.index || undefined}
+                      className={styles.fnItem}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        acceptFunction(n);
+                      }}
+                    >
+                      {n}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {editHere && activeRect && hint && !(fnPick && fnPick.items.length > 0) && (
+                <div
+                  className={styles.argHint}
+                  role="tooltip"
+                  data-testid="argument-hint"
+                  style={{
+                    left: activeRect.x,
+                    top: activeRect.y + activeRect.h * editLines + 2,
+                  }}
+                >
+                  {hint.name}(
+                  {hint.args.map((a, i) => (
+                    <span key={i}>
+                      {i > 0 ? ', ' : ''}
+                      {a.current ? <b data-testid="argument-current">{a.text}</b> : a.text}
+                    </span>
+                  ))}
+                  )
+                </div>
+              )}
+              <textarea
                 ref={inputRef}
-                className={edit ? styles.cellEditorActive : styles.cellEditor}
+                rows={1}
+                className={editHere ? styles.cellEditorActive : styles.cellEditor}
+                data-coloured={editorRefs.length > 0 || undefined}
                 onFocus={() => {
                   lastInput.current = 'cell';
                 }}
                 aria-label={t('sheetEditor.cellEditor')}
                 style={
                   activeRect && edit
-                    ? cellEditorLayout(activeRect, edit).style
+                    ? cellEditorLayout(activeRect, edit, editLines).style
                     : activeRect
                       ? {
                           left: activeRect.x,
@@ -6679,14 +7371,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 autoComplete="off"
                 spellCheck={false}
                 onKeyDown={onKeyDown}
-                onInput={(e) => onInput(e.currentTarget.value)}
+                onSelect={(e) => setCaret(e.currentTarget.selectionEnd ?? 0)}
+                onInput={(e) =>
+                  onInput(
+                    e.currentTarget.value,
+                    e.currentTarget,
+                    (e.nativeEvent as InputEvent).inputType,
+                  )
+                }
                 onCompositionStart={() => {
                   composing.current = true;
-                  if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false });
+                  if (!edit) setEdit({ pos: selection.active, text: '', inPlace: false, sheet });
                 }}
                 onCompositionEnd={(e) => {
                   composing.current = false;
-                  onInput(e.currentTarget.value);
+                  onInput(e.currentTarget.value, e.currentTarget);
                 }}
               />
             </div>
@@ -7008,7 +7707,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   }
                   sheetMenu.open({ x: e.clientX, y: e.clientY - 4, context: 'sheetTab', sheet: i });
                 }}
+                onMouseDown={(e) => {
+                  // Picking a reference: the editor keeps the caret (no focus change).
+                  if (pointable()) e.preventDefault();
+                }}
                 onClick={() => {
+                  if (pointable()) {
+                    pointSheet(i);
+                    return;
+                  }
                   setSheet(i);
                   setSelection(single({ row: 0, col: 0 }));
                   setChart(null);

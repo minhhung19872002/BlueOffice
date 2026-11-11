@@ -39,7 +39,12 @@
 .formulaInput {
   flex: 1;
   height: 24px;
-  padding: 0 6px;
+  padding: 3px 6px;
+  box-sizing: border-box;
+  resize: none;
+  overflow: hidden;
+  line-height: 16px;
+  white-space: pre;
   font: inherit;
   font-size: 13px;
   border: 1px solid var(--bo-border, #d0d7de);
@@ -102,14 +107,140 @@
 }
 
 /* Always focused so the OS/browser IME composes straight into the cell. */
+.formulaInput[data-expanded] {
+  height: auto;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.barExpand {
+  width: 20px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
 .cellEditor,
-.cellEditorActive {
+.cellEditorActive,
+.cellEditorMirror {
   position: absolute;
   box-sizing: border-box;
+  margin: 0;
   padding: 0 3px;
   border: 0;
   outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
   font-family: 'Liberation Sans', Arial, sans-serif;
+}
+
+/* The coloured text of a formula's references, drawn over the editor's (transparent) text. */
+.cellEditorMirror {
+  border: 2px solid transparent;
+  color: #000;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cellEditorActive[data-coloured] {
+  color: transparent;
+  caret-color: #000;
+}
+
+/* The references of the formula being typed. */
+.refBox {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Highlight of the headers of the selected columns / rows. */
+.headerMarkCols,
+.headerMarkRows {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: rgb(11 122 107 / 16%);
+}
+
+.headerMarkCols {
+  border-bottom: 2px solid var(--bo-sheet-accent, #0b7a6b);
+}
+
+.headerMarkRows {
+  border-right: 2px solid var(--bo-sheet-accent, #0b7a6b);
+}
+
+/* The moving border around copied / cut cells. */
+.copyMark {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    linear-gradient(90deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-x top / 8px 2px,
+    linear-gradient(90deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-x bottom / 8px 2px,
+    linear-gradient(0deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-y left / 2px 8px,
+    linear-gradient(0deg, var(--bo-sheet-accent, #0b7a6b) 50%, #fff 50%) repeat-y right / 2px 8px;
+  animation: copyMarch 0.6s linear infinite;
+}
+
+@keyframes copyMarch {
+  to {
+    background-position:
+      8px 0,
+      -8px 100%,
+      0 -8px,
+      100% 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copyMark {
+    animation: none;
+  }
+}
+
+.fnList,
+.argHint {
+  position: absolute;
+  z-index: 4;
+  font-size: 12px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1f2328);
+  border: 1px solid var(--bo-border, #d0d7de);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
+}
+
+.fnList {
+  min-width: 140px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.fnItem {
+  padding: 2px 8px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.fnItem[data-current] {
+  background: var(--bo-sheet-accent, #0b7a6b);
+  color: #fff;
+}
+
+.argHint {
+  padding: 2px 6px;
+  white-space: nowrap;
 }
 
 .cellEditor {
@@ -906,4 +1037,8 @@
   color: #fff;
   font: 600 11px/16px var(--bo-font-ui, system-ui, sans-serif);
   white-space: nowrap;
+}
+
+.dvList [data-current] {
+  background: var(--bo-hover, #e8f0fe);
 }

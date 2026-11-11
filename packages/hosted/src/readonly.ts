@@ -138,6 +138,8 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   'presets',
   'formatState',
   'region',
+  'dataEdge',
+  'columnEntries',
   'filterValues',
   'sortColors',
   'sortLists',

@@ -257,29 +257,38 @@ jobs:
           $driver = Join-Path $dir 'msedgedriver.exe'
           & $driver --version
           "MSEDGEDRIVER=$driver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      # Does the app's WebView2 open the debugging port msedgedriver needs? (Edge policies,
-      # WEBVIEW2_* variables and the browser process command line.)
-      - name: Desktop app start diagnostics
+      # The runner's user is an elevated administrator, and WebView2 ignores the WEBVIEW2_*
+      # environment variables msedgedriver drives it with (remote debugging port, profile
+      # folder) in elevated processes ("DevToolsActivePort file doesn't exist"). The E2E
+      # runs with a standard-user token instead (runas /trustlevel: Basic User), as on a
+      # developer machine.
+      - name: Desktop E2E (standard user)
         if: matrix.e2e
-        continue-on-error: true
         shell: pwsh
         run: |
-          foreach ($k in 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
-              'HKCU:\SOFTWARE\Policies\Microsoft\Edge', 'HKLM:\SOFTWARE\WOW6432Node\Policies\Microsoft\Edge') {
-            if (Test-Path $k) {
-              Write-Host "== $k"; Get-ItemProperty $k | Out-String | Write-Host
-              Get-ChildItem $k -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  sub: $($_.Name)" }
-            }
+          $dir = Join-Path $env:RUNNER_TEMP 'e2e-desktop'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $log = Join-Path $dir 'e2e.log'
+          $done = Join-Path $dir 'exit.txt'
+          $q = { param($v) "'" + ($v -replace "'", "''") + "'" }
+          $lines = Get-ChildItem env: | ForEach-Object {
+            "[Environment]::SetEnvironmentVariable($(& $q $_.Name), $(& $q $_.Value))"
           }
-          Get-ChildItem env: | Where-Object Name -like 'WEBVIEW2*' | Out-String | Write-Host
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
-          $p = Start-Process target\release\bluedoc.exe -ArgumentList 'tests\corpus\doc\review-01-insert-delete.docx' -PassThru
-          Start-Sleep 20
-          Write-Host "alive: $(-not $p.HasExited)"
-          try { (Invoke-WebRequest http://127.0.0.1:9333/json/version -UseBasicParsing).Content | Write-Host } catch { Write-Host "no debugging port: $_" }
-          $wv = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'bluedoc' }
-          $wv | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { Write-Host "browser: $($_.CommandLine)" }
-          $wv | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
-      - run: pnpm test:e2e:desktop
-        if: matrix.e2e
+          $lines += "Set-Location $(& $q $PWD.Path)"
+          $lines += "pnpm test:e2e:desktop *> $(& $q $log)"
+          $lines += "Set-Content -Path $(& $q $done) -Value `$LASTEXITCODE"
+          $script = Join-Path $dir 'run.ps1'
+          Set-Content -Path $script -Value $lines -Encoding utf8
+          $pwsh = (Get-Command pwsh).Source
+          # runas goes through the Secondary Logon service.
+          Set-Service seclogon -StartupType Manual -ErrorAction SilentlyContinue
+          Start-Service seclogon -ErrorAction SilentlyContinue
+          runas /trustlevel:0x20000 "`"$pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$script`""
+          if ($LASTEXITCODE -ne 0) { throw "runas failed ($LASTEXITCODE)" }
+          $deadline = (Get-Date).AddMinutes(45)
+          while (-not (Test-Path $done) -and (Get-Date) -lt $deadline) { Start-Sleep 5 }
+          Get-Content $log -ErrorAction SilentlyContinue
+          if (-not (Test-Path $done)) { throw 'desktop E2E did not finish' }
+          $code = [int](Get-Content $done | Select-Object -First 1)
+          Write-Host "desktop E2E exit code $code"
+          exit $code

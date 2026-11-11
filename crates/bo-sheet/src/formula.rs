@@ -201,6 +201,31 @@ pub(crate) fn array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
     }
 }
 
+/// The range of a legacy array formula (entered over a fixed range, not spilling;
+/// ECMA-376 Part 1, §18.17.2.4), `None` for every other formula.
+pub(crate) fn legacy_array_range(f: &bo_model::sheet::Formula) -> Option<CellRange> {
+    if f.dynamic {
+        return None;
+    }
+    array_range(f)
+}
+
+/// Sets formula `f` (text `text`) of a cell into the engine: a legacy array formula over
+/// its range, any other as an ordinary (possibly spilling) formula.
+pub(crate) fn set_engine_formula(
+    fw: &mut bo_formula::Workbook,
+    sheet: usize,
+    row: u32,
+    col: u32,
+    f: &bo_model::sheet::Formula,
+    text: &str,
+) -> Result<(), bo_formula::ParseError> {
+    match legacy_array_range(f) {
+        Some(r) => fw.set_array_formula(sheet, row, col, text, r.rows(), r.cols()),
+        None => fw.set_formula(sheet, row, col, text),
+    }
+}
+
 pub(crate) fn load(wb: &Workbook, now: Option<f64>) -> bo_formula::Workbook {
     load_with(wb, now, false)
 }
@@ -306,7 +331,11 @@ pub(crate) fn load_with(
                     };
                     let ok = text.is_some_and(|t| {
                         !keeps_saved_result(cell, &t)
-                            && fw.load_formula(si, r, c, &t, cached).is_ok()
+                            && if legacy_array_range(f).is_some() {
+                                set_engine_formula(&mut fw, si, r, c, f, &t).is_ok()
+                            } else {
+                                fw.load_formula(si, r, c, &t, cached).is_ok()
+                            }
                     });
                     if !ok {
                         // Unparsable or external-data formula: keep its cached value
@@ -403,7 +432,9 @@ pub(crate) fn write_back(
             // `IMAGE` results ([MS-XLSX] §2.3.6.1.11): the cell shows the picture.
             cell.image = crate::cell_image::formula_image(&value);
             if let (Some(a), Some(f)) = (spill, cell.formula.as_mut()) {
-                if !f.text.is_empty() {
+                // A legacy array formula keeps the range it was entered in.
+                if !f.text.is_empty() && legacy_array_range(f).is_none() {
+                    f.dynamic = true;
                     let range = CellRange::new(
                         bo_model::sheet::CellRef {
                             row: a.r1,

@@ -6,7 +6,7 @@
 //! coordinates and viewport sizes are in points.
 
 use crate::{EngineError, GlyphOutline, Result};
-use bo_model::sheet::{Cell, CellRef, CellValue, Formula, Workbook, Worksheet};
+use bo_model::sheet::{Cell, CellRange, CellRef, CellValue, Formula, Workbook, Worksheet};
 use bo_render::PageList;
 use bo_sheet::calc::FormulaAdjuster;
 use bo_sheet::formula::BoFormula;
@@ -346,6 +346,75 @@ pub struct CellDetails {
     pub input: String,
     /// Formatted display text.
     pub display: String,
+    /// The range of the legacy array formula the cell belongs to (`A1:B3`): `input` then
+    /// shows its formula in braces, `{=…}`, and only the whole range can be changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub array: Option<String>,
+}
+
+/// Refusal of an edit that would change some cells of a legacy array formula but not
+/// all of them.
+pub const ARRAY_PART: &str = "part of an array";
+
+/// The legacy array formula (anchor, range) covering `(row, col)` of `ws`, if any
+/// (ECMA-376 Part 1, §18.17.2.4; a dynamic array's spill range is not one).
+pub fn legacy_array_at(ws: &Worksheet, row: u32, col: u32) -> Option<((u32, u32), CellRange)> {
+    let here = CellRef { row, col };
+    ws.cells.iter().find_map(|(&k, c)| {
+        let f = c.formula.as_ref()?;
+        if f.dynamic {
+            return None;
+        }
+        match &f.kind {
+            bo_model::sheet::FormulaKind::Array { range } => {
+                let r = CellRange::parse(range)?;
+                r.contains(here).then_some((k, r))
+            }
+            _ => None,
+        }
+    })
+}
+
+/// Refuses an edit of `cells` that changes part of a legacy array formula ([`ARRAY_PART`]):
+/// every array range an edited cell falls in must be edited whole.
+pub(crate) fn check_array_parts(
+    ws: &Worksheet,
+    cells: impl IntoIterator<Item = (u32, u32)>,
+) -> Result<()> {
+    let arrays: Vec<CellRange> = ws
+        .cells
+        .values()
+        .filter_map(|c| {
+            let f = c.formula.as_ref()?;
+            match (&f.kind, f.dynamic) {
+                (bo_model::sheet::FormulaKind::Array { range }, false) => {
+                    CellRange::parse(range).filter(|r| r.rows() * r.cols() > 1)
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    if arrays.is_empty() {
+        return Ok(());
+    }
+    let edited: std::collections::HashSet<(u32, u32)> = cells.into_iter().collect();
+    for a in arrays {
+        let mut touched = false;
+        let mut whole = true;
+        for r in a.first.row..=a.last.row {
+            for c in a.first.col..=a.last.col {
+                if edited.contains(&(r, c)) {
+                    touched = true;
+                } else {
+                    whole = false;
+                }
+            }
+        }
+        if touched && !whole {
+            return Err(EngineError::Sheet(ARRAY_PART.into()));
+        }
+    }
+    Ok(())
 }
 
 /// Viewport request from the UI.
@@ -1507,8 +1576,23 @@ impl SheetEngine {
                 address,
                 input: String::new(),
                 display: String::new(),
+                array: None,
             });
         };
+        // A cell of a legacy array formula shows the array's formula in braces.
+        if let Some(((ar, ac), range)) = legacy_array_at(ws, row, col) {
+            let text = ws
+                .cell(ar, ac)
+                .and_then(|c| c.formula.as_ref())
+                .map(|f| f.text.clone())
+                .unwrap_or_default();
+            return Ok(CellDetails {
+                address,
+                input: format!("{{={text}}}"),
+                display: format_cell(wb, cell, &self.locale).text,
+                array: Some(range.to_string()),
+            });
+        }
         let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
         let input = match (&cell.formula, &cell.value) {
             (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
@@ -1526,6 +1610,7 @@ impl SheetEngine {
             address,
             input,
             display: format_cell(wb, cell, &self.locale).text,
+            array: None,
         })
     }
 
@@ -1537,6 +1622,109 @@ impl SheetEngine {
     /// Sets several cells as one undo step (paste, fill).
     pub fn set_inputs(&mut self, sheet: usize, cells: &[(u32, u32, String)]) -> Result<()> {
         self.set_inputs_checked(sheet, cells, false).map(|_| ())
+    }
+
+    /// Enters `input` (`=FORMULA`, braces allowed) as a legacy array formula over `range`
+    /// (Ctrl+Shift+Enter, ECMA-376 Part 1, §18.17.2.4): one formula for the whole range,
+    /// stored at its top-left cell (§18.3.1.40 `f` with `t="array"`), whose result fills
+    /// exactly the range. A single cell inside an existing array formula re-enters that
+    /// whole array. One undo step; returns the range used.
+    ///
+    /// # Errors
+    /// Not a formula, the formula does not parse, the range cuts across another array
+    /// formula ([`ARRAY_PART`]) or lies in a table, or the cells are locked.
+    pub fn set_array_formula(
+        &mut self,
+        sheet: usize,
+        range: CellRange,
+        input: &str,
+    ) -> Result<CellRange> {
+        self.writable()?;
+        let locale = self.locale;
+        let input = input.trim();
+        let input = input
+            .strip_prefix('{')
+            .and_then(|t| t.strip_suffix('}'))
+            .unwrap_or(input);
+        let f = input
+            .strip_prefix('=')
+            .filter(|f| !f.trim().is_empty())
+            .ok_or_else(|| EngineError::BadCommand("an array formula starts with =".into()))?;
+        let text = bo_formula::localized_input(f, locale.decimal).unwrap_or_else(|| f.to_owned());
+        bo_formula::parse(&text).map_err(|e| EngineError::BadCommand(e.to_string()))?;
+        let ws = self.sheet(sheet)?;
+        let range = if range.rows() * range.cols() == 1 {
+            legacy_array_at(ws, range.first.row, range.first.col).map_or(range, |(_, r)| r)
+        } else {
+            range
+        };
+        if u64::from(range.rows()) * u64::from(range.cols()) > 1_000_000 {
+            return Err(EngineError::BadCommand("too many cells".into()));
+        }
+        let coords: Vec<(u32, u32)> = (range.first.row..=range.last.row)
+            .flat_map(|r| (range.first.col..=range.last.col).map(move |c| (r, c)))
+            .collect();
+        {
+            let wb = self.wb()?;
+            let open = self.open_ranges(sheet);
+            protect::check_range(
+                wb,
+                ws,
+                &open,
+                (range.first.row, range.first.col),
+                (range.last.row, range.last.col),
+            )?;
+            check_array_parts(ws, coords.iter().copied())?;
+            let multi = coords.len() > 1;
+            let in_table = ws.tables.iter().any(|t| {
+                t.range.first.row <= range.last.row
+                    && range.first.row <= t.range.last.row
+                    && t.range.first.col <= range.last.col
+                    && range.first.col <= t.range.last.col
+            });
+            if multi && in_table {
+                return Err(EngineError::Sheet(
+                    "multi-cell array formulas are not allowed in tables".into(),
+                ));
+            }
+        }
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        let ws = &mut wb.sheets[sheet];
+        let mut old = Vec::with_capacity(coords.len());
+        for &(r, c) in &coords {
+            let prev = ws.cells.get(&(r, c)).cloned();
+            let style = prev.as_ref().map_or(0, |p| p.style);
+            if (r, c) == (range.first.row, range.first.col) {
+                ws.cells.insert(
+                    (r, c),
+                    Cell {
+                        style,
+                        formula: Some(Formula {
+                            text: text.clone(),
+                            kind: bo_model::sheet::FormulaKind::Array {
+                                range: range.to_string(),
+                            },
+                            ..Formula::default()
+                        }),
+                        ..Cell::default()
+                    },
+                );
+            } else if style != 0 {
+                ws.cells.insert(
+                    (r, c),
+                    Cell {
+                        style,
+                        ..Cell::default()
+                    },
+                );
+            } else {
+                ws.cells.remove(&(r, c));
+            }
+            old.push((r, c, prev));
+        }
+        self.live.update(wb, sheet, &coords);
+        self.push_undo(UndoEntry::Cells { sheet, cells: old });
+        Ok(range)
     }
 
     /// [`SheetEngine::set_inputs`] that first checks data validation
@@ -1591,6 +1779,7 @@ impl SheetEngine {
             let ws = self.sheet(sheet)?;
             let open = self.open_ranges(sheet);
             protect::check_cells(wb, ws, &open, cells.iter().map(|(r, c, _)| (*r, *c)))?;
+            check_array_parts(ws, cells.iter().map(|(r, c, _)| (*r, *c)))?;
         }
         let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
         if sheet >= wb.sheets.len() {

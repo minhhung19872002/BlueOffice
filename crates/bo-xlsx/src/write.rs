@@ -210,6 +210,19 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
         },
     );
 
+    // [MS-XLSX] dynamic array formulas entered since reading: their cell metadata `cm`.
+    let new_cms = crate::richdata::write_dynamic(
+        wb,
+        &mut crate::richdata::WriteCtx {
+            wb_path: &wb_path,
+            names: &mut names,
+            wb_ids: &mut wb_ids,
+            wb_rels: &mut wb_rels,
+            out_parts: &mut out_parts,
+            overrides: &mut overrides,
+        },
+    );
+
     let mut sheet_rel_ids = Vec::with_capacity(wb.sheets.len());
     // Slicer caches created for new slicers ([MS-XLSX] slicer parts).
     let mut slicer_caches: Vec<(String, bool)> = Vec::new();
@@ -222,11 +235,16 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     let all_tables: Vec<&Table> = wb.sheets.iter().flat_map(|s| s.tables.iter()).collect();
     for (si, ws) in wb.sheets.iter().enumerate() {
         let with_vms;
-        let ws = if new_vms.keys().any(|k| k.0 == si) {
+        let ws = if new_vms.keys().chain(new_cms.keys()).any(|k| k.0 == si) {
             let mut copy = ws.clone();
             for (&(_, r, c), &vm) in new_vms.iter().filter(|(k, _)| k.0 == si) {
                 if let Some(cell) = copy.cells.get_mut(&(r, c)) {
                     cell.vm = Some(vm);
+                }
+            }
+            for (&(_, r, c), &cm) in new_cms.iter().filter(|(k, _)| k.0 == si) {
+                if let Some(cell) = copy.cells.get_mut(&(r, c)) {
+                    cell.cm = Some(cm);
                 }
             }
             with_vms = copy;

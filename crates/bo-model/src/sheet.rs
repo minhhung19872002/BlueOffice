@@ -795,6 +795,12 @@ pub struct Formula {
     pub calc_always: bool,
     /// Other attributes (aca, dt2D, dtr, del1, del2, r1, r2, bx).
     pub attrs: Vec<RawAttr>,
+    /// A [`FormulaKind::Array`] that is a dynamic array formula: its result spills over
+    /// as many cells as it needs ([MS-XLSX] dynamic array properties `XLDAPR` in the
+    /// cell metadata, `c/@cm`). Otherwise an array formula keeps the range it was entered
+    /// in (a legacy array formula): its result repeats or shows `#N/A` to fill it.
+    #[serde(default)]
+    pub dynamic: bool,
 }
 
 impl Formula {

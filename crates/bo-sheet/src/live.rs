@@ -15,7 +15,9 @@
 //! for it. Rebuilds (opening, structural edits) always calculate.
 
 use crate::calcopts::{CalcMode, CalcSettings};
-use crate::formula::{keeps_saved_result, load, load_with, to_cell_value, to_value, write_back};
+use crate::formula::{
+    keeps_saved_result, load, load_with, set_engine_formula, to_cell_value, to_value, write_back,
+};
 use bo_formula::{CellId, DateSystem, WebProvider};
 use bo_model::sheet::{FormulaKind, Workbook};
 use std::sync::Arc;
@@ -146,7 +148,7 @@ impl LiveCalc {
             match ws.cell(r, c) {
                 Some(cell) => match &cell.formula {
                     Some(f) if !f.text.is_empty() => {
-                        if fw.set_formula(sheet, r, c, &f.text).is_err() {
+                        if set_engine_formula(fw, sheet, r, c, f, &f.text).is_err() {
                             fw.set_value(sheet, r, c, to_value(&cell.value, system));
                         }
                     }

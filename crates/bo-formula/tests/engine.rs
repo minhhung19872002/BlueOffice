@@ -717,3 +717,59 @@ fn copy_paste_adjusts_relative_references() {
     assert_eq!(wb.value_a1(0, "B2"), num(20.0));
     assert_eq!(wb.value_a1(0, "A3"), num(1.0));
 }
+
+/// Legacy array formulas (ECMA-376 Part 1, §18.17.2.4, entered with Ctrl+Shift+Enter):
+/// the result fills the entered range exactly — a single value repeats, a one-row /
+/// one-column result repeats down / across, missing positions are `#N/A`, a larger
+/// result is cut — and nothing in the way makes it `#SPILL!`.
+#[test]
+fn legacy_array_formulas_fill_their_range() {
+    let mut wb = Workbook::with_sheets(&["S"]);
+    for (a1, v) in [
+        ("A1", "1"),
+        ("A2", "2"),
+        ("A3", "3"),
+        ("B1", "10"),
+        ("B2", "20"),
+    ] {
+        wb.set_a1(0, a1, v).unwrap();
+    }
+    // 3×1 result entered over D1:E4: repeats across, row 4 is #N/A.
+    wb.set_array_formula(0, 0, 3, "=A1:A3*2", 4, 2).unwrap();
+    // 1×1 over G1:G3: repeats.
+    wb.set_array_formula(0, 0, 6, "=SUM(A1:A3*B1:B3)", 3, 1)
+        .unwrap();
+    // 3×1 result entered in one cell: the first value only.
+    wb.set_array_formula(0, 0, 8, "=A1:A3*3", 1, 1).unwrap();
+    // 3×1 result over a 2×1 range: cut.
+    wb.set_array_formula(0, 0, 9, "=A1:A3", 2, 1).unwrap();
+    wb.recalculate();
+    for (a1, want) in [
+        ("D1", num(2.0)),
+        ("E1", num(2.0)),
+        ("D3", num(6.0)),
+        ("E3", num(6.0)),
+        ("D4", Value::Error(ErrorKind::NA)),
+        ("E4", Value::Error(ErrorKind::NA)),
+        ("G1", num(50.0)),
+        ("G3", num(50.0)),
+        ("I1", num(3.0)),
+        ("I2", Value::Empty),
+        ("J2", num(2.0)),
+        ("J3", Value::Empty),
+    ] {
+        assert_eq!(wb.value_a1(0, a1), want, "{a1}");
+    }
+    // Dependents read the cells of the range; an input change recalculates the array.
+    wb.set_a1(0, "K1", "=SUM(D1:D3)").unwrap();
+    wb.set_a1(0, "A1", "5").unwrap();
+    wb.recalculate();
+    assert_eq!(wb.value_a1(0, "D1"), num(10.0));
+    assert_eq!(wb.value_a1(0, "E1"), num(10.0));
+    assert_eq!(wb.value_a1(0, "K1"), num(20.0));
+    // The same formula entered normally spills: blocked by a value it is #SPILL!.
+    wb.set_a1(0, "M2", "x").unwrap();
+    wb.set_a1(0, "M1", "=A1:A3*2").unwrap();
+    wb.recalculate();
+    assert_eq!(wb.value_a1(0, "M1"), Value::Error(ErrorKind::Spill));
+}

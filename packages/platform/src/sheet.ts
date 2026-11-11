@@ -138,6 +138,8 @@ export interface SortRegion {
 export const SHEET_PROTECTED = 'sheet protected';
 /** Engine error text of a sheet operation refused by workbook protection. */
 export const WORKBOOK_PROTECTED = 'workbook protected';
+/** Engine error text of an edit that would change only some cells of an array formula. */
+export const ARRAY_PART = 'part of an array';
 /** Engine error text of a wrong sheet / workbook protection password. */
 export const WRONG_PROTECTION_PASSWORD = 'wrong protection password';
 
@@ -169,6 +171,11 @@ export interface CellDetails {
   input: string;
   /** Formatted display text. */
   display: string;
+  /**
+   * Range (`A1:B3`) of the legacy array formula the cell belongs to: `input` is then the
+   * formula in braces (`{=…}`) and only the whole range can be changed.
+   */
+  array?: string;
 }
 
 /** The visible window of a sheet. */
@@ -897,6 +904,8 @@ export type SheetCommand =
   | { cmd: 'validation'; sheet: number; row: number; col: number }
   | { cmd: 'setValidation'; sheet: number; range: SheetRange; spec: ValidationSpec }
   | { cmd: 'setInputs'; sheet: number; cells: [number, number, string][]; validate?: boolean }
+  /** Ctrl+Shift+Enter: a legacy array formula over `range` (one cell of an array: all of it). */
+  | { cmd: 'setArrayFormula'; sheet: number; range: SheetRange; formula: string }
   /** Ctrl+Enter: one entry into every selected cell (formulas follow each cell), one step. */
   | {
       cmd: 'fillInputs';

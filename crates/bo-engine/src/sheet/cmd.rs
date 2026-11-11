@@ -681,6 +681,15 @@ pub enum SheetCommand {
         /// The validation rule.
         spec: ValidationSpec,
     },
+    /// Enters a legacy array formula over a range (Ctrl+Shift+Enter): `{ "range": … }`.
+    SetArrayFormula {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cells the formula fills (one cell inside an array: that whole array).
+        range: Rng,
+        /// `=FORMULA` (braces allowed), as typed.
+        formula: String,
+    },
     /// Inputs as one undo step, checked against data validation.
     SetInputs {
         /// 0-based sheet index.
@@ -4037,6 +4046,14 @@ impl SheetEngine {
                     .then_some(json!({ "ok": true }))
                     .ok_or_else(|| bad("invalid validation rule"))
             }),
+            C::SetArrayFormula {
+                sheet,
+                range,
+                formula,
+            } => {
+                let r = self.set_array_formula(sheet, range.range(), &formula)?;
+                Ok(json!({ "range": Rng::of(r) }))
+            }
             C::SetInputs {
                 sheet,
                 cells,

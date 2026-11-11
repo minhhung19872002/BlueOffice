@@ -804,6 +804,10 @@
       "current": "Tiếp tục với vùng chọn hiện tại",
       "sort": "Sắp xếp"
     },
+    "arrayFormula": {
+      "title": "Công thức mảng",
+      "partRefused": "Ô này thuộc một công thức mảng, chỉ thay đổi được cả mảng cùng lúc. Hãy chọn đủ mọi ô của mảng để xoá, hoặc sửa công thức rồi bấm Ctrl+Shift+Enter. Bấm Esc để bỏ nội dung vừa nhập."
+    },
     "formulaError": {
       "title": "Công thức có lỗi",
       "message": "Công thức vừa nhập có lỗi cú pháp nên chưa được ghi vào ô. Hãy sửa lại, hoặc bấm Esc để bỏ. Nếu không định nhập công thức, hãy gõ dấu nháy đơn (') trước dấu bằng."

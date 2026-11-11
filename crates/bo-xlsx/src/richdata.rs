@@ -816,6 +816,301 @@ fn patch_metadata(data: &[u8], part: &str, rvbs: &[u32]) -> Option<(Vec<u8>, u32
     Some((p.apply(data, &els), u32::try_from(first_vm).ok()?))
 }
 
+// ------------------------------------------------------------------ dynamic arrays
+
+/// Metadata type name of dynamic array properties ([MS-XLSX] `CT_DynamicArrayProperties`,
+/// cell metadata of a dynamic array formula).
+pub const XLDAPR: &str = "XLDAPR";
+/// Ext URI of `xda:dynamicArrayProperties` in `futureMetadata/bk/extLst` ([MS-XLSX]).
+const EXT_DA: &str = "{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}";
+/// Namespace of `dynamicArrayProperties` ([MS-XLSX]).
+const NS_DA: &str = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray";
+
+/// §18.9.10 `metadataType` for dynamic array properties. The flags are our own choice:
+/// the property follows the cell like its formula does.
+fn da_metadata_type() -> String {
+    format!(
+        "<metadataType name=\"{XLDAPR}\" minSupportedVersion=\"120000\" copy=\"1\" \
+         pasteAll=\"1\" pasteValues=\"1\" merge=\"1\" splitFirst=\"1\" rowColShift=\"1\" \
+         clearFormats=\"1\" clearComments=\"1\" assign=\"1\" coerce=\"1\" cellMeta=\"1\"/>"
+    )
+}
+
+/// `futureMetadata/bk` of a dynamic array formula (`fDynamic="1"`).
+fn da_future_bk(prefix: &str) -> String {
+    let q = |l: &str| {
+        if prefix.is_empty() {
+            l.to_owned()
+        } else {
+            format!("{prefix}:{l}")
+        }
+    };
+    format!(
+        "<{bk}><{ext_lst}><{ext} uri=\"{EXT_DA}\" xmlns:xda=\"{NS_DA}\">\
+         <xda:dynamicArrayProperties fDynamic=\"1\" fCollapsed=\"0\"/></{ext}></{ext_lst}></{bk}>",
+        bk = q("bk"),
+        ext_lst = q("extLst"),
+        ext = q("ext"),
+    )
+}
+
+/// `cm` values (1-based into `cellMetadata`, §18.9.3) whose block marks a dynamic array
+/// formula: an `rc` of type `XLDAPR` naming a `futureMetadata` entry with `fDynamic="1"`.
+fn dynamic_cms(els: &[El]) -> Vec<u32> {
+    let types: Vec<String> = els
+        .iter()
+        .filter(|e| e.local == "metadataType")
+        .map(|e| e.attr("name").unwrap_or_default())
+        .collect();
+    let dynamic: Vec<bool> = els
+        .iter()
+        .enumerate()
+        .find(|(_, e)| e.local == "futureMetadata" && e.attr("name").as_deref() == Some(XLDAPR))
+        .map(|(i, _)| {
+            children(els, i)
+                .filter(|(_, e)| e.local == "bk")
+                .map(|(bk, _)| {
+                    let mut stack = vec![bk];
+                    while let Some(n) = stack.pop() {
+                        for (c, e) in children(els, n) {
+                            if e.local == "dynamicArrayProperties" {
+                                return matches!(e.attr("fDynamic").as_deref(), Some("1" | "true"));
+                            }
+                            stack.push(c);
+                        }
+                    }
+                    false
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(cmi) = els.iter().position(|e| e.local == "cellMetadata") else {
+        return Vec::new();
+    };
+    children(els, cmi)
+        .filter(|(_, e)| e.local == "bk")
+        .enumerate()
+        .filter_map(|(k, (bk, _))| {
+            let is_dynamic = children(els, bk)
+                .filter(|(_, e)| e.local == "rc")
+                .any(|(_, rc)| {
+                    let t: Option<usize> = rc.attr("t").and_then(|t| t.parse().ok());
+                    let v: Option<usize> = rc.attr("v").and_then(|v| v.parse().ok());
+                    match (t, v) {
+                        (Some(t), Some(v)) => {
+                            t.checked_sub(1)
+                                .and_then(|t| types.get(t))
+                                .map(String::as_str)
+                                == Some(XLDAPR)
+                                && dynamic.get(v).copied().unwrap_or(false)
+                        }
+                        _ => false,
+                    }
+                });
+            is_dynamic.then(|| u32::try_from(k + 1).ok()).flatten()
+        })
+        .collect()
+}
+
+/// After reading: an array formula whose cell metadata marks a dynamic array spills
+/// ([`bo_model::sheet::Formula::dynamic`]); the others are legacy array formulas.
+pub(crate) fn resolve_dynamic(wb: &mut Workbook) {
+    let parts = find_parts(&wb.opaque.workbook_rels, &wb.opaque.parts);
+    let Some(name) = parts.metadata.as_ref() else {
+        return;
+    };
+    let Some(els) = data_of(&wb.opaque.parts, Some(name)).and_then(|d| index(d, name)) else {
+        return;
+    };
+    let cms = dynamic_cms(&els);
+    if cms.is_empty() {
+        return;
+    }
+    for ws in &mut wb.sheets {
+        for cell in ws.cells.values_mut() {
+            let Some(cm) = cell.cm else { continue };
+            if let Some(f) = cell.formula.as_mut() {
+                if matches!(f.kind, bo_model::sheet::FormulaKind::Array { .. }) && cms.contains(&cm)
+                {
+                    f.dynamic = true;
+                }
+            }
+        }
+    }
+}
+
+/// Adds the dynamic array cell metadata to an existing metadata part; returns it and the
+/// `cm` of the new block.
+fn patch_dynamic(data: &[u8], part: &str) -> Option<(Vec<u8>, u32)> {
+    let els = index(data, part)?;
+    let root = els.first()?;
+    let q = |l: &str| root.q(l);
+    let pre = root.prefix();
+    let mut p = Patch::default();
+    let kids: Vec<(usize, &El)> = children(&els, 0).collect();
+    let find = |l: &str| kids.iter().find(|(_, e)| e.local == l).copied();
+    let types: Vec<(usize, &El)> = match find("metadataTypes") {
+        Some((i, _)) => children(&els, i)
+            .filter(|(_, e)| e.local == "metadataType")
+            .collect(),
+        None => Vec::new(),
+    };
+    let t = if let Some(i) = types
+        .iter()
+        .position(|(_, e)| e.attr("name").as_deref() == Some(XLDAPR))
+    {
+        i + 1
+    } else {
+        let ty = if pre.is_empty() {
+            da_metadata_type()
+        } else {
+            prefixed(&da_metadata_type(), pre)
+        };
+        if let Some((i, _)) = find("metadataTypes") {
+            p.append(i, &ty);
+            p.set_attr(i, "count", &(types.len() + 1).to_string());
+        } else {
+            let open = format!("<{0} count=\"1\">{ty}</{0}>", q("metadataTypes"));
+            match kids.first() {
+                Some((_, first)) => p.insert_before(first, &open),
+                None => p.append(0, &open),
+            }
+        }
+        types.len() + 1
+    };
+    let future = kids
+        .iter()
+        .find(|(_, e)| e.local == "futureMetadata" && e.attr("name").as_deref() == Some(XLDAPR))
+        .copied();
+    let v = if let Some((i, _)) = future {
+        let n = children(&els, i).filter(|(_, e)| e.local == "bk").count();
+        p.append(i, &da_future_bk(pre));
+        p.set_attr(i, "count", &(n + 1).to_string());
+        n
+    } else {
+        let block = format!(
+            "<{0} name=\"{XLDAPR}\" count=\"1\">{1}</{0}>",
+            q("futureMetadata"),
+            da_future_bk(pre)
+        );
+        let before = kids
+            .iter()
+            .find(|(_, e)| {
+                matches!(
+                    e.local.as_str(),
+                    "cellMetadata" | "valueMetadata" | "extLst"
+                )
+            })
+            .copied();
+        match before {
+            Some((_, el)) => p.insert_before(el, &block),
+            None => p.append(0, &block),
+        }
+        0
+    };
+    let rc = format!("<{0}><{1} t=\"{t}\" v=\"{v}\"/></{0}>", q("bk"), q("rc"));
+    let cm = if let Some((i, _)) = find("cellMetadata") {
+        let n = children(&els, i).filter(|(_, e)| e.local == "bk").count();
+        p.append(i, &rc);
+        p.set_attr(i, "count", &(n + 1).to_string());
+        n + 1
+    } else {
+        let block = format!("<{0} count=\"1\">{rc}</{0}>", q("cellMetadata"));
+        let before = kids
+            .iter()
+            .find(|(_, e)| matches!(e.local.as_str(), "valueMetadata" | "extLst"))
+            .copied();
+        match before {
+            Some((_, el)) => p.insert_before(el, &block),
+            None => p.append(0, &block),
+        }
+        1
+    };
+    Some((p.apply(data, &els), u32::try_from(cm).ok()?))
+}
+
+/// `cm` of every dynamic array formula cell without one (entered since reading), keyed by
+/// (sheet, row, col): the metadata part gets (or already has) a dynamic array block.
+pub(crate) fn write_dynamic(
+    wb: &Workbook,
+    ctx: &mut WriteCtx<'_>,
+) -> HashMap<(usize, u32, u32), u32> {
+    let mut cells: Vec<(usize, u32, u32)> = Vec::new();
+    for (si, ws) in wb.sheets.iter().enumerate() {
+        for (&(r, c), cell) in &ws.cells {
+            if cell.cm.is_none()
+                && cell.formula.as_ref().is_some_and(|f| {
+                    f.dynamic && matches!(f.kind, bo_model::sheet::FormulaKind::Array { .. })
+                })
+            {
+                cells.push((si, r, c));
+            }
+        }
+    }
+    if cells.is_empty() {
+        return HashMap::new();
+    }
+    // The metadata part: created by `write_new` in this write, or the one read.
+    let fresh = ctx
+        .out_parts
+        .iter()
+        .position(|(_, ct, _)| ct.as_deref() == Some(CT_METADATA));
+    let cm = if let Some(i) = fresh {
+        let (name, _, data) = &ctx.out_parts[i];
+        let existing = index(data, name)
+            .map(|els| dynamic_cms(&els))
+            .unwrap_or_default();
+        if let Some(&cm) = existing.first() {
+            cm
+        } else {
+            let Some((out, cm)) = patch_dynamic(data, name) else {
+                return HashMap::new();
+            };
+            ctx.out_parts[i].2 = out;
+            cm
+        }
+    } else {
+        let parts = find_parts(&wb.opaque.workbook_rels, &wb.opaque.parts);
+        let current = parts.metadata.as_ref().and_then(|n| {
+            let data = ctx
+                .overrides
+                .get(n)
+                .cloned()
+                .or_else(|| data_of(&wb.opaque.parts, Some(n)).map(<[u8]>::to_vec))?;
+            Some((n.clone(), data))
+        });
+        if let Some((name, data)) = current {
+            let existing = index(&data, &name)
+                .map(|els| dynamic_cms(&els))
+                .unwrap_or_default();
+            if let Some(&cm) = existing.first() {
+                cm
+            } else {
+                let Some((out, cm)) = patch_dynamic(&data, &name) else {
+                    return HashMap::new();
+                };
+                ctx.overrides.insert(name, out);
+                cm
+            }
+        } else {
+            let name = ctx.names.fresh(|n| numbered("/xl/metadata", n, "xml"));
+            let xml = format!(
+                "{XML_DECL}<metadata xmlns=\"{SML_NS}\" xmlns:xda=\"{NS_DA}\">\
+                 <metadataTypes count=\"1\">{}</metadataTypes>\
+                 <futureMetadata name=\"{XLDAPR}\" count=\"1\">{}</futureMetadata>\
+                 <cellMetadata count=\"1\"><bk><rc t=\"1\" v=\"0\"/></bk></cellMetadata></metadata>",
+                da_metadata_type(),
+                da_future_bk("")
+            );
+            ctx.out_parts
+                .push((name.clone(), Some(CT_METADATA.into()), xml.into_bytes()));
+            add_wb_rel(ctx, REL_METADATA, &name);
+            1
+        }
+    };
+    cells.into_iter().map(|k| (k, cm)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

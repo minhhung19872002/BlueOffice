@@ -64,6 +64,7 @@ import type {
   TableStyleEntry,
 } from '@blueoffice/platform';
 import {
+  ARRAY_PART,
   PASSWORD_REQUIRED,
   SECURITY_ERRORS,
   SHEET_PROTECTED,
@@ -332,6 +333,7 @@ import {
   PasteOptionsButton,
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
+import { editableInput, isArrayEntry } from './arrayFormula';
 import {
   argumentHint,
   callAt,
@@ -1170,8 +1172,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const fail = useCallback(
     (e: unknown) => {
       const message = e instanceof Error ? e.message : String(e);
+      // Changing part of an array formula is refused with a message.
+      if (message.includes(ARRAY_PART))
+        setDialog({
+          kind: 'message',
+          title: t('sheetEditor.arrayFormula.title'),
+          message: t('sheetEditor.arrayFormula.partRefused'),
+        });
       // Refusals of sheet / workbook protection get their own message.
-      if (message.includes(SHEET_PROTECTED)) setStatus(t('sheetEditor.protection.refused'));
+      else if (message.includes(SHEET_PROTECTED)) setStatus(t('sheetEditor.protection.refused'));
       else if (message.includes(WORKBOOK_PROTECTED))
         setStatus(t('sheetEditor.protection.workbookRefused'));
       else if (message.includes(WRONG_PROTECTION_PASSWORD))
@@ -2257,6 +2266,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }
         await refreshInfo();
       } catch (err) {
+        // Part of an array formula: the entry stays in the editor (Esc gives it up).
+        if (String(err instanceof Error ? err.message : err).includes(ARRAY_PART)) {
+          holdBar.current = true;
+          setSelection(single(e.pos));
+          setEdit(e);
+          setBarText(e.text);
+          if (inputRef.current) inputRef.current.value = e.text;
+        }
         fail(err);
       }
       focusInput();
@@ -2274,7 +2291,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     async (inPlace: boolean, initial?: string) => {
       if (!host) return;
       const pos = selection.active;
-      const text = initial ?? (await host.cell(sheet, pos.row, pos.col)).input;
+      const text = initial ?? editableInput(await host.cell(sheet, pos.row, pos.col));
       setEdit({ pos, text, inPlace, sheet });
       setBarText(text);
       if (inputRef.current) inputRef.current.value = text;
@@ -3163,6 +3180,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         await clearSelection();
       },
       { shortcut: 'Delete' },
+    );
+    add(
+      'formulas.arrayEnter',
+      async (s) => {
+        const cell = await s.host.cell(s.sheet, s.selection.active.row, s.selection.active.col);
+        const text = editableInput(cell);
+        if (!text.startsWith('=')) return;
+        await s.host.exec({ cmd: 'setArrayFormula', sheet: s.sheet, range: rng(s), formula: text });
+        await refreshInfo();
+      },
+      has,
     );
     add(
       'edit.fillDown',
@@ -4745,6 +4773,38 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     focusInput();
   };
 
+  /**
+   * Ctrl+Shift+Enter: the entry becomes one array formula over the selection (a single
+   * cell of an existing array formula: that whole array); the selection stays.
+   */
+  const commitArray = async () => {
+    if (!host || !edit) return;
+    const e = edit;
+    if (!e.text.startsWith('=')) {
+      void commit(selection);
+      return;
+    }
+    setEdit(null);
+    setCopyMark(null);
+    if (inputRef.current) inputRef.current.value = '';
+    try {
+      await host.exec({
+        cmd: 'setArrayFormula',
+        sheet: e.sheet ?? sheet,
+        range: toRange(rangeOf(selection)),
+        formula: e.text,
+      });
+      await refreshInfo();
+    } catch (err) {
+      holdBar.current = true;
+      setEdit(e);
+      setBarText(e.text);
+      if (inputRef.current) inputRef.current.value = e.text;
+      fail(err);
+    }
+    focusInput();
+  };
+
   /** Keys while a cell is being edited, in the cell or in the formula bar (same rules). */
   const onEditKey = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (!edit) return;
@@ -4775,6 +4835,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       const b = el.selectionEnd ?? a;
       picking.current = null;
       setEditText(`${edit.text.slice(0, a)}\n${edit.text.slice(b)}`, a + 1);
+      return;
+    }
+    if (isArrayEntry(e)) {
+      e.preventDefault();
+      picking.current = null;
+      setFnPick(null);
+      void commitArray();
       return;
     }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {

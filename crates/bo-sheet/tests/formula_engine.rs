@@ -138,6 +138,7 @@ fn dynamic_arrays_spill_into_cells() {
                 kind: FormulaKind::Array {
                     range: "A1:A5".into(),
                 },
+                dynamic: true,
                 ..Formula::default()
             }),
             ..Cell::default()
@@ -156,6 +157,48 @@ fn dynamic_arrays_spill_into_cells() {
         Some(FormulaKind::Array {
             range: "A1:A3".into()
         })
+    );
+}
+
+/// A legacy array formula (§18.3.1.40 `f` with `t="array"`, no dynamic array cell
+/// metadata) keeps its range: the cells it does not reach show `#N/A`, and the formula is
+/// still a legacy one after calculation.
+#[test]
+fn legacy_array_formulas_keep_their_range() {
+    let mut wb = empty_book();
+    let mut ws = Worksheet::new("S");
+    ws.set_cell(
+        0,
+        0,
+        Cell {
+            formula: Some(Formula {
+                text: "SEQUENCE(3)".into(),
+                kind: FormulaKind::Array {
+                    range: "A1:A5".into(),
+                },
+                ..Formula::default()
+            }),
+            ..Cell::default()
+        },
+    );
+    // A stale result inside the range is overwritten.
+    ws.set_a1("A5", num(99.0));
+    set_formula(&mut ws, "B1", "SUM(A1:A3)");
+    wb.sheets.push(ws);
+    BoFormula::new().recalculate(&mut wb);
+    assert_eq!(value(&wb, 0, "A3"), num(3.0));
+    assert_eq!(value(&wb, 0, "A4"), CellValue::Error(CellError::NA));
+    assert_eq!(value(&wb, 0, "A5"), CellValue::Error(CellError::NA));
+    assert_eq!(value(&wb, 0, "B1"), num(6.0));
+    let f = wb.sheets[0].cell_a1("A1").and_then(|c| c.formula.clone());
+    assert_eq!(
+        f.map(|f| (f.kind, f.dynamic)),
+        Some((
+            FormulaKind::Array {
+                range: "A1:A5".into()
+            },
+            false
+        ))
     );
 }
 

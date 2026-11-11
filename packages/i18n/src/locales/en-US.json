@@ -804,6 +804,10 @@
       "current": "Continue with the current selection",
       "sort": "Sort"
     },
+    "arrayFormula": {
+      "title": "Array formula",
+      "partRefused": "This cell belongs to an array formula, which changes only as a whole. Select every cell of the array to clear it, or edit the formula and press Ctrl+Shift+Enter. Press Esc to discard the entry."
+    },
     "formulaError": {
       "title": "Formula error",
       "message": "The formula you typed has a syntax error and was not entered. Correct it, or press Esc to discard it. If you did not mean a formula, type an apostrophe (') before the equal sign."

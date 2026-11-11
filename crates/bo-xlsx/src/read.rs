@@ -264,6 +264,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
     // [MS-XLSX] checkbox cell controls and pictures placed in cells.
     crate::cellctl::resolve(&mut wb);
     crate::richdata::resolve(&mut wb);
+    crate::richdata::resolve_dynamic(&mut wb);
     Ok(wb)
 }
 
@@ -1353,6 +1354,7 @@ fn read_sheet_data(r: &mut XmlReader<'_>, sst: &[CellValue], ws: &mut Worksheet)
                                 kind,
                                 calc_always: ca,
                                 attrs: fa,
+                                dynamic: false,
                             });
                         }
                         // §18.3.1.53 is (inline rich string)

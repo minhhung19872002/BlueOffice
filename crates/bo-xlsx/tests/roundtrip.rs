@@ -552,3 +552,55 @@ fn web_functions_get_storage_prefixes() {
         .text;
     assert_eq!(text, shown);
 }
+
+/// [MS-XLSX] dynamic array properties: a spilling formula is written with `c/@cm` naming a
+/// cell metadata block of type `XLDAPR` (`fDynamic="1"`, ECMA-376 Part 1, §18.9.3
+/// `cellMetadata`); a legacy array formula (fixture B3:B4) has none. Reading tells them
+/// apart again.
+#[test]
+fn dynamic_array_formulas_get_cell_metadata() {
+    let mut wb = read_xlsx(&fixture()).unwrap();
+    let mut cell = bo_model::sheet::Cell::default().with_formula("SEQUENCE(2)");
+    if let Some(f) = cell.formula.as_mut() {
+        f.kind = FormulaKind::Array {
+            range: "H1:H2".into(),
+        };
+        f.dynamic = true;
+    }
+    wb.sheets[0].set_cell(0, 7, cell);
+    let out = write_xlsx(&wb).unwrap();
+    let xml = String::from_utf8(part(&out, "/xl/worksheets/sheet1.xml").unwrap()).unwrap();
+    assert!(xml.contains("<c r=\"H1\" cm=\"1\">"), "{xml}");
+    let meta = String::from_utf8(part(&out, "/xl/metadata.xml").unwrap()).unwrap();
+    assert!(meta.contains("<metadataType name=\"XLDAPR\""), "{meta}");
+    assert!(meta.contains("fDynamic=\"1\""), "{meta}");
+    assert!(
+        meta.contains("<cellMetadata count=\"1\"><bk><rc t=\"1\" v=\"0\"/></bk></cellMetadata>")
+    );
+    assert!(rels_of(&out, "/xl/workbook.xml")
+        .iter()
+        .any(|r| r.rel_type.ends_with("/sheetMetadata")));
+    let back = read_xlsx(&out).unwrap();
+    let f = |a1: &str| back.sheets[0].cell_a1(a1).unwrap().formula.clone().unwrap();
+    assert!(f("H1").dynamic);
+    assert!(!f("B3").dynamic);
+    // Written again unchanged: the same metadata, no second block.
+    let again = write_xlsx(&back).unwrap();
+    let meta2 = String::from_utf8(part(&again, "/xl/metadata.xml").unwrap()).unwrap();
+    assert_eq!(meta, meta2);
+    // A second new dynamic formula reuses the block of the first.
+    let mut back = back;
+    let mut cell = bo_model::sheet::Cell::default().with_formula("SEQUENCE(1,2)");
+    if let Some(f) = cell.formula.as_mut() {
+        f.kind = FormulaKind::Array {
+            range: "I1:J1".into(),
+        };
+        f.dynamic = true;
+    }
+    back.sheets[0].set_cell(0, 8, cell);
+    let third = write_xlsx(&back).unwrap();
+    let xml = String::from_utf8(part(&third, "/xl/worksheets/sheet1.xml").unwrap()).unwrap();
+    assert!(xml.contains("<c r=\"I1\" cm=\"1\">"), "{xml}");
+    let meta3 = String::from_utf8(part(&third, "/xl/metadata.xml").unwrap()).unwrap();
+    assert_eq!(meta, meta3);
+}

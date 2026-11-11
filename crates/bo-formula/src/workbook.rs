@@ -77,6 +77,10 @@ struct Formula {
     /// Canonical text, formatted on first use (opening a file sets 100 000s of
     /// formulas whose text is rarely asked for).
     text: std::sync::OnceLock<String>,
+    /// `(rows, columns)` of a legacy array formula: its result fills exactly that many
+    /// cells (ECMA-376 Part 1, §18.17.2.4 array formulas; §18.3.1.40 `f` with
+    /// `t="array"` and `ref`) instead of spilling.
+    fixed: Option<(u32, u32)>,
 }
 
 impl Formula {
@@ -85,7 +89,16 @@ impl Formula {
         if let Some(t) = text {
             let _ = cell.set(t);
         }
-        Formula { expr, text: cell }
+        Formula {
+            expr,
+            text: cell,
+            fixed: None,
+        }
+    }
+
+    fn with_fixed(mut self, fixed: Option<(u32, u32)>) -> Formula {
+        self.fixed = fixed.filter(|&(r, c)| r > 0 && c > 0);
+        self
     }
 
     fn text(&self) -> &str {
@@ -392,7 +405,35 @@ impl Workbook {
             ..ParseOptions::default()
         };
         let expr = parse_with(formula, &opts)?;
-        self.set_formula_expr(sheet, row, col, expr, None);
+        self.set_formula_expr(sheet, row, col, expr, None, None);
+        Ok(())
+    }
+
+    /// Set a legacy array formula (entered with Ctrl+Shift+Enter, ECMA-376 Part 1,
+    /// §18.17.2.4) anchored at `row`, `col` over `rows` × `cols` cells. Its result fills
+    /// exactly that range: a single value repeats in every cell, a one-row (one-column)
+    /// result repeats down (across), and cells beyond a larger result show `#N/A`; a
+    /// bigger result is cut to the range. It never spills or reports `#SPILL!`. The other
+    /// cells of the range must hold nothing.
+    ///
+    /// # Errors
+    /// The formula does not parse.
+    pub fn set_array_formula(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        formula: &str,
+        rows: u32,
+        cols: u32,
+    ) -> Result<(), ParseError> {
+        let opts = ParseOptions {
+            origin_row: row,
+            origin_col: col,
+            ..ParseOptions::default()
+        };
+        let expr = parse_with(formula, &opts)?;
+        self.set_formula_expr(sheet, row, col, expr, None, Some((rows, cols)));
         Ok(())
     }
 
@@ -403,6 +444,7 @@ impl Workbook {
         col: u32,
         expr: Expr,
         text: Option<String>,
+        fixed: Option<(u32, u32)>,
     ) {
         if sheet >= self.sheets.len() {
             return;
@@ -422,7 +464,7 @@ impl Workbook {
         self.sheets[sheet].cells.insert(
             (row, col),
             CellData {
-                formula: Some(Arc::new(Formula::new(expr, text))),
+                formula: Some(Arc::new(Formula::new(expr, text).with_fixed(fixed))),
                 value: old,
             },
         );
@@ -847,7 +889,7 @@ impl Workbook {
             let dr = i64::from(to.row) - i64::from(from.row);
             let dc = i64::from(to.col) - i64::from(from.col);
             let expr = offset_relative(&f.expr, dr, dc);
-            self.set_formula_expr(to.sheet, to.row, to.col, expr, None);
+            self.set_formula_expr(to.sheet, to.row, to.col, expr, None, f.fixed);
         } else {
             let v = src.value.clone();
             self.set_value(to.sheet, to.row, to.col, v);
@@ -899,13 +941,13 @@ impl Workbook {
             for (&(r, c), data) in &s.cells {
                 if let Some(f) = &data.formula {
                     let e = adjust_for_change(&f.expr, change, &s.name, &changed_name);
-                    rewrites.push((si, r, c, e));
+                    rewrites.push((si, r, c, e, f.fixed));
                 }
             }
         }
-        for (si, r, c, e) in rewrites {
+        for (si, r, c, e, fixed) in rewrites {
             if let Some(cell) = self.sheets[si].cells.get_mut(&(r, c)) {
-                cell.formula = Some(Arc::new(Formula::new(e, None)));
+                cell.formula = Some(Arc::new(Formula::new(e, None).with_fixed(fixed)));
             }
         }
         // Defined names: unqualified references belong to the scope sheet; for
@@ -1565,6 +1607,15 @@ impl Workbook {
 
     /// Store a computed value, placing or clearing its spill range.
     fn store(&mut self, id: CellId, v: Value) {
+        let fixed = self.sheets[id.sheet]
+            .cells
+            .get(&(id.row, id.col))
+            .and_then(|c| c.formula.as_ref())
+            .and_then(|f| f.fixed);
+        let v = match fixed {
+            Some((rows, cols)) => fit_array(v, rows, cols),
+            None => v,
+        };
         // Fast path: a scalar result for a cell that does not spill.
         if !matches!(v, Value::Array(_)) && !self.spills.contains_key(&id) {
             if !self.spill_blocked.is_empty() {
@@ -1587,7 +1638,8 @@ impl Workbook {
                     Value::Error(ErrorKind::Spill)
                 } else {
                     let area = Area::new(id.sheet, id.row, id.col, r2 as u32, c2 as u32);
-                    if self.spill_is_blocked(id, &area) {
+                    // A legacy array formula owns its range: nothing blocks it.
+                    if fixed.is_none() && self.spill_is_blocked(id, &area) {
                         self.spill_blocked.insert(id);
                         Value::Error(ErrorKind::Spill)
                     } else {
@@ -1638,6 +1690,7 @@ impl Workbook {
     }
 
     fn clear_spill_silent(&mut self, id: CellId) {
+        // (Legacy array formulas use the same spill bookkeeping for their fixed range.)
         if let Some(area) = self.spills.remove(&id) {
             for r in area.r1..=area.r2 {
                 for c in area.c1..=area.c2 {
@@ -2074,4 +2127,36 @@ impl CellProvider for RecalcView<'_> {
         }
         Some(ix)
     }
+}
+
+/// The result of a legacy array formula fitted to its `rows` × `cols` range (ECMA-376
+/// Part 1, §18.17.2.4): a single value repeats, a one-row / one-column array repeats down /
+/// across, positions beyond a larger array are `#N/A`, and a bigger array is cut.
+fn fit_array(v: Value, rows: u32, cols: u32) -> Value {
+    let (rows, cols) = (rows as usize, cols as usize);
+    if rows * cols <= 1 {
+        return match v {
+            Value::Array(a) => a.get(0, 0).clone(),
+            v => v,
+        };
+    }
+    let data: Vec<Value> = match &v {
+        Value::Array(a) => {
+            let (ar, ac) = (a.rows(), a.cols());
+            (0..rows)
+                .flat_map(|r| (0..cols).map(move |c| (r, c)))
+                .map(|(r, c)| {
+                    let rr = if ar == 1 { 0 } else { r };
+                    let cc = if ac == 1 { 0 } else { c };
+                    if rr < ar && cc < ac {
+                        a.get(rr, cc).clone()
+                    } else {
+                        Value::Error(ErrorKind::NA)
+                    }
+                })
+                .collect()
+        }
+        v => vec![v.clone(); rows * cols],
+    };
+    Value::Array(Arc::new(Array::new(rows, cols, data)))
 }

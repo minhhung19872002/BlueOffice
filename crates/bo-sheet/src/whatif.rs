@@ -213,6 +213,7 @@ impl DataTable {
             },
             calc_always: false,
             attrs,
+            dynamic: false,
         }
     }
 }

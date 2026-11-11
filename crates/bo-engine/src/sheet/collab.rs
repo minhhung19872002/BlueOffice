@@ -234,6 +234,9 @@ struct SharedFormula {
     ca: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     attrs: Vec<RawAttr>,
+    /// A dynamic (spilling) array formula, not a legacy one over a fixed range.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    dy: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -751,6 +754,7 @@ impl SheetCollab {
             kind: f.kind.clone(),
             ca: f.calc_always,
             attrs: f.attrs.clone(),
+            dy: f.dynamic,
         }
     }
 
@@ -1765,6 +1769,7 @@ impl SheetEngine {
                     kind: f.kind.clone(),
                     calc_always: f.ca,
                     attrs: f.attrs.clone(),
+                    dynamic: f.dy,
                 });
                 cell.cm = sc.cm;
                 cell.vm = sc.vm;

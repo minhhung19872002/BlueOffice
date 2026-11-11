@@ -744,7 +744,8 @@ fn chartex_charts_are_made_moved_and_edited_on_slides() {
         r#"{"cmd":"transform","transform":{"kind":"move","dx":36,"dy":18},"snap":false}"#,
     );
     let slide = r.slide;
-    // Edited: title, data and formatting stay chartex; a classic type is refused.
+    // Edited: title, data and formatting stay chartex (a classic type: see
+    // `chart_family_changes_keep_the_frame`).
     let r = run(
         &mut e,
         r#"{"cmd":"setChart","title":"Cây sửa","data":{"categories":["A","B"],"series":[{"name":"S","values":[3,5]}]}}"#,
@@ -754,9 +755,6 @@ fn chartex_charts_are_made_moved_and_edited_on_slides() {
         (c.kind.as_str(), c.title.as_deref()),
         ("treemap", Some("Cây sửa"))
     );
-    assert!(try_run(&mut e, r#"{"cmd":"setChart","kind":"column"}"#)
-        .error
-        .is_some());
     let r = run(&mut e, r#"{"cmd":"setChart","kind":"sunburst"}"#);
     assert_eq!(r.chart.unwrap().kind, "sunburst");
     // Saved and reopened: three chartex charts, still charts, the moved one with both boxes moved.
@@ -794,6 +792,97 @@ fn chartex_charts_are_made_moved_and_edited_on_slides() {
             .join("../../tests/corpus/slide/slide-edit-chartex.pptx");
         std::fs::write(out, back.save_pptx().unwrap()).unwrap();
     }
+}
+
+// source: ECMA-376 Part 1, §19.3.1.21 graphicFrame, §21.2.2.29 chartSpace; [MS-ODRAWXML] 2.24
+// cx:chartSpace in mc:AlternateContent (Part 3, §10.2.1) — a classic chart turned into a chartex
+// one and back on the same frame (CORE-CHART-004).
+#[test]
+fn chart_family_changes_keep_the_frame() {
+    let mut e = open("slide-text-bullets.pptx");
+    let data = r#"{"categories":["Đầu kỳ","Bán hàng","Chi phí"],"series":[{"name":"Dòng tiền","values":[100,60,-45]}]}"#;
+    let r = run(
+        &mut e,
+        &format!(r#"{{"cmd":"insertChart","kind":"column","title":"Dòng tiền","data":{data}}}"#),
+    );
+    let slide = r.slide;
+    let id = r.chart.as_ref().unwrap().id;
+    // A fade on the chart: it must stay with the frame.
+    run(&mut e, r#"{"cmd":"addAnimation","effect":"fade"}"#);
+    let frame = |e: &Engine| {
+        e.presentation().unwrap().slides[slide]
+            .data
+            .shapes
+            .iter()
+            .find_map(|n| match n {
+                ShapeNode::Frame(f) if f.nv.id == id => Some((**f).clone()),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let before = frame(&e);
+    let count = e.presentation().unwrap().slides[slide].data.shapes.len();
+    let parts = |e: &Engine, stem: &str| {
+        e.presentation()
+            .unwrap()
+            .parts
+            .iter()
+            .filter(|p| p.name.starts_with(stem) && p.name.ends_with(".xml"))
+            .count()
+    };
+    let r = run(&mut e, r#"{"cmd":"setChart","kind":"waterfall"}"#);
+    let c = r.chart.unwrap();
+    assert_eq!((c.kind.as_str(), c.id), ("waterfall", id));
+    assert_eq!(c.data.series[0].values[2], Some(-45.0));
+    assert_eq!(c.title.as_deref(), Some("Dòng tiền"));
+    let after = frame(&e);
+    assert!(after.uri.ends_with("/2014/chartex"));
+    assert_eq!(
+        (after.nv.name.as_str(), &after.xfrm),
+        (before.nv.name.as_str(), &before.xfrm)
+    );
+    assert_eq!(
+        e.presentation().unwrap().slides[slide].data.shapes.len(),
+        count
+    );
+    // The classic part, its relationships and its workbook are gone; one chartex part.
+    assert_eq!(
+        (
+            parts(&e, "/ppt/charts/chart"),
+            parts(&e, "/ppt/charts/chartEx")
+        ),
+        (1, 1)
+    );
+    let saved = String::from_utf8_lossy(&slide_xml(&e, slide)).into_owned();
+    assert!(saved.contains("Requires=\"cx1\"") && saved.contains("<mc:Fallback>"));
+    assert!(
+        saved.contains(&format!("spid=\"{id}\"")),
+        "animation kept: {saved}"
+    );
+    // Back to a classic type; undo returns the chartex frame, redo the classic one.
+    let r = run(&mut e, r#"{"cmd":"setChart","kind":"line"}"#);
+    assert_eq!(r.chart.unwrap().kind, "line");
+    assert!(frame(&e).uri.ends_with("/drawingml/2006/chart"));
+    assert_eq!(parts(&e, "/ppt/charts/chartEx"), 0);
+    let r = run(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(r.error.is_none());
+    assert!(frame(&e).uri.ends_with("/2014/chartex"));
+    run(&mut e, r#"{"cmd":"redo"}"#);
+    assert!(frame(&e).uri.ends_with("/drawingml/2006/chart"));
+    // Saved and reopened: a classic chart with its data.
+    let back = reopen(&e);
+    let p = back.presentation().unwrap();
+    let f = p.slides[slide]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Frame(f) if f.nv.id == id => Some(f),
+            _ => None,
+        })
+        .unwrap();
+    assert!(f.uri.ends_with("/drawingml/2006/chart"));
+    assert_eq!(f.xfrm, before.xfrm);
 }
 
 /// The saved XML of slide `i`.

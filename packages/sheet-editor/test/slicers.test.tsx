@@ -15,10 +15,13 @@ import {
   chartFilterFields,
   frameStyleLabel,
   nextSlicerChoice,
+  periodAt,
   periodRange,
   selectionLabel,
   slicerFields,
+  slicerRangeChoice,
   timelineFields,
+  timelineShowOf,
 } from '../src/slicers';
 
 afterEach(cleanup);
@@ -176,10 +179,42 @@ describe('slicer and timeline helpers', () => {
     expect(nextSlicerChoice(all, 'b', false)).toEqual(['b']);
     expect(nextSlicerChoice(one, 'b', false)).toEqual(['b']);
     expect(nextSlicerChoice(one, 'a', false)).toEqual([]);
-    // Ctrl: add, remove; from "all" it starts a new choice.
+    // Ctrl: add, remove; with every item chosen the click takes that one out.
     expect(nextSlicerChoice(one, 'c', true)).toEqual(['a', 'c']);
     expect(nextSlicerChoice(one, 'a', true)).toEqual([]);
-    expect(nextSlicerChoice(all, 'a', true)).toEqual(['a']);
+    expect(nextSlicerChoice(all, 'a', true)).toEqual(['b']);
+  });
+
+  it('takes the items between the last clicked one and a Shift click', () => {
+    const s = slicer({
+      items: ['a', 'b', 'c', 'd'].map((label) => ({ label, selected: true })),
+    });
+    expect(slicerRangeChoice(s, 'b', 'd')).toEqual(['b', 'c', 'd']);
+    expect(slicerRangeChoice(s, 'd', 'a')).toEqual(['a', 'b', 'c', 'd']);
+    expect(slicerRangeChoice(s, null, 'c')).toEqual(['c']);
+    expect(slicerRangeChoice(s, 'zz', 'c')).toEqual(['c']);
+    expect(slicerRangeChoice(s, 'a', 'zz')).toEqual([]);
+  });
+
+  it('finds the period a scrolled strip starts at and the Show options', () => {
+    const tl = timeline();
+    expect(periodAt(tl.periods, null)).toBe(0);
+    expect(periodAt(tl.periods, 45383)).toBe(3);
+    // A day inside March: March is shown first.
+    expect(periodAt(tl.periods, 45360)).toBe(2);
+    expect(periodAt(tl.periods, 99999)).toBe(3);
+    expect(timelineShowOf(tl)).toEqual({
+      header: true,
+      selectionLabel: true,
+      timeLevel: true,
+      scrollbar: true,
+    });
+    expect(timelineShowOf(timeline({ showHeader: false, showScrollbar: false }))).toEqual({
+      header: false,
+      selectionLabel: true,
+      timeLevel: true,
+      scrollbar: false,
+    });
   });
 
   it('turns periods into a day range and a label', () => {
@@ -209,7 +244,8 @@ describe('SlicerFrame', () => {
   it('draws the items with the colours of the style and reports clicks', () => {
     const onChoose = vi.fn();
     const onClear = vi.fn();
-    const c = frame();
+    // Selected: the options and delete buttons show over the frame.
+    const c = frame({ selected: true });
     ui(<SlicerFrame {...c} info={slicer()} onChoose={onChoose} onClear={onClear} />);
     const box = screen.getByTestId('slicer');
     expect(box.getAttribute('data-style')).toBe('SlicerStyleDark2');
@@ -219,10 +255,11 @@ describe('SlicerFrame', () => {
     expect(box.style.width).toBe('180px');
     const buttons = within(box).getAllByRole('button', { pressed: true });
     expect(buttons.map((b) => b.textContent)).toEqual(['North', '(blank)']);
+    // A click keeps only that item; Ctrl adds it to the chosen ones (North and blank).
     fireEvent.click(within(box).getByRole('button', { name: 'South' }));
-    expect(onChoose).toHaveBeenLastCalledWith('South', false);
+    expect(onChoose).toHaveBeenLastCalledWith(['South']);
     fireEvent.click(within(box).getByRole('button', { name: 'South' }), { ctrlKey: true });
-    expect(onChoose).toHaveBeenLastCalledWith('South', true);
+    expect(onChoose).toHaveBeenLastCalledWith(['North', '', 'South']);
     fireEvent.click(screen.getByTestId('slicer-clear'));
     expect(onClear).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('slicer-settings'));
@@ -241,18 +278,67 @@ describe('SlicerFrame', () => {
     expect(c.onSelect).toHaveBeenCalledTimes(1);
     expect(c.onDragStart).toHaveBeenCalledTimes(1);
     expect(c.onDragStart.mock.calls[0]![1]).toBe(false);
-    // The tool buttons in the header do not start a move.
-    fireEvent.mouseDown(screen.getByTestId('slicer-settings'), { button: 0 });
+    // Not selected: no options / delete buttons; the header buttons do not start a move.
+    expect(screen.queryByTestId('slicer-settings')).toBeNull();
+    fireEvent.mouseDown(screen.getByTestId('slicer-multi'), { button: 0 });
     expect(c.onDragStart).toHaveBeenCalledTimes(1);
     rerender(
       <I18nextProvider i18n={i18n}>
         <SlicerFrame {...c} selected info={slicer()} onChoose={vi.fn()} onClear={vi.fn()} />
       </I18nextProvider>,
     );
+    fireEvent.mouseDown(screen.getByTestId('slicer-settings'), { button: 0 });
+    expect(c.onDragStart).toHaveBeenCalledTimes(1);
     fireEvent.mouseDown(screen.getByTestId('slicer-resize'), { button: 0 });
     expect(c.onDragStart.mock.calls[1]![1]).toBe(true);
     fireEvent.keyDown(screen.getByTestId('slicer'), { key: 'Delete' });
     expect(c.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects a range with Shift, toggles Multi-Select (button, Alt+S) and clears with Alt+C', () => {
+    const onChoose = vi.fn();
+    const onClear = vi.fn();
+    const info = slicer({
+      items: ['A', 'B', 'C', 'D'].map((label, i) => ({ label, selected: i === 0 })),
+    });
+    ui(<SlicerFrame {...frame()} info={info} onChoose={onChoose} onClear={onClear} />);
+    const box = screen.getByTestId('slicer');
+    const item = (name: string) => within(box).getByRole('button', { name });
+    fireEvent.click(item('B'));
+    expect(onChoose).toHaveBeenLastCalledWith(['B']);
+    fireEvent.click(item('D'), { shiftKey: true });
+    expect(onChoose).toHaveBeenLastCalledWith(['B', 'C', 'D']);
+    // Multi-Select on: a plain click adds or removes like Ctrl.
+    const multi = screen.getByTestId('slicer-multi');
+    expect(multi.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(multi);
+    expect(multi.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(item('C'));
+    expect(onChoose).toHaveBeenLastCalledWith(['A', 'C']);
+    fireEvent.keyDown(box, { key: 's', altKey: true });
+    expect(multi.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(item('C'));
+    expect(onChoose).toHaveBeenLastCalledWith(['C']);
+    fireEvent.keyDown(box, { key: 'c', altKey: true });
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws a custom style: frame fill and the items that are not chosen', () => {
+    const colors = {
+      selected: '#2E75B6',
+      selectedText: '#FFFFFF',
+      header: '#FFFFFF',
+      headerText: '#1F4E79',
+      border: '#1F4E79',
+      background: '#F2F7FC',
+      unselected: '#DDEBF7',
+      unselectedText: '#595959',
+    };
+    ui(<SlicerFrame {...frame()} info={slicer({ colors })} onChoose={vi.fn()} onClear={vi.fn()} />);
+    const box = screen.getByTestId('slicer');
+    expect(box.style.getPropertyValue('--frame-bg')).toBe('#F2F7FC');
+    expect(box.style.getPropertyValue('--frame-off')).toBe('#DDEBF7');
+    expect(box.style.getPropertyValue('--frame-off-text')).toBe('#595959');
   });
 
   it('has no editing tools and no clear filter to press when nothing can change', () => {
@@ -293,6 +379,67 @@ describe('TimelineFrame', () => {
     expect(onRange).toHaveBeenLastCalledWith(45292, 45322);
     fireEvent.click(within(strip).getByRole('button', { name: '04/2024' }), { shiftKey: true });
     expect(onRange).toHaveBeenLastCalledWith(45292, 45412);
+  });
+
+  it('chooses the periods a drag goes over, committed when the mouse button goes up', () => {
+    const onRange = vi.fn();
+    ui(
+      <TimelineFrame
+        {...frame()}
+        info={timeline()}
+        onRange={onRange}
+        onClear={vi.fn()}
+        onLevel={vi.fn()}
+      />,
+    );
+    const strip = screen.getByTestId('timeline-strip');
+    const period = (name: string) => within(strip).getByRole('button', { name });
+    fireEvent.mouseDown(period('01/2024'), { button: 0 });
+    fireEvent.mouseEnter(period('02/2024'));
+    fireEvent.mouseEnter(period('03/2024'));
+    expect(onRange).not.toHaveBeenCalled();
+    fireEvent.mouseUp(window);
+    expect(onRange).toHaveBeenCalledTimes(1);
+    expect(onRange).toHaveBeenLastCalledWith(45292, 45382);
+    // Then Shift click extends from where the drag started.
+    fireEvent.click(period('04/2024'), { shiftKey: true });
+    expect(onRange).toHaveBeenLastCalledWith(45292, 45412);
+  });
+
+  it('hides the parts Timeline Tools › Show turns off', () => {
+    const c = frame();
+    const { rerender } = ui(
+      <TimelineFrame
+        {...c}
+        info={timeline({ showTimeLevel: false, showScrollbar: false, showSelectionLabel: false })}
+        onRange={vi.fn()}
+        onClear={vi.fn()}
+        onLevel={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('timeline-level')).toBeNull();
+    expect(screen.queryByTestId('timeline-zoom-in')).toBeNull();
+    expect(screen.queryByTestId('timeline-range')).toBeNull();
+    expect(screen.getByTestId('timeline-strip').getAttribute('data-scrollbar')).toBe('hidden');
+    expect(screen.getByTestId('timeline-header').textContent).toContain('Date');
+    // No header: no caption and no Clear Filter; the frame moves by its edge.
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <TimelineFrame
+          {...c}
+          info={timeline({ showHeader: false })}
+          onRange={vi.fn()}
+          onClear={vi.fn()}
+          onLevel={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.queryByTestId('timeline-header')).toBeNull();
+    expect(screen.queryByTestId('timeline-clear')).toBeNull();
+    expect(screen.getByTestId('timeline-level')).toBeTruthy();
+    expect(screen.getByTestId('timeline-settings')).toBeTruthy();
+    fireEvent.mouseDown(screen.getByTestId('timeline'), { button: 0 });
+    expect(c.onDragStart).toHaveBeenCalledTimes(1);
   });
 
   it('changes the time level from the list and the zoom buttons', () => {
@@ -434,6 +581,38 @@ describe('FrameOptionsDialog', () => {
       columns: 3,
       style: 'SlicerStyleLight4',
       pivots: ['Pivot1', 'Pivot2'],
+    });
+  });
+
+  it('lists the workbook styles first and applies the Show options of a timeline', async () => {
+    const onApply = vi.fn(async () => {});
+    ui(
+      <FrameOptionsDialog
+        kind="timeline"
+        caption="Date"
+        style="Mine"
+        connections={[]}
+        customStyles={['Mine']}
+        show={{ header: true, selectionLabel: true, timeLevel: true, scrollbar: true }}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    );
+    const style = screen.getByTestId('frame-style') as HTMLSelectElement;
+    expect(style.value).toBe('Mine');
+    // The custom style, then the twelve built-in ones (no "(none)" entry).
+    expect(style.options).toHaveLength(13);
+    expect(style.options[0]!.textContent).toBe('Mine');
+    fireEvent.click(screen.getByTestId('timeline-show-timeLevel'));
+    fireEvent.click(screen.getByTestId('timeline-show-scrollbar'));
+    fireEvent.click(screen.getByTestId('frame-options-ok'));
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1));
+    expect(onApply).toHaveBeenCalledWith({
+      caption: 'Date',
+      columns: undefined,
+      style: 'Mine',
+      pivots: undefined,
+      show: { header: true, selectionLabel: true, timeLevel: false, scrollbar: false },
     });
   });
 

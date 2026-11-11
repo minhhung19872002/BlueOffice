@@ -638,27 +638,19 @@ pub(crate) fn new_chart(
     Ok((c, d))
 }
 
-/// Insert a chart on the current slide.
-pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>) -> R<()> {
-    let rect = spec.rect;
-    let (c, d) = new_chart(
-        spec.kind,
-        spec.title,
-        spec.legend.as_deref(),
-        spec.data,
-        spec.template,
-        spec.texts,
-        &theme_accents(tx.pres),
-    )?;
-    let slide = sel.slide;
-    let (sw, sh) = slide_size(tx.pres);
-    let r = rect.unwrap_or(super::geom::Rect {
-        x: sw * 0.15,
-        y: sh * 0.15,
-        w: sw * 0.7,
-        h: sh * 0.7,
-    });
-    let ex = is_ex(&c);
+/// Write chart `c` (its data `d`) to a new chart part of its family (§21.2.2.29 chartSpace or
+/// [MS-ODRAWXML] 2.24 `cx:chartSpace`) related from `slide`, and return the XML of a graphic frame
+/// `id` showing it at `(x, y, cx, cy)` EMU: a §19.3.1.21 graphicFrame, for chartex in an
+/// `mc:AlternateContent` choice with a text fallback.
+fn new_chart_frame(
+    tx: &mut Tx<'_>,
+    slide: usize,
+    id: u32,
+    (x, y, cx, cy): (i64, i64, i64, i64),
+    c: &Chart,
+    d: &ChartData,
+) -> R<String> {
+    let ex = is_ex(c);
     let part = build::unique_part(
         tx.pres,
         if ex {
@@ -668,7 +660,7 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
         },
         "xml",
     );
-    store(tx, &part, &c, &d)?;
+    store(tx, &part, c, d)?;
     let s = tx
         .pres
         .slides
@@ -678,14 +670,12 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
         .map(|n| format!("rId{n}"))
         .find(|id| s.info.rels.iter().all(|r| &r.id != id))
         .unwrap_or_default();
-    let id = next_shape_id(tx.pres, slide);
-    let emu = |pt: f64| (pt * super::geom::EMU_PT).round() as i64;
     let xml = if ex {
         // [MS-ODRAWXML] 2.24: the frame in an mc:AlternateContent choice with a text fallback.
         bo_pptx::chartex_frame::new_frame_xml(
             id,
             &format!("Chart {id}"),
-            (emu(r.x), emu(r.y), emu(r.w.max(1.0)), emu(r.h.max(1.0))),
+            (x, y, cx, cy),
             &rid,
             bo_xlsx::chartex::requires(c.plots.first().map(|p| &p.kind)),
             "Biểu đồ mở rộng (chartex): cần ứng dụng hỗ trợ để hiển thị.",
@@ -698,10 +688,10 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
                 r#"<a:graphic><a:graphicData uri="{uri}"><c:chart xmlns:c="{c}" xmlns:r="{r}" r:id="{rid}"/></a:graphicData></a:graphic></p:graphicFrame>"#
             ),
             id = id,
-            x = emu(r.x),
-            y = emu(r.y),
-            cx = emu(r.w.max(1.0)),
-            cy = emu(r.h.max(1.0)),
+            x = x,
+            y = y,
+            cx = cx,
+            cy = cy,
             uri = bo_drawingml::chart::URI_CHART,
             c = NS_C,
             r = NS_R,
@@ -722,6 +712,103 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
             external: false,
         });
     })?;
+    Ok(xml)
+}
+
+/// Remove a preserved part, if it is there.
+fn remove_part(tx: &mut Tx<'_>, name: &str) -> R<()> {
+    if let Some(i) = tx
+        .pres
+        .parts
+        .iter()
+        .position(|p| p.name.eq_ignore_ascii_case(name))
+    {
+        let old = tx.pres.parts[i].clone();
+        tx.op(super::ops::SlideOp::Parts {
+            index: i,
+            remove: vec![old],
+            insert: vec![],
+        })?;
+    }
+    Ok(())
+}
+
+/// Does any slide still relate to part `name`?
+fn part_in_use(pres: &Presentation, name: &str) -> bool {
+    pres.slides.iter().any(|s| {
+        s.info.rels.iter().any(|r| {
+            !r.external
+                && bo_opc::resolve_target(&s.info.part_name, &r.target).eq_ignore_ascii_case(name)
+        })
+    })
+}
+
+/// A change between the classic (c:) and the chartex (cx:) families: the chart moves to a new part
+/// of the other family and the frame at `path` is rebuilt around it, keeping its id, name,
+/// description, place and size (so its animations and its place in the stacking order stay). The
+/// old part, its relationships and its embedded workbook go when no other slide uses them.
+fn switch_family(
+    tx: &mut Tx<'_>,
+    slide: usize,
+    path: &[usize],
+    old_part: &str,
+    c: &Chart,
+    d: &ChartData,
+) -> R<()> {
+    let Some(ShapeNode::Frame(old)) = node_at(tx.pres, slide, path).cloned() else {
+        return Err(EditError::Refused("noChart"));
+    };
+    let GraphicContent::Other(gd) = &old.content else {
+        return Err(EditError::Refused("noChart"));
+    };
+    let old_rid = bo_drawingml::chart::chart_rel_id(gd).ok_or(EditError::Refused("noChart"))?;
+    let (x, y) = old.xfrm.off.unwrap_or((0, 0));
+    let (cx, cy) = old.xfrm.ext.unwrap_or((1, 1));
+    let xml = new_chart_frame(tx, slide, old.nv.id, (x, y, cx, cy), c, d)?;
+    let Some(ShapeNode::Frame(mut f)) = build::node(&xml) else {
+        return Err(EditError::Refused("badChart"));
+    };
+    f.nv = old.nv.clone();
+    f.xfrm = old.xfrm.clone();
+    tx.replace_node(slide, path, ShapeNode::Frame(f))?;
+    tx.fields(slide, |fl| fl.rels.retain(|r| r.id != old_rid))?;
+    if !part_in_use(tx.pres, old_part) {
+        let book = read_rels(tx.pres, old_part)
+            .into_iter()
+            .find(|r| r.rel_type == REL_PACKAGE && r.mode == TargetMode::Internal)
+            .map(|r| bo_opc::resolve_target(old_part, &r.target));
+        remove_part(tx, old_part)?;
+        remove_part(tx, &bo_opc::rels_part_name(old_part))?;
+        if let Some(b) = book {
+            remove_part(tx, &b)?;
+        }
+    }
+    Ok(())
+}
+/// Insert a chart on the current slide.
+pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>) -> R<()> {
+    let rect = spec.rect;
+    let (c, d) = new_chart(
+        spec.kind,
+        spec.title,
+        spec.legend.as_deref(),
+        spec.data,
+        spec.template,
+        spec.texts,
+        &theme_accents(tx.pres),
+    )?;
+    let slide = sel.slide;
+    let (sw, sh) = slide_size(tx.pres);
+    let r = rect.unwrap_or(super::geom::Rect {
+        x: sw * 0.15,
+        y: sh * 0.15,
+        w: sw * 0.7,
+        h: sh * 0.7,
+    });
+    let id = next_shape_id(tx.pres, slide);
+    let emu = |pt: f64| (pt * super::geom::EMU_PT).round() as i64;
+    let frame = (emu(r.x), emu(r.y), emu(r.w.max(1.0)), emu(r.h.max(1.0)));
+    let xml = new_chart_frame(tx, slide, id, frame, &c, &d)?;
     insert_top(tx, sel, build::node(&xml))
 }
 
@@ -759,10 +846,8 @@ pub(crate) fn edit_chart(
     } else {
         kind
     };
-    // A chart part holds one family: classic (c:) or chartex (cx:) types, not a change between them.
-    if bo_sheet::chart::plot_for(&kind).kind.is_ex() != is_ex(&c) && kind_name(&c) != kind {
-        return Err(EditError::Refused("badChart"));
-    }
+    // A change between the classic (c:) and chartex (cx:) families needs a new part of the other
+    // kind: the callers write one (`switch_family`, BlueDoc's new chart part).
     let grouping = c.plots.first().and_then(|p| p.grouping.clone());
     let fresh = series_of(&d);
     let count: usize = c.plots.iter().map(|p| p.series.len()).sum();
@@ -829,7 +914,11 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
         .ok_or(EditError::Refused("noChart"))?;
     let c =
         bo_xlsx::chart_write::parse_chart_part(data, &part).ok_or(EditError::Refused("noChart"))?;
+    let was_ex = is_ex(&c);
     let (c, d) = edit_chart(c, spec, &theme_accents(tx.pres))?;
+    if is_ex(&c) != was_ex {
+        return switch_family(tx, sel.slide, &p.path, &part, &c, &d);
+    }
     store(tx, &part, &c, &d)
 }
 

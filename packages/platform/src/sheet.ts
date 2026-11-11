@@ -1193,7 +1193,14 @@ export type SheetCommand =
       level?: number;
       caption?: string;
       style?: string;
+      /** Timeline Tools › Show: the parts drawn (absent: unchanged). */
+      showHeader?: boolean;
+      showSelectionLabel?: boolean;
+      showTimeLevel?: boolean;
+      showScrollbar?: boolean;
     }
+  /** First day the strip of a timeline shows (serial; absent: from the start). Not an undo step. */
+  | { cmd: 'timelineScroll'; sheet: number; index: number; day?: number }
   /** The pivot tables a timeline filters. */
   | {
       cmd: 'timelineConnect';
@@ -1465,6 +1472,10 @@ export interface FrameColors {
   header: string;
   headerText: string;
   border: string;
+  /** Custom styles: frame fill, item fill and text when not selected. */
+  background?: string;
+  unselected?: string;
+  unselectedText?: string;
 }
 
 /** A pivot table a slicer or timeline may filter (every pivot table on its cache). */
@@ -1490,6 +1501,15 @@ export interface TimelineInfo {
   from: [number, number];
   to: [number, number];
   filtered: boolean;
+  /** Timeline Tools › Show (absent: shown). */
+  showHeader?: boolean;
+  showSelectionLabel?: boolean;
+  showTimeLevel?: boolean;
+  showScrollbar?: boolean;
+  /** First day (serial) the strip shows; absent / null: from the first period. */
+  scrollDay?: number | null;
+  /** The workbook's own timeline styles. */
+  customStyles?: string[];
   periods: { label: string; start: number; end: number; selected: boolean }[];
   pivots?: FrameConnection[];
 }
@@ -1574,6 +1594,8 @@ export interface SlicerInfo {
   /** Pivot tables on the slicer's cache (pivot slicers). */
   pivots?: FrameConnection[];
   columns: number;
+  /** The workbook's own slicer styles. */
+  customStyles?: string[];
   /** Anchor cells [row, col]: top-left and bottom-right. */
   from: [number, number];
   to: [number, number];

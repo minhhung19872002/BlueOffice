@@ -15,7 +15,16 @@ import type {
   TimelineInfo,
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
-import { Filter, FunnelX, Link2, Settings2, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  Filter,
+  FunnelX,
+  Link2,
+  ListChecks,
+  Settings2,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -68,17 +77,34 @@ export function timelineFields(pivot: PivotInfo): number[] {
 
 /**
  * The next choice of a slicer after a click on `label`: a plain click keeps only that item (or
- * clears the filter when it was the only one chosen); with Ctrl the item is added or removed.
- * An empty list clears the filter.
+ * clears the filter when it was the only one chosen); with Ctrl (or Multi-Select) the item is
+ * added or removed — with every item chosen (no filter) that click takes it out. An empty list
+ * clears the filter.
  */
 export function nextSlicerChoice(info: SlicerInfo, label: string, multi: boolean): string[] {
   const chosen = info.items.filter((i) => i.selected).map((i) => i.label);
   const all = chosen.length === info.items.length;
   if (multi) {
-    if (all) return [label];
     return chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label];
   }
   return !all && chosen.length === 1 && chosen[0] === label ? [] : [label];
+}
+
+/**
+ * The choice of a slicer after a Shift click: every item from the last clicked one (nchor) to
+ * label, in the slicer's order. Without an anchor (or an unknown one) only label.
+ */
+export function slicerRangeChoice(
+  info: SlicerInfo,
+  anchor: string | null,
+  label: string,
+): string[] {
+  const labels = info.items.map((i) => i.label);
+  const a = anchor === null ? -1 : labels.indexOf(anchor);
+  const b = labels.indexOf(label);
+  if (b < 0) return [];
+  if (a < 0) return [label];
+  return labels.slice(Math.min(a, b), Math.max(a, b) + 1);
 }
 
 /** First and last day of the periods `from`..`to` of a timeline (either order). */
@@ -115,6 +141,9 @@ function frameVars(colors: FrameColors | undefined, rect: Box): CSSProperties {
     vars['--frame-head'] = colors.header;
     vars['--frame-head-text'] = colors.headerText;
     vars['--frame-border'] = colors.border;
+    if (colors.background) vars['--frame-bg'] = colors.background;
+    if (colors.unselected) vars['--frame-off'] = colors.unselected;
+    if (colors.unselectedText) vars['--frame-off-text'] = colors.unselectedText;
   }
   return vars as CSSProperties;
 }
@@ -142,16 +171,21 @@ function FrameTools({
   c,
   prefix,
   children,
+  edit = true,
+  className = styles.frameTools,
 }: {
   c: FrameCommon;
   prefix: string;
   children?: ReactNode;
+  /** Show the settings and delete buttons (an editable frame). */
+  edit?: boolean;
+  className?: string;
 }) {
   const { t } = useTranslation();
   return (
-    <span className={styles.frameTools} onMouseDown={(e) => e.stopPropagation()}>
+    <span className={className} onMouseDown={(e) => e.stopPropagation()}>
       {children}
-      {c.editable && (
+      {edit && c.editable && (
         <>
           <button
             type="button"
@@ -177,7 +211,13 @@ function FrameTools({
   );
 }
 
-/** A slicer over the grid: the header (drag to move), then one button per item. */
+/**
+ * A slicer over the grid: the header (drag to move) with the Multi-Select and Clear Filter
+ * buttons, then one button per item. A click keeps only that item; Ctrl click (or any click
+ * while Multi-Select is on) adds or removes it; Shift click takes the items from the last
+ * clicked one. Alt+S toggles Multi-Select and Alt+C clears the filter while the slicer has the
+ * focus.
+ */
 export function SlicerFrame({
   info,
   onChoose,
@@ -185,10 +225,22 @@ export function SlicerFrame({
   ...c
 }: FrameCommon & {
   info: SlicerInfo;
-  onChoose: (label: string, multi: boolean) => void;
+  /** The items to keep (empty: no filter). */
+  onChoose: (items: string[]) => void;
   onClear: () => void;
 }) {
   const { t } = useTranslation();
+  const [multi, setMulti] = useState(false);
+  const anchor = useRef<string | null>(null);
+  const filtered = !info.items.every((i) => i.selected);
+  const click = (label: string, e: ReactMouseEvent) => {
+    if (e.shiftKey) {
+      onChoose(slicerRangeChoice(info, anchor.current, label));
+      return;
+    }
+    anchor.current = label;
+    onChoose(nextSlicerChoice(info, label, multi || e.ctrlKey || e.metaKey));
+  };
   return (
     <div
       className={`${styles.slicer} ${c.selected ? styles.frameSelected : ''}`}
@@ -207,6 +259,12 @@ export function SlicerFrame({
         if (e.key === 'Delete' && c.editable && e.target === e.currentTarget) {
           e.preventDefault();
           c.onDelete();
+        } else if (e.altKey && (e.key === 's' || e.key === 'S')) {
+          e.preventDefault();
+          setMulti((m) => !m);
+        } else if (e.altKey && (e.key === 'c' || e.key === 'C')) {
+          e.preventDefault();
+          if (filtered) onClear();
         }
       }}
     >
@@ -218,13 +276,23 @@ export function SlicerFrame({
         }}
       >
         <span className={styles.frameCaption}>{info.caption}</span>
-        <FrameTools c={c} prefix="slicer">
+        <FrameTools c={c} prefix="slicer" edit={false}>
+          <button
+            type="button"
+            data-testid="slicer-multi"
+            title={t('sheetSlicer.multiSelect')}
+            aria-label={t('sheetSlicer.multiSelect')}
+            aria-pressed={multi}
+            onClick={() => setMulti((m) => !m)}
+          >
+            <ListChecks size={14} />
+          </button>
           <button
             type="button"
             data-testid="slicer-clear"
             title={t('sheetEditor.slicer.clear')}
             aria-label={t('sheetEditor.slicer.clear')}
-            disabled={info.items.every((i) => i.selected)}
+            disabled={!filtered}
             onClick={onClear}
           >
             <FunnelX size={14} />
@@ -239,14 +307,20 @@ export function SlicerFrame({
           <button
             key={item.label}
             type="button"
+            data-testid="slicer-item"
             className={item.selected ? styles.slicerOn : styles.slicerOff}
             aria-pressed={item.selected}
-            onClick={(e) => onChoose(item.label, e.ctrlKey || e.metaKey)}
+            onClick={(e) => click(item.label, e)}
           >
             {item.label || t('sheetEditor.slicer.blank')}
           </button>
         ))}
       </div>
+      {c.selected && c.editable && (
+        // Like the header of a spreadsheet slicer, which holds only Multi-Select and Clear
+        // Filter: the options and delete buttons sit over the selected frame.
+        <FrameTools c={c} prefix="slicer" className={styles.frameFloat} />
+      )}
       {c.selected && c.editable && (
         <div
           className={styles.frameHandle}
@@ -259,36 +333,139 @@ export function SlicerFrame({
   );
 }
 
+/** The index of the first period of `periods` a strip scrolled to `day` shows (0 without one). */
+export function periodAt(periods: TimelineInfo['periods'], day: number | null | undefined): number {
+  if (day === null || day === undefined) return 0;
+  const k = periods.findIndex((p) => p.end >= day);
+  return k < 0 ? Math.max(0, periods.length - 1) : k;
+}
+
 /**
- * A timeline over the grid: the header with the time level (years … days; the zoom buttons
- * step through the levels), the selected range, then the strip of periods (click one, Shift
- * click to extend the range). The strip scrolls sideways and shows the selection when it
- * changes.
+ * A timeline over the grid: the header (caption, time level — the zoom buttons step through
+ * years … days — and Clear Filter), the label of the selected range, then the strip of periods:
+ * click one, drag across several, or Shift click to extend the range from the last one clicked.
+ * Timeline Tools › Show hides the header, the selection label, the time level or the scroll bar.
+ * The strip shows the selection when it changes; where it is scrolled to is kept with the file.
  */
 export function TimelineFrame({
   info,
   onRange,
   onClear,
   onLevel,
+  onScroll,
   ...c
 }: FrameCommon & {
   info: TimelineInfo;
   onRange: (start: number, end: number) => void;
   onClear: () => void;
   onLevel: (level: number) => void;
+  /** The strip was scrolled: the first day it shows (`null`: the start). */
+  onScroll?: (day: number | null) => void;
 }) {
   const { t } = useTranslation();
   const anchor = useRef<number | null>(null);
   const strip = useRef<HTMLDivElement | null>(null);
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const dragRef = useRef<{ from: number; to: number } | null>(null);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHeader = info.showHeader !== false;
+  const showLabel = info.showSelectionLabel !== false;
+  const showLevel = info.showTimeLevel !== false;
+  const showBar = info.showScrollbar !== false;
   const firstOn = info.filtered ? info.periods.findIndex((p) => p.selected) : -1;
-  // Bring the selection into view when it or the level changes.
+  // Bring the selection into view when it or the level changes; without one, where the strip
+  // was scrolled to.
   useEffect(() => {
     const el = strip.current;
-    if (!el || firstOn < 0) return;
-    const btn = el.children[firstOn];
-    if (btn instanceof HTMLElement) el.scrollLeft = Math.max(0, btn.offsetLeft - 24);
+    if (!el) return;
+    const k = firstOn >= 0 ? firstOn : periodAt(info.periods, info.scrollDay);
+    const btn = el.children[k];
+    if (btn instanceof HTMLElement)
+      el.scrollLeft = Math.max(0, btn.offsetLeft - (firstOn >= 0 ? 24 : 6));
+    // Only when the selection or the periods change, not on every scroll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstOn, info.level, info.periods.length]);
+  /** A drag over the periods from period `k`: it ends where the mouse button goes up. */
+  const startDrag = (k: number) => {
+    const d = { from: k, to: k };
+    dragRef.current = d;
+    setDrag(d);
+    window.addEventListener(
+      'mouseup',
+      () => {
+        const done = dragRef.current;
+        dragRef.current = null;
+        setDrag(null);
+        if (!done) return;
+        anchor.current = done.from;
+        const r = periodRange(info, done.from, done.to);
+        if (r) onRange(r.start, r.end);
+      },
+      { once: true },
+    );
+  };
+  useEffect(
+    () => () => {
+      if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    },
+    [],
+  );
+  const scrolled = () => {
+    if (!onScroll) return;
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      const el = strip.current;
+      if (!el) return;
+      const kids = Array.from(el.children) as HTMLElement[];
+      const k = Math.max(
+        0,
+        kids.findIndex((b) => b.offsetLeft + b.offsetWidth > el.scrollLeft + 6),
+      );
+      const day = k === 0 ? null : (info.periods[k]?.start ?? null);
+      const was = info.scrollDay ?? null;
+      if (day !== was && periodAt(info.periods, was) !== k) onScroll(day);
+    }, 250);
+  };
+  const inDrag = (k: number) =>
+    drag !== null && k >= Math.min(drag.from, drag.to) && k <= Math.max(drag.from, drag.to);
   const levels = [0, 1, 2, 3];
+  const levelTools = showLevel && (
+    <>
+      <button
+        type="button"
+        data-testid="timeline-zoom-out"
+        title={t('sheetSlicer.zoomOut')}
+        aria-label={t('sheetSlicer.zoomOut')}
+        disabled={!c.editable || info.level <= 0}
+        onClick={() => onLevel(info.level - 1)}
+      >
+        <ZoomOut size={14} />
+      </button>
+      <select
+        data-testid="timeline-level"
+        aria-label={t('sheetSlicer.level')}
+        value={info.level}
+        disabled={!c.editable}
+        onChange={(e) => onLevel(Number(e.target.value))}
+      >
+        {levels.map((l) => (
+          <option key={l} value={l}>
+            {t(`sheetEditor.timeline.levels.${l}`)}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        data-testid="timeline-zoom-in"
+        title={t('sheetSlicer.zoomIn')}
+        aria-label={t('sheetSlicer.zoomIn')}
+        disabled={!c.editable || info.level >= 3}
+        onClick={() => onLevel(info.level + 1)}
+      >
+        <ZoomIn size={14} />
+      </button>
+    </>
+  );
   return (
     <div
       className={`${styles.slicer} ${c.selected ? styles.frameSelected : ''}`}
@@ -303,79 +480,95 @@ export function TimelineFrame({
       onMouseDown={(e) => {
         e.stopPropagation();
         c.onSelect();
+        // Without a header the frame moves by its edge.
+        if (!showHeader && c.editable && e.button === 0 && e.target === e.currentTarget)
+          c.onDragStart(e, false);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Delete' && c.editable && e.target === e.currentTarget) {
           e.preventDefault();
           c.onDelete();
+        } else if (e.altKey && (e.key === 'c' || e.key === 'C')) {
+          e.preventDefault();
+          if (info.filtered) onClear();
         }
       }}
     >
+      {showHeader && (
+        <div
+          className={styles.slicerHeader}
+          data-testid="timeline-header"
+          onMouseDown={(e) => {
+            if (c.editable && e.button === 0) c.onDragStart(e, false);
+          }}
+        >
+          <span className={styles.frameCaption}>{info.caption}</span>
+          <FrameTools c={c} prefix="timeline">
+            <button
+              type="button"
+              data-testid="timeline-clear"
+              title={t('sheetEditor.slicer.clear')}
+              aria-label={t('sheetEditor.slicer.clear')}
+              disabled={!info.filtered}
+              onClick={onClear}
+            >
+              <FunnelX size={14} />
+            </button>
+          </FrameTools>
+        </div>
+      )}
+      {(showLabel || showLevel || (!showHeader && c.editable)) && (
+        // The selection label at the left, the time level at the right (the frame's settings
+        // and delete buttons too when there is no header).
+        <div className={styles.timelineBar}>
+          <span
+            className={styles.timelineRange}
+            data-testid={showLabel ? 'timeline-range' : undefined}
+          >
+            {showLabel ? selectionLabel(info, t) : ''}
+          </span>
+          {showHeader ? (
+            <span className={styles.frameTools} onMouseDown={(e) => e.stopPropagation()}>
+              {levelTools}
+            </span>
+          ) : (
+            <FrameTools c={c} prefix="timeline">
+              {levelTools}
+            </FrameTools>
+          )}
+        </div>
+      )}
       <div
-        className={styles.slicerHeader}
-        data-testid="timeline-header"
-        onMouseDown={(e) => {
-          if (c.editable && e.button === 0) c.onDragStart(e, false);
-        }}
+        className={`${styles.timelineStrip} ${showBar ? '' : styles.timelineNoBar}`}
+        ref={strip}
+        data-testid="timeline-strip"
+        data-scrollbar={showBar ? 'shown' : 'hidden'}
+        onScroll={scrolled}
       >
-        <span className={styles.frameCaption}>{info.caption}</span>
-        <FrameTools c={c} prefix="timeline">
-          <button
-            type="button"
-            data-testid="timeline-zoom-out"
-            title={t('sheetSlicer.zoomOut')}
-            aria-label={t('sheetSlicer.zoomOut')}
-            disabled={!c.editable || info.level <= 0}
-            onClick={() => onLevel(info.level - 1)}
-          >
-            <ZoomOut size={14} />
-          </button>
-          <select
-            data-testid="timeline-level"
-            aria-label={t('sheetSlicer.level')}
-            value={info.level}
-            disabled={!c.editable}
-            onChange={(e) => onLevel(Number(e.target.value))}
-          >
-            {levels.map((l) => (
-              <option key={l} value={l}>
-                {t(`sheetEditor.timeline.levels.${l}`)}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            data-testid="timeline-zoom-in"
-            title={t('sheetSlicer.zoomIn')}
-            aria-label={t('sheetSlicer.zoomIn')}
-            disabled={!c.editable || info.level >= 3}
-            onClick={() => onLevel(info.level + 1)}
-          >
-            <ZoomIn size={14} />
-          </button>
-          <button
-            type="button"
-            data-testid="timeline-clear"
-            title={t('sheetEditor.slicer.clear')}
-            aria-label={t('sheetEditor.slicer.clear')}
-            disabled={!info.filtered}
-            onClick={onClear}
-          >
-            <FunnelX size={14} />
-          </button>
-        </FrameTools>
-      </div>
-      <div className={styles.timelineRange} data-testid="timeline-range">
-        {selectionLabel(info, t)}
-      </div>
-      <div className={styles.timelineStrip} ref={strip} data-testid="timeline-strip">
         {info.periods.map((p, k) => (
           <button
             key={p.label}
             type="button"
-            className={info.filtered && p.selected ? styles.slicerOn : styles.slicerOff}
+            className={`${info.filtered && p.selected ? styles.slicerOn : styles.slicerOff} ${
+              inDrag(k) ? styles.timelineDrag : ''
+            }`}
             aria-pressed={info.filtered && p.selected}
+            onMouseDown={(e) => {
+              if (e.button !== 0 || e.shiftKey) return;
+              // A drag over the periods chooses a range (committed on mouse up).
+              e.preventDefault();
+              startDrag(k);
+            }}
+            onMouseEnter={() => {
+              const d = dragRef.current;
+              if (!d) return;
+              dragRef.current = { from: d.from, to: k };
+              setDrag(dragRef.current);
+            }}
             onClick={(e) => {
+              // Mouse clicks are handled on mouse up (drag); this is Shift click and the
+              // keyboard (Enter / Space).
+              if (!e.shiftKey && e.detail !== 0) return;
               const from = e.shiftKey && anchor.current !== null ? anchor.current : k;
               if (!e.shiftKey) anchor.current = k;
               const r = periodRange(info, from, k);
@@ -497,6 +690,28 @@ export interface FrameOptions {
   style: string;
   /** Names of the connected pivot tables (pivot slicers and timelines). */
   pivots?: string[];
+  /** Timelines: Timeline Tools › Show. */
+  show?: TimelineShow;
+}
+
+/** The parts of a timeline Timeline Tools › Show draws. */
+export interface TimelineShow {
+  header: boolean;
+  selectionLabel: boolean;
+  timeLevel: boolean;
+  scrollbar: boolean;
+}
+
+const SHOW_KEYS: (keyof TimelineShow)[] = ['header', 'selectionLabel', 'timeLevel', 'scrollbar'];
+
+/** The Show options of a listed timeline (absent flags: shown). */
+export function timelineShowOf(info: TimelineInfo): TimelineShow {
+  return {
+    header: info.showHeader !== false,
+    selectionLabel: info.showSelectionLabel !== false,
+    timeLevel: info.showTimeLevel !== false,
+    scrollbar: info.showScrollbar !== false,
+  };
 }
 
 /**
@@ -509,6 +724,8 @@ export function FrameOptionsDialog({
   columns,
   style,
   connections,
+  customStyles,
+  show,
   onApply,
   onClose,
 }: {
@@ -517,6 +734,10 @@ export function FrameOptionsDialog({
   columns?: number;
   style: string | null;
   connections: FrameConnection[];
+  /** The workbook's own styles of this kind. */
+  customStyles?: string[];
+  /** Timelines: what is shown now. */
+  show?: TimelineShow;
   /** Apply the changes; rejects with the engine's message. */
   onApply: (o: FrameOptions) => Promise<void>;
   onClose: () => void;
@@ -527,7 +748,9 @@ export function FrameOptionsDialog({
   const [st, setSt] = useState(style ?? '');
   const [on, setOn] = useState(() => connections.filter((c) => c.connected).map((c) => c.name));
   const [error, setError] = useState('');
-  const names = kind === 'slicer' ? SLICER_STYLE_NAMES : TIMELINE_STYLE_NAMES;
+  const [shown, setShown] = useState<TimelineShow | undefined>(show);
+  const builtIn = kind === 'slicer' ? SLICER_STYLE_NAMES : TIMELINE_STYLE_NAMES;
+  const names = [...(customStyles ?? []), ...builtIn];
   const ok = async () => {
     const n = Number(cols);
     if (kind === 'slicer' && (!Number.isInteger(n) || n < 1 || n > 50)) {
@@ -544,6 +767,7 @@ export function FrameOptionsDialog({
         columns: kind === 'slicer' ? n : undefined,
         style: st,
         pivots: connections.length > 0 ? on : undefined,
+        show: shown,
       });
       onClose();
     } catch (e) {
@@ -580,13 +804,38 @@ export function FrameOptionsDialog({
           {t('sheetSlicer.styleLabel')}
           <select data-testid="frame-style" value={st} onChange={(e) => setSt(e.target.value)}>
             {!names.includes(st) && <option value={st}>{st || t('sheetSlicer.style.none')}</option>}
-            {names.map((n) => (
+            {(customStyles ?? []).length > 0 && (
+              <optgroup label={t('sheetSlicer.style.custom')}>
+                {(customStyles ?? []).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {builtIn.map((n) => (
               <option key={n} value={n}>
                 {frameStyleLabel(n, t)}
               </option>
             ))}
           </select>
         </label>
+        {shown && (
+          <fieldset className={styles.frameConnections} data-testid="timeline-show">
+            <legend>{t('sheetSlicer.show.title')}</legend>
+            {SHOW_KEYS.map((k) => (
+              <label key={k} className={styles.check}>
+                <input
+                  type="checkbox"
+                  data-testid={`timeline-show-${k}`}
+                  checked={shown[k]}
+                  onChange={(e) => setShown({ ...shown, [k]: e.target.checked })}
+                />
+                {t(`sheetSlicer.show.${k}`)}
+              </label>
+            ))}
+          </fieldset>
+        )}
         {connections.length > 0 && (
           <fieldset className={styles.frameConnections}>
             <legend>

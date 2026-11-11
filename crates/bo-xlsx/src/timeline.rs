@@ -134,7 +134,14 @@ pub(crate) fn read_timelines(
                 continue;
             };
             let (from, to) = places.get(&name).copied().unwrap_or_default();
+            // [MS-XLSX] CT_Timeline booleans default to true: only an explicit false hides.
+            let off = |a: &str| t.attr(a).is_some_and(|v| v == "0" || v == "false");
             out.push(Timeline {
+                hide_header: off("showHeader"),
+                hide_selection_label: off("showSelectionLabel"),
+                hide_time_level: off("showTimeLevel"),
+                hide_scrollbar: off("showHorizontalScrollbar"),
+                scroll_position: t.attr("scrollPosition").map(str::to_owned),
                 caption: t.attr("caption").unwrap_or(&name).to_owned(),
                 name,
                 cache: cache_name,
@@ -289,6 +296,23 @@ fn cache_xml(t: &Timeline, refs: &PivotRefs<'_>) -> String {
     out
 }
 
+/// The optional display attributes of [MS-XLSX] `CT_Timeline`: `showHeader`,
+/// `showSelectionLabel`, `showTimeLevel`, `showHorizontalScrollbar` (written only when false,
+/// their default being true) and `scrollPosition`; `None` = not written (removed when patching).
+fn show_attrs(t: &Timeline) -> [(&'static str, Option<String>); 5] {
+    let off = |hidden: bool| hidden.then(|| "0".to_owned());
+    [
+        ("showHeader", off(t.hide_header)),
+        ("showSelectionLabel", off(t.hide_selection_label)),
+        ("showTimeLevel", off(t.hide_time_level)),
+        ("showHorizontalScrollbar", off(t.hide_scrollbar)),
+        (
+            "scrollPosition",
+            t.scroll_position.clone().filter(|s| !s.is_empty()),
+        ),
+    ]
+}
+
 /// The `timelines` part of a sheet's new timelines ([MS-XLSX] `CT_Timeline`).
 fn timelines_xml(list: &[&Timeline]) -> String {
     let mut out = format!(
@@ -303,6 +327,11 @@ fn timelines_xml(list: &[&Timeline]) -> String {
             t.level.min(3),
             t.level.min(3)
         ));
+        for (attr, value) in show_attrs(t) {
+            if let Some(v) = value {
+                out.push_str(&format!(" {attr}=\"{}\"", esc(&v)));
+            }
+        }
         if let Some(st) = &t.style {
             out.push_str(&format!(" style=\"{}\"", esc(st)));
         }
@@ -466,18 +495,14 @@ pub fn patch_timeline(wb: &mut bo_model::sheet::Workbook, sheet: usize, index: u
         return;
     }
     let level = t.level.min(3).to_string();
-    crate::slicer::patch_named_attrs(
-        wb,
-        &t.part,
-        "timeline",
-        &t.name,
-        &[
-            ("caption", Some(t.caption.clone())),
-            ("level", Some(level.clone())),
-            ("selectionLevel", Some(level)),
-            ("style", t.style.clone()),
-        ],
-    );
+    let mut attrs = vec![
+        ("caption", Some(t.caption.clone())),
+        ("level", Some(level.clone())),
+        ("selectionLevel", Some(level)),
+        ("style", t.style.clone()),
+    ];
+    attrs.extend(show_attrs(&t));
+    crate::slicer::patch_named_attrs(wb, &t.part, "timeline", &t.name, &attrs);
     crate::slicer::patch_pivot_tables(wb, &t.cache_part, &t.pivots);
 }
 

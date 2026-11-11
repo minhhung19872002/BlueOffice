@@ -929,7 +929,7 @@
   flex-direction: column;
   box-sizing: border-box;
   border: 1px solid var(--frame-border, var(--bo-border, #c9d1dc));
-  background: var(--bo-surface, #fff);
+  background: var(--frame-bg, var(--bo-surface, #fff));
   box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
   font-size: 12px;
   z-index: 3;
@@ -1103,8 +1103,81 @@
 
 .slicerOff {
   border: 1px solid var(--bo-border, #d7dde7);
+  background: var(--frame-off, transparent);
+  color: var(--frame-off-text, var(--bo-muted, #8a94a3));
+}
+
+/* The Multi-Select button of a slicer header while it is on. */
+.slicerHeader button[aria-pressed='true'] {
+  background: color-mix(in srgb, currentcolor 18%, transparent);
+  border-radius: 3px;
+}
+
+/* Options and delete buttons over a selected slicer. */
+.frameFloat {
+  position: absolute;
+  right: -1px;
+  bottom: 100%;
+  display: inline-flex;
+  gap: 2px;
+  padding: 1px 2px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1f2933);
+}
+
+.frameFloat button {
+  border: none;
   background: transparent;
-  color: var(--bo-muted, #8a94a3);
+  cursor: pointer;
+  color: inherit;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+/* Second row of a timeline: the selection label, then the time level. */
+.timelineBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.timelineBar .timelineRange {
+  flex: 1;
+  min-width: 0;
+}
+
+.timelineBar button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.timelineBar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* A period range being dragged over (not committed yet). */
+.timelineDrag {
+  outline: 2px dashed var(--frame-on, var(--bo-sheet-accent, #0b7a6b));
+  outline-offset: -2px;
+}
+
+/* Timeline Tools › Show › Scroll bar off: the strip still scrolls (wheel, drag). */
+.timelineNoBar {
+  scrollbar-width: none;
+}
+
+.timelineNoBar::-webkit-scrollbar {
+  display: none;
 }
 
 .timelineStrip {

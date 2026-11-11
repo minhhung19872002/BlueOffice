@@ -5775,7 +5775,16 @@
       "light": "Nhạt {{n}}",
       "dark": "Đậm {{n}}",
       "other": "Xám {{n}}",
-      "none": "(không có)"
+      "none": "(không có)",
+      "custom": "Tuỳ chỉnh của sổ"
+    },
+    "multiSelect": "Chọn nhiều (Alt+S)",
+    "show": {
+      "title": "Hiển thị",
+      "header": "Tiêu đề",
+      "selectionLabel": "Nhãn khoảng chọn",
+      "timeLevel": "Cấp thời gian",
+      "scrollbar": "Thanh cuộn"
     },
     "connections": "Kết nối báo cáo",
     "needConnection": "Phải nối với ít nhất một bảng tổng hợp.",

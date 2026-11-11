@@ -221,6 +221,39 @@ pub fn set_options(
     Ok(())
 }
 
+/// The first day (serial) the strip of timeline `t` shows ([MS-XLSX] `timeline/@scrollPosition`);
+/// `None` = from the first period.
+#[must_use]
+pub fn scroll_day(wb: &Workbook, t: &bo_model::sheet::Timeline) -> Option<f64> {
+    t.scroll_position
+        .as_deref()
+        .and_then(|s| iso_serial(s, system(wb)))
+}
+
+/// Set the first day the strip of timeline `index` shows (`None`: from the first period).
+///
+/// # Errors
+/// An unknown timeline or a day that is not a date.
+pub fn set_scroll(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    day: Option<f64>,
+) -> Result<(), String> {
+    let sys = system(wb);
+    let iso = match day {
+        Some(d) => Some(serial_iso(d, sys).ok_or("not a date")?),
+        None => None,
+    };
+    let t = wb
+        .sheets
+        .get_mut(sheet)
+        .and_then(|ws| ws.timelines.get_mut(index))
+        .ok_or("no such timeline")?;
+    t.scroll_position = iso;
+    Ok(())
+}
+
 /// Filter timeline `index` to the days `start..=end` (serials), or clear it with `None`.
 ///
 /// # Errors

@@ -725,7 +725,8 @@ pub enum SheetCommand {
         /// Chart template to format the new chart with (CORE-CHART-007).
         #[serde(default)]
         template: Option<bo_sheet::chart_style::ChartTemplate>,
-        /// Titles the template adds (localised by the UI).
+        /// Titles the template adds (localised by the UI); `title` is also the placeholder title
+        /// of a new chart of several series.
         #[serde(default)]
         texts: bo_sheet::chart_style::LayoutTexts,
     },
@@ -1721,6 +1722,20 @@ pub enum SheetCommand {
         /// Style name (empty: none).
         #[serde(default)]
         style: Option<String>,
+        /// Which parts are shown (header, selection label, time level, scroll bar).
+        #[serde(default, flatten)]
+        show: super::slicer_cmd::TimelineShow,
+    },
+    /// The first day the strip of a timeline shows (`timeline/@scrollPosition`): a view
+    /// setting saved with the file, not an undo step.
+    TimelineScroll {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the timeline on the sheet.
+        index: usize,
+        /// Serial of the first day shown; absent = from the first period.
+        #[serde(default)]
+        day: Option<f64>,
     },
     /// The pivot tables a timeline filters (report connections).
     TimelineConnect {
@@ -3107,7 +3122,9 @@ impl SheetEngine {
                 level,
                 caption,
                 style,
-            } => self.timeline_options(sheet, index, level, caption, style),
+                show,
+            } => self.timeline_options(sheet, index, level, caption, style, &show),
+            C::TimelineScroll { sheet, index, day } => self.timeline_scroll(sheet, index, day),
             C::TimelineConnect {
                 sheet,
                 index,
@@ -4117,6 +4134,9 @@ impl SheetEngine {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 let mut chart = bo_sheet::chart::new_chart(self.wb()?, sheet, r, &kind)
                     .ok_or_else(|| bad("no data for a chart"))?;
+                // The look of a newly inserted chart (title, legend, gap width), then a
+                // template's formatting over it.
+                bo_sheet::chart::insert_look(&mut chart, texts.title.as_deref());
                 if let Some(t) = &template {
                     let accents = bo_sheet::chart_style::theme_accents(self.wb()?);
                     let spec = crate::chart_design::DesignSpec {

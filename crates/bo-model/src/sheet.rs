@@ -1987,6 +1987,22 @@ pub struct Timeline {
     /// `timeline/@style`.
     #[serde(default)]
     pub style: Option<String>,
+    /// `timeline/@showHeader="0"`: the caption and its buttons are hidden.
+    #[serde(default)]
+    pub hide_header: bool,
+    /// `timeline/@showSelectionLabel="0"`: the label of the chosen range is hidden.
+    #[serde(default)]
+    pub hide_selection_label: bool,
+    /// `timeline/@showTimeLevel="0"`: the time level choice is hidden.
+    #[serde(default)]
+    pub hide_time_level: bool,
+    /// `timeline/@showHorizontalScrollbar="0"`: the scroll bar under the periods is hidden.
+    #[serde(default)]
+    pub hide_scrollbar: bool,
+    /// `timeline/@scrollPosition` (ISO date-time): the first day the strip shows; `None` = from
+    /// the first period.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll_position: Option<String>,
 }
 
 /// Kind of a sparkline group ([MS-XLSX] `ST_SparklineType`).
@@ -3570,6 +3586,10 @@ pub struct Stylesheet {
     pub root_attrs: Vec<RawAttr>,
     /// Unknown children (tableStyles, colors, extLst).
     pub unknown: Vec<RawXml>,
+    /// The custom slicer and timeline styles found in `unknown` when the part was read (kept
+    /// there for writing).
+    #[serde(default)]
+    pub frame_styles: Vec<FrameStyleParts>,
 }
 
 impl Stylesheet {
@@ -3929,6 +3949,27 @@ pub struct Dxf {
     pub border: Option<Border>,
     /// Protection change.
     pub protection: Option<CellProtection>,
+}
+
+/// The formats of a custom slicer or timeline style of the workbook: the `tableStyle` of that
+/// name (§18.8.40 `tableStyleElement` `wholeTable` / `headerRow`, formats in §18.8.15 `dxfs`) and
+/// its [MS-XLSX] `x14:slicerStyle` / `x15:timelineStyle` elements (formats in the `x14:dxfs`
+/// extension). Read from the styles part on demand; the part itself is written back as read.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FrameStyleParts {
+    /// Style name (`slicer/@style`, `timeline/@style`).
+    pub name: String,
+    /// A timeline style (`x15:timelineStyle`) rather than a slicer style.
+    pub timeline: bool,
+    /// `wholeTable`: frame fill, border and text.
+    pub whole: Option<Dxf>,
+    /// `headerRow`: the caption.
+    pub header: Option<Dxf>,
+    /// `selectedItemWithData` (slicer) / `selectedTimeBlock` (timeline).
+    pub selected: Option<Dxf>,
+    /// `unselectedItemWithData` (slicer) / `unselectedTimeBlock` (timeline).
+    pub unselected: Option<Dxf>,
 }
 
 #[cfg(test)]

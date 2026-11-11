@@ -120,6 +120,34 @@ pub(super) fn sync_frames(wb: &mut Workbook, name: &str) {
     }
 }
 
+/// Names of the workbook's custom slicer (or timeline) styles, for the options dialog.
+fn custom_styles(wb: &Workbook, timeline: bool) -> Vec<&str> {
+    wb.styles
+        .frame_styles
+        .iter()
+        .filter(|s| s.timeline == timeline)
+        .map(|s| s.name.as_str())
+        .collect()
+}
+
+/// Which parts of a timeline are shown ([MS-XLSX] `CT_Timeline` `showHeader`,
+/// `showSelectionLabel`, `showTimeLevel`, `showHorizontalScrollbar`); absent = unchanged.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct TimelineShow {
+    /// The caption and its buttons.
+    #[serde(default, rename = "showHeader")]
+    pub header: Option<bool>,
+    /// The label of the chosen range.
+    #[serde(default, rename = "showSelectionLabel")]
+    pub selection_label: Option<bool>,
+    /// The time level choice.
+    #[serde(default, rename = "showTimeLevel")]
+    pub time_level: Option<bool>,
+    /// The scroll bar under the periods.
+    #[serde(default, rename = "showScrollbar")]
+    pub scrollbar: Option<bool>,
+}
+
 fn clamp([r, c]: [u32; 2]) -> CellRef {
     CellRef::new(r.min(MAX_ROWS - 1), c.min(MAX_COLS - 1))
 }
@@ -152,6 +180,7 @@ impl SheetEngine {
                     "columns": s.columns.max(1),
                     "style": s.style,
                     "colors": bo_sheet::slicer::frame_colors(wb, s.style.as_deref()),
+                    "customStyles": custom_styles(wb, false),
                     "from": [s.from.row, s.from.col],
                     "to": [to.row, to.col],
                     "items": bo_sheet::slicer::items(wb, sheet, i, &locale),
@@ -181,9 +210,15 @@ impl SheetEngine {
                     "level": t.level,
                     "style": t.style,
                     "colors": bo_sheet::slicer::frame_colors(wb, t.style.as_deref()),
+                    "customStyles": custom_styles(wb, true),
                     "from": [t.from.row, t.from.col],
                     "to": [to.row, to.col],
                     "filtered": t.start.is_some(),
+                    "showHeader": !t.hide_header,
+                    "showSelectionLabel": !t.hide_selection_label,
+                    "showTimeLevel": !t.hide_time_level,
+                    "showScrollbar": !t.hide_scrollbar,
+                    "scrollDay": bo_sheet::timeline::scroll_day(wb, t),
                     "periods": bo_sheet::timeline::periods(wb, sheet, i, vi),
                     "pivots": connections(wb, &t.pivots),
                 })
@@ -267,7 +302,7 @@ impl SheetEngine {
         })
     }
 
-    /// `timelineOptions`: time level, caption and style.
+    /// `timelineOptions`: time level, caption, style and the parts shown.
     pub(super) fn timeline_options(
         &mut self,
         sheet: usize,
@@ -275,13 +310,38 @@ impl SheetEngine {
         level: Option<u32>,
         caption: Option<String>,
         style: Option<String>,
+        show: &TimelineShow,
     ) -> Result<Value> {
         self.edit(sheet, Recalc::No, |wb, _| {
             bo_sheet::timeline::set_options(wb, sheet, index, level, caption, style)
                 .map_err(bad)?;
+            let t = &mut wb.sheets[sheet].timelines[index];
+            let set = |hide: &mut bool, show: Option<bool>| {
+                if let Some(on) = show {
+                    *hide = !on;
+                }
+            };
+            set(&mut t.hide_header, show.header);
+            set(&mut t.hide_selection_label, show.selection_label);
+            set(&mut t.hide_time_level, show.time_level);
+            set(&mut t.hide_scrollbar, show.scrollbar);
             bo_xlsx::timeline::patch_timeline(wb, sheet, index);
             Ok(json!({ "ok": true }))
         })
+    }
+
+    /// `timelineScroll`: the first day the strip shows (`scrollPosition`), saved with the file
+    /// like the zoom of a sheet: no undo step.
+    pub(super) fn timeline_scroll(
+        &mut self,
+        sheet: usize,
+        index: usize,
+        day: Option<f64>,
+    ) -> Result<Value> {
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        bo_sheet::timeline::set_scroll(wb, sheet, index, day).map_err(bad)?;
+        bo_xlsx::timeline::patch_timeline(wb, sheet, index);
+        Ok(json!({ "ok": true }))
     }
 
     /// `slicerConnect` / `timelineConnect`: the pivot tables the frame filters.

@@ -48,7 +48,7 @@ impl Node {
             .map(str::to_owned)
     }
 
-    fn descendants<'a>(&'a self, name: &str, out: &mut Vec<&'a Node>) {
+    pub(crate) fn descendants<'a>(&'a self, name: &str, out: &mut Vec<&'a Node>) {
         for c in &self.children {
             if c.name == name {
                 out.push(c);

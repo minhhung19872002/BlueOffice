@@ -3496,6 +3496,7 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-slicers", "BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered)", writer_slicers),
     ("writer-pivot-slicers", "BlueSheet writer: pivot table slicers (a field outside the report; filtered to one item, two columns, dark style; one slicer driving two pivot tables on a shared cache + a second slicer)", writer_pivot_slicers),
     ("writer-timelines", "BlueSheet writer: timelines (months, no filter; years, filtered to 2024; quarters over a grouped date field, filtered, next to a slicer)", writer_timelines),
+    ("writer-frame-styles", "BlueSheet writer: custom slicer / timeline styles (x14:slicerStyle, x15:timelineStyle + tableStyle, x14:dxfs) and timeline display options (no time level and scroll bar, scrolled; no header; no selection label)", writer_frame_styles),
     ("writer-cf-databars", "BlueSheet writer: data bars with negative values (automatic axis + gradient, all-negative, all-positive; middle axis, solid fill, borders, own negative colours; right-to-left, no axis, percent / percentile / formula thresholds, bar only) as 2006 dataBar + x14:dataBar", cf_corpus::writer_cf_databars),
     ("writer-cf-icons", "BlueSheet writer: every icon set family (ten 3-icon sets incl. x14 3Stars / 3Triangles; 4-icon sets plain and reversed; 5-icon sets incl. x14 5Boxes, number / percentile / formula thresholds, icon only)", cf_corpus::writer_cf_icons),
     ("writer-cf-custom", "BlueSheet writer: custom icon sets (x14:cfIcon, NoIcons) under a Stop If True rule; three rules re-ordered with Stop If True; mixed custom icons + colour scale under a stopping top-N rule", cf_corpus::writer_cf_custom),
@@ -3828,6 +3829,139 @@ fn writer_pivot_slicers(i: usize) -> m::Workbook {
             &labels,
         )
         .unwrap();
+    }
+    wb
+}
+
+/// A custom slicer style and a custom timeline style in the styles part as [MS-XLSX] lays them
+/// out: a §18.8.40 `tableStyle` per style (`wholeTable` / `headerRow` formats in §18.8.15 `dxfs`)
+/// and the `x14:slicerStyles` / `x15:timelineStyles` extensions whose element formats are in the
+/// `x14:dxfs` extension. Returns (slicer style, timeline style) names.
+fn add_frame_styles(wb: &mut m::Workbook) -> (&'static str, &'static str) {
+    let dxf = |font: Option<(&str, bool)>, fill: Option<&str>, border: Option<&str>| m::Dxf {
+        font: font.map(|(rgb, bold)| m::Font {
+            bold,
+            color: Some(m::SheetColor::rgb(rgb)),
+            ..m::Font::default()
+        }),
+        fill: fill.map(|rgb| {
+            m::Fill::Pattern(m::PatternFill {
+                pattern: Some("solid".into()),
+                bg: Some(m::SheetColor::rgb(rgb)),
+                ..m::PatternFill::default()
+            })
+        }),
+        border: border.map(|rgb| {
+            let edge = m::BorderEdge {
+                style: Some("thin".into()),
+                color: Some(m::SheetColor::rgb(rgb)),
+            };
+            m::Border {
+                left: edge.clone(),
+                right: edge.clone(),
+                top: edge.clone(),
+                bottom: edge,
+                ..m::Border::default()
+            }
+        }),
+        ..m::Dxf::default()
+    };
+    let base = wb.styles.dxfs.len();
+    // Slicer: whole frame (border), header (dark blue bold); timeline: whole, header.
+    wb.styles.dxfs.extend([
+        dxf(None, Some("F2F7FC"), Some("1F4E79")),
+        dxf(Some(("1F4E79", true)), None, None),
+        dxf(None, Some("FFF8E5"), Some("BF8F00")),
+        dxf(Some(("7F6000", true)), None, None),
+    ]);
+    let (s, t) = ("Kiểu bộ lọc Bluestar", "Kiểu dòng thời gian Bluestar");
+    wb.styles.unknown.push(m::RawXml {
+        after: "tableStyles".into(),
+        xml: format!(
+            concat!(
+                r#"<tableStyles count="2" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16">"#,
+                r#"<tableStyle name="{s}" pivot="0" table="0" count="2"><tableStyleElement type="wholeTable" dxfId="{a}"/><tableStyleElement type="headerRow" dxfId="{b}"/></tableStyle>"#,
+                r#"<tableStyle name="{t}" pivot="0" table="0" count="2"><tableStyleElement type="wholeTable" dxfId="{c}"/><tableStyleElement type="headerRow" dxfId="{d}"/></tableStyle>"#,
+                r#"</tableStyles>"#
+            ),
+            s = s,
+            t = t,
+            a = base,
+            b = base + 1,
+            c = base + 2,
+            d = base + 3
+        ),
+    });
+    // x14:dxfs: 0 selected slicer item, 1 unselected slicer item, 2 selected time block.
+    wb.styles.unknown.push(m::RawXml {
+        after: "extLst".into(),
+        xml: format!(
+            concat!(
+                r#"<extLst>"#,
+                r#"<ext uri="{{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">"#,
+                r#"<x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"><x14:slicerStyle name="{s}"><x14:slicerStyleElements>"#,
+                r#"<x14:slicerStyleElement type="unselectedItemWithData" dxfId="1"/><x14:slicerStyleElement type="selectedItemWithData" dxfId="0"/>"#,
+                r#"</x14:slicerStyleElements></x14:slicerStyle></x14:slicerStyles></ext>"#,
+                r#"<ext uri="{{9260A510-F301-46a8-8635-F512D64BE5F5}}" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main">"#,
+                r#"<x15:timelineStyles defaultTimelineStyle="TimeSlicerStyleLight1"><x15:timelineStyle name="{t}"><x15:timelineStyleElements>"#,
+                r#"<x15:timelineStyleElement type="selectedTimeBlock" dxfId="2"/>"#,
+                r#"</x15:timelineStyleElements></x15:timelineStyle></x15:timelineStyles></ext>"#,
+                r#"<ext uri="{{46F421CA-312F-682f-3DD2-61675219B42D}}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">"#,
+                r#"<x14:dxfs count="3">"#,
+                r#"<dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill><bgColor rgb="FF2E75B6"/></patternFill></fill></dxf>"#,
+                r#"<dxf><font><color rgb="FF595959"/></font><fill><patternFill><bgColor rgb="FFDDEBF7"/></patternFill></fill></dxf>"#,
+                r#"<dxf><fill><patternFill><bgColor rgb="FFC55A11"/></patternFill></fill></dxf>"#,
+                r#"</x14:dxfs></ext></extLst>"#
+            ),
+            s = s,
+            t = t
+        ),
+    });
+    wb.styles.frame_styles = bo_xlsx::frame_styles(&wb.styles);
+    (s, t)
+}
+
+/// Pivot table slicers and timelines drawn with the workbook's own styles, and timelines with
+/// parts of their display hidden ([MS-XLSX] `CT_Timeline` `showHeader`, `showSelectionLabel`,
+/// `showTimeLevel`, `showHorizontalScrollbar`, `scrollPosition`).
+fn writer_frame_styles(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, PivotSpec};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let spec = PivotSpec {
+        rows: vec![1],
+        values: vec![pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu")],
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, source, 1, m::CellRef::new(0, 0), &spec, &labels).unwrap();
+    let (slicer_style, timeline_style) = add_frame_styles(&mut wb);
+    let s =
+        bo_sheet::slicer::insert_pivot_slicer(&mut wb, 1, 1, 0, 0, m::CellRef::new(0, 5), &labels)
+            .unwrap();
+    let t =
+        bo_sheet::timeline::insert_timeline(&mut wb, 1, 1, 0, 2, m::CellRef::new(12, 5), &labels)
+            .unwrap();
+    if i != 2 {
+        bo_sheet::slicer::set_options(&mut wb, 1, s, None, None, Some(slicer_style.into()))
+            .unwrap();
+    }
+    if i != 1 {
+        bo_sheet::timeline::set_options(&mut wb, 1, t, None, None, Some(timeline_style.into()))
+            .unwrap();
+    }
+    let tl = &mut wb.sheets[1].timelines[t];
+    match i {
+        1 => {
+            tl.hide_time_level = true;
+            tl.hide_scrollbar = true;
+            tl.scroll_position = Some("2023-07-01T00:00:00".into());
+        }
+        2 => {
+            tl.hide_header = true;
+            tl.scroll_position = Some("2024-01-01T00:00:00".into());
+        }
+        _ => tl.hide_selection_label = true,
     }
     wb
 }
@@ -4685,6 +4819,70 @@ fn corpus_maps_read_edit_and_keep_the_geography_cache() {
                 &bytes,
             )
             .unwrap();
+        }
+    }
+}
+
+/// Custom slicer / timeline styles and the timeline display options come back from the written
+/// file; the custom style colours are the ones of its formats.
+#[test]
+fn frame_styles_round_trip() {
+    for i in 1..=3 {
+        let wb = writer_frame_styles(i);
+        let back = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+        let names: Vec<(&str, bool)> = back
+            .styles
+            .frame_styles
+            .iter()
+            .map(|s| (s.name.as_str(), s.timeline))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Kiểu bộ lọc Bluestar", false),
+                ("Kiểu dòng thời gian Bluestar", true)
+            ],
+            "variant {i}"
+        );
+        let (s, t) = (&back.sheets[1].slicers[0], &back.sheets[1].timelines[0]);
+        let (ws, wt) = (&wb.sheets[1].slicers[0], &wb.sheets[1].timelines[0]);
+        assert_eq!((&s.style, &t.style), (&ws.style, &wt.style), "variant {i}");
+        assert_eq!(
+            (
+                t.hide_header,
+                t.hide_selection_label,
+                t.hide_time_level,
+                t.hide_scrollbar,
+                &t.scroll_position
+            ),
+            (
+                wt.hide_header,
+                wt.hide_selection_label,
+                wt.hide_time_level,
+                wt.hide_scrollbar,
+                &wt.scroll_position
+            ),
+            "variant {i}"
+        );
+        if i != 2 {
+            // x14:dxfs 0 (selected item) and 1 (unselected), tableStyle wholeTable border and
+            // headerRow font.
+            let c = bo_sheet::slicer::frame_colors(&back, s.style.as_deref());
+            assert_eq!(
+                (c.selected.as_str(), c.selected_text.as_str()),
+                ("#2E75B6", "#FFFFFF")
+            );
+            assert_eq!(c.unselected.as_deref(), Some("#DDEBF7"));
+            assert_eq!(c.unselected_text.as_deref(), Some("#595959"));
+            assert_eq!(c.border, "#1F4E79");
+            assert_eq!(c.background.as_deref(), Some("#F2F7FC"));
+            assert_eq!(c.header_text, "#1F4E79");
+        }
+        if i != 1 {
+            let c = bo_sheet::slicer::frame_colors(&back, t.style.as_deref());
+            assert_eq!(c.selected, "#C55A11");
+            assert_eq!(c.border, "#BF8F00");
+            assert_eq!(c.header_text, "#7F6000");
         }
     }
 }

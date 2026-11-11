@@ -105,7 +105,8 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     Test: `diagram_layout::tests` (đọc cây, nhóm bố cục, từng bố cục: vị trí/thứ tự/không tràn khung), `diagram::tests`
     (data model → shape), `bo-engine smartart::tests` (docx chỉ có data model → PNG, lưu giữ nguyên data part); corpus
     `slide-smartart-data-{process,hierarchy,cycle,pyramid}.pptx`, `smartart-04-datamodel.docx` (OpenXmlValidator 0 lỗi).
-- [p] **CORE-SMART-003** — Tạo SmartArt mới từ thư viện bố cục BlueOffice; ghi data model + layout/style/color + drawing fallback hợp lệ · P0 · 002 · OpenXmlValidator.
+- [x] **CORE-SMART-003** — Tạo SmartArt mới từ thư viện bố cục BlueOffice; ghi data model + layout/style/color + drawing fallback hợp lệ · P0 · 002 · OpenXmlValidator.
+  _Xong 2026-11-11 (lô 2):_ nhãn giao diện đổi thành "Sơ đồ thông minh" / "Smart diagram" (ADR-0006; id lệnh giữ nguyên); ảnh thật trong nút (`a:blipFill` ở data + drawing, `.rels` riêng, cắt vừa khung) ở ba app; chuyển thành hình ở BlueDoc (`wpg:wgp`) và BlueSheet (`xdr:grpSp`); dựng theo `styleDef`/`colorsDef` của tệp (giữ nguyên tới khi người dùng chọn bảng màu BlueOffice); xem trước 17 bố cục do engine vẽ (`smartArtPreviews`); sửa kèm 4 lỗi (slide không vẽ lại sau `setSmartArt`/`setChart`, `smartArtToShapes` ghi `modelId` sai, nháy đúp sơ đồ không làm gì, ảnh trong `dsp:drawing` tra nhầm rels). Corpus `slide-edit-smartart-pictures.pptx`, `smartart-05-converted.docx`, `shapegroup-1..3.xlsx`; E2E 14/14. Chờ đối chiếu tệp tham chiếu: nghĩa `meth="span"/"cycle"` của colorsDef.
   _Bổ sung 2026-11-11:_ thư viện 17 bố cục / 8 nhóm (thêm nhóm ảnh), tên bố cục ghi ở `layoutDef@uniqueId`, quickStyle/colors khớp data model. **Đang làm (lô 2):** ảnh thật trong nút, chuyển thành hình ở Doc/Sheet, dùng `styleDef`/`colorsDef` của tệp, ảnh xem trước bố cục, đổi nhãn giao diện thành "Sơ đồ thông minh".
   - Xong (BlueSlide): lệnh `insertSmartArt {layout, items, colors?, style?, rect?}` ghi đủ 5 phần (data model với điểm
     doc + node + nối parOf, layoutDef `urn:bluestar.vn/blueoffice/layout/<nhóm>` có catLst, styleDef, colorsDef, dsp:drawing
@@ -115,6 +116,7 @@ Hiện trạng ban đầu lấy từ `docs/PROGRESS.md` (2026-11-08); hạng m�
     `specs/smartart.spec.ts`; file lưu từ web qua OpenXmlValidator 0 lỗi. **Thiếu**: chèn SmartArt mới trong BlueDoc /
     BlueSheet (cần mô hình phần sơ đồ + quan hệ trong docx/xlsx) → CORE-SMART-005.
 - [p] **CORE-SMART-004** — Ngăn văn bản SmartArt: sửa nội dung, thêm/xoá/nâng/hạ cấp nút, đổi bố cục/màu/style, chuyển thành shapes · P0 · 003 · E2E.
+  _Bổ sung 2026-11-11:_ BlueSlide sửa chữ nút trực tiếp trên canvas (nháy đúp → `setSmartArtNodeText`, một bước hoàn tác). **Còn:** sửa chữ trên canvas ở BlueDoc/BlueSheet; sửa từng hình trong nhóm sau khi chuyển ở BlueDoc; chọn / di chuyển / xoá nhóm hình ở BlueSheet.
   _Bổ sung 2026-11-11:_ hộp thoại dùng chung: bố cục theo nhóm, thêm / xoá / nâng / hạ / chuyển lên / xuống nút. **Đang làm (lô 2):** sửa chữ trực tiếp trên canvas.
   - Xong (BlueSlide): ngăn văn bản (hộp thoại dàn ý: mỗi dòng một nút, Tab/Shift+Tab hạ/nâng cấp → thêm/xoá/nâng/hạ),
     đổi bố cục (7 nhóm), màu (6 bảng màu BlueOffice) và kiểu (tô màu / viền màu) qua `setSmartArt` (ghi lại data model,

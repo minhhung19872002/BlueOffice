@@ -189,6 +189,29 @@ fn view_type_show_formulas_and_zoom() {
         f.geometry(0).unwrap().col_width(0)
     };
     assert!((w - 2.0 * plain).abs() < 1e-9);
+    // Dragging column B to 150 pt while formulas are shown keeps it 150 pt on screen
+    // and stores the normal width 75 pt (100 px): back in normal view it is 75 pt.
+    run(
+        &mut e,
+        json!({ "cmd": "resize", "sheet": 0, "rows": false, "first": 1, "last": 1, "size": 150.0 }),
+    );
+    assert!((e.geometry(0).unwrap().col_width(1) - 150.0).abs() < 0.5);
+    // The width dialog shows the normal width: (100 px − 5 px padding) / digit width.
+    let s = run(
+        &mut e,
+        json!({ "cmd": "sizeOf", "sheet": 0, "rows": false, "index": 1 }),
+    );
+    let mdw = e.geometry(0).unwrap().metrics.mdw_px;
+    let want = ((100.0 - 5.0) / mdw * 100.0_f64).round() / 100.0;
+    assert!(
+        (s["size"].as_f64().unwrap() - want).abs() < 1e-9,
+        "{s} {want}"
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "setSheetView", "sheet": 0, "showFormulas": false }),
+    );
+    assert!((e.geometry(0).unwrap().col_width(1) - 75.0).abs() < 0.5);
 }
 
 #[test]
@@ -282,5 +305,9 @@ fn custom_views_save_apply_delete() {
     let back = bo_xlsx::read_xlsx(&bytes).unwrap();
     assert_eq!(back.custom_views[0].name, "V");
     assert_eq!(back.sheets[0].custom_views.len(), 1);
-    assert!(back.sheets[0].custom_views[0].session_hidden_rows.is_none());
+    // The exact hidden rows travel as `Z_<guid>_.wvu.Rows` (row 5 still hidden).
+    assert_eq!(
+        back.sheets[0].custom_views[0].session_hidden_rows,
+        Some(vec![(4, 4)])
+    );
 }

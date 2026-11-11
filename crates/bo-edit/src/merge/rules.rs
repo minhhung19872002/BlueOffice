@@ -341,7 +341,7 @@ fn args(instr: &str) -> Vec<(String, bool)> {
 }
 
 /// Prompt key of an ASK (`ASK:<bookmark>`) or FILLIN (`FILLIN:<prompt>`) instruction.
-fn prompt_of(instr: &str) -> Option<Prompt> {
+pub(crate) fn prompt_of(instr: &str) -> Option<Prompt> {
     let kind = field_kind(instr);
     let w = words(instr);
     let default = switch_values(instr, "\\d")

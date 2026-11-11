@@ -16,10 +16,13 @@ import type {
   SlideEditResult,
   TimedCommand,
 } from '@blueoffice/platform';
+import { DOC_QUERY_COMMANDS } from '@blueoffice/platform';
 import type { SessionMode } from './mode';
 
 /** BlueDoc commands that do not change the document. */
 export const DOC_READ_COMMANDS: ReadonlySet<string> = new Set([
+  // Every pure query (one shared list, see `DOC_QUERY_COMMANDS`).
+  ...DOC_QUERY_COMMANDS,
   'state',
   'selectAll',
   'setSelection',

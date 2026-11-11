@@ -4,6 +4,7 @@
  * again on F4. Caret moves, selections, queries and undo are not repeatable and do not
  * forget the remembered command; typing is remembered as one run of text.
  */
+import { DOC_QUERY_COMMANDS } from '@blueoffice/platform';
 
 /** BlueDoc commands (`bo_engine::edit::Command`) worth repeating at the new selection. */
 export const DOC_REPEATABLE: ReadonlySet<string> = new Set([
@@ -44,7 +45,9 @@ export const SLIDE_REPEATABLE: ReadonlySet<string> = new Set([
 ]);
 
 /** Commands that leave the remembered one alone (they change nothing, or only where). */
-const NEUTRAL = new Set([
+const NEUTRAL = new Set<string>([
+  // Every pure query (one shared list, see `DOC_QUERY_COMMANDS`).
+  ...DOC_QUERY_COMMANDS,
   'state',
   'openSetup',
   'historyLen',

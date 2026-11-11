@@ -29,12 +29,15 @@ import type {
   SlideShapeInfo,
   TimedCommand,
 } from '@blueoffice/platform';
+import { DOC_QUERY_COMMANDS } from '@blueoffice/platform';
 import { callToSource, type ApiCall } from './prelude';
 import type { ScriptApp } from './sandbox';
 import { utf16Offset } from './host';
 
 /** BlueDoc commands that only read or move the selection (mirrors `packages/hosted` DOC_READ_COMMANDS). */
 export const DOC_READ: ReadonlySet<string> = new Set([
+  // Every pure query (one shared list, see `DOC_QUERY_COMMANDS`).
+  ...DOC_QUERY_COMMANDS,
   'state',
   'selectAll',
   'setSelection',

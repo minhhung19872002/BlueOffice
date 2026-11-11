@@ -73,6 +73,7 @@ export * from './handwriting';
 export * from './remoteShow';
 export * from './qr';
 export * from './mediaCapture';
+export * from './queryCommands';
 // Both modules have a WAV encoder; the package's is the recorder's (`dictation` keeps its own).
 export { encodeWav } from './mediaCapture';
 export {

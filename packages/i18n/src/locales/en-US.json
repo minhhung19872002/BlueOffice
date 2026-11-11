@@ -259,6 +259,7 @@
       "zoomOut": "Zoom out",
       "zoomReset": "100%",
       "fitWidth": "Fit width",
+      "formulaBar": "Expand / collapse the formula bar",
       "collaborators": "Collaborators",
       "toggleTheme": "Light / Dark / High contrast",
       "densityIs": {
@@ -529,6 +530,9 @@
     "tabs": "Sheets",
     "nameBox": "Name box",
     "formulaBar": "Formula bar",
+    "expandFormulaBar": "Show more lines of the formula",
+    "collapseFormulaBar": "Show one line of the formula",
+    "functionList": "Matching functions",
     "newWorkbook": "New workbook",
     "open": "Open",
     "save": "Save .xlsx",

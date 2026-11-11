@@ -259,6 +259,7 @@
       "zoomOut": "Thu nhỏ",
       "zoomReset": "100%",
       "fitWidth": "Vừa chiều rộng",
+      "formulaBar": "Mở rộng / thu gọn thanh công thức",
       "collaborators": "Người cùng sửa",
       "toggleTheme": "Sáng / Tối / Tương phản cao",
       "densityIs": {
@@ -529,6 +530,9 @@
     "tabs": "Trang tính",
     "nameBox": "Hộp tên",
     "formulaBar": "Thanh công thức",
+    "expandFormulaBar": "Hiện nhiều dòng công thức",
+    "collapseFormulaBar": "Hiện một dòng công thức",
+    "functionList": "Hàm phù hợp",
     "newWorkbook": "Sổ tính mới",
     "open": "Mở",
     "save": "Lưu .xlsx",

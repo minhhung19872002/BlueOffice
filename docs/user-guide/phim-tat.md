@@ -201,21 +201,29 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 
 ### Di chuyển và nhập liệu
 
-| Phím                         | Tác dụng                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------- |
-| `←` `→` `↑` `↓`              | Sang ô bên cạnh                                                              |
-| `Ctrl` + mũi tên             | Nhảy 50 ô theo hướng mũi tên                                                 |
-| `Shift` + mũi tên            | Mở rộng vùng chọn                                                            |
-| `PageUp` / `PageDown`        | Lên / xuống một màn hình                                                     |
-| `Enter` / `Shift+Enter`      | Xuống ô dưới / lên ô trên (trong vùng chọn nhiều ô: sang ô kế tiếp của vùng) |
-| `Tab` / `Shift+Tab`          | Sang ô phải / ô trái                                                         |
-| `F2`                         | Sửa ô đang chọn                                                              |
-| `Backspace`                  | Xoá nội dung ô và bắt đầu gõ                                                 |
-| `Esc`                        | Huỷ nội dung đang gõ; thôi sao chép định dạng                                |
-| `F4` (khi đang gõ công thức) | Đổi kiểu tham chiếu: `B2` → `$B$2` → `B$2` → `$B2`                           |
-| `Alt+↓`                      | Mở danh sách chọn của ô có xác thực kiểu **Danh sách**                       |
-| `Space`                      | Đánh dấu / bỏ đánh dấu ô đánh dấu                                            |
-| `Ctrl+Enter`                 | Gửi bình luận đang gõ trong ngăn **Bình luận**                               |
+| Phím                                    | Tác dụng                                                                                     |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `←` `→` `↑` `↓`                         | Sang ô bên cạnh; khi đang gõ (chế độ Nhập): ghi ô rồi di chuyển; sau `=`, `+`, `(`…: chọn ô làm tham chiếu |
+| `Ctrl` + mũi tên                        | Tới mép vùng dữ liệu (ô có dữ liệu cuối cùng liền khối, hoặc ô có dữ liệu kế tiếp, hoặc mép trang tính) |
+| `Shift` + mũi tên, `Ctrl+Shift` + mũi tên | Mở rộng vùng chọn (một ô / tới mép vùng dữ liệu)                                            |
+| `Home` / `Ctrl+Home` / `Ctrl+End`       | Về cột A / về ô A1 (ô đầu vùng cuộn khi cố định ngăn) / tới ô cuối có dữ liệu; thêm `Shift` để mở rộng |
+| `PageUp` / `PageDown`                   | Lên / xuống một màn hình                                                                     |
+| `Alt+PageUp` / `Alt+PageDown`           | Sang trái / phải một màn hình                                                                |
+| `Ctrl+Space` / `Shift+Space`            | Chọn cả cột / cả hàng                                                                        |
+| `Ctrl+A`                                | Chọn vùng dữ liệu quanh ô; nhấn lần nữa: cả trang tính                                       |
+| `Enter` / `Shift+Enter`                 | Xuống ô dưới / lên ô trên (trong vùng chọn nhiều ô: sang ô kế tiếp của vùng); sau một loạt `Tab`, `Enter` về cột bắt đầu ở hàng sau; khi có ô đang được đánh dấu sao chép: dán một lần |
+| `Tab` / `Shift+Tab`                     | Sang ô phải / ô trái; khi danh sách hàm đang mở: nhận tên hàm                               |
+| `Ctrl+Enter`                            | Ghi nội dung đang gõ vào mọi ô đang chọn                                                     |
+| `Alt+Enter`                             | Xuống dòng trong ô                                                                           |
+| `F2`                                    | Sửa ô đang chọn; khi đang gõ: đổi giữa chế độ Nhập và Sửa (mũi tên di chuyển con trỏ)        |
+| `Backspace`                             | Xoá nội dung ô và bắt đầu gõ                                                                 |
+| `Delete`                                | Xoá nội dung (giữ định dạng)                                                                 |
+| `Esc`                                   | Huỷ nội dung đang gõ; bỏ đường viền nhấp nháy của ô đã sao chép; thôi sao chép định dạng     |
+| `F4` (khi đang gõ công thức)            | Đổi kiểu tham chiếu: `B2` → `$B$2` → `B$2` → `$B2`                                           |
+| `Ctrl+Shift+U`                          | Mở rộng / thu gọn thanh công thức                                                            |
+| `Alt+↓`                                 | Mở danh sách chọn: của xác thực kiểu **Danh sách**, nếu không thì các mục chữ đã có trong cột |
+| `Space`                                 | Đánh dấu / bỏ đánh dấu ô đánh dấu                                                            |
+| `Ctrl+Enter` (ngăn **Bình luận**)       | Gửi bình luận đang gõ                                                                        |
 
 ## BlueSlide
 

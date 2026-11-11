@@ -104,9 +104,14 @@ export function useSheetSpelling(host: SheetHost | null | undefined, file: strin
   return { lang, setLang, asYouType, toggle, dialog, setDialog };
 }
 
+/** The cell editor and the formula bar (text areas) or a plain input. */
+type TextField = HTMLInputElement | HTMLTextAreaElement;
+
 /** Sets an input's value as typing would (React sees an `input` event). */
-function typeInto(el: HTMLInputElement, value: string): void {
-  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+function typeInto(el: TextField, value: string): void {
+  const proto =
+    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const set = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   set?.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -161,7 +166,7 @@ function Underlay({
   text,
   issues,
 }: {
-  input: RefObject<HTMLInputElement | null>;
+  input: RefObject<TextField | null>;
   text: string;
   issues: TextIssue[];
 }) {
@@ -280,7 +285,7 @@ export function SheetEditSpelling({
   enabled,
 }: {
   host: SheetHost | null | undefined;
-  inputs: RefObject<HTMLInputElement | null>[];
+  inputs: RefObject<TextField | null>[];
   /** Text being typed (`null`: not editing). */
   text: string | null;
   lang: string;
@@ -296,11 +301,11 @@ export function SheetEditSpelling({
     x: number;
     y: number;
     info: SpellInfo;
-    input: HTMLInputElement;
+    input: TextField;
     issue: TextIssue;
   } | null>(null);
   useEffect(() => {
-    const els = inputs.map((r) => r.current).filter((e): e is HTMLInputElement => !!e);
+    const els = inputs.map((r) => r.current).filter((e): e is TextField => !!e);
     const onMenu = (e: MouseEvent) => {
       const from = Number(markAt(e.clientX, e.clientY)?.dataset.from ?? NaN);
       const issue = latest.current.find((i) => i.from === from);
@@ -310,7 +315,7 @@ export function SheetEditSpelling({
       setMenu({
         x: e.clientX,
         y: e.clientY,
-        input: e.currentTarget as HTMLInputElement,
+        input: e.currentTarget as TextField,
         issue,
         info: {
           word: issue.word,
@@ -322,8 +327,9 @@ export function SheetEditSpelling({
         },
       });
     };
-    els.forEach((el) => el.addEventListener('contextmenu', onMenu));
-    return () => els.forEach((el) => el.removeEventListener('contextmenu', onMenu));
+    const targets: HTMLElement[] = els;
+    targets.forEach((el) => el.addEventListener('contextmenu', onMenu));
+    return () => targets.forEach((el) => el.removeEventListener('contextmenu', onMenu));
   }, [inputs]);
 
   const close = useCallback(() => setMenu(null), []);

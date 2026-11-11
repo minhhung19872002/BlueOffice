@@ -1500,7 +1500,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       void host
         .cell(sheet, selection.active.row, selection.active.col)
         .then((cell) => {
-          if (!cancelled && !edit) setBarText(cell.input);
+          if (!cancelled && !edit && !holdBar.current) setBarText(cell.input);
         })
         .catch(() => {});
       return () => {

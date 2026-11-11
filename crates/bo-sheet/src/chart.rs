@@ -995,6 +995,18 @@ fn vline(x: f64, y1: f64, y2: f64, c: Rgba, w: f64) -> Command {
     }
 }
 
+/// Automatic scale of a value axis over the data range `lo`..`hi`: a "nice" major unit for about
+/// five steps ([`nice_step`]) and the bounds rounded out to whole units; a fixed `min` / `max`
+/// (§21.2.2.111 min / §21.2.2.106 max) is kept.
+fn auto_scale(lo: f64, hi: f64, min: Option<f64>, max: Option<f64>) -> (f64, f64, f64) {
+    let step = nice_step(hi - lo, 5.0);
+    (
+        min.unwrap_or((lo / step).floor() * step),
+        max.unwrap_or((hi / step).ceil() * step),
+        step,
+    )
+}
+
 /// "Nice" axis step (1, 2, 5 × 10ⁿ).
 fn nice_step(range: f64, ticks: f64) -> f64 {
     if range <= 0.0 || !range.is_finite() {
@@ -1687,8 +1699,20 @@ fn draw_xy(
         return None;
     }
     let val = |s: &Ser, i: usize| s.vals.get(i).copied().flatten().unwrap_or(0.0);
-    // Value range over the plots of the primary axis (the secondary axis has its own, below).
-    let (mut vmin, mut vmax) = (0.0_f64, 0.0_f64);
+    // Value range over the plots of the primary axis (the secondary axis has its own, below). An
+    // axis of prices only (stock groups) is scaled to its data; the others include zero.
+    let prices_only = |secondary: bool| {
+        let mut on = plots
+            .iter()
+            .filter(|(p, _)| p.secondary == secondary)
+            .peekable();
+        on.peek().is_some() && on.all(|(p, _)| p.kind == ChartKind::Stock)
+    };
+    let (mut vmin, mut vmax) = if prices_only(false) {
+        (f64::INFINITY, f64::NEG_INFINITY)
+    } else {
+        (0.0_f64, 0.0_f64)
+    };
     for (p, ss) in plots.iter().filter(|(p, _)| !p.secondary) {
         for i in 0..ncat {
             if stacked_of(p) {
@@ -1710,11 +1734,18 @@ fn draw_xy(
                 vmin = vmin.min(neg);
             } else {
                 for s in ss {
+                    // Empty points of a price axis do not count (they would pull it to zero).
+                    if p.kind == ChartKind::Stock && s.vals.get(i).copied().flatten().is_none() {
+                        continue;
+                    }
                     vmax = vmax.max(val(s, i));
                     vmin = vmin.min(val(s, i));
                 }
             }
         }
+    }
+    if !vmin.is_finite() || !vmax.is_finite() {
+        (vmin, vmax) = (0.0, 0.0);
     }
     // Error bars and trend lines widen the range a little.
     for (_, ss) in plots.iter().filter(|(p, _)| !p.secondary) {
@@ -1756,12 +1787,7 @@ fn draw_xy(
         let hi = tf(vmax.max(untf(lo + 1.0))).ceil();
         (lo, hi.max(lo + 1.0), 1.0)
     } else {
-        let step = nice_step(vmax - vmin, 5.0);
-        (
-            axes.min.unwrap_or((vmin / step).floor() * step),
-            axes.max.unwrap_or((vmax / step).ceil() * step),
-            step,
-        )
+        auto_scale(vmin, vmax, axes.min, axes.max)
     };
     let (vmin, vmax) = if vmax > vmin {
         (vmin, vmax)
@@ -1770,8 +1796,14 @@ fn draw_xy(
     };
     // Secondary value axis (§21.2.2.226 valAx crossing at the right).
     let secondary = plots.iter().any(|(p, _)| p.secondary);
+    // The same automatic scale as the primary axis: from zero, or from the data for the prices of a
+    // volume stock chart (CORE-CHART-002).
     let (smin, smax, sstep) = {
-        let (mut lo, mut hi) = (0.0_f64, 0.0_f64);
+        let (mut lo, mut hi) = if prices_only(true) {
+            (f64::INFINITY, f64::NEG_INFINITY)
+        } else {
+            (0.0_f64, 0.0_f64)
+        };
         for (_, ss) in plots.iter().filter(|(p, _)| p.secondary) {
             for s in ss {
                 for v in s.vals.iter().flatten() {
@@ -1780,11 +1812,13 @@ fn draw_xy(
                 }
             }
         }
+        if !lo.is_finite() || !hi.is_finite() {
+            (lo, hi) = (0.0, 0.0);
+        }
         if hi <= lo {
             hi = lo + 1.0;
         }
-        let st = nice_step(hi - lo, 5.0);
-        ((lo / st).floor() * st, (hi / st).ceil() * st, st)
+        auto_scale(lo, hi, None, None)
     };
     // Scatter X range.
     let xs_of = |s: &Ser| -> Vec<f64> {
@@ -4078,6 +4112,31 @@ mod tests {
     }
 
     #[test]
+    fn a_price_axis_is_scaled_to_its_data() {
+        // source: the automatic value-axis scale (auto_scale): HLC prices 19..23 → range 4, major
+        // unit nice_step(4, 5) = 1, bounds 19 and 23; a column chart of the same values from 0.
+        let wb = stock_book();
+        let c = new_chart(&wb, 0, CellRange::parse("C1:F4").unwrap(), "stock").unwrap();
+        assert_eq!(type_name(&c), "stock");
+        let (_, labels) = boxed_labels(&wb, &c);
+        let left: Vec<&str> = labels
+            .iter()
+            .filter(|(_, r)| r[0] < 60.0)
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(left.contains(&"19") && left.contains(&"23"), "{left:?}");
+        assert!(!left.contains(&"0"), "{left:?}");
+        let c = new_chart(&wb, 0, CellRange::parse("C1:F4").unwrap(), "column").unwrap();
+        let (_, labels) = boxed_labels(&wb, &c);
+        assert!(labels.iter().any(|(t, r)| t == "0" && r[0] < 60.0));
+        assert_eq!(auto_scale(19.0, 23.0, None, None), (19.0, 23.0, 1.0));
+        assert_eq!(
+            auto_scale(0.0, 470.0, None, Some(600.0)),
+            (0.0, 600.0, 100.0)
+        );
+    }
+
+    #[test]
     fn volume_stock_charts_put_prices_on_the_secondary_axis() {
         let wb = stock_book();
         // VOHLC: volume, open, high, low, close with up/down bars.
@@ -4104,14 +4163,20 @@ mod tests {
             .count();
         assert_eq!(cols, 3 + 1, "columns plus the legend swatch");
         // The primary axis counts the volume (up to 3 000), the secondary one at the right the
-        // prices (0 to 25 in steps of 5).
+        // prices, scaled to them: 19 to 23 (range 4 → major unit 1), not from 0.
         assert!(labels.iter().any(|(t, r)| t == "3000" && r[0] < 100.0));
         let right: Vec<&str> = labels
             .iter()
             .filter(|(_, r)| r[0] > 250.0 && r[2] < 330.0)
             .map(|(t, _)| t.as_str())
             .collect();
-        assert!(right.contains(&"25") && right.contains(&"20"), "{right:?}");
+        assert!(
+            ["19", "20", "21", "22", "23"]
+                .iter()
+                .all(|v| right.contains(v)),
+            "{right:?}"
+        );
+        assert!(!right.contains(&"0") && !right.contains(&"24"), "{right:?}");
         // Up/down bars: two rising sessions (white boxes), one falling (dark).
         let boxes = out
             .iter()

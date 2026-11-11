@@ -1331,6 +1331,12 @@ impl crate::Engine {
         if let Some(sc) = crate::doc_smartart::DocSmartArtCommand::parse(&v) {
             return Ok(self.doc_smartart_command(sc)?.to_string());
         }
+        // Charts (CORE-CHART-007); BlueSlide's go through the slide command bridge.
+        if self.pres.is_none() {
+            if let Some(cc) = crate::doc_chart::DocChartCommand::parse(&v) {
+                return Ok(self.doc_chart_command(cc)?.to_string());
+            }
+        }
         if let Some(xc) = crate::custom_xml::CustomXmlCommand::parse(&v) {
             let r = self.doc_custom_xml_command(xc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());

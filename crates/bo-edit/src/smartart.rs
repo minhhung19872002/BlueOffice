@@ -20,15 +20,30 @@ fn is_smartart(item: &RunContent) -> bool {
     }))
 }
 
+/// Is the atom a chart frame (media is a chart or chartex part, `bo_model::chart_part`)?
+fn is_chart(item: &RunContent) -> bool {
+    matches!(item, RunContent::Image(img)
+        if img.shape.is_none() && bo_model::chart_part::is_chart_name(&img.media))
+}
+
 /// Index of the SmartArt the tools act on among a paragraph's atoms: the first inside a non-empty
 /// `range`, for a caret the one just before it, else just after it, else the paragraph's first
 /// floating one.
-fn smartart_index(atoms: &[Atom], (a, b): (usize, usize)) -> Option<usize> {
+fn smartart_index(atoms: &[Atom], range: (usize, usize)) -> Option<usize> {
+    object_index(atoms, range, is_smartart)
+}
+
+/// [`smartart_index`] for the objects `pred` accepts.
+fn object_index(
+    atoms: &[Atom],
+    (a, b): (usize, usize),
+    pred: fn(&RunContent) -> bool,
+) -> Option<usize> {
     let mut off = 0;
     let (mut before, mut after, mut floating) = (None, None, None);
     for (i, (props, item)) in atoms.iter().enumerate() {
         let l = para::atom_len(item);
-        if is_smartart(item) && props.del.is_none() {
+        if pred(item) && props.del.is_none() {
             if b > a && a <= off && off + l <= b {
                 return Some(i);
             }
@@ -51,6 +66,46 @@ fn smartart_index(atoms: &[Atom], (a, b): (usize, usize)) -> Option<usize> {
 impl Session {
     /// (paragraph id, atom index) of the SmartArt at the selection.
     pub(crate) fn smartart_target(&self) -> Option<(usize, usize)> {
+        self.object_target(smartart_index)
+    }
+
+    /// (paragraph id, atom index) of the chart at the selection (CORE-CHART-007 in BlueDoc).
+    pub(crate) fn chart_target(&self) -> Option<(usize, usize)> {
+        self.object_target(|atoms, range| object_index(atoms, range, is_chart))
+    }
+
+    /// The chart at the selection (a copy), if any.
+    pub fn chart(&self) -> Option<Image> {
+        self.object_at(self.chart_target()?)
+    }
+
+    /// Insert chart `img` at the selection with its `parts` (chart part, embedded workbook) as
+    /// media, one undo step; the new chart stays selected.
+    pub fn insert_chart(
+        &mut self,
+        parts: Vec<(String, Arc<Vec<u8>>)>,
+        img: Image,
+    ) -> Result<Selection> {
+        self.insert_smartart(parts, img)
+    }
+
+    /// Replace the chart at the selection: its `parts` (name, bytes; `None` removes the part) and
+    /// the frame changed by `f`, one undo step.
+    pub fn update_chart(
+        &mut self,
+        parts: Vec<(String, Option<Arc<Vec<u8>>>)>,
+        f: impl FnOnce(&mut Image),
+    ) -> Result<Selection> {
+        let at = self
+            .chart_target()
+            .ok_or_else(|| EditError::Unsupported("no chart here".into()))?;
+        self.update_object(at, parts, f)
+    }
+
+    fn object_target(
+        &self,
+        index: impl Fn(&[Atom], (usize, usize)) -> Option<usize>,
+    ) -> Option<(usize, usize)> {
         let (a, b) = self.selection.ordered();
         let paths = body_paragraphs(&self.doc);
         let p = para_at(&self.doc, paths.get(a.para)?)?;
@@ -60,12 +115,15 @@ impl Session {
         } else {
             (a.offset, usize::MAX)
         };
-        smartart_index(&atoms, range).map(|i| (a.para, i))
+        index(&atoms, range).map(|i| (a.para, i))
     }
 
     /// The SmartArt at the selection (a copy), if any.
     pub fn smartart(&self) -> Option<Image> {
-        let (id, k) = self.smartart_target()?;
+        self.object_at(self.smartart_target()?)
+    }
+
+    fn object_at(&self, (id, k): (usize, usize)) -> Option<Image> {
         let paths = body_paragraphs(&self.doc);
         let p = para_at(&self.doc, paths.get(id)?)?;
         match para::flatten(p).into_iter().nth(k)?.1 {
@@ -122,9 +180,18 @@ impl Session {
         parts: Vec<(String, Option<Arc<Vec<u8>>>)>,
         f: impl FnOnce(&mut Image),
     ) -> Result<Selection> {
-        let (id, k) = self
+        let at = self
             .smartart_target()
             .ok_or_else(|| EditError::Unsupported("no SmartArt here".into()))?;
+        self.update_object(at, parts, f)
+    }
+
+    fn update_object(
+        &mut self,
+        (id, k): (usize, usize),
+        parts: Vec<(String, Option<Arc<Vec<u8>>>)>,
+        f: impl FnOnce(&mut Image),
+    ) -> Result<Selection> {
         self.edit(move |tx, sel| {
             for (name, new) in parts {
                 let old = tx.doc.media.get(&name).cloned();

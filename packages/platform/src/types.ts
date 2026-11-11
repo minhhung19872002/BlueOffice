@@ -249,6 +249,8 @@ export interface FormatState {
   pictureTools?: boolean;
   /** A SmartArt is at the selection (CORE-SMART-005). */
   smartArt?: boolean;
+  /** A chart is at the selection (CORE-CHART-007 in BlueDoc). */
+  chart?: boolean;
   /** An embedded / linked object is at the selection (CORE-EMBED-001, CORE-UI-008). */
   ole?: boolean;
   /** Proofing language of the selection (§17.3.2.20 lang, BCP 47), null when not set. */
@@ -671,6 +673,7 @@ export type EditCommand =
   /** Building blocks / AutoText (DOC-BB-001). */
   | import('./buildingBlocks').BuildingBlockCommand
   | DocSmartArtCommand
+  | DocChartCommand
   | { cmd: 'state' | 'selectAll' | 'deleteBackward' | 'deleteForward' | 'splitParagraph' }
   | { cmd: 'undo' | 'redo' | 'insertPageBreak' | 'copy' | 'cut' }
   /** Undo history length → `count`; join the steps after `since` into one (BlueScript, CORE-SCRIPT-001). */
@@ -1075,10 +1078,69 @@ export interface DocSmartArtInfo {
   floating: boolean;
 }
 
+/** How text wraps around a document chart (mirrors `bo_engine::doc_chart::WRAPS`). */
+export type DocChartWrap = 'inline' | 'square' | 'tight' | 'topAndBottom' | 'behind' | 'inFront';
+
+/**
+ * Charts in BlueDoc (CORE-CHART-007 / CORE-CHART-004, `bo_engine::doc_chart`): insert a chart of
+ * any BlueSlide type at the selection, read / change the selected one (data, type, title, legend,
+ * chart design, size, wrapping).
+ */
+export type DocChartCommand =
+  | {
+      cmd: 'insertChart';
+      kind: SlideChartKind;
+      title?: string;
+      data?: SlideChartData;
+      legend?: SlideLegend;
+      /** Chart template to format the new chart with (CORE-CHART-007). */
+      template?: import('./chartDesign').ChartTemplate;
+      texts?: import('./chartDesign').ChartLayoutTexts;
+      /** Points (default 15 × 9 cm). */
+      width?: number;
+      height?: number;
+      /** Default `inline`. */
+      wrap?: DocChartWrap;
+    }
+  | ({
+      cmd: 'setChart';
+      kind?: SlideChartKind;
+      /** Empty = no title. */
+      title?: string;
+      /** `none` = no legend. */
+      legend?: SlideLegend;
+      data?: SlideChartData;
+      wrap?: DocChartWrap;
+      width?: number;
+      height?: number;
+    } & import('./chartDesign').ChartDesignSpec)
+  | { cmd: 'chartInfo' }
+  /** Chart Design gallery of the selected chart (answer in `chartGallery`). */
+  | { cmd: 'chartGallery'; width?: number; height?: number };
+
+/** The chart at the selection of a document (mirrors `bo_engine::doc_chart::DocChart`). */
+export interface DocChartInfo {
+  kind: SlideChartKind | 'other';
+  title: string | null;
+  legend: Exclude<SlideLegend, 'none'> | null;
+  data: SlideChartData;
+  embedded: boolean;
+  /** Frame size in points. */
+  width: number;
+  height: number;
+  wrap: DocChartWrap;
+  /** Chart part name. */
+  part: string;
+}
+
 /** Result of an editing command. */
 export interface EditResult {
   /** The SmartArt at the selection after a SmartArt command (`null`: none). */
   smartArt?: DocSmartArtInfo | null;
+  /** The chart at the selection after a chart command (`null`: none). */
+  chart?: DocChartInfo | null;
+  /** Chart Design gallery (`chartGallery`). */
+  chartGallery?: import('./chartDesign').ChartGallery;
   info: DocInfo;
   selection: Selection;
   caret: CaretRect | null;

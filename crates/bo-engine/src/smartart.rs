@@ -44,14 +44,23 @@ pub fn render_png(xml: &[u8], w: i64, h: i64, fonts: &mut FontManager) -> Option
     bo_raster::render_page_png_with(&page, fonts, 2.0, &images).ok()
 }
 
-/// One rendered diagram: the part bytes it was drawn from and the PNG.
+/// One rendered diagram or chart: the part bytes it was drawn from, the PNG and, for a chart, its
+/// vector drawing (page of the frame's size).
 #[derive(Debug, Clone, Default)]
 struct Rendered {
     source: Arc<Vec<u8>>,
+    size: (i64, i64),
     png: Vec<u8>,
+    vector: Option<bo_render::PageList>,
 }
 
-/// Pictures of the SmartArt diagrams of the open document, by media part name.
+/// Is a media part one this cache draws (a SmartArt diagram part or a chart part)?
+fn drawn(name: &str, bytes: &[u8]) -> bool {
+    (diagram::split_name(name).is_some() && diagram::is_diagram_xml(bytes))
+        || (bo_model::chart_part::is_chart_name(name) && bo_model::chart_part::is_chart_xml(bytes))
+}
+
+/// Pictures of the SmartArt diagrams and charts of the open document, by media part name.
 #[derive(Debug, Clone, Default)]
 pub struct SmartArtImages {
     map: BTreeMap<String, Rendered>,
@@ -65,6 +74,59 @@ impl SmartArtImages {
         self.map.get(name).map(|r| r.png.as_slice())
     }
 
+    /// The vector drawing of chart part `name` (a page of the frame's size).
+    pub fn vector(&self, name: &str) -> Option<&bo_render::PageList> {
+        self.map.get(name).and_then(|r| r.vector.as_ref())
+    }
+
+    /// Replace the pictures of charts in `list` by their vector drawing, scaled to the picture box.
+    pub fn vectorize(&self, list: &mut bo_render::PageList) {
+        use bo_render::Command;
+        if !list
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::Image { image, .. } if self.vector(image).is_some()))
+        {
+            return;
+        }
+        let mut out = Vec::with_capacity(list.commands.len());
+        for c in std::mem::take(&mut list.commands) {
+            match &c {
+                Command::Image {
+                    x,
+                    y,
+                    w,
+                    h,
+                    image,
+                    crop: None,
+                    rotation,
+                } if *rotation == 0.0 => {
+                    if let Some(v) = self
+                        .vector(image)
+                        .filter(|v| v.width > 0.0 && v.height > 0.0)
+                    {
+                        out.push(Command::PushClip {
+                            x: *x,
+                            y: *y,
+                            w: *w,
+                            h: *h,
+                        });
+                        out.push(Command::PushTransform {
+                            m: [w / v.width, 0.0, 0.0, h / v.height, *x, *y],
+                        });
+                        out.extend(v.commands.iter().cloned());
+                        out.push(Command::PopTransform);
+                        out.push(Command::PopClip);
+                        continue;
+                    }
+                    out.push(c);
+                }
+                _ => out.push(c),
+            }
+        }
+        list.commands = out;
+    }
+
     /// Forget every picture (another document is opened).
     pub fn clear(&mut self) {
         *self = SmartArtImages::default();
@@ -75,7 +137,7 @@ impl SmartArtImages {
         let key: Vec<(String, usize)> = doc
             .media
             .iter()
-            .filter(|(n, b)| diagram::split_name(n).is_some() && diagram::is_diagram_xml(b))
+            .filter(|(n, b)| drawn(n, b))
             .map(|(n, b)| (n.clone(), Arc::as_ptr(b) as usize))
             .collect();
         if key == self.key {
@@ -83,27 +145,54 @@ impl SmartArtImages {
         }
         self.key = key;
         let mut next = BTreeMap::new();
+        // The document theme gives the chart colours; read once, when a chart is drawn.
+        let mut theme: Option<Option<bo_model::slide::Theme>> = None;
         for (name, (w, h)) in crate::media::sizes(doc) {
             let Some(bytes) = doc.media.get(&name) else {
                 continue;
             };
-            if !diagram::is_diagram_xml(bytes) {
+            if !drawn(&name, bytes) {
                 continue;
             }
             match self.map.remove(&name) {
-                Some(r) if Arc::ptr_eq(&r.source, bytes) => {
+                Some(r) if Arc::ptr_eq(&r.source, bytes) && r.size == (w, h) => {
                     next.insert(name, r);
                 }
-                _ => {
+                _ if diagram::is_diagram_xml(bytes) => {
                     if let Some(png) = render_png(bytes, w, h, fonts) {
                         next.insert(
                             name,
                             Rendered {
                                 source: bytes.clone(),
+                                size: (w, h),
                                 png,
+                                vector: None,
                             },
                         );
                     }
+                }
+                _ => {
+                    let theme = theme.get_or_insert_with(|| crate::doc_chart::doc_theme(doc));
+                    let Some(page) = crate::doc_chart::render(theme.as_ref(), bytes, w, h, fonts)
+                    else {
+                        continue;
+                    };
+                    let png = bo_raster::render_page_png_with(
+                        &page,
+                        fonts,
+                        2.0,
+                        &BTreeMap::<String, Vec<u8>>::new(),
+                    )
+                    .unwrap_or_default();
+                    next.insert(
+                        name,
+                        Rendered {
+                            source: bytes.clone(),
+                            size: (w, h),
+                            png,
+                            vector: Some(page),
+                        },
+                    );
                 }
             }
         }

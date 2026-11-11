@@ -91,7 +91,7 @@ pub struct ChartSpec {
 }
 
 /// The slide dialog's name of the chart's type (`other` for types the dialog does not offer).
-fn kind_name(c: &Chart) -> &'static str {
+pub(crate) fn kind_name(c: &Chart) -> &'static str {
     let name = bo_sheet::chart::type_name(c);
     if matches!(
         name,
@@ -153,7 +153,7 @@ const MORE_KINDS: &[&str] = &[
 ];
 
 /// Is the chart a chartex chart (`cx:chartSpace` part, frame in `mc:AlternateContent`)?
-fn is_ex(c: &Chart) -> bool {
+pub(crate) fn is_ex(c: &Chart) -> bool {
     c.plots.first().is_some_and(|p| p.kind.is_ex())
 }
 
@@ -199,7 +199,7 @@ fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
 
 /// Plot groups of a kind name holding the grid's series (a volume stock chart: volume columns plus
 /// a stock group on the secondary axis, `bo_sheet::chart::arrange`).
-fn plots_of(kind: &str, grouping: Option<String>, d: &ChartData) -> R<Vec<ChartPlot>> {
+pub(crate) fn plots_of(kind: &str, grouping: Option<String>, d: &ChartData) -> R<Vec<ChartPlot>> {
     let mut plot = plot_of(kind, grouping)?;
     if matches!(kind, "stockVolume" | "stockVolumeUpDown") {
         return Ok(bo_sheet::chart::arrange(kind, series_of(d)));
@@ -209,7 +209,7 @@ fn plots_of(kind: &str, grouping: Option<String>, d: &ChartData) -> R<Vec<ChartP
     Ok(vec![plot])
 }
 
-fn data_of(c: &Chart) -> ChartData {
+pub(crate) fn data_of(c: &Chart) -> ChartData {
     let series: Vec<&ChartSeries> = c.plots.iter().flat_map(|p| &p.series).collect();
     let categories = series
         .iter()
@@ -250,7 +250,7 @@ fn col_name(mut c: usize) -> String {
 }
 
 /// Normalise grid sizes (every series as long as the categories, limits).
-fn clean(mut d: ChartData) -> R<ChartData> {
+pub(crate) fn clean(mut d: ChartData) -> R<ChartData> {
     if d.series.is_empty() || d.series.len() > MAX_SERIES || d.categories.len() > MAX_ROWS {
         return Err(EditError::Refused("badChartData"));
     }
@@ -270,7 +270,7 @@ fn clean(mut d: ChartData) -> R<ChartData> {
 }
 
 /// Series of the grid with references into the embedded sheet.
-fn series_of(d: &ChartData) -> Vec<ChartSeries> {
+pub(crate) fn series_of(d: &ChartData) -> Vec<ChartSeries> {
     let last = d.categories.len() + 1;
     d.series
         .iter()
@@ -292,7 +292,7 @@ fn series_of(d: &ChartData) -> Vec<ChartSeries> {
 
 /// The embedded workbook holding the grid (`Sheet1`: categories in column A,
 /// series names in row 1).
-fn workbook(d: &ChartData) -> R<Vec<u8>> {
+pub(crate) fn workbook(d: &ChartData) -> R<Vec<u8>> {
     let mut wb = Workbook::new();
     let mut ws = Worksheet::new(SHEET);
     for (i, c) in d.categories.iter().enumerate() {
@@ -324,7 +324,7 @@ fn workbook(d: &ChartData) -> R<Vec<u8>> {
 }
 
 /// Chart part XML with the §21.2.2.63 externalData reference to `rid`.
-fn chart_xml(c: &Chart, rid: &str) -> Vec<u8> {
+pub(crate) fn chart_xml(c: &Chart, rid: &str) -> Vec<u8> {
     if is_ex(c) {
         // [MS-ODRAWXML] chartex `cx:chartData/cx:externalData`.
         return bo_xlsx::chartex::chartex_space_xml_with(c, Some(rid)).into_bytes();
@@ -477,7 +477,7 @@ fn store(tx: &mut Tx<'_>, part: &str, c: &Chart, d: &ChartData) -> R<()> {
     put_part(tx, part, Some(ct), chart_xml(c, &rid))
 }
 
-fn default_data() -> ChartData {
+pub(crate) fn default_data() -> ChartData {
     ChartData {
         categories: ["1", "2", "3", "4"].map(String::from).to_vec(),
         series: vec![
@@ -512,9 +512,15 @@ pub struct NewChart<'a> {
 }
 
 /// The theme accents of the deck (§20.1.6.2 clrScheme `accent1`…`accent6` of the first theme).
-fn theme_accents(pres: &Presentation) -> [u32; 6] {
+pub(crate) fn theme_accents(pres: &Presentation) -> [u32; 6] {
+    accents_of(pres.themes.first())
+}
+
+/// The accents of a theme (§20.1.6.2 clrScheme `accent1`…`accent6`; BlueOffice's defaults for the
+/// slots the theme does not give as RGB).
+pub(crate) fn accents_of(theme: Option<&bo_model::slide::Theme>) -> [u32; 6] {
     let mut out = bo_sheet::chart_style::DEFAULT_ACCENTS;
-    if let Some(t) = pres.themes.first() {
+    if let Some(t) = theme {
         for (i, slot) in out.iter_mut().enumerate() {
             if let Some(bo_model::slide::ColorKind::Srgb(v)) =
                 t.scheme_color(&format!("accent{}", i + 1)).map(|c| &c.kind)
@@ -528,7 +534,7 @@ fn theme_accents(pres: &Presentation) -> [u32; 6] {
 
 /// A slide-safe design spec: chart templates of types a slide chart part cannot hold (chartex)
 /// keep the chart's type.
-fn slide_spec(
+pub(crate) fn slide_spec(
     spec: &crate::chart_design::DesignSpec,
     c: &Chart,
 ) -> crate::chart_design::DesignSpec {
@@ -554,7 +560,11 @@ pub fn chart_gallery(
     let n = node_at(pres, slide, &p.path)?;
     let part = chart_part_of(pres, slide, n)?;
     let c = bo_xlsx::chart_write::parse_chart_part(pres.part_data(&part)?, &part)?;
-    let accents = theme_accents(pres);
+    Some(gallery_for(&c, &theme_accents(pres), w, h))
+}
+
+/// Gallery of chart `c` with previews drawn in the theme `accents` (shared with BlueDoc).
+pub(crate) fn gallery_for(c: &Chart, accents: &[u32; 6], w: f64, h: f64) -> serde_json::Value {
     let color = |c: Option<&bo_model::sheet::ChartColor>, i: usize| -> bo_render::Rgba {
         use bo_model::sheet::ChartColor;
         let rgb = match c {
@@ -570,10 +580,10 @@ pub fn chart_gallery(
         };
         bo_render::Rgba((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 255)
     };
-    Some(crate::chart_design::gallery(&c, &accents, w, h, &color))
+    crate::chart_design::gallery(c, accents, w, h, &color)
 }
 
-fn legend_of(l: &str) -> R<Option<String>> {
+pub(crate) fn legend_of(l: &str) -> R<Option<String>> {
     match l {
         "none" => Ok(None),
         "r" | "l" | "t" | "b" | "tr" => Ok(Some(l.to_owned())),
@@ -581,12 +591,20 @@ fn legend_of(l: &str) -> R<Option<String>> {
     }
 }
 
-/// Insert a chart on the current slide.
-pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>) -> R<()> {
-    let kind = spec.kind;
-    let d = clean(spec.data.unwrap_or_else(default_data))?;
+/// A new chart of type `kind` with its data grid (the sample grid by default), legend (bottom,
+/// right for pies, `none` = no legend), title and chart template; shared with BlueDoc.
+pub(crate) fn new_chart(
+    kind: &str,
+    title: Option<String>,
+    legend: Option<&str>,
+    data: Option<ChartData>,
+    template: Option<bo_sheet::chart_style::ChartTemplate>,
+    texts: bo_sheet::chart_style::LayoutTexts,
+    accents: &[u32; 6],
+) -> R<(Chart, ChartData)> {
+    let d = clean(data.unwrap_or_else(default_data))?;
     let plots = plots_of(kind, None, &d)?;
-    let legend = match spec.legend.as_deref() {
+    let legend = match legend {
         Some(l) => legend_of(l)?,
         None => Some(
             if kind == "pie" || kind == "doughnut" {
@@ -597,24 +615,38 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
             .into(),
         ),
     };
-    let rect = spec.rect;
     let mut c = Chart {
-        title: spec.title.filter(|t| !t.is_empty()),
+        title: title.filter(|t| !t.is_empty()),
         plots,
         legend,
         ..Chart::default()
     };
     bo_sheet::chart::view_for_type(&mut c);
-    if let Some(t) = spec.template {
+    if let Some(t) = template {
         let design = crate::chart_design::DesignSpec {
             template: Some(t),
-            texts: spec.texts,
+            texts,
             ..crate::chart_design::DesignSpec::default()
         };
         let design = slide_spec(&design, &c);
-        crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
+        crate::chart_design::apply(&mut c, &design, accents)
             .map_err(|_| EditError::Refused("badChart"))?;
     }
+    Ok((c, d))
+}
+
+/// Insert a chart on the current slide.
+pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>) -> R<()> {
+    let rect = spec.rect;
+    let (c, d) = new_chart(
+        spec.kind,
+        spec.title,
+        spec.legend.as_deref(),
+        spec.data,
+        spec.template,
+        spec.texts,
+        &theme_accents(tx.pres),
+    )?;
     let slide = sel.slide;
     let (sw, sh) = slide_size(tx.pres);
     let r = rect.unwrap_or(super::geom::Rect {
@@ -690,23 +722,13 @@ pub fn cmd_insert_chart(tx: &mut Tx<'_>, sel: &mut SlideSel, spec: NewChart<'_>)
     insert_top(tx, sel, build::node(&xml))
 }
 
-/// Change the type, title, legend or data of chart `id` (default: the selected one).
-pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &ChartSpec) -> R<()> {
-    let id = match (id, sel.ids.as_slice()) {
-        (Some(i), _) => i,
-        (None, [i]) => *i,
-        _ => return Err(EditError::Refused("noChart")),
-    };
-    let placed = place_slide(tx.pres, sel.slide);
-    let p = find(&placed, id).ok_or(EditError::Refused("noChart"))?;
-    let n = node_at(tx.pres, sel.slide, &p.path).ok_or(EditError::Refused("noChart"))?;
-    let part = chart_part_of(tx.pres, sel.slide, n).ok_or(EditError::Refused("noChart"))?;
-    let data = tx
-        .pres
-        .part_data(&part)
-        .ok_or(EditError::Refused("noChart"))?;
-    let mut c =
-        bo_xlsx::chart_write::parse_chart_part(data, &part).ok_or(EditError::Refused("noChart"))?;
+/// Chart `c` changed by `spec` (type, title, legend, data, design) with its data grid; shared
+/// with BlueDoc. A formatting-only change keeps the plots and their colours.
+pub(crate) fn edit_chart(
+    mut c: Chart,
+    spec: &ChartSpec,
+    accents: &[u32; 6],
+) -> R<(Chart, ChartData)> {
     let d = clean(spec.data.clone().unwrap_or_else(|| data_of(&c)))?;
     // Formatting only (CORE-CHART-007): the chart keeps its plots and their own colours.
     if spec.kind.is_none() && spec.title.is_none() && spec.legend.is_none() && spec.data.is_none() {
@@ -714,7 +736,7 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
             return Err(EditError::Refused("noChange"));
         }
         let design = slide_spec(&spec.design, &c);
-        crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
+        crate::chart_design::apply(&mut c, &design, accents)
             .map_err(|_| EditError::Refused("badChart"))?;
         // The data is rewritten into the embedded workbook: the references follow it.
         let refs = series_of(&d);
@@ -723,7 +745,7 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
             s.cat_ref = r.cat_ref;
             s.val_ref = r.val_ref;
         }
-        return store(tx, &part, &c, &d);
+        return Ok((c, d));
     }
     let kind = spec
         .kind
@@ -749,10 +771,31 @@ pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &Ch
     }
     if !spec.design.is_empty() {
         let design = slide_spec(&spec.design, &c);
-        crate::chart_design::apply(&mut c, &design, &theme_accents(tx.pres))
+        crate::chart_design::apply(&mut c, &design, accents)
             .map_err(|_| EditError::Refused("badChart"))?;
     }
     c.dirty = true;
+    Ok((c, d))
+}
+
+/// Change the type, title, legend or data of chart `id` (default: the selected one).
+pub fn cmd_set_chart(tx: &mut Tx<'_>, sel: &SlideSel, id: Option<u32>, spec: &ChartSpec) -> R<()> {
+    let id = match (id, sel.ids.as_slice()) {
+        (Some(i), _) => i,
+        (None, [i]) => *i,
+        _ => return Err(EditError::Refused("noChart")),
+    };
+    let placed = place_slide(tx.pres, sel.slide);
+    let p = find(&placed, id).ok_or(EditError::Refused("noChart"))?;
+    let n = node_at(tx.pres, sel.slide, &p.path).ok_or(EditError::Refused("noChart"))?;
+    let part = chart_part_of(tx.pres, sel.slide, n).ok_or(EditError::Refused("noChart"))?;
+    let data = tx
+        .pres
+        .part_data(&part)
+        .ok_or(EditError::Refused("noChart"))?;
+    let c =
+        bo_xlsx::chart_write::parse_chart_part(data, &part).ok_or(EditError::Refused("noChart"))?;
+    let (c, d) = edit_chart(c, spec, &theme_accents(tx.pres))?;
     store(tx, &part, &c, &d)
 }
 

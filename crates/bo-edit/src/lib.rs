@@ -507,6 +507,8 @@ pub struct FormatState {
     pub picture: Option<picture::PictureState>,
     /// A SmartArt is at the selection (CORE-SMART-005).
     pub smart_art: bool,
+    /// A chart is at the selection (CORE-CHART-007 in BlueDoc).
+    pub chart: bool,
     /// A picture the picture tools act on is at the selection (CORE-PIC-001).
     pub picture_tools: bool,
     /// An embedded / linked object (§17.3.3.19 object) is at the selection (CORE-UI-008).
@@ -3408,6 +3410,7 @@ impl Session {
             picture: self.picture_state(),
             picture_tools: self.tools_target().is_some(),
             smart_art: self.smartart_target().is_some(),
+            chart: self.chart_target().is_some(),
             ole: self.ole_at_selection().is_some(),
             advanced: charfx::CharAdvanced::of(&r),
         }

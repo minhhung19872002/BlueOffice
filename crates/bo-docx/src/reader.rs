@@ -1507,6 +1507,30 @@ fn alternate_content_picture(
     ctx: &Ctx<'_>,
     media: &mut BTreeMap<String, Arc<Vec<u8>>>,
 ) -> Option<Image> {
+    // A chartex frame ([MS-ODRAWXML] 2.24) in a choice: the chart itself.
+    if xml.contains(bo_model::chart_part::NS_CX) {
+        let mut r = XmlReader::new(xml.as_bytes(), &ctx.part);
+        let mut in_choice = false;
+        loop {
+            match r.read().ok()? {
+                Event::Start(e) if name(&e) == b"Choice" => in_choice = true,
+                Event::End(e) if e.local_name().as_ref().as_bytes() == b"Choice" => {
+                    in_choice = false;
+                }
+                Event::Start(e) if in_choice && name(&e) == b"drawing" => {
+                    if let Some(img) = read_drawing(&mut r, ctx, media)
+                        .ok()
+                        .flatten()
+                        .filter(|i| bo_model::chart_part::is_chart_name(&i.media))
+                    {
+                        return Some(img);
+                    }
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+        }
+    }
     let mut r = XmlReader::new(xml.as_bytes(), &ctx.part);
     let mut in_fallback = false;
     loop {
@@ -1858,6 +1882,22 @@ fn read_drawing_frame(
             b"xfrm" => img.rotation = int(&e, b"rot").unwrap_or(0) as i32,
             // ECMA-376 Part 1, §21.4.2.6 relIds (SmartArt parts).
             b"relIds" => diagram_data = attr(&e, b"dm"),
+            // §21.2.2.27 chart / [MS-ODRAWXML] 2.24 cx:chart: the chart part is the frame's
+            // "picture" (drawn by the shared chart renderer, kept verbatim).
+            b"chart" if img.media.is_empty() => {
+                if let Some(target) = attr(&e, b"id").and_then(|id| ctx.target(&id)) {
+                    if let Some(p) = ctx
+                        .pkg
+                        .part(&target)
+                        .filter(|p| bo_model::chart_part::is_chart_xml(&p.data))
+                    {
+                        media
+                            .entry(target.clone())
+                            .or_insert_with(|| Arc::new(p.data.clone()));
+                        img.media = target;
+                    }
+                }
+            }
             b"align" => in_align = is_start,
             // Text box content is read separately; its pictures are not the drawing's.
             b"txbx" | b"txbxContent" if is_start => r.skip_element()?,

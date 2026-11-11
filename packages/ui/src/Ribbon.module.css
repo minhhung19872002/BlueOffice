@@ -220,6 +220,19 @@
   align-items: center;
 }
 
+/* A group laid out as two explicit rows (items with `row`): as wide as its longer row. */
+.twoRows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 /* Labels hidden: the group label no longer widens the group. */
 .compactGroup .groupLabel {
   width: 0;

@@ -54,6 +54,12 @@ export interface RibbonItem {
   /** Custom control (combobox, colour picker…) shown instead of a button. */
   render?: ReactNode;
   /**
+   * Row of a two-row group (1 = top, 2 = bottom): a group whose items set it is laid out as
+   * those two rows (e.g. font name, size on top; bold, italic … below), as wide as its
+   * longest row.
+   */
+  row?: 1 | 2;
+  /**
    * Kept in the simplified (single-row) ribbon. When no item of a group sets it, the first
    * {@link SIMPLIFIED_COUNT} items are kept; the others move into the group's "…" menu.
    */
@@ -265,6 +271,7 @@ function RibbonButton({
 }
 
 function itemsClass(g: RibbonGroup): string {
+  if (g.items.some((i) => i.row)) return styles.twoRows ?? '';
   if (g.items.some((i) => i.render)) return styles.mixed ?? '';
   if (g.items.length > 3 && g.items.every((i) => i.size === 'small')) return styles.compact ?? '';
   return '';
@@ -346,21 +353,29 @@ function RibbonGroupView({ group, level }: { group: RibbonGroup; level: Collapse
           .filter(Boolean)
           .join(' ')}
       >
-        {group.items.map((i) =>
-          i.render ? (
-            <div key={i.id} className={styles.control} data-control={i.id}>
-              {i.render}
-            </div>
-          ) : (
-            <RibbonButton key={i.id} item={i} mode={level === 'compact' ? 'iconOnly' : 'normal'} />
-          ),
-        )}
+        {group.items.some((i) => i.row)
+          ? ([1, 2] as const).map((row) => (
+              <div key={row} className={styles.itemRow}>
+                {group.items.filter((i) => (i.row ?? 1) === row).map((i) => groupItem(i, level))}
+              </div>
+            ))
+          : group.items.map((i) => groupItem(i, level))}
       </div>
       <div className={styles.groupLabel}>
         {group.label}
         {group.launcher && <LauncherButton launcher={group.launcher} />}
       </div>
     </div>
+  );
+}
+
+function groupItem(i: RibbonItem, level: CollapseLevel) {
+  return i.render ? (
+    <div key={i.id} className={styles.control} data-control={i.id}>
+      {i.render}
+    </div>
+  ) : (
+    <RibbonButton key={i.id} item={i} mode={level === 'compact' ? 'iconOnly' : 'normal'} />
   );
 }
 

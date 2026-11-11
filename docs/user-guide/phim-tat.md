@@ -64,8 +64,7 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 | `Ctrl+N`       | **Mới**                             |
 | `Ctrl+O`       | **Mở tệp**                          |
 | `Ctrl+S`       | **Lưu**                             |
-| `Ctrl+Shift+S` | **Lưu thành…**                      |
-| `Ctrl+Shift+E` | **Xuất PDF**                        |
+| `F12`          | **Lưu thành…**                      |
 | `Ctrl+P`       | **In**                              |
 | `Ctrl+Z`       | **Hoàn tác**                        |
 | `Ctrl+Y`       | **Làm lại**                         |
@@ -87,8 +86,14 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 | `Ctrl+I`       | **Nghiêng**          |
 | `Ctrl+U`       | **Gạch chân**        |
 | `Ctrl+=`       | **Chỉ số dưới**      |
-| `Ctrl+]`       | **Tăng cỡ chữ**      |
-| `Ctrl+[`       | **Giảm cỡ chữ**      |
+| `Ctrl+Shift+=` | **Chỉ số trên**      |
+| `Ctrl+]`       | Tăng cỡ chữ 1 pt     |
+| `Ctrl+[`       | Giảm cỡ chữ 1 pt     |
+| `Ctrl+Shift+>` | **Tăng cỡ chữ** (cỡ kế tiếp trong danh sách) |
+| `Ctrl+Shift+<` | **Giảm cỡ chữ** (cỡ trước trong danh sách) |
+| `Ctrl+D`       | Hộp thoại phông chữ (**Hiệu ứng ký tự…**) |
+| `Ctrl+Space`   | Xoá định dạng ký tự  |
+| `Shift+F3`     | **Đổi chữ hoa / thường** (HOA → thường → Hoa Đầu Mỗi Từ) |
 | `Ctrl+Shift+C` | Chép định dạng       |
 | `Ctrl+Shift+V` | Dán định dạng        |
 | `Ctrl+L`       | **Căn trái**         |
@@ -98,6 +103,15 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 | `Ctrl+Shift+N` | Kiểu **Bình thường** |
 | `Ctrl+Alt+1`   | Kiểu **Đề mục 1**    |
 | `Ctrl+Alt+2`   | Kiểu **Đề mục 2**    |
+| `Ctrl+Alt+3`   | Kiểu **Đề mục 3**    |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+5` | Giãn dòng đơn / đôi / 1,5 |
+| `Ctrl+0`       | Thêm / bỏ 12 pt trước đoạn |
+| `Ctrl+M` / `Ctrl+Shift+M` | Thụt lề trái thêm / bớt một nấc |
+| `Ctrl+T` / `Ctrl+Shift+T` | Thụt treo thêm / bớt một nấc |
+| `Ctrl+Q`       | Xoá định dạng đoạn (giữ kiểu) |
+| `Ctrl+Shift+L` | Danh sách gạch đầu dòng |
+| `Tab` / `Shift+Tab` ở đầu mục danh sách | Hạ / nâng cấp mục |
+| `Tab` ở đầu đoạn có chữ | Thụt dòng đầu 0,5″ (`Backspace` bỏ thụt) |
 
 ### Chèn, tham chiếu, xem lại
 
@@ -114,16 +128,19 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 | `Ctrl+Shift+F11` | **Mở khoá trường**              |
 | `Ctrl+Shift+F9`  | **Chuyển trường thành văn bản** |
 | `F7`             | **Soát chính tả và ngữ pháp…**  |
-| `Ctrl+Shift+R`   | **Theo dõi thay đổi**           |
+| `Ctrl+Shift+E`   | **Theo dõi thay đổi**           |
+| `Ctrl+K`         | **Chèn liên kết**               |
+| `Alt+Shift+D` / `T` / `P` | Trường ngày / giờ / số trang |
+| `Ctrl+Shift+Space` | Dấu cách không ngắt dòng      |
 | `Ctrl+Alt+M`     | **Chú thích mới**               |
 
 ### Xem
 
 | Phím               | Lệnh                  |
 | ------------------ | --------------------- |
-| `Ctrl+Shift+=`     | **Phóng to**          |
-| `Ctrl+-`           | **Thu nhỏ**           |
-| `Ctrl+0`           | **100%**              |
+| `Ctrl+Alt+=`       | **Phóng to**          |
+| `Ctrl+Alt+-`       | **Thu nhỏ**           |
+| `Ctrl+Alt+0`       | **100%**              |
 | `Ctrl+Shift+8`     | **Ký hiệu định dạng** |
 | `Ctrl+Alt+Shift+S` | **Ngăn kiểu**         |
 | `Shift+F1`         | **Hiện định dạng**    |

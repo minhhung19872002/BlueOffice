@@ -11,6 +11,7 @@
 //! keeps their unknown children (`Extra`) in place, so saving stays lossless for
 //! everything that was not touched.
 
+pub mod a11y;
 pub mod action;
 pub mod album;
 pub mod build;
@@ -3618,6 +3619,13 @@ impl Engine {
         }
         if let Some(r) = Self::new_deck_json(json) {
             return r;
+        }
+        // Accessible structure of slides (screen-reader mirror; never changes anything).
+        if let Some(ac) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| a11y::A11yCommand::parse(&v))
+        {
+            return self.slide_a11y_command(&ac);
         }
         // Macro source, read-only (CORE-VBA-002).
         if serde_json::from_str::<serde_json::Value>(json)

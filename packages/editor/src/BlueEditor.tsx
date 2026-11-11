@@ -906,6 +906,18 @@ function EditorInner({
       onContextMenu: (e) => void contextMenuAt.current(e),
       inputLabel: i18nInstance.t('a11y.documentInput'),
       pageLabel: (n) => i18nInstance.t('a11y.page', { n }),
+      mirrorLabels: {
+        region: (from, to) =>
+          from === to
+            ? i18nInstance.t('a11y.mirrorPage', { n: from })
+            : i18nInstance.t('a11y.mirrorPages', { from, to }),
+        picture: (alt) =>
+          alt ? i18nInstance.t('a11y.picture', { alt }) : i18nInstance.t('a11y.pictureNoAlt'),
+        equation: () => i18nInstance.t('a11y.equation'),
+        object: () => i18nInstance.t('a11y.object'),
+        deleted: (text) => i18nInstance.t('a11y.deleted', { text }),
+        blank: () => i18nInstance.t('a11y.blank'),
+      },
     };
     paneOptions.current = viewOptions;
     const v = new DocumentView(viewHost.current, platform.engine, {
@@ -932,6 +944,7 @@ function EditorInner({
         v.setMathMarks(m ?? null);
         splitView.current?.setMathMarks(m ?? null);
       },
+      setAccessibleSelection: (focus, edited) => v.setAccessibleCaret(focus, edited),
     };
     // Spelling marks follow edits after a short pause (the engine caches unchanged paragraphs).
     let spellTimer: ReturnType<typeof setTimeout> | undefined;

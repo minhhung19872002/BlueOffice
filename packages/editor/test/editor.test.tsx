@@ -253,8 +253,10 @@ describe('BlueEditor', () => {
     await waitFor(() =>
       expect(p.commands).toContainEqual(expect.objectContaining({ cmd: 'paste', mode: 'text' })),
     );
-    const at = p.commands.findIndex((c) => c.cmd === 'paste' && c.mode === 'text');
-    expect(p.commands[at - 1]?.cmd).toBe('undo');
+    // The edits in order (the screen-reader mirror's read-only `speech*` queries left out).
+    const edits = p.commands.filter((c) => !c.cmd.startsWith('speech'));
+    const at = edits.findIndex((c) => c.cmd === 'paste' && c.mode === 'text');
+    expect(edits[at - 1]?.cmd).toBe('undo');
     // Home › Clipboard launcher: the history panel with the default paste settings.
     fireEvent.click(document.querySelector('[data-command="edit.clipboardPanel"]')!);
     expect(await screen.findByTestId('clipboard-panel')).toBeTruthy();

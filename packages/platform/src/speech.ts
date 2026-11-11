@@ -72,7 +72,41 @@ export type DocSpeechCommand =
   /** Body paragraphs `from..=to` (absent: all) → `speech.paras`. */
   | { cmd: 'speechText'; from?: number; to?: number }
   /** Highlight rectangles of byte ranges of body paragraphs → `speech.rects` (one list per range). */
-  | { cmd: 'speechRects'; ranges: { p: number; start: number; end: number }[] };
+  | { cmd: 'speechRects'; ranges: { p: number; start: number; end: number }[] }
+  /**
+   * Accessible structure of the body paragraphs on pages `fromPage..=toPage` (0-based) and of
+   * paragraph `include` → `speech.tree` (screen-reader mirror of the canvas).
+   */
+  | { cmd: 'speechTree'; fromPage: number; toPage: number; include?: number }
+  /** Byte range of the laid-out line showing byte `o` of paragraph `p` → `speech.line`. */
+  | { cmd: 'speechLine'; p: number; o: number };
+
+/** A body paragraph of the accessible structure (offsets: UTF-8 bytes of `text`). */
+export interface DocTreePara {
+  p: number;
+  /** Index text (objects are U+FFFC). */
+  text: string;
+  /** Heading level 1–9. */
+  heading?: number;
+  /** List level 1–9. */
+  list?: number;
+  /** Table cell holding the paragraph (outermost table). */
+  cell?: {
+    /** Paragraphs with the same key are in one table. */
+    table: string;
+    row: number;
+    col: number;
+    rows: number;
+    cols: number;
+    /** Header row: its cells are column headers. */
+    header?: boolean;
+  };
+  links?: { start: number; end: number; href: string }[];
+  /** Objects (U+FFFC) and their text alternatives. */
+  objects?: { at: number; kind: 'picture' | 'equation' | 'object'; alt: string }[];
+  /** First page showing the paragraph (0-based). */
+  page: number;
+}
 
 /** A body paragraph to read (offsets: UTF-8 bytes of `text`, as `Pos`). */
 export interface DocSpeechPara {
@@ -90,6 +124,9 @@ export interface DocSpeechPara {
 export interface DocSpeechInfo {
   paras?: DocSpeechPara[];
   rects?: import('./types').SelRect[][];
+  tree?: DocTreePara[];
+  /** `[start, end)` byte offsets of the line (`speechLine`). */
+  line?: [number, number];
 }
 
 // ------------------------------------------------------------------------------- text helpers

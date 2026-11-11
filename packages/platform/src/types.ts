@@ -1680,8 +1680,31 @@ export interface SlideFreeformInfo {
 }
 
 /** Slide editing command (JSON bridge, ADR-0008). */
+/** A shape of a slide for screen readers (`slideOutline`), in reading order. */
+export interface SlideA11yShape {
+  id: number;
+  name: string;
+  kind: SlideShapeInfo['kind'];
+  /** Placeholder type (`title`, `ctrTitle`, `body`, …). */
+  placeholder?: string;
+  /** Text (`\n` paragraphs, `\u000b` line breaks). */
+  text?: string;
+  /** Alternative text (`cNvPr@descr`). */
+  alt?: string;
+}
+
+/** Answer of `slideOutline`. */
+export interface SlideOutline {
+  slides: { index: number; shapes: SlideA11yShape[] }[];
+}
+
 export type SlideCommand =
   | import('./security').SecurityCommand
+  /**
+   * Shapes of slides `from..=to` in reading order (title first) with their text and
+   * alternative text → `SlideOutline` (screen-reader mirror; changes nothing).
+   */
+  | { cmd: 'slideOutline'; from: number; to: number }
   /** Macro source of the open file, read-only (CORE-VBA-002) → `VbaProjectInfo`. */
   | import('./vba').VbaCommand
   /** Playback options of video / audio clips (SLIDE-MEDIA-001). */

@@ -7457,6 +7457,40 @@
   },
   "a11y": {
     "documentInput": "Document content",
-    "page": "Page {{n}}"
+    "page": "Page {{n}}",
+    "mirrorPage": "Text of page {{n}}",
+    "mirrorPages": "Text of pages {{from}}–{{to}}",
+    "picture": "Picture: {{alt}}",
+    "pictureNoAlt": "Picture without alternative text",
+    "equation": "Equation",
+    "object": "Object",
+    "deleted": "Deleted {{text}}",
+    "blank": "Blank",
+    "cell": "{{address}}: {{value}}",
+    "emptyCell": "empty",
+    "formula": "formula {{formula}}",
+    "bold": "bold",
+    "italic": "italic",
+    "underline": "underlined",
+    "strike": "strikethrough",
+    "numberFormat": "format {{format}}",
+    "merged": "merged cell",
+    "slideN": "Slide {{n}}",
+    "slideShapes": "Content of slide {{n}}",
+    "shapeSelected": "{{name}} selected",
+    "shapesSelected": "{{count}} objects selected",
+    "shapeKind": {
+      "shape": "shape",
+      "picture": "picture",
+      "group": "group",
+      "connector": "connector",
+      "table": "table",
+      "chart": "chart",
+      "smartart": "SmartArt diagram",
+      "model3d": "3D model",
+      "zoom": "zoom",
+      "object": "object",
+      "graphic": "graphic"
+    }
   }
 }

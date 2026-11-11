@@ -22,4 +22,14 @@ export {
   type PathFactory,
 } from './renderer';
 export { ImeInput, INTERNAL_MIME, type ImeEvent } from './ime';
+export {
+  DocMirror,
+  DEFAULT_MIRROR_LABELS,
+  VISUALLY_HIDDEN,
+  buildMirror,
+  paragraphContent,
+  textChange,
+  wordAt,
+  type MirrorLabels,
+} from './a11y';
 export { drawMarkup, markupKey, type MarkupDrawOptions, type MarkupSelect } from './markup';

@@ -36,14 +36,24 @@ const EXCLUDE: { selector: string; reason: string }[] = [
   {
     // The document pages / sheet grid / slide are pixels drawn by the engine on <canvas>;
     // axe sees no text in them (contrast of document content is the author's choice, not
-    // UI). Their text is exposed through the hidden accessibility mirror (role=document /
-    // grid / textbox with the paragraph, cell or shape text), which stays IN the scan.
+    // UI). Their text is exposed through the visually hidden accessibility mirrors (BlueDoc
+    // `doc-a11y-mirror`, BlueSheet `role=grid` `sheet-a11y-grid`, BlueSlide
+    // `slide-a11y-mirror`), which stay IN the scan: `expectMirror` checks each one exists and
+    // holds the document's text (a11y-mirror.spec.ts checks their structure in detail).
     selector: 'canvas',
     reason: 'engine-drawn document content (pixels)',
   },
 ];
 
 const failures: string[] = [];
+
+/** The accessibility mirror `testId` exists, is not `display: none` and holds `text`. */
+async function expectMirror(page: Page, testId: string, text: string | RegExp) {
+  const m = page.getByTestId(testId);
+  await expect(m).toBeAttached();
+  await expect(m).toContainText(text);
+  expect(await m.evaluate((e) => getComputedStyle(e).display)).not.toBe('none');
+}
 
 async function scan(page: Page, label: string, include?: string) {
   // Let transitions and lazily rendered panels settle.
@@ -161,6 +171,7 @@ test('BlueDoc: start screen, ribbon, File screen, dialogs, task panes, themes', 
   await expect(page.getByTestId('caret')).toBeVisible();
   await page.keyboard.insertText('Báo cáo kiểm tra khả năng tiếp cận');
   await expect(page.locator('.bo-page[data-page="1"]')).toHaveAttribute('data-rendered', 'true');
+  await expectMirror(page, 'doc-a11y-mirror', 'Báo cáo kiểm tra khả năng tiếp cận');
   await scan(page, 'doc document');
   await scanTabs(page, 'doc');
   await scanFileScreen(page, 'doc');
@@ -196,6 +207,10 @@ test('BlueSheet: ribbon, File screen, dialogs, task panes, themes', async ({ pag
   test.setTimeout(240_000);
   await page.goto('/sheet');
   await expect(page.getByTestId('sheet-canvas')).toHaveAttribute('data-rendered', /\d+/);
+  await page.getByLabel('Ô đang nhập').focus();
+  await page.keyboard.type('Ô có chữ');
+  await page.keyboard.press('Enter');
+  await expectMirror(page, 'sheet-a11y-grid', 'Ô có chữ');
   await scan(page, 'sheet workbook');
   await scanTabs(page, 'sheet');
   await scanFileScreen(page, 'sheet');
@@ -230,6 +245,7 @@ test('BlueSlide: ribbon, File screen, dialogs, task panes, themes', async ({ pag
   await page.getByRole('button', { name: 'Mở', exact: true }).click();
   await (await chooser).setFiles(deck);
   await expect(page.getByTestId('slide-overlay')).toBeVisible();
+  await expectMirror(page, 'slide-a11y-mirror', /\S/);
   await scan(page, 'slide deck');
   await scanTabs(page, 'slide');
   await scanFileScreen(page, 'slide');

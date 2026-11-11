@@ -1,3 +1,4 @@
+import { SheetA11y } from './SheetA11y';
 import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from '@blueoffice/canvas-host';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
@@ -5355,14 +5356,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             <div className={styles.sticky}>
               <canvas
                 ref={canvasRef}
-                role="grid"
-                aria-label={t('sheetEditor.grid')}
+                aria-hidden="true"
                 data-testid="sheet-canvas"
                 style={{ cursor }}
                 onMouseDown={(e) => void onMouseDown(e)}
                 onContextMenu={(e) => void onGridContextMenu(e)}
                 onMouseMove={(e) => void onMouseMove(e)}
                 onDoubleClick={(e) => void onDoubleClick(e)}
+              />
+              {/* The grid for screen readers (the canvas is pixels; WCAG 1.3.1 / 4.1.2). */}
+              <SheetA11y
+                host={host}
+                sheet={sheet}
+                view={view}
+                active={selection.active}
+                fmt={fmt}
+                revision={revision}
+                label={t('sheetEditor.grid')}
+                rows={(summary?.lastRow ?? -1) + 1 || undefined}
+                cols={(summary?.lastCol ?? -1) + 1 || undefined}
               />
               {chart === null &&
                 extra.length > 0 &&

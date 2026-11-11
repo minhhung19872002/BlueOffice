@@ -629,18 +629,23 @@ fn morph_pairs_shapes_of_consecutive_slides() {
     let show = run(&mut e, r#"{"cmd":"show","slide":1}"#).show.unwrap();
     let m = show.morph.expect("morph");
     assert_eq!(m.option, "byWord");
-    assert_eq!(m.pairs.len(), n);
+    // By word: the shapes pair as objects (without their text), their words as pairs of their own
+    // (found unchanged on the duplicated slide: none fade).
+    let words = m.pairs.iter().filter(|p| p.clip.is_some()).count();
+    assert!(words > 0);
+    assert!(m.gone_text.is_empty() && m.new_text.is_empty());
+    let shapes: Vec<_> = m.pairs.iter().filter(|p| p.clip.is_none()).collect();
+    assert_eq!(shapes.len(), n);
     assert_eq!(m.gone.len(), 0);
     assert_eq!(m.new.len(), 1);
-    let moved: Vec<_> = m
-        .pairs
+    let moved: Vec<_> = shapes
         .iter()
         .filter(|p| {
             (p.to[0] - p.from[0] - 120.0).abs() < 0.01 && (p.to[1] - p.from[1] + 30.0).abs() < 0.01
         })
         .collect();
     assert_eq!(moved.len(), 1);
-    assert_eq!(m.pairs.iter().filter(|p| p.from == p.to).count(), n - 1);
+    assert_eq!(shapes.iter().filter(|p| p.from == p.to).count(), n - 1);
     // The first slide has no morph; saved and read back, the transition stays a morph.
     assert!(run(&mut e, r#"{"cmd":"show","slide":0}"#)
         .show

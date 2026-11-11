@@ -187,6 +187,7 @@ fn edited_deck_round_trips() {
             repeat: None,
             trigger_shape: None,
             trigger_bookmark: None,
+            iterate: None,
             source: None,
         }],
         others: vec![],

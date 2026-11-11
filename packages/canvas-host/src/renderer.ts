@@ -212,9 +212,18 @@ export class GlyphStore {
   }
 }
 
+/** How a page is drawn: on paper or see-through, and which part of it. */
+export interface RenderPageOptions {
+  /** Leave the background see-through (a layer over other layers). */
+  transparent?: boolean;
+  /** Page point drawn at the canvas origin (a canvas holding only a part of the page). */
+  origin?: [number, number];
+}
+
 /**
  * Draw a page display list. `scale` = device pixels per point.
- * The page background is painted white first (documents are always on paper).
+ * The page background is painted white first (documents are always on paper),
+ * unless `opts.transparent`.
  */
 export function renderPage(
   ctx: CanvasLike,
@@ -222,11 +231,15 @@ export function renderPage(
   glyphs: GlyphStore,
   scale: number,
   images?: ImageStore,
+  opts: RenderPageOptions = {},
 ): void {
   ctx.save();
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, page.width, page.height);
+  const [ox, oy] = opts.origin ?? [0, 0];
+  ctx.setTransform(scale, 0, 0, scale, -ox * scale, -oy * scale);
+  if (!opts.transparent) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, page.width, page.height);
+  }
   for (const cmd of page.commands) drawCommand(ctx, cmd, glyphs, images);
   ctx.restore();
 }

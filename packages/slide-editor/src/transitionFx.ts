@@ -955,6 +955,10 @@ function rankBy(values: number[]): number[] {
 export interface MorphLayer {
   page: PageDisplayList;
   frames: Frames;
+  /** A backdrop (drawn on paper; the others are see-through). */
+  backdrop?: boolean;
+  /** A word / letter: drawn on a canvas the size of this box `[x, y, w, h]` (points). */
+  rect?: [number, number, number, number];
 }
 
 /**
@@ -970,9 +974,11 @@ export function morphLayers(m: SlideMorphInfo, width: number, height: number): M
   const out: Frames = [{ opacity: 1 }, { opacity: 0 }];
   const inn: Frames = [{ opacity: 0 }, { opacity: 1 }];
   const layers: MorphLayer[] = [
-    { page: m.fromBackdrop, frames: out },
-    { page: m.toBackdrop, frames: inn },
+    { page: m.fromBackdrop, frames: out, backdrop: true },
+    { page: m.toBackdrop, frames: inn, backdrop: true },
     ...m.gone.map((page) => ({ page, frames: out })),
+    // Words / letters not found again (by word / by character).
+    ...(m.goneText ?? []).map((p) => ({ page: p.page, frames: out, rect: p.rect })),
   ];
   const turn = (a: number, b: number) => {
     const d = (((b - a) % 360) + 360) % 360;
@@ -1011,6 +1017,7 @@ export function morphLayers(m: SlideMorphInfo, width: number, height: number): M
         opacity: k < 0.5 ? 1 : 0,
         offset: k,
       })),
+      ...(p.clip ? { rect: p.clip[0] } : {}),
     });
     layers.push({
       page: p.toPage,
@@ -1020,8 +1027,10 @@ export function morphLayers(m: SlideMorphInfo, width: number, height: number): M
         opacity: k < 0.5 ? 0 : 1,
         offset: k,
       })),
+      ...(p.clip ? { rect: p.clip[1] } : {}),
     });
   }
   for (const page of m.new) layers.push({ page, frames: inn });
+  for (const p of m.newText ?? []) layers.push({ page: p.page, frames: inn, rect: p.rect });
   return layers;
 }

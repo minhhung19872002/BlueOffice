@@ -7,8 +7,8 @@
 
 use bo_drawingml::dom::{attr_int, parse_bool, El};
 use bo_model::slide::{
-    AnimClass, AnimEffect, AnimTrigger, Animation, Extra, Timing, Transition, TransitionKind,
-    TransitionSound, XmlElement, XmlNode,
+    AnimClass, AnimEffect, AnimIterate, AnimTrigger, Animation, Extra, Timing, Transition,
+    TransitionKind, TransitionSound, XmlElement, XmlNode,
 };
 
 const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
@@ -399,9 +399,82 @@ fn parse_effect(ctn: &XmlElement) -> Option<Animation> {
         },
         trigger_shape: None,
         trigger_bookmark: None,
+        iterate: ctn.child("p:iterate").map(parse_iterate),
         preset_subtype: attr_int(ctn, "presetSubtype"),
         source: None,
     })
+}
+
+/// ECMA-376 Part 1, §19.5 iterate (CT_TLIterateData): `type` (ST_IterateType, default `el`),
+/// `backwards`, and the time between pieces as §19.5 tmAbs (ms) or tmPct (1000ths of a percent).
+fn parse_iterate(el: &XmlElement) -> AnimIterate {
+    AnimIterate {
+        kind: el.attr("type").unwrap_or("el").to_owned(),
+        pct: el.child("p:tmPct").and_then(|t| attr_int(t, "val")),
+        abs_ms: el.child("p:tmAbs").and_then(|t| attr_int(t, "val")),
+        backwards: el.attr("backwards").and_then(parse_bool).unwrap_or(false),
+    }
+}
+
+/// The §19.5 iterate element of the model.
+fn iterate_xml(it: &AnimIterate) -> XmlElement {
+    let mut e = El::new("p:iterate")
+        .a("type", &it.kind)
+        .optb("backwards", it.backwards.then_some(true));
+    if let Some(a) = it.abs_ms {
+        e = e.child(El::new("p:tmAbs").a("val", a).done());
+    } else if let Some(p) = it.pct {
+        e = e.child(El::new("p:tmPct").a("val", p).done());
+    }
+    e.done()
+}
+
+/// Put the model's iterate into an effect cTn (CT_TLCommonTimeNodeData sequence: stCondLst,
+/// endCondLst, endSync, iterate, childTnLst, subTnLst), replacing the one there.
+fn put_iterate(ctn: &mut XmlElement, it: Option<&AnimIterate>) {
+    let had = ctn
+        .children
+        .iter()
+        .position(|c| matches!(c, XmlNode::Element(e) if e.name == "p:iterate"));
+    if let Some(i) = had {
+        ctn.children.remove(i);
+    }
+    let Some(it) = it else { return };
+    let at = ctn
+        .children
+        .iter()
+        .position(|c| {
+            matches!(c, XmlNode::Element(e) if matches!(e.name.as_str(), "p:childTnLst" | "p:subTnLst"))
+        })
+        .unwrap_or(ctn.children.len());
+    ctn.children.insert(at, XmlNode::Element(iterate_xml(it)));
+}
+
+/// Multiply the durations and delays of the time nodes under an effect node by `k` (an effect
+/// kept as read, given a new duration: §19.5.29 cTn@dur, §19.5.25 cond@delay).
+fn scale_times(el: &mut XmlElement, k: f64) {
+    for c in &mut el.children {
+        let XmlNode::Element(e) = c else { continue };
+        if e.name == "p:cTn" {
+            for (n, v) in &mut e.attrs {
+                if n == "dur" {
+                    if let Ok(d) = v.parse::<f64>() {
+                        *v = ((d * k).round().max(1.0) as u64).to_string();
+                    }
+                }
+            }
+        }
+        if e.name == "p:cond" {
+            for (n, v) in &mut e.attrs {
+                if n == "delay" {
+                    if let Ok(d) = v.parse::<f64>() {
+                        *v = ((d * k).round() as u64).to_string();
+                    }
+                }
+            }
+        }
+        scale_times(e, k);
+    }
 }
 
 /// Effects whose behaviours are not modelled: their `p:par` is kept as read.
@@ -779,6 +852,12 @@ fn reused_effect(ids: &mut Ids, a: &Animation, src: &XmlElement) -> XmlElement {
         if ctn.name != "p:cTn" {
             continue;
         }
+        // A new duration: every behaviour keeps its share of the effect's time.
+        let was = parse_effect(ctn).map_or(0, |p| p.dur_ms);
+        if was > 0 && was != a.dur_ms {
+            scale_times(ctn, f64::from(a.dur_ms.max(1)) / f64::from(was));
+        }
+        put_iterate(ctn, a.iterate.as_ref());
         match ctn.attrs.iter_mut().find(|(k, _)| k == "nodeType") {
             Some((_, v)) => *v = node_type.to_owned(),
             None => ctn.attrs.push(("nodeType".into(), node_type.to_owned())),
@@ -937,21 +1016,294 @@ fn effect_node(ids: &mut Ids, a: &Animation) -> XmlElement {
     for b in behaviours {
         kids = kids.child(b);
     }
+    let mut ctn = El::new("p:cTn")
+        .a("id", id)
+        .opt("presetID", preset)
+        .a("presetClass", class)
+        .opt("presetSubtype", subtype)
+        .opt("repeatCount", repeat_attr(a.repeat))
+        .a("fill", "hold")
+        .a("nodeType", node_type)
+        .child(cond(&a.delay_ms.to_string()));
+    if let Some(it) = &a.iterate {
+        ctn = ctn.child(iterate_xml(it));
+    }
+    El::new("p:par").child(ctn.child(kids.done()).done()).done()
+}
+
+/// A motion path drawn by the author (§19.5.4 animMotion, `path` in slide widths / heights from
+/// the shape's position, `pathEditMode` relative): the effect node of a custom path.
+#[must_use]
+pub fn custom_path_effect(spid: u32, dur: u32, path: &str) -> XmlElement {
+    let mut ids = Ids(0);
+    let id = ids.next();
+    let motion = El::new("p:animMotion")
+        .a("origin", "layout")
+        .a("path", path)
+        .a("pathEditMode", "relative")
+        .child(
+            El::new("p:cBhvr")
+                .child(
+                    El::new("p:cTn")
+                        .a("id", ids.next())
+                        .a("dur", dur.max(1))
+                        .a("fill", "hold")
+                        .done(),
+                )
+                .child(tgt(spid))
+                .done(),
+        )
+        .done();
     El::new("p:par")
         .child(
             El::new("p:cTn")
                 .a("id", id)
-                .opt("presetID", preset)
-                .a("presetClass", class)
-                .opt("presetSubtype", subtype)
-                .opt("repeatCount", repeat_attr(a.repeat))
+                .a("presetClass", "path")
                 .a("fill", "hold")
-                .a("nodeType", node_type)
-                .child(cond(&a.delay_ms.to_string()))
-                .child(kids.done())
+                .a("nodeType", "clickEffect")
+                .child(cond("0"))
+                .child(El::new("p:childTnLst").child(motion).done())
                 .done(),
         )
         .done()
+}
+
+fn motions_mut<'a>(el: &'a mut XmlElement, out: &mut Vec<&'a mut XmlElement>) {
+    for c in &mut el.children {
+        if let XmlNode::Element(e) = c {
+            if e.name == "p:animMotion" {
+                out.push(e);
+            } else {
+                motions_mut(e, out);
+            }
+        }
+    }
+}
+
+/// The §19.5.4 animMotion@path of an effect node (the first motion behaviour).
+#[must_use]
+pub fn motion_path(par: &XmlElement) -> Option<String> {
+    let mut all = Vec::new();
+    descendants(par, &mut all);
+    all.into_iter()
+        .find(|e| e.name == "p:animMotion")
+        .and_then(|m| m.attr("path"))
+        .map(str::to_owned)
+}
+
+/// Set the §19.5.4 animMotion@path of every motion behaviour of an effect node; `false` when the
+/// effect has none.
+pub fn set_motion_path(par: &mut XmlElement, path: &str) -> bool {
+    let mut ms = Vec::new();
+    motions_mut(par, &mut ms);
+    for m in &mut ms {
+        match m.attrs.iter_mut().find(|(k, _)| k == "path") {
+            Some((_, v)) => *v = path.to_owned(),
+            None => m.attrs.push(("path".into(), path.to_owned())),
+        }
+        // The points written by the author no longer match: §19.5.4 ptsTypes describes them.
+        m.attrs.retain(|(k, _)| k != "ptsTypes");
+    }
+    !ms.is_empty()
+}
+
+/// §19.5.4 animMotion@pathEditMode of an effect node: `fixed` (the path stays where it is on the
+/// slide when the shape moves) or `relative` (it moves with the shape).
+#[must_use]
+pub fn path_locked(par: &XmlElement) -> bool {
+    let mut all = Vec::new();
+    descendants(par, &mut all);
+    all.into_iter()
+        .find(|e| e.name == "p:animMotion")
+        .and_then(|m| m.attr("pathEditMode"))
+        == Some("fixed")
+}
+
+/// Set §19.5.4 animMotion@pathEditMode (`fixed` when `locked`, else `relative`).
+pub fn set_path_locked(par: &mut XmlElement, locked: bool) {
+    let mut ms = Vec::new();
+    motions_mut(par, &mut ms);
+    let v = if locked { "fixed" } else { "relative" };
+    for m in &mut ms {
+        match m.attrs.iter_mut().find(|(k, _)| k == "pathEditMode") {
+            Some((_, x)) => *x = v.to_owned(),
+            None => m.attrs.push(("pathEditMode".into(), v.to_owned())),
+        }
+    }
+}
+
+/// Segments of a §19.5.4 path, absolute: (`M` | `L` | `C` | `Z`, points).
+fn path_segments(path: &str) -> Vec<(char, Vec<(f64, f64)>)> {
+    let mut toks: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for ch in path.chars() {
+        if ch.is_ascii_alphabetic() && (ch != 'e' || cur.is_empty()) {
+            if !cur.is_empty() {
+                toks.push(std::mem::take(&mut cur));
+            }
+            toks.push(ch.to_string());
+        } else if ch == ' ' || ch == ',' {
+            if !cur.is_empty() {
+                toks.push(std::mem::take(&mut cur));
+            }
+        } else {
+            cur.push(ch);
+        }
+    }
+    if !cur.is_empty() {
+        toks.push(cur);
+    }
+    let mut out: Vec<(char, Vec<(f64, f64)>)> = Vec::new();
+    let (mut x, mut y, mut sx, mut sy) = (0.0, 0.0, 0.0, 0.0);
+    let mut cmd = 'M';
+    let mut i = 0;
+    while i < toks.len() {
+        let t = &toks[i];
+        if t.len() == 1 && t.chars().all(|c| c.is_ascii_alphabetic()) {
+            cmd = t.chars().next().unwrap_or('M');
+            i += 1;
+            match cmd {
+                'Z' | 'z' => {
+                    out.push(('Z', Vec::new()));
+                    (x, y) = (sx, sy);
+                }
+                'E' | 'e' => break,
+                _ => {}
+            }
+            continue;
+        }
+        let n = if cmd.eq_ignore_ascii_case(&'C') { 3 } else { 1 };
+        let mut pts = Vec::with_capacity(n);
+        for _ in 0..n {
+            let a = toks.get(i).and_then(|v| v.parse::<f64>().ok());
+            let b = toks.get(i + 1).and_then(|v| v.parse::<f64>().ok());
+            let (Some(a), Some(b)) = (a, b) else {
+                return out;
+            };
+            i += 2;
+            pts.push(if cmd.is_ascii_lowercase() {
+                (x + a, y + b)
+            } else {
+                (a, b)
+            });
+        }
+        if cmd.is_ascii_lowercase() {
+            // Relative control points are all measured from the segment's start.
+            if let Some(&last) = pts.last() {
+                (x, y) = last;
+            }
+        } else if let Some(&last) = pts.last() {
+            (x, y) = last;
+        }
+        let up = cmd.to_ascii_uppercase();
+        if up == 'M' {
+            (sx, sy) = (x, y);
+        }
+        out.push((
+            if matches!(up, 'M' | 'L' | 'C') {
+                up
+            } else {
+                'L'
+            },
+            pts,
+        ));
+    }
+    out
+}
+
+fn fmt_num(v: f64) -> String {
+    let r = (v * 1_000_000.0).round() / 1_000_000.0;
+    // `-0` reads as 0.
+    if r == 0.0 {
+        "0".into()
+    } else {
+        r.to_string()
+    }
+}
+
+/// The path moved by (`dx`, `dy`) slide widths / heights (§19.5.4 path, absolute commands): a
+/// locked path keeps its place on the slide when its shape moves by the opposite amount.
+#[must_use]
+pub fn shift_path(path: &str, dx: f64, dy: f64) -> String {
+    let mut out = Vec::new();
+    for (c, pts) in path_segments(path) {
+        if c == 'Z' {
+            out.push("Z".to_owned());
+            continue;
+        }
+        let mut s = c.to_string();
+        for (x, y) in pts {
+            s.push_str(&format!(" {} {}", fmt_num(x + dx), fmt_num(y + dy)));
+        }
+        out.push(s);
+    }
+    let closed = out.last().is_some_and(|s| s == "Z");
+    let mut s = out.join(" ");
+    if !closed {
+        s.push_str(" E");
+    }
+    s
+}
+
+/// One drawn piece of a path: from, control points, to.
+type PathPiece = ((f64, f64), Vec<(f64, f64)>, (f64, f64));
+
+/// The path run the other way (Reverse Path Direction): the shape starts where it ended and moves
+/// back along the same curve (§19.5.4 path, absolute commands; `E` when open).
+#[must_use]
+pub fn reverse_path(path: &str) -> String {
+    let segs = path_segments(path);
+    // Points of the drawing order: start, then each segment's end with the controls leading to it.
+    let closed = segs.iter().any(|(c, _)| *c == 'Z');
+    let mut start: Option<(f64, f64)> = None;
+    let mut cur = (0.0, 0.0);
+    // (from, controls, to) of each drawn piece.
+    let mut pieces: Vec<PathPiece> = Vec::new();
+    for (c, pts) in &segs {
+        match c {
+            'M' => {
+                if let Some(&p) = pts.first() {
+                    cur = p;
+                    start.get_or_insert(p);
+                }
+            }
+            'L' => {
+                if let Some(&p) = pts.first() {
+                    start.get_or_insert(cur);
+                    pieces.push((cur, Vec::new(), p));
+                    cur = p;
+                }
+            }
+            'C' => {
+                if pts.len() == 3 {
+                    start.get_or_insert(cur);
+                    pieces.push((cur, vec![pts[0], pts[1]], pts[2]));
+                    cur = pts[2];
+                }
+            }
+            _ => {
+                // Z: back to the start as a line.
+                if let Some(s) = start {
+                    if s != cur {
+                        pieces.push((cur, Vec::new(), s));
+                        cur = s;
+                    }
+                }
+            }
+        }
+    }
+    let p = |(x, y): (f64, f64)| format!("{} {}", fmt_num(x), fmt_num(y));
+    let begin = pieces.last().map_or(start.unwrap_or((0.0, 0.0)), |l| l.2);
+    let mut out = format!("M {}", p(begin));
+    for (from, ctl, _) in pieces.iter().rev() {
+        if ctl.len() == 2 {
+            out.push_str(&format!(" C {} {} {}", p(ctl[1]), p(ctl[0]), p(*from)));
+        } else {
+            out.push_str(&format!(" L {}", p(*from)));
+        }
+    }
+    out.push_str(if closed { " Z" } else { " E" });
+    out
 }
 
 fn par(ids: &mut Ids, delay: &str, children: Vec<XmlElement>) -> XmlElement {
@@ -1216,6 +1568,7 @@ mod tests {
             repeat: None,
             trigger_shape: None,
             trigger_bookmark: None,
+            iterate: None,
             source: None,
         }
     }
@@ -1404,5 +1757,101 @@ mod tests {
         let tl = back.timeline();
         assert_eq!((tl[0].click, tl[1].click), (1, 1));
         assert_eq!(back.click_count(), 1);
+    }
+
+    // source: ECMA-376 Part 1, §19.5 iterate (CT_TLIterateData) sits between stCondLst and
+    // childTnLst of the effect cTn; type wd / lt, tmPct; read back into the model.
+    #[test]
+    fn text_iteration_is_written_in_place_and_read_back() {
+        let mut a = anim(AnimEffect::Fade, None, AnimTrigger::OnClick);
+        a.iterate = Some(AnimIterate {
+            kind: "wd".into(),
+            pct: Some(10_000),
+            abs_ms: None,
+            backwards: false,
+        });
+        let par = effect_xml(&a);
+        let ctn = par.child("p:cTn").unwrap();
+        let order: Vec<&str> = ctn.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(order, vec!["p:stCondLst", "p:iterate", "p:childTnLst"]);
+        let back = parse_effect(ctn).unwrap();
+        assert_eq!(back.iterate, a.iterate);
+        assert_eq!(a.iterate.as_ref().unwrap().step_ms(500), 50);
+        // Kept as read (an unmodelled effect): the model's iterate replaces the source's.
+        let mut b = anim(AnimEffect::Other, None, AnimTrigger::OnClick);
+        b.source = Some(par.clone());
+        b.iterate = Some(AnimIterate {
+            kind: "lt".into(),
+            pct: None,
+            abs_ms: Some(80),
+            backwards: true,
+        });
+        let x = effect_xml(&b);
+        let it = x.child("p:cTn").unwrap().child("p:iterate").unwrap();
+        assert_eq!(
+            (it.attr("type"), it.attr("backwards")),
+            (Some("lt"), Some("1"))
+        );
+        assert_eq!(it.child("p:tmAbs").and_then(|t| t.attr("val")), Some("80"));
+        b.iterate = None;
+        assert!(effect_xml(&b)
+            .child("p:cTn")
+            .unwrap()
+            .child("p:iterate")
+            .is_none());
+    }
+
+    // source: §19.5.29 cTn@dur — an effect kept as read takes a new duration by scaling the
+    // durations and delays of its behaviours (a 400 ms fade starting at 100 ms, now 1000 ms in
+    // all: 800 ms from 200 ms).
+    #[test]
+    fn kept_effects_take_a_new_duration() {
+        let xml = r#"<p:par><p:cTn id="3" presetClass="emph" presetID="99" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="4" dur="400"><p:stCondLst><p:cond delay="100"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par>"#;
+        let par = bo_drawingml::dom::parse(xml.as_bytes(), "/t.xml").unwrap();
+        let mut a = parse_effect(par.child("p:cTn").unwrap()).unwrap();
+        assert_eq!(a.dur_ms, 500);
+        a.source = Some(par);
+        a.dur_ms = 1000;
+        let out = effect_xml(&a);
+        let mut all = Vec::new();
+        descendants(&out, &mut all);
+        let inner = all
+            .iter()
+            .find(|e| e.name == "p:cTn" && e.attr("dur").is_some())
+            .unwrap();
+        assert_eq!(inner.attr("dur"), Some("800"));
+        assert_eq!(delay_of(inner), 200);
+        assert_eq!(
+            parse_effect(out.child("p:cTn").unwrap()).unwrap().dur_ms,
+            1000
+        );
+    }
+
+    // source: §19.5.4 animMotion@path — a path run backwards visits the same points in the other
+    // order, curves with their control points swapped; a closed path stays closed.
+    #[test]
+    fn motion_paths_reverse_and_lock() {
+        assert_eq!(reverse_path("M 0 0 L 0.25 0 E"), "M 0.25 0 L 0 0 E");
+        assert_eq!(
+            reverse_path("M 0 0 C 0.1 0 0.2 0.1 0.2 0.2 L 0.3 0.2 E"),
+            "M 0.3 0.2 L 0.2 0.2 C 0.2 0.1 0.1 0 0 0 E"
+        );
+        // Relative commands and a closing Z (back to the start as a line).
+        assert_eq!(
+            reverse_path("m 0 0 l 0.1 0 l 0 0.1 z"),
+            "M 0 0 L 0.1 0.1 L 0.1 0 L 0 0 Z"
+        );
+        // Reversed twice: the same points.
+        let p = "M 0 0 L 0.2 0.05 C 0.3 0.1 0.35 0.2 0.4 0.1 L 0.5 0 E";
+        assert_eq!(reverse_path(&reverse_path(p)), p);
+        let mut par = custom_path_effect(7, 900, p);
+        assert_eq!(motion_path(&par).as_deref(), Some(p));
+        assert!(!path_locked(&par));
+        set_path_locked(&mut par, true);
+        assert!(path_locked(&par));
+        assert!(set_motion_path(&mut par, "M 0 0 L 1 1 E"));
+        assert_eq!(motion_path(&par).as_deref(), Some("M 0 0 L 1 1 E"));
+        let a = parse_effect(par.child("p:cTn").unwrap()).unwrap();
+        assert_eq!((a.class, a.dur_ms, a.shape_id), (AnimClass::Path, 900, 7));
     }
 }

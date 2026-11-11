@@ -326,6 +326,30 @@ pub enum TextFormat {
         /// The multiple.
         value: f64,
     },
+    /// Superscript / subscript (§21.1.2.3.9 rPr@baseline, ST_Percentage): positive raises,
+    /// negative lowers, 0 puts the text back on the line.
+    Baseline {
+        /// Shift in 1/1000 % of the font size (30000 = superscript, -25000 = subscript).
+        value: i32,
+    },
+    /// Capitalisation (§21.1.2.3.9 rPr@cap, §21.1.10.64 ST_TextCapsType).
+    Caps {
+        /// `small` / `all`; absent or `none` removes it.
+        value: Option<String>,
+    },
+    /// Character spacing (§21.1.2.3.9 rPr@spc, ST_TextPoint).
+    Spacing {
+        /// Points added between characters (negative condenses; 0 = normal).
+        points: f64,
+    },
+    /// Double strikethrough (§21.1.10.79 ST_TextStrikeType `dblStrike`).
+    DoubleStrike {
+        /// New state; toggles when absent.
+        value: Option<bool>,
+    },
+    /// Character formatting taken by the format painter (not part of the JSON bridge).
+    #[serde(skip)]
+    Paint(Box<RunProps>),
 }
 
 impl TextFormat {
@@ -408,6 +432,14 @@ pub struct FormatState {
     pub level: u8,
     /// Line spacing multiple (`None` = single / points).
     pub line_spacing: Option<f64>,
+    /// Baseline shift in 1/1000 % (0 = on the line; §21.1.2.3.9 rPr@baseline).
+    pub baseline: i32,
+    /// Capitalisation (`small` / `all`; `None` = as typed).
+    pub caps: Option<String>,
+    /// Character spacing in points (`None` = normal).
+    pub spacing: Option<f64>,
+    /// Double strikethrough.
+    pub double_strike: bool,
 }
 
 /// Parse `RRGGBB` (with or without `#`).
@@ -471,6 +503,33 @@ fn run_change(f: &TextFormat, state: &FormatState, default_size: f64) -> Option<
                 r.highlight = c.map(Color::srgb);
             }))
         }
+        TextFormat::Baseline { value } => {
+            let v = (*value).clamp(-100_000, 100_000);
+            Some(Box::new(move |r: &mut RunProps| {
+                r.baseline = (v != 0).then_some(v);
+            }))
+        }
+        TextFormat::Caps { value } => {
+            let v = value.clone().filter(|c| c == "small" || c == "all");
+            Some(Box::new(move |r: &mut RunProps| r.cap.clone_from(&v)))
+        }
+        TextFormat::Spacing { points } => {
+            let spc = (points.clamp(-1584.0, 1584.0) * 100.0).round() as i32;
+            Some(Box::new(move |r: &mut RunProps| {
+                r.spc = (spc != 0).then_some(spc);
+            }))
+        }
+        TextFormat::DoubleStrike { value } => {
+            let v = toggle(*value, state.double_strike);
+            // §21.1.10.79 ST_TextStrikeType: `dblStrike` / `noStrike`.
+            Some(Box::new(move |r: &mut RunProps| {
+                r.strike = Some(if v { "dblStrike" } else { "noStrike" }.to_owned());
+            }))
+        }
+        TextFormat::Paint(p) => {
+            let p = (**p).clone();
+            Some(Box::new(move |r: &mut RunProps| paint_run(r, &p)))
+        }
         TextFormat::Font { typeface } => {
             let tf = typeface.trim().to_owned();
             Some(Box::new(move |r: &mut RunProps| {
@@ -486,6 +545,25 @@ fn run_change(f: &TextFormat, state: &FormatState, default_size: f64) -> Option<
         }
         _ => None,
     }
+}
+
+/// Character formatting of `from` onto `to` (format painter): the visible attributes are
+/// replaced, the language and unmodelled children (links) stay.
+fn paint_run(to: &mut RunProps, from: &RunProps) {
+    to.sz = from.sz;
+    to.b = from.b;
+    to.i = from.i;
+    to.u.clone_from(&from.u);
+    to.strike.clone_from(&from.strike);
+    to.baseline = from.baseline;
+    to.spc = from.spc;
+    to.cap.clone_from(&from.cap);
+    to.line.clone_from(&from.line);
+    to.fill.clone_from(&from.fill);
+    to.highlight.clone_from(&from.highlight);
+    to.latin.clone_from(&from.latin);
+    to.ea.clone_from(&from.ea);
+    to.cs.clone_from(&from.cs);
 }
 
 /// Hanging indent step of a list level (0.375 in).

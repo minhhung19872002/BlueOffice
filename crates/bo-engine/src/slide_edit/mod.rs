@@ -27,6 +27,7 @@ pub mod effects;
 pub mod freeform;
 pub mod geom;
 pub mod guides;
+pub mod hf;
 pub mod ink;
 mod ink_convert;
 pub mod ink_recognize;
@@ -58,7 +59,7 @@ pub mod views;
 pub mod zoom;
 
 use crate::{DocInfo, Engine, EngineError};
-use bo_model::slide::{Fill, Presentation, Rel, ShapeNode, TextBody, TextRun, Xfrm};
+use bo_model::slide::{Fill, Presentation, Rel, RunProps, ShapeNode, TextBody, TextRun, Xfrm};
 use bo_pptx::inherit::{chain, clr_map_of, theme_of, Level, TextStyleStack};
 use geom::{
     find, handles, hit_test, map_box, node_xfrm, place_slide, pointer_angle, resize_box, BoxR,
@@ -374,6 +375,30 @@ pub enum SlideCommand {
         #[serde(default)]
         range: Option<[usize; 2]>,
     },
+    /// Format painter, first half: remember the character formatting at the caret (or of the
+    /// selected text) and, with a shape selected, its fill, outline and effects (§20.1.2.2.35
+    /// spPr) and style (§19.3.1.46 style). Changes nothing.
+    CopyFormat,
+    /// Format painter, second half: apply what `copyFormat` took to the selected text (the
+    /// word at a collapsed caret) or to the selected shapes and all their text.
+    PasteFormat,
+    /// Header and footer placeholders of slides (Insert › Header & Footer).
+    HeaderFooter {
+        /// What the slides show.
+        spec: hf::HfSpec,
+        /// Slides (0-based); absent = the current slide.
+        #[serde(default)]
+        slides: Option<Vec<usize>>,
+        /// Every slide of the deck.
+        #[serde(default)]
+        all: bool,
+    },
+    /// The header and footer of the current slide (answer in `headerFooter`).
+    HeaderFooterInfo,
+    /// Boxes of the current slide's top-level shapes, bottom to top, each with the boxes a
+    /// click hits (a group: its shapes): the editor hit-tests a click before the engine
+    /// answers (answer in `shapeBoxes`). Changes nothing.
+    ShapeBoxes,
     /// Start / move the text selection inside a shape (UTF-16 offsets).
     TextSelect {
         /// Shape id; `None` = the selected shape.
@@ -927,6 +952,7 @@ impl SlideCommand {
             | SlideCommand::SetCustomShow { .. }
             | SlideCommand::SetTimings { .. }
             | SlideCommand::HideSlides { .. }
+            | SlideCommand::HeaderFooter { .. }
             | SlideCommand::KeepInk { .. }
             | SlideCommand::AddAnimation { .. }
             | SlideCommand::AddComment { .. }
@@ -947,6 +973,10 @@ impl SlideCommand {
                 | SlideCommand::MergeHistory { .. }
                 | SlideCommand::SetText { .. }
                 | SlideCommand::FormatText { .. }
+                | SlideCommand::CopyFormat
+                | SlideCommand::PasteFormat
+                | SlideCommand::HeaderFooterInfo
+                | SlideCommand::ShapeBoxes
                 | SlideCommand::TextSelect { .. }
                 | SlideCommand::TextHit { .. }
                 | SlideCommand::CellTextHit { .. }
@@ -975,6 +1005,10 @@ impl SlideCommand {
                 | SlideCommand::TableFill { .. }
                 | SlideCommand::TableOptions { .. }
                 | SlideCommand::FormatText { .. }
+                | SlideCommand::CopyFormat
+                | SlideCommand::PasteFormat
+                | SlideCommand::HeaderFooterInfo
+                | SlideCommand::ShapeBoxes
                 | SlideCommand::SetText { .. }
                 | SlideCommand::TextSelect { .. }
                 | SlideCommand::TextHit { .. }
@@ -1254,6 +1288,12 @@ pub struct SlideEditResult {
     /// Shape ids at the point of `hitTest`, topmost first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hits: Option<Vec<u32>>,
+    /// Answer of `shapeBoxes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shape_boxes: Option<ShapeBoxes>,
+    /// Answer of `headerFooterInfo`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_footer: Option<hf::HfInfo>,
     /// Undo history length (`historyLen`, `mergeHistory`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history: Option<usize>,
@@ -1435,6 +1475,55 @@ pub struct SlideEditor {
     page: Option<page_master::PageView>,
     /// What each zoom's target looked like when last seen (SLIDE-ZOOM-001): key → fingerprint.
     zoom_seen: std::collections::HashMap<String, u64>,
+    /// What the format painter took (`copyFormat`).
+    painter: Option<Painter>,
+}
+
+/// Formatting taken by the format painter.
+#[derive(Debug, Clone)]
+struct Painter {
+    /// Character formatting (effective, inheritance resolved).
+    run: Option<RunProps>,
+    /// Fill, outline and effects of a shape, with its style reference.
+    shape: Option<PaintedShape>,
+}
+
+/// Fill, outline, effects and style reference taken from a shape by the format painter.
+type PaintedShape = (
+    Option<Fill>,
+    Option<bo_model::slide::Line>,
+    Option<Vec<bo_model::slide::Effect>>,
+    Option<bo_model::slide::ShapeStyle>,
+);
+
+/// Top-level shapes of a slide as a click hits them (`shapeBoxes`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ShapeBoxes {
+    /// Distance in points within which a click still hits a box.
+    pub tolerance: f64,
+    /// Bottom to top.
+    pub shapes: Vec<HitBoxes>,
+}
+
+/// A top-level shape and the boxes a click hits.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HitBoxes {
+    /// Shape id.
+    pub id: u32,
+    /// Its selection box.
+    pub rect: BoxR,
+    /// The boxes a click hits: its box, or the boxes of the shapes of a group.
+    pub boxes: Vec<BoxR>,
+}
+
+fn leaf_boxes(p: &Placed, out: &mut Vec<BoxR>) {
+    if p.children.is_empty() {
+        out.push(p.b);
+    } else {
+        for c in &p.children {
+            leaf_boxes(c, out);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1446,6 +1535,8 @@ struct Outcome {
     parts: bool,
     preview: Option<Preview>,
     hits: Option<Vec<u32>>,
+    shape_boxes: Option<ShapeBoxes>,
+    header_footer: Option<hf::HfInfo>,
     /// Undo history length asked for by `historyLen` / `mergeHistory`.
     history: Option<usize>,
     error: Option<String>,
@@ -1799,6 +1890,93 @@ fn apply_box(pres: &Presentation, slide: usize, node: &mut ShapeNode, p: &Placed
     }
 }
 
+/// What the format painter takes from the edited text or the selected shape.
+fn copy_format(pres: &Presentation, sel: &SlideSel, ts: Option<rich::TextSel>) -> Option<Painter> {
+    let placed = place_slide(pres, sel.slide);
+    if let Some(ts) = ts {
+        let shape = match ts.cell {
+            Some(rc) => cell_shape(&table_of(pres, sel.slide, ts.id)?, rc),
+            None => match ops::node_at(pres, sel.slide, &find(&placed, ts.id)?.path)? {
+                ShapeNode::Shape(s) => (**s).clone(),
+                _ => return None,
+            },
+        };
+        let run = run_props_at(pres, sel.slide, &shape, Some((ts.start, ts.end)));
+        return Some(Painter { run, shape: None });
+    }
+    let first = selected(&placed, &sel.ids).into_iter().next()?;
+    match ops::node_at(pres, sel.slide, &first.path)? {
+        ShapeNode::Shape(s) => Some(Painter {
+            run: run_props_at(pres, sel.slide, s, None),
+            shape: Some((
+                s.props.fill.clone(),
+                s.props.line.clone(),
+                s.props.effects.clone(),
+                s.style.clone(),
+            )),
+        }),
+        ShapeNode::Picture(p) => Some(Painter {
+            run: None,
+            shape: Some((
+                None,
+                p.props.line.clone(),
+                p.props.effects.clone(),
+                p.style.clone(),
+            )),
+        }),
+        _ => None,
+    }
+}
+
+/// Apply the format painter's formatting to the edited text or to the selected shapes.
+fn paste_format(
+    tx: &mut Tx<'_>,
+    sel: &mut SlideSel,
+    p: &Painter,
+    ts: Option<rich::TextSel>,
+) -> R<()> {
+    let paint = p.run.clone().map(|r| TextFormat::Paint(Box::new(r)));
+    if ts.is_some() {
+        let Some(f) = paint else {
+            return refuse("noFormat");
+        };
+        return cmd_format(tx, sel, &f, ts);
+    }
+    let placed = place_slide(tx.pres, sel.slide);
+    let paths: Vec<Vec<usize>> = selected(&placed, &sel.ids)
+        .iter()
+        .map(|x| x.path.clone())
+        .collect();
+    if paths.is_empty() {
+        return refuse("noSelection");
+    }
+    for path in paths {
+        let mut n = node_clone(tx.pres, sel.slide, &path)?;
+        match (&mut n, &p.shape) {
+            (ShapeNode::Shape(s), Some((fill, line, effects, style))) => {
+                // §20.1.2.2.35 spPr: fill, ln and effectLst; geometry and position stay.
+                s.props.fill.clone_from(fill);
+                s.props.line.clone_from(line);
+                s.props.effects.clone_from(effects);
+                s.style.clone_from(style);
+            }
+            (ShapeNode::Picture(pic), Some((_, line, effects, style))) => {
+                pic.props.line.clone_from(line);
+                pic.props.effects.clone_from(effects);
+                pic.style.clone_from(style);
+            }
+            _ => {}
+        }
+        if let (ShapeNode::Shape(s), Some(f)) = (&mut n, &paint) {
+            if let Some(tb) = &mut s.text {
+                text::apply_format(tb, f, &FormatState::default(), 18.0);
+            }
+        }
+        tx.replace_node(sel.slide, &path, n)?;
+    }
+    Ok(())
+}
+
 /// Default box for a new object: centred, `w × h` points (or as requested).
 fn place_new(pres: &Presentation, rect: Option<Rect>, w: f64, h: f64) -> Rect {
     if let Some(r) = rect.filter(|r| r.w > 0.0 && r.h > 0.0) {
@@ -1891,7 +2069,42 @@ fn format_state_at(
             Some(bo_model::slide::Spacing::Percent(p)) => Some(f64::from(p) / 100_000.0),
             _ => None,
         },
+        baseline: r.baseline.unwrap_or(0),
+        caps: r.cap.clone().filter(|c| c != "none"),
+        spacing: r.spc.map(|s| f64::from(s) / 100.0),
+        double_strike: r.strike.as_deref() == Some("dblStrike"),
     }
+}
+
+/// Effective character formatting at the caret / selection start of the edited text (or at
+/// the start of a shape's text): what the format painter picks up.
+fn run_props_at(
+    pres: &Presentation,
+    slide: usize,
+    s: &bo_model::slide::Shape,
+    at: Option<(usize, usize)>,
+) -> Option<RunProps> {
+    let tb = s.text.as_ref()?;
+    let ch = chain(pres, Level::Slide(slide), s);
+    let stack = TextStyleStack::new(pres, Level::Slide(slide), &ch);
+    let empty = bo_model::slide::Paragraph::default();
+    let (pi, rpr) = if let Some((a, b)) = at {
+        text::props_at_offset(tb, a.min(b), a != b)
+    } else {
+        let p = tb.paragraphs.first().unwrap_or(&empty);
+        let rpr = p
+            .runs
+            .iter()
+            .find_map(|r| match r {
+                TextRun::Run { props, .. } => Some(props.clone()),
+                _ => None,
+            })
+            .or_else(|| p.end_props.clone())
+            .unwrap_or_default();
+        (0, rpr)
+    };
+    let ppr = stack.paragraph(tb.paragraphs.get(pi).unwrap_or(&empty));
+    Some(TextStyleStack::run(&ppr, &rpr))
 }
 
 /// Path of the notes body placeholder (§19.3.1.36 ph type="body").
@@ -3983,6 +4196,44 @@ impl Engine {
                         (None, false) => ed.sel.ids.clear(),
                     }
                 }
+                SlideCommand::ShapeBoxes => {
+                    let placed = place_slide(pres, ed.sel.slide);
+                    out.shape_boxes = Some(ShapeBoxes {
+                        tolerance: HIT_TOLERANCE,
+                        shapes: placed
+                            .iter()
+                            .map(|p| {
+                                let mut boxes = Vec::new();
+                                leaf_boxes(p, &mut boxes);
+                                HitBoxes {
+                                    id: p.id,
+                                    rect: p.b,
+                                    boxes,
+                                }
+                            })
+                            .collect(),
+                    });
+                }
+                SlideCommand::HeaderFooterInfo => {
+                    out.header_footer = Some(hf::info(pres, ed.sel.slide));
+                }
+                SlideCommand::HeaderFooter { spec, slides, all } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        hf::cmd_header_footer(tx, sel, &spec, slides, all)
+                    });
+                }
+                SlideCommand::CopyFormat => match copy_format(pres, &ed.sel, ed.text) {
+                    Some(p) => ed.painter = Some(p),
+                    None => out.error = Some("noSelection".into()),
+                },
+                SlideCommand::PasteFormat => {
+                    if let Some(p) = ed.painter.clone() {
+                        let ts = ed.text;
+                        ed.mutate(pres, &mut out, |tx, sel| paste_format(tx, sel, &p, ts));
+                    } else {
+                        out.error = Some("noFormat".into());
+                    }
+                }
                 SlideCommand::HitTest { x, y, deep } => {
                     let placed = place_slide(pres, ed.sel.slide);
                     out.hits = Some(
@@ -5555,6 +5806,8 @@ impl Engine {
                 .collect(),
             preview: out.preview,
             hits: out.hits,
+            shape_boxes: out.shape_boxes,
+            header_footer: out.header_footer,
             history: out.history,
             error: out.error,
             collab: None,

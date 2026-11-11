@@ -120,6 +120,32 @@
     "comingLater": "Coming in a later release"
   },
   "commands": {
+    "cells": {
+      "insert": "Insert cells…",
+      "delete": "Delete cells…",
+      "insertRow": "Insert row",
+      "insertCol": "Insert column",
+      "deleteRow": "Delete row",
+      "deleteCol": "Delete column",
+      "autofitCol": "Fit column width",
+      "autofitRow": "Fit row height",
+      "hideRows": "Hide rows",
+      "unhideRows": "Show rows",
+      "hideCols": "Hide columns",
+      "unhideCols": "Show columns",
+      "colWidth": "Column width…",
+      "rowHeight": "Row height…"
+    },
+    "sheet": {
+      "add": "Add sheet",
+      "rename": "Rename sheet",
+      "delete": "Delete sheet",
+      "moveLeft": "Move sheet left",
+      "moveRight": "Move sheet right",
+      "insertBefore": "Insert sheet",
+      "previous": "Previous sheet",
+      "next": "Next sheet"
+    },
     "addins": {
       "manage": "Manage add-ins"
     },
@@ -176,6 +202,15 @@
       "dictateStop": "Stop dictation"
     },
     "format": {
+      "fontTab": "Format cells: font",
+      "numGeneral": "General format",
+      "numNumber": "Number format with two decimals",
+      "numTime": "Time format",
+      "numDate": "Date format",
+      "numCurrency": "Currency format",
+      "numScientific": "Scientific format",
+      "borderOutline": "Outline border",
+      "borderNone": "Remove borders",
       "fontDialog": "Character effects…",
       "phoneticGuide": "Pronunciation guide…",
       "combineChars": "Two lines in one…",
@@ -527,6 +562,59 @@
     "back": "Back to BlueDoc"
   },
   "sheetEditor": {
+    "orientation": {
+      "title": "Orientation",
+      "ccw": "Tilt up (45°)",
+      "cw": "Tilt down (45°)",
+      "vertical": "Stacked text",
+      "up": "Rotate up 90°",
+      "down": "Rotate down 90°",
+      "more": "Alignment options…"
+    },
+    "createTable": {
+      "title": "Create table",
+      "range": "Data of the table",
+      "headers": "First row holds the column names",
+      "column": "Column{{n}}"
+    },
+    "mergeMenu": "Ways to merge cells",
+    "insertMenu": "Insert cells, rows, columns, sheets",
+    "deleteMenu": "Delete cells, rows, columns, sheets",
+    "cellFormatMenu": "Size, visibility and cell format",
+    "fontName": "Font",
+    "fontSizeBox": "Font size",
+    "numberFormatBox": "Number format",
+    "numFmtMore": "Other number formats…",
+    "decimalInc": "Add a decimal place",
+    "decimalDec": "Remove a decimal place",
+    "bordersLast": "Border: {{border}}",
+    "fillColorLast": "Fill with the last colour",
+    "fontColorLast": "Font colour: the last colour",
+    "mergeAcross": "Merge each row",
+    "mergeCells": "Merge without centring",
+    "insertCells": "Insert cells…",
+    "deleteCells": "Delete cells…",
+    "colWidthTitle": "Column width…",
+    "rowHeightTitle": "Row height…",
+    "colWidthLabel": "Column width (characters)",
+    "rowHeightLabel": "Row height (pt)",
+    "sizeRange": "Enter a number from 0 to {{max}}.",
+    "clearMenu": "More clear commands",
+    "clearAll": "Clear everything",
+    "cellsDialog": {
+      "insertTitle": "Insert cells",
+      "deleteTitle": "Delete cells",
+      "right": "Move cells to the right",
+      "down": "Move cells down",
+      "left": "Move cells to the left",
+      "up": "Move cells up",
+      "row": "Whole row",
+      "col": "Whole column"
+    },
+    "mergeWarn": {
+      "title": "Merge cells",
+      "message": "Only the value of the top-left cell is kept when cells are merged; the other values are removed."
+    },
     "tabs": "Sheets",
     "nameBox": "Name box",
     "formulaBar": "Formula bar",
@@ -594,9 +682,9 @@
     "indentInc": "Increase indent",
     "indentDec": "Decrease indent",
     "numberFormat": "Number format",
-    "currency": "Currency (₫)",
+    "currency": "Accounting format (₫)",
     "percent": "Percent",
-    "comma": "Comma style",
+    "comma": "Thousands style",
     "dateFormat": "Date (dd/MM/yyyy)",
     "cellStyles": "Cell styles",
     "conditional": "Conditional formatting",
@@ -644,8 +732,12 @@
       "cancel": "Cancel"
     },
     "fmt": {
+      "locked": "Lock cell",
+      "formulaHidden": "Hide formula",
+      "protectionHint": "Locking cells or hiding formulas takes effect once the sheet is protected.",
       "title": "Format Cells",
       "tab": {
+        "protection": "Protection",
         "number": "Number",
         "alignment": "Alignment",
         "font": "Font",
@@ -711,6 +803,11 @@
       "hair": "Hair"
     },
     "border": {
+      "thickOutline": "Heavy outline",
+      "bottomDouble": "Double line below",
+      "thickBottom": "Heavy line below",
+      "topBottom": "Lines above and below",
+      "more": "Border options…",
       "all": "All borders",
       "outline": "Outside borders",
       "inside": "Inside borders",

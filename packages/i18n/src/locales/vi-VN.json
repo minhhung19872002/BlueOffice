@@ -120,6 +120,32 @@
     "comingLater": "Sẽ có ở phiên bản sau"
   },
   "commands": {
+    "cells": {
+      "insert": "Chèn ô…",
+      "delete": "Xoá ô…",
+      "insertRow": "Chèn hàng",
+      "insertCol": "Chèn cột",
+      "deleteRow": "Xoá hàng",
+      "deleteCol": "Xoá cột",
+      "autofitCol": "Tự giãn cột",
+      "autofitRow": "Tự giãn hàng",
+      "hideRows": "Ẩn hàng",
+      "unhideRows": "Hiện hàng",
+      "hideCols": "Ẩn cột",
+      "unhideCols": "Hiện cột",
+      "colWidth": "Độ rộng cột…",
+      "rowHeight": "Chiều cao hàng…"
+    },
+    "sheet": {
+      "add": "Thêm trang tính",
+      "rename": "Đổi tên trang tính",
+      "delete": "Xoá trang tính",
+      "moveLeft": "Chuyển trang tính sang trái",
+      "moveRight": "Chuyển trang tính sang phải",
+      "insertBefore": "Chèn trang tính",
+      "previous": "Trang tính trước",
+      "next": "Trang tính sau"
+    },
     "addins": {
       "manage": "Quản lý add-in"
     },
@@ -176,6 +202,15 @@
       "dictateStop": "Dừng đọc chính tả"
     },
     "format": {
+      "fontTab": "Định dạng ô: phông chữ",
+      "numGeneral": "Định dạng chung",
+      "numNumber": "Định dạng số có hai chữ số thập phân",
+      "numTime": "Định dạng giờ",
+      "numDate": "Định dạng ngày",
+      "numCurrency": "Định dạng tiền tệ",
+      "numScientific": "Định dạng khoa học",
+      "borderOutline": "Viền ngoài",
+      "borderNone": "Bỏ viền",
       "fontDialog": "Hiệu ứng ký tự…",
       "phoneticGuide": "Chú âm…",
       "combineChars": "Hai dòng trong một…",
@@ -527,6 +562,59 @@
     "back": "Về BlueDoc"
   },
   "sheetEditor": {
+    "orientation": {
+      "title": "Hướng chữ",
+      "ccw": "Xoay ngược chiều kim đồng hồ",
+      "cw": "Xoay theo chiều kim đồng hồ",
+      "vertical": "Chữ dọc",
+      "up": "Xoay chữ lên",
+      "down": "Xoay chữ xuống",
+      "more": "Định dạng căn lề ô…"
+    },
+    "createTable": {
+      "title": "Tạo bảng",
+      "range": "Vùng dữ liệu của bảng",
+      "headers": "Hàng đầu là tên cột",
+      "column": "Cột{{n}}"
+    },
+    "mergeMenu": "Các cách gộp ô",
+    "insertMenu": "Chèn ô, hàng, cột, trang tính",
+    "deleteMenu": "Xoá ô, hàng, cột, trang tính",
+    "cellFormatMenu": "Kích thước, ẩn hiện và định dạng ô",
+    "fontName": "Phông chữ",
+    "fontSizeBox": "Cỡ chữ",
+    "numberFormatBox": "Định dạng số",
+    "numFmtMore": "Thêm định dạng số…",
+    "decimalInc": "Tăng số thập phân",
+    "decimalDec": "Giảm số thập phân",
+    "bordersLast": "Viền: {{border}}",
+    "fillColorLast": "Tô màu nền đã dùng gần nhất",
+    "fontColorLast": "Tô màu chữ đã dùng gần nhất",
+    "mergeAcross": "Gộp theo hàng",
+    "mergeCells": "Gộp ô",
+    "insertCells": "Chèn ô…",
+    "deleteCells": "Xoá ô…",
+    "colWidthTitle": "Độ rộng cột…",
+    "rowHeightTitle": "Chiều cao hàng…",
+    "colWidthLabel": "Độ rộng cột (ký tự)",
+    "rowHeightLabel": "Chiều cao hàng (pt)",
+    "sizeRange": "Nhập một số từ 0 đến {{max}}.",
+    "clearMenu": "Các lệnh xoá khác",
+    "clearAll": "Xoá tất cả",
+    "cellsDialog": {
+      "insertTitle": "Chèn ô",
+      "deleteTitle": "Xoá ô",
+      "right": "Đẩy ô sang phải",
+      "down": "Đẩy ô xuống dưới",
+      "left": "Kéo ô sang trái",
+      "up": "Kéo ô lên trên",
+      "row": "Toàn bộ hàng",
+      "col": "Toàn bộ cột"
+    },
+    "mergeWarn": {
+      "title": "Gộp ô",
+      "message": "Gộp ô chỉ giữ giá trị ở ô trên cùng bên trái, các giá trị khác sẽ bị bỏ."
+    },
     "tabs": "Trang tính",
     "nameBox": "Hộp tên",
     "formulaBar": "Thanh công thức",
@@ -594,9 +682,9 @@
     "indentInc": "Tăng thụt lề",
     "indentDec": "Giảm thụt lề",
     "numberFormat": "Định dạng số",
-    "currency": "Tiền tệ (₫)",
+    "currency": "Định dạng kế toán (₫)",
     "percent": "Phần trăm",
-    "comma": "Số có phân cách",
+    "comma": "Kiểu dấu phân cách",
     "dateFormat": "Ngày (dd/MM/yyyy)",
     "cellStyles": "Kiểu ô",
     "conditional": "Định dạng có điều kiện",
@@ -644,8 +732,12 @@
       "cancel": "Huỷ"
     },
     "fmt": {
+      "locked": "Khoá ô",
+      "formulaHidden": "Ẩn công thức",
+      "protectionHint": "Khoá ô và ẩn công thức chỉ có tác dụng khi trang tính được bảo vệ.",
       "title": "Định dạng ô",
       "tab": {
+        "protection": "Bảo vệ",
         "number": "Số",
         "alignment": "Căn lề",
         "font": "Phông chữ",
@@ -711,6 +803,11 @@
       "hair": "Rất mảnh"
     },
     "border": {
+      "thickOutline": "Viền ngoài đậm",
+      "bottomDouble": "Viền dưới kép",
+      "thickBottom": "Viền dưới đậm",
+      "topBottom": "Viền trên và dưới",
+      "more": "Thêm viền…",
       "all": "Tất cả viền",
       "outline": "Viền ngoài",
       "inside": "Viền trong",

@@ -12,7 +12,7 @@ use bo_sheet::calc::FormulaAdjuster;
 use bo_sheet::formula::BoFormula;
 use bo_sheet::geometry::SheetGeometry;
 use bo_sheet::live::LiveCalc;
-use bo_sheet::numfmt::Locale;
+use bo_sheet::numfmt::{Locale, TypedFormat};
 use bo_sheet::render::{format_cell, render_viewport, DrawingOverlay, RenderOptions};
 use bo_sheet::viewport::{Hit, ViewLayout, Viewport};
 use bo_text::FontManager;
@@ -756,29 +756,51 @@ fn input_to_cell_typed(
     old: Option<&Cell>,
     locale: &Locale,
     date1904: bool,
-) -> (Option<Cell>, Option<u32>) {
+    now: Option<f64>,
+) -> (Option<Cell>, Option<TypedFormat>) {
     if !input.starts_with(['=', '\'']) {
-        if let Some(t) = bo_sheet::numfmt::parse_typed_date(input, locale, date1904) {
+        let number = |n: f64| {
             let mut cell = old.cloned().unwrap_or_default();
             cell.formula = None;
             cell.vm = None;
             cell.image = None;
-            cell.value = CellValue::Number(t.serial);
-            return (Some(cell), Some(t.num_fmt_id));
+            cell.value = CellValue::Number(n);
+            cell
+        };
+        // A day and month alone are in the current year (the host's clock).
+        let year = now
+            .and_then(|n| bo_sheet::numfmt::serial_to_datetime(n, date1904, 0))
+            .map(|d| d.year);
+        let date = match year {
+            Some(y) => bo_sheet::numfmt::parse_typed_date_in_year(input, locale, date1904, y),
+            None => bo_sheet::numfmt::parse_typed_date(input, locale, date1904),
+        };
+        if let Some(t) = date {
+            return (
+                Some(number(t.serial)),
+                Some(TypedFormat::Builtin(t.num_fmt_id)),
+            );
+        }
+        // Percent, grouped thousands, currency, scientific, fractions (Excel-style entry).
+        if let Some(t) = bo_sheet::numfmt::parse_typed_number(input, locale) {
+            return (Some(number(t.value)), t.format);
         }
     }
     (input_to_cell(input, old, locale), None)
 }
 
-/// Style index giving `style` the built-in number format `fmt_id`, when its
-/// current format is General (§18.8.30 id 0); any other format (a date format
-/// chosen by the user, text `@`, …) is kept.
-fn date_style(styles: &mut bo_model::sheet::Stylesheet, style: u32, fmt_id: u32) -> u32 {
+/// Style index giving `style` the number format a typed entry implies (built-in id,
+/// §18.8.30, or a code, §18.8.31), when its current format is General (id 0); any
+/// other format (a date format chosen by the user, text `@`, …) is kept.
+fn date_style(styles: &mut bo_model::sheet::Stylesheet, style: u32, fmt: &TypedFormat) -> u32 {
     let mut xf = styles.xf(style).cloned().unwrap_or_default();
     if xf.num_fmt_id != 0 {
         return style;
     }
-    xf.num_fmt_id = fmt_id;
+    xf.num_fmt_id = match fmt {
+        TypedFormat::Builtin(id) => *id,
+        TypedFormat::Code(code) => bo_sheet::style::num_fmt_id(styles, code),
+    };
     xf.apply_number_format = Some(true);
     styles.add_xf(xf)
 }
@@ -1486,12 +1508,14 @@ impl SheetEngine {
     ) -> Result<Option<bo_sheet::validation::Rejection>> {
         self.writable()?;
         let locale = self.locale;
+        let now = self.live.now();
         let mut notice = None;
         if validate {
             let wb = self.wb()?;
             let ws = self.sheet(sheet)?;
             for (row, col, input) in cells {
-                let cand = input_to_cell_typed(input, ws.cell(*row, *col), &locale, wb.date1904).0;
+                let cand =
+                    input_to_cell_typed(input, ws.cell(*row, *col), &locale, wb.date1904, now).0;
                 let value = cand.map_or(CellValue::Empty, |c| {
                     if c.formula.is_some() {
                         CellValue::Empty
@@ -1546,12 +1570,12 @@ impl SheetEngine {
             let (cell, date_fmt) = if text_fmt {
                 (input_to_cell(input, prev.as_ref(), &locale), None)
             } else {
-                input_to_cell_typed(input, prev.as_ref(), &locale, date1904)
+                input_to_cell_typed(input, prev.as_ref(), &locale, date1904, now)
             };
             match cell {
                 Some(mut c) => {
-                    if let Some(id) = date_fmt {
-                        c.style = date_style(styles, c.style, id);
+                    if let Some(f) = &date_fmt {
+                        c.style = date_style(styles, c.style, f);
                     }
                     ws.cells.insert((*row, *col), c);
                 }

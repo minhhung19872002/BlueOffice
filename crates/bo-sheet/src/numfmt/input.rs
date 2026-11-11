@@ -167,6 +167,223 @@ pub fn parse_typed_date(input: &str, locale: &Locale, date1904: bool) -> Option<
     parse_numeric_date(s, locale, date1904).or_else(|| parse_text_date(s, locale, date1904))
 }
 
+/// [`parse_typed_date`], and also a day and month without a year (`1/2`, `15-3`,
+/// `15 tháng 3`, `Mar 15`) taken in `year` — the current year, as a spreadsheet does
+/// when such a date is typed — with the built-in format 16 `d-mmm` (§18.8.30).
+pub fn parse_typed_date_in_year(
+    input: &str,
+    locale: &Locale,
+    date1904: bool,
+    year: i32,
+) -> Option<TypedDate> {
+    if let Some(t) = parse_typed_date(input, locale, date1904) {
+        return Some(t);
+    }
+    let s = input.trim();
+    if s.is_empty() || s.starts_with(['-', '+']) || s.contains(':') {
+        return None;
+    }
+    let numeric = s
+        .split_once('/')
+        .or_else(|| s.split_once('-'))
+        .filter(|(a, b)| !a.contains(['/', '-']) && !b.contains(['/', '-']));
+    let (a, b) = if let Some((a, b)) = numeric {
+        (number(a, 2)?, number(b, 2)?)
+    } else {
+        let ws = words(s)?;
+        let toks = tokens(&ws, locale)?;
+        let ([Tok::Num(d), Tok::Month(m)] | [Tok::Month(m), Tok::Num(d)]) = toks.as_slice() else {
+            return None;
+        };
+        let d = number(d, 2)?;
+        // Written in the locale's day / month order, read back below.
+        if locale.short_date.starts_with('m') {
+            (*m, d)
+        } else {
+            (d, *m)
+        }
+    };
+    let (m, d) = if locale.short_date.starts_with('m') {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let (y, m, d) = ymd(year, m, d)?;
+    Some(TypedDate {
+        serial: datetime_to_serial(y, m, d, 0, 0, 0.0, date1904)?,
+        num_fmt_id: 16,
+    })
+}
+
+/// Number format a typed number earns: a built-in id (ECMA-376 Part 1, §18.8.30) or a
+/// format code (§18.8.31).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypedFormat {
+    /// Built-in number format id.
+    Builtin(u32),
+    /// Custom format code.
+    Code(String),
+}
+
+/// A number recognised in what was typed, with the format its writing implies.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedNumber {
+    /// The value.
+    pub value: f64,
+    /// Format given to a General cell (`None`: stays General).
+    pub format: Option<TypedFormat>,
+}
+
+/// Recognises a number typed the way a spreadsheet user writes it and the number format
+/// the writing implies (given to the cell when its format is General):
+/// * `10%` → 0.1, `0%` (id 9); `12,5%` → `0.00%` (id 10);
+/// * `1.234` (vi-VN; `1,234` en-US) → 1234, `#,##0` (id 3); with decimals `#,##0.00` (id 4);
+/// * the locale currency symbol before or after (`15.000 ₫`, `₫15000`, `$12` en-US) →
+///   a currency format with the locale tag (`#,##0 [$₫-42A]`);
+/// * `1e3` → 1000, `0.00E+00` (id 11);
+/// * `0 1/2` → 0.5, `# ?/?` (id 12); `1 3/16` → `# ??/??` (id 13);
+/// * `(5)` → −5 (General).
+///
+/// Thousands separators must group by three digits, otherwise `None`.
+pub fn parse_typed_number(input: &str, locale: &Locale) -> Option<TypedNumber> {
+    let mut s = input.trim();
+    let mut negative = false;
+    if let Some(inner) = s.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+        negative = true;
+        s = inner.trim();
+    }
+    if let Some(rest) = s.strip_prefix('-') {
+        if negative {
+            return None;
+        }
+        negative = true;
+        s = rest.trim_start();
+    } else if let Some(rest) = s.strip_prefix('+') {
+        s = rest.trim_start();
+    }
+    let cur = locale.currency;
+    let mut currency = false;
+    if !cur.is_empty() {
+        if let Some(rest) = s.strip_prefix(cur) {
+            currency = true;
+            s = rest.trim_start();
+        } else if let Some(rest) = s.strip_suffix(cur) {
+            currency = true;
+            s = rest.trim_end();
+        }
+        if currency {
+            // `₫-5` / `-5 ₫`.
+            if let Some(rest) = s.strip_prefix('-') {
+                if negative {
+                    return None;
+                }
+                negative = true;
+                s = rest.trim_start();
+            }
+        }
+    }
+    let mut percent = false;
+    if let Some(rest) = s.strip_suffix('%') {
+        percent = true;
+        s = rest.trim_end();
+    }
+    if s.is_empty() || (percent && currency) {
+        return None;
+    }
+    let sign = if negative { -1.0 } else { 1.0 };
+    // Fraction: whole number, a space, numerator / denominator.
+    if let Some((whole, frac)) = s.split_once(' ') {
+        let (n, d) = frac.trim().split_once('/')?;
+        let (w, n, d) = (number(whole, 9)?, number(n, 9)?, number(d, 9)?);
+        if d == 0 || percent || currency {
+            return None;
+        }
+        let value = sign * (f64::from(w) + f64::from(n) / f64::from(d));
+        let id = if d < 10 { 12 } else { 13 };
+        return Some(TypedNumber {
+            value,
+            format: Some(TypedFormat::Builtin(id)),
+        });
+    }
+    // Mantissa and exponent.
+    let (mantissa, exponent) = match s.find(['e', 'E']) {
+        Some(i) => (&s[..i], Some(&s[i + 1..])),
+        None => (s, None),
+    };
+    let (int, dec) = match mantissa.split_once(locale.decimal) {
+        Some((i, d)) => (i, Some(d)),
+        None => (mantissa, None),
+    };
+    if dec.is_some_and(|d| !d.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let grouped = int.contains(locale.thousands);
+    let digits: String = if grouped {
+        let groups: Vec<&str> = int.split(locale.thousands).collect();
+        let first = groups.first()?;
+        if first.is_empty()
+            || first.len() > 3
+            || groups[1..].iter().any(|g| g.len() != 3)
+            || !groups.iter().all(|g| g.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return None;
+        }
+        groups.concat()
+    } else {
+        if !int.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        int.to_owned()
+    };
+    if digits.is_empty() && dec.is_none_or(str::is_empty) {
+        return None;
+    }
+    let exp: i32 = match exponent {
+        Some(e) => {
+            let body = e.strip_prefix(['+', '-']).unwrap_or(e);
+            if body.is_empty() || body.len() > 3 || !body.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            e.parse().ok()?
+        }
+        None => 0,
+    };
+    let text = format!(
+        "{}.{}e{exp}",
+        if digits.is_empty() { "0" } else { &digits },
+        dec.filter(|d| !d.is_empty()).unwrap_or("0")
+    );
+    let mut value: f64 = text.parse().ok()?;
+    if percent {
+        value /= 100.0;
+    }
+    if !value.is_finite() {
+        return None;
+    }
+    let decimals = dec.is_some_and(|d| !d.is_empty());
+    let format = if currency {
+        let body = if decimals { "#,##0.00" } else { "#,##0" };
+        let tag = format!("[${cur}-{:X}]", locale.lcid & 0xFFFF);
+        Some(TypedFormat::Code(if locale.currency_after {
+            format!("{body} {tag}")
+        } else {
+            format!("{tag}{body}")
+        }))
+    } else if percent {
+        Some(TypedFormat::Builtin(if decimals { 10 } else { 9 }))
+    } else if exponent.is_some() {
+        Some(TypedFormat::Builtin(11))
+    } else if grouped {
+        Some(TypedFormat::Builtin(if decimals { 4 } else { 3 }))
+    } else {
+        None
+    };
+    Some(TypedNumber {
+        value: sign * value,
+        format,
+    })
+}
+
 /// Dates written with digits only, and times.
 fn parse_numeric_date(s: &str, locale: &Locale, date1904: bool) -> Option<TypedDate> {
     // Time only.
@@ -480,6 +697,87 @@ mod tests {
         // Names of the other locale are not months.
         assert_eq!(en("29 tháng 2 năm 2024"), None);
         assert_eq!(vi("29 Feb 2024"), None);
+    }
+
+    // source: ECMA-376 Part 1, §18.17.4.1 (serial 45323 = 2024-02-01), §18.8.30 (id 16 d-mmm)
+    #[test]
+    fn day_and_month_take_the_given_year() {
+        let vi = |s: &str| {
+            parse_typed_date_in_year(s, &Locale::VI_VN, false, 2024)
+                .map(|t| (t.serial, t.num_fmt_id))
+        };
+        let en = |s: &str| {
+            parse_typed_date_in_year(s, &Locale::EN_US, false, 2024)
+                .map(|t| (t.serial, t.num_fmt_id))
+        };
+        // vi-VN reads day first: 1/2 = 1 February; en-US month first: 2/1.
+        assert_eq!(vi("1/2"), Some((45323.0, 16)));
+        assert_eq!(vi("1-2"), Some((45323.0, 16)));
+        assert_eq!(en("2/1"), Some((45323.0, 16)));
+        assert_eq!(vi("1 tháng 2"), Some((45323.0, 16)));
+        assert_eq!(en("Feb 1"), Some((45323.0, 16)));
+        assert_eq!(en("1 Feb"), Some((45323.0, 16)));
+        // Full dates keep their own format; invalid days are not dates.
+        assert_eq!(vi("29/02/2024"), Some((45351.0, 14)));
+        // `1:2` is a time (h:mm), not a day and month.
+        assert_eq!(vi("1:2").map(|x| x.1), Some(20));
+        for s in ["31/2", "13/13", "1/2/3/4", "-1/2", "1/", "abc", "12"] {
+            assert_eq!(vi(s), None, "{s}");
+        }
+    }
+
+    // source: ECMA-376 Part 1, §18.8.30 (ids 3, 4, 9–13), §18.8.31 (`[$₫-42A]` currency tag)
+    #[test]
+    fn typed_numbers_and_their_formats() {
+        let vi = |s: &str| parse_typed_number(s, &Locale::VI_VN);
+        let en = |s: &str| parse_typed_number(s, &Locale::EN_US);
+        let b = |v: f64, id: u32| {
+            Some(TypedNumber {
+                value: v,
+                format: Some(TypedFormat::Builtin(id)),
+            })
+        };
+        let code = |v: f64, c: &str| {
+            Some(TypedNumber {
+                value: v,
+                format: Some(TypedFormat::Code(c.into())),
+            })
+        };
+        assert_eq!(vi("10%"), b(0.1, 9));
+        assert_eq!(vi("12,5%"), b(0.125, 10));
+        assert_eq!(en("12.5%"), b(0.125, 10));
+        assert_eq!(vi("1.234"), b(1234.0, 3));
+        assert_eq!(vi("1.234.567,5"), b(1_234_567.5, 4));
+        assert_eq!(en("1,234"), b(1234.0, 3));
+        assert_eq!(vi("15.000 ₫"), code(15000.0, "#,##0 [$₫-42A]"));
+        assert_eq!(vi("15000₫"), code(15000.0, "#,##0 [$₫-42A]"));
+        assert_eq!(vi("₫12,5"), code(12.5, "#,##0.00 [$₫-42A]"));
+        assert_eq!(vi("-15.000 ₫"), code(-15000.0, "#,##0 [$₫-42A]"));
+        assert_eq!(en("$12"), code(12.0, "[$$-409]#,##0"));
+        assert_eq!(vi("1e3"), b(1000.0, 11));
+        assert_eq!(vi("1,5E-2"), b(0.015, 11));
+        assert_eq!(vi("0 1/2"), b(0.5, 12));
+        assert_eq!(vi("-1 3/16"), b(-1.1875, 13));
+        assert_eq!(
+            vi("(5)"),
+            Some(TypedNumber {
+                value: -5.0,
+                format: None
+            })
+        );
+        assert_eq!(
+            vi("1,5"),
+            Some(TypedNumber {
+                value: 1.5,
+                format: None
+            })
+        );
+        for s in [
+            "", "abc", "1.23", "12.34.5", "1 234", "1 1/0", "e5", "%", "₫", "(-5)", "1/2", "10%₫",
+            "$12",
+        ] {
+            assert_eq!(vi(s), None, "{s}");
+        }
     }
 
     // source: ECMA-376 Part 1, §18.17.4.1 (1904 date system base 1904-01-01)

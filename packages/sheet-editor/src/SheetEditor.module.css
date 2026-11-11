@@ -29,6 +29,77 @@
   color: inherit;
 }
 
+/* Font name / size and number format boxes of the Home tab. */
+.ribbonBox {
+  height: 24px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+}
+
+/* Split button of the Home tab: the last choice, then a narrow arrow with the choices. */
+.split {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--bo-radius, 4px);
+}
+
+.splitMain,
+.splitArrow {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--bo-control-h, 28px);
+  cursor: pointer;
+  color: var(--bo-app-accent-text, inherit);
+  border-radius: var(--bo-radius, 4px);
+}
+
+.splitMain {
+  padding: 0 4px;
+}
+
+.splitArrow {
+  width: 14px;
+}
+
+.splitMain:hover:not([aria-disabled='true']),
+.splitArrow:hover:not([aria-disabled='true']) {
+  background: var(--bo-hover);
+}
+
+.splitMain:focus-visible,
+.splitArrow:focus-visible {
+  outline: 2px solid var(--bo-focus, var(--bo-accent));
+}
+
+.splitMain[aria-disabled='true'],
+.splitArrow[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Split-button colour icon: the icon over a bar of the colour it applies. */
+.colorSplit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0;
+}
+
+.colorSplitBar {
+  width: 16px;
+  height: 4px;
+  margin-top: 1px;
+  border: 1px solid var(--bo-border, #d0d7de);
+}
+
 .fx {
   font-style: italic;
   font-size: 12px;

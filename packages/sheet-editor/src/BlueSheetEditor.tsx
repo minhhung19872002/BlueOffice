@@ -28,7 +28,6 @@ import { createI18n, I18nextProvider, useTranslation, type Language } from '@blu
 import type {
   TimelineInfo,
   SlicerInfo,
-  BorderPreset,
   BorderSpec,
   CellFormatState,
   ChartElementsInfo,
@@ -99,6 +98,7 @@ import {
   useResolvedTheme,
   TaskPaneHost,
   useTaskPaneLayout,
+  type RibbonItem,
   type RibbonTab,
   type TaskPaneDef,
   type ThemeSetting,
@@ -123,7 +123,6 @@ import {
   ArrowUpToLine,
   Baseline,
   Bold,
-  Calendar,
   CalendarRange,
   ChartColumn,
   ChartSpline,
@@ -133,12 +132,13 @@ import {
   ClipboardList,
   ClipboardPaste,
   Coins,
+  DecimalsArrowLeft,
+  DecimalsArrowRight,
   Columns2,
   Columns3,
   Copy,
   Eraser,
   Eye,
-  EyeOff,
   FileCog,
   FileDown,
   FilePlus,
@@ -158,7 +158,6 @@ import {
   Lock,
   LockOpen,
   MoveHorizontal,
-  MoveVertical,
   Omega,
   Shapes,
   PaintBucket,
@@ -169,8 +168,6 @@ import {
   PencilLine,
   Percent,
   Plus,
-  MoveLeft,
-  MoveRight,
   Printer,
   Redo2,
   RefreshCw,
@@ -198,11 +195,9 @@ import {
   Group,
   Ungroup,
   Snowflake,
-  Strikethrough,
   Table2,
   TableProperties,
   TableCellsMerge,
-  TableCellsSplit,
   TextAlignCenter,
   TextAlignEnd,
   TextAlignStart,
@@ -457,7 +452,26 @@ import {
   ValidationDialog,
   type MenuItem,
 } from './dialogs';
-import { FormatCellsDialog, type NumberPreset } from './FormatCellsDialog';
+import { FormatCellsDialog, type FormatCellsTab, type NumberPreset } from './FormatCellsDialog';
+import {
+  BORDER_MENU,
+  COMMA_STYLE,
+  formatKeyCommand,
+  shownDecimals,
+  stepDecimals,
+  stepFontSize,
+} from './homeFormat';
+import {
+  CellsDialog,
+  ConfirmDialog,
+  CreateTableDialog,
+  FontNameBox,
+  FontSizeBox,
+  NumberFormatBox,
+  SizeDialog,
+  SplitButton,
+} from './homeControls';
+import { VERTICAL_TEXT } from './orientation';
 import { PageSetupDialog, PrintPreviewDialog } from './pageSetup';
 import { AdvancedFilterDialog, SortDialog } from './sortFilter';
 import {
@@ -486,6 +500,8 @@ import {
   fillTarget,
   move,
   colName,
+  MAX_COL,
+  MAX_ROW,
   parseA1,
   parseNumber,
   parseTsv,
@@ -519,7 +535,95 @@ export interface BlueSheetEditorProps {
 /** Editor state passed to commands. */
 /** Commands F4 repeats on the new selection (CORE-UI-004); dialogs and menus are left out. */
 export const SHEET_REPEATABLE =
-  /^(?:format\.(?:bold|italic|underline|strike|align\w+|wrap|indentInc|indentDec|fontGrow|fontShrink|percent|comma|currency|date|mergeAcross|unmerge|clear|lockCell)|cells\.(?:insert|delete|hide|unhide|autofit)\w*|data\.sort(?:Asc|Desc)|edit\.(?:clear|fillDown|fillRight))$/;
+  /^(?:format\.(?:bold|italic|underline|strike|align\w+|wrap|indentInc|indentDec|fontGrow|fontShrink|percent|comma|currency|date|mergeAcross|mergeCells|unmerge|clear|lockCell|decimalInc|decimalDec|num(?:General|Number|Time|Date|Currency|Scientific)|bordersLast|border(?:Outline|None)|fontColorLast|fillColorLast)|cells\.(?:insert|delete|hide|unhide|autofit)\w*|data\.sort(?:Asc|Desc)|edit\.(?:clear|fillDown|fillRight))$/;
+
+/**
+ * The orientation menu: `textRotation` of each choice (ECMA-376 Part 1, §18.8.1: 0–90
+ * counter-clockwise, 91–180 clockwise, 255 vertical).
+ */
+const ORIENTATIONS: Record<string, number> = {
+  ccw: 45,
+  cw: 135,
+  vertical: VERTICAL_TEXT,
+  up: 90,
+  down: 180,
+};
+
+/**
+ * Whether the first row of `r` looks like column names (Create table): every cell of it
+ * holds text (no number, no formula) and data rows follow.
+ */
+async function guessHeaders(
+  host: Pick<SheetHost, 'cell'>,
+  sheet: number,
+  r: Range,
+): Promise<boolean> {
+  if (r.r1 <= r.r0) return false;
+  const cols = Math.min(r.c1 - r.c0 + 1, 64);
+  const first = await Promise.all(
+    Array.from({ length: cols }, (_, i) => host.cell(sheet, r.r0, r.c0 + i)),
+  );
+  const numeric = (s: string) =>
+    Number.isFinite(Number(s.replace(/[.\s]/g, '').replace(',', '.').replace('%', '')));
+  return first.every((c) => {
+    const v = c.input.trim();
+    return v !== '' && !v.startsWith('=') && !numeric(v);
+  });
+}
+
+/** Items of a two-row ribbon group: the `top` ids on the first row, the others below. */
+function twoRows(top: string[], items: RibbonItem[]): RibbonItem[] {
+  return items.map((i) => ({ ...i, row: top.includes(i.id) ? 1 : 2 }));
+}
+/** Font group: name, size and the size steps on top; styles, borders and colours below. */
+const FONT_TOP_ROW = ['format.fontName', 'format.fontSize', 'format.fontGrow', 'format.fontShrink'];
+/** Number group: the format box (and its menu) on top, the format buttons below. */
+const NUMBER_TOP_ROW = ['format.numberFormatBox', 'format.numberFormat'];
+
+/**
+ * Drop-down menus of the Home tab that list commands (command id, label key): Clear, the
+ * merge choices, and Insert / Delete / Format of the Cells group.
+ */
+const COMMAND_MENUS: Record<string, [string, string][]> = {
+  clear: [
+    ['edit.clearAll', 'sheetEditor.clearAll'],
+    ['format.clear', 'sheetEditor.clearFormats'],
+    ['edit.clear', 'sheetEditor.clear'],
+  ],
+  merge: [
+    ['format.mergeCenter', 'sheetEditor.mergeCenter'],
+    ['format.mergeAcross', 'sheetEditor.mergeAcross'],
+    ['format.mergeCells', 'sheetEditor.mergeCells'],
+    ['format.unmerge', 'sheetEditor.unmerge'],
+  ],
+  insert: [
+    ['cells.insert', 'sheetEditor.insertCells'],
+    ['cells.insertRow', 'sheetEditor.insertRow'],
+    ['cells.insertCol', 'sheetEditor.insertCol'],
+    ['sheet.add', 'sheetEditor.addSheet'],
+  ],
+  delete: [
+    ['cells.delete', 'sheetEditor.deleteCells'],
+    ['cells.deleteRow', 'sheetEditor.deleteRow'],
+    ['cells.deleteCol', 'sheetEditor.deleteCol'],
+    ['sheet.delete', 'sheetEditor.deleteSheet'],
+  ],
+  cellFormat: [
+    ['cells.rowHeight', 'sheetEditor.rowHeightTitle'],
+    ['cells.autofitRow', 'sheetEditor.autofitRow'],
+    ['cells.colWidth', 'sheetEditor.colWidthTitle'],
+    ['cells.autofitCol', 'sheetEditor.autofitCol'],
+    ['cells.hideRows', 'sheetEditor.hideRows'],
+    ['cells.unhideRows', 'sheetEditor.unhideRows'],
+    ['cells.hideCols', 'sheetEditor.hideCols'],
+    ['cells.unhideCols', 'sheetEditor.unhideCols'],
+    ['sheet.rename', 'sheetEditor.renameSheet'],
+    ['sheet.moveLeft', 'sheetEditor.moveSheetLeft'],
+    ['sheet.moveRight', 'sheetEditor.moveSheetRight'],
+    ['format.lockCell', 'sheetEditor.protection.lockCell'],
+    ['format.cells', 'sheetEditor.fmt.title'],
+  ],
+};
 
 /** An open BlueSheet context menu (CORE-UI-003); `sheet` for a sheet tab. */
 type SheetMenu = OpenContextMenu & { context: SheetMenuContext; sheet?: number };
@@ -656,7 +760,15 @@ interface EditState {
 }
 
 type DialogState =
-  | { kind: 'format' }
+  | { kind: 'format'; tab?: FormatCellsTab }
+  /** Column width (characters) / row height (points). */
+  | { kind: 'size'; rows: boolean; initial: number }
+  /** Insert / Delete cells: how the other cells shift. */
+  | { kind: 'cells'; insert: boolean }
+  /** Merging several filled cells keeps only the upper-left value. */
+  | { kind: 'mergeWarn'; center: boolean; across: boolean }
+  /** Create table: its range and whether the first row holds the names. */
+  | { kind: 'table'; range: string; headers: boolean }
   | { kind: 'sort' }
   | { kind: 'advancedFilter' }
   | { kind: 'cf' }
@@ -807,6 +919,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Split panes of the grid (View › Window › Split); a view of this window only. */
   const [split, setSplit] = useState<SheetSplit | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
+  /** When the sheet name box opened: the grid's deferred focus right after is ignored. */
+  const renameOpened = useRef(0);
+  useEffect(() => {
+    if (renaming !== null) renameOpened.current = performance.now();
+  }, [renaming]);
   const [revision, setRevision] = useState(0);
   const [loadSeq, setLoadSeq] = useState(0);
   const [fmt, setFmt] = useState<CellFormatState | null>(null);
@@ -882,6 +999,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** The active cell has a data validation rule (inputs are checked). */
   const [hasRule, setHasRule] = useState(false);
   const [painter, setPainter] = useState<Range | null>(null);
+  /** Format painter kept on after a double click; when it was turned on. */
+  const [painterKeep, setPainterKeep] = useState({ sticky: false, at: 0 });
   const [fillRect, setFillRect] = useState<Rect | null>(null);
   /** Selected chart: its anchors and on-screen box (px). */
   const [chartInfo, setChartInfo] = useState<ChartInfo | null>(null);
@@ -962,6 +1081,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const barRef = useRef<HTMLTextAreaElement>(null);
   const spellInputs = useMemo(() => [inputRef, barRef], []);
+  // Ctrl+wheel zooms the grid by 10 % steps (not the page).
+  const gridShown = !!info;
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 0.1 : -0.1;
+      const lo = ZOOMS[0] ?? 0.5;
+      const hi = ZOOMS[ZOOMS.length - 1] ?? 2;
+      setZoom((z) => Math.min(hi, Math.max(lo, Math.round((z + step) * 10) / 10)));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [gridShown]);
   /** Input that last had the caret while editing (the symbol picker inserts there). */
   const lastInput = useRef<'cell' | 'bar'>('cell');
   const glyphs = useMemo(() => (host ? new GlyphStore(host) : null), [host]);
@@ -2554,6 +2689,96 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [onAllRanges, sheet],
   );
 
+  /** Colours and border the Home split buttons apply: the ones picked last. */
+  const [lastUsed, setLastUsed] = useState({ font: 'FF0000', fill: 'FFFF00', border: 'bottom' });
+  const setLast = useCallback(
+    (patch: Partial<{ font: string; fill: string; border: string }>) =>
+      setLastUsed((l) => ({ ...l, ...patch })),
+    [],
+  );
+  /** A border of the borders menu on every range of the selection (one undo step). */
+  const applyBorder = useCallback(
+    (id: string) => {
+      const specs = BORDER_MENU[id] ?? [];
+      const cmds: SheetCommand[] = allRanges.flatMap((r) =>
+        specs.map((spec) => ({ cmd: 'borders' as const, sheet, range: toRange(r), spec })),
+      );
+      if (!cmds.length) return Promise.resolve(null);
+      return exec(cmds.length === 1 ? cmds[0]! : { cmd: 'batch', cmds });
+    },
+    [allRanges, sheet, exec],
+  );
+  /** The split buttons: the last colour / border again. */
+  const applyLast = useCallback(
+    (which: 'font' | 'fill' | 'border') => {
+      if (which === 'border') return applyBorder(lastUsed.border);
+      return formatSel(
+        which === 'font' ? { fontColor: lastUsed.font } : { fillColor: lastUsed.fill },
+      );
+    },
+    [applyBorder, formatSel, lastUsed],
+  );
+  /**
+   * Format painter button: on / off; a second click soon after the first (a double click)
+   * keeps it on for several targets until Esc or another click.
+   */
+  const togglePainter = useCallback(
+    (sel: Selection) => {
+      const now = Date.now();
+      if (painter && !painterKeep.sticky && now - painterKeep.at < 450) {
+        setPainterKeep({ sticky: true, at: painterKeep.at });
+        return;
+      }
+      setPainterKeep({ sticky: false, at: now });
+      setPainter((p) => (p ? null : rangeOf(sel)));
+    },
+    [painter, painterKeep],
+  );
+  /**
+   * A table over `r`; without names in its first row, a row of names (Column1, …) is put
+   * above the data first, all in one undo step.
+   */
+  const createTable = useCallback(
+    async (r: Range, headers: boolean) => {
+      if (!host) return;
+      if (headers) {
+        await exec({ cmd: 'createTable', sheet, range: toRange(r) });
+        return;
+      }
+      const since = (await host.exec<{ history: number } | null>({ cmd: 'historyLen' }))?.history;
+      await exec({
+        cmd: 'shiftCells',
+        sheet,
+        range: { r0: r.r0, c0: r.c0, r1: r.r0, c1: r.c1 },
+        down: true,
+        insert: true,
+      });
+      await host.setInputs(
+        sheet,
+        Array.from(
+          { length: r.c1 - r.c0 + 1 },
+          (_, i) =>
+            [r.r0, r.c0 + i, t('sheetEditor.createTable.column', { n: i + 1 })] as [
+              number,
+              number,
+              string,
+            ],
+        ),
+      );
+      await exec({
+        cmd: 'createTable',
+        sheet,
+        range: { r0: r.r0, c0: r.c0, r1: r.r1 + 1, c1: r.c1 },
+      });
+      if (since !== undefined) await host.exec({ cmd: 'mergeHistory', since });
+      await refreshInfo();
+    },
+    [host, exec, sheet, t, refreshInfo],
+  );
+  const focusBox = useCallback((testId: string) => {
+    document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
+  }, []);
+
   /** Column (or row) span of the selection when it covers whole columns (rows). */
   const axisSpan = useCallback(
     (rows: boolean): [number, number] => {
@@ -2921,15 +3146,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       shortcut: 'Ctrl+5',
       isChecked: (s) => !!s.fmt?.strike,
     });
-    add('format.fontGrow', (s) =>
-      formatSel({ fontSize: Math.min(409, (s.fmt?.fontSize ?? 11) + 1) }),
-    );
+    // Through the size list (8 … 72), like the font size box.
+    add('format.fontGrow', (s) => formatSel({ fontSize: stepFontSize(s.fmt?.fontSize ?? 11, 1) }));
     add('format.fontShrink', (s) =>
-      formatSel({ fontSize: Math.max(1, (s.fmt?.fontSize ?? 11) - 1) }),
+      formatSel({ fontSize: stepFontSize(s.fmt?.fontSize ?? 11, -1) }),
     );
+    // The boxes themselves apply; the commands put the focus in them.
+    add('format.fontName', async () => focusBox('sheet-font-name'));
+    add('format.fontSize', async () => focusBox('sheet-font-size'));
+    add('format.fontTab', open({ kind: 'format', tab: 'font' }));
     add('format.fontColor', popup('fontColor', 'format.fontColor'));
     add('format.fillColor', popup('fillColor', 'format.fillColor'));
+    // Split buttons: the colour / border used last (red text, yellow fill, bottom border
+    // until another is picked).
+    add('format.fontColorLast', () => applyLast('font'));
+    add('format.fillColorLast', () => applyLast('fill'));
     add('format.borders', popup('borders', 'format.borders'));
+    add('format.bordersLast', () => applyLast('border'));
+    add('format.borderOutline', () => borderSel({ preset: 'outline', style: 'thin' }));
+    add('format.borderNone', () => borderSel({ preset: 'none' }));
     // Alignment
     const align = (h: string) => (s: SheetEditorState) =>
       formatSel({ hAlign: s.fmt?.hAlign === h ? '' : h });
@@ -2940,38 +3175,84 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('format.alignTop', valign('top'), { isChecked: (s) => s.fmt?.vAlign === 'top' });
     add('format.alignMiddle', valign('center'), { isChecked: (s) => s.fmt?.vAlign === 'center' });
     add('format.alignBottom', valign(''), { isChecked: (s) => !!s.fmt && !s.fmt.vAlign });
+    add('format.orientation', popup('orientation', 'format.orientation'));
     add('format.wrap', (s) => formatSel({ wrap: !s.fmt?.wrap }), {
       isChecked: (s) => !!s.fmt?.wrap,
     });
-    add('format.indentInc', (s) => formatSel({ indent: (s.fmt?.indent ?? 0) + 1 }));
+    // An indent needs a left (or right / distributed) alignment: a General or centred cell
+    // becomes left-aligned (§18.8.1 alignment/@indent).
+    add('format.indentInc', (s) =>
+      formatSel({
+        indent: Math.min(250, (s.fmt?.indent ?? 0) + 1),
+        ...(['left', 'right', 'distributed'].includes(s.fmt?.hAlign ?? '')
+          ? {}
+          : { hAlign: 'left' }),
+      }),
+    );
     add('format.indentDec', (s) => formatSel({ indent: Math.max(0, (s.fmt?.indent ?? 0) - 1) }));
+    // Merging several filled cells keeps the upper-left value only: asked first.
+    const merge = (center: boolean, across: boolean) => async (s: SheetEditorState) => {
+      const range = rng(s);
+      const st = await exec<RangeStats>({ cmd: 'rangeStats', sheet: s.sheet, ranges: [range] });
+      if (st && st.count > 1) {
+        setDialog({ kind: 'mergeWarn', center, across });
+        return;
+      }
+      await exec({ cmd: 'merge', sheet: s.sheet, range, center, ...(across ? { across } : {}) });
+    };
     add(
       'format.mergeCenter',
       (s) =>
         s.fmt?.merged
           ? exec({ cmd: 'unmerge', sheet: s.sheet, range: rng(s) })
-          : exec({ cmd: 'merge', sheet: s.sheet, range: rng(s), center: true }),
+          : merge(true, false)(s),
       { isChecked: (s) => !!s.fmt?.merged },
     );
-    add('format.mergeAcross', (s) =>
-      exec({ cmd: 'merge', sheet: s.sheet, range: rng(s), across: true }),
-    );
+    add('format.mergeAcross', merge(false, true));
+    add('format.mergeCells', merge(false, false));
     add('format.unmerge', (s) => exec({ cmd: 'unmerge', sheet: s.sheet, range: rng(s) }));
     // Number
     const preset = (id: string, fallback: string) => () =>
       formatSel({ numFmt: presets.numberFormats.find((p) => p.id === id)?.code ?? fallback });
     add('format.numberFormat', popup('numFmt', 'format.numberFormat'));
-    add('format.currency', preset('currencyVnd', '#,##0 [$₫-42A]'));
+    // The money button applies the accounting format (symbol and dash for zero aligned),
+    // the comma style the same without the symbol.
+    add(
+      'format.currency',
+      preset('accounting', '_-* #,##0 [$₫-42A]_-;-* #,##0 [$₫-42A]_-;_-* "-" [$₫-42A]_-;_-@_-'),
+    );
     add('format.percent', preset('percent', '0%'), { shortcut: 'Ctrl+Shift+%' });
-    add('format.comma', preset('number', '#,##0.00'));
+    add('format.comma', () => formatSel({ numFmt: COMMA_STYLE }));
     add('format.date', preset('date', 'dd/mm/yyyy'));
+    // Ctrl+Shift+~ ! @ # $ ^ (formatKeyCommand): General, number with two decimals and
+    // thousands, time with AM/PM, date with day, month and year, currency, scientific.
+    add('format.numGeneral', () => formatSel({ numFmt: 'General' }));
+    add('format.numNumber', () => formatSel({ numFmt: '#,##0.00' }));
+    add('format.numTime', () => formatSel({ numFmt: 'h:mm AM/PM' }));
+    add('format.numDate', () => formatSel({ numFmt: 'd-mmm-yy' }));
+    add('format.numCurrency', () =>
+      formatSel({ numFmt: decimal === ',' ? '#,##0.00 [$₫-42A]' : '[$$-409]#,##0.00' }),
+    );
+    add('format.numScientific', () => formatSel({ numFmt: '0.00E+00' }));
+    // Increase / Decrease decimal: from the active cell's format (General: the decimals
+    // it shows).
+    const decimals = (dir: 1 | -1) => async (s: SheetEditorState) => {
+      const code = s.fmt?.numFmt ?? 'General';
+      const { row, col } = s.selection.active;
+      const shown = shownDecimals((await s.host.cell(s.sheet, row, col)).display, decimal);
+      await formatSel({ numFmt: stepDecimals(code, shown, dir) });
+    };
+    add('format.decimalInc', decimals(1));
+    add('format.decimalDec', decimals(-1));
     // Styles
     add('format.cellStyles', popup('styles', 'format.cellStyles'));
     add('format.conditional', open({ kind: 'cf' }));
     add('format.conditionalManage', open({ kind: 'cfManage' }));
     add('format.clearConditional', (s) => exec({ cmd: 'clearCf', sheet: s.sheet, range: rng(s) }));
     add('format.cells', open({ kind: 'format' }), { shortcut: 'Ctrl+1' });
-    add('format.painter', async (s) => setPainter((p) => (p ? null : rangeOf(s.selection))), {
+    // A second click soon after the first (a double click) keeps the painter on for
+    // several targets until Esc or another click on the button.
+    add('format.painter', async (s) => togglePainter(s.selection), {
       isChecked: () => painter !== null,
     });
     add('format.clear', (s) => {
@@ -2982,6 +3263,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }));
       return exec(cmds.length === 1 ? cmds[0]! : { cmd: 'batch', cmds });
     });
+    // Clear › All: contents and formats, one undo step.
+    add('edit.clearAll', async (s) => {
+      const since = (await s.host.exec<{ history: number } | null>({ cmd: 'historyLen' }))?.history;
+      await clearSelection();
+      const cmds: SheetCommand[] = s.ranges.map((r) => ({
+        cmd: 'clearFormats',
+        sheet: s.sheet,
+        range: toRange(r),
+      }));
+      await exec(cmds.length === 1 ? cmds[0]! : { cmd: 'batch', cmds });
+      if (since !== undefined) await s.host.exec({ cmd: 'mergeHistory', since });
+    });
+    add('edit.clearMenu', popup('clear', 'edit.clearMenu'));
     // Protection (§18.3.1.85, §18.2.29) and encryption ([MS-OFFCRYPTO])
     add('format.lockCell', async (s) => formatSel({ locked: !(s.fmt?.locked ?? true) }), {
       ...has,
@@ -3065,6 +3359,34 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('cells.insertCol', structural(false, false));
     add('cells.deleteRow', structural(true, true));
     add('cells.deleteCol', structural(false, true));
+    // Ctrl++ / Ctrl+-: whole rows or columns selected are inserted / deleted at once;
+    // other cells ask how to shift their neighbours.
+    const cellsCmd = (insert: boolean) => async (s: SheetEditorState) => {
+      const r = rangeOf(s.selection);
+      const last = { rows: MAX_ROW, cols: MAX_COL };
+      if (r.c0 === 0 && r.c1 >= last.cols) return structural(true, !insert)(s);
+      if (r.r0 === 0 && r.r1 >= last.rows) return structural(false, !insert)(s);
+      setDialog({ kind: 'cells', insert });
+    };
+    add('cells.insert', cellsCmd(true));
+    add('cells.delete', cellsCmd(false));
+    add('cells.insertMenu', popup('insert', 'cells.insertMenu'));
+    add('cells.deleteMenu', popup('delete', 'cells.deleteMenu'));
+    add('cells.formatMenu', popup('cellFormat', 'cells.formatMenu'));
+    add('format.mergeMenu', popup('merge', 'format.mergeMenu'));
+    // Format › Column width / Row height: the size of the active cell's column / row.
+    const sizeDialog = (rows: boolean) => async (s: SheetEditorState) => {
+      const { row, col } = s.selection.active;
+      const r = await s.host.exec<{ size: number }>({
+        cmd: 'sizeOf',
+        sheet: s.sheet,
+        rows,
+        index: rows ? row : col,
+      });
+      setDialog({ kind: 'size', rows, initial: r.size });
+    };
+    add('cells.colWidth', sizeDialog(false));
+    add('cells.rowHeight', sizeDialog(true));
     const axis = (rows: boolean) => {
       const [first, last] = axisSpan(rows);
       return { rows, first, last };
@@ -3101,11 +3423,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     });
 
     // Sheets
-    add('sheet.add', async (s) => {
+    // A new sheet goes after the active one (+ button), or before it (Shift+F11), as one
+    // undo step.
+    const newSheet = (after: boolean) => async (s: SheetEditorState) => {
+      const since = (await s.host.exec<{ history: number } | null>({ cmd: 'historyLen' }))?.history;
       const i = await s.host.addSheet();
+      const to = after ? s.sheet + 1 : s.sheet;
+      if (to !== i && since !== undefined) {
+        await s.host.exec({ cmd: 'moveSheet', from: i, to });
+        await s.host.exec({ cmd: 'mergeHistory', since });
+      }
       await refreshInfo();
-      setSheet(i);
-    });
+      setSheet(to);
+      setSelection(single({ row: 0, col: 0 }));
+    };
+    add('sheet.add', newSheet(true));
+    add('sheet.insertBefore', newSheet(false));
+    // Ctrl+PgUp / Ctrl+PgDn: the previous / next visible sheet.
+    const stepSheet = (by: -1 | 1) => async (s: SheetEditorState) => {
+      const sheets = info?.sheets ?? [];
+      for (let i = s.sheet + by; i >= 0 && i < sheets.length; i += by) {
+        if (sheets[i]?.hidden) continue;
+        setSheet(i);
+        setSelection(single({ row: 0, col: 0 }));
+        setChart(null);
+        return;
+      }
+    };
+    add('sheet.previous', stepSheet(-1));
+    add('sheet.next', stepSheet(1));
     add('sheet.rename', async (s) => setRenaming(s.sheet));
     add(
       'sheet.delete',
@@ -3222,7 +3568,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('insert.symbol', async () => setSymbolsOpen(true), has);
     add('insert.icon', async () => setIconsOpen(true), has);
     add('insert.pivot', open({ kind: 'pivot' }), has);
-    add('insert.table', (s) => exec({ cmd: 'createTable', sheet: s.sheet, range: rng(s) }), has);
+    // Ctrl+T / Ctrl+L: the data around a single cell, then the create-table question
+    // (range, "the first row holds the names" guessed from the cells).
+    add(
+      'insert.table',
+      async (s) => {
+        let r = rangeOf(s.selection);
+        if (cellsOf(r) === 1) {
+          const reg = await exec<SheetRange>({ cmd: 'region', sheet: s.sheet, range: toRange(r) });
+          if (reg) r = { r0: reg.r0, c0: reg.c0, r1: reg.r1, c1: reg.c1 };
+        }
+        const headers = await guessHeaders(s.host, s.sheet, r);
+        setDialog({ kind: 'table', range: rangeA1(r), headers });
+      },
+      { shortcut: 'Ctrl+T', ...has },
+    );
     registerSparklineCommands(add, {
       range: rng,
       exec: (cmd) => exec(cmd),
@@ -3741,6 +4101,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       return freezeFirst(s);
     });
     add('view.freezePanes', (s) => {
+      // Frozen: the button unfreezes (it reads "Unfreeze panes" then).
+      if (!split && (summary?.frozenRows ?? 0) + (summary?.frozenCols ?? 0) > 0)
+        return exec({ cmd: 'freeze', sheet: s.sheet, rows: 0, cols: 0 });
       // On a split sheet the split becomes frozen panes at the cell it was made at.
       const at = split
         ? freezeFromSplit(split)
@@ -3824,6 +4187,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('options.shortcuts', async () => setShortcutsShown(true));
     return reg;
   }, [
+    borderSel,
+    applyLast,
+    togglePainter,
+    focusBox,
+    decimal,
     deleteFrame,
     drillDown,
     frameSel,
@@ -4405,6 +4773,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       run('cell.toggleCheckbox');
       return;
     }
+    // Formatting, cells and sheet shortcuts bound to physical keys (homeFormat.ts).
+    const formatKey = formatKeyCommand(e);
+    if (formatKey) {
+      e.preventDefault();
+      run(formatKey);
+      return;
+    }
     const cmd =
       registry.match(e) ??
       // Alt+= by its physical key: layouts where Alt changes the character of the key.
@@ -4423,6 +4798,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       return;
     }
     if (e.key === 'Escape' && painter) {
+      setPainterKeep({ sticky: false, at: 0 });
       setPainter(null);
       return;
     }
@@ -5142,7 +5518,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       }
     } else if (d.kind === 'select' && painter) {
       const to = rangeOf(selection);
-      setPainter(null);
+      if (!painterKeep.sticky) setPainter(null);
       void exec({ cmd: 'paintFormat', sheet, from: toRange(painter), to: toRange(to) });
     }
   };
@@ -5368,32 +5744,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('file.open', t('sheetEditor.open'), <FolderOpen size={18} />),
               item('file.save', t('sheetEditor.save'), <Save size={18} />),
               item('file.saveAs', t('commands.file.saveAs'), <Save size={s} />, 'small'),
-              item(
-                'file.editTemplate',
-                t('fileVariants.editTemplate'),
-                <FolderOpen size={s} />,
-                'small',
-              ),
-              item(
-                'file.themeFile',
-                t('fileVariants.applyThemeFile'),
-                <FolderOpen size={s} />,
-                'small',
-              ),
-              item(
-                'file.saveThemeFile',
-                t('fileVariants.saveThemeFile'),
-                <Save size={s} />,
-                'small',
-              ),
-              item('file.saveCsv', t('sheetEditor.saveCsv'), <Table2 size={s} />, 'small'),
               item('file.exportPdf', t('sheetEditor.exportPdf'), <FileDown size={s} />, 'small'),
-              item(
-                'file.exportPdfOptions',
-                t('commands.file.exportPdfOptions'),
-                <FileDown size={s} />,
-                'small',
-              ),
               item('file.print', t('sheetEditor.print'), <Printer size={s} />, 'small'),
             ],
           },
@@ -5423,11 +5774,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           {
             id: 'font',
             label: t('sheetEditor.groupFont'),
-            items: [
+            items: twoRows(FONT_TOP_ROW, [
+              {
+                ...item('format.fontName', t('sheetEditor.fontName'), null, 'small'),
+                render: (
+                  <FontNameBox
+                    value={state?.fmt?.fontName ?? ''}
+                    disabled={!state?.hasWorkbook}
+                    onApply={(fontName) => void formatSel({ fontName })}
+                    onDone={focusInput}
+                  />
+                ),
+              },
+              {
+                ...item('format.fontSize', t('sheetEditor.fontSizeBox'), null, 'small'),
+                render: (
+                  <FontSizeBox
+                    value={state?.fmt?.fontSize ?? null}
+                    disabled={!state?.hasWorkbook}
+                    onApply={(fontSize) => void formatSel({ fontSize })}
+                    onDone={focusInput}
+                  />
+                ),
+              },
               item('format.bold', t('sheetEditor.bold'), <Bold size={s} />, 'small'),
               item('format.italic', t('sheetEditor.italic'), <Italic size={s} />, 'small'),
               item('format.underline', t('sheetEditor.underline'), <Underline size={s} />, 'small'),
-              item('format.strike', t('sheetEditor.strike'), <Strikethrough size={s} />, 'small'),
               item('format.fontGrow', t('sheetEditor.fontGrow'), <AArrowUp size={s} />, 'small'),
               item(
                 'format.fontShrink',
@@ -5435,15 +5807,79 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <AArrowDown size={s} />,
                 'small',
               ),
-              item('format.fontColor', t('sheetEditor.fontColor'), <Baseline size={s} />, 'small'),
-              item(
-                'format.fillColor',
-                t('sheetEditor.fillColor'),
-                <PaintBucket size={s} />,
-                'small',
-              ),
-              item('format.borders', t('sheetEditor.borders'), <Grid2x2 size={s} />, 'small'),
-            ],
+              {
+                ...item(
+                  'format.bordersLast',
+                  t('sheetEditor.bordersLast', {
+                    border: t(`sheetEditor.border.${lastUsed.border}`),
+                  }),
+                  null,
+                  'small',
+                ),
+                render: (
+                  <SplitButton
+                    id="format.bordersLast"
+                    menuId="format.borders"
+                    label={t('sheetEditor.bordersLast', {
+                      border: t(`sheetEditor.border.${lastUsed.border}`),
+                    })}
+                    menuLabel={t('sheetEditor.borders')}
+                    icon={<Grid2x2 size={s} />}
+                    disabled={!state?.hasWorkbook}
+                    onApply={() => run('format.bordersLast')}
+                    onMenu={() => run('format.borders')}
+                  />
+                ),
+              },
+              {
+                ...item('format.fillColorLast', t('sheetEditor.fillColorLast'), null, 'small'),
+                render: (
+                  <SplitButton
+                    id="format.fillColorLast"
+                    menuId="format.fillColor"
+                    label={t('sheetEditor.fillColorLast')}
+                    menuLabel={t('sheetEditor.fillColor')}
+                    icon={
+                      <span className={styles.colorSplit}>
+                        <PaintBucket size={s - 4} />
+                        <span
+                          className={styles.colorSplitBar}
+                          data-color={lastUsed.fill}
+                          style={{ background: `#${lastUsed.fill}` }}
+                        />
+                      </span>
+                    }
+                    disabled={!state?.hasWorkbook}
+                    onApply={() => run('format.fillColorLast')}
+                    onMenu={() => run('format.fillColor')}
+                  />
+                ),
+              },
+              {
+                ...item('format.fontColorLast', t('sheetEditor.fontColorLast'), null, 'small'),
+                render: (
+                  <SplitButton
+                    id="format.fontColorLast"
+                    menuId="format.fontColor"
+                    label={t('sheetEditor.fontColorLast')}
+                    menuLabel={t('sheetEditor.fontColor')}
+                    icon={
+                      <span className={styles.colorSplit}>
+                        <Baseline size={s - 4} />
+                        <span
+                          className={styles.colorSplitBar}
+                          data-color={lastUsed.font}
+                          style={{ background: `#${lastUsed.font}` }}
+                        />
+                      </span>
+                    }
+                    disabled={!state?.hasWorkbook}
+                    onApply={() => run('format.fontColorLast')}
+                    onMenu={() => run('format.fontColor')}
+                  />
+                ),
+              },
+            ]),
           },
           {
             id: 'alignment',
@@ -5485,6 +5921,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <ArrowDownToLine size={s} />,
                 'small',
               ),
+              item(
+                'format.orientation',
+                t('sheetEditor.orientation.title'),
+                <RotateCcw size={s} />,
+                'small',
+              ),
               item('format.wrap', t('sheetEditor.wrap'), <TextWrap size={s} />, 'small'),
               item(
                 'format.mergeCenter',
@@ -5493,9 +5935,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'small',
               ),
               item(
-                'format.unmerge',
-                t('sheetEditor.unmerge'),
-                <TableCellsSplit size={s} />,
+                'format.mergeMenu',
+                t('sheetEditor.mergeMenu'),
+                <ChevronDown size={12} />,
                 'small',
               ),
               item(
@@ -5515,7 +5957,22 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           {
             id: 'number',
             label: t('sheetEditor.groupNumber'),
-            items: [
+            items: twoRows(NUMBER_TOP_ROW, [
+              {
+                ...item('format.numberFormatBox', t('sheetEditor.numberFormatBox'), null, 'small'),
+                render: (
+                  <NumberFormatBox
+                    code={state?.fmt?.numFmt ?? 'General'}
+                    presets={presets.numberFormats}
+                    disabled={!state?.hasWorkbook}
+                    onPick={(numFmt) => {
+                      void formatSel({ numFmt });
+                      focusInput();
+                    }}
+                    onMore={() => setDialog({ kind: 'format', tab: 'number' })}
+                  />
+                ),
+              },
               item(
                 'format.numberFormat',
                 t('sheetEditor.numberFormat'),
@@ -5525,8 +5982,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('format.currency', t('sheetEditor.currency'), <Coins size={s} />, 'small'),
               item('format.percent', t('sheetEditor.percent'), <Percent size={s} />, 'small'),
               item('format.comma', t('sheetEditor.comma'), <Hash size={s} />, 'small'),
-              item('format.date', t('sheetEditor.dateFormat'), <Calendar size={s} />, 'small'),
-            ],
+              item(
+                'format.decimalInc',
+                t('sheetEditor.decimalInc'),
+                <DecimalsArrowRight size={s} />,
+                'small',
+              ),
+              item(
+                'format.decimalDec',
+                t('sheetEditor.decimalDec'),
+                <DecimalsArrowLeft size={s} />,
+                'small',
+              ),
+            ]),
           },
           {
             id: 'styles',
@@ -5559,26 +6027,26 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             id: 'cells',
             label: t('sheetEditor.groupCells'),
             items: [
-              item('cells.insertRow', t('sheetEditor.insertRow'), <Rows3 size={s} />, 'small'),
-              item('cells.insertCol', t('sheetEditor.insertCol'), <Columns3 size={s} />, 'small'),
-              item('cells.deleteRow', t('sheetEditor.deleteRow'), <Trash2 size={s} />, 'small'),
-              item('cells.deleteCol', t('sheetEditor.deleteCol'), <Trash2 size={s} />, 'small'),
+              item('cells.insert', t('sheetEditor.insertCells'), <Plus size={s} />, 'small'),
               item(
-                'cells.autofitCol',
-                t('sheetEditor.autofitCol'),
-                <MoveHorizontal size={s} />,
+                'cells.insertMenu',
+                t('sheetEditor.insertMenu'),
+                <ChevronDown size={12} />,
+                'small',
+              ),
+              item('cells.delete', t('sheetEditor.deleteCells'), <Trash2 size={s} />, 'small'),
+              item(
+                'cells.deleteMenu',
+                t('sheetEditor.deleteMenu'),
+                <ChevronDown size={12} />,
                 'small',
               ),
               item(
-                'cells.autofitRow',
-                t('sheetEditor.autofitRow'),
-                <MoveVertical size={s} />,
+                'cells.formatMenu',
+                t('sheetEditor.cellFormatMenu'),
+                <Rows3 size={s} />,
                 'small',
               ),
-              item('cells.hideRows', t('sheetEditor.hideRows'), <EyeOff size={s} />, 'small'),
-              item('cells.unhideRows', t('sheetEditor.unhideRows'), <Eye size={s} />, 'small'),
-              item('cells.hideCols', t('sheetEditor.hideCols'), <EyeOff size={s} />, 'small'),
-              item('cells.unhideCols', t('sheetEditor.unhideCols'), <Eye size={s} />, 'small'),
             ],
           },
           {
@@ -5593,6 +6061,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('formula.autoSum', t('autoSum.button'), <Sigma size={s} />, 'small'),
               item('formula.autoSumMenu', t('autoSum.menu'), <ChevronDown size={12} />, 'small'),
               item('edit.clear', t('sheetEditor.clear'), <Eraser size={s} />, 'small'),
+              item(
+                'edit.clearMenu',
+                t('sheetEditor.clearMenu'),
+                <ChevronDown size={12} />,
+                'small',
+              ),
               item(
                 'edit.fillDown',
                 t('sheetEditor.fillDown'),
@@ -5613,27 +6087,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 'small',
               ),
               item('edit.goto', t('sheetEditor.goto.title'), <LocateFixed size={s} />, 'small'),
-            ],
-          },
-          {
-            id: 'sheets',
-            label: t('sheetEditor.groupSheets'),
-            items: [
-              item('sheet.add', t('sheetEditor.addSheet'), <Plus size={s} />, 'small'),
-              item('sheet.rename', t('sheetEditor.renameSheet'), <Table2 size={s} />, 'small'),
-              item('sheet.delete', t('sheetEditor.deleteSheet'), <Trash2 size={s} />, 'small'),
-              item(
-                'sheet.moveLeft',
-                t('sheetEditor.moveSheetLeft'),
-                <MoveLeft size={s} />,
-                'small',
-              ),
-              item(
-                'sheet.moveRight',
-                t('sheetEditor.moveSheetRight'),
-                <MoveRight size={s} />,
-                'small',
-              ),
             ],
           },
         ],
@@ -6321,7 +6774,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             id: 'freeze',
             label: t('sheetEditor.groupFreeze'),
             items: [
-              item('view.freezePanes', t('sheetEditor.freezePanes'), <Snowflake size={18} />),
+              item(
+                'view.freezePanes',
+                (info?.sheets[sheet]?.frozenRows ?? 0) + (info?.sheets[sheet]?.frozenCols ?? 0) > 0
+                  ? t('sheetEditor.unfreeze')
+                  : t('sheetEditor.freezePanes'),
+                <Snowflake size={18} />,
+              ),
               item(
                 'view.freezeTopRow',
                 t('sheetEditor.freezeTopRow'),
@@ -6493,6 +6952,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     fail,
     loadTableStyles,
     shortcutsVersion,
+    presets,
+    formatSel,
+    focusInput,
+    lastUsed,
+    info,
   ]);
 
   // Context menus (CORE-UI-003): cell, row / column header, sheet tab, chart, picture.
@@ -6524,6 +6988,33 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   useEffect(() => {
     ribbonTabsRef.current = shownTabs;
   });
+  // Command search also finds the commands of the Home drop-down menus (insert / delete
+  // sheet, row height, merge across, …) that have no button of their own.
+  const onRibbon = new Set(
+    shownTabs.flatMap((tab) => tab.groups.flatMap((g) => g.items.map((i) => i.id))),
+  );
+  const menuCommands = Object.values(COMMAND_MENUS)
+    .flat()
+    .filter(([id], i, all) => !onRibbon.has(id) && all.findIndex(([x]) => x === id) === i);
+  const searchTabs: RibbonTab[] = [
+    ...shownTabs,
+    {
+      id: 'homeMenus',
+      label: t('ribbon.tabs.home'),
+      groups: [
+        {
+          id: 'homeMenus',
+          label: t('sheetEditor.groupCells'),
+          items: menuCommands.map(([id, label]) => ({
+            id,
+            label: t(label),
+            enabled: state ? registry.isEnabled(id, state) : false,
+            onSelect: () => run(id),
+          })),
+        },
+      ],
+    },
+  ];
 
   const r = rangeOf(selection);
   const statCells = allRanges.reduce((n, x) => n + cellsOf(x), 0);
@@ -6587,9 +7078,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           { id: 'more', label: t('autoSum.more') },
         ];
       case 'borders':
-        return (
-          ['all', 'outline', 'inside', 'top', 'bottom', 'left', 'right', 'none'] as BorderPreset[]
-        ).map((p) => ({ id: p, label: t(`sheetEditor.border.${p}`) }));
+        return [
+          ...Object.keys(BORDER_MENU).map((p) => ({ id: p, label: t(`sheetEditor.border.${p}`) })),
+          { id: 'more', label: t('sheetEditor.border.more') },
+        ];
+      case 'clear':
+      case 'merge':
+      case 'insert':
+      case 'delete':
+      case 'cellFormat':
+        return (COMMAND_MENUS[kind] ?? []).map(([id, label]) => ({ id, label: t(label) }));
+      case 'orientation':
+        return [
+          ...Object.keys(ORIENTATIONS).map((id) => ({
+            id,
+            label: t(`sheetEditor.orientation.${id}`),
+          })),
+          { id: 'more', label: t('sheetEditor.orientation.more') },
+        ];
       case 'styles':
         return presets.cellStyles.map((n) => {
           const [bg, fg, b] = STYLE_PREVIEW[n] ?? ['FFFFFF', '000000', false];
@@ -6639,9 +7145,31 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       run(AUTO_SUM_COMMANDS[id as AutoSumFunction]);
       return;
     }
+    if (COMMAND_MENUS[kind]) {
+      focusInput();
+      run(id);
+      return;
+    }
+    if (kind === 'orientation') {
+      if (id === 'more') {
+        setDialog({ kind: 'format', tab: 'alignment' });
+        return;
+      }
+      // The same choice again goes back to horizontal text.
+      const rotation = ORIENTATIONS[id] ?? 0;
+      void formatSel({ rotation: fmt?.rotation === rotation ? 0 : rotation });
+      focusInput();
+      return;
+    }
     const range = toRange(r);
-    if (kind === 'borders') void borderSel({ preset: id as BorderPreset, style: 'thin' });
-    else if (kind === 'styles') void exec({ cmd: 'cellStyle', sheet, range, name: id });
+    if (kind === 'borders') {
+      if (id === 'more') {
+        setDialog({ kind: 'format', tab: 'border' });
+        return;
+      }
+      setLast({ border: id });
+      void applyBorder(id);
+    } else if (kind === 'styles') void exec({ cmd: 'cellStyle', sheet, range, name: id });
     else if (kind === 'numFmt') void formatSel({ numFmt: id });
     else if (kind === 'chart') {
       // A saved chart template inserts its type with its formatting.
@@ -6695,7 +7223,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         }
       />
       <CommandSearch
-        tabs={shownTabs}
+        tabs={searchTabs}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         labels={{
@@ -7661,7 +8189,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 className={styles.tabRename}
                 defaultValue={s.name}
                 autoFocus
-                onBlur={() => setRenaming(null)}
+                // The whole name is selected: typing replaces it.
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={(e) => {
+                  // The grid takes the focus back on the frame after the clicks of the
+                  // double click: the name box keeps it.
+                  if (performance.now() - renameOpened.current < 300) {
+                    const box = e.currentTarget;
+                    requestAnimationFrame(() => box.focus());
+                    return;
+                  }
+                  setRenaming(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     const name = e.currentTarget.value;
@@ -7711,7 +8250,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   // Picking a reference: the editor keeps the caret (no focus change).
                   if (pointable()) e.preventDefault();
                 }}
-                onClick={() => {
+                onClick={(e) => {
                   if (pointable()) {
                     pointSheet(i);
                     return;
@@ -7720,7 +8259,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   setSelection(single({ row: 0, col: 0 }));
                   setChart(null);
                   scrollerRef.current?.scrollTo(0, 0);
-                  focusInput();
+                  // The second click of a double click leaves the focus to the name box
+                  // that opens (its deferred focus would close the rename at once).
+                  if (e.detail < 2) focusInput();
                 }}
                 onDoubleClick={() => setRenaming(i)}
               >
@@ -7736,7 +8277,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           type="button"
           className={styles.tabAdd}
           aria-label={t('sheetEditor.addSheet')}
-          onClick={() => run('sheet.add')}
+          onClick={() => {
+            run('sheet.add');
+            // The keyboard stays on the grid (Ctrl+PgUp / PgDn, typing).
+            focusInput();
+          }}
         >
           <Plus size={14} />
         </button>
@@ -7934,6 +8479,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           onClose={() => setMenu(null)}
           onPick={(c) => {
             void formatSel(menu.kind === 'fillColor' ? { fillColor: c } : { fontColor: c });
+            // The split button applies this colour next time.
+            if (c) setLast(menu.kind === 'fillColor' ? { fill: c } : { font: c });
             focusInput();
           }}
         />
@@ -7964,6 +8511,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <FormatCellsDialog
           open
           initial={fmt}
+          tab={dialog.tab}
           presets={presets.numberFormats}
           onClose={common.onClose}
           onApply={(patch, borders) => {
@@ -7972,6 +8520,80 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               for (const b of borders) await borderSel(b);
               common.onClose();
             })();
+          }}
+        />
+      )}
+      {dialog?.kind === 'size' && (
+        <SizeDialog
+          rows={dialog.rows}
+          initial={dialog.initial}
+          onClose={common.onClose}
+          onApply={(size) => {
+            const rows = dialog.rows;
+            common.onClose();
+            void onAllRanges((range) => ({
+              cmd: 'resize',
+              sheet,
+              rows,
+              first: rows ? range.r0 : range.c0,
+              last: rows ? range.r1 : range.c1,
+              size,
+              chars: !rows,
+            }));
+          }}
+        />
+      )}
+      {dialog?.kind === 'cells' && (
+        <CellsDialog
+          insert={dialog.insert}
+          onClose={common.onClose}
+          onApply={(shift) => {
+            const insert = dialog.insert;
+            common.onClose();
+            if (shift === 'row' || shift === 'col') {
+              const id = `cells.${insert ? 'insert' : 'delete'}${shift === 'row' ? 'Row' : 'Col'}`;
+              run(id);
+              return;
+            }
+            void exec({
+              cmd: 'shiftCells',
+              sheet,
+              range: toRange(r),
+              down: shift === 'down' || shift === 'up',
+              insert,
+            });
+          }}
+        />
+      )}
+      {dialog?.kind === 'table' && (
+        <CreateTableDialog
+          range={dialog.range}
+          headers={dialog.headers}
+          onClose={common.onClose}
+          onApply={(text, headers) => {
+            const at = parseA1(text);
+            common.onClose();
+            if (!at) return;
+            void createTable(rangeOf(at), headers);
+          }}
+        />
+      )}
+      {dialog?.kind === 'mergeWarn' && (
+        <ConfirmDialog
+          title={t('sheetEditor.mergeWarn.title')}
+          message={t('sheetEditor.mergeWarn.message')}
+          testId="merge-warning"
+          onClose={common.onClose}
+          onOk={() => {
+            const { center, across } = dialog;
+            common.onClose();
+            void exec({
+              cmd: 'merge',
+              sheet,
+              range: toRange(r),
+              center,
+              ...(across ? { across } : {}),
+            });
           }}
         />
       )}

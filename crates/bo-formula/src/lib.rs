@@ -59,7 +59,8 @@ pub use parser::{
 pub use provider::{CellProvider, TableInfo, WebError, WebProvider};
 pub use reference::{CellAddr, RefKind, Reference, SheetRef};
 pub use shift::{
-    adjust_for_change, adjust_for_move, offset_relative, MovedBlock, StructuralChange,
+    adjust_for_band_change, adjust_for_change, adjust_for_move, offset_relative, MovedBlock,
+    StructuralChange,
 };
 pub use storage::{from_storage, storage_prefix, to_storage};
 pub use trace::{trace_formula, FormulaTrace, TraceStep};

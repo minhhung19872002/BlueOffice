@@ -268,19 +268,52 @@ fn on_small_stack(f: impl FnOnce() + Send + 'static) {
         .expect("fuzz smoke panicked");
 }
 
+/// Soak mode for the final review (prompt §9: fuzz each parser for a long time): with
+/// `BO_FUZZ_SECONDS=<n>` a test repeats its mutation rounds with fresh seeds until `n`
+/// seconds have passed; without it, one round with the fixed seed (CI, reproducible).
+/// A failing round prints its seed, so `BO_FUZZ_SEED=<seed>` replays exactly that round.
+fn soak(seed: u64, mut round: impl FnMut(u64)) {
+    if let Some(s) = std::env::var("BO_FUZZ_SEED")
+        .ok()
+        .and_then(|v| u64::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+    {
+        round(s);
+        return;
+    }
+    let secs = std::env::var("BO_FUZZ_SECONDS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let until = Instant::now() + Duration::from_secs(secs);
+    let mut n: u64 = 0;
+    loop {
+        // Round 0 is the fixed seed; later rounds spread over the 64-bit space.
+        let s = seed ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        println!("fuzz round {n}: BO_FUZZ_SEED={s:x}");
+        round(s);
+        n += 1;
+        if Instant::now() >= until {
+            break;
+        }
+    }
+    if secs > 0 {
+        println!("soak: {n} rounds in {secs} s");
+    }
+}
+
 #[test]
 fn mutated_docx_corpus_never_panics_or_hangs() {
-    on_small_stack(|| run("doc", "docx", 0x0D0C_0001));
+    on_small_stack(|| soak(0x0D0C_0001, |seed| run("doc", "docx", seed)));
 }
 
 #[test]
 fn mutated_xlsx_corpus_never_panics_or_hangs() {
-    on_small_stack(|| run("sheet", "xlsx", 0x0D0C_0002));
+    on_small_stack(|| soak(0x0D0C_0002, |seed| run("sheet", "xlsx", seed)));
 }
 
 #[test]
 fn mutated_pptx_corpus_never_panics_or_hangs() {
-    on_small_stack(|| run("slide", "pptx", 0x0D0C_0003));
+    on_small_stack(|| soak(0x0D0C_0003, |seed| run("slide", "pptx", seed)));
 }
 
 /// CORE-VBA-002: the VBA project reader behind the macro viewer ([MS-OVBA]: compound
@@ -292,74 +325,76 @@ fn mutated_pptx_corpus_never_panics_or_hangs() {
 fn mutated_vba_projects_never_panic_or_hang() {
     const MUTATIONS: usize = 60;
     on_small_stack(|| {
-        let mut rng = Rng(0x0D0C_0BA5);
-        let mut runs = 0;
-        for (file, main_dir) in [
-            ("macro-vba.docm", "word"),
-            ("macro-vba.xlsm", "xl"),
-            ("macro-vba.pptm", "ppt"),
-        ] {
-            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/corpus/macro")
-                .join(file);
-            let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
-            let pkg = Package::read(&bytes, &Limits::default()).expect("macro corpus opens");
-            let part = format!("/{main_dir}/vbaProject.bin");
-            let bin = pkg.part(&part).expect("vbaProject.bin").data.clone();
-            assert!(
-                bo_engine::vba_view::read(&bytes).is_some_and(|p| p.error.is_none()),
-                "{file}: the unmutated project must read"
-            );
-            for k in 0..MUTATIONS {
-                let mut data = bin.clone();
-                let len = data.len();
-                match rng.below(4) {
-                    0 => {
-                        for _ in 0..=rng.below(8) {
-                            let i = rng.below(len);
-                            data[i] = u8::try_from(rng.below(256)).unwrap_or(0);
+        soak(0x0D0C_0BA5, |seed| {
+            let mut rng = Rng(seed);
+            let mut runs = 0;
+            for (file, main_dir) in [
+                ("macro-vba.docm", "word"),
+                ("macro-vba.xlsm", "xl"),
+                ("macro-vba.pptm", "ppt"),
+            ] {
+                let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../tests/corpus/macro")
+                    .join(file);
+                let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
+                let pkg = Package::read(&bytes, &Limits::default()).expect("macro corpus opens");
+                let part = format!("/{main_dir}/vbaProject.bin");
+                let bin = pkg.part(&part).expect("vbaProject.bin").data.clone();
+                assert!(
+                    bo_engine::vba_view::read(&bytes).is_some_and(|p| p.error.is_none()),
+                    "{file}: the unmutated project must read"
+                );
+                for k in 0..MUTATIONS {
+                    let mut data = bin.clone();
+                    let len = data.len();
+                    match rng.below(4) {
+                        0 => {
+                            for _ in 0..=rng.below(8) {
+                                let i = rng.below(len);
+                                data[i] = u8::try_from(rng.below(256)).unwrap_or(0);
+                            }
                         }
+                        1 => data.truncate(rng.below(len)),
+                        2 => {
+                            let at = rng.below(len);
+                            let end = (at + 1 + rng.below(64)).min(len);
+                            data.drain(at..end);
+                        }
+                        _ => data = mutate_vba_streams(&mut rng, &bin),
                     }
-                    1 => data.truncate(rng.below(len)),
-                    2 => {
-                        let at = rng.below(len);
-                        let end = (at + 1 + rng.below(64)).min(len);
-                        data.drain(at..end);
-                    }
-                    _ => data = mutate_vba_streams(&mut rng, &bin),
+                    let mut m = pkg.clone();
+                    m.put_part(&part, data.clone());
+                    let Ok(out) = m.write() else { continue };
+                    timed(&format!("{file} vba#{k}"), || {
+                        let _ = bo_binary::read_vba_project(&data);
+                        let _ = bo_engine::vba_view::read(&out);
+                        let cmd = r#"{"cmd":"vbaProject"}"#;
+                        match main_dir {
+                            "xl" => {
+                                let mut s = SheetEngine::new();
+                                if s.open(&out, "fuzz.xlsm").is_ok() {
+                                    let _ = s.exec_json(cmd);
+                                }
+                            }
+                            "word" => {
+                                let mut e = Engine::with_bundled_fonts();
+                                if e.open(&out, "fuzz.docm").is_ok() {
+                                    let _ = e.command_json(cmd);
+                                }
+                            }
+                            _ => {
+                                let mut e = Engine::with_bundled_fonts();
+                                if e.open(&out, "fuzz.pptm").is_ok() {
+                                    let _ = e.slide_command_json(cmd);
+                                }
+                            }
+                        }
+                    });
+                    runs += 1;
                 }
-                let mut m = pkg.clone();
-                m.put_part(&part, data.clone());
-                let Ok(out) = m.write() else { continue };
-                timed(&format!("{file} vba#{k}"), || {
-                    let _ = bo_binary::read_vba_project(&data);
-                    let _ = bo_engine::vba_view::read(&out);
-                    let cmd = r#"{"cmd":"vbaProject"}"#;
-                    match main_dir {
-                        "xl" => {
-                            let mut s = SheetEngine::new();
-                            if s.open(&out, "fuzz.xlsm").is_ok() {
-                                let _ = s.exec_json(cmd);
-                            }
-                        }
-                        "word" => {
-                            let mut e = Engine::with_bundled_fonts();
-                            if e.open(&out, "fuzz.docm").is_ok() {
-                                let _ = e.command_json(cmd);
-                            }
-                        }
-                        _ => {
-                            let mut e = Engine::with_bundled_fonts();
-                            if e.open(&out, "fuzz.pptm").is_ok() {
-                                let _ = e.slide_command_json(cmd);
-                            }
-                        }
-                    }
-                });
-                runs += 1;
             }
-        }
-        println!("macro: {runs} mutated VBA projects, no panic, no hang");
+            println!("macro: {runs} mutated VBA projects, no panic, no hang");
+        });
     });
 }
 
@@ -516,26 +551,29 @@ fn web_seeds() -> Vec<(String, Vec<u8>)> {
 #[test]
 fn mutated_web_formats_never_panic_or_hang() {
     on_small_stack(|| {
-        let seeds = web_seeds();
-        assert!(seeds.len() >= 10, "seeds: {}", seeds.len());
-        let mut rng = Rng(0x0D0C_0004);
-        let mut runs = 0;
-        for (name, bytes) in &seeds {
-            // The seed itself opens.
-            timed(name, || open_web(name, bytes));
-            for k in 0..XML_MUTATIONS {
-                let mut data = bytes.clone();
-                for _ in 0..=rng.below(3) {
-                    mutate_web(&mut rng, &mut data);
+        soak(0x0D0C_0004, |seed| {
+            let seeds = web_seeds();
+            assert!(seeds.len() >= 10, "seeds: {}", seeds.len());
+
+            let mut rng = Rng(seed);
+            let mut runs = 0;
+            for (name, bytes) in &seeds {
+                // The seed itself opens.
+                timed(name, || open_web(name, bytes));
+                for k in 0..XML_MUTATIONS {
+                    let mut data = bytes.clone();
+                    for _ in 0..=rng.below(3) {
+                        mutate_web(&mut rng, &mut data);
+                    }
+                    timed(&format!("{name} #{k}"), || open_web(name, &data));
+                    runs += 1;
                 }
-                timed(&format!("{name} #{k}"), || open_web(name, &data));
-                runs += 1;
             }
-        }
-        println!(
-            "web formats: {} seeds, {runs} mutated inputs, no panic, no hang",
-            seeds.len()
-        );
+            println!(
+                "web formats: {} seeds, {runs} mutated inputs, no panic, no hang",
+                seeds.len()
+            );
+        });
     });
 }
 
@@ -632,25 +670,28 @@ fn tabular_seeds() -> Vec<(String, Vec<u8>)> {
 #[test]
 fn mutated_tabular_formats_never_panic_or_hang() {
     on_small_stack(|| {
-        let seeds = tabular_seeds();
-        assert!(seeds.len() >= 13, "seeds: {}", seeds.len());
-        let mut rng = Rng(0x0D0C_0004 ^ 0x5A5A);
-        let mut runs = 0;
-        for (name, bytes) in &seeds {
-            timed(name, || open_tabular(name, bytes));
-            for k in 0..XML_MUTATIONS * 2 {
-                let mut data = bytes.clone();
-                for _ in 0..=rng.below(3) {
-                    mutate_tabular(&mut rng, &mut data);
+        soak(0x0D0C_0004 ^ 0x5A5A, |seed| {
+            let seeds = tabular_seeds();
+            assert!(seeds.len() >= 13, "seeds: {}", seeds.len());
+
+            let mut rng = Rng(seed);
+            let mut runs = 0;
+            for (name, bytes) in &seeds {
+                timed(name, || open_tabular(name, bytes));
+                for k in 0..XML_MUTATIONS * 2 {
+                    let mut data = bytes.clone();
+                    for _ in 0..=rng.below(3) {
+                        mutate_tabular(&mut rng, &mut data);
+                    }
+                    timed(&format!("{name} #{k}"), || open_tabular(name, &data));
+                    runs += 1;
                 }
-                timed(&format!("{name} #{k}"), || open_tabular(name, &data));
-                runs += 1;
             }
-        }
-        println!(
-            "tabular formats: {} seeds, {runs} mutated inputs, no panic, no hang",
-            seeds.len()
-        );
+            println!(
+                "tabular formats: {} seeds, {runs} mutated inputs, no panic, no hang",
+                seeds.len()
+            );
+        });
     });
 }
 
@@ -660,37 +701,40 @@ fn mutated_tabular_formats_never_panic_or_hang() {
 #[test]
 fn mutated_pdf_files_never_panic_or_hang() {
     on_small_stack(|| {
-        let mut docs: Vec<(u64, PathBuf)> = corpus("doc", "docx")
-            .into_iter()
-            .filter_map(|p| Some((std::fs::metadata(&p).ok()?.len(), p)))
-            .collect();
-        docs.sort();
-        let mut seeds = Vec::new();
-        for (_, path) in docs.into_iter().take(3) {
-            let mut e = Engine::with_bundled_fonts();
-            e.open(&std::fs::read(&path).expect("corpus file"), "seed.docx")
-                .expect("corpus docx opens");
-            seeds.push(e.export_pdf().expect("exports"));
-        }
-        let mut rng = Rng(0x0D0C_0004 ^ 0x0F0F);
-        let mut runs = 0;
-        for (i, bytes) in seeds.iter().enumerate() {
-            let open = |b: &[u8]| {
-                let _ = Engine::with_bundled_fonts().open(b, "fuzz.pdf");
-            };
-            timed(&format!("pdf seed {i}"), || open(bytes));
-            for k in 0..XML_MUTATIONS * 2 {
-                let mut data = bytes.clone();
-                for _ in 0..=rng.below(3) {
-                    mutate_xml(&mut rng, &mut data);
-                }
-                timed(&format!("pdf seed {i} #{k}"), || open(&data));
-                runs += 1;
+        soak(0x0D0C_0004 ^ 0x0F0F, |seed| {
+            let mut docs: Vec<(u64, PathBuf)> = corpus("doc", "docx")
+                .into_iter()
+                .filter_map(|p| Some((std::fs::metadata(&p).ok()?.len(), p)))
+                .collect();
+            docs.sort();
+            let mut seeds = Vec::new();
+            for (_, path) in docs.into_iter().take(3) {
+                let mut e = Engine::with_bundled_fonts();
+                e.open(&std::fs::read(&path).expect("corpus file"), "seed.docx")
+                    .expect("corpus docx opens");
+                seeds.push(e.export_pdf().expect("exports"));
             }
-        }
-        println!(
-            "pdf: {} seeds, {runs} mutated inputs, no panic, no hang",
-            seeds.len()
-        );
+
+            let mut rng = Rng(seed);
+            let mut runs = 0;
+            for (i, bytes) in seeds.iter().enumerate() {
+                let open = |b: &[u8]| {
+                    let _ = Engine::with_bundled_fonts().open(b, "fuzz.pdf");
+                };
+                timed(&format!("pdf seed {i}"), || open(bytes));
+                for k in 0..XML_MUTATIONS * 2 {
+                    let mut data = bytes.clone();
+                    for _ in 0..=rng.below(3) {
+                        mutate_xml(&mut rng, &mut data);
+                    }
+                    timed(&format!("pdf seed {i} #{k}"), || open(&data));
+                    runs += 1;
+                }
+            }
+            println!(
+                "pdf: {} seeds, {runs} mutated inputs, no panic, no hang",
+                seeds.len()
+            );
+        });
     });
 }

@@ -19,6 +19,8 @@ pub struct SlideFields {
     pub timing: Option<Timing>,
     /// Slide transition (§19.3.1.50 transition).
     pub transition: Option<Transition>,
+    /// Shown in the slide show (§19.3.1.38 sld@show); `None` = default (shown).
+    pub show: Option<bool>,
 }
 
 impl SlideFields {
@@ -29,6 +31,7 @@ impl SlideFields {
             notes: s.notes.clone(),
             timing: s.timing.clone(),
             transition: s.transition.clone(),
+            show: s.show,
         }
     }
     fn store(self, s: &mut Slide) {
@@ -36,6 +39,7 @@ impl SlideFields {
         s.notes = self.notes;
         s.timing = self.timing;
         s.transition = self.transition;
+        s.show = self.show;
     }
 }
 

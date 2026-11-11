@@ -106,6 +106,10 @@ export class DocumentView {
   private readonly images: ImageStore;
   private dragging = false;
   private caret: CaretRect | null = null;
+  /** The caret element, reused by every `setSelection`. */
+  private caretEl: HTMLDivElement | null = null;
+  /** The equation box while editing in place, reused by every redraw. */
+  private mathZoneEl: HTMLDivElement | null = null;
   /** Interim dictation text shown at the caret (not in the document; CORE-LANG-002). */
   private dictationPreview: string | null = null;
   private peers: PeerMark[] = [];
@@ -282,13 +286,17 @@ export class DocumentView {
     if (caret && rects.length === 0) {
       const slot = this.slots[caret.page];
       if (slot) {
-        const c = document.createElement('div');
+        // One caret element, moved: what reads it (tests, assistive tools) never holds a
+        // node that a later selection update has thrown away.
+        const c = (this.caretEl ??= document.createElement('div'));
         c.className = 'bo-caret';
         c.dataset.testid = 'caret';
         c.style.left = `${caret.x * k}px`;
         c.style.top = `${caret.y * k}px`;
         c.style.height = `${caret.h * k}px`;
         slot.overlay.appendChild(c);
+        // The caret shows at once where it moved to (the blink starts over).
+        for (const a of c.getAnimations?.() ?? []) a.currentTime = 0;
       }
     }
     this.drawPeers(k);
@@ -419,16 +427,17 @@ export class DocumentView {
   private drawMathMarks(k: number): void {
     const m = this.mathMarks;
     if (!m) return;
-    const draw = (r: SelRect, cls: string) => {
+    const draw = (r: SelRect, cls: string, reuse?: HTMLDivElement) => {
       const slot = this.slots[r.page];
       if (!slot) return;
-      const d = document.createElement('div');
+      const d = reuse ?? document.createElement('div');
       d.className = cls;
       d.dataset.testid = cls;
       d.style.cssText = `left:${r.x * k}px;top:${r.y * k}px;width:${r.w * k}px;height:${r.h * k}px;`;
       slot.overlay.appendChild(d);
     };
-    draw(m.zone, 'bo-math-zone');
+    // The zone box is kept across redraws like the caret.
+    draw(m.zone, 'bo-math-zone', (this.mathZoneEl ??= document.createElement('div')));
     for (const p of m.placeholders) draw(p, 'bo-math-slot');
   }
 

@@ -56,7 +56,8 @@ impl Solid {
         let mut v = self.view;
         if let Some(fov) = self.fov.filter(|f| *f > 1.0 && *f < 179.0) {
             v.eye = Some(
-                (w.max(h) / 2.0 / (fov / 2.0).to_radians().tan()).max(1.0) + self.depth.max(0.0),
+                (w.max(h) / 2.0 / libm::tan((fov / 2.0).to_radians())).max(1.0)
+                    + self.depth.max(0.0),
             );
         }
         v

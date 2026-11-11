@@ -1,0 +1,51 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=9 [-0.0 131.9 116.4 219.1] fill=#2e8b57ff
+  path n=9 [-0.0 131.9 116.4 219.1] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 131.9]
+    text 8.0pt 44.3,38.6 #ffffffff "Khảo "
+    text 8.0pt 62.5,38.6 #ffffffff "sát"
+    text 6.4pt 42.3,46.8 #ffffffff "• "
+    text 6.4pt 47.0,46.8 #ffffffff "Phỏng "
+    text 6.4pt 64.8,46.8 #ffffffff "vấn"
+    text 6.4pt 47.2,54.6 #ffffffff "• "
+    text 6.4pt 51.9,54.6 #ffffffff "Số "
+    text 6.4pt 59.6,54.6 #ffffffff "liệu"
+  pop transform
+  path n=8 [122.2 158.0 157.1 193.0] fill=#a6a6a6ff
+  path n=8 [122.2 158.0 157.1 193.0] stroke=#ffffffff w1.00
+  path n=9 [162.9 131.9 279.3 219.1] fill=#2e8b57ff
+  path n=9 [162.9 131.9 279.3 219.1] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 162.9 131.9]
+    text 20.0pt 26.0,50.5 #ffffffff "Thiết "
+    text 20.0pt 71.9,50.5 #ffffffff "kế"
+  pop transform
+  path n=8 [285.1 158.0 320.0 193.0] fill=#a6a6a6ff
+  path n=8 [285.1 158.0 320.0 193.0] stroke=#ffffffff w1.00
+  path n=9 [325.8 131.9 442.2 219.1] fill=#2e8b57ff
+  path n=9 [325.8 131.9 442.2 219.1] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 325.8 131.9]
+    text 20.0pt 20.4,50.5 #ffffffff "Xây "
+    text 20.0pt 53.5,50.5 #ffffffff "dựng"
+  pop transform
+  path n=8 [448.0 158.0 482.9 193.0] fill=#a6a6a6ff
+  path n=8 [448.0 158.0 482.9 193.0] stroke=#ffffffff w1.00
+  path n=9 [488.7 131.9 605.1 219.1] fill=#2e8b57ff
+  path n=9 [488.7 131.9 605.1 219.1] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 488.7 131.9]
+    text 20.0pt 20.8,50.5 #ffffffff "Kiểm "
+    text 20.0pt 66.3,50.5 #ffffffff "thử"
+  pop transform
+  path n=8 [610.9 158.0 645.8 193.0] fill=#a6a6a6ff
+  path n=8 [610.9 158.0 645.8 193.0] stroke=#ffffffff w1.00
+  path n=9 [651.6 131.9 768.0 219.1] fill=#2e8b57ff
+  path n=9 [651.6 131.9 768.0 219.1] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 651.6 131.9]
+    text 20.0pt 20.2,50.5 #ffffffff "Vận "
+    text 20.0pt 55.1,50.5 #ffffffff "hành"
+  pop transform
+pop transform

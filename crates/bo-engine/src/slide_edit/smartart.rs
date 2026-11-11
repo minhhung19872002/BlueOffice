@@ -12,7 +12,7 @@ use super::{insert_top, next_shape_id, slide_size, EditError, SlideSel, R};
 use bo_model::slide::{
     GraphicContent, GroupShape, NonVisual, Presentation, Rel, ShapeNode, ShapeProps, Xfrm,
 };
-use bo_pptx::diagram_layout::{self as dl, Category, Fill, Look, Palette};
+use bo_pptx::diagram_layout::{self as dl, Fill, Layout, Look, Palette};
 use serde::{Deserialize, Serialize};
 
 const CT: &str = "application/vnd.openxmlformats-officedocument.drawingml.";
@@ -36,7 +36,8 @@ pub struct SmartItem {
 pub struct SmartArtOut {
     /// Shape id of the graphic frame.
     pub id: u32,
-    /// Layout category (`list`, `process`, `cycle`, `hierarchy`, `matrix`, `pyramid`, `relationship`).
+    /// Layout of the BlueOffice library (`bo_pptx::diagram_layout::Layout` name: `list`,
+    /// `processChevron`, …); a diagram of another producer reports the first layout of its category.
     pub layout: String,
     /// Text outline.
     pub items: Vec<SmartItem>,
@@ -73,10 +74,13 @@ fn outline(items: &[SmartItem]) -> Vec<(String, usize)> {
         .collect()
 }
 
-/// Part names of a slide's SmartArt frame: (data, layout, drawing — if any) and the frame size (EMU).
+/// Part names of a slide's SmartArt frame: (data, layout, quick style, colours, drawing — if any)
+/// and the frame size (EMU).
 struct Parts {
     data: String,
     layout: Option<String>,
+    style: Option<String>,
+    colors: Option<String>,
     drawing: Option<String>,
     ext: (i64, i64),
 }
@@ -99,6 +103,10 @@ fn parts_of(pres: &Presentation, slide: usize, n: &ShapeNode) -> Option<Parts> {
     };
     let data = target(bo_pptx::diagram::data_rel_id(gd)?)?;
     let layout = bo_pptx::diagram::layout_rel_id(gd).and_then(target);
+    // `dgm:relIds@r:qs` / `@r:cs` (§21.4.2.6): the quick style and colours parts.
+    let rel_ids = gd.elements().find(|c| c.local() == "relIds");
+    let style = rel_ids.and_then(|c| c.attr("r:qs")).and_then(target);
+    let colors = rel_ids.and_then(|c| c.attr("r:cs")).and_then(target);
     let drawing = pres
         .part_data(&data)
         .and_then(|d| bo_pptx::diagram::drawing_rel_id(d, &data))
@@ -106,6 +114,8 @@ fn parts_of(pres: &Presentation, slide: usize, n: &ShapeNode) -> Option<Parts> {
     Some(Parts {
         data,
         layout,
+        style,
+        colors,
         drawing,
         ext: f.xfrm.ext.unwrap_or((0, 0)),
     })
@@ -124,7 +134,7 @@ pub fn smartart_out(pres: &Presentation, slide: usize, id: u32) -> Option<SmartA
         colors: lk.palette.name().to_owned(),
         style: lk.fill.name().to_owned(),
         id,
-        layout: dl::category(lo.as_deref(), layout).name().to_owned(),
+        layout: dl::layout_of(lo.as_deref(), layout).name().to_owned(),
         items: dl::outline_of(&nodes)
             .into_iter()
             .map(|(text, level)| SmartItem { text, level })
@@ -145,7 +155,7 @@ fn rel_ids(s: &bo_model::slide::Slide, n: usize) -> Vec<String> {
     out
 }
 
-/// Insert a SmartArt on the current slide (`layout`: a category name; `items`: the text outline).
+/// Insert a SmartArt on the current slide (`layout`: a layout name; `items`: the text outline).
 pub fn cmd_insert_smartart(
     tx: &mut Tx<'_>,
     sel: &mut SlideSel,
@@ -154,7 +164,7 @@ pub fn cmd_insert_smartart(
     (colors, style): (Option<&str>, Option<&str>),
     rect: Option<super::geom::Rect>,
 ) -> R<()> {
-    let cat = Category::parse(layout).ok_or(EditError::Refused("badSmartArt"))?;
+    let cat = Layout::parse(layout).ok_or(EditError::Refused("badSmartArt"))?;
     let lk = look(Look::default(), colors, style)?;
     let nodes = dl::nodes_from_outline(&outline(items));
     if nodes.is_empty() {
@@ -266,12 +276,12 @@ pub fn cmd_set_smartart(
         .ok_or(EditError::Refused("noSmartArt"))?;
     let (old_nodes, lo) =
         dl::parse_data_model(data, &parts.data).ok_or(EditError::Refused("noSmartArt"))?;
-    let old_cat = dl::category(
+    let old_cat = dl::layout_of(
         lo.as_deref(),
         parts.layout.as_deref().and_then(|l| tx.pres.part_data(l)),
     );
     let cat = match layout {
-        Some(l) => Category::parse(l).ok_or(EditError::Refused("badSmartArt"))?,
+        Some(l) => Layout::parse(l).ok_or(EditError::Refused("badSmartArt"))?,
         None => old_cat,
     };
     let nodes = match items {
@@ -295,9 +305,15 @@ pub fn cmd_set_smartart(
         Some(&format!("{CT}diagramData+xml")),
         built.data,
     )?;
-    if let Some(l) = &parts.layout {
-        if layout.is_some() {
-            put_part(tx, l, Some(&format!("{CT}diagramLayout+xml")), built.layout)?;
+    // The definition parts name the same layout, quick style and colours as the data model's
+    // document point (`prSet@loTypeId` / `@qsTypeId` / `@csTypeId`); unchanged parts stay as they are.
+    for (name, ct, bytes) in [
+        (&parts.layout, "diagramLayout+xml", built.layout),
+        (&parts.style, "diagramStyle+xml", built.style),
+        (&parts.colors, "diagramColors+xml", built.colors),
+    ] {
+        if let Some(n) = name {
+            put_part(tx, n, Some(&format!("{CT}{ct}")), bytes)?;
         }
     }
     if let Some(d) = &parts.drawing {

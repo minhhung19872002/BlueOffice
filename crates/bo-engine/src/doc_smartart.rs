@@ -11,7 +11,7 @@ use crate::slide_edit::smartart::SmartItem;
 use crate::{EngineError, Result};
 use bo_model::diagram::{self, DRAWING_REL_PLACEHOLDER};
 use bo_model::{Anchor, Emu, Image, Wrap};
-use bo_pptx::diagram_layout::{self as dl, Category, Fill, Look, Palette};
+use bo_pptx::diagram_layout::{self as dl, Fill, Layout, Look, Palette};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -24,8 +24,7 @@ const EMU_PT: f64 = 12_700.0;
 pub enum DocSmartArtCommand {
     /// Insert a SmartArt at the selection.
     InsertSmartArt {
-        /// Layout category (`list`, `process`, `cycle`, `hierarchy`, `matrix`, `pyramid`,
-        /// `relationship`).
+        /// Layout of the BlueOffice library (`list`, `processChevron`, `picture`, …).
         layout: String,
         /// Text outline.
         items: Vec<SmartItem>,
@@ -47,7 +46,7 @@ pub enum DocSmartArtCommand {
     },
     /// Change the SmartArt at the selection (`None` keeps a value).
     SetSmartArt {
-        /// New layout category.
+        /// New layout.
         #[serde(default)]
         layout: Option<String>,
         /// New text outline.
@@ -79,7 +78,7 @@ impl DocSmartArtCommand {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocSmartArt {
-    /// Layout category.
+    /// Layout.
     pub layout: String,
     /// Text outline.
     pub items: Vec<SmartItem>,
@@ -140,12 +139,12 @@ fn parts_of(
         .zip([p.data, p.layout, p.style, p.colors, p.drawing].map(Arc::new))
 }
 
-/// Read the outline, category and look of a diagram's data model.
-fn read(doc: &bo_model::Document, img: &Image) -> Option<(Vec<dl::DiagramNode>, Category, Look)> {
+/// Read the outline, layout and look of a diagram's data model.
+fn read(doc: &bo_model::Document, img: &Image) -> Option<(Vec<dl::DiagramNode>, Layout, Look)> {
     let src = bo_docx::diagram::diagram_source(doc, img)?;
     let (name, data) = &src.data;
     let (nodes, lo) = dl::parse_data_model(data, name)?;
-    let cat = dl::category(lo.as_deref(), src.layout.as_ref().map(|l| l.1.as_slice()));
+    let cat = dl::layout_of(lo.as_deref(), src.layout.as_ref().map(|l| l.1.as_slice()));
     Some((nodes, cat, dl::look_of(data, name)))
 }
 
@@ -189,7 +188,7 @@ impl crate::Engine {
                 height,
                 floating,
             } => (|| {
-                let cat = Category::parse(&layout).ok_or("badSmartArt")?;
+                let cat = Layout::parse(&layout).ok_or("badSmartArt")?;
                 let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
                 let lines = outline(&items);
                 let nodes = dl::nodes_from_outline(&lines);
@@ -240,7 +239,7 @@ impl crate::Engine {
                 let img = s.smartart().ok_or("noSmartArt")?;
                 let (old_nodes, old_cat, old_look) = read(s.doc(), &img).ok_or("noSmartArt")?;
                 let cat = match layout.as_deref() {
-                    Some(l) => Category::parse(l).ok_or("badSmartArt")?,
+                    Some(l) => Layout::parse(l).ok_or("badSmartArt")?,
                     None => old_cat,
                 };
                 let lk = look(old_look, colors.as_deref(), style.as_deref())?;
@@ -395,7 +394,7 @@ mod tests {
         let img = first_image(doc);
         assert_eq!(img.media, "/word/diagrams/drawing2.xml");
         let (nodes, cat, lk) = read(doc, &img).unwrap();
-        assert_eq!(cat, Category::Hierarchy);
+        assert_eq!(cat, Layout::Hierarchy);
         assert_eq!(lk.palette, Palette::Green);
         assert_eq!(
             dl::outline_of(&nodes),
@@ -420,6 +419,42 @@ mod tests {
                 _ => None,
             })
             .unwrap()
+    }
+
+    // source: ECMA-376 Part 1, §21.4.2.15 layoutDef — the layouts of the library beyond the first
+    // of each category (CORE-SMART-003), in a document.
+    #[test]
+    fn library_layouts_in_a_document() {
+        let mut e = engine();
+        let r = run(
+            &mut e,
+            json!({"cmd": "insertSmartArt", "layout": "processChevron", "items": items(&[("Một", 0), ("Hai", 0)])}),
+        );
+        assert!(r["error"].is_null(), "{r}");
+        assert_eq!(r["smartArt"]["layout"], "processChevron");
+        for layout in Layout::ALL {
+            let r = run(
+                &mut e,
+                json!({"cmd": "setSmartArt", "layout": layout.name()}),
+            );
+            assert!(r["error"].is_null(), "{r}");
+            assert_eq!(r["smartArt"]["layout"], layout.name());
+            assert_eq!(r["smartArt"]["items"][1]["text"], "Hai");
+            // The frame shows the picture of the new drawing.
+            let media = first_image(e.document().unwrap()).media;
+            assert_eq!(&e.media(&media).unwrap()[..4], b"\x89PNG", "{layout:?}");
+        }
+        let bytes = e.save_docx().unwrap();
+        if let Ok(dir) = std::env::var("BO_SMARTART_OUT") {
+            std::fs::write(format!("{dir}/smartart-doc-picture.docx"), &bytes).unwrap();
+        }
+        let mut back = engine();
+        back.open(&bytes, "back.docx").unwrap();
+        let doc = back.document().unwrap();
+        let (nodes, layout, _) = read(doc, &first_image(doc)).unwrap();
+        assert_eq!(layout, Layout::PictureStrip);
+        assert_eq!(layout.category(), dl::Category::Picture);
+        assert_eq!(nodes.len(), 2);
     }
 
     #[test]

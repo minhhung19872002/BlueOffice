@@ -2434,9 +2434,25 @@ export interface SlideChartData {
   series: { name: string; values: (number | null)[] }[];
 }
 
-/** Layout categories of the BlueOffice SmartArt library. */
+/** Layout categories of the BlueOffice SmartArt library (ECMA-376 Part 1, §21.4.2.3 cat). */
+export type SlideSmartArtCategory =
+  'list' | 'process' | 'cycle' | 'hierarchy' | 'matrix' | 'pyramid' | 'relationship' | 'picture';
+
+/**
+ * Layouts of the BlueOffice SmartArt library (`bo_pptx::diagram_layout::Layout`); the first layout
+ * of a category has the category's name.
+ */
 export type SlideSmartArtLayout =
-  'list' | 'process' | 'cycle' | 'hierarchy' | 'matrix' | 'pyramid' | 'relationship';
+  | SlideSmartArtCategory
+  | 'listVertical'
+  | 'processChevron'
+  | 'processVertical'
+  | 'cycleRadial'
+  | 'hierarchyHorizontal'
+  | 'matrixCentered'
+  | 'pyramidInverted'
+  | 'relationshipTarget'
+  | 'pictureStrip';
 
 /** SmartArt colours and look (BlueOffice palettes). */
 export type SlideSmartArtColors = 'colorful' | 'blue' | 'green' | 'orange' | 'purple' | 'gray';

@@ -13,7 +13,7 @@ use crate::slide_edit::smartart::SmartItem;
 use crate::{EngineError, Result};
 use bo_model::diagram::{self, DiagramXml, DRAWING_REL_PLACEHOLDER};
 use bo_model::sheet::{CellRef, SheetDiagram, Workbook};
-use bo_pptx::diagram_layout::{self as dl, Category, Fill, Look, Palette};
+use bo_pptx::diagram_layout::{self as dl, Fill, Layout, Look, Palette};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -190,12 +190,12 @@ fn sources<'a>(wb: &'a Workbook, d: &'a SheetDiagram) -> Option<Sources<'a>> {
 }
 
 /// Outline, category and look of a diagram's data model.
-fn read(wb: &Workbook, d: &SheetDiagram) -> Option<(Vec<dl::DiagramNode>, Category, Look)> {
+fn read(wb: &Workbook, d: &SheetDiagram) -> Option<(Vec<dl::DiagramNode>, Layout, Look)> {
     let (name, data, layout) = sources(wb, d)?;
     let (nodes, lo) = dl::parse_data_model(data, name)?;
     Some((
         nodes,
-        dl::category(lo.as_deref(), layout),
+        dl::layout_of(lo.as_deref(), layout),
         dl::look_of(data, name),
     ))
 }
@@ -285,7 +285,7 @@ impl SheetEngine {
                 to,
                 ..
             } => {
-                let cat = Category::parse(&layout).ok_or_else(|| bad("badSmartArt"))?;
+                let cat = Layout::parse(&layout).ok_or_else(|| bad("badSmartArt"))?;
                 let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
                 let lines = outline(&items);
                 let nodes = dl::nodes_from_outline(&lines);
@@ -358,7 +358,7 @@ impl SheetEngine {
                 };
                 let ((old_nodes, old_cat, old_look), rel) = old;
                 let cat = match layout.as_deref() {
-                    Some(l) => Category::parse(l).ok_or_else(|| bad("badSmartArt"))?,
+                    Some(l) => Layout::parse(l).ok_or_else(|| bad("badSmartArt"))?,
                     None => old_cat,
                 };
                 let lk = look(old_look, colors.as_deref(), style.as_deref())?;
@@ -522,6 +522,40 @@ mod tests {
         assert!(fourth
             .exec_json(&json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}).to_string())
             .is_err());
+    }
+
+    // source: ECMA-376 Part 1, §21.4.2.15 layoutDef — the layouts of the library beyond the first
+    // of each category (CORE-SMART-003), on a sheet.
+    #[test]
+    fn library_layouts_on_a_sheet() {
+        use bo_pptx::diagram_layout::Layout;
+        let mut e = SheetEngine::new();
+        e.new_workbook("Book").unwrap();
+        let r = run(
+            &mut e,
+            &json!({"cmd": "insertSmartArt", "sheet": 0, "layout": "cycleRadial", "from": [1, 1], "items": items(&[("Tâm", 0), ("A", 0), ("B", 0)])}),
+        );
+        assert_eq!(r["smartArt"]["layout"], "cycleRadial");
+        for layout in Layout::ALL {
+            let r = run(
+                &mut e,
+                &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "layout": layout.name()}),
+            );
+            assert_eq!(r["smartArt"]["layout"], layout.name());
+            assert_eq!(r["smartArt"]["items"][2]["text"], "B");
+        }
+        let bytes = e.save("xlsx", 0).unwrap();
+        if let Ok(dir) = std::env::var("BO_SMARTART_OUT") {
+            std::fs::write(format!("{dir}/smartart-sheet-picture.xlsx"), &bytes).unwrap();
+        }
+        let mut back = SheetEngine::new();
+        back.open(&bytes, "back.xlsx").unwrap();
+        let i = run(
+            &mut back,
+            &json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(i["layout"], "pictureStrip");
+        assert_eq!(i["items"], items(&[("Tâm", 0), ("A", 0), ("B", 0)]));
     }
 
     #[test]

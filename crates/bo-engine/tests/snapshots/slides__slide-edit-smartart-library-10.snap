@@ -1,0 +1,53 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=9 [51.2 128.7 204.8 222.3] fill=#2e8b57ff
+  path n=9 [51.2 128.7 204.8 222.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 51.2 128.7]
+    text 20.0pt 38.1,53.6 #ffffffff "Giám "
+    text 20.0pt 85.4,53.6 #ffffffff "đốc"
+  pop transform
+  path n=9 [307.2 70.2 460.8 163.8] fill=#2e8b57ff
+  path n=9 [307.2 70.2 460.8 163.8] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 307.2 70.2]
+    text 20.0pt 43.3,53.6 #ffffffff "Kỹ "
+    text 20.0pt 66.5,53.6 #ffffffff "thuật"
+  pop transform
+  path n=9 [563.2 11.7 716.8 105.3] fill=#2e8b57ff
+  path n=9 [563.2 11.7 716.8 105.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 563.2 11.7]
+    text 20.0pt 36.7,53.6 #ffffffff "Phát "
+    text 20.0pt 78.2,53.6 #ffffffff "triển"
+  pop transform
+  path n=9 [563.2 128.7 716.8 222.3] fill=#2e8b57ff
+  path n=9 [563.2 128.7 716.8 222.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 563.2 128.7]
+    text 20.0pt 39.5,53.6 #ffffffff "Kiểm "
+    text 20.0pt 84.9,53.6 #ffffffff "thử"
+  pop transform
+  path n=2 [460.8 117.0 512.0 117.0] stroke=#7f7f7fff w1.50
+  path n=2 [512.0 58.5 512.0 175.5] stroke=#7f7f7fff w1.50
+  path n=2 [512.0 58.5 563.2 58.5] stroke=#7f7f7fff w1.50
+  path n=2 [512.0 175.5 563.2 175.5] stroke=#7f7f7fff w1.50
+  path n=9 [307.2 245.7 460.8 339.3] fill=#2e8b57ff
+  path n=9 [307.2 245.7 460.8 339.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 307.2 245.7]
+    text 20.0pt 30.7,53.6 #ffffffff "Kinh "
+    text 20.0pt 71.2,53.6 #ffffffff "doanh"
+  pop transform
+  path n=9 [563.2 245.7 716.8 339.3] fill=#2e8b57ff
+  path n=9 [563.2 245.7 716.8 339.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 563.2 245.7]
+    text 20.0pt 39.1,53.6 #ffffffff "Bán "
+    text 20.0pt 74.5,53.6 #ffffffff "hàng"
+  pop transform
+  path n=2 [460.8 292.5 512.0 292.5] stroke=#7f7f7fff w1.50
+  path n=2 [512.0 292.5 563.2 292.5] stroke=#7f7f7fff w1.50
+  path n=2 [204.8 175.5 256.0 175.5] stroke=#7f7f7fff w1.50
+  path n=2 [256.0 117.0 256.0 292.5] stroke=#7f7f7fff w1.50
+  path n=2 [256.0 117.0 307.2 117.0] stroke=#7f7f7fff w1.50
+  path n=2 [256.0 292.5 307.2 292.5] stroke=#7f7f7fff w1.50
+pop transform

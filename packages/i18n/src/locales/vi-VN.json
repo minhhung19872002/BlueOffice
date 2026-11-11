@@ -2672,14 +2672,43 @@
       "toShapes": "Chuyển thành hình",
       "hint": "Mỗi dòng là một mục; Tab để hạ cấp, Shift+Tab để nâng cấp.",
       "sampleItem": "Mục {{n}}",
-      "layouts": {
+      "categories": {
         "list": "Danh sách",
         "process": "Quy trình",
         "cycle": "Chu trình",
         "hierarchy": "Phân cấp",
         "matrix": "Ma trận",
         "pyramid": "Kim tự tháp",
-        "relationship": "Quan hệ"
+        "relationship": "Quan hệ",
+        "picture": "Ảnh"
+      },
+      "layouts": {
+        "list": "Danh sách khối",
+        "listVertical": "Danh sách dọc kèm chi tiết",
+        "process": "Quy trình theo bước",
+        "processChevron": "Quy trình mũi tên chữ V",
+        "processVertical": "Quy trình dọc",
+        "cycle": "Chu trình vòng",
+        "cycleRadial": "Chu trình toả tròn",
+        "hierarchy": "Sơ đồ tổ chức",
+        "hierarchyHorizontal": "Phân cấp ngang",
+        "matrix": "Ma trận lưới",
+        "matrixCentered": "Ma trận có tâm",
+        "pyramid": "Kim tự tháp",
+        "pyramidInverted": "Kim tự tháp ngược",
+        "relationship": "Vòng tròn giao nhau",
+        "relationshipTarget": "Vòng đích",
+        "picture": "Thẻ ảnh",
+        "pictureStrip": "Dải ảnh"
+      },
+      "nodeTools": "Công cụ nút",
+      "node": {
+        "add": "Thêm nút",
+        "remove": "Xoá nút",
+        "promote": "Nâng cấp",
+        "demote": "Hạ cấp",
+        "up": "Chuyển lên",
+        "down": "Chuyển xuống"
       },
       "colors": "Màu",
       "style": "Kiểu",

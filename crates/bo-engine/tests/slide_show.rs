@@ -520,6 +520,32 @@ fn smartart_inserted_edited_converted_and_saved() {
             "{prefix}"
         );
     }
+    // The quick style and colours parts name what the data model's document point names.
+    let part = |prefix: &str| {
+        let x = p.parts.iter().find(|x| x.name.starts_with(prefix)).unwrap();
+        String::from_utf8_lossy(&x.data).into_owned()
+    };
+    let data = part("/ppt/diagrams/data");
+    for (prefix, id) in [
+        (
+            "/ppt/diagrams/layout",
+            "urn:bluestar.vn/blueoffice/layout/hierarchy",
+        ),
+        (
+            "/ppt/diagrams/quickStyle",
+            "urn:bluestar.vn/blueoffice/quickstyle/outline",
+        ),
+        (
+            "/ppt/diagrams/colors",
+            "urn:bluestar.vn/blueoffice/colors/green",
+        ),
+    ] {
+        assert!(
+            part(prefix).contains(&format!(r#"uniqueId="{id}""#)),
+            "{prefix}"
+        );
+        assert!(data.contains(&format!(r#"TypeId="{id}""#)), "{prefix}");
+    }
     let mut back = back;
     let rels = &back.presentation().unwrap().slides[r.slide].info.rels;
     assert!(rels.iter().any(|r| r.rel_type.ends_with("/diagramData")));
@@ -551,6 +577,70 @@ fn smartart_inserted_edited_converted_and_saved() {
         r#"{"cmd":"insertSmartArt","layout":"list","items":[{"text":"  "}]}"#,
     );
     assert!(r.error.is_some());
+}
+
+// source: ECMA-376 Part 1, §21.4.2.3 cat / §21.4.2.15 layoutDef — CORE-SMART-003: every layout of
+// the library (two or three per category, the picture category included) is inserted, switched to
+// and converted; the layout's own name is kept in the file, its category in the layout part.
+#[test]
+fn smartart_library_layouts_are_inserted_switched_and_kept() {
+    use bo_pptx::diagram_layout::{self as dl, Layout};
+    let mut e = open("slide-text-bullets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertSmartArt","layout":"pictureStrip","items":[{"text":"Hà Nội"},{"text":"Thủ đô","level":1},{"text":"Huế"}]}"#,
+    );
+    let sa = r.smartart.clone().unwrap();
+    assert_eq!(sa.layout, "pictureStrip");
+    let slide = r.slide;
+    // Each layout in turn through the text pane's layout choice: the outline stays.
+    for layout in Layout::ALL {
+        let r = run(
+            &mut e,
+            &format!(r#"{{"cmd":"setSmartArt","layout":"{}"}}"#, layout.name()),
+        );
+        let now = r.smartart.clone().unwrap();
+        assert_eq!(now.layout, layout.name());
+        assert_eq!(now.items, sa.items, "{layout:?}");
+        let page = e.slide(slide).unwrap().to_json();
+        assert!(page.contains("Huế"), "{layout:?} drawn");
+        // Saved: the layout part names the layout and its category for other applications.
+        let back = reopen(&e);
+        let p = back.presentation().unwrap();
+        let part = p
+            .parts
+            .iter()
+            .find(|x| x.name.starts_with("/ppt/diagrams/layout"))
+            .unwrap();
+        assert_eq!(dl::layout_of(None, Some(&part.data)), layout);
+        assert_eq!(dl::category(None, Some(&part.data)), layout.category());
+        let xml = String::from_utf8_lossy(&part.data);
+        assert!(
+            xml.contains(&format!(
+                r#"<dgm:cat type="{}" pri="1000"/>"#,
+                layout.category().name()
+            )),
+            "{xml}"
+        );
+    }
+    // The last one (a picture layout) converts to shapes: frames and captions in a group.
+    run(&mut e, r#"{"cmd":"setSmartArt","layout":"picture"}"#);
+    let r = run(&mut e, r#"{"cmd":"smartArtToShapes"}"#);
+    assert_eq!(r.selection[0].kind, "group");
+    let p = e.presentation().unwrap();
+    let group = p.slides[slide]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            bo_model::slide::ShapeNode::Group(g) if g.nv.id == sa.id => Some(g),
+            _ => None,
+        })
+        .unwrap();
+    // Per item: a frame, its two marks and the caption.
+    assert_eq!(group.children.len(), 2 * 4);
+    let r = run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(r.smartart.unwrap().layout, "picture");
 }
 
 // source: ECMA-376 Part 1, §21.2.2.153 radarChart / §21.2.2.126 ofPieChart / §21.2.2.198 stockChart —

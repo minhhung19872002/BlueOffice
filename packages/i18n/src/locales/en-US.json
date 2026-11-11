@@ -2672,14 +2672,43 @@
       "toShapes": "Convert to shapes",
       "hint": "One item per line; Tab to demote, Shift+Tab to promote.",
       "sampleItem": "Item {{n}}",
-      "layouts": {
+      "categories": {
         "list": "List",
         "process": "Process",
         "cycle": "Cycle",
         "hierarchy": "Hierarchy",
         "matrix": "Matrix",
         "pyramid": "Pyramid",
-        "relationship": "Relationship"
+        "relationship": "Relationship",
+        "picture": "Picture"
+      },
+      "layouts": {
+        "list": "Block list",
+        "listVertical": "Vertical list with details",
+        "process": "Step process",
+        "processChevron": "Chevron process",
+        "processVertical": "Vertical process",
+        "cycle": "Ring cycle",
+        "cycleRadial": "Radial cycle",
+        "hierarchy": "Organisation chart",
+        "hierarchyHorizontal": "Horizontal hierarchy",
+        "matrix": "Grid matrix",
+        "matrixCentered": "Matrix with centre",
+        "pyramid": "Pyramid",
+        "pyramidInverted": "Inverted pyramid",
+        "relationship": "Overlapping circles",
+        "relationshipTarget": "Target rings",
+        "picture": "Picture cards",
+        "pictureStrip": "Picture strip"
+      },
+      "nodeTools": "Node tools",
+      "node": {
+        "add": "Add node",
+        "remove": "Remove node",
+        "promote": "Promote",
+        "demote": "Demote",
+        "up": "Move up",
+        "down": "Move down"
       },
       "colors": "Colours",
       "style": "Style",

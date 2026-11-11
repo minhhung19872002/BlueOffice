@@ -38,7 +38,7 @@ Trong giao diện, "slide" và "trang chiếu" là một.
 
 ### Tệp
 
-**Mở** (`Ctrl+O`), **Lưu .pptx** (`Ctrl+S`), **Lưu thành…** (`Ctrl+Shift+S`), **Sửa mẫu**, **Lưu chủ đề…**, **Lưu
+**Mới** (`Ctrl+N` ở bản desktop — một slide tiêu đề trống), **Mở** (`Ctrl+O`), **Lưu .pptx** (`Ctrl+S`), **Lưu thành…** (`Ctrl+Shift+S` hoặc `F12`), **Sửa mẫu**, **Lưu chủ đề…**, **Lưu
 kèm mật khẩu**, **Bảo vệ tệp**, **Xuất PDF**, **Xuất ảnh PNG**, **Xuất video / ảnh động**, **Xuất bản trình bày**,
 **Xuất PDF/A, PDF có thẻ…**, **In** (`Ctrl+P`). Các lệnh xuất: xem [Xuất bản trình chiếu](#xuất-bản-trình-chiếu).
 
@@ -49,8 +49,12 @@ kèm mật khẩu**, **Bảo vệ tệp**, **Xuất PDF**, **Xuất ảnh PNG**,
 ### Bảng tạm, Slide, Lịch sử
 
 - **Dán** (`Ctrl+V`), **Cắt** (`Ctrl+X`), **Sao chép** (`Ctrl+C`). Nút góc nhóm mở **Lịch sử bộ nhớ tạm**.
-- **Slide mới** (`Ctrl+M`), **Nhân bản slide**, **Xoá slide**, **Sao chép slide**, **Cắt slide**, **Dán slide**
-  (dán được sang bản trình chiếu khác).
+- **Slide mới** (`Ctrl+M`, hoặc `Enter` trên một slide ở ngăn bên trái), **Nhân bản slide** (`Ctrl+Shift+D`),
+  **Xoá slide**, **Ẩn slide** (slide vẫn nằm trong tệp, số của nó bị gạch và trình chiếu bỏ qua nó; bấm lần nữa
+  để hiện lại), **Chuyển slide lên / xuống** (`Ctrl+↑` / `Ctrl+↓` trong ngăn slide), **Sao chép slide**, **Cắt
+  slide**, **Dán slide** (dán được sang bản trình chiếu khác).
+- **Tìm** (`Ctrl+F`) đi lần lượt qua các hình có chuỗi cần tìm trên mọi slide; **Thay thế** (`Ctrl+H`) thay từng
+  chỗ hoặc **Thay tất cả** (một bước hoàn tác, có báo số chỗ đã thay).
 - **Hoàn tác** (`Ctrl+Z`), **Làm lại** (`Ctrl+Y`). `F4` lặp lại thao tác vừa làm.
 
 ### Phông chữ và Đoạn văn
@@ -58,8 +62,9 @@ kèm mật khẩu**, **Bảo vệ tệp**, **Xuất PDF**, **Xuất ảnh PNG**,
 Chọn chữ trong một hình (hoặc chọn cả hình) rồi dùng:
 
 - **Đậm** (`Ctrl+B`), **Nghiêng** (`Ctrl+I`), **Gạch chân** (`Ctrl+U`), **Gạch ngang** (`Ctrl+Shift+X`), **Tăng cỡ
-  chữ** (`Ctrl+Shift+>`), **Giảm cỡ chữ** (`Ctrl+Shift+<`), **Màu chữ**, **Màu tô sáng chữ**, **Bỏ tô sáng**.
-- **Căn trái** (`Ctrl+L`), **Căn giữa** (`Ctrl+E`), **Căn phải** (`Ctrl+R`), **Dấu đầu dòng**, **Đánh số**, **Giảm
+  chữ** (`Ctrl+Shift+>`), **Giảm cỡ chữ** (`Ctrl+Shift+<`) — theo danh sách cỡ ở ô **Cỡ chữ** (44 → 48 → 54…),
+  **Màu chữ**, **Màu tô sáng chữ**, **Bỏ tô sáng**.
+- **Căn trái** (`Ctrl+L`), **Căn giữa** (`Ctrl+E`), **Căn phải** (`Ctrl+R`), **Căn đều** (`Ctrl+J`), **Dấu đầu dòng**, **Đánh số**, **Giảm
   mức danh sách**, **Tăng mức danh sách**.
 
 ### Vẽ, Giọng nói, Trình chiếu

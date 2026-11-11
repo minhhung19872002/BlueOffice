@@ -32,7 +32,7 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 
 | Phím           | Tác dụng                       | BlueDoc | BlueSheet | BlueSlide |
 | -------------- | ------------------------------ | :-----: | :-------: | :-------: |
-| `Ctrl+N`       | **Mới**                        |   có    |     —     |     —     |
+| `Ctrl+N`       | **Mới**                        |   có    |     —     |    có     |
 | `Ctrl+O`       | Mở tệp                         |   có    |    có     |    có     |
 | `Ctrl+S`       | Lưu                            |   có    |    có     |    có     |
 | `Ctrl+Shift+S` | **Lưu thành…**                 |   có    |    có     |    có     |
@@ -221,62 +221,105 @@ khác lấy từ tên tab và tên lệnh nên thay đổi theo ngôn ngữ giao
 
 ### Tệp và chỉnh sửa
 
-| Phím                  | Lệnh                                                       |
-| --------------------- | ---------------------------------------------------------- |
-| `Ctrl+O`              | **Mở**                                                     |
-| `Ctrl+S`              | **Lưu .pptx**                                              |
-| `Ctrl+Shift+S`        | **Lưu thành…**                                             |
-| `Ctrl+P`              | **In**                                                     |
-| `Ctrl+Z`              | **Hoàn tác**                                               |
-| `Ctrl+Y`              | **Làm lại**                                                |
-| `F4`                  | Lặp lại thao tác                                           |
-| `Ctrl+A`              | Chọn tất cả                                                |
-| `Ctrl+C`              | **Sao chép**                                               |
-| `Ctrl+X`              | **Cắt**                                                    |
-| `Ctrl+V`              | **Dán**                                                    |
-| `Ctrl+D`              | **Nhân bản** đối tượng đang chọn                           |
-| `Delete`, `Backspace` | **Xoá** đối tượng đang chọn                                |
-| `Ctrl+M`              | **Slide mới**                                              |
-| `Enter`, `F2`         | Sửa chữ trong hình đang chọn                               |
-| `Esc`                 | Thôi chọn; thoát sửa điểm; về công cụ **Chọn** khi đang vẽ |
-| `F7`                  | **Soát chính tả và ngữ pháp…**                             |
+| Phím                    | Lệnh                                                                      |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `Ctrl+N`                | **Mới** (bản desktop; trên web trình duyệt giữ phím này — dùng nút **Mới**) |
+| `Ctrl+O`                | **Mở**                                                                    |
+| `Ctrl+S`                | **Lưu .pptx**                                                             |
+| `Ctrl+Shift+S`, `F12`   | **Lưu thành…**                                                            |
+| `Ctrl+P`                | **In**                                                                    |
+| `Ctrl+Z`                | **Hoàn tác**                                                              |
+| `Ctrl+Y`                | **Làm lại**                                                               |
+| `F4`                    | Lặp lại thao tác                                                          |
+| `Ctrl+A`                | Chọn tất cả                                                               |
+| `Ctrl+F`                | **Tìm**                                                                   |
+| `Ctrl+H`                | **Thay thế**                                                              |
+| `Ctrl+C`                | **Sao chép**                                                              |
+| `Ctrl+X`                | **Cắt**                                                                   |
+| `Ctrl+V`                | **Dán**                                                                   |
+| `Esc`                   | Thoát sửa chữ (hình vẫn được chọn); lần nữa: thôi chọn; thoát sửa điểm    |
+| `F7`                    | **Soát chính tả và ngữ pháp…**                                            |
+| `Ctrl+Alt+M`            | Mở ngăn bình luận để viết bình luận mới                                   |
+| `Alt+F10`               | **Ngăn chọn**                                                             |
+
+### Ngăn slide (khi đang đứng ở danh sách slide bên trái)
+
+| Phím                              | Tác dụng                                                    |
+| --------------------------------- | ----------------------------------------------------------- |
+| `Enter`, `Ctrl+M`                 | **Slide mới** ngay sau slide đang chọn                      |
+| `Ctrl+D`, `Ctrl+Shift+D`          | **Nhân bản slide** (`Ctrl+Shift+D` dùng được ở mọi nơi)     |
+| `Delete`, `Backspace`             | **Xoá slide**                                               |
+| `Ctrl+↑` / `Ctrl+↓`               | **Chuyển slide lên** / **xuống** một vị trí                 |
+| `Ctrl+Shift+↑` / `Ctrl+Shift+↓`   | Đưa slide về đầu / cuối bản trình chiếu                     |
+| `↑` `↓` `PageUp` `PageDown`       | Slide trước / sau                                           |
+| `Home` / `End`                    | Slide đầu / cuối                                            |
+
+### Đối tượng đang chọn
+
+| Phím                              | Tác dụng                                                             |
+| --------------------------------- | -------------------------------------------------------------------- |
+| Gõ chữ                            | Vào sửa chữ của hình, chữ gõ nối vào cuối                            |
+| `Enter`, `F2`                     | Vào sửa chữ, chọn toàn bộ chữ của hình (`F2` lần nữa: về chọn hình)  |
+| `Ctrl+Enter`                      | Sang placeholder kế tiếp; ở placeholder cuối: thêm slide mới         |
+| Mũi tên                           | Dịch đối tượng một bước lưới (6 pt)                                  |
+| `Ctrl`+mũi tên                    | Dịch bước nhỏ (1 pt)                                                 |
+| `Shift`+mũi tên                   | Đổi kích thước: `→` rộng hơn, `←` hẹp hơn, `↑` cao hơn, `↓` thấp hơn |
+| `Alt+←` / `Alt+→`                 | Xoay 15° (thêm `Ctrl`: 1°)                                           |
+| `Tab` / `Shift+Tab`               | Chọn đối tượng kế tiếp / trước đó                                    |
+| `Ctrl+D`                          | **Nhân bản** đối tượng đang chọn                                     |
+| `Delete`, `Backspace`             | **Xoá** đối tượng đang chọn                                          |
+| `Shift` khi kéo                   | Chỉ dịch theo chiều ngang hoặc dọc                                   |
+| `Ctrl` khi kéo                    | Thả một bản sao, hình gốc ở lại                                      |
+| `Alt` khi kéo                     | Không bắt dính vào đường gióng                                       |
+| `Shift`+bấm, `Ctrl`+bấm           | Thêm / bớt đối tượng khỏi vùng chọn                                  |
 
 ### Định dạng chữ
 
-| Phím           | Lệnh            |
-| -------------- | --------------- |
-| `Ctrl+B`       | **Đậm**         |
-| `Ctrl+I`       | **Nghiêng**     |
-| `Ctrl+U`       | **Gạch chân**   |
-| `Ctrl+Shift+X` | **Gạch ngang**  |
-| `Ctrl+Shift+>` | **Tăng cỡ chữ** |
-| `Ctrl+Shift+<` | **Giảm cỡ chữ** |
-| `Ctrl+L`       | **Căn trái**    |
-| `Ctrl+E`       | **Căn giữa**    |
-| `Ctrl+R`       | **Căn phải**    |
+| Phím                       | Lệnh                                                       |
+| -------------------------- | ---------------------------------------------------------- |
+| `Ctrl+B`                   | **Đậm**                                                    |
+| `Ctrl+I`                   | **Nghiêng**                                                |
+| `Ctrl+U`                   | **Gạch chân**                                              |
+| `Ctrl+Shift+X`             | **Gạch ngang**                                             |
+| `Ctrl+Shift+>`, `Ctrl+]`   | **Tăng cỡ chữ** lên cỡ kế tiếp trong danh sách (44 → 48)   |
+| `Ctrl+Shift+<`, `Ctrl+[`   | **Giảm cỡ chữ** về cỡ trước đó trong danh sách             |
+| `Ctrl+L`                   | **Căn trái**                                               |
+| `Ctrl+E`                   | **Căn giữa**                                               |
+| `Ctrl+R`                   | **Căn phải**                                               |
+| `Ctrl+J`                   | **Căn đều**                                                |
+| `Tab` / `Shift+Tab`        | Tăng / giảm mức danh sách của đoạn                         |
+| `Backspace` ở đầu đoạn     | Bỏ dấu đầu dòng của đoạn; lần nữa: nối với đoạn trước      |
+| Bấm đúp / bấm ba           | Chọn từ / chọn cả đoạn                                     |
+
+`Ctrl+]` / `Ctrl+[` đổi cỡ chữ khi đang sửa chữ, và đổi thứ tự lớp khi đang chọn hình.
 
 ### Sắp xếp đối tượng
 
-| Phím           | Lệnh                  |
-| -------------- | --------------------- |
-| `Ctrl+]`       | **Đưa lên một lớp**   |
-| `Ctrl+[`       | **Đưa xuống một lớp** |
-| `Ctrl+G`       | **Nhóm**              |
-| `Ctrl+Shift+G` | **Bỏ nhóm**           |
+| Phím           | Lệnh                   |
+| -------------- | ---------------------- |
+| `Ctrl+]`       | **Đưa lên một lớp**    |
+| `Ctrl+[`       | **Đưa xuống một lớp**  |
+| `Ctrl+Shift+]` | **Đưa lên trên cùng**  |
+| `Ctrl+Shift+[` | **Đưa xuống dưới cùng** |
+| `Ctrl+G`       | **Nhóm**               |
+| `Ctrl+Shift+G` | **Bỏ nhóm**            |
 
 ### Trình chiếu
 
-| Phím                                   | Tác dụng                            |
-| -------------------------------------- | ----------------------------------- |
-| `F5`                                   | Trình chiếu **Từ đầu**              |
-| `Shift+F5`                             | Trình chiếu từ trang chiếu hiện tại |
-| `Alt+F5`                               | **Dạng xem người thuyết trình**     |
-| `→` `↓` `PageDown` `Space` `Enter` `N` | Bước tiếp / slide tiếp              |
-| `←` `↑` `PageUp` `Backspace` `P`       | Bước trước / slide trước            |
-| `Home` / `End`                         | Slide đầu / slide cuối              |
-| `B` hoặc `.`                           | Màn hình đen                        |
-| `W` hoặc `,`                           | Màn hình trắng                      |
-| `Esc`                                  | Thoát trình chiếu                   |
+| Phím                                   | Tác dụng                                               |
+| -------------------------------------- | ------------------------------------------------------ |
+| `F5`                                   | Trình chiếu **Từ đầu**                                 |
+| `Shift+F5`                             | Trình chiếu từ trang chiếu hiện tại                    |
+| `Alt+F5`                               | **Dạng xem người thuyết trình**                        |
+| `→` `↓` `PageDown` `Space` `Enter` `N` | Bước tiếp / slide tiếp; ở màn hình kết thúc: thoát     |
+| `←` `↑` `PageUp` `Backspace` `P`       | Bước trước / slide trước                               |
+| Số rồi `Enter`                         | Tới slide có số đó                                     |
+| `Home` / `End`                         | Slide đầu / slide cuối                                 |
+| `B` hoặc `.`                           | Màn hình đen                                           |
+| `W` hoặc `,`                           | Màn hình trắng                                         |
+| `Ctrl+P` `Ctrl+I` `Ctrl+L` `Ctrl+E`    | Bút / bút dạ quang / con trỏ laser / tẩy               |
+| `Ctrl+A`, `E`                          | Về con trỏ mũi tên; xoá nét vẽ trên slide              |
+| `Esc`                                  | Trả công cụ về mũi tên; lần nữa: thoát trình chiếu     |
 
 ### Dàn ý và SmartArt
 

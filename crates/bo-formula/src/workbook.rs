@@ -1766,7 +1766,7 @@ impl Workbook {
 
 /// Round half away from zero to `d` decimal places (negative `d`: to tens,
 /// hundreds…), after removing binary noise beyond 15 significant digits.
-fn round_decimals(n: f64, d: i32) -> f64 {
+pub fn round_decimals(n: f64, d: i32) -> f64 {
     let d = d.clamp(-15, 15);
     let m = 10f64.powi(d);
     let r = crate::value::round_sig15(n * m).round() / m;

@@ -2640,7 +2640,8 @@ impl SheetEngine {
         }
         match recalc {
             Recalc::No => {}
-            Recalc::All => self.live.rebuild(wb),
+            // Manual calculation keeps the shown results until F9.
+            Recalc::All => self.live.reload(wb),
             Recalc::HiddenRows(si) => self.live.sync_hidden_rows(wb, si),
             Recalc::Range(si, r) => {
                 let cells: Vec<(u32, u32)> = (r.first.row..=r.last.row)

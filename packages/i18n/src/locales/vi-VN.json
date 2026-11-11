@@ -5108,7 +5108,7 @@
       "maxIterations": "Số lần lặp tối đa",
       "maxChange": "Dừng khi giá trị thay đổi ít hơn",
       "precision": "Tính theo độ chính xác hiển thị",
-      "precisionWarn": "Số được làm tròn theo số chữ số thập phân định dạng hiển thị trước khi dùng trong công thức.",
+      "precisionWarn": "Dữ liệu sẽ mất độ chính xác vĩnh viễn: số đã lưu được làm tròn theo số chữ số thập phân định dạng hiển thị (một bước hoàn tác).",
       "invalid": "Nhập số lần lặp nguyên từ 1 đến {{max}} và mức thay đổi từ 0 trở lên."
     }
   },

@@ -62,7 +62,7 @@ export interface DocumentViewOptions {
   markupLabel?: (kind: MarkKind, id: number) => string;
   /** Accessible name of the text input that receives typing (default "Document"). */
   inputLabel?: string;
-  /** Accessible name of page `n` (1-based; default "Page n"). */
+  /** Accessible name of page `n` (1-based; default "page n"). */
   pageLabel?: (n: number) => string;
 }
 
@@ -197,7 +197,7 @@ export class DocumentView {
     el.dataset.page = String(i + 1);
     // A labelled group (an aria-label needs a role): the page's pictures and marks inside.
     el.setAttribute('role', 'group');
-    el.setAttribute('aria-label', this.opts.pageLabel?.(i + 1) ?? `Page ${i + 1}`);
+    el.setAttribute('aria-label', this.opts.pageLabel?.(i + 1) ?? `page ${i + 1}`);
     el.style.cssText =
       'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;cursor:text;';
     this.stylePage(el, i);

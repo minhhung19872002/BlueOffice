@@ -301,3 +301,25 @@ proptest! {
         prop_assert_eq!(joined, bo_text::nfc(&text));
     }
 }
+
+/// Found by the fuzz soak (BO_FUZZ_SEED=3c6ef372f398f82b, `cite-02-ieee-numeric.docx` with a
+/// huge default font): a "word" that is one grapheme of several characters — a Vietnamese
+/// letter written with combining marks — and wider than the line cannot be divided any
+/// further. The line breaker used to queue it again and again, for ever.
+#[test]
+fn an_indivisible_grapheme_wider_than_the_line_does_not_hang() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // "ệ" as e + combining circumflex + combining dot below, then precomposed text.
+        let text = "e\u{302}\u{323} Vie\u{302}\u{323}t Nam ệ";
+        let mut d = doc(vec![para(text, ParaProps::default())]);
+        // 1638 pt, the largest size the format allows: every letter is wider than the page.
+        d.default_run.size = Some(HalfPoints(3276));
+        let l = run(&d);
+        let _ = tx.send(l.pages.len());
+    });
+    let pages = rx
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("layout of an indivisible wide grapheme must finish");
+    assert!(pages >= 1);
+}

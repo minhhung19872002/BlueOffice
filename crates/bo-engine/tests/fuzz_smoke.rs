@@ -163,6 +163,11 @@ fn corpus(dir: &str, ext: &str) -> Vec<PathBuf> {
 /// Run `f` and fail when it exceeds the budget (it must also not panic: a panic
 /// propagates and fails the test with the offending input named in `what`).
 fn timed(what: &str, f: impl FnOnce()) {
+    // A true hang never reaches the assertion below: `BO_FUZZ_TRACE=1` names each input
+    // before it runs, so the last line printed is the one that hangs.
+    if std::env::var_os("BO_FUZZ_TRACE").is_some() {
+        eprintln!("fuzz case: {what}");
+    }
     let t = Instant::now();
     f();
     let dt = t.elapsed();
@@ -227,6 +232,10 @@ fn run(dir: &str, ext: &str, seed: u64) {
             mutate_xml(&mut rng, &mut data);
             m.put_part(part, data);
             let Ok(out) = m.write() else { continue };
+            // `BO_FUZZ_DUMP=<dir>` keeps every mutated package (to study a hang or a panic).
+            if let Some(dir) = std::env::var_os("BO_FUZZ_DUMP") {
+                let _ = std::fs::write(Path::new(&dir).join(format!("{name}.xml{k}.{ext}")), &out);
+            }
             timed(&format!("{name} xml#{k} ({part})"), || open_all(ext, &out));
             runs += 1;
         }

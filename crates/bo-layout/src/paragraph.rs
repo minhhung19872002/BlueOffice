@@ -1192,10 +1192,16 @@ fn layout_uncached(
                 continue;
             }
             if overflow && cur.is_empty() && word.char_count() > 1 {
-                for w2 in explode(&word, fonts).into_iter().rev() {
-                    queue.push_front(w2);
+                // One part back means the word cannot be divided (a single grapheme of
+                // several characters, e.g. a letter with combining marks): it overflows
+                // the line as it is. Queuing it again would never end.
+                let parts = explode(&word, fonts);
+                if parts.len() > 1 {
+                    for w2 in parts.into_iter().rev() {
+                        queue.push_front(w2);
+                    }
+                    continue;
                 }
-                continue;
             }
             let split = if overflow && !cur.is_empty() {
                 hyph.as_ref()
@@ -1278,10 +1284,14 @@ fn layout_uncached(
             continue;
         }
         if cur.is_empty() && ink > max + 0.01 && word.char_count() > 1 {
-            for w2 in explode(&word, fonts).into_iter().rev() {
-                queue.push_front(w2);
+            // See the wrapped case above: an indivisible word is placed as it is.
+            let parts = explode(&word, fonts);
+            if parts.len() > 1 {
+                for w2 in parts.into_iter().rev() {
+                    queue.push_front(w2);
+                }
+                continue;
             }
-            continue;
         }
         let brk = word.brk();
         cur.extend(word.pieces);

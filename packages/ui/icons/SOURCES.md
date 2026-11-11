@@ -25,11 +25,16 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `arrange.ungroup` | Lucide (ISC) `Ungroup` |
 | `cells.autofitCol` | Lucide (ISC) `MoveHorizontal` |
 | `cells.autofitRow` | Lucide (ISC) `MoveVertical` |
+| `cells.delete` | Lucide (ISC) `Trash` |
 | `cells.deleteCol` | Lucide (ISC) `Trash` |
+| `cells.deleteMenu` | Lucide (ISC) `ChevronDown` |
 | `cells.deleteRow` | Lucide (ISC) `Trash` |
+| `cells.formatMenu` | Lucide (ISC) `Rows3` |
 | `cells.hideCols` | Lucide (ISC) `EyeOff` |
 | `cells.hideRows` | Lucide (ISC) `EyeOff` |
+| `cells.insert` | Lucide (ISC) `Plus` |
 | `cells.insertCol` | Lucide (ISC) `Columns3` |
+| `cells.insertMenu` | Lucide (ISC) `ChevronDown` |
 | `cells.insertRow` | Lucide (ISC) `Rows3` |
 | `cells.unhideCols` | Lucide (ISC) `Eye` |
 | `cells.unhideRows` | Lucide (ISC) `Eye` |
@@ -104,6 +109,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.alignTop` | Lucide (ISC) `ArrowUpToLine` |
 | `format.bold` | Lucide (ISC) `LetterB` |
 | `format.borders` | Lucide (ISC) `Grid2x2` |
+| `format.bordersLast` | Lucide (ISC) `Grid2x2` |
 | `format.bullets` | Lucide (ISC) `List` |
 | `format.cells` | Lucide (ISC) `PencilLine` |
 | `format.cellStyles` | Lucide (ISC) `Palette` |
@@ -118,9 +124,13 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.currency` | Lucide (ISC) `Coins` |
 | `format.currencyVnd` | Bluestar — tự vẽ (`custom.tsx` CurrencyVnd) |
 | `format.date` | Lucide (ISC) `Calendar` |
+| `format.decimalDec` | Lucide (ISC) `DecimalsArrowLeft` |
+| `format.decimalInc` | Lucide (ISC) `DecimalsArrowRight` |
 | `format.fill` | Lucide (ISC) `PaintBucket` |
 | `format.fillColor` | Lucide (ISC) `PaintBucket` |
+| `format.fillColorLast` | Lucide (ISC) `PaintBucket` |
 | `format.fontColor` | Lucide (ISC) `Baseline` |
+| `format.fontColorLast` | Lucide (ISC) `Baseline` |
 | `format.fontDialog` | Lucide (ISC) `ALargeSmall` |
 | `format.fontGrow` | Lucide (ISC) `AArrowUp` |
 | `format.fontShrink` | Lucide (ISC) `AArrowDown` |
@@ -135,10 +145,12 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.line` | Lucide (ISC) `PenLine` |
 | `format.lockCell` | Lucide (ISC) `Lock` |
 | `format.mergeCenter` | Lucide (ISC) `TableCellsMerge` |
+| `format.mergeMenu` | Lucide (ISC) `ChevronDown` |
 | `format.noFill` | Lucide (ISC) `Slash` |
 | `format.noHighlight` | Lucide (ISC) `Eraser` |
 | `format.numberFormat` | Lucide (ISC) `Hash` |
 | `format.numbering` | Lucide (ISC) `ListOrdered` |
+| `format.orientation` | Lucide (ISC) `RotateCcw` |
 | `format.outdent` | Lucide (ISC) `ListIndentDecrease` |
 | `format.painter` | Lucide (ISC) `Paintbrush` |
 | `format.percent` | Lucide (ISC) `Percent` |
@@ -304,6 +316,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `table.split` | Lucide (ISC) `Split` |
 | `table.splitCell` | Lucide (ISC) `TableCellsSplit` |
 | `transition.applyAll` | Lucide (ISC) `Files` |
+| `ui.menuArrow` | Lucide (ISC) `ChevronDown` |
 | `view.animationPane` | Lucide (ISC) `PanelRight` |
 | `view.collaborators` | Lucide (ISC) `Users` |
 | `view.density` | Lucide (ISC) `Rows4` |

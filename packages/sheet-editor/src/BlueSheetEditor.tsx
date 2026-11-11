@@ -113,6 +113,7 @@ import {
   type SheetMenuContext,
   BackgroundRemovalMode,
   type BackgroundPreviewValue,
+  Icon,
 } from '@blueoffice/ui';
 import {
   AArrowDown,
@@ -124,7 +125,6 @@ import {
   ArrowRightToLine,
   ArrowUpDown,
   ArrowUpToLine,
-  Baseline,
   Bold,
   CalendarRange,
   ChartColumn,
@@ -163,7 +163,6 @@ import {
   MoveHorizontal,
   Omega,
   Shapes,
-  PaintBucket,
   Paintbrush,
   Palette,
   PanelLeft,
@@ -5980,7 +5979,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                       border: t(`sheetEditor.border.${lastUsed.border}`),
                     })}
                     menuLabel={t('sheetEditor.borders')}
-                    icon={<Grid2x2 size={s} />}
+                    icon={<Icon name="format.bordersLast" size={20} />}
                     disabled={!state?.hasWorkbook}
                     onApply={() => run('format.bordersLast')}
                     onMenu={() => run('format.borders')}
@@ -5997,7 +5996,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     menuLabel={t('sheetEditor.fillColor')}
                     icon={
                       <span className={styles.colorSplit}>
-                        <PaintBucket size={s - 4} />
+                        <Icon name="format.fillColorLast" size={16} />
                         <span
                           className={styles.colorSplitBar}
                           data-color={lastUsed.fill}
@@ -6021,7 +6020,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     menuLabel={t('sheetEditor.fontColor')}
                     icon={
                       <span className={styles.colorSplit}>
-                        <Baseline size={s - 4} />
+                        <Icon name="format.fontColorLast" size={16} />
                         <span
                           className={styles.colorSplitBar}
                           data-color={lastUsed.font}

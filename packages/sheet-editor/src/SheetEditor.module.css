@@ -66,7 +66,8 @@
 }
 
 .splitArrow {
-  width: 14px;
+  /* A target of its own: at least 24 px wide (WCAG 2.2 §2.5.8 target size). */
+  width: 24px;
 }
 
 .splitMain:hover:not([aria-disabled='true']),

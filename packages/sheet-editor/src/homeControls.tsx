@@ -4,8 +4,7 @@
  * row height, insert / delete cells).
  */
 import { useTranslation } from '@blueoffice/i18n';
-import { Dialog } from '@blueoffice/ui';
-import { ChevronDown } from 'lucide-react';
+import { Dialog, Icon } from '@blueoffice/ui';
 import { useState, type ReactNode } from 'react';
 import { SHEET_FONT_SIZES, SHEET_FONTS, numberCategory } from './homeFormat';
 import type { NumberPreset } from './FormatCellsDialog';
@@ -172,7 +171,7 @@ export function SplitButton({
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => !disabled && onMenu()}
       >
-        <ChevronDown size={10} />
+        <Icon name="ui.menuArrow" size={16} />
       </button>
     </span>
   );

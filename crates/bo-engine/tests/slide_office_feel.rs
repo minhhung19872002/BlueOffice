@@ -129,6 +129,16 @@ fn superscript_subscript_caps_spacing_and_double_strike() {
     assert_eq!(props.cap.as_deref(), Some("small"));
     assert_eq!(props.spc, Some(300));
     assert_eq!(props.strike.as_deref(), Some("dblStrike"));
+    // Ctrl+Space: the character formatting goes, the text takes the placeholder's again.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"formatText","format":{"kind":"clearChar"}}"#,
+    );
+    assert_eq!(r.format.baseline, 0);
+    assert_eq!(r.format.caps, None);
+    assert_eq!(r.format.spacing, None);
+    assert!(!r.format.double_strike);
+    run(&mut e, r#"{"cmd":"undo"}"#);
     // 0 puts the text back on the line.
     let r = run(
         &mut e,

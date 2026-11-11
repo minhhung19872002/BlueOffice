@@ -347,6 +347,10 @@ pub enum TextFormat {
         /// New state; toggles when absent.
         value: Option<bool>,
     },
+    /// Reset the character formatting (Ctrl+Space): the runs take what the placeholder,
+    /// layout and master give them (§21.1.2.3.9 rPr attributes and fill / font children
+    /// removed; language and links stay).
+    ClearChar,
     /// Character formatting taken by the format painter (not part of the JSON bridge).
     #[serde(skip)]
     Paint(Box<RunProps>),
@@ -526,6 +530,9 @@ fn run_change(f: &TextFormat, state: &FormatState, default_size: f64) -> Option<
                 r.strike = Some(if v { "dblStrike" } else { "noStrike" }.to_owned());
             }))
         }
+        TextFormat::ClearChar => Some(Box::new(|r: &mut RunProps| {
+            paint_run(r, &RunProps::default());
+        })),
         TextFormat::Paint(p) => {
             let p = (**p).clone();
             Some(Box::new(move |r: &mut RunProps| paint_run(r, &p)))

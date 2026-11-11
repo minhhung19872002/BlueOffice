@@ -204,10 +204,7 @@ fn info_json(wb: &Workbook, index: usize, d: &SheetDiagram) -> Value {
     let Some((nodes, cat, lk)) = read(wb, d) else {
         return Value::Null;
     };
-    let items: Vec<SmartItem> = dl::outline_of(&nodes)
-        .into_iter()
-        .map(|(text, level)| SmartItem { text, level })
-        .collect();
+    let items: Vec<SmartItem> = crate::smartart::items_of(&nodes);
     let to =
         d.to.unwrap_or(CellRef::new(d.from.row + 10, d.from.col + 6));
     json!({

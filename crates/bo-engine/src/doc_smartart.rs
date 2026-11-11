@@ -156,10 +156,7 @@ impl crate::Engine {
         let (nodes, cat, lk) = read(s.doc(), &img)?;
         Some(DocSmartArt {
             layout: cat.name().to_owned(),
-            items: dl::outline_of(&nodes)
-                .into_iter()
-                .map(|(text, level)| SmartItem { text, level })
-                .collect(),
+            items: crate::smartart::items_of(&nodes),
             colors: lk.palette.name().to_owned(),
             style: lk.fill.name().to_owned(),
             width: img.width.0 as f64 / EMU_PT,

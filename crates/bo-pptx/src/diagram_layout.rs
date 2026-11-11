@@ -349,13 +349,18 @@ pub fn category(lo_type: Option<&str>, layout_xml: Option<&[u8]>) -> Category {
 /// or document point (`prSet@loTypeId`) names, else the first layout of its [`category`].
 #[must_use]
 pub fn layout_of(lo_type: Option<&str>, layout_xml: Option<&[u8]>) -> Layout {
+    own_layout(lo_type, layout_xml).unwrap_or_else(|| category(lo_type, layout_xml).into())
+}
+
+/// The BlueOffice layout a diagram names (its layout part or document point), if it names one:
+/// the diagram's drawing part is then what [`drawing_xml`] gives for its nodes.
+#[must_use]
+pub fn own_layout(lo_type: Option<&str>, layout_xml: Option<&[u8]>) -> Option<Layout> {
     let own = |id: &str| id.strip_prefix(LAYOUT_ID).and_then(Layout::parse);
     let from_part = layout_xml
         .and_then(|x| bo_drawingml::dom::parse(x, "/layout.xml").ok())
         .and_then(|root| root.attr("uniqueId").and_then(own));
-    from_part
-        .or_else(|| lo_type.and_then(own))
-        .unwrap_or_else(|| category(lo_type, layout_xml).into())
+    from_part.or_else(|| lo_type.and_then(own))
 }
 
 const LAYOUT_ID: &str = "urn:bluestar.vn/blueoffice/layout/";

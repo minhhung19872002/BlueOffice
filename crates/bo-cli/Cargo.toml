@@ -25,6 +25,7 @@ bo-tabular.workspace = true
 bo-math.workspace = true
 bo-pdf.workspace = true
 bo-crypto = { path = "../bo-crypto" }
+bo-hostile = { path = "../bo-hostile" }
 bo-sign = { path = "../bo-sign", features = ["http", "pkcs12"] }
 serde_json.workspace = true
 serde.workspace = true

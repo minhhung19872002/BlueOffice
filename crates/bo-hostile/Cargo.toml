@@ -1,0 +1,15 @@
+[package]
+name = "bo-hostile"
+description = "Generator of hostile sample files (zip bombs, XXE, external links, macros, DDE, OLE…) for the security tests; nothing is downloaded."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-binary = { path = "../bo-binary" }
+cfb = "0.14"
+zip.workspace = true
+
+[lints]
+workspace = true

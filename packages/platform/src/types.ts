@@ -1131,6 +1131,8 @@ export interface DocChartInfo {
   wrap: DocChartWrap;
   /** Chart part name. */
   part: string;
+  /** The chart's elements and their options (`null` for chartex charts; CORE-CHART-005). */
+  elements?: import('./chartElements').ChartElementsInfo | null;
 }
 
 /** Result of an editing command. */
@@ -2464,6 +2466,8 @@ export interface SlideChartInfo {
   legend: Exclude<SlideLegend, 'none'> | null;
   data: SlideChartData;
   embedded: boolean;
+  /** The chart's elements and their options (`null` for chartex charts; CORE-CHART-005). */
+  elements?: import('./chartElements').ChartElementsInfo | null;
 }
 
 export interface SlidePreview {

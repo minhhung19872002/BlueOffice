@@ -55,6 +55,9 @@ import {
   useCustomShortcuts,
   useRibbonCustomization,
   type OpenContextMenu,
+  ChartFormatPane,
+  chartElementsGroup,
+  registerChartElementCommands,
 } from '@blueoffice/editor';
 import { slideReadRequest } from './readAloud';
 import { slideDictationTarget } from './dictation';
@@ -70,6 +73,8 @@ import { SLIDE_AI_COMMANDS, slideAiFeatures } from './slideAi';
 import { slideReplaceWord, slideWordAtCaret, wordInText } from './thesaurus';
 import { createI18n, I18nextProvider, useTranslation, type Language } from '@blueoffice/i18n';
 import type {
+  ChartElementsInfo,
+  ChartElementsPatch,
   ClipboardContent,
   SlideIssue,
   DocInfo,
@@ -239,6 +244,7 @@ import {
   Scissors,
   SendToBack,
   Slash,
+  SlidersHorizontal,
   Sparkles,
   Spline,
   Split,
@@ -501,6 +507,8 @@ export interface SlideEditorState
   bandRow?: boolean;
   /** The selection is one chart. */
   isChart?: boolean;
+  /** Elements of the selected chart and their options (CORE-CHART-005). */
+  chartElements?: ChartElementsInfo | null;
   /** The selection is one SmartArt. */
   isSmartArt?: boolean;
   /** Every selected shape is a picture (picture tools, CORE-PIC-001). */
@@ -777,6 +785,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [checkOpen, setCheckOpen] = useState(false);
   /** Version history / compare versions pane (CORE-VERSION-001). */
   const [versionsOpen, setVersionsOpen] = useState(false);
+  /** The Format chart pane (CORE-CHART-005). */
+  const [chartFormatOpen, setChartFormatOpen] = useState(false);
   /** BlueScript pane (CORE-SCRIPT-001). */
   const [scriptOpen, setScriptOpen] = useState(false);
   // "Convert macro VBA to BlueScript" (CORE-SCRIPT-003): opens the converter of the script pane.
@@ -1927,6 +1937,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     const c = edit?.chart;
     if (c) setChartDialog({ mode: 'edit', initial: chartDraftOf(c) });
   }, [edit]);
+  // One element change of the selected chart = one `setChart` command (one undo step).
+  const sendChartElements = useCallback(
+    (patch: ChartElementsPatch) => run({ cmd: 'setChart', elements: patch }),
+    [run],
+  );
   const applyChart = useCallback(
     (d: ChartDraft) => {
       const mode = chartDialog?.mode;
@@ -2906,6 +2921,16 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     const chart = (s: SlideEditorState) => !!s.isChart;
     reg.register({ id: 'chart.edit', isEnabled: chart, run: openChart });
+    // Add chart element choices and the Format chart pane (CORE-CHART-005).
+    registerChartElementCommands<SlideEditorState>(
+      (c) => reg.register({ ...c, isEnabled: (s) => chart(s) && c.isEnabled(s) }),
+      {
+        t,
+        info: (s) => s.chartElements,
+        apply: (patch) => run({ cmd: 'setChart', elements: patch }),
+        openPane: () => setChartFormatOpen((v) => !v),
+      },
+    );
     reg.register({
       id: 'insert.smartart',
       isEnabled: deck,
@@ -3134,6 +3159,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       firstRow: edit?.table?.firstRow,
       bandRow: edit?.table?.bandRow,
       isChart: s.length === 1 && s[0]?.kind === 'chart' && !!edit?.chart,
+      chartElements: edit?.chart?.elements ?? null,
       isSmartArt: s.length === 1 && s[0]?.kind === 'smartart' && !!edit?.smartart,
       isPicture: s.length > 0 && s.every((x) => x.kind === 'picture'),
       isModel3d: s.length === 1 && s[0]?.kind === 'model3d' && !!edit?.model3d,
@@ -4003,6 +4029,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   label: t('slideEditor.groupChartData'),
                   items: [item('chart.edit', t('slideEditor.editChart'), <Pencil size={18} />)],
                 },
+                chartElementsGroup({
+                  t,
+                  info: edit?.chart?.elements,
+                  run: exec,
+                  enabled: !!state.isChart,
+                  paneOpen: chartFormatOpen,
+                }),
                 {
                   id: 'chartType',
                   label: t('slideEditor.chartType'),
@@ -4201,6 +4234,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     t,
     registry,
     state,
+    chartFormatOpen,
     exec,
     edit,
     run,
@@ -5148,6 +5182,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     } satisfies TaskPaneDef,
                   ]
                 : []),
+              ...(chartFormatOpen && count > 0
+                ? [
+                    {
+                      id: 'chartFormat',
+                      title: t('chartFormat.title'),
+                      icon: <SlidersHorizontal size={14} aria-hidden />,
+                      closeTestId: 'chart-format-close',
+                      content: (
+                        <ChartFormatPane
+                          info={state.isChart ? edit?.chart?.elements : undefined}
+                          apply={sendChartElements}
+                        />
+                      ),
+                    } satisfies TaskPaneDef,
+                  ]
+                : []),
               ...(ai.active && count > 0
                 ? [
                     {
@@ -5181,6 +5231,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               else if (id === 'comments') setCommentsOpen(false);
               else if (id === 'script') setScriptOpen(false);
               else if (id === 'reuse') closeReuse();
+              else if (id === 'chartFormat') setChartFormatOpen(false);
               else setVersionsOpen(false);
             }}
             labels={taskPaneLabels(t)}

@@ -3592,6 +3592,300 @@
     "account": "Đã đăng nhập: {{name}}",
     "signInFailed": "Không đăng nhập được: {{message}}"
   },
+  "chartFormat": {
+    "title": "Định dạng biểu đồ",
+    "group": "Thành phần biểu đồ",
+    "addElement": "Thêm thành phần biểu đồ",
+    "moreOptions": "Tùy chọn khác…",
+    "noChart": "Chọn một biểu đồ để định dạng các thành phần của nó.",
+    "unsupported": "Loại biểu đồ này chưa có tùy chọn thành phần.",
+    "refused": "Biểu đồ không nhận tùy chọn này.",
+    "automatic": "Tự động",
+    "none": "Không",
+    "fill": "Màu nền",
+    "border": "Màu viền",
+    "rounded": "Bo tròn góc",
+    "overlay": "Đặt chồng lên vùng vẽ",
+    "titleText": "Nội dung tiêu đề",
+    "numFmt": "Định dạng số",
+    "element": {
+      "label": "Thành phần biểu đồ",
+      "chartArea": "Vùng biểu đồ",
+      "plotArea": "Vùng vẽ",
+      "title": "Tiêu đề biểu đồ",
+      "legend": "Chú giải",
+      "axisCat": "Trục danh mục",
+      "axisX": "Trục X (giá trị)",
+      "axisVal": "Trục giá trị",
+      "axisVal2": "Trục giá trị phụ",
+      "gridlines": "Đường lưới",
+      "series": "Chuỗi \"{{name}}\"",
+      "labels": "Nhãn dữ liệu",
+      "dataTable": "Bảng dữ liệu",
+      "trendline": "Đường xu hướng",
+      "errorBars": "Thanh sai số",
+      "lines": "Đường thả, đường cao–thấp, thanh tăng/giảm"
+    },
+    "axis": {
+      "show": "Hiện trục",
+      "title": "Tiêu đề trục",
+      "type": "Kiểu trục",
+      "category": "Trục danh mục",
+      "date": "Trục ngày",
+      "baseUnit": "Đơn vị cơ sở",
+      "min": "Nhỏ nhất",
+      "max": "Lớn nhất",
+      "majorUnit": "Đơn vị chính",
+      "minorUnit": "Đơn vị phụ",
+      "log": "Thang logarit",
+      "logBase": "Cơ số",
+      "reverseValues": "Giá trị theo thứ tự ngược",
+      "reverseCategories": "Danh mục theo thứ tự ngược",
+      "crosses": "Vị trí trên trục cắt qua",
+      "crossesMin": "Tại giá trị nhỏ nhất",
+      "crossesMax": "Tại giá trị lớn nhất",
+      "crossesAt": "Tại một giá trị…",
+      "crossesValue": "Giá trị cắt",
+      "dispUnit": "Đơn vị hiển thị",
+      "dispUnitLabel": "Hiện nhãn đơn vị trên biểu đồ",
+      "majorTick": "Vạch chia chính",
+      "minorTick": "Vạch chia phụ",
+      "labelPos": "Vị trí nhãn trục",
+      "majorGrid": "Đường lưới chính",
+      "minorGrid": "Đường lưới phụ"
+    },
+    "tick": {
+      "out": "Bên ngoài",
+      "in": "Bên trong",
+      "cross": "Cắt ngang trục",
+      "none": "Không có"
+    },
+    "axisLabel": {
+      "nextTo": "Cạnh trục",
+      "high": "Phía cao",
+      "low": "Phía thấp",
+      "none": "Không có"
+    },
+    "baseUnit": {
+      "days": "Ngày",
+      "months": "Tháng",
+      "years": "Năm"
+    },
+    "unit": {
+      "hundreds": "Trăm",
+      "thousands": "Nghìn",
+      "tenThousands": "Chục nghìn",
+      "hundredThousands": "Trăm nghìn",
+      "millions": "Triệu",
+      "tenMillions": "Chục triệu",
+      "hundredMillions": "Trăm triệu",
+      "billions": "Tỷ",
+      "trillions": "Nghìn tỷ"
+    },
+    "series": {
+      "pick": "Chuỗi dữ liệu",
+      "unnamed": "Chuỗi {{n}}",
+      "line": "Màu đường",
+      "fill": "Màu tô",
+      "lineWidth": "Độ dày đường (pt)",
+      "marker": "Điểm đánh dấu",
+      "markerSize": "Cỡ điểm đánh dấu",
+      "smooth": "Đường cong trơn",
+      "explosion": "Tách lát (%)",
+      "secondary": "Vẽ trên trục phụ",
+      "gapWidth": "Khoảng cách nhóm (%)",
+      "overlap": "Độ chồng cột (%)"
+    },
+    "marker": {
+      "none": "Không có",
+      "circle": "Hình tròn",
+      "square": "Hình vuông",
+      "diamond": "Hình thoi",
+      "triangle": "Tam giác",
+      "x": "Dấu ×",
+      "plus": "Dấu +",
+      "star": "Ngôi sao",
+      "dash": "Gạch ngang",
+      "dot": "Chấm nhỏ"
+    },
+    "labels": {
+      "allSeries": "Tất cả các chuỗi",
+      "point": "Điểm dữ liệu",
+      "allPoints": "Cả chuỗi",
+      "show": "Hiện nhãn dữ liệu",
+      "followChart": "Theo nhãn của biểu đồ",
+      "followSeries": "Theo nhãn của chuỗi",
+      "value": "Giá trị",
+      "category": "Tên danh mục",
+      "series": "Tên chuỗi",
+      "percent": "Tỷ lệ phần trăm",
+      "leaderLines": "Đường dẫn tới lát",
+      "position": "Vị trí nhãn",
+      "separator": "Dấu ngăn cách"
+    },
+    "labelPos": {
+      "outEnd": "Ngoài đầu mút",
+      "inEnd": "Trong đầu mút",
+      "inBase": "Trong chân cột",
+      "ctr": "Ở giữa",
+      "t": "Phía trên",
+      "b": "Phía dưới",
+      "l": "Bên trái",
+      "r": "Bên phải",
+      "bestFit": "Vừa nhất"
+    },
+    "legend": {
+      "position": "Vị trí chú giải",
+      "pos": {
+        "none": "Không có chú giải",
+        "r": "Bên phải",
+        "t": "Phía trên",
+        "l": "Bên trái",
+        "b": "Phía dưới",
+        "tr": "Góc trên bên phải"
+      }
+    },
+    "gridlines": {
+      "valMajor": "Lưới chính của trục giá trị",
+      "valMinor": "Lưới phụ của trục giá trị",
+      "catMajor": "Lưới chính của trục danh mục",
+      "catMinor": "Lưới phụ của trục danh mục",
+      "color": "Màu đường lưới",
+      "width": "Độ dày đường lưới (pt)"
+    },
+    "dataTable": {
+      "show": "Hiện bảng dữ liệu",
+      "keys": "Kèm ký hiệu chú giải"
+    },
+    "trendline": {
+      "unavailable": "Loại biểu đồ này không có đường xu hướng.",
+      "add": "Thêm đường xu hướng",
+      "remove": "Xóa {{name}}",
+      "type": "Loại",
+      "order": "Bậc đa thức",
+      "period": "Số kỳ",
+      "name": "Tên đường xu hướng",
+      "forward": "Dự báo tới (kỳ)",
+      "backward": "Dự báo lùi (kỳ)",
+      "setIntercept": "Đặt điểm cắt trục tung",
+      "intercept": "Điểm cắt",
+      "dispEq": "Hiện phương trình trên biểu đồ",
+      "dispR2": "Hiện giá trị R² trên biểu đồ",
+      "kind": {
+        "linear": "Tuyến tính",
+        "exp": "Hàm mũ",
+        "log": "Logarit",
+        "poly": "Đa thức",
+        "power": "Lũy thừa",
+        "movingAvg": "Trung bình trượt"
+      }
+    },
+    "errorBars": {
+      "unavailable": "Loại biểu đồ này không có thanh sai số.",
+      "show": "Hiện thanh sai số",
+      "axis": "Theo trục",
+      "axisY": "Trục Y",
+      "axisX": "Trục X",
+      "direction": "Hướng",
+      "kind": {
+        "both": "Cả hai phía",
+        "plus": "Phía cộng",
+        "minus": "Phía trừ"
+      },
+      "endStyle": "Kiểu đầu mút",
+      "cap": "Có gạch đầu",
+      "noCap": "Không gạch đầu",
+      "amount": "Mức sai số",
+      "type": {
+        "fixedVal": "Giá trị cố định",
+        "percentage": "Phần trăm",
+        "stdDev": "Độ lệch chuẩn",
+        "stdErr": "Sai số chuẩn",
+        "cust": "Tùy chỉnh"
+      },
+      "value": "Giá trị",
+      "plus": "Sai số dương",
+      "minus": "Sai số âm",
+      "customHint": "Nhập một vùng ô (ví dụ =Sheet1!$D$2:$D$7) hoặc các số cách nhau bằng dấu chấm phẩy."
+    },
+    "lines": {
+      "drop": "Đường thả",
+      "hiLow": "Đường cao–thấp",
+      "upDown": "Thanh tăng/giảm"
+    },
+    "el": {
+      "axes": {
+        "label": "Trục",
+        "cat": "Trục danh mục",
+        "val": "Trục giá trị"
+      },
+      "axisTitles": {
+        "label": "Tiêu đề trục",
+        "cat": "Tiêu đề trục danh mục",
+        "val": "Tiêu đề trục giá trị"
+      },
+      "title": {
+        "label": "Tiêu đề biểu đồ",
+        "none": "Không có tiêu đề",
+        "above": "Phía trên biểu đồ",
+        "overlay": "Chồng lên vùng vẽ"
+      },
+      "labels": {
+        "label": "Nhãn dữ liệu",
+        "none": "Không có nhãn",
+        "show": "Vị trí mặc định",
+        "ctr": "Ở giữa",
+        "inEnd": "Trong đầu mút",
+        "outEnd": "Ngoài đầu mút"
+      },
+      "table": {
+        "label": "Bảng dữ liệu",
+        "none": "Không có bảng",
+        "keys": "Kèm ký hiệu chú giải",
+        "noKeys": "Không kèm ký hiệu chú giải"
+      },
+      "errorBars": {
+        "label": "Thanh sai số",
+        "none": "Không có thanh sai số",
+        "stdErr": "Sai số chuẩn",
+        "percentage": "5 phần trăm",
+        "stdDev": "Độ lệch chuẩn"
+      },
+      "gridlines": {
+        "label": "Đường lưới",
+        "valMajor": "Lưới chính trục giá trị",
+        "valMinor": "Lưới phụ trục giá trị",
+        "catMajor": "Lưới chính trục danh mục",
+        "catMinor": "Lưới phụ trục danh mục"
+      },
+      "legend": {
+        "label": "Chú giải",
+        "none": "Không có chú giải",
+        "r": "Bên phải",
+        "t": "Phía trên",
+        "l": "Bên trái",
+        "b": "Phía dưới"
+      },
+      "lines": {
+        "label": "Đường",
+        "none": "Không có đường",
+        "drop": "Đường thả",
+        "hiLow": "Đường cao–thấp"
+      },
+      "trendline": {
+        "label": "Đường xu hướng",
+        "none": "Không có đường xu hướng",
+        "linear": "Tuyến tính",
+        "exp": "Hàm mũ",
+        "forecast": "Dự báo tuyến tính (2 kỳ)",
+        "movingAvg": "Trung bình trượt (2 kỳ)"
+      },
+      "upDownBars": {
+        "label": "Thanh tăng/giảm",
+        "toggle": "Thanh tăng/giảm"
+      }
+    }
+  },
   "docChart": {
     "wrapGroup": "Ngắt dòng quanh",
     "wrap": {

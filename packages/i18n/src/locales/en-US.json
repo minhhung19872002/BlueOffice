@@ -3592,6 +3592,300 @@
     "account": "Signed in as {{name}}",
     "signInFailed": "Could not sign in: {{message}}"
   },
+  "chartFormat": {
+    "title": "Format chart",
+    "group": "Chart elements",
+    "addElement": "Add chart element",
+    "moreOptions": "More options…",
+    "noChart": "Select a chart to format its elements.",
+    "unsupported": "This chart type has no element options yet.",
+    "refused": "The chart cannot take this option.",
+    "automatic": "Automatic",
+    "none": "None",
+    "fill": "Fill colour",
+    "border": "Border colour",
+    "rounded": "Rounded corners",
+    "overlay": "Overlay the plot area",
+    "titleText": "Title text",
+    "numFmt": "Number format",
+    "element": {
+      "label": "Chart element",
+      "chartArea": "Chart area",
+      "plotArea": "Plot area",
+      "title": "Chart title",
+      "legend": "Legend",
+      "axisCat": "Category axis",
+      "axisX": "X axis (values)",
+      "axisVal": "Value axis",
+      "axisVal2": "Secondary value axis",
+      "gridlines": "Gridlines",
+      "series": "Series \"{{name}}\"",
+      "labels": "Data labels",
+      "dataTable": "Data table",
+      "trendline": "Trend line",
+      "errorBars": "Error bars",
+      "lines": "Drop lines, high-low lines, up/down bars"
+    },
+    "axis": {
+      "show": "Show the axis",
+      "title": "Axis title",
+      "type": "Axis type",
+      "category": "Category axis",
+      "date": "Date axis",
+      "baseUnit": "Base unit",
+      "min": "Minimum",
+      "max": "Maximum",
+      "majorUnit": "Major unit",
+      "minorUnit": "Minor unit",
+      "log": "Logarithmic scale",
+      "logBase": "Base",
+      "reverseValues": "Values in reverse order",
+      "reverseCategories": "Categories in reverse order",
+      "crosses": "Position on the crossing axis",
+      "crossesMin": "At the minimum",
+      "crossesMax": "At the maximum",
+      "crossesAt": "At a value…",
+      "crossesValue": "Crossing value",
+      "dispUnit": "Display units",
+      "dispUnitLabel": "Show the unit label on the chart",
+      "majorTick": "Major tick marks",
+      "minorTick": "Minor tick marks",
+      "labelPos": "Axis label position",
+      "majorGrid": "Major gridlines",
+      "minorGrid": "Minor gridlines"
+    },
+    "tick": {
+      "out": "Outside",
+      "in": "Inside",
+      "cross": "Across the axis",
+      "none": "None"
+    },
+    "axisLabel": {
+      "nextTo": "Next to the axis",
+      "high": "High",
+      "low": "Low",
+      "none": "None"
+    },
+    "baseUnit": {
+      "days": "Days",
+      "months": "Months",
+      "years": "Years"
+    },
+    "unit": {
+      "hundreds": "Hundreds",
+      "thousands": "Thousands",
+      "tenThousands": "Ten thousands",
+      "hundredThousands": "Hundred thousands",
+      "millions": "Millions",
+      "tenMillions": "Ten millions",
+      "hundredMillions": "Hundred millions",
+      "billions": "Billions",
+      "trillions": "Trillions"
+    },
+    "series": {
+      "pick": "Data series",
+      "unnamed": "Series {{n}}",
+      "line": "Line colour",
+      "fill": "Fill colour",
+      "lineWidth": "Line width (pt)",
+      "marker": "Marker",
+      "markerSize": "Marker size",
+      "smooth": "Smooth line",
+      "explosion": "Slice explosion (%)",
+      "secondary": "Plot on the secondary axis",
+      "gapWidth": "Gap width (%)",
+      "overlap": "Series overlap (%)"
+    },
+    "marker": {
+      "none": "None",
+      "circle": "Circle",
+      "square": "Square",
+      "diamond": "Diamond",
+      "triangle": "Triangle",
+      "x": "Cross (×)",
+      "plus": "Plus (+)",
+      "star": "Star",
+      "dash": "Dash",
+      "dot": "Dot"
+    },
+    "labels": {
+      "allSeries": "All series",
+      "point": "Data point",
+      "allPoints": "Whole series",
+      "show": "Show data labels",
+      "followChart": "Follow the chart's labels",
+      "followSeries": "Follow the series' labels",
+      "value": "Value",
+      "category": "Category name",
+      "series": "Series name",
+      "percent": "Percentage",
+      "leaderLines": "Leader lines",
+      "position": "Label position",
+      "separator": "Separator"
+    },
+    "labelPos": {
+      "outEnd": "Outside end",
+      "inEnd": "Inside end",
+      "inBase": "Inside base",
+      "ctr": "Centre",
+      "t": "Above",
+      "b": "Below",
+      "l": "Left",
+      "r": "Right",
+      "bestFit": "Best fit"
+    },
+    "legend": {
+      "position": "Legend position",
+      "pos": {
+        "none": "No legend",
+        "r": "Right",
+        "t": "Top",
+        "l": "Left",
+        "b": "Bottom",
+        "tr": "Top right"
+      }
+    },
+    "gridlines": {
+      "valMajor": "Value axis major gridlines",
+      "valMinor": "Value axis minor gridlines",
+      "catMajor": "Category axis major gridlines",
+      "catMinor": "Category axis minor gridlines",
+      "color": "Gridline colour",
+      "width": "Gridline width (pt)"
+    },
+    "dataTable": {
+      "show": "Show the data table",
+      "keys": "With legend keys"
+    },
+    "trendline": {
+      "unavailable": "This chart type has no trend lines.",
+      "add": "Add a trend line",
+      "remove": "Remove {{name}}",
+      "type": "Type",
+      "order": "Polynomial order",
+      "period": "Period",
+      "name": "Trend line name",
+      "forward": "Forecast forward (periods)",
+      "backward": "Forecast backward (periods)",
+      "setIntercept": "Set the intercept",
+      "intercept": "Intercept",
+      "dispEq": "Show the equation on the chart",
+      "dispR2": "Show the R² value on the chart",
+      "kind": {
+        "linear": "Linear",
+        "exp": "Exponential",
+        "log": "Logarithmic",
+        "poly": "Polynomial",
+        "power": "Power",
+        "movingAvg": "Moving average"
+      }
+    },
+    "errorBars": {
+      "unavailable": "This chart type has no error bars.",
+      "show": "Show error bars",
+      "axis": "Along the axis",
+      "axisY": "Y axis",
+      "axisX": "X axis",
+      "direction": "Direction",
+      "kind": {
+        "both": "Both",
+        "plus": "Plus",
+        "minus": "Minus"
+      },
+      "endStyle": "End style",
+      "cap": "Cap",
+      "noCap": "No cap",
+      "amount": "Error amount",
+      "type": {
+        "fixedVal": "Fixed value",
+        "percentage": "Percentage",
+        "stdDev": "Standard deviation",
+        "stdErr": "Standard error",
+        "cust": "Custom"
+      },
+      "value": "Value",
+      "plus": "Positive amounts",
+      "minus": "Negative amounts",
+      "customHint": "Type a cell range (for example =Sheet1!$D$2:$D$7) or numbers separated by semicolons."
+    },
+    "lines": {
+      "drop": "Drop lines",
+      "hiLow": "High-low lines",
+      "upDown": "Up/down bars"
+    },
+    "el": {
+      "axes": {
+        "label": "Axes",
+        "cat": "Category axis",
+        "val": "Value axis"
+      },
+      "axisTitles": {
+        "label": "Axis titles",
+        "cat": "Category axis title",
+        "val": "Value axis title"
+      },
+      "title": {
+        "label": "Chart title",
+        "none": "No title",
+        "above": "Above the chart",
+        "overlay": "Over the plot area"
+      },
+      "labels": {
+        "label": "Data labels",
+        "none": "No labels",
+        "show": "Default position",
+        "ctr": "Centre",
+        "inEnd": "Inside end",
+        "outEnd": "Outside end"
+      },
+      "table": {
+        "label": "Data table",
+        "none": "No table",
+        "keys": "With legend keys",
+        "noKeys": "Without legend keys"
+      },
+      "errorBars": {
+        "label": "Error bars",
+        "none": "No error bars",
+        "stdErr": "Standard error",
+        "percentage": "5 per cent",
+        "stdDev": "Standard deviation"
+      },
+      "gridlines": {
+        "label": "Gridlines",
+        "valMajor": "Value axis, major",
+        "valMinor": "Value axis, minor",
+        "catMajor": "Category axis, major",
+        "catMinor": "Category axis, minor"
+      },
+      "legend": {
+        "label": "Legend",
+        "none": "No legend",
+        "r": "Right",
+        "t": "Top",
+        "l": "Left",
+        "b": "Bottom"
+      },
+      "lines": {
+        "label": "Lines",
+        "none": "No lines",
+        "drop": "Drop lines",
+        "hiLow": "High-low lines"
+      },
+      "trendline": {
+        "label": "Trend line",
+        "none": "No trend line",
+        "linear": "Linear",
+        "exp": "Exponential",
+        "forecast": "Linear forecast (2 periods)",
+        "movingAvg": "Moving average (2 periods)"
+      },
+      "upDownBars": {
+        "label": "Up/down bars",
+        "toggle": "Up/down bars"
+      }
+    }
+  },
   "docChart": {
     "wrapGroup": "Wrap text",
     "wrap": {

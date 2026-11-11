@@ -24,6 +24,24 @@ export {
   chartDesignLabels,
   layoutTexts,
 } from './chart/chartDesign';
+export {
+  CHART_ELEMENT_ACTIONS,
+  CHART_FORMAT_COMMAND,
+  ChartElementsMenu,
+  chartElementLabelKey,
+  chartElementsGroup,
+  registerChartElementCommands,
+  type ChartCommandSpec,
+  type ChartElementAction,
+} from './chart/chartElements';
+export {
+  ChartFormatPane,
+  chartElementIds,
+  chartElementName,
+  parseAmounts,
+  parseNumber,
+  type ChartFormatPaneProps,
+} from './chart/ChartFormatPane';
 export { DOC_REPEATABLE, RepeatTracker, SLIDE_REPEATABLE } from './repeat';
 export {
   SHORTCUTS_FORMAT,

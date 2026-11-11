@@ -1402,6 +1402,8 @@ export interface ChartInfo {
   series: number;
   /** Region map options (`null` for other charts; CORE-CHART-006). */
   map?: ChartMapInfo | null;
+  /** The chart's elements and their options (`null` for chartex charts; CORE-CHART-005). */
+  elements?: import('./chartElements').ChartElementsInfo | null;
 }
 
 /** Editable options of a region map (chartex `regionMap`). */

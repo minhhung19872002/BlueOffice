@@ -1,0 +1,192 @@
+/* Format chart pane and the Add chart element menu (CORE-CHART-005). */
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 12px;
+  font-size: 12px;
+  color: var(--bo-text, #1f2328);
+  overflow: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.empty {
+  color: var(--bo-text-muted, #59636e);
+  padding: 12px 4px;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 600;
+}
+
+.picker select,
+.row select,
+.row input[type='text'] {
+  min-height: 24px;
+  box-sizing: border-box;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  padding: 2px 6px;
+  font: inherit;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 0;
+  border-top: 1px solid var(--bo-border, #d0d7de);
+  margin: 0;
+  padding: 8px 0 0;
+  min-width: 0;
+}
+
+.section > legend {
+  padding: 0 6px 0 0;
+  font-weight: 600;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.row > span {
+  overflow-wrap: anywhere;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.color {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.color input[type='color'] {
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: none;
+}
+
+.button,
+.color button,
+.list button {
+  min-height: 24px;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  padding: 2px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:disabled,
+.color button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  display: flex;
+  gap: 4px;
+}
+
+.list li > button:first-child {
+  flex: 1;
+  text-align: left;
+}
+
+.list button[aria-pressed='true'] {
+  border-color: var(--bo-accent, #2e6db4);
+  box-shadow: inset 0 0 0 1px var(--bo-accent, #2e6db4);
+}
+
+.hint {
+  color: var(--bo-text-muted, #59636e);
+}
+
+.menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-width: 560px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 6px;
+  font-size: 12px;
+}
+
+.menuGroup {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+}
+
+.menuHead {
+  font-weight: 600;
+  padding: 4px 6px 2px;
+  color: var(--bo-text-muted, #59636e);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  padding: 2px 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover:not(:disabled),
+.menuItem:focus-visible {
+  background: var(--bo-hover, rgba(46, 109, 180, 0.12));
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.menuCheck {
+  display: inline-block;
+  width: 14px;
+}

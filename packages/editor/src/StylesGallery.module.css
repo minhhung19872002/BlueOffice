@@ -1,0 +1,77 @@
+.gallery {
+  display: flex;
+  align-items: stretch;
+  height: 58px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--bo-radius-sm, 4px);
+  background: var(--bo-surface, #fff);
+  overflow: hidden;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  width: 58px;
+  padding: 2px 5px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: #fff;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.tile:hover:not(:disabled) {
+  border-color: var(--bo-border-strong, var(--bo-border));
+}
+
+/* The tiles are paper (white in every UI theme, the styles' own colours on it): the pressed
+   tile is told by its frame, not by a fill. */
+.tile[aria-pressed='true'] {
+  border-color: var(--bo-accent, #1f5fbf);
+  box-shadow: inset 0 0 0 1px var(--bo-accent, #1f5fbf);
+}
+
+.sample {
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.name {
+  max-width: 100%;
+  overflow: hidden;
+  color: #4d4d4d;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--bo-border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.more:hover:not(:disabled) {
+  background: var(--bo-hover);
+}
+
+/* Simplified (one-row) ribbon: a row of compact tiles without the names. */
+:global([data-simplified='true']) .gallery {
+  height: 28px;
+}
+
+:global([data-simplified='true']) .name {
+  display: none;
+}

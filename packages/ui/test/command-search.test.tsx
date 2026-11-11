@@ -92,6 +92,10 @@ describe('command search ranking', () => {
     expect(k({ altKey: true, key: 'Q' })).toBe(true);
     expect(k({})).toBe(false);
     expect(k({ ctrlKey: true, shiftKey: true })).toBe(false);
+    // BlueDoc keeps Ctrl+Q for itself (remove paragraph formatting); Alt+Q still searches.
+    const base = { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, key: 'q' };
+    expect(isCommandSearchKey({ ...base, ctrlKey: true }, false)).toBe(false);
+    expect(isCommandSearchKey({ ...base, altKey: true }, false)).toBe(true);
   });
 });
 

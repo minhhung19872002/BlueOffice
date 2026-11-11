@@ -12,8 +12,9 @@ const MOTIONS: Record<string, [Motion, Motion]> = {
   // key: [plain, with Ctrl]
   ArrowLeft: ['left', 'wordLeft'],
   ArrowRight: ['right', 'wordRight'],
-  ArrowUp: ['up', 'up'],
-  ArrowDown: ['down', 'down'],
+  // Ctrl+Up / Ctrl+Down: previous / next paragraph.
+  ArrowUp: ['up', 'paraUp'],
+  ArrowDown: ['down', 'paraDown'],
   Home: ['lineStart', 'docStart'],
   End: ['lineEnd', 'docEnd'],
   PageUp: ['pageUp', 'pageUp'],
@@ -31,10 +32,11 @@ export function keyToCommand(k: KeyPress): EditCommand | null {
   if (m) return { cmd: 'move', motion: k.ctrl ? m[1] : m[0], extend: k.shift };
   if (k.alt) return null;
   switch (k.key) {
+    // Ctrl+Backspace / Ctrl+Delete delete a word.
     case 'Backspace':
-      return { cmd: 'deleteBackward' };
+      return { cmd: k.ctrl ? 'deleteWordBackward' : 'deleteBackward' };
     case 'Delete':
-      return { cmd: 'deleteForward' };
+      return { cmd: k.ctrl ? 'deleteWordForward' : 'deleteForward' };
     case 'Enter':
       if (k.ctrl) return null; // Ctrl+Enter = page break (registry)
       // Shift+Enter: line break inside the paragraph (§17.3.3.1 br).

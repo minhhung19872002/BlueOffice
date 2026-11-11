@@ -20,18 +20,23 @@ export type SlideMenuContext =
 const CLIPBOARD = ['edit.cut', 'edit.copy', 'edit.paste'] as const;
 
 export const DOC_MENUS: Record<DocMenuContext, MenuSpec> = {
+  // The order of word processors: clipboard, font and list commands, (synonyms, added by the
+  // editor before) translate, the link commands, a new comment.
   text: [
     ...CLIPBOARD,
     'edit.pasteSpecial',
     '-',
     'format.fontDialog',
-    'format.clear',
     'format.bullets',
     'format.numbering',
     '-',
+    'review.translate',
+    '-',
+    'insert.link',
+    'insert.openLink',
+    'insert.removeLink',
+    '-',
     'review.newComment',
-    'references.insertCaption',
-    'review.language',
   ],
   // The spelling suggestions come first (added by the editor), then the text commands.
   spelling: [...CLIPBOARD, '-', 'format.fontDialog', 'review.newComment', 'review.language'],

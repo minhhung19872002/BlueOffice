@@ -103,6 +103,7 @@ import { docObjectContexts, docObjectTabs } from './objectContexts';
 import {
   AArrowDown,
   AArrowUp,
+  CaseSensitive,
   ArrowDownToLine,
   ArrowUpToLine,
   WandSparkles,
@@ -149,8 +150,6 @@ import {
   FilePlus,
   FileText,
   FolderOpen,
-  Heading1,
-  Heading2,
   Image,
   Italic,
   KeyRound,
@@ -331,6 +330,7 @@ import {
   type SignForm,
 } from './signing';
 import { createEditorStore, togglePane, type DocTaskPane, type EditorState } from './store';
+import { StylesGallery } from './StylesGallery';
 import { StylesPane, type StylesPaneRequest } from './StylesPane';
 import { RevealFormattingPane, StyleInspectorPane } from './StyleInspector';
 import { taskPaneLabels } from './taskPaneLabels';
@@ -338,6 +338,7 @@ import {
   HeaderFooterBar,
   NotesPanel,
   PageSetupDialog,
+  LinkDialog,
   PasteSpecialDialog,
   EquationDialog,
   FieldDialog,
@@ -366,7 +367,13 @@ import {
   ProtectFormsDialog,
   formErrorKey,
 } from './FormFieldDialogs';
-import { ColorPicker, FontFamilyPicker, FontSizeBox, SpacingMenu } from './FontControls';
+import {
+  ColorPicker,
+  FontFamilyPicker,
+  FontSizeBox,
+  SpacingMenu,
+  nextFontSize,
+} from './FontControls';
 import { DefineListDialog, MultilevelMenu, SetNumberingDialog } from './ListDialogs';
 import {
   PageBordersDialog,
@@ -667,7 +674,8 @@ function EditorInner({
   );
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
-  useCommandSearchShortcut(() => setSearchOpen(true));
+  // Alt+Q only: Ctrl+Q removes paragraph formatting, as in word processors.
+  useCommandSearchShortcut(() => setSearchOpen(true), { ctrl: false });
   const [recent, setRecent] = useState<RecentFile[]>([]);
   const workspace = useRef<HTMLElement>(null);
   const [pageBox, setPageBox] = useState<PageBox | null>(null);
@@ -1034,6 +1042,10 @@ function EditorInner({
       (e) => fail('errors.edit', e),
     );
     controller.current.onEquationDialog = () => equationDialog.current();
+    // Ctrl+click on a hyperlink opens it (links inside the document are left to the caret).
+    controller.current.onFollowLink = (target) => {
+      if (!target.startsWith('#')) void platform.shell.openExternal?.(target).catch(() => {});
+    };
     platform.engine.init().then(
       () => {
         store.setState({ engineReady: true });
@@ -1411,7 +1423,8 @@ function EditorInner({
     // Save as: the file type first (documents, templates, macro-enabled; CORE-FMT-001).
     r.register({
       id: 'file.saveAs',
-      shortcut: 'Ctrl+Shift+S',
+      // F12, as in word processors (Ctrl+Shift+S there opens the styles to apply).
+      shortcut: 'F12',
       isEnabled: hasDoc,
       run: () => setSaveAsType(true),
     });
@@ -1437,7 +1450,6 @@ function EditorInner({
     });
     r.register({
       id: 'file.exportPdf',
-      shortcut: 'Ctrl+Shift+E',
       isEnabled: hasDoc,
       run: () => exportPdf(),
     });
@@ -1643,7 +1655,7 @@ function EditorInner({
       ['format.underline', 'underline', 'Ctrl+U', (s) => !!f(s)?.underline],
       ['format.strike', 'strike', '', (s) => !!f(s)?.strike],
       ['format.subscript', 'subscript', 'Ctrl+=', (s) => !!f(s)?.subscript],
-      ['format.superscript', 'superscript', '', (s) => !!f(s)?.superscript],
+      ['format.superscript', 'superscript', 'Ctrl+Shift+=', (s) => !!f(s)?.superscript],
     ];
     for (const [id, kind, shortcut, checked] of toggles) {
       r.register({
@@ -1686,12 +1698,13 @@ function EditorInner({
     });
     // Character effects / spacing, phonetic guide (§17.3.3.25 ruby) and two lines in
     // one (§17.3.2.10 combine) — DOC-FMT-001.
-    for (const [id, dialog] of [
-      ['format.fontDialog', 'fontEffects'],
-      ['format.phoneticGuide', 'phoneticGuide'],
-      ['format.combineChars', 'combineChars'],
+    for (const [id, dialog, shortcut] of [
+      // Ctrl+D: the font dialog, as in word processors.
+      ['format.fontDialog', 'fontEffects', 'Ctrl+D'],
+      ['format.phoneticGuide', 'phoneticGuide', undefined],
+      ['format.combineChars', 'combineChars', undefined],
     ] as const) {
-      r.register({ id, isEnabled: hasDoc, run: () => store.setState({ dialog }) });
+      r.register({ id, shortcut, isEnabled: hasDoc, run: () => store.setState({ dialog }) });
     }
     // Format Painter: click = once, double click = until Esc (or a third click).
     r.register({
@@ -1827,6 +1840,7 @@ function EditorInner({
       ['style.title', 'Title', ''],
       ['style.heading1', 'Heading1', 'Ctrl+Alt+1'],
       ['style.heading2', 'Heading2', 'Ctrl+Alt+2'],
+      ['style.heading3', 'Heading3', 'Ctrl+Alt+3'],
     ] as const) {
       r.register({
         id,
@@ -1836,6 +1850,143 @@ function EditorInner({
         run: () => run({ cmd: 'applyStyle', id: style }),
       });
     }
+    // Everyday shortcuts of word processors (docs/parity/office-behaviour-doc.md).
+    // Ctrl+Shift+> / < : the next / previous size of the font size list.
+    r.register({
+      id: 'format.growStep',
+      shortcut: 'Ctrl+Shift+>',
+      isEnabled: hasDoc,
+      run: (s) => fmt({ kind: 'size', halfPoints: nextFontSize(size(s) / 2, 1) * 2 }),
+    });
+    r.register({
+      id: 'format.shrinkStep',
+      shortcut: 'Ctrl+Shift+<',
+      isEnabled: hasDoc,
+      run: (s) => fmt({ kind: 'size', halfPoints: nextFontSize(size(s) / 2, -1) * 2 }),
+    });
+    // Line spacing (§17.3.1.33 spacing @w:line, 240ths of a line): single, double, 1.5.
+    for (const [id, value, shortcut] of [
+      ['format.lineSpacing1', 240, 'Ctrl+1'],
+      ['format.lineSpacing2', 480, 'Ctrl+2'],
+      ['format.lineSpacing15', 360, 'Ctrl+5'],
+    ] as const) {
+      r.register({
+        id,
+        shortcut,
+        isEnabled: hasDoc,
+        isChecked: (s) => {
+          const ls = f(s)?.lineSpacing;
+          return ls?.rule === 'auto' && ls.value === value;
+        },
+        run: () => para({ kind: 'lineSpacing', value }),
+      });
+    }
+    // Ctrl+0: 12 pt before the paragraph, or none when it already has it.
+    r.register({
+      id: 'format.spaceBefore12',
+      shortcut: 'Ctrl+0',
+      isEnabled: hasDoc,
+      run: (s) => para({ kind: 'spaceBefore', twips: (f(s)?.spaceBefore ?? 0) === 240 ? 0 : 240 }),
+    });
+    r.register({
+      id: 'format.indentKey',
+      shortcut: 'Ctrl+M',
+      isEnabled: hasDoc,
+      run: () => para({ kind: 'increaseIndent' }),
+    });
+    r.register({
+      id: 'format.outdentKey',
+      shortcut: 'Ctrl+Shift+M',
+      isEnabled: hasDoc,
+      run: () => para({ kind: 'decreaseIndent' }),
+    });
+    // Ctrl+T / Ctrl+Shift+T: hanging indent by half an inch (the first line stays).
+    for (const [id, shortcut, step] of [
+      ['format.hanging', 'Ctrl+T', 720],
+      ['format.unhang', 'Ctrl+Shift+T', -720],
+    ] as const) {
+      r.register({
+        id,
+        shortcut,
+        isEnabled: hasDoc,
+        run: (s) => {
+          const cur = f(s);
+          const left = Math.max(0, (cur?.indentLeft ?? 0) + step);
+          const first = (cur?.indentLeft ?? 0) + (cur?.firstLine ?? 0) - left;
+          return para({ kind: 'indents', left, right: cur?.indentRight ?? 0, firstLine: first });
+        },
+      });
+    }
+    r.register({
+      id: 'format.bulletsKey',
+      shortcut: 'Ctrl+Shift+L',
+      isEnabled: hasDoc,
+      run: () => para({ kind: 'bullets' }),
+    });
+    r.register({
+      id: 'format.clearChar',
+      shortcut: 'Ctrl+Space',
+      isEnabled: hasDoc,
+      run: () => fmt({ kind: 'clear' }),
+    });
+    r.register({
+      id: 'format.resetPara',
+      shortcut: 'Ctrl+Q',
+      isEnabled: hasDoc,
+      run: () => para({ kind: 'reset' }),
+    });
+    r.register({
+      id: 'format.changeCase',
+      shortcut: 'Shift+F3',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'changeCase', mode: 'cycle' }),
+    });
+    for (const mode of ['sentence', 'lower', 'upper', 'title', 'toggle'] as const) {
+      r.register({
+        id: `format.case.${mode}`,
+        isEnabled: hasDoc,
+        run: () => run({ cmd: 'changeCase', mode }),
+      });
+    }
+    r.register({
+      id: 'insert.nbsp',
+      shortcut: 'Ctrl+Shift+Space',
+      isEnabled: hasDoc,
+      run: () => run({ cmd: 'insertText', text: ' ' }),
+    });
+    // Alt+Shift+D / T / P: date, time and page number fields (§17.16.5).
+    for (const [id, instr, shortcut] of [
+      ['insert.dateField', 'DATE', 'Alt+Shift+D'],
+      ['insert.timeField', 'TIME', 'Alt+Shift+T'],
+      ['insert.pageField', 'PAGE', 'Alt+Shift+P'],
+    ] as const) {
+      r.register({
+        id,
+        shortcut,
+        isEnabled: hasDoc,
+        run: () => run({ cmd: 'insertField', instr }),
+      });
+    }
+    // Ctrl+K: insert or edit a hyperlink (§17.16.22 hyperlink).
+    r.register({
+      id: 'insert.link',
+      shortcut: 'Ctrl+K',
+      isEnabled: hasDoc,
+      run: () => store.setState({ dialog: 'link' }),
+    });
+    r.register({
+      id: 'insert.openLink',
+      isEnabled: (s) => !!f(s)?.link,
+      run: (s) => {
+        const link = f(s)?.link;
+        if (link && !link.startsWith('#')) void platform.shell.openExternal?.(link).catch(() => {});
+      },
+    });
+    r.register({
+      id: 'insert.removeLink',
+      isEnabled: (s) => !!f(s)?.link,
+      run: () => run({ cmd: 'setLink', target: '' }),
+    });
 
     // Insert.
     r.register({
@@ -2053,19 +2204,20 @@ function EditorInner({
     // View.
     r.register({
       id: 'view.zoomIn',
-      shortcut: 'Ctrl+Shift+=',
+      // Ctrl+Shift+= is superscript, Ctrl+0 space before, as in word processors.
+      shortcut: 'Ctrl+Alt+=',
       isEnabled: hasDoc,
       run: (s) => activeView()?.setZoom(s.zoom * 1.1),
     });
     r.register({
       id: 'view.zoomOut',
-      shortcut: 'Ctrl+-',
+      shortcut: 'Ctrl+Alt+-',
       isEnabled: hasDoc,
       run: (s) => activeView()?.setZoom(s.zoom / 1.1),
     });
     r.register({
       id: 'view.zoomReset',
-      shortcut: 'Ctrl+0',
+      shortcut: 'Ctrl+Alt+0',
       isEnabled: hasDoc,
       isChecked: (s) => s.zoom === 1,
       run: () => activeView()?.setZoom(1),
@@ -2516,7 +2668,7 @@ function EditorInner({
     });
     r.register({
       id: 'review.trackChanges',
-      shortcut: 'Ctrl+Shift+R',
+      shortcut: 'Ctrl+Shift+E',
       isEnabled: hasDoc,
       isChecked: (s) => !!rv(s)?.trackChanges,
       run: (s) => run({ cmd: 'setTrackChanges', on: !rv(s)?.trackChanges }),
@@ -3137,7 +3289,12 @@ function EditorInner({
       if (e.isComposing) return;
       const target = e.target as HTMLElement | null;
       // Inputs of dialogs keep their own keys (except global file shortcuts).
-      const inForm = !!target && target.tagName === 'INPUT';
+      // (Text boxes of panes too, e.g. the script editor's Ctrl+Space; not the document's input.)
+      const inForm =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.isContentEditable ||
+          (target.tagName === 'TEXTAREA' && target.dataset.testid !== 'ime-input'));
       if (isContextMenuKey(e) && viewHost.current?.contains(target)) {
         e.preventDefault();
         keyMenuAt.current = Date.now();
@@ -3775,8 +3932,9 @@ function EditorInner({
             s('format.strike', 'commands.format.strike', <Strikethrough size={SMALL} />),
             s('format.subscript', 'commands.format.subscript', <Subscript size={SMALL} />),
             s('format.superscript', 'commands.format.superscript', <Superscript size={SMALL} />),
-            s('format.grow', 'commands.format.grow', <AArrowUp size={SMALL} />),
-            s('format.shrink', 'commands.format.shrink', <AArrowDown size={SMALL} />),
+            s('format.growStep', 'commands.format.growStep', <AArrowUp size={SMALL} />),
+            s('format.shrinkStep', 'commands.format.shrinkStep', <AArrowDown size={SMALL} />),
+            s('format.changeCase', 'commands.format.changeCase', <CaseSensitive size={SMALL} />),
             custom(
               'format.color',
               <ColorPicker
@@ -3852,18 +4010,22 @@ function EditorInner({
             label: t('commands.view.stylesPane'),
             onSelect: () => void registry.execute('view.stylesPane', store.getState()),
           },
+          // The quick styles as a gallery of tiles drawn in their own formatting.
           items: [
-            s('style.normal', 'commands.format.styleNormal', <Pilcrow size={SMALL} />),
-            s('style.title', 'commands.format.styleTitle', <Type size={SMALL} />),
-            s('style.heading1', 'commands.format.styleHeading1', <Heading1 size={SMALL} />),
-            s('style.heading2', 'commands.format.styleHeading2', <Heading2 size={SMALL} />),
+            custom(
+              'styles.gallery',
+              <StylesGallery
+                load={loadStyles}
+                current={fs?.style ?? null}
+                refreshKey={`${state.doc?.name ?? ''}:${fs?.style ?? ''}`}
+                disabled={noDoc}
+                apply={(id) => void runFocus({ cmd: 'applyStyle', id })}
+                onMore={() => void registry.execute('view.stylesPane', store.getState())}
+              />,
+            ),
           ],
         },
-        {
-          id: 'voice',
-          label: t('ribbon.groups.speech'),
-          items: [item('edit.dictate', 'commands.edit.dictate', <Mic size={ICON} />)],
-        },
+        // Editing, then Voice: the order of word processors' Home tab.
         {
           id: 'editing',
           label: t('ribbon.groups.editing'),
@@ -3876,6 +4038,11 @@ function EditorInner({
               <SquareDashedMousePointer size={SMALL} />,
             ),
           ],
+        },
+        {
+          id: 'voice',
+          label: t('ribbon.groups.speech'),
+          items: [item('edit.dictate', 'commands.edit.dictate', <Mic size={ICON} />)],
         },
       ],
     },
@@ -3961,6 +4128,11 @@ function EditorInner({
               <SeparatorHorizontal size={ICON} />,
             ),
           ],
+        },
+        {
+          id: 'links',
+          label: t('ribbon.groups.links'),
+          items: [item('insert.link', 'commands.insert.link', <Link2 size={ICON} />)],
         },
         {
           id: 'headerFooter',
@@ -4920,7 +5092,17 @@ function EditorInner({
         });
       lines.push({ separator: true });
     }
-    const resolved = resolveMenu(DOC_MENUS[m.context], menuLookup);
+    // Open / remove a link only on a link; on one, "Link" edits it.
+    const onLink = !!store.getState().edit?.format.link;
+    const resolved = resolveMenu(
+      DOC_MENUS[m.context].filter(
+        (id) => onLink || (id !== 'insert.openLink' && id !== 'insert.removeLink'),
+      ),
+      (id) => {
+        const e = menuLookup(id);
+        return e && id === 'insert.link' && onLink ? { ...e, label: t('docLink.edit') } : e;
+      },
+    );
     // Synonyms of the word at the caret (CORE-THES-001), for text and table text.
     const synonyms =
       m.context === 'text' || m.context === 'table'
@@ -4935,7 +5117,13 @@ function EditorInner({
             () => void registry.execute('review.thesaurus', store.getState()),
           )
         : null;
-    return [...lines, ...resolved, ...(synonyms ? [{ separator: true } as const, synonyms] : [])];
+    if (!synonyms) return [...lines, ...resolved];
+    // Synonyms come before translate / the link commands, as in word processors.
+    const at = resolved.findIndex(
+      (l) => 'id' in l && (l.id === 'review.translate' || l.id === 'insert.link'),
+    );
+    if (at < 0) return [...lines, ...resolved, { separator: true }, synonyms];
+    return [...lines, ...resolved.slice(0, at), synonyms, ...resolved.slice(at)];
   };
   const docMenu = useContextMenu<DocMenu>(t('contextMenu.label'), docMenuLines, focusDoc);
   useEffect(() => {
@@ -4998,8 +5186,8 @@ function EditorInner({
     'format.bold',
     'format.italic',
     'format.underline',
-    'format.grow',
-    'format.shrink',
+    'format.growStep',
+    'format.shrinkStep',
     'format.bullets',
     'format.numbering',
     'format.painter',
@@ -5593,6 +5781,20 @@ function EditorInner({
                 onInsert={(instr) => {
                   closeDialog();
                   void runFocus({ cmd: 'insertField', instr });
+                }}
+              />
+            )}
+            {state.dialog === 'link' && (
+              <LinkDialog
+                current={state.edit?.format.link}
+                onClose={closeDialog}
+                onApply={(target, display) => {
+                  closeDialog();
+                  void runFocus({ cmd: 'setLink', target, display });
+                }}
+                onRemove={() => {
+                  closeDialog();
+                  void runFocus({ cmd: 'setLink', target: '' });
                 }}
               />
             )}

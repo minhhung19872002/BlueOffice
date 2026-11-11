@@ -63,6 +63,7 @@
       "table": "Bảng"
     },
     "groups": {
+      "links": "Liên kết",
       "ai": "BlueAI",
       "speech": "Giọng nói",
       "documentFormatting": "Định dạng tài liệu",
@@ -207,6 +208,28 @@
       "styleTitle": "Tiêu đề",
       "styleHeading1": "Đề mục 1",
       "styleHeading2": "Đề mục 2",
+      "styleHeading3": "Đề mục 3",
+      "growStep": "Tăng cỡ chữ",
+      "shrinkStep": "Giảm cỡ chữ",
+      "lineSpacing1": "Giãn dòng đơn",
+      "lineSpacing15": "Giãn dòng 1,5",
+      "lineSpacing2": "Giãn dòng đôi",
+      "spaceBefore12": "Thêm / bỏ 12 pt trước đoạn",
+      "indentKey": "Thụt lề trái thêm một nấc",
+      "outdentKey": "Thụt lề trái bớt một nấc",
+      "hanging": "Thụt treo thêm một nấc",
+      "unhang": "Thụt treo bớt một nấc",
+      "bulletsKey": "Danh sách gạch đầu dòng",
+      "clearChar": "Xoá định dạng ký tự",
+      "resetPara": "Xoá định dạng đoạn",
+      "changeCase": "Đổi chữ hoa / thường",
+      "case": {
+        "sentence": "Viết hoa đầu câu",
+        "lower": "chữ thường",
+        "upper": "CHỮ HOA",
+        "title": "Viết Hoa Đầu Mỗi Từ",
+        "toggle": "đẢO hOA / tHƯỜNG"
+      },
       "painter": "Sao định dạng",
       "quickAnalysis": "Phân tích nhanh"
     },
@@ -235,6 +258,12 @@
       "smartart": "Sơ đồ thông minh",
       "chart": "Biểu đồ",
       "link": "Chèn liên kết",
+      "openLink": "Mở liên kết",
+      "removeLink": "Gỡ liên kết",
+      "nbsp": "Dấu cách không ngắt dòng",
+      "dateField": "Ngày hiện tại (trường)",
+      "timeField": "Giờ hiện tại (trường)",
+      "pageField": "Số trang (trường)",
       "action": "Thiết lập hành động",
       "actionButtons": "Nút hành động",
       "buildingBlocks": "Khối dựng sẵn",
@@ -3390,6 +3419,15 @@
     "applyTo": "Áp dụng cho",
     "thisSection": "Phần này",
     "wholeDocument": "Toàn bộ văn bản"
+  },
+  "docLink": {
+    "title": "Chèn liên kết",
+    "edit": "Sửa liên kết…",
+    "display": "Văn bản hiển thị",
+    "displayPlaceholder": "(phần đang chọn)",
+    "address": "Địa chỉ (trang web, thư điện tử, #dấu trang)",
+    "remove": "Gỡ liên kết",
+    "ok": "Đồng ý"
   },
   "paste": {
     "title": "Dán đặc biệt",

@@ -63,6 +63,7 @@
       "table": "Table"
     },
     "groups": {
+      "links": "Links",
       "ai": "BlueAI",
       "speech": "Speech",
       "documentFormatting": "Document formatting",
@@ -207,6 +208,28 @@
       "styleTitle": "Title",
       "styleHeading1": "Heading 1",
       "styleHeading2": "Heading 2",
+      "styleHeading3": "Heading 3",
+      "growStep": "Increase font size",
+      "shrinkStep": "Decrease font size",
+      "lineSpacing1": "Single line spacing",
+      "lineSpacing15": "1.5 line spacing",
+      "lineSpacing2": "Double line spacing",
+      "spaceBefore12": "Add / remove 12 pt before the paragraph",
+      "indentKey": "Move the left indent one step in",
+      "outdentKey": "Move the left indent one step out",
+      "hanging": "Increase the hanging indent",
+      "unhang": "Reduce the hanging indent",
+      "bulletsKey": "Bulleted list",
+      "clearChar": "Remove character formatting",
+      "resetPara": "Remove paragraph formatting",
+      "changeCase": "Change case",
+      "case": {
+        "sentence": "Sentence case",
+        "lower": "lowercase",
+        "upper": "UPPERCASE",
+        "title": "Capitalise Each Word",
+        "toggle": "sWAP cASE"
+      },
       "painter": "Format Painter",
       "quickAnalysis": "Quick analysis"
     },
@@ -235,6 +258,12 @@
       "smartart": "Smart diagram",
       "chart": "Chart",
       "link": "Insert link",
+      "openLink": "Open link",
+      "removeLink": "Remove link",
+      "nbsp": "Nonbreaking space",
+      "dateField": "Current date (field)",
+      "timeField": "Current time (field)",
+      "pageField": "Page number (field)",
       "action": "Action settings",
       "actionButtons": "Action buttons",
       "buildingBlocks": "Building blocks",
@@ -3390,6 +3419,15 @@
     "applyTo": "Apply to",
     "thisSection": "This section",
     "wholeDocument": "Whole document"
+  },
+  "docLink": {
+    "title": "Insert link",
+    "edit": "Edit link…",
+    "display": "Text to display",
+    "displayPlaceholder": "(the selection)",
+    "address": "Address (web page, e-mail, #bookmark)",
+    "remove": "Remove link",
+    "ok": "OK"
   },
   "paste": {
     "title": "Paste special",

@@ -11,6 +11,22 @@ type Run = (cmd: EditCommand) => Promise<unknown>;
 export const FONT_SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
 
 /**
+ * Grow / Shrink Font (Ctrl+Shift+> / <): the next size of the list, past 72 pt by 10 pt (up to
+ * 1638 pt, §17.3.2.38 sz), below 8 pt by 1 pt (down to 1 pt).
+ */
+export function nextFontSize(points: number, dir: 1 | -1): number {
+  const last = FONT_SIZES[FONT_SIZES.length - 1] ?? 72;
+  const first = FONT_SIZES[0] ?? 8;
+  if (dir > 0) {
+    if (points >= last) return Math.min(1638, Math.floor(points / 10) * 10 + 10);
+    return FONT_SIZES.find((s) => s > points) ?? last;
+  }
+  if (points > last) return Math.max(last, Math.ceil(points / 10) * 10 - 10);
+  if (points <= first) return Math.max(1, Math.ceil(points) - 1);
+  return [...FONT_SIZES].reverse().find((s) => s < points) ?? first;
+}
+
+/**
  * Text colours: BlueOffice's own palette — neutral greys, then deep, mid and light
  * rows of the hues used in Vietnamese administrative and business documents.
  */

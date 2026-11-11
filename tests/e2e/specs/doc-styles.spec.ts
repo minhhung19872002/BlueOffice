@@ -70,9 +70,9 @@ test('modify Heading 1: every heading changes, kept after save and reopen', asyn
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('Chương hai');
   await page.keyboard.press('Control+Home');
-  await cmd(page, 'style.heading1').click();
+  await page.locator('[data-style-command="style.heading1"]').click();
   await page.keyboard.press('Control+End');
-  await cmd(page, 'style.heading1').click();
+  await page.locator('[data-style-command="style.heading1"]').click();
 
   await openStylesPane(page);
   await page.locator('[data-testid="style-menu"][data-style-id="Heading1"]').click();

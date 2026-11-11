@@ -82,6 +82,7 @@ export interface EditorState {
   /** Modal dialog. */
   dialog:
     | 'pageSetup'
+    | 'link'
     | 'pasteSpecial'
     | 'tableProperties'
     | 'tableSort'

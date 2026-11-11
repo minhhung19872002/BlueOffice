@@ -3,7 +3,7 @@
 Sinh bởi `scripts/visual-diff.mjs` (2026-11-11). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 363 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 372 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -226,6 +226,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-11). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-charts-components-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-components-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-components-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-format-elements-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-format-elements-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-format-elements-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-ofpie-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-ofpie-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-ofpie-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -271,6 +274,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-11). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-pivot-manual-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-manual-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-manual-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivot-slicers-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivot-slicers-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-pivot-slicers-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-totals-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-totals-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-pivot-totals-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -286,6 +292,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-11). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-sparklines-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-sparklines-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-sparklines-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-timelines-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-timelines-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-timelines-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-action-buttons.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-action-links.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-action-unsafe.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |

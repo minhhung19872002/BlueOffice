@@ -14,10 +14,12 @@ use std::sync::Arc;
 
 /// Is the atom a SmartArt frame (media is a diagram drawing or data model part)?
 fn is_smartart(item: &RunContent) -> bool {
+    // A group of shapes (a converted diagram) is held like a drawing part but is no diagram.
     matches!(item, RunContent::Image(img)
-    if img.shape.is_none() && diagram::split_name(&img.media).is_some_and(|(k, _, _)| {
-        matches!(k, diagram::DiagramPart::Drawing | diagram::DiagramPart::Data)
-    }))
+    if img.shape.is_none() && !diagram::is_group_name(&img.media)
+        && diagram::split_name(&img.media).is_some_and(|(k, _, _)| {
+            matches!(k, diagram::DiagramPart::Drawing | diagram::DiagramPart::Data)
+        }))
 }
 
 /// Is the atom a chart frame (media is a chart or chartex part, `bo_model::chart_part`)?

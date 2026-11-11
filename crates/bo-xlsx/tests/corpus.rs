@@ -1037,6 +1037,183 @@ fn corpus_threaded_comments_round_trip() {
     }
 }
 
+/// A group of shapes as "Convert to shapes" writes it (CORE-SMART-004): ECMA-376 Part 1,
+/// §20.5.2.17 grpSp in a §20.5.2.33 twoCellAnchor, §20.5.2.29 sp with DrawingML shape
+/// properties and text body; variant 2 adds a nested group, variant 3 a picture fill
+/// (§20.1.8.14 blipFill) whose image is a relationship of the drawing part.
+fn shapegroup(i: usize) -> Book {
+    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let steps = ["Lập dự toán", "Phê duyệt", "Giải ngân", "Quyết toán"];
+    let (cx, cy) = (1_400_000i64, 700_000i64);
+    let total = (i as i64 + 1) * (cx + 200_000);
+    let sp = |id: usize, x: i64, y: i64, prst: &str, fill: &str, text: &str| {
+        let body = if text.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"<xdr:txBody><a:bodyPr anchor="ctr" wrap="square"><a:normAutofit/></a:bodyPr><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="vi-VN" sz="1100"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></xdr:txBody>"#
+            )
+        };
+        format!(
+            r#"<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="{id}" name="Shape {id}"/><xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>{fill}<a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></xdr:spPr>{body}</xdr:sp>"#
+        )
+    };
+    let solid = |rgb: &str| format!(r#"<a:solidFill><a:srgbClr val="{rgb}"/></a:solidFill>"#);
+    let mut shapes = String::new();
+    for (k, text) in steps[..=i].iter().enumerate() {
+        let rgb = ["2F6FB5", "E07B39", "5AA454", "7B1FA2"][k];
+        shapes.push_str(&sp(
+            3 + k,
+            k as i64 * (cx + 200_000),
+            0,
+            if k == 0 { "homePlate" } else { "chevron" },
+            &solid(rgb),
+            text,
+        ));
+    }
+    if i >= 2 {
+        // A nested group: two notes under the steps.
+        let _ = write!(
+            shapes,
+            r#"<xdr:grpSp><xdr:nvGrpSpPr><xdr:cNvPr id="20" name="Group 20"/><xdr:cNvGrpSpPr/></xdr:nvGrpSpPr><xdr:grpSpPr><a:xfrm><a:off x="0" y="900000"/><a:ext cx="3000000" cy="700000"/><a:chOff x="0" y="0"/><a:chExt cx="3000000" cy="700000"/></a:xfrm></xdr:grpSpPr>{}{}</xdr:grpSp>"#,
+            sp(21, 0, 0, "roundRect", &solid("5F6B7A"), "Ghi chú 1"),
+            sp(22, 1_600_000, 0, "roundRect", &solid("5F6B7A"), "Ghi chú 2"),
+        );
+    }
+    let mut rels = String::new();
+    let mut parts = Vec::new();
+    if i == 3 {
+        shapes.push_str(&sp(
+            30,
+            3_400_000,
+            900_000,
+            "ellipse",
+            r#"<a:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>"#,
+            "",
+        ));
+        rels = format!(
+            r#"{DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="{REL}image" Target="../media/image1.png"/></Relationships>"#
+        );
+        parts.push((
+            "/xl/media/image1.png".to_owned(),
+            Some("image/png".to_owned()),
+            TINY_PNG.to_vec(),
+        ));
+        parts.push((
+            "/xl/drawings/_rels/drawing1.xml.rels".to_owned(),
+            None,
+            rels.clone().into_bytes(),
+        ));
+    }
+    let _ = rels;
+    let (to_col, to_row) = (5 + 2 * i, 4 + 3 * i);
+    let drawing = format!(
+        r#"{DECL}<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="{A}"><xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>{to_col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{to_row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:grpSp><xdr:nvGrpSpPr><xdr:cNvPr id="2" name="Group 2"/><xdr:cNvGrpSpPr/></xdr:nvGrpSpPr><xdr:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{total}" cy="1600000"/><a:chOff x="0" y="0"/><a:chExt cx="{total}" cy="1600000"/></a:xfrm></xdr:grpSpPr>{shapes}</xdr:grpSp><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>"#
+    );
+    let mut s = sheet(
+        "Hình nhóm",
+        r#"<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Quy trình (đã chuyển thành hình)</t></is></c></row></sheetData><drawing r:id="rId1"/>"#,
+    );
+    s.rels = vec![(
+        "rId1".into(),
+        "drawing".into(),
+        "../drawings/drawing1.xml".into(),
+        false,
+    )];
+    parts.insert(
+        0,
+        (
+            "/xl/drawings/drawing1.xml".to_owned(),
+            Some("application/vnd.openxmlformats-officedocument.drawing+xml".to_owned()),
+            drawing.into_bytes(),
+        ),
+    );
+    Book {
+        sheets: vec![s],
+        parts,
+        ..Book::default()
+    }
+}
+
+// source: ECMA-376 Part 1, §20.5.2.17 grpSp — groups of preset shapes with text are read for
+// drawing (their anchor, element and pictures by part name) and stay in the drawing part as read;
+// a new group is written as a further anchor.
+#[test]
+fn corpus_shape_groups_are_read_and_new_ones_written() {
+    for i in 1..=3 {
+        let src = build(&shapegroup(i));
+        let mut wb = read_xlsx(&src).unwrap();
+        let g = wb.sheets[0].shape_groups.clone();
+        assert_eq!(g.len(), 1, "variant {i}");
+        assert!(g[0].in_file);
+        assert_eq!((g[0].from.row, g[0].from.col), (1, 1));
+        let to = g[0].to.unwrap();
+        assert_eq!((to.col as usize, to.row as usize), (5 + 2 * i, 4 + 3 * i));
+        assert_eq!(
+            g[0].grp_sp.matches("<xdr:sp ").count(),
+            i + 1 + if i >= 2 { 2 } else { 0 } + usize::from(i == 3)
+        );
+        assert_eq!(
+            g[0].grp_sp.matches("<xdr:grpSp>").count(),
+            1 + usize::from(i >= 2)
+        );
+        assert!(g[0].grp_sp.contains("<a:t>Lập dự toán</a:t>"));
+        assert_eq!(
+            g[0].grp_sp.contains(r#"r:embed="/xl/media/image1.png""#),
+            i == 3,
+            "the picture is named by its part"
+        );
+        // Unchanged: the drawing part is written as read.
+        let out = write_xlsx(&wb).unwrap();
+        let (a, b) = (
+            Package::read(&src, &Limits::default()).unwrap(),
+            Package::read(&out, &Limits::default()).unwrap(),
+        );
+        let d = "/xl/drawings/drawing1.xml";
+        assert_eq!(a.part(d).unwrap().data, b.part(d).unwrap().data);
+        // A copy as a new group beside it: a second anchor, the picture by a new relationship.
+        let mut copy = g[0].clone();
+        copy.in_file = false;
+        copy.key = "/xl/shapegroups/drawing1.xml".into();
+        copy.from = bo_model::sheet::CellRef::new(20, 1);
+        copy.to = Some(bo_model::sheet::CellRef::new(30, 7));
+        wb.sheets[0].shape_groups.push(copy);
+        let out = write_xlsx(&wb).unwrap();
+        let pkg = Package::read(&out, &Limits::default()).unwrap();
+        let x = String::from_utf8(pkg.part(d).unwrap().data.clone()).unwrap();
+        assert_eq!(x.matches("<xdr:twoCellAnchor").count(), 2);
+        assert!(x.contains("<xdr:row>20</xdr:row>"));
+        let rels = pkg.relationships(d).unwrap();
+        assert_eq!(
+            rels.iter()
+                .filter(|r| r.rel_type.ends_with("/image"))
+                .count(),
+            if i == 3 { 2 } else { 0 }
+        );
+        // Every cNvPr id of the new anchor is its own.
+        let ids: Vec<&str> = x
+            .match_indices("<xdr:cNvPr id=\"")
+            .map(|(at, m)| {
+                let s = &x[at + m.len()..];
+                &s[..s.find('"').unwrap()]
+            })
+            .collect();
+        let unique: BTreeSet<&str> = ids.iter().copied().collect();
+        assert_eq!(unique.len(), ids.len(), "{ids:?}");
+        // Both groups read back.
+        let back = read_xlsx(&out).unwrap();
+        assert_eq!(back.sheets[0].shape_groups.len(), 2);
+        assert!(back.sheets[0].shape_groups.iter().all(|g| g.in_file));
+    }
+}
+
+/// A 2 × 2 blue PNG (ISO/IEC 15948: signature, IHDR, IDAT, IEND).
+const TINY_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 2, 0,
+    0, 0, 253, 212, 154, 115, 0, 0, 0, 16, 73, 68, 65, 84, 120, 218, 99, 208, 43, 221, 6, 68, 12,
+    16, 10, 0, 35, 170, 5, 101, 204, 44, 60, 42, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
 #[test]
 fn corpus_smartart_is_found() {
     for i in 1..=3 {
@@ -1075,6 +1252,7 @@ fn smartart_edited_and_new_round_trip() {
         style: b"<dgm:styleDef xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"/>".to_vec(),
         colors: b"<dgm:colorsDef xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"/>".to_vec(),
         drawing: format!("<dsp:drawing xmlns:dsp=\"{DSP}\"><dsp:spTree/></dsp:drawing>").into_bytes(),
+        ..DiagramXml::default()
     }
     };
     {
@@ -1444,6 +1622,7 @@ const FEATURES: &[Feature] = &[
     ("chart-anchors", "charts in a oneCellAnchor (from + ext) and absoluteAnchor (pos + ext)", chart_anchors),
     ("ext", "extLst, mc:AlternateContent, x14ac attributes, sheet autoFilter + sortState, controls, customXml", extensions),
     ("smartart", "SmartArt: dgm:relIds graphic frame, diagram parts and dsp:drawing fallback", smartart),
+    ("shapegroup", "a diagram converted to shapes: xdr:grpSp of preset xdr:sp shapes with text in a two-cell anchor, a nested group and a picture fill with an image relationship", shapegroup),
     ("threaded", "threaded comments + replies + resolved thread ([MS-XLSX] threadedComments, persons) with legacy notes", threaded),
     ("sparklines", "sparklines ([MS-XLSX] x14:sparklineGroups): line with markers/high/low and theme colours; column with custom axis + negative and win/loss right-to-left next to a data validation ext; line on a date axis with group axes, span and hidden data", sparklines),
     ("maps", "region map charts (chartex regionMap): two-colour scale + Mercator + geography cache; diverging scale + Robinson world view + cache; map of categories (colorStr) + Miller", maps),

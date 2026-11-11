@@ -435,7 +435,8 @@ export function SlideOverlay({
     }
     if (one.kind === 'group') {
       void controller.run({ cmd: 'click', x: p.x, y: p.y, deep: true });
-    } else if (one.editableText) {
+    } else if (one.editableText || one.kind === 'smartart') {
+      // A diagram: the node under the pointer is edited in place, else its text pane opens.
       onStartEdit(one, p);
     }
   };

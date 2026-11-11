@@ -1064,7 +1064,17 @@ export type DocSmartArtCommand =
       colors?: SlideSmartArtColors;
       style?: SlideSmartArtStyle;
     }
-  | { cmd: 'smartArtInfo' };
+  | { cmd: 'smartArtInfo' }
+  /** Replace the diagram at the selection by a group of ordinary shapes (one undo step). */
+  | { cmd: 'smartArtToShapes' }
+  /** Thumbnails of every layout of the library: answers `{ previews }`. */
+  | {
+      cmd: 'smartArtPreviews';
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+      width?: number;
+      height?: number;
+    };
 
 /** The SmartArt at the selection of a document (mirrors `bo_engine::doc_smartart::DocSmartArt`). */
 export interface DocSmartArtInfo {
@@ -1137,6 +1147,8 @@ export interface DocChartInfo {
 export interface EditResult {
   /** The SmartArt at the selection after a SmartArt command (`null`: none). */
   smartArt?: DocSmartArtInfo | null;
+  /** Answer of `smartArtPreviews`: thumbnails of the layout library. */
+  previews?: SmartArtPreview[];
   /** The chart at the selection after a chart command (`null`: none). */
   chart?: DocChartInfo | null;
   /** Chart Design gallery (`chartGallery`). */
@@ -1938,6 +1950,21 @@ export type SlideCommand =
       style?: SlideSmartArtStyle;
     }
   | { cmd: 'smartArtToShapes'; id?: number }
+  /** Change the text of one node (the edit of a node on the canvas, one undo step). */
+  | { cmd: 'setSmartArtNodeText'; id?: number; node: number; text: string }
+  /**
+   * The node at slide point (`x`, `y`), or node `node`: answers `smartartNode` (nothing when the
+   * point is on no node).
+   */
+  | { cmd: 'smartArtNodeAt'; id?: number; x?: number; y?: number; node?: number }
+  /** Thumbnails of every layout of the library: answers `smartartPreviews`. */
+  | {
+      cmd: 'smartArtPreviews';
+      colors?: SlideSmartArtColors;
+      style?: SlideSmartArtStyle;
+      width?: number;
+      height?: number;
+    }
   | ({
       cmd: 'setChart';
       id?: number;
@@ -2454,14 +2481,49 @@ export type SlideSmartArtLayout =
   | 'relationshipTarget'
   | 'pictureStrip';
 
-/** SmartArt colours and look (BlueOffice palettes). */
-export type SlideSmartArtColors = 'colorful' | 'blue' | 'green' | 'orange' | 'purple' | 'gray';
-export type SlideSmartArtStyle = 'fill' | 'outline';
+/**
+ * SmartArt colours and look: BlueOffice palettes, or `file` — the colour / quick style definition
+ * part another application wrote into the file (kept and used until a BlueOffice one is chosen).
+ */
+export type SlideSmartArtColors =
+  | 'colorful'
+  | 'blue'
+  | 'green'
+  | 'orange'
+  | 'purple'
+  | 'gray'
+  | 'file';
+export type SlideSmartArtStyle = 'fill' | 'outline' | 'file';
+
+/** A thumbnail of a layout of the library (`smartArtPreviews`): an SVG document. */
+export interface SmartArtPreview {
+  layout: SlideSmartArtLayout;
+  svg: string;
+}
+
+/** A node of a diagram under a point of the slide (`smartArtNodeAt`), box in slide points. */
+export interface SlideSmartArtNode {
+  /** Shape id of the diagram's frame. */
+  id: number;
+  /** Index of the node in the text outline. */
+  node: number;
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 /** One line of the SmartArt text pane (level 0 = top). */
 export interface SlideSmartArtItem {
   text: string;
   level: number;
+  /**
+   * The node's picture (shown by the picture layouts). Read: the id of the picture the node has.
+   * In a command: that id (kept), a `data:image/…;base64,…` URL of a PNG / JPEG (a new picture),
+   * or nothing (no picture).
+   */
+  picture?: string;
 }
 
 /** The selected SmartArt. */
@@ -2584,6 +2646,10 @@ export interface SlideEditResult {
   warpPreviews?: { name: string; d: string }[];
   /** The selected SmartArt. */
   smartart?: SlideSmartArtInfo;
+  /** Answer of `smartArtNodeAt`. */
+  smartartNode?: SlideSmartArtNode;
+  /** Answer of `smartArtPreviews`. */
+  smartartPreviews?: SmartArtPreview[];
   /** Answer of the `show` command. */
   show?: SlideShowInfo;
   /** Custom shows, show setup, hidden slides and timings (Slide Show tab). */

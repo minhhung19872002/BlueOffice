@@ -2660,6 +2660,9 @@
       "resolved": "đã xử lý"
     },
     "smartart": {
+      "pictures": "Nút có ảnh",
+      "pictureHint": "Ảnh của nút hiện trong các bố cục nhóm Ảnh.",
+      "nodeEditor": "Sửa chữ của nút",
       "button": "Sơ đồ thông minh",
       "tab": "Sơ đồ thông minh",
       "group": "Sơ đồ",
@@ -2708,7 +2711,10 @@
         "promote": "Nâng cấp",
         "demote": "Hạ cấp",
         "up": "Chuyển lên",
-        "down": "Chuyển xuống"
+        "down": "Chuyển xuống",
+        "picture": "Chọn ảnh…",
+        "replacePicture": "Đổi ảnh…",
+        "removePicture": "Bỏ ảnh"
       },
       "colors": "Màu",
       "style": "Kiểu",
@@ -2718,11 +2724,13 @@
         "green": "Xanh lá",
         "orange": "Cam",
         "purple": "Tím",
-        "gray": "Xám"
+        "gray": "Xám",
+        "file": "Theo tệp"
       },
       "styles": {
         "fill": "Tô màu",
-        "outline": "Viền màu"
+        "outline": "Viền màu",
+        "file": "Theo tệp"
       }
     },
     "animDir": {

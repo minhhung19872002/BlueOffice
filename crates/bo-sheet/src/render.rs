@@ -603,13 +603,26 @@ impl Renderer<'_> {
     /// SmartArt drawing fallbacks over the cells of their two-cell anchor
     /// (§20.5.2.33 twoCellAnchor; §21.4.2.6 relIds).
     fn diagrams(&mut self, p: &PaneRegion) {
-        for d in &self.ws.diagrams {
-            let Some(ov) = self.opts.drawings.get(&d.part) else {
+        // Groups of shapes (§20.5.2.17 grpSp) are drawn the same way, by their key.
+        let frames: Vec<(&str, CellRef, Option<CellRef>)> = self
+            .ws
+            .shape_groups
+            .iter()
+            .map(|g| (g.key.as_str(), g.from, g.to))
+            .chain(
+                self.ws
+                    .diagrams
+                    .iter()
+                    .map(|d| (d.part.as_str(), d.from, d.to)),
+            )
+            .collect();
+        for (key, from, to) in frames {
+            let Some(ov) = self.opts.drawings.get(key) else {
                 continue;
             };
-            let x0 = self.geom.col_x(d.from.col);
-            let y0 = self.geom.row_y(d.from.row);
-            let (w, h) = match d.to {
+            let x0 = self.geom.col_x(from.col);
+            let y0 = self.geom.row_y(from.row);
+            let (w, h) = match to {
                 Some(to) => (self.geom.col_x(to.col) - x0, self.geom.row_y(to.row) - y0),
                 None => (ov.w, ov.h),
             };

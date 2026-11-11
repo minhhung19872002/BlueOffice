@@ -6,7 +6,7 @@
 //! diagrams, CORE-SMART-005), so undo and save see the real parts.
 
 use bo_model::diagram;
-use bo_model::slide::{CommonSlideData, Presentation, ShapeNode, Slide, SlideSize};
+use bo_model::slide::ShapeNode;
 use bo_model::Document;
 use bo_text::FontManager;
 use std::collections::BTreeMap;
@@ -20,28 +20,106 @@ pub fn drawing_shapes(xml: &[u8]) -> Option<Vec<ShapeNode>> {
 /// Render a diagram drawing (`w`×`h` EMU) to PNG at 2 px per point; a data model part (SmartArt saved
 /// without its drawing) is laid out first (`bo_pptx::diagram_layout`).
 pub fn render_png(xml: &[u8], w: i64, h: i64, fonts: &mut FontManager) -> Option<Vec<u8>> {
-    let shapes = bo_pptx::diagram::diagram_shapes(xml, "/word/diagrams/drawing.xml", w, h)?;
+    render_png_with(
+        xml,
+        &bo_pptx::diagram::DiagramContext::default(),
+        &bo_pptx::diagram::DiagramAssets::default(),
+        (w, h),
+        fonts,
+    )
+}
+
+/// [`render_png`] with the diagram's pictures, definitions and the document theme.
+pub fn render_png_with(
+    xml: &[u8],
+    cx: &bo_pptx::diagram::DiagramContext<'_>,
+    assets: &bo_pptx::diagram::DiagramAssets<'_>,
+    (w, h): (i64, i64),
+    fonts: &mut FontManager,
+) -> Option<Vec<u8>> {
+    let shapes =
+        bo_pptx::diagram::diagram_shapes_with(xml, "/word/diagrams/drawing.xml", cx, w, h)?;
     if shapes.is_empty() || w <= 0 || h <= 0 {
         return None;
     }
-    let pres = Presentation {
-        slide_size: SlideSize {
-            cx: w,
-            cy: h,
-            kind: None,
-        },
-        slides: vec![Slide {
-            data: CommonSlideData {
-                shapes,
-                ..CommonSlideData::default()
-            },
-            ..Slide::default()
-        }],
-        ..Presentation::default()
-    };
+    let pres = bo_pptx::diagram::shapes_presentation(shapes, assets, (w, h));
     let mut images = BTreeMap::new();
     let page = bo_pptx::render_slide(&pres, 0, fonts, &mut images).ok()?;
     bo_raster::render_page_png_with(&page, fonts, 2.0, &images).ok()
+}
+
+/// Draw the shape group of frame `img` (its media `bytes`, `bo_model::diagram::group_name`): its
+/// shapes scaled to the frame, pictures from the document's media.
+fn render_group(
+    doc: &Document,
+    img: &bo_model::Image,
+    bytes: &[u8],
+    theme: Option<&bo_model::slide::Theme>,
+    fonts: &mut FontManager,
+) -> Option<Vec<u8>> {
+    let size = (img.width.0, img.height.0);
+    if size.0 <= 0 || size.1 <= 0 {
+        return None;
+    }
+    let shapes = bo_pptx::diagram::group_shapes(bytes, &img.media, size)?;
+    let image = |name: &str| doc.media.get(name).map(|b| b.as_ref().clone());
+    let assets = bo_pptx::diagram::DiagramAssets {
+        theme,
+        image: Some(&image),
+    };
+    let pres = bo_pptx::diagram::shapes_presentation(shapes, &assets, size);
+    let mut images = BTreeMap::new();
+    let page = bo_pptx::render_slide(&pres, 0, fonts, &mut images).ok()?;
+    bo_raster::render_page_png_with(&page, fonts, 2.0, &images).ok()
+}
+
+/// Draw the diagram of frame `img` (its media part `bytes`) with what its other parts give: the
+/// pictures of its nodes, and — for a data model BlueOffice lays out — its layout definition and
+/// its own quick style and colours.
+fn render_frame(
+    doc: &Document,
+    img: &bo_model::Image,
+    bytes: &[u8],
+    theme: Option<&bo_model::slide::Theme>,
+    fonts: &mut FontManager,
+) -> Option<Vec<u8>> {
+    let size = (img.width.0, img.height.0);
+    let Some(src) = bo_docx::diagram::diagram_source(doc, img) else {
+        return render_png(bytes, size.0, size.1, fonts);
+    };
+    // The media part is the drawing part, or (without one) the data model part.
+    let is_data =
+        diagram::split_name(&img.media).is_some_and(|(k, _, _)| k == diagram::DiagramPart::Data);
+    let rels = if is_data {
+        &src.pictures
+    } else {
+        &src.drawing_pictures
+    };
+    let resolve = |rid: &str| {
+        rels.iter()
+            .find(|(id, _)| id == rid)
+            .map(|(_, name)| name.clone())
+    };
+    let image = |name: &str| {
+        src.images
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b.as_ref().clone())
+    };
+    let defs = bo_pptx::diagram_layout::Defs::parse(
+        src.style.as_ref().map(|s| s.1.as_slice()),
+        src.colors.as_ref().map(|s| s.1.as_slice()),
+    );
+    let cx = bo_pptx::diagram::DiagramContext {
+        resolve: Some(&resolve),
+        layout: src.layout.as_ref().map(|l| l.1.as_slice()),
+        defs: Some(&defs),
+    };
+    let assets = bo_pptx::diagram::DiagramAssets {
+        theme,
+        image: Some(&image),
+    };
+    render_png_with(bytes, &cx, &assets, size, fonts)
 }
 
 /// One rendered diagram or chart: the part bytes it was drawn from, the PNG and, for a chart, its
@@ -145,8 +223,14 @@ impl SmartArtImages {
         }
         self.key = key;
         let mut next = BTreeMap::new();
-        // The document theme gives the chart colours; read once, when a chart is drawn.
+        // The document theme gives the chart colours and the scheme colours of diagrams; read
+        // once, when a chart or diagram is drawn.
         let mut theme: Option<Option<bo_model::slide::Theme>> = None;
+        // The frame of each diagram part (the first that shows it).
+        let mut frames: BTreeMap<&str, &bo_model::Image> = BTreeMap::new();
+        for img in crate::media::pictures(doc) {
+            frames.entry(img.media.as_str()).or_insert(img);
+        }
         for (name, (w, h)) in crate::media::sizes(doc) {
             let Some(bytes) = doc.media.get(&name) else {
                 continue;
@@ -159,7 +243,15 @@ impl SmartArtImages {
                     next.insert(name, r);
                 }
                 _ if diagram::is_diagram_xml(bytes) => {
-                    if let Some(png) = render_png(bytes, w, h, fonts) {
+                    let theme = theme.get_or_insert_with(|| crate::doc_chart::doc_theme(doc));
+                    let png = match frames.get(name.as_str()) {
+                        Some(img) if diagram::is_group_name(&name) => {
+                            render_group(doc, img, bytes, theme.as_ref(), fonts)
+                        }
+                        Some(img) => render_frame(doc, img, bytes, theme.as_ref(), fonts),
+                        None => render_png(bytes, w, h, fonts),
+                    };
+                    if let Some(png) = png {
                         next.insert(
                             name,
                             Rendered {
@@ -507,13 +599,93 @@ pub fn node_boxes(
         .collect()
 }
 
+/// The `xdr:grpSp` (ECMA-376 Part 1, §20.5.2.17) of a diagram drawing `drawing` laid out for
+/// `child` EMU — "Convert to shapes" on a sheet: each `dsp:sp` becomes an `xdr:sp` (§20.5.2.29:
+/// `nvSpPr`, `spPr`, `style`, `txBody`), nested groups stay groups; picture fills name their
+/// image part (`resolve`: the image part of a relationship id of the drawing part).
+#[must_use]
+pub fn sheet_group_xml(
+    drawing: &[u8],
+    child: (i64, i64),
+    resolve: bo_pptx::diagram::Resolve<'_>,
+) -> Option<String> {
+    use bo_model::slide::{XmlElement, XmlNode};
+    fn renamed(el: &XmlElement, name: &str) -> String {
+        let mut e = el.clone();
+        e.name = name.to_owned();
+        e.attrs
+            .retain(|(k, _)| k != "xmlns" && !k.starts_with("xmlns:"));
+        let mut s = String::new();
+        bo_drawingml::dom::write_element(&e, &mut s);
+        s
+    }
+    fn node(el: &XmlElement, n: &mut u32, out: &mut String) {
+        use std::fmt::Write as _;
+        *n += 1;
+        let me = *n;
+        let kid = |name: &str| el.elements().find(|c| c.local() == name);
+        if el.local() == "grpSp" {
+            let _ = write!(
+                out,
+                "<xdr:grpSp><xdr:nvGrpSpPr><xdr:cNvPr id=\"{me}\" name=\"Group {me}\"/><xdr:cNvGrpSpPr/></xdr:nvGrpSpPr>"
+            );
+            match kid("grpSpPr") {
+                Some(p) => out.push_str(&renamed(p, "xdr:grpSpPr")),
+                None => out.push_str("<xdr:grpSpPr/>"),
+            }
+            for c in el
+                .elements()
+                .filter(|c| matches!(c.local(), "sp" | "grpSp"))
+            {
+                node(c, n, out);
+            }
+            out.push_str("</xdr:grpSp>");
+        } else {
+            let _ = write!(
+                out,
+                "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"{me}\" name=\"Shape {me}\"/><xdr:cNvSpPr/></xdr:nvSpPr>"
+            );
+            match kid("spPr") {
+                Some(p) => out.push_str(&renamed(p, "xdr:spPr")),
+                None => out.push_str("<xdr:spPr/>"),
+            }
+            if let Some(s) = kid("style") {
+                out.push_str(&renamed(s, "xdr:style"));
+            }
+            if let Some(t) = kid("txBody") {
+                out.push_str(&renamed(t, "xdr:txBody"));
+            }
+            out.push_str("</xdr:sp>");
+        }
+    }
+    let tree = bo_pptx::diagram::group_tree(drawing, child, resolve)?;
+    let root = bo_drawingml::dom::parse(&tree, "/group.xml").ok()?;
+    let sp_tree = root.elements().find(|c| c.local() == "spTree")?;
+    // The tree itself is the group: the same walk as a nested group.
+    let mut as_group = sp_tree.clone();
+    as_group.name = "dsp:grpSp".into();
+    as_group.children.retain(|c| match c {
+        XmlNode::Element(e) => e.local() != "nvGrpSpPr",
+        XmlNode::Text(_) => false,
+    });
+    if !as_group
+        .elements()
+        .any(|c| matches!(c.local(), "sp" | "grpSp"))
+    {
+        return None;
+    }
+    let mut out = String::new();
+    node(&as_group, &mut 0, &mut out);
+    Some(out)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod shared_tests {
     use super::*;
 
     // A 1 × 1 PNG (ISO/IEC 15948: signature, IHDR, IDAT, IEND), base64.
-    pub(crate) const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    pub(crate) const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mPQK90GAAIuAVoZ84oiAAAAAElFTkSuQmCC";
 
     fn item(text: &str, level: usize, picture: Option<&str>) -> SmartItem {
         SmartItem {

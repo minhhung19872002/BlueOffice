@@ -835,6 +835,57 @@ fn smartart_library_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// Diagram nodes with pictures (CORE-SMART-003): the two picture layouts with a wide, a tall and
+/// a square picture and a node without one (its frame shows the placeholder mark), a layout of
+/// another category whose nodes keep their pictures in the data model, and a picture layout
+/// converted to shapes (picture fills with relationships of the slide). Each picture is a
+/// picture fill (ECMA-376 Part 1, §20.1.8.14 blipFill) of the node's `dgm:spPr` and of its shape
+/// in the drawing part, both parts with their own relationship to the image part.
+pub const SMARTART_PICTURES_DECK: &str = "slide-edit-smartart-pictures.pptx";
+
+fn smartart_pictures_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    let url = |w: u32, h: u32, tint: [u8; 3]| {
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD
+                .encode(crate::slide_samples::sample_png_of(w, h, tint))
+        )
+    };
+    let items = format!(
+        r#"[{{"text":"Hà Nội","picture":"{}"}},{{"text":"Thủ đô","level":1}},{{"text":"Huế","picture":"{}"}},{{"text":"Đà Nẵng","picture":"{}"}},{{"text":"Cần Thơ"}}]"#,
+        url(96, 32, [46, 117, 182]),
+        url(32, 64, [192, 80, 30]),
+        url(40, 40, [84, 130, 53]),
+    );
+    let mut cmds = Vec::new();
+    for (layout, colors, style) in [
+        ("picture", "colorful", "fill"),
+        ("pictureStrip", "green", "fill"),
+        ("pictureStrip", "purple", "outline"),
+        // Not a picture layout: the pictures stay in the data model, the drawing shows none.
+        ("process", "blue", "fill"),
+        ("picture", "orange", "fill"),
+    ] {
+        cmds.push(r#"{"cmd":"addSlide"}"#.to_owned());
+        cmds.push(format!(
+            r#"{{"cmd":"insertSmartArt","layout":"{layout}","items":{items},"colors":"{colors}","style":"{style}"}}"#
+        ));
+    }
+    // The last diagram becomes a group of shapes.
+    cmds.push(r#"{"cmd":"smartArtToShapes"}"#.to_owned());
+    for c in &cmds {
+        let r = e.slide_command_json(c).ok()?;
+        if r.contains("\"error\":\"") {
+            return None;
+        }
+    }
+    e.save_pptx().ok()
+}
+
 /// Hyperlinks and actions (SLIDE-ACTION-001): linked text (slide, URL, mail) with a
 /// custom show, a file link and a hover sound; action buttons on every slide;
 /// actions BlueSlide never runs (program, macro, file, other deck, unknown).
@@ -1063,6 +1114,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = smartart_library_deck(base) {
         out.push((SMARTART_LIBRARY_DECK, d));
     }
+    if let Some(d) = smartart_pictures_deck(base) {
+        out.push((SMARTART_PICTURES_DECK, d));
+    }
     out.extend(recording_decks(base));
     out.extend(action_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
@@ -1094,7 +1148,7 @@ mod tests {
         let decks = decks(&base, &crate::slide_samples::sample_png());
         assert_eq!(
             decks.len(),
-            SCRIPTS.len() + FLIPPED.len() + 5 + RECORDING_DECKS.len() + ACTION_DECKS.len()
+            SCRIPTS.len() + FLIPPED.len() + 6 + RECORDING_DECKS.len() + ACTION_DECKS.len()
         );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));

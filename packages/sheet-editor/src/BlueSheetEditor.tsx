@@ -9,6 +9,7 @@ import type {
   CellFormatState,
   ChartInfo,
   SheetSmartArtInfo,
+  SmartArtPreview,
   PasteMode,
   PivotInfo,
   Platform,
@@ -253,6 +254,8 @@ import {
   SaveAsTypeDialog,
   SavePasswordPanel,
   SmartArtDialog,
+  smartArtPicturePicker,
+  type SmartArtPreviewLoader,
   SymbolPanel,
   IconPanel,
   insertSheetIcons,
@@ -1386,6 +1389,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   });
   const { open: openModel, createPivot: modelPivot } = dataModel;
 
+  // The dialog of diagrams: layout thumbnails from the engine, node pictures from a file.
+  const loadSmartArtPreviews = useCallback<SmartArtPreviewLoader>(
+    async (colors, style) =>
+      (await host?.exec<{ previews: SmartArtPreview[] }>({ cmd: 'smartArtPreviews', colors, style }))
+        ?.previews ?? [],
+    [host],
+  );
+  const pickSmartArtPicture = useMemo(() => smartArtPicturePicker(platform.files), [platform]);
   /** Open the SmartArt dialog on diagram `index` of sheet `sh` (CORE-SMART-005). */
   const openSmartArt = useCallback(
     async (sh: number, index: number) => {
@@ -2659,6 +2670,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       'smartart.edit',
       async (s) => {
         if (s.smartArt !== null) await openSmartArt(s.sheet, s.smartArt);
+      },
+      { isEnabled: (s) => s.smartArt !== null },
+    );
+    add(
+      'smartart.toShapes',
+      async (s) => {
+        if (s.smartArt === null) return;
+        await exec({ cmd: 'smartArtToShapes', sheet: s.sheet, index: s.smartArt });
+        setSmartArt(null);
       },
       { isEnabled: (s) => s.smartArt !== null },
     );
@@ -4920,6 +4940,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('slideEditor.smartart.group'),
             items: [
               item('smartart.edit', t('slideEditor.smartart.textPane'), <Pencil size={18} />),
+              item('smartart.toShapes', t('slideEditor.smartart.toShapes'), <Shapes size={18} />),
               item('smartart.delete', t('sheetEditor.smartArt.delete'), <Trash2 size={18} />),
             ],
           },
@@ -6577,6 +6598,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         <SmartArtDialog
           mode={smartArtDialog.mode}
           initial={smartArtDialog.initial}
+          loadPreviews={loadSmartArtPreviews}
+          pickPicture={pickSmartArtPicture}
           onClose={() => {
             setSmartArtDialog(null);
             focusInput();

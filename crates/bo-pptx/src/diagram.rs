@@ -118,6 +118,154 @@ pub fn drawing_shapes_with(
     Some(out)
 }
 
+/// The media of a shape group (`bo_model::diagram::group_name`) for a frame of `w` × `h` EMU
+/// laid out for `child` EMU: the shape tree `drawing` (a `dsp:drawing`) with that child space on
+/// its group properties (§20.1.7.5 xfrm: `a:chOff` / `a:chExt`) and its picture fills naming
+/// their image parts (`resolve`: the image part of a relationship id of the drawing part).
+#[must_use]
+pub fn group_tree(drawing: &[u8], child: (i64, i64), resolve: Resolve<'_>) -> Option<Vec<u8>> {
+    let mut root = bo_drawingml::dom::parse(drawing, "/group.xml").ok()?;
+    if root.local() != "drawing" {
+        return None;
+    }
+    let tree = root.children.iter_mut().find_map(|c| match c {
+        XmlNode::Element(e) if e.local() == "spTree" => Some(e),
+        _ => None,
+    })?;
+    resolve_blips(tree, resolve);
+    let (cx, cy) = child;
+    let mut pr = XmlElement::new("dsp:grpSpPr");
+    let mut xfrm = XmlElement::new("a:xfrm");
+    for (name, a, b, x, y) in [
+        ("a:off", "x", "y", 0, 0),
+        ("a:ext", "cx", "cy", cx, cy),
+        ("a:chOff", "x", "y", 0, 0),
+        ("a:chExt", "cx", "cy", cx, cy),
+    ] {
+        let mut e = XmlElement::new(name);
+        e.attrs = vec![(a.into(), x.to_string()), (b.into(), y.to_string())];
+        xfrm.children.push(XmlNode::Element(e));
+    }
+    pr.children.push(XmlNode::Element(xfrm));
+    let mut placed = false;
+    for c in &mut tree.children {
+        if let XmlNode::Element(e) = c {
+            if e.local() == "grpSpPr" {
+                *e = pr.clone();
+                placed = true;
+            }
+        }
+    }
+    if !placed {
+        tree.children.insert(0, XmlNode::Element(pr));
+    }
+    if !root.attrs.iter().any(|(k, _)| k == "xmlns:r") {
+        root.attrs.push((
+            "xmlns:r".into(),
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships".into(),
+        ));
+    }
+    Some(bo_drawingml::dom::to_part_xml(&root))
+}
+
+/// The shapes of a shape group's media ([`group_tree`]) for a frame of `w` × `h` EMU: one group
+/// whose child space is the size the shapes were laid out for, so a resized frame scales them.
+#[must_use]
+pub fn group_shapes(xml: &[u8], part: &str, (w, h): (i64, i64)) -> Option<Vec<ShapeNode>> {
+    use bo_model::slide::{GroupShape, ShapeProps, Xfrm};
+    let root = bo_drawingml::dom::parse(xml, part).ok()?;
+    let tree = find(&root, "spTree")?;
+    let child = tree
+        .elements()
+        .find(|e| e.local() == "grpSpPr")
+        .and_then(|g| find(g, "chExt"))
+        .and_then(|e| {
+            Some((
+                e.attr("cx")?.parse::<i64>().ok()?,
+                e.attr("cy")?.parse::<i64>().ok()?,
+            ))
+        })
+        .filter(|(cw, ch)| *cw > 0 && *ch > 0)
+        .unwrap_or((w, h));
+    let children = drawing_shapes(xml, part)?;
+    Some(vec![ShapeNode::Group(Box::new(GroupShape {
+        props: ShapeProps {
+            xfrm: Some(Xfrm {
+                off: Some((0, 0)),
+                ext: Some((w, h)),
+                ch_off: Some((0, 0)),
+                ch_ext: Some(child),
+                ..Xfrm::default()
+            }),
+            ..ShapeProps::default()
+        },
+        children,
+        ..GroupShape::default()
+    }))])
+}
+
+/// The shapes of a sheet's shape group (`xdr:grpSp`, ECMA-376 Part 1, §20.5.2.17: its shapes are
+/// DrawingML as a slide's are) fitted to a frame of `w` × `h` EMU; picture fills name their
+/// image part.
+#[must_use]
+pub fn sheet_group_shapes(grp_sp: &str, (w, h): (i64, i64)) -> Option<Vec<ShapeNode>> {
+    fn to_p(el: &mut XmlElement) {
+        if let Some(local) = el.name.strip_prefix("xdr:") {
+            el.name = format!("p:{local}");
+        }
+        for c in &mut el.children {
+            if let XmlNode::Element(e) = c {
+                to_p(e);
+            }
+        }
+    }
+    let mut root = bo_drawingml::dom::parse(grp_sp.as_bytes(), "/group.xml").ok()?;
+    if root.local() != "grpSp" {
+        return None;
+    }
+    to_p(&mut root);
+    let mut node = crate::parse_node(&root);
+    let ShapeNode::Group(g) = &mut node else {
+        return None;
+    };
+    let mut x = g.props.xfrm.clone().unwrap_or_default();
+    // The anchor gives the place and size; the child space stays the group's own.
+    let child = x.ch_ext.or(x.ext).unwrap_or((w, h));
+    x.ch_off = Some(x.ch_off.or(x.off).unwrap_or((0, 0)));
+    x.ch_ext = Some(child);
+    x.off = Some((0, 0));
+    x.ext = Some((w, h));
+    g.props.xfrm = Some(x);
+    Some(vec![node])
+}
+
+/// Draw `shapes` (EMU, in a `w` × `h` box) as vector commands; the images they show are added
+/// to `images` (by part name).
+pub fn render_shapes(
+    shapes: Vec<ShapeNode>,
+    assets: &DiagramAssets<'_>,
+    (w, h): (i64, i64),
+    fonts: &mut bo_text::FontManager,
+    images: &mut std::collections::BTreeMap<String, Vec<u8>>,
+) -> Option<Vec<bo_render::Command>> {
+    if shapes.is_empty() || w <= 0 || h <= 0 {
+        return None;
+    }
+    let n = shapes.len();
+    let pres = shapes_presentation(shapes, assets, (w, h));
+    let opts = crate::RenderOptions {
+        layer: Some(crate::ShapeRange {
+            start: 0,
+            end: n,
+            backdrop: false,
+        }),
+        ..crate::RenderOptions::default()
+    };
+    crate::render_with(&pres, 0, fonts, images, &opts)
+        .ok()
+        .map(|p| p.commands)
+}
+
 /// Relationship type of an image part (ECMA-376 Part 1, §15.2.14).
 pub const REL_IMAGE: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";

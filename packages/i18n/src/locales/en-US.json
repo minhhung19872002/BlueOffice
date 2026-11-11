@@ -2660,6 +2660,9 @@
       "resolved": "resolved"
     },
     "smartart": {
+      "pictures": "Nodes with a picture",
+      "pictureHint": "A node\u2019s picture shows in the layouts of the Picture group.",
+      "nodeEditor": "Edit the node text",
       "button": "Smart diagram",
       "tab": "Smart diagram",
       "group": "Diagram",
@@ -2708,7 +2711,10 @@
         "promote": "Promote",
         "demote": "Demote",
         "up": "Move up",
-        "down": "Move down"
+        "down": "Move down",
+        "picture": "Picture…",
+        "replacePicture": "Replace picture…",
+        "removePicture": "Remove picture"
       },
       "colors": "Colours",
       "style": "Style",
@@ -2718,11 +2724,13 @@
         "green": "Green",
         "orange": "Orange",
         "purple": "Purple",
-        "gray": "Grey"
+        "gray": "Grey",
+        "file": "From the file"
       },
       "styles": {
         "fill": "Filled",
-        "outline": "Outline"
+        "outline": "Outline",
+        "file": "From the file"
       }
     },
     "animDir": {

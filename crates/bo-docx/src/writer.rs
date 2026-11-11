@@ -864,6 +864,11 @@ impl Writer<'_> {
             let graphic = crate::shape::shape_graphic(img, s, id, txbx.as_deref());
             return Self::frame(img, id, "Shape", &graphic);
         }
+        if bo_model::diagram::is_group_name(&img.media) {
+            if let Some(xml) = self.shape_group(img) {
+                return xml;
+            }
+        }
         if let Some(names) = crate::diagram::own_parts(self.doc, img) {
             return self.diagram(img, &names);
         }
@@ -918,6 +923,30 @@ impl Writer<'_> {
         Self::frame(img, id, "Picture", &graphic)
     }
 
+    /// A group of shapes (CORE-SMART-004, a diagram converted to shapes): a `wpg:wgp`
+    /// ([MS-ODRAWXML] wordprocessingGroup) written from the group's shape tree (`crate::group`);
+    /// the pictures of its shapes become image relationships of this part.
+    fn shape_group(&mut self, img: &Image) -> Option<String> {
+        let bytes = self.doc.media.get(&img.media)?.clone();
+        self.drawing_id += 1;
+        let id = self.drawing_id;
+        let mut next = id + 1;
+        let mut pictures: Vec<String> = Vec::new();
+        let graphic = {
+            let (rels, media) = (&mut self.rels, &self.doc.media);
+            let mut blip = |name: &str| {
+                media.contains_key(name).then(|| {
+                    pictures.push(name.to_owned());
+                    rels.id_for(REL_IMAGE, name, false)
+                })
+            };
+            crate::group::group_graphic(&bytes, (img.width.0, img.height.0), &mut next, &mut blip)?
+        };
+        self.drawing_id = next - 1;
+        self.picture_media.extend(pictures);
+        Some(Self::frame(img, id, "Group", &graphic))
+    }
+
     /// A SmartArt frame BlueOffice created or edited (CORE-SMART-005): `a:graphicData` with
     /// `dgm:relIds` (ECMA-376 Part 1, §21.4.2.6) naming the data model, layout, quick style and
     /// colours parts, plus the drawing part relationship ([MS-ODRAWXML] diagramDrawing) that the
@@ -939,6 +968,12 @@ impl Writer<'_> {
                 bytes.as_ref().clone()
             };
             self.diagram_parts.insert(n.clone(), bytes);
+            // The part's own relationships (ECMA-376 Part 2): the images of its picture fills
+            // (§20.1.8.14 blipFill of a node's `dgm:spPr` / of its shape in the drawing part).
+            let rels = crate::diagram::rels_name(n);
+            if let Some(r) = self.doc.media.get(&rels) {
+                self.diagram_parts.insert(rels, r.as_ref().clone());
+            }
         }
         self.drawing_id += 1;
         let id = self.drawing_id;
@@ -2163,7 +2198,11 @@ impl Writer<'_> {
                     && self.pkg.part(n).is_none()
                     && !self.chart_media.contains(n)
             };
-            if self.diagram_parts.contains_key(name)
+            // Relationships parts kept as media belong to diagram parts and are written with them.
+            // A shape group's tree is written as a `wpg:wgp`, not as a part.
+            if name.contains("/_rels/")
+                || bo_model::diagram::is_group_name(name)
+                || self.diagram_parts.contains_key(name)
                 || self.chart_media.contains(name)
                 || unshown_chart(name)
                 || chart_owner.as_ref().is_some_and(unshown_chart)

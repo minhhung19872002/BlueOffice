@@ -440,7 +440,10 @@ Hiện khi ô đang chọn có biểu đồ thu nhỏ.
 
 ### Tab Sơ đồ thông minh
 
-Hiện khi chọn sơ đồ: **Ngăn văn bản**, **Xoá Sơ đồ thông minh**.
+Hiện khi chọn sơ đồ: **Ngăn văn bản**, **Chuyển thành hình**, **Xoá sơ đồ thông minh**.
+
+> **Hạn chế:** nhóm hình tạo bằng **Chuyển thành hình** được hiển thị và lưu, nhưng chưa chọn, di chuyển hay xoá được
+> trên trang tính (dùng `Ctrl+Z` để lấy lại sơ đồ).
 
 ## Giới hạn về kích thước
 

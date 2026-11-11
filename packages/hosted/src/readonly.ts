@@ -109,6 +109,9 @@ export const SLIDE_READ_COMMANDS: ReadonlySet<string> = new Set([
   'show',
   // Chart Design previews (CORE-CHART-007).
   'chartGallery',
+  // Diagram layout thumbnails and the node under a point (CORE-SMART-004).
+  'smartArtPreviews',
+  'smartArtNodeAt',
   'security',
   'setIdentity',
   'setReadOnly',
@@ -159,6 +162,7 @@ export const SHEET_READ_COMMANDS: ReadonlySet<string> = new Set([
   // Show Changes (CORE-VERSION-001).
   'compareWorkbook',
   'smartArtInfo',
+  'smartArtPreviews',
   // Map chart boundary datasets (CORE-CHART-006): engine set-up, not document edits.
   'mapDatasets',
   'registerMapDataset',

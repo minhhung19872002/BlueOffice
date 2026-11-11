@@ -26,11 +26,28 @@ pub(crate) fn write_edited(
     wb: &Workbook,
     ws: &Worksheet,
     overrides: &mut HashMap<String, Vec<u8>>,
+    out_parts: &mut Vec<(String, Option<String>, Vec<u8>)>,
 ) {
     let opaque = |name: &str| wb.opaque.parts.iter().find(|p| p.name == name);
     for d in ws.diagrams.iter().filter(|d| !d.rel_dm.is_empty()) {
         if let Some(x) = &d.xml {
             let drawing = (d.part != d.data).then_some(d.part.as_str());
+            // The pictures of the nodes: the relationships of the data model and drawing parts
+            // (replaced, added, or emptied when the last picture went) and new image parts.
+            for part in [Some(d.data.as_str()), drawing].into_iter().flatten() {
+                let name = bo_opc::rels_part_name(part);
+                match (opaque(&name).is_some(), x.rels.is_empty()) {
+                    (true, false) => {
+                        overrides.insert(name, x.rels.clone());
+                    }
+                    (true, true) => {
+                        overrides.insert(name, EMPTY_RELS.as_bytes().to_vec());
+                    }
+                    (false, false) => out_parts.push((name, None, x.rels.clone())),
+                    (false, true) => {}
+                }
+            }
+            push_images(x, &|n| opaque(n).is_some(), out_parts);
             for (name, kind) in [
                 (Some(d.data.as_str()), DiagramPart::Data),
                 (Some(d.layout.as_str()), DiagramPart::Layout),
@@ -62,6 +79,25 @@ pub(crate) fn write_edited(
             {
                 overrides.insert(dpath, patched.into_bytes());
             }
+        }
+    }
+}
+
+const EMPTY_RELS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"/>";
+
+/// The image parts a diagram adds that the package does not have yet.
+fn push_images(
+    x: &diagram::DiagramXml,
+    exists: &dyn Fn(&str) -> bool,
+    out_parts: &mut Vec<(String, Option<String>, Vec<u8>)>,
+) {
+    for (name, bytes) in &x.images {
+        if !exists(name) && out_parts.iter().all(|(p, _, _)| p != name) {
+            out_parts.push((
+                name.clone(),
+                Some(crate::group::image_type(name).to_owned()),
+                bytes.clone(),
+            ));
         }
     }
 }
@@ -112,7 +148,12 @@ pub(crate) fn append_new(
                 x.get(*kind).to_vec()
             };
             out_parts.push((name.clone(), Some(kind.content_type()), bytes));
+            // Its own relationships: the images of the nodes' picture fills.
+            if !x.rels.is_empty() && matches!(kind, DiagramPart::Data | DiagramPart::Drawing) {
+                out_parts.push((bo_opc::rels_part_name(name), None, x.rels.clone()));
+            }
         }
+        push_images(x, &|_| false, out_parts);
         anchors.push_str(&anchor_xml(d, first_shape_id + i as u32, &ids));
     }
     if !add.is_empty() {

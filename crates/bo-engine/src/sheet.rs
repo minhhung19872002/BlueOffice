@@ -66,8 +66,36 @@ pub const MAX_COLS: u32 = 16_384;
 fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, DrawingOverlay> {
     const EMU_PER_PT: f64 = 12_700.0;
     let mut out = BTreeMap::new();
-    for ws in wb.sheets.iter().filter(|ws| !ws.diagrams.is_empty()) {
+    // What the shapes are drawn with: the workbook's theme colours and its image parts.
+    let theme = wb.theme.as_ref().map(diagram_theme);
+    let image = |name: &str| smartart_cmd::image_bytes(wb, name).map(<[u8]>::to_vec);
+    let assets = bo_pptx::diagram::DiagramAssets {
+        theme: theme.as_ref(),
+        image: Some(&image),
+    };
+    let mut images = BTreeMap::new();
+    for ws in wb
+        .sheets
+        .iter()
+        .filter(|ws| !ws.diagrams.is_empty() || !ws.shape_groups.is_empty())
+    {
         let g = SheetGeometry::new(ws, &wb.styles, fonts);
+        // Groups of shapes (a diagram converted to shapes, or read from the file).
+        for sg in &ws.shape_groups {
+            let to = sg.to.unwrap_or(CellRef::new(
+                sg.from.row.saturating_add(10),
+                sg.from.col.saturating_add(6),
+            ));
+            let w = g.col_x(to.col) - g.col_x(sg.from.col);
+            let h = g.row_y(to.row) - g.row_y(sg.from.row);
+            #[allow(clippy::cast_possible_truncation)]
+            let size = ((w * EMU_PER_PT) as i64, (h * EMU_PER_PT) as i64);
+            if let Some(commands) = bo_pptx::diagram::sheet_group_shapes(&sg.grp_sp, size)
+                .and_then(|s| bo_pptx::diagram::render_shapes(s, &assets, size, fonts, &mut images))
+            {
+                out.insert(sg.key.clone(), DrawingOverlay { w, h, commands });
+            }
+        }
         for d in &ws.diagrams {
             if out.contains_key(&d.part) {
                 continue;
@@ -90,7 +118,37 @@ fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, 
             let h = g.row_y(to.row) - g.row_y(d.from.row);
             #[allow(clippy::cast_possible_truncation)]
             let (we, he) = ((w * EMU_PER_PT) as i64, (h * EMU_PER_PT) as i64);
-            if let Some(commands) = bo_pptx::diagram::render_drawing(xml, &d.part, we, he, fonts) {
+            // Its pictures, and — for a data model laid out here — its layout definition and its
+            // own quick style and colours.
+            let src = smartart_cmd::sources(wb, d);
+            let rels = src.as_ref().map(|s| {
+                if d.part == d.data {
+                    &s.pictures
+                } else {
+                    &s.drawing_pictures
+                }
+            });
+            let resolve = |rid: &str| {
+                rels?
+                    .iter()
+                    .find(|(id, _)| id == rid)
+                    .map(|(_, name)| name.clone())
+            };
+            let defs = src.as_ref().map(smartart_cmd::Sources::defs);
+            let cx = bo_pptx::diagram::DiagramContext {
+                resolve: Some(&resolve),
+                layout: src.as_ref().and_then(|s| s.layout),
+                defs: defs.as_ref(),
+            };
+            if let Some(commands) = bo_pptx::diagram::render_drawing_with(
+                xml,
+                &d.part,
+                &cx,
+                &assets,
+                (we, he),
+                fonts,
+                &mut images,
+            ) {
                 out.insert(d.part.clone(), DrawingOverlay { w, h, commands });
             }
         }
@@ -98,7 +156,30 @@ fn diagram_overlays(wb: &Workbook, fonts: &mut FontManager) -> BTreeMap<String, 
     out
 }
 
-/// Fingerprint of the SmartArt diagrams of a workbook (anchors, parts and new / edited drawings).
+/// The theme a diagram's scheme colours resolve against: the workbook's colour scheme
+/// (ECMA-376 Part 1, §20.1.6.2 clrScheme: dk1, lt1, dk2, lt2, accent1–6, hlink, folHlink).
+fn diagram_theme(colors: &bo_model::sheet::ThemeColors) -> bo_model::slide::Theme {
+    const SLOTS: [&str; 12] = [
+        "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5",
+        "accent6", "hlink", "folHlink",
+    ];
+    let mut theme = bo_model::slide::Theme::default();
+    theme.colors.colors = SLOTS
+        .iter()
+        .zip(&colors.colors)
+        .filter_map(|(slot, hex)| {
+            let rgb = u32::from_str_radix(hex.trim_start_matches('#'), 16).ok()?;
+            Some((
+                (*slot).to_owned(),
+                bo_model::slide::Color::srgb(rgb & 0x00FF_FFFF),
+            ))
+        })
+        .collect();
+    theme
+}
+
+/// Fingerprint of the SmartArt diagrams and shape groups of a workbook (anchors, parts and new /
+/// edited drawings).
 fn diagrams_key(wb: &Workbook) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -106,7 +187,11 @@ fn diagrams_key(wb: &Workbook) -> u64 {
         for d in &ws.diagrams {
             (i, &d.part, d.from.row, d.from.col).hash(&mut h);
             d.to.map(|t| (t.row, t.col)).hash(&mut h);
-            d.xml.as_ref().map(|x| &x.drawing).hash(&mut h);
+            d.xml.as_ref().map(|x| (&x.drawing, &x.rels)).hash(&mut h);
+        }
+        for g in &ws.shape_groups {
+            (i, &g.key, g.from.row, g.from.col, &g.grp_sp).hash(&mut h);
+            g.to.map(|t| (t.row, t.col)).hash(&mut h);
         }
     }
     h.finish()

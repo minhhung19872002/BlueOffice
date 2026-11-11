@@ -411,12 +411,11 @@ pub fn cmd_set_smartart(
     let drawing_rel = bo_pptx::diagram::drawing_rel_id(data, &parts.data).unwrap_or_default();
     let lk = look(dl::look_of(data, &parts.data), colors, style).map_err(EditError::Refused)?;
     let defs = parts.defs(tx.pres);
-    let (nodes, pictures) = match items {
-        Some(i) => nodes_of(tx, i, &parts.pictures)?,
-        None => {
-            let used = shared::used_pictures(&old_nodes, &parts.pictures);
-            (old_nodes, used)
-        }
+    let (nodes, pictures) = if let Some(i) = items {
+        nodes_of(tx, i, &parts.pictures)?
+    } else {
+        let used = shared::used_pictures(&old_nodes, &parts.pictures);
+        (old_nodes, used)
     };
     if nodes.is_empty() {
         return Err(EditError::Refused("badSmartArt"));
@@ -641,13 +640,12 @@ fn relink(
             }
             return Ok(());
         };
-        let rid = match done.iter().find(|(p, _)| *p == part) {
-            Some((_, rid)) => rid.clone(),
-            None => {
-                let rid = super::picture::add_rel(tx, slide, &part)?;
-                done.push((part, rid.clone()));
-                rid
-            }
+        let rid = if let Some((_, rid)) = done.iter().find(|(p, _)| *p == part) {
+            rid.clone()
+        } else {
+            let rid = super::picture::add_rel(tx, slide, &part)?;
+            done.push((part, rid.clone()));
+            rid
         };
         *embed = Some(rid);
         Ok(())

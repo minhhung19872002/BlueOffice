@@ -90,9 +90,11 @@ hình rồi bấm **Nối hai hình** (đường thẳng) hoặc **Đường n�
 - **Biểu đồ:** hộp thoại nhập dữ liệu (thêm / bớt hàng, chuỗi), chọn loại, **Tiêu đề**, **Chú giải**. Tab ngữ cảnh
   **Biểu đồ** hiện khi chọn biểu đồ.
 - **Đối tượng sổ làm việc** và **Cập nhật liên kết:** như BlueDoc ([bluedoc.md](bluedoc.md#đối-tượng-sổ-làm-việc)).
-- **Sơ đồ thông minh:** trong hộp thoại **Chèn Sơ đồ thông minh** chọn nhóm bố cục (**Danh sách**, **Quy trình**, **Chu trình**,
-  **Phân cấp**, **Ma trận**, **Kim tự tháp**, **Quan hệ**), gõ mỗi dòng một mục (`Tab` hạ cấp, `Shift+Tab` nâng
-  cấp), bấm **Chèn**.
+- **Sơ đồ thông minh:** trong hộp thoại **Chèn sơ đồ thông minh** chọn bố cục (mỗi bố cục có hình xem trước) trong các
+  nhóm **Danh sách**, **Quy trình**, **Chu trình**, **Phân cấp**, **Ma trận**, **Kim tự tháp**, **Quan hệ**, **Ảnh**; gõ
+  mỗi dòng một mục (`Tab` hạ cấp, `Shift+Tab` nâng cấp), bấm **Chèn**. **Chọn ảnh…** / **Đổi ảnh…** / **Bỏ ảnh** đặt
+  ảnh cho nút ở dòng đang đứng (hiện trong các bố cục nhóm **Ảnh**). Nhấp đúp vào một nút trên slide để sửa chữ của
+  nút ngay tại chỗ (`Enter` để nhận, `Esc` để bỏ); nhấp đúp chỗ khác trong sơ đồ mở **Ngăn văn bản**.
 - **Video / âm thanh:** chèn tệp `.mp4`, `.m4v`, `.webm`, `.ogv`, `.mov`, `.mp3`, `.m4a`, `.wav`, `.ogg`, `.oga`.
   Tệp chỉ phát được khi trình duyệt hoặc máy có bộ giải mã tương ứng; nếu không, slide hiện ảnh đại diện.
 - **Mô hình 3D:** chèn tệp glTF / GLB, OBJ hoặc STL. Kéo trên mô hình để xoay.

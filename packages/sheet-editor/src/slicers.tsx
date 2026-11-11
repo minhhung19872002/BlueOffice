@@ -554,7 +554,6 @@ export function TimelineFrame({
           <button
             key={p.label}
             type="button"
-            data-testid="timeline-period"
             className={`${info.filtered && p.selected ? styles.slicerOn : styles.slicerOff} ${
               inDrag(k) ? styles.timelineDrag : ''
             }`}

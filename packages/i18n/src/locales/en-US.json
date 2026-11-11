@@ -233,6 +233,7 @@
       "dropCap": "Large initial",
       "signatureLine": "Signature line…",
       "smartart": "SmartArt",
+      "chart": "Chart",
       "link": "Insert link",
       "action": "Action settings",
       "actionButtons": "Action buttons",
@@ -416,6 +417,24 @@
       "textDirection": "Turn text",
       "wrap": "Wrap text around table"
     },
+    "chart": {
+      "edit": "Edit chart data",
+      "type": {
+        "column": "Change to column chart",
+        "bar": "Change to bar chart",
+        "line": "Change to line chart",
+        "area": "Change to area chart",
+        "pie": "Change to pie chart"
+      },
+      "wrap": {
+        "inline": "Chart in line with text",
+        "square": "Square wrapping",
+        "tight": "Tight wrapping",
+        "topAndBottom": "Top and bottom wrapping",
+        "behind": "Chart behind text",
+        "inFront": "Chart in front of text"
+      }
+    },
     "picture": {
       "position": "Picture position"
     },
@@ -498,7 +517,8 @@
     "image": "Could not insert the picture: {{message}}",
     "sign": "Could not sign: {{message}}",
     "verify": "Could not verify the signatures: {{message}}",
-    "smartArt": "The SmartArt could not be inserted or changed."
+    "smartArt": "The SmartArt could not be inserted or changed.",
+    "chart": "The chart could not be inserted or changed."
   },
   "placeholder": {
     "sheet": "BlueSheet (spreadsheets) is developed in Phase 3.",
@@ -3515,6 +3535,17 @@
     "signOut": "Sign out",
     "account": "Signed in as {{name}}",
     "signInFailed": "Could not sign in: {{message}}"
+  },
+  "docChart": {
+    "wrapGroup": "Wrap text",
+    "wrap": {
+      "inline": "In line with text",
+      "square": "Square",
+      "tight": "Tight",
+      "topAndBottom": "Top and bottom",
+      "behind": "Behind text",
+      "inFront": "In front of text"
+    }
   },
   "picture": {
     "position": "Picture position",

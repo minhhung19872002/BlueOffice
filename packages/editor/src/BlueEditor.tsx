@@ -246,6 +246,11 @@ import {
   Volume2,
   Mic,
   Network,
+  ChartArea,
+  ChartBar,
+  ChartColumn,
+  ChartLine,
+  ChartPie,
   Pencil,
   Palette,
   MessageSquare,
@@ -416,6 +421,14 @@ import {
 import { demoted, promoted } from './outlineModel';
 import viewStyles from './Views.module.css';
 import { SmartArtDialog, type SmartArtDraft } from './SmartArtDialog';
+import { ChartDialog, type ChartDraft } from './chart/ChartDialog';
+import { SaveChartTemplateDialog } from './chart/chartDesign';
+import {
+  chartCommand,
+  docChartTabs,
+  docGalleryLoader,
+  registerDocChartCommands,
+} from './chart/docCharts';
 import { FileBackstage, type BackstagePropertiesAccess } from './FileBackstage';
 import { useCustomShortcuts } from './ShortcutsDialog';
 import { useRibbonCustomization } from './RibbonCustomizeDialog';
@@ -663,6 +676,20 @@ function EditorInner({
     mode: 'insert' | 'edit';
     initial: SmartArtDraft;
   } | null>(null);
+  /** Chart dialog (CORE-CHART-007): insert a chart or edit the selected one's data. */
+  const [chartDialog, setChartDialog] = useState<{
+    mode: 'insert' | 'edit';
+    initial: ChartDraft;
+  } | null>(null);
+  const [chartTemplateOpen, setChartTemplateOpen] = useState(false);
+  // A chart just selected: read its type and wrapping for the Chart Design tab's checked state.
+  const chartSelected =
+    !!state.edit?.format.chart &&
+    state.edit.chart === undefined &&
+    state.edit.selection.anchor.o !== state.edit.selection.focus.o;
+  useEffect(() => {
+    if (chartSelected) void controller.current?.run({ cmd: 'chartInfo' });
+  }, [chartSelected]);
   const dialogOpen = state.dialog;
   useEffect(() => {
     if (dialogOpen !== 'equation' || equationTemplates.length > 0) return;
@@ -1961,6 +1988,12 @@ function EditorInner({
           });
         }
       },
+    });
+    // Charts (CORE-CHART-007): BlueSlide's chart types, dialog and design, in the document.
+    registerDocChartCommands(r, {
+      t: i18nInstance.t.bind(i18nInstance),
+      run: async (c) => (await controller.current?.run(c)) ?? null,
+      open: (mode, initial) => setChartDialog({ mode, initial }),
     });
     r.register({
       id: 'insert.equation',
@@ -3342,6 +3375,10 @@ function EditorInner({
     : {};
   const noDoc = !state.doc;
   const focusDoc = () => view.current?.focus();
+  /** Chart Design gallery of the selected chart (CORE-CHART-007), loaded when a menu opens. */
+  // The loader only dereferences the controller ref when a menu opens, never during render.
+  // eslint-disable-next-line react-hooks/refs
+  const chartGallery = docGalleryLoader(runCommand);
   const runFocus = (c: EditCommand) =>
     (controller.current?.run(c) ?? Promise.resolve(null)).then((r) => {
       focusDoc();
@@ -3525,6 +3562,29 @@ function EditorInner({
           },
         ]
       : [];
+  // Chart Design tab (CORE-CHART-007) for the chart at the selection; its callbacks only run
+  // engine commands when a control is used, never during render.
+  /* eslint-disable react-hooks/refs */
+  const chartTabs = docChartTabs({
+    t,
+    item,
+    icons: {
+      edit: <Pencil size={ICON} />,
+      types: {
+        column: <ChartColumn size={SMALL} />,
+        bar: <ChartBar size={SMALL} />,
+        line: <ChartLine size={SMALL} />,
+        area: <ChartArea size={SMALL} />,
+        pie: <ChartPie size={SMALL} />,
+      },
+      wrap: <WrapText size={SMALL} />,
+    },
+    shown: !!fs?.chart,
+    load: chartGallery,
+    apply: (spec) => void runCommand({ cmd: 'setChart', ...spec }),
+    onSaveTemplate: () => setChartTemplateOpen(true),
+  });
+  /* eslint-enable react-hooks/refs */
   // Equation and embedded object tabs (CORE-UI-008); the object tab comes before the picture
   // tab its preview also shows, so selecting an object activates it.
   const objectTabs = docObjectTabs(t, item, docObjectContexts(state.edit));
@@ -3533,6 +3593,7 @@ function EditorInner({
     ...objectTabs,
     ...pictureTab,
     ...smartArtTab,
+    ...chartTabs,
     ...headerFooterTab,
   ];
 
@@ -3788,6 +3849,7 @@ function EditorInner({
             item('object.insert', 'commands.object.insert', <FileSpreadsheet size={ICON} />),
             s('object.updateLinks', 'commands.object.updateLinks', <RefreshCw size={SMALL} />),
             item('insert.smartart', 'commands.insert.smartart', <Network size={ICON} />),
+            item('insert.chart', 'commands.insert.chart', <ChartColumn size={ICON} />),
           ],
         },
         {
@@ -5284,6 +5346,36 @@ function EditorInner({
                 toTable={state.dialog === 'textToTable'}
                 run={runCommand}
                 onClose={closeDialog}
+              />
+            )}
+            {chartDialog && (
+              <ChartDialog
+                open
+                mode={chartDialog.mode}
+                initial={chartDialog.initial}
+                onClose={() => {
+                  setChartDialog(null);
+                  focusDoc();
+                }}
+                onApply={(d) => {
+                  const mode = chartDialog.mode;
+                  setChartDialog(null);
+                  void runCommand(chartCommand(mode, d, t)).then((r) => {
+                    if (r?.error) fail('errors.chart', r.error);
+                    focusDoc();
+                  });
+                }}
+              />
+            )}
+            {chartTemplateOpen && (
+              <SaveChartTemplateDialog
+                load={chartGallery}
+                onClose={() => setChartTemplateOpen(false)}
+                onSaved={(name) =>
+                  store.setState({
+                    status: { kind: 'info', key: 'chartDesign.templateSaved', params: { name } },
+                  })
+                }
               />
             )}
             {smartArtDialog && (

@@ -1,0 +1,45 @@
+/* Chart dialog. */
+.chartForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chartForm label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chartGridWrap {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.chartGrid {
+  border-collapse: collapse;
+}
+
+.chartGrid th,
+.chartGrid td {
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+}
+
+.chartGrid input {
+  width: 90px;
+  /* WCAG 2.5.8: each cell field is a 24 px tall target. */
+  min-height: 24px;
+  box-sizing: border-box;
+  border: none;
+  padding: 3px 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.chartGridButtons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}

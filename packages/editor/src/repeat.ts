@@ -57,6 +57,7 @@ const NEUTRAL = new Set([
   'outline',
   'notes',
   'smartArtInfo',
+  'chartInfo',
   'chartGallery',
   'equationTemplates',
   'click',

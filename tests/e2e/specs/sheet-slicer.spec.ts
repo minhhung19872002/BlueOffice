@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/** Insert › Table asks for the range and the header row first (Create Table dialog). */
+async function confirmCreateTable(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Tạo bảng' });
+  await dialog.getByRole('button', { name: 'Đồng ý' }).click();
+  await expect(dialog).toBeHidden();
+}
+
 async function goTo(page: Page, ref: string) {
   const box = page.getByLabel('Hộp tên');
   await box.click();
@@ -33,6 +40,7 @@ test('BlueSheet: a table slicer filters the table rows', async ({ page }) => {
   await goTo(page, 'A1:B4');
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await page.locator('[data-command="insert.table"]').click();
+  await confirmCreateTable(page);
   await goTo(page, 'A2');
   await page.locator('[data-command="insert.slicer"]').click();
   const slicer = page.getByTestId('slicer');

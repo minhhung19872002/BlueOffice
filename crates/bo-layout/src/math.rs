@@ -809,12 +809,17 @@ impl MathCtx<'_> {
                 let mut out = MathBox::default();
                 let (w, a, d) = (e2.w + 2.0 * pad, e2.asc + pad, e2.desc + pad);
                 out.put(e2, pad, 0.0);
-                out.rules.extend([
-                    (0.0, -a, w, -a, lw),
-                    (0.0, d, w, d, lw),
-                    (0.0, -a, 0.0, d, lw),
-                    (w, -a, w, d, lw),
-                ]);
+                // §22.1.2.13 borderBoxPr: hideTop / hideBot / hideLeft / hideRight.
+                for (hide, rule) in [
+                    ("hideTop", (0.0, -a, w, -a, lw)),
+                    ("hideBot", (0.0, d, w, d, lw)),
+                    ("hideLeft", (0.0, -a, 0.0, d, lw)),
+                    ("hideRight", (w, -a, w, d, lw)),
+                ] {
+                    if !flag(el, "borderBoxPr", hide) {
+                        out.rules.push(rule);
+                    }
+                }
                 out.w = w;
                 out.asc = a;
                 out.desc = d;
@@ -1427,6 +1432,29 @@ mod tests {
             .filter(|r| r.text == text)
             .flat_map(|r| r.glyphs.iter().map(move |g| (g.0, r.x + g.1, r.y + g.2)))
             .collect()
+    }
+
+    // source: ECMA-376 Part 1, §22.1.2.13 borderBox and its hideTop / hideBot / hideLeft /
+    // hideRight properties (EQ \x\to\bo draws only the top and bottom borders).
+    #[test]
+    fn border_box_hides_sides() {
+        let (mut fm, text, math) = fonts();
+        let full = lay(
+            &mut fm,
+            text,
+            math,
+            &format!("<m:oMath {M}><m:borderBox><m:e><m:r><m:t>a</m:t></m:r></m:e></m:borderBox></m:oMath>"),
+        );
+        assert_eq!(full.rules.len(), 4);
+        let two = lay(
+            &mut fm,
+            text,
+            math,
+            &format!("<m:oMath {M}><m:borderBox><m:borderBoxPr><m:hideLeft m:val=\"1\"/><m:hideRight m:val=\"1\"/></m:borderBoxPr><m:e><m:r><m:t>a</m:t></m:r></m:e></m:borderBox></m:oMath>"),
+        );
+        // Only horizontal rules remain.
+        assert_eq!(two.rules.len(), 2);
+        assert!(two.rules.iter().all(|r| (r.1 - r.3).abs() < 1e-3));
     }
 
     // source: OpenType MATH constants of STIX Two Math (read from the font file) — CORE-MATH-003.

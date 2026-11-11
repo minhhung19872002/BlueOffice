@@ -225,6 +225,18 @@
   caret-color: #000;
 }
 
+/* A Flash Fill suggestion: grey text in the (empty) cells it would fill. */
+.flashHint {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0 3px;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+  color: #6b6b6b;
+  font-family: 'Liberation Sans', Arial, sans-serif;
+}
+
 /* The references of the formula being typed. */
 .refBox {
   position: absolute;

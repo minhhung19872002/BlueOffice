@@ -56,6 +56,76 @@ pub enum Case {
     Title,
 }
 
+/// Month conversion applied to an atom's token (month numbers ↔ English month names).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MonthMap {
+    /// The token as it is.
+    None,
+    /// A month number (1–12) written as its name: full (`March`) or short (`Mar`).
+    Name {
+        /// Three-letter name.
+        short: bool,
+    },
+    /// A month name (full or three letters) written as its number, `03` with `pad`.
+    Number {
+        /// Two digits.
+        pad: bool,
+    },
+}
+
+const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// The month (1–12) a token names: a number 1–12 (`03` included) or an English month
+/// name, full or three letters, in any case.
+fn month_of(tok: &str, numeric: bool) -> Option<usize> {
+    if numeric {
+        if tok.is_empty() || tok.len() > 2 || !tok.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        return tok.parse::<usize>().ok().filter(|m| (1..=12).contains(m));
+    }
+    let low = tok.to_lowercase();
+    MONTHS
+        .iter()
+        .position(|m| m.to_lowercase() == low || (low.len() == 3 && m[..3].to_lowercase() == low))
+        .map(|i| i + 1)
+}
+
+fn apply_month(s: &str, map: MonthMap) -> Option<String> {
+    match map {
+        MonthMap::None => Some(s.to_owned()),
+        MonthMap::Name { short } => {
+            let name = MONTHS[month_of(s, true)? - 1];
+            Some(if short {
+                name[..3].to_owned()
+            } else {
+                name.to_owned()
+            })
+        }
+        MonthMap::Number { pad } => {
+            let m = month_of(s, false)?;
+            Some(if pad {
+                format!("{m:02}")
+            } else {
+                m.to_string()
+            })
+        }
+    }
+}
+
 /// Part of a token kept by an atom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Take {
@@ -80,6 +150,8 @@ pub struct Atom {
     pub take: Take,
     /// Case change.
     pub case: Case,
+    /// Month number ↔ name conversion (of the whole token).
+    pub month: MonthMap,
 }
 
 /// A piece of a program.
@@ -252,7 +324,8 @@ impl Atom {
                 .checked_sub(usize::try_from(self.index.unsigned_abs()).ok()?)?
         };
         let tok = toks.get(i)?;
-        Some(apply_case(&apply_take(tok, self.take), self.case))
+        let text = apply_month(&apply_take(tok, self.take), self.month)?;
+        Some(apply_case(&text, self.case))
     }
 
     fn cost(&self) -> u32 {
@@ -277,7 +350,8 @@ impl Atom {
             Take::Suffix(_) => 6,
         };
         let case = if self.case == Case::Same { 0 } else { 3 };
-        kind + index + take + case
+        let month = if self.month == MonthMap::None { 0 } else { 4 };
+        kind + index + take + case + month
     }
 }
 
@@ -364,8 +438,28 @@ fn candidates(inputs: &[String], output: &str) -> Vec<(usize, usize, Atom)> {
                 if !single(kind) {
                     indices.extend(i32::try_from(n - k).ok().map(|m| -m));
                 }
-                for &take in &takes {
-                    let part = apply_take(tok, take);
+                // A whole token naming a month may also be written the other way.
+                let mut maps = vec![MonthMap::None];
+                if month_of(tok, true).is_some() {
+                    maps.extend([
+                        MonthMap::Name { short: false },
+                        MonthMap::Name { short: true },
+                    ]);
+                } else if month_of(tok, false).is_some() {
+                    maps.extend([
+                        MonthMap::Number { pad: false },
+                        MonthMap::Number { pad: true },
+                    ]);
+                }
+                let variants = takes.iter().flat_map(|&take| {
+                    maps.iter()
+                        .filter(move |&&m| m == MonthMap::None || take == Take::All)
+                        .map(move |&m| (take, m))
+                });
+                for (take, month) in variants {
+                    let Some(part) = apply_month(&apply_take(tok, take), month) else {
+                        continue;
+                    };
                     for case in [Case::Same, Case::Lower, Case::Upper, Case::Title] {
                         let s = apply_case(&part, case);
                         if s.is_empty() {
@@ -382,6 +476,7 @@ fn candidates(inputs: &[String], output: &str) -> Vec<(usize, usize, Atom)> {
                                     index,
                                     take,
                                     case,
+                                    month,
                                 };
                                 if seen.insert((at, atom)) {
                                     found.push((at, at + s.len(), atom));

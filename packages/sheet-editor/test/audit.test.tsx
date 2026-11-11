@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { createI18n, I18nextProvider } from '@blueoffice/i18n';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -257,7 +257,15 @@ describe('CalcOptionsDialog', () => {
     expect((await screen.findByTestId('calc-error')).textContent).toContain('10000');
     fireEvent.change(screen.getByTestId('calc-count'), { target: { value: '50' } });
     fireEvent.change(screen.getByTestId('calc-delta'), { target: { value: '0.01' } });
+    // Precision as displayed asks first; Cancel leaves the box clear.
     fireEvent.click(screen.getByTestId('calc-precision'));
+    expect(screen.getByTestId('calc-precision-confirm')).toBeTruthy();
+    fireEvent.click(within(screen.getByTestId('calc-precision-confirm')).getByText('Cancel'));
+    expect(screen.queryByTestId('calc-precision-confirm')).toBeNull();
+    expect((screen.getByTestId('calc-precision') as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByTestId('calc-precision'));
+    fireEvent.click(screen.getByTestId('calc-precision-confirm-ok'));
+    expect((screen.getByTestId('calc-precision') as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByTestId('calc-ok'));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(calls).toContainEqual({

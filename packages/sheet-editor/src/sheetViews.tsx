@@ -513,8 +513,10 @@ function LayoutPage({
   scale,
   revision,
   onCell,
+  onCellDouble,
   onHeaderFooter,
   active,
+  editor,
   fail,
 }: {
   host: SheetHost;
@@ -525,9 +527,12 @@ function LayoutPage({
   scale: number;
   revision: number;
   onCell: (row: number, col: number) => void;
+  onCellDouble?: (row: number, col: number) => void;
   onHeaderFooter: () => void;
   /** The active cell, outlined when this page prints it. */
   active?: { row: number; col: number };
+  /** The in-cell editor, drawn over the active cell while it is edited. */
+  editor?: (fontScale: number) => ReactNode;
   fail: (e: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -547,7 +552,12 @@ function LayoutPage({
     if (!visible) return;
     let live = true;
     void (async () => {
-      const r = await host.exec<PrintPreviewInfo>({ cmd: 'printPreview', sheet, page: index });
+      const r = await host.exec<PrintPreviewInfo>({
+        cmd: 'printPreview',
+        sheet,
+        page: index,
+        layout: true,
+      });
       const el = canvas.current;
       const ctx = el?.getContext('2d');
       if (!live || !r.page || !el || !ctx) return;
@@ -590,13 +600,29 @@ function LayoutPage({
   const [ml, mr, mt, mb, mh, mf] = page.margins;
   const w = page.width * scale;
   const h = page.height * scale;
-  const click = (e: ReactMouseEvent<HTMLDivElement>) => {
+  const hitAt = (e: ReactMouseEvent<HTMLDivElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - box.left) / scale;
     const y = (e.clientY - box.top) / scale;
-    void host
-      .exec<{ row: number; col: number } | null>({ cmd: 'pageHit', sheet, page: index, x, y })
+    return host.exec<{ row: number; col: number } | null>({
+      cmd: 'pageHit',
+      sheet,
+      page: index,
+      x,
+      y,
+    });
+  };
+  const click = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+    void hitAt(e)
       .then((hit) => hit && onCell(hit.row, hit.col))
+      .catch(fail);
+  };
+  // Double-click on a cell edits it in place, as in the normal view.
+  const doubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!onCellDouble || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+    void hitAt(e)
+      .then((hit) => hit && onCellDouble(hit.row, hit.col))
       .catch(fail);
   };
   return (
@@ -606,9 +632,24 @@ function LayoutPage({
       style={{ width: w, height: h }}
       data-testid={`page-layout-page-${index}`}
       onClick={click}
+      onDoubleClick={doubleClick}
     >
       <canvas ref={canvas} style={{ width: w, height: h }} />
-      {box && (
+      {box && editor && (
+        <div
+          className={css.cellEdit}
+          data-testid={`page-layout-editor-${index}`}
+          style={{
+            left: box.x * scale,
+            top: box.y * scale,
+            minWidth: box.w * scale,
+            height: box.h * scale,
+          }}
+        >
+          {editor(scale * (cells?.scale ?? 1))}
+        </div>
+      )}
+      {box && !editor && (
         <div
           className={css.activeCell}
           data-testid={`page-layout-active-${index}`}
@@ -669,10 +710,12 @@ export function PageLayoutView({
   revision,
   zoom,
   onCell,
+  onCellDouble,
   onHeaderFooter,
   onKeyDown,
   regionRef,
   active,
+  editor,
   fail,
 }: {
   host: SheetHost;
@@ -680,6 +723,8 @@ export function PageLayoutView({
   revision: number;
   zoom: number;
   onCell: (row: number, col: number) => void;
+  /** Double-click on a cell (edit it in place). */
+  onCellDouble?: (row: number, col: number) => void;
   onHeaderFooter: () => void;
   /** Keys while the pages have the focus (shortcuts, typing into the selected cell). */
   onKeyDown?: (e: ReactKeyboardEvent<HTMLDivElement>) => void;
@@ -687,6 +732,8 @@ export function PageLayoutView({
   regionRef?: MutableRefObject<HTMLDivElement | null>;
   /** The active cell (outlined on its page). */
   active?: { row: number; col: number };
+  /** The in-cell editor while the active cell is edited (given the text scale). */
+  editor?: (fontScale: number) => ReactNode;
   fail: (e: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -724,8 +771,10 @@ export function PageLayoutView({
           scale={scale}
           revision={revision}
           onCell={onCell}
+          {...(onCellDouble ? { onCellDouble } : {})}
           onHeaderFooter={onHeaderFooter}
           active={active}
+          {...(editor ? { editor } : {})}
           fail={fail}
         />
       ))}

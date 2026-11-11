@@ -326,12 +326,24 @@ impl LiveCalc {
             self.rebuild(wb);
             return;
         };
+        if let Some(only) = sheet {
+            // Calculate sheet: only that sheet's formulas are evaluated, reading the
+            // current values of the others, which stay pending (and so do data tables).
+            fw.recalculate_sheet(only);
+            let mut ids = std::mem::take(&mut self.unwritten);
+            ids.extend_from_slice(fw.last_recalculated());
+            ids.sort_unstable();
+            ids.dedup();
+            self.unwritten = write_ids(fw, wb, &ids, sheet);
+            self.pending = fw.has_pending_changes();
+            return;
+        }
         fw.recalculate();
         let mut ids = std::mem::take(&mut self.unwritten);
         ids.extend_from_slice(fw.last_recalculated());
         ids.sort_unstable();
         ids.dedup();
-        self.unwritten = write_ids(fw, wb, &ids, sheet);
+        self.unwritten = write_ids(fw, wb, &ids, None);
         crate::whatif::calculate_data_tables(fw, wb);
         self.pending = false;
         self.tables_pending = false;
@@ -558,6 +570,42 @@ mod tests {
         // Calculating the workbook: Two!A1 = 105.
         live.calculate(&mut wb, None);
         assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(105.0));
+        assert!(!live.needs_calculation());
+    }
+
+    #[test]
+    fn calculate_sheet_reads_other_sheets_as_they_are() {
+        // Sheet1: A1 = 1, B1 = Two!A1 * 2; Two: A1 = Sheet1!A1 + 100.
+        let mut wb = Workbook::new();
+        wb.sheets.push(bo_model::sheet::Worksheet::new("Two"));
+        wb.sheets[0].set_cell(0, 0, Cell::new(CellValue::Number(1.0)));
+        wb.sheets[0].set_cell(0, 1, Cell::default().with_formula("Two!A1*2"));
+        wb.sheets[1].set_cell(0, 0, Cell::default().with_formula("Sheet1!A1+100"));
+        crate::calcopts::CalcSettings {
+            mode: CalcMode::Manual,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(202.0));
+        wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().value = CellValue::Number(5.0);
+        live.update(&mut wb, 0, &[(0, 0)]);
+        // Shift+F9 on Sheet1: Two!A1 is not calculated, so B1 still reads 101 → 202.
+        live.calculate(&mut wb, Some(0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(202.0));
+        assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(101.0));
+        assert!(live.needs_calculation());
+        // Shift+F9 on Two: 5 + 100 = 105; Sheet1!B1 waits.
+        live.calculate(&mut wb, Some(1));
+        assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(105.0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(202.0));
+        // Shift+F9 on Sheet1 again: B1 = 105 * 2.
+        live.calculate(&mut wb, Some(0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(210.0));
+        // F9 settles everything.
+        live.calculate(&mut wb, None);
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(210.0));
         assert!(!live.needs_calculation());
     }
 

@@ -18,12 +18,15 @@ import type {
 } from '@blueoffice/platform';
 import { Dialog, type RibbonGroup, type RibbonItem } from '@blueoffice/ui';
 import {
+  ArrowLeftRight,
   ChartColumn,
   ChartColumnStacked,
   ChartLine,
   Eraser,
   Group,
   Palette,
+  Pencil,
+  Table2,
   Ungroup,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -112,6 +115,8 @@ export function registerSparklineCommands<
     exec: (cmd: SheetCommand) => Promise<unknown>;
     openInsert: () => void;
     openOptions: () => void;
+    /** Edit data: the group's location and data, or the active cell's sparkline only. */
+    openEditData: (mode: 'group' | 'single') => void;
   },
 ): void {
   const has = (s: S) => s.hasWorkbook;
@@ -146,6 +151,16 @@ export function registerSparklineCommands<
     );
   }
   add('sparkline.options', async () => deps.openOptions(), { isEnabled: on });
+  add('sparkline.editData', async () => deps.openEditData('group'), { isEnabled: on });
+  add('sparkline.editSingle', async () => deps.openEditData('single'), { isEnabled: on });
+  add(
+    'sparkline.switch',
+    async (s) => {
+      const g = s.sparkline;
+      if (g) await deps.exec({ cmd: 'sparklineSwitch', sheet: s.sheet, group: g.index });
+    },
+    { isEnabled: (s) => on(s) && (s.sparkline?.sparklines.length ?? 0) > 1 },
+  );
   add(
     'sparkline.group',
     (s) => deps.exec({ cmd: 'sparklineGroup', sheet: s.sheet, range: deps.range(s) }),
@@ -180,6 +195,15 @@ export function sparklineTabGroups(t: T, item: Item): RibbonGroup[] {
   const s = 16;
   const check = (id: string, key: string): RibbonItem => item(id, t(key), null, 'small');
   return [
+    {
+      id: 'sparklineData',
+      label: t('sparkline.groupData'),
+      items: [
+        item('sparkline.editData', t('sparkline.editData'), <Table2 size={18} />),
+        item('sparkline.editSingle', t('sparkline.editSingle'), <Pencil size={s} />, 'small'),
+        item('sparkline.switch', t('sparkline.switch'), <ArrowLeftRight size={s} />, 'small'),
+      ],
+    },
     {
       id: 'sparklineType',
       label: t('sparkline.groupType'),
@@ -318,6 +342,153 @@ export function InsertSparklinesDialog({
           />
         </label>
         <p className={styles.hint}>{t('sparkline.locationHint')}</p>
+        {error && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+/** The block covered by `ranges` (all on one sheet), as `Sheet!A1:B2`; `''` when they are not. */
+export function dataBlock(formulas: readonly (string | null)[]): string {
+  let sheet: string | null | undefined;
+  let box: Range | null = null;
+  for (const f of formulas) {
+    const r = f ? parseRef(f) : null;
+    if (!r || (sheet !== undefined && r.sheet !== sheet)) return '';
+    sheet = r.sheet;
+    const b: Range = box ?? r.range;
+    box = {
+      r0: Math.min(b.r0, r.range.r0),
+      c0: Math.min(b.c0, r.range.c0),
+      r1: Math.max(b.r1, r.range.r1),
+      c1: Math.max(b.c1, r.range.c1),
+    };
+  }
+  if (!box) return '';
+  const quoted = sheet && /[^A-Za-z0-9_.]/.test(sheet) ? `'${sheet.replace(/'/g, "''")}'` : sheet;
+  return quoted ? `${quoted}!${rangeA1(box)}` : rangeA1(box);
+}
+
+/** The cells of `group` as one range (`F1:F4`). */
+export function groupLocation(group: SparklineGroupInfo): Range {
+  const rows = group.sparklines.map((s) => s.location.row);
+  const cols = group.sparklines.map((s) => s.location.col);
+  return {
+    r0: Math.min(...rows),
+    c0: Math.min(...cols),
+    r1: Math.max(...rows),
+    c1: Math.max(...cols),
+  };
+}
+
+/**
+ * Edit data: the group's data and location range (its settings stay), or — `single` — the
+ * data of the sparkline in cell `at` only.
+ */
+export function EditSparklineDataDialog({
+  sheet,
+  group,
+  single,
+  exec,
+  onClose,
+}: {
+  sheet: number;
+  group: SparklineGroupInfo;
+  /** The cell whose sparkline alone is edited. */
+  single?: { row: number; col: number };
+  exec: (cmd: SheetCommand) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const own = single
+    ? group.sparklines.find((s) => s.location.row === single.row && s.location.col === single.col)
+    : undefined;
+  const [data, setData] = useState(
+    single ? (own?.formula ?? '') : dataBlock(group.sparklines.map((s) => s.formula)),
+  );
+  const [location, setLocation] = useState(rangeA1(groupLocation(group)));
+  const [error, setError] = useState<string | null>(null);
+  const ok = async () => {
+    const d = parseRef(data);
+    if (!d) {
+      setError(t('sparkline.invalidRange'));
+      return;
+    }
+    if (single) {
+      const r = await exec({
+        cmd: 'sparklineSingleData',
+        sheet,
+        row: single.row,
+        col: single.col,
+        data: data.trim(),
+      });
+      if (r !== null) onClose();
+      return;
+    }
+    const l = parseRef(location);
+    if (!l || l.sheet !== null || (l.range.r0 !== l.range.r1 && l.range.c0 !== l.range.c1)) {
+      setError(t('sparkline.invalidRange'));
+      return;
+    }
+    const r = await exec({
+      cmd: 'sparklineData',
+      sheet,
+      group: group.index,
+      data: data.trim(),
+      location: l.range,
+    });
+    if (r !== null) onClose();
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t(single ? 'sparkline.editSingleTitle' : 'sparkline.editDataTitle')}
+      testId="sparkline-edit-data"
+      width={420}
+      footer={
+        <>
+          <button type="button" className={styles.btn} onClick={onClose}>
+            {t('sparkline.cancel')}
+          </button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            data-testid="sparkline-edit-data-ok"
+            onClick={() => void ok()}
+          >
+            {t('sparkline.apply')}
+          </button>
+        </>
+      }
+    >
+      <div className={styles.form}>
+        <label>
+          {t('sparkline.data')}
+          <input
+            data-testid="sparkline-edit-data-range"
+            value={data}
+            onChange={(e) => setData(e.target.value)}
+          />
+        </label>
+        <p className={styles.hint}>{t(single ? 'sparkline.singleHint' : 'sparkline.dataHint')}</p>
+        {!single && (
+          <>
+            <label>
+              {t('sparkline.location')}
+              <input
+                data-testid="sparkline-edit-data-location"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+              />
+            </label>
+            <p className={styles.hint}>{t('sparkline.locationHint')}</p>
+          </>
+        )}
         {error && (
           <p className={styles.error} role="alert">
             {error}

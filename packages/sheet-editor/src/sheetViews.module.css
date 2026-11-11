@@ -172,3 +172,30 @@
   pointer-events: none;
   border: 2px solid var(--bo-sheet-accent-strong, #107c41);
 }
+
+/* The cell being edited on a page: the editor over the cell, on a white ground. */
+.cellEdit {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  background: #fff;
+  border: 2px solid var(--bo-sheet-accent-strong, #107c41);
+}
+
+.cellEdit textarea {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  color: #000;
+  background: transparent;
+  font-family: 'Liberation Sans', Arial, sans-serif;
+}

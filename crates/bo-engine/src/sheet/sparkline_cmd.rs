@@ -5,7 +5,7 @@
 use super::cmd::{Recalc, Rng};
 use super::SheetEngine;
 use crate::{EngineError, Result};
-use bo_model::sheet::{SparklineGroup, SparklineType};
+use bo_model::sheet::{CellRef, SparklineGroup, SparklineType};
 use bo_render::Rgba;
 use bo_sheet::sparkline::{self as sp, Palette, SparklinePatch};
 use serde_json::{json, Value};
@@ -104,6 +104,42 @@ impl SheetEngine {
         })
     }
 
+    /// Edit group location and data of group `group`.
+    pub(super) fn sparkline_data(
+        &mut self,
+        sheet: usize,
+        group: usize,
+        data: &str,
+        location: Rng,
+    ) -> Result<Value> {
+        self.edit(sheet, Recalc::No, |wb, _| {
+            sp::set_data(wb, sheet, group, data, location.range()).map_err(bad)?;
+            Ok(json!({ "ok": true }))
+        })
+    }
+
+    /// Edit the data of the sparkline in cell (`row`, `col`).
+    pub(super) fn sparkline_single_data(
+        &mut self,
+        sheet: usize,
+        row: u32,
+        col: u32,
+        data: &str,
+    ) -> Result<Value> {
+        self.edit(sheet, Recalc::No, |wb, _| {
+            sp::set_single_data(wb, sheet, CellRef::new(row, col), data).map_err(bad)?;
+            Ok(json!({ "ok": true }))
+        })
+    }
+
+    /// Switch row / column of group `group`.
+    pub(super) fn sparkline_switch(&mut self, sheet: usize, group: usize) -> Result<Value> {
+        self.edit(sheet, Recalc::No, |wb, _| {
+            sp::switch_row_column(wb, sheet, group).map_err(bad)?;
+            Ok(json!({ "ok": true }))
+        })
+    }
+
     /// Clears the sparklines (or their whole groups) in `range`.
     pub(super) fn sparkline_clear(
         &mut self,
@@ -172,5 +208,89 @@ mod tests {
         assert!(e
             .exec_json(r#"{"cmd":"sparklineInsert","sheet":0,"type":"stacked","data":"nope","location":{"r0":0,"c0":3,"r1":0,"c1":3}}"#)
             .is_err());
+    }
+
+    fn formulas(e: &mut SheetEngine) -> Vec<(String, u64, u64)> {
+        let list = run(e, r#"{"cmd":"sparklines","sheet":0}"#);
+        list[0]["sparklines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["formula"].as_str().unwrap().to_owned(),
+                    s["location"]["row"].as_u64().unwrap(),
+                    s["location"]["col"].as_u64().unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn edit_group_data_single_data_and_switch() {
+        let mut e = SheetEngine::new();
+        e.new_workbook("Book").unwrap();
+        // A 3 × 3 block A1:C3: rows or columns fit three locations.
+        for r in 0..3 {
+            for c in 0..3 {
+                e.set_input(0, r, c, &(r * 3 + c).to_string()).unwrap();
+            }
+        }
+        // E1:E3 (a location column) pairs with the data rows.
+        run(
+            &mut e,
+            r#"{"cmd":"sparklineInsert","sheet":0,"type":"line","data":"A1:C3","location":{"r0":0,"c0":4,"r1":2,"c1":4}}"#,
+        );
+        assert_eq!(formulas(&mut e)[1], ("Sheet1!A2:C2".to_owned(), 1, 4));
+        run(
+            &mut e,
+            r#"{"cmd":"sparklineEdit","sheet":0,"group":0,"type":"column"}"#,
+        );
+        // Switch row / column: the group reads the data columns instead.
+        run(&mut e, r#"{"cmd":"sparklineSwitch","sheet":0,"group":0}"#);
+        assert_eq!(
+            formulas(&mut e),
+            vec![
+                ("Sheet1!A1:A3".to_owned(), 0, 4),
+                ("Sheet1!B1:B3".to_owned(), 1, 4),
+                ("Sheet1!C1:C3".to_owned(), 2, 4),
+            ]
+        );
+        // And back.
+        run(&mut e, r#"{"cmd":"sparklineSwitch","sheet":0,"group":0}"#);
+        assert_eq!(formulas(&mut e)[2], ("Sheet1!A3:C3".to_owned(), 2, 4));
+        // Edit group location and data: two sparklines in G1:H1 over A1:B3 (its columns);
+        // the settings (column type) stay.
+        run(
+            &mut e,
+            r#"{"cmd":"sparklineData","sheet":0,"group":0,"data":"A1:B3","location":{"r0":0,"c0":6,"r1":0,"c1":7}}"#,
+        );
+        assert_eq!(
+            formulas(&mut e),
+            vec![
+                ("Sheet1!A1:A3".to_owned(), 0, 6),
+                ("Sheet1!B1:B3".to_owned(), 0, 7),
+            ]
+        );
+        let list = run(&mut e, r#"{"cmd":"sparklines","sheet":0}"#);
+        assert_eq!(list[0]["type"], "column");
+        // A data range that does not fit is refused.
+        assert!(e
+            .exec_json(r#"{"cmd":"sparklineData","sheet":0,"group":0,"data":"A1:C3","location":{"r0":0,"c0":6,"r1":0,"c1":7}}"#)
+            .is_err());
+        // Edit one sparkline's data.
+        run(
+            &mut e,
+            r#"{"cmd":"sparklineSingleData","sheet":0,"row":0,"col":7,"data":"C1:C3"}"#,
+        );
+        assert_eq!(formulas(&mut e)[1], ("Sheet1!C1:C3".to_owned(), 0, 7));
+        assert!(e
+            .exec_json(r#"{"cmd":"sparklineSingleData","sheet":0,"row":5,"col":5,"data":"C1:C3"}"#)
+            .is_err());
+        // Each change is one undo step.
+        e.undo().unwrap();
+        assert_eq!(formulas(&mut e)[1], ("Sheet1!B1:B3".to_owned(), 0, 7));
+        e.undo().unwrap();
+        assert_eq!(formulas(&mut e).len(), 3);
     }
 }

@@ -83,6 +83,8 @@ hành vi đã sửa hoặc xác nhận có khẳng định trong
 | Gõ tên mới vào Hộp tên | Đặt tên cho vùng chọn | Không làm gì | **đã sửa** |
 | Tham chiếu sang trang khác, tham chiếu tương đối khi chép/điền/chèn hàng | Dịch đúng | Đúng | giống |
 | Ctrl+Shift+Enter công thức mảng | Mảng động tràn ô | Mảng động có (UNIQUE/FILTER/SORT tràn) | giống |
+| Shift+F9 ở chế độ tính thủ công | Chỉ tính các công thức của trang hiện tại, đọc giá trị (có thể cũ) của trang khác | Tính cả sổ, chỉ hiện kết quả trang hiện tại | **đã sửa** — `recalculate_sheet`; trang khác vẫn chờ F9 |
+| Bật "độ chính xác như hiển thị" | Hỏi trước (dữ liệu mất độ chính xác vĩnh viễn), Hủy để ô không tick | Tick ngay, chỉ có dòng cảnh báo | **đã sửa** |
 
 ### 33 hàm thông dụng trên dữ liệu gõ vào (gõ với `;`)
 
@@ -97,7 +99,10 @@ trị tính tay (ca "common functions…" trong spec). Trước khi sửa, mọi
 | Hành động | Bảng tính quen dùng | BlueSheet trước | Trạng thái |
 |---|---|---|---|
 | Xoá trùng lặp | Hộp thoại chọn cột, "dữ liệu có tiêu đề", báo số dòng xoá | Có | giống |
-| Tách văn bản thành cột | Trình hướng dẫn ba bước: kiểu chia → dấu phân cách / vị trí ngắt → định dạng từng cột (chọn cột trong bản xem trước) + nơi đặt; Quay lại / Tiếp / Hoàn tất ở mọi bước | Một hộp thoại gộp | **đã sửa** — trình hướng dẫn ba bước (`sheet-outline-tools.spec.ts`); vị trí ngắt cố định vẫn gõ bằng số thay vì bấm trên thước |
+| Tách văn bản thành cột | Trình hướng dẫn ba bước: kiểu chia → dấu phân cách / vị trí ngắt → định dạng từng cột (chọn cột trong bản xem trước) + nơi đặt; Quay lại / Tiếp / Hoàn tất ở mọi bước | Một hộp thoại gộp | **đã sửa** — trình hướng dẫn ba bước (`sheet-outline-tools.spec.ts`) |
+| Độ rộng cố định: đặt đường ngắt | Đề xuất sẵn đường ngắt theo văn bản; bấm trên bản xem trước để thêm, kéo để dời, kéo ra ngoài hoặc bấm đúp để xoá | Gõ vị trí bằng số | **đã sửa** — thước trên văn bản (ô số vẫn còn, là lối bàn phím) (`sheet-flash-ttc-layout.spec.ts`) |
+| Ghi đè ô đã có dữ liệu | Tách cột / kéo thả ô vào chỗ có dữ liệu thì hỏi có thay không (Hủy giữ nguyên) | Ghi đè luôn | **đã sửa** — truy vấn `occupied`; Hợp nhất và dán thường ghi đè không hỏi như bảng tính quen dùng |
+| Flash Fill khi đang gõ | Gõ ví dụ thứ hai: các ô còn lại hiện gợi ý màu xám, Enter nhận | Chỉ Ctrl+E | **đã sửa** — `flashFillPreview`; nhận gợi ý là một bước hoàn tác riêng sau mục vừa gõ |
 | Xác thực dữ liệu kiểu danh sách + mũi tên chọn trong ô | Có, Alt+↓ mở danh sách | Có | giống |
 | Nhóm / bỏ nhóm, Tổng phụ | Có; thanh dàn ý cạnh lưới: nút mức 1…n+1, dấu −/+ ở hàng tổng, Ctrl+8 ẩn/hiện ký hiệu | Thiếu thanh +/− cạnh lưới | **đã sửa** — thanh dàn ý hàng/cột, Hiện/Ẩn chi tiết (mỗi lần một bước hoàn tác), nhóm con thu gọn vẫn thu gọn khi mở nhóm ngoài |
 | Alt+Shift+→ / Alt+Shift+← | Nhóm / bỏ nhóm: cả cột được chọn → nhóm cột, cả hàng → nhóm hàng, các ô → hỏi Hàng/Cột (mặc định Hàng) | Không có phím tắt | **đã sửa** — các ô thì nhóm hàng luôn (không hỏi) |

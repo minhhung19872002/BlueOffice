@@ -7,8 +7,8 @@
 //! count, `&D` date, `&T` time, `&Z` file path, `&F` file name, `&A` sheet
 //! name, `&G` picture (kept as a field; nothing is drawn for it), `&&`, font
 //! `&"name,style"`, size `&nn`, `&B` `&I` `&U` `&E` (double underline) `&S`
-//! `&X` (superscript) `&Y` (subscript) `&O` `&H` (outline / shadow, kept but
-//! drawn plain) and colour `&KRRGGBB` / `&KTTSNNN` (theme colour TT with tint
+//! `&X` (superscript) `&Y` (subscript) `&O` (outline: the letters' edge in the
+//! text colour, hollow) `&H` (shadow: a grey copy below right) and colour `&KRRGGBB` / `&KTTSNNN` (theme colour TT with tint
 //! sign S and percent NNN).
 //!
 //! Text before any section code belongs to the centre section (our reading).
@@ -46,9 +46,9 @@ pub struct HfFormat {
     pub superscript: bool,
     /// Subscript (`&Y`).
     pub subscript: bool,
-    /// Outline (`&O`; drawn plain).
+    /// Outline (`&O`).
     pub outline: bool,
-    /// Shadow (`&H`; drawn plain).
+    /// Shadow (`&H`).
     pub shadow: bool,
     /// Size in points (`&nn`).
     pub size: Option<f64>,
@@ -509,15 +509,41 @@ pub fn draw(
             let mut rx = px;
             for (fid, part, glyphs, w) in sh.runs {
                 if !part.trim().is_empty() {
-                    out.push(Command::Glyphs {
+                    let copy = |dx: f64, dy: f64, color: Rgba| Command::Glyphs {
                         face: fid.0,
                         size: f(p.size),
-                        x: f(rx),
-                        y: f(by),
-                        color: p.color,
-                        text: part,
-                        glyphs,
-                    });
+                        x: f(rx + dx),
+                        y: f(by + dy),
+                        color,
+                        text: part.clone(),
+                        glyphs: glyphs.clone(),
+                    };
+                    // `&H` shadow: a grey copy below and to the right.
+                    if p.fmt.shadow {
+                        let d = (p.size * 0.06).max(0.6);
+                        out.push(copy(d, d, SHADOW));
+                    }
+                    // `&O` outline: the letters drawn as their edge — copies shifted all
+                    // round in the text colour, the letters themselves in white on top.
+                    let fill = if p.fmt.outline {
+                        let o = (p.size * 0.035).max(0.35);
+                        for (dx, dy) in [
+                            (-o, 0.0),
+                            (o, 0.0),
+                            (0.0, -o),
+                            (0.0, o),
+                            (-o, -o),
+                            (o, -o),
+                            (-o, o),
+                            (o, o),
+                        ] {
+                            out.push(copy(dx, dy, p.color));
+                        }
+                        Rgba(255, 255, 255, 255)
+                    } else {
+                        p.color
+                    };
+                    out.push(copy(0.0, 0.0, fill));
                 }
                 rx += w;
             }
@@ -539,6 +565,9 @@ pub fn draw(
     }
     out
 }
+
+/// Colour of the `&H` text shadow.
+const SHADOW: Rgba = Rgba(0x80, 0x80, 0x80, 255);
 
 fn line_cmd(x1: f64, x2: f64, y: f64, width: f64, color: Rgba) -> Command {
     Command::Line {
@@ -610,6 +639,44 @@ mod tests {
         let r = expand(&h.left, &ctx());
         assert!(!r[0].0.bold && r[0].0.font.is_none());
         assert_eq!(expand(&h.right, &ctx())[0].0, HfFormat::default());
+    }
+
+    #[test]
+    fn outline_and_shadow_are_drawn() {
+        let mut fm = FontManager::new();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
+        fm.add_fonts_from_dir(&dir);
+        let base = HfBase {
+            font: "Liberation Sans",
+            size: 10.0,
+            theme: None,
+            scale: 1.0,
+        };
+        let glyphs = |code: &str, fm: &mut FontManager| -> Vec<(f32, f32, Rgba)> {
+            let runs = expand(&parse(code).center, &ctx());
+            draw(fm, &runs, &base, HfAlign::Left, 0.0, 0.0)
+                .into_iter()
+                .filter_map(|c| match c {
+                    Command::Glyphs { x, y, color, .. } => Some((x, y, color)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let plain = glyphs("&CAb", &mut fm);
+        assert_eq!(plain.len(), 1);
+        let (x, y, black) = plain[0];
+        assert_eq!(black, Rgba(0, 0, 0, 255));
+        // Shadow: a grey copy 0.6 pt down and right (6 % of 10 pt), then the text.
+        let shadow = glyphs("&C&HAb", &mut fm);
+        assert_eq!(shadow.len(), 2);
+        assert_eq!(shadow[0].2, SHADOW);
+        assert!((shadow[0].0 - x - 0.6).abs() < 1e-4 && (shadow[0].1 - y - 0.6).abs() < 1e-4);
+        assert_eq!(shadow[1], plain[0]);
+        // Outline: eight copies around in the text colour, the letters in white.
+        let outline = glyphs("&C&OAb", &mut fm);
+        assert_eq!(outline.len(), 9);
+        assert!(outline[..8].iter().all(|g| g.2 == black));
+        assert_eq!(outline[8], (x, y, Rgba(255, 255, 255, 255)));
     }
 
     #[test]

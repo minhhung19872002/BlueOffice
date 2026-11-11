@@ -19,7 +19,7 @@
 //!   the sheet; comments "as displayed" print nothing extra (comment
 //!   visibility is not part of the model).
 
-use super::{EngineError, Result, SheetEngine, ViewRequest};
+use super::{EngineError, Result, SheetEngine, ViewRequest, MAX_COLS, MAX_ROWS};
 use bo_model::sheet::{letters_to_col, CellRange, CellRef, RawAttr, Workbook, Worksheet};
 use bo_render::{Command, DisplayList, PageList, Paint, Rgba};
 use bo_sheet::headerfooter::{self as hf, HfAlign, HfBase, HfContext, HfFormat};
@@ -413,6 +413,22 @@ fn print_areas(wb: &Workbook, sheet: usize, ws: &Worksheet) -> Vec<CellRange> {
     r.into_iter().collect()
 }
 
+/// End of `span` grown by the next columns / rows while their total size stays within
+/// `avail` (the page is filled up to its edge); never past `max - 1`.
+pub(super) fn fill_span(size: &dyn Fn(u32) -> f64, span: (u32, u32), avail: f64, max: u32) -> u32 {
+    let mut used: f64 = (span.0..=span.1).map(size).sum();
+    let mut end = span.1;
+    while end + 1 < max {
+        let s = size(end + 1);
+        if used + s > avail + 0.01 {
+            break;
+        }
+        used += s;
+        end += 1;
+    }
+    end
+}
+
 /// Width of the printed row-heading column for row numbers up to `last_row` (0-based).
 pub(super) fn heading_width(last_row: u32) -> f64 {
     let digits = (last_row + 1).to_string().len();
@@ -646,8 +662,18 @@ impl SheetEngine {
         st: &Settings,
     ) -> Result<Vec<(CellRange, Pagination)>> {
         let wb = self.wb()?;
+        let areas = print_areas(wb, sheet, self.sheet(sheet)?);
+        self.paginate_areas(sheet, st, areas)
+    }
+
+    /// Pagination of `areas` of `sheet` with its print settings.
+    fn paginate_areas(
+        &mut self,
+        sheet: usize,
+        st: &Settings,
+        areas: Vec<CellRange>,
+    ) -> Result<Vec<(CellRange, Pagination)>> {
         let ws = self.sheet(sheet)?;
-        let areas = print_areas(wb, sheet, ws);
         let (titles_rows, titles_cols) = ws
             .print_titles
             .as_deref()
@@ -689,9 +715,40 @@ impl SheetEngine {
 
     /// Pages of one sheet in print order (cells pages, then comments pages).
     fn frames(&mut self, sheet: usize, st: &Settings) -> Result<Vec<Frame>> {
+        self.frames_for(sheet, st, false)
+    }
+
+    /// Pages of one sheet; with `layout` (page layout view) and no set print area the pages
+    /// are full of cells: they start at A1 (an empty sheet shows one page of empty cells)
+    /// and the last page across / down takes the columns / rows that still fit on the
+    /// paper — the grid continues to the page edge, as in a spreadsheet's page layout view.
+    fn frames_for(&mut self, sheet: usize, st: &Settings, layout: bool) -> Result<Vec<Frame>> {
         let avail = st.avail();
         let mut out = Vec::new();
-        for (_, p) in self.paginations(sheet, st)? {
+        let mut pags = self.paginations(sheet, st)?;
+        if layout && self.sheet(sheet)?.print_area.is_none() {
+            // The first page starts at A1 (the used range may start further in).
+            let last = pags
+                .iter()
+                .map(|(a, _)| a.last)
+                .fold(CellRef::new(0, 0), |m, c| {
+                    CellRef::new(m.row.max(c.row), m.col.max(c.col))
+                });
+            let area = CellRange::new(CellRef::new(0, 0), last);
+            pags = self.paginate_areas(sheet, st, vec![area])?;
+            let g = self.geometry(sheet)?.clone();
+            for (_, p) in &mut pags {
+                let aw = (avail.0 / p.scale - p.fixed.0).max(10.0);
+                let ah = (avail.1 / p.scale - p.fixed.1).max(10.0);
+                if let Some(span) = p.cols.last_mut() {
+                    span.1 = fill_span(&|c| g.col_width(c), *span, aw, MAX_COLS);
+                }
+                if let Some(span) = p.rows.last_mut() {
+                    span.1 = fill_span(&|r| g.row_height(r), *span, ah, MAX_ROWS);
+                }
+            }
+        }
+        for (_, p) in pags {
             for (c, r) in p.order {
                 out.push(Frame::Cells {
                     cols: p.cols[c],
@@ -715,7 +772,7 @@ impl SheetEngine {
     /// position of the first body cell.
     pub(super) fn page_layout(&mut self, sheet: usize) -> Result<Vec<PageBox>> {
         let st = settings(self.sheet(sheet)?);
-        let frames = self.frames(sheet, &st)?;
+        let frames = self.frames_for(sheet, &st, true)?;
         let mut out = Vec::with_capacity(frames.len());
         for fr in &frames {
             let cells = match fr {
@@ -1045,12 +1102,23 @@ impl SheetEngine {
     }
 
     /// Print preview: page count of `sheet` and the display list of page `page`
-    /// (only that page is drawn).
-    pub(crate) fn print_preview(&mut self, sheet: usize, page: usize) -> Result<serde_json::Value> {
+    /// (only that page is drawn). With `layout` (page layout view) the pages are the
+    /// full-page grid of [`SheetEngine::frames_for`] and the sheet's own gridlines show
+    /// as on screen.
+    pub(crate) fn print_preview(
+        &mut self,
+        sheet: usize,
+        page: usize,
+        layout: bool,
+    ) -> Result<serde_json::Value> {
         let st = settings(self.sheet(sheet)?);
-        let frames = self.frames(sheet, &st)?;
+        let frames = self.frames_for(sheet, &st, layout)?;
         let n = frames.len();
-        let opts = self.print_options(&st);
+        let mut opts = self.print_options(&st);
+        if layout && !st.gridlines {
+            // §18.3.1.87 sheetView/@showGridLines decides, as in the normal view.
+            opts.gridlines = None;
+        }
         let p = match frames.get(page.min(n.saturating_sub(1))) {
             Some(fr) => Some(self.draw_frame(sheet, &st, fr, page.min(n - 1), n, &opts)?),
             None => None,

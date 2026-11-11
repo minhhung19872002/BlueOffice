@@ -217,6 +217,13 @@ test('BlueSheet: ribbon, File screen, dialogs, task panes, themes', async ({ pag
   await scanDialog(page, 'sheet Format Cells', () => run(page, 'Trang đầu', 'format.cells'));
   await scanDialog(page, 'sheet Insert chart', () => run(page, 'Chèn', 'insert.chart'));
   await scanDialog(page, 'sheet Text to Columns', () => run(page, 'Dữ liệu', 'data.textToColumns'));
+  // Step 2 of the fixed-width split: the ruler with its break lines.
+  await scanDialog(page, 'sheet Text to Columns fixed width', async () => {
+    await run(page, 'Dữ liệu', 'data.textToColumns');
+    await page.getByTestId('split-fixed').check();
+    await page.getByTestId('split-next').click();
+    await expect(page.getByTestId('split-ruler')).toBeVisible();
+  });
   // The outline bar beside the grid (rows 2–3 grouped), then the group is removed.
   await page.getByLabel('Ô đang nhập').focus();
   await page.keyboard.press('ArrowDown');

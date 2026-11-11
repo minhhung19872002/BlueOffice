@@ -176,6 +176,10 @@ impl Ctx<'_> {
         Rgba(r, g, b, a)
     }
     fn image_part(&self, rid: &str) -> Option<String> {
+        // A picture of a diagram part is named by its part (`crate::diagram::drawing_shapes_with`).
+        if rid.starts_with('/') {
+            return Some(rid.to_owned());
+        }
         self.rels
             .iter()
             .find(|r| r.id == rid && !r.external)
@@ -1928,7 +1932,25 @@ fn diagram_fallback(cx: &Ctx<'_>, gd: &bo_model::slide::XmlElement) -> Option<Ve
             _ => None,
         }
     })?;
-    crate::diagram::drawing_shapes(cx.pres.part_data(&part)?, &part)
+    let rels = part_image_rels(cx.pres, &part);
+    crate::diagram::drawing_shapes_with(
+        cx.pres.part_data(&part)?,
+        &part,
+        Some(&|rid: &str| resolve_in(&rels, rid)),
+    )
+}
+
+/// Image relationships (id, part name) of a diagram part of the presentation.
+fn part_image_rels(pres: &Presentation, part: &str) -> Vec<(String, String)> {
+    pres.part_data(&bo_opc::rels_part_name(part))
+        .map(|x| crate::diagram::image_rels(x, part))
+        .unwrap_or_default()
+}
+
+fn resolve_in(rels: &[(String, String)], rid: &str) -> Option<String> {
+    rels.iter()
+        .find(|(id, _)| id == rid)
+        .map(|(_, n)| n.clone())
 }
 
 /// A SmartArt without a drawing part laid out from its data model (`crate::diagram_layout`), in the
@@ -1942,10 +1964,22 @@ fn diagram_from_data(
     let layout = crate::diagram::layout_rel_id(gd)
         .and_then(|rid| cx.image_part(rid))
         .and_then(|p| cx.pres.part_data(&p));
-    crate::diagram_layout::synth(
+    // `dgm:relIds@r:qs` / `@r:cs` (§21.4.2.6): the diagram's own quick style and colours.
+    let rel_ids = gd.elements().find(|c| c.local() == "relIds");
+    let def = |a: &str| {
+        rel_ids
+            .and_then(|c| c.attr(a))
+            .and_then(|rid| cx.image_part(rid))
+            .and_then(|p| cx.pres.part_data(&p))
+    };
+    let defs = crate::diagram_layout::Defs::parse(def("r:qs"), def("r:cs"));
+    let rels = part_image_rels(cx.pres, &data_part);
+    crate::diagram_layout::synth_with(
         cx.pres.part_data(&data_part)?,
         &data_part,
         layout,
+        Some(&defs),
+        Some(&|rid: &str| resolve_in(&rels, rid)),
         ext.0,
         ext.1,
     )

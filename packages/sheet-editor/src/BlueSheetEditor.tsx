@@ -252,6 +252,7 @@ import {
   ArrowDownUp,
   Zap,
   BookA,
+  Link2,
 } from 'lucide-react';
 import { SplitPane } from './SplitPane';
 import {
@@ -334,6 +335,7 @@ import {
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
 import { editableInput, isArrayEntry } from './arrayFormula';
+import { EditLinksDialog } from './links';
 import {
   argumentHint,
   callAt,
@@ -784,6 +786,7 @@ type DialogState =
   | { kind: 'sortWarning'; descending: boolean; col: number; range: SheetRange }
   /** Defined names: the Name Manager, New name, Create from Selection. */
   | { kind: 'nameManager' }
+  | { kind: 'editLinks' }
   /** Home › Fill › Series. */
   | { kind: 'series'; firstIsDate: boolean }
   | { kind: 'defineName' }
@@ -4114,6 +4117,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       isChecked: () => queriesOpen,
     });
     add('data.refreshAll', () => queryRefresh(), { shortcut: 'Ctrl+Alt+F5' });
+    add('data.editLinks', open({ kind: 'editLinks' }), has);
     add('data.modelTables', () => openModel('tables'));
     add('data.modelRelationships', () => openModel('relationships'));
     add('data.modelMeasures', () => openModel('measures'));
@@ -6732,6 +6736,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('data.fromWeb', t('sheetQuery.ribbon.fromWeb'), <Globe size={s} />, 'small'),
               item('data.queries', t('sheetQuery.ribbon.queries'), <Database size={18} />),
               item('data.refreshAll', t('sheetQuery.ribbon.refreshAll'), <RefreshCw size={18} />),
+              item('data.editLinks', t('sheetLinks.command'), <Link2 size={s} />, 'small'),
             ],
           },
           {
@@ -8902,6 +8907,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           decimal={decimal}
         />
       )}
+      {dialog?.kind === 'editLinks' && <EditLinksDialog {...common} platform={platform} />}
       {dialog?.kind === 'nameManager' && (
         <NameManagerDialog
           {...common}

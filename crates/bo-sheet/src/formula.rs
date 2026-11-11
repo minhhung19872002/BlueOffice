@@ -263,6 +263,16 @@ pub(crate) fn load_with(
     };
     let names: Vec<&str> = wb.sheets.iter().map(|s| s.name.as_str()).collect();
     let mut fw = bo_formula::Workbook::with_sheets(&names);
+    // Sheets of linked workbooks (§18.14), after the workbook's own: `[n]Sheet` holds the
+    // values last read from link `n` (`sheetDataSet`), so `[n]Sheet!A1` evaluates to them.
+    for (li, link) in wb.external_links.iter().enumerate() {
+        for (si, name) in link.sheets.iter().enumerate() {
+            let s = fw.add_sheet(&format!("[{}]{name}", li + 1));
+            for (r, c, v) in link.cells.get(si).map_or(&[][..], Vec::as_slice) {
+                fw.load_value(s, *r, *c, to_value(v, system));
+            }
+        }
+    }
     let calc = crate::calcopts::CalcSettings::read(wb);
     // Before any formula is loaded (it marks every formula for calculation).
     fw.set_iterative(calc.iterative());

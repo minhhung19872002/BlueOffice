@@ -904,6 +904,18 @@ export type SheetCommand =
   | { cmd: 'validation'; sheet: number; row: number; col: number }
   | { cmd: 'setValidation'; sheet: number; range: SheetRange; spec: ValidationSpec }
   | { cmd: 'setInputs'; sheet: number; cells: [number, number, string][]; validate?: boolean }
+  /** Links to other workbooks → `{ links: [{ index, source, target, sheets, formulas, workbook }] }`. */
+  | { cmd: 'externalLinks' }
+  /** Values of link `index` read again from a file (base64) → `{ missing: [sheet] }`. */
+  | {
+      cmd: 'externalLinkUpdate';
+      index: number;
+      base64: string;
+      name: string;
+      changeSource?: boolean;
+    }
+  /** Formulas using link `index` become values; the link is removed → `{ converted }`. */
+  | { cmd: 'externalLinkBreak'; index: number }
   /** Ctrl+Shift+Enter: a legacy array formula over `range` (one cell of an array: all of it). */
   | { cmd: 'setArrayFormula'; sheet: number; range: SheetRange; formula: string }
   /** Ctrl+Enter: one entry into every selected cell (formulas follow each cell), one step. */

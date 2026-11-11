@@ -265,6 +265,7 @@ pub fn read_xlsx_with_limits(bytes: &[u8], limits: &Limits) -> Result<Workbook> 
     crate::cellctl::resolve(&mut wb);
     crate::richdata::resolve(&mut wb);
     crate::richdata::resolve_dynamic(&mut wb);
+    crate::extlink::resolve(&mut wb);
     Ok(wb)
 }
 

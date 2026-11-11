@@ -33,6 +33,7 @@ mod datatools_cmd;
 mod formctl_cmd;
 mod inspect_cmd;
 mod light_undo;
+mod links_cmd;
 pub mod model_cmd;
 mod names_cmd;
 mod ole_cmd;

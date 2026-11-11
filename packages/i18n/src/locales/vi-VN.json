@@ -595,6 +595,30 @@
     "slide": "BlueSlide (trình chiếu) sẽ được phát triển ở Phase 4.",
     "back": "Về BlueDoc"
   },
+  "sheetLinks": {
+    "title": "Sửa liên kết",
+    "source": "Nguồn",
+    "type": "Loại",
+    "update": "Cập nhật",
+    "statusTitle": "Trạng thái",
+    "typeWorkbook": "Sổ làm việc",
+    "typeOther": "Liên kết khác",
+    "manual": "Thủ công",
+    "status": {
+      "unknown": "Chưa rõ",
+      "ok": "Đã cập nhật",
+      "sheetMissing": "Nguồn không có trang tính"
+    },
+    "none": "Sổ làm việc này không liên kết tới sổ làm việc nào khác.",
+    "location": "Vị trí: {{target}}",
+    "used": "Được dùng trong {{count}} công thức hoặc tên",
+    "updateValues": "Cập nhật giá trị",
+    "changeSource": "Đổi nguồn…",
+    "breakLink": "Ngắt liên kết",
+    "breakTitle": "Ngắt liên kết",
+    "breakWarning": "Ngắt liên kết sẽ thay mọi công thức dùng liên kết này bằng giá trị hiện tại của nó; liên kết không còn cập nhật được nữa. Ngay sau đó vẫn có thể hoàn tác. Ngắt liên kết?",
+    "command": "Sửa liên kết"
+  },
   "sheetNames": {
     "group": "Tên đã đặt",
     "manager": "Quản lý tên",

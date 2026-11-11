@@ -595,6 +595,30 @@
     "slide": "BlueSlide (presentations) is developed in Phase 4.",
     "back": "Back to BlueDoc"
   },
+  "sheetLinks": {
+    "title": "Edit links",
+    "source": "Source",
+    "type": "Type",
+    "update": "Update",
+    "statusTitle": "Status",
+    "typeWorkbook": "Workbook",
+    "typeOther": "Other link",
+    "manual": "Manual",
+    "status": {
+      "unknown": "Unknown",
+      "ok": "OK",
+      "sheetMissing": "Sheet not found in source"
+    },
+    "none": "This workbook has no links to other workbooks.",
+    "location": "Location: {{target}}",
+    "used": "Used by {{count}} formulas or names",
+    "updateValues": "Update values",
+    "changeSource": "Change source…",
+    "breakLink": "Break link",
+    "breakTitle": "Break link",
+    "breakWarning": "Breaking a link replaces every formula that uses it with its current value; the link can no longer be updated. Undo is still available right after. Break the link?",
+    "command": "Edit links"
+  },
   "sheetNames": {
     "group": "Defined names",
     "manager": "Name manager",

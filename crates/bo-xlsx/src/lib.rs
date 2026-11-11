@@ -29,6 +29,7 @@ pub mod chartex_map;
 mod csv;
 mod custom_views;
 pub mod diagram_write;
+pub mod extlink;
 pub mod formctl;
 mod group;
 mod pivot;

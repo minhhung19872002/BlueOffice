@@ -281,8 +281,32 @@ pub struct Workbook {
     /// `customWorkbookViews` (§18.2.3): named custom views.
     #[serde(default)]
     pub custom_views: Vec<CustomWorkbookView>,
+    /// Links to other workbooks (`externalReferences`, §18.2.9), in order: formulas name
+    /// the sheets of link `n` (1-based) as `[n]Sheet`. A summary of the external link
+    /// parts (§18.14), which stay in [`Workbook::opaque`].
+    #[serde(default)]
+    pub external_links: Vec<ExternalLink>,
     /// Preserved package content.
     pub opaque: Opaque,
+}
+
+/// A link to another workbook (ECMA-376 Part 1, §18.14.7 `externalBook` in an external
+/// link part) with the values it last read from it (`sheetDataSet`, §18.14.10).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExternalLink {
+    /// Absolute name of the external link part.
+    pub part: String,
+    /// Workbook relationship id of the part (`externalReference/@r:id`, §18.2.8).
+    pub rel_id: String,
+    /// The linked workbook as the relationship targets it (a path or URL).
+    pub target: String,
+    /// Sheet names of the linked workbook (`sheetNames`, §18.14.13).
+    pub sheets: Vec<String>,
+    /// Cached cells per sheet: `(row, col, value)` (`sheetData`, §18.14.9).
+    pub cells: Vec<Vec<(u32, u32, CellValue)>>,
+    /// Defined names of the linked workbook: name and `refersTo` (§18.14.5).
+    pub names: Vec<(String, String)>,
 }
 
 impl Workbook {

@@ -2414,6 +2414,10 @@ impl SheetEngine {
         if let Some(qc) = super::quick_cmd::QuickCommand::parse(&v) {
             return Ok(self.quick_command(&qc)?.to_string());
         }
+        // Links to other workbooks: Edit Links (update values, change source, break link).
+        if let Some(lc) = super::links_cmd::LinkCommand::parse(&v) {
+            return Ok(self.link_command(lc?)?.to_string());
+        }
         // Defined names: Name Manager, New name, Create from Selection.
         if let Some(nc) = super::names_cmd::NameCommand::parse(&v) {
             return Ok(self.name_command(nc?)?.to_string());

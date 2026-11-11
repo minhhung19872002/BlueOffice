@@ -130,6 +130,8 @@ test('a slide link, an action button and a web link that asks first', async ({ p
   await expect(page.getByTestId('slide-status')).toHaveText('Slide 3 / 3');
   await insertTab(page);
   await command(page, 'insert.rect');
+  // The button arms the drawing pointer; Enter puts the object in the middle of the slide.
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('selection-box')).toHaveCount(1);
   await command(page, 'insert.link');
   await expect(linkDialog).toBeVisible();

@@ -1722,7 +1722,9 @@ export type SlideTextFormat =
   | { kind: 'caps'; value: 'small' | 'all' | null }
   /** Character spacing in points (0 = normal). */
   | { kind: 'spacing'; points: number }
-  | { kind: 'doubleStrike'; value?: boolean };
+  | { kind: 'doubleStrike'; value?: boolean }
+  /** Reset the character formatting to what the placeholder gives (Ctrl+Space). */
+  | { kind: 'clearChar' };
 
 /** Header and footer of slides (Insert › Header & Footer). */
 export interface SlideHfSpec {

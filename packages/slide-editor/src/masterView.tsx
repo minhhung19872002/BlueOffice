@@ -378,7 +378,8 @@ export function designTab(
   item: Item,
   design: SlideDesignInfo | undefined,
   state: MasterState,
-  current: number,
+  /** The slides a layout goes to: the current one, or those selected in the slide panel. */
+  slides: number[],
   run: (cmd: SlideCommand) => void,
 ): RibbonTab {
   const sm = 'small' as const;
@@ -392,7 +393,7 @@ export function designTab(
           label: design && design.masters.length > 1 ? `${m.name} · ${l.name}` : l.name,
           size: sm,
           enabled: state.hasDeck,
-          onSelect: () => run({ cmd: 'applyLayout', layout: l.index, slides: [current] }),
+          onSelect: () => run({ cmd: 'applyLayout', layout: l.index, slides }),
         })),
       );
   return {

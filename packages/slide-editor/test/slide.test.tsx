@@ -768,7 +768,10 @@ describe('BlueSlideEditor', () => {
     fireEvent.keyDown(thumb, { key: 'Enter' });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'addSlide' }));
     fireEvent.keyDown(thumb, { key: 'd', ctrlKey: true });
-    await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'duplicateSlide' }));
+    // (The slide commands name the slides they act on: the selected ones, here the current one.)
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(expect.objectContaining({ cmd: 'duplicateSlide' })),
+    );
     expect(cmds()).not.toContainEqual({ cmd: 'duplicate' });
     fireEvent.keyDown(thumb, { key: 'ArrowDown', ctrlKey: true });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'moveSlide', from: 0, to: 1 }));
@@ -953,7 +956,10 @@ describe('BlueSlideEditor', () => {
       expect(cmds()).toContainEqual({ cmd: 'setNotes', slide: 0, text: 'Ghi chú đã sửa' }),
     );
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    // The button arms the drawing pointer; Enter puts the shape in the middle of the slide.
     fireEvent.click(await screen.findByText('Hình elip'));
+    expect(cmds()).not.toContainEqual({ cmd: 'insertShape', preset: 'ellipse' });
+    fireEvent.keyDown(window, { key: 'Enter' });
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'insertShape', preset: 'ellipse' }));
     fireEvent.click(screen.getByText('+ Thêm slide'));
     await waitFor(() => expect(cmds()).toContainEqual({ cmd: 'addSlide' }));

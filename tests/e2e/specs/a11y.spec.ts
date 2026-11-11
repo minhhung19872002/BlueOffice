@@ -249,8 +249,11 @@ test('BlueSlide: ribbon, File screen, dialogs, task panes, themes', async ({ pag
   await scan(page, 'slide deck');
   await scanTabs(page, 'slide');
   await scanFileScreen(page, 'slide');
-  // Insert › Table inserts a table at once (no dialog): scan the slide with it selected.
+  // Insert › Table opens the size grid: scan it, then the slide with a 3 × 3 table selected.
   await run(page, 'Chèn', 'insert.table');
+  await expect(page.getByTestId('table-size-picker')).toBeVisible();
+  await scan(page, 'slide table size grid');
+  await page.getByTestId('table-size-picker').locator('[data-cell="3x3"]').click();
   await page.waitForTimeout(400);
   await scan(page, 'slide table inserted');
   await scanDialog(page, 'slide Insert chart', () => run(page, 'Chèn', 'insert.chart'));

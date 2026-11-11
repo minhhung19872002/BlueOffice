@@ -55,6 +55,8 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   // Text box: type, select "chào" and make only that bold.
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await page.getByRole('button', { name: 'Hộp văn bản' }).click();
+  // The button arms the drawing pointer; Enter puts the object in the middle of the slide.
+  await page.keyboard.press('Enter');
   const tb = await box(page, 'selection-box');
   // Home tab (bold state) before editing: the keyboard stays in the text.
   await page.getByRole('tab', { name: 'Trang đầu' }).click();
@@ -92,6 +94,8 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   // Table: double-click a cell and type.
   await page.getByRole('tab', { name: 'Chèn' }).click();
   await page.getByRole('button', { name: 'Bảng' }).click();
+  // The size grid: 3 columns × 3 rows.
+  await page.getByTestId('table-size-picker').locator('[data-cell="3x3"]').click();
   // The new table (60 % of the slide width) is selected.
   await expect
     .poll(async () => (await page.getByTestId('selection-box').first().boundingBox())?.width ?? 0)

@@ -193,6 +193,23 @@ export function runGoto(
 }
 
 /**
+ * H in the show: when the slide after the one shown is hidden (left out of the order), it is
+ * shown now, and the show goes on after it; otherwise nothing happens.
+ */
+export function runHidden(
+  run: ShowRun,
+  pos: RunPos,
+  count: number,
+  clicks: (slide: number) => number,
+): { run: ShowRun; pos: RunPos } | null {
+  const next = pos.slide + 1;
+  if (next >= count || run.order.includes(next)) return null;
+  const order = [...run.order.slice(0, pos.at + 1), next, ...run.order.slice(pos.at + 1)];
+  const r: ShowRun = { ...run, order, prev: pos.at };
+  return { run: r, pos: arrive(r, pos.at + 1, clicks, 'transition') };
+}
+
+/**
  * Follow a hyperlink (§21.1.2.3.5): custom shows (with or without coming back),
  * slides of the order, jumps. `end` = the show ends.
  */

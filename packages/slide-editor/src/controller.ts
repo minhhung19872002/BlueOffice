@@ -49,6 +49,16 @@ export class SlideController {
     return this.enqueue(() => this.engine.slideCommand(cmd));
   }
 
+  /**
+   * A query after the queued commands whose answer is not reported as the editor's latest
+   * result (it changes nothing; the shape boxes of a hit test in the editor, a dialog's state).
+   */
+  query(cmd: SlideCommand): Promise<SlideEditResult | null> {
+    const p = this.queue.then(() => this.engine.slideCommand(cmd).catch(() => null));
+    this.queue = p;
+    return p;
+  }
+
   /** Send the last repeatable command again (F4); null when there is none. */
   repeat(): Promise<SlideEditResult | null> {
     const c = this.repeats.get();

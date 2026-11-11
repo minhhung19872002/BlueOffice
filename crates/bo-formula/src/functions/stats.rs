@@ -78,6 +78,7 @@ const A_MODE: Gather = Gather {
     a_mode: true,
     skip_errors: false,
     skip_hidden: false,
+    skip_filtered: false,
     skip_nested: false,
 };
 
@@ -679,6 +680,9 @@ fn count_nonblank(ctx: &Ctx, args: &[Value], opt: Gather) -> f64 {
                 if opt.skip_hidden && ctx.provider.is_row_hidden(area.sheet, r) {
                     return;
                 }
+                if opt.skip_filtered && ctx.provider.is_row_filtered(area.sheet, r) {
+                    return;
+                }
                 if opt.skip_nested
                     && ctx
                         .provider
@@ -740,6 +744,8 @@ fn subtotal(ctx: &mut Ctx, args: &[Value]) -> R {
         a_mode: false,
         skip_errors: false,
         skip_hidden: hidden,
+        // Rows a filter hides are left out with 1-11 as well (§18.17.7 SUBTOTAL).
+        skip_filtered: true,
         skip_nested: true,
     };
     let refs = &args[1..];
@@ -763,6 +769,7 @@ fn aggregate(ctx: &mut Ctx, args: &[Value]) -> R {
         a_mode: false,
         skip_errors: matches!(option, 2 | 3 | 6 | 7),
         skip_hidden: matches!(option, 1 | 3 | 5 | 7),
+        skip_filtered: false,
         skip_nested: option <= 3,
     };
     match code {

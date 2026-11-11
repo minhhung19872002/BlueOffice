@@ -1,0 +1,49 @@
+/* BlueSheet "More functions" list of the auto total menu. */
+
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--bo-border, #c8ccd4);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+.list {
+  height: 240px;
+  margin-top: 8px;
+  overflow-y: auto;
+  border: 1px solid var(--bo-border, #c8ccd4);
+  border-radius: 4px;
+}
+
+.option,
+.optionActive {
+  display: block;
+  width: 100%;
+  padding: 3px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 12px var(--bo-font-mono, ui-monospace, monospace);
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: var(--bo-hover, #eef3f0);
+}
+
+.optionActive {
+  background: var(--bo-active, #d9e8df);
+  font-weight: 600;
+}
+
+.empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--bo-text-muted, #5f6672);
+}

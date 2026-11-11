@@ -263,6 +263,7 @@ impl LiveCalc {
         let Some(ws) = wb.sheets.get(sheet) else {
             return;
         };
+        fw.set_filter_spans(sheet, crate::filter::filter_spans(ws));
         fw.set_hidden_rows(
             sheet,
             ws.rows.iter().filter(|(_, i)| i.hidden).map(|(r, _)| *r),

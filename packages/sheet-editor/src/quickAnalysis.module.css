@@ -122,3 +122,44 @@
 .chart img {
   display: block;
 }
+
+/* Totals: one group per place the totals go (row below, column on the right). */
+.group {
+  width: 100%;
+}
+
+.groupTitle {
+  margin-bottom: 2px;
+  color: var(--bo-text-muted, #5f6672);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.groupTiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.group[aria-disabled='true'] .groupTitle,
+.tile[aria-disabled='true'] {
+  opacity: 0.4;
+}
+
+.tile[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.tile[aria-disabled='true']:hover,
+.tile[aria-disabled='true']:focus-visible {
+  border-color: transparent;
+  background: none;
+}
+
+.totalsIcon {
+  color: var(--bo-sheet-accent, #1f7a4d);
+}
+
+.totalsGlyph {
+  fill: var(--bo-text, #1d2128);
+}

@@ -44,13 +44,16 @@ test('BlueSheet: a table slicer filters the table rows', async ({ page }) => {
     'aria-pressed',
     'false',
   );
-  await goTo(page, 'D6:D7');
-  await expect(page.getByTestId('status-sum')).toHaveText('Tổng: 2');
+  // (One filled cell shows no statistics in the status bar, so D6 is read from the
+  // announcement of the active cell.)
+  await goTo(page, 'D6');
+  await expect(page.getByTestId('sheet-a11y-live')).toContainText('D6: 2,');
   // Ctrl+click adds Bắc back; the clear button shows every row.
   await slicer.getByRole('button', { name: 'Bắc' }).click({ modifiers: ['Control'] });
   await expect(slicer.getByRole('button', { name: 'Bắc' })).toHaveAttribute('aria-pressed', 'true');
   await slicer.getByTestId('slicer-clear').click({ force: true });
-  await goTo(page, 'D6:D7');
-  await expect(page.getByTestId('status-sum')).toHaveText('Tổng: 6');
+  await goTo(page, 'D7');
+  await goTo(page, 'D6');
+  await expect(page.getByTestId('sheet-a11y-live')).toContainText('D6: 6,');
   expect(errors).toEqual([]);
 });

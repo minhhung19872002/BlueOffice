@@ -24,7 +24,6 @@ import {
   Eraser,
   Grid3x3,
   Palette,
-  Sigma,
   Table2,
   TableProperties,
   TrendingUp,
@@ -203,6 +202,81 @@ function batch(
   ];
   if (percent) cmds.push({ cmd: 'format', sheet, range: percent, patch: { numFmt: '0.0%' } });
   return { cmd: 'batch', cmds };
+}
+
+/** Why a totals group cannot be used for the selection (`null`: it can). */
+export function totalsGroupOff(dir: TotalDir, sel: SheetRange): 'oneRow' | 'oneColumn' | null {
+  // Totals under one row, or right of one column, would only repeat each value.
+  if (dir === 'rows') return sel.r0 === sel.r1 ? 'oneRow' : null;
+  return sel.c0 === sel.c1 ? 'oneColumn' : null;
+}
+
+/** The first formula a Totals choice writes, as `C5: =SUM(C2:C4)` (the hover preview). */
+export function totalsPreview(cmd: SheetCommand | null): string | null {
+  if (cmd?.cmd !== 'batch') return null;
+  for (const c of cmd.cmds) {
+    if (c.cmd !== 'setInputs') continue;
+    const f = c.cells.find(([, , text]) => text.startsWith('='));
+    if (f) return `${rel(f[0], f[1])}: ${f[2]}`;
+  }
+  return null;
+}
+
+const KIND_GLYPH: Record<TotalKind, string> = {
+  sum: 'Σ',
+  average: 'x̄',
+  count: '#',
+  percent: '%',
+  running: 'Σ+',
+};
+
+/**
+ * Picture of a Totals choice: a small grid whose bottom row (`rows`) or right column (`cols`)
+ * is filled — where the totals are added — with the sign of the calculation over the data.
+ */
+export function TotalsIcon({ dir, kind }: { dir: TotalDir; kind: TotalKind }) {
+  const cells: ReactNode[] = [];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const strip = dir === 'rows' ? r === 2 : c === 2;
+      cells.push(
+        <rect
+          key={`${r}:${c}`}
+          x={1 + c * 9}
+          y={1 + r * 7}
+          width={8}
+          height={6}
+          rx={1}
+          fill={strip ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeOpacity={strip ? 1 : 0.35}
+          strokeWidth={1}
+        />,
+      );
+    }
+  }
+  return (
+    <svg
+      className={css.totalsIcon}
+      width={28}
+      height={22}
+      viewBox="0 0 28 22"
+      aria-hidden
+      data-strip={dir === 'rows' ? 'bottom' : 'right'}
+    >
+      {cells}
+      <text
+        x={dir === 'rows' ? 14 : 9.5}
+        y={dir === 'rows' ? 11 : 14.5}
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight={700}
+        className={css.totalsGlyph}
+      >
+        {KIND_GLYPH[kind]}
+      </text>
+    </svg>
+  );
 }
 
 /** Sparklines of the selection's rows in the column right of it. */
@@ -468,16 +542,55 @@ export function QuickAnalysis({
           />
         );
       case 'totals':
-        return (['rows', 'cols'] as const).flatMap((dir) =>
-          TOTAL_KINDS.map((k) =>
-            tile(
-              `total-${dir}-${k}`,
-              t(`quickAnalysis.totals.${dir}.${k}`),
-              <Sigma size={18} />,
-              () => total(k, dir),
-            ),
-          ),
-        );
+        // The row of totals below the data first, then the column of totals on the right.
+        return (['rows', 'cols'] as const).map((dir) => {
+          const off = totalsGroupOff(dir, range);
+          const why = off ? t(`quickAnalysis.totals.off.${off}`) : undefined;
+          return (
+            <div
+              key={dir}
+              className={css.group}
+              role="group"
+              aria-label={t(`quickAnalysis.totals.group.${dir}`)}
+              aria-disabled={off ? true : undefined}
+              data-testid={`qa-totals-${dir}`}
+              title={why}
+            >
+              <div className={css.groupTitle}>{t(`quickAnalysis.totals.group.${dir}`)}</div>
+              <div className={css.groupTiles}>
+                {TOTAL_KINDS.map((k) => {
+                  const label = t(`quickAnalysis.totals.${dir}.${k}`);
+                  const preview =
+                    !off && info
+                      ? totalsPreview(totalsCommand(k, dir, sheet, range, info, labels))
+                      : null;
+                  const desc = why ?? (preview ? `${label} — ${preview}` : label);
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      className={css.tile}
+                      data-testid={`qa-total-${dir}-${k}`}
+                      aria-label={label}
+                      aria-disabled={off ? true : undefined}
+                      title={why ?? label}
+                      onClick={() => {
+                        if (!off) total(k, dir);
+                      }}
+                      onMouseEnter={() => setHint(desc)}
+                      onMouseLeave={() => setHint(null)}
+                      onFocus={() => setHint(desc)}
+                      onBlur={() => setHint(null)}
+                    >
+                      <TotalsIcon dir={dir} kind={k} />
+                      <span>{t(`quickAnalysis.totals.kind.${k}`)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        });
       case 'tables':
         return [
           tile('table', t('quickAnalysis.tables.table'), <Table2 size={18} />, () =>
@@ -545,7 +658,9 @@ export function QuickAnalysis({
           <div className={css.body} role="tabpanel">
             {body()}
           </div>
-          <p className={css.hint}>{hint ?? t(`quickAnalysis.tabHint.${tab}`)}</p>
+          <p className={css.hint} data-testid="qa-hint">
+            {hint ?? t(`quickAnalysis.tabHint.${tab}`)}
+          </p>
         </div>
       )}
     </>

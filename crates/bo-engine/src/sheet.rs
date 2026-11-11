@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 mod analysis_cmd;
 mod audit_cmd;
+mod autosum_cmd;
 mod cell_media_cmd;
 mod chart_design_cmd;
 mod cmd;

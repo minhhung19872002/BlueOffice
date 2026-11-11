@@ -7736,7 +7736,7 @@
     "tabHint": {
       "formatting": "Highlight the numbers with conditional formatting.",
       "charts": "Charts that suit this data, best first.",
-      "totals": "Add a row or column of totals next to the selection.",
+      "totals": "Add a row of totals below the selection or a column of totals on its right.",
       "tables": "Turn the data into a table or summarise it in a pivot table.",
       "sparklines": "Small charts in the column right of each row."
     },
@@ -7777,18 +7777,33 @@
     },
     "totals": {
       "rows": {
-        "sum": "Sum row",
-        "average": "Average row",
-        "count": "Count row",
-        "percent": "% of total row",
-        "running": "Running total row"
+        "sum": "Sum (adds a row below)",
+        "average": "Average (adds a row below)",
+        "count": "Count (adds a row below)",
+        "percent": "% of total (adds a row below)",
+        "running": "Running total (adds a row below)"
       },
       "cols": {
-        "sum": "Sum column",
-        "average": "Average column",
-        "count": "Count column",
-        "percent": "% of total column",
-        "running": "Running total column"
+        "sum": "Sum (adds a column on the right)",
+        "average": "Average (adds a column on the right)",
+        "count": "Count (adds a column on the right)",
+        "percent": "% of total (adds a column on the right)",
+        "running": "Running total (adds a column on the right)"
+      },
+      "kind": {
+        "sum": "Sum",
+        "average": "Average",
+        "count": "Count",
+        "percent": "% total",
+        "running": "Running"
+      },
+      "group": {
+        "rows": "Add a row of totals below the data",
+        "cols": "Add a column of totals right of the data"
+      },
+      "off": {
+        "oneRow": "The selection is a single row: a row of totals below it would only repeat each value. Use the column on the right instead.",
+        "oneColumn": "The selection is a single column: a column of totals on its right would only repeat each value. Use the row below instead."
       },
       "label": {
         "sum": "Total",
@@ -7955,6 +7970,28 @@
       "zoom": "zoom",
       "object": "object",
       "graphic": "graphic"
+    }
+  },
+  "autoSum": {
+    "button": "Auto total",
+    "menu": "More quick calculations",
+    "group": "Function library",
+    "fn": {
+      "sum": "Sum",
+      "average": "Average",
+      "count": "Count numbers",
+      "max": "Max",
+      "min": "Min"
+    },
+    "more": "More functions…",
+    "nothing": "The selection has no numbers to add up.",
+    "insertFunction": {
+      "title": "Insert function",
+      "search": "Search functions",
+      "insert": "Insert",
+      "cancel": "Cancel",
+      "loading": "Loading the functions…",
+      "none": "No function matches."
     }
   }
 }

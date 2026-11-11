@@ -783,6 +783,46 @@ fn subtotal_hidden_rows_and_nesting() {
     assert_eq!(wb.value_a1(0, "B3"), bo_formula::Value::Number(12.0));
 }
 
+/// `SUBTOTAL` 1-11 keep rows hidden by hand but leave out rows a filter hides; 101-111 leave
+/// out both (ISO/IEC 29500-1 §18.17.7 SUBTOTAL).
+#[test]
+fn subtotal_leaves_out_filtered_rows_with_every_function_number() {
+    let mut wb = workbook(
+        &[
+            ("A1", "10"),
+            ("A2", "20"),
+            ("A3", "30"),
+            ("A4", "40"),
+            ("B1", "=SUBTOTAL(9,A1:A4)"),
+            ("B2", "=SUBTOTAL(109,A1:A4)"),
+            ("B3", "=SUBTOTAL(1,A1:A4)"),
+            ("B4", "=SUBTOTAL(2,A1:A4)"),
+            ("C1", "=SUBTOTAL(3,A1:A4)"),
+            ("C2", "=SUM(A1:A4)"),
+        ],
+        Opts::default(),
+    );
+    // Row 2 hidden by hand: 9 keeps it (100), 109 drops it (80).
+    wb.set_row_hidden(0, 1, true);
+    wb.recalculate();
+    assert_eq!(wb.value_a1(0, "B1"), bo_formula::Value::Number(100.0));
+    assert_eq!(wb.value_a1(0, "B2"), bo_formula::Value::Number(80.0));
+    // A filter over rows 1-4 now hides row 2: both drop it. 10 + 30 + 40 = 80, mean 80/3,
+    // three numbers, three filled cells; SUM is not affected.
+    wb.set_filter_spans(0, vec![(0, 3)]);
+    wb.recalculate();
+    assert_eq!(wb.value_a1(0, "B1"), bo_formula::Value::Number(80.0));
+    assert_eq!(wb.value_a1(0, "B2"), bo_formula::Value::Number(80.0));
+    assert_eq!(wb.value_a1(0, "B3"), bo_formula::Value::Number(80.0 / 3.0));
+    assert_eq!(wb.value_a1(0, "B4"), bo_formula::Value::Number(3.0));
+    assert_eq!(wb.value_a1(0, "C1"), bo_formula::Value::Number(3.0));
+    assert_eq!(wb.value_a1(0, "C2"), bo_formula::Value::Number(100.0));
+    // A hidden row outside the filter is hidden by hand again.
+    wb.set_filter_spans(0, vec![(2, 3)]);
+    wb.recalculate();
+    assert_eq!(wb.value_a1(0, "B1"), bo_formula::Value::Number(100.0));
+}
+
 /// Additional value, edge and error rows for the "Hàm đợt 1" Math & Trig list
 /// (gap #37): every function has at least one error or boundary case.
 #[test]

@@ -7736,7 +7736,7 @@
     "tabHint": {
       "formatting": "Làm nổi bật các số bằng định dạng có điều kiện.",
       "charts": "Các biểu đồ hợp với dữ liệu này, phù hợp nhất trước.",
-      "totals": "Thêm một hàng hoặc cột tổng cạnh vùng chọn.",
+      "totals": "Thêm một hàng tổng bên dưới hoặc một cột tổng bên phải vùng chọn.",
       "tables": "Chuyển dữ liệu thành bảng hoặc tóm tắt bằng bảng tổng hợp.",
       "sparklines": "Biểu đồ nhỏ trong cột bên phải mỗi hàng."
     },
@@ -7777,18 +7777,33 @@
     },
     "totals": {
       "rows": {
-        "sum": "Hàng tổng",
-        "average": "Hàng trung bình",
-        "count": "Hàng đếm",
-        "percent": "Hàng % tổng",
-        "running": "Hàng lũy kế"
+        "sum": "Tổng (thêm hàng bên dưới)",
+        "average": "Trung bình (thêm hàng bên dưới)",
+        "count": "Đếm (thêm hàng bên dưới)",
+        "percent": "% tổng (thêm hàng bên dưới)",
+        "running": "Tổng lũy kế (thêm hàng bên dưới)"
       },
       "cols": {
-        "sum": "Cột tổng",
-        "average": "Cột trung bình",
-        "count": "Cột đếm",
-        "percent": "Cột % tổng",
-        "running": "Cột lũy kế"
+        "sum": "Tổng (thêm cột bên phải)",
+        "average": "Trung bình (thêm cột bên phải)",
+        "count": "Đếm (thêm cột bên phải)",
+        "percent": "% tổng (thêm cột bên phải)",
+        "running": "Tổng lũy kế (thêm cột bên phải)"
+      },
+      "kind": {
+        "sum": "Tổng",
+        "average": "Trung bình",
+        "count": "Đếm",
+        "percent": "% tổng",
+        "running": "Lũy kế"
+      },
+      "group": {
+        "rows": "Thêm hàng tổng bên dưới dữ liệu",
+        "cols": "Thêm cột tổng bên phải dữ liệu"
+      },
+      "off": {
+        "oneRow": "Vùng chọn chỉ có một hàng: hàng tổng bên dưới sẽ chỉ lặp lại từng giá trị. Hãy dùng nhóm thêm cột bên phải.",
+        "oneColumn": "Vùng chọn chỉ có một cột: cột tổng bên phải sẽ chỉ lặp lại từng giá trị. Hãy dùng nhóm thêm hàng bên dưới."
       },
       "label": {
         "sum": "Tổng",
@@ -7955,6 +7970,28 @@
       "zoom": "thu phóng",
       "object": "đối tượng",
       "graphic": "đồ hoạ"
+    }
+  },
+  "autoSum": {
+    "button": "Tự tính tổng",
+    "menu": "Các phép tính nhanh khác",
+    "group": "Thư viện hàm",
+    "fn": {
+      "sum": "Tổng",
+      "average": "Trung bình",
+      "count": "Đếm số",
+      "max": "Lớn nhất",
+      "min": "Nhỏ nhất"
+    },
+    "more": "Hàm khác…",
+    "nothing": "Vùng chọn không có số nào để tính.",
+    "insertFunction": {
+      "title": "Chèn hàm",
+      "search": "Tìm hàm",
+      "insert": "Chèn",
+      "cancel": "Hủy",
+      "loading": "Đang tải danh sách hàm…",
+      "none": "Không có hàm nào khớp."
     }
   }
 }

@@ -15,6 +15,8 @@ import {
   formattingCommand,
   sparklineCommand,
   totalsCommand,
+  totalsGroupOff,
+  totalsPreview,
   type TotalLabels,
 } from '../src/quickAnalysis';
 
@@ -232,6 +234,114 @@ describe('QuickAnalysis', () => {
     fireEvent.click(await screen.findByTestId('qa-tab-tables'));
     fireEvent.click(screen.getByTestId('qa-pivot'));
     expect(runCommand).toHaveBeenCalledWith('insert.pivot');
+  });
+
+  it('names where the totals go and previews the formula on hover', async () => {
+    const e = engine();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <QuickAnalysis
+          sheet={0}
+          range={sel}
+          anchor={{ x: 0, y: 0 }}
+          exec={e.exec}
+          query={e.query}
+          insertChart={vi.fn()}
+          runCommand={vi.fn()}
+          onNotice={vi.fn()}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    await waitFor(() => expect(e.queryMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('qa-tab-totals'));
+    // The row below the data comes first, then the column on the right.
+    const groups = [screen.getByTestId('qa-totals-rows'), screen.getByTestId('qa-totals-cols')];
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual([
+      'Add a row of totals below the data',
+      'Add a column of totals right of the data',
+    ]);
+    expect(
+      groups[0]!.compareDocumentPosition(groups[1]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const below = screen.getByTestId('qa-total-rows-sum');
+    const right = screen.getByTestId('qa-total-cols-sum');
+    expect(below.getAttribute('aria-label')).toBe('Sum (adds a row below)');
+    expect(right.getAttribute('aria-label')).toBe('Sum (adds a column on the right)');
+    // The icons show which strip is filled.
+    expect(below.querySelector('svg')?.getAttribute('data-strip')).toBe('bottom');
+    expect(right.querySelector('svg')?.getAttribute('data-strip')).toBe('right');
+    // Hover: the first formula and its cell (B5 sums B2:B4; D2 sums B2:C2).
+    await waitFor(() => {
+      fireEvent.mouseEnter(below);
+      expect(screen.getByTestId('qa-hint').textContent).toBe(
+        'Sum (adds a row below) — B5: =SUM(B2:B4)',
+      );
+    });
+    fireEvent.mouseLeave(below);
+    fireEvent.mouseEnter(right);
+    expect(screen.getByTestId('qa-hint').textContent).toBe(
+      'Sum (adds a column on the right) — D2: =SUM(B2:C2)',
+    );
+  });
+
+  it('turns the column group off for a single column and the row group for a single row', async () => {
+    // C2:C4 — the selection of the report: a total right of it would repeat the values.
+    const col: SheetRange = { r0: 1, c0: 2, r1: 3, c1: 2 };
+    expect(totalsGroupOff('cols', col)).toBe('oneColumn');
+    expect(totalsGroupOff('rows', col)).toBeNull();
+    const row: SheetRange = { r0: 0, c0: 1, r1: 0, c1: 3 };
+    expect(totalsGroupOff('rows', row)).toBe('oneRow');
+    expect(totalsGroupOff('cols', row)).toBeNull();
+    expect(totalsGroupOff('rows', sel)).toBeNull();
+    expect(totalsGroupOff('cols', sel)).toBeNull();
+
+    const e = engine();
+    const colInfo: QuickAnalysisInfo = {
+      ...info,
+      shape: null,
+      header: false,
+      labelCols: 0,
+      numericCols: [2],
+      numericRows: [1, 2, 3],
+      region: col,
+    };
+    e.queryMock.mockImplementation((c) =>
+      Promise.resolve(c.cmd === 'quickAnalysis' ? colInfo : null),
+    );
+    render(
+      <I18nextProvider i18n={i18n}>
+        <QuickAnalysis
+          sheet={0}
+          range={col}
+          anchor={{ x: 0, y: 0 }}
+          exec={e.exec}
+          query={e.query}
+          insertChart={vi.fn()}
+          runCommand={vi.fn()}
+          onNotice={vi.fn()}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    await waitFor(() => expect(e.queryMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('qa-tab-totals'));
+    const off = screen.getByTestId('qa-total-cols-sum');
+    expect(off.getAttribute('aria-disabled')).toBe('true');
+    expect(off.getAttribute('title')).toContain('single column');
+    fireEvent.click(off);
+    expect(e.execMock).not.toHaveBeenCalled();
+    // The row below works: C5 = SUM(C2:C4).
+    const on = screen.getByTestId('qa-total-rows-sum');
+    expect(on.getAttribute('aria-disabled')).toBeNull();
+    await waitFor(() => {
+      fireEvent.click(on);
+      expect(e.execMock).toHaveBeenCalledTimes(1);
+    });
+    const sent = e.execMock.mock.calls[0]![0];
+    expect(totalsPreview(sent)).toBe('C5: =SUM(C2:C4)');
   });
 
   it('refuses totals when the next cells are taken', async () => {

@@ -6,7 +6,7 @@ Cập nhật sau mỗi hạng mục BACKLOG.
 
 ## Tổng hợp (theo hàng tính năng bên dưới; ✅ = 1, 🟡 = 0,5)
 
-Tính lại khi rà soát định kỳ 2026-11-11 (lần 6, sau 82 mục `[x]`) từ cột Trạng thái (hàng "— (chủ ý)" không tính). Fidelity (`pnpm fidelity`,
+Tính lại khi rà soát định kỳ 2026-11-11 (lần 6, sau 76 mục `[x]`) từ cột Trạng thái (hàng "— (chủ ý)" không tính). Fidelity (`pnpm fidelity`,
 2026-11-11): .docx 94 file, .xlsx 173, .pptx 80 — mở + lưu được 100 %; hợp lệ theo OpenXmlValidator sau khi lưu 98,9 % / 98,3 % / 98,8 %, mọi lỗi còn
 lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: `w:smartTag`, ô `t="d"`, `a14:m`). Ảnh mốc tự sinh 347 trang, 7 vượt ngưỡng
 (đang xử lý cùng việc sửa CI). Chưa có ảnh mốc từ phần mềm tham chiếu.

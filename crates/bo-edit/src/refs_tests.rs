@@ -14,6 +14,7 @@ fn field(instr: &str) -> RunContent {
         instr: instr.into(),
         cached: String::new(),
         locked: false,
+        codes: false,
     }
 }
 

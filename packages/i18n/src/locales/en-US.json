@@ -520,7 +520,8 @@
       "unlink": "Unlink fields",
       "next": "Next field (F11)",
       "previous": "Previous field (Shift+F11)",
-      "insertBraces": "Insert field braces (Ctrl+F9)"
+      "insertBraces": "Insert field braces (Ctrl+F9)",
+      "toggleOne": "Toggle this field's code (Shift+F9)"
     },
     "outline": {
       "promote": "Raise level",
@@ -554,7 +555,8 @@
     "controls": {
       "properties": "Content control properties",
       "picture": "Choose a picture for the control",
-      "openList": "Open the control list (Alt+Down)"
+      "openList": "Open the control list (Alt+Down)",
+      "deleteItem": "Delete repeating item"
     }
   },
   "status": {
@@ -4575,13 +4577,15 @@
       "comboBox": "Combo box",
       "date": "Date picker",
       "picture": "Picture",
-      "repeatingSection": "Repeating section"
+      "repeatingSection": "Repeating section",
+      "buildingBlockGallery": "Building block gallery"
     },
     "defaultPlaceholder": "Click or tap here to enter text.",
     "defaultItem": "Choose an item.",
     "defaultDate": "Click or tap to enter a date.",
     "defaultPicture": "Click here to insert a picture.",
-    "sectionTitle": "Section title"
+    "sectionTitle": "Section title",
+    "defaultGallery": "Choose a building block."
   },
   "controlBar": {
     "label": "Content control",
@@ -4593,7 +4597,12 @@
     "apply": "Apply",
     "picture": "Choose picture…",
     "addItem": "Add repeating item",
-    "properties": "Properties…"
+    "properties": "Properties…",
+    "deleteItem": "Delete repeating item",
+    "openList": "Open the list",
+    "openCalendar": "Open the calendar",
+    "openGallery": "Open the building block gallery",
+    "galleryEmpty": "This gallery has no building blocks."
   },
   "xmlMapping": {
     "title": "XML data mapping",
@@ -8390,7 +8399,8 @@
     "title": "Field code",
     "label": "Field code",
     "hint": "For example: DATE \\@ \"M/d/yyyy\"",
-    "insert": "Insert"
+    "insert": "Insert",
+    "inPlace": "Field code — Enter to finish, F9 to update"
   },
   "fieldPrompt": {
     "title": "Field question",
@@ -8404,6 +8414,32 @@
     "locking": "Locking",
     "deleteLocked": "Control cannot be deleted",
     "contentLocked": "Contents cannot be edited",
-    "ok": "OK"
+    "ok": "OK",
+    "showAs": "Show as",
+    "showAsBox": "Bounding box",
+    "showAsTags": "Start/end tag",
+    "showAsNone": "None",
+    "color": "Color",
+    "colorAuto": "Automatic",
+    "temporary": "Remove content control when contents are edited",
+    "listItems": "List items",
+    "displayName": "Display name",
+    "value": "Value",
+    "add": "Add",
+    "modify": "Modify",
+    "remove": "Remove",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "dateTitle": "Date picker properties",
+    "dateFormat": "Display the date like this",
+    "locale": "Locale",
+    "localeVi": "Vietnamese",
+    "localeEn": "English (United States)"
+  },
+  "calendar": {
+    "label": "Choose a date",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "today": "Today"
   }
 }

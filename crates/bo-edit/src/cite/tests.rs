@@ -274,6 +274,7 @@ fn update_fields_refreshes_citations() {
             instr: instr.into(),
             cached: cached.into(),
             locked: false,
+            codes: false,
         }],
     };
     let doc = Document {

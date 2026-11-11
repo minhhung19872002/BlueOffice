@@ -908,6 +908,9 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
         block,
         props_xml: Some(xml.to_owned()),
         data_binding: None,
+        appearance: None,
+        color: None,
+        temporary: false,
     };
     let wrapped =
         format!("<x xmlns:w=\"{W_NS}\" xmlns:w14=\"{W14_NS}\" xmlns:w15=\"{W15_NS}\">{xml}</x>");
@@ -974,6 +977,8 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
                         .elements()
                         .find(|x| x.local() == "storeMappedDataAs")
                         .and_then(val),
+                    // §17.5.2 lid: the language of the date shown.
+                    lid: c.elements().find(|x| x.local() == "lid").and_then(val),
                 };
             }
             "checkbox" => {
@@ -996,9 +1001,22 @@ pub(crate) fn parse_sdt_pr(xml: &str, block: bool) -> ContentControl {
             "repeatingSection" => cc.kind = ControlKind::RepeatingSection,
             "repeatingSectionItem" => cc.kind = ControlKind::RepeatingSectionItem,
             "group" => cc.kind = ControlKind::Group,
-            "citation" | "bibliography" | "equation" | "docPartObj" | "docPartList" => {
+            // §17.5.2 docPartList: a building block gallery (docPartGallery, docPartCategory).
+            "docPartList" => {
+                let child = |n: &str| c.elements().find(|x| x.local() == n).and_then(val);
+                cc.kind = ControlKind::Gallery {
+                    gallery: child("docPartGallery").unwrap_or_default(),
+                    category: child("docPartCategory"),
+                };
+            }
+            "citation" | "bibliography" | "equation" | "docPartObj" => {
                 cc.kind = ControlKind::Other;
             }
+            // §17.5.2 temporary: removed once the contents are edited.
+            "temporary" => cc.temporary = on(val(c)),
+            // [MS-DOCX] w15:appearance and w15:color.
+            "appearance" if c.name.starts_with("w15:") => cc.appearance = val(c),
+            "color" if c.name.starts_with("w15:") => cc.color = val(c),
             _ => {}
         }
     }
@@ -1102,6 +1120,7 @@ fn read_para_children(
                         instr: instr.trim().to_owned(),
                         cached: inner.plain_text(),
                         locked,
+                        codes: false,
                     }],
                 });
             }
@@ -1270,6 +1289,7 @@ fn collapse_simple_fields(runs: &mut Vec<Run>) {
                             instr: instr.trim().to_owned(),
                             cached,
                             locked: false,
+                            codes: false,
                         }],
                     }],
                 );

@@ -13,6 +13,7 @@ pub mod chart_part;
 pub mod chart_style;
 pub mod custom_xml;
 pub mod diagram;
+pub mod eq;
 pub mod field;
 pub mod form;
 pub mod glossary;

@@ -495,6 +495,7 @@ fn eval_nodes(
                     instr,
                     cached,
                     locked: false,
+                    ..
                 },
             )) => match eval_instr(&instr, ctx) {
                 Some(v) => {
@@ -506,6 +507,7 @@ fn eval_nodes(
                                 instr,
                                 cached: v,
                                 locked: false,
+                                codes: false,
                             },
                         ));
                     } else if !v.is_empty() {
@@ -518,6 +520,7 @@ fn eval_nodes(
                         instr,
                         cached,
                         locked: false,
+                        codes: false,
                     },
                 )),
             },

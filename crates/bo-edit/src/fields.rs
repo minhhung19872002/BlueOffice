@@ -366,12 +366,13 @@ pub fn bookmarks(doc: &Document) -> Vec<Bookmark> {
     out
 }
 
-/// The reference mark of the first footnote / endnote inside each bookmark (§17.16.5.41
+/// The reference mark (and whether it is an endnote's) of the first footnote / endnote inside
+/// each bookmark (§17.16.5.41
 /// NOTEREF), numbered as displayed: in document order, restarting per section when the note
 /// properties say so (§17.11.19 numRestart), in their number format (§17.11.17 numFmt).
-pub(crate) fn note_marks(doc: &Document) -> HashMap<String, String> {
+pub(crate) fn note_marks(doc: &Document) -> HashMap<String, (String, bool)> {
     use bo_model::{NoteRestart, NumFormat};
-    let mut out: HashMap<String, String> = HashMap::new();
+    let mut out: HashMap<String, (String, bool)> = HashMap::new();
     let mut numbers: HashMap<(bool, i32), String> = HashMap::new();
     let (mut foot, mut end) = (0i32, 0i32);
     let mut section = usize::MAX;
@@ -428,7 +429,8 @@ pub(crate) fn note_marks(doc: &Document) -> HashMap<String, String> {
                 })
                 .clone();
             for n in open.values() {
-                out.entry(n.clone()).or_insert_with(|| mark.clone());
+                out.entry(n.clone())
+                    .or_insert_with(|| (mark.clone(), key.0));
             }
         }
     }
@@ -712,9 +714,156 @@ pub(crate) fn update_cite(doc: &Document) -> FieldUpdate {
     }
 }
 
+/// Which fields an update touches (F9 over a selection): a field is in scope when it overlaps
+/// one of the selected ranges (body paragraph id, byte range of its index text), or touches a
+/// collapsed one (the caret in, just before or just after it); a block field (TOC, INDEX…)
+/// when one of its paragraphs is selected.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Scope {
+    /// Selected (paragraph id, from, to) ranges.
+    pub ranges: Vec<(usize, usize, usize)>,
+}
+
+impl Scope {
+    /// The field spanning `start..end` of paragraph `pid` is in scope.
+    #[must_use]
+    pub fn hits(&self, pid: usize, start: usize, end: usize) -> bool {
+        self.ranges.iter().any(|&(p, s, e)| {
+            p == pid
+                && if s == e {
+                    start <= s && s <= end
+                } else {
+                    start < e && end > s
+                }
+        })
+    }
+
+    /// Some paragraph of `first..=last` is in scope.
+    fn hits_paras(&self, first: usize, last: usize) -> bool {
+        self.ranges.iter().any(|&(p, _, _)| first <= p && p <= last)
+    }
+}
+
+/// Code prefix of a field an update over a selection leaves alone (locked for the update, its
+/// lock restored afterwards).
+const KEEP: char = '\u{E000}';
+
+/// `doc` prepared for an update of the fields in `scope`: those outside are locked (their code
+/// marked for [`unmark`]), those inside show their results (§17.16.18 fldLock keeps the locked
+/// ones locked). Returns it with the block fields left alone (section, first block).
+fn mark(doc: &Document, scope: &Scope) -> (Document, std::collections::HashSet<(usize, usize)>) {
+    let mut out = doc.clone();
+    let paths = body_paragraphs(doc);
+    let id_of: HashMap<&[usize], usize> = paths
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.as_slice(), i))
+        .collect();
+    let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
+    for (pid, path) in paths.iter().enumerate() {
+        let Some(Block::Paragraph(p)) = block_at_mut(&mut sections, path) else {
+            continue;
+        };
+        let mut pos = 0;
+        for c in p.runs.iter_mut().flat_map(|r| r.content.iter_mut()) {
+            let l = para::atom_len(c);
+            if let RunContent::Field {
+                instr,
+                locked,
+                codes,
+                ..
+            } = c
+            {
+                if scope.hits(pid, pos, pos + l) {
+                    *codes = false;
+                } else if !*locked {
+                    *locked = true;
+                    instr.insert(0, KEEP);
+                }
+            }
+            pos += l;
+        }
+    }
+    let mut skip = std::collections::HashSet::new();
+    for (si, blocks) in sections.iter().enumerate() {
+        for t in toc_ranges(blocks) {
+            let pid = |bi: usize| id_of.get([si, bi].as_slice()).copied();
+            let inside =
+                matches!((pid(t.first), pid(t.last)), (Some(a), Some(b)) if scope.hits_paras(a, b));
+            if !inside {
+                skip.insert((si, t.first));
+            }
+        }
+    }
+    for (s, b) in out.sections.iter_mut().zip(sections) {
+        s.blocks = b;
+    }
+    (out, skip)
+}
+
+/// Undo [`mark`] on updated blocks.
+fn unmark(sections: &mut [Vec<Block>]) {
+    fn blocks(v: &mut [Block]) {
+        for b in v {
+            match b {
+                Block::Paragraph(p) => {
+                    for c in p.runs.iter_mut().flat_map(|r| r.content.iter_mut()) {
+                        if let RunContent::Field { instr, locked, .. } = c {
+                            if let Some(rest) = instr.strip_prefix(KEEP) {
+                                *instr = rest.to_owned();
+                                *locked = false;
+                            }
+                        }
+                    }
+                }
+                Block::Table(t) => {
+                    for c in t.rows.iter_mut().flat_map(|r| r.cells.iter_mut()) {
+                        blocks(&mut c.blocks);
+                    }
+                }
+                Block::Opaque(_) => {}
+            }
+        }
+    }
+    for s in sections {
+        blocks(s);
+    }
+}
+
 /// Recompute TOC, SEQ, REF, PAGEREF fields. `pages[id]` = displayed page number of
 /// body paragraph `id` (0 = unknown).
 pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
+    update_in(doc, pages, env, None)
+}
+
+/// [`update`] of the fields in `scope` only (`None`: all of them).
+pub fn update_in(
+    doc: &Document,
+    pages: &[u32],
+    env: &FieldEnv,
+    scope: Option<&Scope>,
+) -> FieldUpdate {
+    let Some(scope) = scope else {
+        return update_all(doc, pages, env, &std::collections::HashSet::new());
+    };
+    let (probe, skip) = mark(doc, scope);
+    let mut up = update_all(&probe, pages, env, &skip);
+    unmark(&mut up.sections);
+    up
+}
+
+/// The ASK / FILLIN questions an update of the fields in `scope` asks.
+pub fn prompts_in(doc: &Document, scope: &Scope) -> Vec<crate::merge::rules::Prompt> {
+    prompts(&mark(doc, scope).0)
+}
+
+#[allow(clippy::too_many_lines)]
+fn update_all(
+    doc: &Document,
+    pages: &[u32],
+    env: &FieldEnv,
+    skip: &std::collections::HashSet<(usize, usize)>,
+) -> FieldUpdate {
     let page = |id: usize| pages.get(id).copied().unwrap_or(0);
     let mut sections: Vec<Vec<Block>> = doc.sections.iter().map(|s| s.blocks.clone()).collect();
     let mut count = 0;
@@ -742,6 +891,7 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
         .iter()
         .enumerate()
         .flat_map(|(si, b)| toc_ranges(b).into_iter().map(move |t| (si, t)))
+        .filter(|(si, t)| !skip.contains(&(*si, t.first)))
         .collect();
     if !tocs.is_empty() {
         let in_toc = |path: &[usize]| {
@@ -868,8 +1018,10 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
     }
 
     // ---- 2. SEQ numbers in document order (§17.16.5.56).
+    // A locked SEQ field keeps its number but still counts (the ones after it follow on).
     let mut seq: HashMap<String, i64> = HashMap::new();
-    visit_fields(&mut sections, &mut |instr, cached| {
+    visit_every_field(&mut sections, &mut |instr, cached, locked| {
+        let instr = instr.trim_start_matches(KEEP);
         if field_kind(instr) != "SEQ" {
             return;
         }
@@ -889,7 +1041,7 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
         } else {
             format_seq(*n, instr)
         };
-        if *cached != v {
+        if !locked && *cached != v {
             *cached = v;
             count += 1;
         }
@@ -918,33 +1070,103 @@ pub fn update(doc: &Document, pages: &[u32], env: &FieldEnv) -> FieldUpdate {
         .map(|b| (b.name, b.text.trim().to_owned()))
         .collect();
     let notes = note_marks(doc);
-    visit_fields(&mut sections, &mut |instr, cached| {
-        let kind = field_kind(instr);
-        let args = field_args(instr);
-        let Some(name) = args.get(1) else {
-            return;
-        };
-        let v = match kind.as_str() {
-            // A SET field defines a bookmark too (§17.16.5.57).
-            "REF" => bm_text
-                .get(name)
-                .cloned()
-                .or_else(|| set_vars.get(&name.to_ascii_lowercase()).cloned()),
-            "PAGEREF" => bm_page
-                .get(name)
-                .filter(|p| **p > 0)
-                .map(ToString::to_string),
-            // §17.16.5.41 NOTEREF: the mark of the note in the bookmark.
-            "NOTEREF" => notes.get(name).cloned(),
-            _ => None,
-        };
-        if let Some(v) = v {
-            if *cached != v {
-                *cached = v;
-                count += 1;
+    // Where bookmarks start and fields are (paragraph id, atom index), for NOTEREF \p.
+    let probe_paths = body_paragraphs(&probe);
+    let mut bm_at: HashMap<String, (usize, usize)> = HashMap::new();
+    for (pid, path) in probe_paths.iter().enumerate() {
+        if let Some(p) = para_at(&probe, path) {
+            for (ai, name, _) in bookmark_marks(&para::flatten(p)) {
+                if let Some(n) = name {
+                    bm_at.entry(n).or_insert((pid, ai));
+                }
             }
         }
-    });
+    }
+    let note_style = |endnote: bool| {
+        let id = if endnote {
+            "EndnoteReference"
+        } else {
+            "FootnoteReference"
+        };
+        doc.styles
+            .styles
+            .iter()
+            .any(|s| s.id == id)
+            .then(|| id.to_owned())
+    };
+    for (pid, path) in probe_paths.iter().enumerate() {
+        let Some(Block::Paragraph(p)) = block_at_mut(&mut sections, path) else {
+            continue;
+        };
+        let mut atoms = para::flatten(p);
+        let mut changed = false;
+        for (ai, (props, c)) in atoms.iter_mut().enumerate() {
+            let RunContent::Field {
+                instr,
+                cached,
+                locked: false,
+                ..
+            } = c
+            else {
+                continue;
+            };
+            let kind = field_kind(instr);
+            let args = field_args(instr);
+            let Some(name) = args.get(1) else {
+                continue;
+            };
+            let v = match kind.as_str() {
+                // A SET field defines a bookmark too (§17.16.5.57).
+                "REF" => bm_text
+                    .get(name)
+                    .cloned()
+                    .or_else(|| set_vars.get(&name.to_ascii_lowercase()).cloned()),
+                "PAGEREF" => bm_page
+                    .get(name)
+                    .filter(|p| **p > 0)
+                    .map(ToString::to_string),
+                // §17.16.5.41 NOTEREF: the mark of the note in the bookmark; `\p` adds where it
+                // is ("above" / "below" the field), `\f` formats it as a note reference mark.
+                "NOTEREF" => notes.get(name).map(|(mark, endnote)| {
+                    if bo_model::field::has_switch(instr, "\\f") {
+                        let mut np = props.clone();
+                        match note_style(*endnote) {
+                            Some(st) => np.style = Some(st),
+                            None => np.vert_align = Some(bo_model::VertAlign::Superscript),
+                        }
+                        if np != *props {
+                            *props = np;
+                            changed = true;
+                        }
+                    }
+                    if bo_model::field::has_switch(instr, "\\p") {
+                        let above = bm_at.get(name).is_some_and(|at| *at < (pid, ai));
+                        let word = match (above, env.vi) {
+                            (true, true) => "ở trên",
+                            (false, true) => "ở dưới",
+                            (true, false) => "above",
+                            (false, false) => "below",
+                        };
+                        format!("{mark} {word}")
+                    } else {
+                        mark.clone()
+                    }
+                }),
+                _ => None,
+            };
+            if let Some(v) = v {
+                if *cached != v {
+                    *cached = v;
+                    changed = true;
+                    count += 1;
+                }
+            }
+        }
+        if changed {
+            p.runs = para::rebuild(atoms);
+            p.src = None;
+        }
+    }
 
     let styles = if styles_needed.is_empty() {
         None
@@ -1276,6 +1498,7 @@ fn evaluate_all(
                         instr,
                         cached,
                         locked: false,
+                        ..
                     } = c
                     else {
                         continue;
@@ -1511,6 +1734,38 @@ fn block_at_mut<'a>(sections: &'a mut [Vec<Block>], path: &[usize]) -> Option<&'
     }
 }
 
+/// Visit every simple field of the main text in document order, locked ones too (`true`).
+fn visit_every_field(sections: &mut [Vec<Block>], f: &mut dyn FnMut(&str, &mut String, bool)) {
+    fn blocks(v: &mut [Block], f: &mut dyn FnMut(&str, &mut String, bool)) {
+        for b in v {
+            match b {
+                Block::Paragraph(p) => {
+                    for c in p.runs.iter_mut().flat_map(|r| r.content.iter_mut()) {
+                        if let RunContent::Field {
+                            instr,
+                            cached,
+                            locked,
+                            ..
+                        } = c
+                        {
+                            f(instr, cached, *locked);
+                        }
+                    }
+                }
+                Block::Table(t) => {
+                    for c in t.rows.iter_mut().flat_map(|r| r.cells.iter_mut()) {
+                        blocks(&mut c.blocks, f);
+                    }
+                }
+                Block::Opaque(_) => {}
+            }
+        }
+    }
+    for s in sections {
+        blocks(s, f);
+    }
+}
+
 /// Visit every simple field result of the main text in document order.
 pub(crate) fn visit_fields(sections: &mut [Vec<Block>], f: &mut dyn FnMut(&str, &mut String)) {
     fn blocks(v: &mut [Block], f: &mut dyn FnMut(&str, &mut String)) {
@@ -1524,6 +1779,7 @@ pub(crate) fn visit_fields(sections: &mut [Vec<Block>], f: &mut dyn FnMut(&str, 
                                 instr,
                                 cached,
                                 locked: false,
+                                ..
                             } = c
                             {
                                 f(instr, cached);
@@ -1581,6 +1837,7 @@ pub fn caption_paragraph(label: &str, n: i64, text: &str) -> Paragraph {
                 instr: format!("SEQ {label} \\* ARABIC"),
                 cached: n.to_string(),
                 locked: false,
+                codes: false,
             }],
         },
     ];
@@ -1702,6 +1959,7 @@ mod eval_tests {
                     instr: instr.into(),
                     cached: "?".into(),
                     locked: false,
+                    codes: false,
                 }],
             }],
         )
@@ -1989,6 +2247,7 @@ mod eval_tests {
             instr: "PAGE".into(),
             cached: "?".into(),
             locked: false,
+            codes: false,
         });
         let page = span(1, 6, 6 + len);
         let numpages = span(1, 6 + len + 3, 6 + 2 * len + 3);
@@ -2003,5 +2262,172 @@ mod eval_tests {
         assert_eq!(s.next_field(false), Some(date));
         let empty = Session::new(Document::default()).next_field(true);
         assert_eq!(empty, None);
+    }
+
+    fn doc_of(blocks: Vec<Block>) -> Document {
+        Document {
+            sections: vec![Section {
+                blocks,
+                ..Section::default()
+            }],
+            ..Document::default()
+        }
+    }
+
+    fn results(s: &crate::Session) -> Vec<String> {
+        s.doc().sections[0].blocks.iter().map(result).collect()
+    }
+
+    // Reference behaviour (word processor): F9 updates the fields in the selection only — with
+    // the caret at a field, that field; with everything selected (Ctrl+A), all of them. A SEQ
+    // field updated alone still counts the SEQ fields before it.
+    #[test]
+    fn f9_updates_only_the_selected_fields() {
+        use crate::{Pos, Selection, Session};
+        let mut s = Session::new(doc_of(vec![
+            Block::Paragraph(field("= 1+1")),
+            Block::Paragraph(field("= 2+2")),
+            Block::Paragraph(field("SEQ Hinh")),
+            Block::Paragraph(field("SEQ Hinh")),
+        ]));
+        let mut pages = |_: &Document| Vec::new();
+        let none = std::collections::BTreeMap::new;
+        // The caret just after the second field.
+        s.set_selection(Selection::caret(Pos::new(1, 3)));
+        assert_eq!(s.update_selected_fields(&mut pages, none()).unwrap(), 1);
+        assert_eq!(results(&s), ["?", "4", "?", "?"]);
+        // The last SEQ field alone is the second one.
+        s.set_selection(Selection::caret(Pos::new(3, 0)));
+        s.update_selected_fields(&mut pages, none()).unwrap();
+        assert_eq!(results(&s), ["?", "4", "?", "2"]);
+        // A selection over the first two paragraphs.
+        s.set_selection(Selection {
+            anchor: Pos::new(0, 0),
+            focus: Pos::new(1, 1),
+        });
+        s.update_selected_fields(&mut pages, none()).unwrap();
+        assert_eq!(results(&s), ["2", "4", "?", "2"]);
+        // Everything selected: all of them.
+        s.set_selection(Selection {
+            anchor: Pos::new(0, 0),
+            focus: Pos::new(3, 3),
+        });
+        s.update_selected_fields(&mut pages, none()).unwrap();
+        assert_eq!(results(&s), ["2", "4", "1", "2"]);
+        // One undo step per F9; the locks of the fields left alone are unchanged.
+        assert!(s.undo());
+        assert_eq!(results(&s), ["2", "4", "?", "2"]);
+        let clean = s.doc().sections[0].blocks.iter().all(|b| match b {
+            Block::Paragraph(p) => p.runs.iter().flat_map(|r| &r.content).all(|c| match c {
+                RunContent::Field { instr, locked, .. } => !locked && !instr.starts_with(KEEP),
+                _ => true,
+            }),
+            Block::Table(_) | Block::Opaque(_) => true,
+        });
+        assert!(clean);
+        // A caret away from any field updates nothing.
+        let mut t = Session::new(doc_of(vec![
+            Block::Paragraph(Paragraph::new(
+                ParaProps::default(),
+                vec![Run::text("Chữ", RunProps::default())],
+            )),
+            Block::Paragraph(field("= 3")),
+        ]));
+        t.set_selection(Selection::caret(Pos::new(0, 1)));
+        assert_eq!(t.update_selected_fields(&mut pages, none()).unwrap(), 0);
+        assert_eq!(results(&t), ["", "?"]);
+    }
+
+    // Reference behaviour: Shift+F9 shows the code of the field at the caret (and back); Ctrl+F9
+    // puts empty braces showing their code where the code is typed, F9 then shows the result.
+    #[test]
+    fn shift_f9_and_ctrl_f9_in_place() {
+        use crate::{Pos, Selection, Session};
+        let mut s = Session::new(doc_of(vec![Block::Paragraph(field("= 6*7"))]));
+        s.set_selection(Selection::caret(Pos::new(0, 0)));
+        assert_eq!(s.field_at(), Some(("= 6*7".into(), false)));
+        assert_eq!(s.toggle_field_codes().unwrap(), 1);
+        assert_eq!(s.field_at(), Some(("= 6*7".into(), true)));
+        assert_eq!(s.toggle_field_codes().unwrap(), 1);
+        assert_eq!(s.field_at(), Some(("= 6*7".into(), false)));
+        // Ctrl+F9 after it: the new empty field is selected and shows its (empty) code.
+        s.set_selection(Selection::caret(Pos::new(0, 3)));
+        let sel = s.insert_empty_field().unwrap();
+        assert_eq!(
+            sel,
+            Selection {
+                anchor: Pos::new(0, 3),
+                focus: Pos::new(0, 6)
+            }
+        );
+        assert_eq!(s.field_at(), Some((String::new(), true)));
+        assert!(s.set_field_code(" = 2*3 ").unwrap());
+        assert_eq!(s.field_at(), Some(("= 2*3".into(), true)));
+        // F9 on it: its result, shown instead of its code; the first field is left alone.
+        let mut pages = |_: &Document| Vec::new();
+        s.update_selected_fields(&mut pages, std::collections::BTreeMap::new())
+            .unwrap();
+        assert_eq!(s.field_at(), Some(("= 2*3".into(), false)));
+        let Block::Paragraph(p) = &s.doc().sections[0].blocks[0] else {
+            panic!("paragraph");
+        };
+        let cached: Vec<&str> = p
+            .runs
+            .iter()
+            .flat_map(|r| &r.content)
+            .filter_map(|c| match c {
+                RunContent::Field { cached, .. } => Some(cached.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cached, ["?", "6"]);
+        // Nothing at the caret: Shift+F9 does nothing.
+        let mut t = Session::new(Document::default());
+        assert_eq!(t.toggle_field_codes().unwrap(), 0);
+    }
+
+    // source: ECMA-376 Part 1, §17.16.5.41 NOTEREF — `\p` adds the relative position of the
+    // note ("above" / "below"), `\f` formats the result like a note reference mark.
+    #[test]
+    fn noteref_position_and_mark_format() {
+        let (bs, be) = bookmark_xml(1, "GhiChu");
+        let marked = Paragraph::new(
+            ParaProps::default(),
+            vec![Run {
+                props: RunProps::default(),
+                content: vec![
+                    RunContent::Markup(bs),
+                    RunContent::FootnoteRef(4),
+                    RunContent::Markup(be),
+                ],
+            }],
+        );
+        let doc = doc_of(vec![
+            Block::Paragraph(field("NOTEREF GhiChu \\p")),
+            Block::Paragraph(marked),
+            Block::Paragraph(field("NOTEREF GhiChu \\p \\f")),
+            Block::Paragraph(field("NOTEREF GhiChu \\f")),
+        ]);
+        let mut e = env();
+        e.vi = false;
+        let up = update(&doc, &[], &e);
+        let out = &up.sections[0];
+        assert_eq!(result(&out[0]), "1 below");
+        assert_eq!(result(&out[2]), "1 above");
+        assert_eq!(result(&out[3]), "1");
+        let props_of = |b: &Block| match b {
+            Block::Paragraph(p) => p.runs[0].props.clone(),
+            Block::Table(_) | Block::Opaque(_) => RunProps::default(),
+        };
+        // Without the note reference style: superscript, as a note mark is shown.
+        assert_eq!(props_of(&out[0]).vert_align, None);
+        assert_eq!(
+            props_of(&out[3]).vert_align,
+            Some(bo_model::VertAlign::Superscript)
+        );
+        // In Vietnamese.
+        e.vi = true;
+        let up = update(&doc, &[], &e);
+        assert_eq!(result(&up.sections[0][0]), "1 ở dưới");
     }
 }

@@ -37,4 +37,6 @@ export const DOC_QUERY_COMMANDS: readonly string[] = [
   'notes',
   // The ASK / FILLIN questions asked before an update of the fields.
   'fieldPrompts',
+  // The building blocks a gallery content control offers.
+  'buildingBlocks',
 ];

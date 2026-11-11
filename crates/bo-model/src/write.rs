@@ -2123,6 +2123,10 @@ pub enum RunContent {
         /// Locked (§17.16.18 fldLock): updates leave the result as it is.
         #[serde(default)]
         locked: bool,
+        /// This field shows its code instead of its result (toggled by itself, Shift+F9); a
+        /// view state, never written to the file.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        codes: bool,
     },
     /// §17.11.14 footnoteReference
     FootnoteRef(i32),
@@ -2181,6 +2185,10 @@ pub enum ControlKind {
         /// stored in its custom XML node.
         #[serde(default)]
         store_as: Option<String>,
+        /// ECMA-376 Part 1, §17.5.2 date `w:lid`: the language the date is shown in
+        /// (`vi-VN`, `en-US`…; `None`: the document's).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lid: Option<String>,
     },
     /// [MS-DOCX] w14:checkbox: checked, and the checked / unchecked characters.
     Checkbox {
@@ -2197,7 +2205,16 @@ pub enum ControlKind {
     RepeatingSectionItem,
     /// §17.5.2.15 group.
     Group,
-    /// Another kind (citation, bibliography, equation, doc-part gallery…).
+    /// ECMA-376 Part 1, §17.5.2 docPartList: a building block gallery — the user picks a block
+    /// of `gallery` (`ST_DocPartGallery` name such as `Quick Parts`) and `category`.
+    Gallery {
+        /// docPartGallery.
+        gallery: String,
+        /// docPartCategory.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
+    },
+    /// Another kind (citation, bibliography, equation, built-in doc part object…).
     Other,
 }
 
@@ -2223,6 +2240,17 @@ pub struct ContentControl {
     /// §17.5.2.6 dataBinding: the custom XML node the content mirrors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_binding: Option<crate::custom_xml::DataBinding>,
+    /// [MS-DOCX] w15:appearance: how the control is shown — `boundingBox` (the default), `tags`
+    /// or `hidden`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<String>,
+    /// [MS-DOCX] w15:color: the colour of its frame (`RRGGBB`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// ECMA-376 Part 1, §17.5.2 temporary: the control goes away (its contents stay) once its
+    /// contents are edited.
+    #[serde(default)]
+    pub temporary: bool,
 }
 
 impl RunContent {

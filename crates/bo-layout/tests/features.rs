@@ -176,6 +176,7 @@ fn field(instr: &str) -> RunContent {
         instr: instr.into(),
         cached: "1".into(),
         locked: false,
+        codes: false,
     }
 }
 

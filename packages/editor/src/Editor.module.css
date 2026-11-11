@@ -567,3 +567,168 @@
   gap: 4px;
   font-family: ui-monospace, monospace;
 }
+
+/* Ctrl+F9 in place: the field code typed between its braces over the field. */
+.fieldCodeInPlace {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  background: #fff;
+  color: #000;
+  box-shadow: 0 0 0 1px rgba(80, 120, 190, 0.75);
+  font-family: ui-monospace, monospace;
+  white-space: pre;
+}
+
+.fieldCodeInPlace input {
+  min-width: 2ch;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: #eef3fb;
+  color: inherit;
+  font: inherit;
+}
+
+/* The drop-down arrow / calendar button on a content control's frame. */
+.ccDropButton {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(80, 120, 190, 0.75);
+  border-radius: 0 3px 3px 0;
+  background: #eef3fb;
+  color: #1f3d6e;
+  cursor: default;
+}
+
+.ccDropButton:hover,
+.ccDropButton[aria-expanded='true'] {
+  background: #d6e2f5;
+}
+
+.ccPopup {
+  position: fixed;
+  z-index: 41;
+  min-width: 240px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--bo-border);
+  background: var(--bo-surface);
+  color: var(--bo-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
+}
+
+.ccList {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  outline: none;
+}
+
+.ccList li {
+  min-height: 24px;
+  padding: 3px 10px;
+  cursor: default;
+}
+
+.ccActive {
+  background: var(--bo-active);
+}
+
+.ccEmpty {
+  padding: 8px 10px;
+  color: var(--bo-text-muted);
+}
+
+.ccCalendar {
+  padding: 6px;
+}
+
+.ccCalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.ccCalHead button,
+.ccTodayButton {
+  min-width: 24px;
+  min-height: 24px;
+  border: 1px solid var(--bo-border);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.ccTodayButton {
+  margin-top: 4px;
+  padding: 0 8px;
+}
+
+.ccCalendar table {
+  border-collapse: collapse;
+  outline: none;
+}
+
+.ccCalendar table:focus-visible {
+  box-shadow: 0 0 0 2px var(--bo-accent);
+}
+
+.ccCalendar th,
+.ccCalendar td {
+  width: 30px;
+  height: 26px;
+  text-align: center;
+  font-weight: normal;
+}
+
+.ccCalendar td {
+  cursor: default;
+}
+
+.ccOther {
+  color: var(--bo-text-muted);
+}
+
+.ccChosen {
+  outline: 1px solid var(--bo-text);
+}
+
+.ccToday {
+  font-weight: 700;
+}
+
+.ccColorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ccColorRow input[type='color'] {
+  width: 40px;
+  min-height: 24px;
+}
+
+.ccItemList {
+  width: 100%;
+}
+
+.ccItemButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}

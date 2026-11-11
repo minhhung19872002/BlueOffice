@@ -167,11 +167,35 @@ pub fn insert(atoms: &mut Vec<Atom>, off: usize, new: Vec<Atom>) {
         RunContent::Image(_) => true,
         _ => false,
     });
+    let mut temporary = None;
     if typed {
         if let Some(&s) = open.last() {
             if let RunContent::ControlStart(cc) = &mut atoms[s].1 {
                 cc.placeholder = false;
+                temporary = cc.temporary.then_some(s);
             }
+        }
+    }
+    // §17.5.2 temporary: a control removed once its contents are edited (what was typed stays,
+    // the rest of the placeholder is already gone or stays as text).
+    if let Some(s) = temporary {
+        let mut depth = 0usize;
+        let end = (s + 1..atoms.len()).find(|&k| match &atoms[k].1 {
+            RunContent::ControlStart(c) if !c.block => {
+                depth += 1;
+                false
+            }
+            RunContent::ControlEnd(false) if depth == 0 => true,
+            RunContent::ControlEnd(false) => {
+                depth -= 1;
+                false
+            }
+            _ => false,
+        });
+        if let Some(e) = end.filter(|&e| e >= i) {
+            atoms.remove(e);
+            atoms.remove(s);
+            i -= 1;
         }
     }
     atoms.splice(i..i, new);
@@ -407,6 +431,9 @@ mod tests {
                 block: false,
                 props_xml: None,
                 data_binding: None,
+                appearance: None,
+                color: None,
+                temporary: false,
             }))
         };
         let d = RunProps::default();

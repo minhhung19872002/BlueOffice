@@ -1124,6 +1124,7 @@ const CONTROL_KINDS: ControlKind[] = [
   'comboBox',
   'date',
   'picture',
+  'buildingBlockGallery',
   'repeatingSection',
 ];
 
@@ -1151,7 +1152,9 @@ export function ControlDialog({
             ? t('controlDialog.defaultPicture')
             : k === 'repeatingSection'
               ? ''
-              : t('controlDialog.defaultPlaceholder'),
+              : k === 'buildingBlockGallery'
+                ? t('controlDialog.defaultGallery')
+                : t('controlDialog.defaultPlaceholder'),
     );
   };
   const insert = () =>
@@ -1333,6 +1336,18 @@ export function ControlBar({
           onClick={() => void run({ cmd: 'addRepeatingItem' })}
         >
           +
+        </button>
+      )}
+      {control.repeating && !control.locked && (
+        <button
+          type="button"
+          data-testid="control-delete-item"
+          title={t('controlBar.deleteItem')}
+          aria-label={t('controlBar.deleteItem')}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => void run({ cmd: 'deleteRepeatingItem' })}
+        >
+          −
         </button>
       )}
       {onProperties && (

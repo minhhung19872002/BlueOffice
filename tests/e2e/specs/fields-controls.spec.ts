@@ -4,7 +4,8 @@ const cmd = (page: Page, id: string) => page.locator(`[data-command="${id}"]`);
 
 async function words(page: Page): Promise<number> {
   const t = (await page.getByTestId('status-words').textContent()) ?? '';
-  return Number(/\d+/.exec(t)?.[0] ?? 'NaN');
+  // The document's count ("2 / 6 từ" while something is selected).
+  return Number(/(\d+) từ/.exec(t)?.[1] ?? 'NaN');
 }
 
 /** Click the middle of the frame of the content control around the caret. */
@@ -22,13 +23,18 @@ test('Ctrl+F9, F11 / Shift+F11 and the questions of ASK / FILLIN fields on F9', 
   await page.goto('/doc');
   await page.getByTestId('new-document').click();
   await expect(page.getByTestId('caret')).toBeVisible();
-  // Ctrl+F9 with nothing selected: the code is typed between the braces.
+  // Ctrl+F9 with nothing selected: empty braces in the text, the code typed between them in
+  // place (no dialog); F9 then updates the field, which asks its question first.
   await page.keyboard.press('Control+F9');
-  await expect(page.getByTestId('field-code-dialog')).toBeVisible();
-  await page.getByTestId('field-code-input').fill('FILLIN "Tên khách?" \\d "Lan"');
-  await page.keyboard.press('Enter');
   await expect(page.getByTestId('field-code-dialog')).toHaveCount(0);
-  // The default answer shows until the field asks.
+  await expect(page.getByTestId('field-code-inplace')).toBeVisible();
+  await expect(page.getByTestId('field-code-input')).toBeFocused();
+  await page.keyboard.type('FILLIN "Tên khách?" \\d "Lan"');
+  await page.keyboard.press('F9');
+  await expect(page.getByTestId('field-code-inplace')).toHaveCount(0);
+  await expect(page.getByTestId('field-prompt-dialog')).toBeVisible();
+  await expect(page.getByTestId('field-prompt-input')).toHaveValue('Lan');
+  await page.getByTestId('field-prompt-ok').click();
   await expect(page.getByTestId('status-words')).toHaveText('1 từ');
   await page.keyboard.insertText(' và ');
   // Ctrl+F9 over typed text: the selection becomes the code (= 6*7 in words: "bốn mươi hai").
@@ -37,7 +43,12 @@ test('Ctrl+F9, F11 / Shift+F11 and the questions of ASK / FILLIN fields on F9', 
   for (let i = 0; i < code.length; i++) await page.keyboard.press('Shift+ArrowLeft');
   await page.keyboard.press('Control+F9');
   await expect(page.getByTestId('status-words')).toHaveText('5 từ');
-  // F9 asks the FILLIN question, offering the default answer.
+  // F9 at the caret updates only the field there (no question asked)…
+  await page.keyboard.press('F9');
+  await expect(page.getByTestId('status-words')).toHaveText('5 từ');
+  await expect(page.getByTestId('field-prompt-dialog')).toHaveCount(0);
+  // …with everything selected, all of them: the FILLIN question, offering the default answer.
+  await page.keyboard.press('Control+A');
   await page.keyboard.press('F9');
   await expect(page.getByTestId('field-prompt-dialog')).toBeVisible();
   await expect(page.getByTestId('field-prompt-text')).toHaveText('Tên khách?');
@@ -45,7 +56,8 @@ test('Ctrl+F9, F11 / Shift+F11 and the questions of ASK / FILLIN fields on F9', 
   await page.getByTestId('field-prompt-input').fill('Minh Anh');
   await page.getByTestId('field-prompt-ok').click();
   await expect(page.getByTestId('field-prompt-dialog')).toHaveCount(0);
-  await expect(page.getByTestId('status-words')).toHaveText('6 từ');
+  // Everything is still selected.
+  await expect(page.getByTestId('status-words')).toHaveText('6 / 6 từ');
   // F11 from the start selects the first field: typing replaces it.
   await page.keyboard.press('Control+Home');
   await page.keyboard.press('F11');
@@ -118,6 +130,11 @@ test('content controls: placeholder click, check box by Space and mouse, repeati
   // Undo removes one item at a time.
   await page.keyboard.press('Control+Z');
   await expect.poll(() => words(page)).toBe(before + 2);
+  // "−" deletes the item at the caret; the last item of a section stays.
+  await page.getByTestId('control-delete-item').click();
+  await expect.poll(() => words(page)).toBe(before);
+  await page.getByTestId('control-delete-item').click();
+  await expect.poll(() => words(page)).toBe(before);
   // A drop-down list: Alt+Down goes to its list.
   await page.keyboard.press('End');
   await page.keyboard.insertText(' ');
@@ -125,13 +142,128 @@ test('content controls: placeholder click, check box by Space and mouse, repeati
   await page.getByTestId('control-kind').selectOption('dropDown');
   await page.getByTestId('control-items').fill('Hà Nội\nHuế');
   await page.getByTestId('control-ok').click();
+  // The list opens on the control itself (its arrow at the right end of the frame).
+  await expect(page.getByTestId('control-drop')).toBeVisible();
   await page.keyboard.press('Alt+ArrowDown');
-  await expect(page.getByTestId('control-choose')).toBeFocused();
+  await expect(page.getByTestId('control-list')).toBeFocused();
   const listed = await words(page);
-  await page.getByTestId('control-choose').selectOption('Huế');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
   // "Chọn một mục." (3 words) became "Huế".
   await expect.poll(() => words(page)).toBe(listed - 2);
-  // Close the list the picker opened.
-  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('control-list')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+async function insertControl(page: Page, kind: string) {
+  await cmd(page, 'insert.control').click();
+  await page.getByTestId('control-kind').selectOption(kind);
+  await page.getByTestId('control-ok').click();
+}
+
+test('date picker calendar and gallery on the control, properties, temporary, picture', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/doc');
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  // A date picker: its calendar opens from the button on the control; a day is clicked.
+  await insertControl(page, 'date');
+  const placeholder = await words(page);
+  await page.getByTestId('control-drop').click();
+  await expect(page.getByTestId('control-calendar')).toBeVisible();
+  const day = page.locator('[data-testid="control-calendar"] td[data-date$="-15"]');
+  const iso = (await day.getAttribute('data-date')) ?? '';
+  await day.click();
+  await expect(page.getByTestId('control-calendar')).toHaveCount(0);
+  // "Bấm vào đây để nhập ngày." became one date, dd/MM/yyyy.
+  await expect.poll(() => words(page)).toBe(placeholder - 5);
+  const [y, m] = iso.split('-');
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText(`15/${m}/${y}`);
+  // From the keyboard: Alt+Down, → (the 16th), Enter.
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(page.getByTestId('control-calendar')).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText(`16/${m}/${y}`);
+  // Properties: English long dates.
+  await page.getByTestId('control-properties').click();
+  await page.getByTestId('control-props-lid').selectOption('en-US');
+  await page.getByTestId('control-props-date-format').fill('MMMM d, yyyy');
+  await page.getByTestId('control-props-ok').click();
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText(`16, ${y}`);
+
+  // A drop-down list whose items are edited in its properties: added, moved up.
+  await page.keyboard.press('End');
+  await page.keyboard.insertText(' ');
+  await cmd(page, 'insert.control').click();
+  await page.getByTestId('control-kind').selectOption('dropDown');
+  await page.getByTestId('control-items').fill('Huế');
+  await page.getByTestId('control-ok').click();
+  await page.getByTestId('control-properties').click();
+  await page.getByTestId('control-props-item-display').fill('Hà Nội');
+  await page.getByTestId('control-props-item-value').fill('HN');
+  await page.getByTestId('control-props-item-add').click();
+  await page.getByTestId('control-props-item-up').click();
+  await expect(page.getByTestId('control-props-items').locator('option')).toHaveText([
+    'Hà Nội (HN)',
+    'Huế',
+  ]);
+  // Shown with start / end tags in a colour instead of the box.
+  await page.getByTestId('control-props-appearance').selectOption('tags');
+  await page.getByTestId('control-props-ok').click();
+  await expect(page.getByTestId('control-frame')).toHaveCount(0);
+  await expect(page.getByTestId('control-tag-start')).toBeVisible();
+  await expect(page.getByTestId('control-tag-end')).toBeVisible();
+  await page.getByTestId('control-drop').click();
+  await expect(page.getByTestId('control-list').locator('li')).toHaveText(['Hà Nội', 'Huế']);
+  await page.getByTestId('control-list').locator('li').first().click();
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText('Hà Nội');
+  // Show as none: no frame, no tags.
+  await page.getByTestId('control-properties').click();
+  await page.getByTestId('control-props-appearance').selectOption('hidden');
+  await page.getByTestId('control-props-ok').click();
+  await expect(page.getByTestId('control-tag-start')).toHaveCount(0);
+  await expect(page.getByTestId('control-frame')).toHaveCount(0);
+
+  // "Remove content control when contents are edited": typing over the placeholder leaves
+  // plain text.
+  await page.keyboard.press('End');
+  await page.keyboard.insertText(' ');
+  await insertControl(page, 'text');
+  await page.getByTestId('control-properties').click();
+  await page.getByTestId('control-props-temporary').check();
+  await page.getByTestId('control-props-ok').click();
+  await expect(page.getByTestId('control-bar')).toBeVisible();
+  // The placeholder is still selected: typing replaces it.
+  await page.keyboard.insertText('Lan');
+  await expect(page.getByTestId('control-bar')).toHaveCount(0);
+
+  // A picture control shows a placeholder picture (no text added).
+  await page.keyboard.press('End');
+  await page.keyboard.insertText(' ');
+  const before = await words(page);
+  await insertControl(page, 'picture');
+  await expect(page.getByTestId('control-kind-label')).toHaveText('Ảnh');
+  await expect(page.getByTestId('control-picture')).toBeVisible();
+  // No placeholder text: the placeholder is a picture (at most one object counted).
+  await expect(page.getByTestId('doc-a11y-mirror')).not.toContainText('Bấm vào đây để chèn ảnh');
+  expect(await words(page)).toBeLessThanOrEqual(before + 1);
+
+  // A building block gallery: its list offers the Quick Parts blocks; one replaces the
+  // placeholder.
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await insertControl(page, 'buildingBlockGallery');
+  await expect(page.getByTestId('control-kind-label')).toHaveText('Thư viện khối dựng sẵn');
+  const galleryWords = await words(page);
+  await page.getByTestId('control-drop').click();
+  const first = page.getByTestId('control-list').locator('li').first();
+  await expect(first).toBeVisible();
+  await first.click();
+  await expect.poll(() => words(page)).not.toBe(galleryWords);
   expect(errors).toEqual([]);
 });

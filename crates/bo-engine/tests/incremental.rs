@@ -41,6 +41,7 @@ fn engine(paragraphs: usize) -> Engine {
                         instr: "PAGE".into(),
                         cached: "1".into(),
                         locked: false,
+                        codes: false,
                     },
                 ],
             }],

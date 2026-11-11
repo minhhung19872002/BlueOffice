@@ -369,6 +369,7 @@ pub(crate) fn toc(
                         String::new()
                     },
                     locked: false,
+                    codes: false,
                 },
             ));
         }
@@ -1154,6 +1155,7 @@ impl Session {
                             instr: ins,
                             cached: String::new(),
                             locked: false,
+                            codes: false,
                         },
                     )],
                 )?;

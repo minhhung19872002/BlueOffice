@@ -37,6 +37,36 @@ pub struct ControlProps {
     /// Its contents cannot be edited (`contentLocked`; both: `sdtContentLocked`).
     #[serde(default)]
     pub content_locked: bool,
+    /// How it is shown ([MS-DOCX] w15:appearance: `boundingBox`, `tags`, `hidden`; empty: the
+    /// bounding box, the default).
+    #[serde(default)]
+    pub appearance: String,
+    /// Its colour ([MS-DOCX] w15:color, `RRGGBB`; empty: none).
+    #[serde(default)]
+    pub color: String,
+    /// Remove the control when its contents are edited (§17.5.2 temporary).
+    #[serde(default)]
+    pub temporary: bool,
+    /// The items of a list control (`None`: unchanged).
+    #[serde(default)]
+    pub items: Option<Vec<ListItem>>,
+    /// A date control's display format (§17.5.2 dateFormat; `None`: unchanged).
+    #[serde(default)]
+    pub date_format: Option<String>,
+    /// A date control's display language (§17.5.2 lid, `vi-VN`, `en-US`…; `None`: unchanged).
+    #[serde(default)]
+    pub date_lid: Option<String>,
+}
+
+/// An item of a list control (§17.5.2 listItem).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListItem {
+    /// displayText.
+    pub display_text: String,
+    /// value (empty: the display text).
+    #[serde(default)]
+    pub value: String,
 }
 
 /// §17.5.2.23 lock value of the two check boxes.
@@ -240,6 +270,9 @@ impl Session {
                 block: true,
                 props_xml: None,
                 data_binding: None,
+                appearance: None,
+                color: None,
+                temporary: false,
             }
         };
         let title = title.trim();
@@ -342,14 +375,19 @@ impl Session {
 
     /// Change the title, tag and locks of the control around the caret (inline, else the
     /// innermost block-level one). Returns whether a control was changed (one undo step).
+    ///
+    /// Also: how it is shown and its colour ([MS-DOCX] w15:appearance, w15:color), whether it is
+    /// removed once edited (§17.5.2 temporary), the items of a list control (§17.5.2 listItem) and
+    /// the display format and language of a date control (§17.5.2 dateFormat, lid) — a date
+    /// already chosen is shown again in the new format.
     pub fn set_control_props(&mut self, props: &ControlProps) -> Result<bool> {
         let at = match self.control_span() {
-            Some((_, pid, s, _)) => Some((pid, s)),
+            Some((_, pid, s, e)) => Some((pid, s, Some(e))),
             None => self
                 .block_span_at(|c| c.kind != ControlKind::RepeatingSectionItem)
-                .map(|b| (b.first, b.first_atom)),
+                .map(|b| (b.first, b.first_atom, None)),
         };
-        let Some((pid, s)) = at else {
+        let Some((pid, s, end)) = at else {
             return Ok(false);
         };
         let opt = |v: &str| {
@@ -367,11 +405,142 @@ impl Session {
             cc.alias = opt(&props.title);
             cc.tag = opt(&props.tag);
             cc.lock = lock_value(props.delete_locked, props.content_locked);
+            cc.appearance = opt(&props.appearance).filter(|a| a != "boundingBox");
+            cc.color = opt(&props.color).map(|c| c.trim_start_matches('#').to_ascii_uppercase());
+            cc.temporary = props.temporary;
+            let mut shown: Option<String> = None;
+            match &mut cc.kind {
+                ControlKind::DropDown(items) | ControlKind::ComboBox(items) => {
+                    if let Some(new) = &props.items {
+                        *items = new
+                            .iter()
+                            .filter(|i| !i.display_text.trim().is_empty())
+                            .map(|i| {
+                                let d = i.display_text.trim().to_owned();
+                                let v = i.value.trim();
+                                let v = if v.is_empty() {
+                                    d.clone()
+                                } else {
+                                    v.to_owned()
+                                };
+                                (d, v)
+                            })
+                            .collect();
+                    }
+                }
+                ControlKind::Date {
+                    format,
+                    full_date,
+                    lid,
+                    ..
+                } => {
+                    if let Some(f) = props.date_format.as_deref().map(str::trim) {
+                        if !f.is_empty() {
+                            f.clone_into(format);
+                        }
+                    }
+                    if let Some(l) = &props.date_lid {
+                        *lid = opt(l);
+                    }
+                    let vi = lid.as_deref().is_none_or(|l| l.starts_with("vi"));
+                    if !cc.placeholder {
+                        shown = full_date
+                            .as_deref()
+                            .and_then(bo_model::field::DateTime::parse_iso)
+                            .map(|d| bo_model::field::format_date(&d, format, vi));
+                    }
+                }
+                _ => {}
+            }
             changed = **cc != before;
+            // A chosen date shows in the new format.
+            if let (Some(text), Some(e)) = (shown.filter(|_| changed), end) {
+                let props = atoms
+                    .get(s + 1..e)
+                    .and_then(|x| x.iter().find(|a| matches!(a.1, RunContent::Text(_))))
+                    .map_or_else(|| atoms[s].0.clone(), |a| a.0.clone());
+                atoms.splice(s + 1..e, [(props, RunContent::Text(text))]);
+            }
             tx.replace_para(&path, para::with_atoms(&p, atoms))?;
             Ok(sel)
         })?;
+        self.fix_selection();
         Ok(changed)
+    }
+
+    /// Delete the item of the repeating section around the caret ([MS-DOCX]
+    /// w15:repeatingSectionItem) — not the last one of its section; the caret goes to the start
+    /// of the item after it (else the one before). Returns whether an item was deleted (one undo
+    /// step).
+    pub fn delete_repeating_item(&mut self) -> Result<bool> {
+        let Some(item) = self.block_span_at(|c| c.kind == ControlKind::RepeatingSectionItem) else {
+            return Ok(false);
+        };
+        let Some(section) = self.block_span_at(|c| c.kind == ControlKind::RepeatingSection) else {
+            return Ok(false);
+        };
+        if matches!(
+            section.cc.lock.as_deref(),
+            Some("contentLocked" | "sdtContentLocked")
+        ) {
+            return Ok(false);
+        }
+        let items: Vec<BlockSpan> = self
+            .block_spans()
+            .into_iter()
+            .filter(|b| {
+                b.cc.kind == ControlKind::RepeatingSectionItem
+                    && b.depth == item.depth
+                    && section.first <= b.first
+                    && b.last <= section.last
+            })
+            .collect();
+        if items.len() < 2 {
+            return Ok(false);
+        }
+        let first = item.first == section.first;
+        let last = item.last == section.last;
+        self.edit(|tx, _| {
+            // The section's own markers stay: at the start of the next item (a first item is
+            // deleted) or at the end of the previous one (a last item).
+            let (path_f, _, af) = tx.atoms(item.first)?;
+            let lead: Vec<Atom> = if first {
+                af[..item.first_atom].to_vec()
+            } else {
+                Vec::new()
+            };
+            let (_, _, al) = tx.atoms(item.last)?;
+            let tail: Vec<Atom> = if last {
+                al[item.last_atom + 1..].to_vec()
+            } else {
+                Vec::new()
+            };
+            let (prefix, index) = split_path(&path_f);
+            let removed: Vec<Block> = (item.first..=item.last)
+                .map(|pid| tx.atoms(pid).map(|(_, p, _)| Block::Paragraph(p)))
+                .collect::<Result<_>>()?;
+            tx.push(crate::Op::Blocks {
+                path: prefix,
+                index,
+                remove: removed,
+                insert: Vec::new(),
+            })?;
+            if !lead.is_empty() {
+                let (path, p, mut atoms) = tx.atoms(item.first)?;
+                atoms.splice(0..0, lead);
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            }
+            if !tail.is_empty() {
+                let prev = item.first - 1;
+                let (path, p, mut atoms) = tx.atoms(prev)?;
+                atoms.extend(tail);
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            }
+            let caret = if last { item.first - 1 } else { item.first };
+            Ok(Selection::caret(Pos::new(caret, 0)))
+        })?;
+        self.fix_selection();
+        Ok(true)
     }
 }
 
@@ -496,6 +665,7 @@ mod tests {
             tag: "ho_ten".into(),
             delete_locked: true,
             content_locked: false,
+            ..ControlProps::default()
         };
         assert!(s.set_control_props(&props).unwrap());
         let cc = s.control_at_caret().unwrap();
@@ -508,5 +678,187 @@ mod tests {
         s.insert_text("An").unwrap();
         s.set_selection(Selection::caret(Pos::new(0, 6)));
         assert!(!s.select_control_placeholder());
+    }
+
+    fn controls_in(s: &Session) -> usize {
+        let Block::Paragraph(p) = &s.doc().sections[0].blocks[0] else {
+            return 0;
+        };
+        p.runs
+            .iter()
+            .flat_map(|r| &r.content)
+            .filter(|c| matches!(c, RunContent::ControlStart(_)))
+            .count()
+    }
+
+    // Reference behaviour (properties dialog of a word processor): show as, colour, "remove the
+    // control when its contents are edited", list items edited and reordered, the date format
+    // and language — a chosen date is shown again in the new format.
+    #[test]
+    fn control_properties_appearance_items_and_date_format() {
+        let mut s = Session::new(doc_of(&["Tỉnh: "]));
+        s.set_selection(Selection::caret(Pos::new(0, 6)));
+        s.insert_control(
+            "dropDown",
+            "Chọn một mục.",
+            &["Huế".into(), "Hà Nội".into()],
+        )
+        .unwrap();
+        let props = ControlProps {
+            appearance: "tags".into(),
+            color: "#c00000".into(),
+            items: Some(vec![
+                ListItem {
+                    display_text: "Hà Nội".into(),
+                    value: "HN".into(),
+                },
+                ListItem {
+                    display_text: "Huế".into(),
+                    value: String::new(),
+                },
+                ListItem {
+                    display_text: "  ".into(),
+                    value: "x".into(),
+                },
+            ]),
+            ..ControlProps::default()
+        };
+        assert!(s.set_control_props(&props).unwrap());
+        let cc = s.control_at_caret().unwrap();
+        assert_eq!(cc.appearance.as_deref(), Some("tags"));
+        assert_eq!(cc.color.as_deref(), Some("C00000"));
+        assert_eq!(
+            cc.kind,
+            ControlKind::DropDown(vec![
+                ("Hà Nội".into(), "HN".into()),
+                ("Huế".into(), "Huế".into())
+            ])
+        );
+        // The default look is no attribute at all.
+        let back = ControlProps {
+            appearance: "boundingBox".into(),
+            ..ControlProps::default()
+        };
+        s.set_control_props(&back).unwrap();
+        assert_eq!(s.control_at_caret().unwrap().appearance, None);
+
+        // A date control: 2026-03-05 shown as 05/03/2026, then in the English long format.
+        let mut s = Session::new(doc_of(&["Ngày: "]));
+        s.set_selection(Selection::caret(Pos::new(0, 7)));
+        s.insert_control("date", "Chọn ngày.", &[]).unwrap();
+        assert!(s.set_control_value("2026-03-05", true).unwrap());
+        assert_eq!(s.para_text(0).as_deref(), Some("Ngày: 05/03/2026"));
+        let props = ControlProps {
+            date_format: Some("MMMM d, yyyy".into()),
+            date_lid: Some("en-US".into()),
+            ..ControlProps::default()
+        };
+        assert!(s.set_control_props(&props).unwrap());
+        assert_eq!(s.para_text(0).as_deref(), Some("Ngày: March 5, 2026"));
+        assert!(matches!(
+            s.control_at_caret().unwrap().kind,
+            ControlKind::Date { lid: Some(ref l), ref format, .. } if l == "en-US" && format == "MMMM d, yyyy"
+        ));
+        // One undo step brings the old format and text back.
+        assert!(s.undo());
+        assert_eq!(s.para_text(0).as_deref(), Some("Ngày: 05/03/2026"));
+    }
+
+    // §17.5.2 temporary: typing in the control removes the control and keeps what was typed.
+    #[test]
+    fn temporary_control_goes_away_when_edited() {
+        let mut s = Session::new(doc_of(&["Tên: "]));
+        s.set_selection(Selection::caret(Pos::new(0, 6)));
+        s.insert_control("text", "Nhập tên.", &[]).unwrap();
+        let props = ControlProps {
+            temporary: true,
+            ..ControlProps::default()
+        };
+        assert!(s.set_control_props(&props).unwrap());
+        assert_eq!(controls_in(&s), 1);
+        // The placeholder is selected (a click in it); typing replaces it.
+        s.set_selection(Selection::caret(Pos::new(0, 8)));
+        assert!(s.select_control_placeholder());
+        s.insert_text("Lan").unwrap();
+        assert_eq!(s.para_text(0).as_deref(), Some("Tên: Lan"));
+        assert_eq!(controls_in(&s), 0);
+        assert!(s.control_at_caret().is_none());
+        // A control that is not temporary stays.
+        let mut t = Session::new(doc_of(&["Tên: "]));
+        t.set_selection(Selection::caret(Pos::new(0, 6)));
+        t.insert_control("text", "Nhập tên.", &[]).unwrap();
+        t.insert_text("Lan").unwrap();
+        assert_eq!(controls_in(&t), 1);
+    }
+
+    // Reference behaviour: an item of a repeating section is deleted from its context menu;
+    // the last item of a section is never deleted.
+    #[test]
+    fn delete_repeating_items() {
+        let mut s = Session::new(doc_of(&["Trước", "Mục", "Sau"]));
+        s.set_selection(Selection::caret(Pos::new(1, 0)));
+        s.insert_repeating_section("Danh sách").unwrap();
+        assert!(!s.delete_repeating_item().unwrap());
+        assert!(s.add_repeating_item().unwrap());
+        s.insert_text("Hai ").unwrap();
+        assert!(s.add_repeating_item().unwrap());
+        s.insert_text("Ba ").unwrap();
+        let texts =
+            |s: &Session| -> Vec<String> { (0..6).filter_map(|i| s.para_text(i)).collect() };
+        assert_eq!(texts(&s), ["Trước", "Mục", "Hai Mục", "Ba Hai Mục", "Sau"]);
+        // The middle item.
+        s.set_selection(Selection::caret(Pos::new(2, 1)));
+        assert!(s.delete_repeating_item().unwrap());
+        assert_eq!(texts(&s), ["Trước", "Mục", "Ba Hai Mục", "Sau"]);
+        assert_eq!(s.selection(), Selection::caret(Pos::new(2, 0)));
+        // The first item: the section now starts at the next one.
+        s.set_selection(Selection::caret(Pos::new(1, 0)));
+        assert!(s.delete_repeating_item().unwrap());
+        assert_eq!(texts(&s), ["Trước", "Ba Hai Mục", "Sau"]);
+        let k = kinds(&s);
+        assert_eq!(
+            k,
+            vec![
+                ("RepeatingSectionItem".into(), 1, 1, 1),
+                ("RepeatingSection".into(), 1, 1, 0),
+            ]
+        );
+        // The only item left stays; undo brings the deleted one back.
+        assert!(!s.delete_repeating_item().unwrap());
+        assert!(s.undo());
+        assert_eq!(texts(&s), ["Trước", "Mục", "Ba Hai Mục", "Sau"]);
+        // The last item of three: the section ends at the one before it.
+        let mut t = Session::new(doc_of(&["A", "B"]));
+        t.set_selection(Selection::caret(Pos::new(0, 0)));
+        t.insert_repeating_section("").unwrap();
+        assert!(t.add_repeating_item().unwrap());
+        assert!(t.add_repeating_item().unwrap());
+        t.set_selection(Selection::caret(Pos::new(2, 0)));
+        assert!(t.delete_repeating_item().unwrap());
+        assert_eq!(t.selection(), Selection::caret(Pos::new(1, 0)));
+        assert_eq!(
+            kinds(&t).last().map(|k| (k.0.clone(), k.1, k.2)),
+            Some(("RepeatingSection".into(), 0, 1))
+        );
+        assert_eq!(t.para_text(2).as_deref(), Some("B"));
+    }
+
+    // §17.5.2.26 picture: the placeholder is a picture inside the control, selected; one undo
+    // step removes both.
+    #[test]
+    fn picture_control_with_placeholder_picture() {
+        let mut s = Session::new(doc_of(&["Ảnh: "]));
+        s.set_selection(Selection::caret(Pos::new(0, "Ảnh: ".len())));
+        let sel = s
+            .insert_picture_control(vec![0x89, b'P', b'N', b'G'], 914_400)
+            .unwrap();
+        assert_eq!(sel.ordered().1.offset - sel.ordered().0.offset, 3);
+        let cc = s.control_at_caret().unwrap();
+        assert_eq!(cc.kind, ControlKind::Picture);
+        assert!(cc.placeholder);
+        assert_eq!(s.doc().media.len(), 1);
+        assert!(s.undo());
+        assert_eq!(controls_in(&s), 0);
+        assert_eq!(s.doc().media.len(), 0);
     }
 }

@@ -23,6 +23,7 @@ pub mod chart_elements;
 pub mod cite;
 mod clip_picture;
 pub mod collab;
+mod controls_icon;
 pub mod custom_xml;
 pub mod design;
 pub mod doc_chart;

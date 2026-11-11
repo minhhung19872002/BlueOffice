@@ -247,6 +247,7 @@ pub fn stored_value(cc: &ContentControl, text: &str, old: &str, vi: bool) -> Str
             format,
             full_date,
             store_as,
+            ..
         } => {
             let picked = full_date
                 .as_deref()
@@ -531,6 +532,9 @@ mod tests {
                 prefix_mappings: "xmlns:ns0='urn:t'".into(),
                 store_item_id: Some(ID.into()),
             }),
+            appearance: None,
+            color: None,
+            temporary: false,
         }
     }
 
@@ -594,6 +598,7 @@ mod tests {
             format: "dd/MM/yyyy".into(),
             full_date: None,
             store_as: Some("date".into()),
+            lid: None,
         };
         let mut doc = doc_with(
             vec![
@@ -694,6 +699,7 @@ mod tests {
                     format: "d/M/yyyy".into(),
                     full_date: full.map(str::to_owned),
                     store_as: store.map(str::to_owned),
+                    lid: None,
                 },
                 "/ns0:r/ns0:d",
                 false,

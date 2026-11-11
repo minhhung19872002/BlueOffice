@@ -205,6 +205,7 @@ fn conforming() -> Document {
                 instr: "PAGE".into(),
                 cached: "2".into(),
                 locked: false,
+                codes: false,
             }],
         }],
     ));

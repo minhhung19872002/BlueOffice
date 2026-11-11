@@ -129,6 +129,9 @@ fn content_control_placeholders_show_grey() {
             block: false,
             props_xml: None,
             data_binding: None,
+            appearance: None,
+            color: None,
+            temporary: false,
         }))
     };
     let colour = |l: &LayoutDocument, text: &str| {
@@ -158,4 +161,47 @@ fn content_control_placeholders_show_grey() {
     assert_ne!(colour(&l, "Tên"), grey);
     assert_ne!(colour(&l, "xong"), grey);
     assert_ne!(colour(&l, "Lan"), grey);
+}
+
+fn eq_field(instr: &str, codes: bool) -> RunContent {
+    RunContent::Field {
+        instr: instr.into(),
+        cached: "1/2".into(),
+        locked: false,
+        codes,
+    }
+}
+
+fn line_height(l: &LayoutDocument) -> f32 {
+    l.pages[0]
+        .lines
+        .iter()
+        .filter(|x| matches!(x.source, bo_layout::LineSource::Body(_)))
+        .map(|x| x.height)
+        .fold(0.0, f32::max)
+}
+
+// source: ECMA-376 Part 1, §17.16.5.17 EQ (\f: a fraction, numerator over denominator).
+#[test]
+fn eq_field_draws_its_equation() {
+    let plain = layout(vec![t("a "), t("1/2")]);
+    let eq = layout(vec![t("a "), eq_field("EQ \\f(1,2)", false)]);
+    // The fraction stacks 1 over 2: a taller line, and not the cached "1/2" as text.
+    assert!(
+        line_height(&eq) > line_height(&plain) * 1.2,
+        "{} vs {}",
+        line_height(&eq),
+        line_height(&plain)
+    );
+    assert!(!eq.page_text(0).contains("1/2"));
+    // A code that does not read keeps the cached result.
+    let bad = layout(vec![t("a "), eq_field("EQ \\f(1,2", false)]);
+    assert!(bad.page_text(0).contains("1/2"));
+    // The field toggled to its code (Shift+F9) shows the code.
+    let code = layout(vec![t("a "), eq_field("EQ \\f(1,2)", true)]);
+    assert!(
+        code.page_text(0).contains("{ EQ \\f(1,2) }"),
+        "{}",
+        code.page_text(0)
+    );
 }

@@ -199,6 +199,7 @@ pub fn template_runs(line: &str, props: &RunProps) -> Vec<Run> {
                     instr: format!("MERGEFIELD {quoted} \\* MERGEFORMAT"),
                     cached: super::placeholder(name),
                     locked: false,
+                    codes: false,
                 },
             ));
         }
@@ -304,6 +305,7 @@ pub fn labels_document(s: &LabelSheet, text: &str, mode: LabelMode) -> Result<Do
                             instr: "NEXT".into(),
                             cached: String::new(),
                             locked: false,
+                            codes: false,
                         }],
                     };
                     p.runs.insert(0, field);

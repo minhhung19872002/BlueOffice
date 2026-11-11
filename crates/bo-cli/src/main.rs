@@ -960,6 +960,7 @@ fn run(cli: Cli) -> R {
             let mut engine = open(&input)?;
             let r = engine.command(bo_engine::Command::UpdateFields {
                 answers: std::collections::BTreeMap::new(),
+                selection: false,
             })?;
             if let Some(e) = r.error {
                 return Err(e.into());

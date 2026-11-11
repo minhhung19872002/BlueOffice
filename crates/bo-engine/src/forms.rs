@@ -108,7 +108,7 @@ pub(crate) fn gate(cmd: Command, s: &Session) -> Result<Command, &'static str> {
             | C::CancelFormat
             | C::UpdateFields { .. }
             | C::NextField { .. }
-            | C::FieldPrompts
+            | C::FieldPrompts { .. }
             | C::SetControlValue { .. }
             | C::SetFormFieldValue { .. }
             | C::NextFormField { .. }

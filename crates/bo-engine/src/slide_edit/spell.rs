@@ -480,7 +480,7 @@ fn replace_unit(tx: &mut Tx<'_>, target: &SpellTarget, edits: &[&SlideReplace]) 
                 slide,
                 ids: vec![id],
             };
-            smartart::cmd_set_smartart(tx, &sel, Some(id), None, Some(&items), (None, None))?;
+            smartart::cmd_set_smartart(tx, &sel, Some(id), None, Some(&items), (None, None, None))?;
         }
     }
     Ok(())

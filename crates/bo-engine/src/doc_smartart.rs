@@ -59,6 +59,9 @@ pub enum DocSmartArtCommand {
         /// New look.
         #[serde(default)]
         style: Option<String>,
+        /// Lay out right to left (`None` keeps the direction).
+        #[serde(default)]
+        rtl: Option<bool>,
     },
     /// The SmartArt at the selection (for the text pane).
     SmartArtInfo,
@@ -79,6 +82,12 @@ pub enum DocSmartArtCommand {
         /// Thumbnail height in points (default 64).
         #[serde(default)]
         height: Option<f64>,
+        /// Draw this text outline instead of sample nodes (live preview of a layout).
+        #[serde(default)]
+        items: Option<Vec<SmartItem>>,
+        /// Right to left.
+        #[serde(default)]
+        rtl: Option<bool>,
     },
 }
 
@@ -112,6 +121,8 @@ pub struct DocSmartArt {
     pub colors: String,
     /// Look.
     pub style: String,
+    /// Laid out right to left.
+    pub rtl: bool,
     /// Frame width in points.
     pub width: f64,
     /// Frame height in points.
@@ -134,6 +145,7 @@ fn look(
             Some(s) => Fill::parse(s).ok_or("badSmartArt")?,
             None => base.fill,
         },
+        ..base
     })
 }
 
@@ -244,6 +256,7 @@ impl crate::Engine {
             items: crate::smartart::items_of(&r.nodes),
             colors: r.look.palette.name().to_owned(),
             style: r.look.fill.name().to_owned(),
+            rtl: r.look.rtl,
             width: img.width.0 as f64 / EMU_PT,
             height: img.height.0 as f64 / EMU_PT,
             floating: img.anchor.is_some(),
@@ -262,13 +275,17 @@ impl crate::Engine {
             style,
             width,
             height,
+            items,
+            rtl,
         } = &cmd
         {
-            let lk = look(Look::default(), colors.as_deref(), style.as_deref())
+            let mut lk = look(Look::default(), colors.as_deref(), style.as_deref())
                 .map_err(EngineError::BadCommand)?;
+            lk.rtl = rtl.unwrap_or(false);
             return Ok(serde_json::json!({
-                "previews": crate::smartart::layout_previews(
+                "previews": crate::smartart::layout_previews_of(
                     lk,
+                    items.as_deref(),
                     width.unwrap_or(96.0),
                     height.unwrap_or(64.0),
                     &mut self.fonts,
@@ -293,6 +310,9 @@ impl crate::Engine {
             } => (|| {
                 let cat = Layout::parse(&layout).ok_or("badSmartArt")?;
                 let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
+                if items.iter().all(|i| i.text.trim().is_empty()) {
+                    return Err("badSmartArt".to_owned());
+                }
                 let mut media = NewMedia::new(s);
                 let (nodes, pictures) =
                     crate::smartart::nodes_of(&items, &Vec::new(), &mut |p| Ok(media.store(p)))?;
@@ -352,6 +372,7 @@ impl crate::Engine {
                 items,
                 colors,
                 style,
+                rtl,
             } => (|| {
                 let img = s.smartart().ok_or("noSmartArt")?;
                 let old = read(s.doc(), &img).ok_or("noSmartArt")?;
@@ -359,7 +380,8 @@ impl crate::Engine {
                     Some(l) => Layout::parse(l).ok_or("badSmartArt")?,
                     None => old.layout,
                 };
-                let lk = look(old.look, colors.as_deref(), style.as_deref())?;
+                let mut lk = look(old.look, colors.as_deref(), style.as_deref())?;
+                lk.rtl = rtl.unwrap_or(lk.rtl);
                 let mut media = NewMedia::new(s);
                 let (nodes, pictures) = if let Some(i) = items.as_deref() {
                     crate::smartart::nodes_of(i, &old.src.pictures, &mut |p| Ok(media.store(p)))?
@@ -565,6 +587,60 @@ mod tests {
             .iter()
             .map(|(t, l)| json!({"text": t, "level": l}))
             .collect::<Vec<_>>())
+    }
+
+    // source: black-box Office SmartArt Design tab (CORE-SMART-004): Add Assistant, Right to Left
+    // and the live preview of a layout on the diagram's own text, each one undo step, kept when
+    // saved (ST_PtType `asst`, layout variable `dgm:dir`, ECMA-376 Part 1, §21.4).
+    #[test]
+    fn design_actions_rtl_assistant_and_preview() {
+        let mut e = engine();
+        run(
+            &mut e,
+            json!({"cmd": "insertSmartArt", "layout": "hierarchy", "items": items(&[("Một", 0), ("Hai", 1)])}),
+        );
+        let r = run(
+            &mut e,
+            json!({"cmd": "setSmartArt", "rtl": true, "items": [
+                {"text": "Một", "level": 0},
+                {"text": "Trợ lý", "level": 1, "assistant": true},
+                {"text": "Hai", "level": 1}
+            ]}),
+        );
+        assert!(r["error"].is_null(), "{r}");
+        assert_eq!(r["smartArt"]["rtl"], true);
+        assert_eq!(r["smartArt"]["items"][1]["assistant"], true);
+        // One undo step takes both back.
+        run(&mut e, json!({"cmd": "undo"}));
+        let info = e.doc_smartart().unwrap();
+        assert!(!info.rtl && info.items.len() == 2);
+        run(&mut e, json!({"cmd": "redo"}));
+        let bytes = e.save_docx().unwrap();
+        let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+        let data = pkg
+            .parts()
+            .iter()
+            .find(|p| p.name.starts_with("/word/diagrams/data"))
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            .unwrap();
+        assert!(data.contains(r#"type="asst""#) && data.contains(r#"<dgm:dir val="rev"/>"#));
+        // Reopened: the direction and the assistant read back.
+        let mut back = engine();
+        back.open(&bytes, "back.docx").unwrap();
+        let (para, off) = image_pos(back.document().unwrap());
+        run(
+            &mut back,
+            json!({"cmd": "setSelection", "selection": {"anchor": {"p": para, "o": off}, "focus": {"p": para, "o": off + 1}}}),
+        );
+        let info = back.doc_smartart().unwrap();
+        assert!(info.rtl && info.items[1].assistant);
+        // Live preview: the layouts drawn with the outline given.
+        let r = run(
+            &mut e,
+            json!({"cmd": "smartArtPreviews", "items": items(&[("Một", 0)]), "width": 300, "height": 200}),
+        );
+        let svg = r["previews"][0]["svg"].as_str().unwrap();
+        assert!(svg.contains(r#"viewBox="0 0 300 200""#));
     }
 
     #[test]

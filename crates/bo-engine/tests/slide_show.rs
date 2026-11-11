@@ -579,6 +579,109 @@ fn smartart_inserted_edited_converted_and_saved() {
     assert!(r.error.is_some());
 }
 
+// source: ECMA-376 Part 1, §21.4 diagrams (ST_PtType `asst`, layout variable `dgm:dir`) and
+// black-box Office behaviour (CORE-SMART-004): the SmartArt Design tab — Add Assistant, an empty
+// new shape from the text pane, Right to Left, the live preview of a layout on the diagram's own
+// text, Convert to Text — each action one undo step, kept when saved.
+#[test]
+fn smartart_design_actions_assistant_rtl_text_and_preview() {
+    let mut e = open("slide-text-bullets.pptx");
+    let r = run(
+        &mut e,
+        r#"{"cmd":"insertSmartArt","layout":"hierarchy","items":[{"text":"Giám đốc"},{"text":"Kế toán","level":1},{"text":"Kỹ thuật","level":1}]}"#,
+    );
+    let slide = r.slide;
+    let id = r.smartart.unwrap().id;
+    let undo_len = |e: &mut Engine| run(e, r#"{"cmd":"historyLen"}"#).history.unwrap();
+    let h0 = undo_len(&mut e);
+    // Add Assistant below the top shape: one undo step.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setSmartArt","items":[{"text":"Giám đốc"},{"text":"Thư ký","level":1,"assistant":true},{"text":"Kế toán","level":1},{"text":"Kỹ thuật","level":1}]}"#,
+    );
+    let sa = r.smartart.unwrap();
+    assert!(sa.items[1].assistant && !sa.items[2].assistant);
+    assert_eq!(undo_len(&mut e), h0 + 1);
+    // A new empty line of the text pane is an empty shape.
+    let r = run(
+        &mut e,
+        r#"{"cmd":"setSmartArt","items":[{"text":"Giám đốc"},{"text":"Thư ký","level":1,"assistant":true},{"text":"Kế toán","level":1},{"text":"Kỹ thuật","level":1},{"text":"","level":1}]}"#,
+    );
+    let sa = r.smartart.unwrap();
+    assert_eq!(sa.items.len(), 5);
+    assert_eq!(sa.items[4].text, "");
+    // Right to Left, then back: the outline is kept.
+    let r = run(&mut e, r#"{"cmd":"setSmartArt","rtl":true}"#);
+    let sa = r.smartart.unwrap();
+    assert!(sa.rtl);
+    assert_eq!(sa.items.len(), 5);
+    assert_eq!(undo_len(&mut e), h0 + 3);
+    // Saved: the assistant, the empty node and the direction read back.
+    let mut back = reopen(&e);
+    let r = run(
+        &mut back,
+        &format!(r#"{{"cmd":"select","slide":{slide},"ids":[{id}]}}"#),
+    );
+    let sa = r.smartart.unwrap();
+    assert!(sa.rtl && sa.items[1].assistant);
+    assert_eq!(sa.items[4].text, "");
+    let data = back
+        .presentation()
+        .unwrap()
+        .parts
+        .iter()
+        .find(|p| p.name.starts_with("/ppt/diagrams/data"))
+        .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+        .unwrap();
+    assert!(data.contains(r#"type="asst""#) && data.contains(r#"<dgm:dir val="rev"/>"#));
+    // Live preview: every layout drawn with the diagram's own text (not the sample nodes).
+    let plain = run(&mut e, r#"{"cmd":"smartArtPreviews"}"#)
+        .smartart_previews
+        .unwrap();
+    let own = run(
+        &mut e,
+        r#"{"cmd":"smartArtPreviews","width":480,"height":270,"items":[{"text":"Giám đốc"},{"text":"Thư ký","level":1}],"rtl":true}"#,
+    )
+    .smartart_previews
+    .unwrap();
+    assert_eq!(
+        own.as_array().unwrap().len(),
+        plain.as_array().unwrap().len()
+    );
+    assert!(own[0]["svg"]
+        .as_str()
+        .unwrap()
+        .contains(r#"viewBox="0 0 480 270""#));
+    assert_ne!(own[0]["svg"], plain[0]["svg"]);
+    // Convert to Text: a text box with one bulleted paragraph per node, at its level.
+    let r = run(&mut e, r#"{"cmd":"smartArtToText"}"#);
+    assert_eq!(r.selection[0].kind, "shape");
+    assert_eq!(r.selection[0].id, id);
+    assert!(r.smartart.is_none());
+    let text = r.selection[0].text.clone().unwrap_or_default();
+    assert!(
+        text.starts_with("Giám đốc\nThư ký\nKế toán\nKỹ thuật"),
+        "{text}"
+    );
+    let p = e.presentation().unwrap();
+    let ShapeNode::Shape(sp) = p.slides[slide]
+        .data
+        .shapes
+        .iter()
+        .find(|n| matches!(n, ShapeNode::Shape(s) if s.nv.id == id))
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let paras = &sp.text.as_ref().unwrap().paragraphs;
+    assert_eq!(paras.len(), 5);
+    assert_eq!(paras[1].props.as_ref().and_then(|p| p.lvl), Some(1));
+    assert_eq!(undo_len(&mut e), h0 + 4);
+    // Undo brings the SmartArt back.
+    let r = run(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(r.smartart.unwrap().items.len(), 5);
+}
+
 // source: ECMA-376 Part 1, §21.4.2.3 cat / §21.4.2.15 layoutDef — CORE-SMART-003: every layout of
 // the library (two or three per category, the picture category included) is inserted, switched to
 // and converted; the layout's own name is kept in the file, its category in the layout part.

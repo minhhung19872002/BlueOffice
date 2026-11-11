@@ -24,6 +24,9 @@ pub struct DiagramNode {
     /// the picture fill in the point's `dgm:spPr`; the data model part and the drawing part both
     /// have a relationship of that id to the image part.
     pub picture: Option<String>,
+    /// An assistant of its parent (`dgm:pt@type="asst"`, ST_PtType of ECMA-376 Part 1, §21.4 diagrams):
+    /// organisation charts place it beside the line down from its parent, above the other children.
+    pub assistant: bool,
 }
 
 /// Layout category (§21.4.2.3 cat).
@@ -241,6 +244,7 @@ fn build(
             text: p.text.clone(),
             children: build(&p.id, pts, links, is_content, depth + 1),
             picture: p.picture.clone(),
+            assistant: p.kind == "asst",
         })
         .collect()
 }
@@ -297,6 +301,7 @@ pub fn parse_data_model(xml: &[u8], part: &str) -> Option<(Vec<DiagramNode>, Opt
                 text: p.text.clone(),
                 children: build(&p.id, &pts, &links, &is_content, 0),
                 picture: p.picture.clone(),
+                assistant: p.kind == "asst",
             })
             .collect();
     }
@@ -409,6 +414,9 @@ pub struct Look {
     pub palette: Palette,
     /// Fill or outline.
     pub fill: Fill,
+    /// Right to left: the layout is mirrored (`dgm:presLayoutVars/dgm:dir@val="rev"`, ST_Direction
+    /// of ECMA-376 Part 1, §21.4 diagrams, on the document point's property set).
+    pub rtl: bool,
 }
 
 impl Palette {
@@ -774,7 +782,32 @@ pub fn look_of(data_xml: &[u8], part: &str) -> Look {
             Some(None) => Fill::File,
             None => Fill::default(),
         },
+        rtl: rtl_of(&root),
     }
+}
+
+/// Is the diagram laid out right to left? `dgm:dir@val="rev"` in the layout variables
+/// (`dgm:presLayoutVars`) of the document point, or of the presentation point of the whole diagram
+/// (the one whose `prSet@presAssocID` names the document point).
+fn rtl_of(root: &XmlElement) -> bool {
+    let Some(list) = kid(root, "ptLst") else {
+        return false;
+    };
+    let doc = kids(list, "pt").find(|p| p.attr("type") == Some("doc"));
+    let doc_id = doc.and_then(|d| d.attr("modelId")).unwrap_or_default();
+    let rev = |p: &XmlElement| {
+        kid(p, "prSet")
+            .and_then(|s| kid(s, "presLayoutVars"))
+            .and_then(|v| kid(v, "dir"))
+            .is_some_and(|d| d.attr("val") == Some("rev"))
+    };
+    doc.is_some_and(rev)
+        || kids(list, "pt").any(|p| {
+            p.attr("type") == Some("pres")
+                && !doc_id.is_empty()
+                && kid(p, "prSet").and_then(|s| s.attr("presAssocID")) == Some(doc_id)
+                && rev(p)
+        })
 }
 
 /// Pixel size of a node picture by its relationship id.
@@ -850,6 +883,8 @@ struct Out<'a> {
     boxes: Vec<NodeBox>,
     /// Next index in reading order while a tree is laid out.
     pre: usize,
+    /// Width of the frame (a right-to-left diagram is mirrored in it).
+    width: i64,
 }
 
 /// A shape: (x, y, w, h) EMU, preset geometry, fill (`None`: no fill), alpha (100000 = opaque), text,
@@ -929,6 +964,22 @@ impl Out<'_> {
 
     #[allow(clippy::too_many_lines)]
     fn shape(&mut self, s: &Spec<'_>) {
+        // Right to left: the shape mirrored in the frame (rotation reversed, arrows turned round).
+        let mirrored;
+        let (s, flip) = if self.look.rtl {
+            let (x, y, w, h) = s.rect;
+            mirrored = Spec {
+                rect: (self.width - x - w, y, w, h),
+                rot: (21_600_000 - s.rot.rem_euclid(21_600_000)) % 21_600_000,
+                ..*s
+            };
+            (
+                &mirrored,
+                matches!(s.prst, "rightArrow" | "chevron" | "homePlate"),
+            )
+        } else {
+            (s, false)
+        };
         // Node colours follow the palette; the outline look draws them as coloured frames.
         let node = s
             .fill
@@ -969,11 +1020,15 @@ impl Out<'_> {
                 text: !s.text.is_empty(),
             });
         }
-        let rot = if s.rot == 0 {
+        let mut rot = if s.rot == 0 {
             String::new()
         } else {
             format!(r#" rot="{}""#, s.rot)
         };
+        if flip {
+            // §20.1.7.6 xfrm@flipH: the arrow points the other way.
+            rot.push_str(r#" flipH="1""#);
+        }
         // Colours: BlueOffice's own, …
         let mut fill_color = s.fill.map(srgb);
         let mut line_color = match (s.prst, s.outline) {
@@ -1304,7 +1359,19 @@ pub fn drawing_xml_with(
 /// node a point of the frame is on.
 #[must_use]
 pub fn node_boxes(nodes: &[DiagramNode], layout: Layout, w: i64, h: i64) -> Vec<NodeBox> {
-    lay(nodes, layout, &Styling::default(), w, h).boxes
+    node_boxes_with(nodes, layout, Look::default(), w, h)
+}
+
+/// [`node_boxes`] of a diagram drawn with `look` (a right-to-left diagram is mirrored).
+#[must_use]
+pub fn node_boxes_with(
+    nodes: &[DiagramNode],
+    layout: Layout,
+    look: Look,
+    w: i64,
+    h: i64,
+) -> Vec<NodeBox> {
+    lay(nodes, layout, &look.into(), w, h).boxes
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1332,6 +1399,7 @@ fn lay<'a>(
         starts,
         boxes: Vec::new(),
         pre: 0,
+        width: w,
     };
     let n = nodes.len() as i64;
     if n > 0 && w > 0 && h > 0 {
@@ -1463,21 +1531,39 @@ fn lay<'a>(
             Layout::Hierarchy | Layout::HierarchyHorizontal => {
                 // Tree: leaves share the width, a parent centred over its children, levels top-down
                 // (`flip`: the same tree turned, root on the left).
+                // Assistants sit beside the line down from their parent, left then right, one row
+                // per pair, between the parent and its other children.
+                fn assistants(n: &DiagramNode) -> usize {
+                    n.children.iter().filter(|c| c.assistant).count()
+                }
+                fn rows(n: &DiagramNode) -> usize {
+                    assistants(n).div_ceil(2)
+                }
                 fn leaves(n: &DiagramNode) -> usize {
-                    if n.children.is_empty() {
-                        1
+                    let own: usize = n.children.iter().filter(|c| !c.assistant).map(leaves).sum();
+                    let own = own.max(1);
+                    // An assistant needs half a leaf on each side of the line.
+                    if assistants(n) > 0 {
+                        own.max(2)
                     } else {
-                        n.children.iter().map(leaves).sum()
+                        own
                     }
                 }
                 fn depth(n: &DiagramNode) -> usize {
-                    1 + n.children.iter().map(depth).max().unwrap_or(0)
+                    let below = n
+                        .children
+                        .iter()
+                        .filter(|c| !c.assistant)
+                        .map(depth)
+                        .max()
+                        .unwrap_or(0);
+                    1 + rows(n) + below
                 }
                 #[allow(clippy::too_many_arguments)]
                 fn place(
                     out: &mut Out<'_>,
                     n: &DiagramNode,
-                    first_leaf: usize,
+                    x0: i64,
                     level: i64,
                     lw: i64,
                     lh: i64,
@@ -1500,10 +1586,16 @@ fn lay<'a>(
                         }
                     };
                     let span = leaves(n) as i64;
-                    let cx = first_leaf as i64 * lw + span * lw / 2;
+                    let own: i64 = n
+                        .children
+                        .iter()
+                        .filter(|c| !c.assistant)
+                        .map(|c| leaves(c) as i64)
+                        .sum();
+                    let cx = x0 + span * lw / 2;
                     let y = level * lh + (lh - bh) / 2;
+                    // Reading order: the node, then each child with its sub-tree, in order.
                     let me = out.pre;
-                    out.pre += 1;
                     out.shape(&Spec {
                         rect: turn((cx - bw / 2, y, bw, bh)),
                         prst: "roundRect",
@@ -1516,30 +1608,67 @@ fn lay<'a>(
                         role: Role::Tree(top, level as usize, me),
                         blip: None,
                     });
-                    let mut leaf = first_leaf;
+                    let rows = rows(n) as i64;
+                    // The other children are centred under the node when the span is wider.
+                    let mut leaf = x0 + (span - own.max(1)).max(0) * lw / 2;
                     let mut centres = Vec::new();
+                    let mut next = me + 1;
+                    let mut k = 0;
+                    let mut trunk_end = y + bh;
                     for c in &n.children {
-                        centres.push(place(
-                            out,
-                            c,
-                            leaf,
-                            level + 1,
-                            lw,
-                            lh,
-                            bw,
-                            bh,
-                            (color, flip, top),
-                        ));
-                        leaf += leaves(c);
+                        out.pre = next;
+                        if c.assistant {
+                            // Left of the line, then right; a row per pair.
+                            let row = level + 1 + (k / 2) as i64;
+                            let side = if k % 2 == 0 { -1 } else { 1 };
+                            let ax = cx + side * lw / 2;
+                            let ay = row * lh + (lh - bh) / 2;
+                            out.shape(&Spec {
+                                rect: turn((ax - bw / 2, ay, bw, bh)),
+                                prst: "roundRect",
+                                fill: Some(color),
+                                alpha: 100_000,
+                                text: &c.text,
+                                color: "FFFFFF",
+                                rot: 0,
+                                outline: None,
+                                role: Role::Tree(top, level as usize + 1, next),
+                                blip: None,
+                            });
+                            let edge = if side < 0 { ax + bw / 2 } else { ax - bw / 2 };
+                            line(out, cx, ay + bh / 2, edge, ay + bh / 2);
+                            trunk_end = trunk_end.max(ay + bh / 2);
+                            k += 1;
+                        } else {
+                            centres.push(place(
+                                out,
+                                c,
+                                leaf,
+                                level + 1 + rows,
+                                lw,
+                                lh,
+                                bw,
+                                bh,
+                                (color, flip, top),
+                            ));
+                            leaf += leaves(c) as i64 * lw;
+                        }
+                        next += 1 + count_nodes(&c.children);
+                    }
+                    out.pre = next;
+                    if trunk_end > y + bh && centres.is_empty() {
+                        // Only assistants: the line ends at the last of them.
+                        line(out, cx, y + bh, cx, trunk_end);
                     }
                     if let (Some(&a), Some(&b)) = (centres.first(), centres.last()) {
                         // Elbow connectors: down from the parent, across, down into each child.
-                        let mid = y + bh + (lh - bh) / 2;
+                        let child_level = level + 1 + rows;
+                        let mid = child_level * lh;
                         line(out, cx, y + bh, cx, mid);
-                        if a != b {
-                            line(out, a, mid, b, mid);
+                        if a != b || a != cx {
+                            line(out, a.min(cx), mid, b.max(cx), mid);
                         }
-                        let child_top = (level + 1) * lh + (lh - bh) / 2;
+                        let child_top = child_level * lh + (lh - bh) / 2;
                         for c in centres {
                             line(out, c, mid, c, child_top);
                         }
@@ -1557,7 +1686,7 @@ fn lay<'a>(
                 for (i, node) in nodes.iter().enumerate() {
                     let color = PALETTE[i % PALETTE.len()];
                     place(&mut out, node, leaf, 0, lw, lh, bw, bh, (color, flip, i));
-                    leaf += leaves(node);
+                    leaf += leaves(node) as i64 * lw;
                 }
             }
             Layout::Matrix => {
@@ -1960,9 +2089,15 @@ pub fn nodes_from_outline(lines: &[(String, usize)]) -> Vec<DiagramNode> {
                 Vec::new()
             };
             out.push(DiagramNode {
-                text: vec![text],
+                // An empty line is a node without text (an empty shape).
+                text: if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![text]
+                },
                 children,
                 picture: None,
+                assistant: false,
             });
         }
         out
@@ -2016,6 +2151,33 @@ pub fn set_outline_pictures(nodes: &mut [DiagramNode], pictures: &[Option<String
         }
     }
     walk(nodes, pictures, &mut 0);
+}
+
+/// Which nodes are assistants, in outline order ([`outline_of`]).
+#[must_use]
+pub fn outline_assistants(nodes: &[DiagramNode]) -> Vec<bool> {
+    fn walk(n: &[DiagramNode], out: &mut Vec<bool>) {
+        for d in n {
+            out.push(d.assistant);
+            walk(&d.children, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, &mut out);
+    out
+}
+
+/// Mark the assistants, in outline order; a top-level node is never an assistant (it has no
+/// parent).
+pub fn set_outline_assistants(nodes: &mut [DiagramNode], assistants: &[bool]) {
+    fn walk(n: &mut [DiagramNode], flags: &[bool], at: &mut usize, top: bool) {
+        for d in n {
+            d.assistant = !top && flags.get(*at).copied().unwrap_or(false);
+            *at += 1;
+            walk(&mut d.children, flags, at, false);
+        }
+    }
+    walk(nodes, assistants, &mut 0, true);
 }
 
 /// The parts of a new SmartArt (ECMA-376 Part 1, §21.4): data model, layout definition, quick style,
@@ -2138,9 +2300,11 @@ pub fn data_model_xml_with(
                 ),
                 None => "<dgm:spPr/>".to_owned(),
             };
+            // ST_PtType `asst`: an assistant of its parent.
+            let kind = if n.assistant { r#" type="asst""# } else { "" };
             let _ = write!(
                 pts,
-                r#"<dgm:pt modelId="{me}"><dgm:prSet phldrT="[Text]"/>{sp_pr}<dgm:t><a:bodyPr/><a:lstStyle/>{paras}</dgm:t></dgm:pt>"#
+                r#"<dgm:pt modelId="{me}"{kind}><dgm:prSet phldrT="[Text]"/>{sp_pr}<dgm:t><a:bodyPr/><a:lstStyle/>{paras}</dgm:t></dgm:pt>"#
             );
             *next += 1;
             let _ = write!(
@@ -2153,8 +2317,14 @@ pub fn data_model_xml_with(
     }
     let doc = id(0);
     let ((qs, _), (cs, _)) = def_ids(styling);
+    // Right to left: the layout variable `dgm:dir` reversed (CT_LayoutVariablePropertySet).
+    let vars = if styling.look.rtl {
+        r#"><dgm:presLayoutVars><dgm:dir val="rev"/></dgm:presLayoutVars></dgm:prSet>"#
+    } else {
+        "/>"
+    };
     let mut pts = format!(
-        r#"<dgm:pt modelId="{doc}" type="doc"><dgm:prSet loTypeId="{}" loCatId="{}" qsTypeId="{}" csTypeId="{}"/><dgm:spPr/><dgm:t><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="vi-VN"/></a:p></dgm:t></dgm:pt>"#,
+        r#"<dgm:pt modelId="{doc}" type="doc"><dgm:prSet loTypeId="{}" loCatId="{}" qsTypeId="{}" csTypeId="{}"{vars}<dgm:spPr/><dgm:t><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="vi-VN"/></a:p></dgm:t></dgm:pt>"#,
         layout_id(layout),
         layout.category().name(),
         xml_text(&qs),
@@ -2574,6 +2744,7 @@ pub(crate) mod tests {
         let look = Look {
             palette: Palette::Green,
             fill: Fill::Outline,
+            rtl: false,
         };
         let p = build_parts(&nodes, Layout::Cycle, look, (4_000_000, 3_000_000), "rId9");
         assert_eq!(look_of(&p.data, "/d.xml"), look);
@@ -2821,6 +2992,7 @@ pub(crate) mod tests {
         let green = Look {
             palette: Palette::Green,
             fill: Fill::Solid,
+            rtl: false,
         };
         let xml = drawing_xml(&tree(&two), Layout::Picture, green, W, H);
         assert_eq!(
@@ -2926,6 +3098,7 @@ pub(crate) mod tests {
         let look = Look {
             palette: Palette::File,
             fill: Fill::File,
+            rtl: false,
         };
         let styling = Styling {
             look,
@@ -2966,6 +3139,7 @@ pub(crate) mod tests {
             look: Look {
                 palette: Palette::Blue,
                 fill: Fill::File,
+                rtl: false,
             },
             ..styling
         };
@@ -3046,5 +3220,111 @@ pub(crate) mod tests {
             p.iter().map(|x| (x.node, x.text)).collect::<Vec<_>>(),
             [(0, false), (0, true), (1, false), (1, true)]
         );
+    }
+
+    // source: ECMA-376 Part 1, §21.4 diagrams — ST_PtType `asst` (an assistant point) and the
+    // organisation chart convention for assistants (black-box: Office places an assistant beside
+    // the line down from its parent, below the parent and above the parent's other children).
+    #[test]
+    fn assistants_round_trip_and_sit_beside_the_line_from_their_parent() {
+        let mut nodes = tree(&[
+            ("Giám đốc", 0),
+            ("Thư ký", 1),
+            ("Kế toán", 1),
+            ("Kỹ thuật", 1),
+        ]);
+        set_outline_assistants(&mut nodes, &[true, true, false, false]);
+        // A top-level node is never an assistant.
+        assert!(!nodes[0].assistant);
+        assert_eq!(outline_assistants(&nodes), [false, true, false, false]);
+        let xml = data_model_xml(&nodes, Layout::Hierarchy, Look::default(), "");
+        assert_eq!(xml.matches(r#"type="asst""#).count(), 1);
+        let (back, _) = parse_data_model(xml.as_bytes(), "/d.xml").unwrap();
+        assert_eq!(back, nodes);
+        // Laid out: the assistant's row lies between the parent and the other children, its box
+        // left of the parent's centre line; the two other children share the row below.
+        let b = node_boxes(&nodes, Layout::Hierarchy, W, H);
+        let at = |n: usize| b.iter().find(|x| x.node == n).unwrap().rect;
+        let (root, asst, a, k) = (at(0), at(1), at(2), at(3));
+        let centre = root.0 + root.2 / 2;
+        assert!(asst.1 > root.1 + root.3, "below the parent");
+        assert!(
+            a.1 > asst.1 + asst.3 && a.1 == k.1,
+            "other children a row lower"
+        );
+        assert!(asst.0 + asst.2 < centre, "left of the line");
+        // Every box inside the frame, none overlapping.
+        for (i, x) in b.iter().enumerate() {
+            assert!(x.rect.0 >= 0 && x.rect.0 + x.rect.2 <= W && x.rect.1 + x.rect.3 <= H);
+            for y in &b[i + 1..] {
+                let apart = x.rect.0 + x.rect.2 <= y.rect.0
+                    || y.rect.0 + y.rect.2 <= x.rect.0
+                    || x.rect.1 + x.rect.3 <= y.rect.1
+                    || y.rect.1 + y.rect.3 <= x.rect.1;
+                assert!(apart, "{x:?} {y:?}");
+            }
+        }
+        // A second assistant goes right of the line, on the same row.
+        set_outline_assistants(&mut nodes, &[false, true, true, false]);
+        let b = node_boxes(&nodes, Layout::Hierarchy, W, H);
+        let at = |n: usize| b.iter().find(|x| x.node == n).unwrap().rect;
+        assert_eq!(at(1).1, at(2).1);
+        assert!(at(2).0 > at(0).0 + at(0).2 / 2);
+        // Without assistants the tree is drawn as before (no extra row).
+        let plain = tree(&[("Giám đốc", 0), ("Thư ký", 1), ("Kế toán", 1)]);
+        let rows: std::collections::BTreeSet<i64> = node_boxes(&plain, Layout::Hierarchy, W, H)
+            .iter()
+            .map(|x| x.rect.1)
+            .collect();
+        assert_eq!(rows.len(), 2);
+    }
+
+    // source: ECMA-376 Part 1, §21.4 diagrams — layout variable `dgm:dir` (ST_Direction `norm` /
+    // `rev`) in `dgm:presLayoutVars`; black-box: "Right to Left" mirrors the graphic, the text stays
+    // readable and arrows point the other way.
+    #[test]
+    fn right_to_left_mirrors_the_layout_and_round_trips() {
+        let nodes = tree(&[("Một", 0), ("Hai", 0), ("Ba", 0)]);
+        let rtl = Look {
+            rtl: true,
+            ..Look::default()
+        };
+        let xml = data_model_xml(&nodes, Layout::Process, rtl, "");
+        assert!(xml.contains(r#"<dgm:presLayoutVars><dgm:dir val="rev"/></dgm:presLayoutVars>"#));
+        assert!(look_of(xml.as_bytes(), "/d.xml").rtl);
+        let plain = data_model_xml(&nodes, Layout::Process, Look::default(), "");
+        assert!(!look_of(plain.as_bytes(), "/d.xml").rtl);
+        // The direction of another producer's diagram: on the presentation point of the whole
+        // diagram (`presAssocID` = the document point).
+        let other = concat!(
+            r#"<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram">"#,
+            r#"<dgm:ptLst><dgm:pt modelId="1" type="doc"><dgm:prSet/></dgm:pt>"#,
+            r#"<dgm:pt modelId="2" type="pres"><dgm:prSet presAssocID="1" presName="diagram">"#,
+            r#"<dgm:presLayoutVars><dgm:dir val="rev"/></dgm:presLayoutVars></dgm:prSet></dgm:pt>"#,
+            r#"</dgm:ptLst></dgm:dataModel>"#
+        );
+        assert!(look_of(other.as_bytes(), "/d.xml").rtl);
+        // Mirrored: the first step on the right, arrows flipped, text not mirrored.
+        let ltr = boxes(&layout_shapes(
+            &nodes,
+            Layout::Process,
+            Look::default(),
+            W,
+            H,
+        ));
+        let rev = boxes(&layout_shapes(&nodes, Layout::Process, rtl, W, H));
+        assert_eq!(ltr.len(), rev.len());
+        for (a, b) in ltr.iter().zip(&rev) {
+            assert_eq!(b.1, W - a.1 - a.3, "{a:?}");
+            assert_eq!((a.2, a.3, a.4, &a.5), (b.2, b.3, b.4, &b.5));
+        }
+        let first = rev.iter().find(|x| x.5 == "Một").unwrap();
+        let last = rev.iter().find(|x| x.5 == "Ba").unwrap();
+        assert!(first.1 > last.1);
+        let drawing = drawing_xml(&nodes, Layout::Process, rtl, W, H);
+        assert_eq!(drawing.matches(r#"flipH="1""#).count(), 2, "two arrows");
+        // Hit-testing follows the mirrored drawing.
+        let hit = node_boxes_with(&nodes, Layout::Process, rtl, W, H);
+        assert_eq!(hit[0].rect.0, first.1);
     }
 }

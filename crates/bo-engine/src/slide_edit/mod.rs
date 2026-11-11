@@ -828,9 +828,19 @@ pub enum SlideCommand {
         /// New look.
         #[serde(default)]
         style: Option<String>,
+        /// Lay out right to left (`None` keeps the direction).
+        #[serde(default)]
+        rtl: Option<bool>,
     },
     /// Replace SmartArt `id` (default: the selected one) by a group of ordinary shapes.
     SmartArtToShapes {
+        /// Shape id of the frame; `None` = the selected SmartArt.
+        #[serde(default)]
+        id: Option<u32>,
+    },
+    /// Replace SmartArt `id` (default: the selected one) by a text box with its outline as a
+    /// bulleted list.
+    SmartArtToText {
         /// Shape id of the frame; `None` = the selected SmartArt.
         #[serde(default)]
         id: Option<u32>,
@@ -878,6 +888,12 @@ pub enum SlideCommand {
         /// Thumbnail height in points (default 64).
         #[serde(default)]
         height: Option<f64>,
+        /// Draw this text outline instead of sample nodes (live preview of a layout).
+        #[serde(default)]
+        items: Option<Vec<smartart::SmartItem>>,
+        /// Right to left.
+        #[serde(default)]
+        rtl: Option<bool>,
     },
     /// Change type, title, legend or data of chart `id` (default: the selected one).
     SetChart {
@@ -5042,6 +5058,7 @@ impl Engine {
                     items,
                     colors,
                     style,
+                    rtl,
                 } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         smartart::cmd_set_smartart(
@@ -5050,13 +5067,18 @@ impl Engine {
                             id,
                             layout.as_deref(),
                             items.as_deref(),
-                            (colors.as_deref(), style.as_deref()),
+                            (colors.as_deref(), style.as_deref(), rtl),
                         )
                     });
                 }
                 SlideCommand::SmartArtToShapes { id } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         smartart::cmd_smartart_to_shapes(tx, sel, id)
+                    });
+                }
+                SlideCommand::SmartArtToText { id } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        smartart::cmd_smartart_to_text(tx, sel, id)
                     });
                 }
                 SlideCommand::SetSmartArtNodeText { id, node, text } => {
@@ -5073,15 +5095,19 @@ impl Engine {
                     style,
                     width,
                     height,
+                    items,
+                    rtl,
                 } => {
                     match smartart::look(
                         bo_pptx::diagram_layout::Look::default(),
                         colors.as_deref(),
                         style.as_deref(),
                     ) {
-                        Ok(look) => {
-                            out.smartart_previews = Some(crate::smartart::layout_previews(
+                        Ok(mut look) => {
+                            look.rtl = rtl.unwrap_or(false);
+                            out.smartart_previews = Some(crate::smartart::layout_previews_of(
                                 look,
+                                items.as_deref(),
                                 width.unwrap_or(96.0),
                                 height.unwrap_or(64.0),
                                 fonts,

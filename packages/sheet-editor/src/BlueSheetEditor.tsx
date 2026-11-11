@@ -1112,6 +1112,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const barRef = useRef<HTMLTextAreaElement>(null);
+  /** The pages of the page layout view, while it is shown. */
+  const pageLayoutRef = useRef<HTMLDivElement | null>(null);
   const spellInputs = useMemo(() => [inputRef, barRef], []);
   // Ctrl+wheel zooms the grid by 10 % steps (not the page).
   const gridShown = !!info;
@@ -1901,6 +1903,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   // Keep the hidden/visible cell input focused so IME composition starts in it.
   const focusInput = useCallback(() => {
+    // Page layout view: the pages take the keys (the grid is not shown).
+    const pages = pageLayoutRef.current;
+    if (pages?.isConnected) {
+      pages.focus({ preventScroll: true });
+      return;
+    }
     // Right away, so keys typed straight after (Name Box Enter, a click) reach the
     // grid even when animation frames are delayed (background tab); again on the
     // next frame for an input that is only rendered by this update.
@@ -7717,11 +7725,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             zoom={zoom}
             onCell={(row, col) => setSelection(single({ row, col }))}
             onHeaderFooter={() => setDialog({ kind: 'pageSetup' })}
+            regionRef={pageLayoutRef}
             onKeyDown={(e) => {
               const c = registry.match(e);
               if (c) {
                 e.preventDefault();
                 run(c.id);
+                return;
+              }
+              if (e.ctrlKey || e.metaKey || e.altKey || e.nativeEvent.isComposing) return;
+              // Typing on the page edits the selected cell (shown in the formula bar),
+              // F2 edits its content; arrows move the selection.
+              const arrows: Record<string, Direction> = {
+                ArrowUp: 'up',
+                ArrowDown: 'down',
+                ArrowLeft: 'left',
+                ArrowRight: 'right',
+              };
+              const dir = arrows[e.key];
+              if (dir) {
+                e.preventDefault();
+                setSelection((cur) => move(cur, dir, e.shiftKey, 1, hidden));
+              } else if (e.key.length === 1 || e.key === 'F2') {
+                e.preventDefault();
+                void startEdit(true, e.key === 'F2' ? undefined : e.key).then(() => {
+                  const bar = barRef.current;
+                  if (!bar) return;
+                  bar.focus();
+                  bar.setSelectionRange(bar.value.length, bar.value.length);
+                });
               }
             }}
             fail={fail}
@@ -7830,6 +7862,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                       (r) => r?.scale && setStatus(t('sheetViews.scaled', { pct: r.scale })),
                     )
                   }
+                  onAreas={(areas) => void exec({ cmd: 'setPageSetup', sheet, printAreas: areas })}
                 />
               )}
               {audit.arrows.length > 0 && (

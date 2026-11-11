@@ -19,6 +19,7 @@ import type {
   ScreenRect,
   SheetCommand,
   SheetHost,
+  SheetRange,
   SheetView,
   SheetViewMode,
   SheetViewState,
@@ -43,6 +44,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type MutableRefObject,
 } from 'react';
 import styles from './SheetEditor.module.css';
 import css from './sheetViews.module.css';
@@ -237,6 +239,7 @@ export function PageBreakOverlay({
   height,
   frozen,
   onMove,
+  onAreas,
 }: {
   host: SheetHost;
   view: SheetView;
@@ -247,6 +250,8 @@ export function PageBreakOverlay({
   height: number;
   frozen: { rows: number; cols: number };
   onMove: (m: { rows: boolean; area: number; from?: number; to: number }) => void;
+  /** A print area edge was dragged: the print areas as they are now. */
+  onAreas?: (areas: SheetRange[]) => void;
 }) {
   const { t } = useTranslation();
   const [pv, setPv] = useState<BreakPreview | null>(null);
@@ -297,7 +302,8 @@ export function PageBreakOverlay({
   }, [host, view, pv, frozen.rows, frozen.cols]);
 
   const startDrag =
-    (rows: boolean, area: number, from: number) => (e: ReactPointerEvent<SVGLineElement>) => {
+    (rows: boolean, area: number, from: number, done?: (to: number) => void) =>
+    (e: ReactPointerEvent<SVGLineElement>) => {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
@@ -330,7 +336,9 @@ export function PageBreakOverlay({
                   rows ? 0 : index,
                 );
           const to = boundaryAt(rows, index, cell, ptX, ptY);
-          if (to !== from) onMove({ rows, area, from, to });
+          if (to === from) return;
+          if (done) done(to);
+          else onMove({ rows, area, from, to });
         })().catch(() => {});
       };
       window.addEventListener('pointermove', move);
@@ -420,6 +428,45 @@ export function PageBreakOverlay({
         </line>
       </g>
     );
+    // The print area's edges can be dragged too (the print area follows).
+    if (onAreas) {
+      const edge = (side: 'top' | 'bottom' | 'left' | 'right') => {
+        const isRows = side === 'top' || side === 'bottom';
+        const from = { top: a.r0, bottom: a.r1 + 1, left: a.c0, right: a.c1 + 1 }[side];
+        const done = (to: number) => {
+          const next = { r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 };
+          if (side === 'top') next.r0 = to;
+          if (side === 'bottom') next.r1 = to - 1;
+          if (side === 'left') next.c0 = to;
+          if (side === 'right') next.c1 = to - 1;
+          if (next.r0 > next.r1 || next.c0 > next.c1) return;
+          onAreas(
+            pv.areas.map((x, j) => (j === ai ? next : { r0: x.r0, c0: x.c0, r1: x.r1, c1: x.c1 })),
+          );
+        };
+        const [x1, y1, x2, y2] = {
+          top: [box.x, box.y, box.x + box.w, box.y],
+          bottom: [box.x, box.y + box.h, box.x + box.w, box.y + box.h],
+          left: [box.x, box.y, box.x, box.y + box.h],
+          right: [box.x + box.w, box.y, box.x + box.w, box.y + box.h],
+        }[side];
+        return (
+          <line
+            key={`edge-${ai}-${side}`}
+            className={isRows ? css.handleRow : css.handleCol}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            data-testid={`print-area-edge-${ai}-${side}`}
+            onPointerDown={startDrag(isRows, ai, from, done)}
+          >
+            <title>{t('sheetViews.areaEdge')}</title>
+          </line>
+        );
+      };
+      shapes.push(edge('top'), edge('bottom'), edge('left'), edge('right'));
+    }
     for (const b of a.rowBreaks) {
       const i = a.rows.findIndex((s) => s[0] === b.at);
       const r = rows[i];
@@ -585,6 +632,7 @@ export function PageLayoutView({
   onCell,
   onHeaderFooter,
   onKeyDown,
+  regionRef,
   fail,
 }: {
   host: SheetHost;
@@ -593,8 +641,10 @@ export function PageLayoutView({
   zoom: number;
   onCell: (row: number, col: number) => void;
   onHeaderFooter: () => void;
-  /** Keyboard shortcuts while the pages have the focus. */
+  /** Keys while the pages have the focus (shortcuts, typing into the selected cell). */
   onKeyDown?: (e: ReactKeyboardEvent<HTMLDivElement>) => void;
+  /** Receives the focusable pages element (the editor returns the focus to it). */
+  regionRef?: MutableRefObject<HTMLDivElement | null>;
   fail: (e: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -618,6 +668,7 @@ export function PageLayoutView({
       role="region"
       aria-label={t('sheetViews.layoutView')}
       tabIndex={0}
+      ref={regionRef}
       onKeyDown={onKeyDown}
     >
       {pages.map((p, i) => (

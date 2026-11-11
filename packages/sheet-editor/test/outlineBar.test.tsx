@@ -105,6 +105,9 @@ describe('outline bar', () => {
     const hide = screen.getByRole('button', { name: 'Hide detail of row 4' });
     expect(hide.textContent).toBe('−');
     expect(hide.getAttribute('aria-expanded')).toBe('true');
+    // Centred on row 4 (y 80-100 of the drawn grid), in lane 2 (24-48 px).
+    expect(parseFloat(hide.style.top)).toBe(82);
+    expect(parseFloat(hide.style.left)).toBe(28);
     fireEvent.click(hide);
     expect(onToggle).toHaveBeenLastCalledWith(true, subtotals.rows[1]);
     const show = screen.getByRole('button', { name: 'Show detail of row 8' });

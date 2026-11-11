@@ -5123,6 +5123,7 @@
     "groupTemp": "Sheet view",
     "tempViews": "Temporary views…",
     "pageLabel": "Page {{n}}",
+    "areaEdge": "Drag to change the print area",
     "breakManual": "Manual page break — drag to move",
     "breakAuto": "Automatic page break — drag to set a manual break",
     "breakPreview": "Page regions and page breaks",

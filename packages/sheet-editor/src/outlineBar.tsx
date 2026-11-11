@@ -105,15 +105,15 @@ export function OutlineBar({
     const marks = geometry
       ? groupMarks(rows ? outline.rows : outline.cols, visibleSpans(geometry, rows, scale))
       : [];
-    const head = rows ? headerH : headerW;
     const name = (k: 'level' | 'show' | 'hide', n: number | string) =>
       t(`sheetOutline.${rows ? 'row' : 'col'}.${k}`, { n });
     const label = (i: number) => (rows ? i + 1 : colName(i));
-    // Along = position on the grid axis (offset by the header); across = lane.
+    // Along = position on the grid axis (the drawn grid's own coordinates, headers
+    // included); across = the level lane.
     const at = (along: number, across: number, w: number, h: number) =>
       rows
-        ? { left: across, top: head + along, width: w, height: h }
-        : { left: head + along, top: across, width: w, height: h };
+        ? { left: across, top: along, width: w, height: h }
+        : { left: along, top: across, width: w, height: h };
     return (
       <div
         className={`${css.bar} ${rows ? css.left : css.top}`}
@@ -155,7 +155,7 @@ export function OutlineBar({
                     rows
                       ? {
                           left: c,
-                          top: head + line.start + 2,
+                          top: line.start + 2,
                           width: 4,
                           height: Math.max(0, line.end - line.start - 2),
                           borderLeftWidth: 1,
@@ -164,7 +164,7 @@ export function OutlineBar({
                           borderBottomWidth: after ? 0 : 1,
                         }
                       : {
-                          left: head + line.start + 2,
+                          left: line.start + 2,
                           top: c,
                           width: Math.max(0, line.end - line.start - 2),
                           height: 4,

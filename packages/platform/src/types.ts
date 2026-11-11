@@ -525,7 +525,9 @@ export type RevisionKind =
   | 'cellDelete'
   | 'cellMerge'
   | 'rowFormat'
-  | 'tableGrid';
+  | 'tableGrid'
+  /** An equation edited in place: its deleted original and inserted edit as one change. */
+  | 'equation';
 
 /** Header/footer or note holding a revision (mirrors `bo_edit::StoryRef`). */
 export type StoryRef =

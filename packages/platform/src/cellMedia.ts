@@ -2,6 +2,7 @@
  * BlueSheet checkboxes in cells, pictures placed in cells and `IMAGE` pictures
  * (SHEET-CELL-001, `bo_engine::sheet::cell_media_cmd`).
  */
+import type { RemovalSpec } from './picture';
 import type { SheetRange } from './sheet';
 
 /** A picture in a cell (`cellImageInfo`). */
@@ -64,4 +65,8 @@ export type CellMediaCommand =
   /** Bytes (base64) or failure of a fetched URL → `{ ready }`. */
   | { cmd: 'imageLoaded'; url: string; data?: string; error?: 'blocked' | 'connect' }
   /** Base64 bytes of a display-list picture id → `string | null`. */
-  | { cmd: 'cellMedia'; id: string };
+  | { cmd: 'cellMedia'; id: string }
+  /** Preview of removing the background of a cell picture → `BackgroundPreview` (CORE-PIC-002). */
+  | ({ cmd: 'cellImageBackgroundPreview'; sheet: number; row: number; col: number } & RemovalSpec)
+  /** Remove the background of a cell picture (PNG with alpha). One undo step. */
+  | ({ cmd: 'cellImageRemoveBackground'; sheet: number; row: number; col: number } & RemovalSpec);

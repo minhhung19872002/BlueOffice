@@ -106,13 +106,13 @@ describe('insertDocIcons', () => {
       await new Promise((r) => setTimeout(r, 10));
       return raster(svg, size);
     };
-    const done = c.operation(insertDocIcons(c, icons, slow));
+    const done = c.hold(insertDocIcons(c, icons, slow));
     await new Promise((r) => setTimeout(r, 5));
     await c.idle();
     expect(sent.at(-1)).toBe('mergeHistory');
     await done;
     // A failed operation does not keep the controller busy.
-    await c.operation(Promise.reject(new Error('x'))).catch(() => {});
+    await c.hold(Promise.reject(new Error('x'))).catch(() => {});
     await c.idle();
   });
 });

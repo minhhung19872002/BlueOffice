@@ -691,6 +691,7 @@ dependencies = [
  "bo-query",
  "bo-raster",
  "bo-render",
+ "bo-segment",
  "bo-sheet",
  "bo-sign",
  "bo-spell",
@@ -893,6 +894,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "bo-segment"
+version = "0.1.0"
 
 [[package]]
 name = "bo-sheet"

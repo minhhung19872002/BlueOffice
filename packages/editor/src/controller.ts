@@ -32,6 +32,18 @@ export interface EditView {
   setMathMarks?(m: EditResult['math'] | null): void;
 }
 
+/** Engine error of a click / `mathEnter` on an equation that cannot be edited in place (it is
+ * selected instead; ADR-0015 addendum). */
+export const MATH_UNSUPPORTED = 'mathUnsupported';
+
+/** The selection is exactly an equation (not the caret after one) and no equation is being
+ * edited in place: Enter / a double click open the equation dialog for it. */
+export function equationSelected(r: EditResult | null | undefined): boolean {
+  if (!r?.equation || r.math) return false;
+  const { anchor, focus } = r.selection;
+  return anchor.p !== focus.p || anchor.o !== focus.o;
+}
+
 /**
  * Sends editing commands to the engine one at a time (the engine is the
  * single source of truth), applies each result to the view and reports it.
@@ -54,6 +66,10 @@ export class DocController {
   private pasteListener: ((r: DocPasteRecord | null) => void) | null = null;
   /** Last repeatable edit (F4, CORE-UI-004). */
   readonly repeats = new RepeatTracker<EditCommand>(DOC_REPEATABLE);
+  /** Opens the equation dialog for the selected equation (double click, Enter). */
+  onEquationDialog: (() => void) | null = null;
+  /** The last result applied. */
+  private last: EditResult | null = null;
 
   constructor(
     private readonly engine: EngineHost,
@@ -67,6 +83,7 @@ export class DocController {
     if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
     this.view.setMathMarks?.(r.math ?? null);
     this.view.setSelection(r.caret, r.rects);
+    this.last = r;
     this.onResult(r);
     return r;
   }
@@ -75,6 +92,7 @@ export class DocController {
   external(r: EditResult): void {
     if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
     this.view.setSelection(r.caret, r.rects, false);
+    this.last = r;
     this.onResult(r);
   }
 
@@ -182,6 +200,9 @@ export class DocController {
         y: e.y,
         extend: e.shift,
         count: e.count,
+      }).then((r) => {
+        // A double click on an equation (the engine selects it) opens the equation dialog.
+        if (e.count === 2 && !e.shift && equationSelected(r)) this.onEquationDialog?.();
       });
     } else if (e.type === 'drag') {
       this.drag({ cmd: 'dragTo', page: e.page, x: e.x, y: e.y });
@@ -195,6 +216,11 @@ export class DocController {
         break;
       case 'key': {
         const c = keyToCommand(e);
+        // Enter on a selected equation edits it in the equation dialog.
+        if (c?.cmd === 'splitParagraph' && this.onEquationDialog && equationSelected(this.last)) {
+          this.onEquationDialog();
+          break;
+        }
         if (c) void this.run(c);
         break;
       }
@@ -346,29 +372,29 @@ export class DocController {
     await this.paste(text, '');
   }
 
-  private readonly operations = new Set<Promise<unknown>>();
+  /** Multi-step operations in progress (see {@link hold}). */
+  private readonly held = new Set<Promise<unknown>>();
 
   /**
-   * Track an edit made of several commands sent one after the other (an icon insertion:
-   * picture, sharp picture, history merge): `idle()` waits for all of it, so a save in
-   * between does not write half of it and leave the document modified.
-   * The operation must not wait for `idle()` itself.
+   * Registers an operation made of several queued commands (e.g. insert a picture, then
+   * swap its data, then merge the history): {@link idle} waits for it as a whole, so a save
+   * cannot slip in between its steps.
    */
-  operation<T>(op: Promise<T>): Promise<T> {
-    const tracked: Promise<unknown> = op
-      .catch(() => undefined)
-      .finally(() => this.operations.delete(tracked));
-    this.operations.add(tracked);
+  hold<T>(op: Promise<T>): Promise<T> {
+    this.held.add(op);
+    const done = () => this.held.delete(op);
+    op.then(done, done);
     return op;
   }
 
-  /** Wait for queued commands and tracked operations. */
-  async idle(): Promise<void> {
-    // An operation queues its next command only once the previous one is done.
+  /** Wait for queued commands and for operations registered with {@link hold}. */
+  async idle(): Promise<unknown> {
+    let last: unknown;
+    // An operation may queue more commands while it runs: wait until both are drained.
     for (;;) {
-      const queue = this.queue;
-      await Promise.all([queue, ...this.operations]);
-      if (queue === this.queue && this.operations.size === 0) return;
+      last = await this.queue;
+      if (this.held.size === 0) return last;
+      await Promise.allSettled([...this.held]);
     }
   }
 }

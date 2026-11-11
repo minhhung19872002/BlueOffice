@@ -127,11 +127,12 @@ describe('commands', () => {
     const { host } = fakeHost(results);
     const exec = vi.fn(async (_c: SheetCommand) => null as unknown);
     const openAltText = vi.fn();
+    const openBackground = vi.fn();
     const pickFile = vi.fn(async () => ({ name: 'logo.PNG', bytes: new Uint8Array([7, 8]) }));
     registerCellMediaCommands<CellMediaEditorState>(
       (id, run) => reg.set(id, run),
       (s) => s,
-      { exec, pickFile, openAltText, fail: vi.fn() },
+      { exec, pickFile, openAltText, openBackground, fail: vi.fn() },
     );
     const state: CellMediaEditorState = {
       host,
@@ -140,7 +141,7 @@ describe('commands', () => {
       active: { row: 2, col: 3 },
       range: { r0: 2, c0: 3, r1: 4, c1: 3 },
     };
-    return { reg, exec, openAltText, pickFile, state };
+    return { reg, exec, openAltText, openBackground, pickFile, state };
   }
 
   it('inserts checkboxes on the selection and toggles from the active cell', async () => {
@@ -205,6 +206,21 @@ describe('commands', () => {
     });
     await web.reg.get('cell.pictureAltText')!(web.state);
     expect(web.openAltText).not.toHaveBeenCalled();
+  });
+
+  it('opens the background removal mode only for stored pictures (CORE-PIC-002)', async () => {
+    const local = setup({
+      cellMediaState: {
+        checkbox: false,
+        value: null,
+        image: { kind: 'local', alt: null, decorative: false },
+      },
+    });
+    await local.reg.get('cell.pictureRemoveBackground')!(local.state);
+    expect(local.openBackground).toHaveBeenCalledWith({ sheet: 1, row: 2, col: 3 });
+    const none = setup({ cellMediaState: { checkbox: false, value: null, image: null } });
+    await none.reg.get('cell.pictureRemoveBackground')!(none.state);
+    expect(none.openBackground).not.toHaveBeenCalled();
   });
 });
 

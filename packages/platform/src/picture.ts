@@ -76,6 +76,47 @@ export interface PictureInfo {
   /** Gallery previews (PNG base64), in request order. */
   previews?: string[];
   compressed?: CompressReport;
+  /** The background can be removed (a raster picture, CORE-PIC-002). */
+  removable?: boolean;
+  /** Settings of the removed background, when it was removed. */
+  removal?: RemovalSpec;
+  /** Preview of the "Remove background" mode. */
+  background?: BackgroundPreview;
+}
+
+/** A stroke of the background removal mode: points as fractions (0..1) of the picture. */
+export interface BackgroundMark {
+  /** "Mark areas to keep" (else "to remove"). */
+  keep: boolean;
+  points: [number, number][];
+}
+
+/**
+ * Settings of a background removal (mirrors `bo_engine::picture_bg::RemovalSpec`); stored as
+ * [MS-ODRAWXML] `a14:backgroundRemoval` next to the original picture (`a14:imgLayer`).
+ */
+// A type alias (not an interface): intersected into commands that must fit an index signature.
+export type RemovalSpec = {
+  /** Rectangle holding the subject: left, top, right, bottom fractions. */
+  rect?: [number, number, number, number];
+  marks?: BackgroundMark[];
+  /** Starting estimate of a host segmentation provider (one byte per pixel, base64). */
+  prior?: { width: number; height: number; data: string };
+  /** Previews also return the working picture (`BackgroundPreview.source`). */
+  source?: boolean;
+};
+
+/** Preview of the background removal: the reduced picture with the removal tinted. */
+export interface BackgroundPreview {
+  /** PNG base64. */
+  image: string;
+  width: number;
+  height: number;
+  /** Share kept, 1/1000 %. */
+  kept: number;
+  /** Segmentation time (ms; 0 in the browser, where the host measures it). */
+  ms: number;
+  source?: string;
 }
 
 /** Picture tools command (BlueDoc `EditCommand`, BlueSlide `SlideCommand`). */
@@ -89,4 +130,5 @@ export type PictureCommand =
   | ({ cmd: 'pictureCompress' } & CompressSpec)
   | { cmd: 'pictureChange'; data: string; name?: string }
   | { cmd: 'pictureReset'; size?: boolean }
-  | { cmd: 'pictureInsertSvg'; data: string; name?: string };
+  | { cmd: 'pictureInsertSvg'; data: string; name?: string }
+  | ({ cmd: 'pictureBackgroundPreview' | 'pictureRemoveBackground' } & RemovalSpec);

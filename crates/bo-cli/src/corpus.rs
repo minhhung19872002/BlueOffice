@@ -1858,6 +1858,30 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    // Equations with markup the in-place editor does not model (CORE-MATH-010, ADR-0015 addendum):
+    // each starts its paragraph, so clicking it is refused and its markup kept. ECMA-376 Part 1,
+    // §22.1.2 groupChr, box, sPre, borderBox, phant, a run with WordprocessingML run properties
+    // (w:rPr in m:r) and control properties (m:ctrlPr).
+    let lead = |eq: &str, label: &str| {
+        format!(
+            r#"<w:p>{}<w:r><w:t xml:space="preserve"> {label}</w:t></w:r></w:p>"#,
+            math(eq)
+        )
+    };
+    v.push(("math-06-unsupported.docx", "math", "Phương trình có phần tử ngoài mô hình sửa tại chỗ (ngoặc nhóm, hộp, chỉ số trước, khung, ẩn, định dạng run): bấm vào chỉ chọn, giữ nguyên OMML", Doc {
+        body: [
+            lead(&format!(r#"<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/></m:groupChrPr><m:e>{}</m:e></m:groupChr>"#, mr("a+b+c")), "ngoặc nhóm"),
+            lead(&format!("<m:box><m:e>{}</m:e></m:box>", mr("x=1")), "hộp"),
+            lead(&format!("<m:sPre><m:sub>{}</m:sub><m:sup>{}</m:sup><m:e>{}</m:e></m:sPre>", mr("6"), mr("14"), mr("C")), "chỉ số trước"),
+            lead(&format!("<m:borderBox><m:e>{}</m:e></m:borderBox>", mr("E=mc²")), "khung"),
+            lead(&format!("<m:phant><m:e>{}</m:e></m:phant>{}", mr("y"), mr("z")), "ẩn"),
+            lead(r#"<m:r><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><m:t>f(x)</m:t></m:r>"#, "định dạng run"),
+            lead(&format!(r#"<m:f><m:fPr><m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr></m:fPr><m:num>{}</m:num><m:den>{}</m:den></m:f>"#, mr("1"), mr("2")), "thuộc tính điều khiển"),
+        ]
+        .concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
 
     // ---- comments (§17.13.4) with replies ([MS-DOCX] commentsExtended / commentsIds)
     let comments_part = |inner: &str| {

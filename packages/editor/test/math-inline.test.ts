@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { EditCommand, EditResult, EngineHost, MathState } from '@blueoffice/platform';
-import { DocController, type EditView } from '../src/controller';
+import {
+  DocController,
+  equationSelected,
+  MATH_UNSUPPORTED,
+  type EditView,
+} from '../src/controller';
 
 function result(over: Partial<EditResult> = {}): EditResult {
   return {
@@ -99,5 +104,69 @@ describe('editing keys inside an equation', () => {
     // Leaving the equation clears its marks.
     await c.run({ cmd: 'mathMove', motion: 'exit' });
     expect(marks.at(-1)).toBeNull();
+  });
+});
+
+describe('an equation that cannot be edited in place', () => {
+  it('is selected with the engine error; a double click or Enter opens the equation dialog', async () => {
+    const commands: EditCommand[] = [];
+    const eq = { linear: 'a/b', display: false, isLinear: false };
+    const selected = { anchor: { p: 0, o: 6 }, focus: { p: 0, o: 9 } };
+    const engine = {
+      command: async (c: EditCommand & { now?: number }) => {
+        const cmd = Object.fromEntries(
+          Object.entries(c).filter(([k]) => k !== 'now'),
+        ) as unknown as EditCommand;
+        commands.push(cmd);
+        // The engine refuses in-place editing and selects the equation (ADR-0015 addendum).
+        if (cmd.cmd === 'click' && cmd.count === 1)
+          return result({ selection: selected, equation: eq, error: MATH_UNSUPPORTED });
+        if (cmd.cmd === 'click') return result({ selection: selected, equation: eq });
+        // Elsewhere: the caret just after the equation.
+        return result({ equation: eq });
+      },
+    } as unknown as EngineHost;
+    const errors: (string | undefined)[] = [];
+    const c = new DocController(
+      engine,
+      { refresh: () => {}, setSelection: () => {} },
+      { readText: async () => '', writeText: async () => {}, writeHtml: async () => {} },
+      (r) => void errors.push(r.error),
+      (e) => {
+        throw e;
+      },
+    );
+    let dialogs = 0;
+    c.onEquationDialog = () => {
+      dialogs += 1;
+    };
+    const down = (count: number) => ({
+      type: 'down' as const,
+      page: 0,
+      x: 90,
+      y: 60,
+      shift: false,
+      count,
+    });
+    c.pointer(down(1));
+    await c.idle();
+    expect(errors).toEqual([MATH_UNSUPPORTED]);
+    expect(dialogs).toBe(0);
+    // Enter on the selected equation: the dialog, no paragraph split.
+    c.input(key('Enter'));
+    await c.idle();
+    expect(dialogs).toBe(1);
+    expect(commands.some((x) => x.cmd === 'splitParagraph')).toBe(false);
+    // A double click: the dialog again.
+    c.pointer(down(2));
+    await c.idle();
+    await Promise.resolve();
+    expect(dialogs).toBe(2);
+    // With the caret after the equation (not selected), Enter splits the paragraph.
+    expect(equationSelected(await c.run({ cmd: 'state' }))).toBe(false);
+    c.input(key('Enter'));
+    await c.idle();
+    expect(commands.at(-1)).toEqual({ cmd: 'splitParagraph' });
+    expect(dialogs).toBe(2);
   });
 });

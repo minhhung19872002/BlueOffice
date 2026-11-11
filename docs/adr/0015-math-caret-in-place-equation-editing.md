@@ -44,8 +44,51 @@ sửa qua hộp thoại dạng tuyến tính (UnicodeMath / LaTeX, `bo-math`). C
 
 ## Hệ quả
 - Không đổi định dạng vị trí của mô hình (Pos vẫn là đoạn + offset): mọi tính năng khác không bị ảnh hưởng.
-- Lần sửa đầu tiên viết lại vùng ở dạng chuẩn của `bo-math`: phần tử không có trong cây (`m:box`, `m:groupChr`,
-  `m:sPre`, `m:borderBox`, `m:phant`, thuộc tính run ngoài `sty`/`nor`) không giữ được; với vùng như vậy hình học con
-  trỏ tính theo dạng chuẩn nên có thể lệch nhẹ so với hình vẽ cho tới lần sửa đầu.
-- Khi bật theo dõi thay đổi, sửa trong phương trình không ghi thành revision (thay thẳng đối tượng).
+- Lần sửa đầu tiên viết lại vùng ở dạng chuẩn của `bo-math` — vì vậy vùng có gì cây không giữ được thì **không** vào
+  sửa tại chỗ (phụ lục A).
+- Khi bật theo dõi thay đổi, sửa trong phương trình là một revision của cả phương trình (phụ lục B).
 - Chỉ hỗ trợ thân văn bản (không trong header/footer, chú thích, hộp văn bản); Lên / Xuống thoát vùng rồi đi theo dòng.
+
+## Phụ lục (2026-11-11, quyết định của chủ dự án)
+
+### A. Không sửa tại chỗ vùng không giữ nguyên được
+- `mathEnter`, nhấp và mũi tên vào phương trình chỉ bật con trỏ toán khi **đọc vào cây rồi ghi lại cho đúng
+  markup cũ** (`math_edit::lossless`: `from_omml` → `normalize` → `to_omml` → `equation::wrap`, so bằng
+  `bo_math::read::same_omml`). Dạng chuẩn để so chỉ bỏ những gì không mang thông tin: thứ tự thuộc tính, khai báo
+  `xmlns`, khoảng trắng giữa phần tử, `xml:space` trên `m:t`, phần tử thuộc tính rỗng (`m:…Pr` không nội dung) và cách
+  chia chữ thành các `m:r` liền nhau cùng thuộc tính. Mọi thứ khác (`m:box`, `m:groupChr`, `m:sPre`, `m:borderBox`,
+  `m:phant`, `w:rPr` / `m:ctrlPr` trong vùng, `m:rPr` ngoài `sty`/`nor`, `m:oMathParaPr`, nhiều `m:oMath` trong một
+  `m:oMathPara`, …) làm vùng bị từ chối. Phương trình bị đánh dấu xóa (revision) cũng không sửa được.
+- Bị từ chối: engine chọn cả phương trình (như trước khi có sửa tại chỗ) và trả `error: "mathUnsupported"`; UI hiện
+  thông báo ở thanh trạng thái (`equation.inPlaceUnsupported`). Gõ chữ ngay sau đó (chưa đổi vùng chọn / tài liệu)
+  không thay phương trình (vẫn trả `mathUnsupported`); Delete / Backspace vẫn xóa được. Enter khi đang chọn đúng một
+  phương trình, hoặc nhấp đúp vào phương trình (engine chọn nó), mở hộp thoại phương trình (`insert.equation`) như cũ.
+  Mũi tên đi qua phương trình như trước.
+- Hệ quả: phương trình do BlueDoc tạo (hộp thoại, mẫu, LaTeX) luôn sửa tại chỗ được; phương trình do ứng dụng khác viết
+  thường có `w:rPr` (phông toán) trong từng run và `m:ctrlPr` nên chỉ sửa qua hộp thoại cho tới khi cây mô hình hóa
+  được các thuộc tính đó.
+- Kiểm thử: `math_edit::tests::unsupported_markup_is_not_edited_in_place` (mỗi phần tử: mathEnter, nhấp, gõ, mũi tên,
+  lưu — XML không đổi), `supported_equations_still_enter`, corpus `tests/corpus/doc/math-06-unsupported.docx`, E2E
+  `equation-inline.spec.ts`.
+
+### B. Theo dõi thay đổi: một revision cho cả phương trình
+- Cách ghi (cái `bo-edit` vốn có và round-trip được): revision nằm trên `RunProps` của nguyên tử phương trình, nên
+  `w:ins` / `w:del` (ECMA-376 Part 1, §17.13.5.18 / §17.13.5.14) bao **cả** `m:oMath` / `m:oMathPara`
+  (`CT_RunTrackChange` cho phép nội dung toán). Không dùng `w:ins`/`w:del` quanh từng `m:r` hay trong `m:ctrlPr`.
+  `bo-docx` trước đây bỏ dấu revision của vùng toán khi đọc — nay giữ (`reader.rs`), nên lưu + mở lại giữ revision.
+  ```xml
+  <w:del w:id="1" w:author="An" w:date="…"><m:oMath>…bản cũ, nguyên byte…</m:oMath></w:del>
+  <w:ins w:id="2" w:author="An" w:date="…"><m:oMath>…bản đã sửa…</m:oMath></w:ins>
+  ```
+- `Session::replace_equation` khi bật theo dõi: lần sửa đầu đánh dấu vùng cũ là xóa (giữ nguyên XML) và chèn bản sửa
+  ngay sau nó với dấu chèn; con trỏ toán chuyển sang bản sửa (hàm trả vị trí mới). Các lần sửa sau trên phương trình
+  do chính tác giả đó chèn (theo `Tracker::owns`, như gõ trong phần mình đã chèn) thay tại chỗ — một phiên sửa (và cả
+  phiên sau trên cùng phương trình đó) chỉ để lại **một** revision; gõ liên tiếp vẫn gộp một bước hoàn tác.
+- Hai id khác nhau (id revision phải duy nhất, §17.13.1), ghép theo cấu trúc: vùng toán bị xóa đứng liền trước vùng
+  toán được chèn, cùng tác giả, mỗi id chỉ đánh dấu đúng vùng đó (`revisions::equation_pairs`, mọi story). Danh sách
+  revision gộp hai nửa thành một mục `RevKind::Equation` (id = id phần xóa; UI: "Sửa phương trình"); chấp nhận / từ
+  chối một id giải quyết cả hai nửa (`with_equation_halves`, như hai nửa của một lần di chuyển): từ chối trả đúng XML
+  cũ, chấp nhận giữ bản mới. Ngày revision lấy theo đồng hồ host như các sửa khác.
+- Kiểm thử: `bo-edit` `track_tests::tracked_equation_replacement_is_one_revision`, `bo-engine`
+  `math_edit::tests::tracked_edit_is_one_revision_of_the_whole_equation` (lưu + mở lại, OpenXmlValidator sạch trên
+  `tests/fidelity/output/math-tracked-edit.docx`), E2E (ngăn xem lại có một thay đổi; từ chối trả lại phương trình gốc).

@@ -16,9 +16,13 @@ use super::{
     insert_top, next_shape_id, selected, slide_size, EditError, Outcome, SlideEditResult, SlideSel,
     R,
 };
+use crate::picture_bg::{self as bg, RemovalSpec};
 use crate::picture_tools::{self as pt, CompressReport, PictureInfo, EMU_PER_PX};
 use crate::{EngineError, Result};
-use bo_drawingml::picture::{read_fx, svg_blip_embed, write_fx, SVG_BLIP_EXT};
+use bo_drawingml::picture::{
+    read_background_removal, read_fx, svg_blip_embed, write_background_removal, write_fx,
+    SVG_BLIP_EXT,
+};
 use bo_drawingml::svg::{parse_svg, SvgDoc};
 use bo_model::picture::{aspect_crop, aspect_ratio, fill_crop, fit_size, PictureFx, PCT};
 use bo_model::slide::{
@@ -107,7 +111,30 @@ fn info_of(pres: &Presentation, slide: usize, pic: &Picture) -> Option<PictureIn
         (cx as f64 / EMU_PT, cy as f64 / EMU_PT),
     );
     i.svg = svg_blip_embed(&pic.blip.blip_children).is_some();
+    i.removal = removal_of(pres, slide, pic).map(|(_, _, s)| RemovalSpec::from_settings(&s));
     Some(i)
+}
+
+/// Removed background of a picture (CORE-PIC-002): the relationship id of the
+/// original picture ([MS-ODRAWXML] `a14:imgLayer@r:embed`), its bytes and the
+/// settings — when the original is a picture BlueOffice decodes.
+fn removal_of(
+    pres: &Presentation,
+    slide: usize,
+    pic: &Picture,
+) -> Option<(String, Vec<u8>, bo_model::picture::BackgroundRemoval)> {
+    let (rid, settings) = read_background_removal(&pic.blip.blip_children)?;
+    let rid = rid?;
+    let data = pres.part_data(&rel_part(pres, slide, &rid)?)?.to_vec();
+    bg::removable(&data).then_some((rid, data, settings))
+}
+
+/// The picture the background removal works on: the original when the background
+/// was removed before, else the picture itself.
+fn removal_source(pres: &Presentation, slide: usize, pic: &Picture) -> Option<Vec<u8>> {
+    removal_of(pres, slide, pic)
+        .map(|(_, d, _)| d)
+        .or_else(|| image_of(pres, slide, pic).map(|(_, d)| d))
 }
 
 /// New crop with the frame resized so the picture keeps its scale.
@@ -369,6 +396,7 @@ impl crate::Engine {
         let mut out = Outcome::default();
         let mut previews = Vec::new();
         let mut report = None;
+        let mut background = None;
         let mut fresh: Vec<String> = Vec::new();
         {
             let pres = self.pres.as_mut().ok_or(EngineError::NoDocument)?;
@@ -564,6 +592,9 @@ impl crate::Engine {
                         // The relationship may be shared: give the picture its own.
                         let new_rid = add_rel(tx, sel.slide, &part)?;
                         pic.blip.embed = Some(new_rid);
+                        // A removed background belonged to the old picture.
+                        let layer = read_background_removal(&pic.blip.blip_children).and_then(|(r, _)| r);
+                        write_background_removal(&mut pic.blip.blip_children, None);
                         // Drop a previous SVG version, add the new one.
                         pic.blip.blip_children.retain(|c| svg_blip_embed(std::slice::from_ref(c)).is_none());
                         if let Some(s) = svg {
@@ -592,6 +623,9 @@ impl crate::Engine {
                         put(tx, sel.slide, p, pic)?;
                         // The old relationship when nothing uses it any more.
                         unlink_if_unused(tx, sel.slide, &rid)?;
+                        if let Some(l) = layer {
+                            unlink_if_unused(tx, sel.slide, &l)?;
+                        }
                         Ok(())
                     });
                 }
@@ -599,6 +633,13 @@ impl crate::Engine {
                     for p in picture_paths(tx.pres, sel) {
                         let mut pic = picture_at(tx.pres, sel.slide, &p)?;
                         write_fx(&mut pic.blip.blip_children, &PictureFx::default());
+                        // A removed background comes back: the original is shown again.
+                        let restored = removal_of(tx.pres, sel.slide, &pic).map(|(rid, _, _)| rid);
+                        let result = restored.as_ref().and(pic.blip.embed.clone());
+                        if let Some(rid) = &restored {
+                            pic.blip.embed = Some(rid.clone());
+                            write_background_removal(&mut pic.blip.blip_children, None);
+                        }
                         if size {
                             let px = image_of(tx.pres, sel.slide, &pic).and_then(|(_, d)| pixels(&d));
                             let mut x = frame(tx.pres, sel.slide, &pic);
@@ -620,6 +661,9 @@ impl crate::Engine {
                             });
                         }
                         put(tx, sel.slide, &p, pic)?;
+                        if let Some(r) = result {
+                            unlink_if_unused(tx, sel.slide, &r)?;
+                        }
                     }
                     Ok(())
                 }),
@@ -644,6 +688,53 @@ impl crate::Engine {
                     sel.ids = vec![gid];
                     Ok(())
                 }),
+                PictureCommand::PictureBackgroundPreview(spec) => {
+                    let paths = picture_paths(pres, &ed.sel);
+                    let src = paths
+                        .first()
+                        .and_then(|p| picture_at(pres, slide, p).ok())
+                        .and_then(|pic| removal_source(pres, slide, &pic));
+                    background = src.and_then(|d| bg::preview(&d, &spec, &bg::clock_ms));
+                    if background.is_none() {
+                        out.error = Some(EditError::Refused("noPicture").to_string());
+                    }
+                }
+                PictureCommand::PictureRemoveBackground(spec) => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        let paths = picture_paths(tx.pres, sel);
+                        let Some(p) = paths.first() else {
+                            return Err(EditError::Refused("noPicture"));
+                        };
+                        let mut pic = picture_at(tx.pres, sel.slide, p)?;
+                        let shown = pic.blip.embed.clone().ok_or(EditError::Refused("noPicture"))?;
+                        // The original: the one kept by an earlier removal, else the picture shown.
+                        let (layer, original) = if let Some((rid, data, _)) = removal_of(tx.pres, sel.slide, &pic) {
+                            (rid, data)
+                        } else {
+                            let (_, d) = image_of(tx.pres, sel.slide, &pic)
+                                .ok_or(EditError::Refused("noPicture"))?;
+                            (shown.clone(), d)
+                        };
+                        if !bg::removable(&original) {
+                            return Err(EditError::Refused("badImage"));
+                        }
+                        let png = bg::remove(&original, &spec).ok_or(EditError::Refused("badImage"))?;
+                        let part = add_part(tx, png, "png", "image/png")?;
+                        fresh.push(part.clone());
+                        pic.blip.embed = Some(add_rel(tx, sel.slide, &part)?);
+                        // [MS-ODRAWXML] a14:imgLayer keeps the original, a14:backgroundRemoval the settings.
+                        write_background_removal(
+                            &mut pic.blip.blip_children,
+                            Some((&layer, &spec.settings())),
+                        );
+                        put(tx, sel.slide, p, pic)?;
+                        // A previous result nothing shows any more.
+                        if shown != layer {
+                            unlink_if_unused(tx, sel.slide, &shown)?;
+                        }
+                        Ok(())
+                    });
+                }
                 PictureCommand::PictureInsertSvg { data, name } => {
                     ed.mutate(pres, &mut out, |tx, sel| {
                         let bytes = pt::decode_data(&data).ok_or(EditError::Refused("badImage"))?;
@@ -666,6 +757,7 @@ impl crate::Engine {
         if let Some(i) = info.as_mut() {
             i.previews = previews;
             i.compressed = report;
+            i.background = background;
         } else if report.is_some() {
             info = Some(PictureInfo {
                 compressed: report,
@@ -687,7 +779,11 @@ fn unlink_if_unused(tx: &mut Tx<'_>, slide: usize, rid: &str) -> R<()> {
     bo_pptx::visit(&s.data.shapes, &mut |n| {
         if let ShapeNode::Picture(p) = n {
             used |= p.blip.embed.as_deref() == Some(rid)
-                || svg_blip_embed(&p.blip.blip_children).as_deref() == Some(rid);
+                || svg_blip_embed(&p.blip.blip_children).as_deref() == Some(rid)
+                || read_background_removal(&p.blip.blip_children)
+                    .and_then(|(r, _)| r)
+                    .as_deref()
+                    == Some(rid);
         }
         if let ShapeNode::Shape(sh) = n {
             if let Some(Fill::Picture(b)) = &sh.props.fill {

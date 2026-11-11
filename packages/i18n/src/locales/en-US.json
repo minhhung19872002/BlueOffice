@@ -1776,6 +1776,12 @@
         "varp": "Variance (population)"
       },
       "split": {
+        "stepTitle": "Split text into columns — step {{step}} of 3",
+        "back": "< Back",
+        "next": "Next >",
+        "finish": "Finish",
+        "dateKind": "Date",
+        "dateOrder": "Date order",
         "title": "Split text into columns",
         "kind": "How the text is divided",
         "delimited": "By separator characters",
@@ -4993,6 +4999,23 @@
       "sections": "Slide sections",
       "models3d": "3D models"
     }
+  },
+  "sheetOutline": {
+    "row": {
+      "bar": "Row outline",
+      "level": "Show row level {{n}}",
+      "show": "Show detail of row {{n}}",
+      "hide": "Hide detail of row {{n}}"
+    },
+    "col": {
+      "bar": "Column outline",
+      "level": "Show column level {{n}}",
+      "show": "Show detail of column {{n}}",
+      "hide": "Hide detail of column {{n}}"
+    },
+    "showDetail": "Show detail",
+    "hideDetail": "Hide detail",
+    "symbols": "Outline symbols"
   },
   "sheetAudit": {
     "tab": "Formulas",

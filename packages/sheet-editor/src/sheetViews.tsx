@@ -29,6 +29,7 @@ import {
   FileText,
   Glasses,
   Grid3x3,
+  ListTree,
   SeparatorHorizontal,
   SquareFunction,
 } from 'lucide-react';
@@ -123,7 +124,16 @@ export function useSheetViews({
     });
     if (s) setState(s);
   }, [exec, sheet, state]);
-  return { state, mode, setMode, toggleFormulas };
+  /** Ctrl+8: show / hide the outline bar (`showOutlineSymbols`). */
+  const toggleOutlineSymbols = useCallback(async () => {
+    const s = await exec<SheetViewState>({
+      cmd: 'setSheetView',
+      sheet,
+      outlineSymbols: !(state?.outlineSymbols ?? true),
+    });
+    if (s) setState(s);
+  }, [exec, sheet, state]);
+  return { state, mode, setMode, toggleFormulas, toggleOutlineSymbols };
 }
 
 /** A temporary view kept by the editor for this session (never written to the file). */
@@ -179,6 +189,7 @@ export function sheetViewTabGroups(t: T, item: Item): RibbonGroup[] {
           <SquareFunction size={s} />,
           'small',
         ),
+        item('view.outlineSymbols', t('sheetOutline.symbols'), <ListTree size={s} />, 'small'),
       ],
     },
     {

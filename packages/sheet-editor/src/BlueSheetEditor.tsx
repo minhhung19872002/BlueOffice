@@ -223,6 +223,8 @@ import {
   List,
   GalleryVertical,
   ChevronsUpDown,
+  SquareMinus,
+  SquarePlus,
   SquareDashed,
   Type,
   SlidersHorizontal,
@@ -495,6 +497,7 @@ import {
   useSheetViews,
   useTempViews,
 } from './sheetViews';
+import { OutlineBar, outlineBarSize } from './outlineBar';
 import { PivotDialog, PivotPanel, pivotAt, pivotSelectionItems, usePivotLabels } from './pivot';
 import {
   PivotCalcDialog,
@@ -2031,12 +2034,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setZoom,
     exec,
   });
-  const { mode: viewMode, setMode: setViewMode, toggleFormulas } = sheetViews;
+  const { mode: viewMode, setMode: setViewMode, toggleFormulas, toggleOutlineSymbols } = sheetViews;
   const showingFormulas = !!sheetViews.state?.showFormulas;
+  // The outline bar beside the grid (SHEET-DATA-002), unless hidden (Ctrl+8).
+  const outlineShown = sheetViews.state?.outlineSymbols ?? true;
+  const outlineSize = outlineBarSize(
+    viewMode !== 'pageLayout' && outlineShown ? summary?.outline : null,
+  );
   const tempViews = useTempViews();
 
   // Formula auditing and calculation (SHEET-AUDIT-001).
-  const audit = useAudit({ host, sheet, revision, onDone: refreshInfo, fail });
+  const audit = useAudit({ host, sheet, revision, loadSeq, onDone: refreshInfo, fail });
   const {
     trace: auditTrace,
     calculate: auditCalculate,
@@ -4174,6 +4182,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       });
     add('data.collapseOutline', showLevel(1));
     add('data.expandOutline', showLevel(8));
+    // Show / Hide Detail: the row group at the active cell, else its column group
+    // (columns first when whole columns are selected).
+    const detail = (show: boolean) => async (s: SheetEditorState) => {
+      const a = s.selection.active;
+      const order = wholeCols(s) ? [false, true] : [true, false];
+      for (const rows of order) {
+        const r = await exec<{ changed: boolean }>({
+          cmd: 'outlineDetail',
+          sheet: s.sheet,
+          rows,
+          at: rows ? a.row : a.col,
+          show,
+        });
+        if (r?.changed) return;
+      }
+    };
+    add('data.showDetail', detail(true));
+    add('data.hideDetail', detail(false));
     add(
       'data.circleInvalid',
       async (s) => {
@@ -4270,6 +4296,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('view.showFormulas', () => toggleFormulas(), {
       shortcut: 'Ctrl+`',
       isChecked: () => showingFormulas,
+      ...has,
+    });
+    add('view.outlineSymbols', () => toggleOutlineSymbols(), {
+      shortcut: 'Ctrl+8',
+      isChecked: () => sheetViews.state?.outlineSymbols ?? true,
       ...has,
     });
     add('view.customViews', open({ kind: 'customViews' }), has);
@@ -4396,6 +4427,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     viewMode,
     setViewMode,
     toggleFormulas,
+    toggleOutlineSymbols,
+    sheetViews.state,
     showingFormulas,
     split,
     toggleSplit,
@@ -6871,6 +6904,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <ChevronsUpDown size={s} />,
                 'small',
               ),
+              item(
+                'data.showDetail',
+                t('sheetOutline.showDetail'),
+                <SquarePlus size={s} />,
+                'small',
+              ),
+              item(
+                'data.hideDetail',
+                t('sheetOutline.hideDetail'),
+                <SquareMinus size={s} />,
+                'small',
+              ),
             ],
           },
           {
@@ -7682,10 +7727,34 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             fail={fail}
           />
         )}
+        {viewMode !== 'pageLayout' && outlineShown && summary?.outline && (
+          <OutlineBar
+            outline={summary.outline}
+            geometry={grid?.g ?? null}
+            scale={grid?.scale ?? scale}
+            width={size.w}
+            height={size.h}
+            onLevel={(rows, level) => void exec({ cmd: 'outlineShowLevel', sheet, rows, level })}
+            onToggle={(rows, g) =>
+              void exec({
+                cmd: 'outlineDetail',
+                sheet,
+                rows,
+                at: g.summary ?? g.first,
+                show: g.collapsed,
+              })
+            }
+          />
+        )}
         <div
           className={styles.splitWrap}
           data-split={split?.orientation}
           hidden={viewMode === 'pageLayout'}
+          style={
+            outlineSize.left + outlineSize.top > 0
+              ? { marginLeft: outlineSize.left, marginTop: outlineSize.top }
+              : undefined
+          }
         >
           <div
             className={styles.scroller}

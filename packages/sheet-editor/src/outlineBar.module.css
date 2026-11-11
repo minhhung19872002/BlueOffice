@@ -1,0 +1,60 @@
+/* Outline bar beside the grid (SHEET-DATA-002): level buttons, group brackets, +/−. */
+.bar {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--bo-surface-2, #f3f3f3);
+}
+
+.left {
+  border-right: 1px solid var(--bo-border, #d4d4d4);
+}
+
+.top {
+  border-bottom: 1px solid var(--bo-border, #d4d4d4);
+}
+
+.corner {
+  border-right: 1px solid var(--bo-border, #d4d4d4);
+  border-bottom: 1px solid var(--bo-border, #d4d4d4);
+}
+
+/* Bracket over a group's detail rows / columns. */
+.line {
+  position: absolute;
+  pointer-events: none;
+  border-color: var(--bo-text-muted, #5f6368);
+  border-style: solid;
+  border-width: 0;
+}
+
+.button {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font: 600 11px/1 var(--bo-font-ui, system-ui, sans-serif);
+  color: var(--bo-text, #1f2328);
+  cursor: pointer;
+  background: var(--bo-surface, #fff);
+  border: 1px solid var(--bo-text-muted, #5f6368);
+  border-radius: 2px;
+}
+
+.button:hover {
+  background: var(--bo-hover, #e8eaed);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--bo-focus, #1a73e8);
+  outline-offset: 1px;
+}
+
+.level {
+  border-color: var(--bo-border, #b4b4b4);
+}

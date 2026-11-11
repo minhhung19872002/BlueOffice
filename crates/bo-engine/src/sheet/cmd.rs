@@ -2034,6 +2034,19 @@ pub enum SheetCommand {
         /// Level (1 = outermost summaries only).
         level: u8,
     },
+    /// Show Detail (`show`) / Hide Detail of the outline group at row / column `at`
+    /// (its summary, or a row / column inside it): the +/− buttons of the outline
+    /// bar. One undo step; `{ changed }`.
+    OutlineDetail {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Rows (otherwise columns).
+        rows: bool,
+        /// The summary row / column, or one inside the group.
+        at: u32,
+        /// Show (otherwise hide) the detail.
+        show: bool,
+    },
     /// Cells holding values that violate their data validation:
     /// `{ cells: [[row, col]], truncated }`.
     InvalidCells {
@@ -2051,6 +2064,28 @@ pub(super) enum Recalc {
     /// Only the hidden rows of the sheet changed (AutoFilter): pushed to the
     /// live engine without reloading every cell.
     HiddenRows(usize),
+}
+
+/// Factor columns are drawn wider by while the sheet shows formulas (§18.3.1.87).
+fn formulas_widen(ws: &Worksheet) -> f64 {
+    if ws
+        .views
+        .first()
+        .is_some_and(bo_model::sheet::SheetView::show_formulas)
+    {
+        bo_sheet::geometry::SHOW_FORMULAS_WIDTH
+    } else {
+        1.0
+    }
+}
+
+/// §18.3.1.61 outlinePr: summaries follow their detail (below / right) unless set to 0.
+pub(crate) fn summary_after(ws: &Worksheet, rows: bool) -> bool {
+    if rows {
+        ws.props.summary_below != Some(false)
+    } else {
+        ws.props.summary_right != Some(false)
+    }
 }
 
 fn bad(msg: impl Into<String>) -> EngineError {
@@ -3330,15 +3365,26 @@ impl SheetEngine {
             }),
             C::OutlineShowLevel { sheet, rows, level } => self.edit(sheet, Recalc::All, |wb, _| {
                 let ws = &mut wb.sheets[sheet];
-                // §18.3.1.61 outlinePr: summaries follow their detail unless set to 0.
-                let after = if rows {
-                    ws.props.summary_below != Some(false)
-                } else {
-                    ws.props.summary_right != Some(false)
-                };
+                let after = summary_after(ws, rows);
                 bo_sheet::outline::show_level(ws, rows, level, after);
                 Ok(json!({ "ok": true }))
             }),
+            C::OutlineDetail {
+                sheet,
+                rows,
+                at,
+                show,
+            } => {
+                let ws = self.sheet(sheet)?;
+                let after = summary_after(ws, rows);
+                if bo_sheet::outline::detail_target(ws, rows, at, show, after).is_none() {
+                    return Ok(json!({ "changed": false }));
+                }
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    bo_sheet::outline::set_detail(&mut wb.sheets[sheet], rows, at, show, after);
+                    Ok(json!({ "changed": true }))
+                })
+            }
             C::InvalidCells { sheet } => self.invalid_cells(sheet),
             C::FlashFill { sheet, row, col } => {
                 let fills = flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale);
@@ -3428,6 +3474,10 @@ impl SheetEngine {
                     } else {
                         (px + 5.0) * bo_sheet::geometry::PT_PER_PX
                     }
+                } else if !rows {
+                    // A width dragged while formulas are shown is a drawn (widened)
+                    // width: the file keeps the normal one.
+                    size / formulas_widen(self.sheet(sheet)?)
                 } else {
                     size
                 };
@@ -3443,12 +3493,14 @@ impl SheetEngine {
                 })
             }
             C::SizeOf { sheet, rows, index } => {
+                let widen = formulas_widen(self.sheet(sheet)?);
                 let g = self.geometry(sheet)?;
                 let size = if rows {
                     g.row_height(index)
                 } else {
-                    // Pixels less the 5 px padding, in maximum digit widths, to 1/100.
-                    let px = (g.col_width(index) / bo_sheet::geometry::PT_PER_PX).round();
+                    // Pixels less the 5 px padding, in maximum digit widths, to 1/100
+                    // (the normal width while formulas are shown wider).
+                    let px = (g.col_width(index) / widen / bo_sheet::geometry::PT_PER_PX).round();
                     let mdw = g.metrics.mdw_px.max(1.0);
                     (((px - 5.0).max(0.0) / mdw) * 100.0).round() / 100.0
                 };

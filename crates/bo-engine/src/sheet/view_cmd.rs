@@ -13,9 +13,9 @@
 //!   whole percent at which that page fits; manual breaks the drag passes over
 //!   are removed; dragging a break out of the print area removes it;
 //! * a saved custom view keeps the exact hidden rows / columns and the print
-//!   area for the session only (the file format flags them, §18.3.1.25
-//!   `hiddenRows` / `hiddenColumns` / `printArea`, without listing them);
-//!   after reopening, applying the view re-applies its AutoFilter instead.
+//!   area (§18.3.1.25 only flags them; `bo-xlsx` writes the lists as hidden
+//!   `Z_<guid>_.wvu.*` defined names); a view without them re-applies its
+//!   AutoFilter instead.
 
 use super::cmd::Recalc;
 use super::print::{settings, PageBox, Pagination};
@@ -34,13 +34,17 @@ use serde_json::{json, Value};
 pub enum ViewCommand {
     /// View type, show formulas and zoom of a sheet → `{ view, showFormulas, zoom, zooms }`.
     SheetViewState { sheet: usize },
-    /// Changes the view type, show formulas and / or the zoom (no undo step).
+    /// Changes the view type, show formulas, the outline bar and / or the zoom (no
+    /// undo step).
     SetSheetView {
         sheet: usize,
         #[serde(default)]
         view: Option<SheetViewType>,
         #[serde(default)]
         show_formulas: Option<bool>,
+        /// `showOutlineSymbols` (§18.3.1.87).
+        #[serde(default)]
+        outline_symbols: Option<bool>,
         /// Zoom percent of the (new) view type, 10–400.
         #[serde(default)]
         zoom: Option<u32>,
@@ -203,6 +207,7 @@ fn state_json(ws: &Worksheet) -> Value {
     json!({
         "view": t,
         "showFormulas": v.is_some_and(SheetView::show_formulas),
+        "outlineSymbols": v.is_none_or(SheetView::show_outline_symbols),
         "zoom": v.and_then(|v| v.zoom_scale).filter(|z| *z > 0).unwrap_or_else(|| zoom_for(v, t)),
         "zooms": {
             "normal": zoom_for(v, SheetViewType::Normal),
@@ -229,8 +234,21 @@ impl SheetEngine {
                 sheet,
                 view,
                 show_formulas,
+                outline_symbols,
                 zoom,
-            } => self.set_sheet_view(sheet, view, show_formulas, zoom),
+            } => {
+                if let Some(on) = outline_symbols {
+                    let ws = self
+                        .wb
+                        .as_mut()
+                        .ok_or(EngineError::NoDocument)?
+                        .sheets
+                        .get_mut(sheet)
+                        .ok_or(EngineError::PageOutOfRange(sheet))?;
+                    view_mut(ws).set_show_outline_symbols(on);
+                }
+                self.set_sheet_view(sheet, view, show_formulas, zoom)
+            }
             ViewCommand::PageBreakPreview { sheet } => self.break_preview(sheet),
             ViewCommand::MovePageBreak {
                 sheet,

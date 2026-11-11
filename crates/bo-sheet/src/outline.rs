@@ -144,8 +144,10 @@ pub fn show_level(ws: &mut Worksheet, rows: bool, level: u8, summary_after: bool
             } else {
                 r.checked_sub(1)
             };
+            // A hidden summary is marked too: showing its outer group later keeps this
+            // one collapsed (level 1, then + on the grand total, shows the subtotals).
             if let Some(s) = summary.filter(|&s| s < MAX_ROWS) {
-                if hidden(ws, r) && !hidden(ws, s) && lvl(ws, s) < lvl(ws, r) {
+                if hidden(ws, r) && lvl(ws, s) < lvl(ws, r) {
                     marks.insert(s);
                 }
             }
@@ -185,7 +187,7 @@ pub fn show_level(ws: &mut Worksheet, rows: bool, level: u8, summary_after: bool
                     c.checked_sub(1)
                 };
                 if let Some(s) = summary.filter(|&s| s < MAX_COLS) {
-                    if hidden(ws, c) && !hidden(ws, s) && lvl(ws, s) < lvl(ws, c) {
+                    if hidden(ws, c) && lvl(ws, s) < lvl(ws, c) {
                         marks.insert(s);
                     }
                 }
@@ -198,6 +200,198 @@ pub fn show_level(ws: &mut Worksheet, rows: bool, level: u8, summary_after: bool
             }
         }
     }
+}
+
+/// One group of the outline bar: a maximal run `first..=last` of rows / columns at
+/// outline `level` or deeper, with the summary row / column next to it (after the
+/// run when `summaryBelow` / `summaryRight`, §18.3.1.61; `None` at the sheet edge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineGroup {
+    /// Outline level of the group (1 = outermost).
+    pub level: u8,
+    /// First row / column of the detail.
+    pub first: u32,
+    /// Last row / column of the detail.
+    pub last: u32,
+    /// The summary row / column (where the +/− button sits).
+    pub summary: Option<u32>,
+    /// Every row / column of the detail is hidden (the button shows +).
+    pub collapsed: bool,
+}
+
+/// `(index, outline level, hidden)` of every grouped row / column, in order.
+fn grouped_lines(ws: &Worksheet, rows: bool) -> Vec<(u32, u8, bool)> {
+    if rows {
+        ws.rows
+            .iter()
+            .filter(|(_, i)| i.outline_level > 0)
+            .map(|(k, i)| (*k, i.outline_level, i.hidden))
+            .collect()
+    } else {
+        let mut v: Vec<(u32, u8, bool)> = ws
+            .cols
+            .iter()
+            .filter(|c| c.outline_level > 0)
+            .flat_map(|c| (c.min..=c.max.min(MAX_COLS - 1)).map(|i| (i, c.outline_level, c.hidden)))
+            .collect();
+        v.sort_unstable_by_key(|l| l.0);
+        v
+    }
+}
+
+/// The groups of the row (`rows`) or column outline, outer levels first, at most
+/// `limit` of them. `summary_after`: summaries below / right of their detail.
+pub fn outline_groups(
+    ws: &Worksheet,
+    rows: bool,
+    summary_after: bool,
+    limit: usize,
+) -> Vec<OutlineGroup> {
+    let lines = grouped_lines(ws, rows);
+    let max = lines.iter().map(|l| l.1).max().unwrap_or(0);
+    let end = if rows { MAX_ROWS } else { MAX_COLS };
+    let mut out = Vec::new();
+    for level in 1..=max {
+        let mut run: Option<(u32, u32, bool)> = None;
+        let flush = |run: Option<(u32, u32, bool)>, out: &mut Vec<OutlineGroup>| {
+            if let Some((first, last, collapsed)) = run {
+                let summary = if summary_after {
+                    last.checked_add(1).filter(|&s| s < end)
+                } else {
+                    first.checked_sub(1)
+                };
+                out.push(OutlineGroup {
+                    level,
+                    first,
+                    last,
+                    summary,
+                    collapsed,
+                });
+            }
+        };
+        for &(i, l, hidden) in &lines {
+            if l < level {
+                continue;
+            }
+            match &mut run {
+                Some((_, last, collapsed)) if *last + 1 == i => {
+                    *last = i;
+                    *collapsed &= hidden;
+                }
+                _ => {
+                    flush(run.take(), &mut out);
+                    run = Some((i, i, hidden));
+                }
+            }
+            if out.len() >= limit {
+                return out;
+            }
+        }
+        flush(run, &mut out);
+        if out.len() >= limit {
+            out.truncate(limit);
+            return out;
+        }
+    }
+    out
+}
+
+fn line_collapsed(ws: &Worksheet, rows: bool, i: u32) -> bool {
+    if rows {
+        ws.rows.get(&i).is_some_and(|r| r.collapsed)
+    } else {
+        ws.col_info(i).is_some_and(|c| c.collapsed)
+    }
+}
+
+fn set_lines(
+    ws: &mut Worksheet,
+    rows: bool,
+    first: u32,
+    last: u32,
+    f: impl Fn(&mut bool, &mut bool),
+) {
+    if rows {
+        for r in first..=last {
+            let info = ws.rows.entry(r).or_default();
+            f(&mut info.hidden, &mut info.collapsed);
+            if *info == RowInfo::default() {
+                ws.rows.remove(&r);
+            }
+        }
+    } else {
+        update_cols(ws, first, last, |c| f(&mut c.hidden, &mut c.collapsed));
+    }
+}
+
+fn pick_group(groups: &[OutlineGroup], at: u32, show: bool) -> Option<OutlineGroup> {
+    let wanted = |g: &&OutlineGroup| g.collapsed == show;
+    groups
+        .iter()
+        .filter(wanted)
+        .find(|g| g.summary == Some(at))
+        .or_else(|| {
+            groups
+                .iter()
+                .filter(wanted)
+                .filter(|g| g.first <= at && at <= g.last)
+                .max_by_key(|g| g.level)
+        })
+        .copied()
+}
+
+/// The group [`set_detail`] would show / hide, if any.
+pub fn detail_target(
+    ws: &Worksheet,
+    rows: bool,
+    at: u32,
+    show: bool,
+    summary_after: bool,
+) -> Option<OutlineGroup> {
+    pick_group(
+        &outline_groups(ws, rows, summary_after, usize::MAX),
+        at,
+        show,
+    )
+}
+
+/// Show Detail (`show`) / Hide Detail of the group at row / column `at` — the +/−
+/// button of the outline bar, Data › Outline › Show / Hide Detail. The group is the
+/// one whose summary is `at`, otherwise the innermost one containing `at`. Hiding
+/// hides the whole detail and marks the summary `collapsed`; showing unhides it but
+/// keeps the inner groups whose summary is still marked collapsed hidden. Returns
+/// whether anything changed.
+pub fn set_detail(
+    ws: &mut Worksheet,
+    rows: bool,
+    at: u32,
+    show: bool,
+    summary_after: bool,
+) -> bool {
+    let groups = outline_groups(ws, rows, summary_after, usize::MAX);
+    let Some(g) = pick_group(&groups, at, show) else {
+        return false;
+    };
+    if show {
+        // Inner groups still marked collapsed stay hidden.
+        let keep: Vec<(u32, u32)> = groups
+            .iter()
+            .filter(|n| n.level > g.level && g.first <= n.first && n.last <= g.last)
+            .filter(|n| n.summary.is_some_and(|s| line_collapsed(ws, rows, s)))
+            .map(|n| (n.first, n.last))
+            .collect();
+        set_lines(ws, rows, g.first, g.last, |h, _| *h = false);
+        for (a, b) in keep {
+            set_lines(ws, rows, a, b, |h, _| *h = true);
+        }
+    } else {
+        set_lines(ws, rows, g.first, g.last, |h, _| *h = true);
+    }
+    if let Some(s) = g.summary {
+        set_lines(ws, rows, s, s, |_, c| *c = !show);
+    }
+    true
 }
 
 /// A detail span found by [`auto_outline`]: `first..=last` summarised by a row /

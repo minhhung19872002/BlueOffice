@@ -378,6 +378,57 @@ pub fn ignore(ws: &mut Worksheet, row: u32, col: u32, rule: ErrorRule) {
     });
 }
 
+fn is_cell_watches(x: &RawXml) -> bool {
+    element(&x.xml).is_some_and(|(n, _)| n.rsplit(':').next() == Some("cellWatches"))
+}
+
+/// Cells of the watch window saved with a sheet (ECMA-376 Part 1, `cellWatches` /
+/// `cellWatch/@r` of CT_Worksheet), in file order.
+pub fn cell_watches(ws: &Worksheet) -> Vec<CellRef> {
+    let mut out = Vec::new();
+    for x in ws.unknown.iter().filter(|x| is_cell_watches(x)) {
+        for chunk in x.xml.split('<').skip(1) {
+            let name_end = chunk
+                .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+                .unwrap_or(chunk.len());
+            if chunk[..name_end].rsplit(':').next() != Some("cellWatch") {
+                continue;
+            }
+            let Some((_, attrs)) = element(&format!("<{chunk}")) else {
+                continue;
+            };
+            if let Some(c) = attrs
+                .iter()
+                .find(|(k, _)| k == "r")
+                .and_then(|(_, v)| CellRef::parse(v))
+            {
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// Replaces the watched cells saved with a sheet (`cellWatches`; none: removed).
+/// Returns whether anything changed.
+pub fn set_cell_watches(ws: &mut Worksheet, cells: &[CellRef]) -> bool {
+    if cell_watches(ws) == cells {
+        return false;
+    }
+    ws.unknown.retain(|x| !is_cell_watches(x));
+    if !cells.is_empty() {
+        let items: String = cells
+            .iter()
+            .map(|c| format!("<cellWatch r=\"{}\"/>", escape(&c.to_string())))
+            .collect();
+        ws.unknown.push(RawXml {
+            after: "cellWatches".into(),
+            xml: format!("<cellWatches>{items}</cellWatches>"),
+        });
+    }
+    true
+}
+
 /// Forgets every ignored error of a sheet.
 pub fn reset_ignored(ws: &mut Worksheet) -> bool {
     let before = ws.unknown.len();

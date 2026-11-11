@@ -96,6 +96,16 @@ impl SheetView {
         self.set_attr("showFormulas", on.then(|| "1".to_owned()));
     }
 
+    /// `@showOutlineSymbols` (§18.3.1.87; default true): the outline bar is shown.
+    pub fn show_outline_symbols(&self) -> bool {
+        !matches!(self.attr("showOutlineSymbols"), Some("0" | "false"))
+    }
+
+    /// Sets `@showOutlineSymbols`; true (the default) is not written.
+    pub fn set_show_outline_symbols(&mut self, on: bool) {
+        self.set_attr("showOutlineSymbols", (!on).then(|| "0".to_owned()));
+    }
+
     /// Zoom percent stored for a view type (`0` or absent: none).
     pub fn zoom_of(&self, v: SheetViewType) -> Option<u32> {
         self.attr(v.zoom_attr())
@@ -149,15 +159,15 @@ pub struct CustomSheetView {
     pub auto_filter: Option<AutoFilter>,
     /// Unknown children (`extLst`).
     pub unknown: Vec<RawXml>,
-    /// Hidden row spans captured by BlueSheet when the view was saved. The file
-    /// format only flags that rows are hidden (`hiddenRows`), so this list lives
-    /// for the session only and is not written.
+    /// Hidden row spans of the view. `customSheetView` only flags them
+    /// (`hiddenRows`); the list is written as the hidden defined name
+    /// `Z_<guid>_.wvu.Rows` (§18.2.5) and read back from it.
     #[serde(default)]
     pub session_hidden_rows: Option<Vec<(u32, u32)>>,
-    /// Hidden column spans captured when the view was saved (session only).
+    /// Hidden column spans of the view (`Z_<guid>_.wvu.Cols`).
     #[serde(default)]
     pub session_hidden_cols: Option<Vec<(u32, u32)>>,
-    /// Print area text captured when the view was saved (session only).
+    /// Print area text of the view (`Z_<guid>_.wvu.PrintArea`).
     #[serde(default)]
     pub session_print_area: Option<Option<String>>,
 }

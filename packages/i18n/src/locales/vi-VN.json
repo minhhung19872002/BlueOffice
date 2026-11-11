@@ -1776,6 +1776,12 @@
         "varp": "Phương sai (tổng thể)"
       },
       "split": {
+        "stepTitle": "Tách văn bản thành cột — bước {{step}}/3",
+        "back": "< Quay lại",
+        "next": "Tiếp >",
+        "finish": "Hoàn tất",
+        "dateKind": "Ngày",
+        "dateOrder": "Thứ tự ngày",
         "title": "Tách văn bản thành cột",
         "kind": "Cách tách",
         "delimited": "Theo ký tự phân cách",
@@ -4993,6 +4999,23 @@
       "sections": "Phần trang chiếu",
       "models3d": "Mô hình 3D"
     }
+  },
+  "sheetOutline": {
+    "row": {
+      "bar": "Dàn ý hàng",
+      "level": "Hiện mức hàng {{n}}",
+      "show": "Hiện chi tiết của hàng {{n}}",
+      "hide": "Ẩn chi tiết của hàng {{n}}"
+    },
+    "col": {
+      "bar": "Dàn ý cột",
+      "level": "Hiện mức cột {{n}}",
+      "show": "Hiện chi tiết của cột {{n}}",
+      "hide": "Ẩn chi tiết của cột {{n}}"
+    },
+    "showDetail": "Hiện chi tiết",
+    "hideDetail": "Ẩn chi tiết",
+    "symbols": "Ký hiệu dàn ý"
   },
   "sheetAudit": {
     "tab": "Công thức",

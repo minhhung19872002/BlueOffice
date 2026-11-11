@@ -4,7 +4,9 @@
 //! * `evaluateFormula` — step-by-step evaluation ([`bo_formula::trace_formula`]);
 //! * `errorCheck`, `ignoreError`, `resetIgnoredErrors` — error checking
 //!   ([`bo_sheet::errcheck`], ECMA-376 Part 1, §18.3.1.51 `ignoredErrors`);
-//! * `watchValues` — rows of the watch window;
+//! * `watchValues` — rows of the watch window; `cellWatches` / `setCellWatches`
+//!   — the watched cells saved with each sheet (CT_Worksheet `cellWatches`; a
+//!   change is not an undo step, as adding a watch is not an edit of the cells);
 //! * `checkFormula` — does a formula text parse, and are its functions known (used
 //!   to vet a formula suggested from outside before it is offered; CORE-AI-001);
 //! * `calcOptions`, `setCalcOptions`, `calculate` — calculation mode, iteration
@@ -77,6 +79,10 @@ pub enum AuditCommand {
     ResetIgnoredErrors,
     /// Watch-window rows: `[{ book, sheet, name, cell, value, formula }]`.
     WatchValues { cells: Vec<WatchCell> },
+    /// The watched cells saved in the workbook: `[{ sheet, row, col }]`.
+    CellWatches,
+    /// Replaces the watched cells saved in the workbook (no undo step).
+    SetCellWatches { cells: Vec<WatchCell> },
     /// Calculation settings and state: `{ options, needsCalc, circular }`.
     CalcOptions,
     /// Change the calculation settings (§18.2.2 `calcPr`). One undo step.
@@ -105,6 +111,8 @@ impl AuditCommand {
             "ignoreError",
             "resetIgnoredErrors",
             "watchValues",
+            "cellWatches",
+            "setCellWatches",
             "calcOptions",
             "setCalcOptions",
             "calculate",
@@ -283,6 +291,29 @@ impl SheetEngine {
                 Ok(json!({ "ok": true }))
             }
             AuditCommand::WatchValues { cells } => self.watch_values(&cells),
+            AuditCommand::CellWatches => {
+                let wb = self.wb()?;
+                let mut out = Vec::new();
+                for (i, ws) in wb.sheets.iter().enumerate() {
+                    for c in errcheck::cell_watches(ws) {
+                        out.push(json!({ "sheet": i, "row": c.row, "col": c.col }));
+                    }
+                }
+                Ok(Value::Array(out))
+            }
+            AuditCommand::SetCellWatches { cells } => {
+                let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+                let mut changed = false;
+                for (i, ws) in wb.sheets.iter_mut().enumerate() {
+                    let mine: Vec<CellRef> = cells
+                        .iter()
+                        .filter(|w| w.sheet == i)
+                        .map(|w| CellRef::new(w.row, w.col))
+                        .collect();
+                    changed |= errcheck::set_cell_watches(ws, &mine);
+                }
+                Ok(json!({ "changed": changed }))
+            }
             AuditCommand::CalcOptions => self.calc_state(),
             AuditCommand::SetCalcOptions { options } => {
                 if !options.iterate_delta.is_finite() || options.iterate_delta < 0.0 {
@@ -742,5 +773,61 @@ mod tests {
             run(&mut r, &json!({"cmd": "errorCheck", "sheet": 0})),
             json!([])
         );
+    }
+
+    #[test]
+    fn cell_watches_are_saved_with_the_workbook() {
+        let mut e = engine(&[(0, "A1", "5"), (1, "B2", "=1+1")], &["Sheet1", "Hai"]);
+        assert_eq!(run(&mut e, &json!({"cmd": "cellWatches"})), json!([]));
+        // A whole-workbook undo step before the watches are added.
+        let group = json!({"cmd": "outlineGroup", "sheet": 0, "rows": true, "first": 1, "last": 2});
+        e.exec_json(&group.to_string()).unwrap();
+        let cells = json!([
+            {"sheet": 1, "row": 1, "col": 1},
+            {"sheet": 0, "row": 0, "col": 0},
+        ]);
+        let r = run(&mut e, &json!({"cmd": "setCellWatches", "cells": cells}));
+        assert_eq!(r["changed"], json!(true));
+        // Not an undo step: undo takes back the grouping, the watches stay (and
+        // after redo too).
+        assert!(e.undo().unwrap());
+        assert!(e.sheet(0).unwrap().rows.is_empty());
+        let w = run(&mut e, &json!({"cmd": "cellWatches"}));
+        assert_eq!(w.as_array().map(Vec::len), Some(2));
+        assert!(e.redo().unwrap());
+        let w = run(&mut e, &json!({"cmd": "cellWatches"}));
+        assert_eq!(w.as_array().map(Vec::len), Some(2));
+        let r = run(&mut e, &json!({"cmd": "setCellWatches", "cells": cells}));
+        assert_eq!(r["changed"], json!(false));
+        let bytes = e.save("xlsx", 0).unwrap();
+        let back = bo_xlsx::read_xlsx(&bytes).unwrap();
+        let mut f = SheetEngine::new();
+        f.load(back, "t.xlsx").unwrap();
+        // Listed sheet by sheet, in file order.
+        assert_eq!(
+            run(&mut f, &json!({"cmd": "cellWatches"})),
+            json!([
+                {"sheet": 0, "row": 0, "col": 0},
+                {"sheet": 1, "row": 1, "col": 1},
+            ])
+        );
+        let xml = bo_opc::Package::read(&bytes, &bo_opc::Limits::default())
+            .unwrap()
+            .part("/xl/worksheets/sheet2.xml")
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            .unwrap();
+        assert!(
+            xml.contains("<cellWatches><cellWatch r=\"B2\"/></cellWatches>"),
+            "{xml}"
+        );
+        // Removing every watch drops the element.
+        run(&mut f, &json!({"cmd": "setCellWatches", "cells": []}));
+        assert_eq!(run(&mut f, &json!({"cmd": "cellWatches"})), json!([]));
+        assert!(f
+            .wb()
+            .unwrap()
+            .sheets
+            .iter()
+            .all(|ws| !ws.unknown.iter().any(|x| x.xml.contains("cellWatches"))));
     }
 }

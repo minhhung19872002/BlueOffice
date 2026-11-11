@@ -152,7 +152,9 @@ export function FixedWidthRuler({
     <div
       className={dt.ruler}
       data-testid="split-ruler"
-      role="group"
+      // Scrolls with the keyboard too (the text box below sets the breaks without a mouse).
+      tabIndex={0}
+      role="region"
       aria-label={t('sheetEditor.dataTools.split.ruler')}
       onMouseDown={onDown}
     >

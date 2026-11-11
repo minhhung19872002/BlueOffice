@@ -30,7 +30,8 @@ Tương thích định dạng Microsoft Excel (`.xlsx`). Danh sách định dạ
 - **Lưới ô:** bấm để chọn ô, kéo để chọn vùng; bấm tiêu đề hàng hoặc cột để chọn cả hàng, cả cột.
 - **Dải tab trang tính** (dưới cùng): bấm để chuyển trang tính; bấm chuột phải để **Thêm trang tính**, **Xoá trang
   tính**, **Đổi tên trang tính**, **Màu tab…**, **Bảo vệ trang tính**.
-- **Thanh trạng thái:** khi chọn nhiều ô số, hiện **Tổng**, **Trung bình**, **Số lượng**.
+- **Thanh trạng thái:** khi vùng chọn có từ hai ô có dữ liệu trở lên, hiện **Trung bình**, **Số lượng**, **Tổng**
+  (bấm chuột phải để bật thêm **Đếm số**, **Nhỏ nhất**, **Lớn nhất**). Các hàng đang bị bộ lọc ẩn không được tính.
 
 Menu chuột phải trên ô có: cắt, sao chép, dán, **Dán đặc biệt**, **Chèn hàng**, **Chèn cột**, **Xoá hàng**, **Xoá
 cột**, **Xoá nội dung**, sắp xếp, **Bộ lọc**, **Định dạng ô**, **Xác thực dữ liệu**, **Ảnh trong ô**.
@@ -152,6 +153,10 @@ hàng**, **Ẩn cột**, **Hiện cột**.
 ### Giọng nói, Sửa, Trang tính
 
 - **Đọc chính tả:** xem [README.md](README.md#91-đọc-chính-tả-nói-thành-chữ).
+- **Tự tính tổng** (**Σ**, `Alt+=`) và mũi tên **▾** các phép tính nhanh khác: xem
+  [Thư viện hàm – Tự tính tổng](#thư-viện-hàm--tự-tính-tổng).
+- **Núm điền** (ô vuông nhỏ ở góc dưới phải vùng chọn): kéo để điền tiếp; **bấm đúp** để điền xuống tới hết khối
+  dữ liệu liền kề.
 - **Xoá nội dung** (`Delete`), **Điền xuống** (`Ctrl+D`), **Điền sang phải** (`Ctrl+R`), **Tìm** (`Ctrl+F`), **Tìm
   và thay thế** (`Ctrl+H`), **Đi tới** (`Ctrl+G` hoặc `F5`).
 - **Thêm trang tính**, **Đổi tên trang tính**, **Xoá trang tính**.
@@ -184,7 +189,10 @@ Các loại biểu đồ tạo được:
   nhãn → bản đồ cây / hình nắng), có ảnh xem trước; trỏ vào để xem lý do.
 - **Phân tích nhanh:** khi chọn nhiều ô, nút nhỏ ở góc dưới phải vùng chọn mở các thẻ **Định dạng** (thanh dữ
   liệu, thang màu, bộ biểu tượng, trên trung bình, 10 % cao nhất, xóa định dạng), **Biểu đồ** (biểu đồ đề xuất),
-  **Tổng** (hàng / cột tổng, trung bình, đếm, % tổng, lũy kế — một bước **Hoàn tác**; các ô bên cạnh phải trống),
+  **Tổng** (nhóm **Thêm hàng tổng bên dưới dữ liệu** rồi nhóm **Thêm cột tổng bên phải dữ liệu**: tổng, trung bình,
+  đếm, % tổng, lũy kế — biểu tượng tô dải ô sẽ được thêm, trỏ chuột để xem trước công thức và ô đích; một bước
+  **Hoàn tác**; các ô bên cạnh phải trống; vùng chọn chỉ có một cột thì nhóm cột bên phải bị tắt, chỉ có một hàng
+  thì nhóm hàng bên dưới bị tắt, vì kết quả chỉ lặp lại từng giá trị),
   **Bảng** (bảng, bảng tổng hợp) và **Biểu đồ nhỏ** (đường, cột, thắng/thua).
 
 > **Hạn chế:** thẻ Định dạng chưa xem trước trực tiếp trên ô khi trỏ chuột (chỉ có mô tả).
@@ -254,6 +262,34 @@ Sau khi sửa dữ liệu nguồn, bấm **Làm mới bảng tổng hợp** đ�
 > thì hiển thị và lọc được, nhưng chưa chèn mới được. Bảng tổng hợp chưa đồng bộ đầy đủ khi cộng tác.
 
 ## Tab Công thức
+
+### Thư viện hàm – Tự tính tổng
+
+**Tự tính tổng** (nút **Σ**, phím `Alt+=`; cũng có trong nhóm **Sửa** của tab **Trang đầu**) đặt công thức tổng
+đúng chỗ mà không phải gõ:
+
+| Đang chọn | Kết quả |
+| --- | --- |
+| Một **cột** số, ví dụ `C2:C4` | `=SUM(C2:C4)` vào ô trống đầu tiên **bên dưới** (`C5`), ghi ngay |
+| Một **hàng** số, ví dụ `B1:D1` | `=SUM(B1:D1)` vào ô trống đầu tiên **bên phải** (`E1`) |
+| Một **khối** nhiều hàng, nhiều cột | Mỗi cột một tổng ở hàng ngay dưới khối |
+| Khối kèm một hàng trống ở dưới **và** một cột trống bên phải | Điền cả hàng tổng, cột tổng và tổng chung ở góc |
+| Cột số kèm ô trống ở cuối, ví dụ `C2:C5` với `C5` trống | Tổng vào chính ô trống đó (`C5`) |
+| Các ô trống ngay dưới (hoặc bên phải) dữ liệu | Mỗi ô một tổng của các số phía trên (hoặc bên trái) |
+| **Một ô trống** | Đề xuất `=SUM(vùng)` trong ô ở chế độ sửa, vùng được bôi sẵn để chỉnh; `Enter` nhận, `Esc` bỏ. Ưu tiên dãy số liền **phía trên** (dừng ở ô chữ hoặc ô trống, không lấy tiêu đề), không có thì lấy dãy **bên trái**; không tìm thấy số thì là `=SUM()` với con trỏ giữa hai dấu ngoặc |
+| Ô đã có công thức tổng | Mở lại công thức đó với vùng được bôi sẵn |
+
+Sau khi ghi, vùng chọn mở rộng để gồm cả ô tổng. Mỗi lần **Tự tính tổng** là một bước **Hoàn tác**. Ô tổng lấy định
+dạng số của các ô được cộng. Trong danh sách đang lọc, công thức là `=SUBTOTAL(9,vùng)` để chỉ cộng các hàng đang
+hiện. Trong **bảng**, tổng nằm ở **Hàng tổng** của bảng (tự bật nếu chưa có).
+
+Mũi tên **▾** cạnh nút Σ: **Trung bình** (`AVERAGE`), **Đếm số** (`COUNT`), **Lớn nhất** (`MAX`), **Nhỏ nhất**
+(`MIN`) — hoạt động y như **Tổng** — và **Hàm khác…** mở hộp **Chèn hàm** (`Shift+F3`): gõ để tìm, `Enter` để bắt
+đầu công thức `=TÊN_HÀM()` trong ô đang chọn.
+
+> **Hạn chế:** khi đang sửa đề xuất, chưa dùng phím mũi tên hay kéo chuột để chọn lại vùng (gõ địa chỉ thay vào
+> phần đang bôi); hộp **Chèn hàm** chưa có mô tả và ô nhập đối số cho từng hàm; khi cửa sổ hẹp, nhóm **Sửa** của
+> tab **Trang đầu** thu lại thành một nút thả xuống, nút Σ nằm trong đó.
 
 ### Kiểm tra công thức
 
@@ -422,7 +458,7 @@ Hiện khi ô đang chọn nằm trong bảng.
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **Thuộc tính**         | **Tên bảng**, **Đổi tên**, **Đổi kích thước bảng**                                                                       |
 | **Công cụ**            | **Chuyển thành vùng**, **Loại bỏ hàng trùng lặp**, **Chèn Slicer**                                                       |
-| **Tùy chọn kiểu bảng** | **Hàng tiêu đề**, **Hàng tổng**, **Tô xen kẽ hàng**, **Nhấn cột đầu**, **Nhấn cột cuối**, **Tô xen kẽ cột**, **Nút lọc** |
+| **Tùy chọn kiểu bảng** | **Hàng tiêu đề**, **Hàng tổng** (`Ctrl+Shift+T`), **Tô xen kẽ hàng**, **Nhấn cột đầu**, **Nhấn cột cuối**, **Tô xen kẽ cột**, **Nút lọc** |
 | **Kiểu bảng**          | **Mẫu màu bảng**, **Hàm hàng tổng**                                                                                      |
 | **Tự động**            | **Tự mở rộng bảng** (gõ ngay dưới / bên phải bảng thì bảng tự nới), **Tự điền cột công thức**                            |
 

@@ -228,6 +228,8 @@ pub(crate) struct Gather {
     pub skip_errors: bool,
     /// Skip hidden rows.
     pub skip_hidden: bool,
+    /// Skip rows hidden by a filter (`SUBTOTAL` with any function number).
+    pub skip_filtered: bool,
     /// Skip cells holding `SUBTOTAL`/`AGGREGATE` formulas.
     pub skip_nested: bool,
 }
@@ -275,7 +277,9 @@ pub(crate) fn gather(ctx: &Ctx, args: &[Value], opt: Gather) -> Result<Vec<f64>,
     };
     for a in args {
         match a {
-            Value::Ref(_) | Value::Refs(_) if opt.skip_hidden || opt.skip_nested => {
+            Value::Ref(_) | Value::Refs(_)
+                if opt.skip_hidden || opt.skip_nested || opt.skip_filtered =>
+            {
                 let areas: Vec<crate::value::Area> = match a {
                     Value::Ref(x) => vec![*x],
                     Value::Refs(l) => l.as_ref().clone(),
@@ -284,6 +288,9 @@ pub(crate) fn gather(ctx: &Ctx, args: &[Value], opt: Gather) -> Result<Vec<f64>,
                 for area in &areas {
                     ctx.for_each_area(area, &mut |r, c, v| {
                         if opt.skip_hidden && ctx.provider.is_row_hidden(area.sheet, r) {
+                            return;
+                        }
+                        if opt.skip_filtered && ctx.provider.is_row_filtered(area.sheet, r) {
                             return;
                         }
                         if opt.skip_nested && is_nested_subtotal(ctx, area.sheet, r, c) {

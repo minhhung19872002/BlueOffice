@@ -200,6 +200,13 @@ pub trait CellProvider {
     fn is_row_hidden(&self, _sheet: usize, _row: u32) -> bool {
         false
     }
+
+    /// Whether a row is hidden by a filter (an AutoFilter or a table filter). `SUBTOTAL`
+    /// leaves such rows out with every function number, 1-11 included (ISO/IEC 29500-1
+    /// §18.17.7 SUBTOTAL); rows hidden by hand only count as hidden for 101-111.
+    fn is_row_filtered(&self, _sheet: usize, _row: u32) -> bool {
+        false
+    }
 }
 
 /// Why a [`WebProvider`] could not return a response for `WEBSERVICE`.

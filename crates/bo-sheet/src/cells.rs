@@ -146,6 +146,15 @@ impl CellProvider for ModelCells<'_> {
             .and_then(|s| s.rows.get(&row))
             .is_some_and(|r| r.hidden)
     }
+
+    fn is_row_filtered(&self, sheet: usize, row: u32) -> bool {
+        self.is_row_hidden(sheet, row)
+            && self.wb.sheets.get(sheet).is_some_and(|s| {
+                crate::filter::filter_spans(s)
+                    .iter()
+                    .any(|&(a, b)| row >= a && row <= b)
+            })
+    }
 }
 
 /// Resolves a reference such as `Sheet1!$A$1:$B$3`, `'Bảng 1'!A1`, `A1:A5`

@@ -200,6 +200,7 @@ export function registerTableCommands<S extends TableState>(
       {
         isEnabled: (s) => on(s) && (key !== 'filterButton' || !!s.table?.headerRow),
         isChecked: (s) => s.table?.[key] === true,
+        ...(key === 'totalsRow' ? { shortcut: 'Ctrl+Shift+T' } : {}),
       },
     );
   }

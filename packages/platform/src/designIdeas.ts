@@ -96,4 +96,47 @@ export type QuickAnalysisCommand =
       height?: number;
       limit?: number;
     }
-  | { cmd: 'quickAnalysis'; sheet: number; range: SheetRange };
+  | { cmd: 'quickAnalysis'; sheet: number; range: SheetRange }
+  | { cmd: 'autoSum'; sheet: number; range: SheetRange; function?: AutoSumFunction }
+  | { cmd: 'functionList' };
+
+/** Summary function of an AutoSum (Σ, Alt+=). */
+export type AutoSumFunction = 'sum' | 'average' | 'count' | 'max' | 'min';
+
+/**
+ * Answer of `autoSum` (read only): what the AutoSum of a selection does. The editor applies
+ * it through the normal commands in one `batch` (one undo step).
+ */
+export type AutoSumPlan =
+  | {
+      /** One cell: the formula is proposed in the cell editor with its range selected. */
+      mode: 'edit';
+      row: number;
+      col: number;
+      text: string;
+      selStart: number;
+      selEnd: number;
+      /** Number format of the numbers added up, for a cell that shows General. */
+      numFmt?: string | null;
+    }
+  | {
+      /** Several cells: the totals are written at once. */
+      mode: 'write';
+      cells: [number, number, string][];
+      formats: { row: number; col: number; numFmt: string }[];
+      /** The selection with the totals included. */
+      select: SheetRange;
+    }
+  | {
+      /** The totals row of a table (shown first when `show`). */
+      mode: 'table';
+      table: number;
+      show: boolean;
+      /** Table columns (0-based within the table) that get `function`. */
+      columns: number[];
+      /** Table columns whose automatic total is removed again. */
+      clear: number[];
+      function: 'sum' | 'average' | 'countNums' | 'max' | 'min';
+      select: SheetRange;
+    }
+  | { mode: 'none' };

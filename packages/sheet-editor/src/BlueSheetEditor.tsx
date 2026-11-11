@@ -24,6 +24,8 @@ import type {
   StylePatch,
   WorkbookInfo,
   RangeStats,
+  AutoSumFunction,
+  AutoSumPlan,
   FlashFillResult,
   InvalidCellsResult,
   SheetPermissions,
@@ -165,6 +167,8 @@ import {
   FunnelPlus,
   Calculator,
   Sigma,
+  SquareFunction,
+  ChevronDown,
   Group,
   Ungroup,
   Snowflake,
@@ -316,6 +320,13 @@ import {
 } from './pasteOptions';
 import { AnalysisDialog } from './analysis';
 import { QuickAnalysis, RecommendedChartsDialog } from './quickAnalysis';
+import {
+  AUTO_SUM_COMMANDS,
+  AUTO_SUM_FUNCTIONS,
+  AutoSumLink,
+  InsertFunctionDialog,
+  autoSumCommand,
+} from './autoSum';
 import { registerMapDatasets } from './mapDatasets';
 import {
   ConsolidateDialog,
@@ -600,6 +611,8 @@ interface EditState {
   text: string;
   /** Started with F2 / double-click: arrows move the caret instead of the cell. */
   inPlace: boolean;
+  /** Number format the cell takes when the proposed formula is entered (auto total). */
+  numFmt?: string;
 }
 
 type DialogState =
@@ -720,6 +733,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [status, setStatus] = useState('');
   // Quick Analysis panel and Insert › Recommended charts (CORE-DESIGN-001).
   const [quickOpen, setQuickOpen] = useState(false);
+  const [fnDialog, setFnDialog] = useState(false);
   const [recommendOpen, setRecommendOpen] = useState(false);
   /** Cells converted from TCVN3 / VNI fonts to Unicode on open (0 = no notice). */
   const [legacyNotice, setLegacyNotice] = useState(0);
@@ -1712,6 +1726,16 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             if (inputRef.current) inputRef.current.value = e.text;
             return;
           }
+        } else if (e.numFmt && e.text.startsWith('=')) {
+          // A proposed total takes the number format of its numbers in the same undo step.
+          const at = { r0: e.pos.row, c0: e.pos.col, r1: e.pos.row, c1: e.pos.col };
+          await host.exec({
+            cmd: 'batch',
+            cmds: [
+              { cmd: 'setInputs', sheet, cells: [[e.pos.row, e.pos.col, e.text]] },
+              { cmd: 'format', sheet, range: at, patch: { numFmt: e.numFmt } },
+            ],
+          });
         } else {
           await host.setInputs(sheet, [[e.pos.row, e.pos.col, e.text]]);
         }
@@ -1741,6 +1765,26 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       focusInput();
     },
     [host, selection, sheet, focusInput],
+  );
+
+  /**
+   * Opens the cell editor on `pos` with a proposed formula and `from..to` of it selected
+   * (auto total: the range to adjust; insert function: the caret between the parentheses).
+   * Enter commits, Esc cancels, as for any edit.
+   */
+  const proposeFormula = useCallback(
+    (pos: CellPos, text: string, from: number, to: number, numFmt?: string) => {
+      setSelection(single(pos));
+      setExtra([]);
+      setEdit({ pos, text, inPlace: true, ...(numFmt ? { numFmt } : {}) });
+      setBarText(text);
+      lastInput.current = 'cell';
+      if (inputRef.current) inputRef.current.value = text;
+      focusInput();
+      inputRef.current?.setSelectionRange(from, to);
+      requestAnimationFrame(() => inputRef.current?.setSelectionRange(from, to));
+    },
+    [focusInput],
   );
 
   /** Makes the active cell visible by adjusting the scroll position. */
@@ -1775,6 +1819,48 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       void reveal(s);
     },
     [reveal],
+  );
+
+  // The latest `select` (it changes with the scroll position), the cell editor and whether a
+  // cell is being edited, for the auto total commands, which are built once.
+  const [autoSumLink] = useState(() => new AutoSumLink<Selection>());
+  useEffect(() => {
+    autoSumLink.attach(select, proposeFormula, edit !== null);
+  });
+
+  /**
+   * Auto total (Σ, Alt+=): the engine plans it (`autoSum`, read only) and the plan runs as one
+   * batch — one undo step. One cell: the formula is proposed in the cell editor instead.
+   */
+  const runAutoSum = useCallback(
+    async (s: SheetEditorState, fn: AutoSumFunction) => {
+      if (autoSumLink.editing()) return;
+      const plan = await s.host.exec<AutoSumPlan>({
+        cmd: 'autoSum',
+        sheet: s.sheet,
+        range: toRange(rangeOf(s.selection)),
+        function: fn,
+      });
+      if (plan.mode === 'edit') {
+        autoSumLink.propose(
+          { row: plan.row, col: plan.col },
+          plan.text,
+          plan.selStart,
+          plan.selEnd,
+          plan.numFmt ?? undefined,
+        );
+        return;
+      }
+      const cmd = autoSumCommand(plan, s.sheet, t('tableDesign.totalLabel'));
+      if (plan.mode === 'none' || !cmd) {
+        setStatus(t('autoSum.nothing'));
+        return;
+      }
+      if ((await exec(cmd)) === null) return;
+      const to = plan.select;
+      autoSumLink.select(span({ row: to.r0, col: to.c0 }, { row: to.r1, col: to.c1 }));
+    },
+    [exec, t, autoSumLink],
   );
 
   // Read aloud (CORE-LANG-003): the selected cells row by row; the active cell follows.
@@ -3377,6 +3463,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('formulas.calcNow', () => auditCalculate('workbook'), { shortcut: 'F9' });
     add('formulas.calcSheet', () => auditCalculate('sheet'), { shortcut: 'Shift+F9' });
     add('formulas.calcFull', () => auditCalculate('full'), { shortcut: 'Ctrl+Alt+F9' });
+    // Auto total (Σ, Alt+=) and the other functions of its menu.
+    for (const fn of AUTO_SUM_FUNCTIONS)
+      add(
+        AUTO_SUM_COMMANDS[fn],
+        (s) => runAutoSum(s, fn),
+        fn === 'sum' ? { shortcut: 'Alt+=', ...has } : has,
+      );
+    add('formula.autoSumMenu', popup('autoSum', 'formula.autoSumMenu'), has);
+    add('formula.insertFunction', async () => setFnDialog(true), { shortcut: 'Shift+F3', ...has });
     // F4 outside a formula: the last formatting / row-column command again (CORE-UI-004).
     reg.trackRepeat((id) => SHEET_REPEATABLE.test(id));
     add(
@@ -3461,6 +3556,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     queriesOpen,
     openModel,
     modelPivot,
+    runAutoSum,
   ]);
 
   // Add-ins of the organisation catalogue (CORE-ADDIN-001): ribbon commands, task panes.
@@ -3654,7 +3750,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       run('cell.toggleCheckbox');
       return;
     }
-    const cmd = registry.match(e);
+    const cmd =
+      registry.match(e) ??
+      // Alt+= by its physical key: layouts where Alt changes the character of the key.
+      (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'Equal'
+        ? registry.match({
+            key: '=',
+            altKey: true,
+            ctrlKey: false,
+            metaKey: false,
+            shiftKey: false,
+          })
+        : undefined);
     if (cmd) {
       e.preventDefault();
       run(cmd.id);
@@ -4075,6 +4182,30 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     }
   };
 
+  /**
+   * Double-click on the fill handle: fills the selection down as far as the block of data
+   * it belongs to goes (the neighbouring column of a list), like dragging the handle there.
+   */
+  const fillDownToData = async () => {
+    const src = rangeOf(selection);
+    const region = await query<SheetRange>({
+      cmd: 'region',
+      sheet,
+      range: { r0: src.r0, c0: src.c0, r1: src.r0, c1: src.c0 },
+    });
+    if (!region || region.r1 <= src.r1) return;
+    const target = fillTarget(src, { row: region.r1, col: src.c0 });
+    if (!target) return;
+    const done = await exec({
+      cmd: 'autofill',
+      sheet,
+      source: toRange(src),
+      target: toRange(target),
+    });
+    if (done !== null)
+      setSelection(span({ row: target.r0, col: target.c0 }, { row: target.r1, col: target.c1 }));
+  };
+
   const onNameBox = (text: string) => {
     const s = parseA1(text);
     if (s) select(s);
@@ -4371,6 +4502,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             id: 'editing',
             label: t('sheetEditor.groupEditing'),
             items: [
+              item('formula.autoSum', t('autoSum.button'), <Sigma size={s} />, 'small'),
+              item('formula.autoSumMenu', t('autoSum.menu'), <ChevronDown size={12} />, 'small'),
               item('edit.clear', t('sheetEditor.clear'), <Eraser size={s} />, 'small'),
               item(
                 'edit.fillDown',
@@ -4704,6 +4837,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         id: 'formulas',
         label: t('sheetAudit.tab'),
         groups: [
+          {
+            id: 'functionLibrary',
+            label: t('autoSum.group'),
+            items: [
+              item(
+                'formula.insertFunction',
+                t('autoSum.insertFunction.title'),
+                <SquareFunction size={18} />,
+              ),
+              item('formula.autoSum', t('autoSum.button'), <Sigma size={18} />),
+              item('formula.autoSumMenu', t('autoSum.menu'), <ChevronDown size={12} />, 'small'),
+            ],
+          },
           {
             id: 'formulaAudit',
             label: t('sheetAudit.groupAudit'),
@@ -5301,7 +5447,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   // Status bar texts (also the current values in its "customise" checklist).
   const cellMode = edit ? (edit.inPlace ? 'edit' : 'enter') : 'ready';
   const filterMode = !!summary?.autoFilter && (summary?.hiddenRows.length ?? 0) > 0;
-  const numeric = shownStats && shownStats.numbers > 0 ? shownStats : null;
+  // Fewer than two filled cells: nothing to summarise (the bar stays empty).
+  const filledStats = shownStats && shownStats.count > 1 ? shownStats : null;
+  const numeric = filledStats && filledStats.numbers > 0 ? filledStats : null;
   const statValues: Record<string, string | undefined> = {
     cellMode:
       cellMode === 'edit'
@@ -5310,8 +5458,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           ? t('statusBar.enter')
           : t('sheetEditor.ready'),
     average: numeric ? fmtNum(numeric.sum / numeric.numbers) : undefined,
-    count: shownStats ? String(shownStats.count) : undefined,
-    numericalCount: shownStats ? String(shownStats.numbers) : undefined,
+    count: filledStats ? String(filledStats.count) : undefined,
+    numericalCount: filledStats ? String(filledStats.numbers) : undefined,
     min: numeric && typeof numeric.min === 'number' ? fmtNum(numeric.min) : undefined,
     max: numeric && typeof numeric.max === 'number' ? fmtNum(numeric.max) : undefined,
     sum: numeric ? fmtNum(numeric.sum) : undefined,
@@ -5333,6 +5481,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   const menuItems = (kind: string): MenuItem[] => {
     switch (kind) {
+      case 'autoSum':
+        return [
+          ...AUTO_SUM_FUNCTIONS.map((f) => ({ id: f, label: t(`autoSum.fn.${f}`) })),
+          { id: 'more', label: t('autoSum.more') },
+        ];
       case 'borders':
         return (
           ['all', 'outline', 'inside', 'top', 'bottom', 'left', 'right', 'none'] as BorderPreset[]
@@ -5377,6 +5530,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     );
   };
   const pickMenu = (kind: string, id: string) => {
+    if (kind === 'autoSum') {
+      if (id === 'more') {
+        run('formula.insertFunction');
+        return;
+      }
+      focusInput();
+      run(AUTO_SUM_COMMANDS[id as AutoSumFunction]);
+      return;
+    }
     const range = toRange(r);
     if (kind === 'borders') void borderSel({ preset: id as BorderPreset, style: 'thin' });
     else if (kind === 'styles') void exec({ cmd: 'cellStyle', sheet, range, name: id });
@@ -5705,6 +5867,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                       e.preventDefault();
                       e.stopPropagation();
                       drag.current = { kind: 'fill', source: rangeOf(selection) };
+                    }}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void fillDownToData();
                     }}
                   />
                 </div>
@@ -6813,6 +6980,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'chart' && <ChartDialog {...common} index={dialog.index} />}
+      {fnDialog && (
+        <InsertFunctionDialog
+          query={query}
+          onInsert={(name) => {
+            // `=NAME()` with the caret between the parentheses.
+            const text = `=${name}()`;
+            proposeFormula(selection.active, text, text.length - 1, text.length - 1);
+          }}
+          onClose={() => {
+            setFnDialog(false);
+            focusInput();
+          }}
+        />
+      )}
       {recommendOpen && (
         <RecommendedChartsDialog
           sheet={sheet}

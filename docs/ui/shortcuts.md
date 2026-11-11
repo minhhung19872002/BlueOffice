@@ -72,8 +72,9 @@ phím người dùng đè lên cột dưới đây, lưu theo app, xuất/nhập
 | Ctrl+Shift+L | Bật/tắt lọc | có |
 | F2 | Sửa ô | có (lưới) |
 | F4 | Khi sửa công thức: tham chiếu tại con trỏ A1 → $A$1 → A$1 → $A1 → A1 (cả hai đầu vùng); ngoài ra lặp lại định dạng / chèn-xoá hàng cột cuối | có |
-| Alt+= | Tổng tự động | dự kiến |
-| Shift+F3 | Chèn hàm | dự kiến |
+| Alt+= | Tự tính tổng (`formula.autoSum`): vùng số → tổng ở ô trống ngay dưới / bên phải; một ô trống → đề xuất `=SUM(…)` để sửa rồi Enter | có |
+| Shift+F3 | Chèn hàm (`formula.insertFunction`) | có |
+| Ctrl+Shift+T | Bật/tắt hàng tổng của bảng (`tableDesign.totalsRow`, khi ô đang chọn nằm trong bảng) | có |
 | F9 / Shift+F9 | Tính ngay / tính trang tính | dự kiến |
 | Ctrl+` | Hiện công thức | dự kiến |
 | Ctrl+T | Tạo bảng | dự kiến |

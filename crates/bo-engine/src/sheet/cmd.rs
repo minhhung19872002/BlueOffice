@@ -2195,6 +2195,10 @@ impl SheetEngine {
         if let Some(qc) = super::quick_cmd::QuickCommand::parse(&v) {
             return Ok(self.quick_command(&qc)?.to_string());
         }
+        // AutoSum plan (read only; the UI applies it through the normal commands).
+        if let Some(ac) = super::autosum_cmd::AutoSumCommand::parse(&v) {
+            return Ok(self.auto_sum_command(&ac?)?.to_string());
+        }
         let cmd: SheetCommand =
             serde_json::from_value(v).map_err(|e| bad(format!("bad command: {e}")))?;
         if !self.sec.read_only {
@@ -4878,14 +4882,23 @@ fn move_sheet(wb: &mut Workbook, from: usize, to: usize) {
     }
 }
 
-/// Status-bar figures of a multi-range selection.
+/// Status-bar figures of a multi-range selection. Rows a filter hides are left out (the
+/// figures describe the cells the list shows); rows hidden by hand count.
 fn range_stats(ws: &Worksheet, ranges: &[Rng]) -> Value {
     let mut seen = std::collections::BTreeSet::new();
     let (mut sum, mut numbers, mut count) = (0.0_f64, 0_u64, 0_u64);
     let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+    let spans = bo_sheet::filter::filter_spans(ws);
+    let filtered = |row: u32| {
+        spans.iter().any(|&(a, b)| row >= a && row <= b)
+            && ws.rows.get(&row).is_some_and(|i| i.hidden)
+    };
     for r in ranges {
         let r = r.range();
         for row in r.first.row..=r.last.row {
+            if !spans.is_empty() && filtered(row) {
+                continue;
+            }
             for (&(rr, cc), cell) in ws.cells.range((row, r.first.col)..=(row, r.last.col)) {
                 if !seen.insert((rr, cc)) || !non_empty(cell) {
                     continue;

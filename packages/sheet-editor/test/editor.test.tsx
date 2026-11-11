@@ -882,3 +882,115 @@ describe('BlueSheet status bar (CORE-UI-007)', { timeout: 30_000 }, () => {
     expect(screen.getByRole('radiogroup', { name: 'Views' })).toBeTruthy();
   });
 });
+
+describe('BlueSheet auto total (Σ, Alt+=)', { timeout: 30_000 }, () => {
+  /** The editor over a host whose `autoSum` answers with `plan`. */
+  async function open(plan: unknown) {
+    const { host, cells } = fakeHost();
+    const base = host.exec;
+    const sent: SheetCommand[] = [];
+    host.exec = (async (cmd: SheetCommand) => {
+      sent.push(cmd);
+      if (cmd.cmd === 'autoSum') return plan;
+      return base(cmd);
+    }) as SheetHost['exec'];
+    const { p } = platform(host);
+    render(<BlueSheetEditor platform={p} language="en-US" />);
+    await screen.findByRole('tab', { name: 'Sheet1' });
+    const select = (ref: string) => {
+      const nameBox = screen.getByLabelText('Name box');
+      fireEvent.change(nameBox, { target: { value: ref } });
+      fireEvent.keyDown(nameBox, { key: 'Enter' });
+    };
+    const input = screen.getByLabelText('Cell editor') as HTMLInputElement;
+    return { host, cells, sent, select, input };
+  }
+  const nameBox = () => (screen.getByLabelText('Name box') as HTMLInputElement).value;
+
+  it('Alt+= on a range writes the planned totals as one batch and selects them too', async () => {
+    const { sent, select, input } = await open({
+      mode: 'write',
+      cells: [[4, 2, '=SUM(C2:C4)']],
+      formats: [],
+      select: { r0: 1, c0: 2, r1: 4, c1: 2 },
+    });
+    select('C2:C4');
+    await waitFor(() => expect(nameBox()).toBe('C2:C4'));
+    fireEvent.keyDown(input, { key: '=', code: 'Equal', altKey: true });
+    await waitFor(() =>
+      expect(sent).toContainEqual({
+        cmd: 'autoSum',
+        sheet: 0,
+        range: { r0: 1, c0: 2, r1: 3, c1: 2 },
+        function: 'sum',
+      }),
+    );
+    await waitFor(() =>
+      expect(sent).toContainEqual({
+        cmd: 'batch',
+        cmds: [{ cmd: 'setInputs', sheet: 0, cells: [[4, 2, '=SUM(C2:C4)']] }],
+      }),
+    );
+    // The selection grows over the total.
+    await waitFor(() => expect(nameBox()).toBe('C2:C5'));
+  });
+
+  it('Alt+= on one cell proposes the formula with its range selected; Enter commits, Esc cancels', async () => {
+    const { cells, select, input, host } = await open({
+      mode: 'edit',
+      row: 4,
+      col: 2,
+      text: '=SUM(C2:C4)',
+      selStart: 5,
+      selEnd: 10,
+    });
+    select('C5');
+    await waitFor(() => expect(nameBox()).toBe('C5'));
+    // The physical key alone is enough (layouts where Alt changes the character).
+    fireEvent.keyDown(input, { key: '≠', code: 'Equal', altKey: true });
+    await waitFor(() => expect(input.value).toBe('=SUM(C2:C4)'));
+    expect(screen.getByTestId('sheet-status').textContent).toBe('Edit');
+    await waitFor(() => expect([input.selectionStart, input.selectionEnd]).toEqual([5, 10]));
+    // Nothing is written before Enter.
+    expect(host.setInputs).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByTestId('sheet-status').textContent).toBe('Ready');
+    expect(cells.get('4,2')).toBeUndefined();
+    fireEvent.keyDown(input, { key: '=', code: 'Equal', altKey: true });
+    await waitFor(() => expect(input.value).toBe('=SUM(C2:C4)'));
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(cells.get('4,2')).toBe('=SUM(C2:C4)'));
+  });
+
+  it('the Σ menu runs the other functions and opens the function list', async () => {
+    const { sent, select } = await open({ mode: 'none' });
+    select('C2:C4');
+    await waitFor(() => expect(nameBox()).toBe('C2:C4'));
+    const more = document.querySelector<HTMLElement>('[data-command="formula.autoSumMenu"]')!;
+    fireEvent.click(more);
+    const menu = await screen.findByTestId('menu-autoSum');
+    expect([...menu.querySelectorAll('[data-menu]')].map((b) => b.textContent)).toEqual([
+      'Sum',
+      'Average',
+      'Count numbers',
+      'Max',
+      'Min',
+      'More functions…',
+    ]);
+    fireEvent.click(menu.querySelector('[data-menu="average"]')!);
+    await waitFor(() =>
+      expect(sent).toContainEqual(expect.objectContaining({ cmd: 'autoSum', function: 'average' })),
+    );
+    // Nothing to add up: the status bar says so.
+    await waitFor(() =>
+      expect(screen.getByTestId('sheet-status').textContent).toBe(
+        'The selection has no numbers to add up.',
+      ),
+    );
+    fireEvent.click(more);
+    fireEvent.click(
+      (await screen.findByTestId('menu-autoSum')).querySelector('[data-menu="more"]')!,
+    );
+    expect(await screen.findByTestId('insert-function-dialog')).toBeTruthy();
+  });
+});

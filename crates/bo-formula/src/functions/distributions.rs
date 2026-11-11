@@ -1113,6 +1113,7 @@ const A_MODE: Gather = Gather {
     a_mode: true,
     skip_errors: false,
     skip_hidden: false,
+    skip_filtered: false,
     skip_nested: false,
 };
 

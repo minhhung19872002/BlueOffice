@@ -207,6 +207,27 @@ fn filter_color(wb: &Workbook, dxf_id: Option<u32>, cell_color: bool) -> Option<
     Some((c.0, c.1, c.2))
 }
 
+/// Row spans (first, last data row, zero-based) of the filters of `ws` that have a criterion:
+/// the sheet's AutoFilter (§18.3.1.2) and the tables' filters. A hidden row inside such a
+/// span is filtered out (`SUBTOTAL` skips it with every function number).
+#[must_use]
+pub fn filter_spans(ws: &Worksheet) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    if let Some(af) = ws.auto_filter.as_ref().filter(|af| !af.columns.is_empty()) {
+        out.push((af.range.first.row + 1, af.range.last.row));
+    }
+    for t in &ws.tables {
+        if t.auto_filter
+            .as_deref()
+            .is_some_and(|x| x.contains("filterColumn"))
+        {
+            out.push((t.range.first.row + 1, t.range.last.row));
+        }
+    }
+    out.retain(|&(a, b)| a <= b);
+    out
+}
+
 /// Zero-based rows (absolute) that the AutoFilter `af` hides.
 pub fn hidden_rows(wb: &Workbook, ws: &Worksheet, af: &AutoFilter, locale: &Locale) -> Vec<u32> {
     hidden_rows_at(wb, ws, af, locale, None)

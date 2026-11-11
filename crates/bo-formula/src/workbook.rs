@@ -106,6 +106,8 @@ struct Sheet {
     rows: u32,
     cols: u32,
     hidden_rows: FxHashSet<u32>,
+    /// Row spans (first, last) of the active filters: a hidden row inside one is filtered out.
+    filter_spans: Vec<(u32, u32)>,
 }
 
 /// Formula cells reading one cell directly. Most cells have a single reader: it is
@@ -289,6 +291,27 @@ impl Workbook {
             }
         }
         self.mark_all_formulas();
+    }
+
+    /// The row spans (first, last data row) of the active filters of `sheet`: hidden rows
+    /// inside them are filtered out, which `SUBTOTAL` 1-11 skips too. Formulas are marked for
+    /// recalculation when the spans change.
+    pub fn set_filter_spans(&mut self, sheet: usize, spans: Vec<(u32, u32)>) {
+        let Some(s) = self.sheets.get_mut(sheet) else {
+            return;
+        };
+        if s.filter_spans == spans {
+            return;
+        }
+        s.filter_spans = spans;
+        self.mark_all_formulas();
+    }
+
+    /// Bulk loading: [`Workbook::set_filter_spans`] without marking the formulas.
+    pub fn load_filter_spans(&mut self, sheet: usize, spans: Vec<(u32, u32)>) {
+        if let Some(s) = self.sheets.get_mut(sheet) {
+            s.filter_spans = spans;
+        }
     }
 
     /// Replace the hidden rows of `sheet` at once (an AutoFilter applied to a
@@ -1899,6 +1922,13 @@ impl CellProvider for Workbook {
             .is_some_and(|s| s.hidden_rows.contains(&row))
     }
 
+    fn is_row_filtered(&self, sheet: usize, row: u32) -> bool {
+        self.sheets.get(sheet).is_some_and(|s| {
+            s.filter_spans.iter().any(|&(a, b)| row >= a && row <= b)
+                && s.hidden_rows.contains(&row)
+        })
+    }
+
     fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {
         let id = CellId::new(sheet, row, col);
         self.spills.get(&id).copied().or_else(|| {
@@ -1965,6 +1995,10 @@ impl CellProvider for RecalcView<'_> {
 
     fn is_row_hidden(&self, sheet: usize, row: u32) -> bool {
         self.wb.is_row_hidden(sheet, row)
+    }
+
+    fn is_row_filtered(&self, sheet: usize, row: u32) -> bool {
+        self.wb.is_row_filtered(sheet, row)
     }
 
     fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {

@@ -311,6 +311,7 @@ pub(crate) fn load_with(
                 fw.load_row_hidden(si, r);
             }
         }
+        fw.load_filter_spans(si, crate::filter::filter_spans(ws));
     }
     if !calc.full_precision {
         crate::calcopts::apply_display_precision(&mut fw, wb);

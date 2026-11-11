@@ -148,6 +148,85 @@ pub struct TimelineShow {
     pub scrollbar: Option<bool>,
 }
 
+/// The format of one element of a new slicer or timeline style (the Format of the New Slicer
+/// Style dialog): colours as `#RRGGBB`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ElementFormat {
+    /// Fill colour.
+    pub fill: Option<String>,
+    /// Text colour.
+    pub text: Option<String>,
+    /// Bold text.
+    pub bold: bool,
+    /// Italic text.
+    pub italic: bool,
+    /// Colour of a thin border all around.
+    pub border: Option<String>,
+}
+
+/// The element formats of a new style: the whole frame, its header, the selected and the
+/// unselected items (slicer) or time blocks (timeline).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FrameStyleFormats {
+    /// Whole slicer / timeline.
+    pub whole: Option<ElementFormat>,
+    /// Header.
+    pub header: Option<ElementFormat>,
+    /// Selected item with data / selected time block.
+    pub selected: Option<ElementFormat>,
+    /// Unselected item with data / unselected time block.
+    pub unselected: Option<ElementFormat>,
+}
+
+/// `#RRGGBB` → colour, `None` for anything else.
+fn hex_color(s: Option<&str>) -> Option<bo_model::sheet::SheetColor> {
+    let h = s?.trim().trim_start_matches('#');
+    (h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| bo_model::sheet::SheetColor::rgb(&h.to_ascii_uppercase()))
+}
+
+/// A differential format (§18.8.14 dxf: font, fill, border) of an element format; `None` when it
+/// sets nothing.
+fn element_dxf(f: &ElementFormat) -> Option<bo_model::sheet::Dxf> {
+    use bo_model::sheet::{Border, BorderEdge, Dxf, Fill, Font, PatternFill};
+    let text = hex_color(f.text.as_deref());
+    let font = (text.is_some() || f.bold || f.italic).then(|| Font {
+        bold: f.bold,
+        italic: f.italic,
+        color: text,
+        ..Font::default()
+    });
+    // §18.8.32 patternFill: a solid differential fill keeps its colour in bgColor.
+    let fill = hex_color(f.fill.as_deref()).map(|c| {
+        Fill::Pattern(PatternFill {
+            pattern: Some("solid".into()),
+            bg: Some(c),
+            ..PatternFill::default()
+        })
+    });
+    let border = hex_color(f.border.as_deref()).map(|c| {
+        let edge = BorderEdge {
+            style: Some("thin".into()),
+            color: Some(c),
+        };
+        Border {
+            left: edge.clone(),
+            right: edge.clone(),
+            top: edge.clone(),
+            bottom: edge,
+            ..Border::default()
+        }
+    });
+    (font.is_some() || fill.is_some() || border.is_some()).then(|| Dxf {
+        font,
+        fill,
+        border,
+        ..Dxf::default()
+    })
+}
+
 fn clamp([r, c]: [u32; 2]) -> CellRef {
     CellRef::new(r.min(MAX_ROWS - 1), c.min(MAX_COLS - 1))
 }
@@ -342,6 +421,30 @@ impl SheetEngine {
         bo_sheet::timeline::set_scroll(wb, sheet, index, day).map_err(bad)?;
         bo_xlsx::timeline::patch_timeline(wb, sheet, index);
         Ok(json!({ "ok": true }))
+    }
+
+    /// `createFrameStyle`: a new custom slicer or timeline style ([MS-XLSX] `x14:slicerStyle` /
+    /// `x15:timelineStyle` with its `tableStyle` and formats). One undo step; frames using it are
+    /// unchanged until a style is chosen for them.
+    pub(super) fn frame_style_create(
+        &mut self,
+        sheet: usize,
+        name: &str,
+        timeline: bool,
+        formats: &FrameStyleFormats,
+    ) -> Result<Value> {
+        let parts = bo_model::sheet::FrameStyleParts {
+            name: name.trim().to_owned(),
+            timeline,
+            whole: formats.whole.as_ref().and_then(element_dxf),
+            header: formats.header.as_ref().and_then(element_dxf),
+            selected: formats.selected.as_ref().and_then(element_dxf),
+            unselected: formats.unselected.as_ref().and_then(element_dxf),
+        };
+        self.edit(sheet, Recalc::No, |wb, _| {
+            bo_xlsx::add_frame_style(&mut wb.styles, &parts).map_err(bad)?;
+            Ok(json!({ "name": parts.name }))
+        })
     }
 
     /// `slicerConnect` / `timelineConnect`: the pivot tables the frame filters.

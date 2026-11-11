@@ -826,9 +826,377 @@ pub fn frame_styles(ss: &Stylesheet) -> Vec<bo_model::sheet::FrameStyleParts> {
     out
 }
 
+/// [MS-XLSX] extension of the styles part holding `x14:slicerStyles`.
+const EXT_SLICER_STYLES: &str = "{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}";
+/// [MS-XLSX] extension of the styles part holding `x15:timelineStyles`.
+const EXT_TIMELINE_STYLES: &str = "{9260A510-F301-46a8-8635-F512D64BE5F5}";
+/// [MS-XLSX] extension of the styles part holding `x14:dxfs` (formats of the slicer and timeline
+/// style elements).
+const EXT_DXFS: &str = "{46F421CA-312F-682f-3DD2-61675219B42D}";
+const X14_NS: &str = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main";
+const X15_NS: &str = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main";
+
+/// Finds the first element named `local` (any prefix) in `xml`: (start of its start tag, end of
+/// the start tag, qualified name, self-closing).
+fn find_element<'a>(xml: &'a str, local: &str) -> Option<(usize, usize, &'a str, bool)> {
+    let mut from = 0;
+    while let Some(k) = xml[from..].find('<').map(|k| k + from) {
+        let rest = &xml[k + 1..];
+        let name_len = rest
+            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            .unwrap_or(rest.len());
+        let name = &rest[..name_len];
+        let lname = name.rsplit(':').next().unwrap_or(name);
+        if lname == local && !name.starts_with('/') {
+            let end = k + 1 + rest.find('>')?;
+            let closed = xml[..end].ends_with('/');
+            return Some((k, end + 1, name, closed));
+        }
+        from = k + 1;
+    }
+    None
+}
+
+/// Appends `child` (built for the element's namespace prefix, `x14:` or empty) as the last child
+/// of the first element named `local` in `xml`, opening a self-closing one. `None`: no such
+/// element.
+fn append_child(xml: &str, local: &str, child: impl FnOnce(&str) -> String) -> Option<String> {
+    let (start, end, qname, closed) = find_element(xml, local)?;
+    let c = child(&qname[..qname.len() - local.len()]);
+    if closed {
+        let tag = xml[start..end - 2].trim_end();
+        return Some(format!(
+            "{}{tag}>{c}</{qname}>{}",
+            &xml[..start],
+            &xml[end..]
+        ));
+    }
+    let close = format!("</{qname}>");
+    let at = end + xml[end..].find(&close)?;
+    Some(format!("{}{c}{}", &xml[..at], &xml[at..]))
+}
+
+/// Sets the `count` attribute of the first element named `local` in `xml` (added when missing).
+fn set_count(xml: &str, local: &str, n: usize) -> String {
+    let Some((start, end, _, closed)) = find_element(xml, local) else {
+        return xml.to_owned();
+    };
+    let tag = &xml[start..end];
+    let new_tag = match tag.find(" count=\"") {
+        Some(k) => {
+            let v = k + 8;
+            let close = tag[v..].find('"').map_or(tag.len(), |e| v + e);
+            format!("{}{n}{}", &tag[..v], &tag[close..])
+        }
+        None => {
+            let cut = tag.len() - if closed { 2 } else { 1 };
+            format!("{} count=\"{n}\"{}", &tag[..cut], &tag[cut..])
+        }
+    };
+    format!("{}{new_tag}{}", &xml[..start], &xml[end..])
+}
+
+/// Is `name` one of the built-in slicer or timeline style names (`SlicerStyleLight1`,
+/// `TimeSlicerStyleDark6`, …)?
+fn builtin_frame_style(name: &str) -> bool {
+    let rest = name
+        .strip_prefix("TimeSlicerStyle")
+        .or_else(|| name.strip_prefix("SlicerStyle"));
+    rest.is_some_and(|r| {
+        let digits = r.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+        !digits.is_empty()
+            && digits.chars().all(|c| c.is_ascii_digit())
+            && ["Light", "Dark", "Other"].contains(&&r[..r.len() - digits.len()])
+    })
+}
+
+/// Adds a custom slicer or timeline style to the styles part as [MS-XLSX] lays it out: a
+/// §18.8.40 `tableStyle` of that name in §18.8.41 `tableStyles` (`wholeTable` / `headerRow`
+/// formats appended to the §18.8.15 `dxfs`), and an `x14:slicerStyle` (or `x15:timelineStyle`)
+/// in the `extLst` whose elements' formats are appended to the `x14:dxfs` extension. The
+/// stylesheet's [`Stylesheet::frame_styles`] are read again.
+///
+/// # Errors
+/// An empty name, the name of a built-in style or of a style the workbook has already.
+pub fn add_frame_style(
+    ss: &mut Stylesheet,
+    style: &bo_model::sheet::FrameStyleParts,
+) -> std::result::Result<(), &'static str> {
+    let name = style.name.trim();
+    if name.is_empty() {
+        return Err("empty style name");
+    }
+    let taken = builtin_frame_style(name)
+        || ss
+            .frame_styles
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(name))
+        || ss.unknown.iter().any(|u| {
+            u.xml.trim_start().starts_with("<tableStyles")
+                && u.xml.contains(&format!("name=\"{}\"", escape(name)))
+        });
+    if taken {
+        return Err("style name in use");
+    }
+    let name = escape(name);
+    // §18.8.40 tableStyle: the frame and its header.
+    let mut elements = String::new();
+    let mut count = 0;
+    for (ty, d) in [("wholeTable", &style.whole), ("headerRow", &style.header)] {
+        if let Some(d) = d {
+            let _ = write!(
+                elements,
+                "<tableStyleElement type=\"{ty}\" dxfId=\"{}\"/>",
+                ss.dxfs.len()
+            );
+            ss.dxfs.push(d.clone());
+            count += 1;
+        }
+    }
+    let table = |p: &str| {
+        format!("<{p}tableStyle name=\"{name}\" pivot=\"0\" table=\"0\" count=\"{count}\">{}</{p}tableStyle>",
+            elements.replace("<tableStyleElement", &format!("<{p}tableStyleElement")))
+    };
+    match ss
+        .unknown
+        .iter_mut()
+        .find(|u| u.xml.trim_start().starts_with("<tableStyles"))
+    {
+        Some(u) => {
+            if let Some(x) = append_child(&u.xml, "tableStyles", table) {
+                let n = x.matches("tableStyle ").count();
+                u.xml = set_count(&x, "tableStyles", n);
+            }
+        }
+        None => ss.unknown.push(bo_model::sheet::RawXml {
+            after: "tableStyles".into(),
+            xml: format!("<tableStyles count=\"1\">{}</tableStyles>", table("")),
+        }),
+    }
+    // The element formats go to the x14:dxfs extension.
+    let ext_list = ss
+        .unknown
+        .iter()
+        .position(|u| u.xml.trim_start().starts_with("<extLst"));
+    let mut ext = ext_list.map_or_else(
+        || "<extLst></extLst>".to_owned(),
+        |i| ss.unknown[i].xml.clone(),
+    );
+    let base = ext_dxfs(&ext).len();
+    let (sel_ty, unsel_ty) = if style.timeline {
+        ("selectedTimeBlock", "unselectedTimeBlock")
+    } else {
+        ("selectedItemWithData", "unselectedItemWithData")
+    };
+    let mut dxfs = String::new();
+    let mut items = Vec::new();
+    for (ty, d) in [(sel_ty, &style.selected), (unsel_ty, &style.unselected)] {
+        if let Some(d) = d {
+            items.push((ty, base + items.len()));
+            write_dxf(&mut dxfs, d);
+        }
+    }
+    if !items.is_empty() {
+        ext = match append_child(&ext, "dxfs", |_| dxfs.clone()) {
+            Some(x) => set_count(&x, "dxfs", base + items.len()),
+            None => append_child(&ext, "extLst", |p| {
+                format!(
+                    "<{p}ext uri=\"{EXT_DXFS}\" xmlns:x14=\"{X14_NS}\"><x14:dxfs count=\"{}\">{dxfs}</x14:dxfs></{p}ext>",
+                    items.len()
+                )
+            })
+            .unwrap_or(ext),
+        };
+    }
+    // [MS-XLSX] x14:slicerStyle / x15:timelineStyle and its elements.
+    let (list, one, uri, ns_decl, default) = if style.timeline {
+        (
+            "timelineStyles",
+            "timelineStyle",
+            EXT_TIMELINE_STYLES,
+            format!("xmlns:x15=\"{X15_NS}\""),
+            "defaultTimelineStyle=\"TimeSlicerStyleLight1\"",
+        )
+    } else {
+        (
+            "slicerStyles",
+            "slicerStyle",
+            EXT_SLICER_STYLES,
+            format!("xmlns:x14=\"{X14_NS}\""),
+            "defaultSlicerStyle=\"SlicerStyleLight1\"",
+        )
+    };
+    let entry = |p: &str| {
+        let mut s = format!("<{p}{one} name=\"{name}\">");
+        if !items.is_empty() {
+            let _ = write!(s, "<{p}{one}Elements>");
+            for (ty, id) in &items {
+                let _ = write!(s, "<{p}{one}Element type=\"{ty}\" dxfId=\"{id}\"/>");
+            }
+            let _ = write!(s, "</{p}{one}Elements>");
+        }
+        let _ = write!(s, "</{p}{one}>");
+        s
+    };
+    ext = match append_child(&ext, list, entry) {
+        Some(x) => x,
+        None => {
+            let pre = if style.timeline { "x15:" } else { "x14:" };
+            let body = entry(pre);
+            append_child(&ext, "extLst", |p| {
+                format!("<{p}ext uri=\"{uri}\" {ns_decl}><{pre}{list} {default}>{body}</{pre}{list}></{p}ext>")
+            })
+            .unwrap_or(ext)
+        }
+    };
+    match ext_list {
+        Some(i) => ss.unknown[i].xml = ext,
+        None => ss.unknown.push(bo_model::sheet::RawXml {
+            after: "extLst".into(),
+            xml: ext,
+        }),
+    }
+    ss.frame_styles = frame_styles(ss);
+    Ok(())
+}
+
 #[cfg(test)]
 mod frame_style_tests {
     use super::*;
+    use bo_model::sheet::{FrameStyleParts, PatternFill, SheetColor};
+
+    fn fill(rgb: &str) -> Dxf {
+        Dxf {
+            fill: Some(Fill::Pattern(PatternFill {
+                pattern: Some("solid".into()),
+                bg: Some(SheetColor::rgb(rgb)),
+                ..PatternFill::default()
+            })),
+            ..Dxf::default()
+        }
+    }
+
+    fn rgb_of(d: Option<&Dxf>) -> Option<String> {
+        match d?.fill.as_ref()? {
+            Fill::Pattern(p) => p.bg.as_ref()?.rgb.clone(),
+            Fill::Gradient(_) => None,
+        }
+    }
+
+    const PLAIN: &str = concat!(
+        r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+        r#"<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>"#,
+        r#"<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>"#,
+        r#"<borders count="1"><border/></borders>"#,
+        r#"<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs>"#,
+        r#"</styleSheet>"#
+    );
+
+    /// A new slicer style and a new timeline style in a styles part that has no table styles and
+    /// no extensions: written as [MS-XLSX] lays them out and read back with their formats.
+    #[test]
+    fn new_frame_styles_are_written_and_read_back() {
+        let mut ss = read_styles(PLAIN.as_bytes(), "styles.xml").unwrap();
+        let slicer = FrameStyleParts {
+            name: "Kiểu của tôi".into(),
+            timeline: false,
+            whole: Some(fill("F2F2F2")),
+            header: Some(fill("1F4E79")),
+            selected: Some(fill("C00000")),
+            unselected: Some(fill("FFF2CC")),
+        };
+        add_frame_style(&mut ss, &slicer).unwrap();
+        let timeline = FrameStyleParts {
+            name: "Dòng thời gian".into(),
+            timeline: true,
+            selected: Some(fill("548235")),
+            ..FrameStyleParts::default()
+        };
+        add_frame_style(&mut ss, &timeline).unwrap();
+        let xml = write_styles(&ss);
+        for part in [
+            r#"<tableStyles count="2"><tableStyle name="Kiểu của tôi" pivot="0" table="0" count="2"><tableStyleElement type="wholeTable" dxfId="0"/><tableStyleElement type="headerRow" dxfId="1"/></tableStyle><tableStyle name="Dòng thời gian" pivot="0" table="0" count="0"></tableStyle></tableStyles>"#,
+            r#"<x14:dxfs count="3">"#,
+            r#"<x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"><x14:slicerStyle name="Kiểu của tôi"><x14:slicerStyleElements><x14:slicerStyleElement type="selectedItemWithData" dxfId="0"/><x14:slicerStyleElement type="unselectedItemWithData" dxfId="1"/></x14:slicerStyleElements></x14:slicerStyle></x14:slicerStyles>"#,
+            r#"<x15:timelineStyle name="Dòng thời gian"><x15:timelineStyleElements><x15:timelineStyleElement type="selectedTimeBlock" dxfId="2"/></x15:timelineStyleElements></x15:timelineStyle>"#,
+        ] {
+            assert!(xml.contains(part), "missing {part} in\n{xml}");
+        }
+        // The extension list comes after the table styles (CT_Stylesheet order).
+        assert!(xml.find("<tableStyles").unwrap() < xml.find("<extLst").unwrap());
+        let back = read_styles(xml.as_bytes(), "styles.xml").unwrap();
+        assert_eq!(back.frame_styles.len(), 2);
+        let s = &back.frame_styles[0];
+        assert_eq!((s.name.as_str(), s.timeline), ("Kiểu của tôi", false));
+        assert_eq!(rgb_of(s.whole.as_ref()).as_deref(), Some("FFF2F2F2"));
+        assert_eq!(rgb_of(s.header.as_ref()).as_deref(), Some("FF1F4E79"));
+        assert_eq!(rgb_of(s.selected.as_ref()).as_deref(), Some("FFC00000"));
+        assert_eq!(rgb_of(s.unselected.as_ref()).as_deref(), Some("FFFFF2CC"));
+        let t = &back.frame_styles[1];
+        assert_eq!((t.name.as_str(), t.timeline), ("Dòng thời gian", true));
+        assert_eq!(rgb_of(t.selected.as_ref()).as_deref(), Some("FF548235"));
+        assert!(t.whole.is_none() && t.unselected.is_none());
+        // Written again unchanged.
+        assert_eq!(write_styles(&back), xml);
+    }
+
+    /// A new style joins the file's own: table style, extension formats and slicer style list
+    /// grow, the indexes follow what is there; names in use and built-in names are refused.
+    #[test]
+    fn new_slicer_style_joins_the_files_styles() {
+        let xml = concat!(
+            r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+            r#"<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>"#,
+            r#"<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>"#,
+            r#"<borders count="1"><border/></borders>"#,
+            r#"<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs>"#,
+            r#"<dxfs count="1"><dxf><font><b/></font></dxf></dxfs>"#,
+            r#"<tableStyles count="1"><tableStyle name="Mine" pivot="0" table="0" count="1">"#,
+            r#"<tableStyleElement type="headerRow" dxfId="0"/></tableStyle></tableStyles>"#,
+            r#"<extLst><ext uri="{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">"#,
+            r#"<x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"><x14:slicerStyle name="Mine"><x14:slicerStyleElements>"#,
+            r#"<x14:slicerStyleElement type="selectedItemWithData" dxfId="0"/>"#,
+            r#"</x14:slicerStyleElements></x14:slicerStyle></x14:slicerStyles></ext>"#,
+            r#"<ext uri="{46F421CA-312F-682f-3DD2-61675219B42D}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">"#,
+            r#"<x14:dxfs count="1"><dxf><fill><patternFill><bgColor rgb="FFC00000"/></patternFill></fill></dxf>"#,
+            r#"</x14:dxfs></ext></extLst></styleSheet>"#
+        );
+        let mut ss = read_styles(xml.as_bytes(), "styles.xml").unwrap();
+        let mut new = FrameStyleParts {
+            name: "Mine".into(),
+            header: Some(fill("002060")),
+            selected: Some(fill("00B050")),
+            ..FrameStyleParts::default()
+        };
+        assert_eq!(add_frame_style(&mut ss, &new), Err("style name in use"));
+        new.name = "SlicerStyleDark2".into();
+        assert_eq!(add_frame_style(&mut ss, &new), Err("style name in use"));
+        new.name = "  ".into();
+        assert_eq!(add_frame_style(&mut ss, &new), Err("empty style name"));
+        new.name = "Thứ hai".into();
+        add_frame_style(&mut ss, &new).unwrap();
+        let out = write_styles(&ss);
+        for part in [
+            r#"<dxfs count="2">"#,
+            r#"<tableStyles count="2">"#,
+            r#"<tableStyle name="Thứ hai" pivot="0" table="0" count="1"><tableStyleElement type="headerRow" dxfId="1"/></tableStyle></tableStyles>"#,
+            r#"<x14:dxfs count="2">"#,
+            r#"<x14:slicerStyle name="Thứ hai"><x14:slicerStyleElements><x14:slicerStyleElement type="selectedItemWithData" dxfId="1"/></x14:slicerStyleElements></x14:slicerStyle></x14:slicerStyles>"#,
+        ] {
+            assert!(out.contains(part), "missing {part} in\n{out}");
+        }
+        let back = read_styles(out.as_bytes(), "styles.xml").unwrap();
+        let names: Vec<&str> = back.frame_styles.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Mine", "Thứ hai"]);
+        assert_eq!(
+            rgb_of(back.frame_styles[1].selected.as_ref()).as_deref(),
+            Some("FF00B050")
+        );
+        assert_eq!(
+            rgb_of(back.frame_styles[0].selected.as_ref()).as_deref(),
+            Some("FFC00000")
+        );
+    }
 
     /// A custom slicer style as [MS-XLSX] lays it out: the `tableStyle` (whole frame, header) in
     /// the main `dxfs`, the item formats in the `x14:dxfs` extension.

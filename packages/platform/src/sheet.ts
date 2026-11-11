@@ -1201,6 +1201,20 @@ export type SheetCommand =
     }
   /** First day the strip of a timeline shows (serial; absent: from the start). Not an undo step. */
   | { cmd: 'timelineScroll'; sheet: number; index: number; day?: number }
+  /**
+   * New Slicer Style / New Timeline Style: a custom style of the workbook with a format per
+   * element (absent: the default look); saved in the styles part. One undo step.
+   */
+  | {
+      cmd: 'createFrameStyle';
+      sheet: number;
+      name: string;
+      timeline?: boolean;
+      whole?: FrameElementFormat;
+      header?: FrameElementFormat;
+      selected?: FrameElementFormat;
+      unselected?: FrameElementFormat;
+    }
   /** The pivot tables a timeline filters. */
   | {
       cmd: 'timelineConnect';
@@ -1476,6 +1490,16 @@ export interface FrameColors {
   background?: string;
   unselected?: string;
   unselectedText?: string;
+}
+
+/** The format of one element of a new slicer or timeline style (colours `#RRGGBB`). */
+export interface FrameElementFormat {
+  fill?: string;
+  text?: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** A thin border all around in this colour. */
+  border?: string;
 }
 
 /** A pivot table a slicer or timeline may filter (every pivot table on its cache). */

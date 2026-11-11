@@ -1726,6 +1726,20 @@ pub enum SheetCommand {
         #[serde(default, flatten)]
         show: super::slicer_cmd::TimelineShow,
     },
+    /// A new custom slicer or timeline style of the workbook (New Slicer Style / New Timeline
+    /// Style): its formats per element, saved in the styles part. One undo step.
+    CreateFrameStyle {
+        /// The sheet whose undo history records the change.
+        sheet: usize,
+        /// Style name (unique, not a built-in name).
+        name: String,
+        /// A timeline style rather than a slicer style.
+        #[serde(default)]
+        timeline: bool,
+        /// Formats of the elements (absent: the element keeps the default look).
+        #[serde(default, flatten)]
+        formats: super::slicer_cmd::FrameStyleFormats,
+    },
     /// The first day the strip of a timeline shows (`timeline/@scrollPosition`): a view
     /// setting saved with the file, not an undo step.
     TimelineScroll {
@@ -3125,6 +3139,12 @@ impl SheetEngine {
                 show,
             } => self.timeline_options(sheet, index, level, caption, style, &show),
             C::TimelineScroll { sheet, index, day } => self.timeline_scroll(sheet, index, day),
+            C::CreateFrameStyle {
+                sheet,
+                name,
+                timeline,
+                formats,
+            } => self.frame_style_create(sheet, &name, timeline, &formats),
             C::TimelineConnect {
                 sheet,
                 index,

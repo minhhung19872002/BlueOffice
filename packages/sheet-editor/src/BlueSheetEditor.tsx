@@ -9494,6 +9494,21 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           connections={frameDialog.pivots ?? []}
           customStyles={frameDialog.customStyles}
           show={'periods' in frameDialog ? timelineShowOf(frameDialog) : undefined}
+          colors={frameDialog.colors}
+          onCreateStyle={async (s) => {
+            // New Slicer / Timeline Style: one undo step; the frames list then offers it.
+            try {
+              await host.exec({
+                cmd: 'createFrameStyle',
+                sheet,
+                name: s.name,
+                timeline: dialog.frames === 'timeline',
+                ...s.formats,
+              });
+            } finally {
+              await refreshInfo();
+            }
+          }}
           onClose={() => setDialog(null)}
           onApply={async (o) => {
             const index = dialog.index;

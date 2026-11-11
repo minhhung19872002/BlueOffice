@@ -10,6 +10,7 @@ import { useTranslation } from '@blueoffice/i18n';
 import type {
   FrameColors,
   FrameConnection,
+  FrameElementFormat,
   PivotInfo,
   SlicerInfo,
   TimelineInfo,
@@ -373,6 +374,7 @@ export function TimelineFrame({
   const showLevel = info.showTimeLevel !== false;
   const showBar = info.showScrollbar !== false;
   const firstOn = info.filtered ? info.periods.findIndex((p) => p.selected) : -1;
+  const lastOn = info.filtered ? info.periods.findLastIndex((p) => p.selected) : -1;
   // Bring the selection into view when it or the level changes; without one, where the strip
   // was scrolled to.
   useEffect(() => {
@@ -385,9 +387,12 @@ export function TimelineFrame({
     // Only when the selection or the periods change, not on every scroll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstOn, info.level, info.periods.length]);
-  /** A drag over the periods from period `k`: it ends where the mouse button goes up. */
-  const startDrag = (k: number) => {
-    const d = { from: k, to: k };
+  /**
+   * A drag over the periods from period `from` (the fixed end) to `to`: it ends where the mouse
+   * button goes up.
+   */
+  const startDrag = (from: number, to = from) => {
+    const d = { from, to };
     dragRef.current = d;
     setDrag(d);
     window.addEventListener(
@@ -549,6 +554,7 @@ export function TimelineFrame({
           <button
             key={p.label}
             type="button"
+            data-testid="timeline-period"
             className={`${info.filtered && p.selected ? styles.slicerOn : styles.slicerOff} ${
               inDrag(k) ? styles.timelineDrag : ''
             }`}
@@ -576,6 +582,36 @@ export function TimelineFrame({
             }}
           >
             {p.label}
+            {/* The ends of the selection: drag one to move that end (Shift click does it
+                from the keyboard too). */}
+            {c.editable && drag === null && k === firstOn && (
+              <span
+                className={`${styles.timelineEdge} ${styles.timelineEdgeStart}`}
+                data-testid="timeline-edge-start"
+                title={t('sheetSlicer.dragStart')}
+                aria-hidden
+                onMouseDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  startDrag(lastOn, k);
+                }}
+              />
+            )}
+            {c.editable && drag === null && k === lastOn && (
+              <span
+                className={`${styles.timelineEdge} ${styles.timelineEdgeEnd}`}
+                data-testid="timeline-edge-end"
+                title={t('sheetSlicer.dragEnd')}
+                aria-hidden
+                onMouseDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  startDrag(firstOn, k);
+                }}
+              />
+            )}
           </button>
         ))}
       </div>
@@ -682,6 +718,279 @@ export function InsertFramesDialog({
   );
 }
 
+/** The elements a new slicer or timeline style formats, in the dialog's order. */
+export const FRAME_STYLE_ELEMENTS = ['whole', 'header', 'selected', 'unselected'] as const;
+export type FrameStyleElement = (typeof FRAME_STYLE_ELEMENTS)[number];
+
+/** A new slicer or timeline style: its name and the format of each element it sets. */
+export interface NewFrameStyle {
+  name: string;
+  formats: Partial<Record<FrameStyleElement, FrameElementFormat>>;
+}
+
+/** The first free default name of a new style (`Slicer style 1`, `Timeline style 2`, …). */
+export function nextFrameStyleName(
+  kind: 'slicer' | 'timeline',
+  taken: readonly string[],
+  t: T,
+): string {
+  const key = kind === 'slicer' ? 'sheetSlicer.newStyle.slicerName' : 'sheetSlicer.newStyle.timelineName';
+  const lower = taken.map((n) => n.toLowerCase());
+  for (let n = 1; ; n++) {
+    const name = t(key, { n });
+    if (!lower.includes(name.toLowerCase())) return name;
+  }
+}
+
+/** Does an element format set anything? */
+export function hasFormat(f: FrameElementFormat | undefined): boolean {
+  return !!f && (!!f.fill || !!f.text || !!f.border || !!f.bold || !!f.italic);
+}
+
+/** The colours of `base` with the formats of a new style over them (the dialog's preview). */
+export function previewColors(
+  base: FrameColors,
+  formats: NewFrameStyle['formats'],
+): FrameColors {
+  const c: FrameColors = { ...base };
+  const w = formats.whole;
+  if (w?.fill) c.background = w.fill;
+  if (w?.border) c.border = w.border;
+  if (w?.text) {
+    c.headerText = w.text;
+    c.unselectedText = w.text;
+  }
+  const h = formats.header;
+  if (h?.fill) c.header = h.fill;
+  if (h?.text) c.headerText = h.text;
+  const s = formats.selected;
+  if (s?.fill) c.selected = s.fill;
+  if (s?.text) c.selectedText = s.text;
+  const u = formats.unselected;
+  if (u?.fill) c.unselected = u.fill;
+  if (u?.text) c.unselectedText = u.text;
+  return c;
+}
+
+const ELEMENT_LABEL: Record<'slicer' | 'timeline', Record<FrameStyleElement, string>> = {
+  slicer: {
+    whole: 'sheetSlicer.newStyle.element.whole',
+    header: 'sheetSlicer.newStyle.element.header',
+    selected: 'sheetSlicer.newStyle.element.selected',
+    unselected: 'sheetSlicer.newStyle.element.unselected',
+  },
+  timeline: {
+    whole: 'sheetSlicer.newStyle.element.wholeTimeline',
+    header: 'sheetSlicer.newStyle.element.header',
+    selected: 'sheetSlicer.newStyle.element.selectedTime',
+    unselected: 'sheetSlicer.newStyle.element.unselectedTime',
+  },
+};
+
+/**
+ * New Slicer Style / New Timeline Style, as spreadsheet applications offer it: a name, the list
+ * of the style's elements (whole frame, header, selected and unselected items), the format of the
+ * element picked in the list (fill, text colour, bold / italic, border; Clear takes it away) and
+ * a preview. OK creates the style in the workbook (one undo step); frames keep their style until
+ * one is chosen for them.
+ */
+export function NewFrameStyleDialog({
+  kind,
+  taken,
+  base,
+  onCreate,
+  onClose,
+}: {
+  kind: 'slicer' | 'timeline';
+  /** Names of the workbook's styles of this kind (the default name avoids them). */
+  taken: readonly string[];
+  /** The colours the preview starts from (the frame's style). */
+  base: FrameColors;
+  /** Create the style; rejects with the engine's message. */
+  onCreate: (s: NewFrameStyle) => Promise<void>;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(() => nextFrameStyleName(kind, taken, t));
+  const [element, setElement] = useState<FrameStyleElement>('whole');
+  const [formats, setFormats] = useState<NewFrameStyle['formats']>({});
+  const [error, setError] = useState('');
+  const f = formats[element] ?? {};
+  const set = (patch: Partial<FrameElementFormat>) => {
+    const next: FrameElementFormat = { ...f, ...patch };
+    for (const k of Object.keys(next) as (keyof FrameElementFormat)[]) {
+      if (next[k] === undefined || next[k] === false) delete next[k];
+    }
+    setFormats((all) => ({ ...all, [element]: next }));
+  };
+  const colors = previewColors(base, formats);
+  const ok = async () => {
+    if (!name.trim()) {
+      setError(t('sheetSlicer.newStyle.nameNeeded'));
+      return;
+    }
+    const used: NewFrameStyle['formats'] = {};
+    for (const e of FRAME_STYLE_ELEMENTS) {
+      const x = formats[e];
+      if (x && hasFormat(x)) used[e] = x;
+    }
+    try {
+      await onCreate({ name: name.trim(), formats: used });
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const colorRow = (
+    key: 'fill' | 'text' | 'border',
+    use: string,
+    label: string,
+    fallback: string,
+  ) => (
+    <div className={styles.check}>
+      <label className={styles.check}>
+        <input
+          type="checkbox"
+          data-testid={`frame-style-use-${key}`}
+          checked={!!f[key]}
+          onChange={(e) => set({ [key]: e.target.checked ? fallback : undefined })}
+        />
+        {use}
+      </label>
+      <input
+        type="color"
+        data-testid={`frame-style-${key}`}
+        aria-label={label}
+        value={f[key] ?? fallback}
+        disabled={!f[key]}
+        onChange={(e) => set({ [key]: e.target.value.toUpperCase() })}
+      />
+    </div>
+  );
+  const sample = [1, 2, 3].map((n) => t('sheetSlicer.newStyle.sample', { n }));
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t(
+        kind === 'slicer' ? 'sheetSlicer.newStyle.slicerTitle' : 'sheetSlicer.newStyle.timelineTitle',
+      )}
+      testId="frame-style-dialog"
+      footer={<Footer onClose={onClose} onOk={() => void ok()} testId="frame-style-ok" />}
+    >
+      <div className={styles.form}>
+        <label>
+          {t('sheetSlicer.newStyle.name')}
+          <input
+            data-testid="frame-style-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <div className={styles.frameStyleBody}>
+          <fieldset className={styles.frameConnections}>
+            <legend>{t('sheetSlicer.newStyle.elements')}</legend>
+            <div role="radiogroup" aria-label={t('sheetSlicer.newStyle.elements')}>
+              {FRAME_STYLE_ELEMENTS.map((e) => (
+                <label key={e} className={styles.check}>
+                  <input
+                    type="radio"
+                    name="frame-style-element"
+                    data-testid={`frame-style-element-${e}`}
+                    checked={element === e}
+                    onChange={() => setElement(e)}
+                  />
+                  {t(ELEMENT_LABEL[kind][e])}
+                  {hasFormat(formats[e]) && (
+                    <em className={styles.frameStyleMark}>
+                      {' '}
+                      ({t('sheetSlicer.newStyle.formatted')})
+                    </em>
+                  )}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className={styles.frameConnections} data-testid="frame-style-format">
+            <legend>{t('sheetSlicer.newStyle.format')}</legend>
+            {colorRow('fill', t('sheetSlicer.newStyle.useFill'), t('sheetSlicer.newStyle.fill'), '#DDEBF7')}
+            {colorRow('text', t('sheetSlicer.newStyle.useText'), t('sheetSlicer.newStyle.text'), '#1F4E79')}
+            {colorRow(
+              'border',
+              t('sheetSlicer.newStyle.useBorder'),
+              t('sheetSlicer.newStyle.border'),
+              '#1F4E79',
+            )}
+            <label className={styles.check}>
+              <input
+                type="checkbox"
+                data-testid="frame-style-bold"
+                checked={!!f.bold}
+                onChange={(e) => set({ bold: e.target.checked })}
+              />
+              {t('sheetSlicer.newStyle.bold')}
+            </label>
+            <label className={styles.check}>
+              <input
+                type="checkbox"
+                data-testid="frame-style-italic"
+                checked={!!f.italic}
+                onChange={(e) => set({ italic: e.target.checked })}
+              />
+              {t('sheetSlicer.newStyle.italic')}
+            </label>
+            <button
+              type="button"
+              className={styles.btn}
+              data-testid="frame-style-clear"
+              disabled={!hasFormat(formats[element])}
+              onClick={() => setFormats((all) => ({ ...all, [element]: {} }))}
+            >
+              {t('sheetSlicer.newStyle.clear')}
+            </button>
+          </fieldset>
+        </div>
+        <fieldset className={styles.frameConnections}>
+          <legend>{t('sheetSlicer.newStyle.preview')}</legend>
+          <div
+            className={`${styles.slicer} ${styles.frameStylePreview}`}
+            data-testid="frame-style-preview"
+            style={frameVars(colors, { x: 0, y: 0, w: 180, h: 112 })}
+          >
+            <div className={styles.slicerHeader}>
+              <span
+                className={styles.frameCaption}
+                style={{
+                  fontWeight: formats.header?.bold ? 700 : undefined,
+                  fontStyle: formats.header?.italic ? 'italic' : undefined,
+                }}
+              >
+                {name}
+              </span>
+            </div>
+            <div className={styles.slicerItems} style={{ gridTemplateColumns: '1fr' }}>
+              {sample.map((label, i) => (
+                <span
+                  key={label}
+                  className={i === 0 ? styles.slicerOn : styles.slicerOff}
+                  data-testid={i === 0 ? 'frame-style-preview-on' : undefined}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </fieldset>
+        {error && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
 /** What the options dialog of a slicer or timeline changes. */
 export interface FrameOptions {
   caption: string;
@@ -726,6 +1035,8 @@ export function FrameOptionsDialog({
   connections,
   customStyles,
   show,
+  colors,
+  onCreateStyle,
   onApply,
   onClose,
 }: {
@@ -738,6 +1049,10 @@ export function FrameOptionsDialog({
   customStyles?: string[];
   /** Timelines: what is shown now. */
   show?: TimelineShow;
+  /** The frame's colours (the New Style preview starts from them). */
+  colors?: FrameColors;
+  /** New style…: create a custom style (one undo step); rejects with the engine's message. */
+  onCreateStyle?: (s: NewFrameStyle) => Promise<void>;
   /** Apply the changes; rejects with the engine's message. */
   onApply: (o: FrameOptions) => Promise<void>;
   onClose: () => void;
@@ -749,8 +1064,12 @@ export function FrameOptionsDialog({
   const [on, setOn] = useState(() => connections.filter((c) => c.connected).map((c) => c.name));
   const [error, setError] = useState('');
   const [shown, setShown] = useState<TimelineShow | undefined>(show);
+  // Styles made with New style… while the dialog is open (the list from the engine follows).
+  const [made, setMade] = useState<string[]>([]);
+  const [newStyle, setNewStyle] = useState(false);
   const builtIn = kind === 'slicer' ? SLICER_STYLE_NAMES : TIMELINE_STYLE_NAMES;
-  const names = [...(customStyles ?? []), ...builtIn];
+  const customs = [...(customStyles ?? []), ...made.filter((m) => !customStyles?.includes(m))];
+  const names = [...customs, ...builtIn];
   const ok = async () => {
     const n = Number(cols);
     if (kind === 'slicer' && (!Number.isInteger(n) || n < 1 || n > 50)) {
@@ -800,26 +1119,62 @@ export function FrameOptionsDialog({
             />
           </label>
         )}
-        <label>
-          {t('sheetSlicer.styleLabel')}
-          <select data-testid="frame-style" value={st} onChange={(e) => setSt(e.target.value)}>
-            {!names.includes(st) && <option value={st}>{st || t('sheetSlicer.style.none')}</option>}
-            {(customStyles ?? []).length > 0 && (
-              <optgroup label={t('sheetSlicer.style.custom')}>
-                {(customStyles ?? []).map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {builtIn.map((n) => (
-              <option key={n} value={n}>
-                {frameStyleLabel(n, t)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className={styles.frameStyleRow}>
+          <label>
+            {t('sheetSlicer.styleLabel')}
+            <select data-testid="frame-style" value={st} onChange={(e) => setSt(e.target.value)}>
+              {!names.includes(st) && (
+                <option value={st}>{st || t('sheetSlicer.style.none')}</option>
+              )}
+              {customs.length > 0 && (
+                <optgroup label={t('sheetSlicer.style.custom')}>
+                  {customs.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {builtIn.map((n) => (
+                <option key={n} value={n}>
+                  {frameStyleLabel(n, t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {onCreateStyle && (
+            <button
+              type="button"
+              className={styles.btn}
+              data-testid="frame-style-new"
+              onClick={() => setNewStyle(true)}
+            >
+              {t('sheetSlicer.newStyle.button')}
+            </button>
+          )}
+        </div>
+        {newStyle && onCreateStyle && (
+          <NewFrameStyleDialog
+            kind={kind}
+            taken={customs}
+            base={
+              colors ?? {
+                selected: '#BDD7EE',
+                selectedText: '#000000',
+                header: '#FFFFFF',
+                headerText: '#262626',
+                border: '#BFBFBF',
+              }
+            }
+            onCreate={async (s) => {
+              await onCreateStyle(s);
+              setMade((m) => [...m, s.name]);
+              // The new style is offered as the choice (applied with OK, like any other).
+              setSt(s.name);
+            }}
+            onClose={() => setNewStyle(false)}
+          />
+        )}
         {shown && (
           <fieldset className={styles.frameConnections} data-testid="timeline-show">
             <legend>{t('sheetSlicer.show.title')}</legend>

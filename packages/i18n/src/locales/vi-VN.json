@@ -5836,7 +5836,41 @@
     },
     "chartItems": "Các mục của {{name}}",
     "selectAll": "(Chọn tất cả)",
-    "keepOne": "Giữ lại ít nhất một mục."
+    "keepOne": "Giữ lại ít nhất một mục.",
+    "dragStart": "Kéo để đổi đầu khoảng chọn",
+    "dragEnd": "Kéo để đổi cuối khoảng chọn",
+    "newStyle": {
+      "button": "Kiểu mới…",
+      "slicerTitle": "Kiểu slicer mới",
+      "timelineTitle": "Kiểu timeline mới",
+      "name": "Tên",
+      "slicerName": "Kiểu slicer {{n}}",
+      "timelineName": "Kiểu timeline {{n}}",
+      "elements": "Thành phần",
+      "format": "Định dạng thành phần",
+      "fill": "Màu nền",
+      "text": "Màu chữ",
+      "border": "Màu viền",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "useFill": "Tô nền",
+      "useText": "Đặt màu chữ",
+      "useBorder": "Kẻ viền",
+      "clear": "Xoá định dạng",
+      "formatted": "đã định dạng",
+      "preview": "Xem trước",
+      "sample": "Mục {{n}}",
+      "nameNeeded": "Nhập tên kiểu.",
+      "element": {
+        "whole": "Toàn bộ slicer",
+        "header": "Tiêu đề",
+        "selected": "Mục được chọn có dữ liệu",
+        "unselected": "Mục không được chọn có dữ liệu",
+        "wholeTimeline": "Toàn bộ timeline",
+        "selectedTime": "Khối thời gian được chọn",
+        "unselectedTime": "Khối thời gian không được chọn"
+      }
+    }
   },
   "pictureTools": {
     "tab": "Định dạng ảnh",

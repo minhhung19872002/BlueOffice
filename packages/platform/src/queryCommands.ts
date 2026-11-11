@@ -35,4 +35,6 @@ export const DOC_QUERY_COMMANDS: readonly string[] = [
   'docProperties',
   'crossReferenceTargets',
   'notes',
+  // The ASK / FILLIN questions asked before an update of the fields.
+  'fieldPrompts',
 ];

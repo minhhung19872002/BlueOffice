@@ -167,6 +167,7 @@ mod tests {
             instr: format!("MERGEFIELD {name}{extra} \\* MERGEFORMAT"),
             cached: placeholder(name),
             locked: false,
+            codes: false,
         };
         Document {
             sections: vec![Section::new(vec![Block::Paragraph(Paragraph::new(

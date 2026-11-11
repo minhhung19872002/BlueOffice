@@ -354,6 +354,9 @@ mod tests {
                 prefix_mappings: MAPS.into(),
                 store_item_id: Some(ID.into()),
             }),
+            appearance: None,
+            color: None,
+            temporary: false,
         }
     }
 

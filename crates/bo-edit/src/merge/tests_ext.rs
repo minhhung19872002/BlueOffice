@@ -40,6 +40,7 @@ fn f(instr: &str) -> Atom {
             instr: instr.into(),
             cached: String::new(),
             locked: false,
+            codes: false,
         },
     )
 }

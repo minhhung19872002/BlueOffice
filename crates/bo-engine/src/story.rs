@@ -342,6 +342,18 @@ impl Engine {
         if let Some(s) = self.session.as_ref() {
             sync_tracking(&mut hf.sub, s);
         }
+        // The ASK / FILLIN questions of the header / footer's fields (§17.16.5.4, §17.16.5.20).
+        if let Command::FieldPrompts { selection } = cmd {
+            let prompts = if *selection {
+                hf.sub.selected_field_prompts()
+            } else {
+                hf.sub.field_prompts()
+            };
+            self.hf = Some(hf);
+            let mut r = self.story_result(Vec::new(), None)?;
+            r.field_prompts = Some(prompts);
+            return Ok(Some(r));
+        }
         let res = sub_command(
             &mut hf.sub,
             &hf.layout,
@@ -546,6 +558,26 @@ pub(crate) fn sub_command(
         }
         Command::InsertField { instr } => {
             s.insert_field(instr, "1")?;
+            // The new field shows its result (an ASK / FILLIN its default answer).
+            s.update_selected_fields(&mut |_| Vec::new(), std::collections::BTreeMap::new())?;
+        }
+        // Fields of headers, footers and notes: F9 (with the ASK / FILLIN answers), Shift+F9,
+        // Ctrl+F9 and its code typed in place, as in the main text (§17.16).
+        Command::UpdateFields { answers, selection } => {
+            if *selection {
+                s.update_selected_fields(&mut |_| Vec::new(), answers.clone())?;
+            } else {
+                s.update_fields_answered(&mut |_| Vec::new(), answers.clone())?;
+            }
+        }
+        Command::ToggleFieldCodes => {
+            s.toggle_field_codes()?;
+        }
+        Command::InsertEmptyField => {
+            s.insert_empty_field()?;
+        }
+        Command::SetFieldCode { instr } => {
+            s.set_field_code(instr)?;
         }
         Command::Undo => {
             s.undo();

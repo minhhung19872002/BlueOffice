@@ -1005,10 +1005,20 @@ impl Tx<'_> {
         pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
         env: &fields::FieldEnv,
     ) -> Result<usize> {
+        self.update_fields_in(pages_of, env, None)
+    }
+
+    /// [`Tx::update_fields`] of the fields in `scope` only (`None`: all).
+    fn update_fields_in(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+        env: &fields::FieldEnv,
+        scope: Option<&fields::Scope>,
+    ) -> Result<usize> {
         let mut total = 0;
         for round in 0..3 {
             let pages = pages_of(self.doc);
-            let up = fields::update(self.doc, &pages, env);
+            let up = fields::update_in(self.doc, &pages, env, scope);
             let unchanged = up.styles.is_none()
                 && up
                     .sections
@@ -1667,6 +1677,150 @@ impl Session {
         r
     }
 
+    /// The fields F9 updates: those the selection covers or the caret touches (all of them
+    /// when everything is selected).
+    #[must_use]
+    pub fn selection_scope(&self) -> fields::Scope {
+        fields::Scope {
+            ranges: self.selected_ranges(self.selection),
+        }
+    }
+
+    /// The ASK / FILLIN questions an update of the fields in the selection asks.
+    #[must_use]
+    pub fn selected_field_prompts(&self) -> Vec<merge::rules::Prompt> {
+        fields::prompts_in(&self.doc, &self.selection_scope())
+    }
+
+    /// F9: update the fields in the selection (see [`Session::selection_scope`]) with the
+    /// answers typed for their ASK / FILLIN questions, in one undo step; the updated fields show
+    /// their results again (a field showing its code after Ctrl+F9 / Shift+F9). Returns the
+    /// number of fields whose result changed.
+    pub fn update_selected_fields(
+        &mut self,
+        pages_of: &mut dyn FnMut(&Document) -> Vec<u32>,
+        answers: std::collections::BTreeMap<String, String>,
+    ) -> Result<usize> {
+        let scope = self.selection_scope();
+        let mut env = self.fields_now();
+        env.answers = answers;
+        let sel = self.selection;
+        let mut n = 0;
+        self.edit(|tx, _| {
+            n = tx.update_fields_in(pages_of, &env, Some(&scope))?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(n)
+    }
+
+    /// The fields in the selection (the one the caret touches): (paragraph id, atom index,
+    /// code, showing its code).
+    fn selected_fields(&self) -> Vec<(usize, usize, String, bool)> {
+        let scope = self.selection_scope();
+        let paths = body_paragraphs(&self.doc);
+        let mut out = Vec::new();
+        for &(pid, _, _) in &scope.ranges {
+            let Some(p) = paths.get(pid).and_then(|path| para_at(&self.doc, path)) else {
+                continue;
+            };
+            let mut pos = 0;
+            for (ai, (_, c)) in para::flatten(p).iter().enumerate() {
+                let l = para::atom_len(c);
+                if let RunContent::Field { instr, codes, .. } = c {
+                    if scope.hits(pid, pos, pos + l) {
+                        out.push((pid, ai, instr.clone(), *codes));
+                    }
+                }
+                pos += l;
+            }
+        }
+        out
+    }
+
+    /// Shift+F9: the fields in the selection (the one the caret touches) show their codes
+    /// instead of their results, or their results again — all the opposite of the first one.
+    /// Returns the number of fields toggled (one undo step).
+    pub fn toggle_field_codes(&mut self) -> Result<usize> {
+        let targets = self.selected_fields();
+        let Some(show) = targets.first().map(|t| !t.3) else {
+            return Ok(0);
+        };
+        let sel = self.selection;
+        self.edit(|tx, _| {
+            let mut i = 0;
+            while i < targets.len() {
+                let pid = targets[i].0;
+                let (path, p, mut atoms) = tx.atoms(pid)?;
+                while i < targets.len() && targets[i].0 == pid {
+                    if let Some((_, RunContent::Field { codes, .. })) = atoms.get_mut(targets[i].1)
+                    {
+                        *codes = show;
+                    }
+                    i += 1;
+                }
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            }
+            Ok(sel)
+        })?;
+        Ok(targets.len())
+    }
+
+    /// Ctrl+F9 with nothing selected: an empty field `{ }` at the caret showing its code, the
+    /// field selected so its code is typed in place ([`Session::set_field_code`]).
+    pub fn insert_empty_field(&mut self) -> Result<Selection> {
+        let field = RunContent::Field {
+            instr: String::new(),
+            cached: String::new(),
+            locked: false,
+            codes: true,
+        };
+        self.edit(|tx, sel| {
+            let (a, b) = sel.ordered();
+            let at = tx.delete_range(a, b)?;
+            let (_, _, atoms) = tx.atoms(at.para)?;
+            let props = para::props_at(&atoms, at.offset);
+            let end = tx.insert_atoms(at, vec![(props, field)])?;
+            Ok(Selection {
+                anchor: at,
+                focus: end,
+            })
+        })
+    }
+
+    /// The code of the field the selection covers or the caret touches, and whether it shows
+    /// its code.
+    #[must_use]
+    pub fn field_at(&self) -> Option<(String, bool)> {
+        self.selected_fields()
+            .into_iter()
+            .next()
+            .map(|t| (t.2, t.3))
+    }
+
+    /// Replace the code of the field the selection covers or the caret touches (typed in place
+    /// after Ctrl+F9, or in a field showing its code). Returns whether there is one (one undo
+    /// step when the code changes).
+    pub fn set_field_code(&mut self, instr: &str) -> Result<bool> {
+        let Some((pid, ai, old, _)) = self.selected_fields().into_iter().next() else {
+            return Ok(false);
+        };
+        let new = instr.trim();
+        if old == new {
+            return Ok(true);
+        }
+        let sel = self.selection;
+        self.edit(|tx, _| {
+            let (path, p, mut atoms) = tx.atoms(pid)?;
+            if let Some((_, RunContent::Field { instr, .. })) = atoms.get_mut(ai) {
+                new.clone_into(instr);
+            }
+            tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            Ok(sel)
+        })?;
+        Ok(true)
+    }
+
     /// Lock (`Some(true)`), unlock (`Some(false)`) or unlink (`None`: the result becomes plain
     /// text) the fields in the selection — a caret acts on the field it touches (§17.16.18
     /// fldLock). Returns the number of fields (one undo step).
@@ -1938,6 +2092,7 @@ impl Session {
                         instr: format!("SEQ {label} \\* ARABIC"),
                         cached: n.to_string(),
                         locked: false,
+                        codes: false,
                     },
                 ),
                 (rp, RunContent::Text(")".into())),
@@ -1980,6 +2135,7 @@ impl Session {
             instr: instr.trim().to_owned(),
             cached: cached.to_owned(),
             locked: false,
+            codes: false,
         };
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
@@ -2032,9 +2188,15 @@ impl Session {
                 format: "dd/MM/yyyy".into(),
                 full_date: None,
                 store_as: Some("dateTime".into()),
+                lid: None,
             },
             // §17.5.2.26 picture: the placeholder until a picture replaces it.
             "picture" => ControlKind::Picture,
+            // §17.5.2 docPartList: the Quick Parts gallery, every category.
+            "buildingBlockGallery" => ControlKind::Gallery {
+                gallery: "Quick Parts".into(),
+                category: None,
+            },
             "repeatingSection" => return self.insert_repeating_section(placeholder),
             _ => return Err(EditError::Unsupported(format!("control {kind}"))),
         };
@@ -2050,6 +2212,9 @@ impl Session {
             block: false,
             props_xml: None,
             data_binding: None,
+            appearance: None,
+            color: None,
+            temporary: false,
         };
         let text = if checkbox {
             "\u{2610}".to_owned()
@@ -2076,6 +2241,65 @@ impl Session {
                 focus: Pos::new(at.para, at.offset + n),
             })
         })
+    }
+
+    /// Insert a picture content control (§17.5.2.26 picture) at the caret showing `png` (a
+    /// placeholder picture `size` EMU square) as its placeholder (§17.5.2.39 showingPlcHdr); a
+    /// picture chosen for it replaces it. The placeholder is selected.
+    pub fn insert_picture_control(&mut self, png: Vec<u8>, size: i64) -> Result<Selection> {
+        let start = self.selection.ordered().0;
+        let id = 1 + max_control_id(&self.doc);
+        let cc = ContentControl {
+            id: Some(id),
+            alias: None,
+            tag: None,
+            kind: ControlKind::Picture,
+            lock: None,
+            placeholder: true,
+            block: false,
+            props_xml: None,
+            data_binding: None,
+            appearance: None,
+            color: None,
+            temporary: false,
+        };
+        self.insert_image(png, "png", size, size)?;
+        // Wrap the new picture in the control (one undo step with the picture).
+        let pic_end = self.selection.focus;
+        let before = self.undo.len();
+        self.edit(|tx, _| {
+            let (path, p, mut atoms) = tx.atoms(pic_end.para)?;
+            let mut pos = 0;
+            let mut k = atoms.len();
+            for (i, a) in atoms.iter().enumerate() {
+                pos += para::atom_len(&a.1);
+                if pos == pic_end.offset && matches!(a.1, RunContent::Image(_)) {
+                    k = i;
+                    break;
+                }
+            }
+            if k == atoms.len() {
+                return Err(EditError::BadPosition);
+            }
+            atoms.insert(k + 1, (RunProps::default(), RunContent::ControlEnd(false)));
+            atoms.insert(
+                k,
+                (RunProps::default(), RunContent::ControlStart(Box::new(cc))),
+            );
+            tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            Ok(Selection {
+                anchor: start,
+                focus: pic_end,
+            })
+        })?;
+        if self.undo.len() == before + 1 && before >= 1 {
+            // Join the two steps (picture, control) into one.
+            if let (Some(last), Some(prev)) = (self.undo.pop(), self.undo.last_mut()) {
+                prev.ops.extend(last.ops);
+                prev.after = last.after;
+            }
+        }
+        Ok(self.selection)
     }
 
     /// The inline content control around the caret: its properties, the paragraph and the atom
@@ -2377,6 +2601,7 @@ impl Session {
                         instr,
                         cached: String::new(),
                         locked: false,
+                        codes: false,
                     },
                 )],
             )?;

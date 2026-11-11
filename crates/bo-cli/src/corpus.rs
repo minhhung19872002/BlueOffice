@@ -1341,6 +1341,17 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         sect: s.clone(),
         ..Doc::default()
     }));
+    v.push(("controls-05-appearance-gallery-eq.docx", "controls", "Điều khiển hiện dạng thẻ / không hiện (w15:appearance) có màu (w15:color), điều khiển tạm (w:temporary), danh sách có giá trị riêng, ngày tiếng Anh (w:lid en-US), thư viện khối dựng sẵn (w:docPartList), trường EQ (phân số, căn, mũ, khung, ngoặc, mảng)", Doc {
+        body: [
+            r#"<w:p><w:r><w:t xml:space="preserve">Tỉnh: </w:t></w:r><w:sdt><w:sdtPr><w:alias w:val="Tỉnh"/><w:id w:val="5001"/><w15:color w:val="C00000"/><w15:appearance w15:val="tags"/><w:dropDownList><w:listItem w:displayText="Hà Nội" w:value="HN"/><w:listItem w:displayText="Huế" w:value="HUE"/></w:dropDownList></w:sdtPr><w:sdtContent><w:r><w:t>Huế</w:t></w:r></w:sdtContent></w:sdt></w:p>"#,
+            r#"<w:p><w:r><w:t xml:space="preserve">Ghi chú: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="5002"/><w:temporary/><w:showingPlcHdr/><w15:appearance w15:val="hidden"/><w:text/></w:sdtPr><w:sdtContent><w:r><w:t>Bấm vào đây để nhập văn bản.</w:t></w:r></w:sdtContent></w:sdt></w:p>"#,
+            r#"<w:p><w:r><w:t xml:space="preserve">Date: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="5003"/><w:date w:fullDate="2026-11-12T00:00:00Z"><w:dateFormat w:val="MMMM d, yyyy"/><w:lid w:val="en-US"/><w:storeMappedDataAs w:val="dateTime"/><w:calendar w:val="gregorian"/></w:date></w:sdtPr><w:sdtContent><w:r><w:t>November 12, 2026</w:t></w:r></w:sdtContent></w:sdt></w:p>"#,
+            r#"<w:sdt><w:sdtPr><w:alias w:val="Khối"/><w:id w:val="5004"/><w:showingPlcHdr/><w:docPartList><w:docPartGallery w:val="Quick Parts"/><w:docPartCategory w:val="General"/></w:docPartList></w:sdtPr><w:sdtContent><w:p><w:r><w:t>Chọn một khối dựng sẵn.</w:t></w:r></w:p></w:sdtContent></w:sdt>"#,
+            r#"<w:p><w:r><w:t xml:space="preserve">EQ: </w:t></w:r><w:fldSimple w:instr=" EQ \f(1,2) "><w:r><w:t>1/2</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ \r(3,x) "><w:r><w:t>x</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ x\s\up8(2) "><w:r><w:t>x2</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ \x(A) "><w:r><w:t>A</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ \b\bc\{(\a\co2(1,2,3,4)) "><w:r><w:t>1 2 3 4</w:t></w:r></w:fldSimple></w:p>"#,
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
     // ---- legacy form fields (§17.16.17 ffData) and forms protection (§17.15.1.29, §17.6.6)
     let ff = |name: &str, id: u32, ff: &str, instr: &str, result: &str| -> String {
         let sep = if result.is_empty() && instr != "FORMTEXT" {

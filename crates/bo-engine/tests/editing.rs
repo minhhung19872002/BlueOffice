@@ -999,3 +999,201 @@ fn equation_templates_and_numbered_equations() {
     );
     assert!(r.get("error").is_some_and(|v| !v.is_null()), "{r}");
 }
+
+fn caret_at(e: &mut Engine, p: usize, o: usize) -> serde_json::Value {
+    cmd(
+        e,
+        &format!(
+            r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":{p},"o":{o}}},"focus":{{"p":{p},"o":{o}}}}}}}"#
+        ),
+    )
+}
+
+// Reference behaviour (word processor): F9 updates the field at the caret only; Shift+F9 shows
+// that field's code; Ctrl+F9 puts empty braces where the code is typed, F9 then shows the result.
+#[test]
+fn f9_shift_f9_and_ctrl_f9_in_place() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Lan"}"#);
+    cmd(&mut e, r#"{"cmd":"insertField","instr":"USERNAME"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" và "}"#);
+    cmd(&mut e, r#"{"cmd":"insertField","instr":"USERINITIALS"}"#);
+    assert_eq!(e.document().unwrap().plain_text(), "Lan và L");
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"Minh Anh"}"#);
+    // F9 with the caret just after the second field: only it changes.
+    let r = cmd(&mut e, r#"{"cmd":"updateFields","selection":true}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(e.document().unwrap().plain_text(), "Lan và MA");
+    // Everything selected: both.
+    cmd(&mut e, r#"{"cmd":"selectAll"}"#);
+    cmd(&mut e, r#"{"cmd":"updateFields","selection":true}"#);
+    assert_eq!(e.document().unwrap().plain_text(), "Minh Anh và MA");
+    // Shift+F9 at the first field: its code on the page, the other field's result stays.
+    let r = caret_at(&mut e, 0, 0);
+    assert_eq!(r["field"]["code"], "USERNAME");
+    assert_eq!(r["field"]["codes"], false);
+    let r = cmd(&mut e, r#"{"cmd":"toggleFieldCodes"}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(r["field"]["codes"], true);
+    let page = e.page_json(0).unwrap();
+    assert!(page.contains("{ USERNAME }"));
+    assert!(!page.contains("{ USERINITIALS }"));
+    cmd(&mut e, r#"{"cmd":"toggleFieldCodes"}"#);
+    assert!(!e.page_json(0).unwrap().contains("{ USERNAME }"));
+    // Ctrl+F9 at the end: empty braces, selected, showing "{  }".
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" = "}"#);
+    let r = cmd(&mut e, r#"{"cmd":"insertEmptyField"}"#);
+    assert_eq!(r["field"]["code"], "");
+    assert_eq!(r["field"]["codes"], true);
+    assert_eq!(r["rects"].as_array().unwrap().len(), 1);
+    assert!(e.page_json(0).unwrap().contains("{  }"));
+    let r = cmd(&mut e, r#"{"cmd":"setFieldCode","instr":"= 6*7"}"#);
+    assert_eq!(r["count"], 1);
+    assert!(e.page_json(0).unwrap().contains("{ = 6*7 }"));
+    // F9: its result instead of its code.
+    cmd(&mut e, r#"{"cmd":"updateFields","selection":true}"#);
+    assert_eq!(e.document().unwrap().plain_text(), "Minh Anh và MA = 42");
+    assert!(!e.page_json(0).unwrap().contains("{ = 6*7 }"));
+    // Saved as an ordinary field.
+    let saved = e.save_docx().unwrap();
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    assert_eq!(f.document().unwrap().plain_text(), "Minh Anh và MA = 42");
+}
+
+// ECMA-376 Part 1, §17.16.5.4 ASK / §17.16.5.20 FILLIN in a header: the question is asked for the
+// header's own fields, its answer shows there.
+#[test]
+fn fillin_in_a_header_asks_and_updates() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Thân"}"#);
+    cmd(&mut e, r#"{"cmd":"editHeaderFooter","page":0,"header":true}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertField","instr":"FILLIN \"Đơn vị?\" \\d \"Phòng A\""}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"fieldPrompts","selection":true}"#);
+    assert_eq!(r["fieldPrompts"][0]["prompt"], "Đơn vị?");
+    assert_eq!(r["fieldPrompts"][0]["default"], "Phòng A");
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"updateFields","selection":true,"answers":{"FILLIN:Đơn vị?":"Phòng Kế toán"}}"#,
+    );
+    assert!(r.get("error").is_none());
+    assert!(r.get("story").is_some(), "still editing the header");
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let saved = e.save_docx().unwrap();
+    let pkg = bo_opc::Package::read(&saved, &bo_opc::Limits::default()).unwrap();
+    let header = pkg
+        .parts()
+        .iter()
+        .find(|p| p.name.starts_with("/word/header"))
+        .map(|p| String::from_utf8(p.data.clone()).unwrap())
+        .unwrap();
+    assert!(header.contains("Phòng Kế toán"));
+}
+
+// Content control properties over the bridge: show as, colour, temporary, list items, date
+// format and language, a building block gallery and a picture placeholder — written as
+// w15:appearance / w15:color / w:temporary / w:lid / w:docPartList and read back the same.
+#[test]
+fn control_properties_gallery_and_picture_round_trip() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Tỉnh: "}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"dropDown","placeholder":"Chọn một mục.","items":["Huế"]}"#,
+    );
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setControlProps","props":{"title":"Tỉnh","tag":"","deleteLocked":false,"contentLocked":false,"appearance":"tags","color":"C00000","temporary":true,"items":[{"displayText":"Hà Nội","value":"HN"},{"displayText":"Huế","value":"Huế"}]}}"#,
+    );
+    assert_eq!(r["count"], 1);
+    assert_eq!(r["control"]["appearance"], "tags");
+    assert_eq!(r["control"]["color"], "C00000");
+    assert_eq!(r["control"]["temporary"], true);
+    assert_eq!(r["control"]["items"], serde_json::json!(["Hà Nội", "Huế"]));
+    assert_eq!(r["control"]["values"], serde_json::json!(["HN", "Huế"]));
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":" Ngày: "}"#);
+    cmd(&mut e, r#"{"cmd":"insertControl","kind":"date","placeholder":"Chọn ngày."}"#);
+    cmd(&mut e, r#"{"cmd":"setControlValue","value":"2026-11-12"}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setControlProps","props":{"title":"","tag":"","deleteLocked":false,"contentLocked":false,"dateFormat":"MMMM d, yyyy","dateLid":"en-US"}}"#,
+    );
+    assert_eq!(r["control"]["lid"], "en-US");
+    assert!(e.document().unwrap().plain_text().ends_with("November 12, 2026"));
+    // Each next control at the start of a paragraph of its own.
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"A"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineStart"}"#);
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"buildingBlockGallery","placeholder":"Chọn một khối dựng sẵn."}"#,
+    );
+    assert_eq!(r["control"]["kind"], "buildingBlockGallery");
+    assert_eq!(r["control"]["gallery"], "Quick Parts");
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"B"}"#);
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineStart"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"insertControl","kind":"picture"}"#);
+    assert_eq!(r["control"]["kind"], "picture");
+    assert_eq!(r["control"]["placeholder"], true);
+    assert_eq!(e.document().unwrap().media.len(), 1);
+    // One undo removes the picture control and its picture.
+    let r = cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert!(r.get("control").is_none(), "{}", r["control"]);
+    assert_eq!(e.document().unwrap().media.len(), 0);
+    cmd(&mut e, r#"{"cmd":"redo"}"#);
+    let saved = e.save_docx().unwrap();
+    let pkg = bo_opc::Package::read(&saved, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert!(xml.contains("<w:temporary/>"));
+    assert!(xml.contains("w15:appearance") && xml.contains("w15:val=\"tags\""));
+    assert!(xml.contains("<w15:color"));
+    assert!(xml.contains("<w:listItem w:displayText=\"Hà Nội\" w:value=\"HN\"/>"));
+    assert!(xml.contains("<w:lid w:val=\"en-US\"/>"));
+    assert!(xml.contains("<w:docPartList><w:docPartGallery w:val=\"Quick Parts\"/></w:docPartList>"));
+    assert!(xml.contains("<w:picture/>") && xml.contains("<w:drawing>"));
+    // Read back with the same properties.
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "a.docx").unwrap();
+    let r = caret_at(&mut f, 0, "Tỉnh: ".len() + 1);
+    assert_eq!(r["control"]["appearance"], "tags");
+    assert_eq!(r["control"]["color"], "C00000");
+    assert_eq!(r["control"]["temporary"], true);
+    assert_eq!(r["control"]["values"], serde_json::json!(["HN", "Huế"]));
+    // Saved again unchanged: byte-identical document part.
+    let again = f.save_docx().unwrap();
+    let pkg2 = bo_opc::Package::read(&again, &bo_opc::Limits::default()).unwrap();
+    let xml2 = String::from_utf8(pkg2.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert_eq!(xml, xml2);
+}
+
+// A repeating section item is deleted (not the last one), one undo step.
+#[test]
+fn delete_repeating_item_over_the_bridge() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Mục"}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertControl","kind":"repeatingSection","placeholder":"DS"}"#,
+    );
+    let r = cmd(&mut e, r#"{"cmd":"deleteRepeatingItem"}"#);
+    assert_eq!(r["count"], 0);
+    cmd(&mut e, r#"{"cmd":"addRepeatingItem"}"#);
+    assert_eq!(e.document().unwrap().plain_text().matches("Mục").count(), 2);
+    let r = cmd(&mut e, r#"{"cmd":"deleteRepeatingItem"}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(e.document().unwrap().plain_text().matches("Mục").count(), 1);
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(e.document().unwrap().plain_text().matches("Mục").count(), 2);
+}

@@ -400,6 +400,7 @@ fn document(blocks: Vec<Block>) -> Document {
                 instr: "PAGE".into(),
                 cached: "2".into(),
                 locked: false,
+                codes: false,
             }],
         }],
         Alignment::Center,

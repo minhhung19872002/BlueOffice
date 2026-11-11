@@ -648,6 +648,7 @@ impl Writer<'_> {
                     instr,
                     cached,
                     locked,
+                    ..
                 } if complex_fields => {
                     flush(&mut out, &mut cur);
                     let it = if deleted { "delInstrText" } else { "instrText" };
@@ -664,6 +665,7 @@ impl Writer<'_> {
                     instr,
                     cached,
                     locked,
+                    ..
                 } => {
                     flush(&mut out, &mut cur);
                     // §17.16.19 fldSimple with cached result.
@@ -3606,7 +3608,11 @@ fn sdt_pr(cc: &ContentControl) -> String {
     if let Some(l) = &cc.lock {
         let _ = write!(s, "<w:lock w:val=\"{}\"/>", escape(l));
     }
-    s.push_str(&take(&["w:placeholder", "w:temporary"]));
+    s.push_str(&take(&["w:placeholder"]));
+    // §17.5.2 temporary.
+    if cc.temporary {
+        s.push_str("<w:temporary/>");
+    }
     if cc.placeholder {
         s.push_str("<w:showingPlcHdr/>");
     }
@@ -3657,6 +3663,7 @@ fn sdt_pr(cc: &ContentControl) -> String {
             format,
             full_date,
             store_as,
+            lid,
         } => {
             match full_date {
                 Some(d) => {
@@ -3670,8 +3677,9 @@ fn sdt_pr(cc: &ContentControl) -> String {
             });
             let _ = write!(
                 s,
-                "<w:dateFormat w:val=\"{}\"/><w:lid w:val=\"vi-VN\"/>{store}<w:calendar w:val=\"gregorian\"/></w:date>",
-                escape(format)
+                "<w:dateFormat w:val=\"{}\"/><w:lid w:val=\"{}\"/>{store}<w:calendar w:val=\"gregorian\"/></w:date>",
+                escape(format),
+                escape(lid.as_deref().unwrap_or("vi-VN"))
             );
         }
         // [MS-DOCX] w14:checkbox.
@@ -3693,11 +3701,38 @@ fn sdt_pr(cc: &ContentControl) -> String {
             let _ = write!(s, "<w15:repeatingSectionItem xmlns:w15=\"{W15}\"/>");
         }
         ControlKind::Group => s.push_str("<w:group/>"),
+        // §17.5.2 docPartList (building block gallery).
+        ControlKind::Gallery { gallery, category } => {
+            let _ = write!(
+                s,
+                "<w:docPartList><w:docPartGallery w:val=\"{}\"/>",
+                escape(gallery)
+            );
+            if let Some(c) = category {
+                let _ = write!(s, "<w:docPartCategory w:val=\"{}\"/>", escape(c));
+            }
+            s.push_str("</w:docPartList>");
+        }
+    }
+    // [MS-DOCX] w15:color, w15:appearance.
+    if let Some(c) = &cc.color {
+        let _ = write!(
+            s,
+            "<w15:color xmlns:w15=\"{W15}\" w:val=\"{}\"/>",
+            escape(c)
+        );
+    }
+    if let Some(a) = &cc.appearance {
+        let _ = write!(
+            s,
+            "<w15:appearance xmlns:w15=\"{W15}\" w15:val=\"{}\"/>",
+            escape(a)
+        );
     }
     for (n, x) in &kept {
         if !matches!(
             n.as_str(),
-            "w:rPr" | "w:placeholder" | "w:temporary" | "w:label" | "w:tabIndex"
+            "w:rPr" | "w:placeholder" | "w:label" | "w:tabIndex"
         ) {
             s.push_str(x);
         }
@@ -3725,6 +3760,10 @@ fn sdt_pr_unmodelled(xml: &str) -> Vec<(String, String)> {
         "w:dropDownList",
         "w:date",
         "w:group",
+        "w:temporary",
+        "w:docPartList",
+        "w15:color",
+        "w15:appearance",
         "w14:checkbox",
         "w15:repeatingSection",
         "w15:repeatingSectionItem",
@@ -3797,6 +3836,7 @@ mod tests {
                                 instr: "PAGE".into(),
                                 cached: "1".into(),
                                 locked: false,
+                                codes: false,
                             }],
                         }],
                     ))]),

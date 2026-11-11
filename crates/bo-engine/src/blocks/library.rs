@@ -50,6 +50,7 @@ fn field(instr: &str, cached: &str, size: u32) -> Run {
             instr: instr.into(),
             cached: cached.into(),
             locked: false,
+            codes: false,
         }],
     }
 }

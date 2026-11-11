@@ -339,6 +339,8 @@ pub enum Command {
     /// Add an item after the item of the repeating section around the caret ([MS-DOCX]
     /// w15:repeatingSectionItem; the section's "+").
     AddRepeatingItem,
+    /// Delete the item of the repeating section around the caret (not the section's last one).
+    DeleteRepeatingItem,
     /// Change the title, tag and locks of the content control around the caret (§17.5.2.1
     /// alias, §17.5.2.42 tag, §17.5.2.23 lock).
     SetControlProps {
@@ -355,7 +357,22 @@ pub enum Command {
     },
     /// The ASK / FILLIN questions an update of the fields asks (`fieldPrompts`; §17.16.5.4,
     /// §17.16.5.20).
-    FieldPrompts,
+    FieldPrompts {
+        /// Only the fields in the selection (F9; else all of them).
+        #[serde(default)]
+        selection: bool,
+    },
+    /// Shift+F9: the fields in the selection (the one the caret touches) show their codes, or
+    /// their results again (`count`: the number of fields).
+    ToggleFieldCodes,
+    /// Ctrl+F9 with nothing selected: an empty field `{ }` showing its code, selected, its code
+    /// typed in place (`setFieldCode`).
+    InsertEmptyField,
+    /// The code of the field the selection covers or the caret touches (§17.16.1).
+    SetFieldCode {
+        /// The new field code.
+        instr: String,
+    },
     /// Insert a legacy form field (§17.16.17 ffData) at the caret.
     InsertFormField {
         /// `text` | `checkBox` | `dropDown`.
@@ -499,6 +516,10 @@ pub enum Command {
         /// Answers typed for the ASK / FILLIN questions, by prompt key (`fieldPrompts`).
         #[serde(default)]
         answers: std::collections::BTreeMap<String, String>,
+        /// Only the fields in the selection (F9; the field the caret touches; all of them when
+        /// everything is selected). The updated fields show their results.
+        #[serde(default)]
+        selection: bool,
     },
     /// Insert a table of contents at the caret.
     InsertToc,
@@ -1252,6 +1273,9 @@ pub struct EditResult {
     /// ASK / FILLIN questions of `fieldPrompts`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_prompts: Option<Vec<bo_edit::merge::rules::Prompt>>,
+    /// The field the selection covers or the caret touches (§17.16).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<FieldInfo>,
     /// The legacy form field at the caret (§17.16.17 ffData).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub form_field: Option<bo_edit::forms::FormFieldInfo>,
@@ -1935,8 +1959,9 @@ impl crate::Engine {
                             "1".to_owned()
                         };
                         s.insert_field(&instr, &cached)?;
-                        // The new field shows its result at once (§17.16.5).
-                        s.update_fields(&mut pages_of)?;
+                        // The new field (the caret just after it) shows its result at once
+                        // (§17.16.5); the others stay as they are.
+                        s.update_selected_fields(&mut pages_of, std::collections::BTreeMap::new())?;
                     }
                     Command::InsertFieldFromSelection => {
                         let instr = s.selected_text().trim().to_owned();
@@ -2279,7 +2304,19 @@ impl crate::Engine {
                         placeholder,
                         items,
                     } => {
-                        s.insert_control(&kind, &placeholder, &items)?;
+                        if kind == "picture" {
+                            // The placeholder is a picture (BlueOffice's own icon), as a picture
+                            // control shows until one is chosen (§17.5.2.26).
+                            s.insert_picture_control(
+                                crate::controls_icon::placeholder_png(),
+                                crate::controls_icon::SIZE_EMU,
+                            )?;
+                        } else {
+                            s.insert_control(&kind, &placeholder, &items)?;
+                        }
+                    }
+                    Command::DeleteRepeatingItem => {
+                        extra.1 = Some(usize::from(s.delete_repeating_item()?));
                     }
                     Command::SetControlValue { value } => {
                         extra.1 = Some(usize::from(s.set_control_value(&value, true)?));
@@ -2326,13 +2363,30 @@ impl crate::Engine {
                     Command::NextComment { forward } => {
                         extra.1 = s.next_comment(forward).map(|i| i.max(0) as usize);
                     }
-                    Command::UpdateFields { answers } => {
-                        extra.1 = Some(s.update_fields_answered(&mut pages_of, answers)?);
+                    Command::UpdateFields { answers, selection } => {
+                        extra.1 = Some(if selection {
+                            s.update_selected_fields(&mut pages_of, answers)?
+                        } else {
+                            s.update_fields_answered(&mut pages_of, answers)?
+                        });
+                    }
+                    Command::ToggleFieldCodes => extra.1 = Some(s.toggle_field_codes()?),
+                    Command::InsertEmptyField => {
+                        s.insert_empty_field()?;
+                    }
+                    Command::SetFieldCode { instr } => {
+                        extra.1 = Some(usize::from(s.set_field_code(&instr)?));
                     }
                     Command::NextField { forward } => {
                         extra.1 = Some(usize::from(s.next_field(forward).is_some()));
                     }
-                    Command::FieldPrompts => field_prompts = Some(s.field_prompts()),
+                    Command::FieldPrompts { selection } => {
+                        field_prompts = Some(if selection {
+                            s.selected_field_prompts()
+                        } else {
+                            s.field_prompts()
+                        });
+                    }
                     Command::InsertToc => {
                         extra.1 = Some(s.insert_toc(&mut pages_of)?);
                     }
@@ -2657,6 +2711,7 @@ impl crate::Engine {
                     i
                 }),
             field_prompts: None,
+            field: s.field_at().map(|(code, codes)| FieldInfo { code, codes }),
             form_field: s.form_field_info(),
             protection: crate::forms::info(s),
             templates: None,
@@ -2791,6 +2846,16 @@ pub struct EquationTemplate {
     pub linear: String,
 }
 
+/// The field the selection covers or the caret touches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldInfo {
+    /// Its code (§17.16.1).
+    pub code: String,
+    /// It shows its code instead of its result.
+    pub codes: bool,
+}
+
 /// A content control as the host sees it (§17.5.2 sdt).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2828,6 +2893,20 @@ pub struct ControlInfo {
     pub repeating: bool,
     /// Rectangles of the control's extent (its frame).
     pub frame: Vec<SelRect>,
+    /// Values of the items of a list control (same order as `items`).
+    pub values: Vec<String>,
+    /// [MS-DOCX] w15:appearance (`boundingBox` / `tags` / `hidden`; `None`: bounding box).
+    pub appearance: Option<String>,
+    /// [MS-DOCX] w15:color (`RRGGBB`).
+    pub color: Option<String>,
+    /// §17.5.2 temporary: removed once its contents are edited.
+    pub temporary: bool,
+    /// Language of a date control's display (§17.5.2 lid).
+    pub lid: Option<String>,
+    /// Gallery and category of a building block gallery control (§17.5.2 docPartList).
+    pub gallery: Option<String>,
+    /// Category of a building block gallery control.
+    pub category: Option<String>,
 }
 
 impl ControlInfo {
@@ -2864,7 +2943,16 @@ impl ControlInfo {
             K::RepeatingSection => ("repeatingSection", vec![], None, None, None),
             K::RepeatingSectionItem => ("repeatingSectionItem", vec![], None, None, None),
             K::Group => ("group", vec![], None, None, None),
+            K::Gallery { .. } => ("buildingBlockGallery", vec![], None, None, None),
             K::Other => ("other", vec![], None, None, None),
+        };
+        let values = match &c.kind {
+            K::ComboBox(i) | K::DropDown(i) => i.iter().map(|x| x.1.clone()).collect(),
+            _ => Vec::new(),
+        };
+        let (gallery, category) = match &c.kind {
+            K::Gallery { gallery, category } => (Some(gallery.clone()), category.clone()),
+            _ => (None, None),
         };
         ControlInfo {
             kind,
@@ -2885,6 +2973,16 @@ impl ControlInfo {
             block: c.block,
             repeating: false,
             frame: Vec::new(),
+            values,
+            appearance: c.appearance.clone(),
+            color: c.color.clone(),
+            temporary: c.temporary,
+            lid: match &c.kind {
+                K::Date { lid, .. } => lid.clone(),
+                _ => None,
+            },
+            gallery,
+            category,
         }
     }
 }

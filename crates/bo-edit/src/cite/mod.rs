@@ -466,6 +466,7 @@ impl Session {
                 instr: instr.clone(),
                 cached: String::new(),
                 locked: false,
+                codes: false,
             };
             tx.insert_atoms(at, vec![(props, field)])?;
             n = tx.refresh_citations()?;

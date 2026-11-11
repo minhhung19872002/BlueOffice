@@ -1026,6 +1026,16 @@ fn layout_uncached(
             RunContent::Text(t) if styles[style].combine && !styles[style].hidden => {
                 crate::ruby::combine_object(t, &styles[style], fonts)
             }
+            // §17.16.5.17 EQ: the equation drawn by the math layout while its result shows.
+            RunContent::Field { instr, codes, .. }
+                if inp.fields.codes == *codes
+                    && instr
+                        .split_whitespace()
+                        .next()
+                        .is_some_and(|k| k.eq_ignore_ascii_case("EQ")) =>
+            {
+                bo_model::eq::to_omml(instr).and_then(|x| math_object(&x, &styles[style], fonts))
+            }
             _ => None,
         };
         let drawing = match item {
@@ -1064,8 +1074,25 @@ fn layout_uncached(
                     None,
                 )
             }
-            RunContent::Field { instr, cached, .. } => {
-                (field_text(instr, cached, inp.fields), true, None, None)
+            // An EQ field drawn as an equation.
+            RunContent::Field { .. } if math.is_some() => (
+                String::new(),
+                true,
+                math.as_ref().map(|m| m.0.clone()),
+                None,
+            ),
+            RunContent::Field {
+                instr,
+                cached,
+                codes,
+                ..
+            } => {
+                // A field toggled by itself (Shift+F9) shows the other view.
+                let f = FieldContext {
+                    codes: inp.fields.codes != *codes,
+                    ..inp.fields
+                };
+                (field_text(instr, cached, f), true, None, None)
             }
             RunContent::FormField(f) => (
                 if inp.fields.codes {

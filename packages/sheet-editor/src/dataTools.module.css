@@ -25,6 +25,22 @@
   font: inherit;
 }
 
+.selectedCol {
+  background: var(--bo-selection, #dbe8fb);
+}
+
+.colHead {
+  min-height: 24px;
+  padding: 0 4px;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
 .skipped {
   color: var(--bo-text-muted, #777);
   background: var(--bo-surface-alt, #f2f2f2);

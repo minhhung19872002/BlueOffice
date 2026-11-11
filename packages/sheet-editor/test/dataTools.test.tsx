@@ -67,6 +67,21 @@ describe('TextToColumnsDialog', () => {
         range={{ r0: 0, c0: 0, r1: 4, c1: 0 }}
       />,
     );
+    // Step 1 of 3: how the text is divided (separators by default), raw preview.
+    expect(screen.getByTestId('split-back').hasAttribute('disabled')).toBe(true);
+    expect((screen.getByTestId('split-delimited') as HTMLInputElement).checked).toBe(true);
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({
+        cmd: 'textToColumns',
+        sheet: 0,
+        range: { r0: 0, c0: 0, r1: 4, c1: 0 },
+        split: { mode: 'delimited', delimiters: [], consecutive: false, qualifier: null },
+        preview: true,
+      }),
+    );
+    fireEvent.click(screen.getByTestId('split-next'));
+    // Step 2: Tab is ticked by default.
+    expect((screen.getByTestId('split-tab') as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByTestId('split-tab'));
     fireEvent.click(screen.getByTestId('split-comma'));
     await waitFor(() =>
@@ -79,8 +94,16 @@ describe('TextToColumnsDialog', () => {
       split: { mode: 'delimited', delimiters: [','], consecutive: false, qualifier: '"' },
       preview: true,
     });
-    fireEvent.change(screen.getByTestId('split-format-1'), { target: { value: 'skip' } });
-    fireEvent.change(screen.getByTestId('split-format-2'), { target: { value: 'dmy' } });
+    // Step 3: pick a column in the preview, then its format.
+    fireEvent.click(screen.getByTestId('split-next'));
+    expect(screen.getByTestId('split-next').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('split-col-0').textContent).toBe('Automatic');
+    fireEvent.click(screen.getByTestId('split-col-1'));
+    fireEvent.click(screen.getByTestId('split-fmt-skip'));
+    expect(screen.getByTestId('split-col-1').textContent).toBe('Leave out');
+    fireEvent.click(screen.getByTestId('split-col-2'));
+    fireEvent.click(screen.getByTestId('split-fmt-date'));
+    expect(screen.getByTestId('split-col-2').textContent).toBe('Date DMY');
     fireEvent.change(screen.getByTestId('split-dest'), { target: { value: 'Data!C2' } });
     fireEvent.click(screen.getByTestId('split-ok'));
     await waitFor(() => expect(c.onClose).toHaveBeenCalled());
@@ -103,7 +126,13 @@ describe('TextToColumnsDialog', () => {
     const c = common(host);
     wrap(<TextToColumnsDialog {...c} sheets={['Sheet1']} range={{ r0: 0, c0: 0, r1: 4, c1: 1 }} />);
     fireEvent.click(screen.getByTestId('split-fixed'));
+    fireEvent.click(screen.getByTestId('split-next'));
     fireEvent.change(screen.getByTestId('split-breaks'), { target: { value: '4, x' } });
+    // Next refuses bad positions as Finish does.
+    fireEvent.click(screen.getByTestId('split-next'));
+    expect(screen.getByTestId('split-error').textContent).toBe(
+      'Enter break positions as whole numbers, e.g. 4, 12.',
+    );
     fireEvent.click(screen.getByTestId('split-ok'));
     expect(screen.getByTestId('split-error').textContent).toBe(
       'Enter break positions as whole numbers, e.g. 4, 12.',

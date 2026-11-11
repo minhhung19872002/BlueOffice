@@ -2197,3 +2197,81 @@ fn frame_styles_take_the_theme_accents() {
     assert_eq!(none.selected, hex(4));
     assert_eq!(crate::slicer::frame_colors(&wb, Some("Custom")), none);
 }
+
+#[test]
+fn getpivotdata_reads_the_report() {
+    use crate::calc::FormulaEngine;
+    use bo_model::sheet::{CellError, Formula};
+    // §18.17.7 GETPIVOTDATA over `cross()`: Bắc A 13 B 7, Nam A 1 B 5, Trung A 2; column
+    // totals A 16 B 12, grand total 28 (worked by hand from `sales()`).
+    let mut wb = cross();
+    let cases: [(&str, CellValue); 9] = [
+        (
+            "GETPIVOTDATA(\"Doanh thu\",Pivot!A1,\"Vùng\",\"Nam\",\"Loại\",\"B\")",
+            CellValue::Number(5.0),
+        ),
+        (
+            "GETPIVOTDATA(\"Sum of Doanh thu\",Pivot!A1)",
+            CellValue::Number(28.0),
+        ),
+        (
+            "GETPIVOTDATA(\"doanh thu\",Pivot!$B$3,\"Vùng\",\"BẮC\")",
+            CellValue::Number(20.0),
+        ),
+        (
+            "GETPIVOTDATA(\"Doanh thu\",Pivot!A3,\"Loại\",\"A\")",
+            CellValue::Number(16.0),
+        ),
+        (
+            "GETPIVOTDATA(\"Doanh thu\",Pivot!A3,\"Loại\",\"A\",\"Vùng\",\"Trung\")",
+            CellValue::Number(2.0),
+        ),
+        (
+            "GETPIVOTDATA(\"Doanh thu\",Pivot!A3,\"Vùng\",\"Huế\")",
+            CellValue::Error(CellError::Ref),
+        ),
+        (
+            "GETPIVOTDATA(\"Doanh thu\",Data!A1)",
+            CellValue::Error(CellError::Ref),
+        ),
+        (
+            "GETPIVOTDATA(\"Số lượng\",Pivot!A1)",
+            CellValue::Error(CellError::Ref),
+        ),
+        (
+            "GETPIVOTDATA(\"Doanh thu\",Pivot!A1,\"Vùng\")",
+            CellValue::Error(CellError::Ref),
+        ),
+    ];
+    for (i, (f, _)) in cases.iter().enumerate() {
+        wb.sheets[0].set_cell(
+            i as u32,
+            6,
+            Cell {
+                formula: Some(Formula::normal(f)),
+                ..Cell::default()
+            },
+        );
+    }
+    let check = |wb: &Workbook| {
+        for (i, (f, want)) in cases.iter().enumerate() {
+            let got = wb.sheets[0].cell(i as u32, 6).map(|c| c.value.clone());
+            assert_eq!(got.as_ref(), Some(want), "{f}");
+        }
+    };
+    crate::formula::BoFormula::new().recalculate(&mut wb);
+    check(&wb);
+    // A cache read from a file has no records loaded: they are read from the source.
+    for c in &mut wb.pivot_caches {
+        c.records.clear();
+        c.dirty = false;
+    }
+    for c in wb.sheets[0].cells.values_mut() {
+        if c.formula.is_some() {
+            c.value = CellValue::Empty;
+        }
+    }
+    crate::formula::BoFormula::new().recalculate(&mut wb);
+    check(&wb);
+    assert!(wb.pivot_caches[0].records.is_empty());
+}

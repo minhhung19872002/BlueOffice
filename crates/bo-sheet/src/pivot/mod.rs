@@ -11,6 +11,7 @@
 
 mod calc;
 pub(crate) mod compute;
+pub(crate) mod formula_info;
 mod group;
 pub mod style;
 

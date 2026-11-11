@@ -127,6 +127,49 @@ impl TableInfo {
     }
 }
 
+/// A field on the row or column axis of a pivot table report ([`PivotInfo`]).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct PivotAxisField {
+    /// Field name (the cache field, §18.10.1.3 `cacheField/@name`).
+    pub name: String,
+    /// Item captions, indexed by the item numbers of [`PivotValueCell`] paths.
+    pub items: Vec<Value>,
+}
+
+/// A value cell of a pivot table report and the items it totals.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct PivotValueCell {
+    /// Sheet row of the cell.
+    pub row: u32,
+    /// Sheet column of the cell.
+    pub col: u32,
+    /// Index into [`PivotInfo::data_fields`].
+    pub data: usize,
+    /// Row items from the outermost row field inwards (shorter for a subtotal, empty for
+    /// the grand total).
+    pub row_path: Vec<u32>,
+    /// Column items, the same way.
+    pub col_path: Vec<u32>,
+}
+
+/// A pivot table report as `GETPIVOTDATA` reads it (ECMA-376 Part 1, §18.17.7
+/// GETPIVOTDATA; the report itself is §18.10.1.73 `pivotTableDefinition`): which cell shows
+/// the value of a data field for a set of row / column items.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PivotInfo {
+    /// Cells the report occupies (report filters included).
+    pub area: Area,
+    /// Names each data field answers to: its caption (`Sum of Sales`) and the source
+    /// field name (`Sales`).
+    pub data_fields: Vec<Vec<String>>,
+    /// Row fields, outermost first.
+    pub row_fields: Vec<PivotAxisField>,
+    /// Column fields, outermost first.
+    pub col_fields: Vec<PivotAxisField>,
+    /// Every cell of the report showing a value.
+    pub cells: Vec<PivotValueCell>,
+}
+
 /// Read access to workbook data needed during evaluation.
 ///
 /// Sheet indices are 0-based; rows/columns are 0-based.
@@ -206,6 +249,11 @@ pub trait CellProvider {
     /// §18.17.7 SUBTOTAL); rows hidden by hand only count as hidden for 101-111.
     fn is_row_filtered(&self, _sheet: usize, _row: u32) -> bool {
         false
+    }
+
+    /// The pivot table report covering a cell (`GETPIVOTDATA`).
+    fn pivot_at(&self, _sheet: usize, _row: u32, _col: u32) -> Option<Arc<PivotInfo>> {
+        None
     }
 }
 

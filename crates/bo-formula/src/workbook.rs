@@ -27,7 +27,7 @@ use crate::functions::is_volatile_function;
 use crate::fxhash::{FxHashMap, FxHashSet};
 use crate::lookupindex::ExactIndex;
 use crate::parser::{parse_with, ParseError, ParseOptions};
-use crate::provider::{CellProvider, TableInfo, WebProvider};
+use crate::provider::{CellProvider, PivotInfo, TableInfo, WebProvider};
 use crate::rangeindex::RangeIndex;
 use crate::reference::{parse_a1_cell, MAX_COLS, MAX_ROWS};
 use crate::shift::{
@@ -155,6 +155,8 @@ pub struct Workbook {
     sheets: Vec<Sheet>,
     names: FxHashMap<(Option<usize>, String), Expr>,
     tables: Vec<TableInfo>,
+    /// Pivot table reports `GETPIVOTDATA` reads.
+    pivots: Vec<Arc<PivotInfo>>,
     config: EvalConfig,
     iterative: Option<IterativeConfig>,
     rng: AtomicU64,
@@ -193,6 +195,7 @@ impl Workbook {
             sheets: Vec::new(),
             names: FxHashMap::default(),
             tables: Vec::new(),
+            pivots: Vec::new(),
             config: EvalConfig::default(),
             iterative: None,
             rng: AtomicU64::new(0x2545_F491_4F6C_DD1D),
@@ -792,6 +795,12 @@ impl Workbook {
             .retain(|t| !t.name.eq_ignore_ascii_case(&table.name));
         self.tables.push(table);
         self.rebuild_dependencies();
+    }
+
+    /// Set the pivot table reports `GETPIVOTDATA` reads (replacing the previous ones).
+    /// `GETPIVOTDATA` is volatile, so the next recalculation reads the new reports.
+    pub fn set_pivots(&mut self, pivots: Vec<PivotInfo>) {
+        self.pivots = pivots.into_iter().map(Arc::new).collect();
     }
 
     /// Cells found in circular references during the last recalculations.
@@ -1929,6 +1938,13 @@ impl CellProvider for Workbook {
         })
     }
 
+    fn pivot_at(&self, sheet: usize, row: u32, col: u32) -> Option<Arc<PivotInfo>> {
+        self.pivots
+            .iter()
+            .find(|p| p.area.contains(sheet, row, col))
+            .cloned()
+    }
+
     fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {
         let id = CellId::new(sheet, row, col);
         self.spills.get(&id).copied().or_else(|| {
@@ -2003,6 +2019,10 @@ impl CellProvider for RecalcView<'_> {
 
     fn spill_area(&self, sheet: usize, row: u32, col: u32) -> Option<Area> {
         self.wb.spill_area(sheet, row, col)
+    }
+
+    fn pivot_at(&self, sheet: usize, row: u32, col: u32) -> Option<Arc<PivotInfo>> {
+        self.wb.pivot_at(sheet, row, col)
     }
 
     fn area_array(&self, area: &Area) -> Option<Arc<Array>> {

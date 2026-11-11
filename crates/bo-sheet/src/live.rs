@@ -133,6 +133,15 @@ impl LiveCalc {
         } else {
             DateSystem::Date1900
         };
+        // A new `GETPIVOTDATA` formula reads the current pivot table reports.
+        let reads_pivots = cells.iter().any(|&(r, c)| {
+            ws.cell(r, c)
+                .and_then(|cell| cell.formula.as_ref())
+                .is_some_and(|f| f.text.to_ascii_uppercase().contains("GETPIVOTDATA"))
+        });
+        if reads_pivots {
+            fw.set_pivots(crate::pivot::formula_info::formula_pivots(wb));
+        }
         for &(r, c) in cells {
             match ws.cell(r, c) {
                 Some(cell) => match &cell.formula {

@@ -267,6 +267,9 @@ pub(crate) fn load_with(
             });
         }
     }
+    if crate::pivot::formula_info::workbook_reads_pivots(wb) {
+        fw.set_pivots(crate::pivot::formula_info::formula_pivots(wb));
+    }
     for (si, ws) in wb.sheets.iter().enumerate() {
         fw.reserve_cells(si, ws.cells.len());
         // Cells covered by an array formula hold its previous results, not inputs.

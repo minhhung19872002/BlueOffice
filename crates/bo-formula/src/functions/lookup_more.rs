@@ -20,7 +20,7 @@ pub(super) const FUNCTIONS: &[FnSpec] = &[
     f("GROUPBY", 3, 8, groupby),
     f("PIVOTBY", 4, 11, pivotby),
     f("HYPERLINK", 1, 2, hyperlink),
-    f("GETPIVOTDATA", 2, VAR, getpivotdata),
+    f("GETPIVOTDATA", 2, VAR, getpivotdata).volatile(),
     f("IMAGE", 1, 5, image),
     f("RTD", 3, VAR, rtd),
 ];
@@ -679,12 +679,106 @@ fn hyperlink(ctx: &mut Ctx, args: &[Value]) -> R {
     }
 }
 
-/// `GETPIVOTDATA`: the formula engine holds no pivot-table caches; a reference that is not
-/// inside a pivot table is `#REF!` (§18.17.7 GETPIVOTDATA).
-fn getpivotdata(_ctx: &mut Ctx, args: &[Value]) -> R {
-    match &args[1] {
-        Value::Error(e) => Err(*e),
-        _ => Err(ErrorKind::Ref),
+/// Whether pivot item caption `item` is the item `wanted` names: numbers (dates) by value,
+/// text without regard to case, a number given as text by its value.
+fn pivot_item_matches(item: &Value, wanted: &Value) -> bool {
+    match (item, wanted) {
+        (Value::Number(a), Value::Number(b)) => (a - b).abs() <= 1e-9 * a.abs().max(1.0),
+        (Value::Text(a), Value::Text(b)) => a.to_lowercase() == b.to_lowercase(),
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::Number(a), Value::Text(b)) | (Value::Text(b), Value::Number(a)) => {
+            b.trim().parse::<f64>().is_ok_and(|x| x == *a)
+        }
+        _ => false,
+    }
+}
+
+/// `GETPIVOTDATA(data_field, pivot_table, [field1, item1], …)` (ECMA-376 Part 1, §18.17.7
+/// GETPIVOTDATA): the value the pivot table report containing `pivot_table` shows for the
+/// data field and items. Fields left out total over their items, so the named row (column)
+/// fields must be the outermost ones; naming none gives the grand total. `#REF!` when the
+/// reference is not in a report, a name or item is unknown, or the report does not show the
+/// combination (hidden subtotals or grand totals, filtered items).
+fn getpivotdata(ctx: &mut Ctx, args: &[Value]) -> R {
+    let area = match &args[1] {
+        Value::Ref(a) => *a,
+        Value::Refs(l) => *l.first().ok_or(ErrorKind::Ref)?,
+        Value::Error(e) => return Err(*e),
+        _ => return Err(ErrorKind::Ref),
+    };
+    let name_of = |ctx: &Ctx, v: &Value| -> Result<String, ErrorKind> {
+        match ctx.scalar(v) {
+            Value::Error(e) => Err(e),
+            v => ctx.text(&v),
+        }
+    };
+    let data_field = name_of(ctx, &args[0])?;
+    let pivot = ctx
+        .provider
+        .pivot_at(area.sheet, area.r1, area.c1)
+        .ok_or(ErrorKind::Ref)?;
+    let lower = data_field.trim().to_lowercase();
+    let data = pivot
+        .data_fields
+        .iter()
+        .position(|names| names.iter().any(|n| n.trim().to_lowercase() == lower))
+        .ok_or(ErrorKind::Ref)?;
+    let pairs = &args[2..];
+    if pairs.len() % 2 != 0 {
+        return Err(ErrorKind::Ref);
+    }
+    let mut row_sel: Vec<Option<u32>> = vec![None; pivot.row_fields.len()];
+    let mut col_sel: Vec<Option<u32>> = vec![None; pivot.col_fields.len()];
+    for pair in pairs.chunks(2) {
+        let field = name_of(ctx, &pair[0])?.trim().to_lowercase();
+        let wanted = match ctx.scalar(&pair[1]) {
+            Value::Error(e) => return Err(e),
+            v => v,
+        };
+        let mut found = false;
+        for (fields, sel) in [
+            (&pivot.row_fields, &mut row_sel),
+            (&pivot.col_fields, &mut col_sel),
+        ] {
+            if let Some(fi) = fields
+                .iter()
+                .position(|f| f.name.trim().to_lowercase() == field)
+            {
+                let item = fields[fi]
+                    .items
+                    .iter()
+                    .position(|it| pivot_item_matches(it, &wanted))
+                    .ok_or(ErrorKind::Ref)?;
+                sel[fi] = Some(item as u32);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Err(ErrorKind::Ref);
+        }
+    }
+    // The named fields of an axis must be its outermost ones (a report shows no total
+    // over an outer field for one inner item).
+    let path = |sel: &[Option<u32>]| -> Result<Vec<u32>, ErrorKind> {
+        let n = sel.iter().take_while(|s| s.is_some()).count();
+        if sel[n..].iter().any(Option::is_some) {
+            return Err(ErrorKind::Ref);
+        }
+        Ok(sel[..n].iter().flatten().copied().collect())
+    };
+    let (rp, cp) = (path(&row_sel)?, path(&col_sel)?);
+    let cell = pivot
+        .cells
+        .iter()
+        .find(|c| c.data == data && c.row_path == rp && c.col_path == cp)
+        .ok_or(ErrorKind::Ref)?;
+    match ctx
+        .provider
+        .cell_value(pivot.area.sheet, cell.row, cell.col)
+    {
+        Value::Error(e) => Err(e),
+        v => Ok(v),
     }
 }
 

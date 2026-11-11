@@ -268,6 +268,11 @@ pub struct Layout {
     pub row_items: Vec<PivotAxisItem>,
     /// Column axis items written as `colItems` (§18.10.1.13).
     pub col_items: Vec<PivotAxisItem>,
+    /// Body rows showing values with the row item path each one totals (a subtotal names
+    /// its group, the grand total nothing).
+    pub value_rows: Vec<(u32, Vec<u32>)>,
+    /// The column item path of every entry of [`Layout::data_cols`].
+    pub col_keys: Vec<Vec<u32>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -480,6 +485,12 @@ impl<'a> Engine<'a> {
                 }
             }
         }
+        // Fields a slicer filters look their items up as well.
+        for f in &spec.slicer_fields {
+            if let Some(x) = indexed.get_mut(*f as usize) {
+                *x = true;
+            }
+        }
         // Over the data model, hidden items of any field filter the records.
         if model.is_some() {
             for (i, o) in spec.fields.iter().enumerate() {
@@ -688,11 +699,28 @@ impl<'a> Engine<'a> {
                 .copied()
                 .collect()
         };
+        // Fields a slicer filters hide their items wherever the field is.
+        let mut all = all;
+        for f in &self.spec.slicer_fields {
+            if !all.contains(f) && (*f as usize) < self.cache.fields.len() {
+                all.push(*f);
+            }
+        }
         let hidden: Vec<(u32, HashSet<u32>)> = all
             .iter()
             .filter_map(|f| {
                 let h = &self.spec.field(*f).hidden;
                 (!h.is_empty()).then(|| (*f, key_set(*f, h)))
+            })
+            .collect();
+        // Date filters on a field that is on no axis or whose items are group captions
+        // (a timeline over a grouped date field) compare each record's own date.
+        let record_dates: Vec<&PivotFieldFilter> = self
+            .spec
+            .field_filters
+            .iter()
+            .filter(|x| {
+                x.kind.is_date() && (self.grouped(x.field) || self.axis_of(x.field).is_none())
             })
             .collect();
         let mut out = Vec::with_capacity(self.cache.records.len());
@@ -710,6 +738,12 @@ impl<'a> Engine<'a> {
                 .iter()
                 .any(|(f, s)| s.contains(&self.item_memo(rec, *f, &mut memo)))
             {
+                continue;
+            }
+            if record_dates.iter().any(|flt| {
+                !group::number_of(self.value(rec, flt.field), self.sys)
+                    .is_some_and(|d| date_matches(flt, d, self.labels.today, self.sys))
+            }) {
                 continue;
             }
             let mut key = |fields: &[u32]| -> Vec<u32> {
@@ -1495,6 +1529,35 @@ impl<'a> Engine<'a> {
 
     /// Compute the report.
     pub(crate) fn layout(mut self) -> Result<Layout, String> {
+        self.build().map(|(lay, _)| lay)
+    }
+
+    /// The cache records behind the value cell at body row `row`, column `col` of the report
+    /// (a subtotal or grand total cell: every record it totals).
+    pub(crate) fn detail(mut self, row: u32, col: u32) -> Result<Vec<usize>, String> {
+        let (lay, paths) = self.build()?;
+        let no_cell = "select a value cell of the pivot table";
+        let rk = lay
+            .value_rows
+            .iter()
+            .find(|(r, _)| *r == row)
+            .map(|(_, k)| k)
+            .ok_or(no_cell)?;
+        let ck = lay
+            .data_cols
+            .iter()
+            .position(|(c, _)| *c == col)
+            .and_then(|i| lay.col_keys.get(i))
+            .ok_or(no_cell)?;
+        Ok(paths
+            .iter()
+            .filter(|p| p.row.starts_with(rk) && p.col.starts_with(ck))
+            .map(|p| p.rec)
+            .collect())
+    }
+
+    /// The report and the records it totals.
+    fn build(&mut self) -> Result<(Layout, Vec<Path>), String> {
         let mut paths = self.paths();
         self.apply_field_filters(&mut paths);
         self.aggregate(&paths);
@@ -1808,6 +1871,7 @@ impl<'a> Engine<'a> {
             if let Some(vi) = line_vi {
                 out.data_rows.push((row, *vi));
             }
+            out.value_rows.push((row, line.key.clone()));
             for (x, (e, vi)) in columns.iter().enumerate() {
                 let ck = &entries[*e].1;
                 let v = self.shown(&line.key, ck, line_vi.unwrap_or(*vi));
@@ -1820,6 +1884,7 @@ impl<'a> Engine<'a> {
             .map(|(x, (_, vi))| (lc + x as u32, *vi))
             .collect();
         out.col_kinds = columns.iter().map(|(e, _)| entries[*e].0).collect();
+        out.col_keys = columns.iter().map(|(e, _)| entries[*e].1.clone()).collect();
         // rowItems (§18.10.1.84): one `i` per body line; with the values on
         // the rows the data field index ends each line's path (`i`).
         out.row_items = rows
@@ -1880,6 +1945,6 @@ impl<'a> Engine<'a> {
                 }
             })
             .collect();
-        Ok(out)
+        Ok((out, paths))
     }
 }

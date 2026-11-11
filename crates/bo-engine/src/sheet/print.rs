@@ -372,12 +372,35 @@ fn print_areas(wb: &Workbook, sheet: usize, ws: &Worksheet) -> Vec<CellRange> {
         }
     }
     let mut r = ws.used_range();
-    for c in &ws.charts {
-        let to =
-            c.to.unwrap_or(CellRef::new(c.from.row + 15, c.from.col + 8));
+    // Charts, slicers and timelines: the cells under their anchors.
+    let frames = ws
+        .charts
+        .iter()
+        .map(|c| {
+            (
+                c.from,
+                c.to.unwrap_or(CellRef::new(c.from.row + 15, c.from.col + 8)),
+            )
+        })
+        .chain(ws.slicers.iter().map(|s| {
+            (
+                s.from,
+                s.to.unwrap_or(CellRef::new(s.from.row + 10, s.from.col + 2)),
+            )
+        }))
+        .chain(ws.timelines.iter().map(|t| {
+            (
+                t.from,
+                t.to.unwrap_or(CellRef::new(t.from.row + 7, t.from.col + 6)),
+            )
+        }));
+    for (from, to) in frames {
         let cr = CellRange::new(
-            c.from,
-            CellRef::new(to.row.saturating_sub(1), to.col.saturating_sub(1)),
+            from,
+            CellRef::new(
+                to.row.saturating_sub(1).max(from.row),
+                to.col.saturating_sub(1).max(from.col),
+            ),
         );
         r = Some(match r {
             Some(u) => CellRange::new(
@@ -1009,6 +1032,7 @@ impl SheetEngine {
             headers: Some(false),
             ignore_frozen: true,
             charts: !st.draft,
+            frames: !st.draft,
             drawings: if st.draft {
                 std::sync::Arc::default()
             } else {

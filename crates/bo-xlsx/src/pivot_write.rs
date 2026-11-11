@@ -44,6 +44,11 @@ const X14_NS: &str = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/m
 /// `ext/@uri` of `x14:pivotField` and `x14:dataField` ([MS-XLSX] extLst extension URIs).
 const EXT_PIVOT_FIELD: &str = "{2946ED86-A175-432a-8AC1-64E0C546D7DE}";
 const EXT_DATA_FIELD: &str = "{E15A36E0-9728-4e99-A89B-3F7291B0FE68}";
+/// `ext/@uri` of `x14:pivotCacheDefinition` ([MS-XLSX] extLst extension URIs).
+const EXT_CACHE_DEFINITION: &str = "{725AE2AE-9491-48be-B2B4-4EB974FC3084}";
+/// `ext/@uri` of `x15:timelinePivotCacheDefinition` ([MS-XLSX] extLst extension URIs).
+const EXT_TIMELINE_CACHE_DEFINITION: &str = "{A2CB5862-8E78-49c6-8D9D-AF26E26ADB89}";
+const X15_NS: &str = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main";
 const XML_DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n";
 
 /// Index of each shared item of a field by grouping key.
@@ -282,8 +287,75 @@ pub fn cache_definition_xml(cache: &PivotCache, records_rid: &str, date1904: boo
     }
     out.push_str("</cacheFields>");
     calculated_items_xml(&mut out, cache);
+    out.push_str(&cache_ext_lst(cache));
     out.push_str("</pivotCacheDefinition>");
     out
+}
+
+/// The `ext` elements of [`cache_ext_lst`] (`with_id`, `with_timeline`: which ones).
+fn cache_exts(cache: &PivotCache, with_id: bool, with_timeline: bool) -> String {
+    let mut out = String::new();
+    if let Some(id) = cache.ext_id.filter(|_| with_id) {
+        let _ = write!(
+            out,
+            "<ext uri=\"{EXT_CACHE_DEFINITION}\" xmlns:x14=\"{X14_NS}\"><x14:pivotCacheDefinition pivotCacheId=\"{id}\"/></ext>"
+        );
+    }
+    if cache.timeline_data && with_timeline {
+        let _ = write!(
+            out,
+            "<ext uri=\"{EXT_TIMELINE_CACHE_DEFINITION}\" xmlns:x15=\"{X15_NS}\"><x15:timelinePivotCacheDefinition timelineData=\"1\"/></ext>"
+        );
+    }
+    out
+}
+
+/// The `extLst` of a cache definition ([MS-XLSX] pivot cache definition extensions):
+/// `x14:pivotCacheDefinition/@pivotCacheId`, by which slicer and timeline caches name the
+/// cache, and `x15:timelinePivotCacheDefinition` for a cache with timelines. Empty when the
+/// cache has neither.
+#[must_use]
+pub fn cache_ext_lst(cache: &PivotCache) -> String {
+    let exts = cache_exts(cache, true, true);
+    if exts.is_empty() {
+        return exts;
+    }
+    format!("<extLst>{exts}</extLst>")
+}
+
+/// A cache definition part kept as read, with the extensions of [`cache_ext_lst`] it lacks
+/// (a slicer or timeline was added to a cache that had none). `None`: nothing to add.
+#[must_use]
+pub fn patch_cache_ext(xml: &str, cache: &PivotCache) -> Option<String> {
+    cache.ext_id?;
+    let add = cache_exts(
+        cache,
+        !xml.contains("pivotCacheId="),
+        !xml.contains("timelinePivotCacheDefinition"),
+    );
+    if add.is_empty() {
+        return None;
+    }
+    // The root's own `extLst` is its last child; without one it is added before the end tag.
+    let end = xml.rfind("</")?;
+    let root_close = &xml[end..];
+    let prefix = root_close
+        .trim_start_matches("</")
+        .split_once(':')
+        .map_or(String::new(), |(p, _)| format!("{p}:"));
+    // The new `ext` elements take the prefix of the part's main namespace.
+    let add = add
+        .replace("<ext ", &format!("<{prefix}ext "))
+        .replace("</ext>", &format!("</{prefix}ext>"));
+    let body = &xml[..end];
+    let own_ext = format!("</{prefix}extLst>");
+    if body.trim_end().ends_with(&own_ext) {
+        let k = body.rfind(&own_ext)?;
+        return Some(format!("{}{add}{}", &xml[..k], &xml[k..]));
+    }
+    Some(format!(
+        "{body}<{prefix}extLst>{add}</{prefix}extLst>{root_close}"
+    ))
 }
 
 /// `calculatedItems` (§18.10.1.9): each `calculatedItem` (§18.10.1.8) names
@@ -592,7 +664,9 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
             a(&mut out, "subtotalTop", "0");
         }
         let values = axis_values(f);
-        let has_items = axis.is_some() && !values.is_empty();
+        // A field outside the report keeps its items when some are hidden (a slicer filters
+        // it): `item/@h` is where the hidden items are stored.
+        let has_items = (axis.is_some() || !opts.hidden.is_empty()) && !values.is_empty();
         let has_sort = opts.sort_by.is_some();
         if !has_items && !has_sort && !opts.repeat_labels {
             out.push_str("/>");

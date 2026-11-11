@@ -45,6 +45,7 @@ pub mod query_cmd;
 mod quick_cmd;
 mod scenario_cmd;
 mod security_cmd;
+mod slicer_cmd;
 mod smartart_cmd;
 mod solver_cmd;
 mod sortfilter_cmd;

@@ -502,6 +502,13 @@ export function PivotPanel({
         </span>
       </div>
       <p className={styles.hint}>{pivot.name}</p>
+      {(pivot.sharedWith?.length ?? 0) > 0 && (
+        <p className={styles.hint} data-testid="pivot-shared-cache">
+          {t('sheetSlicer.sharedCache', {
+            names: (pivot.sharedWith ?? []).map((p) => `${p.name} (${p.sheetName})`).join(', '),
+          })}
+        </p>
+      )}
       <p className={styles.hint}>{t('sheetEditor.pivot.chooseFields')}</p>
       <div
         className={styles.pivotFields}

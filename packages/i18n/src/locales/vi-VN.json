@@ -5464,6 +5464,50 @@
       "custom": "Công thức khác…"
     }
   },
+  "sheetSlicer": {
+    "insertTimeline": "Timeline",
+    "insertSlicers": "Chèn slicer",
+    "insertTimelines": "Chèn timeline",
+    "fields": "Trường",
+    "pickField": "Chọn ít nhất một trường.",
+    "noFields": "Bảng tổng hợp không có trường nào dùng được cho slicer.",
+    "noDateFields": "Bảng tổng hợp không có trường ngày nào.",
+    "settings": "Tuỳ chọn",
+    "delete": "Xoá",
+    "frameOptions": "Tuỳ chọn slicer / timeline",
+    "frameDelete": "Xoá slicer / timeline",
+    "resize": "Kéo để đổi kích thước",
+    "slicerOptions": "Tuỳ chọn slicer",
+    "timelineOptions": "Tuỳ chọn timeline",
+    "caption": "Tiêu đề",
+    "columns": "Số cột",
+    "badColumns": "Số cột phải từ 1 đến 50.",
+    "styleLabel": "Kiểu",
+    "style": {
+      "light": "Nhạt {{n}}",
+      "dark": "Đậm {{n}}",
+      "other": "Xám {{n}}",
+      "none": "(không có)"
+    },
+    "connections": "Kết nối báo cáo",
+    "needConnection": "Phải nối với ít nhất một bảng tổng hợp.",
+    "level": "Cấp thời gian",
+    "zoomIn": "Phóng to (cấp nhỏ hơn)",
+    "zoomOut": "Thu nhỏ (cấp lớn hơn)",
+    "allPeriods": "Mọi kỳ",
+    "showDetails": "Hiện chi tiết",
+    "detailSheet": "Chi tiết",
+    "detailShown": "Đã liệt kê {{count}} dòng dữ liệu nguồn trên trang “{{name}}”.",
+    "sharedCache": "Dùng chung dữ liệu với: {{names}}",
+    "chartField": {
+      "filter": "Bộ lọc báo cáo: {{name}}",
+      "axis": "Trường trục: {{name}}",
+      "legend": "Trường chú giải: {{name}}"
+    },
+    "chartItems": "Các mục của {{name}}",
+    "selectAll": "(Chọn tất cả)",
+    "keepOne": "Giữ lại ít nhất một mục."
+  },
   "pictureTools": {
     "tab": "Định dạng ảnh",
     "groupAdjust": "Chỉnh ảnh",

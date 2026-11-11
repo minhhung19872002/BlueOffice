@@ -262,6 +262,11 @@ pub(crate) fn read_cache_definition(pkg: &Package, cache: &mut PivotCache, date1
             });
         }
     }
+    // [MS-XLSX] extensions of the cache definition: the id slicer and timeline caches use,
+    // and the flag of a cache with timelines.
+    cache.ext_id = ext_child(&dom, "pivotCacheDefinition").and_then(|x| num(x, "pivotCacheId"));
+    cache.timeline_data = ext_child(&dom, "timelinePivotCacheDefinition")
+        .is_some_and(|x| flag(x, "timelineData", false));
 }
 
 /// Items of a field as an axis shows them: its group captions when grouped,

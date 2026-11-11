@@ -1820,3 +1820,380 @@ fn nested_subtotals_equal_naive_sums_and_refresh() {
     refresh_pivot(&mut wb, 1, 0, &labels).unwrap();
     check(&wb);
 }
+
+// ------------------------------------------------- drill-down, shared caches, slicers, timelines
+
+/// Rows × columns report of the small table at Pivot!A1:
+/// ```text
+///        A        B   C   D
+/// 1  Sum of …  Loại
+/// 2  Vùng      A   B   Grand Total
+/// 3  Bắc       13  7   20
+/// 4  Nam       1   5   6
+/// 5  Trung     2       2
+/// 6  Grand T.  16  12  28
+/// ```
+fn cross() -> Workbook {
+    let mut wb = sales();
+    let spec = PivotSpec {
+        rows: vec![0],
+        cols: vec![1],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    create_pivot(
+        &mut wb,
+        0,
+        src(),
+        1,
+        CellRef::new(0, 0),
+        &spec,
+        &PivotLabels::default(),
+    )
+    .unwrap();
+    wb
+}
+
+/// The detail sheet as rows of texts.
+fn sheet_rows(ws: &Worksheet) -> Vec<Vec<String>> {
+    let last = ws.used_range().unwrap().last;
+    (0..=last.row)
+        .map(|r| {
+            (0..=last.col)
+                .map(|c| {
+                    ws.cell(r, c)
+                        .map(|x| value_text(&x.value))
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+// Double-clicking a value cell lists the source records it summarises (the records are read
+// off the source table in `sales`, in source order).
+#[test]
+fn drill_down_lists_the_records_behind_a_cell() {
+    let mut wb = cross();
+    let labels = PivotLabels::default();
+    {
+        let ws = &wb.sheets[1];
+        assert_eq!(text(ws, "A3"), "Bắc");
+        assert_eq!(text(ws, "B2"), "A");
+        assert_eq!(text(ws, "B3"), "13");
+        assert_eq!(text(ws, "D6"), "28");
+    }
+    // Bắc × A: the records (Bắc, A, 10) and (bắc, A, 3) — items compare without case.
+    let at = drill_down(&mut wb, 1, 2, 1, "Chi tiết", &labels).unwrap();
+    assert_eq!(at, 2);
+    assert_eq!(wb.sheets[at].name, "Chi tiết1");
+    assert_eq!(
+        sheet_rows(&wb.sheets[at]),
+        [
+            ["Vùng", "Loại", "Doanh thu"],
+            ["Bắc", "A", "10"],
+            ["bắc", "A", "3"]
+        ]
+    );
+    // The header row is bold.
+    let head = wb.sheets[at].cell(0, 0).unwrap();
+    let font = wb
+        .styles
+        .xf(head.style)
+        .and_then(|x| wb.styles.fonts.get(x.font_id as usize))
+        .unwrap();
+    assert!(font.bold);
+    // A row total (Bắc): three records; a column total (B): two; the grand total: all six.
+    let rows_of = |wb: &mut Workbook, r: u32, c: u32| {
+        let at = drill_down(wb, 1, r, c, "Chi tiết", &labels).unwrap();
+        sheet_rows(&wb.sheets[at])[1..].to_vec()
+    };
+    assert_eq!(
+        rows_of(&mut wb, 2, 3),
+        [["Bắc", "A", "10"], ["Bắc", "B", "7"], ["bắc", "A", "3"]]
+    );
+    assert_eq!(
+        rows_of(&mut wb, 5, 2),
+        [["Nam", "B", "5"], ["Bắc", "B", "7"]]
+    );
+    assert_eq!(rows_of(&mut wb, 5, 3).len(), 6);
+    assert_eq!(wb.sheets.last().unwrap().name, "Chi tiết4");
+    // Labels, headers, empty value cells and cells outside the report have no detail.
+    for (r, c) in [(2, 0), (0, 1), (1, 1), (9, 9)] {
+        assert!(drill_down(&mut wb, 1, r, c, "Chi tiết", &labels).is_err());
+    }
+    let err = drill_down(&mut wb, 1, 4, 2, "Chi tiết", &labels).unwrap_err();
+    assert_eq!(err, "the cell has no source records");
+}
+
+// Hidden items and report filters narrow the detail the same way they narrow the report.
+#[test]
+fn drill_down_follows_the_filters_of_the_report() {
+    let mut wb = sales();
+    let labels = PivotLabels::default();
+    let spec = PivotSpec {
+        rows: vec![0],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        filters: vec![PivotFilter {
+            field: 1,
+            selected: vec![CellValue::Text("A".into())],
+        }],
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, src(), 1, CellRef::new(0, 0), &spec, &labels).unwrap();
+    // Report filter on rows 1–2, the body from row 3: header, Bắc, Nam, Trung, Grand Total.
+    let ws = &wb.sheets[1];
+    let body = ws.pivots[0].location;
+    assert_eq!(body.first, CellRef::new(2, 0));
+    assert_eq!(text(ws, "A7"), "Grand Total");
+    assert_eq!(text(ws, "B7"), "16");
+    let at = drill_down(&mut wb, 1, 6, 1, "Detail", &labels).unwrap();
+    assert_eq!(
+        sheet_rows(&wb.sheets[at])[1..],
+        [
+            ["Bắc", "A", "10"],
+            ["Trung", "A", "2"],
+            ["Nam", "A", "1"],
+            ["bắc", "A", "3"]
+        ]
+    );
+}
+
+// §18.10.1.67: pivot tables over the same source range reference one cache definition.
+#[test]
+fn pivots_over_the_same_source_share_a_cache() {
+    let mut wb = cross();
+    let labels = PivotLabels::default();
+    let by_kind = PivotSpec {
+        rows: vec![1],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    assert_eq!(shareable_cache(&wb, 0, src()), Some((1, true)));
+    create_pivot(&mut wb, 0, src(), 1, CellRef::new(9, 0), &by_kind, &labels).unwrap();
+    assert_eq!(wb.pivot_caches.len(), 1);
+    let ids: Vec<u32> = wb.sheets[1].pivots.iter().map(|p| p.cache_id).collect();
+    assert_eq!(ids, [1, 1]);
+    // A10 "Loại" / A11 A 16 / A12 B 12 / A13 Grand Total 28.
+    assert_eq!(text(&wb.sheets[1], "B11"), "16");
+    // Another range gets its own cache.
+    let part = CellRange::parse("A1:C5").unwrap();
+    assert_eq!(shareable_cache(&wb, 0, part), None);
+    create_pivot(&mut wb, 0, part, 1, CellRef::new(16, 0), &by_kind, &labels).unwrap();
+    assert_eq!(wb.pivot_caches.len(), 2);
+    // Refreshing one pivot table of the shared cache re-renders the other one too:
+    // (Bắc, A) 10 → 110 raises Bắc × A to 113 and the total of A to 116.
+    wb.sheets[0].set_cell(1, 2, Cell::new(CellValue::Number(110.0)));
+    refresh_pivot(&mut wb, 1, 0, &labels).unwrap();
+    assert_eq!(text(&wb.sheets[1], "B3"), "113");
+    assert_eq!(text(&wb.sheets[1], "B11"), "116");
+    // The third pivot table keeps its own snapshot (A1:C5: A = 10 + 2).
+    assert_eq!(text(&wb.sheets[1], "B18"), "12");
+    // Deleting one user keeps the cache for the other.
+    delete_pivot(&mut wb, 1, 0).unwrap();
+    assert!(wb.pivot_caches.iter().any(|c| c.cache_id == 1));
+    // A renamed source column: the shared cache is refreshed before a new pivot table uses
+    // it, so that the field indexes of the new one are those of the source columns.
+    wb.sheets[0].set_cell(0, 1, Cell::new(CellValue::Text("Nhóm".into())));
+    assert_eq!(shareable_cache(&wb, 0, src()), Some((1, false)));
+    create_pivot(&mut wb, 0, src(), 1, CellRef::new(24, 0), &by_kind, &labels).unwrap();
+    assert_eq!(wb.pivot_caches[0].fields[1].name, "Nhóm");
+    assert_eq!(text(&wb.sheets[1], "A25"), "Nhóm");
+    assert_eq!(text(&wb.sheets[1], "B26"), "116");
+    assert_eq!(shareable_cache(&wb, 0, src()), Some((1, true)));
+}
+
+// A slicer filters its field wherever it is — here "Vùng" is not in the report at all — and
+// every connected pivot table follows; expected sums are read off the source table.
+#[test]
+fn pivot_slicer_filters_a_field_outside_the_report() {
+    let mut wb = sales();
+    let labels = PivotLabels::default();
+    let locale = crate::numfmt::Locale::VI_VN;
+    let by_kind = PivotSpec {
+        rows: vec![1],
+        values: vec![sum_of(2, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, src(), 1, CellRef::new(0, 0), &by_kind, &labels).unwrap();
+    create_pivot(&mut wb, 0, src(), 1, CellRef::new(9, 0), &by_kind, &labels).unwrap();
+    let first = wb.sheets[1].pivots[0].name.clone();
+    let second = wb.sheets[1].pivots[1].name.clone();
+    // A1 "Loại" / A2 A 16 / A3 B 12 / A4 Grand Total 28.
+    assert_eq!(text(&wb.sheets[1], "B4"), "28");
+    let i = crate::slicer::insert_pivot_slicer(&mut wb, 1, 1, 0, 0, CellRef::new(0, 4), &labels)
+        .unwrap();
+    assert_eq!(wb.pivot_caches[0].ext_id, Some(1));
+    let s = &wb.sheets[1].slicers[i];
+    assert_eq!(
+        (s.caption.as_str(), s.cache.as_str()),
+        ("Vùng", "Slicer_Vùng")
+    );
+    assert!(wb.defined_names.iter().any(|d| d.name == "Slicer_Vùng"));
+    let shown = |wb: &Workbook| -> Vec<(String, bool)> {
+        crate::slicer::items(wb, 1, i, &locale)
+            .into_iter()
+            .map(|x| (x.label, x.selected))
+            .collect()
+    };
+    assert_eq!(
+        shown(&wb),
+        [
+            ("Bắc".to_owned(), true),
+            ("Nam".to_owned(), true),
+            ("Trung".to_owned(), true)
+        ]
+    );
+    // Nam only: (Nam, B, 5) and (Nam, A, 1).
+    crate::slicer::select(&mut wb, 1, i, &["Nam".into()], &locale, &labels).unwrap();
+    assert_eq!(text(&wb.sheets[1], "B2"), "1");
+    assert_eq!(text(&wb.sheets[1], "B3"), "5");
+    assert_eq!(text(&wb.sheets[1], "B4"), "6");
+    // The second pivot table is not connected yet.
+    assert_eq!(text(&wb.sheets[1], "B13"), "28");
+    let list = crate::slicer::connectable(&wb, std::slice::from_ref(&first));
+    assert_eq!(
+        list.iter().map(|x| (x.2.as_str(), x.3)).collect::<Vec<_>>(),
+        [(first.as_str(), true), (second.as_str(), false)]
+    );
+    crate::slicer::connect(&mut wb, 1, i, &[first.clone(), second.clone()], &labels).unwrap();
+    assert_eq!(text(&wb.sheets[1], "B13"), "6");
+    // Disconnecting the first one shows all of its data again; the second stays filtered.
+    crate::slicer::connect(&mut wb, 1, i, std::slice::from_ref(&second), &labels).unwrap();
+    assert_eq!(text(&wb.sheets[1], "B4"), "28");
+    assert_eq!(text(&wb.sheets[1], "B13"), "6");
+    assert!(crate::slicer::connect(&mut wb, 1, i, &[], &labels).is_err());
+    assert!(crate::slicer::connect(&mut wb, 1, i, &["Nope".into()], &labels).is_err());
+    // A refresh indexes the items afresh: a new region sorts first, the choice stays "Nam"
+    // and the new item is selected (it was not filtered out).
+    wb.sheets[0].set_cell(4, 0, Cell::new(CellValue::Text("An Giang".into())));
+    refresh_pivot(&mut wb, 1, 1, &labels).unwrap();
+    assert_eq!(
+        shown(&wb),
+        [
+            ("An Giang".to_owned(), true),
+            ("Bắc".to_owned(), false),
+            ("Nam".to_owned(), true)
+        ]
+    );
+    // Clearing the slicer shows everything in the connected pivot table.
+    crate::slicer::select(&mut wb, 1, i, &[], &locale, &labels).unwrap();
+    assert_eq!(text(&wb.sheets[1], "B13"), "28");
+    // A field the cache does not have takes no slicer.
+    assert!(
+        crate::slicer::insert_pivot_slicer(&mut wb, 1, 1, 0, 9, CellRef::new(0, 8), &labels)
+            .is_err()
+    );
+}
+
+/// [`dated`] with the dates formatted as dates (§18.8.30 built-in format 14).
+fn dated_formatted() -> Workbook {
+    let mut wb = dated();
+    let xf = wb.styles.add_xf(CellXf {
+        num_fmt_id: 14,
+        xf_id: Some(0),
+        apply_number_format: Some(true),
+        ..CellXf::default()
+    });
+    for r in 1..=5 {
+        if let Some(c) = wb.sheets[0].cells.get_mut(&(r, 0)) {
+            c.style = xf;
+        }
+    }
+    wb
+}
+
+// A timeline filters the records by their dates also when the date field is grouped (its
+// items are then captions) or is not in the report. Dates and amounts: 2024-01-15 → 1,
+// 2024-02-10 → 2, 2024-02-25 → 4, 2024-03-05 → 8, 2025-01-20 → 16.
+#[test]
+fn timeline_filters_grouped_and_unplaced_date_fields() {
+    let labels = PivotLabels::default();
+    let r = CellRange::parse("A1:B6").unwrap();
+    let total = |wb: &Workbook| {
+        let ws = &wb.sheets[1];
+        let last = ws.pivots[0].location.last;
+        ws.cell(last.row, last.col)
+            .map(|c| value_text(&c.value))
+            .unwrap_or_default()
+    };
+    // February 2024 is serials 45323 (02-01) to 45351 (02-29).
+    let feb = Some((45323.0, 45351.0));
+    for grouped in [true, false] {
+        let mut wb = dated_formatted();
+        let spec = PivotSpec {
+            rows: if grouped { vec![0] } else { Vec::new() },
+            values: vec![sum_of(1, PivotFunction::Sum)],
+            ..PivotSpec::default()
+        };
+        create_pivot(&mut wb, 0, r, 1, CellRef::new(0, 0), &spec, &labels).unwrap();
+        if grouped {
+            let req = GroupRequest::Dates {
+                years: true,
+                quarters: false,
+                months: true,
+                days: false,
+            };
+            group_field(&mut wb, 1, 0, 0, &req, &labels).unwrap();
+        }
+        assert_eq!(total(&wb), "31", "grouped: {grouped}");
+        assert_eq!(crate::timeline::date_fields(&wb, 1, 0), [0]);
+        let i = crate::timeline::insert_timeline(&mut wb, 1, 1, 0, 0, CellRef::new(0, 4), &labels)
+            .unwrap();
+        let t = &wb.sheets[1].timelines[i];
+        assert_eq!((t.cache.as_str(), t.level), ("NativeTimeline_Ngày", 2));
+        assert!(wb.pivot_caches[0].timeline_data);
+        assert_eq!(wb.pivot_caches[0].ext_id, Some(1));
+        // Months from January 2024 to January 2025.
+        let p = crate::timeline::periods(&wb, 1, i, false);
+        assert_eq!(p.len(), 13);
+        assert_eq!(p[1].label, "02/2024");
+        assert_eq!((p[1].start, p[1].end), (45323.0, 45351.0));
+        crate::timeline::select(&mut wb, 1, i, feb, &labels).unwrap();
+        assert_eq!(total(&wb), "6", "grouped: {grouped}");
+        // Years: two periods; the selection covers 2024.
+        crate::timeline::set_options(&mut wb, 1, i, Some(0), None, None).unwrap();
+        let years = crate::timeline::periods(&wb, 1, i, false);
+        assert_eq!(
+            years
+                .iter()
+                .map(|x| (x.label.as_str(), x.selected))
+                .collect::<Vec<_>>(),
+            [("2024", true), ("2025", false)]
+        );
+        assert!(crate::timeline::set_options(&mut wb, 1, i, Some(4), None, None).is_err());
+        crate::timeline::select(&mut wb, 1, i, None, &labels).unwrap();
+        assert_eq!(total(&wb), "31", "grouped: {grouped}");
+    }
+    // The amount column holds no dates.
+    let mut wb = dated_formatted();
+    let spec = PivotSpec {
+        values: vec![sum_of(1, PivotFunction::Sum)],
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, r, 1, CellRef::new(0, 0), &spec, &labels).unwrap();
+    let err = crate::timeline::insert_timeline(&mut wb, 1, 1, 0, 1, CellRef::new(0, 4), &labels)
+        .unwrap_err();
+    assert_eq!(err, "a timeline needs a date field");
+}
+
+// The colours of the built-in style names come from the theme accents (indexes 4–9).
+#[test]
+fn frame_styles_take_the_theme_accents() {
+    let wb = Workbook::new();
+    let hex = |i: u32| {
+        let (r, g, b) = crate::color::theme_rgb(i, wb.theme.as_ref());
+        format!("#{r:02X}{g:02X}{b:02X}")
+    };
+    let light2 = crate::slicer::frame_colors(&wb, Some("SlicerStyleLight2"));
+    assert_eq!(light2.selected, hex(5));
+    assert_eq!(light2.header, "#FFFFFF");
+    let dark6 = crate::slicer::frame_colors(&wb, Some("SlicerStyleDark6"));
+    assert_eq!((dark6.selected.clone(), dark6.header), (hex(9), hex(9)));
+    let time = crate::slicer::frame_colors(&wb, Some("TimeSlicerStyleLight3"));
+    assert_eq!(time.selected, hex(6));
+    // No style, or one this build does not know: the first light style.
+    let none = crate::slicer::frame_colors(&wb, None);
+    assert_eq!(none.selected, hex(4));
+    assert_eq!(crate::slicer::frame_colors(&wb, Some("Custom")), none);
+}

@@ -53,6 +53,9 @@ pub struct RenderOptions {
     pub now: Option<f64>,
     /// Draw charts placed on the sheet.
     pub charts: bool,
+    /// Draw the slicers and timelines of the sheet ([MS-XLSX] slicer and timeline frames).
+    /// Off on screen, where the editor shows them as controls; on for printing and PDF.
+    pub frames: bool,
     /// Lay the sheet out without its frozen panes (printing).
     pub ignore_frozen: bool,
     /// Pre-drawn SmartArt fallbacks by drawing part name ([`DrawingOverlay`]),
@@ -96,6 +99,7 @@ impl Default for RenderOptions {
             header_font_size: 9.0,
             now: None,
             charts: true,
+            frames: false,
             ignore_frozen: false,
             drawings: std::sync::Arc::default(),
             error_text: None,
@@ -463,7 +467,169 @@ impl Renderer<'_> {
             self.diagrams(p);
             self.charts(p);
         }
+        if self.opts.frames {
+            self.frames(p);
+        }
         self.out.push(Command::PopClip);
+    }
+
+    /// Slicers and timelines as static pictures of their state ([MS-XLSX] `sle:slicer` /
+    /// `tsle:timeslicer` frames over the cells of their anchor, §20.5.2.33): the header, then
+    /// the item buttons or the strip of periods, selected ones filled with the style's colour.
+    fn frames(&mut self, p: &PaneRegion) {
+        // (anchor, caption, colours, cells): cells are (label, selected) laid out in
+        // `columns` columns (a slicer) or in one row (a timeline, `columns` = 0).
+        struct Frame {
+            from: CellRef,
+            to: CellRef,
+            caption: String,
+            colors: crate::slicer::FrameColors,
+            cells: Vec<(String, bool)>,
+            columns: usize,
+        }
+        let Some(sheet) = self.wb.sheets.iter().position(|s| std::ptr::eq(s, self.ws)) else {
+            return;
+        };
+        let name = self
+            .wb
+            .styles
+            .fonts
+            .first()
+            .and_then(|f| f.name.clone())
+            .unwrap_or_else(|| "Calibri".into());
+        let Some(face) = self.fonts.resolve(&name, false, false) else {
+            return;
+        };
+        let rgba = |hex: &str| {
+            crate::color::parse_hex(hex)
+                .map_or(Rgba(0x44, 0x72, 0xC4, 255), |(r, g, b)| Rgba(r, g, b, 255))
+        };
+        let info = self.fonts.info(face).clone();
+        let upem = f64::from(info.units_per_em.max(1));
+        let size = 9.0_f32;
+        let asc = f64::from(info.ascender) * f64::from(size) / upem;
+        let desc = -f64::from(info.descender) * f64::from(size) / upem;
+        let off = Rgba(0xF2, 0xF2, 0xF2, 255);
+        let off_text = Rgba(0x59, 0x59, 0x59, 255);
+        let mut list: Vec<Frame> = Vec::new();
+        for (i, s) in self.ws.slicers.iter().enumerate() {
+            list.push(Frame {
+                from: s.from,
+                to: s
+                    .to
+                    .unwrap_or(CellRef::new(s.from.row + 10, s.from.col + 2)),
+                caption: s.caption.clone(),
+                colors: crate::slicer::frame_colors(self.wb, s.style.as_deref()),
+                cells: crate::slicer::items(self.wb, sheet, i, &self.opts.locale)
+                    .into_iter()
+                    .map(|it| (it.label, it.selected))
+                    .collect(),
+                columns: s.columns.max(1) as usize,
+            });
+        }
+        let vi = self.opts.locale == Locale::VI_VN;
+        for (i, t) in self.ws.timelines.iter().enumerate() {
+            let filtered = t.start.is_some();
+            list.push(Frame {
+                from: t.from,
+                to: t.to.unwrap_or(CellRef::new(t.from.row + 7, t.from.col + 6)),
+                caption: t.caption.clone(),
+                colors: crate::slicer::frame_colors(self.wb, t.style.as_deref()),
+                cells: crate::timeline::periods(self.wb, sheet, i, vi)
+                    .into_iter()
+                    .map(|x| (x.label, filtered && x.selected))
+                    .collect(),
+                columns: 0,
+            });
+        }
+        for fr in list {
+            let x0 = self.geom.col_x(fr.from.col);
+            let y0 = self.geom.row_y(fr.from.row);
+            let w = (self.geom.col_x(fr.to.col) - x0).max(60.0);
+            let h = (self.geom.row_y(fr.to.row) - y0).max(40.0);
+            let (sx, sy) = (p.to_screen_x(x0), p.to_screen_y(y0));
+            let s = p.screen;
+            if sx > s.x + s.w || sy > s.y + s.h || sx + w < s.x || sy + h < s.y {
+                continue;
+            }
+            self.out.push(Command::PushClip {
+                x: f(sx),
+                y: f(sy),
+                w: f(w),
+                h: f(h),
+            });
+            let border = rgba(&fr.colors.border);
+            let rect = |x: f64, y: f64, w: f64, h: f64| Rect { x, y, w, h };
+            self.fill_rect(rect(sx, sy, w, h), Rgba(255, 255, 255, 255));
+            let head = 20.0;
+            self.fill_rect(rect(sx, sy, w, head), rgba(&fr.colors.header));
+            let base = |top: f64, height: f64| top + (height - asc - desc) / 2.0 + asc;
+            self.emit_text(
+                face,
+                &fr.caption,
+                size + 1.0,
+                sx + 6.0,
+                base(sy, head),
+                rgba(&fr.colors.header_text),
+            );
+            self.line(sx, sy + head, sx + w, sy + head, 0.75, border);
+            let pad = 4.0;
+            let item_h = 17.0;
+            let gap = 2.0;
+            let selected = rgba(&fr.colors.selected);
+            let selected_text = rgba(&fr.colors.selected_text);
+            if fr.columns == 0 {
+                // A strip of periods, as many as fit.
+                let n = fr.cells.len().max(1) as f64;
+                let cell_w = ((w - 2.0 * pad) / n).max(44.0);
+                for (k, (label, on)) in fr.cells.iter().enumerate() {
+                    let x = sx + pad + k as f64 * cell_w;
+                    if x > sx + w {
+                        break;
+                    }
+                    let y = sy + head + pad;
+                    self.fill_rect(
+                        rect(x, y, cell_w - gap, item_h + 6.0),
+                        if *on { selected } else { off },
+                    );
+                    let tw = self.measure(face, label, size);
+                    self.emit_text(
+                        face,
+                        label,
+                        size,
+                        x + ((cell_w - gap - tw) / 2.0).max(1.0),
+                        base(y, item_h + 6.0),
+                        if *on { selected_text } else { off_text },
+                    );
+                }
+            } else {
+                let cols = fr.columns as f64;
+                let cell_w = (w - 2.0 * pad - (cols - 1.0) * gap) / cols;
+                for (k, (label, on)) in fr.cells.iter().enumerate() {
+                    let (r, c) = ((k / fr.columns) as f64, (k % fr.columns) as f64);
+                    let x = sx + pad + c * (cell_w + gap);
+                    let y = sy + head + pad + r * (item_h + gap);
+                    if y > sy + h {
+                        break;
+                    }
+                    self.fill_rect(rect(x, y, cell_w, item_h), if *on { selected } else { off });
+                    self.emit_text(
+                        face,
+                        label,
+                        size,
+                        x + 5.0,
+                        base(y, item_h),
+                        if *on { selected_text } else { off_text },
+                    );
+                }
+            }
+            // The frame's border on top of its content.
+            self.line(sx, sy, sx + w, sy, 0.75, border);
+            self.line(sx, sy + h, sx + w, sy + h, 0.75, border);
+            self.line(sx, sy, sx, sy + h, 0.75, border);
+            self.line(sx + w, sy, sx + w, sy + h, 0.75, border);
+            self.out.push(Command::PopClip);
+        }
     }
 
     /// Sparklines ([MS-XLSX] `x14:sparklineGroup`) located in the pane, clipped to their cell.

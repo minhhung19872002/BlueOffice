@@ -673,26 +673,144 @@
   cursor: pointer;
 }
 
-/* Slicers: a box of item buttons over the grid. */
+/* Slicers and timelines: a framed box of item buttons over the grid. The colours of the
+   frame's style come from the engine as custom properties (--frame-*). */
 .slicer {
   position: absolute;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  border: 1px solid var(--bo-border, #c9d1dc);
+  border: 1px solid var(--frame-border, var(--bo-border, #c9d1dc));
   background: var(--bo-surface, #fff);
   box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
   font-size: 12px;
-  overflow: hidden;
   z-index: 3;
+}
+
+.slicer:focus-visible,
+.frameSelected {
+  outline: 2px solid var(--bo-sheet-accent, #0b7a6b);
+  outline-offset: 1px;
 }
 
 .slicerHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   padding: 4px 6px;
   font-weight: 600;
+  background: var(--frame-head, transparent);
+  color: var(--frame-head-text, inherit);
+  cursor: move;
+  user-select: none;
+}
+
+.frameCaption {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.frameTools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: default;
+}
+
+.frameTools select {
+  font: inherit;
+  font-weight: 400;
+  padding: 0 2px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1f2933);
+}
+
+.frameHandle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: var(--bo-sheet-accent, #0b7a6b);
+  border: 1px solid #fff;
+  cursor: nwse-resize;
+  z-index: 4;
+}
+
+.frameConnections {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-radius: 4px;
+}
+
+.timelineRange {
+  padding: 4px 6px 2px;
+  color: var(--bo-muted, #6b7685);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Filter buttons of a pivot chart, over the chart's top-left corner. */
+.chartFilters {
+  position: absolute;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  z-index: 4;
+}
+
+.chartFilterOn,
+.chartFilterOff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  background: var(--bo-surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.chartFilterOn {
+  border-color: var(--bo-sheet-accent, #0b7a6b);
+  background: color-mix(in srgb, var(--bo-sheet-accent, #0b7a6b) 16%, var(--bo-surface, #fff));
+}
+
+.chartFilterMenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: 12px;
+}
+
+.chartFilterActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .slicerHeader button {
@@ -710,8 +828,11 @@
 .slicerItems {
   display: grid;
   gap: 3px;
-  padding: 0 6px 6px;
+  padding: 6px;
   overflow: auto;
+  flex: 1;
+  min-height: 0;
+  align-content: start;
 }
 
 .slicerOn,
@@ -727,9 +848,9 @@
 }
 
 .slicerOn {
-  border: 1px solid var(--bo-sheet-accent, #0b7a6b);
-  background: color-mix(in srgb, var(--bo-sheet-accent, #0b7a6b) 18%, transparent);
-  color: inherit;
+  border: 1px solid var(--frame-on, var(--bo-sheet-accent, #0b7a6b));
+  background: var(--frame-on, color-mix(in srgb, var(--bo-sheet-accent, #0b7a6b) 18%, transparent));
+  color: var(--frame-on-text, inherit);
 }
 
 .slicerOff {
@@ -738,16 +859,15 @@
   color: var(--bo-muted, #8a94a3);
 }
 
-.timelineLevel {
-  font-weight: 400;
-  color: var(--bo-muted, #8a94a3);
-}
-
 .timelineStrip {
   display: flex;
   gap: 3px;
-  padding: 0 6px 6px;
+  padding: 2px 6px 6px;
   overflow-x: auto;
+}
+
+.timelineStrip > button {
+  flex: 0 0 auto;
 }
 
 /* Live collaboration: a collaborator's selected cell / range with their name. */

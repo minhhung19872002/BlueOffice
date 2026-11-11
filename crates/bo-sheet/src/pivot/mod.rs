@@ -130,6 +130,10 @@ pub struct PivotSpec {
     pub style: Option<PivotStyleInfo>,
     /// Several value fields are listed down the rows (`dataOnRows`, §18.10.1.73).
     pub data_on_rows: bool,
+    /// Fields a slicer filters: their hidden items filter the records even when the field is
+    /// on no axis. Not stored in the pivot table; set from the workbook's slicers when the
+    /// report is computed.
+    pub slicer_fields: Vec<u32>,
 }
 
 impl Default for PivotSpec {
@@ -146,6 +150,7 @@ impl Default for PivotSpec {
             field_filters: Vec::new(),
             style: None,
             data_on_rows: false,
+            slicer_fields: Vec::new(),
         }
     }
 }
@@ -165,7 +170,15 @@ impl PivotSpec {
             field_filters: pt.field_filters.clone(),
             style: pt.style.clone(),
             data_on_rows: pt.data_on_rows,
+            slicer_fields: Vec::new(),
         }
+    }
+
+    /// [`PivotSpec::of`] with the fields the workbook's slicers filter in `pt`.
+    pub fn of_in(wb: &Workbook, pt: &PivotTable) -> PivotSpec {
+        let mut spec = PivotSpec::of(pt);
+        spec.slicer_fields = crate::slicer::fields_of(wb, pt);
+        spec
     }
 
     /// Copy the areas and settings into `pt`.
@@ -583,7 +596,7 @@ fn render(
             compute::Engine::with_measures(cache, &spec, labels, date_system(wb), Some(m))?
                 .layout()?
         }
-        None => layout_in(cache, &PivotSpec::of(&pt), labels, date_system(wb))?,
+        None => layout_in(cache, &PivotSpec::of_in(wb, &pt), labels, date_system(wb))?,
     };
     let value_fmt: Vec<u32> = pt.values.iter().map(|d| value_format(cache, d)).collect();
     let label_fmt: Vec<u32> = cache
@@ -762,29 +775,41 @@ pub fn create_pivot(
     if dest_sheet == src_sheet && source.contains(dest) {
         return Err("the pivot table would overlap its source".into());
     }
-    let (names, records) = source_data(ws, source, labels)?;
-    let source_name = ws.name.clone();
-    let formats = source_formats(wb, src_sheet, source);
-    let cache_id = wb
-        .pivot_caches
-        .iter()
-        .map(|c| c.cache_id + 1)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let mut fields = cache_fields(&names, &records);
-    for (f, id) in fields.iter_mut().zip(formats) {
-        f.num_fmt_id = id;
-    }
-    wb.pivot_caches.push(PivotCache {
-        cache_id,
-        source_sheet: Some(source_name),
-        source_ref: Some(source.to_string()),
-        fields,
-        records,
-        dirty: true,
-        ..PivotCache::default()
-    });
+    // A pivot table over the source of another one uses that one's cache: both show the
+    // same snapshot of the data and share groupings and calculated fields (§18.10.1.67:
+    // several pivot tables may reference one cache definition).
+    let shared = shareable_cache(wb, src_sheet, source);
+    let cache_id = if let Some((id, loaded)) = shared {
+        if !loaded {
+            refresh_cache(wb, id, labels, None)?;
+        }
+        id
+    } else {
+        let (names, records) = source_data(ws, source, labels)?;
+        let source_name = ws.name.clone();
+        let formats = source_formats(wb, src_sheet, source);
+        let cache_id = wb
+            .pivot_caches
+            .iter()
+            .map(|c| c.cache_id + 1)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let mut fields = cache_fields(&names, &records);
+        for (f, id) in fields.iter_mut().zip(formats) {
+            f.num_fmt_id = id;
+        }
+        wb.pivot_caches.push(PivotCache {
+            cache_id,
+            source_sheet: Some(source_name),
+            source_ref: Some(source.to_string()),
+            fields,
+            records,
+            dirty: true,
+            ..PivotCache::default()
+        });
+        cache_id
+    };
     let name = new_pivot_name(wb, labels);
     let mut pt = PivotTable {
         name,
@@ -808,10 +833,177 @@ pub fn create_pivot(
     let index = ws.pivots.len() - 1;
     if let Err(e) = render(wb, dest_sheet, index, labels) {
         wb.sheets[dest_sheet].pivots.pop();
-        wb.pivot_caches.retain(|c| c.cache_id != cache_id);
+        if shared.is_none() {
+            wb.pivot_caches.retain(|c| c.cache_id != cache_id);
+        }
         return Err(e);
     }
     Ok(index)
+}
+
+/// The cache a new pivot table over `source` of `src_sheet` would share: a worksheet cache
+/// of exactly that range that a pivot table uses. The flag tells whether its records are
+/// loaded and its fields still are the columns of the source (otherwise the cache is
+/// refreshed from the source first: a cache read from a file, or one whose source headers
+/// changed since).
+#[must_use]
+pub fn shareable_cache(wb: &Workbook, src_sheet: usize, source: CellRange) -> Option<(u32, bool)> {
+    let ws = wb.sheets.get(src_sheet)?;
+    let name = &ws.name;
+    let range = source.to_string();
+    // The source columns of a cache are its fields that are neither grouping nor calculated
+    // fields, in column order.
+    let current = |c: &PivotCache| {
+        let columns: Vec<&PivotCacheField> = c.fields.iter().filter(|f| !f.derived).collect();
+        let width = (source.last.col - source.first.col + 1) as usize;
+        columns.len() == width
+            && columns.iter().enumerate().all(|(k, f)| {
+                let header = ws
+                    .cell(source.first.row, source.first.col + k as u32)
+                    .map(|x| value_text(&x.value))
+                    .unwrap_or_default();
+                // An empty header gets a generated name.
+                header.trim().is_empty() || header.to_lowercase() == f.name.to_lowercase()
+            })
+    };
+    wb.pivot_caches
+        .iter()
+        .find(|c| {
+            !c.model
+                && c.source_name.is_none()
+                && c.source_sheet
+                    .as_ref()
+                    .is_some_and(|s| s.to_lowercase() == name.to_lowercase())
+                && c.source_ref
+                    .as_ref()
+                    .is_some_and(|r| r.replace('$', "").eq_ignore_ascii_case(&range))
+                && !users(wb, c.cache_id).is_empty()
+        })
+        .map(|c| (c.cache_id, c.dirty && current(c)))
+}
+
+/// Show the source records behind the pivot table value cell at `row`, `col` of `sheet` on a
+/// new sheet named `name` and a number (the header row, then one row per record; a subtotal
+/// or grand total cell lists every record it totals). Returns the index of the new sheet.
+///
+/// # Errors
+/// The cell is not a value cell of a pivot table, the pivot table is over the data model, or
+/// its source cannot be read.
+pub fn drill_down(
+    wb: &mut Workbook,
+    sheet: usize,
+    row: u32,
+    col: u32,
+    name: &str,
+    labels: &PivotLabels,
+) -> Result<usize, String> {
+    let no_cell = "select a value cell of the pivot table";
+    let index = wb
+        .sheets
+        .get(sheet)
+        .and_then(|ws| pivot_at(ws, row, col))
+        .ok_or(no_cell)?;
+    let cache_id = wb.sheets[sheet].pivots[index].cache_id;
+    refuse_model(wb, cache_id)?;
+    // The records of a cache read from a file are loaded from its source; the report is
+    // rendered again and stays where it is.
+    ensure_records(wb, sheet, index, labels)?;
+    let pt = &wb.sheets[sheet].pivots[index];
+    let body = pt.location.first;
+    if row < body.row || col < body.col {
+        return Err(no_cell.into());
+    }
+    let cache = wb
+        .pivot_caches
+        .iter()
+        .find(|c| c.cache_id == cache_id)
+        .ok_or("pivot cache missing")?;
+    let spec = PivotSpec::of_in(wb, pt);
+    let records = compute::Engine::new(cache, &spec, labels, date_system(wb))?
+        .detail(row - body.row, col - body.col)?;
+    if records.is_empty() {
+        return Err("the cell has no source records".into());
+    }
+    // Source columns only: grouping fields and calculated fields have no record values.
+    let columns: Vec<(usize, String, u32)> = cache
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.derived && f.formula.is_none())
+        .map(|(i, f)| (i, f.name.clone(), f.num_fmt_id))
+        .collect();
+    let mut ws = Worksheet::new(&unique_sheet_name(wb, name));
+    ws.sheet_id = wb.sheets.iter().map(|s| s.sheet_id).max().unwrap_or(0) + 1;
+    let rows: Vec<Vec<CellValue>> = records
+        .iter()
+        .filter_map(|r| cache.records.get(*r))
+        .map(|rec| {
+            columns
+                .iter()
+                .map(|(i, _, _)| rec.get(*i).cloned().unwrap_or(CellValue::Empty))
+                .collect()
+        })
+        .collect();
+    let mut xf_of: HashMap<u32, u32> = HashMap::new();
+    let styles: Vec<u32> = columns
+        .iter()
+        .map(|(_, _, fmt)| {
+            if *fmt == 0 {
+                return 0;
+            }
+            *xf_of.entry(*fmt).or_insert_with(|| {
+                wb.styles.add_xf(CellXf {
+                    num_fmt_id: *fmt,
+                    xf_id: Some(0),
+                    apply_number_format: Some(true),
+                    ..CellXf::default()
+                })
+            })
+        })
+        .collect();
+    for (c, (_, title, _)) in columns.iter().enumerate() {
+        ws.cells
+            .insert((0, c as u32), Cell::new(CellValue::Text(title.clone())));
+    }
+    for (r, rec) in rows.into_iter().enumerate() {
+        for (c, v) in rec.into_iter().enumerate() {
+            if !matches!(v, CellValue::Empty) {
+                ws.cells
+                    .insert((r as u32 + 1, c as u32), Cell::new(v).with_style(styles[c]));
+            }
+        }
+    }
+    let width = columns.len() as u32;
+    wb.sheets.push(ws);
+    let at = wb.sheets.len() - 1;
+    if width > 0 {
+        crate::style::apply_patch(
+            wb,
+            at,
+            CellRange::new(CellRef::new(0, 0), CellRef::new(0, width - 1)),
+            &crate::style::StylePatch {
+                bold: Some(true),
+                ..crate::style::StylePatch::default()
+            },
+        );
+    }
+    Ok(at)
+}
+
+/// `base` and the first number that makes an unused sheet name.
+fn unique_sheet_name(wb: &Workbook, base: &str) -> String {
+    let mut n = 1;
+    loop {
+        let name = format!("{base}{n}");
+        if wb
+            .sheets
+            .iter()
+            .all(|s| s.name.to_lowercase() != name.to_lowercase())
+        {
+            break name;
+        }
+        n += 1;
+    }
 }
 
 /// An unused pivot table name (`labels.name` and a number).
@@ -1014,6 +1206,8 @@ fn refresh_cache(
     let (names, records) = source_data(&wb.sheets[si], range, labels)?;
     let formats = source_formats(wb, si, range);
     let sys = date_system(wb);
+    // Slicers index the items of their field: their choices are kept by value.
+    let slicer_choices = crate::slicer::choices(wb, cache_id);
     // Taken, not cloned: the old fields are only read (their items can be millions).
     let old = std::mem::take(&mut wb.pivot_caches[ci].fields);
     let mut fields = cache_fields(&names, &records);
@@ -1077,6 +1271,8 @@ fn refresh_cache(
     cache.fields = fields;
     let old_records = std::mem::replace(&mut cache.records, records);
     let old_dirty = std::mem::replace(&mut cache.dirty, true);
+    crate::slicer::restore_choices(wb, cache_id, slicer_choices);
+    let cache = &mut wb.pivot_caches[ci];
     match keep {
         Some(keep) => {
             // The cache as it was: its metadata (unchanged) with the old content.
@@ -1115,7 +1311,7 @@ pub fn refresh_all(wb: &mut Workbook, labels: &PivotLabels) -> Result<usize, Str
 }
 
 /// Load the records of a cache read from a file (its records part is opaque).
-fn ensure_records(
+pub(crate) fn ensure_records(
     wb: &mut Workbook,
     sheet: usize,
     index: usize,

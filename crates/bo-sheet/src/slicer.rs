@@ -355,6 +355,39 @@ fn cache_name(wb: &Workbook, base: &str) -> String {
         .unwrap_or(stem)
 }
 
+/// A slicer's caption, column count and style (`None`: unchanged). The caller writes them into
+/// the parts of a slicer read from a file.
+///
+/// # Errors
+/// An unknown slicer or a column count of zero.
+pub fn set_options(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    caption: Option<String>,
+    columns: Option<u32>,
+    style: Option<String>,
+) -> Result<(), String> {
+    let s = wb
+        .sheets
+        .get_mut(sheet)
+        .and_then(|ws| ws.slicers.get_mut(index))
+        .ok_or("no such slicer")?;
+    if let Some(c) = caption {
+        s.caption = c;
+    }
+    if let Some(n) = columns {
+        if n == 0 || n > 20_000 {
+            return Err("bad column count".into());
+        }
+        s.columns = n;
+    }
+    if let Some(st) = style {
+        s.style = (!st.is_empty()).then_some(st);
+    }
+    Ok(())
+}
+
 /// Insert a slicer for column `column` (1-based id) of table `table_id`, placed at `at`
 /// (top-left cell) on sheet `sheet`. Returns the slicer's index on the sheet.
 ///
@@ -379,17 +412,7 @@ pub fn insert_table_slicer(
     }
     let cache = cache_name(wb, &caption);
     // Slicer names are unique in the workbook.
-    let mut name = caption.clone();
-    let mut k = 1;
-    while wb
-        .sheets
-        .iter()
-        .flat_map(|s| &s.slicers)
-        .any(|s| s.name == name)
-    {
-        k += 1;
-        name = format!("{caption} {k}");
-    }
+    let name = frame_name(wb, &caption);
     wb.defined_names.push(bo_model::sheet::DefinedName {
         name: cache.clone(),
         formula: "#N/A".into(),
@@ -414,3 +437,434 @@ pub fn insert_table_slicer(
     });
     Ok(slicers.len() - 1)
 }
+
+// ------------------------------------------------------------------ pivot table slicers
+
+/// The pivot cache fields the workbook's slicers filter in pivot table `pt`: their hidden
+/// items filter the report wherever the field is (also outside the row and column areas).
+#[must_use]
+pub fn fields_of(wb: &Workbook, pt: &bo_model::sheet::PivotTable) -> Vec<u32> {
+    let Some(cache) = wb.pivot_caches.iter().find(|c| c.cache_id == pt.cache_id) else {
+        return Vec::new();
+    };
+    let mut out: Vec<u32> = wb
+        .sheets
+        .iter()
+        .flat_map(|s| &s.slicers)
+        .filter_map(|s| match &s.source {
+            SlicerSource::Pivot { field, pivots, .. } if pivots.iter().any(|n| n == &pt.name) => {
+                cache
+                    .fields
+                    .iter()
+                    .position(|f| f.name.eq_ignore_ascii_case(field))
+                    .map(|i| i as u32)
+            }
+            _ => None,
+        })
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The unselected item values of every pivot slicer on cache `cache_id`, by slicer
+/// `(sheet, index)`: taken before the cache is refreshed, given back to
+/// [`restore_choices`] afterwards (the items are indexed afresh).
+pub(crate) fn choices(wb: &Workbook, cache_id: u32) -> Vec<(usize, usize, Vec<CellValue>)> {
+    let mut out = Vec::new();
+    for (si, ws) in wb.sheets.iter().enumerate() {
+        for (i, s) in ws.slicers.iter().enumerate() {
+            let SlicerSource::Pivot {
+                field,
+                pivots,
+                cache_id: own,
+                items,
+            } = &s.source
+            else {
+                continue;
+            };
+            if pivot_cache_of(wb, pivots, *own) != cache_id || pivots.is_empty() {
+                continue;
+            }
+            let Some(f) = wb
+                .pivot_caches
+                .iter()
+                .find(|c| c.cache_id == cache_id)
+                .and_then(|c| c.fields.iter().find(|f| f.name.eq_ignore_ascii_case(field)))
+            else {
+                continue;
+            };
+            // Nothing selected is stored as "no filter".
+            let filtered = items.iter().any(|(_, sel)| *sel);
+            let hidden = items
+                .iter()
+                .filter(|(_, sel)| filtered && !*sel)
+                .filter_map(|(x, _)| f.items.get(*x as usize).cloned())
+                .collect();
+            out.push((si, i, hidden));
+        }
+    }
+    out
+}
+
+/// Index the items of the slicers of [`choices`] over the refreshed cache `cache_id`: the
+/// values that were unselected stay so, new values are selected.
+pub(crate) fn restore_choices(
+    wb: &mut Workbook,
+    cache_id: u32,
+    saved: Vec<(usize, usize, Vec<CellValue>)>,
+) {
+    for (si, i, hidden) in saved {
+        let Some(SlicerSource::Pivot { field, .. }) = wb
+            .sheets
+            .get(si)
+            .and_then(|ws| ws.slicers.get(i))
+            .map(|s| s.source.clone())
+        else {
+            continue;
+        };
+        let Some(values) = wb
+            .pivot_caches
+            .iter()
+            .find(|c| c.cache_id == cache_id)
+            .and_then(|c| {
+                c.fields
+                    .iter()
+                    .find(|f| f.name.eq_ignore_ascii_case(&field))
+            })
+            .map(|f| f.items.clone())
+        else {
+            continue;
+        };
+        let keys: Vec<bo_model::sheet::PivotItemKey> = hidden
+            .iter()
+            .map(bo_model::sheet::PivotItemKey::of)
+            .collect();
+        let s = &mut wb.sheets[si].slicers[i];
+        if let SlicerSource::Pivot { items, .. } = &mut s.source {
+            let next: Vec<(u32, bool)> = values
+                .iter()
+                .enumerate()
+                .map(|(x, v)| {
+                    (
+                        x as u32,
+                        !keys.contains(&bo_model::sheet::PivotItemKey::of(v)),
+                    )
+                })
+                .collect();
+            if *items != next {
+                *items = next;
+                s.dirty = true;
+            }
+        }
+    }
+}
+
+/// The [MS-XLSX] `x14:pivotCacheDefinition/@pivotCacheId` of cache `cache_id`, given now when
+/// the cache has none: slicer and timeline caches name the pivot cache by it.
+pub(crate) fn ensure_ext_id(wb: &mut Workbook, cache_id: u32) -> Result<u32, String> {
+    let next = wb
+        .pivot_caches
+        .iter()
+        .filter_map(|c| c.ext_id)
+        .max()
+        .map_or(1, |m| m.saturating_add(1));
+    let cache = wb
+        .pivot_caches
+        .iter_mut()
+        .find(|c| c.cache_id == cache_id)
+        .ok_or("pivot cache missing")?;
+    Ok(*cache.ext_id.get_or_insert(next))
+}
+
+/// An unused name for a slicer or timeline with caption `caption` (names are unique in the
+/// workbook).
+pub(crate) fn frame_name(wb: &Workbook, caption: &str) -> String {
+    let taken = |n: &str| {
+        wb.sheets.iter().any(|s| {
+            s.slicers.iter().any(|x| x.name == n) || s.timelines.iter().any(|x| x.name == n)
+        })
+    };
+    let mut name = caption.to_owned();
+    let mut k = 1;
+    while taken(&name) {
+        k += 1;
+        name = format!("{caption} {k}");
+    }
+    name
+}
+
+/// Insert a slicer for cache field `field` of pivot table `pivot` of sheet `pivot_sheet`,
+/// placed at `at` (top-left cell) on sheet `sheet`. Returns the slicer's index on the sheet.
+///
+/// # Errors
+/// An unknown pivot table or field, a calculated or grouping field, or a pivot table over the
+/// data model (its tables take table slicers).
+pub fn insert_pivot_slicer(
+    wb: &mut Workbook,
+    sheet: usize,
+    pivot_sheet: usize,
+    pivot: usize,
+    field: u32,
+    at: bo_model::sheet::CellRef,
+    labels: &PivotLabels,
+) -> Result<usize, String> {
+    if sheet >= wb.sheets.len() {
+        return Err("no such sheet".into());
+    }
+    let pt = wb
+        .sheets
+        .get(pivot_sheet)
+        .and_then(|s| s.pivots.get(pivot))
+        .ok_or("no such pivot table")?;
+    let (cache_id, pivot_name) = (pt.cache_id, pt.name.clone());
+    if crate::datamodel::pivot::is_model_cache(wb, cache_id) {
+        return Err("not available for a pivot table over the data model".into());
+    }
+    let field_of = |wb: &Workbook| {
+        wb.pivot_caches
+            .iter()
+            .find(|c| c.cache_id == cache_id)
+            .and_then(|c| c.fields.get(field as usize))
+            .cloned()
+    };
+    let mut f = field_of(wb).ok_or("unknown pivot field")?;
+    if f.formula.is_some() || f.derived {
+        return Err("a slicer needs a source field".into());
+    }
+    if f.group
+        .as_ref()
+        .is_some_and(|g| g.range.is_some() || !g.discrete.is_empty())
+    {
+        return Err("ungroup the field before adding a slicer".into());
+    }
+    if f.items.is_empty() {
+        // A cache read without the items of this field: load them from the source.
+        crate::pivot::ensure_records(wb, pivot_sheet, pivot, labels)?;
+        f = field_of(wb).ok_or("unknown pivot field")?;
+    }
+    let ext_id = ensure_ext_id(wb, cache_id)?;
+    // The items the pivot table hides already are unselected.
+    let hidden: Vec<bo_model::sheet::PivotItemKey> = wb.sheets[pivot_sheet].pivots[pivot]
+        .field(field)
+        .hidden
+        .iter()
+        .map(bo_model::sheet::PivotItemKey::of)
+        .collect();
+    let items = f
+        .items
+        .iter()
+        .enumerate()
+        .map(|(x, v)| {
+            (
+                x as u32,
+                !hidden.contains(&bo_model::sheet::PivotItemKey::of(v)),
+            )
+        })
+        .collect();
+    let cache = cache_name(wb, &f.name);
+    let name = frame_name(wb, &f.name);
+    wb.defined_names.push(bo_model::sheet::DefinedName {
+        name: cache.clone(),
+        formula: "#N/A".into(),
+        ..bo_model::sheet::DefinedName::default()
+    });
+    let slicers = &mut wb.sheets[sheet].slicers;
+    slicers.push(bo_model::sheet::Slicer {
+        name,
+        caption: f.name.clone(),
+        cache,
+        source: SlicerSource::Pivot {
+            field: f.name,
+            pivots: vec![pivot_name],
+            cache_id: ext_id,
+            items,
+        },
+        columns: 1,
+        style: Some("SlicerStyleLight1".into()),
+        row_height: Some(241_300),
+        from: at,
+        to: Some(bo_model::sheet::CellRef::new(at.row + 12, at.col + 2)),
+        ..bo_model::sheet::Slicer::default()
+    });
+    Ok(slicers.len() - 1)
+}
+
+/// The pivot tables a slicer on cache field `field` of the cache of `pivots` may filter:
+/// every pivot table on that cache, as `(sheet, index, name, connected)`.
+#[must_use]
+pub fn connectable(wb: &Workbook, pivots: &[String]) -> Vec<(usize, usize, String, bool)> {
+    let Some(cache_id) = wb
+        .sheets
+        .iter()
+        .flat_map(|s| &s.pivots)
+        .find(|p| pivots.iter().any(|n| n == &p.name))
+        .map(|p| p.cache_id)
+    else {
+        return Vec::new();
+    };
+    crate::pivot::users(wb, cache_id)
+        .into_iter()
+        .map(|(s, i)| {
+            let name = wb.sheets[s].pivots[i].name.clone();
+            let on = pivots.contains(&name);
+            (s, i, name, on)
+        })
+        .collect()
+}
+
+/// Connect pivot slicer `index` of sheet `sheet` to the pivot tables named `names` (all on
+/// the slicer's pivot cache; at least one). Newly connected pivot tables take the slicer's
+/// filter, disconnected ones show every item of the field again.
+///
+/// # Errors
+/// A table slicer, an empty list, or a pivot table on another cache.
+pub fn connect(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    names: &[String],
+    labels: &PivotLabels,
+) -> Result<(), String> {
+    let s = wb
+        .sheets
+        .get(sheet)
+        .and_then(|ws| ws.slicers.get(index))
+        .cloned()
+        .ok_or("no such slicer")?;
+    let SlicerSource::Pivot {
+        field,
+        pivots,
+        cache_id,
+        items,
+    } = s.source
+    else {
+        return Err("a table slicer filters its table only".into());
+    };
+    if names.is_empty() {
+        return Err("a slicer filters at least one pivot table".into());
+    }
+    let all = connectable(wb, &pivots);
+    if names.iter().any(|n| !all.iter().any(|(_, _, x, _)| x == n)) {
+        return Err("the pivot table uses other data".into());
+    }
+    let cache = pivot_cache_of(wb, &pivots, cache_id);
+    let (fi, values) = wb
+        .pivot_caches
+        .iter()
+        .find(|c| c.cache_id == cache)
+        .and_then(|c| {
+            let fi = c
+                .fields
+                .iter()
+                .position(|f| f.name.eq_ignore_ascii_case(&field))?;
+            Some((fi, c.fields[fi].items.clone()))
+        })
+        .ok_or("slicer field missing")?;
+    let filtered = items.iter().any(|(_, sel)| *sel) && items.iter().any(|(_, sel)| !*sel);
+    let hidden: Vec<CellValue> = items
+        .iter()
+        .filter(|(_, sel)| filtered && !*sel)
+        .filter_map(|(x, _)| values.get(*x as usize).cloned())
+        .collect();
+    if let SlicerSource::Pivot { pivots: p, .. } = &mut wb.sheets[sheet].slicers[index].source {
+        *p = names.to_vec();
+    }
+    for (si, pi, name, was) in all {
+        let now = names.contains(&name);
+        if now == was {
+            continue;
+        }
+        let mut spec = PivotSpec::of(&wb.sheets[si].pivots[pi]);
+        if spec.fields.len() <= fi {
+            spec.fields
+                .resize(fi + 1, bo_model::sheet::PivotFieldOptions::default());
+        }
+        spec.fields[fi].hidden = if now { hidden.clone() } else { Vec::new() };
+        update_pivot(wb, si, pi, &spec, labels)?;
+    }
+    Ok(())
+}
+
+/// Colours of a slicer or timeline style for drawing (BlueOffice's own palette over the
+/// theme accents): the built-in style names end in a variant (`Light`, `Dark`, `Other`) and a
+/// number choosing the accent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameColors {
+    /// Fill of a selected item / period (`#RRGGBB`).
+    pub selected: String,
+    /// Text on a selected item.
+    pub selected_text: String,
+    /// Fill of the header.
+    pub header: String,
+    /// Text of the header.
+    pub header_text: String,
+    /// Frame border.
+    pub border: String,
+}
+
+/// The colours of style `name` (`SlicerStyleLight1`, `SlicerStyleDark3`, `SlicerStyleOther2`,
+/// `TimeSlicerStyleLight4`, …); an unknown or missing name draws as the first light style.
+#[must_use]
+pub fn frame_colors(wb: &Workbook, name: Option<&str>) -> FrameColors {
+    let name = name.unwrap_or_default();
+    let digits: String = name
+        .chars()
+        .rev()
+        .take_while(char::is_ascii_digit)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let n: usize = digits.parse().unwrap_or(1);
+    let stem = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    let dark = stem.ends_with("Dark");
+    let other = stem.ends_with("Other");
+    // Accents 1 to 6 are theme colour indexes 4 to 9 (§18.8.3 `theme` colour index).
+    let accent = if other {
+        if n % 2 == 1 {
+            "#595959".to_owned()
+        } else {
+            "#7F7F7F".to_owned()
+        }
+    } else {
+        let (r, g, b) = crate::color::theme_rgb(4 + ((n.max(1) - 1) % 6) as u32, wb.theme.as_ref());
+        format!("#{r:02X}{g:02X}{b:02X}")
+    };
+    if dark {
+        FrameColors {
+            selected: accent.clone(),
+            selected_text: "#FFFFFF".into(),
+            header: accent.clone(),
+            header_text: "#FFFFFF".into(),
+            border: accent,
+        }
+    } else {
+        FrameColors {
+            selected: accent.clone(),
+            selected_text: "#FFFFFF".into(),
+            header: "#FFFFFF".into(),
+            header_text: "#262626".into(),
+            border: accent,
+        }
+    }
+}
+
+/// The built-in slicer style names offered for new slicers.
+pub const SLICER_STYLES: [&str; 14] = [
+    "SlicerStyleLight1",
+    "SlicerStyleLight2",
+    "SlicerStyleLight3",
+    "SlicerStyleLight4",
+    "SlicerStyleLight5",
+    "SlicerStyleLight6",
+    "SlicerStyleOther1",
+    "SlicerStyleOther2",
+    "SlicerStyleDark1",
+    "SlicerStyleDark2",
+    "SlicerStyleDark3",
+    "SlicerStyleDark4",
+    "SlicerStyleDark5",
+    "SlicerStyleDark6",
+];

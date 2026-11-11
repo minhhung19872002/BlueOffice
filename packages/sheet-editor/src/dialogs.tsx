@@ -1108,7 +1108,11 @@ export function ChartDialog({
           </label>
           <label>
             {t('sheetEditor.chart.legend')}
-            <select value={legend} onChange={(e) => setLegend(e.target.value)}>
+            <select
+              data-testid="chart-legend"
+              value={legend}
+              onChange={(e) => setLegend(e.target.value)}
+            >
               {['none', 'r', 'b', 't', 'l'].map((l) => (
                 <option key={l} value={l}>
                   {t(`sheetEditor.chart.legendPos.${l}`)}

@@ -412,7 +412,7 @@ import {
   PivotChartFilters,
   SlicerFrame,
   TimelineFrame,
-  nextSlicerChoice,
+  timelineShowOf,
 } from './slicers';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
 import { SheetShowChangesPane } from './showChanges';
@@ -2081,9 +2081,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (loadSeq > 0) void protectionOpened.current();
   }, [loadSeq]);
 
-  const chooseSlicerItem = useCallback(
-    (info: SlicerInfo, label: string, multi: boolean) => {
-      const items = nextSlicerChoice(info, label, multi);
+  const chooseSlicerItems = useCallback(
+    (info: SlicerInfo, items: string[]) => {
       void exec({ cmd: 'slicerSelect', sheet, index: info.index, items });
     },
     [exec, sheet],
@@ -3586,6 +3585,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           sheet: s.sheet,
           range: toRange(rangeOf(s.selection)),
           kind: 'column',
+          texts: layoutTexts(t),
         });
         if (res) setChart(res.index);
       },
@@ -7311,11 +7311,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   /** Inserts a chart of `kind` over the selection and selects it (recommended charts). */
   const insertChartKind = (kind: string) => {
     setQuickOpen(false);
-    void exec<{ index: number }>({ cmd: 'insertChart', sheet, range: toRange(r), kind }).then(
-      (res) => {
-        if (res) setChart(res.index);
-      },
-    );
+    void exec<{ index: number }>({
+      cmd: 'insertChart',
+      sheet,
+      range: toRange(r),
+      kind,
+      texts: layoutTexts(t),
+    }).then((res) => {
+      if (res) setChart(res.index);
+    });
   };
   const pickMenu = (kind: string, id: string) => {
     if (kind === 'autoSum') {
@@ -7361,7 +7365,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         sheet,
         range,
         kind: template?.kind ?? id,
-        ...(template ? { template, texts: layoutTexts(t) } : {}),
+        // The placeholder title of a new chart, the titles of a template.
+        texts: layoutTexts(t),
+        ...(template ? { template } : {}),
       }).then((res) => {
         if (res) setChart(res.index);
       });
@@ -7858,6 +7864,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   onLevel={(level) =>
                     void exec({ cmd: 'timelineOptions', sheet, index: info.index, level })
                   }
+                  onScroll={(day) =>
+                    void exec({
+                      cmd: 'timelineScroll',
+                      sheet,
+                      index: info.index,
+                      ...(day === null ? {} : { day }),
+                    })
+                  }
                 />
               ))}
               {slicers.map(({ info, rect }) => (
@@ -7873,7 +7887,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     setDialog({ kind: 'frameOptions', frames: 'slicer', index: info.index })
                   }
                   onDelete={() => void deleteFrame('slicer', info.index)}
-                  onChoose={(label, multi) => chooseSlicerItem(info, label, multi)}
+                  onChoose={(items) => chooseSlicerItems(info, items)}
                   onClear={() =>
                     void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: [] })
                   }
@@ -9291,6 +9305,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           columns={'columns' in frameDialog ? frameDialog.columns : undefined}
           style={frameDialog.style ?? null}
           connections={frameDialog.pivots ?? []}
+          customStyles={frameDialog.customStyles}
+          show={'periods' in frameDialog ? timelineShowOf(frameDialog) : undefined}
           onClose={() => setDialog(null)}
           onApply={async (o) => {
             const index = dialog.index;
@@ -9310,7 +9326,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                       style: o.style,
                     },
                   ]
-                : [{ cmd: 'timelineOptions', sheet, index, caption: o.caption, style: o.style }];
+                : [
+                    {
+                      cmd: 'timelineOptions',
+                      sheet,
+                      index,
+                      caption: o.caption,
+                      style: o.style,
+                      ...(o.show
+                        ? {
+                            showHeader: o.show.header,
+                            showSelectionLabel: o.show.selectionLabel,
+                            showTimeLevel: o.show.timeLevel,
+                            showScrollbar: o.show.scrollbar,
+                          }
+                        : {}),
+                    },
+                  ];
             if (rewired && o.pivots)
               cmds.push({
                 cmd: dialog.frames === 'slicer' ? 'slicerConnect' : 'timelineConnect',

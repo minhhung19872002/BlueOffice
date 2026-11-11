@@ -5732,7 +5732,16 @@
       "light": "Light {{n}}",
       "dark": "Dark {{n}}",
       "other": "Grey {{n}}",
-      "none": "(none)"
+      "none": "(none)",
+      "custom": "Workbook styles"
+    },
+    "multiSelect": "Multi-select (Alt+S)",
+    "show": {
+      "title": "Show",
+      "header": "Header",
+      "selectionLabel": "Selection label",
+      "timeLevel": "Time level",
+      "scrollbar": "Scroll bar"
     },
     "connections": "Report connections",
     "needConnection": "Connect at least one pivot table.",

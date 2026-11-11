@@ -22,6 +22,7 @@ import { VersionsPane } from './versions/VersionsPane';
 import { createI18n, I18nextProvider, type Language } from '@blueoffice/i18n';
 import type {
   CharFormat,
+  DocSmartArtInfo,
   EditCommand,
   MergePrompt,
   OpenedFile,
@@ -435,6 +436,16 @@ import {
   type SmartArtDraft,
   type SmartArtPreviewLoader,
 } from './SmartArtDialog';
+import {
+  SmartArtLivePreview,
+  SmartArtPaneToggle,
+  SmartArtTextPane,
+  registerSmartArtTools,
+  smartArtDesignGroups,
+  smartArtDesignLabels,
+  type SmartArtToolsApi,
+  latestOnly,
+} from './SmartArtTools';
 import { ChartDialog, type ChartDraft } from './chart/ChartDialog';
 import { SaveChartTemplateDialog } from './chart/chartDesign';
 import { ChartFormatPane } from './chart/ChartFormatPane';
@@ -697,6 +708,8 @@ function EditorInner({
     mode: 'insert' | 'edit';
     initial: SmartArtDraft;
   } | null>(null);
+  /** The SmartArt Design tools of the diagram at the selection (CORE-SMART-004), for commands. */
+  const smartApiRef = useRef<SmartArtToolsApi | null>(null);
   /** Chart dialog (CORE-CHART-007): insert a chart or edit the selected one's data. */
   const [chartDialog, setChartDialog] = useState<{
     mode: 'insert' | 'edit';
@@ -2170,16 +2183,13 @@ function EditorInner({
         }
       },
     });
-    // Convert to shapes (CORE-SMART-004): the diagram becomes a group of ordinary shapes.
-    r.register({
-      id: 'smartart.toShapes',
-      isEnabled: (s) => hasDoc(s) && !!s.edit?.format.smartArt,
-      run: async () => {
-        const res = await controller.current?.run({ cmd: 'smartArtToShapes' });
-        if (res?.error) fail('errors.smartArt', res.error);
-        view.current?.focus();
-      },
-    });
+    // SmartArt Design tab (CORE-SMART-004): Add Shape, Promote / Demote, Move, Right to Left,
+    // text pane, Reset Graphic, Convert to shapes (a group of ordinary shapes).
+    registerSmartArtTools(
+      r,
+      () => smartApiRef.current,
+      (s) => hasDoc(s) && !!s.edit?.format.smartArt,
+    );
     // Charts (CORE-CHART-007): BlueSlide's chart types, dialog and design, in the document.
     registerDocChartCommands(r, {
       t: i18nInstance.t.bind(i18nInstance),
@@ -3423,6 +3433,94 @@ function EditorInner({
     [],
   );
   const pickSmartArtPicture = useMemo(() => smartArtPicturePicker(platform.files), [platform]);
+  // SmartArt Design tools (CORE-SMART-004): the diagram at the selection, its current shape, the
+  // text pane and the live preview of a gallery choice; each action one `setSmartArt`.
+  const [docSmart, setDocSmart] = useState<DocSmartArtInfo | null>(null);
+  const [smartPane, setSmartPane] = useState(false);
+  const [smartNode, setSmartNode] = useState<number | null>(null);
+  const [smartPreview, setSmartPreview] = useState<string | null>(null);
+  const onSmart = !!state.edit?.format.smartArt;
+  // Off the diagram: no current shape, no preview, the pane closes.
+  const [smartFor, setSmartFor] = useState(onSmart);
+  if (smartFor !== onSmart) {
+    setSmartFor(onSmart);
+    if (!onSmart) {
+      setDocSmart(null);
+      setSmartPane(false);
+      setSmartNode(null);
+      setSmartPreview(null);
+    }
+  }
+  useEffect(() => {
+    if (!onSmart) return;
+    let live = true;
+    void controller.current?.query({ cmd: 'smartArtInfo' }).then((r) => {
+      if (live) setDocSmart(r?.smartArt ?? null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [onSmart, state.edit]);
+  /** The diagram's box on screen: the selection marks over it (viewport px). */
+  const smartBox = (): { left: number; top: number; width: number; height: number } | null => {
+    const marks = [...document.querySelectorAll('.bo-sel')].map((m) => m.getBoundingClientRect());
+    if (marks.length === 0) return null;
+    const left = Math.min(...marks.map((m) => m.left));
+    const top = Math.min(...marks.map((m) => m.top));
+    const right = Math.max(...marks.map((m) => m.right));
+    const bottom = Math.max(...marks.map((m) => m.bottom));
+    return { left, top, width: right - left, height: bottom - top };
+  };
+  const latestPreview = useMemo(() => latestOnly(), []);
+  const smartApplyDoc = useCallback(
+    async (c: EditCommand) => {
+      const r = await controller.current?.run(c);
+      if (r?.error) fail('errors.smartArt', r.error);
+      else if (r && 'smartArt' in r) setDocSmart(r.smartArt ?? null);
+    },
+    [fail],
+  );
+  const smartApi = useMemo<SmartArtToolsApi>(
+    () => ({
+      state: () => docSmart,
+      node: () => smartNode,
+      setNode: setSmartNode,
+      apply: (patch) => smartApplyDoc({ cmd: 'setSmartArt', ...patch }),
+      toShapes: async () => {
+        await smartApplyDoc({ cmd: 'smartArtToShapes' });
+        view.current?.focus();
+      },
+      paneOpen: () => smartPane,
+      togglePane: () => setSmartPane((v) => !v),
+      loadPreviews: loadSmartArtPreviews,
+      preview: (patch) => {
+        const c = controller.current;
+        if (!patch || !docSmart || !c) {
+          latestPreview(Promise.resolve(null), setSmartPreview);
+          return;
+        }
+        const layout = patch.layout ?? docSmart.layout;
+        latestPreview(
+          c
+            .query({
+              cmd: 'smartArtPreviews',
+              items: docSmart.items,
+              colors: patch.colors ?? docSmart.colors,
+              style: patch.style ?? docSmart.style,
+              rtl: docSmart.rtl,
+              width: docSmart.width,
+              height: docSmart.height,
+            })
+            .then((r) => r?.previews?.find((p) => p.layout === layout)?.svg ?? null),
+          setSmartPreview,
+        );
+      },
+    }),
+    [docSmart, smartNode, smartPane, smartApplyDoc, loadSmartArtPreviews, latestPreview],
+  );
+  useEffect(() => {
+    smartApiRef.current = smartApi;
+  }, [smartApi]);
   const scriptHost = useCallback(
     () =>
       store.getState().doc
@@ -3543,12 +3641,25 @@ function EditorInner({
           context: 'smartArt',
           label: t('slideEditor.smartart.tab'),
           groups: [
+            // The tools read the controller only when a button is used, not while drawing.
+            // eslint-disable-next-line react-hooks/refs
+            ...smartArtDesignGroups({
+              api: smartApi,
+              labels: smartArtDesignLabels(t).design,
+              // Labels are translated already.
+              mk: (id, label, icon, size) => ({
+                ...item(id, id, icon, size),
+                label,
+                tooltip: label,
+              }),
+              enabled: (id) => registry.isEnabled(id, state),
+              icon: ICON,
+            }),
             {
               id: 'smartartEdit',
               label: t('slideEditor.smartart.group'),
               items: [
-                item('smartart.edit', 'slideEditor.smartart.textPane', <Pencil size={ICON} />),
-                item('smartart.toShapes', 'slideEditor.smartart.toShapes', <Shapes size={ICON} />),
+                item('smartart.edit', 'slideEditor.smartart.design.edit', <Pencil size={ICON} />),
               ],
             },
           ],
@@ -5733,6 +5844,40 @@ function EditorInner({
                 }}
               />
             )}
+            {smartPane && docSmart && (
+              <SmartArtTextPane
+                items={docSmart.items}
+                node={smartNode}
+                onNode={setSmartNode}
+                onCommit={(items) => void smartApplyDoc({ cmd: 'setSmartArt', items })}
+                onClose={() => {
+                  setSmartPane(false);
+                  focusDoc();
+                }}
+                anchor={smartBox}
+                labels={smartArtDesignLabels(t).pane}
+              />
+            )}
+            {docSmart &&
+              !smartPane &&
+              (() => {
+                const b = smartBox();
+                return b ? (
+                  <SmartArtPaneToggle
+                    open={false}
+                    label={t('slideEditor.smartart.pane.toggle')}
+                    style={{ position: 'fixed', left: b.left, top: b.top + b.height / 2 }}
+                    onToggle={() => setSmartPane(true)}
+                  />
+                ) : null;
+              })()}
+            {smartPreview &&
+              (() => {
+                const b = smartBox();
+                return b ? (
+                  <SmartArtLivePreview svg={smartPreview} style={{ position: 'fixed', ...b }} />
+                ) : null;
+              })()}
             {state.dialog === 'equation' && (
               <EquationDialog
                 initial={state.edit?.equation ?? null}

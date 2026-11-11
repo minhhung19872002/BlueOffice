@@ -16,6 +16,14 @@ import {
   SmartArtDialog,
   smartArtPicturePicker,
   type SmartArtPreviewLoader,
+  SmartArtLivePreview,
+  SmartArtPaneToggle,
+  SmartArtTextPane,
+  registerSmartArtTools,
+  smartArtDesignGroups,
+  smartArtDesignLabels,
+  type SmartArtToolsApi,
+  latestOnly,
   SymbolPanel,
   IconPanel,
   insertSlideIcons,
@@ -891,6 +899,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   } | null>(null);
   /** The diagram node whose text is edited on the canvas (CORE-SMART-004). */
   const [nodeEdit, setNodeEdit] = useState<SlideSmartArtNode | null>(null);
+  /** SmartArt Design tools (CORE-SMART-004): text pane open, current shape, live preview. */
+  const [smartPane, setSmartPane] = useState(false);
+  const [smartNode, setSmartNode] = useState<number | null>(null);
+  const [smartPreview, setSmartPreview] = useState<string | null>(null);
   // 3D models (CORE-3DMODEL-001): pan & zoom mode and the alt text dialog.
   // Pan & zoom is on for one model (off once another object is selected).
   const [panZoomFor, setPanZoomFor] = useState<number | null>(null);
@@ -1785,17 +1797,19 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         return;
       }
       if (shape.kind === 'smartart') {
-        // On a node: its text is edited in place; elsewhere in the frame: the text pane.
-        const pane = () => {
-          if (edit?.smartart) setSmartArtDialog({ mode: 'edit', initial: edit.smartart });
-        };
+        // On a node: its text is edited in place (it becomes the current shape); elsewhere in
+        // the frame: the text pane opens.
+        const pane = () => setSmartPane(true);
         if (!at) {
           pane();
           return;
         }
-        void ctrl
-          .run({ cmd: 'smartArtNodeAt', id: shape.id, x: at.x, y: at.y })
-          .then((r) => (r?.smartartNode ? setNodeEdit(r.smartartNode) : pane()));
+        void ctrl.run({ cmd: 'smartArtNodeAt', id: shape.id, x: at.x, y: at.y }).then((r) => {
+          if (r?.smartartNode) {
+            setSmartNode(r.smartartNode.node);
+            setNodeEdit(r.smartartNode);
+          } else pane();
+        });
         return;
       }
       if (!shape.editableText) return;
@@ -2092,6 +2106,56 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       else run({ cmd: 'setSmartArt', ...d });
     },
     [smartArtDialog, run],
+  );
+  // SmartArt Design tab + text pane (CORE-SMART-004): each action is one `setSmartArt`.
+  const smartId = edit?.smartart?.id ?? null;
+  // Another diagram (or none): no current shape, no preview; the pane closes with the selection.
+  const [smartFor, setSmartFor] = useState(smartId);
+  if (smartFor !== smartId) {
+    setSmartFor(smartId);
+    setSmartNode(null);
+    setSmartPreview(null);
+    if (smartId === null) setSmartPane(false);
+  }
+  const smartFrame = edit?.smartart
+    ? edit.selection.find((x) => x.id === edit.smartart?.id)?.rect
+    : undefined;
+  const latestPreview = useMemo(() => latestOnly(), []);
+  const smartApi = useMemo<SmartArtToolsApi>(
+    () => ({
+      state: () => edit?.smartart ?? null,
+      node: () => smartNode,
+      setNode: setSmartNode,
+      apply: (patch) => run({ cmd: 'setSmartArt', ...patch }),
+      toShapes: () => run({ cmd: 'smartArtToShapes' }),
+      toText: () => run({ cmd: 'smartArtToText' }),
+      paneOpen: () => smartPane,
+      togglePane: () => setSmartPane((v) => !v),
+      loadPreviews: loadSmartArtPreviews,
+      preview: (patch) => {
+        const s = edit?.smartart;
+        if (!patch || !s || !smartFrame) {
+          latestPreview(Promise.resolve(null), setSmartPreview);
+          return;
+        }
+        const layout = patch.layout ?? s.layout;
+        latestPreview(
+          ctrl
+            .run({
+              cmd: 'smartArtPreviews',
+              items: s.items,
+              colors: patch.colors ?? s.colors,
+              style: patch.style ?? s.style,
+              rtl: s.rtl,
+              width: smartFrame.w,
+              height: smartFrame.h,
+            })
+            .then((r) => r?.smartartPreviews?.find((p) => p.layout === layout)?.svg ?? null),
+          setSmartPreview,
+        );
+      },
+    }),
+    [edit, smartNode, smartPane, run, ctrl, loadSmartArtPreviews, smartFrame, latestPreview],
   );
   const openChart = useCallback(() => {
     const c = edit?.chart;
@@ -3470,7 +3534,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     });
     const smart = (s: SlideEditorState) => !!s.isSmartArt;
     reg.register({ id: 'smartart.edit', isEnabled: smart, run: openSmartArt });
-    simple('smartart.toShapes', { cmd: 'smartArtToShapes' }, smart);
+    registerSmartArtTools(reg, () => smartApi, smart);
     for (const k of ['column', 'bar', 'line', 'area', 'pie'] as SlideChartKind[]) {
       simple(`chart.type.${k}`, { cmd: 'setChart', kind: k }, chart);
     }
@@ -3620,6 +3684,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     scriptOpen,
     newChart,
     openSmartArt,
+    smartApi,
     openChart,
     edit,
     pos.slide,
@@ -4795,15 +4860,20 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               context: 'smartArt' as const,
               label: t('slideEditor.smartart.tab'),
               groups: [
+                ...smartArtDesignGroups({
+                  api: smartApi,
+                  labels: smartArtDesignLabels(t).design,
+                  mk: (id, label, icon, size) => item(id, label, icon, size),
+                  enabled: (id) => registry.isEnabled(id, state),
+                }),
                 {
                   id: 'smartartEdit',
                   label: t('slideEditor.smartart.group'),
                   items: [
-                    item('smartart.edit', t('slideEditor.smartart.textPane'), <Pencil size={18} />),
                     item(
-                      'smartart.toShapes',
-                      t('slideEditor.smartart.toShapes'),
-                      <Shapes size={18} />,
+                      'smartart.edit',
+                      t('slideEditor.smartart.design.edit'),
+                      <Pencil size={18} />,
                     ),
                   ],
                 },
@@ -5066,6 +5136,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     draw.state,
     draw.handwriting,
     shortcutsVersion,
+    smartApi,
   ]);
 
   // Context menus (CORE-UI-003): shape, picture, table, chart, text, thumbnail, empty slide.
@@ -5866,6 +5937,31 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                       onDone={endNodeEdit}
                     />
                   )}
+                  {state.isSmartArt &&
+                    smartFrame &&
+                    edit?.slide === shown &&
+                    (() => {
+                      // The selected diagram: the arrow on its frame (text pane) and the live
+                      // preview of a gallery choice over it (CORE-SMART-004).
+                      const sc = main.width / (slideSize.width || 1);
+                      const box = {
+                        left: (smartFrame.cx - smartFrame.w / 2) * sc,
+                        top: (smartFrame.cy - smartFrame.h / 2) * sc,
+                        width: smartFrame.w * sc,
+                        height: smartFrame.h * sc,
+                      };
+                      return (
+                        <>
+                          {smartPreview && <SmartArtLivePreview svg={smartPreview} style={box} />}
+                          <SmartArtPaneToggle
+                            open={smartPane}
+                            label={t('slideEditor.smartart.pane.toggle')}
+                            style={{ left: box.left, top: box.top + box.height / 2 }}
+                            onToggle={() => setSmartPane((v) => !v)}
+                          />
+                        </>
+                      );
+                    })()}
                   {state.editingPoints && edit?.freeform && edit.slide === shown && (
                     <EditPointsOverlay
                       key={edit.freeform.id}
@@ -6464,6 +6560,31 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
           pickPicture={pickSmartArtPicture}
           onClose={() => setSmartArtDialog(null)}
           onApply={applySmartArt}
+        />
+      )}
+      {smartPane && edit?.smartart && (
+        <SmartArtTextPane
+          key={edit.smartart.id}
+          items={edit.smartart.items}
+          node={smartNode}
+          onNode={setSmartNode}
+          onCommit={(items) => run({ cmd: 'setSmartArt', items })}
+          onClose={() => {
+            setSmartPane(false);
+            focusStage();
+          }}
+          anchor={() => {
+            const r = slideRef.current?.getBoundingClientRect();
+            if (!r || !smartFrame) return null;
+            const sc = main.width / (slideSize.width || 1);
+            return {
+              left: r.left + (smartFrame.cx - smartFrame.w / 2) * sc,
+              top: r.top + (smartFrame.cy - smartFrame.h / 2) * sc,
+              width: smartFrame.w * sc,
+              height: smartFrame.h * sc,
+            };
+          }}
+          labels={smartArtDesignLabels(t).pane}
         />
       )}
       {albumTools.dialogs}

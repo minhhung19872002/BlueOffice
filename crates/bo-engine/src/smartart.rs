@@ -397,7 +397,9 @@ pub fn decode_picture(url: &str) -> Option<NewPicture> {
     Some(NewPicture { data, ext, mime })
 }
 
-/// The nodes of the items of a command (blank lines are dropped) and the pictures they use. An
+/// The nodes of the items of a command and the pictures they use. A blank item is a node without
+/// text (an empty shape, as a new line of the text pane makes); an item marked `assistant` below a
+/// top-level node is an assistant of its parent. An
 /// item's `picture` is the relationship id of a picture the diagram has (`old`; kept), or a
 /// `data:` URL of a new PNG / JPEG picture, which `store` adds to the file (returning its part
 /// name); anything else is refused (`badPicture`).
@@ -406,7 +408,7 @@ pub fn nodes_of(
     old: &Pictures,
     store: &mut dyn FnMut(NewPicture) -> std::result::Result<String, String>,
 ) -> std::result::Result<(Vec<DiagramNode>, Pictures), String> {
-    let kept: Vec<&SmartItem> = items.iter().filter(|i| !i.text.trim().is_empty()).collect();
+    let kept: Vec<&SmartItem> = items.iter().collect();
     let lines: Vec<(String, usize)> = kept
         .iter()
         .map(|i| (i.text.trim().to_owned(), i.level))
@@ -442,6 +444,8 @@ pub fn nodes_of(
     }
     let mut nodes = dl::nodes_from_outline(&lines);
     dl::set_outline_pictures(&mut nodes, &ids);
+    let assistants: Vec<bool> = kept.iter().map(|i| i.assistant).collect();
+    dl::set_outline_assistants(&mut nodes, &assistants);
     Ok((nodes, pictures))
 }
 
@@ -461,10 +465,12 @@ pub fn items_of(nodes: &[DiagramNode]) -> Vec<SmartItem> {
     dl::outline_of(nodes)
         .into_iter()
         .zip(dl::outline_pictures(nodes))
-        .map(|((text, level), picture)| SmartItem {
+        .zip(dl::outline_assistants(nodes))
+        .map(|(((text, level), picture), assistant)| SmartItem {
             text,
             level,
             picture,
+            assistant,
         })
         .collect()
 }
@@ -509,20 +515,48 @@ fn sample_nodes(layout: Layout) -> Vec<DiagramNode> {
 /// Thumbnails of every layout of the library drawn with sample nodes in `look`, `w` × `h` points:
 /// `[{ "layout": name, "svg": document }]` (the dialog's layout previews).
 pub fn layout_previews(look: Look, w: f64, h: f64, fonts: &mut FontManager) -> serde_json::Value {
-    let (w, h) = (w.clamp(40.0, 400.0), h.clamp(30.0, 300.0));
+    layout_previews_of(look, None, w, h, fonts)
+}
+
+/// [`layout_previews`] of a diagram's own text outline (`items`; `None`: sample nodes without
+/// text), `w` × `h` points up to 1 600 × 1 200: the live preview of a layout on the diagram.
+pub fn layout_previews_of(
+    look: Look,
+    items: Option<&[SmartItem]>,
+    w: f64,
+    h: f64,
+    fonts: &mut FontManager,
+) -> serde_json::Value {
+    let own = items.map(|items| {
+        let lines: Vec<(String, usize)> = items
+            .iter()
+            .map(|i| (i.text.trim().to_owned(), i.level))
+            .collect();
+        let mut nodes = dl::nodes_from_outline(&lines);
+        let flags: Vec<bool> = items.iter().map(|i| i.assistant).collect();
+        dl::set_outline_assistants(&mut nodes, &flags);
+        nodes
+    });
+    let (w, h) = if own.is_some() {
+        (w.clamp(40.0, 1600.0), h.clamp(30.0, 1200.0))
+    } else {
+        (w.clamp(40.0, 400.0), h.clamp(30.0, 300.0))
+    };
     let (we, he) = ((w * 12_700.0) as i64, (h * 12_700.0) as i64);
     // A margin of 4 % around the drawing.
     let (mx, my) = (we / 25, he / 25);
     let list: Vec<serde_json::Value> = Layout::ALL
         .iter()
         .map(|layout| {
-            let xml = dl::drawing_xml(
-                &sample_nodes(*layout),
-                *layout,
-                look,
-                we - 2 * mx,
-                he - 2 * my,
-            );
+            let sample;
+            let nodes = match &own {
+                Some(n) if !n.is_empty() => n,
+                _ => {
+                    sample = sample_nodes(*layout);
+                    &sample
+                }
+            };
+            let xml = dl::drawing_xml(nodes, *layout, look, we - 2 * mx, he - 2 * my);
             let cmds = bo_pptx::diagram::render_drawing(
                 xml.as_bytes(),
                 "/preview.xml",
@@ -593,11 +627,13 @@ pub fn node_boxes(
     let Some((nodes, lo)) = dl::parse_data_model(data.0, data.1) else {
         return Vec::new();
     };
+    let look = dl::look_of(data.0, data.1);
     if let Some(layout) = dl::own_layout(lo.as_deref(), layout_xml) {
-        return dl::node_boxes(&nodes, layout, w, h);
+        return dl::node_boxes_with(&nodes, layout, look, w, h);
     }
     let Some((dx, dpart)) = drawing else {
-        return dl::node_boxes(&nodes, dl::layout_of(lo.as_deref(), layout_xml), w, h);
+        let layout = dl::layout_of(lo.as_deref(), layout_xml);
+        return dl::node_boxes_with(&nodes, layout, look, w, h);
     };
     let (Some(build), Some(shapes)) = (
         bo_pptx::diagram::diagram_build(data.0, data.1, dx, dpart),
@@ -714,6 +750,7 @@ mod shared_tests {
             text: text.into(),
             level,
             picture: picture.map(str::to_owned),
+            assistant: false,
         }
     }
 
@@ -740,27 +777,31 @@ mod shared_tests {
             item("C", 0, None),
         ];
         let (nodes, pictures) = nodes_of(&items, &old, &mut store).unwrap();
-        // The blank line and its picture are gone; the new picture gets an id no old one has.
+        // The blank line is an empty node with its picture; the new picture gets an id no old
+        // one has.
         assert_eq!(
             pictures,
             vec![
                 ("rIdImg2".to_owned(), "/m/image2.png".to_owned()),
+                ("rIdImg1".to_owned(), "/m/image1.png".to_owned()),
                 ("rIdImg3".to_owned(), "/m/new1.png".to_owned()),
             ]
         );
         assert_eq!(nodes[0].picture.as_deref(), Some("rIdImg2"));
-        assert_eq!(nodes[0].children[0].picture.as_deref(), Some("rIdImg3"));
-        assert_eq!(nodes[1].picture, None);
-        assert_eq!(items_of(&nodes)[1], item("B", 1, Some("rIdImg3")));
-        assert_eq!(used_pictures(&nodes[1..], &pictures), Vec::new());
+        assert_eq!(nodes[1].text, Vec::<String>::new());
+        assert_eq!(nodes[1].picture.as_deref(), Some("rIdImg1"));
+        assert_eq!(nodes[1].children[0].picture.as_deref(), Some("rIdImg3"));
+        assert_eq!(nodes[2].picture, None);
+        assert_eq!(items_of(&nodes)[2], item("B", 1, Some("rIdImg3")));
+        assert_eq!(used_pictures(&nodes[2..], &pictures), Vec::new());
         // An id the diagram does not have, or a picture that is not PNG / JPEG.
         let bad = [item("A", 0, Some("rId77"))];
         assert_eq!(nodes_of(&bad, &old, &mut store).unwrap_err(), "badPicture");
         let bad = [item("A", 0, Some("data:image/png;base64,QUJD"))];
         assert_eq!(nodes_of(&bad, &old, &mut store).unwrap_err(), "badPicture");
         // Editing a node's text keeps the others and the pictures.
-        let edited = with_node_text(&nodes, 1, " Mới \n lắm ").unwrap();
-        assert_eq!(edited[1], item("Mới lắm", 1, Some("rIdImg3")));
+        let edited = with_node_text(&nodes, 2, " Mới \n lắm ").unwrap();
+        assert_eq!(edited[2], item("Mới lắm", 1, Some("rIdImg3")));
         assert!(with_node_text(&nodes, 9, "x").is_none());
         assert!(with_node_text(&nodes, 0, "  ").is_none());
     }

@@ -42,6 +42,9 @@ pub struct SmartItem {
     /// or nothing (no picture).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,
+    /// An assistant of its parent (organisation charts; ignored on a top-level node).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assistant: bool,
 }
 
 /// The selected SmartArt as the text pane shows it.
@@ -59,6 +62,8 @@ pub struct SmartArtOut {
     pub colors: String,
     /// Look: `fill` | `outline`, or `file`: the diagram's own quick style part.
     pub style: String,
+    /// Laid out right to left.
+    pub rtl: bool,
 }
 
 /// A node of a SmartArt under a point of the slide (editing its text on the canvas).
@@ -95,6 +100,7 @@ pub(crate) fn look(
             Some(s) => Fill::parse(s).ok_or("badSmartArt")?,
             None => base.fill,
         },
+        ..base
     })
 }
 
@@ -188,6 +194,7 @@ pub fn smartart_out(pres: &Presentation, slide: usize, id: u32) -> Option<SmartA
     Some(SmartArtOut {
         colors: lk.palette.name().to_owned(),
         style: lk.fill.name().to_owned(),
+        rtl: lk.rtl,
         id,
         layout: dl::layout_of(lo.as_deref(), layout).name().to_owned(),
         items: shared::items_of(&nodes),
@@ -386,7 +393,7 @@ pub fn cmd_set_smartart(
     id: Option<u32>,
     layout: Option<&str>,
     items: Option<&[SmartItem]>,
-    (colors, style): (Option<&str>, Option<&str>),
+    (colors, style, rtl): (Option<&str>, Option<&str>, Option<bool>),
 ) -> R<()> {
     let id = frame_id(sel, id)?;
     let placed = place_slide(tx.pres, sel.slide);
@@ -409,7 +416,8 @@ pub fn cmd_set_smartart(
     };
     // The drawing relationship keeps its id; without a drawing part the data model names none.
     let drawing_rel = bo_pptx::diagram::drawing_rel_id(data, &parts.data).unwrap_or_default();
-    let lk = look(dl::look_of(data, &parts.data), colors, style).map_err(EditError::Refused)?;
+    let mut lk = look(dl::look_of(data, &parts.data), colors, style).map_err(EditError::Refused)?;
+    lk.rtl = rtl.unwrap_or(lk.rtl);
     let defs = parts.defs(tx.pres);
     let (nodes, pictures) = if let Some(i) = items {
         nodes_of(tx, i, &parts.pictures)?
@@ -477,7 +485,7 @@ pub fn cmd_set_smartart_node_text(
         return Err(EditError::Refused("badSmartArt"));
     }
     item.text = text;
-    cmd_set_smartart(tx, sel, Some(id), None, Some(&items), (None, None))
+    cmd_set_smartart(tx, sel, Some(id), None, Some(&items), (None, None, None))
 }
 
 /// The node of SmartArt `id` (default: the selected one) at slide point `at`, or — with `node` —
@@ -614,6 +622,67 @@ pub fn cmd_smartart_to_shapes(tx: &mut Tx<'_>, sel: &mut SlideSel, id: Option<u3
         extra: Vec::new(),
     }));
     tx.replace_node(sel.slide, &p.path, group)
+        .map_err(|_| EditError::Refused("noSmartArt"))?;
+    sel.ids = vec![id];
+    Ok(())
+}
+
+/// Replace SmartArt `id` (default: the selected one) by a text box in the same place holding its
+/// text outline as a bulleted list, one paragraph per node at its level (`a:pPr@lvl`, ECMA-376 Part 1, DrawingML text), one
+/// undo step. The text box keeps the frame's id and is selected afterwards.
+pub fn cmd_smartart_to_text(tx: &mut Tx<'_>, sel: &mut SlideSel, id: Option<u32>) -> R<()> {
+    let id = frame_id(sel, id)?;
+    let placed = place_slide(tx.pres, sel.slide);
+    let p = find(&placed, id).ok_or(EditError::Refused("noSmartArt"))?;
+    let n = node_at(tx.pres, sel.slide, &p.path).ok_or(EditError::Refused("noSmartArt"))?;
+    let ShapeNode::Frame(f) = n else {
+        return Err(EditError::Refused("noSmartArt"));
+    };
+    let xfrm = f.xfrm.clone();
+    let parts = parts_of(tx.pres, sel.slide, n).ok_or(EditError::Refused("noSmartArt"))?;
+    let data = tx
+        .pres
+        .part_data(&parts.data)
+        .ok_or(EditError::Refused("noSmartArt"))?;
+    let (nodes, _) =
+        dl::parse_data_model(data, &parts.data).ok_or(EditError::Refused("noSmartArt"))?;
+    let mut paras = String::new();
+    for (text, level) in dl::outline_of(&nodes) {
+        // ST_TextIndentLevelType: levels 0–8; 0.375 in per level, a hanging bullet (`a:buChar`).
+        let lvl = level.min(8);
+        let mar = 342_900 * (lvl as i64 + 1);
+        let run = if text.is_empty() {
+            r#"<a:endParaRPr lang="vi-VN"/>"#.to_owned()
+        } else {
+            format!(
+                r#"<a:r><a:rPr lang="vi-VN"/><a:t>{}</a:t></a:r>"#,
+                build::esc(&text)
+            )
+        };
+        paras.push_str(&format!(
+            r#"<a:p><a:pPr marL="{mar}" lvl="{lvl}" indent="-342900"><a:buFont typeface="Arial"/><a:buChar char="&#8226;"/></a:pPr>{run}</a:p>"#
+        ));
+    }
+    if paras.is_empty() {
+        paras.push_str("<a:p/>");
+    }
+    let (x, y) = xfrm.off.unwrap_or((0, 0));
+    let (cx, cy) = xfrm.ext.unwrap_or((0, 0));
+    let xml = format!(
+        concat!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="TextBox {id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>"#,
+            r#"<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>"#,
+            r#"<p:txBody><a:bodyPr wrap="square" rtlCol="0"><a:normAutofit/></a:bodyPr><a:lstStyle/>{paras}</p:txBody></p:sp>"#
+        ),
+        id = id,
+        x = x,
+        y = y,
+        cx = cx,
+        cy = cy,
+        paras = paras,
+    );
+    let node = build::node(&xml).ok_or(EditError::Refused("noSmartArt"))?;
+    tx.replace_node(sel.slide, &p.path, node)
         .map_err(|_| EditError::Refused("noSmartArt"))?;
     sel.ids = vec![id];
     Ok(())

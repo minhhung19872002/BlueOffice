@@ -1626,6 +1626,8 @@ export type SheetSmartArtCommand =
       items?: SlideSmartArtItem[];
       colors?: SlideSmartArtColors;
       style?: SlideSmartArtStyle;
+      /** Lay out right to left (absent: unchanged). */
+      rtl?: boolean;
     }
   | { cmd: 'smartArtInfo'; sheet: number; index: number }
   | {
@@ -1645,6 +1647,9 @@ export type SheetSmartArtCommand =
       style?: SlideSmartArtStyle;
       width?: number;
       height?: number;
+      /** Draw this outline instead of sample nodes (live preview of a layout). */
+      items?: SlideSmartArtItem[];
+      rtl?: boolean;
     };
 
 /** A SmartArt diagram of a sheet (result of `smartArtInfo`). */
@@ -1655,6 +1660,8 @@ export interface SheetSmartArtInfo {
   items: SlideSmartArtItem[];
   colors: SlideSmartArtColors;
   style: SlideSmartArtStyle;
+  /** Laid out right to left. */
+  rtl?: boolean;
   from: [number, number];
   to: [number, number];
 }

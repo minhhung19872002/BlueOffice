@@ -38,7 +38,7 @@ test('inserts, edits and converts a SmartArt; kept after save and reopen', async
 
   // Text pane: a hierarchy with two departments under the director (Tab demotes a line).
   await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
-  await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
+  await page.locator('[data-command="smartart.edit"]').click();
   await expect(dialog.getByTestId('smartart-text')).toHaveValue('Tiếp nhận\nXử lý\nTrả kết quả');
   await dialog.getByTestId('smartart-layout-hierarchy').check();
   const pane = dialog.getByTestId('smartart-text');
@@ -72,7 +72,7 @@ test('inserts, edits and converts a SmartArt; kept after save and reopen', async
   await page.mouse.click(slideBox.x + slideBox.width * 0.5, slideBox.y + slideBox.height * 0.52);
   await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
   await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
-  await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
+  await page.locator('[data-command="smartart.edit"]').click();
   await expect(dialog.getByTestId('smartart-text')).toHaveValue(
     'Giám đốc\n\tKỹ thuật\n\tKinh doanh',
   );

@@ -70,6 +70,9 @@ pub enum SmartArtCommand {
         /// New look.
         #[serde(default)]
         style: Option<String>,
+        /// Lay out right to left (`None` keeps the direction).
+        #[serde(default)]
+        rtl: Option<bool>,
     },
     /// Diagram `index` as the text pane shows it.
     SmartArtInfo {
@@ -118,6 +121,12 @@ pub enum SmartArtCommand {
         /// Thumbnail height in points (default 64).
         #[serde(default)]
         height: Option<f64>,
+        /// Draw this text outline instead of sample nodes (live preview of a layout).
+        #[serde(default)]
+        items: Option<Vec<SmartItem>>,
+        /// Right to left.
+        #[serde(default)]
+        rtl: Option<bool>,
     },
 }
 
@@ -163,6 +172,7 @@ fn look(base: Look, colors: Option<&str>, style: Option<&str>) -> Result<Look> {
             Some(s) => Fill::parse(s).ok_or_else(|| bad("badSmartArt"))?,
             None => base.fill,
         },
+        ..base
     })
 }
 
@@ -288,6 +298,7 @@ fn info_json(wb: &Workbook, index: usize, d: &SheetDiagram) -> Value {
         "items": items,
         "colors": lk.palette.name(),
         "style": lk.fill.name(),
+        "rtl": lk.rtl,
         "from": [d.from.row, d.from.col],
         "to": [to.row, to.col],
     })
@@ -444,6 +455,9 @@ impl SheetEngine {
             } => {
                 let cat = Layout::parse(&layout).ok_or_else(|| bad("badSmartArt"))?;
                 let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
+                if items.iter().all(|i| i.text.trim().is_empty()) {
+                    return Err(bad("badSmartArt"));
+                }
                 let mut new = NewImages::new(self.wb()?);
                 let (nodes, pictures) =
                     crate::smartart::nodes_of(&items, &Vec::new(), &mut |p| Ok(new.store(p)))
@@ -500,6 +514,7 @@ impl SheetEngine {
                 items,
                 colors,
                 style,
+                rtl,
                 ..
             } => {
                 check_index(index)?;
@@ -523,7 +538,8 @@ impl SheetEngine {
                         Some(l) => Layout::parse(l).ok_or_else(|| bad("badSmartArt"))?,
                         None => old_cat,
                     };
-                    let lk = look(old_look, colors.as_deref(), style.as_deref())?;
+                    let mut lk = look(old_look, colors.as_deref(), style.as_deref())?;
+                    lk.rtl = rtl.unwrap_or(lk.rtl);
                     let mut new = NewImages::new(wb);
                     let (nodes, pictures) = if let Some(i) = items.as_deref() {
                         crate::smartart::nodes_of(i, &src.pictures, &mut |p| Ok(new.store(p)))
@@ -689,11 +705,15 @@ impl SheetEngine {
                 style,
                 width,
                 height,
+                items,
+                rtl,
             } => {
-                let lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
+                let mut lk = look(Look::default(), colors.as_deref(), style.as_deref())?;
+                lk.rtl = rtl.unwrap_or(false);
                 Ok(json!({
-                    "previews": crate::smartart::layout_previews(
+                    "previews": crate::smartart::layout_previews_of(
                         lk,
+                        items.as_deref(),
                         width.unwrap_or(96.0),
                         height.unwrap_or(64.0),
                         &mut self.fonts,
@@ -719,6 +739,46 @@ mod tests {
             .iter()
             .map(|(t, l)| json!({"text": t, "level": l}))
             .collect::<Vec<_>>())
+    }
+
+    // source: black-box Office SmartArt Design tab (CORE-SMART-004): Right to Left and Add
+    // Assistant on a sheet, one undo step each (layout variable `dgm:dir`, ST_PtType `asst`).
+    #[test]
+    fn design_actions_rtl_and_assistant() {
+        let mut e = SheetEngine::new();
+        e.new_workbook("Book").unwrap();
+        run(
+            &mut e,
+            &json!({"cmd": "insertSmartArt", "sheet": 0, "layout": "hierarchy", "from": [1, 1], "items": items(&[("Một", 0), ("Hai", 1)])}),
+        );
+        let r = run(
+            &mut e,
+            &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "rtl": true}),
+        );
+        assert_eq!(r["smartArt"]["rtl"], true);
+        let r = run(
+            &mut e,
+            &json!({"cmd": "setSmartArt", "sheet": 0, "index": 0, "items": [
+                {"text": "Một", "level": 0},
+                {"text": "Trợ lý", "level": 1, "assistant": true},
+                {"text": "Hai", "level": 1}
+            ]}),
+        );
+        assert_eq!(r["smartArt"]["items"][1]["assistant"], true);
+        assert_eq!(r["smartArt"]["rtl"], true, "the direction stays");
+        e.undo().unwrap();
+        let r = run(
+            &mut e,
+            &json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(r["items"].as_array().unwrap().len(), 2);
+        assert_eq!(r["rtl"], true);
+        e.undo().unwrap();
+        let r = run(
+            &mut e,
+            &json!({"cmd": "smartArtInfo", "sheet": 0, "index": 0}),
+        );
+        assert_eq!(r["rtl"], false);
     }
 
     #[test]

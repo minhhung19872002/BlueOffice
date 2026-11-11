@@ -1089,6 +1089,8 @@ export type DocSmartArtCommand =
       items?: SlideSmartArtItem[];
       colors?: SlideSmartArtColors;
       style?: SlideSmartArtStyle;
+      /** Lay out right to left (absent: unchanged). */
+      rtl?: boolean;
     }
   | { cmd: 'smartArtInfo' }
   /** Replace the diagram at the selection by a group of ordinary shapes (one undo step). */
@@ -1100,6 +1102,9 @@ export type DocSmartArtCommand =
       style?: SlideSmartArtStyle;
       width?: number;
       height?: number;
+      /** Draw this outline instead of sample nodes (live preview of a layout). */
+      items?: SlideSmartArtItem[];
+      rtl?: boolean;
     };
 
 /** The SmartArt at the selection of a document (mirrors `bo_engine::doc_smartart::DocSmartArt`). */
@@ -1108,6 +1113,8 @@ export interface DocSmartArtInfo {
   items: SlideSmartArtItem[];
   colors: SlideSmartArtColors;
   style: SlideSmartArtStyle;
+  /** Laid out right to left. */
+  rtl?: boolean;
   /** Frame size in points. */
   width: number;
   height: number;
@@ -2042,8 +2049,12 @@ export type SlideCommand =
       items?: SlideSmartArtItem[];
       colors?: SlideSmartArtColors;
       style?: SlideSmartArtStyle;
+      /** Lay out right to left (absent: unchanged). */
+      rtl?: boolean;
     }
   | { cmd: 'smartArtToShapes'; id?: number }
+  /** Replace the SmartArt by a text box with its outline as a bulleted list (one undo step). */
+  | { cmd: 'smartArtToText'; id?: number }
   /** Change the text of one node (the edit of a node on the canvas, one undo step). */
   | { cmd: 'setSmartArtNodeText'; id?: number; node: number; text: string }
   /**
@@ -2058,6 +2069,9 @@ export type SlideCommand =
       style?: SlideSmartArtStyle;
       width?: number;
       height?: number;
+      /** Draw this outline instead of sample nodes (live preview of a layout). */
+      items?: SlideSmartArtItem[];
+      rtl?: boolean;
     }
   | ({
       cmd: 'setChart';
@@ -2612,6 +2626,8 @@ export interface SlideSmartArtItem {
    * or nothing (no picture).
    */
   picture?: string;
+  /** An assistant of its parent (organisation charts; ignored on a top-level node). */
+  assistant?: boolean;
 }
 
 /** The selected SmartArt. */
@@ -2621,6 +2637,8 @@ export interface SlideSmartArtInfo {
   items: SlideSmartArtItem[];
   colors: SlideSmartArtColors;
   style: SlideSmartArtStyle;
+  /** Laid out right to left. */
+  rtl?: boolean;
 }
 
 export interface SlideChartInfo {

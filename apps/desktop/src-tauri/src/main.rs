@@ -8,6 +8,7 @@
 // Tauri command handlers must take their arguments by value.
 #![allow(clippy::needless_pass_by_value)]
 
+mod automation;
 mod collab_cmds;
 mod print;
 mod query_cmds;
@@ -288,7 +289,7 @@ fn open_print_window(
     };
     let dialog = print::dialog_enabled(std::env::var(print::DIALOG_ENV).ok().as_deref());
     let started = Arc::new(AtomicBool::new(false));
-    let built = WebviewWindowBuilder::new(app, &label, target)
+    let built = automation::apply(WebviewWindowBuilder::new(app, &label, target))
         .title(print::window_title(name))
         .inner_size(900.0, 1000.0)
         .on_page_load(move |w, payload| {
@@ -570,12 +571,16 @@ async fn open_window(app: tauri::AppHandle, query: String) -> Result<String, Str
         .product_name
         .clone()
         .unwrap_or_else(|| "BlueOffice".into());
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
-        .title(title)
-        .inner_size(1280.0, 860.0)
-        .min_inner_size(720.0, 480.0)
-        .build()
-        .map_err(|e| e.to_string())?;
+    automation::apply(WebviewWindowBuilder::new(
+        &app,
+        &label,
+        WebviewUrl::App(url.into()),
+    ))
+    .title(title)
+    .inner_size(1280.0, 860.0)
+    .min_inner_size(720.0, 480.0)
+    .build()
+    .map_err(|e| e.to_string())?;
     Ok(label)
 }
 
@@ -644,7 +649,12 @@ async fn open_window_on(
         .clone()
         .unwrap_or_else(|| "BlueOffice".into());
     let monitor = display.and_then(|i| app.available_monitors().ok()?.into_iter().nth(i));
-    let mut b = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into())).title(title);
+    let mut b = automation::apply(WebviewWindowBuilder::new(
+        &app,
+        &label,
+        WebviewUrl::App(url.into()),
+    ))
+    .title(title);
     b = match monitor {
         Some(m) => {
             let (x, y, w, h) = monitor_box(&m);
@@ -724,6 +734,8 @@ fn main() {
             app.manage(sheet_cmds::SheetState::new());
             app.manage(PrintJobs::default());
             app.manage(FontsReady::default());
+            #[cfg(feature = "webdriver")]
+            automation::create_main(app)?;
             // Index the installed fonts without delaying the window.
             let fonts_app = app.handle().clone();
             std::thread::spawn(move || {

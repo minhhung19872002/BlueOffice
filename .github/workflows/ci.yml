@@ -260,35 +260,10 @@ jobs:
       # The runner's user is an elevated administrator, and WebView2 ignores the WEBVIEW2_*
       # environment variables msedgedriver drives it with (remote debugging port, profile
       # folder) in elevated processes ("DevToolsActivePort file doesn't exist"). The E2E
-      # runs with a standard-user token instead (runas /trustlevel: Basic User), as on a
-      # developer machine.
-      - name: Desktop E2E (standard user)
+      # build (`webdriver` feature, not the packaged one) passes them through the WebView2
+      # API instead (apps/desktop/src-tauri/src/automation.rs).
+      - name: Desktop E2E build (webdriver)
         if: matrix.e2e
-        shell: pwsh
-        run: |
-          $dir = Join-Path $env:RUNNER_TEMP 'e2e-desktop'
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          $log = Join-Path $dir 'e2e.log'
-          $done = Join-Path $dir 'exit.txt'
-          $q = { param($v) "'" + ($v -replace "'", "''") + "'" }
-          $lines = Get-ChildItem env: | ForEach-Object {
-            "[Environment]::SetEnvironmentVariable($(& $q $_.Name), $(& $q $_.Value))"
-          }
-          $lines += "Set-Location $(& $q $PWD.Path)"
-          $lines += "pnpm test:e2e:desktop *> $(& $q $log)"
-          $lines += "Set-Content -Path $(& $q $done) -Value `$LASTEXITCODE"
-          $script = Join-Path $dir 'run.ps1'
-          Set-Content -Path $script -Value $lines -Encoding utf8
-          $pwsh = (Get-Command pwsh).Source
-          # runas goes through the Secondary Logon service.
-          Set-Service seclogon -StartupType Manual -ErrorAction SilentlyContinue
-          Start-Service seclogon -ErrorAction SilentlyContinue
-          runas /trustlevel:0x20000 "`"$pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$script`""
-          if ($LASTEXITCODE -ne 0) { throw "runas failed ($LASTEXITCODE)" }
-          $deadline = (Get-Date).AddMinutes(45)
-          while (-not (Test-Path $done) -and (Get-Date) -lt $deadline) { Start-Sleep 5 }
-          Get-Content $log -ErrorAction SilentlyContinue
-          if (-not (Test-Path $done)) { throw 'desktop E2E did not finish' }
-          $code = [int](Get-Content $done | Select-Object -First 1)
-          Write-Host "desktop E2E exit code $code"
-          exit $code
+        run: pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater,webdriver --config src-tauri/tauri.webdriver.conf.json
+      - run: pnpm test:e2e:desktop
+        if: matrix.e2e

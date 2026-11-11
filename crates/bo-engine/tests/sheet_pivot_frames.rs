@@ -404,6 +404,95 @@ fn timeline_commands() {
     assert_eq!(list.as_array().unwrap().len(), 0);
 }
 
+/// Timeline Tools › Show (header, selection label, time level, scroll bar) and the scroll
+/// position of the strip: shown by default; hiding one is one undo step; scrolling is saved with
+/// the file but adds no undo step; both survive a save, for a new timeline and for one read
+/// from a file ([MS-XLSX] `CT_Timeline` attributes).
+#[test]
+fn timeline_show_options_and_scroll_position_round_trip() {
+    let mut e = with_pivots();
+    run(
+        &mut e,
+        json!({ "cmd": "insertTimeline", "sheet": 1, "pivot": 0, "field": 2 }),
+    );
+    let t = &run(&mut e, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    for k in [
+        "showHeader",
+        "showSelectionLabel",
+        "showTimeLevel",
+        "showScrollbar",
+    ] {
+        assert_eq!(t[k], true, "{k} shown by default");
+    }
+    assert_eq!(t["scrollDay"], Value::Null);
+    run(
+        &mut e,
+        json!({ "cmd": "timelineOptions", "sheet": 1, "index": 0,
+            "showTimeLevel": false, "showScrollbar": false }),
+    );
+    // 2024-06-01 = 45444: scrolled to June 2024.
+    run(
+        &mut e,
+        json!({ "cmd": "timelineScroll", "sheet": 1, "index": 0, "day": 45444 }),
+    );
+    let t = &run(&mut e, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    assert_eq!(
+        (t["showTimeLevel"].clone(), t["showScrollbar"].clone()),
+        (json!(false), json!(false))
+    );
+    assert_eq!(t["showHeader"], true);
+    assert_eq!(t["scrollDay"], 45444.0);
+    // Scrolling added no undo step: one undo takes back the options (the workbook goes back
+    // to how it was before them, like after a change of the sheet zoom).
+    let depth = e.history_len();
+    run(
+        &mut e,
+        json!({ "cmd": "timelineScroll", "sheet": 1, "index": 0, "day": 45444 }),
+    );
+    assert_eq!(e.history_len(), depth);
+    assert!(e.undo().unwrap());
+    let t = &run(&mut e, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    assert_eq!(t["showTimeLevel"], true);
+    assert!(e.redo().unwrap());
+    run(
+        &mut e,
+        json!({ "cmd": "timelineScroll", "sheet": 1, "index": 0, "day": 45444 }),
+    );
+
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut e2 = SheetEngine::new();
+    e2.open(&bytes, "t.xlsx").unwrap();
+    let t = &run(&mut e2, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    assert_eq!(
+        (t["showTimeLevel"].clone(), t["showScrollbar"].clone()),
+        (json!(false), json!(false))
+    );
+    assert_eq!(t["scrollDay"], 45444.0);
+    // Changed in the file's own part: header hidden, level shown again, scrolled back.
+    run(
+        &mut e2,
+        json!({ "cmd": "timelineOptions", "sheet": 1, "index": 0,
+            "showHeader": false, "showTimeLevel": true }),
+    );
+    run(
+        &mut e2,
+        json!({ "cmd": "timelineScroll", "sheet": 1, "index": 0 }),
+    );
+    let bytes = e2.save("xlsx", 0).unwrap();
+    let mut e3 = SheetEngine::new();
+    e3.open(&bytes, "t.xlsx").unwrap();
+    let t = &run(&mut e3, json!({ "cmd": "timelines", "sheet": 1 }))[0];
+    assert_eq!(
+        (
+            t["showHeader"].clone(),
+            t["showTimeLevel"].clone(),
+            t["showScrollbar"].clone()
+        ),
+        (json!(false), json!(true), json!(false))
+    );
+    assert_eq!(t["scrollDay"], Value::Null);
+}
+
 #[test]
 fn deleting_a_pivot_table_detaches_its_frames() {
     let mut e = with_pivots();

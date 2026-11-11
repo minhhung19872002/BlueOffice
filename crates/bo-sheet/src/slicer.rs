@@ -802,6 +802,95 @@ pub struct FrameColors {
     pub header_text: String,
     /// Frame border.
     pub border: String,
+    /// Fill of the frame (a custom style's `wholeTable`); `None` = the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    /// Fill of an item / period that is not selected (a custom style); `None` = the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unselected: Option<String>,
+    /// Text of an item that is not selected (a custom style); `None` = the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unselected_text: Option<String>,
+}
+
+/// The colour of a differential fill: a solid fill keeps its colour in `bgColor` (§18.8.3;
+/// some writers use `fgColor`), a gradient its first stop.
+fn dxf_fill(d: &bo_model::sheet::Dxf, wb: &Workbook) -> Option<String> {
+    use bo_model::sheet::Fill;
+    let c = match d.fill.as_ref()? {
+        Fill::Pattern(p) => p.bg.as_ref().or(p.fg.as_ref())?,
+        Fill::Gradient(g) => &g.stops.first()?.1,
+    };
+    let rgb = crate::color::resolve_color(c, wb.theme.as_ref())?;
+    Some(format!("#{}", crate::color::hex((rgb.0, rgb.1, rgb.2))))
+}
+
+/// The font colour of a differential format.
+fn dxf_text(d: &bo_model::sheet::Dxf, wb: &Workbook) -> Option<String> {
+    let c = d.font.as_ref()?.color.as_ref()?;
+    let rgb = crate::color::resolve_color(c, wb.theme.as_ref())?;
+    Some(format!("#{}", crate::color::hex((rgb.0, rgb.1, rgb.2))))
+}
+
+/// The colour of the first edge of a differential border that has one.
+fn dxf_border(d: &bo_model::sheet::Dxf, wb: &Workbook) -> Option<String> {
+    let b = d.border.as_ref()?;
+    [&b.top, &b.left, &b.bottom, &b.right]
+        .into_iter()
+        .chain(b.horizontal.as_ref())
+        .chain(b.vertical.as_ref())
+        .find_map(|e| e.color.as_ref())
+        .and_then(|c| crate::color::resolve_color(c, wb.theme.as_ref()))
+        .map(|rgb| format!("#{}", crate::color::hex((rgb.0, rgb.1, rgb.2))))
+}
+
+/// The colours of a custom slicer or timeline style (the workbook's own `x14:slicerStyle` /
+/// `x15:timelineStyle` and its `tableStyle`): what it sets over the first light style.
+#[must_use]
+pub fn custom_frame_colors(wb: &Workbook, parts: &bo_model::sheet::FrameStyleParts) -> FrameColors {
+    let mut c = builtin_frame_colors(
+        wb,
+        if parts.timeline {
+            "TimeSlicerStyleLight1"
+        } else {
+            "SlicerStyleLight1"
+        },
+    );
+    if let Some(d) = &parts.whole {
+        c.background = dxf_fill(d, wb);
+        if let Some(b) = dxf_border(d, wb) {
+            c.border = b;
+        }
+        if let Some(t) = dxf_text(d, wb) {
+            c.header_text.clone_from(&t);
+            c.unselected_text = Some(t);
+        }
+    }
+    if let Some(d) = &parts.header {
+        if let Some(f) = dxf_fill(d, wb) {
+            c.header = f;
+        }
+        if let Some(t) = dxf_text(d, wb) {
+            c.header_text = t;
+        }
+    }
+    if let Some(d) = &parts.selected {
+        if let Some(f) = dxf_fill(d, wb) {
+            c.selected = f;
+        }
+        if let Some(t) = dxf_text(d, wb) {
+            c.selected_text = t;
+        }
+    }
+    if let Some(d) = &parts.unselected {
+        if let Some(f) = dxf_fill(d, wb) {
+            c.unselected = Some(f);
+        }
+        if let Some(t) = dxf_text(d, wb) {
+            c.unselected_text = Some(t);
+        }
+    }
+    c
 }
 
 /// The colours of style `name` (`SlicerStyleLight1`, `SlicerStyleDark3`, `SlicerStyleOther2`,
@@ -809,6 +898,20 @@ pub struct FrameColors {
 #[must_use]
 pub fn frame_colors(wb: &Workbook, name: Option<&str>) -> FrameColors {
     let name = name.unwrap_or_default();
+    // A custom style of the workbook ([MS-XLSX] `x14:slicerStyle` / `x15:timelineStyle`).
+    if let Some(parts) = wb
+        .styles
+        .frame_styles
+        .iter()
+        .find(|s| !name.is_empty() && s.name == name)
+    {
+        return custom_frame_colors(wb, parts);
+    }
+    builtin_frame_colors(wb, name)
+}
+
+/// The colours of built-in style `name` (see [`frame_colors`]).
+fn builtin_frame_colors(wb: &Workbook, name: &str) -> FrameColors {
     let digits: String = name
         .chars()
         .rev()
@@ -839,6 +942,9 @@ pub fn frame_colors(wb: &Workbook, name: Option<&str>) -> FrameColors {
             header: accent.clone(),
             header_text: "#FFFFFF".into(),
             border: accent,
+            background: None,
+            unselected: None,
+            unselected_text: None,
         }
     } else {
         FrameColors {
@@ -847,6 +953,9 @@ pub fn frame_colors(wb: &Workbook, name: Option<&str>) -> FrameColors {
             header: "#FFFFFF".into(),
             header_text: "#262626".into(),
             border: accent,
+            background: None,
+            unselected: None,
+            unselected_text: None,
         }
     }
 }

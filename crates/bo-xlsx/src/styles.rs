@@ -127,6 +127,7 @@ pub(crate) fn read_styles(data: &[u8], part: &str) -> Result<Stylesheet> {
         prev = name;
         Ok(())
     })?;
+    ss.frame_styles = frame_styles(&ss);
     Ok(ss)
 }
 
@@ -699,4 +700,196 @@ pub(crate) fn write_styles(ss: &Stylesheet) -> String {
     );
     out.push_str("</styleSheet>");
     out
+}
+
+// ------------------------------------------------------------------ custom slicer / timeline styles
+
+/// The dxfs of the [MS-XLSX] `x14:dxfs` extension of `extLst` (in order; referenced by the
+/// `dxfId` of `x14:slicerStyleElement` and `x15:timelineStyleElement`).
+fn ext_dxfs(xml: &str) -> Vec<Dxf> {
+    fn walk(r: &mut XmlReader<'_>, out: &mut Vec<Dxf>) -> Result<()> {
+        for_children(r, |r, e, empty| {
+            if empty {
+                return Ok(());
+            }
+            if lname(e) == "dxfs" {
+                for_children(r, |r, e, empty| {
+                    if lname(e) == "dxf" {
+                        out.push(if empty { Dxf::default() } else { read_dxf(r)? });
+                    }
+                    Ok(())
+                })
+            } else {
+                walk(r, out)
+            }
+        })
+    }
+    let mut r = XmlReader::new(xml.as_bytes(), "styles extLst");
+    let mut out = Vec::new();
+    if matches!(root(&mut r), Ok((_, false))) {
+        // A broken extension only loses its custom styles.
+        let _ = walk(&mut r, &mut out);
+    }
+    out
+}
+
+/// The custom slicer and timeline styles of a stylesheet: each [MS-XLSX] `x14:slicerStyle` /
+/// `x15:timelineStyle` of the `extLst` with its `tableStyle` of the same name (§18.8.40;
+/// `wholeTable` and `headerRow` formats from §18.8.15 `dxfs`) and its own elements (formats from
+/// the `x14:dxfs` extension).
+#[must_use]
+pub fn frame_styles(ss: &Stylesheet) -> Vec<bo_model::sheet::FrameStyleParts> {
+    use crate::chart::{parse_dom, Node};
+    let doms: Vec<Node> = ss
+        .unknown
+        .iter()
+        .filter_map(|u| parse_dom(u.xml.as_bytes(), "styles"))
+        .collect();
+    let find = |name: &str| -> Vec<&Node> {
+        let mut out = Vec::new();
+        for d in &doms {
+            if d.name == name {
+                out.push(d);
+            }
+            d.descendants(name, &mut out);
+        }
+        out
+    };
+    let ext = ss
+        .unknown
+        .iter()
+        .find(|u| u.xml.trim_start().starts_with("<extLst"))
+        .map(|u| ext_dxfs(&u.xml))
+        .unwrap_or_default();
+    let dxf_at = |list: &[Dxf], id: Option<&str>| {
+        id.and_then(|v| v.parse::<usize>().ok())
+            .and_then(|i| list.get(i).cloned())
+    };
+    // §18.8.40 tableStyle → (wholeTable, headerRow).
+    let table = |name: &str| -> (Option<Dxf>, Option<Dxf>) {
+        let mut whole = None;
+        let mut header = None;
+        for t in find("tableStyle") {
+            if t.attr("name") != Some(name) {
+                continue;
+            }
+            for el in t.children.iter().filter(|c| c.name == "tableStyleElement") {
+                match el.attr("type") {
+                    Some("wholeTable") => whole = dxf_at(&ss.dxfs, el.attr("dxfId")),
+                    Some("headerRow") => header = dxf_at(&ss.dxfs, el.attr("dxfId")),
+                    _ => {}
+                }
+            }
+        }
+        (whole, header)
+    };
+    let mut out = Vec::new();
+    for (tag, timeline, selected, unselected) in [
+        (
+            "slicerStyle",
+            false,
+            "selectedItemWithData",
+            "unselectedItemWithData",
+        ),
+        (
+            "timelineStyle",
+            true,
+            "selectedTimeBlock",
+            "unselectedTimeBlock",
+        ),
+    ] {
+        for s in find(tag) {
+            let Some(name) = s.attr("name").filter(|n| !n.is_empty()) else {
+                continue;
+            };
+            let (whole, header) = table(name);
+            let mut parts = bo_model::sheet::FrameStyleParts {
+                name: name.to_owned(),
+                timeline,
+                whole,
+                header,
+                ..Default::default()
+            };
+            let mut els = Vec::new();
+            s.descendants(&format!("{tag}Element"), &mut els);
+            for el in els {
+                let dxf = dxf_at(&ext, el.attr("dxfId"));
+                match el.attr("type") {
+                    Some(t) if t == selected => parts.selected = dxf,
+                    Some(t) if t == unselected => parts.unselected = dxf,
+                    _ => {}
+                }
+            }
+            out.push(parts);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod frame_style_tests {
+    use super::*;
+
+    /// A custom slicer style as [MS-XLSX] lays it out: the `tableStyle` (whole frame, header) in
+    /// the main `dxfs`, the item formats in the `x14:dxfs` extension.
+    #[test]
+    fn custom_slicer_style_formats_are_found() {
+        let xml = concat!(
+            r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+            r#"<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>"#,
+            r#"<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>"#,
+            r#"<borders count="1"><border/></borders>"#,
+            r#"<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs>"#,
+            r#"<dxfs count="2"><dxf><font><b/><color rgb="FF203864"/></font></dxf>"#,
+            r#"<dxf><border><left style="thin"><color rgb="FF70AD47"/></left></border></dxf></dxfs>"#,
+            r#"<tableStyles count="1"><tableStyle name="Mine" pivot="0" table="0" count="2">"#,
+            r#"<tableStyleElement type="wholeTable" dxfId="1"/><tableStyleElement type="headerRow" dxfId="0"/>"#,
+            r#"</tableStyle></tableStyles>"#,
+            r#"<extLst><ext uri="{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">"#,
+            r#"<x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"><x14:slicerStyle name="Mine"><x14:slicerStyleElements>"#,
+            r#"<x14:slicerStyleElement type="selectedItemWithData" dxfId="0"/>"#,
+            r#"<x14:slicerStyleElement type="unselectedItemWithData" dxfId="1"/>"#,
+            r#"</x14:slicerStyleElements></x14:slicerStyle></x14:slicerStyles></ext>"#,
+            r#"<ext uri="{46F421CA-312F-682f-3DD2-61675219B42D}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">"#,
+            r#"<x14:dxfs count="2"><dxf><fill><patternFill><bgColor rgb="FFC00000"/></patternFill></fill></dxf>"#,
+            r#"<dxf><font><color rgb="FF7F7F7F"/></font></dxf></x14:dxfs></ext></extLst></styleSheet>"#
+        );
+        let ss = read_styles(xml.as_bytes(), "styles.xml").unwrap();
+        let styles = frame_styles(&ss);
+        assert_eq!(styles.len(), 1);
+        let s = &styles[0];
+        assert_eq!((s.name.as_str(), s.timeline), ("Mine", false));
+        let header = s.header.as_ref().and_then(|d| d.font.as_ref()).unwrap();
+        assert!(header.bold);
+        assert_eq!(
+            header.color.as_ref().and_then(|c| c.rgb.as_deref()),
+            Some("FF203864")
+        );
+        let edge = &s
+            .whole
+            .as_ref()
+            .and_then(|d| d.border.as_ref())
+            .unwrap()
+            .left;
+        assert_eq!(
+            edge.color.as_ref().and_then(|c| c.rgb.as_deref()),
+            Some("FF70AD47")
+        );
+        let Some(Fill::Pattern(p)) = s.selected.as_ref().and_then(|d| d.fill.as_ref()) else {
+            panic!("selected item fill");
+        };
+        assert_eq!(
+            p.bg.as_ref().and_then(|c| c.rgb.as_deref()),
+            Some("FFC00000")
+        );
+        assert!(s
+            .unselected
+            .as_ref()
+            .and_then(|d| d.font.as_ref())
+            .is_some());
+        // The styles part is written back with the custom style untouched.
+        let back = write_styles(&ss);
+        assert!(back.contains(r#"<x14:slicerStyle name="Mine">"#));
+        assert!(back.contains(r#"<tableStyle name="Mine""#));
+    }
 }

@@ -107,6 +107,24 @@ pub enum SmartArtCommand {
         /// 0-based index of the diagram in the sheet.
         index: usize,
     },
+    /// The shape of diagram `index` under point (`x`, `y`) — shares (0..1) of its frame — or,
+    /// with `node`, that node's text box: the result is `{ node, text, x, y, w, h }` (box in
+    /// shares of the frame) or `null`.
+    SmartArtNodeAt {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the diagram in the sheet.
+        index: usize,
+        /// Point across the frame (0 left … 1 right).
+        #[serde(default)]
+        x: Option<f64>,
+        /// Point down the frame (0 top … 1 bottom).
+        #[serde(default)]
+        y: Option<f64>,
+        /// Index of a node in the text outline (instead of a point).
+        #[serde(default)]
+        node: Option<usize>,
+    },
     /// Thumbnails of every layout of the library: the result is `{ previews: [{ layout, svg }] }`.
     SmartArtPreviews {
         /// Colours (default `colorful`).
@@ -141,6 +159,7 @@ impl SmartArtCommand {
             "deleteSmartArt",
             "smartArtToShapes",
             "smartArtPreviews",
+            "smartArtNodeAt",
         ];
         let name = v.get("cmd")?.as_str()?;
         if !NAMES.contains(&name) {
@@ -156,7 +175,8 @@ impl SmartArtCommand {
             | SmartArtCommand::SmartArtInfo { sheet, .. }
             | SmartArtCommand::MoveSmartArt { sheet, .. }
             | SmartArtCommand::DeleteSmartArt { sheet, .. }
-            | SmartArtCommand::SmartArtToShapes { sheet, .. } => *sheet,
+            | SmartArtCommand::SmartArtToShapes { sheet, .. }
+            | SmartArtCommand::SmartArtNodeAt { sheet, .. } => *sheet,
             SmartArtCommand::SmartArtPreviews { .. } => 0,
         }
     }
@@ -423,7 +443,9 @@ impl SheetEngine {
         let ws = self.sheet(sheet)?;
         if !matches!(
             cmd,
-            SmartArtCommand::SmartArtInfo { .. } | SmartArtCommand::SmartArtPreviews { .. }
+            SmartArtCommand::SmartArtInfo { .. }
+                | SmartArtCommand::SmartArtPreviews { .. }
+                | SmartArtCommand::SmartArtNodeAt { .. }
         ) {
             if self.sec.read_only {
                 return Err(bad(crate::security::READ_ONLY));
@@ -443,6 +465,39 @@ impl SheetEngine {
                 check_index(index)?;
                 let wb = self.wb()?;
                 Ok(info_json(wb, index, &wb.sheets[sheet].diagrams[index]))
+            }
+            SmartArtCommand::SmartArtNodeAt {
+                index, x, y, node, ..
+            } => {
+                check_index(index)?;
+                let d = self.wb()?.sheets[sheet].diagrams[index].clone();
+                let to =
+                    d.to.unwrap_or(CellRef::new(d.from.row + 10, d.from.col + 6));
+                let ext = self.frame_emu(sheet, d.from, to)?;
+                let wb = self.wb()?;
+                let Some(src) = sources(wb, &d) else {
+                    return Ok(Value::Null);
+                };
+                // The drawing as it shows: the diagram's own once edited, else the file's.
+                let drawing = match &d.xml {
+                    Some(x) => Some(x.drawing.as_slice()),
+                    None => (d.part != d.data).then(|| opaque(wb, &d.part)).flatten(),
+                };
+                let at = x
+                    .zip(y)
+                    .filter(|(x, y)| (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y));
+                if node.is_none() && at.is_none() {
+                    return Ok(Value::Null);
+                }
+                Ok(crate::smartart::frame_node(
+                    (src.data, src.name),
+                    src.layout,
+                    drawing.map(|b| (b, d.part.as_str())),
+                    ext,
+                    at,
+                    node,
+                )
+                .map_or(Value::Null, |n| json!(n)))
             }
             SmartArtCommand::InsertSmartArt {
                 layout,
@@ -739,6 +794,65 @@ mod tests {
             .iter()
             .map(|(t, l)| json!({"text": t, "level": l}))
             .collect::<Vec<_>>())
+    }
+
+    // source: black-box Office SmartArt: a click on a shape inside a diagram over the cells picks
+    // that shape; a hierarchy puts its top shape above the ones under it. Not an undo step.
+    #[test]
+    fn shape_under_a_point_of_the_frame() {
+        let mut e = SheetEngine::new();
+        e.new_workbook("Book").unwrap();
+        run(
+            &mut e,
+            &json!({"cmd": "insertSmartArt", "sheet": 0, "layout": "hierarchy", "from": [1, 1],
+                "items": items(&[("Giám đốc", 0), ("Kỹ thuật", 1), ("Kinh doanh", 1)])}),
+        );
+        let depth = e.history_len();
+        let at = |e: &mut SheetEngine, v: Value| {
+            let mut v = v;
+            v["cmd"] = json!("smartArtNodeAt");
+            v["sheet"] = json!(0);
+            v["index"] = json!(0);
+            run(e, &v)
+        };
+        let top = at(&mut e, json!({ "node": 0 }));
+        let left = at(&mut e, json!({ "node": 1 }));
+        assert_eq!(top["text"], "Giám đốc");
+        let f = |b: &Value, k: &str| b[k].as_f64().unwrap();
+        for b in [&top, &left] {
+            assert!(
+                f(b, "x") >= 0.0 && f(b, "x") + f(b, "w") <= 1.0 + 1e-9,
+                "{b}"
+            );
+            assert!(
+                f(b, "y") >= 0.0 && f(b, "y") + f(b, "h") <= 1.0 + 1e-9,
+                "{b}"
+            );
+        }
+        assert!(
+            f(&top, "y") + f(&top, "h") <= f(&left, "y") + 1e-9,
+            "{top} {left}"
+        );
+        // The middle of a shape picks it; empty room or a point off the frame picks nothing.
+        let hit = at(
+            &mut e,
+            json!({ "x": f(&left, "x") + f(&left, "w") / 2.0, "y": f(&left, "y") + f(&left, "h") / 2.0 }),
+        );
+        assert_eq!(
+            (hit["node"].clone(), hit["text"].clone()),
+            (json!(1), json!("Kỹ thuật"))
+        );
+        assert!(at(&mut e, json!({ "x": 1.5, "y": 0.5 })).is_null());
+        assert!(at(&mut e, json!({})).is_null());
+        assert_eq!(e.history_len(), depth);
+        assert!(exec_err(
+            &mut e,
+            &json!({"cmd": "smartArtNodeAt", "sheet": 0, "index": 4, "node": 0})
+        ));
+    }
+
+    fn exec_err(e: &mut SheetEngine, v: &Value) -> bool {
+        e.exec_json(&v.to_string()).is_err()
     }
 
     // source: black-box Office SmartArt Design tab (CORE-SMART-004): Right to Left and Add

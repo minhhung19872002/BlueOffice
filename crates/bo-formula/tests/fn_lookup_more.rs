@@ -238,6 +238,66 @@ fn grouping() {
                 N(5.0),
                 "hand: header, 3 regions, total",
             ),
+            // Subtotals (total_depth ±2): each region gets a line after (or before) its
+            // quarters, with the region and an empty quarter; `&""` shows blanks as "".
+            (
+                "=GROUPBY(HSTACK(A1:A6,C1:C6),B1:B6,SUM,0,2)&\"\"",
+                A("{\"East\",\"Q1\",\"10\";\"East\",\"Q2\",\"90\";\"East\",\"\",\"100\";\
+                   \"North\",\"Q2\",\"40\";\"North\",\"\",\"40\";\"West\",\"Q1\",\"70\";\
+                   \"West\",\"\",\"70\";\"Total\",\"\",\"210\"}"),
+                "hand: subtotals per region, grand total at the bottom",
+            ),
+            (
+                "=GROUPBY(HSTACK(A1:A6,C1:C6),B1:B6,SUM,0,-2)&\"\"",
+                A("{\"Total\",\"\",\"210\";\"East\",\"\",\"100\";\"East\",\"Q1\",\"10\";\
+                   \"East\",\"Q2\",\"90\";\"North\",\"\",\"40\";\"North\",\"Q2\",\"40\";\
+                   \"West\",\"\",\"70\";\"West\",\"Q1\",\"70\"}"),
+                "hand: totals and subtotals on top",
+            ),
+            (
+                "=GROUPBY(HSTACK(A1:A6,C1:C6),B1:B6,SUM,0,2,-3)&\"\"",
+                A("{\"East\",\"Q2\",\"90\";\"East\",\"Q1\",\"10\";\"East\",\"\",\"100\";\
+                   \"West\",\"Q1\",\"70\";\"West\",\"\",\"70\";\"North\",\"Q2\",\"40\";\
+                   \"North\",\"\",\"40\";\"Total\",\"\",\"210\"}"),
+                "hand: regions by subtotal descending, quarters by value descending inside",
+            ),
+            (
+                "=GROUPBY(HSTACK(A1:A6,C1:C6),B1:B6,SUM,0,2,-1)&\"\"",
+                A("{\"West\",\"Q1\",\"70\";\"West\",\"\",\"70\";\"North\",\"Q2\",\"40\";\
+                   \"North\",\"\",\"40\";\"East\",\"Q1\",\"10\";\"East\",\"Q2\",\"90\";\
+                   \"East\",\"\",\"100\";\"Total\",\"\",\"210\"}"),
+                "hand: regions descending, quarters ascending",
+            ),
+            // PIVOTBY with two value fields: a value-name row under the column keys, one
+            // column per value inside each quarter and in the total.
+            (
+                "=PIVOTBY(A1:A6,C1:C6,HSTACK(B1:B6,B1:B6*2),SUM)&\"\"",
+                A("{\"\",\"Q1\",\"Q1\",\"Q2\",\"Q2\",\"Total\",\"Total\";\
+                   \"\",\"Value 1\",\"Value 2\",\"Value 1\",\"Value 2\",\"Value 1\",\"Value 2\";\
+                   \"East\",\"10\",\"20\",\"90\",\"180\",\"100\",\"200\";\
+                   \"North\",\"\",\"\",\"40\",\"80\",\"40\",\"80\";\
+                   \"West\",\"70\",\"140\",\"\",\"\",\"70\",\"140\";\
+                   \"Total\",\"80\",\"160\",\"130\",\"260\",\"210\",\"420\"}"),
+                "hand: two value fields per quarter",
+            ),
+            (
+                "=PIVOTBY(A1:A6,C1:C6,B1:B6,SUM,0,-1,-1,-1,-1)&\"\"",
+                A("{\"\",\"Total\",\"Q2\",\"Q1\";\
+                   \"Total\",\"210\",\"130\",\"80\";\
+                   \"West\",\"70\",\"\",\"70\";\
+                   \"North\",\"40\",\"40\",\"\";\
+                   \"East\",\"100\",\"90\",\"10\"}"),
+                "hand: totals first, keys descending on both axes",
+            ),
+            (
+                "=PIVOTBY(HSTACK(A1:A6,C1:C6),C1:C6,B1:B6,SUM,0,2,1,0)&\"\"",
+                A("{\"\",\"\",\"Q1\",\"Q2\";\
+                   \"East\",\"Q1\",\"10\",\"\";\"East\",\"Q2\",\"\",\"90\";\"East\",\"\",\"10\",\"90\";\
+                   \"North\",\"Q2\",\"\",\"40\";\"North\",\"\",\"\",\"40\";\
+                   \"West\",\"Q1\",\"70\",\"\";\"West\",\"\",\"70\",\"\";\
+                   \"Total\",\"\",\"80\",\"130\"}"),
+                "hand: row subtotals per region, no column total",
+            ),
         ],
     );
 }

@@ -281,6 +281,151 @@ fn total_label() -> Value {
     Value::Text("Total".to_owned())
 }
 
+/// Key levels that get subtotals for a `total_depth` argument: `±2` subtotals the first
+/// key column (and each further step one more), never the last (its groups are the rows).
+fn subtotal_levels(depth: f64, keys: usize) -> usize {
+    let d = depth.abs() as usize;
+    d.saturating_sub(1).min(keys.saturating_sub(1))
+}
+
+/// A `sort_order` argument: an output column (key columns first, then values), negative
+/// for descending; `0` keeps the keys ascending.
+#[derive(Clone, Copy)]
+struct SortSpec {
+    /// 0-based output column.
+    col: Option<usize>,
+    descending: bool,
+    keys: usize,
+}
+
+impl SortSpec {
+    fn new(sort: f64, keys: usize) -> Self {
+        SortSpec {
+            col: (sort != 0.0).then(|| (sort.abs() as usize).saturating_sub(1)),
+            descending: sort < 0.0,
+            keys,
+        }
+    }
+}
+
+/// One output line of a nested grouping: a group (`prefix` has every key) or the subtotal
+/// of the groups sharing the shorter `prefix`, with the source rows it aggregates.
+struct Line {
+    prefix: Vec<Value>,
+    rows: Vec<usize>,
+}
+
+/// Lines of a grouping with subtotals for the first `sub_levels` key columns, placed
+/// before (`top`) or after their groups. At each level the groups are ordered by their
+/// key, or by their aggregated value when `order` names a value column (ties by key).
+#[allow(clippy::too_many_arguments)]
+fn hierarchy(
+    ctx: &mut Ctx,
+    keys_rows: &[Vec<Value>],
+    rows: &[usize],
+    nk: usize,
+    sub_levels: usize,
+    top: bool,
+    order: SortSpec,
+    agg: &dyn Fn(&mut Ctx, &[usize]) -> Vec<Value>,
+) -> Vec<Line> {
+    fn level(
+        ctx: &mut Ctx,
+        keys_rows: &[Vec<Value>],
+        rows: &[usize],
+        depth: usize,
+        nk: usize,
+        sub_levels: usize,
+        top: bool,
+        order: SortSpec,
+        agg: &dyn Fn(&mut Ctx, &[usize]) -> Vec<Value>,
+        out: &mut Vec<Line>,
+    ) {
+        // Children: distinct values of key column `depth` among `rows`.
+        let mut children: Vec<(Vec<Value>, Vec<usize>)> = Vec::new();
+        for &i in rows {
+            let prefix = &keys_rows[i][..=depth];
+            match children
+                .iter_mut()
+                .find(|(p, _)| key_cmp(p, prefix) == Ordering::Equal)
+            {
+                Some((_, sel)) => sel.push(i),
+                None => children.push((prefix.to_vec(), vec![i])),
+            }
+        }
+        let by_key = |a: &[Value], b: &[Value]| compare_values(&a[depth], &b[depth]);
+        let mut keyed: Vec<(Option<Value>, Vec<Value>, Vec<usize>)> = children
+            .into_iter()
+            .map(|(p, sel)| {
+                let v = match order.col {
+                    Some(c) if c >= order.keys => agg(ctx, &sel).get(c - order.keys).cloned(),
+                    _ => None,
+                };
+                (v, p, sel)
+            })
+            .collect();
+        keyed.sort_by(|a, b| {
+            let o = match (&a.0, &b.0, order.col) {
+                (Some(x), Some(y), _) => compare_values(x, y).then_with(|| by_key(&a.1, &b.1)),
+                (_, _, Some(c)) if c == depth => by_key(&a.1, &b.1),
+                _ => return by_key(&a.1, &b.1),
+            };
+            if order.descending {
+                o.reverse()
+            } else {
+                o
+            }
+        });
+        for (_, prefix, sel) in keyed {
+            let subtotal = depth < sub_levels;
+            if depth + 1 == nk {
+                out.push(Line { prefix, rows: sel });
+                continue;
+            }
+            let sub = Line {
+                prefix: prefix.clone(),
+                rows: sel.clone(),
+            };
+            if subtotal && top {
+                out.push(sub);
+                level(
+                    ctx,
+                    keys_rows,
+                    &sel,
+                    depth + 1,
+                    nk,
+                    sub_levels,
+                    top,
+                    order,
+                    agg,
+                    out,
+                );
+            } else {
+                level(
+                    ctx,
+                    keys_rows,
+                    &sel,
+                    depth + 1,
+                    nk,
+                    sub_levels,
+                    top,
+                    order,
+                    agg,
+                    out,
+                );
+                if subtotal {
+                    out.push(sub);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    level(
+        ctx, keys_rows, rows, 0, nk, sub_levels, top, order, agg, &mut out,
+    );
+    out
+}
+
 fn groupby(ctx: &mut Ctx, args: &[Value]) -> R {
     let keys_rows = rows_of(ctx, &args[0])?;
     let value_rows = rows_of(ctx, &args[1])?;
@@ -310,26 +455,56 @@ fn groupby(ctx: &mut Ctx, args: &[Value]) -> R {
             })
             .collect()
     };
-    let mut body: Vec<Vec<Value>> = Vec::new();
-    for g in &groups {
-        let mut row = g.clone();
-        row.extend(agg(ctx, &|i| key_cmp(&keys_rows[i], g) == Ordering::Equal));
-        body.push(row);
+    let sort_col = (sort.abs() as usize).saturating_sub(1);
+    if sort != 0.0 && sort_col >= nk + nv {
+        return Err(ErrorKind::Value);
     }
-    // Sort by the given output column; negative descends.
-    if sort != 0.0 {
-        let col = (sort.abs() as usize).saturating_sub(1);
-        if col >= nk + nv {
-            return Err(ErrorKind::Value);
+    let sub_levels = subtotal_levels(depth, nk);
+    let mut body: Vec<Vec<Value>> = Vec::new();
+    if sub_levels > 0 {
+        // Subtotals: groups nest by key column; each level is sorted on its own.
+        let agg_rows = |ctx: &mut Ctx, sel: &[usize]| -> Vec<Value> {
+            (0..nv)
+                .map(|v| {
+                    let col: Vec<Value> = sel.iter().map(|&i| value_rows[i][v].clone()).collect();
+                    aggregate(ctx, &lam, col)
+                })
+                .collect()
+        };
+        let order = SortSpec::new(sort, nk);
+        let lines = hierarchy(
+            ctx,
+            &keys_rows,
+            &rows,
+            nk,
+            sub_levels,
+            depth < 0.0,
+            order,
+            &agg_rows,
+        );
+        for line in lines {
+            let mut row = line.prefix.clone();
+            row.resize(nk, Value::Empty);
+            row.extend(agg_rows(ctx, &line.rows));
+            body.push(row);
         }
-        body.sort_by(|a, b| {
-            let o = compare_values(&a[col], &b[col]);
-            if sort < 0.0 {
-                o.reverse()
-            } else {
-                o
-            }
-        });
+    } else {
+        for g in &groups {
+            let mut row = g.clone();
+            row.extend(agg(ctx, &|i| key_cmp(&keys_rows[i], g) == Ordering::Equal));
+            body.push(row);
+        }
+        // Sort by the given output column; negative descends.
+        if sort != 0.0 {
+            body.sort_by(|a, b| {
+                let o = compare_values(&a[sort_col], &b[sort_col]);
+                if sort < 0.0 {
+                    o.reverse()
+                } else {
+                    o
+                }
+            });
+        }
     }
     let mut out: Vec<Vec<Value>> = Vec::new();
     if show_headers {
@@ -375,67 +550,119 @@ fn pivotby(ctx: &mut Ctx, args: &[Value]) -> R {
     let lam = lambda_arg(&args[3])?;
     let (has_headers, _) = headers(ctx, args.get(4), &value_rows)?;
     let row_total = opt_num(ctx, args, 5, 1.0)?.trunc();
+    let row_sort = opt_num(ctx, args, 6, 1.0)?.trunc();
     let col_total = opt_num(ctx, args, 7, 1.0)?.trunc();
+    let col_sort = opt_num(ctx, args, 8, 1.0)?.trunc();
     let mask = filter_mask(ctx, args.get(9), value_rows.len())?;
     let start = usize::from(has_headers);
     let rows: Vec<usize> = (start..value_rows.len()).filter(|&i| mask[i]).collect();
-    if value_rows[0].len() != 1 {
-        // One value field at a time.
-        return Err(ErrorKind::Value);
-    }
-    let rk: Vec<Vec<Value>> = rows.iter().map(|&i| row_keys[i].clone()).collect();
-    let ck: Vec<Vec<Value>> = rows.iter().map(|&i| col_keys[i].clone()).collect();
-    let rgroups = distinct(&rk);
-    let cgroups = distinct(&ck);
     let nrk = row_keys[0].len();
     let nck = col_keys[0].len();
-    let cell = |ctx: &mut Ctx, r: Option<&Vec<Value>>, c: Option<&Vec<Value>>| -> Value {
+    let nv = value_rows[0].len();
+    // Sort orders name key columns of their own axis (negative descends).
+    let key_sort = |s: f64, keys: usize| -> Result<SortSpec, ErrorKind> {
+        let spec = SortSpec::new(s, keys);
+        if spec.col.is_some_and(|c| c >= keys) {
+            return Err(ErrorKind::Value);
+        }
+        Ok(spec)
+    };
+    let (row_order, col_order) = (key_sort(row_sort, nrk)?, key_sort(col_sort, nck)?);
+    let none = |_: &mut Ctx, _: &[usize]| -> Vec<Value> { Vec::new() };
+    let row_lines = hierarchy(
+        ctx,
+        &row_keys,
+        &rows,
+        nrk,
+        subtotal_levels(row_total, nrk),
+        row_total < 0.0,
+        row_order,
+        &none,
+    );
+    let col_lines = hierarchy(
+        ctx,
+        &col_keys,
+        &rows,
+        nck,
+        subtotal_levels(col_total, nck),
+        col_total < 0.0,
+        col_order,
+        &none,
+    );
+    // Column groups in output order; `None` is the grand total.
+    let mut columns: Vec<Option<&Line>> = col_lines.iter().map(Some).collect();
+    if col_total < 0.0 {
+        columns.insert(0, None);
+    } else if col_total > 0.0 {
+        columns.push(None);
+    }
+    let cell = |ctx: &mut Ctx, r: Option<&Line>, c: Option<&Line>, v: usize| -> Value {
         let vals: Vec<Value> = rows
             .iter()
-            .filter(|&&i| r.is_none_or(|g| key_cmp(&row_keys[i], g) == Ordering::Equal))
-            .filter(|&&i| c.is_none_or(|g| key_cmp(&col_keys[i], g) == Ordering::Equal))
-            .map(|&i| value_rows[i][0].clone())
+            .filter(|i| r.is_none_or(|l| l.rows.contains(i)))
+            .filter(|i| c.is_none_or(|l| l.rows.contains(i)))
+            .map(|&i| value_rows[i][v].clone())
             .collect();
         if vals.is_empty() {
             return Value::Empty;
         }
         aggregate(ctx, &lam, vals)
     };
-    let width = nrk + cgroups.len() + usize::from(col_total != 0.0);
+    let width = nrk + columns.len() * nv;
     let mut out: Vec<Vec<Value>> = Vec::new();
-    // Header rows: one per column field.
+    // Header rows: one per column field, then the value names when there are several.
     for level in 0..nck {
         let mut h = vec![Value::Empty; nrk];
-        h.extend(cgroups.iter().map(|g| g[level].clone()));
-        if col_total != 0.0 {
-            h.push(if level == 0 {
-                total_label()
-            } else {
-                Value::Empty
-            });
+        for c in &columns {
+            let label = match c {
+                Some(l) => l.prefix.get(level).cloned().unwrap_or(Value::Empty),
+                None if level == 0 => total_label(),
+                None => Value::Empty,
+            };
+            h.extend(std::iter::repeat_n(label, nv));
         }
         out.push(h);
     }
-    let row_line = |ctx: &mut Ctx, key: Option<&Vec<Value>>| -> Vec<Value> {
-        let mut line = if let Some(k) = key {
-            k.clone()
-        } else {
-            let mut l = vec![total_label()];
-            l.extend(std::iter::repeat_n(Value::Empty, nrk - 1));
-            l
-        };
-        for g in &cgroups {
-            line.push(cell(ctx, key, Some(g)));
+    if nv > 1 {
+        let mut h = vec![Value::Empty; nrk];
+        for _ in &columns {
+            h.extend((0..nv).map(|v| {
+                if has_headers {
+                    value_rows[0][v].clone()
+                } else {
+                    Value::Text(format!("Value {}", v + 1))
+                }
+            }));
         }
-        if col_total != 0.0 {
-            line.push(cell(ctx, key, None));
-        }
-        line
-    };
-    for g in &rgroups {
-        out.push(row_line(ctx, Some(g)));
+        out.push(h);
     }
-    if row_total != 0.0 {
+    let row_line = |ctx: &mut Ctx, line: Option<&Line>| -> Vec<Value> {
+        let mut out = match line {
+            Some(l) => {
+                let mut k = l.prefix.clone();
+                k.resize(nrk, Value::Empty);
+                k
+            }
+            None => {
+                let mut l = vec![total_label()];
+                l.extend(std::iter::repeat_n(Value::Empty, nrk - 1));
+                l
+            }
+        };
+        for c in &columns {
+            for v in 0..nv {
+                out.push(cell(ctx, line, *c, v));
+            }
+        }
+        out
+    };
+    if row_total < 0.0 {
+        out.push(row_line(ctx, None));
+    }
+    for l in &row_lines {
+        out.push(row_line(ctx, Some(l)));
+    }
+    if row_total > 0.0 {
         out.push(row_line(ctx, None));
     }
     let r = out.len();

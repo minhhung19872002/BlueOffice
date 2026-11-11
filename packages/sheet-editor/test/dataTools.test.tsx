@@ -101,7 +101,7 @@ describe('FixedWidthRuler', () => {
     fireEvent.mouseUp(window, { clientX: x(-3) });
     expect(onChange).toHaveBeenLastCalledWith([9]);
     // Double-click on a line removes it too.
-    fireEvent.doubleClick(ruler, { clientX: x(9) });
+    fireEvent.mouseDown(ruler, { clientX: x(9), button: 0, detail: 2 });
     expect(onChange).toHaveBeenLastCalledWith([4]);
   });
 });

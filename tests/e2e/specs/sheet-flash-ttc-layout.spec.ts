@@ -54,7 +54,7 @@ test('Flash Fill suggests the rest of the column while the second example is typ
   // B2: typing "Tr" begins "Trần" — the family names of rows 3 and 4 show in grey.
   await page.keyboard.type('Tr');
   const hint = page.getByTestId('flash-fill-hint');
-  await expect(hint).toBeVisible();
+  await expect(hint.locator('[data-row="2"]')).toBeVisible();
   await expect(hint.locator('[data-row="2"]')).toHaveText('Lê');
   await expect(hint.locator('[data-row="3"]')).toHaveText('Phạm');
   // Text that leaves the pattern hides the suggestion; back on it, it returns.
@@ -62,7 +62,7 @@ test('Flash Fill suggests the rest of the column while the second example is typ
   await expect(hint).toHaveCount(0);
   await page.keyboard.press('Backspace');
   await page.keyboard.type('ần');
-  await expect(page.getByTestId('flash-fill-hint')).toBeVisible();
+  await expect(hint.locator('[data-row="3"]')).toHaveText('Phạm');
   // Enter keeps the typed entry and fills the suggestion.
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('flash-fill-hint')).toHaveCount(0);
@@ -115,7 +115,7 @@ test('Text to Columns: fixed-width ruler and the question before replacing data'
   await dlg.getByTestId('split-ok').click();
   const ask = page.getByTestId('replace-warning');
   await expect(ask).toBeVisible();
-  await ask.getByRole('button', { name: 'Hủy' }).click();
+  await ask.getByRole('button', { name: 'Huỷ' }).click();
   await expect(ask).toBeHidden();
   await dlg.getByTestId('split-ok').click();
   await page.getByTestId('replace-warning-ok').click();
@@ -162,10 +162,11 @@ test('precision as displayed asks first; Shift+F9 calculates the sheet in manual
   await cmd(page, 'formulas.calcOptions').first().click();
   const opts = page.getByTestId('calc-options');
   await expect(opts).toBeVisible();
-  await opts.getByTestId('calc-precision').check();
+  // Ticking the box asks first (the box stays clear until OK).
+  await opts.getByTestId('calc-precision').click();
   const ask = page.getByTestId('calc-precision-confirm');
   await expect(ask).toBeVisible();
-  await ask.getByRole('button', { name: 'Hủy' }).click();
+  await ask.getByRole('button', { name: 'Huỷ' }).click();
   await expect(opts.getByTestId('calc-precision')).not.toBeChecked();
   await opts.getByTestId('calc-mode-manual').check();
   await opts.getByTestId('calc-ok').click();
@@ -202,8 +203,17 @@ test('Page Layout view: empty sheet shows a page of cells, typing edits the cell
   await expect(editor).toHaveCount(0);
   await expect(page.getByLabel('Hộp tên')).toHaveValue('C4');
   await expect(page.getByTestId('page-layout-view')).toBeFocused();
-  // Double-click C3 edits its content in place; Esc gives the change up.
-  await page.mouse.dblclick(box.x + 67 + 2 * 64 + 20, box.y + 72 + 2 * 20 + 8);
+  await cmd(page, 'view.normal').click();
+  await expectInput(page, 'C3', 'Xin chào');
+  // Back on the page, double-click C3 edits its content in place; Esc gives the change up.
+  await cmd(page, 'view.pageLayout').click();
+  await expect(page.getByTestId('page-layout-page-0').locator('canvas')).toHaveAttribute(
+    'data-rendered',
+    /\d+/,
+  );
+  const again = (await page.getByTestId('page-layout-page-0').boundingBox())!;
+  await page.mouse.dblclick(again.x + 67 + 2 * 64 + 20, again.y + 72 + 2 * 20 + 8);
+  await expect(page.getByLabel('Hộp tên')).toHaveValue('C3');
   await expect(page.getByTestId('page-layout-cell-editor')).toHaveValue('Xin chào');
   await page.keyboard.type('!');
   await page.keyboard.press('Escape');

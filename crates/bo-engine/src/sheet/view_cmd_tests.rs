@@ -318,6 +318,12 @@ fn page_layout_fills_the_page_with_cells() {
         json!({ "cmd": "printPreview", "sheet": 0, "layout": true }),
     );
     assert_eq!(p["pages"], json!(1));
+    // Data only in C3: the layout page still starts at A1.
+    e.set_input(0, 2, 2, "x").unwrap();
+    let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));
+    let c = &r["pages"][0]["cells"];
+    assert_eq!((c["r0"].clone(), c["c0"].clone()), (json!(0), json!(0)));
+    e.undo().unwrap();
     // The sheet's own gridlines are drawn on the layout page (printing them is off).
     let lines = p["page"]["commands"]
         .as_array()

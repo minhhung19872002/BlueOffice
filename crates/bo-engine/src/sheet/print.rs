@@ -718,30 +718,33 @@ impl SheetEngine {
         self.frames_for(sheet, st, false)
     }
 
-    /// Pages of one sheet; with `layout` (page layout view) the pages are full of cells:
-    /// an empty sheet shows a first page of empty cells, and without a set print area the
-    /// last page across / down takes the columns / rows that still fit on the paper —
-    /// the grid continues to the page edge, as it does in a spreadsheet's page layout view.
+    /// Pages of one sheet; with `layout` (page layout view) and no set print area the pages
+    /// are full of cells: they start at A1 (an empty sheet shows one page of empty cells)
+    /// and the last page across / down takes the columns / rows that still fit on the
+    /// paper — the grid continues to the page edge, as in a spreadsheet's page layout view.
     fn frames_for(&mut self, sheet: usize, st: &Settings, layout: bool) -> Result<Vec<Frame>> {
         let avail = st.avail();
         let mut out = Vec::new();
         let mut pags = self.paginations(sheet, st)?;
-        if layout {
-            if pags.is_empty() {
-                let a1 = CellRange::single(CellRef::new(0, 0));
-                pags = self.paginate_areas(sheet, st, vec![a1])?;
-            }
-            if self.sheet(sheet)?.print_area.is_none() {
-                let g = self.geometry(sheet)?.clone();
-                for (_, p) in &mut pags {
-                    let aw = (avail.0 / p.scale - p.fixed.0).max(10.0);
-                    let ah = (avail.1 / p.scale - p.fixed.1).max(10.0);
-                    if let Some(span) = p.cols.last_mut() {
-                        span.1 = fill_span(&|c| g.col_width(c), *span, aw, MAX_COLS);
-                    }
-                    if let Some(span) = p.rows.last_mut() {
-                        span.1 = fill_span(&|r| g.row_height(r), *span, ah, MAX_ROWS);
-                    }
+        if layout && self.sheet(sheet)?.print_area.is_none() {
+            // The first page starts at A1 (the used range may start further in).
+            let last = pags
+                .iter()
+                .map(|(a, _)| a.last)
+                .fold(CellRef::new(0, 0), |m, c| {
+                    CellRef::new(m.row.max(c.row), m.col.max(c.col))
+                });
+            let area = CellRange::new(CellRef::new(0, 0), last);
+            pags = self.paginate_areas(sheet, st, vec![area])?;
+            let g = self.geometry(sheet)?.clone();
+            for (_, p) in &mut pags {
+                let aw = (avail.0 / p.scale - p.fixed.0).max(10.0);
+                let ah = (avail.1 / p.scale - p.fixed.1).max(10.0);
+                if let Some(span) = p.cols.last_mut() {
+                    span.1 = fill_span(&|c| g.col_width(c), *span, aw, MAX_COLS);
+                }
+                if let Some(span) = p.rows.last_mut() {
+                    span.1 = fill_span(&|r| g.row_height(r), *span, ah, MAX_ROWS);
                 }
             }
         }

@@ -122,31 +122,31 @@ export function FixedWidthRuler({
     // A break line is grabbed within a few pixels of it.
     const hit = breaks.find((b) => Math.abs(b - x) * charWidth() <= GRAB_PX);
     e.preventDefault();
-    if (hit !== undefined) {
-      setDrag({ from: hit, at: hit });
+    if (hit === undefined) {
+      if (valid(p) && e.detail <= 1) onChange([...breaks, p].sort((a, b) => a - b));
       return;
     }
-    if (valid(p) && e.detail <= 1) onChange([...breaks, p].sort((a, b) => a - b));
-  };
-  useEffect(() => {
-    if (!drag) return;
-    const move = (e: MouseEvent) => setDrag((d) => (d ? { ...d, at: posAt(e.clientX) } : d));
-    const up = (e: MouseEvent) => {
-      const at = posAt(e.clientX);
-      const rest = breaks.filter((b) => b !== drag.from);
+    // The second press of a double-click on a line removes it.
+    if (e.detail >= 2) {
+      onChange(breaks.filter((b) => b !== hit));
+      return;
+    }
+    // Dragging a line: the listeners are attached now, so a quick release is not missed.
+    setDrag({ from: hit, at: hit });
+    const rest = breaks.filter((b) => b !== hit);
+    const move = (ev: MouseEvent) => setDrag({ from: hit, at: posAt(ev.clientX) });
+    const up = (ev: MouseEvent) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      const at = posAt(ev.clientX);
       setDrag(null);
-      // Dropped outside the text: the line goes away.
+      // Dropped outside the text: the line goes away; dropped where it was: no change.
+      if (at === hit) return;
       onChange(valid(at) ? [...new Set([...rest, at])].sort((a, b) => a - b) : rest);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
-    return () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-    };
-    // `posAt` reads refs only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag, breaks, onChange]);
+  };
 
   return (
     <div
@@ -155,10 +155,6 @@ export function FixedWidthRuler({
       role="group"
       aria-label={t('sheetEditor.dataTools.split.ruler')}
       onMouseDown={onDown}
-      onDoubleClick={(e) => {
-        const p = posAt(e.clientX);
-        if (breaks.includes(p)) onChange(breaks.filter((b) => b !== p));
-      }}
     >
       <div ref={box} className={dt.rulerInner}>
         <span ref={probe} className={dt.rulerProbe} aria-hidden>

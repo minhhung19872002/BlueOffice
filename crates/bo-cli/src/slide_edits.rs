@@ -1250,6 +1250,13 @@ mod transition_tests {
     #[test]
     fn assistant_and_right_to_left_deck_reads_back() {
         use bo_pptx::diagram_layout as dl;
+        /// (nodes, assistants) of an outline.
+        fn count(n: &[dl::DiagramNode]) -> (usize, usize) {
+            n.iter().fold((0, 0), |(all, asst), x| {
+                let (a, b) = count(&x.children);
+                (all + 1 + a, asst + usize::from(x.assistant) + b)
+            })
+        }
         let base = crate::slide_samples::base_decks();
         let bytes = smartart_assistant_rtl_deck(&base).expect("deck");
         let mut e = Engine::with_bundled_fonts();
@@ -1268,12 +1275,6 @@ mod transition_tests {
             };
             let bytes = p.part_data(&data).unwrap();
             let (nodes, _) = dl::parse_data_model(bytes, &data).unwrap();
-            fn count(n: &[dl::DiagramNode]) -> (usize, usize) {
-                n.iter().fold((0, 0), |(all, asst), x| {
-                    let (a, b) = count(&x.children);
-                    (all + 1 + a, asst + usize::from(x.assistant) + b)
-                })
-            }
             let (all, assistants) = count(&nodes);
             got.push((all, assistants, dl::look_of(bytes, &data).rtl));
         }

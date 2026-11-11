@@ -3476,7 +3476,7 @@ fn draw_pie(
             } else {
                 // A doughnut's labels sit in the middle of its ring.
                 let lr = match (hole > 0.0, d.pos.as_deref()) {
-                    (true, _) => (rad + inner) / 2.0,
+                    (true, _) => f64::midpoint(rad, inner),
                     (false, Some("inEnd")) => rad * 0.8,
                     (false, Some("ctr")) => rad * 0.5,
                     (false, _) => rad * 0.62,

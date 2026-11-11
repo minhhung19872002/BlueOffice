@@ -576,6 +576,10 @@ fn new_slicer_and_timeline_styles() {
     };
     check(&mut e);
     let bytes = e.save("xlsx", 0).unwrap();
+    // For the validator (`bo-cli validate`): BO_FRAME_STYLES_OUT=<file>.
+    if let Ok(out) = std::env::var("BO_FRAME_STYLES_OUT") {
+        std::fs::write(out, &bytes).unwrap();
+    }
     let mut e2 = SheetEngine::new();
     e2.open(&bytes, "t.xlsx").unwrap();
     check(&mut e2);

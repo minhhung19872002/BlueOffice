@@ -882,16 +882,13 @@ fn set_count(xml: &str, local: &str, n: usize) -> String {
         return xml.to_owned();
     };
     let tag = &xml[start..end];
-    let new_tag = match tag.find(" count=\"") {
-        Some(k) => {
-            let v = k + 8;
-            let close = tag[v..].find('"').map_or(tag.len(), |e| v + e);
-            format!("{}{n}{}", &tag[..v], &tag[close..])
-        }
-        None => {
-            let cut = tag.len() - if closed { 2 } else { 1 };
-            format!("{} count=\"{n}\"{}", &tag[..cut], &tag[cut..])
-        }
+    let new_tag = if let Some(k) = tag.find(" count=\"") {
+        let v = k + 8;
+        let close = tag[v..].find('"').map_or(tag.len(), |e| v + e);
+        format!("{}{n}{}", &tag[..v], &tag[close..])
+    } else {
+        let cut = tag.len() - if closed { 2 } else { 1 };
+        format!("{} count=\"{n}\"{}", &tag[..cut], &tag[cut..])
     };
     format!("{}{new_tag}{}", &xml[..start], &xml[end..])
 }
@@ -1038,16 +1035,17 @@ pub fn add_frame_style(
         let _ = write!(s, "</{p}{one}>");
         s
     };
-    ext = match append_child(&ext, list, entry) {
-        Some(x) => x,
-        None => {
-            let pre = if style.timeline { "x15:" } else { "x14:" };
-            let body = entry(pre);
-            append_child(&ext, "extLst", |p| {
-                format!("<{p}ext uri=\"{uri}\" {ns_decl}><{pre}{list} {default}>{body}</{pre}{list}></{p}ext>")
-            })
-            .unwrap_or(ext)
-        }
+    ext = if let Some(x) = append_child(&ext, list, entry) {
+        x
+    } else {
+        let pre = if style.timeline { "x15:" } else { "x14:" };
+        let body = entry(pre);
+        append_child(&ext, "extLst", |p| {
+            format!(
+                "<{p}ext uri=\"{uri}\" {ns_decl}><{pre}{list} {default}>{body}</{pre}{list}></{p}ext>"
+            )
+        })
+        .unwrap_or(ext)
     };
     match ext_list {
         Some(i) => ss.unknown[i].xml = ext,

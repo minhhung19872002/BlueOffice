@@ -708,6 +708,20 @@ const SYMBOL_FONTS = [
 /** Selections larger than this skip the status-bar statistics. */
 /** Selections above this many cells get their statistics after a short pause. */
 const STATS_ASYNC = 50_000;
+/** Pause after a key before a Flash Fill suggestion is asked for (ms). */
+const FLASH_HINT_DELAY = 150;
+/** Most suggested cells drawn at once (the visible ones). */
+const FLASH_HINT_SHOWN = 300;
+
+/** A Flash Fill suggestion for the text typed in (`row`, `col`). */
+interface FlashHint {
+  sheet: number;
+  row: number;
+  col: number;
+  text: string;
+  /** Other cells of the column and what they would get. */
+  cells: [number, string][];
+}
 /** Selection statistics in the order the status bar shows them: item id, label key. */
 const STAT_ITEMS: readonly (readonly [string, string])[] = [
   ['average', 'sheetEditor.average'],
@@ -1972,11 +1986,62 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [exec, sheet, chart],
   );
 
+  // Flash Fill suggestion shown while typing (SHEET-FLASH-001): grey values for the rest
+  // of the column; Enter accepts them (one more undo step), typing on updates them.
+  const [flashHint, setFlashHint] = useState<FlashHint | null>(null);
+  const flashHintRef = useRef<FlashHint | null>(null);
+  useEffect(() => {
+    flashHintRef.current = flashHint;
+  }, [flashHint]);
+
   /** Runs a read-only command (no refresh). */
   const query = useCallback(
     <T,>(cmd: SheetCommand): Promise<T | null> => exec<T>(cmd, false),
     [exec],
   );
+
+  // Typing in a cell: ask for a Flash Fill suggestion (a short pause after each key).
+  const flashText =
+    edit && (edit.sheet ?? sheet) === sheet && !edit.text.startsWith('=') ? edit.text : null;
+  const flashRow = edit?.pos.row ?? -1;
+  const flashCol = edit?.pos.col ?? -1;
+  useEffect(() => {
+    if (flashText === null || !flashText.trim()) return;
+    let live = true;
+    const id = window.setTimeout(() => {
+      void host
+        ?.exec<{ cells: [number, string][] }>({
+          cmd: 'flashFillPreview',
+          sheet,
+          row: flashRow,
+          col: flashCol,
+          text: flashText,
+        })
+        .then((r) => {
+          if (!live) return;
+          setFlashHint(
+            r && r.cells.length > 0
+              ? { sheet, row: flashRow, col: flashCol, text: flashText, cells: r.cells }
+              : null,
+          );
+        })
+        .catch(() => {});
+    }, FLASH_HINT_DELAY);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [host, sheet, flashText, flashRow, flashCol]);
+  // Shown only for the text as it is now.
+  const shownFlash =
+    flashHint &&
+    flashText !== null &&
+    flashHint.text === flashText &&
+    flashHint.sheet === sheet &&
+    flashHint.row === flashRow &&
+    flashHint.col === flashCol
+      ? flashHint
+      : null;
 
   // Get & Transform data (SHEET-PQ-001): ribbon actions, query editor, Queries pane.
   const queries = useSheetQueries({
@@ -2303,12 +2368,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   );
 
   const commit = useCallback(
-    async (next?: Selection) => {
+    async (next?: Selection, acceptFlash = false) => {
       if (!host || !edit) {
         if (next) setSelection(next);
         return;
       }
       const e = edit;
+      const hint = flashHintRef.current;
+      setFlashHint(null);
       // The edited cell's sheet (references may have been picked on another one).
       const target = e.sheet ?? sheet;
       setEdit(null);
@@ -2373,6 +2440,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           });
         } else {
           await host.setInputs(target, [[e.pos.row, e.pos.col, e.text]]);
+        }
+        if (
+          acceptFlash &&
+          hint &&
+          hint.sheet === target &&
+          hint.row === e.pos.row &&
+          hint.col === e.pos.col &&
+          hint.text === e.text
+        ) {
+          // Enter on a Flash Fill suggestion fills the rest of the column as shown.
+          await host.exec({ cmd: 'flashFill', sheet: target, row: e.pos.row, col: e.pos.col });
         }
         await refreshInfo();
       } catch (err) {
@@ -4995,7 +5073,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       e.preventDefault();
       picking.current = null;
       setFnPick(null);
-      void commit(enterFrom(selection, e.shiftKey));
+      void commit(enterFrom(selection, e.shiftKey), true);
     } else if (e.key === 'Tab' && plain) {
       e.preventDefault();
       picking.current = null;
@@ -8361,6 +8439,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     height: copyBox.h,
                   }}
                 />
+              )}
+              {shownFlash && grid && (
+                <div aria-hidden="true" data-testid="flash-fill-hint">
+                  {shownFlash.cells
+                    .filter(([r]) => grid.g.rows.some((p) => r >= p.min && r <= p.max))
+                    .slice(0, FLASH_HINT_SHOWN)
+                    .map(([r, text]) => {
+                      const b = localBox({ r0: r, c0: shownFlash.col, r1: r, c1: shownFlash.col });
+                      return (
+                        b && (
+                          <div
+                            key={r}
+                            className={styles.flashHint}
+                            data-row={r}
+                            style={{
+                              left: b.x,
+                              top: b.y,
+                              width: b.w,
+                              height: b.h,
+                              lineHeight: `${Math.max(1, b.h - 1)}px`,
+                              fontSize: 11 * scale,
+                            }}
+                          >
+                            {text}
+                          </div>
+                        )
+                      );
+                    })}
+                </div>
               )}
               {edit &&
                 shownRefBoxes.map((b, i) => (

@@ -1946,6 +1946,19 @@ pub enum SheetCommand {
         /// Its column.
         col: u32,
     },
+    /// Flash Fill suggestion while `text` is typed in (`row`, `col`) (read only): the
+    /// values the other empty cells of the column would get, `{ cells: [[row, text]] }`
+    /// (empty when no pattern begins with the typed text).
+    FlashFillPreview {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cell being typed in (0-based).
+        row: u32,
+        /// Its column.
+        col: u32,
+        /// What has been typed so far.
+        text: String,
+    },
     /// Text to Columns: split the cells of a one-column range into columns.
     /// One undo step; `{ rows, columns }`, or with `preview` (nothing changes)
     /// `{ rows: [[field]], columns }` for the first rows.
@@ -2176,18 +2189,26 @@ fn map_info(
     })
 }
 
+/// Most cells a Flash Fill suggestion lists.
+const MAX_FLASH_PREVIEW: usize = 5_000;
+
 fn non_empty(c: &Cell) -> bool {
     !matches!(c.value, CellValue::Empty) || c.formula.is_some()
 }
 
 /// Flash Fill over the block of data around `row`, `col`: the cells of column `col`
 /// to fill and their text, or `None` when no pattern fits the examples.
+///
+/// With `typing` (`row`, text being typed there), that row is not an example yet: the
+/// pattern is learned from the others and kept only when its result for `row` starts with
+/// the typed text — the suggestion shown while typing; the cells to fill exclude `row`.
 fn flash_fill_cells(
     wb: &Workbook,
     ws: &Worksheet,
     row: u32,
     col: u32,
     locale: &bo_sheet::numfmt::Locale,
+    typing: Option<(u32, &str)>,
 ) -> Option<Vec<(u32, String)>> {
     use bo_sheet::flashfill::{flash_fill, Example};
     let at = CellRef::new(row.min(MAX_ROWS - 1), col.min(MAX_COLS - 1));
@@ -2209,6 +2230,10 @@ fn flash_fill_cells(
     let mut targets: Vec<(u32, Vec<String>)> = Vec::new();
     for r in region.first.row..=region.last.row {
         let inputs: Vec<String> = sources.iter().map(|&c| text(r, c)).collect();
+        if typing.is_some_and(|(t, _)| t == r) {
+            targets.push((r, inputs));
+            continue;
+        }
         let output = text(r, col);
         if !output.is_empty() {
             examples.push((r, Example { inputs, output }));
@@ -2227,13 +2252,21 @@ fn flash_fill_cells(
         result = learn(&examples[1..]);
     }
     let result = result?;
-    Some(
-        targets
-            .iter()
-            .zip(result)
-            .filter_map(|((r, _), v)| v.map(|t| (*r, t)))
-            .collect(),
-    )
+    let fills: Vec<(u32, String)> = targets
+        .iter()
+        .zip(result)
+        .filter_map(|((r, _), v)| v.map(|t| (*r, t)))
+        .collect();
+    let Some((at, typed)) = typing else {
+        return Some(fills);
+    };
+    // The typed text must begin what the pattern gives for its row.
+    let typed = typed.to_lowercase();
+    let own = fills.iter().find(|(r, _)| *r == at)?;
+    if typed.is_empty() || !own.1.to_lowercase().starts_with(&typed) {
+        return None;
+    }
+    Some(fills.into_iter().filter(|(r, _)| *r != at).collect())
 }
 
 /// The contiguous block of data around a single cell (Ctrl+A / sort / filter).
@@ -3448,7 +3481,8 @@ impl SheetEngine {
             }
             C::InvalidCells { sheet } => self.invalid_cells(sheet),
             C::FlashFill { sheet, row, col } => {
-                let fills = flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale);
+                let fills =
+                    flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale, None);
                 let Some(fills) = fills else {
                     return Ok(json!({ "found": false, "filled": 0 }));
                 };
@@ -3465,6 +3499,33 @@ impl SheetEngine {
                     })?;
                 }
                 Ok(json!({ "found": true, "filled": filled }))
+            }
+            C::FlashFillPreview {
+                sheet,
+                row,
+                col,
+                text,
+            } => {
+                let typed = text.trim();
+                let fills = if typed.is_empty() || typed.starts_with('=') {
+                    None
+                } else {
+                    flash_fill_cells(
+                        self.wb()?,
+                        self.sheet(sheet)?,
+                        row,
+                        col,
+                        &locale,
+                        Some((row, typed)),
+                    )
+                };
+                let cells: Vec<Value> = fills
+                    .unwrap_or_default()
+                    .into_iter()
+                    .take(MAX_FLASH_PREVIEW)
+                    .map(|(r, t)| json!([r, t]))
+                    .collect();
+                Ok(json!({ "cells": cells }))
             }
             C::Inspect => self.inspect_json(),
             C::DocProperties => serde_json::to_value(self.props.get())

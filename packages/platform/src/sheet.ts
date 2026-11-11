@@ -1150,6 +1150,8 @@ export type SheetCommand =
    * the block around the cell are the sources) and fill its empty cells below the examples.
    */
   | { cmd: 'flashFill'; sheet: number; row: number; col: number }
+  /** Flash Fill suggestion while `text` is typed in a cell (read only) → `{ cells: [row, text][] }`. */
+  | { cmd: 'flashFillPreview'; sheet: number; row: number; col: number; text: string }
   /** What-if data table over `range` (headers included); input cells as A1 addresses. */
   | {
       cmd: 'dataTable';

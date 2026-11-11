@@ -100,3 +100,60 @@ fn flash_fill_without_a_pattern_changes_nothing() {
     assert!(e.undo().unwrap());
     assert_eq!(text(&e, 0, 0), "");
 }
+
+#[test]
+fn flash_fill_suggests_while_the_second_example_is_typed() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    e.set_inputs(
+        0,
+        &[
+            (0, 0, "Nguyễn Văn An".into()),
+            (0, 1, "Nguyễn".into()),
+            (1, 0, "Trần Thị Bích".into()),
+            (2, 0, "Lê Minh Tuấn".into()),
+            (3, 0, "Phạm Hùng".into()),
+        ],
+    )
+    .unwrap();
+    let preview = |e: &mut SheetEngine, text: &str| {
+        exec(
+            e,
+            &json!({"cmd": "flashFillPreview", "sheet": 0, "row": 1, "col": 1, "text": text}),
+        )
+        .unwrap()["cells"]
+            .clone()
+    };
+    // "Tr" begins the family name of row 2: the rest of the column is suggested.
+    assert_eq!(preview(&mut e, "Tr"), json!([[2, "Lê"], [3, "Phạm"]]));
+    assert_eq!(preview(&mut e, "trần"), json!([[2, "Lê"], [3, "Phạm"]]));
+    // Text that does not follow the pattern, or a formula: no suggestion.
+    assert_eq!(preview(&mut e, "Bích"), json!([]));
+    assert_eq!(preview(&mut e, "=A2"), json!([]));
+    // Nothing was written and nothing can be undone by the preview.
+    assert_eq!(text(&e, 2, 1), "");
+    assert!(e.undo().unwrap());
+    assert_eq!(text(&e, 0, 0), "");
+}
+
+#[test]
+fn flash_fill_writes_month_names() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    e.set_inputs(
+        0,
+        &[
+            (0, 0, "'15/03/2024".into()),
+            (0, 1, "March".into()),
+            (1, 0, "'02/11/2023".into()),
+        ],
+    )
+    .unwrap();
+    let r = exec(
+        &mut e,
+        &json!({"cmd": "flashFill", "sheet": 0, "row": 1, "col": 1}),
+    )
+    .unwrap();
+    assert_eq!(r["filled"], 1);
+    assert_eq!(text(&e, 1, 1), "November");
+}

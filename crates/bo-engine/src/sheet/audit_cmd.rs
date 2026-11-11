@@ -4,7 +4,9 @@
 //! * `evaluateFormula` — step-by-step evaluation ([`bo_formula::trace_formula`]);
 //! * `errorCheck`, `ignoreError`, `resetIgnoredErrors` — error checking
 //!   ([`bo_sheet::errcheck`], ECMA-376 Part 1, §18.3.1.51 `ignoredErrors`);
-//! * `watchValues` — rows of the watch window;
+//! * `watchValues` — rows of the watch window; `cellWatches` / `setCellWatches`
+//!   — the watched cells saved with each sheet (CT_Worksheet `cellWatches`; a
+//!   change is not an undo step, as adding a watch is not an edit of the cells);
 //! * `checkFormula` — does a formula text parse, and are its functions known (used
 //!   to vet a formula suggested from outside before it is offered; CORE-AI-001);
 //! * `calcOptions`, `setCalcOptions`, `calculate` — calculation mode, iteration
@@ -77,6 +79,10 @@ pub enum AuditCommand {
     ResetIgnoredErrors,
     /// Watch-window rows: `[{ book, sheet, name, cell, value, formula }]`.
     WatchValues { cells: Vec<WatchCell> },
+    /// The watched cells saved in the workbook: `[{ sheet, row, col }]`.
+    CellWatches,
+    /// Replaces the watched cells saved in the workbook (no undo step).
+    SetCellWatches { cells: Vec<WatchCell> },
     /// Calculation settings and state: `{ options, needsCalc, circular }`.
     CalcOptions,
     /// Change the calculation settings (§18.2.2 `calcPr`). One undo step.
@@ -105,6 +111,8 @@ impl AuditCommand {
             "ignoreError",
             "resetIgnoredErrors",
             "watchValues",
+            "cellWatches",
+            "setCellWatches",
             "calcOptions",
             "setCalcOptions",
             "calculate",
@@ -283,14 +291,44 @@ impl SheetEngine {
                 Ok(json!({ "ok": true }))
             }
             AuditCommand::WatchValues { cells } => self.watch_values(&cells),
+            AuditCommand::CellWatches => {
+                let wb = self.wb()?;
+                let mut out = Vec::new();
+                for (i, ws) in wb.sheets.iter().enumerate() {
+                    for c in errcheck::cell_watches(ws) {
+                        out.push(json!({ "sheet": i, "row": c.row, "col": c.col }));
+                    }
+                }
+                Ok(Value::Array(out))
+            }
+            AuditCommand::SetCellWatches { cells } => {
+                let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+                let mut changed = false;
+                for (i, ws) in wb.sheets.iter_mut().enumerate() {
+                    let mine: Vec<CellRef> = cells
+                        .iter()
+                        .filter(|w| w.sheet == i)
+                        .map(|w| CellRef::new(w.row, w.col))
+                        .collect();
+                    changed |= errcheck::set_cell_watches(ws, &mine);
+                }
+                Ok(json!({ "changed": changed }))
+            }
             AuditCommand::CalcOptions => self.calc_state(),
             AuditCommand::SetCalcOptions { options } => {
                 if !options.iterate_delta.is_finite() || options.iterate_delta < 0.0 {
                     return Err(bad("invalid maximum change"));
                 }
-                if CalcSettings::read(self.wb()?) != options {
+                let old = CalcSettings::read(self.wb()?);
+                if old != options {
+                    // Turning precision as displayed on rounds the stored constants
+                    // for good, in the same undo step.
+                    let round = old.full_precision && !options.full_precision;
                     self.edit(0, Recalc::All, |wb, _| {
                         options.write(wb);
+                        if round {
+                            bo_sheet::calcopts::round_constants_to_display(wb);
+                        }
                         Ok(())
                     })?;
                     self.invalidate(None);
@@ -742,5 +780,133 @@ mod tests {
             run(&mut r, &json!({"cmd": "errorCheck", "sheet": 0})),
             json!([])
         );
+    }
+
+    #[test]
+    fn manual_mode_insert_does_not_calculate() {
+        let mut e = engine(
+            &[(0, "A1", "1"), (0, "A2", "2"), (0, "A3", "=SUM(A1:A2)")],
+            &["Sheet1"],
+        );
+        let mut opts = run(&mut e, &json!({"cmd": "calcOptions"}))["options"].clone();
+        opts["mode"] = json!("manual");
+        run(&mut e, &json!({"cmd": "setCalcOptions", "options": opts}));
+        e.set_input(0, 0, 0, "10").unwrap();
+        assert_eq!(e.cell(0, 2, 0).unwrap().display, "3");
+        // Insert a cell at A2 (shift down): the sum moves to A4 as SUM(A1:A3) and
+        // still shows 3 — nothing is calculated before F9.
+        let ins = json!({ "cmd": "shiftCells", "sheet": 0,
+            "range": { "r0": 1, "c0": 0, "r1": 1, "c1": 0 }, "down": true, "insert": true });
+        e.exec_json(&ins.to_string()).unwrap();
+        assert_eq!(e.cell(0, 3, 0).unwrap().input, "=SUM(A1:A3)");
+        assert_eq!(e.cell(0, 3, 0).unwrap().display, "3");
+        assert_eq!(
+            run(&mut e, &json!({"cmd": "calcOptions"}))["needsCalc"],
+            json!(true)
+        );
+        // F9: 10 + 2.
+        run(&mut e, &json!({"cmd": "calculate"}));
+        assert_eq!(e.cell(0, 3, 0).unwrap().display, "12");
+    }
+
+    #[test]
+    fn precision_as_displayed_rounds_stored_constants() {
+        // A1 = 1.236 and A2 = 2.5 shown as "0.00" and "0", A3 = 0.123456 in General,
+        // A4 = A1 + A2 (+ A3).
+        let mut e = engine(&[(0, "A4", "=A1+A2+A3")], &["Sheet1"]);
+        {
+            let wb = e.wb.as_mut().unwrap();
+            for (r, v) in [(0, 1.236), (1, 2.5), (2, 0.123_456)] {
+                wb.sheets[0].set_cell(r, 0, bo_model::sheet::Cell::new(CellValue::Number(v)));
+            }
+            let base = wb.styles.xf(0).cloned().unwrap_or_default();
+            for id in [2, 1] {
+                // Built-in formats 2 = "0.00", 1 = "0" (§18.8.30 numFmt).
+                let mut xf = base.clone();
+                xf.num_fmt_id = id;
+                wb.styles.cell_xfs.push(xf);
+            }
+            let n = u32::try_from(wb.styles.cell_xfs.len()).unwrap();
+            wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().style = n - 2;
+            wb.sheets[0].cells.get_mut(&(1, 0)).unwrap().style = n - 1;
+            e.live.rebuild(wb);
+        }
+        let mut opts = run(&mut e, &json!({"cmd": "calcOptions"}))["options"].clone();
+        opts["fullPrecision"] = json!(false);
+        run(&mut e, &json!({"cmd": "setCalcOptions", "options": opts}));
+        // Stored for good: 1.24 and 3 (half away from zero); General is left alone.
+        let num = |e: &SheetEngine, r: u32| e.sheet(0).unwrap().cells[&(r, 0)].value.clone();
+        assert_eq!(num(&e, 0), CellValue::Number(1.24));
+        assert_eq!(num(&e, 1), CellValue::Number(3.0));
+        assert_eq!(num(&e, 2), CellValue::Number(0.123_456));
+        // 1.24 + 3 + 0.123456 = 4.363456.
+        let CellValue::Number(sum) = num(&e, 3) else {
+            panic!("A4 is not a number");
+        };
+        assert!((sum - 4.363_456).abs() < 1e-12, "{sum}");
+        // One undo step brings the setting and the digits back.
+        assert!(e.undo().unwrap());
+        assert_eq!(num(&e, 0), CellValue::Number(1.236));
+        assert!(CalcSettings::read(e.wb().unwrap()).full_precision);
+    }
+
+    #[test]
+    fn cell_watches_are_saved_with_the_workbook() {
+        let mut e = engine(&[(0, "A1", "5"), (1, "B2", "=1+1")], &["Sheet1", "Hai"]);
+        assert_eq!(run(&mut e, &json!({"cmd": "cellWatches"})), json!([]));
+        // A whole-workbook undo step before the watches are added.
+        let group = json!({"cmd": "outlineGroup", "sheet": 0, "rows": true, "first": 1, "last": 2});
+        e.exec_json(&group.to_string()).unwrap();
+        let cells = json!([
+            {"sheet": 1, "row": 1, "col": 1},
+            {"sheet": 0, "row": 0, "col": 0},
+        ]);
+        let r = run(&mut e, &json!({"cmd": "setCellWatches", "cells": cells}));
+        assert_eq!(r["changed"], json!(true));
+        // Not an undo step: undo takes back the grouping, the watches stay (and
+        // after redo too).
+        assert!(e.undo().unwrap());
+        assert!(e.sheet(0).unwrap().rows.is_empty());
+        let w = run(&mut e, &json!({"cmd": "cellWatches"}));
+        assert_eq!(w.as_array().map(Vec::len), Some(2));
+        assert!(e.redo().unwrap());
+        let w = run(&mut e, &json!({"cmd": "cellWatches"}));
+        assert_eq!(w.as_array().map(Vec::len), Some(2));
+        let r = run(&mut e, &json!({"cmd": "setCellWatches", "cells": cells}));
+        assert_eq!(r["changed"], json!(false));
+        let bytes = e.save("xlsx", 0).unwrap();
+        if let Ok(path) = std::env::var("BO_WATCH_SAVE") {
+            // Hand-run check against the OpenXML validator (`bo-cli validate`).
+            std::fs::write(path, &bytes).unwrap();
+        }
+        let back = bo_xlsx::read_xlsx(&bytes).unwrap();
+        let mut f = SheetEngine::new();
+        f.load(back, "t.xlsx").unwrap();
+        // Listed sheet by sheet, in file order.
+        assert_eq!(
+            run(&mut f, &json!({"cmd": "cellWatches"})),
+            json!([
+                {"sheet": 0, "row": 0, "col": 0},
+                {"sheet": 1, "row": 1, "col": 1},
+            ])
+        );
+        let xml = bo_opc::Package::read(&bytes, &bo_opc::Limits::default())
+            .unwrap()
+            .part("/xl/worksheets/sheet2.xml")
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            .unwrap();
+        assert!(
+            xml.contains("<cellWatches><cellWatch r=\"B2\"/></cellWatches>"),
+            "{xml}"
+        );
+        // Removing every watch drops the element.
+        run(&mut f, &json!({"cmd": "setCellWatches", "cells": []}));
+        assert_eq!(run(&mut f, &json!({"cmd": "cellWatches"})), json!([]));
+        assert!(f
+            .wb()
+            .unwrap()
+            .sheets
+            .iter()
+            .all(|ws| !ws.unknown.iter().any(|x| x.xml.contains("cellWatches"))));
     }
 }

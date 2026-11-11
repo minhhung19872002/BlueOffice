@@ -1778,6 +1778,12 @@
         "varp": "Variance (population)"
       },
       "split": {
+        "stepTitle": "Split text into columns — step {{step}} of 3",
+        "back": "< Back",
+        "next": "Next >",
+        "finish": "Finish",
+        "dateKind": "Date",
+        "dateOrder": "Date order",
         "title": "Split text into columns",
         "kind": "How the text is divided",
         "delimited": "By separator characters",
@@ -5036,6 +5042,23 @@
       "models3d": "3D models"
     }
   },
+  "sheetOutline": {
+    "row": {
+      "bar": "Row outline",
+      "level": "Show row level {{n}}",
+      "show": "Show detail of row {{n}}",
+      "hide": "Hide detail of row {{n}}"
+    },
+    "col": {
+      "bar": "Column outline",
+      "level": "Show column level {{n}}",
+      "show": "Show detail of column {{n}}",
+      "hide": "Hide detail of column {{n}}"
+    },
+    "showDetail": "Show detail",
+    "hideDetail": "Hide detail",
+    "symbols": "Outline symbols"
+  },
   "sheetAudit": {
     "tab": "Formulas",
     "groupAudit": "Formula auditing",
@@ -5127,7 +5150,7 @@
       "maxIterations": "Maximum number of iterations",
       "maxChange": "Stop when values change by less than",
       "precision": "Calculate with the precision shown",
-      "precisionWarn": "Numbers are rounded to the decimals their format shows before they are used in formulas.",
+      "precisionWarn": "Numbers will permanently lose accuracy: stored numbers are rounded to the decimals their format shows (one undo step).",
       "invalid": "Enter a whole number of iterations from 1 to {{max}} and a change of 0 or more."
     }
   },
@@ -5142,6 +5165,7 @@
     "groupTemp": "Sheet view",
     "tempViews": "Temporary views…",
     "pageLabel": "Page {{n}}",
+    "areaEdge": "Drag to change the print area",
     "breakManual": "Manual page break — drag to move",
     "breakAuto": "Automatic page break — drag to set a manual break",
     "breakPreview": "Page regions and page breaks",

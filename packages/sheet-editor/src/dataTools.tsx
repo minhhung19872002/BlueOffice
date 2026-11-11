@@ -93,6 +93,11 @@ function Footer({
 
 // ---------------------------------------------------------------- Text to Columns
 
+/**
+ * Text to Columns as the three-step wizard spreadsheet users know: 1 how the text is
+ * divided, 2 the separators (or break positions), 3 the format of each column and where
+ * the result goes. Back / Next move between the steps, Finish splits from any step.
+ */
 export function TextToColumnsDialog({
   host,
   sheet,
@@ -103,7 +108,8 @@ export function TextToColumnsDialog({
   fail,
 }: Common & { sheets: string[]; range: SheetRange }) {
   const { t } = useTranslation();
-  const tl = (k: string) => t(`sheetEditor.dataTools.split.${k}`);
+  const tl = (k: string, o?: Record<string, unknown>) => t(`sheetEditor.dataTools.split.${k}`, o);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [mode, setMode] = useState<'delimited' | 'fixed'>('delimited');
   const [delims, setDelims] = useState({ tab: true, semicolon: false, comma: false, space: false });
   const [other, setOther] = useState('');
@@ -111,6 +117,8 @@ export function TextToColumnsDialog({
   const [qualifier, setQualifier] = useState<'"' | "'" | ''>('"');
   const [breaks, setBreaks] = useState('');
   const [formats, setFormats] = useState<FormatChoice[]>([]);
+  const [selected, setSelected] = useState(0);
+  const [dateOrder, setDateOrder] = useState<DateOrder>('dmy');
   const [dest, setDest] = useState(`${colName(range.c0)}${range.r0 + 1}`);
   const [preview, setPreview] = useState<TextSplitPreview | null>(null);
   const [error, setError] = useState('');
@@ -129,7 +137,11 @@ export function TextToColumnsDialog({
     if (o) d.push(o);
     return { mode: 'delimited', delimiters: d, consecutive, qualifier: qualifier || null };
   };
-  const spec = split();
+  // Step 1 previews the text as it is; the later steps the split.
+  const spec: TextSplitMode | null =
+    step === 1
+      ? { mode: 'delimited', delimiters: [], consecutive: false, qualifier: null }
+      : split();
   const key = JSON.stringify(spec);
 
   useEffect(() => {
@@ -158,8 +170,28 @@ export function TextToColumnsDialog({
 
   const columns = preview?.columns ?? 0;
   const formatOf = (i: number): FormatChoice => formats[i] ?? 'general';
+  const setFormat = (i: number, f: FormatChoice) =>
+    setFormats((list) => {
+      const out = Array.from({ length: Math.max(columns, i + 1) }, (_, j) => list[j] ?? 'general');
+      out[i] = f;
+      return out;
+    });
+  const isDate = (f: FormatChoice): f is DateOrder =>
+    f !== 'general' && f !== 'text' && f !== 'skip';
+  const formatName = (f: FormatChoice) =>
+    isDate(f) ? tl('date', { order: f.toUpperCase() }) : tl(f);
+  const current = formatOf(selected);
 
-  const ok = async () => {
+  const next = () => {
+    if (step === 2 && !split()) {
+      setError(tl('badBreaks'));
+      return;
+    }
+    setError('');
+    setStep((s) => (s === 1 ? 2 : 3));
+  };
+
+  const finish = async () => {
     const s = split();
     if (!s) {
       setError(tl('badBreaks'));
@@ -171,12 +203,24 @@ export function TextToColumnsDialog({
       return;
     }
     try {
+      // The column count of the split as finished (step 1 previews the raw text).
+      const p =
+        step === 3 && preview
+          ? preview
+          : await host.exec<TextSplitPreview>({
+              cmd: 'textToColumns',
+              sheet,
+              range,
+              split: s,
+              preview: true,
+            });
+      const n = p?.columns ?? 0;
       await host.exec({
         cmd: 'textToColumns',
         sheet,
         range,
         split: s,
-        formats: Array.from({ length: columns }, (_, i) => toFormat(formatOf(i))),
+        formats: Array.from({ length: n }, (_, i) => toFormat(formatOf(i))),
         dest: at,
       });
       await onDone();
@@ -189,7 +233,7 @@ export function TextToColumnsDialog({
   };
 
   const check = (k: keyof typeof delims) => (
-    <label className={styles.check} key={k}>
+    <label className={`${styles.check} ${dt.option}`} key={k}>
       <input
         type="checkbox"
         data-testid={`split-${k}`}
@@ -200,40 +244,92 @@ export function TextToColumnsDialog({
     </label>
   );
 
+  const radio = (value: 'general' | 'text' | 'date' | 'skip') => (
+    <label className={`${styles.check} ${dt.option}`} key={value}>
+      <input
+        type="radio"
+        name="split-format"
+        data-testid={`split-fmt-${value}`}
+        checked={value === 'date' ? isDate(current) : current === value}
+        onChange={() => setFormat(selected, value === 'date' ? dateOrder : value)}
+      />{' '}
+      {value === 'date' ? tl('dateKind') : tl(value)}
+    </label>
+  );
+
+  const footer = (
+    <>
+      <button type="button" className={styles.btn} onClick={onClose}>
+        {t('sheetEditor.dlg.cancel')}
+      </button>
+      <button
+        type="button"
+        className={styles.btn}
+        data-testid="split-back"
+        disabled={step === 1}
+        onClick={() => {
+          setError('');
+          setStep((s) => (s === 3 ? 2 : 1));
+        }}
+      >
+        {tl('back')}
+      </button>
+      <button
+        type="button"
+        className={styles.btn}
+        data-testid="split-next"
+        disabled={step === 3}
+        onClick={next}
+      >
+        {tl('next')}
+      </button>
+      <button
+        type="button"
+        className={styles.btnPrimary}
+        data-testid="split-ok"
+        onClick={() => void finish()}
+      >
+        {tl('finish')}
+      </button>
+    </>
+  );
+
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={tl('title')}
-      width={560}
+      title={tl('stepTitle', { step })}
+      width={600}
       testId="split-dialog"
-      footer={<Footer onClose={onClose} onOk={() => void ok()} testId="split-ok" />}
+      footer={footer}
     >
-      <div className={styles.form}>
-        <fieldset>
-          <legend>{tl('kind')}</legend>
-          <label className={styles.check}>
-            <input
-              type="radio"
-              name="split-mode"
-              data-testid="split-delimited"
-              checked={mode === 'delimited'}
-              onChange={() => setMode('delimited')}
-            />{' '}
-            {tl('delimited')}
-          </label>
-          <label className={styles.check}>
-            <input
-              type="radio"
-              name="split-mode"
-              data-testid="split-fixed"
-              checked={mode === 'fixed'}
-              onChange={() => setMode('fixed')}
-            />{' '}
-            {tl('fixed')}
-          </label>
-        </fieldset>
-        {mode === 'delimited' ? (
+      <div className={styles.form} data-step={step}>
+        {step === 1 && (
+          <fieldset>
+            <legend>{tl('kind')}</legend>
+            <label className={`${styles.check} ${dt.option}`}>
+              <input
+                type="radio"
+                name="split-mode"
+                data-testid="split-delimited"
+                checked={mode === 'delimited'}
+                onChange={() => setMode('delimited')}
+              />{' '}
+              {tl('delimited')}
+            </label>
+            <label className={`${styles.check} ${dt.option}`}>
+              <input
+                type="radio"
+                name="split-mode"
+                data-testid="split-fixed"
+                checked={mode === 'fixed'}
+                onChange={() => setMode('fixed')}
+              />{' '}
+              {tl('fixed')}
+            </label>
+          </fieldset>
+        )}
+        {step === 2 && mode === 'delimited' && (
           <fieldset>
             <legend>{tl('delimiters')}</legend>
             {check('tab')}
@@ -249,7 +345,7 @@ export function TextToColumnsDialog({
                 onChange={(e) => setOther(e.target.value)}
               />
             </label>
-            <label className={styles.check}>
+            <label className={`${styles.check} ${dt.option}`}>
               <input
                 type="checkbox"
                 data-testid="split-consecutive"
@@ -271,7 +367,8 @@ export function TextToColumnsDialog({
               </select>
             </label>
           </fieldset>
-        ) : (
+        )}
+        {step === 2 && mode === 'fixed' && (
           <label>
             {tl('breaks')}
             <input
@@ -285,57 +382,82 @@ export function TextToColumnsDialog({
             />
           </label>
         )}
-        <label>
-          {tl('dest')}
-          <input
-            data-testid="split-dest"
-            value={dest}
-            onChange={(e) => {
-              setDest(e.target.value);
-              setError('');
-            }}
-          />
-        </label>
+        {step === 3 && (
+          <>
+            <fieldset>
+              <legend>{tl('columnFormat')}</legend>
+              {radio('general')}
+              {radio('text')}
+              <div className={dt.toolbar}>
+                {radio('date')}
+                <select
+                  aria-label={tl('dateOrder')}
+                  data-testid="split-date-order"
+                  value={dateOrder}
+                  onChange={(e) => {
+                    const o = e.target.value as DateOrder;
+                    setDateOrder(o);
+                    if (isDate(current)) setFormat(selected, o);
+                  }}
+                >
+                  {DATE_ORDERS.map((o) => (
+                    <option key={o} value={o}>
+                      {o.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {radio('skip')}
+            </fieldset>
+            <label>
+              {tl('dest')}
+              <input
+                data-testid="split-dest"
+                value={dest}
+                onChange={(e) => {
+                  setDest(e.target.value);
+                  setError('');
+                }}
+              />
+            </label>
+          </>
+        )}
         {preview && columns > 0 && (
           <div className={dt.previewBox}>
             <table className={dt.preview} data-testid="split-preview">
-              <thead>
-                <tr>
-                  {Array.from({ length: columns }, (_, i) => (
-                    <th key={i}>
-                      <select
-                        aria-label={tl('columnFormat')}
-                        data-testid={`split-format-${i}`}
-                        value={formatOf(i)}
-                        onChange={(e) =>
-                          setFormats((f) => {
-                            const next = Array.from(
-                              { length: columns },
-                              (_, j) => f[j] ?? 'general',
-                            );
-                            next[i] = e.target.value as FormatChoice;
-                            return next;
-                          })
-                        }
-                      >
-                        <option value="general">{tl('general')}</option>
-                        <option value="text">{tl('text')}</option>
-                        {DATE_ORDERS.map((o) => (
-                          <option key={o} value={o}>
-                            {t('sheetEditor.dataTools.split.date', { order: o.toUpperCase() })}
-                          </option>
-                        ))}
-                        <option value="skip">{tl('skip')}</option>
-                      </select>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+              {step === 3 && (
+                <thead>
+                  <tr>
+                    {Array.from({ length: columns }, (_, i) => (
+                      <th key={i} className={i === selected ? dt.selectedCol : undefined}>
+                        <button
+                          type="button"
+                          className={dt.colHead}
+                          data-testid={`split-col-${i}`}
+                          aria-pressed={i === selected}
+                          onClick={() => setSelected(i)}
+                        >
+                          {formatName(formatOf(i))}
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
               <tbody>
                 {preview.rows.map((row, r) => (
                   <tr key={r}>
                     {Array.from({ length: columns }, (_, i) => (
-                      <td key={i} className={formatOf(i) === 'skip' ? dt.skipped : undefined}>
+                      <td
+                        key={i}
+                        className={
+                          step === 3 && formatOf(i) === 'skip'
+                            ? dt.skipped
+                            : step === 3 && i === selected
+                              ? dt.selectedCol
+                              : undefined
+                        }
+                      >
                         {row[i] ?? ''}
                       </td>
                     ))}

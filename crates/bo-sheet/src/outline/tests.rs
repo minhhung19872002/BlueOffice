@@ -281,8 +281,98 @@ fn show_level_hides_detail_and_marks_collapsed() {
     assert_eq!(collapsed(ws), vec![3, 7, 9]);
     show_level(ws, true, 1, true);
     assert_eq!(hidden(ws), vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    assert_eq!(collapsed(ws), vec![10]);
+    // The hidden subtotal rows stay marked: expanding the grand total later shows them
+    // with their own groups still collapsed.
+    assert_eq!(collapsed(ws), vec![3, 7, 9, 10]);
     show_level(ws, true, 3, true);
     assert_eq!(hidden(ws), Vec::<u32>::new());
     assert_eq!(collapsed(ws), Vec::<u32>::new());
+}
+
+#[test]
+fn outline_groups_and_show_hide_detail() {
+    let mut wb = sales();
+    subtotal(
+        &mut wb,
+        0,
+        &spec(true),
+        &BoFormula::default(),
+        &Locale::VI_VN,
+    )
+    .unwrap();
+    let ws = &mut wb.sheets[0];
+    let hidden = |ws: &Worksheet| -> Vec<u32> {
+        (0..11)
+            .filter(|r| ws.rows.get(r).is_some_and(|i| i.hidden))
+            .collect()
+    };
+    // Levels after the subtotal: rows 1-2, 4-6, 8 detail (2), 3, 7, 9 subtotals (1),
+    // 10 grand total (0) — one level-1 group 1..=9 summarised by row 10 and three
+    // level-2 groups summarised by rows 3, 7, 9.
+    let g = |level, first, last, summary, collapsed| OutlineGroup {
+        level,
+        first,
+        last,
+        summary: Some(summary),
+        collapsed,
+    };
+    assert_eq!(
+        outline_groups(ws, true, true, 100),
+        vec![
+            g(1, 1, 9, 10, false),
+            g(2, 1, 2, 3, false),
+            g(2, 4, 6, 7, false),
+            g(2, 8, 8, 9, false),
+        ]
+    );
+    assert_eq!(outline_groups(ws, true, true, 2).len(), 2);
+    // − on the subtotal row 7 hides rows 4-6 only.
+    assert!(set_detail(ws, true, 7, false, true));
+    assert_eq!(hidden(ws), vec![4, 5, 6]);
+    assert!(ws.rows.get(&7).is_some_and(|i| i.collapsed));
+    assert!(outline_groups(ws, true, true, 100)[2].collapsed);
+    // Hide Detail with a detail row selected: the innermost expanded group (8).
+    assert!(set_detail(ws, true, 8, false, true));
+    assert_eq!(hidden(ws), vec![4, 5, 6, 8]);
+    // − on the grand total hides everything; + shows the subtotals again with the
+    // groups of rows 7 and 9 still collapsed, group 1-2 open as before.
+    assert!(set_detail(ws, true, 10, false, true));
+    assert_eq!(hidden(ws), (1..10).collect::<Vec<_>>());
+    assert!(set_detail(ws, true, 10, true, true));
+    assert_eq!(hidden(ws), vec![4, 5, 6, 8]);
+    assert!(!ws.rows.get(&10).is_some_and(|i| i.collapsed));
+    // + on row 7 shows its detail; showing it again changes nothing.
+    assert!(set_detail(ws, true, 7, true, true));
+    assert_eq!(hidden(ws), vec![8]);
+    assert!(!set_detail(ws, true, 7, true, true));
+    // Level 1, then + on the grand total: subtotals shown, each group collapsed.
+    show_level(ws, true, 1, true);
+    assert!(set_detail(ws, true, 10, true, true));
+    assert_eq!(hidden(ws), vec![1, 2, 4, 5, 6, 8]);
+}
+
+#[test]
+fn column_groups_summary_left() {
+    let mut ws = Worksheet::new("Sheet1");
+    group(&mut ws, false, 2, 4, false);
+    // Summary columns on the left (summaryRight = 0): column 1 summarises 2..=4.
+    assert_eq!(
+        outline_groups(&ws, false, false, 10),
+        vec![OutlineGroup {
+            level: 1,
+            first: 2,
+            last: 4,
+            summary: Some(1),
+            collapsed: false
+        }]
+    );
+    assert!(set_detail(&mut ws, false, 1, false, false));
+    assert!((2..=4).all(|c| ws.col_info(c).is_some_and(|i| i.hidden)));
+    assert!(ws.col_info(1).is_some_and(|i| i.collapsed));
+    assert!(set_detail(&mut ws, false, 1, true, false));
+    assert!((1..=4).all(|c| !ws.col_info(c).is_some_and(|i| i.hidden || i.collapsed)));
+    // A group starting at the first column has no summary before it.
+    let mut ws = Worksheet::new("Sheet1");
+    group(&mut ws, false, 0, 1, false);
+    assert_eq!(outline_groups(&ws, false, false, 10)[0].summary, None);
 }

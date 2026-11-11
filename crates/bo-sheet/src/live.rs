@@ -12,7 +12,8 @@
 //! see [`crate::calcopts`]) is honoured by [`LiveCalc::update`]: in manual mode
 //! an edited formula shows its own result but nothing else is recalculated until
 //! [`LiveCalc::calculate`]; in "automatic except tables" mode data tables wait
-//! for it. Rebuilds (opening, structural edits) always calculate.
+//! for it. Opening and full rebuilds calculate; a structural edit in manual mode
+//! ([`LiveCalc::reload`]) keeps the shown results until the next calculation.
 
 use crate::calcopts::{CalcMode, CalcSettings};
 use crate::formula::{
@@ -36,6 +37,9 @@ pub struct LiveCalc {
     /// Results calculated but not written into the model yet (other sheets
     /// after [`LiveCalc::calculate`] for one sheet).
     unwritten: Vec<CellId>,
+    /// Manual mode: the engine was reloaded after a structural edit without
+    /// calculating; the next calculation recalculates every formula.
+    stale: bool,
 }
 
 impl LiveCalc {
@@ -86,6 +90,25 @@ impl LiveCalc {
         crate::drop_in_background(self.engine.replace(fw));
         self.pending = false;
         self.tables_pending = false;
+        self.stale = false;
+        self.unwritten.clear();
+    }
+
+    /// After a structural edit (rows / columns inserted or deleted, sheets moved…):
+    /// [`LiveCalc::rebuild`], except in manual calculation mode (§18.2.2
+    /// `calcMode="manual"`), where the engine is reloaded with the results the
+    /// cells show and nothing is calculated — as typing does not calculate — until
+    /// the next calculation, which then recalculates every formula.
+    pub fn reload(&mut self, wb: &mut Workbook) {
+        if CalcSettings::read(wb).mode != CalcMode::Manual {
+            self.rebuild(wb);
+            return;
+        }
+        let mut fw = load_with(wb, self.now, true);
+        fw.set_web_provider(self.web.clone());
+        crate::drop_in_background(self.engine.replace(fw));
+        self.pending = true;
+        self.stale = true;
         self.unwritten.clear();
     }
 
@@ -299,7 +322,7 @@ impl LiveCalc {
     /// functions and data tables. With `sheet`, only that sheet's results are
     /// shown; the others wait for the next calculation of the workbook.
     pub fn calculate(&mut self, wb: &mut Workbook, sheet: Option<usize>) {
-        let Some(fw) = self.engine.as_mut() else {
+        let Some(fw) = self.engine.as_mut().filter(|_| !self.stale) else {
             self.rebuild(wb);
             return;
         };
@@ -536,6 +559,37 @@ mod tests {
         live.calculate(&mut wb, None);
         assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(105.0));
         assert!(!live.needs_calculation());
+    }
+
+    #[test]
+    fn manual_mode_structural_edit_waits_for_calculate() {
+        let mut wb = Workbook::new();
+        wb.sheets[0].set_cell(0, 0, Cell::new(CellValue::Number(1.0)));
+        wb.sheets[0].set_cell(1, 0, Cell::new(CellValue::Number(2.0)));
+        wb.sheets[0].set_cell(2, 0, Cell::default().with_formula("SUM(A1:A2)"));
+        crate::calcopts::CalcSettings {
+            mode: CalcMode::Manual,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(3.0));
+        // A1 changed behind the engine's back, then a structural edit: the sum
+        // keeps showing 3 until the workbook is calculated.
+        wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().value = CellValue::Number(10.0);
+        live.reload(&mut wb);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(3.0));
+        assert!(live.needs_calculation());
+        // Calculating recalculates every formula: 10 + 2.
+        live.calculate(&mut wb, None);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(12.0));
+        assert!(!live.needs_calculation());
+        // Automatic mode: reload calculates at once.
+        crate::calcopts::CalcSettings::default().write(&mut wb);
+        wb.sheets[0].cells.get_mut(&(1, 0)).unwrap().value = CellValue::Number(5.0);
+        live.reload(&mut wb);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(15.0));
     }
 
     #[test]

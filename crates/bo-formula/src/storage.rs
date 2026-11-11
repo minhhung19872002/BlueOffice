@@ -158,7 +158,8 @@ fn pieces(f: &str) -> Vec<Piece<'_>> {
 /// Strip a storage prefix (case-insensitive) from an identifier.
 fn strip_prefix(id: &str) -> &str {
     for p in ["_xlfn._xlws.", "_xlfn.", "_xlws.", "_xlpm."] {
-        if id.len() > p.len() && id[..p.len()].eq_ignore_ascii_case(p) {
+        // `get`: a multi-byte character (e.g. Vietnamese `ồ`) may straddle the prefix length.
+        if id.len() > p.len() && id.get(..p.len()).is_some_and(|h| h.eq_ignore_ascii_case(p)) {
             return &id[p.len()..];
         }
     }
@@ -293,6 +294,26 @@ pub fn from_storage(f: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Found by the fuzz soak (BO_FUZZ_SEED=f0c73cae3d36df39, SYLK input): an identifier
+    /// whose multi-byte character straddles a storage prefix's length must not panic.
+    #[test]
+    fn identifiers_with_multibyte_characters_do_not_panic() {
+        for f in [
+            "=Tồn+1",
+            "=_xlồ(1)",
+            "=xlfồn.A1",
+            "=_xlfn.Tồn(1)",
+            "=ồồồồồồồồồồồồồ",
+        ] {
+            let s = to_storage(f);
+            let _ = from_storage(&s);
+        }
+        assert_eq!(strip_prefix("_xlfn.Tồn"), "Tồn");
+        assert_eq!(strip_prefix("_xlồ"), "_xlồ");
+        // `ồ` occupies bytes 4..7: the 6-byte prefix length falls inside it.
+        assert_eq!(strip_prefix("_xlwồx"), "_xlwồx");
+    }
 
     #[test]
     fn prefixes_future_functions_and_parameters() {

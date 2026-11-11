@@ -18,7 +18,10 @@ describe('DocumentView.refresh', () => {
   it('keeps the slots of unchanged pages when the page count changes', () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
-    const v = new DocumentView(host, {} as EngineHost);
+    // Changed pages in view are asked for at once (typing latency); they never arrive here.
+    const v = new DocumentView(host, {
+      getPage: () => new Promise(() => {}),
+    } as never as EngineHost);
     v.setDocument(info(2));
     const first = host.querySelector('.bo-page');
     v.refresh(info(3), [1, 2]);

@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 const port = Number(process.env.E2E_PORT ?? 4173);
 
 /** Specs that read or write the system clipboard (see the `clipboard` project). */
-const CLIPBOARD_SPECS = /(paste|slide-rich)\.spec\.ts/;
+const CLIPBOARD_SPECS = /(paste|slide-rich|office-behaviour-doc)\.spec\.ts/;
 
 // Web target. The desktop target (Tauri WebDriver) is added with the Phase 2 editing flows.
 export default defineConfig({

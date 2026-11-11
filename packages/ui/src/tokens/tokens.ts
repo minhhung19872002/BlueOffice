@@ -254,8 +254,10 @@ export const PAPER = '#ffffff';
 export const CHROME: Record<ThemeName, Chrome> = {
   light: {
     caret: '#000000',
-    selection: '#3378DC',
-    'selection-alpha': '0.32',
+    // Neutral grey over the text, as word processors show a selection (black text stays
+    // black, the white paper turns #CCCCCC).
+    selection: '#000000',
+    'selection-alpha': '0.2',
     cursor: '#1A5FCC',
     handle: '#ffffff',
     'handle-border': '#1A5FCC',
@@ -265,8 +267,10 @@ export const CHROME: Record<ThemeName, Chrome> = {
   },
   dark: {
     caret: '#000000',
-    selection: '#3378DC',
-    'selection-alpha': '0.32',
+    // Neutral grey over the text, as word processors show a selection (black text stays
+    // black, the white paper turns #CCCCCC).
+    selection: '#000000',
+    'selection-alpha': '0.2',
     cursor: '#1A5FCC',
     handle: '#ffffff',
     'handle-border': '#1A5FCC',

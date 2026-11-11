@@ -56,8 +56,8 @@
   --bo-gray-11: #4f5a6a;
   --bo-gray-12: #1b2430;
   --bo-chrome-caret: #000000;
-  --bo-chrome-selection: #3378DC;
-  --bo-chrome-selection-alpha: 0.32;
+  --bo-chrome-selection: #000000;
+  --bo-chrome-selection-alpha: 0.2;
   --bo-chrome-cursor: #1A5FCC;
   --bo-chrome-handle: #ffffff;
   --bo-chrome-handle-border: #1A5FCC;
@@ -135,8 +135,8 @@
   --bo-gray-11: #a4afbd;
   --bo-gray-12: #e3e9f1;
   --bo-chrome-caret: #000000;
-  --bo-chrome-selection: #3378DC;
-  --bo-chrome-selection-alpha: 0.32;
+  --bo-chrome-selection: #000000;
+  --bo-chrome-selection-alpha: 0.2;
   --bo-chrome-cursor: #1A5FCC;
   --bo-chrome-handle: #ffffff;
   --bo-chrome-handle-border: #1A5FCC;

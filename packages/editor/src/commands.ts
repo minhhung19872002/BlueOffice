@@ -110,8 +110,19 @@ export class CommandRegistry<S> {
       Partial<Pick<KeyboardEvent, 'code'>>,
   ): Command<S> | undefined {
     const combos = [shortcutOf(e)];
-    const physical = /^(?:Digit|Key)([0-9A-Z])$/.exec(e.code ?? '')?.[1];
-    if (physical) combos.push(shortcutOf({ ...e, key: physical }));
+    const physical =
+      /^(?:Digit|Key)([0-9A-Z])$/.exec(e.code ?? '')?.[1] ?? PUNCTUATION[e.code ?? ''];
+    // (Not { ...e }: the modifier flags of a real KeyboardEvent are getters, not own fields.)
+    if (physical)
+      combos.push(
+        shortcutOf({
+          key: physical,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+        }),
+      );
     // User shortcuts first, so a combo moved to another command wins over its default owner.
     for (const combo of combos) {
       for (const [id, s] of this.overrides) {
@@ -134,6 +145,19 @@ export function normalizeShortcut(s: string): string {
   return [...mods, key].join('+');
 }
 
+/** Keys by physical position (Ctrl+Shift+= is Ctrl+Shift+Plus, Ctrl+Shift+. is Ctrl+Shift+>). */
+const PUNCTUATION: Record<string, string> = {
+  Equal: '=',
+  Minus: '-',
+  Period: '.',
+  Comma: ',',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Semicolon: ';',
+  Slash: '/',
+  Space: 'Space',
+};
+
 function shortcutOf(
   e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
 ): string {
@@ -141,5 +165,5 @@ function shortcutOf(
   if (e.ctrlKey || e.metaKey) mods.push('ctrl');
   if (e.shiftKey) mods.push('shift');
   if (e.altKey) mods.push('alt');
-  return [...mods, e.key.toLowerCase()].join('+');
+  return [...mods, e.key === ' ' ? 'space' : e.key.toLowerCase()].join('+');
 }

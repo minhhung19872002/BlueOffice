@@ -196,7 +196,42 @@ export class DocController {
     void next();
   }
 
+  /** Ctrl+click on a hyperlink: follow it (BlueEditor opens the target). */
+  onFollowLink: ((target: string) => void) | null = null;
+
   pointer(e: PagePointer): void {
+    if (e.type === 'down' && e.ctrl && !e.shift && e.count === 1) {
+      // Ctrl+click: a hyperlink is followed, other text selects its sentence.
+      // One step of the queue: a copy pressed right after sees the sentence selected.
+      const at = { page: e.page, x: e.x, y: e.y };
+      this.setPaste(null);
+      const p = this.queue.then(async () => {
+        try {
+          const r = this.apply(
+            await this.engine.command({
+              cmd: 'click',
+              ...at,
+              extend: false,
+              count: 1,
+              now: Date.now(),
+            }),
+          );
+          const link = r.format.link;
+          if (link && this.onFollowLink) {
+            this.onFollowLink(link);
+            return r;
+          }
+          return this.apply(
+            await this.engine.command({ cmd: 'selectSentence', ...at, now: Date.now() }),
+          );
+        } catch (err) {
+          this.onError(err);
+          return null;
+        }
+      });
+      this.queue = p;
+      return;
+    }
     if (e.type === 'down') {
       void this.run({
         cmd: 'click',

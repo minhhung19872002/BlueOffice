@@ -36,6 +36,75 @@ describe('keyToCommand', () => {
     expect(keyToCommand(k('Tab', { shift: true }))).toEqual({ cmd: 'tab', back: true });
     expect(keyToCommand(k('b', { ctrl: true }))).toBeNull();
   });
+
+  it('Ctrl+Backspace / Ctrl+Delete delete a word, Ctrl+Up / Ctrl+Down go by paragraph', () => {
+    expect(keyToCommand(k('Backspace', { ctrl: true }))).toEqual({ cmd: 'deleteWordBackward' });
+    expect(keyToCommand(k('Delete', { ctrl: true }))).toEqual({ cmd: 'deleteWordForward' });
+    expect(keyToCommand(k('ArrowUp', { ctrl: true, shift: true }))).toEqual({
+      cmd: 'move',
+      motion: 'paraUp',
+      extend: true,
+    });
+    expect(keyToCommand(k('ArrowDown', { ctrl: true }))).toEqual({
+      cmd: 'move',
+      motion: 'paraDown',
+      extend: false,
+    });
+  });
+});
+
+describe('DocController Ctrl+click', () => {
+  const result = (link?: string): EditResult =>
+    ({
+      info: { name: 'a', pageCount: 1, pages: [], wordCount: 0 },
+      selection: { anchor: { p: 0, o: 0 }, focus: { p: 0, o: 0 } },
+      caret: null,
+      rects: [],
+      dirty: [],
+      format: (link ? { link } : {}) as EditResult['format'],
+      modified: false,
+    }) as EditResult;
+  const setup = (link?: string) => {
+    const sent: string[] = [];
+    const engine = {
+      command: async ({ cmd }: EditCommand & { now?: number }) => {
+        sent.push(cmd);
+        return result(cmd === 'click' ? link : undefined);
+      },
+    };
+    const clipboard = {
+      readText: async () => '',
+      writeText: async () => {},
+      writeHtml: async () => {},
+    };
+    const c = new DocController(
+      engine as never,
+      { refresh: () => {}, setSelection: () => {} },
+      clipboard,
+      () => {},
+      () => {},
+    );
+    const followed: string[] = [];
+    c.onFollowLink = (t) => followed.push(t);
+    return { c, sent, followed };
+  };
+  const down = { type: 'down' as const, page: 0, x: 10, y: 10, shift: false, count: 1, ctrl: true };
+
+  it('selects the sentence on text, in one step of the queue', async () => {
+    const { c, sent, followed } = setup();
+    c.pointer(down);
+    await c.copy();
+    expect(sent).toEqual(['click', 'selectSentence', 'copy']);
+    expect(followed).toEqual([]);
+  });
+
+  it('follows a hyperlink', async () => {
+    const { c, sent, followed } = setup('https://bluestar.vn');
+    c.pointer(down);
+    await c.idle();
+    expect(sent).toEqual(['click']);
+    expect(followed).toEqual(['https://bluestar.vn']);
+  });
 });
 
 describe('DocController', () => {

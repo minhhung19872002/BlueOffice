@@ -179,9 +179,9 @@ test('BlueDoc exports an EPUB with a chapter per Heading 1', async ({ page }) =>
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('Chương hai');
   await page.keyboard.press('Control+Home');
-  await page.locator('[data-command="style.heading1"]').first().click();
+  await page.locator('[data-style-command="style.heading1"]').first().click();
   await page.keyboard.press('Control+End');
-  await page.locator('[data-command="style.heading1"]').first().click();
+  await page.locator('[data-style-command="style.heading1"]').first().click();
 
   const epub = await saveAs(page, 'epub');
   expect(epub.name).toBe('Tài liệu mới.epub');

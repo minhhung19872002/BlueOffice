@@ -318,8 +318,23 @@ export class DocMirror {
     }
     this.pending = (async () => {
       // Changes made together (an edit refreshes the view, then moves the caret) are applied
-      // together: the edit is compared with the text before it.
-      await Promise.resolve();
+      // together: the edit is compared with the text before it. The mirror follows once the
+      // next frame is painted, so that its engine query and DOM work never delay the typed
+      // text on screen.
+      await new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame !== 'function') {
+          resolve();
+          return;
+        }
+        // A hidden page gets no frames: the mirror follows anyway.
+        const late = setTimeout(resolve, 100);
+        requestAnimationFrame(() =>
+          setTimeout(() => {
+            clearTimeout(late);
+            resolve();
+          }, 0),
+        );
+      });
       try {
         do {
           this.again = false;

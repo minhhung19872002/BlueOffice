@@ -259,6 +259,8 @@ export interface FormatState {
   noProof?: boolean;
   /** Advanced character formatting (Font dialog, DOC-FMT-001). */
   advanced?: CharAdvanced;
+  /** Target of the hyperlink at the caret (§17.16.22 hyperlink). */
+  link?: string;
 }
 
 /** Position of a floating picture in points (§20.4.2.10 positionH / §20.4.2.11 positionV). */
@@ -466,7 +468,7 @@ export type CharFormat =
 
 export type ParaFormat =
   | { kind: 'align'; align: Alignment }
-  | { kind: 'increaseIndent' | 'decreaseIndent' | 'bullets' | 'numbering' | 'clear' }
+  | { kind: 'increaseIndent' | 'decreaseIndent' | 'bullets' | 'numbering' | 'clear' | 'reset' }
   | { kind: 'lineSpacing'; value: number }
   | { kind: 'lineSpacingRule'; rule: LineRule; value: number }
   | {
@@ -492,7 +494,9 @@ export type Motion =
   | 'pageUp'
   | 'pageDown'
   | 'docStart'
-  | 'docEnd';
+  | 'docEnd'
+  | 'paraUp'
+  | 'paraDown';
 
 /** How tracked changes are displayed (mirrors `bo_layout::RevisionView`). */
 export type RevisionView = 'markup' | 'final' | 'original';
@@ -682,6 +686,14 @@ export type EditCommand =
   | { cmd: 'setSelection'; selection: Selection }
   | { cmd: 'click'; page: number; x: number; y: number; extend?: boolean; count?: number }
   | { cmd: 'dragTo'; page: number; x: number; y: number }
+  | { cmd: 'selectSentence'; page: number; x: number; y: number }
+  | { cmd: 'deleteWordBackward' }
+  | { cmd: 'deleteWordForward' }
+  | { cmd: 'setLink'; target: string; display?: string }
+  | {
+      cmd: 'changeCase';
+      mode: 'sentence' | 'lower' | 'upper' | 'title' | 'toggle' | 'cycle';
+    }
   | { cmd: 'move'; motion: Motion; extend?: boolean }
   | { cmd: 'insertText'; text: string }
   | { cmd: 'formatText'; format: CharFormat }

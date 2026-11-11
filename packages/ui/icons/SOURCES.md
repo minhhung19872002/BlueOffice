@@ -107,6 +107,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.bullets` | Lucide (ISC) `List` |
 | `format.cells` | Lucide (ISC) `PencilLine` |
 | `format.cellStyles` | Lucide (ISC) `Palette` |
+| `format.changeCase` | Lucide (ISC) `CaseSensitive` |
 | `format.clear` | Lucide (ISC) `RemoveFormatting` |
 | `format.clearConditional` | Lucide (ISC) `Eraser` |
 | `format.color` | Lucide (ISC) `Baseline` |
@@ -124,6 +125,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.fontGrow` | Lucide (ISC) `AArrowUp` |
 | `format.fontShrink` | Lucide (ISC) `AArrowDown` |
 | `format.grow` | Lucide (ISC) `AArrowUp` |
+| `format.growStep` | Lucide (ISC) `AArrowUp` |
 | `format.highlight` | Lucide (ISC) `Highlighter` |
 | `format.indent` | Lucide (ISC) `ListIndentIncrease` |
 | `format.indentDec` | Lucide (ISC) `ListIndentDecrease` |
@@ -142,6 +144,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `format.percent` | Lucide (ISC) `Percent` |
 | `format.phoneticGuide` | Lucide (ISC) `Languages` |
 | `format.shrink` | Lucide (ISC) `AArrowDown` |
+| `format.shrinkStep` | Lucide (ISC) `AArrowDown` |
 | `format.strike` | Lucide (ISC) `Strikethrough` |
 | `format.subscript` | Lucide (ISC) `Subscript` |
 | `format.superscript` | Lucide (ISC) `Superscript` |
@@ -163,6 +166,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `insert.header` | Lucide (ISC) `PanelTop` |
 | `insert.icon` | Lucide (ISC) `Shapes` |
 | `insert.image` | Lucide (ISC) `Image` |
+| `insert.link` | Lucide (ISC) `Link2` |
 | `insert.media` | Lucide (ISC) `Clapperboard` |
 | `insert.pageBreak` | Lucide (ISC) `SquareSplitVertical` |
 | `insert.pageNumber` | Lucide (ISC) `Hash` |
@@ -271,6 +275,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `smartart.toShapes` | Lucide (ISC) `Shapes` |
 | `style.heading1` | Lucide (ISC) `Heading1` |
 | `style.heading2` | Lucide (ISC) `Heading2` |
+| `style.heading3` | Lucide (ISC) `Heading3` |
 | `style.normal` | Lucide (ISC) `Pilcrow` |
 | `style.title` | Lucide (ISC) `Type` |
 | `table.bandedRows` | Lucide (ISC) `Rows3` |

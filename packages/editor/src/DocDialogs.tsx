@@ -301,6 +301,98 @@ export function PageSetupDialog({
 }
 
 /** Paste Special: formatted (keep / merge) or unformatted text. */
+/**
+ * Insert › Link (Ctrl+K): the address and the text to display; the selected text is linked
+ * as it is when the display box is left empty (§17.16.22 hyperlink).
+ */
+export function LinkDialog({
+  current,
+  onApply,
+  onRemove,
+  onClose,
+}: {
+  /** Target of the link at the caret, if any. */
+  current?: string;
+  onApply: (target: string, display: string) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [target, setTarget] = useState(current ?? '');
+  const [display, setDisplay] = useState('');
+  const address = target.trim();
+  // A bare address gets a scheme: an e-mail address `mailto:`, anything else `https://`.
+  const href =
+    !address || /^[a-z][\w+.-]*:|^#/i.test(address)
+      ? address
+      : /^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/.test(address)
+        ? `mailto:${address}`
+        : `https://${address}`;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('docLink.title')}
+      testId="doc-link-dialog"
+      footer={
+        <>
+          {current && (
+            <button
+              type="button"
+              className={styles.dialogButton}
+              data-testid="doc-link-remove"
+              onClick={onRemove}
+            >
+              {t('docLink.remove')}
+            </button>
+          )}
+          <button type="button" className={styles.dialogButton} onClick={onClose}>
+            {t('security.cancel')}
+          </button>
+          <button
+            type="submit"
+            form="doc-link-form"
+            className={styles.dialogPrimary}
+            data-testid="doc-link-ok"
+            disabled={!href}
+          >
+            {t('docLink.ok')}
+          </button>
+        </>
+      }
+    >
+      <form
+        id="doc-link-form"
+        className={styles.fieldset}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (href) onApply(href, display);
+        }}
+      >
+        <label>
+          {t('docLink.display')}
+          <input
+            data-testid="doc-link-display"
+            value={display}
+            placeholder={t('docLink.displayPlaceholder')}
+            onChange={(e) => setDisplay(e.target.value)}
+          />
+        </label>
+        <label>
+          {t('docLink.address')}
+          <input
+            data-testid="doc-link-address"
+            value={target}
+            autoFocus
+            placeholder="https://"
+            onChange={(e) => setTarget(e.target.value)}
+          />
+        </label>
+      </form>
+    </Dialog>
+  );
+}
+
 export function PasteSpecialDialog({
   available,
   onPaste,

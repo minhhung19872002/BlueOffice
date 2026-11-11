@@ -476,13 +476,34 @@ function RibbonPanel({
     return () => ro.disconnect();
   }, [el]);
 
-  // After every render: record the widths of the groups at their current level,
-  // then re-plan. Converges because each level is measured at most once.
+  // A group that changes size by itself (a gallery filled in once its data arrives) asks for a
+  // new plan too; the observer reports sizes asynchronously, it never forces a layout.
+  const [resized, setResized] = useState(0);
+  useLayoutEffect(() => {
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    let initial = true;
+    const ro = new ResizeObserver(() => {
+      if (initial) {
+        initial = false;
+        return;
+      }
+      passes.current = 0;
+      setResized((n) => n + 1);
+    });
+    for (const node of el.querySelectorAll<HTMLElement>(':scope > [data-group]')) ro.observe(node);
+    return () => ro.disconnect();
+  }, [el, signature, plan]);
+
+  // After a render that may change the groups' widths (other groups, labels or sizes, another
+  // level, another width): record the widths of the groups at their current level, then
+  // re-plan. Converges because each level is measured at most once. Not after every render:
+  // reading the widths forces a layout, which would delay every keystroke in the editors.
   const replan = useCallback(() => {
     if (!el || width === null || width <= 0) return;
     const groups = Array.from(el.querySelectorAll<HTMLElement>(':scope > [data-group]'));
     for (const node of groups) {
-      const index = tab.groups.findIndex((g) => g.id === node.dataset.group);
+      // A group's key is s|f | id | label | items: it names the group's id.
+      const index = keys.findIndex((k) => k.split('|')[1] === node.dataset.group);
       const key = keys[index];
       const level = node.dataset.level as CollapseLevel | undefined;
       if (key === undefined || !level) continue;
@@ -498,12 +519,12 @@ function RibbonPanel({
     }
     // `keys` is derived from `signature`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [el, width, plan, signature, cache, tab.groups]);
+  }, [el, width, plan, signature, cache, resized]);
 
   useLayoutEffect(() => {
     passes.current = 0;
   }, [signature]);
-  useLayoutEffect(replan);
+  useLayoutEffect(replan, [replan]);
 
   const levels =
     plan.levels.length === tab.groups.length ? plan.levels : tab.groups.map(() => 'full' as const);

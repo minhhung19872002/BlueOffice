@@ -182,27 +182,35 @@ export function CommandSearch({ tabs, open, onClose, labels }: CommandSearchProp
   );
 }
 
-/** Ctrl+Q or Alt+Q opens the command search (docs/ui/shortcuts.md). */
+/** Ctrl+Q or Alt+Q opens the command search (docs/ui/shortcuts.md); ctrl: false leaves Ctrl+Q
+ * to the app (BlueDoc: remove paragraph formatting, as in word processors). */
 export function isCommandSearchKey(
   e: Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey' | 'key'>,
+  ctrl = true,
 ): boolean {
-  return (e.ctrlKey || e.altKey) && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'q';
+  return (
+    ((ctrl && e.ctrlKey) || (e.altKey && !e.ctrlKey)) &&
+    !e.shiftKey &&
+    !e.metaKey &&
+    e.key.toLowerCase() === 'q'
+  );
 }
 
 /** Install the Ctrl+Q / Alt+Q listener for the lifetime of the component. */
-export function useCommandSearchShortcut(open: () => void) {
+export function useCommandSearchShortcut(open: () => void, opts: { ctrl?: boolean } = {}) {
+  const ctrl = opts.ctrl ?? true;
   const cb = useRef(open);
   useEffect(() => {
     cb.current = open;
   }, [open]);
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
-      if (isCommandSearchKey(e)) {
+      if (isCommandSearchKey(e, ctrl)) {
         e.preventDefault();
         cb.current();
       }
     };
     window.addEventListener('keydown', f, true);
     return () => window.removeEventListener('keydown', f, true);
-  }, []);
+  }, [ctrl]);
 }

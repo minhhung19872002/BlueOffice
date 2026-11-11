@@ -159,6 +159,43 @@ pub enum CharFormat {
     Clear,
 }
 
+/// How [`Session::change_case`] changes the letters of the selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CaseMode {
+    /// First letter of each sentence in capitals, the rest lower case.
+    Sentence,
+    /// All lower case.
+    Lower,
+    /// All capitals.
+    Upper,
+    /// First letter of each word in capitals.
+    Title,
+    /// Swap capitals and lower case.
+    Toggle,
+    /// UPPERCASE → lowercase → Capitalize Each Word → UPPERCASE, by what the text is now.
+    Cycle,
+}
+
+/// One character in `mode` (a character that maps to several keeps the first; the text keeps
+/// its length in characters so its formatting stays in place).
+fn case_char(ch: char, mode: CaseMode, word_start: bool, sentence_start: bool) -> char {
+    let up = |c: char| c.to_uppercase().next().unwrap_or(c);
+    let low = |c: char| c.to_lowercase().next().unwrap_or(c);
+    let upper = match mode {
+        CaseMode::Upper => true,
+        CaseMode::Lower | CaseMode::Cycle => false,
+        CaseMode::Title => word_start,
+        CaseMode::Sentence => sentence_start && ch.is_alphanumeric(),
+        CaseMode::Toggle => !ch.is_uppercase(),
+    };
+    if upper {
+        up(ch)
+    } else {
+        low(ch)
+    }
+}
+
 /// Paragraph formatting commands (ECMA-376 Part 1, §17.3.1 paragraph properties).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -212,6 +249,8 @@ pub enum ParaFormat {
     },
     /// Remove direct paragraph formatting and the paragraph style.
     Clear,
+    /// Remove direct paragraph formatting, keeping the paragraph style (Ctrl+Q).
+    Reset,
     /// Right indent (§17.3.1.12 ind @w:right).
     IndentRight {
         /// Indent in twips.
@@ -515,6 +554,9 @@ pub struct FormatState {
     pub ole: bool,
     /// Advanced character formatting (Font dialog).
     pub advanced: charfx::CharAdvanced,
+    /// Target of the hyperlink at the caret (§17.16.22 hyperlink), if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 /// Content copied to the clipboard.
@@ -2833,6 +2875,14 @@ impl Session {
                 tx.replace_para(&path, q)?;
                 return Ok(sel);
             }
+            // Then a first-line indent (set with Tab at the paragraph start) goes before the
+            // paragraphs are joined (§17.3.1.12 ind firstLine).
+            if p.props.indent_first_line.is_some_and(|t| t.0 > 0) {
+                let mut q = p.clone();
+                q.props.indent_first_line = None;
+                tx.replace_para(&path, q)?;
+                return Ok(sel);
+            }
             let (prefix, index) = split_path(&path);
             if index == 0 {
                 return Ok(sel);
@@ -2908,6 +2958,28 @@ impl Session {
 
     /// Enter: split the paragraph (an empty list item leaves the list instead).
     pub fn split_paragraph(&mut self) -> Result<Selection> {
+        // What is typed in the new empty paragraph keeps the formatting at the break (bold
+        // text, Enter, more bold text), as word processors carry the paragraph mark's run
+        // properties (§17.3.1.29 rPr of the paragraph mark) into the new paragraph.
+        let carry = self
+            .pending
+            .clone()
+            .unwrap_or_else(|| self.caret_direct_props());
+        let r = self.split_paragraph_inner()?;
+        if self.para_text(r.focus.para).is_some_and(|t| t.is_empty()) {
+            let mut c = carry;
+            c.link = None;
+            c.ins = None;
+            c.del = None;
+            c.change = None;
+            if c != RunProps::default() {
+                self.pending = Some(c);
+            }
+        }
+        Ok(r)
+    }
+
+    fn split_paragraph_inner(&mut self) -> Result<Selection> {
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
             let at = tx.delete_range(a, b)?;
@@ -3229,10 +3301,13 @@ impl Session {
                     ParaFormat::SuppressAutoHyphens { on } => {
                         pr.suppress_auto_hyphens = on.then_some(true);
                     }
-                    ParaFormat::Clear => {
+                    ParaFormat::Clear | ParaFormat::Reset => {
                         let unknown = std::mem::take(&mut pr.unknown);
+                        let style = (f == ParaFormat::Reset).then(|| pr.style.take()).flatten();
                         *pr = ParaProps {
                             unknown,
+                            // §17.3.1.27 pStyle: Reset keeps the paragraph's style.
+                            style,
                             mark_ins: pr.mark_ins.take(),
                             mark_del: pr.mark_del.take(),
                             change: pr.change.take(),
@@ -3413,6 +3488,7 @@ impl Session {
             chart: self.chart_target().is_some(),
             ole: self.ole_at_selection().is_some(),
             advanced: charfx::CharAdvanced::of(&r),
+            link: self.link_at_selection(),
         }
     }
 
@@ -3946,6 +4022,217 @@ impl Session {
             }
         }
         Selection::caret(p)
+    }
+
+    /// Change the case of the selected text (the word at the caret when nothing is selected),
+    /// keeping its formatting; the selection covers the text afterwards (one undo step).
+    /// `Cycle` goes UPPERCASE → lowercase → Capitalize Each Word → UPPERCASE (Shift+F3).
+    pub fn change_case(&mut self, mode: CaseMode) -> Result<Selection> {
+        if self.selection.is_collapsed() {
+            let w = self.word_at(self.selection.focus);
+            self.set_selection(w);
+        }
+        let (a, b) = self.selection.ordered();
+        let mut text = String::new();
+        for id in a.para..=b.para {
+            let t = self.para_text(id).unwrap_or_default();
+            let s = if id == a.para {
+                a.offset.min(t.len())
+            } else {
+                0
+            };
+            let e = if id == b.para {
+                b.offset.min(t.len())
+            } else {
+                t.len()
+            };
+            text.push_str(t.get(s..e).unwrap_or_default());
+            text.push('\n');
+        }
+        let mode = match mode {
+            CaseMode::Cycle => {
+                let has_upper = text.chars().any(char::is_uppercase);
+                let has_lower = text.chars().any(char::is_lowercase);
+                if has_upper && !has_lower {
+                    CaseMode::Lower
+                } else if !has_upper {
+                    CaseMode::Title
+                } else {
+                    CaseMode::Upper
+                }
+            }
+            m => m,
+        };
+        let anchor_first = self.selection.anchor <= self.selection.focus;
+        self.edit(move |tx, _| {
+            let mut end = b;
+            // Word / sentence starts carry over paragraph by paragraph.
+            let (mut word_start, mut sentence_start) = (true, true);
+            for id in a.para..=b.para {
+                let paths = tx.paths();
+                let path = path_of(tx.doc, &paths, id)?;
+                let p = para_clone(tx.doc, &path)?;
+                let mut atoms = para::flatten(&p);
+                let len = para::len(&atoms);
+                let s = if id == a.para { a.offset.min(len) } else { 0 };
+                let e = if id == b.para { b.offset.min(len) } else { len };
+                let i = para::split_at(&mut atoms, s);
+                let j = para::split_at(&mut atoms, e);
+                let mut grew = 0isize;
+                for (_, c) in &mut atoms[i..j] {
+                    if let RunContent::Text(t) = c {
+                        let new: String = t
+                            .chars()
+                            .map(|ch| {
+                                let out = case_char(ch, mode, word_start, sentence_start);
+                                word_start = !ch.is_alphanumeric();
+                                if matches!(ch, '.' | '!' | '?') {
+                                    sentence_start = true;
+                                } else if ch.is_alphanumeric() {
+                                    sentence_start = false;
+                                }
+                                out
+                            })
+                            .collect();
+                        grew += new.len() as isize - t.len() as isize;
+                        *t = new;
+                    } else {
+                        word_start = true;
+                    }
+                }
+                word_start = true;
+                if id == b.para {
+                    end = Pos::new(id, e.saturating_add_signed(grew));
+                }
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+            }
+            Ok(if anchor_first {
+                Selection {
+                    anchor: a,
+                    focus: end,
+                }
+            } else {
+                Selection {
+                    anchor: end,
+                    focus: a,
+                }
+            })
+        })
+    }
+
+    /// Selection of a double-clicked word: the word and the spaces after it, the way word
+    /// processors select a word with the mouse (deleting it leaves no double space).
+    pub fn word_select_at(&self, p: Pos) -> Selection {
+        let w = self.word_at(p);
+        let text = self.para_text(w.focus.para).unwrap_or_default();
+        let (a, b) = w.ordered();
+        let word = text.get(a.offset..b.offset).unwrap_or_default();
+        if word.trim().is_empty() {
+            return w;
+        }
+        let rest = text.get(b.offset..).unwrap_or_default();
+        let spaces = rest.len() - rest.trim_start_matches(' ').len();
+        Selection {
+            anchor: a,
+            focus: Pos::new(b.para, b.offset + spaces),
+        }
+    }
+
+    /// Selection of the sentence around `p` with the spaces after it (Ctrl+click).
+    pub fn sentence_at(&self, p: Pos) -> Selection {
+        let p = self.clamp(p);
+        let text = self.para_text(p.para).unwrap_or_default();
+        for (i, s) in text.split_sentence_bound_indices() {
+            if p.offset >= i && p.offset < i + s.len()
+                || p.offset == text.len() && i + s.len() == text.len()
+            {
+                return Selection {
+                    anchor: Pos::new(p.para, i),
+                    focus: Pos::new(p.para, i + s.len()),
+                };
+            }
+        }
+        Selection::caret(p)
+    }
+
+    /// Start of the paragraph (backward: of this one when inside it, else of the previous one)
+    /// or of the next paragraph (forward; the end of the last one) — Ctrl+Up / Ctrl+Down.
+    pub fn paragraph_boundary(&self, p: Pos, forward: bool) -> Pos {
+        let p = self.clamp(p);
+        if forward {
+            if p.para + 1 < self.paragraph_count() {
+                Pos::new(p.para + 1, 0)
+            } else {
+                Pos::new(p.para, self.para_text(p.para).map_or(0, |t| t.len()))
+            }
+        } else if p.offset > 0 || p.para == 0 {
+            Pos::new(p.para, 0)
+        } else {
+            Pos::new(p.para - 1, 0)
+        }
+    }
+
+    /// Ctrl+Backspace / Ctrl+Delete: delete the selection, else from the caret to the
+    /// previous / next word boundary (one undo step).
+    pub fn delete_word(&mut self, forward: bool) -> Result<Selection> {
+        if self.selection.is_collapsed() {
+            let at = self.selection.focus;
+            let to = self.word_boundary(at, forward);
+            // At a paragraph edge the word step crosses the paragraph mark: delete just it.
+            if to.para == at.para && to != at {
+                self.set_selection(Selection {
+                    anchor: at,
+                    focus: to,
+                });
+            }
+        }
+        if forward {
+            self.delete_forward()
+        } else {
+            self.delete_backward()
+        }
+    }
+
+    /// The Tab key outside a table: at the start of a list item (or over several paragraphs
+    /// of a list) it demotes / promotes the items one level; at the start of a paragraph that
+    /// has text it indents the first line by half an inch, then the whole paragraph (the
+    /// "set indents with Tab and Backspace" behaviour of word processors); otherwise it types
+    /// a tab character (Shift+Tab then does nothing).
+    pub fn tab_key(&mut self, back: bool) -> Result<Selection> {
+        let (a, b) = self.selection.ordered();
+        let props = self.para_props(a.para);
+        let in_list = props.num.is_some_and(|n| n.num_id != 0);
+        if in_list && (a.offset == 0 || a.para != b.para) {
+            return self.format_paragraphs(&if back {
+                ParaFormat::DecreaseIndent
+            } else {
+                ParaFormat::IncreaseIndent
+            });
+        }
+        let at_start = self.selection.is_collapsed() && a.offset == 0;
+        let has_text = self.para_text(a.para).is_some_and(|t| !t.is_empty());
+        if at_start && has_text && !in_list {
+            // ECMA-376 Part 1, §17.3.1.12 ind: firstLine / left, in twentieths of a point.
+            let first = props.indent_first_line.map_or(0, |t| t.0);
+            let left = props.indent_left.map_or(0, |t| t.0);
+            return match (back, first > 0) {
+                (false, false) => {
+                    self.format_paragraphs(&ParaFormat::IndentFirstLine { twips: 720 })
+                }
+                (false, true) => {
+                    self.format_paragraphs(&ParaFormat::IndentLeft { twips: left + 720 })
+                }
+                (true, true) => self.format_paragraphs(&ParaFormat::IndentFirstLine { twips: 0 }),
+                (true, false) if left > 0 => self.format_paragraphs(&ParaFormat::IndentLeft {
+                    twips: (left - 720).max(0),
+                }),
+                (true, false) => Ok(self.selection),
+            };
+        }
+        if back {
+            return Ok(self.selection);
+        }
+        self.insert_text("\t")
     }
 
     /// Selection of the whole paragraph (triple click).

@@ -382,7 +382,7 @@ Trong **Dàn ý**: chọn **Hiện** tới cấp nào; kéo thả đề mục đ
 
 ### Thu phóng, Giao diện, Tự động hóa
 
-- **Phóng to** (`Ctrl+Shift+=`), **Thu nhỏ** (`Ctrl+-`), **100%** (`Ctrl+0`), **Vừa chiều rộng**.
+- **Phóng to** (`Ctrl+Alt+=`), **Thu nhỏ** (`Ctrl+Alt+-`), **100%** (`Ctrl+Alt+0`), **Vừa chiều rộng**; `Ctrl`+lăn chuột cũng thu phóng.
 - **Thước kẻ**, **Người cùng sửa**, **Sáng / Tối / Tương phản cao**, **Mật độ**, **English**: xem
   [README.md](README.md#37-giao-diện-sáng--tối-mật-độ-ngôn-ngữ).
 - **Trình soạn BlueScript**, **Ghi thao tác**: xem [README.md](README.md#10-tự-động-hóa-bằng-bluescript).

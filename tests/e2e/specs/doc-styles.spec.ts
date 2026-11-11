@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 // second file.
 
 const corpus = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'corpus', 'doc');
-const cmd = (page: Page, id: string) => page.locator(`[data-command="${id}"]`);
 const page1 = (page: Page) => page.locator('.bo-page[data-page="1"]');
+const headingTile = (page: Page) => page.locator('[data-style-command="style.heading1"]');
 
 async function newDocument(page: Page) {
   await page.goto('/doc');
@@ -70,9 +70,10 @@ test('modify Heading 1: every heading changes, kept after save and reopen', asyn
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('Chương hai');
   await page.keyboard.press('Control+Home');
-  await cmd(page, 'style.heading1').click();
+  // The Heading 1 tile of the styles gallery.
+  await headingTile(page).click();
   await page.keyboard.press('Control+End');
-  await cmd(page, 'style.heading1').click();
+  await headingTile(page).click();
 
   await openStylesPane(page);
   await page.locator('[data-testid="style-menu"][data-style-id="Heading1"]').click();

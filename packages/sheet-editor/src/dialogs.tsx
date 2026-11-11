@@ -253,7 +253,17 @@ export function FilterMenu({
   onClose,
   onDone,
   fail,
-}: Common & { col: number; x: number; y: number }) {
+  range,
+  onNotice,
+}: Common & {
+  col: number;
+  x: number;
+  y: number;
+  /** The AutoFilter range (header row included): what the menu's sort orders. */
+  range: SheetRange;
+  /** "x of y records found" after a filter is applied. */
+  onNotice?: (text: string) => void;
+}) {
   const { t } = useTranslation();
   const [values, setValues] = useState<{ text: string; checked: boolean }[]>([]);
   const [dates, setDates] = useState<FilterDates>([]);
@@ -291,8 +301,12 @@ export function FilterMenu({
   );
   const run = async (filter: Parameters<SheetHost['exec']>[0]) => {
     try {
-      await host.exec(filter);
+      const r = await host.exec<{ hidden?: number; total?: number } | null>(filter);
       await onDone();
+      if (filter.cmd === 'setFilter' && typeof r?.total === 'number')
+        onNotice?.(
+          t('sheetEditor.filter.found', { shown: r.total - (r.hidden ?? 0), total: r.total }),
+        );
       onClose();
     } catch (e) {
       fail(e);
@@ -322,12 +336,15 @@ export function FilterMenu({
       void run({ cmd: 'setFilter', sheet, col, filter: { dates: picked } });
       return;
     }
-    const all = values.every((v) => v.checked);
+    // With a search, only the matching items that are ticked stay shown (the search
+    // result replaces the filter); without one, every ticked item.
+    const kept = (search ? shown : values).filter((v) => v.checked);
+    const all = kept.length === values.length;
     void run({
       cmd: 'setFilter',
       sheet,
       col,
-      filter: all ? null : { values: values.filter((v) => v.checked).map((v) => v.text) },
+      filter: all ? null : { values: kept.map((v) => v.text) },
     });
   };
   const toggleAll = (on: boolean) =>
@@ -343,7 +360,7 @@ export function FilterMenu({
             void run({
               cmd: 'sort',
               sheet,
-              range: { r0: 0, c0: col, r1: 0, c1: col },
+              range,
               keys: [{ col }],
               hasHeader: true,
             })
@@ -358,7 +375,7 @@ export function FilterMenu({
             void run({
               cmd: 'sort',
               sheet,
-              range: { r0: 0, c0: col, r1: 0, c1: col },
+              range,
               keys: [{ col, descending: true }],
               hasHeader: true,
             })

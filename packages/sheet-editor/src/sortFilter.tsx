@@ -13,6 +13,7 @@ import type {
   SheetIcon,
   SheetRange,
   SortKeySpec,
+  SortRegion,
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
 import { useEffect, useState } from 'react';
@@ -56,6 +57,66 @@ export function iconLabel(t: (k: string, o?: Record<string, unknown>) => string,
 }
 
 // ----------------------------------------------------------------- sort
+
+/**
+ * Asked when a quick sort runs on one column of a wider block of data: sort the whole
+ * block (the default, rows stay together) or only the selected cells.
+ */
+export function SortWarningDialog({
+  onSort,
+  onClose,
+}: {
+  onSort: (expand: boolean) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [expand, setExpand] = useState(true);
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('sheetEditor.sortWarning.title')}
+      testId="sort-warning"
+      footer={
+        <>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            data-testid="sort-warning-ok"
+            onClick={() => onSort(expand)}
+          >
+            {t('sheetEditor.sortWarning.sort')}
+          </button>
+          <button type="button" className={styles.btn} onClick={onClose}>
+            {t('sheetEditor.dlg.cancel')}
+          </button>
+        </>
+      }
+    >
+      <p className={styles.hint}>{t('sheetEditor.sortWarning.message')}</p>
+      <label className={styles.check}>
+        <input
+          type="radio"
+          name="sort-warning"
+          data-testid="sort-warning-expand"
+          checked={expand}
+          onChange={() => setExpand(true)}
+        />
+        {t('sheetEditor.sortWarning.expand')}
+      </label>
+      <label className={styles.check}>
+        <input
+          type="radio"
+          name="sort-warning"
+          data-testid="sort-warning-current"
+          checked={!expand}
+          onChange={() => setExpand(false)}
+        />
+        {t('sheetEditor.sortWarning.current')}
+      </label>
+    </Dialog>
+  );
+}
 
 type SortOn = 'value' | 'cellColor' | 'fontColor' | 'icon';
 
@@ -124,8 +185,11 @@ export function SortDialog({
 
   useEffect(() => {
     void (async () => {
-      const r = await host.exec<SheetRange>({ cmd: 'region', sheet, range });
+      // The current region of a single cell, and the guess whether its first row is labels.
+      const g = await host.exec<SortRegion>({ cmd: 'sortRegion', sheet, range });
+      const r = g.range;
       setRegion(r);
+      setHeader(g.hasHeader);
       setLevels([{ col: Math.max(r.c0, Math.min(range.c0, r.c1)), on: 'value', order: 'asc' }]);
       const n: string[] = [];
       for (let c = r.c0; c <= r.c1 && c < r.c0 + 200; c++) {

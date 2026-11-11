@@ -327,6 +327,32 @@
   gap: 8px;
 }
 
+/* Name Manager list */
+.nameTable {
+  display: block;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.nameTable th,
+.nameTable td {
+  padding: 3px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.nameTable tbody tr {
+  cursor: default;
+}
+
+.nameRowPicked {
+  background: var(--bo-selection, #d4e6f9);
+}
+
 .form > label:not(.check) {
   display: grid;
   grid-template-columns: 150px 1fr;

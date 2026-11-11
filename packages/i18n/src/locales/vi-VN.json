@@ -525,6 +525,36 @@
     "slide": "BlueSlide (trình chiếu) sẽ được phát triển ở Phase 4.",
     "back": "Về BlueDoc"
   },
+  "sheetNames": {
+    "group": "Tên đã đặt",
+    "manager": "Quản lý tên",
+    "define": "Đặt tên",
+    "createFromSelection": "Tạo từ vùng chọn",
+    "newTitle": "Tên mới",
+    "editTitle": "Sửa tên",
+    "name": "Tên",
+    "scope": "Phạm vi",
+    "workbook": "Sổ tính",
+    "comment": "Ghi chú",
+    "refersTo": "Tham chiếu tới",
+    "newButton": "Mới…",
+    "editButton": "Sửa…",
+    "deleteButton": "Xoá",
+    "close": "Đóng",
+    "none": "Sổ tính chưa có tên nào.",
+    "invalidName": "Tên không hợp lệ: tên bắt đầu bằng chữ cái hoặc dấu gạch dưới, không có dấu cách và không trùng địa chỉ ô (như A1).",
+    "exists": "Tên này đã có trong cùng phạm vi.",
+    "invalidRef": "Phần \"Tham chiếu tới\" không phải công thức hợp lệ.",
+    "createTitle": "Tạo tên từ vùng chọn",
+    "createHint": "Lấy tên từ các giá trị ở:",
+    "side": {
+      "top": "Hàng trên cùng",
+      "left": "Cột bên trái",
+      "bottom": "Hàng dưới cùng",
+      "right": "Cột bên phải"
+    },
+    "created": "Đã tạo {{count}} tên."
+  },
   "sheetEditor": {
     "tabs": "Trang tính",
     "nameBox": "Hộp tên",
@@ -611,6 +641,43 @@
     "fillDown": "Điền xuống",
     "fillRight": "Điền sang phải",
     "fillHandle": "Kéo để điền tự động",
+    "series": {
+      "title": "Chuỗi…",
+      "in": "Chuỗi theo",
+      "rows": "Hàng",
+      "columns": "Cột",
+      "type": "Kiểu",
+      "linear": "Tuyến tính",
+      "growth": "Tăng theo cấp số nhân",
+      "date": "Ngày",
+      "autoFill": "Tự điền",
+      "unit": "Đơn vị ngày",
+      "day": "Ngày",
+      "weekday": "Ngày làm việc",
+      "month": "Tháng",
+      "year": "Năm",
+      "step": "Bước",
+      "stop": "Giá trị dừng",
+      "badNumber": "Hãy nhập một số."
+    },
+    "autoFill": {
+      "button": "Tuỳ chọn tự điền",
+      "copy": "Sao chép ô",
+      "series": "Điền chuỗi",
+      "formats": "Chỉ điền định dạng",
+      "values": "Điền không kèm định dạng"
+    },
+    "sortWarning": {
+      "title": "Cảnh báo sắp xếp",
+      "message": "Bên cạnh vùng chọn còn dữ liệu. Nếu chỉ sắp xếp các ô đã chọn, các hàng của bảng sẽ bị xáo trộn.",
+      "expand": "Mở rộng vùng chọn",
+      "current": "Tiếp tục với vùng chọn hiện tại",
+      "sort": "Sắp xếp"
+    },
+    "formulaError": {
+      "title": "Công thức có lỗi",
+      "message": "Công thức vừa nhập có lỗi cú pháp nên chưa được ghi vào ô. Hãy sửa lại, hoặc bấm Esc để bỏ. Nếu không định nhập công thức, hãy gõ dấu nháy đơn (') trước dấu bằng."
+    },
     "freezePanes": "Cố định ô",
     "freezeTopRow": "Cố định hàng đầu",
     "freezeFirstCol": "Cố định cột đầu",
@@ -773,6 +840,7 @@
       "search": "Tìm giá trị",
       "selectAll": "(Chọn tất cả)",
       "blank": "(Trống)",
+      "found": "Tìm thấy {{shown}} trong {{total}} bản ghi",
       "byValues": "Lọc theo giá trị",
       "condition": "Điều kiện",
       "value": "Giá trị",
@@ -4766,6 +4834,8 @@
       "showSteps": "Xem các bước tính",
       "options": "Quy tắc",
       "reset": "Hiện lại các mục đã bỏ qua",
+      "tag": "Tuỳ chọn kiểm tra lỗi",
+      "editInBar": "Sửa trên thanh công thức",
       "rules": {
         "evalError": "Công thức trả về lỗi",
         "inconsistentFormula": "Công thức khác với các công thức xung quanh",

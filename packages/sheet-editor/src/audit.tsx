@@ -63,7 +63,8 @@ export const DEFAULT_RULES: ErrorRules = {
   evalError: true,
   inconsistentFormula: true,
   numberAsText: true,
-  emptyRef: true,
+  // Off by default, as in common spreadsheet error checking: blank inputs are normal.
+  emptyRef: false,
   unlockedFormula: true,
 };
 
@@ -1103,5 +1104,204 @@ export function CircularWarning({
       <p>{t('sheetAudit.circular.body')}</p>
       <p className={styles.hint}>{t('sheetAudit.circular.cells', { cells: labels })}</p>
     </Dialog>
+  );
+}
+
+/** Most cells marked at once by background error checking. */
+const MAX_MARKS = 400;
+
+/**
+ * Background error checking: a small green triangle in the top-left corner of every cell a
+ * rule flags (on the visible part of the sheet), and, when the active cell is one of them,
+ * the warning button beside it whose menu names the problem and offers the fixes (use the
+ * neighbours' formula, convert to number, show calculation steps), ignore, edit in the
+ * formula bar and the rules. The list is asked for again after every change.
+ */
+export function ErrorMarks({
+  host,
+  view,
+  revision,
+  rules,
+  toScreen,
+  active,
+  onDone,
+  onEdit,
+  onEvaluate,
+  onOptions,
+  fail,
+}: {
+  host: SheetHost;
+  view: SheetView;
+  revision: number;
+  rules: ErrorRules;
+  toScreen: (r: Box | null) => Box | null;
+  /** The active cell (its finding gets the warning button). */
+  active: { row: number; col: number };
+  onDone: () => void | Promise<void>;
+  /** Start editing the active cell in the formula bar. */
+  onEdit: () => void;
+  onEvaluate: (row: number, col: number) => void;
+  onOptions: () => void;
+  fail: (e: unknown) => void;
+}) {
+  const { t } = useTranslation();
+  const [marks, setMarks] = useState<{ f: ErrorFinding; box: Box }[]>([]);
+  // The cell whose warning menu is open (moving to another cell closes it).
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const sheet = view.sheet;
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const list = (await host.exec<ErrorFinding[]>({ cmd: 'errorCheck', sheet, rules })) ?? [];
+      // One mark per cell (the first rule that flags it).
+      const seen = new Set<string>();
+      const cells = list.filter((f) => {
+        const k = `${f.row}:${f.col}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      const boxes = await Promise.all(
+        cells.slice(0, MAX_MARKS).map(async (f) => ({
+          f,
+          box: toScreen(await host.rangeRect(view, f.row, f.col, f.row, f.col)),
+        })),
+      );
+      if (!cancelled) setMarks(boxes.filter((m): m is { f: ErrorFinding; box: Box } => !!m.box));
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, sheet, view, rules, revision, toScreen]);
+  const here = marks.find((m) => m.f.row === active.row && m.f.col === active.col);
+  const key = `${sheet}:${active.row}:${active.col}`;
+  const open = openAt === key;
+  const setOpen = (o: boolean) => setOpenAt(o ? key : null);
+
+  const act = (g: () => Promise<unknown>) => {
+    setOpen(false);
+    void g()
+      .then(() => onDone())
+      .catch(fail);
+  };
+  return (
+    <>
+      {marks.map(({ f, box }) => (
+        <div
+          key={`${f.row}:${f.col}`}
+          className={css.errorMark}
+          data-testid="error-mark"
+          data-cell={a1({ row: f.row, col: f.col })}
+          style={{ left: box.x + 1, top: box.y + 1 }}
+        />
+      ))}
+      {here && (
+        <div
+          className={css.errorTag}
+          style={{ left: Math.max(0, here.box.x - 22), top: here.box.y }}
+        >
+          <button
+            type="button"
+            className={css.errorTagButton}
+            data-testid="error-tag"
+            aria-label={t('sheetAudit.errors.tag')}
+            title={t(`sheetAudit.errors.rules.${here.f.rule}`)}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setOpen(!open)}
+          >
+            <TriangleAlert size={14} aria-hidden="true" />
+          </button>
+          {open && (
+            <div className={css.errorTagMenu} role="menu" data-testid="error-tag-menu">
+              <p className={css.errorTagTitle}>{t(`sheetAudit.errors.rules.${here.f.rule}`)}</p>
+              {here.f.rule === 'inconsistentFormula' && here.f.suggestion && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-action="copyFormula"
+                  onClick={() =>
+                    act(() =>
+                      host.setInputs(sheet, [[here.f.row, here.f.col, `=${here.f.suggestion}`]]),
+                    )
+                  }
+                >
+                  {t('sheetAudit.errors.copyFormula')}
+                </button>
+              )}
+              {here.f.rule === 'numberAsText' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-action="convert"
+                  onClick={() =>
+                    act(async () => {
+                      const c = await host.cell(sheet, here.f.row, here.f.col);
+                      await host.setInputs(sheet, [[here.f.row, here.f.col, c.input.trim()]]);
+                    })
+                  }
+                >
+                  {t('sheetAudit.errors.convert')}
+                </button>
+              )}
+              {here.f.rule === 'evalError' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-action="evaluate"
+                  onClick={() => {
+                    setOpen(false);
+                    onEvaluate(here.f.row, here.f.col);
+                  }}
+                >
+                  {t('sheetAudit.errors.showSteps')}
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                data-action="ignore"
+                onClick={() =>
+                  act(() =>
+                    host.exec({
+                      cmd: 'ignoreError',
+                      sheet,
+                      row: here.f.row,
+                      col: here.f.col,
+                      rule: here.f.rule,
+                    }),
+                  )
+                }
+              >
+                {t('sheetAudit.errors.ignore')}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-action="edit"
+                onClick={() => {
+                  setOpen(false);
+                  onEdit();
+                }}
+              >
+                {t('sheetAudit.errors.editInBar')}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-action="options"
+                onClick={() => {
+                  setOpen(false);
+                  onOptions();
+                }}
+              >
+                {t('sheetAudit.errors.options')}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }

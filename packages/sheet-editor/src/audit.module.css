@@ -166,3 +166,68 @@
   padding: 0 6px;
   cursor: pointer;
 }
+
+/* Background error checking: a green corner triangle on a flagged cell. */
+.errorMark {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-top: 6px solid var(--bo-error-mark, #1e8a3c);
+  border-right: 6px solid transparent;
+  pointer-events: none;
+}
+
+.errorTag {
+  position: absolute;
+  z-index: 6;
+}
+
+.errorTagButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 3px;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-audit-warning, #b7791f);
+  cursor: pointer;
+}
+
+.errorTagMenu {
+  position: absolute;
+  top: 22px;
+  left: 0;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  border: 1px solid var(--bo-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bo-surface, #fff);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: 12px;
+}
+
+.errorTagMenu button {
+  text-align: left;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.errorTagMenu button:hover,
+.errorTagMenu button:focus-visible {
+  background: color-mix(in srgb, var(--bo-sheet-accent, #0b7a6b) 14%, transparent);
+}
+
+.errorTagTitle {
+  margin: 0;
+  padding: 4px 12px;
+  font-weight: 600;
+}

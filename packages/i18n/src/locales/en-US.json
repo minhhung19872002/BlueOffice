@@ -525,6 +525,36 @@
     "slide": "BlueSlide (presentations) is developed in Phase 4.",
     "back": "Back to BlueDoc"
   },
+  "sheetNames": {
+    "group": "Defined names",
+    "manager": "Name manager",
+    "define": "Define name",
+    "createFromSelection": "Create from selection",
+    "newTitle": "New name",
+    "editTitle": "Edit name",
+    "name": "Name",
+    "scope": "Scope",
+    "workbook": "Workbook",
+    "comment": "Comment",
+    "refersTo": "Refers to",
+    "newButton": "New…",
+    "editButton": "Edit…",
+    "deleteButton": "Delete",
+    "close": "Close",
+    "none": "The workbook has no names yet.",
+    "invalidName": "Invalid name: a name starts with a letter or an underscore, has no spaces and is not a cell reference (like A1).",
+    "exists": "This name already exists in the same scope.",
+    "invalidRef": "\"Refers to\" is not a valid formula.",
+    "createTitle": "Create names from selection",
+    "createHint": "Create names from values in the:",
+    "side": {
+      "top": "Top row",
+      "left": "Left column",
+      "bottom": "Bottom row",
+      "right": "Right column"
+    },
+    "created": "{{count}} names created."
+  },
   "sheetEditor": {
     "tabs": "Sheets",
     "nameBox": "Name box",
@@ -611,6 +641,43 @@
     "fillDown": "Fill down",
     "fillRight": "Fill right",
     "fillHandle": "Drag to AutoFill",
+    "series": {
+      "title": "Series…",
+      "in": "Series in",
+      "rows": "Rows",
+      "columns": "Columns",
+      "type": "Type",
+      "linear": "Linear",
+      "growth": "Growth",
+      "date": "Date",
+      "autoFill": "AutoFill",
+      "unit": "Date unit",
+      "day": "Day",
+      "weekday": "Weekday",
+      "month": "Month",
+      "year": "Year",
+      "step": "Step value",
+      "stop": "Stop value",
+      "badNumber": "Enter a number."
+    },
+    "autoFill": {
+      "button": "Auto fill options",
+      "copy": "Copy cells",
+      "series": "Fill series",
+      "formats": "Fill formatting only",
+      "values": "Fill without formatting"
+    },
+    "sortWarning": {
+      "title": "Sort warning",
+      "message": "There is data next to your selection. Sorting only the selected cells would mix up the rows of the list.",
+      "expand": "Expand the selection",
+      "current": "Continue with the current selection",
+      "sort": "Sort"
+    },
+    "formulaError": {
+      "title": "Formula error",
+      "message": "The formula you typed has a syntax error and was not entered. Correct it, or press Esc to discard it. If you did not mean a formula, type an apostrophe (') before the equal sign."
+    },
     "freezePanes": "Freeze panes",
     "freezeTopRow": "Freeze top row",
     "freezeFirstCol": "Freeze first column",
@@ -773,6 +840,7 @@
       "search": "Search values",
       "selectAll": "(Select all)",
       "blank": "(Blanks)",
+      "found": "{{shown}} of {{total}} records found",
       "byValues": "Filter by values",
       "condition": "Condition",
       "value": "Value",
@@ -4766,6 +4834,8 @@
       "showSteps": "Show calculation steps",
       "options": "Rules",
       "reset": "Show ignored findings again",
+      "tag": "Error checking options",
+      "editInBar": "Edit in formula bar",
       "rules": {
         "evalError": "The formula returns an error",
         "inconsistentFormula": "The formula differs from the formulas around it",

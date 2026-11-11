@@ -9,6 +9,7 @@ import {
   FilterExtras,
   PERIOD_FILTERS,
   SortDialog,
+  SortWarningDialog,
   levelKeys,
   parseRange,
 } from '../src/sortFilter';
@@ -16,6 +17,9 @@ import {
 afterEach(cleanup);
 
 const i18n = createI18n('en-US');
+
+/** What `sortRegion` answers (the header guess can be changed by a test). */
+const region = { range: { r0: 0, c0: 0, r1: 8, c1: 2 }, hasHeader: true };
 
 function fakeHost() {
   const calls: SheetCommand[] = [];
@@ -30,6 +34,8 @@ function fakeHost() {
       switch (cmd.cmd) {
         case 'region':
           return { r0: 0, c0: 0, r1: 8, c1: 2 };
+        case 'sortRegion':
+          return { ...region, around: region.range };
         case 'sortLists':
           return [['Low', 'Mid', 'High']];
         case 'sortColors':
@@ -114,6 +120,35 @@ describe('SortDialog', () => {
       hasHeader: true,
       leftToRight: false,
     });
+  });
+
+  it('leaves "my data has headers" off when the guess says there are none', async () => {
+    const { host, calls } = fakeHost();
+    region.hasHeader = false;
+    region.range = { r0: 0, c0: 0, r1: 2, c1: 0 };
+    wrap(<SortDialog {...common(host)} range={{ r0: 0, c0: 0, r1: 0, c1: 0 }} />);
+    await waitFor(() => expect(calls.some((c) => c.cmd === 'sortLists')).toBe(true));
+    fireEvent.click(screen.getByTestId('sort-ok'));
+    await waitFor(() => expect(calls.some((c) => c.cmd === 'sort')).toBe(true));
+    expect(calls.find((c) => c.cmd === 'sort')).toMatchObject({
+      range: { r0: 0, c0: 0, r1: 2, c1: 0 },
+      hasHeader: false,
+    });
+    region.hasHeader = true;
+    region.range = { r0: 0, c0: 0, r1: 8, c1: 2 };
+  });
+});
+
+describe('SortWarningDialog', () => {
+  it('expands the selection by default; the other choice sorts the selection alone', () => {
+    const onSort = vi.fn();
+    wrap(<SortWarningDialog onSort={onSort} onClose={() => {}} />);
+    expect((screen.getByTestId('sort-warning-expand') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByTestId('sort-warning-ok'));
+    expect(onSort).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByTestId('sort-warning-current'));
+    fireEvent.click(screen.getByTestId('sort-warning-ok'));
+    expect(onSort).toHaveBeenLastCalledWith(false);
   });
 });
 

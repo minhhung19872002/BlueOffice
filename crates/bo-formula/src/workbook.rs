@@ -1352,6 +1352,26 @@ impl Workbook {
         self.spill_changed.clear();
     }
 
+    /// Recalculate only the dirty formula cells of `sheet` ("calculate sheet",
+    /// Shift+F9 in manual mode): formulas there read the current — possibly out of
+    /// date — values of the other sheets, which are not evaluated and stay dirty
+    /// for the next [`Workbook::recalculate`].
+    pub fn recalculate_sheet(&mut self, sheet: usize) {
+        self.evaluations.store(0, Ordering::Relaxed);
+        let mut seeds = self.changed.clone();
+        seeds.extend(self.volatile.iter().copied());
+        let dirty = self.propagate(seeds).restricted_to(sheet);
+        self.recalculated = dirty.nodes.clone();
+        self.calc_set(&dirty);
+        self.recalculated.sort_unstable();
+        self.recalculated.dedup();
+    }
+
+    /// Whether edits are waiting for a recalculation.
+    pub fn has_pending_changes(&self) -> bool {
+        !self.changed.is_empty() || !self.spill_changed.is_empty()
+    }
+
     /// Number of formula evaluations performed by the last
     /// [`Workbook::recalculate`] (diagnostics for incremental recalculation).
     pub fn last_recalc_evaluations(&self) -> usize {
@@ -1801,6 +1821,30 @@ enum Step {
 }
 
 impl DirtyGraph {
+    /// The nodes of one sheet and the edges between them.
+    fn restricted_to(self, sheet: usize) -> Self {
+        let mut map = vec![u32::MAX; self.nodes.len()];
+        let mut nodes = Vec::new();
+        for (i, id) in self.nodes.iter().enumerate() {
+            if id.sheet == sheet {
+                map[i] = nodes.len() as u32;
+                nodes.push(*id);
+            }
+        }
+        let mut succ = vec![Vec::new(); nodes.len()];
+        for (i, list) in self.succ.into_iter().enumerate() {
+            let from = map[i];
+            if from == u32::MAX {
+                continue;
+            }
+            succ[from as usize] = list
+                .into_iter()
+                .filter_map(|d| Some(map[d as usize]).filter(|&m| m != u32::MAX))
+                .collect();
+        }
+        DirtyGraph { nodes, succ }
+    }
+
     /// Evaluation order: Kahn's topological sort by levels for the acyclic
     /// part (small consecutive levels merged into one sequential step), then
     /// the remaining nodes (cycles and their dependents) ordered by Tarjan SCC

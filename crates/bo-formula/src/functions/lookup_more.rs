@@ -637,17 +637,14 @@ fn pivotby(ctx: &mut Ctx, args: &[Value]) -> R {
         out.push(h);
     }
     let row_line = |ctx: &mut Ctx, line: Option<&Line>| -> Vec<Value> {
-        let mut out = match line {
-            Some(l) => {
-                let mut k = l.prefix.clone();
-                k.resize(nrk, Value::Empty);
-                k
-            }
-            None => {
-                let mut l = vec![total_label()];
-                l.extend(std::iter::repeat_n(Value::Empty, nrk - 1));
-                l
-            }
+        let mut out = if let Some(l) = line {
+            let mut k = l.prefix.clone();
+            k.resize(nrk, Value::Empty);
+            k
+        } else {
+            let mut l = vec![total_label()];
+            l.extend(std::iter::repeat_n(Value::Empty, nrk - 1));
+            l
         };
         for c in &columns {
             for v in 0..nv {
@@ -724,7 +721,7 @@ fn getpivotdata(ctx: &mut Ctx, args: &[Value]) -> R {
         .position(|names| names.iter().any(|n| n.trim().to_lowercase() == lower))
         .ok_or(ErrorKind::Ref)?;
     let pairs = &args[2..];
-    if pairs.len() % 2 != 0 {
+    if !pairs.len().is_multiple_of(2) {
         return Err(ErrorKind::Ref);
     }
     let mut row_sel: Vec<Option<u32>> = vec![None; pivot.row_fields.len()];

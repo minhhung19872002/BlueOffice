@@ -2273,5 +2273,5 @@ fn getpivotdata_reads_the_report() {
     }
     crate::formula::BoFormula::new().recalculate(&mut wb);
     check(&wb);
-    assert!(wb.pivot_caches[0].records.is_empty());
+    assert_eq!(wb.pivot_caches[0].records, Vec::<Vec<CellValue>>::new());
 }

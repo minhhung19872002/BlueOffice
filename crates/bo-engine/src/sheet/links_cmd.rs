@@ -35,6 +35,7 @@ const MAX_LINK_CELLS: usize = 1_000_000;
 /// External link commands.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "cmd", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[allow(clippy::enum_variant_names)] // the command names of the JSON bridge
 pub enum LinkCommand {
     /// The links of the workbook.
     ExternalLinks,

@@ -67,6 +67,24 @@ impl FormulaAdjuster for BoFormula {
         (adjusted != expr).then(|| format(&adjusted))
     }
 
+    fn adjust_band(
+        &self,
+        formula: &str,
+        host_sheet: Option<&str>,
+        change: &StructuralChange,
+        band: (u32, u32),
+    ) -> Option<String> {
+        let expr = parse(formula).ok()?;
+        let adjusted = bo_formula::adjust_for_band_change(
+            &expr,
+            to_change(change),
+            host_sheet.unwrap_or(NO_SHEET),
+            &change.sheet,
+            band,
+        );
+        (adjusted != expr).then(|| format(&adjusted))
+    }
+
     fn translate(&self, formula: &str, d_rows: i64, d_cols: i64) -> Option<String> {
         let expr = parse(formula).ok()?;
         let moved = offset_relative(&expr, d_rows, d_cols);

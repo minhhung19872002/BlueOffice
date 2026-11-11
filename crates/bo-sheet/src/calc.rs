@@ -65,6 +65,21 @@ pub trait FormulaAdjuster {
         change: &StructuralChange,
     ) -> Option<String>;
 
+    /// [`FormulaAdjuster::adjust`] for cells inserted / deleted in a band only (insert or
+    /// delete cells, shifting the others): `band` is the first / last column (for a row
+    /// change) or row (for a column change) that moves; references reaching outside it
+    /// are kept. `None` keeps the text.
+    fn adjust_band(
+        &self,
+        formula: &str,
+        host_sheet: Option<&str>,
+        change: &StructuralChange,
+        band: (u32, u32),
+    ) -> Option<String> {
+        let _ = (formula, host_sheet, change, band);
+        None
+    }
+
     /// Text of `formula` copied `d_rows` / `d_cols` cells away (relative references
     /// move, absolute ones stay), or `None` to copy it unchanged. Used by AutoFill.
     fn translate(&self, formula: &str, d_rows: i64, d_cols: i64) -> Option<String> {

@@ -368,8 +368,117 @@ fn new_table_column(id: u32, existing: &[TableColumn]) -> TableColumn {
 }
 
 fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn FormulaAdjuster) {
+    adjust_formulas_with(wb, change, &|text, host| adj.adjust(text, host, change));
+}
+
+/// Inserts empty cells over `range` of sheet `sheet`, pushing the cells below it down
+/// (`down`) or those on its right to the right; with `insert = false` deletes the cells of
+/// `range`, pulling the cells below up (`down`) or those on the right to the left.
+///
+/// Only the band of columns (rows) of `range` moves, like the spreadsheet "Insert / Delete
+/// cells" with "shift cells down / right / up / left". References whose band lies within
+/// the moved band follow (a reference to deleted cells becomes `#REF!`); the others are
+/// kept. Merges, hyperlinks and comments inside the band move too.
+pub fn shift_cells(
+    wb: &mut Workbook,
+    sheet: usize,
+    range: bo_model::sheet::CellRange,
+    down: bool,
+    insert: bool,
+    adj: &dyn FormulaAdjuster,
+) -> Result<(), EditError> {
+    let name = wb
+        .sheets
+        .get(sheet)
+        .ok_or(EditError::NoSuchSheet)?
+        .name
+        .clone();
+    let (r0, c0, r1, c1) = (
+        range.first.row.min(range.last.row),
+        range.first.col.min(range.last.col),
+        range.first.row.max(range.last.row),
+        range.first.col.max(range.last.col),
+    );
+    if r1 >= MAX_ROWS || c1 >= MAX_COLS {
+        return Err(EditError::OutOfRange);
+    }
+    let (dim, at, count, band) = if down {
+        (Dimension::Rows, r0, r1 - r0 + 1, (c0, c1))
+    } else {
+        (Dimension::Cols, c0, c1 - c0 + 1, (r0, r1))
+    };
+    let m = RefShift::new(dim, at, count, insert);
+    // Inside the band: (along the move axis, across it).
+    let in_band = |c: CellRef| {
+        let across = if down { c.col } else { c.row };
+        across >= band.0 && across <= band.1
+    };
+    let in_band_range = |r: bo_model::sheet::CellRange| in_band(r.first) && in_band(r.last);
+    if let Some(ws) = wb.sheets.get_mut(sheet) {
+        let cells = std::mem::take(&mut ws.cells);
+        ws.cells = cells
+            .into_iter()
+            .filter_map(|((r, c), cell)| {
+                let at = CellRef::new(r, c);
+                if !in_band(at) {
+                    return Some(((r, c), cell));
+                }
+                let n = m.cell(at)?;
+                Some(((n.row, n.col), cell))
+            })
+            .collect();
+        ws.merges = std::mem::take(&mut ws.merges)
+            .into_iter()
+            .filter_map(|r| {
+                if in_band_range(r) {
+                    m.range(r)
+                } else {
+                    Some(r)
+                }
+            })
+            .filter(|r| r.first != r.last)
+            .collect();
+        ws.hyperlinks = std::mem::take(&mut ws.hyperlinks)
+            .into_iter()
+            .filter_map(|mut h| {
+                if in_band_range(h.range) {
+                    h.range = m.range(h.range)?;
+                }
+                Some(h)
+            })
+            .collect();
+        ws.comments = std::mem::take(&mut ws.comments)
+            .into_iter()
+            .filter_map(|mut c| {
+                if in_band(c.cell) {
+                    c.cell = m.cell(c.cell)?;
+                }
+                Some(c)
+            })
+            .collect();
+    }
+    let change = StructuralChange {
+        sheet: name,
+        dimension: dim,
+        at,
+        count,
+        insert,
+    };
+    adjust_formulas_with(wb, &change, &|text, host| {
+        adj.adjust_band(text, host, &change, band)
+    });
+    Ok(())
+}
+
+/// Rewrites every formula of the workbook (cells, names, validations, charts, …) with
+/// `adjust` (`None` keeps the text).
+fn adjust_formulas_with(
+    wb: &mut Workbook,
+    change: &StructuralChange,
+    adjust: &dyn Fn(&str, Option<&str>) -> Option<String>,
+) {
     let apply = |text: &mut String, host: Option<&str>| {
-        if let Some(n) = adj.adjust(text, host, change) {
+        if let Some(n) = adjust(text, host) {
             *text = n;
         }
     };
@@ -436,7 +545,7 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
         for c in &mut ws.form_controls {
             for s in [&mut c.link, &mut c.input_range] {
                 let Some(text) = s.as_deref() else { continue };
-                if let Some(n) = adj.adjust(text, host, change) {
+                if let Some(n) = adjust(text, host) {
                     *s = (!lost_ref(&n)).then_some(n);
                     c.dirty = true;
                 }
@@ -453,7 +562,7 @@ fn adjust_formulas(wb: &mut Workbook, change: &StructuralChange, adj: &dyn Formu
                 .chain(std::iter::once(&mut g.date_range));
             for s in ranges {
                 let Some(text) = s.as_deref() else { continue };
-                if let Some(n) = adj.adjust(text, host, change) {
+                if let Some(n) = adjust(text, host) {
                     *s = (!lost_ref(&n)).then_some(n);
                 }
             }

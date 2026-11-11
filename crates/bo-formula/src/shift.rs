@@ -234,6 +234,49 @@ pub fn adjust_for_change(
     })
 }
 
+/// [`adjust_for_change`] for cells inserted / deleted in a band only (insert or delete
+/// cells with "shift cells down / up" or "right / left"): only references whose cells lie
+/// within `band` — the first / last column for a row change, row for a column change —
+/// move, grow, shrink or become `#REF!`; whole rows / columns and references reaching
+/// outside the band are unchanged.
+pub fn adjust_for_band_change(
+    expr: &Expr,
+    change: StructuralChange,
+    formula_sheet: &str,
+    changed_sheet: &str,
+    band: (u32, u32),
+) -> Expr {
+    let rows_axis = axis(change).0;
+    let inside = |a: CellAddr| {
+        let across = if rows_axis { a.col } else { a.row };
+        across >= band.0 && across <= band.1
+    };
+    expr.map(&mut |e| match e {
+        Expr::Ref(r) => {
+            let affected = match &r.sheet {
+                None => formula_sheet.eq_ignore_ascii_case(changed_sheet),
+                Some(s) => s.last.is_none() && s.first.eq_ignore_ascii_case(changed_sheet),
+            };
+            let in_band = match r.kind {
+                RefKind::Cell(a) => inside(a),
+                RefKind::Range(a, b) => inside(a) && inside(b),
+                RefKind::Rows { .. } | RefKind::Cols { .. } => false,
+            };
+            if !affected || !in_band {
+                return Expr::Ref(r);
+            }
+            match adjust_kind(r.kind, change) {
+                Some(kind) => Expr::Ref(Reference {
+                    sheet: r.sheet,
+                    kind,
+                }),
+                None => Expr::Error(ErrorKind::Ref),
+            }
+        }
+        other => collapse_spill_error(other),
+    })
+}
+
 fn offset_value(v: u32, abs: bool, d: i64, max: u32) -> Option<u32> {
     if abs {
         return Some(v);

@@ -385,6 +385,21 @@ pub enum SheetCommand {
         last: u32,
         /// New height / width in points.
         size: f64,
+        /// Columns: `size` is a width in characters of the maximum digit width, as the
+        /// column width dialog shows it (ECMA-376 Part 1, §18.3.1.13 `col/@width`, without
+        /// the 5 pixel padding).
+        #[serde(default)]
+        chars: bool,
+    },
+    /// Row height in points, or column width in characters (as `resize` with `chars`
+    /// takes it) of row / column `index` → `{ size }`.
+    SizeOf {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// `true` = row, `false` = column.
+        rows: bool,
+        /// 0-based row / column.
+        index: u32,
     },
     /// Fits row heights / column widths to their content.
     Autofit {
@@ -438,6 +453,19 @@ pub enum SheetCommand {
         sheet: usize,
         /// Range to unmerge.
         range: Rng,
+    },
+    /// Inserts empty cells over `range` (or deletes its cells), shifting the other cells
+    /// of its columns down / up (`down`) or of its rows right / left — Insert / Delete
+    /// cells. One undo step.
+    ShiftCells {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Cells inserted / deleted.
+        range: Rng,
+        /// Shift down / up (`true`) or right / left.
+        down: bool,
+        /// Insert (`true`) or delete.
+        insert: bool,
     },
     /// Sorts a range by one or more keys.
     Sort {
@@ -2251,6 +2279,20 @@ impl SheetEngine {
             C::Resize { sheet, rows, .. }
             | C::Autofit { sheet, rows, .. }
             | C::Hide { sheet, rows, .. } => check(ws(*sheet)?, rows_or_cols(*rows)),
+            C::ShiftCells {
+                sheet,
+                down,
+                insert,
+                ..
+            } => check(
+                ws(*sheet)?,
+                match (*down, *insert) {
+                    (true, true) => A::InsertRows,
+                    (true, false) => A::DeleteRows,
+                    (false, true) => A::InsertColumns,
+                    (false, false) => A::DeleteColumns,
+                },
+            ),
             C::Sort { sheet, range, .. } => {
                 let w = ws(*sheet)?;
                 check(w, A::Sort)?;
@@ -3159,8 +3201,20 @@ impl SheetEngine {
                 first,
                 last,
                 size,
+                chars,
             } => {
                 let metrics = self.geometry(sheet)?.metrics;
+                // Characters → pixels: N digits plus the 5 px cell padding (§18.3.1.13).
+                let size = if chars && !rows {
+                    let px = (size.clamp(0.0, 255.0) * metrics.mdw_px).round();
+                    if px <= 0.0 {
+                        0.0
+                    } else {
+                        (px + 5.0) * bo_sheet::geometry::PT_PER_PX
+                    }
+                } else {
+                    size
+                };
                 self.edit(sheet, Recalc::No, |wb, _| {
                     let ws = &mut wb.sheets[sheet];
                     let (a, b) = (first.min(last), first.max(last));
@@ -3171,6 +3225,18 @@ impl SheetEngine {
                     }
                     Ok(json!({ "ok": true }))
                 })
+            }
+            C::SizeOf { sheet, rows, index } => {
+                let g = self.geometry(sheet)?;
+                let size = if rows {
+                    g.row_height(index)
+                } else {
+                    // Pixels less the 5 px padding, in maximum digit widths, to 1/100.
+                    let px = (g.col_width(index) / bo_sheet::geometry::PT_PER_PX).round();
+                    let mdw = g.metrics.mdw_px.max(1.0);
+                    (((px - 5.0).max(0.0) / mdw) * 100.0).round() / 100.0
+                };
+                Ok(json!({ "size": size }))
             }
             C::Autofit {
                 sheet,
@@ -3227,6 +3293,20 @@ impl SheetEngine {
                 let n = bo_sheet::rowcol::unmerge(&mut wb.sheets[sheet], range.range());
                 Ok(json!({ "removed": n }))
             }),
+            C::ShiftCells {
+                sheet,
+                range,
+                down,
+                insert,
+            } => {
+                let out = self.edit(sheet, Recalc::All, |wb, adj| {
+                    bo_sheet::ops::shift_cells(wb, sheet, range.range(), down, insert, adj)
+                        .map_err(|e| EngineError::Sheet(e.to_string()))?;
+                    Ok(json!({ "ok": true }))
+                })?;
+                self.invalidate(Some(sheet));
+                Ok(out)
+            }
             C::Region { sheet, range } => {
                 let ws = self.sheet(sheet)?;
                 Ok(
@@ -5102,6 +5182,144 @@ mod tests {
             back.workbook().unwrap().sheets[0].cell(0, 0).unwrap().value,
             CellValue::Number(45351.0)
         );
+    }
+
+    // source: ECMA-376 Part 1, §18.8.30 (built-in ids 3, 4, 9, 10, 11, 12, 16), §18.8.31
+    #[test]
+    fn typed_entries_get_the_format_their_writing_implies() {
+        let mut e = engine();
+        // 2024-06-15 12:00 UTC: a day and month alone are in 2024.
+        e.set_now_ms(1_718_452_800_000);
+        let cases: &[(&str, f64, &str)] = &[
+            ("10%", 0.1, "10%"),
+            ("12,5%", 0.125, "12,50%"),
+            ("1.234", 1234.0, "1.234"),
+            ("1.234,5", 1234.5, "1.234,50"),
+            ("15.000 ₫", 15000.0, "15.000 ₫"),
+            ("1e3", 1000.0, "1,00E+03"),
+            ("0 1/2", 0.5, " 1/2"),
+            ("(5)", -5.0, "-5"),
+            // 1 February 2024 (serial 45323).
+            ("1/2", 45323.0, "1-Thg 2"),
+        ];
+        for (i, (typed, value, _)) in cases.iter().enumerate() {
+            e.set_input(0, i as u32, 0, typed).unwrap();
+            let c = e.workbook().unwrap().sheets[0]
+                .cell(i as u32, 0)
+                .unwrap()
+                .clone();
+            assert_eq!(c.value, CellValue::Number(*value), "{typed}");
+        }
+        for (i, (typed, _, shown)) in cases.iter().enumerate() {
+            assert_eq!(
+                e.cell(0, i as u32, 0).unwrap().display.trim(),
+                shown.trim(),
+                "{typed}"
+            );
+        }
+        // A format chosen before typing is kept.
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(20, 0, 20, 0), "patch": { "numFmt": "0.000" } }),
+        );
+        e.set_input(0, 20, 0, "10%").unwrap();
+        assert_eq!(e.cell(0, 20, 0).unwrap().display, "0,100");
+        // Without a clock (no host time) a day and month stay text.
+        let mut plain = engine();
+        plain.set_input(0, 0, 0, "1/2").unwrap();
+        assert_eq!(
+            plain.workbook().unwrap().sheets[0]
+                .cell(0, 0)
+                .unwrap()
+                .value,
+            CellValue::Text("1/2".into())
+        );
+    }
+
+    // Insert / Delete cells with "shift cells down / right / up / left": only the band of
+    // the selection moves; references inside the band follow.
+    #[test]
+    fn insert_and_delete_cells_shift_their_band() {
+        let mut e = engine();
+        for r in 0..4u32 {
+            e.set_input(0, r, 0, &format!("{}", r + 1)).unwrap();
+            e.set_input(0, r, 1, &format!("{}", (r + 1) * 10)).unwrap();
+        }
+        // D1 sums A1:A4 (inside column A), D2 points at B3 (another column).
+        e.set_input(0, 0, 3, "=SUM(A1:A4)").unwrap();
+        e.set_input(0, 1, 3, "=B3").unwrap();
+        // Insert one cell at A2, shift down: A2..A4 → A3..A5; B stays.
+        run(
+            &mut e,
+            json!({ "cmd": "shiftCells", "sheet": 0, "range": rng(1, 0, 1, 0), "down": true, "insert": true }),
+        );
+        let shown = |e: &SheetEngine, r: u32, c: u32| e.cell(0, r, c).unwrap().display;
+        assert_eq!(shown(&e, 1, 0), "");
+        assert_eq!(shown(&e, 4, 0), "4");
+        assert_eq!(shown(&e, 1, 1), "20");
+        assert_eq!(e.cell(0, 0, 3).unwrap().input, "=SUM(A1:A5)");
+        assert_eq!(shown(&e, 0, 3), "10");
+        assert_eq!(e.cell(0, 1, 3).unwrap().input, "=B3");
+        // One undo step.
+        assert!(e.undo().unwrap());
+        assert_eq!(shown(&e, 1, 0), "2");
+        assert_eq!(e.cell(0, 0, 3).unwrap().input, "=SUM(A1:A4)");
+        // Delete B2, shift up: B3, B4 move up; D2 (=B3) follows its cell to B2.
+        run(
+            &mut e,
+            json!({ "cmd": "shiftCells", "sheet": 0, "range": rng(1, 1, 1, 1), "down": true, "insert": false }),
+        );
+        assert_eq!(shown(&e, 1, 1), "30");
+        assert_eq!(shown(&e, 3, 1), "");
+        assert_eq!(e.cell(0, 1, 3).unwrap().input, "=B2");
+        assert_eq!(shown(&e, 1, 0), "2");
+        // Insert at A1, shift right: A1 → B1, B1 → C1 (row 1 only).
+        e.undo().unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "shiftCells", "sheet": 0, "range": rng(0, 0, 0, 0), "down": false, "insert": true }),
+        );
+        assert_eq!(shown(&e, 0, 1), "1");
+        assert_eq!(shown(&e, 0, 2), "10");
+        assert_eq!(shown(&e, 1, 0), "2");
+        // A reference to a deleted cell becomes #REF!.
+        e.undo().unwrap();
+        e.set_input(0, 5, 3, "=A2").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "shiftCells", "sheet": 0, "range": rng(1, 0, 1, 0), "down": false, "insert": false }),
+        );
+        assert_eq!(e.cell(0, 5, 3).unwrap().input, "=#REF!");
+    }
+
+    // source: ECMA-376 Part 1, §18.3.1.13 col/@width (characters of the maximum digit
+    // width plus 5 px padding; the column width dialog shows the characters).
+    #[test]
+    fn column_width_in_characters_and_row_height_in_points() {
+        let mut e = engine();
+        let size = |e: &mut SheetEngine, rows: bool, index: u32| {
+            run(
+                e,
+                json!({ "cmd": "sizeOf", "sheet": 0, "rows": rows, "index": index }),
+            )["size"]
+                .as_f64()
+                .unwrap()
+        };
+        // The default column: 64 px = 8,43 characters of 7 px plus the padding.
+        let mdw = e.geometry(0).unwrap().metrics.mdw_px;
+        let default_chars = size(&mut e, false, 1);
+        assert!((default_chars - ((64.0 - 5.0) / mdw * 100.0).round() / 100.0).abs() < 1e-9);
+        run(
+            &mut e,
+            json!({ "cmd": "resize", "sheet": 0, "rows": false, "first": 1, "last": 2, "size": 20.0, "chars": true }),
+        );
+        assert!((size(&mut e, false, 1) - 20.0).abs() < 0.01 + 1.0 / mdw);
+        assert!((size(&mut e, false, 2) - size(&mut e, false, 1)).abs() < 1e-9);
+        run(
+            &mut e,
+            json!({ "cmd": "resize", "sheet": 0, "rows": true, "first": 3, "last": 3, "size": 30.0 }),
+        );
+        assert!((size(&mut e, true, 3) - 30.0).abs() < 1e-9);
     }
 
     #[test]

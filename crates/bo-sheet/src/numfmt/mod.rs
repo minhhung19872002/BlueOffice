@@ -27,7 +27,10 @@ pub use builtin::builtin_format;
 pub use date::{
     civil_from_days, datetime_to_serial, days_from_civil, serial_to_datetime, DateTime,
 };
-pub use input::{parse_typed_date, TypedDate};
+pub use input::{
+    parse_typed_date, parse_typed_date_in_year, parse_typed_number, TypedDate, TypedFormat,
+    TypedNumber,
+};
 pub use locale::Locale;
 
 use calendar::Calendar;

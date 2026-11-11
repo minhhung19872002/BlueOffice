@@ -56,6 +56,7 @@ export function StatusBar({ left, right, customize }: StatusBarProps) {
       ref={bar}
       role="status"
       data-testid="status-bar"
+      data-f6-region="status"
       className={styles.bar}
       // Fixed by the design system (also asserted by tests): 24px.
       style={{ height: 24, minHeight: 24 }}

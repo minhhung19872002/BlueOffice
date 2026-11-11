@@ -282,40 +282,48 @@ export function SpacingMenu({
       }
     >
       {(close) => (
-        <div className={styles.menu}>
-          <div className={styles.menuTitle}>{t('font.lineSpacing')}</div>
-          {LINE_CHOICES.map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="menuitemradio"
-              aria-checked={line?.rule === 'auto' && line.value === v}
-              data-line={v}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() =>
-                choose(
-                  {
-                    cmd: 'formatParagraph',
-                    format: { kind: 'lineSpacingRule', rule: 'auto', value: v },
-                  },
-                  close,
-                )
-              }
-            >
-              {num(v / 240)}
-            </button>
-          ))}
+        // A menu of radio items in labelled groups (WAI-ARIA menu pattern): the visible
+        // titles name the groups, so they are hidden from the accessibility tree.
+        <div className={styles.menu} role="menu" aria-label={t('font.lineSpacing')}>
+          <div className={styles.menuTitle} aria-hidden="true">
+            {t('font.lineSpacing')}
+          </div>
+          <div role="group" aria-label={t('font.lineSpacing')}>
+            {LINE_CHOICES.map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="menuitemradio"
+                aria-checked={line?.rule === 'auto' && line.value === v}
+                data-line={v}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  choose(
+                    {
+                      cmd: 'formatParagraph',
+                      format: { kind: 'lineSpacingRule', rule: 'auto', value: v },
+                    },
+                    close,
+                  )
+                }
+              >
+                {num(v / 240)}
+              </button>
+            ))}
+          </div>
           {line && line.rule !== 'auto' && (
-            <div className={styles.menuNote}>
+            <div className={styles.menuNote} role="none">
               {t(line.rule === 'exact' ? 'font.lineExact' : 'font.lineAtLeast', {
                 value: num(line.value / 20),
               })}
             </div>
           )}
           {(['spaceBefore', 'spaceAfter'] as const).map((k) => (
-            <div key={k}>
-              <div className={styles.menuTitle}>{t(`font.${k}`)}</div>
-              <div className={styles.menuRow}>
+            <div key={k} role="group" aria-label={t(`font.${k}`)}>
+              <div className={styles.menuTitle} aria-hidden="true">
+                {t(`font.${k}`)}
+              </div>
+              <div className={styles.menuRow} role="none">
                 {SPACE_CHOICES.map((pt) => (
                   <button
                     key={pt}

@@ -1,5 +1,5 @@
 import * as RD from '@radix-ui/react-dialog';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import styles from './Dialog.module.css';
 
 export interface DialogProps {
@@ -25,6 +25,22 @@ export function Dialog({
   width,
   testId,
 }: DialogProps) {
+  // WCAG 2.4.3: when the dialog goes away, the keyboard goes back to what had focus when it
+  // opened. Radix does this when the element is still focusable at that moment; editors
+  // that unmount the dialog while re-rendering left the focus on <body>.
+  const opener = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const a = document.activeElement;
+    opener.current = a instanceof HTMLElement && a !== document.body ? a : null;
+    return () => {
+      const el = opener.current;
+      requestAnimationFrame(() => {
+        const now = document.activeElement;
+        if (el?.isConnected && (!now || now === document.body)) el.focus();
+      });
+    };
+  }, [open]);
   return (
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>

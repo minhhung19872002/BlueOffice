@@ -528,6 +528,8 @@
     "addSheet": "Add sheet",
     "renameSheet": "Rename sheet",
     "deleteSheet": "Delete sheet",
+    "moveSheetLeft": "Move sheet left",
+    "moveSheetRight": "Move sheet right",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "groupFile": "File",
@@ -2200,6 +2202,8 @@
     "newSlide": "New slide",
     "duplicateSlide": "Duplicate slide",
     "deleteSlide": "Delete slide",
+    "moveSlideUp": "Move slide up",
+    "moveSlideDown": "Move slide down",
     "addSlide": "+ Add slide",
     "undo": "Undo",
     "redo": "Redo",
@@ -7449,5 +7453,9 @@
       "storage": "Store its own data on this device",
       "network": "Connect to {{origin}}"
     }
+  },
+  "a11y": {
+    "documentInput": "Document content",
+    "page": "Page {{n}}"
   }
 }

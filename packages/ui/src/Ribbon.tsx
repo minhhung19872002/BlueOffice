@@ -749,6 +749,7 @@ export function Ribbon({
         ref={root}
         className={styles.ribbon}
         data-testid="ribbon"
+        data-f6-region="ribbon"
         data-simplified={simplified ? 'true' : undefined}
         data-collapsed={collapsed ? 'true' : undefined}
         data-autohide={autoHide ? 'true' : undefined}

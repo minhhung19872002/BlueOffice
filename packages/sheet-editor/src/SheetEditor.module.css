@@ -116,6 +116,12 @@
   background: var(--bo-surface-alt, #f3f5f7);
 }
 
+.tabList {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
 .tab,
 .tabActive,
 .tabAdd {
@@ -136,7 +142,8 @@
 
 .tabActive {
   background: var(--bo-surface, #fff);
-  color: var(--bo-sheet-accent, #0b7a6b);
+  /* Text uses the text variant of the accent (4.5:1, WCAG 1.4.3); the bar keeps the accent. */
+  color: var(--bo-sheet-accent-text, #0b7a6b);
   font-weight: 600;
   border-bottom: 2px solid var(--bo-sheet-accent, #0b7a6b);
 }
@@ -381,9 +388,10 @@
 }
 
 .btnPrimary {
-  background: var(--bo-sheet-accent, #0b7a6b);
-  border-color: var(--bo-sheet-accent, #0b7a6b);
-  color: #fff;
+  /* White text needs the strong accent (5.2:1); the plain teal gives 3.4:1. */
+  background: var(--bo-sheet-accent-strong, #0b7a6b);
+  border-color: var(--bo-sheet-accent-strong, #0b7a6b);
+  color: var(--bo-sheet-accent-on, #fff);
 }
 
 .dlgTabs {

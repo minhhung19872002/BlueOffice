@@ -46,9 +46,12 @@ export class ImeInput {
   constructor(
     parent: HTMLElement,
     private readonly onEvent: (e: ImeEvent) => void,
+    label = 'Document',
   ) {
     const ta = document.createElement('textarea');
-    ta.setAttribute('aria-hidden', 'true');
+    // It holds keyboard focus while the user edits, so it must not be hidden from
+    // assistive technology (WCAG 4.1.2): a named multi-line text box.
+    ta.setAttribute('aria-label', label);
     ta.setAttribute('autocapitalize', 'off');
     ta.setAttribute('autocomplete', 'off');
     ta.dataset.testid = 'ime-input';

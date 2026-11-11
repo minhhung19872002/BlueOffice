@@ -96,6 +96,7 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | typescript (dev) | 5.9.3 | Apache-2.0 | Ngôn ngữ |
 | vitest, happy-dom, @testing-library/react (dev) | 5.1.0 / 21.0.4 / 16.3.3 | MIT | Unit test |
 | @playwright/test (dev) | 1.64.1 | Apache-2.0 | E2E |
+| @axe-core/playwright, axe-core (dev, Deque Systems) | 4.10.2 / 4.10.3 | MPL-2.0 | Kiểm tra khả năng tiếp cận WCAG 2.2 AA tự động (`tests/e2e/specs/a11y.spec.ts`); dùng nguyên bản, không sửa mã nguồn |
 | eslint, typescript-eslint, prettier (dev) | 10.14.0 / 8.72.1 / 3.9.10 | MIT | Lint / format |
 
 ## .NET

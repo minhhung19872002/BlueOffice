@@ -60,6 +60,10 @@ export interface DocumentViewOptions {
   onMarkupSelect?: (m: MarkupSelect) => void;
   /** Localised name of a change kind shown in its balloon. */
   markupLabel?: (kind: MarkKind, id: number) => string;
+  /** Accessible name of the text input that receives typing (default "Document"). */
+  inputLabel?: string;
+  /** Accessible name of page `n` (1-based; default "Page n"). */
+  pageLabel?: (n: number) => string;
 }
 
 export const MIN_ZOOM = 0.25;
@@ -134,6 +138,8 @@ export class DocumentView {
       | 'onContextMenu'
       | 'onMarkupSelect'
       | 'markupLabel'
+      | 'inputLabel'
+      | 'pageLabel'
     >
   > &
     DocumentViewOptions;
@@ -156,7 +162,7 @@ export class DocumentView {
     this.content.style.cssText = `position:relative;display:flex;flex-direction:column;align-items:center;gap:${this.opts.pageGap}px;padding:${this.opts.pageGap}px 0;min-width:min-content;`;
     this.scroller.appendChild(this.content);
     host.appendChild(this.scroller);
-    this.ime = new ImeInput(this.scroller, (e) => this.opts.onInput?.(e));
+    this.ime = new ImeInput(this.scroller, (e) => this.opts.onInput?.(e), opts.inputLabel);
     this.scroller.addEventListener('scroll', this.schedule);
     this.scroller.addEventListener('wheel', this.onWheel, { passive: false });
     this.scroller.addEventListener('mousedown', this.onMouseDown);
@@ -189,7 +195,9 @@ export class DocumentView {
     const el = document.createElement('div');
     el.className = 'bo-page';
     el.dataset.page = String(i + 1);
-    el.setAttribute('aria-label', `page ${i + 1}`);
+    // A labelled group (an aria-label needs a role): the page's pictures and marks inside.
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-label', this.opts.pageLabel?.(i + 1) ?? `Page ${i + 1}`);
     el.style.cssText =
       'position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.06);flex:none;cursor:text;';
     this.stylePage(el, i);

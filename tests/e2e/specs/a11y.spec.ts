@@ -216,6 +216,16 @@ test('BlueSheet: ribbon, File screen, dialogs, task panes, themes', async ({ pag
   await scanFileScreen(page, 'sheet');
   await scanDialog(page, 'sheet Format Cells', () => run(page, 'Trang đầu', 'format.cells'));
   await scanDialog(page, 'sheet Insert chart', () => run(page, 'Chèn', 'insert.chart'));
+  await scanDialog(page, 'sheet Text to Columns', () => run(page, 'Dữ liệu', 'data.textToColumns'));
+  // The outline bar beside the grid (rows 2–3 grouped), then the group is removed.
+  await page.getByLabel('Ô đang nhập').focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Alt+Shift+ArrowRight');
+  await expect(page.getByTestId('outline-bar-rows')).toBeVisible();
+  await scan(page, 'sheet outline bar');
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('outline-bar-rows')).toHaveCount(0);
   await scanDialog(page, 'sheet Find & Replace', async () => {
     // Find & Replace is not on the ribbon at 1366 px: its shortcut from the cell input.
     await page.getByLabel('Ô đang nhập').focus();

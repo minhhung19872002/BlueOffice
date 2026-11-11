@@ -25,6 +25,11 @@
   font: inherit;
 }
 
+/* Wizard options: one 24 px row each (WCAG 2.5.8 target spacing). */
+.option {
+  min-height: 24px;
+}
+
 .selectedCol {
   background: var(--bo-selection, #dbe8fb);
 }

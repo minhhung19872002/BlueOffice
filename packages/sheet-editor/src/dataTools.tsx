@@ -233,7 +233,7 @@ export function TextToColumnsDialog({
   };
 
   const check = (k: keyof typeof delims) => (
-    <label className={styles.check} key={k}>
+    <label className={`${styles.check} ${dt.option}`} key={k}>
       <input
         type="checkbox"
         data-testid={`split-${k}`}
@@ -245,7 +245,7 @@ export function TextToColumnsDialog({
   );
 
   const radio = (value: 'general' | 'text' | 'date' | 'skip') => (
-    <label className={styles.check} key={value}>
+    <label className={`${styles.check} ${dt.option}`} key={value}>
       <input
         type="radio"
         name="split-format"
@@ -307,7 +307,7 @@ export function TextToColumnsDialog({
         {step === 1 && (
           <fieldset>
             <legend>{tl('kind')}</legend>
-            <label className={styles.check}>
+            <label className={`${styles.check} ${dt.option}`}>
               <input
                 type="radio"
                 name="split-mode"
@@ -317,7 +317,7 @@ export function TextToColumnsDialog({
               />{' '}
               {tl('delimited')}
             </label>
-            <label className={styles.check}>
+            <label className={`${styles.check} ${dt.option}`}>
               <input
                 type="radio"
                 name="split-mode"
@@ -345,7 +345,7 @@ export function TextToColumnsDialog({
                 onChange={(e) => setOther(e.target.value)}
               />
             </label>
-            <label className={styles.check}>
+            <label className={`${styles.check} ${dt.option}`}>
               <input
                 type="checkbox"
                 data-testid="split-consecutive"

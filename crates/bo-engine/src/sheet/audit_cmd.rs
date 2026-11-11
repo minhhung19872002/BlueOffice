@@ -875,6 +875,10 @@ mod tests {
         let r = run(&mut e, &json!({"cmd": "setCellWatches", "cells": cells}));
         assert_eq!(r["changed"], json!(false));
         let bytes = e.save("xlsx", 0).unwrap();
+        if let Ok(path) = std::env::var("BO_WATCH_SAVE") {
+            // Hand-run check against the OpenXML validator (`bo-cli validate`).
+            std::fs::write(path, &bytes).unwrap();
+        }
         let back = bo_xlsx::read_xlsx(&bytes).unwrap();
         let mut f = SheetEngine::new();
         f.load(back, "t.xlsx").unwrap();

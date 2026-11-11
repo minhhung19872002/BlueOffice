@@ -78,6 +78,8 @@ export interface SlideOverlayProps {
   onStartEdit: (shape: SlideShapeInfo, at?: { x: number; y: number }) => void;
   /** Double-click on an embedded / linked object (CORE-EMBED-001). */
   onActivateObject?: () => void;
+  /** A plain click selected shapes (the engine's answer and the point, slide points). */
+  onClicked?: (r: SlideEditResult, at: { x: number; y: number }) => void;
   /** Leave text editing (Escape, click outside the shape). */
   onExitEdit: () => void;
   /** Keyboard shortcut inside the text (Ctrl+B, …); true when handled. */
@@ -167,6 +169,7 @@ export function SlideOverlay({
   editing,
   onStartEdit,
   onActivateObject,
+  onClicked,
   onExitEdit,
   onTextShortcut,
   onNextPlaceholder,
@@ -460,6 +463,7 @@ export function SlideOverlay({
         setOpt(null);
         if (drag.current === d && (!r || r.selection.length === 0)) drag.current = null;
         if (r && painting && !extend) onPaint?.();
+        if (r && !extend) onClicked?.(r, p);
       });
       return;
     }
@@ -487,6 +491,7 @@ export function SlideOverlay({
       })
       .then((r) => {
         if (r && painting && !extend && r.selection.length > 0) onPaint?.();
+        if (r && !extend && 'selection' in r && r.selection.length > 0) onClicked?.(r, p);
         if (drag.current !== d || d.mode === 'marquee') return;
         if (!r || (extend && !ctrl) || r.selection.length === 0) drag.current = null;
         else d.ready = true;

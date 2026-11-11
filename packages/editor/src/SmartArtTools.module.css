@@ -103,6 +103,23 @@
   background: var(--bo-hover, #eef1f5);
 }
 
+/* The selected diagram's frame and its current shape. */
+.frame {
+  z-index: 4;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px solid var(--bo-accent, #1f6fb2);
+}
+
+.nodeMark {
+  z-index: 5;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px dashed var(--bo-accent, #1f6fb2);
+  outline: 1px dashed rgb(255 255 255 / 85%);
+  outline-offset: -2px;
+}
+
 .live {
   position: absolute;
   z-index: 5;

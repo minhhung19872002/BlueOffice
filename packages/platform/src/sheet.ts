@@ -1664,6 +1664,11 @@ export type SheetSmartArtCommand =
   | { cmd: 'deleteSmartArt'; sheet: number; index: number }
   /** Replace the diagram by a group of ordinary shapes in the same cells (one undo step). */
   | { cmd: 'smartArtToShapes'; sheet: number; index: number }
+  /**
+   * The shape of a diagram under a point (`x`, `y`: shares 0..1 of its frame), or node `node`'s
+   * text box: the result is a `SmartArtFrameNode` or `null`. A query.
+   */
+  | { cmd: 'smartArtNodeAt'; sheet: number; index: number; x?: number; y?: number; node?: number }
   /** Thumbnails of every layout of the library: the result is `{ previews }`. */
   | {
       cmd: 'smartArtPreviews';

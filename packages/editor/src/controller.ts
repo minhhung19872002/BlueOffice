@@ -70,6 +70,8 @@ export class DocController {
   readonly repeats = new RepeatTracker<EditCommand>(DOC_REPEATABLE);
   /** Opens the equation dialog for the selected equation (double click, Enter). */
   onEquationDialog: (() => void) | null = null;
+  /** A plain click placed the caret / selection (the engine's answer); SmartArt shape picking. */
+  onClicked: ((e: PagePointer, r: EditResult | null) => void) | null = null;
   /** The last result applied. */
   private last: EditResult | null = null;
 
@@ -243,6 +245,7 @@ export class DocController {
       }).then((r) => {
         // A double click on an equation (the engine selects it) opens the equation dialog.
         if (e.count === 2 && !e.shift && equationSelected(r)) this.onEquationDialog?.();
+        if (e.count === 1 && !e.shift) this.onClicked?.(e, r);
       });
     } else if (e.type === 'drag') {
       this.drag({ cmd: 'dragTo', page: e.page, x: e.x, y: e.y });

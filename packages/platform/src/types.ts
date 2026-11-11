@@ -2165,6 +2165,8 @@ export type SlideChartKind =
   | 'radarFilled'
   | 'stock'
   | 'stockUpDown'
+  | 'stockVolume'
+  | 'stockVolumeUpDown'
   | 'surface'
   | 'column3D'
   | 'clusteredColumn3D'
@@ -2182,7 +2184,14 @@ export type SlideChartKind =
   | 'percentArea3D'
   | 'pie3D'
   | 'explodedPie3D'
-  | 'surface3D';
+  | 'surface3D'
+  | 'waterfall'
+  | 'treemap'
+  | 'sunburst'
+  | 'histogram'
+  | 'pareto'
+  | 'boxWhisker'
+  | 'funnel';
 export type SlideLegend = 'none' | 'r' | 'l' | 't' | 'b' | 'tr';
 
 /** Data grid of a chart: categories down, series across. */

@@ -4,6 +4,8 @@
 //! `cx:chart/cx:plotArea/cx:plotAreaRegion/cx:series@layoutId`.
 
 use crate::chart::Node;
+use crate::chart_format as cf;
+use bo_model::chart_style::{ChartFormat, DataLabels};
 use bo_model::sheet::{Chart, ChartKind, ChartPlot, ChartSeries};
 use bo_opc::xml::escape;
 use std::fmt::Write;
@@ -102,6 +104,7 @@ pub(crate) fn parse_chartex(dom: &Node, raw: &[u8], part: &str) -> Option<Chart>
         .iter()
         .any(|s| s.attr("layoutId") == Some("paretoLine"));
     let mut plot = ChartPlot::default();
+    let mut labels = None;
     for s in series {
         let layout = s.attr("layoutId").unwrap_or("");
         let kind = match layout {
@@ -126,6 +129,20 @@ pub(crate) fn parse_chartex(dom: &Node, raw: &[u8], part: &str) -> Option<Chart>
                 .filter(|t| !t.is_empty()),
             ..ChartSeries::default()
         };
+        // spPr / dataPt: the series' and points' own colours; dataLabels: what the labels show.
+        cs.fill = s.child("spPr").and_then(cf::fill_color);
+        cs.point_fills = s
+            .children
+            .iter()
+            .filter(|d| d.name == "dataPt")
+            .filter_map(|d| {
+                let k = d.attr("idx")?.trim().parse().ok()?;
+                Some((k, d.child("spPr").and_then(cf::fill_color)?))
+            })
+            .collect();
+        if plot.kind != ChartKind::RegionMap && labels.is_none() {
+            labels = labels_of(s);
+        }
         let id = s.child("dataId").and_then(|d| d.attr("val")).unwrap_or("0");
         let mut map =
             (plot.kind == ChartKind::RegionMap).then(|| crate::chartex_map::parse(s, raw));
@@ -216,6 +233,9 @@ pub(crate) fn parse_chartex(dom: &Node, raw: &[u8], part: &str) -> Option<Chart>
         }
     }
     out.plots = vec![plot];
+    // Chart space and plot area shape / text properties (the same elements as a c:chartSpace).
+    out.format = cf::read_format(dom, chart);
+    out.format.data_labels = labels;
     Some(out)
 }
 
@@ -264,15 +284,46 @@ fn text_data(out: &mut String, tag: &str, text: &str) {
     );
 }
 
+/// The `mc:Choice@Requires` prefix and namespace a chartex frame of `kind` needs ([MS-ODRAWXML]
+/// namespaces: funnels came with the 2015/10/21 chartex namespace, region maps with the 2016/5/10
+/// one, the other layouts with the 2015/9/8 one).
+#[must_use]
+pub fn requires(kind: Option<&ChartKind>) -> (&'static str, &'static str) {
+    match kind {
+        Some(ChartKind::Funnel) => (
+            "cx2",
+            "http://schemas.microsoft.com/office/drawing/2015/10/21/chartex",
+        ),
+        Some(ChartKind::RegionMap) => (
+            "cx4",
+            "http://schemas.microsoft.com/office/drawing/2016/5/10/chartex",
+        ),
+        _ => (
+            "cx1",
+            "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex",
+        ),
+    }
+}
+
 /// The `cx:chartSpace` part of a chartex `chart` ([MS-ODRAWXML] 2.24; children in schema order).
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn chartex_space_xml(chart: &Chart) -> String {
+    chartex_space_xml_with(chart, None)
+}
+
+/// [`chartex_space_xml`] with a `cx:externalData` reference (relationship `external`) to an
+/// embedded workbook holding the data (first child of `cx:chartData`).
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn chartex_space_xml_with(chart: &Chart, external: Option<&str>) -> String {
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
     let _ = write!(
         out,
         "<cx:chartSpace xmlns:a=\"{A_NS}\" xmlns:r=\"{R_NS}\" xmlns:cx=\"{CX_NS}\"><cx:chartData>"
     );
+    if let Some(rid) = external {
+        let _ = write!(out, "<cx:externalData r:id=\"{}\"/>", escape(rid));
+    }
     let plot = chart.plots.first();
     let kind = plot.map_or(ChartKind::Waterfall, |p| p.kind.clone());
     let series: Vec<&ChartSeries> = plot.map(|p| p.series.iter().collect()).unwrap_or_default();
@@ -343,12 +394,30 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
         if let Some(n) = s.name.as_deref().filter(|n| !n.is_empty()) {
             text_data(&mut out, "tx", n);
         }
-        // CT_Series: valueColors, valueColorPositions, dataPt*, dataLabels precede dataId.
+        // CT_Series: tx, spPr, valueColors, valueColorPositions, dataPt*, dataLabels, dataId.
+        let fmt = &chart.format;
+        let own = s.fill.clone().or_else(|| match fmt.palette.len() {
+            0 => None,
+            n => fmt.palette.get(i % n).cloned(),
+        });
+        if let Some(c) = own.filter(|_| kind != ChartKind::RegionMap) {
+            out.push_str(&cf::cx_sp_pr(&cf::series_sp_pr(&c, fmt, false)));
+        }
         if kind == ChartKind::RegionMap {
             if !map_opts.categorical {
                 crate::chartex_map::write_scale(&mut out, &map_opts.scale);
             }
             crate::chartex_map::write_labels(&mut out, &map_opts);
+        } else {
+            // dataPt: the colour of one point.
+            for (k, c) in &s.point_fills {
+                let _ = write!(
+                    out,
+                    "<cx:dataPt idx=\"{k}\">{}</cx:dataPt>",
+                    cf::cx_sp_pr(&cf::series_sp_pr(c, fmt, false))
+                );
+            }
+            data_labels(&mut out, fmt, &kind);
         }
         let _ = write!(out, "<cx:dataId val=\"{i}\"/>");
         match kind {
@@ -435,6 +504,11 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
             );
         }
     }
+    // CT_PlotArea: plotAreaRegion, axis*, spPr.
+    let plot_sp = cf::plot_sp_pr(&chart.format);
+    if !plot_sp.is_empty() {
+        out.push_str(&cf::cx_sp_pr(&plot_sp));
+    }
     out.push_str("</cx:plotArea>");
     if let Some(pos) = &chart.legend {
         let pos = match pos.as_str() {
@@ -446,6 +520,55 @@ pub fn chartex_space_xml(chart: &Chart) -> String {
             "<cx:legend pos=\"{pos}\" align=\"ctr\" overlay=\"0\"/>"
         );
     }
-    out.push_str("</cx:chart></cx:chartSpace>");
+    out.push_str("</cx:chart>");
+    // CT_ChartSpace: chartData, chart, spPr, txPr.
+    out.push_str(&cf::space_props_in(&chart.format, "cx"));
+    out.push_str("</cx:chartSpace>");
     out
+}
+
+/// Chartex `ST_DataLabelPos` values.
+const LABEL_POS: [&str; 9] = [
+    "bestFit", "b", "ctr", "inBase", "inEnd", "l", "outEnd", "r", "t",
+];
+
+/// `cx:dataLabels` of a series (CT_DataLabels: `pos` attribute, `cx:visibility` with the
+/// seriesName / categoryName / value switches) from the chart's data labels.
+fn data_labels(out: &mut String, fmt: &ChartFormat, kind: &ChartKind) {
+    let Some(d) = fmt.data_labels.as_ref().filter(|d| d.any()) else {
+        return;
+    };
+    out.push_str("<cx:dataLabels");
+    // Hierarchical layouts place their labels inside the shapes: no position.
+    if !matches!(kind, ChartKind::Treemap | ChartKind::Sunburst) {
+        if let Some(p) = d.pos.as_deref().filter(|p| LABEL_POS.contains(p)) {
+            let _ = write!(out, " pos=\"{p}\"");
+        }
+    }
+    let b = |v: bool| u8::from(v);
+    let _ = write!(
+        out,
+        "><cx:visibility seriesName=\"{}\" categoryName=\"{}\" value=\"{}\"/></cx:dataLabels>",
+        b(d.series),
+        b(d.category),
+        b(d.value || d.percent)
+    );
+}
+
+/// The `cx:dataLabels` of a series as the chart's data labels (`None`: no labels shown).
+fn labels_of(s: &Node) -> Option<DataLabels> {
+    let d = s.child("dataLabels")?;
+    let on = |name: &str| {
+        d.child("visibility")
+            .and_then(|v| v.attr(name))
+            .is_some_and(|v| v == "1" || v == "true")
+    };
+    let l = DataLabels {
+        value: on("value"),
+        category: on("categoryName"),
+        series: on("seriesName"),
+        percent: false,
+        pos: d.attr("pos").map(str::to_owned),
+    };
+    l.any().then_some(l)
 }

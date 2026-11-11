@@ -931,6 +931,8 @@ export const CHART_TYPES = [
   'radarFilled',
   'stock',
   'stockUpDown',
+  'stockVolume',
+  'stockVolumeUpDown',
   'surface',
   'surfaceWireframe',
   'waterfall',

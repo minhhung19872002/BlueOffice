@@ -1,0 +1,93 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 108.0 81.0]
+  text 60.0pt 24.1,142.3 #000000ff "Báo "
+  text 60.0pt 130.6,142.3 #000000ff "cáo "
+  text 60.0pt 229.5,142.3 #000000ff "kết "
+  text 60.0pt 318.0,142.3 #000000ff "quả "
+  text 60.0pt 423.3,142.3 #000000ff "kinh "
+  text 60.0pt 541.0,142.3 #000000ff "doanh"
+pop transform
+transform [1.000 0.000 0.000 1.000 108.0 252.0]
+  text 24.0pt 223.3,23.5 #595959ff "Công "
+  text 24.0pt 278.1,23.5 #595959ff "ty "
+  text 24.0pt 302.4,23.5 #595959ff "giả "
+  text 24.0pt 336.1,23.5 #595959ff "định "
+  text 24.0pt 385.5,23.5 #595959ff "ABC "
+  text 24.0pt 430.7,23.5 #595959ff "– "
+  text 24.0pt 448.1,23.5 #595959ff "2026"
+pop transform
+transform [1.000 0.000 0.000 1.000 144.0 81.0]
+  text 18.9pt 270.8,25.8 #3c4043ff "Biểu "
+  text 18.9pt 309.1,25.8 #3c4043ff "đồ "
+  text 18.9pt 333.7,25.8 #3c4043ff "waterfall"
+  rect 171.0,358.3 11.2x11.2 #2e75b6ff
+  text 14.0pt 186.4,367.6 #3c4043ff "Tăng"
+  rect 281.0,358.3 11.2x11.2 #ed7d31ff
+  text 14.0pt 296.4,367.6 #3c4043ff "Giảm"
+  rect 391.0,358.3 11.2x11.2 #a5a5a5ff
+  text 14.0pt 406.4,367.6 #3c4043ff "Tổng"
+  line 62.0,327.2 → 666.0,327.2 w0.50
+  text 14.0pt 51.9,332.0 #3c4043ff "0"
+  line 62.0,255.8 → 666.0,255.8 w0.50
+  text 14.0pt 44.8,260.6 #3c4043ff "50"
+  line 62.0,184.4 → 666.0,184.4 w0.50
+  text 14.0pt 37.7,189.2 #3c4043ff "100"
+  line 62.0,113.0 → 666.0,113.0 w0.50
+  text 14.0pt 37.7,117.8 #3c4043ff "150"
+  line 62.0,41.6 → 666.0,41.6 w0.50
+  text 14.0pt 37.7,46.4 #3c4043ff "200"
+  rect 92.2,184.4 90.6x142.8 #2e75b6ff
+  line 182.8,184.4 → 243.2,184.4 w0.50
+  rect 243.2,98.7 90.6x85.7 #2e75b6ff
+  line 333.8,98.7 → 394.2,98.7 w0.50
+  rect 394.2,98.7 90.6x64.3 #ed7d31ff
+  line 484.8,163.0 → 545.2,163.0 w0.50
+  rect 545.2,163.0 90.6x17.1 #ed7d31ff
+  line 62.0,327.2 → 666.0,327.2 w0.75
+  text 14.0pt 118.2,343.7 #3c4043ff "Đầu "
+  text 14.0pt 144.1,343.7 #3c4043ff "kỳ"
+  text 14.0pt 262.1,343.7 #3c4043ff "Bán "
+  text 14.0pt 286.9,343.7 #3c4043ff "hàng"
+  text 14.0pt 419.9,343.7 #3c4043ff "Chi "
+  text 14.0pt 441.1,343.7 #3c4043ff "phí"
+  text 14.0pt 576.3,343.7 #3c4043ff "Thuế"
+pop transform
+transform [1.000 0.000 0.000 1.000 144.0 81.0]
+  text 18.9pt 279.9,25.8 #3c4043ff "Biểu "
+  text 18.9pt 318.1,25.8 #3c4043ff "đồ "
+  text 18.9pt 342.8,25.8 #3c4043ff "funnel"
+  rect 281.0,358.3 11.2x11.2 #2e75b6ff
+  text 14.0pt 296.4,367.6 #3c4043ff "Dòng "
+  text 14.0pt 329.5,367.6 #3c4043ff "tiền"
+  rect 90.0,40.9 576.0x66.2 #2e75b6ff
+  text 14.0pt 367.4,78.8 #ffffffff "100"
+  text 14.0pt 48.3,78.8 #3c4043ff "Đầu "
+  text 14.0pt 74.3,78.8 #3c4043ff "kỳ"
+  rect 205.2,119.7 345.6x66.2 #2e75b6ff
+  text 14.0pt 370.9,157.5 #ffffffff "60"
+  text 14.0pt 34.2,157.5 #3c4043ff "Bán "
+  text 14.0pt 59.0,157.5 #3c4043ff "hàng"
+  rect 248.4,198.4 259.2x66.2 #2e75b6ff
+  text 14.0pt 368.8,236.3 #ffffffff "-45"
+  text 14.0pt 47.9,236.3 #3c4043ff "Chi "
+  text 14.0pt 69.1,236.3 #3c4043ff "phí"
+  rect 343.4,277.1 69.1x66.2 #2e75b6ff
+  text 14.0pt 368.8,315.0 #ffffffff "-12"
+  text 14.0pt 58.5,315.0 #3c4043ff "Thuế"
+pop transform
+transform [1.000 0.000 0.000 1.000 180.0 99.0]
+  text 18.9pt 306.3,25.8 #3c4043ff "Cây "
+  text 18.9pt 337.9,25.8 #3c4043ff "sửa"
+  rect 226.0,358.3 11.2x11.2 #2e75b6ff
+  text 14.0pt 241.4,367.6 #3c4043ff "A"
+  rect 336.0,358.3 11.2x11.2 #ed7d31ff
+  text 14.0pt 351.4,367.6 #3c4043ff "B"
+  path n=5 [336.0 36.6 503.7 302.1] fill=#2e75b6ff stroke=#ffffffff w0.75
+  text 12.6pt 404.2,166.7 #ffffffff "A"
+  path n=6 [167.6 36.6 446.0 362.0] fill=#ed7d31ff stroke=#ffffffff w0.75
+  text 12.6pt 260.7,226.2 #ffffffff "B"
+pop transform

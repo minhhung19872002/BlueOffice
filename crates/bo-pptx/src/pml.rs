@@ -240,6 +240,16 @@ pub fn parse_node(el: &XmlElement) -> ShapeNode {
                 _ => ShapeNode::Other(el.clone()),
             }
         }
+        // A chartex chart ([MS-ODRAWXML] 2.24) in mc:AlternateContent: the same.
+        _ if crate::chartex_frame::alternate_chartex_frame(el).is_some() => {
+            match crate::chartex_frame::alternate_chartex_frame(el).map(parse_node) {
+                Some(ShapeNode::Frame(mut f)) => {
+                    f.alt = Some(Box::new(el.clone()));
+                    ShapeNode::Frame(f)
+                }
+                _ => ShapeNode::Other(el.clone()),
+            }
+        }
         // A zoom ([MS-PPTX] pslz / psez / psuz) in mc:AlternateContent: the same.
         _ if crate::zoom::alternate_zoom_frame(el).is_some() => {
             match crate::zoom::alternate_zoom_frame(el).map(parse_node) {
@@ -335,6 +345,10 @@ pub fn write_node(n: &ShapeNode) -> XmlElement {
             };
             let mut plain = f.clone();
             plain.alt = None;
+            if crate::chartex_frame::is_chartex(f) {
+                let el = write_node(&ShapeNode::Frame(plain));
+                return crate::chartex_frame::write_alternate(f, alt, &el);
+            }
             if crate::zoom::is_zoom(f) {
                 if let Some(old) = crate::zoom::moved_from(f, alt) {
                     crate::zoom::sync_rects(&mut plain, &old);

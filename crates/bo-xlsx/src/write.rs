@@ -212,7 +212,13 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
 
     let mut sheet_rel_ids = Vec::with_capacity(wb.sheets.len());
     // Slicer caches created for new slicers ([MS-XLSX] slicer parts).
-    let mut slicer_caches: Vec<String> = Vec::new();
+    let mut slicer_caches: Vec<(String, bool)> = Vec::new();
+    // Timeline caches created for new timelines ([MS-XLSX] timeline parts).
+    let mut timeline_caches: Vec<String> = Vec::new();
+    let pivot_refs = crate::slicer::PivotRefs {
+        wb,
+        sheet_ids: &sheet_ids,
+    };
     let all_tables: Vec<&Table> = wb.sheets.iter().flat_map(|s| s.tables.iter()).collect();
     for (si, ws) in wb.sheets.iter().enumerate() {
         let with_vms;
@@ -307,6 +313,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     crate::slicer::write_new(
                         ws,
                         &all_tables,
+                        &pivot_refs,
                         &path,
                         &mut fresh,
                         &mut alloc,
@@ -314,6 +321,27 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                         &mut out_parts,
                     )
                 };
+                // New timelines: cache parts, the timelines part and their drawing frames.
+                let new_timelines = {
+                    let mut fresh = |p: &str| names.fresh(|n| format!("{p}{n}.xml"));
+                    let mut alloc = || ids.alloc();
+                    crate::timeline::write_new(
+                        ws,
+                        &pivot_refs,
+                        &path,
+                        &mut fresh,
+                        &mut alloc,
+                        &mut rels,
+                        &mut out_parts,
+                    )
+                };
+                let mut frame_anchors = String::new();
+                if let Some(n) = &new_slicers {
+                    frame_anchors.push_str(&n.anchors);
+                }
+                if let Some(n) = &new_timelines {
+                    frame_anchors.push_str(&n.anchors);
+                }
                 // Changed selections of file slicers: the cache part's item flags.
                 for s in ws
                     .slicers
@@ -368,7 +396,7 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     &mut rels,
                     &mut out_parts,
                     &mut overrides,
-                    new_slicers.as_ref().map_or("", |n| n.anchors.as_str()),
+                    &frame_anchors,
                 );
                 // Pivot tables (§18.10.1.73).
                 write_pivot_tables(
@@ -388,17 +416,24 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
                     Some(ext) => crate::cf_ext::with_first_ext(&ws.unknown, &ext),
                     None => ws.unknown.clone(),
                 };
-                // Sheet exts written from the model: new slicers, sparkline groups.
-                let mut sheet_ext = crate::sparkline::ext_xml(&ws.sparkline_groups);
-                if let Some(n) = &new_slicers {
-                    slicer_caches.extend(n.caches.iter().cloned());
-                    sheet_ext.insert_str(0, &n.sheet_ext);
-                }
-                let unknown = if sheet_ext.is_empty() {
+                // Sheet exts written from the model: new slicers and timelines, sparkline
+                // groups.
+                let sheet_ext = crate::sparkline::ext_xml(&ws.sparkline_groups);
+                let mut unknown = if sheet_ext.is_empty() {
                     unknown
                 } else {
                     crate::slicer::with_ext(&unknown, &sheet_ext)
                 };
+                if let Some(n) = &new_slicers {
+                    slicer_caches.extend(n.caches.iter().cloned());
+                    for item in &n.sheet_exts {
+                        unknown = crate::slicer::with_ext_item(&unknown, item);
+                    }
+                }
+                if let Some(n) = &new_timelines {
+                    timeline_caches.extend(n.caches.iter().cloned());
+                    unknown = crate::slicer::with_ext_item(&unknown, &n.sheet_ext);
+                }
                 // Form controls: patched, removed and new controls.
                 let unknown = {
                     let mut ctx = crate::formctl::WriteCtx {
@@ -540,24 +575,29 @@ pub fn write_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
     }
 
     // Slicer caches of new slicers: workbook relationships and the extension listing them.
-    let slicer_rids: Vec<String> = slicer_caches
-        .iter()
-        .map(|part| {
-            let id = wb_ids.alloc();
-            wb_rels.push(Relationship {
-                id: id.clone(),
-                rel_type: crate::slicer::REL_SLICER_CACHE.into(),
-                target: relative_target(&wb_path, part),
-                mode: TargetMode::Internal,
-            });
-            id
-        })
-        .collect();
-    let wb_unknown = if slicer_rids.is_empty() {
-        wb.unknown.clone()
-    } else {
-        crate::slicer::with_ext(&wb.unknown, &crate::slicer::workbook_ext(&slicer_rids))
-    };
+    let mut wb_unknown = wb.unknown.clone();
+    for (part, table) in &slicer_caches {
+        let id = wb_ids.alloc();
+        wb_rels.push(Relationship {
+            id: id.clone(),
+            rel_type: crate::slicer::REL_SLICER_CACHE.into(),
+            target: relative_target(&wb_path, part),
+            mode: TargetMode::Internal,
+        });
+        wb_unknown =
+            crate::slicer::with_ext_item(&wb_unknown, &crate::slicer::workbook_ext(&id, *table));
+    }
+    // Timeline caches of new timelines, likewise.
+    for part in &timeline_caches {
+        let id = wb_ids.alloc();
+        wb_rels.push(Relationship {
+            id: id.clone(),
+            rel_type: crate::timeline::REL_TIMELINE_CACHE.into(),
+            target: relative_target(&wb_path, part),
+            mode: TargetMode::Internal,
+        });
+        wb_unknown = crate::slicer::with_ext_item(&wb_unknown, &crate::timeline::workbook_ext(&id));
+    }
     out_parts.push((
         bo_opc::rels_part_name(&wb_path),
         None,
@@ -804,6 +844,8 @@ fn write_pivot_caches(
     };
     let mut rids = Vec::with_capacity(wb.pivot_caches.len());
     let mut parts = HashMap::new();
+    // Caches kept as read that may lack their [MS-XLSX] `x14:pivotCacheDefinition` extension.
+    let mut ext_patches: Vec<&bo_model::sheet::PivotCache> = Vec::new();
     for c in &wb.pivot_caches {
         let new = c.part.is_empty() && c.rel_id.is_empty();
         if new || (c.dirty && !c.part.is_empty()) {
@@ -862,7 +904,24 @@ fn write_pivot_caches(
                 if let Some(x) = patched {
                     put(c.part.clone(), "", x, out_parts);
                 }
+                ext_patches.push(c);
             }
+        }
+    }
+    // A slicer or timeline added to a cache kept as read: the extension naming the cache.
+    for c in ext_patches {
+        let current = overrides.get(&c.part).cloned().or_else(|| {
+            wb.opaque
+                .parts
+                .iter()
+                .find(|p| p.name == c.part)
+                .map(|p| p.data.clone())
+        });
+        if let Some(x) = current
+            .and_then(|d| String::from_utf8(d).ok())
+            .and_then(|t| crate::pivot_write::patch_cache_ext(&t, c))
+        {
+            overrides.insert(c.part.clone(), x.into_bytes());
         }
     }
     (rids, parts)

@@ -1529,6 +1529,150 @@ pub enum SheetCommand {
         /// Index of the slicer on the sheet.
         index: usize,
     },
+    /// Insert a slicer over a field of a pivot table, placed right of the report.
+    InsertPivotSlicer {
+        /// 0-based sheet the slicer goes on.
+        sheet: usize,
+        /// Sheet of the pivot table (default: `sheet`).
+        #[serde(default)]
+        pivot_sheet: Option<usize>,
+        /// Index of the pivot table on its sheet.
+        pivot: usize,
+        /// Cache field index.
+        field: u32,
+        /// Labels for re-rendered pivot tables.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Caption, column count and style of a slicer (absent: unchanged).
+    SlicerOptions {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the slicer on the sheet.
+        index: usize,
+        /// Header text.
+        #[serde(default)]
+        caption: Option<String>,
+        /// Number of item columns.
+        #[serde(default)]
+        columns: Option<u32>,
+        /// Style name (empty: none).
+        #[serde(default)]
+        style: Option<String>,
+    },
+    /// The pivot tables a pivot slicer filters (report connections).
+    SlicerConnect {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the slicer on the sheet.
+        index: usize,
+        /// Names of the connected pivot tables.
+        pivots: Vec<String>,
+        /// Labels for re-rendered pivot tables.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Move / size the frame of a slicer.
+    MoveSlicer {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the slicer on the sheet.
+        index: usize,
+        /// Top-left anchor cell `[row, col]`.
+        from: [u32; 2],
+        /// Bottom-right anchor cell `[row, col]`.
+        to: [u32; 2],
+    },
+    /// Insert a timeline over a date field of a pivot table, placed right of the report.
+    InsertTimeline {
+        /// 0-based sheet the timeline goes on.
+        sheet: usize,
+        /// Sheet of the pivot table (default: `sheet`).
+        #[serde(default)]
+        pivot_sheet: Option<usize>,
+        /// Index of the pivot table on its sheet.
+        pivot: usize,
+        /// Cache field index of the date field.
+        field: u32,
+        /// Labels for re-rendered pivot tables.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Time level (0 years … 3 days), caption and style of a timeline (absent: unchanged).
+    TimelineOptions {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the timeline on the sheet.
+        index: usize,
+        /// Time level.
+        #[serde(default)]
+        level: Option<u32>,
+        /// Header text.
+        #[serde(default)]
+        caption: Option<String>,
+        /// Style name (empty: none).
+        #[serde(default)]
+        style: Option<String>,
+    },
+    /// The pivot tables a timeline filters (report connections).
+    TimelineConnect {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the timeline on the sheet.
+        index: usize,
+        /// Names of the connected pivot tables.
+        pivots: Vec<String>,
+        /// Labels for re-rendered pivot tables.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Move / size the frame of a timeline.
+    MoveTimeline {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the timeline on the sheet.
+        index: usize,
+        /// Top-left anchor cell `[row, col]`.
+        from: [u32; 2],
+        /// Bottom-right anchor cell `[row, col]`.
+        to: [u32; 2],
+    },
+    /// Delete a timeline (its date filter is cleared first). One undo step.
+    DeleteTimeline {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the timeline on the sheet.
+        index: usize,
+    },
+    /// Show the source records behind a pivot table value cell on a new sheet.
+    PivotDrillDown {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Row of the value cell (0-based).
+        row: u32,
+        /// Its column.
+        col: u32,
+        /// Base name of the new sheet (a number is added).
+        #[serde(default)]
+        name: Option<String>,
+        /// Labels for a re-rendered pivot table.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
+    /// Hide items of a pivot field (a report filter: show the others), by item index.
+    PivotFieldItems {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the pivot table in the sheet.
+        index: usize,
+        /// Cache field index.
+        field: u32,
+        /// Hidden items by index into the field's items; empty shows all.
+        hidden: Vec<usize>,
+        /// Labels for the re-rendered pivot table.
+        #[serde(default)]
+        labels: Option<PivotLabels>,
+    },
     /// Form controls of a sheet with their state, items, anchors and fallback pictures.
     FormControls {
         /// 0-based sheet index.
@@ -1996,6 +2140,21 @@ fn replace_text(hay: &str, needle: &str, with: &str, match_case: bool) -> (Strin
     (out, n)
 }
 
+/// Sheet and index of the pivot table a pivot chart plots (§21.2.2.142 `pivotSource`).
+fn pivot_at_of(wb: Option<&Workbook>, c: &bo_model::sheet::Chart) -> Option<[usize; 2]> {
+    let (sheet, name) = c.pivot_ref()?;
+    let wb = wb?;
+    let si = wb
+        .sheets
+        .iter()
+        .position(|s| s.name.to_lowercase() == sheet.to_lowercase())?;
+    let pi = wb.sheets[si]
+        .pivots
+        .iter()
+        .position(|p| p.name.to_lowercase() == name.to_lowercase())?;
+    Some([si, pi])
+}
+
 impl SheetEngine {
     /// Runs a command given as JSON; returns the JSON result.
     pub fn exec_json(&mut self, json: &str) -> Result<String> {
@@ -2117,8 +2276,24 @@ impl SheetEngine {
             | C::SparklineEdit { sheet, .. }
             | C::SparklineGroup { sheet, .. }
             | C::SparklineUngroup { sheet, .. }
-            | C::SparklineClear { sheet, .. } => check(ws(*sheet)?, A::Objects),
-            C::PivotCreate { sheet, .. }
+            | C::SparklineClear { sheet, .. }
+            | C::InsertSlicer { sheet, .. }
+            | C::InsertPivotSlicer { sheet, .. }
+            | C::SlicerOptions { sheet, .. }
+            | C::SlicerConnect { sheet, .. }
+            | C::MoveSlicer { sheet, .. }
+            | C::DeleteSlicer { sheet, .. }
+            | C::InsertTimeline { sheet, .. }
+            | C::TimelineOptions { sheet, .. }
+            | C::TimelineConnect { sheet, .. }
+            | C::MoveTimeline { sheet, .. }
+            | C::DeleteTimeline { sheet, .. } => check(ws(*sheet)?, A::Objects),
+            C::PivotDrillDown { sheet, .. } => {
+                check(ws(*sheet)?, A::PivotTables)?;
+                super::protect::check_structure(wb)
+            }
+            C::PivotFieldItems { sheet, .. }
+            | C::PivotCreate { sheet, .. }
             | C::PivotUpdate { sheet, .. }
             | C::PivotGroup { sheet, .. }
             | C::PivotCalcField { sheet, .. }
@@ -2647,30 +2822,74 @@ impl SheetEngine {
                 range,
                 whole_groups,
             } => self.sparkline_clear(sheet, range, whole_groups),
-            C::Timelines { sheet } => {
-                let wb = self.wb()?;
-                let ws = self.sheet(sheet)?;
-                let vi = locale == bo_sheet::numfmt::Locale::VI_VN;
-                let list: Vec<Value> = ws
-                    .timelines
-                    .iter()
-                    .enumerate()
-                    .map(|(i, t)| {
-                        let to = t.to.unwrap_or(CellRef::new(t.from.row + 7, t.from.col + 6));
-                        json!({
-                            "index": i,
-                            "name": t.name,
-                            "caption": t.caption,
-                            "level": t.level,
-                            "from": [t.from.row, t.from.col],
-                            "to": [to.row, to.col],
-                            "filtered": t.start.is_some(),
-                            "periods": bo_sheet::timeline::periods(wb, sheet, i, vi),
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(list))
-            }
+            C::Timelines { sheet } => self.timelines_list(sheet),
+            C::InsertPivotSlicer {
+                sheet,
+                pivot_sheet,
+                pivot,
+                field,
+                labels,
+            } => self.pivot_slicer_insert(sheet, pivot_sheet, pivot, field, labels),
+            C::SlicerOptions {
+                sheet,
+                index,
+                caption,
+                columns,
+                style,
+            } => self.slicer_options(sheet, index, caption, columns, style),
+            C::SlicerConnect {
+                sheet,
+                index,
+                pivots,
+                labels,
+            } => self.frame_connect(sheet, index, false, &pivots, labels),
+            C::MoveSlicer {
+                sheet,
+                index,
+                from,
+                to,
+            } => self.frame_move(sheet, index, false, from, to),
+            C::InsertTimeline {
+                sheet,
+                pivot_sheet,
+                pivot,
+                field,
+                labels,
+            } => self.timeline_insert(sheet, pivot_sheet, pivot, field, labels),
+            C::TimelineOptions {
+                sheet,
+                index,
+                level,
+                caption,
+                style,
+            } => self.timeline_options(sheet, index, level, caption, style),
+            C::TimelineConnect {
+                sheet,
+                index,
+                pivots,
+                labels,
+            } => self.frame_connect(sheet, index, true, &pivots, labels),
+            C::MoveTimeline {
+                sheet,
+                index,
+                from,
+                to,
+            } => self.frame_move(sheet, index, true, from, to),
+            C::DeleteTimeline { sheet, index } => self.timeline_delete(sheet, index),
+            C::PivotDrillDown {
+                sheet,
+                row,
+                col,
+                name,
+                labels,
+            } => self.pivot_drill_down(sheet, row, col, name, labels),
+            C::PivotFieldItems {
+                sheet,
+                index,
+                field,
+                hidden,
+                labels,
+            } => self.pivot_field_items(sheet, index, field, &hidden, labels),
             C::TimelineSelect {
                 sheet,
                 index,
@@ -2686,29 +2905,7 @@ impl SheetEngine {
                     Ok(json!({ "ok": true }))
                 })
             }
-            C::Slicers { sheet } => {
-                let wb = self.wb()?;
-                let ws = self.sheet(sheet)?;
-                let list: Vec<Value> = ws
-                    .slicers
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| {
-                        let to =
-                            s.to.unwrap_or(CellRef::new(s.from.row + 10, s.from.col + 2));
-                        json!({
-                            "index": i,
-                            "name": s.name,
-                            "caption": s.caption,
-                            "columns": s.columns.max(1),
-                            "from": [s.from.row, s.from.col],
-                            "to": [to.row, to.col],
-                            "items": bo_sheet::slicer::items(wb, sheet, i, &locale),
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(list))
-            }
+            C::Slicers { sheet } => self.slicers_list(sheet),
             C::InsertSlicer { sheet, row, col } => {
                 let wb = self.wb()?;
                 let (table_id, column, at) = wb
@@ -2748,22 +2945,7 @@ impl SheetEngine {
                     Ok(json!({ "ok": true }))
                 })
             }
-            C::DeleteSlicer { sheet, index } => self.edit(sheet, Recalc::All, |wb, _| {
-                // Slicers read from a file keep their parts in the package; only new ones go.
-                if wb.sheets[sheet]
-                    .slicers
-                    .get(index)
-                    .is_none_or(|s| !s.part.is_empty())
-                {
-                    return Err(bad("only a slicer inserted in this session can be deleted"));
-                }
-                let labels = PivotLabels::default();
-                bo_sheet::slicer::select(wb, sheet, index, &[], &locale, &labels)
-                    .map_err(|e| bad(&e))?;
-                let s = wb.sheets[sheet].slicers.remove(index);
-                wb.defined_names.retain(|d| d.name != s.cache);
-                Ok(json!({ "ok": true }))
-            }),
+            C::DeleteSlicer { sheet, index } => self.slicer_delete(sheet, index),
             C::FormControls { sheet } => self.form_controls_list(sheet),
             C::InsertFormControl {
                 sheet,
@@ -3581,6 +3763,7 @@ impl SheetEngine {
                                 "yTitle": c.y_title,
                                 "anchor": c.anchor,
                                 "pivot": c.pivot_source,
+                                "pivotAt": pivot_at_of(self.wb().ok(), c),
                                 "from": [c.from.row, c.from.col],
                                 "to": c.to.map_or([c.from.row + 15, c.from.col + 8], |t| [t.row, t.col]),
                                 "series": c.plots.iter().map(|p| p.series.len()).sum::<usize>(),
@@ -3852,7 +4035,11 @@ impl SheetEngine {
                     .iter()
                     .map(|a| (a.sheet, CellRef::new(a.row, a.col)))
                     .collect();
-                let out = self.edit_light(sheet, Recalc::All, &quadrants, |wb, _, fx| {
+                // A cache shared with a pivot table read from the file is refreshed first,
+                // which renders that pivot table again: undone as a whole.
+                let refreshes = bo_sheet::pivot::shareable_cache(self.wb()?, sheet, r)
+                    .is_some_and(|(_, loaded)| !loaded);
+                let create = |wb: &mut Workbook| -> Result<(Value, usize)> {
                     let caches = wb.pivot_caches.len();
                     let spec = PivotSpec {
                         rows,
@@ -3899,9 +4086,17 @@ impl SheetEngine {
                     let index =
                         bo_sheet::pivot::create_pivot(wb, sheet, r, dest_sheet, at, &spec, &labels)
                             .map_err(bad)?;
-                    fx.caches = super::light_undo::CacheUndo::Truncate(caches);
-                    Ok(json!({ "sheet": dest_sheet, "index": index }))
-                })?;
+                    Ok((json!({ "sheet": dest_sheet, "index": index }), caches))
+                };
+                let out = if refreshes {
+                    self.edit(sheet, Recalc::All, |wb, _| create(wb).map(|(v, _)| v))?
+                } else {
+                    self.edit_light(sheet, Recalc::All, &quadrants, |wb, _, fx| {
+                        let (v, caches) = create(wb)?;
+                        fx.caches = super::light_undo::CacheUndo::Truncate(caches);
+                        Ok(v)
+                    })?
+                };
                 // A new sheet needs its own geometry slot.
                 self.invalidate(None);
                 Ok(out)
@@ -3984,7 +4179,16 @@ impl SheetEngine {
                 })
             }
             C::PivotDelete { sheet, index } => self.pivot_edit(sheet, |wb| {
+                // Its slicers and timelines go with it (or stay with their other pivot tables).
+                let name = wb
+                    .sheets
+                    .get(sheet)
+                    .and_then(|s| s.pivots.get(index))
+                    .map(|p| p.name.clone());
                 bo_sheet::pivot::delete_pivot(wb, sheet, index)?;
+                if let Some(name) = name {
+                    super::slicer_cmd::detach_frames(wb, &name);
+                }
                 Ok(json!({ "ok": true }))
             }),
             C::PivotMove {

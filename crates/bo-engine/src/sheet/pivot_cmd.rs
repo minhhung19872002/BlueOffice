@@ -372,9 +372,35 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
             })
         })
         .collect();
+    // Other pivot tables on the same cache (they share groupings and calculated fields).
+    let shared: Vec<Value> = wb
+        .sheets
+        .iter()
+        .enumerate()
+        .flat_map(|(si, ws)| {
+            ws.pivots
+                .iter()
+                .filter(|o| o.cache_id == p.cache_id && !std::ptr::eq(*o, p))
+                .map(move |o| json!({ "sheet": si, "sheetName": ws.name, "name": o.name }))
+        })
+        .collect();
+    // The value cells: below the header lines, right of the row labels (§18.10.1.49
+    // `location/@firstDataRow`, `@firstDataCol`).
+    let data_area = (!p.values.is_empty()).then(|| {
+        let first = CellRef::new(
+            p.location.first.row + p.first_data_row,
+            p.location.first.col + p.first_data_col,
+        );
+        bo_model::sheet::CellRange::new(first, p.location.last)
+    });
+    let data_area = data_area
+        .filter(|a| a.first.row <= a.last.row && a.first.col <= a.last.col)
+        .map(Rng::of);
     json!({
         "index": index,
         "name": p.name,
+        "sharedWith": shared,
+        "dataArea": data_area,
         "location": Rng::of(p.location),
         "area": Rng::of(bo_sheet::pivot::occupied(p)),
         "source": source,
@@ -481,6 +507,10 @@ impl SheetEngine {
                 CellRef::new(dest.row, dest.col),
                 labels,
             )?;
+            // Slicers and timelines name the pivot table by its sheet.
+            if let Some(name) = wb.sheets[dest.sheet].pivots.get(i).map(|p| p.name.clone()) {
+                super::slicer_cmd::sync_frames(wb, &name);
+            }
             Ok(json!({ "sheet": dest.sheet, "index": i }))
         })
     }

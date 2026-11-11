@@ -187,6 +187,40 @@ pub fn periods(wb: &Workbook, sheet: usize, index: usize, vi: bool) -> Vec<Perio
     out
 }
 
+/// Set the time level of timeline `index` (0 years, 1 quarters, 2 months, 3 days) and its
+/// caption and style (`None`: unchanged). The caller writes them into the parts of a timeline
+/// read from a file.
+///
+/// # Errors
+/// An unknown timeline or level.
+pub fn set_options(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    level: Option<u32>,
+    caption: Option<String>,
+    style: Option<String>,
+) -> Result<(), String> {
+    let t = wb
+        .sheets
+        .get_mut(sheet)
+        .and_then(|ws| ws.timelines.get_mut(index))
+        .ok_or("no such timeline")?;
+    if let Some(l) = level {
+        if l > 3 {
+            return Err("unknown time level".into());
+        }
+        t.level = l;
+    }
+    if let Some(c) = caption {
+        t.caption = c;
+    }
+    if let Some(st) = style {
+        t.style = (!st.is_empty()).then_some(st);
+    }
+    Ok(())
+}
+
 /// Filter timeline `index` to the days `start..=end` (serials), or clear it with `None`.
 ///
 /// # Errors
@@ -217,15 +251,7 @@ pub fn select(
         let mut spec = PivotSpec::of(&wb.sheets[si].pivots[pi]);
         spec.field_filters.retain(|f| f.field != field);
         if let Some((a, b)) = range {
-            spec.field_filters.push(PivotFieldFilter {
-                field,
-                kind: PivotFilterType::DateBetween,
-                measure: 0,
-                value1: a.min(b).to_string(),
-                value2: a.max(b).to_string(),
-                top: true,
-                count: 0.0,
-            });
+            spec.field_filters.push(between(field, a, b));
         }
         update_pivot(wb, si, pi, &spec, labels)?;
     }
@@ -239,4 +265,193 @@ pub fn select(
     }
     t.dirty = true;
     Ok(())
+}
+
+/// Whether cache field `f` holds dates: its number format is a date format, or every item
+/// that is not empty is a date value.
+fn is_date_field(wb: &Workbook, f: &bo_model::sheet::PivotCacheField) -> bool {
+    if f.derived || f.formula.is_some() {
+        return false;
+    }
+    if f.items.iter().any(|v| matches!(v, CellValue::Date(_))) {
+        return true;
+    }
+    let locale = crate::numfmt::Locale::EN_US;
+    let code = crate::numfmt::format_code(&wb.styles, f.num_fmt_id, &locale);
+    f.num_fmt_id != 0 && crate::numfmt::NumberFormat::parse_with(&code, &locale).is_date()
+}
+
+/// Insert a timeline over date field `field` of pivot table `pivot` of sheet `pivot_sheet`,
+/// placed at `at` (top-left cell) on sheet `sheet`, showing months. Returns the timeline's
+/// index on the sheet.
+///
+/// # Errors
+/// An unknown pivot table or field, a field without dates, or a pivot table over the data
+/// model.
+pub fn insert_timeline(
+    wb: &mut Workbook,
+    sheet: usize,
+    pivot_sheet: usize,
+    pivot: usize,
+    field: u32,
+    at: bo_model::sheet::CellRef,
+    labels: &PivotLabels,
+) -> Result<usize, String> {
+    if sheet >= wb.sheets.len() {
+        return Err("no such sheet".into());
+    }
+    let pt = wb
+        .sheets
+        .get(pivot_sheet)
+        .and_then(|s| s.pivots.get(pivot))
+        .ok_or("no such pivot table")?;
+    let (cache_id, pivot_name) = (pt.cache_id, pt.name.clone());
+    if crate::datamodel::pivot::is_model_cache(wb, cache_id) {
+        return Err("not available for a pivot table over the data model".into());
+    }
+    let f = wb
+        .pivot_caches
+        .iter()
+        .find(|c| c.cache_id == cache_id)
+        .and_then(|c| c.fields.get(field as usize))
+        .cloned()
+        .ok_or("unknown pivot field")?;
+    if !is_date_field(wb, &f) {
+        return Err("a timeline needs a date field".into());
+    }
+    // The dates come from the cache records when the field keeps no items.
+    if f.items.is_empty() {
+        crate::pivot::ensure_records(wb, pivot_sheet, pivot, labels)?;
+    }
+    crate::slicer::ensure_ext_id(wb, cache_id)?;
+    if let Some(c) = wb.pivot_caches.iter_mut().find(|c| c.cache_id == cache_id) {
+        c.timeline_data = true;
+    }
+    let clean: String = f
+        .name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    let stem = format!("NativeTimeline_{clean}");
+    let taken = |n: &str| {
+        wb.defined_names
+            .iter()
+            .any(|d| d.name.eq_ignore_ascii_case(n))
+            || wb
+                .sheets
+                .iter()
+                .flat_map(|s| &s.timelines)
+                .any(|t| t.cache.eq_ignore_ascii_case(n))
+    };
+    let cache = if taken(&stem) {
+        (1..10_000)
+            .map(|i| format!("{stem}{i}"))
+            .find(|n| !taken(n))
+            .unwrap_or(stem)
+    } else {
+        stem
+    };
+    let name = crate::slicer::frame_name(wb, &f.name);
+    wb.defined_names.push(bo_model::sheet::DefinedName {
+        name: cache.clone(),
+        formula: "#N/A".into(),
+        ..bo_model::sheet::DefinedName::default()
+    });
+    let list = &mut wb.sheets[sheet].timelines;
+    list.push(bo_model::sheet::Timeline {
+        name,
+        caption: f.name.clone(),
+        cache,
+        field: f.name,
+        pivots: vec![pivot_name],
+        level: 2,
+        from: at,
+        to: Some(bo_model::sheet::CellRef::new(at.row + 7, at.col + 6)),
+        style: Some("TimeSlicerStyleLight1".into()),
+        ..bo_model::sheet::Timeline::default()
+    });
+    Ok(list.len() - 1)
+}
+
+/// The date fields of pivot table `pivot` of sheet `sheet` a timeline can filter (cache field
+/// indexes).
+#[must_use]
+pub fn date_fields(wb: &Workbook, sheet: usize, pivot: usize) -> Vec<u32> {
+    let Some(pt) = wb.sheets.get(sheet).and_then(|s| s.pivots.get(pivot)) else {
+        return Vec::new();
+    };
+    wb.pivot_caches
+        .iter()
+        .find(|c| c.cache_id == pt.cache_id)
+        .map(|c| {
+            c.fields
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| is_date_field(wb, f))
+                .map(|(i, _)| i as u32)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Connect timeline `index` of sheet `sheet` to the pivot tables named `names` (all on the
+/// timeline's pivot cache; at least one). Newly connected pivot tables take the timeline's
+/// date range, disconnected ones lose it.
+///
+/// # Errors
+/// An empty list or a pivot table on another cache.
+pub fn connect(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    names: &[String],
+    labels: &PivotLabels,
+) -> Result<(), String> {
+    let t = wb
+        .sheets
+        .get(sheet)
+        .and_then(|ws| ws.timelines.get(index))
+        .cloned()
+        .ok_or("no such timeline")?;
+    if names.is_empty() {
+        return Err("a timeline filters at least one pivot table".into());
+    }
+    let all = crate::slicer::connectable(wb, &t.pivots);
+    if names.iter().any(|n| !all.iter().any(|(_, _, x, _)| x == n)) {
+        return Err("the pivot table uses other data".into());
+    }
+    let (_, field, _) = dates(wb, sheet, index).ok_or("timeline field missing")?;
+    let sys = system(wb);
+    let range = t
+        .start
+        .as_deref()
+        .and_then(|a| iso_serial(a, sys))
+        .zip(t.end.as_deref().and_then(|b| iso_serial(b, sys)));
+    wb.sheets[sheet].timelines[index].pivots = names.to_vec();
+    for (si, pi, name, was) in all {
+        let now = names.contains(&name);
+        if now == was {
+            continue;
+        }
+        let mut spec = PivotSpec::of(&wb.sheets[si].pivots[pi]);
+        spec.field_filters
+            .retain(|f| !(f.field == field && f.kind == PivotFilterType::DateBetween));
+        if let (true, Some((a, b))) = (now, range) {
+            spec.field_filters.push(between(field, a, b));
+        }
+        update_pivot(wb, si, pi, &spec, labels)?;
+    }
+    Ok(())
+}
+
+fn between(field: u32, a: f64, b: f64) -> PivotFieldFilter {
+    PivotFieldFilter {
+        field,
+        kind: PivotFilterType::DateBetween,
+        measure: 0,
+        value1: a.min(b).to_string(),
+        value2: a.max(b).to_string(),
+        top: true,
+        count: 0.0,
+    }
 }

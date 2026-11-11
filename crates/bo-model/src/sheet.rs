@@ -1805,6 +1805,9 @@ pub struct Timeline {
     pub part: String,
     /// The selection changed since the file was read.
     pub dirty: bool,
+    /// `timeline/@style`.
+    #[serde(default)]
+    pub style: Option<String>,
 }
 
 /// Kind of a sparkline group ([MS-XLSX] `ST_SparklineType`).
@@ -2248,6 +2251,14 @@ pub struct PivotCache {
     /// from `worksheetSource`.
     #[serde(default)]
     pub model: bool,
+    /// `x14:pivotCacheDefinition/@pivotCacheId` ([MS-XLSX] pivot cache definition extension):
+    /// the id slicer caches (`tabular/@pivotCacheId`) and timeline caches
+    /// (`state/@pivotCacheId`) name the cache by.
+    #[serde(default)]
+    pub ext_id: Option<u32>,
+    /// `x15:timelinePivotCacheDefinition/@timelineData` ([MS-XLSX]): a timeline uses the cache.
+    #[serde(default)]
+    pub timeline_data: bool,
 }
 
 /// A cache field (§18.10.1.3 `cacheField`).

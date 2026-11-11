@@ -1003,7 +1003,7 @@ fn named_element(text: &str, local: &str, name: &str) -> Option<usize> {
 }
 
 /// Byte range and qualified name of the drawing anchor holding byte `id_at`.
-fn anchor_span_at(text: &str, id_at: usize) -> Option<(usize, usize, String)> {
+pub(crate) fn anchor_span_at(text: &str, id_at: usize) -> Option<(usize, usize, String)> {
     let head = &text[..id_at];
     let (start, qname) = ["twoCellAnchor", "oneCellAnchor", "absoluteAnchor"]
         .iter()

@@ -208,3 +208,235 @@ fn pivot_slicer_hides_items_in_the_pivot() {
     assert!(shows("Nam"));
     assert!(!shows("Bắc"));
 }
+
+fn part_text(bytes: &[u8], name: &str) -> Option<String> {
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+    pkg.part(name)
+        .map(|p| String::from_utf8(p.data.clone()).unwrap())
+}
+
+fn part_names(bytes: &[u8]) -> Vec<String> {
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+    pkg.parts().iter().map(|p| p.name.clone()).collect()
+}
+
+/// A slicer inserted over a field of a pivot table read from a file: the slicer cache names
+/// the pivot cache by the `x14:pivotCacheDefinition` id added to the cache definition, lists
+/// the pivot table and the items; the choice, the options and the deletion survive saving.
+#[test]
+fn pivot_slicer_is_created_saved_edited_and_deleted() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/sheet/writer-pivots-1.xlsx");
+    let original = std::fs::read(path).unwrap();
+    let mut wb = read_xlsx(&original).unwrap();
+    let labels = PivotLabels::default();
+    let locale = Locale::VI_VN;
+    let (si, pivot) = wb
+        .sheets
+        .iter()
+        .enumerate()
+        .find_map(|(i, s)| s.pivots.first().map(|p| (i, p.clone())))
+        .unwrap();
+    let cache = wb
+        .pivot_caches
+        .iter()
+        .find(|c| c.cache_id == pivot.cache_id)
+        .unwrap();
+    assert_eq!(cache.ext_id, None);
+    let cache_part = cache.part.clone();
+    let field = cache.fields.iter().position(|f| f.name == "Vùng").unwrap() as u32;
+    let i = bo_sheet::slicer::insert_pivot_slicer(
+        &mut wb,
+        si,
+        si,
+        0,
+        field,
+        CellRef::new(1, 6),
+        &labels,
+    )
+    .unwrap();
+    // The cache part is kept as read and only gets the extension.
+    let bytes = write_xlsx(&wb).unwrap();
+    let def = part_text(&bytes, &cache_part).unwrap();
+    assert!(
+        def.contains(r#"<x14:pivotCacheDefinition pivotCacheId="1"/>"#),
+        "{def}"
+    );
+    assert_eq!(def.matches("<extLst>").count(), 1);
+    let names = part_names(&bytes);
+    let slicer_cache = names
+        .iter()
+        .find(|n| n.starts_with("/xl/slicerCaches/"))
+        .unwrap();
+    let xml = part_text(&bytes, slicer_cache).unwrap();
+    let sheet_id = wb.sheets[si].sheet_id;
+    assert!(
+        xml.contains(&format!(
+            r#"<pivotTables><pivotTable tabId="{sheet_id}" name="{}"/></pivotTables>"#,
+            pivot.name
+        )),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(
+            r#"<data><tabular pivotCacheId="1"><items count="3"><i x="0" s="1"/><i x="1" s="1"/><i x="2" s="1"/></items></tabular></data>"#
+        ),
+        "{xml}"
+    );
+    let workbook = part_text(&bytes, "/xl/workbook.xml").unwrap();
+    assert!(workbook.contains("{BBE1A952-AA13-448e-AADC-164F8A28A991}"));
+    assert!(workbook.contains("<x14:slicerCaches><x14:slicerCache r:id="));
+    let back = read_xlsx(&bytes).unwrap();
+    let s = &back.sheets[si].slicers[i];
+    assert_eq!((s.name.as_str(), s.cache.as_str()), ("Vùng", "Slicer_Vùng"));
+    assert_eq!(s.from, CellRef::new(1, 6));
+    assert_eq!(s.style.as_deref(), Some("SlicerStyleLight1"));
+    match &s.source {
+        SlicerSource::Pivot {
+            field,
+            pivots,
+            cache_id,
+            items,
+        } => {
+            assert_eq!(field, "Vùng");
+            assert_eq!(pivots.as_slice(), std::slice::from_ref(&pivot.name));
+            assert_eq!(*cache_id, 1);
+            assert_eq!(items, &[(0, true), (1, true), (2, true)]);
+        }
+        other @ SlicerSource::Table { .. } => panic!("{other:?}"),
+    }
+    let back_cache = back
+        .pivot_caches
+        .iter()
+        .find(|c| c.cache_id == pivot.cache_id)
+        .unwrap();
+    assert_eq!(back_cache.ext_id, Some(1));
+    assert!(back.defined_names.iter().any(|d| d.name == "Slicer_Vùng"));
+
+    // Choosing "Nam" in the file slicer refreshes the cache (now written whole, with the
+    // extension) and stores the choice in the slicer cache.
+    let mut back = back;
+    bo_sheet::slicer::select(&mut back, si, i, &["Nam".into()], &locale, &labels).unwrap();
+    let bytes = write_xlsx(&back).unwrap();
+    let def = part_text(&bytes, &cache_part).unwrap();
+    assert!(def.contains(r#"<x14:pivotCacheDefinition pivotCacheId="1"/>"#));
+    let mut again = read_xlsx(&bytes).unwrap();
+    let chosen: Vec<(String, bool)> = bo_sheet::slicer::items(&again, si, i, &locale)
+        .into_iter()
+        .map(|x| (x.label, x.selected))
+        .collect();
+    assert_eq!(
+        chosen,
+        [
+            ("Bắc".to_owned(), false),
+            ("Nam".to_owned(), true),
+            ("Trung".to_owned(), false)
+        ]
+    );
+
+    // Caption, columns and style of the slicer read from the file.
+    bo_sheet::slicer::set_options(
+        &mut again,
+        si,
+        i,
+        Some("Khu vực & miền".into()),
+        Some(2),
+        Some("SlicerStyleDark2".into()),
+    )
+    .unwrap();
+    bo_xlsx::slicer::patch_slicer(&mut again, si, i);
+    let bytes = write_xlsx(&again).unwrap();
+    // `BO_SLICER_OUT=<dir>` keeps the files for the OpenXmlValidator (`bo-cli validate`).
+    if let Ok(dir) = std::env::var("BO_SLICER_OUT") {
+        std::fs::write(format!("{dir}/pivot-slicer-edited.xlsx"), &bytes).unwrap();
+    }
+    let mut third = read_xlsx(&bytes).unwrap();
+    let s = &third.sheets[si].slicers[i];
+    assert_eq!(s.caption, "Khu vực & miền");
+    assert_eq!(s.columns, 2);
+    assert_eq!(s.style.as_deref(), Some("SlicerStyleDark2"));
+    assert_eq!(s.name, "Vùng");
+
+    // Deleting it removes its frame, both parts, their relationships and extension entries.
+    assert!(bo_xlsx::slicer::remove_slicer(&mut third, si, i));
+    let bytes = write_xlsx(&third).unwrap();
+    if let Ok(dir) = std::env::var("BO_SLICER_OUT") {
+        std::fs::write(format!("{dir}/pivot-slicer-deleted.xlsx"), &bytes).unwrap();
+    }
+    let names = part_names(&bytes);
+    assert!(
+        !names.iter().any(|n| n.to_lowercase().contains("slicer")),
+        "{names:?}"
+    );
+    let workbook = part_text(&bytes, "/xl/workbook.xml").unwrap();
+    assert!(!workbook.contains("slicerCache"), "{workbook}");
+    assert!(!workbook.contains("Slicer_"), "{workbook}");
+    for n in names.iter().filter(|n| n.starts_with("/xl/worksheets/")) {
+        let text = part_text(&bytes, n).unwrap();
+        assert!(!text.contains("slicerList"), "{n}: {text}");
+    }
+    for n in names.iter().filter(|n| n.starts_with("/xl/drawings/")) {
+        let text = part_text(&bytes, n).unwrap();
+        assert!(!text.contains("slicer"), "{n}: {text}");
+    }
+    let last = read_xlsx(&bytes).unwrap();
+    assert!(last.sheets.iter().all(|s| s.slicers.is_empty()));
+    // The pivot table itself is untouched by the deletion.
+    assert_eq!(last.sheets[si].pivots.len(), 1);
+    assert!(read_xlsx(&write_xlsx(&last).unwrap()).is_ok());
+}
+
+/// Two slicers on one sheet, one deleted: the slicers part stays with the other one; a second
+/// new slicer goes into the list of the sheet's existing extension.
+#[test]
+fn deleting_one_of_two_file_slicers_keeps_the_other() {
+    let mut wb = book();
+    bo_sheet::slicer::insert_table_slicer(&mut wb, 0, 1, 1, CellRef::new(0, 3)).unwrap();
+    bo_sheet::slicer::insert_table_slicer(&mut wb, 0, 1, 2, CellRef::new(0, 6)).unwrap();
+    let mut back = read_xlsx(&write_xlsx(&wb).unwrap()).unwrap();
+    assert_eq!(back.sheets[0].slicers.len(), 2);
+    assert!(bo_xlsx::slicer::remove_slicer(&mut back, 0, 0));
+    let bytes = write_xlsx(&back).unwrap();
+    let names = part_names(&bytes);
+    assert_eq!(
+        names
+            .iter()
+            .filter(|n| n.starts_with("/xl/slicerCaches/") && n.ends_with(".xml"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        names
+            .iter()
+            .filter(|n| n.starts_with("/xl/slicers/") && n.ends_with(".xml"))
+            .count(),
+        1
+    );
+    let mut again = read_xlsx(&bytes).unwrap();
+    assert_eq!(again.sheets[0].slicers.len(), 1);
+    assert_eq!(again.sheets[0].slicers[0].caption, "Doanh số");
+    assert!(!again.defined_names.iter().any(|d| d.name == "Slicer_Vùng"));
+    // A new slicer next to the file one: one extension of the sheet lists both parts.
+    bo_sheet::slicer::insert_table_slicer(&mut again, 0, 1, 1, CellRef::new(0, 9)).unwrap();
+    let bytes = write_xlsx(&again).unwrap();
+    if let Ok(dir) = std::env::var("BO_SLICER_OUT") {
+        std::fs::write(format!("{dir}/table-slicers-file-and-new.xlsx"), &bytes).unwrap();
+    }
+    let sheet = part_text(&bytes, "/xl/worksheets/sheet1.xml").unwrap();
+    assert_eq!(
+        sheet
+            .matches("{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}")
+            .count(),
+        1
+    );
+    assert_eq!(sheet.matches("<x14:slicer r:id=").count(), 2);
+    let workbook = part_text(&bytes, "/xl/workbook.xml").unwrap();
+    assert_eq!(
+        workbook
+            .matches("{46F421CA-312F-682f-3DD2-61675219B42D}")
+            .count(),
+        1
+    );
+    assert_eq!(workbook.matches("<x14:slicerCache r:id=").count(), 2);
+    assert_eq!(read_xlsx(&bytes).unwrap().sheets[0].slicers.len(), 2);
+}

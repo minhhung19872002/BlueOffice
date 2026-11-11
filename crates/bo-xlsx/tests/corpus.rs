@@ -3035,6 +3035,8 @@ const WRITER_FEATURES: &[WriterFeature] = &[
     ("writer-pivot-datarows", "BlueSheet writer: value fields on rows (tabular; compact × columns; outline with three values)", writer_pivot_datarows),
     ("writer-pivot-charts", "BlueSheet writer: pivot charts (column; line following a hidden item; combo with field buttons)", writer_pivot_charts),
     ("writer-slicers", "BlueSheet writer: table slicers (one slicer; filtered to one item; two slicers on two columns, both filtered)", writer_slicers),
+    ("writer-pivot-slicers", "BlueSheet writer: pivot table slicers (a field outside the report; filtered to one item, two columns, dark style; one slicer driving two pivot tables on a shared cache + a second slicer)", writer_pivot_slicers),
+    ("writer-timelines", "BlueSheet writer: timelines (months, no filter; years, filtered to 2024; quarters over a grouped date field, filtered, next to a slicer)", writer_timelines),
     ("writer-cf-databars", "BlueSheet writer: data bars with negative values (automatic axis + gradient, all-negative, all-positive; middle axis, solid fill, borders, own negative colours; right-to-left, no axis, percent / percentile / formula thresholds, bar only) as 2006 dataBar + x14:dataBar", cf_corpus::writer_cf_databars),
     ("writer-cf-icons", "BlueSheet writer: every icon set family (ten 3-icon sets incl. x14 3Stars / 3Triangles; 4-icon sets plain and reversed; 5-icon sets incl. x14 5Boxes, number / percentile / formula thresholds, icon only)", cf_corpus::writer_cf_icons),
     ("writer-cf-custom", "BlueSheet writer: custom icon sets (x14:cfIcon, NoIcons) under a Stop If True rule; three rules re-ordered with Stop If True; mixed custom icons + colour scale under a stopping top-N rule", cf_corpus::writer_cf_custom),
@@ -3287,6 +3289,139 @@ fn writer_slicers(i: usize) -> m::Workbook {
         let b =
             bo_sheet::slicer::insert_table_slicer(&mut wb, 0, 1, 2, m::CellRef::new(0, 8)).unwrap();
         bo_sheet::slicer::select(&mut wb, 0, b, &["Online".into()], &locale, &labels).unwrap();
+    }
+    wb
+}
+
+/// Pivot table slicers inserted with `bo_sheet::slicer::insert_pivot_slicer` ([MS-XLSX] slicer
+/// cache with `pivotTables` and `tabular` items; each file one variant).
+fn writer_pivot_slicers(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, PivotSpec};
+    use bo_sheet::slicer::{connect, insert_pivot_slicer, select, set_options};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let locale = bo_sheet::numfmt::Locale::VI_VN;
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let revenue = pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu");
+    let by_product = PivotSpec {
+        rows: vec![1],
+        values: vec![revenue.clone()],
+        ..PivotSpec::default()
+    };
+    create_pivot(
+        &mut wb,
+        0,
+        source,
+        1,
+        m::CellRef::new(0, 0),
+        &by_product,
+        &labels,
+    )
+    .unwrap();
+    // The slicer's field "Vùng" is not in the report.
+    let s = insert_pivot_slicer(&mut wb, 1, 1, 0, 0, m::CellRef::new(0, 6), &labels).unwrap();
+    if i == 2 {
+        select(&mut wb, 1, s, &["Nam".into()], &locale, &labels).unwrap();
+        set_options(
+            &mut wb,
+            1,
+            s,
+            None,
+            Some(2),
+            Some("SlicerStyleDark2".into()),
+        )
+        .unwrap();
+    }
+    if i == 3 {
+        let by_qty = PivotSpec {
+            rows: vec![1],
+            values: vec![pivot_value(4, m::PivotFunction::Sum, "Tổng Số lượng")],
+            ..PivotSpec::default()
+        };
+        create_pivot(
+            &mut wb,
+            0,
+            source,
+            1,
+            m::CellRef::new(9, 0),
+            &by_qty,
+            &labels,
+        )
+        .unwrap();
+        let names: Vec<String> = wb.sheets[1].pivots.iter().map(|p| p.name.clone()).collect();
+        connect(&mut wb, 1, s, &names, &labels).unwrap();
+        select(
+            &mut wb,
+            1,
+            s,
+            &["Bắc".into(), "Trung".into()],
+            &locale,
+            &labels,
+        )
+        .unwrap();
+        let p = insert_pivot_slicer(&mut wb, 1, 1, 0, 1, m::CellRef::new(0, 9), &labels).unwrap();
+        select(
+            &mut wb,
+            1,
+            p,
+            &["Gạo".into(), "Chè".into()],
+            &locale,
+            &labels,
+        )
+        .unwrap();
+    }
+    wb
+}
+
+/// Timelines inserted with `bo_sheet::timeline::insert_timeline` ([MS-XLSX] timeline cache
+/// and timelines parts; each file one variant).
+fn writer_timelines(i: usize) -> m::Workbook {
+    use bo_sheet::pivot::{create_pivot, group_field, GroupRequest, PivotSpec};
+    use bo_sheet::timeline::{insert_timeline, periods, select, set_options};
+    let mut wb = pivot_book();
+    let labels = pivot_labels();
+    let source = m::CellRange::parse("A1:E31").unwrap();
+    let spec = PivotSpec {
+        rows: vec![if i == 3 { 2 } else { 0 }],
+        values: vec![pivot_value(3, m::PivotFunction::Sum, "Tổng Doanh thu")],
+        ..PivotSpec::default()
+    };
+    create_pivot(&mut wb, 0, source, 1, m::CellRef::new(0, 0), &spec, &labels).unwrap();
+    if i == 3 {
+        let by = GroupRequest::Dates {
+            years: true,
+            quarters: false,
+            months: true,
+            days: false,
+        };
+        group_field(&mut wb, 1, 0, 2, &by, &labels).unwrap();
+    }
+    let t = insert_timeline(&mut wb, 1, 1, 0, 2, m::CellRef::new(0, 5), &labels).unwrap();
+    let pick = |wb: &mut m::Workbook, level: u32, label: &str| {
+        set_options(wb, 1, t, Some(level), None, None).unwrap();
+        let p = periods(wb, 1, t, true);
+        let hit = p.iter().find(|x| x.label == label).unwrap();
+        let range = Some((hit.start, hit.end));
+        select(wb, 1, t, range, &labels).unwrap();
+    };
+    match i {
+        2 => pick(&mut wb, 0, "2024"),
+        3 => {
+            pick(&mut wb, 1, "Quý 2 2023");
+            let locale = bo_sheet::numfmt::Locale::VI_VN;
+            let s = bo_sheet::slicer::insert_pivot_slicer(
+                &mut wb,
+                1,
+                1,
+                0,
+                0,
+                m::CellRef::new(9, 5),
+                &labels,
+            )
+            .unwrap();
+            bo_sheet::slicer::select(&mut wb, 1, s, &["Bắc".into()], &locale, &labels).unwrap();
+        }
+        _ => {}
     }
     wb
 }

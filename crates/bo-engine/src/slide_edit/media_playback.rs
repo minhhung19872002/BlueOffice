@@ -475,6 +475,7 @@ pub(crate) fn start_effect(id: u32, mode: &str) -> R<Animation> {
         repeat: None,
         trigger_shape: shape,
         trigger_bookmark: None,
+        iterate: None,
         source: Some(media_call(id, cmd, preset)?),
     })
 }

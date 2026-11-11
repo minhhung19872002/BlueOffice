@@ -133,6 +133,12 @@ export interface AnimationPaneProps {
   pickSound?: () => Promise<{ bytes: Uint8Array; name: string } | null>;
   /** Inside a task pane (CORE-UI-006): the host draws the title bar and close button. */
   embedded?: boolean;
+  /** Start drawing a motion path for the selection (command `anim.drawPath`). */
+  onDrawPath?: () => void;
+  /** Effect whose motion path points are edited on the slide. */
+  editingPath?: number | null;
+  /** Edit the points of effect `index` on the slide (`null`: stop). */
+  onEditPath?: (index: number | null) => void;
 }
 
 /** Effect label of an animation (`Xuất hiện`, `Mờ dần (biến mất)`, …). */
@@ -164,6 +170,9 @@ export function AnimationPane({
   previewToken,
   pickSound,
   embedded = false,
+  onDrawPath,
+  editingPath = null,
+  onEditPath,
 }: AnimationPaneProps) {
   const { t } = useTranslation();
   const label = useEffectLabel();
@@ -407,6 +416,10 @@ export function AnimationPane({
             onChange={(e) => {
               const [cls, effect] = e.target.value.split(':');
               if (!effect) return;
+              if (effect === 'customPath') {
+                onDrawPath?.();
+                return;
+              }
               run({
                 cmd: 'addAnimation',
                 effect: effect as SlideAnimEffect,
@@ -429,6 +442,9 @@ export function AnimationPane({
                     {t(`slideEditor.effect.${e}`)}
                   </option>
                 ))}
+                {cls === 'path' && onDrawPath && (
+                  <option value="path:customPath">{t('slideEditor.drawPath')}</option>
+                )}
               </optgroup>
             ))}
           </select>
@@ -480,7 +496,7 @@ export function AnimationPane({
                         </option>
                       ))}
                     </select>
-                    {a.effect !== 'other' && (
+                    {a.effect !== 'other' && a.effect !== 'customPath' && (
                       <select
                         aria-label={t('slideEditor.transitionEffect')}
                         data-testid={`anim-effect-${a.index}`}
@@ -507,6 +523,73 @@ export function AnimationPane({
                           </option>
                         ))}
                       </select>
+                    )}
+                    {a.class !== 'path' && !a.mediaCmd && (
+                      <select
+                        aria-label={t('slideEditor.textBy')}
+                        data-testid={`anim-text-by-${a.index}`}
+                        value={a.textBy === 'wd' ? 'word' : a.textBy === 'lt' ? 'letter' : 'all'}
+                        onChange={(e) =>
+                          set({ textBy: e.target.value as 'all' | 'word' | 'letter' })
+                        }
+                      >
+                        {(['all', 'word', 'letter'] as const).map((o) => (
+                          <option key={o} value={o}>
+                            {t(`slideEditor.textByOpt.${o}`)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {(a.textBy === 'wd' || a.textBy === 'lt') && (
+                      <label>
+                        {t('slideEditor.textDelayPct')}
+                        <input
+                          key={`p-${a.index}-${a.textStepMs ?? 0}`}
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          data-testid={`anim-text-delay-${a.index}`}
+                          defaultValue={
+                            a.durMs > 0 ? Math.round((100 * (a.textStepMs ?? 0)) / a.durMs) : 0
+                          }
+                          onBlur={(e) => {
+                            const v = Math.round(Number(e.target.value));
+                            if (Number.isFinite(v) && v >= 0)
+                              set({ textDelayPct: Math.min(100, v) });
+                          }}
+                        />
+                      </label>
+                    )}
+                    {a.class === 'path' && a.path && (
+                      <span className={styles.animButtons}>
+                        <button
+                          type="button"
+                          data-testid={`anim-reverse-path-${a.index}`}
+                          onClick={() => set({ reversePath: true })}
+                        >
+                          {t('slideEditor.reversePath')}
+                        </button>
+                        <label className={styles.check}>
+                          <input
+                            type="checkbox"
+                            data-testid={`anim-lock-path-${a.index}`}
+                            checked={a.pathLocked === true}
+                            onChange={(e) => set({ lockPath: e.target.checked })}
+                          />
+                          {t('slideEditor.lockPath')}
+                        </label>
+                        {onEditPath && (
+                          <button
+                            type="button"
+                            data-testid={`anim-edit-path-${a.index}`}
+                            aria-pressed={editingPath === a.index}
+                            onClick={() => onEditPath(editingPath === a.index ? null : a.index)}
+                          >
+                            {t('slideEditor.editPathPoints')}
+                          </button>
+                        )}
+                      </span>
                     )}
                     <label>
                       {t('slideEditor.durationSec')}

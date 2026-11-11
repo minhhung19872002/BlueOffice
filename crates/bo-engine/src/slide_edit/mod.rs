@@ -13,6 +13,7 @@
 
 pub mod action;
 pub mod album;
+pub mod anim_text;
 pub mod build;
 pub mod chart;
 pub mod clip;
@@ -1469,7 +1470,9 @@ impl SlideEditor {
         let before = self.sel.clone();
         let mut sel = self.sel.clone();
         let mut tx = Tx::new(pres);
-        let res = f(&mut tx, &mut sel).and_then(|()| reroute_connectors(&mut tx));
+        let res = f(&mut tx, &mut sel)
+            .and_then(|()| reroute_connectors(&mut tx))
+            .and_then(|()| show::keep_locked_paths(&mut tx));
         match res {
             Ok(()) => {
                 let ops = std::mem::take(&mut tx.ops);
@@ -4842,12 +4845,24 @@ impl Engine {
                 ids: show::layer_ids(pres, slide, *r),
                 backdrop: r.backdrop,
                 page,
+                text: None,
             });
         }
         let mut animations = show::animations_out(pres, slide);
         for a in &mut animations {
             a.layer = show::layer_of(pres, slide, &ranges, a.shape_id);
         }
+        // Layers of effects run word by word / letter by letter: their letters (§19.5 iterate).
+        for (li, l) in layers.iter_mut().enumerate() {
+            if animations
+                .iter()
+                .any(|a| a.layer == Some(li) && a.text_by.is_some())
+            {
+                l.text = anim_text::split_text(&l.page);
+            }
+        }
+        self.tint_animations(slide, &ranges, &mut animations);
+        let pres = self.pres.as_ref()?;
         let (width, height) = slide_size(pres);
         Some(show::ShowOut {
             slide,
@@ -4875,6 +4890,68 @@ impl Engine {
             media: media::media_out(pres, slide),
             morph: self.morph_out(slide),
         })
+    }
+
+    /// The colour changes of the effects (§19.5.2 animClr with an sRGB target): each effect's
+    /// layer drawn in the colours it ends on, after the changes of the effects before it on the
+    /// same shape.
+    fn tint_animations(
+        &mut self,
+        slide: usize,
+        ranges: &[bo_pptx::ShapeRange],
+        animations: &mut [show::AnimOut],
+    ) {
+        use bo_pptx::anim_play::TrackKind;
+        // Colour changes so far, by shape.
+        let mut so_far: Vec<(u32, String, u32)> = Vec::new();
+        for a in animations.iter_mut() {
+            let own: Vec<(String, u32)> = a
+                .play
+                .tracks
+                .iter()
+                .filter_map(|t| match &t.kind {
+                    TrackKind::Color { attr, to: Some(c) } => Some((attr.clone(), *c)),
+                    _ => None,
+                })
+                .collect();
+            if own.is_empty() {
+                continue;
+            }
+            for (attr, c) in &own {
+                so_far.push((a.shape_id, attr.clone(), *c));
+            }
+            let (Some(layer), Some(pres)) = (a.layer, self.pres.as_mut()) else {
+                continue;
+            };
+            let (Some(range), Some(ti)) = (
+                ranges.get(layer).copied(),
+                show::top_index(pres, slide, a.shape_id),
+            ) else {
+                continue;
+            };
+            let Some(orig) = pres
+                .slides
+                .get(slide)
+                .and_then(|s| s.data.shapes.get(ti))
+                .cloned()
+            else {
+                continue;
+            };
+            let mut node = orig.clone();
+            for (id, attr, c) in &so_far {
+                anim_text::tint_id(&mut node, *id, attr, *c);
+            }
+            // Drawn with the shape swapped for its tinted copy, then put back.
+            pres.slides[slide].data.shapes[ti] = node;
+            let opts = bo_pptx::RenderOptions {
+                layer: Some(range),
+                followed: self.slides.followed.clone(),
+                ..bo_pptx::RenderOptions::default()
+            };
+            a.tint =
+                bo_pptx::render_with(pres, slide, &mut self.fonts, &mut self.images, &opts).ok();
+            pres.slides[slide].data.shapes[ti] = orig;
+        }
     }
 
     /// Morph into `slide` from the slide before it: matched shapes drawn on both slides, the
@@ -4911,15 +4988,51 @@ impl Engine {
             pairs: Vec::new(),
             gone: Vec::new(),
             new: Vec::new(),
+            gone_text: Vec::new(),
+            new_text: Vec::new(),
             option: t.dir.unwrap_or_else(|| "byObject".into()),
         };
+        // By word / by character: the shapes' text moves piece by piece ([MS-PPTX] morph@option).
+        let by = match out.option.as_str() {
+            "byWord" => Some(true),
+            "byChar" => Some(false),
+            _ => None,
+        };
         for &(i, j) in &pairs {
+            let from_page = draw(prev, one(a[i].index))?;
+            let to_page = draw(slide, one(b[j].index))?;
+            let split = by.and_then(|w| {
+                Some((
+                    w,
+                    anim_text::split_text(&from_page)?,
+                    anim_text::split_text(&to_page)?,
+                ))
+            });
+            let Some((by_word, sa, sb)) = split else {
+                out.pairs.push(morph::MorphPair {
+                    from: morph::box5(&a[i].b),
+                    to: morph::box5(&b[j].b),
+                    from_page,
+                    to_page,
+                    clip: None,
+                });
+                continue;
+            };
+            // The shape without its text morphs as an object; its words / letters on their own.
             out.pairs.push(morph::MorphPair {
                 from: morph::box5(&a[i].b),
                 to: morph::box5(&b[j].b),
-                from_page: draw(prev, one(a[i].index))?,
-                to_page: draw(slide, one(b[j].index))?,
+                from_page: sa.body.clone(),
+                to_page: sb.body.clone(),
+                clip: None,
             });
+            let moved = morph::text_pairs(
+                &anim_text::grouped(&sa, by_word),
+                &anim_text::grouped(&sb, by_word),
+                &mut out.gone_text,
+                &mut out.new_text,
+            );
+            out.pairs.extend(moved);
         }
         let count = |s: usize| pres.slides.get(s).map_or(0, |x| x.data.shapes.len());
         for k in 0..count(prev) {

@@ -2473,7 +2473,8 @@
       "diamondPath": "Diamond path",
       "triangle": "Triangle",
       "loop": "Loop",
-      "wave": "Wave"
+      "wave": "Wave",
+      "customPath": "Custom path"
     },
     "effectOut": {
       "fade": "Fade out",
@@ -2727,6 +2728,20 @@
     "triggerSequence": "As part of the click sequence",
     "triggerOnClickOf": "On click of {{name}}",
     "painter": "Copy effects",
+    "textBy": "Animate text",
+    "textByOpt": {
+      "all": "All at once",
+      "word": "By word",
+      "letter": "By letter"
+    },
+    "textDelayPct": "Delay between parts (%)",
+    "reversePath": "Reverse path direction",
+    "lockPath": "Lock path",
+    "editPathPoints": "Edit path points",
+    "drawPath": "Draw motion path",
+    "drawPathHint": "Click to add points, drag to draw freehand; double-click or Enter to finish, Esc to cancel.",
+    "motionPath": "Motion path of {{name}}",
+    "pathPoint": "Point {{n}} of the motion path",
     "painterPick": "Pick the shape that gets the effects…",
     "views": {
       "outline": "Outline",

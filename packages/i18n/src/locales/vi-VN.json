@@ -2473,7 +2473,8 @@
       "diamondPath": "Hình thoi (đường)",
       "triangle": "Tam giác",
       "loop": "Vòng lặp",
-      "wave": "Sóng"
+      "wave": "Sóng",
+      "customPath": "Đường tự vẽ"
     },
     "effectOut": {
       "fade": "Mờ đi",
@@ -2727,6 +2728,20 @@
     "triggerSequence": "Theo trình tự bấm",
     "triggerOnClickOf": "Khi bấm vào {{name}}",
     "painter": "Chép hiệu ứng",
+    "textBy": "Hiệu ứng chữ",
+    "textByOpt": {
+      "all": "Cả khối",
+      "word": "Theo từ",
+      "letter": "Theo chữ cái"
+    },
+    "textDelayPct": "Trễ giữa các phần (%)",
+    "reversePath": "Đảo hướng đường",
+    "lockPath": "Khoá đường",
+    "editPathPoints": "Sửa điểm đường",
+    "drawPath": "Vẽ đường chuyển động",
+    "drawPathHint": "Bấm để thêm điểm, kéo để vẽ tự do; bấm đúp hoặc Enter để kết thúc, Esc để huỷ.",
+    "motionPath": "Đường chuyển động của {{name}}",
+    "pathPoint": "Điểm {{n}} của đường chuyển động",
     "painterPick": "Chọn đối tượng nhận hiệu ứng…",
     "views": {
       "outline": "Dàn ý",

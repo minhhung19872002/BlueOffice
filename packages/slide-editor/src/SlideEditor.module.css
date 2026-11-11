@@ -1062,3 +1062,53 @@ circle.handle {
 .designIdea:focus-visible {
   border-color: var(--bo-slide-accent, #c2185b);
 }
+
+/* Motion paths of the selected shape (§19.5.4), their point editor and the drawing tool. */
+.motionPaths,
+.motionDraw {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.motionDraw {
+  pointer-events: all;
+  cursor: crosshair;
+  outline: none;
+}
+
+.motionLine {
+  fill: none;
+  stroke: var(--bo-accent, #2b6cb0);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.motionStart {
+  fill: #2f9e44;
+  stroke: #fff;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.motionEnd {
+  fill: #e03131;
+  stroke: #fff;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.motionPoint {
+  fill: #fff;
+  stroke: var(--bo-accent, #2b6cb0);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.motionGrab {
+  pointer-events: all;
+  cursor: move;
+}

@@ -708,6 +708,38 @@ fn animations_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// Text, drawn paths, colour and Morph by word (SLIDE-ANIM-003/004): slide 1 has a title faded
+/// in word by word, a line flown in letter by letter, a shape on a motion path drawn by the
+/// author (reversed and locked) and a fill colour change; slide 2 morphs into slide 3 word by word.
+pub const ANIM_TEXT_DECK: &str = "slide-edit-anim-text-paths.pptx";
+
+fn anim_text_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    let cmds = [
+        r#"{"cmd":"addSlide"}"#,
+        r#"{"cmd":"insertTextBox","text":"Doanh thu quý ba tăng mạnh","rect":{"x":60,"y":60,"w":600,"h":60}}"#,
+        r#"{"cmd":"addAnimation","effect":"fade","textBy":"word","durMs":600}"#,
+        r#"{"cmd":"insertTextBox","text":"Từng chữ một","rect":{"x":60,"y":160,"w":400,"h":50}}"#,
+        r#"{"cmd":"addAnimation","effect":"flyIn","direction":"b","textBy":"letter","textDelayPct":20,"durMs":400,"trigger":"afterPrevious"}"#,
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":80,"y":300,"w":80,"h":80}}"#,
+        r#"{"cmd":"addAnimation","effect":"customPath","path":"M 0 0 L 0.2 0.05 C 0.3 0.1 0.35 0.2 0.4 0.1 L 0.5 0 E","durMs":1500}"#,
+        r#"{"cmd":"setAnimation","index":2,"reversePath":true,"lockPath":true}"#,
+        r#"{"cmd":"insertShape","preset":"roundRect","rect":{"x":600,"y":300,"w":160,"h":90}}"#,
+        r#"{"cmd":"addAnimation","effect":"fillColor","direction":"00B050"}"#,
+        r#"{"cmd":"addSlide"}"#,
+        r#"{"cmd":"insertTextBox","text":"Kế hoạch năm mới","rect":{"x":80,"y":80,"w":500,"h":60}}"#,
+        r#"{"cmd":"addSlide"}"#,
+        r#"{"cmd":"insertTextBox","text":"Năm mới kế hoạch lớn","rect":{"x":120,"y":200,"w":500,"h":60}}"#,
+        r#"{"cmd":"setTransition","transition":{"kind":"morph","dir":"byWord"}}"#,
+    ];
+    for c in cmds {
+        e.slide_command_json(c).ok()?;
+    }
+    e.save_pptx().ok()
+}
+
 /// Hyperlinks and actions (SLIDE-ACTION-001): linked text (slide, URL, mail) with a
 /// custom show, a file link and a hover sound; action buttons on every slide;
 /// actions BlueSlide never runs (program, macro, file, other deck, unknown).
@@ -927,6 +959,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = animations_deck(base) {
         out.push((ANIMATIONS_DECK, d));
     }
+    if let Some(d) = anim_text_deck(base) {
+        out.push((ANIM_TEXT_DECK, d));
+    }
     out.extend(recording_decks(base));
     out.extend(action_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
@@ -958,7 +993,7 @@ mod tests {
         let decks = decks(&base, &crate::slide_samples::sample_png());
         assert_eq!(
             decks.len(),
-            SCRIPTS.len() + FLIPPED.len() + 2 + RECORDING_DECKS.len() + ACTION_DECKS.len()
+            SCRIPTS.len() + FLIPPED.len() + 3 + RECORDING_DECKS.len() + ACTION_DECKS.len()
         );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -1066,6 +1101,126 @@ mod animation_tests {
                 );
             }
         }
+    }
+
+    // source: ECMA-376 Part 1, §19.5 iterate (word / letter, tmPct), §19.5.4 animMotion (path,
+    // pathEditMode), §19.5.2 animClr; [MS-PPTX] p159:morph option byWord. Expected values: the
+    // text has 6 words / 10 letters; a step is tmPct × duration.
+    #[test]
+    fn text_paths_colours_and_morph_by_word_survive_saving() {
+        let base = crate::slide_samples::base_decks();
+        let b = anim_text_deck(&base).expect("deck");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&b, "anim-text.pptx").unwrap();
+        let cmd = |e: &mut Engine, c: &str| -> serde_json::Value {
+            serde_json::from_str(&e.slide_command_json(c).unwrap()).unwrap()
+        };
+        let r = cmd(&mut e, r#"{"cmd":"goTo","slide":1}"#);
+        let a = r["animations"].as_array().unwrap().clone();
+        assert_eq!(a.len(), 4, "{a:?}");
+        // "Doanh thu quý ba tăng mạnh": 6 words, 10 % of 600 ms apart → 600 + 5 × 60 ms.
+        assert_eq!(a[0]["textBy"], "wd");
+        assert_eq!(a[0]["textStepMs"], 60);
+        assert_eq!(
+            a[0]["endMs"].as_u64().unwrap() - a[0]["startMs"].as_u64().unwrap(),
+            900
+        );
+        // "Từng chữ một": 10 letters, 20 % of 400 ms apart → 400 + 9 × 80 ms, after the title.
+        assert_eq!(a[1]["textBy"], "lt");
+        assert_eq!(a[1]["textStepMs"], 80);
+        assert_eq!(a[1]["startMs"], 900);
+        assert_eq!(a[1]["endMs"], 900 + 400 + 720);
+        // The drawn path, reversed (from its end back to the shape) and locked.
+        assert_eq!(a[2]["effect"], "customPath");
+        assert_eq!(a[2]["class"], "path");
+        assert_eq!(a[2]["pathLocked"], true);
+        assert_eq!(
+            a[2]["path"],
+            "M 0.5 0 L 0.4 0.1 C 0.35 0.2 0.3 0.1 0.2 0.05 L 0 0 E"
+        );
+        assert_eq!(a[2]["durMs"], 1500);
+        assert_eq!(a[3]["effect"], "fillColor");
+        // The show: letters for the iterated layers, the green drawing for the colour change.
+        let s = cmd(&mut e, r#"{"cmd":"show","slide":1}"#)["show"].clone();
+        let layer =
+            |i: usize| s["layers"][s["animations"][i]["layer"].as_u64().unwrap() as usize].clone();
+        assert_eq!(layer(0)["text"]["words"], 6);
+        assert_eq!(layer(1)["text"]["pieces"].as_array().unwrap().len(), 10);
+        assert!(layer(2)["text"].is_null());
+        let tint = s["animations"][3]["tint"]["commands"].to_string();
+        // 00B050 = (0, 176, 80).
+        assert!(tint.contains("[0,176,80,255]"), "{tint}");
+        assert!(!layer(3)["page"]["commands"]
+            .to_string()
+            .contains("[0,176,80,255]"));
+        // Morph by word: the words found again move on their own; the others fade.
+        let s = cmd(&mut e, r#"{"cmd":"show","slide":3}"#)["show"].clone();
+        let m = &s["morph"];
+        assert_eq!(m["option"], "byWord");
+        let words = m["pairs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| !p["clip"].is_null())
+            .count();
+        // "Kế hoạch năm mới" → "Năm mới kế hoạch lớn": "hoạch", "mới" in reading order.
+        assert_eq!(words, 2, "{}", m["pairs"]);
+        assert_eq!(m["goneText"].as_array().map(Vec::len), Some(2));
+        assert_eq!(m["newText"].as_array().map(Vec::len), Some(3));
+        // Saved and read back: the same iterate, path and lock.
+        let back = Engine::with_bundled_fonts();
+        let mut back = back;
+        back.open(&e.save_pptx().unwrap(), "back.pptx").unwrap();
+        let r = cmd(&mut back, r#"{"cmd":"goTo","slide":1}"#);
+        let b = r["animations"].as_array().unwrap();
+        for k in [
+            "textBy",
+            "textStepMs",
+            "path",
+            "pathLocked",
+            "effect",
+            "endMs",
+        ] {
+            for i in 0..4 {
+                assert_eq!(a[i][k], b[i][k], "{k} {i}");
+            }
+        }
+        // Back to one object; a new duration scales the drawn path's behaviour.
+        let r = cmd(
+            &mut back,
+            r#"{"cmd":"setAnimation","index":0,"textBy":"all"}"#,
+        );
+        assert!(r["animations"][0]["textBy"].is_null());
+        let r = cmd(
+            &mut back,
+            r#"{"cmd":"setAnimation","index":2,"durMs":3000}"#,
+        );
+        assert_eq!(r["animations"][2]["play"]["durMs"], 3000.0);
+        let r = cmd(
+            &mut back,
+            r#"{"cmd":"setAnimation","index":2,"path":"M 0 0 L x"}"#,
+        );
+        assert_eq!(r["error"], "badPath");
+        // Locked: moving the shape a tenth of the slide right leaves the path where it was on the
+        // slide (its points a tenth to the left); unlocked, the path moves with the shape.
+        let id = a[2]["shapeId"].as_u64().unwrap();
+        cmd(&mut back, &format!(r#"{{"cmd":"select","ids":[{id}]}}"#));
+        let mv = r#"{"cmd":"transform","transform":{"kind":"move","dx":96,"dy":0},"snap":false}"#;
+        let r = cmd(&mut back, mv);
+        assert_eq!(
+            r["animations"][2]["path"],
+            "M 0.4 0 L 0.3 0.1 C 0.25 0.2 0.2 0.1 0.1 0.05 L -0.1 0 E"
+        );
+        cmd(
+            &mut back,
+            r#"{"cmd":"setAnimation","index":2,"lockPath":false}"#,
+        );
+        let r = cmd(&mut back, mv);
+        assert_eq!(r["animations"][2]["pathLocked"], serde_json::Value::Null);
+        assert_eq!(
+            r["animations"][2]["path"],
+            "M 0.4 0 L 0.3 0.1 C 0.25 0.2 0.2 0.1 0.1 0.05 L -0.1 0 E"
+        );
     }
 }
 

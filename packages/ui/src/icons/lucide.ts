@@ -447,6 +447,8 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'slide.delete': lucide(Trash),
   'slide.duplicate': lucide(CopyPlus),
   'slide.fromOutline': lucide(ListPlus),
+  'slide.moveDown': lucide(ArrowDown),
+  'slide.moveUp': lucide(ArrowUp),
   'slide.new': lucide(SquarePlus),
   'slide.paste': lucide(ClipboardPaste),
   'slide.reuse': lucide(FileStack),

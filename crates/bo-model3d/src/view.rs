@@ -163,25 +163,20 @@ impl Camera {
     }
 }
 
+/// `[sin x, cos x]` from the portable libm: the platform C library's results may differ
+/// in the last bit, and generated pictures (corpus, fallbacks) must not.
+fn sin_cos(x: f64) -> [f64; 2] {
+    [libm::sin(x), libm::cos(x)]
+}
+
 impl View3d {
     /// The turn `R = Rx(ax) · Ry(ay) · Rz(az)`.
     pub fn rotation(&self) -> M3 {
         let [a, b, c] = self.rot.map(|r| (r / ANGLE).to_radians());
-        let rx = [
-            [1.0, 0.0, 0.0],
-            [0.0, a.cos(), -a.sin()],
-            [0.0, a.sin(), a.cos()],
-        ];
-        let ry = [
-            [b.cos(), 0.0, b.sin()],
-            [0.0, 1.0, 0.0],
-            [-b.sin(), 0.0, b.cos()],
-        ];
-        let rz = [
-            [c.cos(), -c.sin(), 0.0],
-            [c.sin(), c.cos(), 0.0],
-            [0.0, 0.0, 1.0],
-        ];
+        let ([sa, ca], [sb, cb], [sc, cc]) = (sin_cos(a), sin_cos(b), sin_cos(c));
+        let rx = [[1.0, 0.0, 0.0], [0.0, ca, -sa], [0.0, sa, ca]];
+        let ry = [[cb, 0.0, sb], [0.0, 1.0, 0.0], [-sb, 0.0, cb]];
+        let rz = [[cc, -sc, 0.0], [sc, cc, 0.0], [0.0, 0.0, 1.0]];
         mul(&rx, &mul(&ry, &rz))
     }
 
@@ -229,7 +224,7 @@ impl View3d {
             fwd,
             tan_half: self
                 .fov
-                .map(|f| ((f / ANGLE).clamp(1.0, 179.0).to_radians() / 2.0).tan()),
+                .map(|f| libm::tan((f / ANGLE).clamp(1.0, 179.0).to_radians() / 2.0)),
             half: (self.ortho_size / 2.0).max(1.0),
             dist: dist.max(1.0),
         }
@@ -301,7 +296,7 @@ impl View3d {
             .sum::<f64>()
             .sqrt();
         let fov = 30.0_f64;
-        let dist = (diag / 2.0) / (fov.to_radians() / 2.0).sin();
+        let dist = (diag / 2.0) / libm::sin(fov.to_radians() / 2.0);
         View3d {
             camera_pos: [0.0, 0.0, dist.round().max(1.0)],
             meter_per_unit: mpu,

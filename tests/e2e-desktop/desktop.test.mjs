@@ -79,6 +79,35 @@ function killTree(child) {
   } else child.kill('SIGTERM');
 }
 
+/**
+ * Starts `tauri-driver` with `args` (plus `--native-driver` from MSEDGEDRIVER) and waits
+ * for it to answer at `base`; on failure the error carries the driver's own output.
+ */
+async function startDriver(args, env = process.env) {
+  if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
+  const child = spawn('tauri-driver', args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+  let log = '';
+  const keep = (d) => {
+    log = (log + d).slice(-8000);
+  };
+  child.stdout.on('data', keep);
+  child.stderr.on('data', keep);
+  child.on('error', (e) => keep(`spawn error: ${e.message}\n`));
+  child.on('exit', (code) => keep(`tauri-driver exited with ${code}\n`));
+  try {
+    await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
+  } catch (e) {
+    killTree(child);
+    throw new Error(`${e.message}\n--- tauri-driver ${args.join(' ')} ---\n${log}`, { cause: e });
+  }
+  // Keep draining the pipes so a chatty driver never blocks on a full buffer.
+  child.stdout.off('data', keep);
+  child.stderr.off('data', keep);
+  child.stdout.resume();
+  child.stderr.resume();
+  return child;
+}
+
 async function find(css) {
   const el = await wd('POST', s('/element'), { using: 'css selector', value: css });
   return el[ELEMENT];
@@ -87,9 +116,7 @@ async function find(css) {
 describe('desktop app (Tauri, native engine)', { skip }, () => {
   before(async () => {
     const args = ['--port', String(port)];
-    if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
-    driver = spawn('tauri-driver', args, { stdio: 'ignore' });
-    await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
+    driver = await startDriver(args);
     const created = await wd('POST', '/session', {
       capabilities: {
         alwaysMatch: {
@@ -199,18 +226,13 @@ describe(
       saveDir = mkdtempSync(join(tmpdir(), 'bo-save-'));
       base = `http://127.0.0.1:${port + 50}`;
       const args = ['--port', String(port + 50), '--native-port', String(port + 51)];
-      if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
-      driver = spawn('tauri-driver', args, {
-        stdio: 'ignore',
-        env: {
-          ...process.env,
-          // The print window opens without the (modal) print dialog; saves skip the OS dialog.
-          BLUEOFFICE_PRINT_DIALOG: '0',
-          BLUEOFFICE_E2E_SAVE_DIR: saveDir,
-          BLUEOFFICE_UPDATE_URL: 'https://127.0.0.1:9/latest.json',
-        },
+      driver = await startDriver(args, {
+        ...process.env,
+        // The print window opens without the (modal) print dialog; saves skip the OS dialog.
+        BLUEOFFICE_PRINT_DIALOG: '0',
+        BLUEOFFICE_E2E_SAVE_DIR: saveDir,
+        BLUEOFFICE_UPDATE_URL: 'https://127.0.0.1:9/latest.json',
       });
-      await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
       const created = await wd('POST', '/session', {
         capabilities: {
           alwaysMatch: {
@@ -385,13 +407,8 @@ describe(
       );
       base = `http://127.0.0.1:${port + 60}`;
       const args = ['--port', String(port + 60), '--native-port', String(port + 61)];
-      if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
       // Bundled fonts only: the web build has no access to the installed fonts.
-      driver = spawn('tauri-driver', args, {
-        stdio: 'ignore',
-        env: { ...process.env, BLUEOFFICE_SYSTEM_FONTS: '0' },
-      });
-      await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
+      driver = await startDriver(args, { ...process.env, BLUEOFFICE_SYSTEM_FONTS: '0' });
       const docPath = join(root, 'tests/corpus/doc/phase1-sample.docx');
       const created = await wd('POST', '/session', {
         capabilities: {
@@ -554,12 +571,7 @@ describe('desktop deep link joins the web users of a BlueDrive file', { skip: co
     // Own driver ports (the default native port 4445 may still be held by the previous suite).
     base = `http://127.0.0.1:${port + 30}`;
     const args = ['--port', String(port + 30), '--native-port', String(port + 31)];
-    if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
-    driver = spawn('tauri-driver', args, {
-      stdio: 'ignore',
-      env: { ...process.env, BLUEOFFICE_SERVER: urls.server },
-    });
-    await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
+    driver = await startDriver(args, { ...process.env, BLUEOFFICE_SERVER: urls.server });
     const link = `bluedoc://open?host=bluedrive&file=${encodeURIComponent(fileId)}&token=${await token('u2')}`;
     const created = await wd('POST', '/session', {
       capabilities: {
@@ -768,12 +780,10 @@ describe(
       // The desktop reaches the server through the proxy (so the test can cut the network).
       base = `http://127.0.0.1:${port + 40}`;
       const args = ['--port', String(port + 40), '--native-port', String(port + 41)];
-      if (process.env.MSEDGEDRIVER) args.push('--native-driver', process.env.MSEDGEDRIVER);
-      driver = spawn('tauri-driver', args, {
-        stdio: 'ignore',
-        env: { ...process.env, BLUEOFFICE_SERVER: `http://127.0.0.1:${proxyPort}` },
+      driver = await startDriver(args, {
+        ...process.env,
+        BLUEOFFICE_SERVER: `http://127.0.0.1:${proxyPort}`,
       });
-      await waitFor(async () => (await fetch(`${base}/status`)).ok, 'tauri-driver');
       syncRoot = mkdtempSync(join(tmpdir(), 'bo-sync-'));
     });
 

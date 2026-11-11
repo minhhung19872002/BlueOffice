@@ -1514,6 +1514,27 @@ describe('BlueSlideEditor transitions, effects, charts and pictures', () => {
     );
   });
 
+  it('offers chartex and volume stock charts in the chart dialog', async () => {
+    const { p, cmds } = fakePlatform();
+    render(<BlueSlideEditor platform={p} language="vi-VN" />);
+    await openDeck(p);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chèn' }));
+    fireEvent.click(await screen.findByText('Biểu đồ'));
+    await screen.findByTestId('chart-dialog');
+    const kind = screen.getByTestId('chart-kind') as HTMLSelectElement;
+    const labels = Array.from(kind.options).map((o) => o.textContent);
+    expect(labels).toContain('Thác nước');
+    expect(labels).toContain('Phễu');
+    expect(labels).toContain('Chứng khoán: khối lượng–mở–cao–thấp–đóng');
+    fireEvent.change(kind, { target: { value: 'waterfall' } });
+    fireEvent.click(screen.getByTestId('chart-ok'));
+    await waitFor(() =>
+      expect(cmds()).toContainEqual(
+        expect.objectContaining({ cmd: 'insertChart', kind: 'waterfall' }),
+      ),
+    );
+  });
+
   it('exports the current slide and all slides as PNG', async () => {
     const proto = HTMLCanvasElement.prototype as unknown as {
       getContext: unknown;

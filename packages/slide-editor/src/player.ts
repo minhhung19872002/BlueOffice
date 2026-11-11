@@ -1,5 +1,5 @@
 import type { SlideAnimInfo, SlideShowInfo } from '@blueoffice/platform';
-import { playFrames } from './effectFx';
+import { pieceOrder, playFrames, tintAfter, tintFrames } from './effectFx';
 
 /**
  * Slide show playback, without the DOM: which layers are visible at a click
@@ -24,6 +24,15 @@ export interface PlannedEffect {
   visibleAfter: boolean | null;
   /** Runs (`Infinity`: until the next click). */
   iterations: number;
+  /** Index of the effect in `SlideShowInfo.animations`. */
+  index: number;
+  /**
+   * Run word by word / letter by letter (§19.5 iterate): the layer's body plays `frames`, each
+   * letter (`SlideTextSplit.pieces[k]`) its own frames `delay` ms after the effect starts.
+   */
+  pieces?: { frames: Frames; delay: number }[];
+  /** Opacity keyframes of the effect's colour drawing (`SlideAnimInfo.tint`). */
+  tint?: Frames;
 }
 
 /** Final visibility of an effect's shape (`null` = emphasis / path: unchanged). */
@@ -124,14 +133,43 @@ export function effectFrames(a: SlideAnimInfo, width: number, height: number): F
 /** Effect `a` as the show plays it (one run, repeated `iterations` times). */
 function planned(a: SlideAnimInfo, show: SlideShowInfo): PlannedEffect {
   const runs = a.repeat ?? 1;
-  return {
+  const out: PlannedEffect = {
     layer: a.layer ?? 0,
     frames: effectFrames(a, show.width, show.height),
     delay: a.startMs,
     duration: Math.max(1, (a.endMs - a.startMs) / Math.max(1, runs)),
     visibleAfter: after(a),
     iterations: runs === 0 ? Infinity : runs,
+    index: show.animations.indexOf(a),
   };
+  const text = a.layer != null ? show.layers[a.layer]?.text : undefined;
+  if (text && (a.textBy === 'wd' || a.textBy === 'lt') && !a.mediaCmd) {
+    // Each piece runs the effect for its own duration, one after the other.
+    const starts = pieceOrder(a, text.pieces);
+    out.duration = Math.max(1, a.durMs);
+    out.pieces = text.pieces.map((p, k) => ({
+      frames:
+        playFrames(a, show.width, show.height, 24, p.rect) ??
+        effectFrames({ ...a, rect: p.rect }, show.width, show.height),
+      delay: starts[k] ?? 0,
+    }));
+  }
+  const tint = tintFrames(a);
+  if (tint) out.tint = tint;
+  return out;
+}
+
+/**
+ * Whether the colour drawing of each effect (`SlideAnimInfo.tint`, by effect index) shows once
+ * the effects of clicks `0..=click` are done.
+ */
+export function tintsShown(show: SlideShowInfo, click: number): Record<number, boolean> {
+  const out: Record<number, boolean> = {};
+  show.animations.forEach((a, i) => {
+    if (!a.tint) return;
+    out[i] = a.click <= click && a.triggerShape == null && tintAfter(a) > 0.5;
+  });
+  return out;
 }
 
 /** Effects started by click step `click` (0 = with the slide). */

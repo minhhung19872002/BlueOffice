@@ -1022,6 +1022,8 @@
         "radarFilled": "Filled radar",
         "stock": "Stock (high–low–close)",
         "stockUpDown": "Stock with up/down bars",
+        "stockVolume": "Stock: volume–high–low–close",
+        "stockVolumeUpDown": "Stock: volume–open–high–low–close",
         "surface": "Surface",
         "surfaceWireframe": "Wireframe surface",
         "waterfall": "Waterfall",
@@ -2471,7 +2473,8 @@
       "diamondPath": "Diamond path",
       "triangle": "Triangle",
       "loop": "Loop",
-      "wave": "Wave"
+      "wave": "Wave",
+      "customPath": "Custom path"
     },
     "effectOut": {
       "fade": "Fade out",
@@ -2513,6 +2516,8 @@
       "radarFilled": "Filled radar",
       "stock": "Stock (high–low–close)",
       "stockUpDown": "Stock with up/down bars",
+      "stockVolume": "Stock: volume–high–low–close",
+      "stockVolumeUpDown": "Stock: volume–open–high–low–close",
       "surface": "Surface",
       "column3D": "3-D column",
       "clusteredColumn3D": "3-D clustered column",
@@ -2530,7 +2535,14 @@
       "percentArea3D": "3-D 100 % stacked area",
       "pie3D": "3-D pie",
       "explodedPie3D": "3-D exploded pie",
-      "surface3D": "3-D surface"
+      "surface3D": "3-D surface",
+      "waterfall": "Waterfall",
+      "treemap": "Treemap",
+      "sunburst": "Sunburst",
+      "histogram": "Histogram",
+      "pareto": "Pareto",
+      "boxWhisker": "Box and whisker",
+      "funnel": "Funnel"
     },
     "chartTitle": "Title",
     "legend": "Legend",
@@ -2716,6 +2728,20 @@
     "triggerSequence": "As part of the click sequence",
     "triggerOnClickOf": "On click of {{name}}",
     "painter": "Copy effects",
+    "textBy": "Animate text",
+    "textByOpt": {
+      "all": "All at once",
+      "word": "By word",
+      "letter": "By letter"
+    },
+    "textDelayPct": "Delay between parts (%)",
+    "reversePath": "Reverse path direction",
+    "lockPath": "Lock path",
+    "editPathPoints": "Edit path points",
+    "drawPath": "Draw motion path",
+    "drawPathHint": "Click to add points, drag to draw freehand; double-click or Enter to finish, Esc to cancel.",
+    "motionPath": "Motion path of {{name}}",
+    "pathPoint": "Point {{n}} of the motion path",
     "painterPick": "Pick the shape that gets the effects…",
     "views": {
       "outline": "Outline",

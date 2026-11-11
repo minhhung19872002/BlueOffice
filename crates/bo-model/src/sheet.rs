@@ -2099,6 +2099,63 @@ pub struct ChartPlot {
     /// `c:surface3DChart`); a bar group keeps its §21.2.2.177 shape in `style`.
     #[serde(default)]
     pub three_d: bool,
+    /// How a pie of pie / bar of pie splits its points (§21.2.2.126 ofPieChart: `splitType`,
+    /// `splitPos`, `custSplit`, `secondPieSize`); `None` = the defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub of_pie: Option<OfPieSplit>,
+}
+
+/// The split of a pie of pie / bar of pie (ECMA-376 Part 1, §21.2.2.126 ofPieChart children
+/// `splitType` (ST_SplitType), `splitPos`, `custSplit/secondPiePt` and `secondPieSize`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OfPieSplit {
+    /// ST_SplitType: `auto`, `pos` (the last `pos` points), `val` (values below `pos`),
+    /// `percent` (shares below `pos` %), `cust` (the points of `custom`).
+    pub split_type: String,
+    /// `splitPos@val`.
+    pub pos: Option<f64>,
+    /// `custSplit/secondPiePt@val`: zero-based points of the second plot.
+    pub custom: Vec<usize>,
+    /// `secondPieSize@val`: size of the second plot as a percentage of the first (5..=200).
+    pub second_size: u32,
+}
+
+impl Default for OfPieSplit {
+    fn default() -> Self {
+        OfPieSplit {
+            split_type: "auto".into(),
+            pos: None,
+            custom: Vec::new(),
+            second_size: 75,
+        }
+    }
+}
+
+impl OfPieSplit {
+    /// Which of `values` go to the second plot. `auto` (and a split that would leave either plot
+    /// empty) takes the last third of the points.
+    #[must_use]
+    pub fn second(&self, values: &[f64]) -> Vec<bool> {
+        let n = values.len();
+        let total: f64 = values.iter().map(|v| v.max(0.0)).sum();
+        let last = |k: usize| (0..n).map(|i| i + k >= n).collect::<Vec<bool>>();
+        let pick: Vec<bool> = match (self.split_type.as_str(), self.pos) {
+            ("pos", Some(p)) => last((p.round().max(0.0) as usize).min(n)),
+            ("val", Some(p)) => values.iter().map(|v| *v < p).collect(),
+            ("percent", Some(p)) if total > 0.0 => {
+                values.iter().map(|v| v / total * 100.0 < p).collect()
+            }
+            ("cust", _) => (0..n).map(|i| self.custom.contains(&i)).collect(),
+            _ => last(n.div_ceil(3)),
+        };
+        let k = pick.iter().filter(|b| **b).count();
+        if k == 0 || k == n {
+            last(n.div_ceil(3))
+        } else {
+            pick
+        }
+    }
 }
 
 /// A data series (`c:ser`).

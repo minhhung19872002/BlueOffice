@@ -36,6 +36,37 @@ describe('DocumentView collaborators', () => {
     v.dispose();
   });
 
+  it('keeps one caret element and one equation box across redraws', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const v = new DocumentView(host, {} as EngineHost);
+    v.setDocument({
+      name: 'a.docx',
+      kind: 'doc',
+      pageCount: 1,
+      pages: [{ width: 595, height: 842 }],
+      wordCount: 0,
+    } as Parameters<DocumentView['setDocument']>[0]);
+    const zone = { page: 0, x: 50, y: 50, w: 40, h: 30 };
+    v.setMathMarks({ zone, placeholders: [] } as unknown as Parameters<
+      DocumentView['setMathMarks']
+    >[0]);
+    v.setSelection({ page: 0, x: 10, y: 10, h: 14 }, [], false);
+    const caret = host.querySelector('[data-testid="caret"]');
+    const box = host.querySelector('[data-testid="bo-math-zone"]');
+    // A background redraw (spelling marks) and a caret move keep the same nodes.
+    v.setSpelling([]);
+    v.setSelection({ page: 0, x: 20, y: 10, h: 14 }, [], false);
+    expect(host.querySelectorAll('[data-testid="caret"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="caret"]')).toBe(caret);
+    expect(host.querySelector('[data-testid="bo-math-zone"]')).toBe(box);
+    expect((caret as HTMLElement).style.left).not.toBe('');
+    // A selection hides the caret.
+    v.setSelection(null, [{ page: 0, x: 10, y: 10, w: 30, h: 14 }], false);
+    expect(host.querySelector('[data-testid="caret"]')).toBeNull();
+    v.dispose();
+  });
+
   it('draws a margin bar beside the paragraph of each collaborator, side by side', () => {
     const host = document.createElement('div');
     document.body.appendChild(host);

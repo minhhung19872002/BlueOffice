@@ -20,6 +20,7 @@ export {
   type ImageDecoder,
   type LoadedImage,
   type PathFactory,
+  type RenderPageOptions,
 } from './renderer';
 export { ImeInput, INTERNAL_MIME, type ImeEvent } from './ime';
 export {

@@ -673,6 +673,7 @@ fn ink_appear(id: u32) -> Animation {
         repeat: None,
         trigger_shape: None,
         trigger_bookmark: None,
+        iterate: None,
         source: None,
     }
 }

@@ -7,7 +7,9 @@ import { rectsPolygon } from './transitionFx';
  * `ppt_h`, animScale), rotation (`style.rotation`, animRot), motion paths and the §19.5.3 animEffect
  * filters as clip polygons inside the shape's box. The track values are sampled into one keyframe
  * list for the shape's layer (a full-slide layer, so translations are fractions of the slide).
- * Colour changes (animClr) are not shown. Unit-tested.
+ * Colour changes (§19.5.2 animClr) fade in a drawing of the shape in its new colours
+ * ([`tintFrames`]); effects run word by word / letter by letter (§19.5 iterate) play on each
+ * piece with the piece's own box ([`pieceOrder`]). Unit-tested.
  */
 
 type Frames = Record<string, string | number>[];
@@ -210,15 +212,21 @@ export function playFrames(
   width: number,
   height: number,
   steps = 24,
+  piece?: Rect,
 ): Frames | null {
   const play: SlideEffectPlay | undefined = a.play;
   if (!play || play.tracks.length === 0) return null;
   const W = width || 1;
   const H = height || 1;
   const [rx, ry, rw, rh] = a.rect ?? [0, 0, W, H];
-  const box: Rect = [rx / W, ry / H, rw / W, rh / H];
-  const base = { x: box[0] + box[2] / 2, y: box[1] + box[3] / 2, w: box[2], h: box[3] };
-  const dur = Math.max(1, play.durMs, a.endMs - a.startMs);
+  const shape: Rect = [rx / W, ry / H, rw / W, rh / H];
+  // Moves are the shape's (`#ppt_x` … were evaluated for it); a word / letter turns, scales and
+  // is clipped in its own box.
+  const box: Rect = piece ? [piece[0] / W, piece[1] / H, piece[2] / W, piece[3] / H] : shape;
+  const base = { x: shape[0] + shape[2] / 2, y: shape[1] + shape[3] / 2, w: shape[2], h: shape[3] };
+  const own = { x: box[0] + box[2] / 2, y: box[1] + box[3] / 2 };
+  // One run of the effect (an iterated effect's piece lasts the effect's own duration).
+  const dur = Math.max(1, play.durMs, piece || a.textBy ? 0 : a.endMs - a.startMs);
   const sets = play.tracks.filter((t) => t.kind === 'set' && t.attr === 'style.visibility');
   // An entrance starts hidden until its first visibility set; anything else starts shown.
   const startVisible = a.class !== 'entr' || sets.length === 0;
@@ -294,7 +302,7 @@ export function playFrames(
       offset: k / steps,
       opacity: Math.round(opacity * 1000) / 1000,
       transform: `translate(${pct(dx)}, ${pct(dy)}) rotate(${Math.round(rot * 100) / 100}deg) scale(${Math.round(sx * 10000) / 10000}, ${Math.round(sy * 10000) / 10000})`,
-      transformOrigin: `${pct(base.x)} ${pct(base.y)}`,
+      transformOrigin: `${pct(own.x)} ${pct(own.y)}`,
     };
     if (clip) frame.clipPath = clip;
     frames.push(frame);
@@ -305,4 +313,54 @@ export function playFrames(
     for (const f of frames) if (!f.clipPath) f.clipPath = full;
   }
   return frames;
+}
+
+/**
+ * Opacity keyframes of the drawing of the shape in the colours its §19.5.2 animClr behaviours
+ * end on, over the plain layer: it fades in while a colour change runs (blending the two
+ * drawings is the RGB interpolation of the change) and stays when the behaviour holds. `null`
+ * when the effect changes no colour.
+ */
+export function tintFrames(a: SlideAnimInfo, steps = 24): Frames | null {
+  const play = a.play;
+  const tracks = (play?.tracks ?? []).filter((t) => t.kind === 'color' && t.to !== null);
+  if (!play || tracks.length === 0 || !a.tint) return null;
+  const dur = Math.max(1, play.durMs);
+  const frames: Frames = [];
+  for (let k = 0; k <= steps; k++) {
+    frames.push({
+      offset: k / steps,
+      opacity: Math.round(tintAt(tracks, (dur * k) / steps) * 1000) / 1000,
+    });
+  }
+  return frames;
+}
+
+function tintAt(tracks: SlideEffectTrack[], ms: number): number {
+  let o = 0;
+  for (const t of tracks) {
+    const p = trackProgress(t, ms);
+    if (p === null || (ended(t, ms) && !t.hold)) continue;
+    o = Math.max(o, p);
+  }
+  return o;
+}
+
+/** Opacity of the colour drawing once the effect is done (1: the new colours stay). */
+export function tintAfter(a: SlideAnimInfo): number {
+  const tracks = (a.play?.tracks ?? []).filter((t) => t.kind === 'color' && t.to !== null);
+  return tracks.length && a.tint ? tintAt(tracks, Number.MAX_SAFE_INTEGER) : 0;
+}
+
+/**
+ * When each piece of an effect run word by word / letter by letter starts (ms after the
+ * effect): its word's or letter's place in the order (§19.5 iterate type, backwards) times the
+ * step. `pieces` are the layer's letters with their word.
+ */
+export function pieceOrder(a: SlideAnimInfo, pieces: { word: number; letter: number }[]): number[] {
+  const byWord = a.textBy === 'wd';
+  const key = (p: { word: number; letter: number }) => (byWord ? p.word : p.letter);
+  const last = pieces.reduce((m, p) => Math.max(m, key(p)), 0);
+  const step = a.textStepMs ?? 0;
+  return pieces.map((p) => (a.textBackwards ? last - key(p) : key(p)) * step);
 }

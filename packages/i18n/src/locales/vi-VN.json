@@ -1022,6 +1022,8 @@
         "radarFilled": "Radar tô màu",
         "stock": "Chứng khoán (cao–thấp–đóng)",
         "stockUpDown": "Chứng khoán có thanh tăng/giảm",
+        "stockVolume": "Chứng khoán: khối lượng–cao–thấp–đóng",
+        "stockVolumeUpDown": "Chứng khoán: khối lượng–mở–cao–thấp–đóng",
         "surface": "Bề mặt",
         "surfaceWireframe": "Bề mặt dạng khung",
         "waterfall": "Thác nước",
@@ -2471,7 +2473,8 @@
       "diamondPath": "Hình thoi (đường)",
       "triangle": "Tam giác",
       "loop": "Vòng lặp",
-      "wave": "Sóng"
+      "wave": "Sóng",
+      "customPath": "Đường tự vẽ"
     },
     "effectOut": {
       "fade": "Mờ đi",
@@ -2513,6 +2516,8 @@
       "radarFilled": "Radar tô màu",
       "stock": "Chứng khoán (cao–thấp–đóng)",
       "stockUpDown": "Chứng khoán có thanh tăng/giảm",
+      "stockVolume": "Chứng khoán: khối lượng–cao–thấp–đóng",
+      "stockVolumeUpDown": "Chứng khoán: khối lượng–mở–cao–thấp–đóng",
       "surface": "Bề mặt",
       "column3D": "Cột 3D",
       "clusteredColumn3D": "Cột nhóm 3D",
@@ -2530,7 +2535,14 @@
       "percentArea3D": "Vùng chồng 100 % 3D",
       "pie3D": "Tròn 3D",
       "explodedPie3D": "Tròn tách miếng 3D",
-      "surface3D": "Bề mặt 3D"
+      "surface3D": "Bề mặt 3D",
+      "waterfall": "Thác nước",
+      "treemap": "Bản đồ cây",
+      "sunburst": "Hình tia nắng",
+      "histogram": "Tần suất (histogram)",
+      "pareto": "Pareto",
+      "boxWhisker": "Hộp và râu",
+      "funnel": "Phễu"
     },
     "chartTitle": "Tiêu đề",
     "legend": "Chú giải",
@@ -2716,6 +2728,20 @@
     "triggerSequence": "Theo trình tự bấm",
     "triggerOnClickOf": "Khi bấm vào {{name}}",
     "painter": "Chép hiệu ứng",
+    "textBy": "Hiệu ứng chữ",
+    "textByOpt": {
+      "all": "Cả khối",
+      "word": "Theo từ",
+      "letter": "Theo chữ cái"
+    },
+    "textDelayPct": "Trễ giữa các phần (%)",
+    "reversePath": "Đảo hướng đường",
+    "lockPath": "Khoá đường",
+    "editPathPoints": "Sửa điểm đường",
+    "drawPath": "Vẽ đường chuyển động",
+    "drawPathHint": "Bấm để thêm điểm, kéo để vẽ tự do; bấm đúp hoặc Enter để kết thúc, Esc để huỷ.",
+    "motionPath": "Đường chuyển động của {{name}}",
+    "pathPoint": "Điểm {{n}} của đường chuyển động",
     "painterPick": "Chọn đối tượng nhận hiệu ứng…",
     "views": {
       "outline": "Dàn ý",

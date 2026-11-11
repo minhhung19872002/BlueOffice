@@ -133,8 +133,10 @@ export class DocController {
     this.pasteListener?.(r);
   }
 
-  private exec(cmd: EditCommand): Promise<EditResult | null> {
+  /** `instead`, checked once the commands before are applied, can take the place of `cmd`. */
+  private exec(cmd: EditCommand, instead?: () => boolean): Promise<EditResult | null> {
     const p = this.queue.then(async () => {
+      if (instead?.()) return null;
       try {
         return this.apply(await this.engine.command({ ...cmd, now: Date.now() }));
       } catch (e) {
@@ -219,9 +221,16 @@ export class DocController {
         break;
       case 'key': {
         const c = keyToCommand(e);
-        // Enter on a selected equation edits it in the equation dialog.
-        if (c?.cmd === 'splitParagraph' && this.onEquationDialog && equationSelected(this.last)) {
-          this.onEquationDialog();
+        // Enter on a selected equation edits it in the equation dialog. Decided in turn, once
+        // the keys before it are applied (End then Enter splits after the equation).
+        if (c?.cmd === 'splitParagraph' && this.onEquationDialog) {
+          this.setPaste(null);
+          this.repeats.record(c);
+          void this.exec(c, () => {
+            if (!equationSelected(this.last)) return false;
+            this.onEquationDialog?.();
+            return true;
+          });
           break;
         }
         if (c) void this.run(c);

@@ -1,6 +1,6 @@
 import { useTranslation } from '@blueoffice/i18n';
 import { Dialog } from '@blueoffice/ui';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import styles from './Editor.module.css';
 import { utf8Length } from './SpellCheckDialog';
 
@@ -119,7 +119,9 @@ export function ProofWalkDialog<I extends WalkIssue>({
   const replacement =
     typed?.key === currentKey ? typed.value : (current?.suggestions[0] ?? current?.word ?? '');
   const shownRef = useRef('');
-  useEffect(() => {
+  // In the same commit as the dialog: the document shows the issue the dialog names (a
+  // passive effect ran a frame later, so the dialog could name an issue not shown yet).
+  useLayoutEffect(() => {
     if (current && shownRef.current !== currentKey) {
       shownRef.current = currentKey;
       show?.(current);

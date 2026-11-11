@@ -15,9 +15,11 @@ import { ShowMediaClip } from './showMedia';
 import {
   effectsAt,
   stepDuration,
+  tintsShown,
   transitionPlan,
   triggerEffects,
   visibility,
+  type PlannedEffect,
   type Frames,
   type ShowPos,
 } from './player';
@@ -85,38 +87,76 @@ function animate(
   return a;
 }
 
-function LayerCanvas({
+/** Room around a word / letter drawn on a canvas of its own (points). */
+const PIECE_MARGIN = 3;
+
+/**
+ * One drawing of the stage. Layers over the backdrop are see-through (`transparent`); a word or
+ * letter (`rect`, points) gets a canvas the size of its box, placed where it is on the slide.
+ */
+export function LayerCanvas({
   page,
   glyphs,
   images,
   width,
   height,
+  transparent = false,
+  rect,
 }: {
   page: PageDisplayList;
   glyphs: GlyphStore;
   images: ImageStore;
   width: number;
   height: number;
+  transparent?: boolean;
+  rect?: [number, number, number, number];
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const k = page.width > 0 ? width / page.width : 0;
+  const box = rect
+    ? {
+        x: rect[0] - PIECE_MARGIN,
+        y: rect[1] - PIECE_MARGIN,
+        w: rect[2] + 2 * PIECE_MARGIN,
+        h: rect[3] + 2 * PIECE_MARGIN,
+      }
+    : null;
+  const cw = box ? box.w * k : width;
+  const ch = box ? box.h * k : height;
+  const bx = box?.x ?? 0;
+  const by = box?.y ?? 0;
+  const piece = box !== null;
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      if (width <= 0 || height <= 0) return;
+      if (cw <= 0 || ch <= 0 || k <= 0) return;
       await Promise.all([glyphs.ensure(page), images.ensure(page)]);
       const canvas = ref.current;
       const ctx = canvas?.getContext('2d');
       if (cancelled || !canvas || !ctx) return;
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      renderPage(ctx, page, glyphs, (width / page.width) * dpr, images);
+      canvas.width = Math.max(1, Math.round(cw * dpr));
+      canvas.height = Math.max(1, Math.round(ch * dpr));
+      renderPage(ctx, page, glyphs, k * dpr, images, {
+        transparent: transparent || piece,
+        origin: [bx, by],
+      });
     })().catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [page, glyphs, images, width, height]);
-  return <canvas ref={ref} className={styles.showCanvas} style={{ width, height }} />;
+  }, [page, glyphs, images, cw, ch, k, bx, by, transparent, piece]);
+  return (
+    <canvas
+      ref={ref}
+      className={styles.showCanvas}
+      style={
+        piece
+          ? { left: bx * k, top: by * k, width: cw, height: ch, right: 'auto', bottom: 'auto' }
+          : { width, height }
+      }
+    />
+  );
 }
 
 export interface ShowStageProps {
@@ -252,10 +292,17 @@ export function ShowStage({
     [],
   );
   /** Layer visibility and outgoing slide once the step started / ended (by step key). */
-  const [phase, setPhase] = useState<{ key: string; vis: boolean[]; outgoing: boolean } | null>(
-    null,
-  );
+  const [phase, setPhase] = useState<{
+    key: string;
+    vis: boolean[];
+    outgoing: boolean;
+    tints: Record<number, boolean>;
+  } | null>(null);
   const layerRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** Body (index 0) and letters (1…) of layers cut into text, by layer. */
+  const pieceRefs = useRef<Record<number, (HTMLDivElement | null)[]>>({});
+  /** Colour drawings, by effect index. */
+  const tintRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const incomingRef = useRef<HTMLDivElement>(null);
   const outgoingRef = useRef<HTMLDivElement>(null);
   const morphRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -280,6 +327,7 @@ export function ShowStage({
           key,
           vis: ready && show ? visibility(show, playing ? pos.click - 1 : atClick) : [],
           outgoing: hasOutgoing,
+          tints: ready && show ? tintsShown(show, playing ? pos.click - 1 : atClick) : {},
         };
   // Layers shown or hidden by trigger effects (§19.5 interactive sequences) on this step.
   const [triggered, setTriggered] = useState<{ key: string; vis: Record<number, boolean> }>({
@@ -320,13 +368,7 @@ export function ShowStage({
     const shown: Record<number, boolean> = {};
     for (const e of fx) {
       shown[e.layer] = true;
-      animate(layerRefs.current[e.layer], e.frames, {
-        delay: e.delay,
-        duration: e.duration,
-        iterations: e.iterations,
-        easing: 'ease-out',
-        fill: 'both',
-      });
+      playEffect(e, 0, 'both');
     }
     setTriggered((t) => ({ key, vis: { ...(t.key === key ? t.vis : {}), ...shown } }));
     const end = fx.reduce(
@@ -344,6 +386,34 @@ export function ShowStage({
     }, end + 30);
   };
   const outgoing = current.outgoing && from !== null ? from : null;
+
+  /**
+   * Start effect `e` `at` ms from now: on its layer, or on the layer's body and letters (word by
+   * word / letter by letter), and its colour drawing. The animations started.
+   */
+  function playEffect(e: PlannedEffect, at: number, fill: FillMode): Animation[] {
+    const opts = {
+      delay: at + e.delay,
+      duration: e.duration,
+      iterations: e.iterations,
+      easing: 'ease-out',
+      fill,
+    };
+    const out: (Animation | null)[] = [];
+    const parts = pieceRefs.current[e.layer];
+    if (e.pieces && parts) {
+      out.push(animate(parts[0], e.frames, opts));
+      e.pieces.forEach((p, k) => {
+        out.push(animate(parts[k + 1], p.frames, { ...opts, delay: opts.delay + p.delay }));
+      });
+    } else {
+      out.push(animate(layerRefs.current[e.layer], e.frames, opts));
+    }
+    if (e.tint) {
+      out.push(animate(tintRefs.current[e.index], e.tint, { ...opts, fill: 'both' }));
+    }
+    return out.filter((a): a is Animation => a !== null);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -398,26 +468,30 @@ export function ShowStage({
           // The layer is shown while its effect runs; the first effect's frames
           // hide it until it starts, later ones on the same layer hold only after.
           next[e.layer] = true;
-          const a = animate(layerRefs.current[e.layer], e.frames, {
-            delay: delay + e.delay,
-            duration: e.duration,
-            iterations: e.iterations,
-            easing: 'ease-out',
-            fill: seen.has(e.layer) ? 'forwards' : 'both',
-          });
+          const started = playEffect(e, delay, seen.has(e.layer) ? 'forwards' : 'both');
           seen.add(e.layer);
-          if (a && Number.isFinite(e.iterations)) anims.push(a);
+          if (Number.isFinite(e.iterations)) anims.push(...started);
           // "Until the next click": runs on; cancelled with the step.
-          else if (a) endless.push(a);
+          else endless.push(...started);
         }
-        setPhase({ key, vis: next, outgoing: hasOutgoing });
+        setPhase({
+          key,
+          vis: next,
+          outgoing: hasOutgoing,
+          tints: tintsShown(show, pos.click - 1),
+        });
         total += stepDuration(show, pos.click);
       }
       const finish = () => {
         if (cancelled) return;
         for (const a of anims) a.cancel();
         // Endless effects keep running after the step (their layer stays shown).
-        setPhase({ key, vis: visibility(show, atClick), outgoing: false });
+        setPhase({
+          key,
+          vis: visibility(show, atClick),
+          outgoing: false,
+          tints: tintsShown(show, atClick),
+        });
         onIdleRef.current?.(show);
       };
       if (total > 0) end = setTimeout(finish, total + 30);
@@ -487,10 +561,12 @@ export function ShowStage({
             >
               <LayerCanvas
                 page={l.page}
+                rect={l.rect}
                 glyphs={glyphs}
                 images={images}
                 width={width}
                 height={height}
+                transparent={!l.backdrop}
               />
             </div>
           ))}
@@ -510,13 +586,78 @@ export function ShowStage({
               data-visible={vis[i] ?? true}
               style={{ visibility: (vis[i] ?? true) ? 'visible' : 'hidden' }}
             >
-              <LayerCanvas
-                page={l.page}
-                glyphs={glyphs}
-                images={images}
-                width={width}
-                height={height}
-              />
+              {l.text ? (
+                <>
+                  <div
+                    ref={(el) => {
+                      (pieceRefs.current[i] ??= [])[0] = el;
+                    }}
+                    className={styles.showLayer}
+                    data-testid="show-layer-body"
+                  >
+                    <LayerCanvas
+                      page={l.text.body}
+                      glyphs={glyphs}
+                      images={images}
+                      width={width}
+                      height={height}
+                      transparent={!l.backdrop}
+                    />
+                  </div>
+                  {l.text.pieces.map((p, k) => (
+                    <div
+                      key={k}
+                      ref={(el) => {
+                        (pieceRefs.current[i] ??= [])[k + 1] = el;
+                      }}
+                      className={styles.showLayer}
+                      data-testid="show-piece"
+                    >
+                      <LayerCanvas
+                        page={p.page}
+                        rect={p.rect}
+                        glyphs={glyphs}
+                        images={images}
+                        width={width}
+                        height={height}
+                        transparent
+                      />
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <LayerCanvas
+                  page={l.page}
+                  glyphs={glyphs}
+                  images={images}
+                  width={width}
+                  height={height}
+                  transparent={!l.backdrop}
+                />
+              )}
+              {show.animations.map((a, k) =>
+                a.tint && a.layer === i ? (
+                  <div
+                    key={`tint-${k}`}
+                    ref={(el) => {
+                      tintRefs.current[k] = el;
+                    }}
+                    className={styles.showLayer}
+                    data-testid="show-tint"
+                    data-shown={current.tints[k] === true}
+                    style={{ opacity: current.tints[k] === true ? 1 : 0 }}
+                  >
+                    <LayerCanvas
+                      page={a.tint}
+                      glyphs={glyphs}
+                      images={images}
+                      width={width}
+                      height={height}
+                      transparent
+                    />
+                  </div>
+                ) : null,
+              )}
             </div>
           ))}
         {ready &&

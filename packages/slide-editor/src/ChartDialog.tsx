@@ -32,6 +32,8 @@ export const CHART_KINDS: SlideChartKind[] = [
   'radarFilled',
   'stock',
   'stockUpDown',
+  'stockVolume',
+  'stockVolumeUpDown',
   'surface',
   'column3D',
   'clusteredColumn3D',
@@ -50,6 +52,13 @@ export const CHART_KINDS: SlideChartKind[] = [
   'pie3D',
   'explodedPie3D',
   'surface3D',
+  'waterfall',
+  'treemap',
+  'sunburst',
+  'histogram',
+  'pareto',
+  'boxWhisker',
+  'funnel',
 ];
 const LEGENDS: SlideLegend[] = ['none', 'r', 'b', 't', 'l'];
 

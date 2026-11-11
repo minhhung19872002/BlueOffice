@@ -2038,7 +2038,9 @@ export type SlideAnimEffect =
   | 'diamondPath'
   | 'triangle'
   | 'loop'
-  | 'wave';
+  | 'wave'
+  /** A motion path drawn by the author (`SlideAnimSpec.path`). */
+  | 'customPath';
 export type SlideAnimTrigger = 'onClick' | 'withPrevious' | 'afterPrevious';
 
 export interface SlideAnimSpec {
@@ -2054,6 +2056,36 @@ export interface SlideAnimSpec {
   repeat?: number;
   /** Shape whose click starts the effect (0 = the slide's sequence). */
   triggerShape?: number;
+  /**
+   * Motion path drawn by the author (§19.5.4 path syntax, offsets in slide widths / heights from
+   * the shape's position): with effect `customPath` for a new effect, or new points (Edit Points).
+   */
+  path?: string;
+  /** Run the motion path the other way. */
+  reversePath?: boolean;
+  /** Lock the motion path on the slide (§19.5.4 pathEditMode `fixed`) or let it follow the shape. */
+  lockPath?: boolean;
+  /** Animate text as one object, word by word or letter by letter (§19.5 iterate). */
+  textBy?: 'all' | 'word' | 'letter';
+  /** Delay between words / letters, % of the effect's duration. */
+  textDelayPct?: number;
+}
+
+/** A letter of a slide show layer (effects run word by word / letter by letter). */
+export interface SlideTextPiece {
+  page: PageDisplayList;
+  /** Box `[x, y, w, h]` on the slide, points. */
+  rect: [number, number, number, number];
+  word: number;
+  letter: number;
+  text: string;
+}
+
+/** A layer cut into its drawing without text and its letters. */
+export interface SlideTextSplit {
+  body: PageDisplayList;
+  pieces: SlideTextPiece[];
+  words: number;
 }
 
 /** One effect of the main animation sequence (§19.5). */
@@ -2087,6 +2119,18 @@ export interface SlideAnimInfo {
   dirs?: string[];
   /** What the effect does, read from its behaviours (§19.5). */
   play?: SlideEffectPlay;
+  /** §19.5.4 motion path of a path effect (offsets in slide widths / heights). */
+  path?: string;
+  /** The motion path stays where it is on the slide when the shape moves. */
+  pathLocked?: boolean;
+  /** §19.5 iterate: `wd` (by word), `lt` (by letter); absent = as one object. */
+  textBy?: 'wd' | 'lt' | 'el';
+  /** Time between the starts of two words / letters, ms. */
+  textStepMs?: number;
+  /** The last word / letter first. */
+  textBackwards?: boolean;
+  /** Slide show: the layer drawn in the colours the effect's colour changes end on. */
+  tint?: PageDisplayList;
 }
 
 /** One behaviour of an effect on the effect's timeline (`bo_pptx::anim_play::Track`). */
@@ -2134,7 +2178,7 @@ export interface SlideShowInfo {
   height: number;
   transition: SlideTransitionInfo | null;
   /** Bottom to top; animated shapes have a layer of their own. */
-  layers: { ids: number[]; backdrop: boolean; page: PageDisplayList }[];
+  layers: { ids: number[]; backdrop: boolean; page: PageDisplayList; text?: SlideTextSplit }[];
   animations: SlideAnimInfo[];
   clicks: number;
   /** Shapes that start effects when clicked, with their boxes `[x, y, w, h]`. */
@@ -2152,6 +2196,14 @@ export interface SlideMorphPair {
   to: [number, number, number, number, number];
   fromPage: PageDisplayList;
   toPage: PageDisplayList;
+  /** A word / letter (morph by word / by character): its boxes `[x, y, w, h]` (from, to). */
+  clip?: [[number, number, number, number], [number, number, number, number]];
+}
+
+/** A word / letter fading out or in during a morph. */
+export interface SlideMorphPiece {
+  page: PageDisplayList;
+  rect: [number, number, number, number];
 }
 
 /** What the slide show needs to morph into a slide. */
@@ -2163,6 +2215,10 @@ export interface SlideMorphInfo {
   gone: PageDisplayList[];
   /** Shapes of this slide only (they fade in). */
   new: PageDisplayList[];
+  /** Words / letters not found again (morph by word / by character). */
+  goneText?: SlideMorphPiece[];
+  /** Words / letters new on this slide. */
+  newText?: SlideMorphPiece[];
   /** `byObject` | `byWord` | `byChar`. */
   option: string;
 }
@@ -2190,6 +2246,8 @@ export type SlideChartKind =
   | 'radarFilled'
   | 'stock'
   | 'stockUpDown'
+  | 'stockVolume'
+  | 'stockVolumeUpDown'
   | 'surface'
   | 'column3D'
   | 'clusteredColumn3D'
@@ -2207,7 +2265,14 @@ export type SlideChartKind =
   | 'percentArea3D'
   | 'pie3D'
   | 'explodedPie3D'
-  | 'surface3D';
+  | 'surface3D'
+  | 'waterfall'
+  | 'treemap'
+  | 'sunburst'
+  | 'histogram'
+  | 'pareto'
+  | 'boxWhisker'
+  | 'funnel';
 export type SlideLegend = 'none' | 'r' | 'l' | 't' | 'b' | 'tr';
 
 /** Data grid of a chart: categories down, series across. */

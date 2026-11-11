@@ -15,7 +15,7 @@ fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.04045 {
         c / 12.92
     } else {
-        ((c + 0.055) / 1.055).powf(2.4)
+        libm::powf((c + 0.055) / 1.055, 2.4)
     }
 }
 
@@ -24,7 +24,7 @@ fn linear_to_srgb(c: f32) -> f32 {
     if c <= 0.003_130_8 {
         c * 12.92
     } else {
-        1.055 * c.powf(1.0 / 2.4) - 0.055
+        1.055 * libm::powf(c, 1.0 / 2.4) - 0.055
     }
 }
 
@@ -128,7 +128,7 @@ pub fn render(
             let spec = if smooth > 0.0 {
                 f64::from(smooth)
                     * 0.35
-                    * dot(n, half).max(0.0).powf(8.0 + 56.0 * f64::from(smooth))
+                    * libm::pow(dot(n, half).max(0.0), 8.0 + 56.0 * f64::from(smooth))
             } else {
                 0.0
             };

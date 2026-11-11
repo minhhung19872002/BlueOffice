@@ -168,5 +168,17 @@ describe('an equation that cannot be edited in place', () => {
     await c.idle();
     expect(commands.at(-1)).toEqual({ cmd: 'splitParagraph' });
     expect(dialogs).toBe(2);
+    // Select it again, then End and Enter typed at once: Enter is decided after End is
+    // applied (the caret after the equation), so the paragraph splits.
+    c.pointer(down(1));
+    await c.idle();
+    c.input(key('End'));
+    c.input(key('Enter'));
+    await c.idle();
+    expect(commands.slice(-2)).toEqual([
+      { cmd: 'move', motion: 'lineEnd', extend: false },
+      { cmd: 'splitParagraph' },
+    ]);
+    expect(dialogs).toBe(2);
   });
 });

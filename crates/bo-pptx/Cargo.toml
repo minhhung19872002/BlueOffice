@@ -17,6 +17,8 @@ bo-sheet.workspace = true
 bo-xlsx.workspace = true
 bo-text.workspace = true
 thiserror.workspace = true
+# Portable math for the 3D shape mesh: the face order and colours match on every platform.
+libm = "0.2"
 serde.workspace = true
 unicode-linebreak.workspace = true
 

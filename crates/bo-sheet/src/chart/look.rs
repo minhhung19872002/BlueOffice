@@ -32,6 +32,8 @@ pub(crate) struct Look {
     pub val_grid: bool,
     pub cat_grid: bool,
     pub labels: Option<DataLabels>,
+    /// §21.2.2.156 roundedCorners of the chart area.
+    pub rounded: bool,
 }
 
 impl Look {
@@ -62,7 +64,40 @@ impl Look {
             val_grid: !f.hide_val_grid,
             cat_grid: f.cat_grid,
             labels: f.data_labels.clone().filter(DataLabels::any),
+            rounded: f.rounded,
         }
+    }
+
+    /// The chart area outline (`w × h` at the origin, inset by half the line): square corners, or
+    /// with §21.2.2.156 roundedCorners quarter circles of a radius of 6 % of the shorter side (at
+    /// most 10 pt) — BlueOffice's rendering of the flag, which the schema leaves to the application.
+    pub(crate) fn area_path(&self, w: f64, h: f64) -> Vec<PathSeg> {
+        let (x0, y0, x1, y1) = (0.25, 0.25, w - 0.25, h - 0.25);
+        let f = |v: f64| v as f32;
+        if !self.rounded {
+            return vec![
+                PathSeg::M(f(x0), f(y0)),
+                PathSeg::L(f(x1), f(y0)),
+                PathSeg::L(f(x1), f(y1)),
+                PathSeg::L(f(x0), f(y1)),
+                PathSeg::Z,
+            ];
+        }
+        let r = (w.min(h) * 0.06).clamp(0.0, 10.0);
+        // Cubic Bézier quarter circle: control points at 0.5523 r from the corner's ends.
+        let k = r * (1.0 - 0.552_284_75);
+        vec![
+            PathSeg::M(f(x0 + r), f(y0)),
+            PathSeg::L(f(x1 - r), f(y0)),
+            PathSeg::C(f(x1 - k), f(y0), f(x1), f(y0 + k), f(x1), f(y0 + r)),
+            PathSeg::L(f(x1), f(y1 - r)),
+            PathSeg::C(f(x1), f(y1 - k), f(x1 - k), f(y1), f(x1 - r), f(y1)),
+            PathSeg::L(f(x0 + r), f(y1)),
+            PathSeg::C(f(x0 + k), f(y1), f(x0), f(y1 - k), f(x0), f(y1 - r)),
+            PathSeg::L(f(x0), f(y0 + r)),
+            PathSeg::C(f(x0), f(y0 + k), f(x0 + k), f(y0), f(x0 + r), f(y0)),
+            PathSeg::Z,
+        ]
     }
 
     /// Gridlines and axis lines drawn by the plot renderers in their default colours take the

@@ -86,7 +86,7 @@ test('BlueSlide: own name, previews, a node picture and on-canvas text edit', as
   await editor.press('Enter');
   await expect(editor).toHaveCount(0);
   await page.getByRole('tab', { name: NAME }).click();
-  await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
+  await page.locator('[data-command="smartart.edit"]').click();
   await expect(pane).toHaveValue('Hà Nội\nCố đô Huế\nĐà Nẵng');
   // The picture stayed on its node.
   await expect(dialog.getByTestId('smartart-pictures').locator('li')).toHaveText(['Hà Nội']);
@@ -118,7 +118,7 @@ test('BlueSlide: own name, previews, a node picture and on-canvas text edit', as
   await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.525);
   await expect(page.getByRole('tab', { name: NAME })).toBeVisible();
   await page.getByRole('tab', { name: NAME }).click();
-  await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
+  await page.locator('[data-command="smartart.edit"]').click();
   await expect(dialog.getByTestId('smartart-layout-pictureStrip')).toBeChecked();
   await expect(pane).toHaveValue('Hà Nội\nCố đô Huế\nĐà Nẵng');
   await expect(dialog.getByTestId('smartart-pictures').locator('li')).toHaveText(['Hà Nội']);

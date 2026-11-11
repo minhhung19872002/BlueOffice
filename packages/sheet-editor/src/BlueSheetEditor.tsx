@@ -292,6 +292,14 @@ import {
   SmartArtDialog,
   smartArtPicturePicker,
   type SmartArtPreviewLoader,
+  SmartArtLivePreview,
+  SmartArtPaneToggle,
+  SmartArtTextPane,
+  registerSmartArtTools,
+  smartArtDesignGroups,
+  smartArtDesignLabels,
+  type SmartArtToolsApi,
+  latestOnly,
   SymbolPanel,
   IconPanel,
   insertSheetIcons,
@@ -2004,6 +2012,75 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [host],
   );
   const pickSmartArtPicture = useMemo(() => smartArtPicturePicker(platform.files), [platform]);
+  // SmartArt Design tools (CORE-SMART-004): text pane, current shape, live preview; each action
+  // is one `setSmartArt` of the selected diagram (one undo step).
+  const [smartPane, setSmartPane] = useState(false);
+  const [smartNode, setSmartNode] = useState<number | null>(null);
+  const [smartPreview, setSmartPreview] = useState<string | null>(null);
+  // Another diagram (or none): no current shape, no preview; the pane closes with the selection.
+  const smartKey = smartArt === null ? null : `${sheet}:${smartArt}`;
+  const [smartFor, setSmartFor] = useState(smartKey);
+  if (smartFor !== smartKey) {
+    setSmartFor(smartKey);
+    setSmartNode(null);
+    setSmartPreview(null);
+    if (smartKey === null) setSmartPane(false);
+  }
+  const latestPreview = useMemo(() => latestOnly(), []);
+  const smartApi = useMemo<SmartArtToolsApi>(
+    () => ({
+      state: () => (smartArt !== null ? smartInfo : null),
+      node: () => smartNode,
+      setNode: setSmartNode,
+      apply: async (patch) => {
+        if (smartArt !== null) await exec({ cmd: 'setSmartArt', sheet, index: smartArt, ...patch });
+      },
+      toShapes: async () => {
+        if (smartArt === null) return;
+        await exec({ cmd: 'smartArtToShapes', sheet, index: smartArt });
+        setSmartArt(null);
+      },
+      paneOpen: () => smartPane,
+      togglePane: () => setSmartPane((v) => !v),
+      loadPreviews: loadSmartArtPreviews,
+      preview: (patch) => {
+        if (!patch || !smartInfo || !smartBox || !host) {
+          latestPreview(Promise.resolve(null), setSmartPreview);
+          return;
+        }
+        const layout = patch.layout ?? smartInfo.layout;
+        latestPreview(
+          host
+            .exec<{ previews: SmartArtPreview[] }>({
+              cmd: 'smartArtPreviews',
+              items: smartInfo.items,
+              colors: patch.colors ?? smartInfo.colors,
+              style: patch.style ?? smartInfo.style,
+              rtl: smartInfo.rtl,
+              width: smartBox.w,
+              height: smartBox.h,
+            })
+            .then((r) => r.previews.find((p) => p.layout === layout)?.svg ?? null),
+          setSmartPreview,
+        );
+      },
+    }),
+    [
+      smartArt,
+      smartInfo,
+      smartBox,
+      smartNode,
+      smartPane,
+      sheet,
+      exec,
+      host,
+      loadSmartArtPreviews,
+      latestPreview,
+      setSmartArt,
+      setSmartNode,
+      setSmartPane,
+    ],
+  );
   /** Open the SmartArt dialog on diagram `index` of sheet `sh` (CORE-SMART-005). */
   const openSmartArt = useCallback(
     async (sh: number, index: number) => {
@@ -3656,14 +3733,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       },
       { isEnabled: (s) => s.smartArt !== null },
     );
-    add(
-      'smartart.toShapes',
-      async (s) => {
-        if (s.smartArt === null) return;
-        await exec({ cmd: 'smartArtToShapes', sheet: s.sheet, index: s.smartArt });
-        setSmartArt(null);
+    // SmartArt Design tab (CORE-SMART-004), convert to shapes included.
+    registerSmartArtTools(
+      {
+        register: (c) =>
+          add(c.id, async (st) => c.run(st), { isEnabled: c.isEnabled, isChecked: c.isChecked }),
       },
-      { isEnabled: (s) => s.smartArt !== null },
+      () => smartApi,
+      (s: SheetEditorState) => s.smartArt !== null,
     );
     add(
       'smartart.delete',
@@ -4346,6 +4423,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     frameSel,
     showMacros,
     openSmartArt,
+    smartApi,
     readAloudLink,
     dictationLink,
     beginTranslate,
@@ -7128,12 +7206,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         context: 'smartArt',
         label: t('slideEditor.smartart.tab'),
         groups: [
+          ...smartArtDesignGroups({
+            api: smartApi,
+            labels: smartArtDesignLabels(t).design,
+            mk: (id, label, icon, size) => item(id, label, icon, size),
+            enabled: (id) => !!state && registry.isEnabled(id, state),
+          }),
           {
             id: 'smartartEdit',
             label: t('slideEditor.smartart.group'),
             items: [
-              item('smartart.edit', t('slideEditor.smartart.textPane'), <Pencil size={18} />),
-              item('smartart.toShapes', t('slideEditor.smartart.toShapes'), <Shapes size={18} />),
+              item('smartart.edit', t('slideEditor.smartart.design.edit'), <Pencil size={18} />),
               item('smartart.delete', t('sheetEditor.smartArt.delete'), <Trash2 size={18} />),
             ],
           },
@@ -7211,6 +7294,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     focusInput,
     lastUsed,
     info,
+    smartApi,
   ]);
 
   // Context menus (CORE-UI-003): cell, row / column header, sheet tab, chart, picture.
@@ -7890,6 +7974,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                     height: smartBox.h,
                   }}
                 >
+                  {smartPreview && (
+                    <SmartArtLivePreview
+                      svg={smartPreview}
+                      style={{ left: 0, top: 0, width: '100%', height: '100%' }}
+                    />
+                  )}
+                  <SmartArtPaneToggle
+                    open={smartPane}
+                    label={t('slideEditor.smartart.pane.toggle')}
+                    style={{ left: 0, top: '50%' }}
+                    onToggle={() => setSmartPane((v) => !v)}
+                  />
                   <div
                     className={styles.chartHandle}
                     data-testid="smartart-resize"
@@ -9253,6 +9349,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             setRecommendOpen(false);
             focusInput();
           }}
+        />
+      )}
+      {smartPane && smartArt !== null && smartInfo && (
+        <SmartArtTextPane
+          key={`${sheet}:${smartArt}`}
+          items={smartInfo.items}
+          node={smartNode}
+          onNode={setSmartNode}
+          onCommit={(items) => void exec({ cmd: 'setSmartArt', sheet, index: smartArt, items })}
+          onClose={() => {
+            setSmartPane(false);
+            focusInput();
+          }}
+          anchor={() =>
+            document.querySelector('[data-testid="smartart-selection"]')?.getBoundingClientRect() ??
+            null
+          }
+          labels={smartArtDesignLabels(t).pane}
         />
       )}
       {smartArtDialog && (

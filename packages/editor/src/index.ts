@@ -238,6 +238,23 @@ export {
   textOf as smartArtTextOf,
   type SmartArtDraft,
 } from './SmartArtDialog';
+// SmartArt Design tab and text pane shared with BlueSheet / BlueSlide (CORE-SMART-004).
+export {
+  SMARTART_COMMANDS,
+  SmartArtLivePreview,
+  SmartArtPaneToggle,
+  SmartArtTextPane,
+  canSmartArtAction,
+  latestOnly,
+  registerSmartArtTools,
+  smartArtAction,
+  smartArtDesignGroups,
+  smartArtDesignLabels,
+  type SmartArtPaneAnchor,
+  type SmartArtPatch,
+  type SmartArtState,
+  type SmartArtToolsApi,
+} from './SmartArtTools';
 // Translation shared with BlueSheet / BlueSlide (CORE-LANG-001).
 export {
   useTranslate,

@@ -2910,6 +2910,39 @@
       "toShapes": "Chuyển thành hình",
       "hint": "Mỗi dòng là một mục; Tab để hạ cấp, Shift+Tab để nâng cấp.",
       "sampleItem": "Mục {{n}}",
+      "design": {
+        "create": "Tạo sơ đồ",
+        "layouts": "Bố cục",
+        "styles": "Kiểu sơ đồ",
+        "reset": "Đặt lại",
+        "addShape": "Thêm hình",
+        "action": {
+          "addAfter": "Thêm hình phía sau",
+          "addBefore": "Thêm hình phía trước",
+          "addAbove": "Thêm hình phía trên",
+          "addBelow": "Thêm hình phía dưới",
+          "addAssistant": "Thêm trợ lý",
+          "promote": "Nâng cấp",
+          "demote": "Hạ cấp",
+          "up": "Chuyển lên",
+          "down": "Chuyển xuống",
+          "remove": "Xoá hình"
+        },
+        "rtl": "Phải sang trái",
+        "layoutGallery": "Bố cục",
+        "colors": "Đổi màu",
+        "styleGallery": "Kiểu",
+        "resetGraphic": "Đặt lại sơ đồ",
+        "edit": "Sửa sơ đồ…",
+        "toText": "Chuyển thành văn bản"
+      },
+      "pane": {
+        "title": "Văn bản của sơ đồ",
+        "close": "Đóng ngăn văn bản",
+        "node": "Hình {{n}}",
+        "placeholder": "[Văn bản]",
+        "toggle": "Ngăn văn bản"
+      },
       "categories": {
         "list": "Danh sách",
         "process": "Quy trình",

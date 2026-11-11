@@ -2910,6 +2910,39 @@
       "toShapes": "Convert to shapes",
       "hint": "One item per line; Tab to demote, Shift+Tab to promote.",
       "sampleItem": "Item {{n}}",
+      "design": {
+        "create": "Create diagram",
+        "layouts": "Layouts",
+        "styles": "Diagram styles",
+        "reset": "Reset",
+        "addShape": "Add shape",
+        "action": {
+          "addAfter": "Add shape after",
+          "addBefore": "Add shape before",
+          "addAbove": "Add shape above",
+          "addBelow": "Add shape below",
+          "addAssistant": "Add assistant",
+          "promote": "Promote",
+          "demote": "Demote",
+          "up": "Move up",
+          "down": "Move down",
+          "remove": "Delete shape"
+        },
+        "rtl": "Right to left",
+        "layoutGallery": "Layouts",
+        "colors": "Change colours",
+        "styleGallery": "Styles",
+        "resetGraphic": "Reset diagram",
+        "edit": "Edit diagram…",
+        "toText": "Convert to text"
+      },
+      "pane": {
+        "title": "Diagram text",
+        "close": "Close the text pane",
+        "node": "Shape {{n}}",
+        "placeholder": "[Text]",
+        "toggle": "Text pane"
+      },
       "categories": {
         "list": "List",
         "process": "Process",

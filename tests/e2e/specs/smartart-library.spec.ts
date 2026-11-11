@@ -67,7 +67,7 @@ test('library layouts and node buttons of the text pane', async ({ page }) => {
 
   // Text pane again: the chevron layout is the one checked; switch to a picture layout.
   await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
-  await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
+  await page.locator('[data-command="smartart.edit"]').click();
   await expect(dialog.getByTestId('smartart-layout-processChevron')).toBeChecked();
   await expect(pane).toHaveValue('Hà Nội\n\tĐà Nẵng\nHuế');
   await dialog.getByTestId('smartart-layout-pictureStrip').check();
@@ -89,7 +89,7 @@ test('library layouts and node buttons of the text pane', async ({ page }) => {
   await page.mouse.click(slideBox.x + slideBox.width * 0.5, slideBox.y + slideBox.height * 0.4);
   await expect(page.getByRole('tab', { name: 'Sơ đồ thông minh' })).toBeVisible();
   await page.getByRole('tab', { name: 'Sơ đồ thông minh' }).click();
-  await page.getByRole('button', { name: 'Ngăn văn bản' }).click();
+  await page.locator('[data-command="smartart.edit"]').click();
   await expect(dialog.getByTestId('smartart-layout-pictureStrip')).toBeChecked();
   await expect(dialog.getByTestId('smartart-text')).toHaveValue('Hà Nội\n\tĐà Nẵng\nHuế');
   await dialog.getByRole('button', { name: 'Huỷ' }).click();

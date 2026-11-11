@@ -391,7 +391,7 @@ pub(super) fn put_part(
 }
 
 /// Chart part of a graphic frame on a slide.
-fn chart_part_of(pres: &Presentation, slide: usize, n: &ShapeNode) -> Option<String> {
+pub(super) fn chart_part_of(pres: &Presentation, slide: usize, n: &ShapeNode) -> Option<String> {
     let ShapeNode::Frame(f) = n else { return None };
     if f.uri != bo_drawingml::chart::URI_CHART && f.uri != bo_xlsx::chartex::CX_NS {
         return None;

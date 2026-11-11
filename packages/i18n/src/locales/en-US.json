@@ -2975,6 +2975,46 @@
       "keepSource": "Keep source formatting",
       "insert": "Insert selected ({{count}})",
       "insertAll": "Insert all"
+    },
+    "build": {
+      "text": "Build text",
+      "chart": "Build chart",
+      "diagram": "Build diagram"
+    },
+    "buildOpt": {
+      "whole": "As one object",
+      "allAtOnce": "All at once",
+      "byLevel": "By paragraphs to level {{n}}",
+      "series": "By series",
+      "category": "By category",
+      "seriesEl": "Point by point, by series",
+      "categoryEl": "Point by point, by category",
+      "one": "One by one",
+      "lvlAtOnce": "Level by level, whole level",
+      "lvlOne": "Level by level, one by one"
+    },
+    "buildReverse": "Reverse order",
+    "buildBgText": "Animate the shape too",
+    "buildBgChart": "Draw the chart background first",
+    "afterAnim": "After the effect",
+    "afterOpt": {
+      "none": "Keep as is",
+      "dim": "Change to a dim colour",
+      "hide": "Hide when done",
+      "hideOnClick": "Hide at the next click"
+    },
+    "dimColor": "Dim colour",
+    "rewind": "Back as before when done",
+    "effectSound": "Effect sound",
+    "dragReorder": "Drag to reorder",
+    "partOf": {
+      "background": "the shape",
+      "paragraph": "paragraph {{n}}",
+      "paragraphs": "paragraphs {{start}}–{{end}}",
+      "series": "series {{n}}",
+      "category": "category {{n}}",
+      "point": "series {{s}}, category {{c}}",
+      "node": "block {{n}}"
     }
   },
   "review": {

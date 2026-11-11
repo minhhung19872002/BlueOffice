@@ -1049,6 +1049,45 @@ struct Ser {
     trendlines: Vec<bo_model::sheet::Trendline>,
     /// Error bars (§21.2.2.58).
     err_bars: Option<bo_model::sheet::ErrorBars>,
+    /// Points left out of the drawing (a slide show building the chart element by element);
+    /// empty = none.
+    hidden: Vec<bool>,
+}
+
+impl Ser {
+    /// Point `i` is drawn.
+    fn shown(&self, i: usize) -> bool {
+        !self.hidden.get(i).copied().unwrap_or(false)
+    }
+
+    /// Some points are left out.
+    fn masked(&self) -> bool {
+        self.hidden.iter().any(|h| *h)
+    }
+}
+
+/// Which data points of a chart are drawn: `(series, point)` → shown, the series counted across
+/// all plot groups in order (a slide show building the chart by series, category or element).
+pub type PointMask<'a> = dyn Fn(usize, usize) -> bool + 'a;
+
+/// Whether [`draw_chart_masked`] can leave points out of `chart`: 2-D bar, column, line, area,
+/// scatter, bubble, pie and doughnut charts.
+#[must_use]
+pub fn maskable(chart: &Chart) -> bool {
+    !chart.plots.is_empty()
+        && chart.plots.iter().all(|p| {
+            !p.three_d
+                && matches!(
+                    p.kind,
+                    ChartKind::Bar
+                        | ChartKind::Line
+                        | ChartKind::Area
+                        | ChartKind::Scatter
+                        | ChartKind::Bubble
+                        | ChartKind::Pie
+                        | ChartKind::Doughnut
+                )
+        })
 }
 
 /// Resolves chart colours: a colour of the file (`Some`) or the default colour of series / point `i`
@@ -1119,6 +1158,27 @@ pub fn draw_chart_with(
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
+    draw_chart_masked(
+        wb, sheet, chart, w, h, locale, color, framed, None, label, out,
+    );
+}
+
+/// [`draw_chart_with`] drawing only the data points `mask` keeps (with their data labels); axes,
+/// gridlines, titles and the legend are drawn as always, at the same places.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_chart_masked(
+    wb: &Workbook,
+    sheet: usize,
+    chart: &Chart,
+    w: f64,
+    h: f64,
+    locale: &Locale,
+    color: &ColorFn<'_>,
+    framed: bool,
+    mask: Option<&PointMask<'_>>,
+    label: &mut LabelFn<'_>,
+    out: &mut Vec<Command>,
+) {
     let start = out.len();
     let fmt = &chart.format;
     // Series without a colour of their own take the format's palette.
@@ -1135,7 +1195,7 @@ pub fn draw_chart_with(
         label(t, r, a, size, c, out);
     };
     draw_body(
-        wb, sheet, chart, w, h, locale, &pal, framed, &look, &mut text, out,
+        wb, sheet, chart, w, h, locale, &pal, framed, &look, mask, &mut text, out,
     );
     if let Some(cmds) = out.get_mut(start..) {
         look.recolor(cmds);
@@ -1153,6 +1213,7 @@ fn draw_body(
     color: &ColorFn<'_>,
     framed: bool,
     look: &Look,
+    mask: Option<&PointMask<'_>>,
     label: &mut LabelFn<'_>,
     out: &mut Vec<Command>,
 ) {
@@ -1239,6 +1300,8 @@ fn draw_body(
                 }
                 _ => cats,
             };
+            let hidden =
+                mask.map_or_else(Vec::new, |m| (0..vals.len()).map(|i| !m(idx, i)).collect());
             v.push(Ser {
                 name: name.unwrap_or_else(|| format!("{}", idx + 1)),
                 cats,
@@ -1251,6 +1314,7 @@ fn draw_body(
                 subtotals: s.subtotals.clone(),
                 trendlines: s.trendlines.clone(),
                 err_bars: s.err_bars.clone(),
+                hidden,
             });
             idx += 1;
         }
@@ -1987,6 +2051,9 @@ fn draw_xy(
                         } else {
                             [pl + off, pb - hi * ph, bar, (hi - lo) * ph]
                         };
+                        if !s.shown(i) {
+                            continue;
+                        }
                         look.bar(bx, c, out);
                         // §21.2.2.49 data labels: at the outer end of a clustered bar, centred in
                         // a stacked one.
@@ -2033,7 +2100,37 @@ fn draw_xy(
                             (pl + (i as f64 + 0.5) * slot, pb - vpos(v) * ph)
                         })
                         .collect();
-                    if p.kind == ChartKind::Area {
+                    let floor = |i: usize| {
+                        pb - vpos(if stacked {
+                            base[i]
+                        } else {
+                            0.0_f64.clamp(vmin, vmax)
+                        }) * ph
+                    };
+                    if s.masked() {
+                        // Built point by point: each shown point brings the piece of line / area
+                        // from the point before it.
+                        for i in (1..ncat).filter(|i| s.shown(*i)) {
+                            let (a, z) = (pts[i - 1], pts[i]);
+                            if p.kind == ChartKind::Area {
+                                let segs = vec![
+                                    PathSeg::M(a.0 as f32, a.1 as f32),
+                                    PathSeg::L(z.0 as f32, z.1 as f32),
+                                    PathSeg::L(z.0 as f32, floor(i) as f32),
+                                    PathSeg::L(a.0 as f32, floor(i - 1) as f32),
+                                    PathSeg::Z,
+                                ];
+                                look.shape(segs, [pl, pt, pr, pb], s.color, out);
+                            } else {
+                                out.push(polyline(&[a, z], s.color, look.line_w));
+                            }
+                        }
+                        if p.kind != ChartKind::Area {
+                            let shown: Vec<(f64, f64)> =
+                                (0..ncat).filter(|i| s.shown(*i)).map(|i| pts[i]).collect();
+                            look.markers(&shown, s.color, out);
+                        }
+                    } else if p.kind == ChartKind::Area {
                         let mut segs = Vec::with_capacity(ncat * 2 + 2);
                         for (i, (x, y)) in pts.iter().enumerate() {
                             segs.push(if i == 0 {
@@ -2073,6 +2170,9 @@ fn draw_xy(
                     }
                     if look.labels.is_some() {
                         for (i, (x, y)) in pts.iter().enumerate() {
+                            if !s.shown(i) {
+                                continue;
+                            }
                             let cat = s.cats.get(i).map_or("", String::as_str);
                             if let Some(text) =
                                 look.label_text(&s.name, cat, share(s, i), None, locale)
@@ -2095,6 +2195,9 @@ fn draw_xy(
                         let Some(y) = s.vals.get(i).copied().flatten() else {
                             continue;
                         };
+                        if !s.shown(i) {
+                            continue;
+                        }
                         let px = pl + (x - xmin) / (xmax - xmin) * pw;
                         let py = pb - vpos(y) * ph;
                         out.push(rect(px - 2.5, py - 2.5, 5.0, 5.0, s.color));
@@ -2115,6 +2218,9 @@ fn draw_xy(
                         let Some(y) = s.vals.get(i).copied().flatten() else {
                             continue;
                         };
+                        if !s.shown(i) {
+                            continue;
+                        }
                         let size = s.sizes.get(i).copied().flatten().unwrap_or(1.0).abs();
                         let r = if max > 0.0 {
                             (size / max).sqrt() * rmax
@@ -2683,6 +2789,10 @@ fn draw_pie(
             continue;
         }
         let mid = a + sw / 2.0;
+        if !s.shown(i) {
+            a += sw;
+            continue;
+        }
         let (ox, oy) = (rad * ex * mid.sin(), -rad * ex * mid.cos());
         let pc = s.pts.get(i).copied().unwrap_or(PALETTE[i % PALETTE.len()]);
         if look.fill == bo_model::chart_style::SeriesFill::Solid
@@ -3434,6 +3544,7 @@ fn draw_of_pie(
         subtotals: Vec::new(),
         trendlines: Vec::new(),
         err_bars: None,
+        hidden: Vec::new(),
     };
     let main = plain(
         first.iter().map(|i| vals[*i]).chain([other]).collect(),

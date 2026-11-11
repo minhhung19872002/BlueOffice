@@ -1455,11 +1455,180 @@ pub struct Animation {
     /// word by word or letter by letter; `None` = the shape as a whole.
     #[serde(default)]
     pub iterate: Option<AnimIterate>,
+    /// What else the effect does: the part of the shape it targets, its build group, what
+    /// happens after it, rewinding and its sound.
+    #[serde(default)]
+    pub opts: AnimOptions,
     /// The effect's `p:par` as read, kept for effects BlueOffice does not model
     /// (emphasis, motion paths, other filters): regenerated timing reuses it, so
     /// those effects survive edits of the sequence losslessly.
     #[serde(default)]
     pub source: Option<XmlElement>,
+}
+
+/// Options of an effect beyond its behaviours.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AnimOptions {
+    /// The part of the shape the effect animates (ECMA-376 Part 1, §19.5 spTgt children `txEl`,
+    /// `bg`, `graphicEl`); `None` = the shape as a whole.
+    #[serde(default)]
+    pub target: Option<AnimTarget>,
+    /// §19.5.29 cTn@grpId: the build (§19.5 bldP / bldGraphic of `Timing::builds`) the effect
+    /// belongs to.
+    #[serde(default)]
+    pub group_id: Option<u32>,
+    /// What happens to the shape once the effect is done (behaviours with cTn@afterEffect).
+    #[serde(default)]
+    pub after: Option<AnimAfter>,
+    /// §19.5.29 cTn@fill `remove`: the shape goes back to how it was once the effect is done.
+    #[serde(default)]
+    pub rewind: bool,
+    /// Sound played when the effect starts (§19.5 subTnLst → audio → sndTgt).
+    #[serde(default)]
+    pub sound: Option<AnimSound>,
+}
+
+/// The part of a shape an effect animates (ECMA-376 Part 1, §19.5 spTgt).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnimTarget {
+    /// §19.5 txEl / pRg: paragraphs `start..=end` (0-based) of the shape's text.
+    Paragraphs {
+        /// First paragraph.
+        start: u32,
+        /// Last paragraph.
+        end: u32,
+    },
+    /// §19.5 bg: the shape without its text.
+    Background,
+    /// §19.5 graphicEl → DrawingML §20.1.2.2 chart (CT_AnimationChartElement): one step of a
+    /// chart build; an index below 0 = not given.
+    Chart {
+        /// `seriesIdx`.
+        series: i32,
+        /// `categoryIdx`.
+        category: i32,
+        /// ST_ChartBuildStep: `category`, `ptInCategory`, `series`, `ptInSeries`, `allPts`,
+        /// `gridLegend`.
+        step: String,
+    },
+    /// §19.5 graphicEl → DrawingML dgm (CT_AnimationDgmElement): one SmartArt node.
+    Diagram {
+        /// `id`: model id of the node (ST_Guid).
+        id: String,
+        /// ST_DgmBuildStep: `sp` (the node's shapes) or `bg` (the background).
+        step: String,
+    },
+}
+
+/// What happens after an effect (behaviours whose cTn@afterEffect is true).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnimAfter {
+    /// Dimmed to sRGB `rgb` (§19.5.2 animClr of `attrs`: `style.color`, `fillcolor`).
+    Dim {
+        /// `0xRRGGBB`.
+        rgb: u32,
+        /// Coloured attributes.
+        attrs: Vec<String>,
+    },
+    /// Hidden once the effect is done (§19.5.66 set of `style.visibility`).
+    Hide,
+    /// Hidden at the next click (an after-effect node at the start of the next click step).
+    HideOnClick,
+}
+
+/// The sound of an effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnimSound {
+    /// `sndTgt@r:embed`: relationship to the WAV part.
+    pub embed: String,
+    /// `sndTgt@name`.
+    pub name: String,
+}
+
+/// One build of `p:bldLst` (ECMA-376 Part 1, §19.5 bldLst): how the effects of a shape's group
+/// (§19.5.29 cTn@grpId) split the shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Build {
+    /// §19.5 bldP: text built paragraph by paragraph.
+    Paragraph(ParaBuild),
+    /// §19.5 bldGraphic: a chart or SmartArt built element by element (`bldSub`), or as one
+    /// object (`bldAsOne`).
+    Graphic(GraphicBuild),
+    /// Anything else (`bldDgm`, `bldOleChart`), as read.
+    Other(XmlElement),
+}
+
+impl Build {
+    /// Shape (`spid`) and group (`grpId`) of the build.
+    #[must_use]
+    pub fn key(&self) -> Option<(u32, u32)> {
+        match self {
+            Build::Paragraph(p) => Some((p.shape_id, p.group_id)),
+            Build::Graphic(g) => Some((g.shape_id, g.group_id)),
+            Build::Other(x) => {
+                let a = |k: &str| {
+                    x.attrs
+                        .iter()
+                        .find(|(n, _)| n == k)
+                        .and_then(|(_, v)| v.parse().ok())
+                };
+                Some((a("spid")?, a("grpId")?))
+            }
+        }
+    }
+}
+
+/// §19.5 bldP (CT_TLBuildParagraph).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParaBuild {
+    /// `spid`.
+    pub shape_id: u32,
+    /// `grpId`.
+    pub group_id: u32,
+    /// ST_TLParaBuildType `build`: `whole` (as one object), `p` (by paragraph), `allAtOnce`,
+    /// `cust`.
+    pub build: String,
+    /// `bldLvl` (default 1): paragraphs up to this outline level build one by one.
+    pub level: u32,
+    /// `rev`: in reverse order.
+    pub reverse: bool,
+    /// `animBg`: the shape is animated with its text.
+    pub anim_bg: bool,
+    /// Other attributes as read (`uiExpand`, `autoUpdateAnimBg`, `advAuto`).
+    pub attrs: Vec<(String, String)>,
+}
+
+/// §19.5 bldGraphic (CT_TLGraphicalObjectBuild).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphicBuild {
+    /// `spid`.
+    pub shape_id: u32,
+    /// `grpId`.
+    pub group_id: u32,
+    /// `bldSub`: DrawingML §20.1.2.2 bldChart (`chart`) or bldDgm (`diagram`); `None` =
+    /// `bldAsOne`.
+    pub sub: Option<GraphicSub>,
+}
+
+/// The `bldSub` of a graphic build.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphicSub {
+    /// a:bldChart: `bld` (ST_AnimationChartBuildType: `allAtOnce`, `series`, `category`,
+    /// `seriesEl`, `categoryEl`) and `animBg` (default true).
+    Chart {
+        /// Build type.
+        build: String,
+        /// The chart's background builds first.
+        anim_bg: bool,
+    },
+    /// a:bldDgm: `bld` (ST_AnimationDgmBuildType: `allAtOnce`, `one`, `lvlOne`, `lvlAtOnce`) and
+    /// `rev`.
+    Diagram {
+        /// Build type.
+        build: String,
+        /// In reverse order.
+        reverse: bool,
+    },
 }
 
 /// ECMA-376 Part 1, §19.5 iterate (CT_TLIterateData) of an effect node.
@@ -1498,6 +1667,9 @@ pub struct Timing {
     /// and anything not modelled. Written after the sequences when the timing is regenerated.
     #[serde(default)]
     pub others: Vec<XmlElement>,
+    /// §19.5 bldLst: how effects split their shapes (paragraphs, chart and SmartArt elements).
+    #[serde(default)]
+    pub builds: Vec<Build>,
     /// `p:timing` as read (or its `mc:AlternateContent` wrapper); written back verbatim while
     /// `animations` and `others` are unchanged.
     pub source: Option<Extra>,
@@ -1592,10 +1764,17 @@ impl Timing {
 
     /// Number of clicks needed to play every effect of the main sequence.
     pub fn click_count(&self) -> usize {
+        // An effect hidden "on the next click" needs that click even when it is the last one.
         self.timeline()
             .iter()
             .filter(|e| e.trigger_shape.is_none())
-            .map(|e| e.click)
+            .map(|e| {
+                let hides = self
+                    .animations
+                    .get(e.animation)
+                    .is_some_and(|a| a.opts.after == Some(AnimAfter::HideOnClick));
+                e.click + usize::from(hides)
+            })
             .max()
             .unwrap_or(0)
     }

@@ -171,6 +171,64 @@ pub struct AnimOut {
     /// behaviours end on (faded in over the plain layer while they run).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tint: Option<bo_render::PageList>,
+    /// The part of the shape the effect animates (paragraphs, background, chart element,
+    /// SmartArt node); `None` = the shape as a whole.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetOut>,
+    /// How the shape builds (paragraphs, chart or SmartArt elements), when it can.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build: Option<super::anim_build::BuildOut>,
+    /// After the effect: `dim` | `hide` | `hideOnClick`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<&'static str>,
+    /// Dim colour `RRGGBB` (`after` = `dim`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dim_color: Option<String>,
+    /// The shape goes back to how it was once the effect is done (§19.5.29 fill `remove`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub rewind: bool,
+    /// Sound played as the effect starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sound: Option<SoundOut>,
+    /// Slide show: the pieces of the layer's split (`LayerOut::parts`, 0 = the body) the effect
+    /// plays on; empty = the whole layer.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<usize>,
+}
+
+/// The part of a shape an effect animates.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetOut {
+    /// `paragraphs` | `background` | `chart` | `diagram`.
+    pub kind: &'static str,
+    /// First / last paragraph (0-based).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<u32>,
+    /// Last paragraph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<u32>,
+    /// Chart series (0-based), when the step is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub series: Option<u32>,
+    /// Chart category (0-based), when the step is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<u32>,
+    /// Chart build step (`series`, `gridLegend`, …) or SmartArt step (`sp`, `bg`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    /// SmartArt node: 1-based position in reading order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<u32>,
+}
+
+/// A layer cut into pieces (an effect built by paragraph, chart element or SmartArt node).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LayerParts {
+    /// The drawings: the body (index 0, drawn whatever is shown) then each piece.
+    pub pages: Vec<bo_render::PageList>,
+    /// Bounds `[x, y, w, h]` of each drawing, points (`None`: draws nothing).
+    pub rects: Vec<Option<[f64; 4]>>,
 }
 
 /// One layer of the slide show (bottom to top).
@@ -186,6 +244,9 @@ pub struct LayerOut {
     /// (§19.5 iterate); only on layers that have such effects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<super::anim_text::TextSplit>,
+    /// The layer cut into its body and pieces, for effects on parts of its shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts: Option<LayerParts>,
 }
 
 /// A video or audio clip on a slide (§20.1.3.6 videoFile, §20.1.3.1 audioFile).
@@ -508,6 +569,16 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                 text_step_ms: iter.map(|it| it.step_ms(a.dur_ms)),
                 text_backwards: iter.is_some_and(|it| it.backwards),
                 tint: None,
+                target: target_out(pres, slide, a),
+                build: super::anim_build::build_out(pres, slide, t, i),
+                after: super::anim_build::after_name(a.opts.after.as_ref()),
+                dim_color: match &a.opts.after {
+                    Some(bo_model::slide::AnimAfter::Dim { rgb, .. }) => Some(format!("{rgb:06X}")),
+                    _ => None,
+                },
+                rewind: a.opts.rewind,
+                sound: a.opts.sound.as_ref().map(|snd| sound_of(pres, slide, snd)),
+                parts: Vec::new(),
                 class: class_name(&a.class),
                 direction: a.direction.clone(),
                 dirs: effect_dirs(&a.effect),
@@ -531,6 +602,70 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
             }
         })
         .collect()
+}
+
+/// The target of an effect for the UI.
+fn target_out(pres: &Presentation, slide: usize, a: &Animation) -> Option<TargetOut> {
+    use bo_model::slide::AnimTarget;
+    let none = TargetOut {
+        kind: "background",
+        start: None,
+        end: None,
+        series: None,
+        category: None,
+        step: None,
+        node: None,
+    };
+    Some(match a.opts.target.as_ref()? {
+        AnimTarget::Background => none,
+        AnimTarget::Paragraphs { start, end } => TargetOut {
+            kind: "paragraphs",
+            start: Some(*start),
+            end: Some(*end),
+            ..none
+        },
+        AnimTarget::Chart {
+            series,
+            category,
+            step,
+        } => TargetOut {
+            kind: "chart",
+            series: u32::try_from(*series).ok(),
+            category: u32::try_from(*category).ok(),
+            step: Some(step.clone()),
+            ..none
+        },
+        AnimTarget::Diagram { id, step } => TargetOut {
+            kind: "diagram",
+            step: Some(step.clone()),
+            node: match super::anim_build::kind_of(pres, slide, a.shape_id) {
+                Some(super::anim_build::Kind::Diagram(d)) => d
+                    .nodes
+                    .iter()
+                    .position(|(n, _)| n == id)
+                    .and_then(|p| u32::try_from(p + 1).ok()),
+                _ => None,
+            },
+            ..none
+        },
+    })
+}
+
+/// The sound of an effect (its WAV part through the slide's relationship).
+fn sound_of(pres: &Presentation, slide: usize, snd: &bo_model::slide::AnimSound) -> SoundOut {
+    let part = pres.slides.get(slide).and_then(|s| {
+        s.info
+            .rels
+            .iter()
+            .find(|r| r.id == snd.embed && !r.external)
+            .map(|r| bo_opc::resolve_target(&s.info.part_name, &r.target))
+    });
+    SoundOut {
+        stop: false,
+        part,
+        name: snd.name.clone(),
+        looped: false,
+    }
 }
 
 /// Layers of a slide: ranges of top-level shapes, each animated shape alone.
@@ -867,6 +1002,35 @@ pub struct AnimSpec {
     /// words, 5 for letters).
     #[serde(default)]
     pub text_delay_pct: Option<u32>,
+    /// Build the shape (see `anim_build::BuildOut::value`): text `whole` | `allAtOnce` | `p1` …
+    /// `p5`; chart `whole` | `allAtOnce` | `series` | `category` | `seriesEl` | `categoryEl`;
+    /// SmartArt `whole` | `allAtOnce` | `one` | `lvlAtOnce` | `lvlOne`.
+    #[serde(default)]
+    pub build: Option<String>,
+    /// Build in reverse order (text, SmartArt).
+    #[serde(default)]
+    pub build_reverse: Option<bool>,
+    /// Animate the shape (text) or the chart background as the build's first step.
+    #[serde(default)]
+    pub build_bg: Option<bool>,
+    /// After the effect: `none` | `dim` | `hide` | `hideOnClick`.
+    #[serde(default)]
+    pub after: Option<String>,
+    /// Dim colour `RRGGBB` (default 808080).
+    #[serde(default)]
+    pub dim_color: Option<String>,
+    /// Rewind when done playing.
+    #[serde(default)]
+    pub rewind: Option<bool>,
+    /// Sound: `none` removes it.
+    #[serde(default)]
+    pub sound: Option<String>,
+    /// A new sound: WAV bytes in base64.
+    #[serde(default)]
+    pub sound_data: Option<String>,
+    /// Name of the new sound.
+    #[serde(default)]
+    pub sound_name: Option<String>,
 }
 
 /// Effect id of a motion path drawn by the author.
@@ -1027,6 +1191,7 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
                     .as_deref()
                     .map(|p| bo_pptx::anim::custom_path_effect(id, dur.clamp(1, 600_000), p)),
                 iterate: iterate.clone(),
+                opts: bo_model::slide::AnimOptions::default(),
                 shape_id: id,
                 class: class.clone(),
                 effect: effect.clone(),
@@ -1049,57 +1214,171 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
     })
 }
 
-/// Change effect `index` of the current slide.
+/// Change effect `index` of the current slide. The effect, its timing and what happens after it
+/// apply to every effect of its build (§19.5 bldLst); the trigger, the delay and the sound to
+/// this one. A new build (`spec.build`) splits or joins the shape's effects.
 pub fn cmd_set_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, spec: &AnimSpec) -> R<()> {
     let effect = spec.effect.as_deref().map(parse_effect).transpose()?;
     let class = spec.class.as_deref().map(parse_class).transpose()?;
     let trigger = spec.trigger.as_deref().map(parse_trigger).transpose()?;
-    edit_timing(tx, sel.slide, |anims| {
-        let a = anims
-            .get_mut(index)
+    let slide = sel.slide;
+    let (shape, kind) = {
+        let a = tx
+            .pres
+            .slides
+            .get(slide)
+            .and_then(|s| s.timing.as_ref())
+            .and_then(|t| t.animations.get(index))
             .ok_or(EditError::Refused("noAnimation"))?;
+        (
+            a.clone(),
+            super::anim_build::kind_of(tx.pres, slide, a.shape_id),
+        )
+    };
+    let after = match spec.after.as_deref() {
+        None => None,
+        Some("none") => Some(None),
+        Some("hide") => Some(Some(bo_model::slide::AnimAfter::Hide)),
+        Some("hideOnClick") => Some(Some(bo_model::slide::AnimAfter::HideOnClick)),
+        Some("dim") => {
+            let rgb = match spec.dim_color.as_deref() {
+                Some(c) => parse_rgb(c)?,
+                None => match &shape.opts.after {
+                    Some(bo_model::slide::AnimAfter::Dim { rgb, .. }) => *rgb,
+                    _ => 0x80_80_80,
+                },
+            };
+            Some(Some(bo_model::slide::AnimAfter::Dim {
+                rgb,
+                attrs: super::anim_build::dim_attrs(tx.pres, slide, &shape),
+            }))
+        }
+        Some(_) => return refuse("badAfter"),
+    };
+    let after = match (after, spec.dim_color.as_deref(), &shape.opts.after) {
+        // A new dim colour for an effect dimmed already.
+        (None, Some(c), Some(bo_model::slide::AnimAfter::Dim { attrs, .. })) => {
+            Some(Some(bo_model::slide::AnimAfter::Dim {
+                rgb: parse_rgb(c)?,
+                attrs: attrs.clone(),
+            }))
+        }
+        (a, _, _) => a,
+    };
+    let sound = match (spec.sound.as_deref(), &spec.sound_data) {
+        (_, Some(data)) => {
+            let embed = super::action::ensure_sound(tx, slide, data)?;
+            Some(Some(bo_model::slide::AnimSound {
+                embed,
+                name: spec
+                    .sound_name
+                    .clone()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "sound.wav".into()),
+            }))
+        }
+        (Some("none"), None) => Some(None),
+        (Some(_), None) => return refuse("badSound"),
+        (None, None) => None,
+    };
+    edit_timing_full(tx, slide, |t| {
+        let group = super::anim_build::members(&t.animations, index);
+        if group.is_empty() {
+            return refuse("noAnimation");
+        }
         let shape_changed = effect.is_some() || class.is_some() || spec.direction.is_some();
-        if let Some(e) = effect {
-            a.effect = e;
-        }
-        if let Some(c) = class {
-            a.class = c;
-        }
-        if shape_changed {
-            if a.effect == AnimEffect::Other {
-                return refuse("badEffect");
+        for &k in &group {
+            let a = &mut t.animations[k];
+            if let Some(e) = &effect {
+                a.effect = e.clone();
             }
-            a.class = class_for(&a.effect, Some(&a.class));
-            a.direction = valid_anim_dir(
-                &a.effect,
-                spec.direction.as_deref().or(a.direction.as_deref()),
-            );
-            // A different effect: written from the model (§19.5) with its own preset.
-            a.preset_id = None;
-            a.preset_subtype = None;
-            a.source = None;
+            if let Some(c) = &class {
+                a.class = c.clone();
+            }
+            if shape_changed {
+                if a.effect == AnimEffect::Other {
+                    return refuse("badEffect");
+                }
+                a.class = class_for(&a.effect, Some(&a.class));
+                a.direction = valid_anim_dir(
+                    &a.effect,
+                    spec.direction.as_deref().or(a.direction.as_deref()),
+                );
+                // A different effect: written from the model (§19.5) with its own preset.
+                a.preset_id = None;
+                a.preset_subtype = None;
+                a.source = None;
+            }
+            if let Some(d) = spec.dur_ms {
+                a.dur_ms = d.clamp(1, 600_000);
+            }
+            if let Some(r) = spec.repeat {
+                a.repeat = repeat_of(r);
+            }
+            if let IterEdit::Set(it) = iterate_of(spec, a.iterate.as_ref())? {
+                a.iterate = it;
+            }
+            if let Some(x) = &after {
+                a.opts.after.clone_from(x);
+            }
+            if let Some(r) = spec.rewind {
+                a.opts.rewind = r;
+            }
         }
-        if let Some(t) = trigger {
-            a.trigger = t;
-        }
-        if let Some(d) = spec.dur_ms {
-            a.dur_ms = d.clamp(1, 600_000);
+        let a = &mut t.animations[index];
+        if let Some(tr) = trigger {
+            a.trigger = tr;
         }
         if let Some(d) = spec.delay_ms {
             a.delay_ms = d.min(600_000);
         }
-        if let Some(r) = spec.repeat {
-            a.repeat = repeat_of(r);
-        }
-        if let Some(t) = spec.trigger_shape {
-            a.trigger_shape = (t != 0).then_some(t);
+        if let Some(tg) = spec.trigger_shape {
+            a.trigger_shape = (tg != 0).then_some(tg);
             a.trigger_bookmark = None;
         }
-        if let IterEdit::Set(it) = iterate_of(spec, a.iterate.as_ref())? {
-            a.iterate = it;
+        if let Some(snd) = &sound {
+            a.opts.sound.clone_from(snd);
         }
-        edit_path(a, spec)
+        edit_path(a, spec)?;
+        if spec.build.is_some() || spec.build_reverse.is_some() || spec.build_bg.is_some() {
+            let value = match spec.build.clone() {
+                Some(v) => v,
+                None => super::anim_build::build_out_of(t, kind.as_ref(), index)
+                    .ok_or(EditError::Refused("noBuild"))?,
+            };
+            super::anim_build::rebuild(
+                t,
+                kind.as_ref(),
+                index,
+                &value,
+                spec.build_reverse,
+                spec.build_bg,
+            )?;
+        }
+        Ok(())
     })
+}
+
+/// `RRGGBB` (with or without `#`) → `0xRRGGBB`.
+fn parse_rgb(c: &str) -> R<u32> {
+    let h = c.trim().trim_start_matches('#');
+    if h.len() != 6 {
+        return refuse("badColor");
+    }
+    u32::from_str_radix(h, 16).map_err(|_| EditError::Refused("badColor"))
+}
+
+/// Edit the whole timing of `slide` (effects and builds).
+fn edit_timing_full(tx: &mut Tx<'_>, slide: usize, f: impl FnOnce(&mut Timing) -> R<()>) -> R<()> {
+    let s = tx
+        .pres
+        .slides
+        .get(slide)
+        .ok_or(EditError::Refused("noSlide"))?;
+    let mut timing: Timing = s.timing.clone().unwrap_or_default();
+    f(&mut timing)?;
+    tx.fields(slide, |fl| fl.timing = Some(timing))?;
+    Ok(())
 }
 
 /// Offset (`a:off`, EMU) of a top-level node.

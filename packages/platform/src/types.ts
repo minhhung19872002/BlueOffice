@@ -2044,6 +2044,60 @@ export interface SlideAnimSpec {
   textBy?: 'all' | 'word' | 'letter';
   /** Delay between words / letters, % of the effect's duration. */
   textDelayPct?: number;
+  /**
+   * Build the shape (§19.5 bldP / bldGraphic): text `whole` | `allAtOnce` | `p1` … `p5`; chart
+   * `whole` | `allAtOnce` | `series` | `category` | `seriesEl` | `categoryEl`; SmartArt `whole` |
+   * `allAtOnce` | `one` | `lvlAtOnce` | `lvlOne`.
+   */
+  build?: string;
+  /** Build in reverse order (text, SmartArt). */
+  buildReverse?: boolean;
+  /** Animate the shape / the chart background as the build's first step. */
+  buildBg?: boolean;
+  /** After the effect. */
+  after?: 'none' | SlideAnimAfter;
+  /** Dim colour `RRGGBB`. */
+  dimColor?: string;
+  /** Rewind when done playing. */
+  rewind?: boolean;
+  /** `none` removes the effect's sound. */
+  sound?: 'none';
+  /** A new sound: WAV bytes in base64. */
+  soundData?: string;
+  soundName?: string;
+}
+
+/** What happens to a shape once its effect is done. */
+export type SlideAnimAfter = 'dim' | 'hide' | 'hideOnClick';
+
+/** How a shape builds (`SlideAnimSpec.build`). */
+export interface SlideAnimBuild {
+  kind: 'text' | 'chart' | 'diagram';
+  value: string;
+  reverse: boolean;
+  bg: boolean;
+  /** The first effect of its build. */
+  head: boolean;
+  /** Deepest outline level of the text (1-based). */
+  levels: number;
+}
+
+/** The part of a shape an effect animates. */
+export interface SlideAnimTarget {
+  kind: 'paragraphs' | 'background' | 'chart' | 'diagram';
+  start?: number;
+  end?: number;
+  series?: number;
+  category?: number;
+  step?: string;
+  /** SmartArt node, 1-based in reading order. */
+  node?: number;
+}
+
+/** A slide show layer cut into its body (index 0) and pieces. */
+export interface SlideLayerParts {
+  pages: PageDisplayList[];
+  rects: ([number, number, number, number] | null)[];
 }
 
 /** A letter of a slide show layer (effects run word by word / letter by letter). */
@@ -2106,6 +2160,20 @@ export interface SlideAnimInfo {
   textBackwards?: boolean;
   /** Slide show: the layer drawn in the colours the effect's colour changes end on. */
   tint?: PageDisplayList;
+  /** The part of the shape the effect animates; absent = the shape as a whole. */
+  target?: SlideAnimTarget;
+  /** How the shape builds, when it can (paragraphs, chart or SmartArt elements). */
+  build?: SlideAnimBuild;
+  /** After the effect. */
+  after?: SlideAnimAfter;
+  /** Dim colour `RRGGBB`. */
+  dimColor?: string;
+  /** The shape goes back to how it was once the effect is done. */
+  rewind?: boolean;
+  /** Sound played as the effect starts. */
+  sound?: SlideTransitionSound;
+  /** Slide show: pieces of the layer's `parts` the effect plays on (0 = the body). */
+  parts?: number[];
 }
 
 /** One behaviour of an effect on the effect's timeline (`bo_pptx::anim_play::Track`). */
@@ -2153,7 +2221,14 @@ export interface SlideShowInfo {
   height: number;
   transition: SlideTransitionInfo | null;
   /** Bottom to top; animated shapes have a layer of their own. */
-  layers: { ids: number[]; backdrop: boolean; page: PageDisplayList; text?: SlideTextSplit }[];
+  layers: {
+    ids: number[];
+    backdrop: boolean;
+    page: PageDisplayList;
+    text?: SlideTextSplit;
+    /** Cut into pieces for effects on parts of its shape. */
+    parts?: SlideLayerParts;
+  }[];
   animations: SlideAnimInfo[];
   clicks: number;
   /** Shapes that start effects when clicked, with their boxes `[x, y, w, h]`. */
@@ -2173,6 +2248,22 @@ export interface SlideMorphPair {
   toPage: PageDisplayList;
   /** A word / letter (morph by word / by character): its boxes `[x, y, w, h]` (from, to). */
   clip?: [[number, number, number, number], [number, number, number, number]];
+  /** The shape's outlines change point by point (the pages then hold its text only). */
+  outline?: SlideMorphOutline;
+}
+
+/** One path of a morphing outline: rings of the same number of points on both slides. */
+export interface SlideOutlinePath {
+  rings: [number, number][][];
+  closed: boolean[];
+  fill?: [number, number, number, number];
+  stroke?: [[number, number, number, number], number];
+}
+
+/** The outlines of a matched shape on the previous slide and on this one, path for path. */
+export interface SlideMorphOutline {
+  from: SlideOutlinePath[];
+  to: SlideOutlinePath[];
 }
 
 /** A word / letter fading out or in during a morph. */

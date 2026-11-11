@@ -33,35 +33,90 @@ export interface PlannedEffect {
   pieces?: { frames: Frames; delay: number }[];
   /** Opacity keyframes of the effect's colour drawing (`SlideAnimInfo.tint`). */
   tint?: Frames;
+  /**
+   * Pieces of the layer's `parts` the effect plays on (0 = the body): an effect built by
+   * paragraph, chart element or SmartArt node. Absent = the whole layer.
+   */
+  parts?: number[];
+  /** Embedded WAV part of the sound played as the effect starts. */
+  sound?: string;
 }
 
-/** Final visibility of an effect's shape (`null` = emphasis / path: unchanged). */
+/**
+ * Final visibility of an effect's shape (`null` = emphasis / path: unchanged): an entrance shows
+ * it, an exit or "hide after animation" hides it; rewinding puts it back as it was.
+ */
 function after(a: SlideAnimInfo): boolean | null {
+  if (a.rewind) {
+    if (a.class === 'entr') return false;
+    if (a.class === 'exit') return true;
+    return null;
+  }
+  if (a.after === 'hide') return false;
   if (a.class === 'entr') return true;
   if (a.class === 'exit') return false;
   return null;
 }
 
+/** Effects of the click steps on the whole layer (`parts`: on pieces of it). */
+const onLayer = (a: SlideAnimInfo) => !a.parts || a.parts.length === 0;
+
 /**
- * Visibility of every layer once the effects of clicks `0..=click` are done
- * (`click = -1`: before the slide's own effects). A layer whose first effect is
- * an entrance starts hidden.
+ * Fold the click-step effects into visibilities keyed by `key` (once the effects of clicks
+ * `0..=click` are done; `started`: click `click + 1` has begun, so effects hidden "on the next
+ * click" of step `click` are hidden too). A key whose first effect is an entrance starts hidden.
  */
-export function visibility(show: SlideShowInfo, click: number): boolean[] {
-  const vis = show.layers.map(() => true);
-  const seen = new Set<number>();
+function fold(
+  show: SlideShowInfo,
+  click: number,
+  started: boolean,
+  keys: (a: SlideAnimInfo) => string[],
+): Record<string, boolean> {
+  const vis: Record<string, boolean> = {};
   for (const a of show.animations) {
-    if (a.layer == null || seen.has(a.layer)) continue;
-    seen.add(a.layer);
-    if (a.class === 'entr') vis[a.layer] = false;
+    for (const k of keys(a)) {
+      if (k in vis) continue;
+      vis[k] = a.class !== 'entr';
+    }
   }
   for (const a of show.animations) {
     // Effects of a trigger shape play when it is clicked, not with the click steps.
-    if (a.layer == null || a.click > click || a.triggerShape != null) continue;
-    const v = after(a);
-    if (v !== null) vis[a.layer] = v;
+    if (a.click > click || a.triggerShape != null) continue;
+    let v = after(a);
+    const next = started ? a.click <= click : a.click < click;
+    if (a.after === 'hideOnClick' && next) v = false;
+    if (v === null) continue;
+    for (const k of keys(a)) vis[k] = v;
   }
   return vis;
+}
+
+/**
+ * Visibility of every layer once the effects of clicks `0..=click` are done
+ * (`click = -1`: before the slide's own effects). A layer whose first effect is
+ * an entrance starts hidden. `started`: the next click has begun (effects hidden on the next
+ * click are hidden).
+ */
+export function visibility(show: SlideShowInfo, click: number, started = false): boolean[] {
+  const f = fold(show, click, started, (a) =>
+    a.layer != null && onLayer(a) ? [String(a.layer)] : [],
+  );
+  const n = Math.max(show.layers.length, ...show.animations.map((a) => (a.layer ?? -1) + 1));
+  return Array.from({ length: n }, (_, i) => f[String(i)] ?? true);
+}
+
+/**
+ * Visibility of the pieces of layers cut into parts (`"layer:piece"`, piece 0 = the body), like
+ * [`visibility`]: a piece whose first effect is an entrance starts hidden.
+ */
+export function partVisibility(
+  show: SlideShowInfo,
+  click: number,
+  started = false,
+): Record<string, boolean> {
+  return fold(show, click, started, (a) =>
+    a.layer != null && a.parts ? a.parts.map((p) => `${a.layer}:${p}`) : [],
+  );
 }
 
 const pct = (v: number) => `${Math.round(v * 10000) / 100}%`;
@@ -142,8 +197,10 @@ function planned(a: SlideAnimInfo, show: SlideShowInfo): PlannedEffect {
     iterations: runs === 0 ? Infinity : runs,
     index: show.animations.indexOf(a),
   };
+  if (a.parts && a.parts.length > 0) out.parts = a.parts;
+  if (a.sound?.part && !a.sound.stop) out.sound = a.sound.part;
   const text = a.layer != null ? show.layers[a.layer]?.text : undefined;
-  if (text && (a.textBy === 'wd' || a.textBy === 'lt') && !a.mediaCmd) {
+  if (text && (a.textBy === 'wd' || a.textBy === 'lt') && !a.mediaCmd && !out.parts) {
     // Each piece runs the effect for its own duration, one after the other.
     const starts = pieceOrder(a, text.pieces);
     out.duration = Math.max(1, a.durMs);
@@ -167,7 +224,7 @@ export function tintsShown(show: SlideShowInfo, click: number): Record<number, b
   const out: Record<number, boolean> = {};
   show.animations.forEach((a, i) => {
     if (!a.tint) return;
-    out[i] = a.click <= click && a.triggerShape == null && tintAfter(a) > 0.5;
+    out[i] = a.click <= click && a.triggerShape == null && !a.rewind && tintAfter(a) > 0.5;
   });
   return out;
 }

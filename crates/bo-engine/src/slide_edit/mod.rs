@@ -13,6 +13,7 @@
 
 pub mod action;
 pub mod album;
+pub mod anim_build;
 pub mod anim_text;
 pub mod build;
 pub mod chart;
@@ -35,6 +36,7 @@ pub mod media;
 pub mod media_playback;
 pub mod model3d;
 pub mod morph;
+pub mod morph_outline;
 pub mod ole;
 pub mod ops;
 pub mod outline;
@@ -4846,6 +4848,7 @@ impl Engine {
                 backdrop: r.backdrop,
                 page,
                 text: None,
+                parts: None,
             });
         }
         let mut animations = show::animations_out(pres, slide);
@@ -4861,7 +4864,9 @@ impl Engine {
                 l.text = anim_text::split_text(&l.page);
             }
         }
-        self.tint_animations(slide, &ranges, &mut animations);
+        // Effects on parts of shapes (§19.5 txEl / bg / graphicEl): their layers in pieces.
+        let plans = self.split_layers(slide, &ranges, &mut layers, &mut animations);
+        self.tint_animations(slide, &ranges, &mut animations, &plans);
         let pres = self.pres.as_ref()?;
         let (width, height) = slide_size(pres);
         Some(show::ShowOut {
@@ -4895,11 +4900,158 @@ impl Engine {
     /// The colour changes of the effects (§19.5.2 animClr with an sRGB target): each effect's
     /// layer drawn in the colours it ends on, after the changes of the effects before it on the
     /// same shape.
+    /// Draw the layer of `range` with shape `id` masked to the atoms `shown` of `plan` (its text,
+    /// chart points or SmartArt shapes); `node` replaces the shape's top-level node when given.
+    fn draw_masked(
+        &mut self,
+        slide: usize,
+        range: bo_pptx::ShapeRange,
+        plan: &anim_build::PartsPlan,
+        shown: &[anim_build::Atom],
+        node: Option<&ShapeNode>,
+    ) -> Option<bo_render::PageList> {
+        let pres = self.pres.as_mut()?;
+        let id = plan.shape_id;
+        let ti = show::top_index(pres, slide, id)?;
+        let orig = pres.slides.get(slide)?.data.shapes.get(ti)?.clone();
+        let mut opts = bo_pptx::RenderOptions {
+            layer: Some(range),
+            followed: self.slides.followed.clone(),
+            ..bo_pptx::RenderOptions::default()
+        };
+        let mut drawn = node.cloned().unwrap_or_else(|| orig.clone());
+        match &plan.kind {
+            anim_build::Kind::Text(_) => {
+                let paras: Vec<usize> = shown.iter().map(|a| a.0).collect();
+                anim_build::mask_text(&mut drawn, id, &paras);
+            }
+            anim_build::Kind::Chart { .. } => {
+                opts.element_mask = Some((id, bo_pptx::ElementMask::ChartPoints(shown.to_vec())));
+            }
+            anim_build::Kind::Diagram(_) => {
+                opts.element_mask = Some((
+                    id,
+                    bo_pptx::ElementMask::DiagramShapes(shown.iter().map(|a| a.0).collect()),
+                ));
+            }
+        }
+        pres.slides[slide].data.shapes[ti] = drawn;
+        let page = bo_pptx::render_with(pres, slide, &mut self.fonts, &mut self.images, &opts);
+        pres.slides[slide].data.shapes[ti] = orig;
+        let mut page = page.ok()?;
+        anim_build::strip_clear(&mut page);
+        Some(page)
+    }
+
+    /// Cut the layers of shapes whose effects target parts of them (paragraphs, chart elements,
+    /// SmartArt nodes) into their body and pieces; each effect then plays on its pieces, from
+    /// their box.
+    fn split_layers(
+        &mut self,
+        slide: usize,
+        ranges: &[bo_pptx::ShapeRange],
+        layers: &mut [show::LayerOut],
+        animations: &mut [show::AnimOut],
+    ) -> Vec<(usize, anim_build::PartsPlan)> {
+        let mut out = Vec::new();
+        let Some(pres) = self.pres.as_ref() else {
+            return out;
+        };
+        let Some(t) = pres.slides.get(slide).and_then(|s| s.timing.clone()) else {
+            return out;
+        };
+        let mut ids: Vec<u32> = Vec::new();
+        for a in &t.animations {
+            if a.opts.target.is_some() && !ids.contains(&a.shape_id) {
+                ids.push(a.shape_id);
+            }
+        }
+        let (sw, sh) = slide_size(pres);
+        for id in ids {
+            let Some(pres) = self.pres.as_ref() else {
+                break;
+            };
+            let Some(plan) = anim_build::plan(pres, slide, &t, id) else {
+                continue;
+            };
+            let Some(li) = show::layer_of(pres, slide, ranges, id) else {
+                continue;
+            };
+            let range = ranges[li];
+            let Some(base) = self.draw_masked(slide, range, &plan, &plan.atoms[0], None) else {
+                continue;
+            };
+            let mut pages = vec![base.clone()];
+            let mut ok = true;
+            for atoms in plan.atoms.iter().skip(1) {
+                let mut shown = plan.atoms[0].clone();
+                shown.extend(atoms.iter().copied());
+                let piece = self
+                    .draw_masked(slide, range, &plan, &shown, None)
+                    .and_then(|full| anim_build::subtract(&full, &base));
+                if let Some(p) = piece {
+                    pages.push(p);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                continue;
+            }
+            let rects: Vec<Option<[f64; 4]>> = pages.iter().map(anim_build::bounds).collect();
+            for (ai, parts) in &plan.effects {
+                let Some(a) = animations.get_mut(*ai) else {
+                    continue;
+                };
+                a.parts.clone_from(parts);
+                a.layer = Some(li);
+                // The effect moves, turns and clips its pieces in their own box.
+                let mut b: Option<[f64; 4]> = None;
+                for r in parts
+                    .iter()
+                    .filter_map(|k| rects.get(*k).copied().flatten())
+                {
+                    b = Some(match b {
+                        None => r,
+                        Some(o) => {
+                            let (x0, y0) = (o[0].min(r[0]), o[1].min(r[1]));
+                            let (x1, y1) = (
+                                (o[0] + o[2]).max(r[0] + r[2]),
+                                (o[1] + o[3]).max(r[1] + r[3]),
+                            );
+                            [x0, y0, x1 - x0, y1 - y0]
+                        }
+                    });
+                }
+                if let (Some(r), Some(anim)) = (b, t.animations.get(*ai)) {
+                    a.rect = Some(r);
+                    a.play = bo_pptx::anim_play::effect_play(
+                        &bo_pptx::anim::effect_xml(anim),
+                        &bo_pptx::anim_play::ShapeBase {
+                            x: (r[0] + r[2] / 2.0) / sw.max(1.0),
+                            y: (r[1] + r[3] / 2.0) / sh.max(1.0),
+                            w: r[2] / sw.max(1.0),
+                            h: r[3] / sh.max(1.0),
+                        },
+                    );
+                }
+            }
+            if let Some(l) = layers.get_mut(li) {
+                l.text = None;
+                l.parts = Some(show::LayerParts { pages, rects });
+            }
+            out.push((li, plan));
+        }
+        out
+    }
+
     fn tint_animations(
         &mut self,
         slide: usize,
         ranges: &[bo_pptx::ShapeRange],
         animations: &mut [show::AnimOut],
+        plans: &[(usize, anim_build::PartsPlan)],
     ) {
         use bo_pptx::anim_play::TrackKind;
         // Colour changes so far, by shape.
@@ -4940,6 +5092,23 @@ impl Engine {
             let mut node = orig.clone();
             for (id, attr, c) in &so_far {
                 anim_text::tint_id(&mut node, *id, attr, *c);
+            }
+            // An effect on pieces of the shape: its pieces drawn in the new colours over the body.
+            if !a.parts.is_empty() {
+                let plan = plans
+                    .iter()
+                    .find(|(li, p)| *li == layer && p.shape_id == a.shape_id)
+                    .map(|(_, p)| p.clone());
+                a.tint = plan.and_then(|plan| {
+                    let base = self.draw_masked(slide, range, &plan, &plan.atoms[0], None)?;
+                    let mut shown = plan.atoms[0].clone();
+                    for k in a.parts.iter().filter(|k| **k > 0) {
+                        shown.extend(plan.atoms.get(*k)?.iter().copied());
+                    }
+                    let full = self.draw_masked(slide, range, &plan, &shown, Some(&node))?;
+                    anim_build::subtract(&full, &base)
+                });
+                continue;
             }
             // Drawn with the shape swapped for its tinted copy, then put back.
             pres.slides[slide].data.shapes[ti] = node;
@@ -5008,24 +5177,36 @@ impl Engine {
                     anim_text::split_text(&to_page)?,
                 ))
             });
-            let Some((by_word, sa, sb)) = split else {
-                out.pairs.push(morph::MorphPair {
+            // Plain outlines change shape point by point; the rest (text) moves with the box.
+            // A shape that only turns keeps turning as a drawing (its points would cut across).
+            let reshaped = a[i].look != b[j].look || (a[i].b.rot - b[j].b.rot).abs() < 0.5;
+            let pair = |from_page: bo_render::PageList, to_page: bo_render::PageList| match reshaped
+                .then(|| morph_outline::morph_outline(&from_page, &to_page))
+                .flatten()
+            {
+                Some((o, fp, tp)) => morph::MorphPair {
+                    from: morph::box5(&a[i].b),
+                    to: morph::box5(&b[j].b),
+                    from_page: fp,
+                    to_page: tp,
+                    clip: None,
+                    outline: Some(o),
+                },
+                None => morph::MorphPair {
                     from: morph::box5(&a[i].b),
                     to: morph::box5(&b[j].b),
                     from_page,
                     to_page,
                     clip: None,
-                });
+                    outline: None,
+                },
+            };
+            let Some((by_word, sa, sb)) = split else {
+                out.pairs.push(pair(from_page, to_page));
                 continue;
             };
             // The shape without its text morphs as an object; its words / letters on their own.
-            out.pairs.push(morph::MorphPair {
-                from: morph::box5(&a[i].b),
-                to: morph::box5(&b[j].b),
-                from_page: sa.body.clone(),
-                to_page: sb.body.clone(),
-                clip: None,
-            });
+            out.pairs.push(pair(sa.body.clone(), sb.body.clone()));
             let moved = morph::text_pairs(
                 &anim_text::grouped(&sa, by_word),
                 &anim_text::grouped(&sb, by_word),

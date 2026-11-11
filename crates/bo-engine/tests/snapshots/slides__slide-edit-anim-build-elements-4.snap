@@ -1,0 +1,30 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+transform [1.000 0.000 0.000 1.000 96.0 108.0]
+  path n=9 [0.0 99.7 202.1 251.3] fill=#1f6fb2ff
+  path n=9 [0.0 99.7 202.1 251.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 0.0 99.7]
+    text 20.0pt 60.8,82.6 #ffffffff "Tiếp "
+    text 20.0pt 100.2,82.6 #ffffffff "nhận"
+  pop transform
+  path n=8 [212.2 145.2 272.8 205.8] fill=#a6a6a6ff
+  path n=8 [212.2 145.2 272.8 205.8] stroke=#ffffffff w1.00
+  path n=9 [282.9 99.7 485.1 251.3] fill=#2e8b57ff
+  path n=9 [282.9 99.7 485.1 251.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 282.9 99.7]
+    text 20.0pt 80.9,82.6 #ffffffff "Xử "
+    text 20.0pt 107.5,82.6 #ffffffff "lý"
+  pop transform
+  path n=8 [495.2 145.2 555.8 205.8] fill=#a6a6a6ff
+  path n=8 [495.2 145.2 555.8 205.8] stroke=#ffffffff w1.00
+  path n=9 [565.9 99.7 768.0 251.3] fill=#c2571aff
+  path n=9 [565.9 99.7 768.0 251.3] stroke=#ffffffff w1.00
+  transform [1.000 0.000 0.000 1.000 565.9 99.7]
+    text 20.0pt 56.4,82.6 #ffffffff "Trả "
+    text 20.0pt 85.6,82.6 #ffffffff "kết "
+    text 20.0pt 115.1,82.6 #ffffffff "quả"
+  pop transform
+pop transform

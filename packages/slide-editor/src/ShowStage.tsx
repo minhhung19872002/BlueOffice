@@ -2,6 +2,7 @@ import { GlyphStore, ImageStore, renderPage } from '@blueoffice/canvas-host';
 import type {
   EngineHost,
   PageDisplayList,
+  SlideMorphOutline,
   SlideActionSound,
   SlideShowInfo,
   SlideShowLink,
@@ -14,6 +15,7 @@ import { showMediaCarry } from './mediaControl';
 import { ShowMediaClip } from './showMedia';
 import {
   effectsAt,
+  partVisibility,
   stepDuration,
   tintsShown,
   transitionPlan,
@@ -23,7 +25,7 @@ import {
   type Frames,
   type ShowPos,
 } from './player';
-import { morphLayers, type TransitionPlan } from './transitionFx';
+import { morphLayers, outlineFrame, type TransitionPlan } from './transitionFx';
 import { zoomFrames, type ZoomMove } from './presenting';
 import { SlideCanvas } from './SlideCanvas';
 import styles from './SlideEditor.module.css';
@@ -159,6 +161,76 @@ export function LayerCanvas({
   );
 }
 
+/** `ease-in-out` (cubic-bezier(0.42, 0, 0.58, 1)) at `x`, as the transition layers use. */
+function easeInOut(x: number): number {
+  // Solve the bezier's x(t) = x by bisection, then return y(t).
+  const bx = (t: number) => 3 * (1 - t) * (1 - t) * t * 0.42 + 3 * (1 - t) * t * t * 0.58 + t ** 3;
+  const by = (t: number) => 3 * (1 - t) * t * t + t ** 3;
+  let [lo, hi] = [0, 1];
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (bx(mid) < x) lo = mid;
+    else hi = mid;
+  }
+  return by((lo + hi) / 2);
+}
+
+/**
+ * The outlines of a matched shape changing point by point during a morph ([MS-PPTX] p159:morph),
+ * drawn in slide points over `duration` ms.
+ */
+export function MorphOutlineSvg({
+  outline,
+  duration,
+  width,
+  height,
+  slide,
+}: {
+  outline: SlideMorphOutline;
+  duration: number;
+  width: number;
+  height: number;
+  slide: { width: number; height: number };
+}) {
+  // Without animation frames (or time) the outlines are drawn as they end.
+  const animated = typeof requestAnimationFrame === 'function' && duration > 0;
+  const [k, setK] = useState(animated ? 0 : 1);
+  useEffect(() => {
+    if (!animated) return;
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const x = Math.min(1, (now - start) / duration);
+      setK(easeInOut(x));
+      if (x < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [outline, duration, animated]);
+  return (
+    <svg
+      className={styles.showCanvas}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${slide.width} ${slide.height}`}
+      data-testid="morph-outline"
+      data-progress={Math.round(k * 100)}
+    >
+      {outlineFrame(outline, k).map((f, i) => (
+        <path
+          key={i}
+          d={f.d}
+          fill={f.fill ?? 'none'}
+          fillRule="evenodd"
+          stroke={f.stroke ?? 'none'}
+          strokeWidth={f.width}
+          strokeLinejoin="round"
+        />
+      ))}
+    </svg>
+  );
+}
+
 export interface ShowStageProps {
   engine: EngineHost;
   glyphs: GlyphStore;
@@ -255,6 +327,22 @@ export function playActionSound(engine: EngineHost, sound: SlideActionSound | un
   if (sound) playTransitionSound(engine, { ...sound, loop: false });
 }
 
+/** The sound of an animation effect (§19.5 sndTgt): played over whatever else plays. */
+function playEffectSound(engine: EngineHost, part: string) {
+  if (typeof Audio === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+  void engine
+    .getMedia(part)
+    .then((bytes) => {
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      const url = URL.createObjectURL(new Blob([copy.buffer], { type: 'audio/wav' }));
+      const el = new Audio(url);
+      el.onended = () => URL.revokeObjectURL(url);
+      void el.play()?.catch(() => {});
+    })
+    .catch(() => {});
+}
+
 /**
  * One slide of the slide show: its layers, the transition from the previous
  * slide and the effects of the current click step.
@@ -297,12 +385,18 @@ export function ShowStage({
     vis: boolean[];
     outgoing: boolean;
     tints: Record<number, boolean>;
+    /** Pieces of layers cut into parts (`"layer:piece"`). */
+    parts: Record<string, boolean>;
   } | null>(null);
   const layerRefs = useRef<(HTMLDivElement | null)[]>([]);
   /** Body (index 0) and letters (1…) of layers cut into text, by layer. */
   const pieceRefs = useRef<Record<number, (HTMLDivElement | null)[]>>({});
   /** Colour drawings, by effect index. */
   const tintRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  /** Body (index 0) and pieces of layers cut into parts, by layer. */
+  const partRefs = useRef<Record<number, (HTMLDivElement | null)[]>>({});
+  /** Effect sounds waiting for their effect to start. */
+  const soundTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const incomingRef = useRef<HTMLDivElement>(null);
   const outgoingRef = useRef<HTMLDivElement>(null);
   const morphRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -310,6 +404,11 @@ export function ShowStage({
   useEffect(() => {
     onIdleRef.current = onIdle;
   }, [onIdle]);
+  /** Where effect sounds come from, and whether the stage plays sound at all. */
+  const soundRef = useRef({ engine, media });
+  useEffect(() => {
+    soundRef.current = { engine, media };
+  }, [engine, media]);
   const size = show ?? slide;
   const height = size.width > 0 ? Math.round((width * size.height) / size.width) : 0;
   const ready = show !== null && show.slide === pos.slide;
@@ -325,14 +424,21 @@ export function ShowStage({
       ? phase
       : {
           key,
-          vis: ready && show ? visibility(show, playing ? pos.click - 1 : atClick) : [],
+          vis: ready && show ? visibility(show, playing ? pos.click - 1 : atClick, playing) : [],
           outgoing: hasOutgoing,
           tints: ready && show ? tintsShown(show, playing ? pos.click - 1 : atClick) : {},
+          parts:
+            ready && show ? partVisibility(show, playing ? pos.click - 1 : atClick, playing) : {},
         };
   // Layers shown or hidden by trigger effects (§19.5 interactive sequences) on this step.
-  const [triggered, setTriggered] = useState<{ key: string; vis: Record<number, boolean> }>({
+  const [triggered, setTriggered] = useState<{
+    key: string;
+    vis: Record<number, boolean>;
+    parts: Record<string, boolean>;
+  }>({
     key: '',
     vis: {},
+    parts: {},
   });
   // Clips hidden while not playing (SLIDE-MEDIA-001), by `slide:shapeId`.
   const [hiddenMedia, setHiddenMedia] = useState<Record<string, boolean>>({});
@@ -366,11 +472,17 @@ export function ShowStage({
     if (!show) return;
     const fx = triggerEffects(show, shapeId, bookmark);
     const shown: Record<number, boolean> = {};
+    const shownParts: Record<string, boolean> = {};
     for (const e of fx) {
       shown[e.layer] = true;
+      for (const p of e.parts ?? []) shownParts[`${e.layer}:${p}`] = true;
       playEffect(e, 0, 'both');
     }
-    setTriggered((t) => ({ key, vis: { ...(t.key === key ? t.vis : {}), ...shown } }));
+    setTriggered((t) => ({
+      key,
+      vis: { ...(t.key === key ? t.vis : {}), ...shown },
+      parts: { ...(t.key === key ? t.parts : {}), ...shownParts },
+    }));
     const end = fx.reduce(
       (m, e) =>
         Math.max(m, e.delay + e.duration * (Number.isFinite(e.iterations) ? e.iterations : 1)),
@@ -380,8 +492,13 @@ export function ShowStage({
       setTriggered((t) => {
         if (t.key !== key) return t;
         const after: Record<number, boolean> = { ...t.vis };
-        for (const e of fx) if (e.visibleAfter !== null) after[e.layer] = e.visibleAfter;
-        return { key, vis: after };
+        const parts: Record<string, boolean> = { ...t.parts };
+        for (const e of fx) {
+          if (e.visibleAfter === null) continue;
+          if (e.parts) for (const p of e.parts) parts[`${e.layer}:${p}`] = e.visibleAfter;
+          else after[e.layer] = e.visibleAfter;
+        }
+        return { key, vis: after, parts };
       });
     }, end + 30);
   };
@@ -401,7 +518,15 @@ export function ShowStage({
     };
     const out: (Animation | null)[] = [];
     const parts = pieceRefs.current[e.layer];
-    if (e.pieces && parts) {
+    const pieces = partRefs.current[e.layer];
+    if (e.sound && soundRef.current.media) {
+      const part = e.sound;
+      const host = soundRef.current.engine;
+      soundTimers.current.push(setTimeout(() => playEffectSound(host, part), opts.delay));
+    }
+    if (e.parts && pieces) {
+      for (const k of e.parts) out.push(animate(pieces[k], e.frames, opts));
+    } else if (e.pieces && parts) {
       out.push(animate(parts[0], e.frames, opts));
       e.pieces.forEach((p, k) => {
         out.push(animate(parts[k + 1], p.frames, { ...opts, delay: opts.delay + p.delay }));
@@ -432,7 +557,8 @@ export function ShowStage({
     let cancelled = false;
     const anims: Animation[] = [];
     const endless: Animation[] = [];
-    const start = visibility(show, playing ? pos.click - 1 : atClick);
+    const start = visibility(show, playing ? pos.click - 1 : atClick, playing);
+    const startParts = partVisibility(show, playing ? pos.click - 1 : atClick, playing);
     let end: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       if (cancelled) return;
@@ -463,13 +589,17 @@ export function ShowStage({
       let total = delay;
       if (playing) {
         const next = [...start];
-        const seen = new Set<number>();
+        const nextParts = { ...startParts };
+        const seen = new Set<string>();
         for (const e of effectsAt(show, pos.click)) {
           // The layer is shown while its effect runs; the first effect's frames
           // hide it until it starts, later ones on the same layer hold only after.
           next[e.layer] = true;
-          const started = playEffect(e, delay, seen.has(e.layer) ? 'forwards' : 'both');
-          seen.add(e.layer);
+          const keys = e.parts ? e.parts.map((p) => `${e.layer}:${p}`) : [String(e.layer)];
+          for (const k of keys) if (e.parts) nextParts[k] = true;
+          const again = keys.some((k) => seen.has(k));
+          const started = playEffect(e, delay, again ? 'forwards' : 'both');
+          for (const k of keys) seen.add(k);
           if (Number.isFinite(e.iterations)) anims.push(...started);
           // "Until the next click": runs on; cancelled with the step.
           else endless.push(...started);
@@ -479,6 +609,7 @@ export function ShowStage({
           vis: next,
           outgoing: hasOutgoing,
           tints: tintsShown(show, pos.click - 1),
+          parts: nextParts,
         });
         total += stepDuration(show, pos.click);
       }
@@ -491,6 +622,7 @@ export function ShowStage({
           vis: visibility(show, atClick),
           outgoing: false,
           tints: tintsShown(show, atClick),
+          parts: partVisibility(show, atClick),
         });
         onIdleRef.current?.(show);
       };
@@ -501,6 +633,8 @@ export function ShowStage({
       cancelled = true;
       clearTimeout(timer);
       clearTimeout(end);
+      for (const t of soundTimers.current) clearTimeout(t);
+      soundTimers.current = [];
       for (const a of anims) a.cancel();
       for (const a of endless) a.cancel();
     };
@@ -559,15 +693,25 @@ export function ShowStage({
               }}
               className={styles.showLayer}
             >
-              <LayerCanvas
-                page={l.page}
-                rect={l.rect}
-                glyphs={glyphs}
-                images={images}
-                width={width}
-                height={height}
-                transparent={!l.backdrop}
-              />
+              {l.outline ? (
+                <MorphOutlineSvg
+                  outline={l.outline}
+                  duration={stagePlan(show, pos.slide, pos.zoom).duration}
+                  width={width}
+                  height={height}
+                  slide={{ width: show.width, height: show.height }}
+                />
+              ) : (
+                <LayerCanvas
+                  page={l.page}
+                  rect={l.rect}
+                  glyphs={glyphs}
+                  images={images}
+                  width={width}
+                  height={height}
+                  transparent={!l.backdrop}
+                />
+              )}
             </div>
           ))}
         </div>
@@ -586,7 +730,41 @@ export function ShowStage({
               data-visible={vis[i] ?? true}
               style={{ visibility: (vis[i] ?? true) ? 'visible' : 'hidden' }}
             >
-              {l.text ? (
+              {l.parts ? (
+                l.parts.pages.map((pg, k) => {
+                  const r = l.parts?.rects[k];
+                  const pk = `${i}:${k}`;
+                  const shown =
+                    (triggered.key === key ? triggered.parts[pk] : undefined) ??
+                    current.parts[pk] ??
+                    true;
+                  return (
+                    <div
+                      key={`part-${k}`}
+                      ref={(el) => {
+                        (partRefs.current[i] ??= [])[k] = el;
+                      }}
+                      className={styles.showLayer}
+                      data-testid={k === 0 ? 'show-part-body' : 'show-part'}
+                      data-part={k}
+                      data-visible={shown}
+                      style={{ visibility: shown ? 'visible' : 'hidden' }}
+                    >
+                      {r && (
+                        <LayerCanvas
+                          page={pg}
+                          rect={r}
+                          glyphs={glyphs}
+                          images={images}
+                          width={width}
+                          height={height}
+                          transparent
+                        />
+                      )}
+                    </div>
+                  );
+                })
+              ) : l.text ? (
                 <>
                   <div
                     ref={(el) => {

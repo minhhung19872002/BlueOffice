@@ -188,9 +188,11 @@ fn edited_deck_round_trips() {
             trigger_shape: None,
             trigger_bookmark: None,
             iterate: None,
+            opts: bo_model::slide::AnimOptions::default(),
             source: None,
         }],
         others: vec![],
+        builds: vec![],
         source: None,
     });
     // Duplicate a slide (new part, new ids).

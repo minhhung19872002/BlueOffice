@@ -740,6 +740,58 @@ fn anim_text_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
     e.save_pptx().ok()
 }
 
+/// Builds and effect options (SLIDE-ANIM-003/004): slide 2's bullets built by 2nd-level
+/// paragraphs (in reverse, dimmed after), a column chart by series with its background first, a
+/// SmartArt one node by one node, a shape hidden after its effect with a sound and another
+/// rewinding and hidden on the next click; slide 6 morphs a rectangle into an ellipse.
+pub const ANIM_BUILD_DECK: &str = "slide-edit-anim-build-elements.pptx";
+
+fn anim_build_deck(base: &[(&'static str, Vec<u8>)]) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let (_, b) = base.iter().find(|(n, _)| *n == "slide-text-bullets.pptx")?;
+    let mut e = Engine::with_bundled_fonts();
+    e.open(b, "base.pptx").ok()?;
+    let wav = base64::engine::general_purpose::STANDARD.encode(sample_wav());
+    let cmds = [
+        r#"{"cmd":"goTo","slide":1}"#.to_owned(),
+        r#"{"cmd":"select","ids":[3]}"#.into(),
+        r#"{"cmd":"addAnimation","effect":"fade","durMs":400}"#.into(),
+        r#"{"cmd":"setAnimation","index":0,"build":"p2","buildReverse":true}"#.into(),
+        r#"{"cmd":"setAnimation","index":0,"after":"dim","dimColor":"A6A6A6"}"#.into(),
+        r#"{"cmd":"addSlide"}"#.into(),
+        r#"{"cmd":"insertChart","kind":"column","title":"Doanh thu","data":{"categories":["Q1","Q2","Q3"],"series":[{"name":"2025","values":[3,5,4]},{"name":"2026","values":[4,6,2]}]},"rect":{"x":60,"y":40,"w":560,"h":380}}"#.into(),
+        r#"{"cmd":"addAnimation","effect":"wipe","direction":"b"}"#.into(),
+        r#"{"cmd":"setAnimation","index":0,"build":"series","buildBg":true}"#.into(),
+        r#"{"cmd":"addSlide"}"#.into(),
+        r#"{"cmd":"insertSmartArt","layout":"process","items":[{"text":"Tiếp nhận"},{"text":"Xử lý"},{"text":"Trả kết quả"}]}"#.into(),
+        r#"{"cmd":"addAnimation","effect":"zoom"}"#.into(),
+        r#"{"cmd":"setAnimation","index":0,"build":"one","buildReverse":true}"#.into(),
+        r#"{"cmd":"addSlide"}"#.into(),
+        r#"{"cmd":"insertShape","preset":"roundRect","rect":{"x":80,"y":120,"w":200,"h":120}}"#.into(),
+        r#"{"cmd":"addAnimation","effect":"flyIn","direction":"l"}"#.into(),
+        format!(
+            r#"{{"cmd":"setAnimation","index":0,"after":"hide","soundData":"{wav}","soundName":"chime.wav"}}"#
+        ),
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":420,"y":120,"w":160,"h":160}}"#.into(),
+        r#"{"cmd":"addAnimation","effect":"spin"}"#.into(),
+        r#"{"cmd":"setAnimation","index":1,"rewind":true,"after":"hideOnClick"}"#.into(),
+        r#"{"cmd":"addSlide"}"#.into(),
+        r#"{"cmd":"insertShape","preset":"rect","rect":{"x":60,"y":60,"w":160,"h":100}}"#.into(),
+        r#"{"cmd":"setText","text":"Hộp"}"#.into(),
+        r#"{"cmd":"addSlide"}"#.into(),
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":300,"y":200,"w":200,"h":200}}"#.into(),
+        r#"{"cmd":"setText","text":"Hộp"}"#.into(),
+        r#"{"cmd":"setTransition","transition":{"kind":"morph","durMs":2500}}"#.into(),
+    ];
+    for c in &cmds {
+        let r = e.slide_command_json(c).ok()?;
+        if r.contains("\"error\":\"") {
+            return None;
+        }
+    }
+    e.save_pptx().ok()
+}
+
 /// Hyperlinks and actions (SLIDE-ACTION-001): linked text (slide, URL, mail) with a
 /// custom show, a file link and a hover sound; action buttons on every slide;
 /// actions BlueSlide never runs (program, macro, file, other deck, unknown).
@@ -962,6 +1014,9 @@ pub fn decks(base: &[(&'static str, Vec<u8>)], picture: &[u8]) -> Vec<(&'static 
     if let Some(d) = anim_text_deck(base) {
         out.push((ANIM_TEXT_DECK, d));
     }
+    if let Some(d) = anim_build_deck(base) {
+        out.push((ANIM_BUILD_DECK, d));
+    }
     out.extend(recording_decks(base));
     out.extend(action_decks(base));
     if let Some((_, b)) = base.iter().find(|(n, _)| *n == "slide-shapes-presets.pptx") {
@@ -993,7 +1048,7 @@ mod tests {
         let decks = decks(&base, &crate::slide_samples::sample_png());
         assert_eq!(
             decks.len(),
-            SCRIPTS.len() + FLIPPED.len() + 3 + RECORDING_DECKS.len() + ACTION_DECKS.len()
+            SCRIPTS.len() + FLIPPED.len() + 4 + RECORDING_DECKS.len() + ACTION_DECKS.len()
         );
         for (name, bytes) in decks {
             let p = bo_pptx::read_pptx(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -1101,6 +1156,61 @@ mod animation_tests {
                 );
             }
         }
+    }
+
+    // source: ECMA-376 Part 1, §19.5 bldLst (bldP build p / bldLvl 2 / rev, bldGraphic with
+    // bldChart series + animBg and bldDgm one + rev), spTgt sub-targets, after effects, fill
+    // remove and sndTgt — the deck reads back with every option; slide 2 has 5 groups of
+    // paragraphs (levels 1 2 2 3 1 2 4 5), the chart 2 series after its background.
+    #[test]
+    fn builds_and_effect_options_survive_saving() {
+        let base = crate::slide_samples::base_decks();
+        let b = anim_build_deck(&base).expect("deck");
+        let mut e = Engine::with_bundled_fonts();
+        e.open(&b, "anim-build.pptx").unwrap();
+        let p = e.presentation().unwrap();
+        let t = |i: usize| p.slides[i].timing.clone().unwrap();
+        let s1 = t(1);
+        assert_eq!(s1.animations.len(), 5);
+        assert!(s1.animations.iter().all(|a| matches!(
+            a.opts.after,
+            Some(bo_model::slide::AnimAfter::Dim {
+                rgb: 0xA6_A6_A6,
+                ..
+            })
+        )));
+        assert!(
+            matches!(&s1.builds[..], [bo_model::slide::Build::Paragraph(pb)]
+            if pb.build == "p" && pb.level == 2 && pb.reverse)
+        );
+        let s2 = t(2);
+        assert_eq!(s2.animations.len(), 3);
+        assert!(matches!(
+            &s2.animations[0].opts.target,
+            Some(bo_model::slide::AnimTarget::Chart { step, .. }) if step == "gridLegend"
+        ));
+        assert_eq!(t(3).animations.len(), 3);
+        let s4 = t(4);
+        assert_eq!(
+            s4.animations[0].opts.after,
+            Some(bo_model::slide::AnimAfter::Hide)
+        );
+        assert_eq!(
+            s4.animations[0].opts.sound.as_ref().unwrap().name,
+            "chime.wav"
+        );
+        assert!(s4.animations[1].opts.rewind);
+        assert_eq!(
+            s4.animations[1].opts.after,
+            Some(bo_model::slide::AnimAfter::HideOnClick)
+        );
+        // 2 clicks of effects and one hiding the ellipse.
+        assert_eq!(s4.click_count(), 3);
+        let r: serde_json::Value =
+            serde_json::from_str(&e.slide_command_json(r#"{"cmd":"show","slide":6}"#).unwrap())
+                .unwrap();
+        let pairs = r["show"]["morph"]["pairs"].as_array().unwrap();
+        assert!(pairs.iter().any(|p| p["outline"].is_object()));
     }
 
     // source: ECMA-376 Part 1, §19.5 iterate (word / letter, tmPct), §19.5.4 animMotion (path,

@@ -1,9 +1,9 @@
 # Visual diff
 
-Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
+Sinh bởi `scripts/visual-diff.mjs` (2026-11-11). Ảnh tham chiếu do người dùng cung cấp đặt ở `tests/fidelity/reference/<nhóm>/<file>.page-<n>.png`; baseline tự sinh (trang 1, scale 0,5) ở `tests/fidelity/baseline/` để phát hiện hồi quy hiển thị.
 
 - Ảnh tham chiếu: **0** trang (chưa có — cần người dùng cung cấp)
-- Baseline: 345 trang, vượt ngưỡng 0.10 %: 0
+- Baseline: 363 trang, vượt ngưỡng 0.10 %: 0
 
 | Nhóm | Loại | Ảnh | Sai lệch | Ngưỡng | |
 |---|---|---|---|---|---|
@@ -19,6 +19,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | doc | baseline | controls-01-forms.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | controls-02-legacy-forms.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | controls-03-data-binding.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | doc-chart-1.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | doc-chart-2.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | doc-chart-3.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | fields-01-simple.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | fields-02-complex.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | fields-03-toc.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -46,6 +49,8 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | doc | baseline | math-03-delimiters.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | math-04-linear.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | math-05-latex.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | math-06-unsupported.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| doc | baseline | math-07-foreign-style.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | merge-01-letter.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | merge-02-table.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | doc | baseline | merge-03-header-sections.docx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -147,9 +152,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | sheet | baseline | sst-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | sst-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | sst-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
-| sheet | baseline | styles-1.xlsx.page-1.png | 0.04 % | 0.10 % | ✅ |
-| sheet | baseline | styles-2.xlsx.page-1.png | 0.05 % | 0.10 % | ✅ |
-| sheet | baseline | styles-3.xlsx.page-1.png | 0.05 % | 0.10 % | ✅ |
+| sheet | baseline | styles-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | styles-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | styles-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | tables-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | tables-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | tables-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -179,6 +184,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-chartex-box-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-chartex-box-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-chartex-box-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-chartex-format-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-chartex-format-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-chartex-format-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-chartex-funnel-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-chartex-funnel-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-chartex-funnel-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -221,6 +229,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-charts-ofpie-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-ofpie-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-ofpie-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-ofpiesplit-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-ofpiesplit-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-ofpiesplit-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-percent-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-percent-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-percent-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -230,6 +241,9 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | sheet | baseline | writer-charts-stock-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-stock-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-stock-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-stockvol-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-stockvol-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| sheet | baseline | writer-charts-stockvol-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-surface-1.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-surface-2.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | sheet | baseline | writer-charts-surface-3.xlsx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -289,10 +303,13 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | slide | baseline | slide-charts-column.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-charts-line.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-charts-pie.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-anim-build-elements.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-anim-text-paths.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-anim-unknown.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-animations-all.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-animations.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-arrange.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-chartex.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-charts-existing.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-charts.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-clipboard.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
@@ -308,6 +325,7 @@ Sinh bởi `scripts/visual-diff.mjs` (2026-11-10). Ảnh tham chiếu do ngườ
 | slide | baseline | slide-edit-paste-resized.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-rich.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-slides.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
+| slide | baseline | slide-edit-smartart-library.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-tables.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-text.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |
 | slide | baseline | slide-edit-transitions-all.pptx.page-1.png | 0.00 % | 0.10 % | ✅ |

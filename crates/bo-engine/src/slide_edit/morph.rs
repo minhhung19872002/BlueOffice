@@ -207,6 +207,9 @@ pub struct MorphPair {
     pub from_page: bo_render::PageList,
     /// The shape drawn as on this slide.
     pub to_page: bo_render::PageList,
+    /// For a word or letter: where the two drawings are `[x, y, w, h]` (from, to), points.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip: Option<([f64; 4], [f64; 4])>,
 }
 
 /// Everything the slide show needs to morph into a slide.
@@ -223,8 +226,66 @@ pub struct MorphOut {
     pub gone: Vec<bo_render::PageList>,
     /// Shapes of this slide only (they fade in).
     pub new: Vec<bo_render::PageList>,
+    /// Words / letters of the previous slide's matched shapes not found again (by word / by
+    /// character): they fade out.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub gone_text: Vec<MorphPiece>,
+    /// Words / letters new on this slide: they fade in.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub new_text: Vec<MorphPiece>,
     /// `byObject` | `byWord` | `byChar` ([MS-PPTX] morph@option).
     pub option: String,
+}
+
+/// Words or letters of two matched shapes ([`super::anim_text::grouped`]): those with the same
+/// text, in reading order, move from their box to the new one; the others fade out (`gone`) or
+/// in (`new`).
+pub fn text_pairs(
+    from: &[(String, bo_render::PageList, [f64; 4])],
+    to: &[(String, bo_render::PageList, [f64; 4])],
+    gone: &mut Vec<MorphPiece>,
+    new: &mut Vec<MorphPiece>,
+) -> Vec<MorphPair> {
+    let ta: Vec<String> = from.iter().map(|p| p.0.clone()).collect();
+    let tb: Vec<String> = to.iter().map(|p| p.0.clone()).collect();
+    let pairs = super::anim_text::pair_by_text(&ta, &tb);
+    let centre = |r: &[f64; 4]| [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, r[2], r[3], 0.0];
+    let mut out = Vec::new();
+    for &(i, j) in &pairs {
+        out.push(MorphPair {
+            from: centre(&from[i].2),
+            to: centre(&to[j].2),
+            from_page: from[i].1.clone(),
+            to_page: to[j].1.clone(),
+            clip: Some((from[i].2, to[j].2)),
+        });
+    }
+    for (i, p) in from.iter().enumerate() {
+        if !pairs.iter().any(|q| q.0 == i) {
+            gone.push(MorphPiece {
+                page: p.1.clone(),
+                rect: p.2,
+            });
+        }
+    }
+    for (j, p) in to.iter().enumerate() {
+        if !pairs.iter().any(|q| q.1 == j) {
+            new.push(MorphPiece {
+                page: p.1.clone(),
+                rect: p.2,
+            });
+        }
+    }
+    out
+}
+
+/// A word or letter fading out or in.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MorphPiece {
+    /// The piece drawn alone.
+    pub page: bo_render::PageList,
+    /// Where it is drawn `[x, y, w, h]`, points.
+    pub rect: [f64; 4],
 }
 
 /// The box as `[cx, cy, w, h, rot]`.

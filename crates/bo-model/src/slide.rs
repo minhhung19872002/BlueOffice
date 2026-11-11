@@ -1451,11 +1451,41 @@ pub struct Animation {
     /// in the sequence's start condition); `None` = a click on the shape.
     #[serde(default)]
     pub trigger_bookmark: Option<String>,
+    /// ECMA-376 Part 1, §19.5 iterate of the effect node: the effect runs on the shape's text
+    /// word by word or letter by letter; `None` = the shape as a whole.
+    #[serde(default)]
+    pub iterate: Option<AnimIterate>,
     /// The effect's `p:par` as read, kept for effects BlueOffice does not model
     /// (emphasis, motion paths, other filters): regenerated timing reuses it, so
     /// those effects survive edits of the sequence losslessly.
     #[serde(default)]
     pub source: Option<XmlElement>,
+}
+
+/// ECMA-376 Part 1, §19.5 iterate (CT_TLIterateData) of an effect node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnimIterate {
+    /// ST_IterateType: `el` (element), `wd` (word) or `lt` (letter).
+    pub kind: String,
+    /// `tmPct@val`: the next piece starts after this share of the effect's duration, in 1000ths
+    /// of a percent (10000 = 10 %).
+    pub pct: Option<u32>,
+    /// `tmAbs@val`: the next piece starts this many ms after the previous one.
+    pub abs_ms: Option<u32>,
+    /// `backwards`: the last piece first.
+    pub backwards: bool,
+}
+
+impl AnimIterate {
+    /// Time between the starts of two pieces of an effect lasting `dur_ms`.
+    #[must_use]
+    pub fn step_ms(&self, dur_ms: u32) -> u32 {
+        match (self.abs_ms, self.pct) {
+            (Some(a), _) => a,
+            (None, Some(p)) => (u64::from(dur_ms) * u64::from(p) / 100_000) as u32,
+            (None, None) => 0,
+        }
+    }
 }
 
 /// §19.3.1.48 timing reduced to the main sequence.
@@ -1497,6 +1527,13 @@ impl Timing {
     /// the order of [`Timing::animations`]. A repeated effect lasts its runs (once for "until the
     /// next click").
     pub fn timeline(&self) -> Vec<TimelineEntry> {
+        self.timeline_with(|_, _| 1)
+    }
+
+    /// [`Timing::timeline`] for effects iterated over text (§19.5 iterate): `pieces(i, a)` is the
+    /// number of words / letters effect `i` runs on; each one starts [`AnimIterate::step_ms`]
+    /// after the previous one.
+    pub fn timeline_with(&self, pieces: impl Fn(usize, &Animation) -> u32) -> Vec<TimelineEntry> {
         // Per sequence (None = main; a shape's clicks and each of its bookmarks are sequences of
         // their own): click, previous start, previous end.
         type Seq<'a> = (Option<u32>, Option<&'a str>);
@@ -1525,11 +1562,18 @@ impl Timing {
                 AnimTrigger::WithPrevious => *prev_start,
                 AnimTrigger::AfterPrevious => *prev_end,
             };
+            let one = match &a.iterate {
+                Some(it) => a.dur_ms.saturating_add(
+                    it.step_ms(a.dur_ms)
+                        .saturating_mul(pieces(i, a).saturating_sub(1)),
+                ),
+                None => a.dur_ms,
+            };
             let runs = match a.repeat {
                 Some(r) if r != u32::MAX => {
-                    (u64::from(a.dur_ms) * u64::from(r) / 1000).min(u64::from(u32::MAX)) as u32
+                    (u64::from(one) * u64::from(r) / 1000).min(u64::from(u32::MAX)) as u32
                 }
-                _ => a.dur_ms,
+                _ => one,
             };
             let start = base + a.delay_ms;
             let end = start + runs;

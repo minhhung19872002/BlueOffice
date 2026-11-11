@@ -12,8 +12,8 @@ use super::geom::{find, place_slide, BoxR, Rect};
 use super::ops::Tx;
 use super::{refuse, EditError, SlideSel, R};
 use bo_model::slide::{
-    AnimClass, AnimEffect, AnimTrigger, Animation, Presentation, ShapeNode, Timing, Transition,
-    TransitionKind, TransitionSound,
+    AnimClass, AnimEffect, AnimIterate, AnimTrigger, Animation, Presentation, ShapeNode, Timing,
+    Transition, TransitionKind, TransitionSound,
 };
 use bo_pptx::transitions;
 use serde::{Deserialize, Serialize};
@@ -151,6 +151,26 @@ pub struct AnimOut {
     pub layer: Option<usize>,
     /// What the effect does, read from its behaviours (§19.5): the slide show plays it.
     pub play: bo_pptx::anim_play::EffectPlay,
+    /// §19.5.4 animMotion@path of a motion path (offsets in slide widths / heights).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The motion path stays where it is on the slide when the shape moves (§19.5.4
+    /// pathEditMode `fixed`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub path_locked: bool,
+    /// §19.5 iterate: `wd` (by word) | `lt` (by letter) | `el`; `None` = the shape as a whole.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_by: Option<String>,
+    /// Time between the starts of two words / letters, ms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_step_ms: Option<u32>,
+    /// The last word / letter first (§19.5 iterate@backwards).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub text_backwards: bool,
+    /// Slide show: the shape's layer drawn in the colours the effect's §19.5.2 animClr
+    /// behaviours end on (faded in over the plain layer while they run).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tint: Option<bo_render::PageList>,
 }
 
 /// One layer of the slide show (bottom to top).
@@ -162,6 +182,10 @@ pub struct LayerOut {
     pub backdrop: bool,
     /// Display list of the layer (same format as a rendered page).
     pub page: bo_render::PageList,
+    /// The layer's text cut into letters, for effects run word by word or letter by letter
+    /// (§19.5 iterate); only on layers that have such effects.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<super::anim_text::TextSplit>,
 }
 
 /// A video or audio clip on a slide (§20.1.3.6 videoFile, §20.1.3.1 audioFile).
@@ -403,7 +427,7 @@ fn trigger_name(t: AnimTrigger) -> &'static str {
 }
 
 /// Index of the top-level shape holding shape `id` (itself or a group around it).
-fn top_index(pres: &Presentation, slide: usize, id: u32) -> Option<usize> {
+pub(super) fn top_index(pres: &Presentation, slide: usize, id: u32) -> Option<usize> {
     let s = pres.slides.get(slide)?;
     s.data.shapes.iter().position(|n| {
         let mut hit = false;
@@ -425,7 +449,12 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
         return Vec::new();
     };
     let placed = place_slide(pres, slide);
-    let timeline = t.timeline();
+    // Effects run word by word / letter by letter last as long as their text needs.
+    let timeline = t.timeline_with(|_, a| {
+        a.iterate.as_ref().map_or(1, |it| {
+            super::anim_text::piece_count(pres, slide, a.shape_id, &it.kind)
+        })
+    });
     let (sw, sh) = super::slide_size(pres);
     t.animations
         .iter()
@@ -457,12 +486,28 @@ pub fn animations_out(pres: &Presentation, slide: usize) -> Vec<AnimOut> {
                     h: b.h / sh.max(1.0),
                 },
             );
-            let play = bo_pptx::anim_play::effect_play(&bo_pptx::anim::effect_xml(a), &base);
+            let xml = bo_pptx::anim::effect_xml(a);
+            let play = bo_pptx::anim_play::effect_play(&xml, &base);
+            let path = (a.class == AnimClass::Path)
+                .then(|| bo_pptx::anim::motion_path(&xml))
+                .flatten();
+            let custom = path.is_some() && a.effect == AnimEffect::Other;
+            let iter = a.iterate.as_ref().filter(|it| it.kind != "el");
             AnimOut {
                 index: i,
                 shape_id: a.shape_id,
                 shape_name: name,
-                effect: effect_name(&a.effect),
+                effect: if custom {
+                    CUSTOM_PATH.to_owned()
+                } else {
+                    effect_name(&a.effect)
+                },
+                path_locked: path.is_some() && bo_pptx::anim::path_locked(&xml),
+                path,
+                text_by: iter.map(|it| it.kind.clone()),
+                text_step_ms: iter.map(|it| it.step_ms(a.dur_ms)),
+                text_backwards: iter.is_some_and(|it| it.backwards),
+                tint: None,
                 class: class_name(&a.class),
                 direction: a.direction.clone(),
                 dirs: effect_dirs(&a.effect),
@@ -803,6 +848,115 @@ pub struct AnimSpec {
     /// Shape whose click starts the effect (0 = the main sequence).
     #[serde(default)]
     pub trigger_shape: Option<u32>,
+    /// A motion path drawn by the author (§19.5.4 path syntax, offsets in slide widths / heights
+    /// from the shape's position): with effect [`CUSTOM_PATH`] for a new effect, or the new
+    /// points of a motion path (Edit Points).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Run the motion path the other way (Reverse Path Direction).
+    #[serde(default)]
+    pub reverse_path: Option<bool>,
+    /// Lock the motion path on the slide (§19.5.4 pathEditMode `fixed`) or let it move with the
+    /// shape (`relative`).
+    #[serde(default)]
+    pub lock_path: Option<bool>,
+    /// Animate text: `all` (as one object), `word` or `letter` (§19.5 iterate `wd` / `lt`).
+    #[serde(default)]
+    pub text_by: Option<String>,
+    /// Delay between words / letters as a percentage of the effect's duration (default 10 for
+    /// words, 5 for letters).
+    #[serde(default)]
+    pub text_delay_pct: Option<u32>,
+}
+
+/// Effect id of a motion path drawn by the author.
+pub const CUSTOM_PATH: &str = "customPath";
+
+/// What a `text_by` choice does to an effect's §19.5 iterate.
+enum IterEdit {
+    /// Unchanged.
+    Keep,
+    /// The new iterate (`None`: the shape as one object).
+    Set(Option<AnimIterate>),
+}
+
+/// The §19.5 iterate of a `text_by` choice.
+fn iterate_of(spec: &AnimSpec, old: Option<&AnimIterate>) -> R<IterEdit> {
+    let kind = match spec.text_by.as_deref() {
+        None => match (old, spec.text_delay_pct) {
+            (Some(o), Some(_)) => o.kind.clone(),
+            _ => return Ok(IterEdit::Keep),
+        },
+        Some("all") => return Ok(IterEdit::Set(None)),
+        Some("word") => "wd".to_owned(),
+        Some("letter") => "lt".to_owned(),
+        Some(_) => return refuse("badTextBy"),
+    };
+    let pct = spec
+        .text_delay_pct
+        .map(|p| p.min(1000) * 1000)
+        .or(old.filter(|o| o.kind == kind).and_then(|o| o.pct))
+        .unwrap_or(if kind == "lt" { 5000 } else { 10_000 });
+    Ok(IterEdit::Set(Some(AnimIterate {
+        kind,
+        pct: Some(pct),
+        abs_ms: None,
+        backwards: old.is_some_and(|o| o.backwards),
+    })))
+}
+
+/// A §19.5.4 path of the author: `M`, `L`, `C`, `Z`, `E` commands and numbers only.
+fn valid_path(p: &str) -> R<String> {
+    let ok = !p.trim().is_empty()
+        && p.len() <= 20_000
+        && p.chars()
+            .all(|c| c.is_ascii_digit() || " ,.-+eEMLCZmlcz".contains(c))
+        && bo_pptx::anim_play::motion_points(p).len() >= 2;
+    if ok {
+        Ok(p.trim().to_owned())
+    } else {
+        refuse("badPath")
+    }
+}
+
+/// Apply the motion-path parts of `spec` to effect `a` (its effect node becomes the kept source).
+fn edit_path(a: &mut Animation, spec: &AnimSpec) -> R<()> {
+    if spec.path.is_none() && spec.reverse_path != Some(true) && spec.lock_path.is_none() {
+        return Ok(());
+    }
+    if a.class != AnimClass::Path {
+        return refuse("notAPath");
+    }
+    let mut par = bo_pptx::anim::effect_xml(a);
+    let Some(mut path) = bo_pptx::anim::motion_path(&par) else {
+        return refuse("notAPath");
+    };
+    let mut changed = false;
+    if let Some(p) = spec.path.as_deref() {
+        path = valid_path(p)?;
+        changed = true;
+    }
+    if spec.reverse_path == Some(true) {
+        path = bo_pptx::anim::reverse_path(&path);
+        changed = true;
+    }
+    if changed {
+        bo_pptx::anim::set_motion_path(&mut par, &path);
+        if let Some(bo_model::slide::XmlNode::Element(ctn)) = par.children.first_mut() {
+            ctn.attrs
+                .retain(|(k, _)| k != "presetID" && k != "presetSubtype");
+        }
+        // No longer the catalog's path: a path of the author.
+        a.effect = AnimEffect::Other;
+        a.preset_id = None;
+        a.preset_subtype = None;
+        a.direction = None;
+    }
+    if let Some(l) = spec.lock_path {
+        bo_pptx::anim::set_path_locked(&mut par, l);
+    }
+    a.source = Some(par);
+    Ok(())
 }
 
 /// The model repeat (§19.5.29 repeatCount in 1000ths) of a count of runs.
@@ -836,15 +990,43 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
     if sel.ids.is_empty() {
         return refuse("noSelection");
     }
-    let effect = parse_effect(spec.effect.as_deref().unwrap_or("fade"))?;
+    // A motion path drawn by the author: an animMotion of its points (§19.5.4).
+    let custom = match spec.effect.as_deref() {
+        Some(CUSTOM_PATH) => Some(valid_path(
+            spec.path.as_deref().ok_or(EditError::Refused("badPath"))?,
+        )?),
+        _ => None,
+    };
+    let effect = if custom.is_some() {
+        AnimEffect::Other
+    } else {
+        parse_effect(spec.effect.as_deref().unwrap_or("fade"))?
+    };
     let asked = spec.class.as_deref().map(parse_class).transpose()?;
-    let class = class_for(&effect, asked.as_ref());
+    let class = if custom.is_some() {
+        AnimClass::Path
+    } else {
+        class_for(&effect, asked.as_ref())
+    };
     let first = parse_trigger(spec.trigger.as_deref().unwrap_or("onClick"))?;
     let direction = valid_anim_dir(&effect, spec.direction.as_deref());
+    let iterate = match iterate_of(spec, None)? {
+        IterEdit::Set(it) => it,
+        IterEdit::Keep => None,
+    };
+    let dur = spec.dur_ms.unwrap_or(if custom.is_some() {
+        2000
+    } else {
+        DEFAULT_ANIM_MS
+    });
     let ids = sel.ids.clone();
     edit_timing(tx, sel.slide, |anims| {
         for (k, id) in ids.into_iter().enumerate() {
             anims.push(Animation {
+                source: custom
+                    .as_deref()
+                    .map(|p| bo_pptx::anim::custom_path_effect(id, dur.clamp(1, 600_000), p)),
+                iterate: iterate.clone(),
                 shape_id: id,
                 class: class.clone(),
                 effect: effect.clone(),
@@ -855,13 +1037,12 @@ pub fn cmd_add_animation(tx: &mut Tx<'_>, sel: &SlideSel, spec: &AnimSpec) -> R<
                     AnimTrigger::WithPrevious
                 },
                 delay_ms: spec.delay_ms.unwrap_or(0).min(600_000),
-                dur_ms: spec.dur_ms.unwrap_or(DEFAULT_ANIM_MS).clamp(1, 600_000),
+                dur_ms: dur.clamp(1, 600_000),
                 preset_id: None,
                 preset_subtype: None,
                 repeat: spec.repeat.and_then(repeat_of),
                 trigger_shape: spec.trigger_shape.filter(|t| *t != 0),
                 trigger_bookmark: None,
-                source: None,
             });
         }
         Ok(())
@@ -914,8 +1095,113 @@ pub fn cmd_set_animation(tx: &mut Tx<'_>, sel: &SlideSel, index: usize, spec: &A
             a.trigger_shape = (t != 0).then_some(t);
             a.trigger_bookmark = None;
         }
-        Ok(())
+        if let IterEdit::Set(it) = iterate_of(spec, a.iterate.as_ref())? {
+            a.iterate = it;
+        }
+        edit_path(a, spec)
     })
+}
+
+/// Offset (`a:off`, EMU) of a top-level node.
+fn offset_of(n: &ShapeNode) -> Option<(i64, i64)> {
+    match n {
+        ShapeNode::Shape(s) => s.props.xfrm.as_ref()?.off,
+        ShapeNode::Picture(p) => p.props.xfrm.as_ref()?.off,
+        ShapeNode::Group(g) => g.props.xfrm.as_ref()?.off,
+        ShapeNode::Connector(c) => c.props.xfrm.as_ref()?.off,
+        ShapeNode::Frame(f) => f.xfrm.off,
+        ShapeNode::Other(_) => None,
+    }
+}
+
+/// A top-level shape moved by a transaction: slide, id, offset before and after (EMU).
+type Moved = (usize, u32, (i64, i64), (i64, i64));
+
+/// Locked motion paths (§19.5.4 pathEditMode `fixed`) stay where they are on the slide when the
+/// transaction moves their top-level shape: the path moves back by the shape's move.
+pub fn keep_locked_paths(tx: &mut Tx<'_>) -> R<()> {
+    // (slide, id) → (offset before, offset after), from the top-level node splices.
+    let mut moved: Vec<Moved> = Vec::new();
+    for op in &tx.ops {
+        let super::ops::SlideOp::Nodes {
+            slide,
+            parent,
+            remove,
+            insert,
+            ..
+        } = op
+        else {
+            continue;
+        };
+        if !parent.is_empty() {
+            continue;
+        }
+        for r in remove {
+            let (Some(nv), Some(off)) = (r.nv(), offset_of(r)) else {
+                continue;
+            };
+            if !moved.iter().any(|m| m.0 == *slide && m.1 == nv.id) {
+                moved.push((*slide, nv.id, off, off));
+            }
+        }
+        for n in insert {
+            let (Some(nv), Some(off)) = (n.nv(), offset_of(n)) else {
+                continue;
+            };
+            if let Some(m) = moved.iter_mut().find(|m| m.0 == *slide && m.1 == nv.id) {
+                m.3 = off;
+            }
+        }
+    }
+    let (cx, cy) = (
+        tx.pres.slide_size.cx.max(1) as f64,
+        tx.pres.slide_size.cy.max(1) as f64,
+    );
+    for (slide, id, before, after) in moved {
+        if before == after {
+            continue;
+        }
+        let has = tx
+            .pres
+            .slides
+            .get(slide)
+            .and_then(|s| s.timing.as_ref())
+            .is_some_and(|t| {
+                t.animations.iter().any(|a| {
+                    a.shape_id == id
+                        && a.class == AnimClass::Path
+                        && bo_pptx::anim::path_locked(&bo_pptx::anim::effect_xml(a))
+                })
+            });
+        if !has {
+            continue;
+        }
+        let (dx, dy) = (
+            (after.0 - before.0) as f64 / cx,
+            (after.1 - before.1) as f64 / cy,
+        );
+        edit_timing(tx, slide, |anims| {
+            for a in anims
+                .iter_mut()
+                .filter(|a| a.shape_id == id && a.class == AnimClass::Path)
+            {
+                let mut par = bo_pptx::anim::effect_xml(a);
+                if !bo_pptx::anim::path_locked(&par) {
+                    continue;
+                }
+                if let Some(p) = bo_pptx::anim::motion_path(&par) {
+                    bo_pptx::anim::set_motion_path(
+                        &mut par,
+                        &bo_pptx::anim::shift_path(&p, -dx, -dy),
+                    );
+                    a.source = Some(par);
+                    a.effect = AnimEffect::Other;
+                }
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
 /// Shape ids of `p:spTgt@spid` in an effect as read, from `from` to `to` (§19.5.72 spTgt).

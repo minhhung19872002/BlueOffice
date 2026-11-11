@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
       - run: cargo clippy -p bo-wasm -p bo-collab -p bo-formula --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build -p bo-wasm --target wasm32-unknown-unknown --release
 
@@ -225,10 +225,45 @@ jobs:
         if: matrix.e2e
       - run: pnpm --filter @blueoffice/e2e exec playwright install chromium
         if: matrix.e2e
-      # Desktop E2E through Tauri WebDriver (runner ships Edge + msedgedriver in EDGEWEBDRIVER).
+      # Desktop E2E through Tauri WebDriver. msedgedriver must match the WebView2 runtime
+      # (not the Edge browser the runner's EDGEWEBDRIVER driver is built for).
       - run: cargo install tauri-driver --locked
         if: matrix.e2e
+      - name: msedgedriver matching the WebView2 runtime
+        if: matrix.e2e
+        shell: pwsh
+        run: |
+          $client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = $null
+          foreach ($key in @(
+              "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$client",
+              "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$client",
+              "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$client")) {
+            $pv = (Get-ItemProperty -Path $key -Name pv -ErrorAction SilentlyContinue).pv
+            if ($pv -and $pv -ne '0.0.0.0') { $version = $pv; break }
+          }
+          if (-not $version) {
+            $exe = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue |
+              Sort-Object { [version]$_.Directory.Name } | Select-Object -Last 1
+            if ($exe) { $version = $exe.Directory.Name }
+          }
+          if (-not $version) { throw 'WebView2 runtime not found' }
+          Write-Host "WebView2 runtime $version"
+          $dir = Join-Path $env:RUNNER_TEMP 'msedgedriver'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $zip = Join-Path $dir 'edgedriver_win64.zip'
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath $dir -Force
+          $driver = Join-Path $dir 'msedgedriver.exe'
+          & $driver --version
+          "MSEDGEDRIVER=$driver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      # The runner's user is an elevated administrator, and WebView2 ignores the WEBVIEW2_*
+      # environment variables msedgedriver drives it with (remote debugging port, profile
+      # folder) in elevated processes ("DevToolsActivePort file doesn't exist"). The E2E
+      # build (`webdriver` feature, not the packaged one) passes them through the WebView2
+      # API instead (apps/desktop/src-tauri/src/automation.rs).
+      - name: Desktop E2E build (webdriver)
+        if: matrix.e2e
+        run: pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater,webdriver --config src-tauri/tauri.webdriver.conf.json
       - run: pnpm test:e2e:desktop
         if: matrix.e2e
-        env:
-          MSEDGEDRIVER: ${{ env.EDGEWEBDRIVER }}\msedgedriver.exe

@@ -373,6 +373,7 @@ import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
 import { SlideOverlay, type TextEditing } from './SlideOverlay';
 import { EditPointsOverlay } from './editPoints';
+import { MotionPathOverlay } from './motionPath';
 import { registerShapeTools, shapeFormatTab } from './shapeFormat';
 import { Model3dLayer } from './model3d/Model3dLayer';
 import {
@@ -764,6 +765,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [setupOpen, setSetupOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState<DisplayTarget>({ kind: 'window' });
   const [paneOpen, setPaneOpen] = useState(false);
+  // Motion paths (§19.5.4): drawing a new one, editing the points of effect n.
+  const [pathDraw, setPathDraw] = useState(false);
+  const [pathEdit, setPathEdit] = useState<number | null>(null);
   /** Comments side panel ([MS-PPTX] modern comments). */
   const [commentsOpen, setCommentsOpen] = useState(false);
   /** Symbol picker panel (inserts into the text being edited, else a new text box). */
@@ -2307,6 +2311,15 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       simple(`anim.out.${e}`, { cmd: 'addAnimation', effect: e, class: 'exit' }, sel);
     }
     reg.register({
+      id: 'anim.drawPath',
+      isEnabled: sel,
+      isChecked: () => pathDraw,
+      run: () => {
+        setPathEdit(null);
+        setPathDraw((d) => !d);
+      },
+    });
+    reg.register({
       id: 'anim.preview',
       isEnabled: deck,
       run: () => {
@@ -3038,6 +3051,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     captionsEnabled,
     captionsAvailable,
     paneOpen,
+    pathDraw,
     selectionOpen,
     designOpen,
     commentsOpen,
@@ -3771,6 +3785,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             items: (['fade', 'flyIn', 'wipe'] as const).map((e) =>
               item(`anim.out.${e}`, t(`slideEditor.effectOut.${e}`), <LogOut size={16} />, sm),
             ),
+          },
+          {
+            id: 'animPath',
+            label: t('slideEditor.effectGroup.path'),
+            items: [item('anim.drawPath', t('slideEditor.drawPath'), <Spline size={18} />)],
           },
           {
             id: 'animPreview',
@@ -4806,6 +4825,29 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                       }}
                     />
                   )}
+                  {edit?.slide === shown &&
+                    (pathDraw ||
+                      (paneOpen &&
+                        (edit.animations ?? []).some(
+                          (a) => a.path && edit.selection.some((x) => x.id === a.shapeId),
+                        ))) && (
+                      <MotionPathOverlay
+                        slide={info?.pages[shown] ?? slideSize}
+                        width={main.width}
+                        paths={(edit.animations ?? []).filter(
+                          (a) => a.path && edit.selection.some((x) => x.id === a.shapeId),
+                        )}
+                        editing={pathEdit}
+                        drawing={pathDraw}
+                        run={run}
+                        onDrawn={() => setPathDraw(false)}
+                        labels={{
+                          path: (name) => t('slideEditor.motionPath', { name }),
+                          point: (n) => t('slideEditor.pathPoint', { n }),
+                          drawHint: t('slideEditor.drawPathHint'),
+                        }}
+                      />
+                    )}
                   {draw.layer}
                   {draw.replay(main.width)}
                   {edit?.slide === shown && state.isModel3d && edit.model3d && (
@@ -4975,6 +5017,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                           onClose={() => setPaneOpen(false)}
                           previewToken={previewToken}
                           pickSound={() => platform.files.openFile(['.wav'])}
+                          onDrawPath={() => exec('anim.drawPath')}
+                          editingPath={pathEdit}
+                          onEditPath={setPathEdit}
                         />
                       ),
                     } satisfies TaskPaneDef,

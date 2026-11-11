@@ -37,8 +37,16 @@ export {
 } from './captions';
 export * from './player';
 export { ALL_TRANSITIONS, morphLayers, rectsPolygon, TRANSITION_GROUPS } from './transitionFx';
-export { filterRects, playFrames, trackProgress } from './effectFx';
-export { ShowCache, ShowStage, type ShowStageProps } from './ShowStage';
+export {
+  filterRects,
+  pieceOrder,
+  playFrames,
+  tintAfter,
+  tintFrames,
+  trackProgress,
+} from './effectFx';
+export * from './motionPath';
+export { LayerCanvas, ShowCache, ShowStage, type ShowStageProps } from './ShowStage';
 export { AnimationPane, TRANSITIONS, transitionDirs } from './AnimationPane';
 export { ChartDialog, parseValue, fromGrid, CHART_KINDS, type ChartDraft } from './ChartDialog';
 export { ExportDialog, slidePng, PNG_SCALES } from './ExportDialog';

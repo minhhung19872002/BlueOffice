@@ -5590,7 +5590,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (done === null) return;
     const sel = span({ row: target.r0, col: target.c0 }, { row: target.r1, col: target.c1 });
     setSelection(sel);
-    setFillUi({ n: Date.now(), mode, source: toRange(source), target: toRange(target), sel });
+    setFillUi((u) => ({
+      n: (u?.n ?? 0) + 1,
+      mode,
+      source: toRange(source),
+      target: toRange(target),
+      sel,
+    }));
   };
 
   /** Auto Fill Options: the last fill again in another way (replacing it). */

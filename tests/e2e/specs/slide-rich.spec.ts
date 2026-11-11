@@ -21,6 +21,17 @@ async function box(page: Page, testId: string) {
   return b!;
 }
 
+/**
+ * Left / top of the first selection box for `expect.poll`, NaN while there is none.
+ * Must not throw: `expect.poll` fails at once when its callback throws, and a paste
+ * replaces the selected shape, so the box resolved by the locator can be unmounted
+ * before it is measured (`boundingBox()` is then null).
+ */
+async function selectionAt(page: Page, axis: 'x' | 'y'): Promise<number> {
+  const b = await page.getByTestId('selection-box').first().boundingBox();
+  return b ? b[axis] : Number.NaN;
+}
+
 /** Select characters [from, to) of the shape text with the keyboard. */
 async function selectChars(page: Page, from: number, to: number) {
   await page.keyboard.press('Control+Home');
@@ -72,7 +83,7 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe('Xin chào Việt Nam');
   await page.keyboard.press('Control+v');
-  await expect.poll(async () => (await box(page, 'selection-box')).x - orig.x).toBeGreaterThan(5);
+  await expect.poll(async () => (await selectionAt(page, 'x')) - orig.x).toBeGreaterThan(5);
   const pasted = await box(page, 'selection-box');
   expect(pasted.y - orig.y).toBeGreaterThan(5);
   // Move the copy away so both are visible.
@@ -89,7 +100,7 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   // Below the text boxes.
   const t0 = await box(page, 'selection-box');
   for (let i = 0; i < 12; i++) await page.keyboard.press('Shift+ArrowDown');
-  await expect.poll(async () => (await box(page, 'selection-box')).y - t0.y).toBeGreaterThan(100);
+  await expect.poll(async () => (await selectionAt(page, 'y')) - t0.y).toBeGreaterThan(100);
   const t = await box(page, 'selection-box');
   const cell = { x: t.x + t.width / 6, y: t.y + (t.height * 3) / 6 };
   await page.getByRole('tab', { name: 'Trang đầu' }).click();

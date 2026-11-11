@@ -8,6 +8,7 @@ import type {
 } from '@blueoffice/platform';
 import type { IconPick } from '@blueoffice/ui';
 import { fromBase64, insertDocIcons, insertSheetIcons, insertSlideIcons } from '../src';
+import { DocController } from '../src/controller';
 
 const SVG_A =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24v24z"/></svg>';
@@ -76,6 +77,43 @@ describe('insertDocIcons', () => {
     const bad = doc('change');
     await expect(insertDocIcons(bad.target, icons, raster)).rejects.toThrow('badImage');
     expect(bad.log.at(-1)).toEqual({ cmd: 'mergeHistory', since: 7 });
+  });
+
+  it('a save waiting for the controller to be idle waits for the whole insertion', async () => {
+    const sent: string[] = [];
+    const engine = {
+      command: async (c: EditCommand) => {
+        sent.push(c.cmd);
+        await new Promise((r) => setTimeout(r, 2));
+        return { dirty: [], rects: [], caret: null, count: 3 } as unknown as EditResult;
+      },
+      insertImage: async () => {
+        sent.push('insertImage');
+        return { dirty: [], rects: [], caret: null } as unknown as EditResult;
+      },
+    };
+    const view = { refresh: () => {}, setSelection: () => {} };
+    const clipboard = { readText: async () => '', writeText: async () => {} };
+    const c = new DocController(
+      engine as never,
+      view,
+      clipboard as never,
+      () => {},
+      () => {},
+    );
+    // Rasterising takes time between the commands: the queue is empty meanwhile.
+    const slow = async (svg: string, size: number) => {
+      await new Promise((r) => setTimeout(r, 10));
+      return raster(svg, size);
+    };
+    const done = c.hold(insertDocIcons(c, icons, slow));
+    await new Promise((r) => setTimeout(r, 5));
+    await c.idle();
+    expect(sent.at(-1)).toBe('mergeHistory');
+    await done;
+    // A failed operation does not keep the controller busy.
+    await c.hold(Promise.reject(new Error('x'))).catch(() => {});
+    await c.idle();
   });
 });
 

@@ -46,18 +46,18 @@ impl View {
         let (a, b, c) = (lat.to_radians(), lon.to_radians(), rev.to_radians());
         // Rotation about y (the camera moves left: the model turns right), then about x.
         let ry = [
-            [b.cos(), 0.0, b.sin()],
+            [libm::cos(b), 0.0, libm::sin(b)],
             [0.0, 1.0, 0.0],
-            [-b.sin(), 0.0, b.cos()],
+            [-libm::sin(b), 0.0, libm::cos(b)],
         ];
         let rx = [
             [1.0, 0.0, 0.0],
-            [0.0, a.cos(), a.sin()],
-            [0.0, -a.sin(), a.cos()],
+            [0.0, libm::cos(a), libm::sin(a)],
+            [0.0, -libm::sin(a), libm::cos(a)],
         ];
         let rz = [
-            [c.cos(), -c.sin(), 0.0],
-            [c.sin(), c.cos(), 0.0],
+            [libm::cos(c), -libm::sin(c), 0.0],
+            [libm::sin(c), libm::cos(c), 0.0],
             [0.0, 0.0, 1.0],
         ];
         View {
@@ -142,14 +142,14 @@ fn profile(prst: &str, t: f64) -> (f64, f64) {
     use std::f64::consts::FRAC_PI_2;
     match prst {
         "angle" | "slope" | "coolSlant" | "artDeco" | "divot" => (t, t),
-        "convex" | "softRound" => ((t * FRAC_PI_2).sin(), 1.0 - (t * FRAC_PI_2).cos()),
-        "relaxedInset" => (t, (t * FRAC_PI_2).sin()),
+        "convex" | "softRound" => (libm::sin(t * FRAC_PI_2), 1.0 - libm::cos(t * FRAC_PI_2)),
+        "relaxedInset" => (t, libm::sin(t * FRAC_PI_2)),
         "cross" | "hardEdge" => (
             t.min(0.5) * 2.0,
             if t < 0.5 { 0.0 } else { (t - 0.5) * 2.0 },
         ),
         // circle (the default) and the rest: a quarter circle.
-        _ => (1.0 - (t * FRAC_PI_2).cos(), (t * FRAC_PI_2).sin()),
+        _ => (1.0 - libm::cos(t * FRAC_PI_2), libm::sin(t * FRAC_PI_2)),
     }
 }
 
@@ -176,13 +176,13 @@ fn inset(p: &[(f64, f64)], d: f64) -> Vec<(f64, f64)> {
             let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
             let nrm = |u: (f64, f64), v: (f64, f64)| {
                 let (dx, dy) = (v.0 - u.0, v.1 - u.1);
-                let l = dx.hypot(dy).max(1e-9);
+                let l = libm::hypot(dx, dy).max(1e-9);
                 // Inward normal of an edge of a clockwise polygon (y down).
                 (-dy / l * sign, dx / l * sign)
             };
             let (n1, n2) = (nrm(a, b), nrm(b, c));
             let (mx, my) = (n1.0 + n2.0, n1.1 + n2.1);
-            let ml = mx.hypot(my);
+            let ml = libm::hypot(mx, my);
             if ml < 1e-9 {
                 return (b.0 + n1.0 * d, b.1 + n1.1 * d);
             }
@@ -222,7 +222,7 @@ fn shade(c: Rgba, n: V3, eye: V3, m: &Model) -> Rgba {
         m.light[2] + eye[2],
     ]);
     let spec = if s > 0.0 {
-        s * dot(n, half).max(0.0).powf(e)
+        s * libm::pow(dot(n, half).max(0.0), e)
     } else {
         0.0
     };

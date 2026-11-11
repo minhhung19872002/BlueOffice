@@ -33,6 +33,10 @@ rand = "0.8"
 # Auto-update (Tauri updater): needs `plugins.updater` (endpoints + pubkey) in the
 # release config, see docs/deploy/desktop-update.md.
 updater = ["dep:tauri-plugin-updater"]
+# Desktop E2E build only: hands tauri-driver's WebView2 arguments to the web views through
+# the API (WebView2 ignores them as environment variables in elevated processes); with
+# `--config tauri.webdriver.conf.json`. Never in shipped builds (src/automation.rs).
+webdriver = []
 
 [lints]
 workspace = true

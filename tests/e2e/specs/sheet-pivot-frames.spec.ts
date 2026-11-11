@@ -164,7 +164,8 @@ test('BlueSheet: drill-down and a pivot table slicer (insert, filter, options, m
   await expect(again.getByRole('button', { name: 'Nam' })).toHaveAttribute('aria-pressed', 'true');
   await expect(again.getByRole('button', { name: 'Bắc' })).toHaveAttribute('aria-pressed', 'false');
   await expect(await valueOf(page, 'B6')).toHaveValue('6');
-  // Deleting the slicer read from the file removes its filter.
+  // Deleting the slicer read from the file removes its filter (selected first).
+  await again.getByTestId('slicer-header').click();
   await again.getByTestId('slicer-delete').click();
   await expect(page.getByTestId('slicer')).toHaveCount(0);
   await expect(await valueOf(page, 'B6')).toHaveValue('28');

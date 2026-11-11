@@ -179,10 +179,10 @@ describe('slicer and timeline helpers', () => {
     expect(nextSlicerChoice(all, 'b', false)).toEqual(['b']);
     expect(nextSlicerChoice(one, 'b', false)).toEqual(['b']);
     expect(nextSlicerChoice(one, 'a', false)).toEqual([]);
-    // Ctrl: add, remove; from "all" it starts a new choice.
+    // Ctrl: add, remove; with every item chosen the click takes that one out.
     expect(nextSlicerChoice(one, 'c', true)).toEqual(['a', 'c']);
     expect(nextSlicerChoice(one, 'a', true)).toEqual([]);
-    expect(nextSlicerChoice(all, 'a', true)).toEqual(['a']);
+    expect(nextSlicerChoice(all, 'a', true)).toEqual(['b']);
   });
 
   it('takes the items between the last clicked one and a Shift click', () => {
@@ -244,7 +244,8 @@ describe('SlicerFrame', () => {
   it('draws the items with the colours of the style and reports clicks', () => {
     const onChoose = vi.fn();
     const onClear = vi.fn();
-    const c = frame();
+    // Selected: the options and delete buttons show over the frame.
+    const c = frame({ selected: true });
     ui(<SlicerFrame {...c} info={slicer()} onChoose={onChoose} onClear={onClear} />);
     const box = screen.getByTestId('slicer');
     expect(box.getAttribute('data-style')).toBe('SlicerStyleDark2');
@@ -277,14 +278,17 @@ describe('SlicerFrame', () => {
     expect(c.onSelect).toHaveBeenCalledTimes(1);
     expect(c.onDragStart).toHaveBeenCalledTimes(1);
     expect(c.onDragStart.mock.calls[0]![1]).toBe(false);
-    // The tool buttons in the header do not start a move.
-    fireEvent.mouseDown(screen.getByTestId('slicer-settings'), { button: 0 });
+    // Not selected: no options / delete buttons; the header buttons do not start a move.
+    expect(screen.queryByTestId('slicer-settings')).toBeNull();
+    fireEvent.mouseDown(screen.getByTestId('slicer-multi'), { button: 0 });
     expect(c.onDragStart).toHaveBeenCalledTimes(1);
     rerender(
       <I18nextProvider i18n={i18n}>
         <SlicerFrame {...c} selected info={slicer()} onChoose={vi.fn()} onClear={vi.fn()} />
       </I18nextProvider>,
     );
+    fireEvent.mouseDown(screen.getByTestId('slicer-settings'), { button: 0 });
+    expect(c.onDragStart).toHaveBeenCalledTimes(1);
     fireEvent.mouseDown(screen.getByTestId('slicer-resize'), { button: 0 });
     expect(c.onDragStart.mock.calls[1]![1]).toBe(true);
     fireEvent.keyDown(screen.getByTestId('slicer'), { key: 'Delete' });

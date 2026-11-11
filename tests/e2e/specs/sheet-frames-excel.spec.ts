@@ -33,9 +33,12 @@ async function goTo(page: Page, ref: string) {
   await expect(page.getByLabel('Ô đang nhập')).toBeFocused();
 }
 
+/** Texts of the chosen items of a slicer (or periods of a timeline strip). */
 const pressed = (frame: ReturnType<Page['getByTestId']>) =>
   frame
-    .getByRole('button', { pressed: true })
+    .locator(
+      '[data-testid="slicer-item"][aria-pressed="true"], button[aria-pressed="true"]:not([data-testid])',
+    )
     .evaluateAll((b) => b.map((x) => x.textContent ?? ''));
 
 test('BlueSheet: slicer Shift click and Multi-Select, timeline drag and Show options, custom styles', async ({
@@ -56,7 +59,7 @@ test('BlueSheet: slicer Shift click and Multi-Select, timeline drag and Show opt
 
   // Every region is chosen; a click keeps one, Shift click takes the range up to another.
   const items = await slicer
-    .locator('button[aria-pressed]')
+    .getByTestId('slicer-item')
     .evaluateAll((b) => b.map((x) => x.textContent ?? ''));
   expect(items.length).toBeGreaterThanOrEqual(3);
   await slicer.getByRole('button', { name: items[0]!, exact: true }).click();
@@ -80,11 +83,18 @@ test('BlueSheet: slicer Shift click and Multi-Select, timeline drag and Show opt
   await expect(tl).toBeVisible();
   await expect(tl.getByTestId('timeline-level')).toHaveCount(0);
   await expect(tl.getByTestId('timeline-strip')).toHaveAttribute('data-scrollbar', 'hidden');
-  // A drag over three months chooses them.
+  // The file scrolls the strip to July 2023 (scrollPosition): it does not start at the first
+  // month.
   const strip = tl.getByTestId('timeline-strip');
+  await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  // A drag over three months in view chooses them.
+  const k = await strip.evaluate((el) => {
+    const left = el.getBoundingClientRect().left;
+    return Array.from(el.children).findIndex((b) => b.getBoundingClientRect().left >= left);
+  });
   const months = strip.getByRole('button');
-  const first = await months.nth(0).boundingBox();
-  const third = await months.nth(2).boundingBox();
+  const first = await months.nth(k).boundingBox();
+  const third = await months.nth(k + 2).boundingBox();
   await page.mouse.move(first!.x + first!.width / 2, first!.y + first!.height / 2);
   await page.mouse.down();
   await page.mouse.move(third!.x + third!.width / 2, third!.y + third!.height / 2, { steps: 6 });
@@ -102,7 +112,7 @@ test('BlueSheet: slicer Shift click and Multi-Select, timeline drag and Show opt
   await expect(dlg).toBeHidden();
   await expect(tl.getByTestId('timeline-level')).toBeVisible();
   // Undo hides it again (one step).
-  await page.keyboard.press('Control+z');
+  await page.getByRole('button', { name: 'Hoàn tác' }).first().click();
   await expect(tl.getByTestId('timeline-level')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -159,7 +169,11 @@ test('BlueSlide: a column chart becomes a waterfall (chartex) on the same frame'
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/slide');
-  await expect(page.getByTestId('slide-status')).toBeVisible();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Mở', exact: true }).click();
+  await (await chooser).setFiles(corpus('slide', 'slide-text-bullets.pptx'));
+  await expect(page.getByTestId('slide-status')).toHaveText(/^Slide 1 \/ \d+$/);
+  await expect(page.getByTestId('slide-overlay')).toBeVisible();
   await page.getByRole('button', { name: '+ Thêm slide' }).click();
   await expect(page.getByTestId('slide-status')).toHaveText(/^Slide 2 \/ \d+$/);
   await page.getByRole('tab', { name: 'Chèn' }).click();

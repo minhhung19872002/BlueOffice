@@ -77,14 +77,14 @@ export function timelineFields(pivot: PivotInfo): number[] {
 
 /**
  * The next choice of a slicer after a click on `label`: a plain click keeps only that item (or
- * clears the filter when it was the only one chosen); with Ctrl the item is added or removed.
- * An empty list clears the filter.
+ * clears the filter when it was the only one chosen); with Ctrl (or Multi-Select) the item is
+ * added or removed — with every item chosen (no filter) that click takes it out. An empty list
+ * clears the filter.
  */
 export function nextSlicerChoice(info: SlicerInfo, label: string, multi: boolean): string[] {
   const chosen = info.items.filter((i) => i.selected).map((i) => i.label);
   const all = chosen.length === info.items.length;
   if (multi) {
-    if (all) return [label];
     return chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label];
   }
   return !all && chosen.length === 1 && chosen[0] === label ? [] : [label];
@@ -171,16 +171,21 @@ function FrameTools({
   c,
   prefix,
   children,
+  edit = true,
+  className = styles.frameTools,
 }: {
   c: FrameCommon;
   prefix: string;
   children?: ReactNode;
+  /** Show the settings and delete buttons (an editable frame). */
+  edit?: boolean;
+  className?: string;
 }) {
   const { t } = useTranslation();
   return (
-    <span className={styles.frameTools} onMouseDown={(e) => e.stopPropagation()}>
+    <span className={className} onMouseDown={(e) => e.stopPropagation()}>
       {children}
-      {c.editable && (
+      {edit && c.editable && (
         <>
           <button
             type="button"
@@ -271,7 +276,7 @@ export function SlicerFrame({
         }}
       >
         <span className={styles.frameCaption}>{info.caption}</span>
-        <FrameTools c={c} prefix="slicer">
+        <FrameTools c={c} prefix="slicer" edit={false}>
           <button
             type="button"
             data-testid="slicer-multi"
@@ -302,6 +307,7 @@ export function SlicerFrame({
           <button
             key={item.label}
             type="button"
+            data-testid="slicer-item"
             className={item.selected ? styles.slicerOn : styles.slicerOff}
             aria-pressed={item.selected}
             onClick={(e) => click(item.label, e)}
@@ -310,6 +316,11 @@ export function SlicerFrame({
           </button>
         ))}
       </div>
+      {c.selected && c.editable && (
+        // Like the header of a spreadsheet slicer, which holds only Multi-Select and Clear
+        // Filter: the options and delete buttons sit over the selected frame.
+        <FrameTools c={c} prefix="slicer" className={styles.frameFloat} />
+      )}
       {c.selected && c.editable && (
         <div
           className={styles.frameHandle}

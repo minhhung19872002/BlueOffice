@@ -1113,6 +1113,30 @@
   border-radius: 3px;
 }
 
+/* Options and delete buttons over a selected slicer. */
+.frameFloat {
+  position: absolute;
+  right: -1px;
+  bottom: 100%;
+  display: inline-flex;
+  gap: 2px;
+  padding: 1px 2px;
+  border: 1px solid var(--bo-border, #d7dde7);
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1f2933);
+}
+
+.frameFloat button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  min-width: 24px;
+  min-height: 24px;
+}
+
 /* Second row of a timeline: the selection label, then the time level. */
 .timelineBar {
   display: flex;

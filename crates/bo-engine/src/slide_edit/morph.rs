@@ -210,6 +210,10 @@ pub struct MorphPair {
     /// For a word or letter: where the two drawings are `[x, y, w, h]` (from, to), points.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clip: Option<([f64; 4], [f64; 4])>,
+    /// The shape's outlines changing point by point (`from_page` / `to_page` then hold its text
+    /// only); `None` = the two drawings cross-fade.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outline: Option<super::morph_outline::MorphOutline>,
 }
 
 /// Everything the slide show needs to morph into a slide.
@@ -258,6 +262,7 @@ pub fn text_pairs(
             from_page: from[i].1.clone(),
             to_page: to[j].1.clone(),
             clip: Some((from[i].2, to[j].2)),
+            outline: None,
         });
     }
     for (i, p) in from.iter().enumerate() {

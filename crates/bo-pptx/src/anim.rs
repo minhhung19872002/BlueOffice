@@ -1082,12 +1082,12 @@ fn put_options(ids: &mut Ids, par: &mut XmlElement, a: &Animation) {
         .iter_mut()
         .find(|c| matches!(c, XmlNode::Element(e) if e.name == "p:cTn"))
     {
-        put_node_options(ids, ctn, a, after);
+        put_node_options(ids, ctn, a, &after);
     }
     put_target(par, a.shape_id, a.opts.target.as_ref());
 }
 
-fn put_node_options(ids: &mut Ids, ctn: &mut XmlElement, a: &Animation, after: Vec<XmlElement>) {
+fn put_node_options(ids: &mut Ids, ctn: &mut XmlElement, a: &Animation, after: &[XmlElement]) {
     strip_extras(ctn);
     // CT_TLCommonTimeNodeData attributes.
     ctn.attrs.retain(|(k, _)| k != "grpId" && k != "fill");

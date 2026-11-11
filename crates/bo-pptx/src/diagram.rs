@@ -157,6 +157,25 @@ fn text_of_el(el: &XmlElement) -> String {
     out
 }
 
+/// Content points under `id` by `parOf` links, depth first in order, with their level.
+fn walk(
+    id: &str,
+    level: u32,
+    links: &[(&str, u32, &str)],
+    content: &dyn Fn(&str) -> bool,
+    out: &mut Vec<(String, u32)>,
+) {
+    if level > 32 {
+        return;
+    }
+    for l in links.iter().filter(|l| l.0 == id) {
+        if content(l.2) && !out.iter().any(|(n, _)| n == l.2) {
+            out.push((l.2.to_owned(), level));
+            walk(l.2, level + 1, links, content, out);
+        }
+    }
+}
+
 /// Who builds with whom in a SmartArt: its data model part and its drawing part ([MS-ODRAWXML]
 /// dsp:drawing). A shape's `modelId` names a node, a presentation point of one (`presOf`
 /// connection, `prSet@presAssocID`) or a connection's transition point (`parTrans` / `sibTrans`,
@@ -207,23 +226,6 @@ pub fn diagram_build(
     links.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
     let content = |id: &str| matches!(kind_of(id), Some("node" | "asst"));
     let mut nodes: Vec<(String, u32)> = Vec::new();
-    fn walk(
-        id: &str,
-        level: u32,
-        links: &[(&str, u32, &str)],
-        content: &dyn Fn(&str) -> bool,
-        out: &mut Vec<(String, u32)>,
-    ) {
-        if level > 32 {
-            return;
-        }
-        for l in links.iter().filter(|l| l.0 == id) {
-            if content(l.2) && !out.iter().any(|(n, _)| n == l.2) {
-                out.push((l.2.to_owned(), level));
-                walk(l.2, level + 1, links, content, out);
-            }
-        }
-    }
     if let Some(doc) = pts.iter().find(|p| p.attr("type") == Some("doc")) {
         walk(
             doc.attr("modelId").unwrap_or_default(),

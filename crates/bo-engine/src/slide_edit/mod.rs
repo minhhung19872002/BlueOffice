@@ -36,6 +36,7 @@ pub mod media;
 pub mod media_playback;
 pub mod model3d;
 pub mod morph;
+pub mod morph_outline;
 pub mod ole;
 pub mod ops;
 pub mod outline;
@@ -4988,12 +4989,11 @@ impl Engine {
                 let piece = self
                     .draw_masked(slide, range, &plan, &shown, None)
                     .and_then(|full| anim_build::subtract(&full, &base));
-                match piece {
-                    Some(p) => pages.push(p),
-                    None => {
-                        ok = false;
-                        break;
-                    }
+                if let Some(p) = piece {
+                    pages.push(p);
+                } else {
+                    ok = false;
+                    break;
                 }
             }
             if !ok {
@@ -5177,24 +5177,36 @@ impl Engine {
                     anim_text::split_text(&to_page)?,
                 ))
             });
-            let Some((by_word, sa, sb)) = split else {
-                out.pairs.push(morph::MorphPair {
+            // Plain outlines change shape point by point; the rest (text) moves with the box.
+            // A shape that only turns keeps turning as a drawing (its points would cut across).
+            let reshaped = a[i].look != b[j].look || (a[i].b.rot - b[j].b.rot).abs() < 0.5;
+            let pair = |from_page: bo_render::PageList, to_page: bo_render::PageList| match reshaped
+                .then(|| morph_outline::morph_outline(&from_page, &to_page))
+                .flatten()
+            {
+                Some((o, fp, tp)) => morph::MorphPair {
+                    from: morph::box5(&a[i].b),
+                    to: morph::box5(&b[j].b),
+                    from_page: fp,
+                    to_page: tp,
+                    clip: None,
+                    outline: Some(o),
+                },
+                None => morph::MorphPair {
                     from: morph::box5(&a[i].b),
                     to: morph::box5(&b[j].b),
                     from_page,
                     to_page,
                     clip: None,
-                });
+                    outline: None,
+                },
+            };
+            let Some((by_word, sa, sb)) = split else {
+                out.pairs.push(pair(from_page, to_page));
                 continue;
             };
             // The shape without its text morphs as an object; its words / letters on their own.
-            out.pairs.push(morph::MorphPair {
-                from: morph::box5(&a[i].b),
-                to: morph::box5(&b[j].b),
-                from_page: sa.body.clone(),
-                to_page: sb.body.clone(),
-                clip: None,
-            });
+            out.pairs.push(pair(sa.body.clone(), sb.body.clone()));
             let moved = morph::text_pairs(
                 &anim_text::grouped(&sa, by_word),
                 &anim_text::grouped(&sb, by_word),

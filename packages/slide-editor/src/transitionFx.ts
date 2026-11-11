@@ -1,6 +1,7 @@
 import type {
   PageDisplayList,
   SlideMorphInfo,
+  SlideMorphOutline,
   SlideTransitionInfo,
   SlideTransitionKind,
 } from '@blueoffice/platform';
@@ -959,6 +960,64 @@ export interface MorphLayer {
   backdrop?: boolean;
   /** A word / letter: drawn on a canvas the size of this box `[x, y, w, h]` (points). */
   rect?: [number, number, number, number];
+  /** The outlines of a matched shape changing point by point (drawn instead of `page`). */
+  outline?: SlideMorphOutline;
+}
+
+/** One path of a morphing outline at progress `k` (0 = previous slide, 1 = this one). */
+export interface OutlineFrame {
+  d: string;
+  fill: string | null;
+  stroke: string | null;
+  width: number;
+}
+
+const css = (c: [number, number, number, number]) =>
+  `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${Math.round((c[3] / 255) * 1000) / 1000})`;
+
+/**
+ * The outlines of a morph at progress `k`: every point, the fill, the line colour and width
+ * interpolated linearly between the two slides (a path missing a fill or line on one side takes
+ * the other side's, fading in or out).
+ */
+export function outlineFrame(o: SlideMorphOutline, k: number): OutlineFrame[] {
+  const lerp = (a: number, b: number) => a + (b - a) * k;
+  const mix = (
+    a: [number, number, number, number] | undefined,
+    b: [number, number, number, number] | undefined,
+  ): string | null => {
+    if (!a && !b) return null;
+    const x = a ?? ([...(b ?? [0, 0, 0, 0]).slice(0, 3), 0] as [number, number, number, number]);
+    const y = b ?? ([...x.slice(0, 3), 0] as [number, number, number, number]);
+    return css(
+      [0, 1, 2, 3].map((i) => Math.round(lerp(x[i] ?? 0, y[i] ?? 0))) as [
+        number,
+        number,
+        number,
+        number,
+      ],
+    );
+  };
+  const r = (v: number) => Math.round(v * 100) / 100;
+  return o.from.map((pa, pi) => {
+    const pb = o.to[pi] ?? pa;
+    const d = pa.rings
+      .map((ring, ri) => {
+        const other = pb.rings[ri] ?? ring;
+        const pts = ring.map((p, i) => {
+          const q = other[i] ?? p;
+          return `${r(lerp(p[0], q[0]))} ${r(lerp(p[1], q[1]))}`;
+        });
+        return `M ${pts.join(' L ')}${pa.closed[ri] ? ' Z' : ''}`;
+      })
+      .join(' ');
+    return {
+      d,
+      fill: mix(pa.fill, pb.fill),
+      stroke: mix(pa.stroke?.[0], pb.stroke?.[0]),
+      width: lerp(pa.stroke?.[1] ?? pb.stroke?.[1] ?? 0, pb.stroke?.[1] ?? pa.stroke?.[1] ?? 0),
+    };
+  });
 }
 
 /**
@@ -989,6 +1048,8 @@ export function morphLayers(m: SlideMorphInfo, width: number, height: number): M
     `translate(${pct(dx / W)}, ${pct(dy / H)}) rotate(${Math.round(rot * 1000) / 1000}deg) ` +
     `scale(${Math.round(sx * 10000) / 10000}, ${Math.round(sy * 10000) / 10000}) rotate(${Math.round(-undo * 1000) / 1000}deg)`;
   for (const p of m.pairs) {
+    // Outlines changing point by point, under the shape's text.
+    if (p.outline) layers.push({ page: p.fromPage, frames: [], outline: p.outline });
     const [fx, fy, fw, fh, fr] = p.from;
     const [tx, ty, tw, th, tr] = p.to;
     const d = turn(fr, tr);

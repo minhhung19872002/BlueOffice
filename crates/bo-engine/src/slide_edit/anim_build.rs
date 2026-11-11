@@ -530,7 +530,7 @@ pub fn rebuild(
     let bg = bg.unwrap_or(old_bg);
     // A group id of its own on the shape: the one it has, else the first one free.
     let gid = rep.opts.group_id.unwrap_or_else(|| {
-        (0..)
+        (0..=u32::MAX)
             .find(|g| {
                 !t.animations
                     .iter()
@@ -704,12 +704,11 @@ pub fn plan(pres: &Presentation, slide: usize, t: &Timing, id: u32) -> Option<Pa
             atoms[0].push(at);
             continue;
         }
-        match sigs.iter().position(|s| *s == sig) {
-            Some(p) => atoms[p + 1].push(at),
-            None => {
-                sigs.push(sig);
-                atoms.push(vec![at]);
-            }
+        if let Some(p) = sigs.iter().position(|s| *s == sig) {
+            atoms[p + 1].push(at);
+        } else {
+            sigs.push(sig);
+            atoms.push(vec![at]);
         }
     }
     let effects = targeted
@@ -835,7 +834,7 @@ pub fn subtract(full: &PageList, base: &PageList) -> Option<PageList> {
             out.push(c.clone());
         }
     }
-    (j == base.commands.len()).then(|| PageList {
+    (j == base.commands.len()).then_some(PageList {
         width: full.width,
         height: full.height,
         commands: out,
@@ -950,6 +949,7 @@ mod tests {
             .collect()
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn p(start: u32, end: u32) -> Option<AnimTarget> {
         Some(AnimTarget::Paragraphs { start, end })
     }

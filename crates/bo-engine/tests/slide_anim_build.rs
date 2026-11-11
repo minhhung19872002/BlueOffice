@@ -406,3 +406,89 @@ fn after_animation_rewind_and_sound() {
     );
     assert_eq!(r.error.as_deref(), Some("badColor"));
 }
+
+// source: [MS-PPTX] p159:morph — a rectangle and an ellipse found again by their text change
+// outline point by point (one ring each, the same number of points, their text drawn apart); a
+// ring and a ring with a hole (donut) cross-fade.
+#[test]
+fn morph_changes_outlines_point_by_point() {
+    let mut e = open("slide-text-bullets.pptx");
+    let a = run(&mut e, r#"{"cmd":"addSlide"}"#).slide;
+    run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"rect","rect":{"x":60,"y":60,"w":160,"h":100}}"#,
+    );
+    run(&mut e, r#"{"cmd":"setText","text":"Hộp"}"#);
+    run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":400,"y":60,"w":100,"h":100}}"#,
+    );
+    run(&mut e, r#"{"cmd":"setText","text":"Vòng"}"#);
+    let b = run(&mut e, r#"{"cmd":"addSlide"}"#).slide;
+    assert_eq!(b, a + 1);
+    run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"ellipse","rect":{"x":300,"y":200,"w":200,"h":200}}"#,
+    );
+    run(&mut e, r#"{"cmd":"setText","text":"Hộp"}"#);
+    run(
+        &mut e,
+        r#"{"cmd":"insertShape","preset":"donut","rect":{"x":600,"y":200,"w":120,"h":120}}"#,
+    );
+    run(&mut e, r#"{"cmd":"setText","text":"Vòng"}"#);
+    run(
+        &mut e,
+        r#"{"cmd":"setTransition","transition":{"kind":"morph"}}"#,
+    );
+    let m = run(&mut e, &format!(r#"{{"cmd":"show","slide":{b}}}"#))
+        .show
+        .unwrap()
+        .morph
+        .expect("morph");
+    // The pair whose shape was centred at (`x`, `y`) on the previous slide.
+    let at = |x: f64, y: f64| {
+        m.pairs
+            .iter()
+            .find(|p| (p.from[0] - x).abs() < 1.0 && (p.from[1] - y).abs() < 1.0)
+            .unwrap()
+    };
+    let rect = at(140.0, 110.0);
+    let o = rect
+        .outline
+        .as_ref()
+        .expect("rect → ellipse morphs its outline");
+    assert_eq!(o.from.len(), o.to.len());
+    let n = bo_engine::slide_edit::morph_outline::RING_POINTS;
+    assert!(o.from[0].rings[0].len() == n && o.to[0].rings[0].len() == n);
+    // The rectangle's points lie on its box, the ellipse's on its circle (radius 100 about 400, 300).
+    for p in &o.from[0].rings[0] {
+        let on_edge = (p[0] - 60.0).abs() < 0.6
+            || (p[0] - 220.0).abs() < 0.6
+            || (p[1] - 60.0).abs() < 0.6
+            || (p[1] - 160.0).abs() < 0.6;
+        assert!(on_edge, "{p:?}");
+    }
+    for p in &o.to[0].rings[0] {
+        let r = (p[0] - 400.0).hypot(p[1] - 300.0);
+        assert!((r - 100.0).abs() < 1.5, "{r}");
+    }
+    // The text is drawn apart and moves with the box; the outline is not in it.
+    assert!(rect
+        .from_page
+        .commands
+        .iter()
+        .all(|c| !matches!(c, bo_render::Command::Path { .. })));
+    assert!(rect
+        .to_page
+        .commands
+        .iter()
+        .any(|c| matches!(c, bo_render::Command::Glyphs { .. })));
+    // Ellipse → donut: another number of rings, the drawings cross-fade.
+    let ring = at(450.0, 110.0);
+    assert!(ring.outline.is_none());
+    assert!(ring
+        .to_page
+        .commands
+        .iter()
+        .any(|c| matches!(c, bo_render::Command::Path { .. })));
+}

@@ -2248,6 +2248,22 @@ export interface SlideMorphPair {
   toPage: PageDisplayList;
   /** A word / letter (morph by word / by character): its boxes `[x, y, w, h]` (from, to). */
   clip?: [[number, number, number, number], [number, number, number, number]];
+  /** The shape's outlines change point by point (the pages then hold its text only). */
+  outline?: SlideMorphOutline;
+}
+
+/** One path of a morphing outline: rings of the same number of points on both slides. */
+export interface SlideOutlinePath {
+  rings: [number, number][][];
+  closed: boolean[];
+  fill?: [number, number, number, number];
+  stroke?: [[number, number, number, number], number];
+}
+
+/** The outlines of a matched shape on the previous slide and on this one, path for path. */
+export interface SlideMorphOutline {
+  from: SlideOutlinePath[];
+  to: SlideOutlinePath[];
 }
 
 /** A word / letter fading out or in during a morph. */

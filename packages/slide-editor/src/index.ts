@@ -36,7 +36,13 @@ export {
   type CaptionSettings,
 } from './captions';
 export * from './player';
-export { ALL_TRANSITIONS, morphLayers, rectsPolygon, TRANSITION_GROUPS } from './transitionFx';
+export {
+  ALL_TRANSITIONS,
+  morphLayers,
+  outlineFrame,
+  rectsPolygon,
+  TRANSITION_GROUPS,
+} from './transitionFx';
 export {
   filterRects,
   pieceOrder,
@@ -47,7 +53,14 @@ export {
 } from './effectFx';
 export * from './motionPath';
 export { LayerCanvas, ShowCache, ShowStage, type ShowStageProps } from './ShowStage';
-export { AnimationPane, TRANSITIONS, transitionDirs } from './AnimationPane';
+export {
+  AnimationPane,
+  buildChoices,
+  dropIndex,
+  hasBgOption,
+  TRANSITIONS,
+  transitionDirs,
+} from './AnimationPane';
 export { ChartDialog, parseValue, fromGrid, CHART_KINDS, type ChartDraft } from './ChartDialog';
 export { ExportDialog, slidePng, PNG_SCALES } from './ExportDialog';
 export { MediaButtons, MediaClip, canPlay } from './MediaLayer';

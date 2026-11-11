@@ -129,6 +129,6 @@ fn pies_and_lines_build_by_element() {
         }
     )));
     let second_point = extra(&none, &draw(&l, Some(&|s, i| s == 0 && i == 1)));
-    assert!(!second_point.is_empty());
+    assert_ne!(second_point.len(), 0);
     assert!(!maskable(&chart("radar")));
 }

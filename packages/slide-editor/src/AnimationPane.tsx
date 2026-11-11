@@ -10,8 +10,9 @@ import type {
   SlideAnimEffect,
   SlideTransitionKind,
 } from '@blueoffice/platform';
-import { ArrowDown, ArrowUp, Play, Trash, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, Play, Trash, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
+import { BUILTIN_SOUNDS, builtinName, builtinOf, builtinWav, type BuiltinSound } from './actions';
 import type { ShowPos } from './player';
 import { ALL_TRANSITIONS, TRANSITION_GROUPS } from './transitionFx';
 import styles from './SlideEditor.module.css';
@@ -110,6 +111,39 @@ function effectsOf(cls: string): SlideAnimEffect[] {
   return ENTRANCE_EFFECTS;
 }
 
+/** Build choices of each kind of shape (`SlideAnimSpec.build`); text adds one per outline level. */
+export function buildChoices(b: SlideAnimInfo['build']): string[] {
+  if (!b) return [];
+  switch (b.kind) {
+    case 'text':
+      return [
+        'whole',
+        'allAtOnce',
+        ...Array.from({ length: Math.max(1, b.levels) }, (_, i) => `p${i + 1}`),
+      ];
+    case 'chart':
+      return ['whole', 'allAtOnce', 'series', 'category', 'seriesEl', 'categoryEl'];
+    case 'diagram':
+      return ['whole', 'allAtOnce', 'one', 'lvlAtOnce', 'lvlOne'];
+  }
+}
+
+/**
+ * The build animates the shape (text) or draws the chart background first as a step of its own:
+ * text built paragraph by paragraph, a chart built element by element.
+ */
+export function hasBgOption(b: NonNullable<SlideAnimInfo['build']>): boolean {
+  if (b.kind === 'text') return b.value !== 'whole';
+  if (b.kind === 'chart') return b.value !== 'whole' && b.value !== 'allAtOnce';
+  return false;
+}
+
+/** Where an effect moves in the list when dragged from `from` and dropped on row `over`. */
+export function dropIndex(from: number, over: number, count: number): number | null {
+  if (from < 0 || over < 0 || from >= count || over >= count || from === over) return null;
+  return over;
+}
+
 /** Seconds field ↔ milliseconds. */
 const toSec = (ms: number) => Math.round(ms / 100) / 10;
 const toMs = (v: string) => {
@@ -139,6 +173,38 @@ export interface AnimationPaneProps {
   editingPath?: number | null;
   /** Edit the points of effect `index` on the slide (`null`: stop). */
   onEditPath?: (index: number | null) => void;
+}
+
+/** What part of its shape an effect plays on (`đoạn 2–3`, `chuỗi 1`, …); empty: the whole shape. */
+function usePartLabel() {
+  const { t } = useTranslation();
+  return useCallback(
+    (a: SlideAnimInfo): string => {
+      const g = a.target;
+      if (!g) return '';
+      switch (g.kind) {
+        case 'background':
+          return t('slideEditor.partOf.background');
+        case 'paragraphs':
+          return g.start === g.end
+            ? t('slideEditor.partOf.paragraph', { n: (g.start ?? 0) + 1 })
+            : t('slideEditor.partOf.paragraphs', {
+                start: (g.start ?? 0) + 1,
+                end: (g.end ?? 0) + 1,
+              });
+        case 'chart':
+          if (g.step === 'gridLegend') return t('slideEditor.partOf.background');
+          if (g.series != null && g.category != null)
+            return t('slideEditor.partOf.point', { s: g.series + 1, c: g.category + 1 });
+          if (g.series != null) return t('slideEditor.partOf.series', { n: g.series + 1 });
+          if (g.category != null) return t('slideEditor.partOf.category', { n: g.category + 1 });
+          return '';
+        case 'diagram':
+          return g.node != null ? t('slideEditor.partOf.node', { n: g.node }) : '';
+      }
+    },
+    [t],
+  );
 }
 
 /** Effect label of an animation (`Xuất hiện`, `Mờ dần (biến mất)`, …). */
@@ -176,6 +242,7 @@ export function AnimationPane({
 }: AnimationPaneProps) {
   const { t } = useTranslation();
   const label = useEffectLabel();
+  const partLabel = usePartLabel();
   const slide = edit?.slide ?? 0;
   const tr = edit?.transition ?? null;
   const anims = edit?.animations ?? [];
@@ -191,6 +258,9 @@ export function AnimationPane({
   }
   // Animation painter: the next selection gets the effects of the shape picked here.
   const [painter, setPainter] = useState<number | null>(null);
+  // Drag and drop in the list: the effect dragged and the row it is over.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const firstSelected = edit?.selection?.[0]?.id ?? null;
   const [painterSeen, setPainterSeen] = useState<number | null>(null);
   if (painter !== null && firstSelected !== null && firstSelected !== painterSeen) {
@@ -460,18 +530,61 @@ export function AnimationPane({
               return (
                 <li
                   key={`${a.index}-${a.shapeId}`}
-                  className={selectedIds.has(a.shapeId) ? styles.animItemActive : styles.animItem}
+                  className={`${selectedIds.has(a.shapeId) ? styles.animItemActive : styles.animItem}${
+                    dragOver === a.index && dragFrom !== null && dragFrom !== a.index
+                      ? ` ${styles.animDropTarget}`
+                      : ''
+                  }`}
                   data-testid={`anim-item-${a.index}`}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragFrom(a.index);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', String(a.index));
+                  }}
+                  onDragOver={(e) => {
+                    if (dragFrom === null) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOver !== a.index) setDragOver(a.index);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOver === a.index) setDragOver(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const raw = Number(e.dataTransfer.getData('text/plain'));
+                    const from = dragFrom ?? (Number.isFinite(raw) ? raw : -1);
+                    const to = dropIndex(from, a.index, anims.length);
+                    setDragFrom(null);
+                    setDragOver(null);
+                    if (to !== null) run({ cmd: 'moveAnimation', from, to });
+                  }}
+                  onDragEnd={() => {
+                    setDragFrom(null);
+                    setDragOver(null);
+                  }}
                 >
                   <button
                     type="button"
                     className={styles.animName}
                     onClick={() => run({ cmd: 'select', ids: [a.shapeId] })}
                   >
+                    <span className={styles.animGrip} title={t('slideEditor.dragReorder')}>
+                      <GripVertical size={12} aria-hidden="true" />
+                    </span>
                     <span className={styles.animStep}>
                       {a.triggerShape != null ? '⚡' : a.click}
                     </span>
-                    <span>{a.shapeName || `#${a.shapeId}`}</span>
+                    <span>
+                      {a.shapeName || `#${a.shapeId}`}
+                      {a.target && (
+                        <span className={styles.animPart} data-testid={`anim-part-${a.index}`}>
+                          {' · '}
+                          {partLabel(a)}
+                        </span>
+                      )}
+                    </span>
                     <em>{label(a)}</em>
                   </button>
                   <div className={styles.animTimeline} aria-hidden="true">
@@ -560,6 +673,120 @@ export function AnimationPane({
                           }}
                         />
                       </label>
+                    )}
+                    {a.build?.head && !a.mediaCmd && (
+                      <>
+                        <select
+                          aria-label={t(`slideEditor.build.${a.build.kind}`)}
+                          data-testid={`anim-build-${a.index}`}
+                          value={a.build.value}
+                          onChange={(e) => set({ build: e.target.value })}
+                        >
+                          {buildChoices(a.build).map((v) => (
+                            <option key={v} value={v}>
+                              {/^p\d$/.test(v)
+                                ? t('slideEditor.buildOpt.byLevel', { n: Number(v.slice(1)) })
+                                : t(`slideEditor.buildOpt.${v}`)}
+                            </option>
+                          ))}
+                        </select>
+                        {a.build.kind !== 'chart' && a.build.value !== 'whole' && (
+                          <label className={styles.check}>
+                            <input
+                              type="checkbox"
+                              data-testid={`anim-build-reverse-${a.index}`}
+                              checked={a.build.reverse}
+                              onChange={(e) => set({ buildReverse: e.target.checked })}
+                            />
+                            {t('slideEditor.buildReverse')}
+                          </label>
+                        )}
+                        {hasBgOption(a.build) ? (
+                          <label className={styles.check}>
+                            <input
+                              type="checkbox"
+                              data-testid={`anim-build-bg-${a.index}`}
+                              checked={a.build.bg}
+                              onChange={(e) => set({ buildBg: e.target.checked })}
+                            />
+                            {a.build.kind === 'chart'
+                              ? t('slideEditor.buildBgChart')
+                              : t('slideEditor.buildBgText')}
+                          </label>
+                        ) : null}
+                      </>
+                    )}
+                    {!a.mediaCmd && (
+                      <>
+                        <select
+                          aria-label={t('slideEditor.afterAnim')}
+                          data-testid={`anim-after-${a.index}`}
+                          value={a.after ?? 'none'}
+                          onChange={(e) =>
+                            set({
+                              after: e.target.value as 'none' | 'dim' | 'hide' | 'hideOnClick',
+                            })
+                          }
+                        >
+                          {(['none', 'dim', 'hide', 'hideOnClick'] as const).map((o) => (
+                            <option key={o} value={o}>
+                              {t(`slideEditor.afterOpt.${o}`)}
+                            </option>
+                          ))}
+                        </select>
+                        {a.after === 'dim' && (
+                          <input
+                            type="color"
+                            aria-label={t('slideEditor.dimColor')}
+                            data-testid={`anim-dim-color-${a.index}`}
+                            value={`#${(a.dimColor ?? '808080').toLowerCase()}`}
+                            onChange={(e) =>
+                              set({ dimColor: e.target.value.slice(1).toUpperCase() })
+                            }
+                          />
+                        )}
+                        <label className={styles.check}>
+                          <input
+                            type="checkbox"
+                            data-testid={`anim-rewind-${a.index}`}
+                            checked={a.rewind === true}
+                            onChange={(e) => set({ rewind: e.target.checked })}
+                          />
+                          {t('slideEditor.rewind')}
+                        </label>
+                        <select
+                          aria-label={t('slideEditor.effectSound')}
+                          data-testid={`anim-sound-${a.index}`}
+                          value={!a.sound ? 'none' : (builtinOf(a.sound.name) ?? 'keep')}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === 'none') {
+                              set({ sound: 'none' });
+                            } else if (v === 'file') {
+                              void (pickSound ? pickSound() : Promise.resolve(null)).then((f) => {
+                                if (f) set({ soundData: base64Of(f.bytes), soundName: f.name });
+                              });
+                            } else if ((BUILTIN_SOUNDS as readonly string[]).includes(v)) {
+                              const id = v as BuiltinSound;
+                              set({
+                                soundData: base64Of(builtinWav(id)),
+                                soundName: builtinName(id),
+                              });
+                            }
+                          }}
+                        >
+                          <option value="none">{t('slideActions.soundNone')}</option>
+                          {BUILTIN_SOUNDS.map((b) => (
+                            <option key={b} value={b}>
+                              {t(`slideActions.builtin.${b}`)}
+                            </option>
+                          ))}
+                          {a.sound && !builtinOf(a.sound.name) && (
+                            <option value="keep">{a.sound.name}</option>
+                          )}
+                          <option value="file">{t('slideActions.soundFile')}</option>
+                        </select>
+                      </>
                     )}
                     {a.class === 'path' && a.path && (
                       <span className={styles.animButtons}>

@@ -1,0 +1,10 @@
+---
+source: crates/bo-engine/tests/slides.rs
+expression: summary(&page.commands)
+---
+path n=5 [0.0 0.0 960.0 540.0] fill=#ffffffff
+path n=5 [60.0 60.0 220.0 160.0] fill=#2e75b6ff
+path n=5 [60.0 60.0 220.0 160.0] stroke=#1f5485ff w1.00
+transform [1.000 0.000 0.000 1.000 60.0 60.0]
+  text 18.0pt 64.9,56.2 #ffffffff "Hộp"
+pop transform

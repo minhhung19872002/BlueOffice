@@ -2975,6 +2975,46 @@
       "keepSource": "Giữ định dạng nguồn",
       "insert": "Chèn slide đã chọn ({{count}})",
       "insertAll": "Chèn tất cả"
+    },
+    "build": {
+      "text": "Chạy chữ theo",
+      "chart": "Chạy biểu đồ theo",
+      "diagram": "Chạy sơ đồ theo"
+    },
+    "buildOpt": {
+      "whole": "Cả khối",
+      "allAtOnce": "Mọi phần cùng lúc",
+      "byLevel": "Theo đoạn đến cấp {{n}}",
+      "series": "Theo chuỗi",
+      "category": "Theo hạng mục",
+      "seriesEl": "Từng điểm, theo chuỗi",
+      "categoryEl": "Từng điểm, theo hạng mục",
+      "one": "Lần lượt từng khối",
+      "lvlAtOnce": "Theo cấp, cả cấp một lúc",
+      "lvlOne": "Theo cấp, lần lượt từng khối"
+    },
+    "buildReverse": "Thứ tự ngược",
+    "buildBgText": "Chạy cả hình chứa chữ",
+    "buildBgChart": "Vẽ nền biểu đồ trước",
+    "afterAnim": "Sau hiệu ứng",
+    "afterOpt": {
+      "none": "Giữ nguyên",
+      "dim": "Đổi sang màu mờ",
+      "hide": "Ẩn khi chạy xong",
+      "hideOnClick": "Ẩn ở lần bấm sau"
+    },
+    "dimColor": "Màu mờ",
+    "rewind": "Trả về như cũ khi chạy xong",
+    "effectSound": "Âm thanh của hiệu ứng",
+    "dragReorder": "Kéo để đổi thứ tự",
+    "partOf": {
+      "background": "hình nền",
+      "paragraph": "đoạn {{n}}",
+      "paragraphs": "đoạn {{start}}–{{end}}",
+      "series": "chuỗi {{n}}",
+      "category": "hạng mục {{n}}",
+      "point": "chuỗi {{s}}, hạng mục {{c}}",
+      "node": "khối {{n}}"
     }
   },
   "review": {

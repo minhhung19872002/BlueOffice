@@ -794,6 +794,16 @@ export type SheetCommand =
     }
   | { cmd: 'showAllData'; sheet: number }
   | { cmd: 'region'; sheet: number; range: SheetRange }
+  /** Where Ctrl+arrow lands from a cell (answer `{ row, col }`). */
+  | {
+      cmd: 'dataEdge';
+      sheet: number;
+      row: number;
+      col: number;
+      dir: 'up' | 'down' | 'left' | 'right';
+    }
+  /** Text entries of the column's list around a cell (answer `string[]`): AutoComplete, Alt+Down. */
+  | { cmd: 'columnEntries'; sheet: number; row: number; col: number }
   | { cmd: 'toggleFilter'; sheet: number; range: SheetRange }
   | { cmd: 'filterValues'; sheet: number; col: number }
   | { cmd: 'setFilter'; sheet: number; col: number; filter: FilterSpec | null }
@@ -806,6 +816,15 @@ export type SheetCommand =
   | { cmd: 'validation'; sheet: number; row: number; col: number }
   | { cmd: 'setValidation'; sheet: number; range: SheetRange; spec: ValidationSpec }
   | { cmd: 'setInputs'; sheet: number; cells: [number, number, string][]; validate?: boolean }
+  /** Ctrl+Enter: one entry into every selected cell (formulas follow each cell), one step. */
+  | {
+      cmd: 'fillInputs';
+      sheet: number;
+      row: number;
+      col: number;
+      text: string;
+      ranges: SheetRange[];
+    }
   | {
       cmd: 'insertChart';
       sheet: number;

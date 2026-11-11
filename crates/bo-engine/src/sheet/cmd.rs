@@ -500,6 +500,29 @@ pub enum SheetCommand {
         /// Selected range.
         range: Rng,
     },
+    /// Where Ctrl+arrow lands from a cell (read only): the edge of the block of data, or
+    /// the next filled cell, or the sheet edge (`{ "row", "col" }`).
+    DataEdge {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row of the moving cell.
+        row: u32,
+        /// 0-based column of the moving cell.
+        col: u32,
+        /// `up`, `down`, `left` or `right`.
+        dir: String,
+    },
+    /// The text entries of the column around a cell (read only): the filled cells
+    /// directly above and below it, distinct (ignoring case), nearest first — what typing
+    /// completes from (AutoComplete) and the pick list (Alt+Down) offers.
+    ColumnEntries {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row of the cell being typed in.
+        row: u32,
+        /// 0-based column.
+        col: u32,
+    },
     /// Turns the AutoFilter on (over the selection's region) or off.
     ToggleFilter {
         /// 0-based sheet index.
@@ -605,6 +628,20 @@ pub enum SheetCommand {
         /// Reject inputs that violate the cells' data validation.
         #[serde(default)]
         validate: bool,
+    },
+    /// One entry typed in `(row, col)` written into every cell of `ranges` (Ctrl+Enter):
+    /// relative references of a formula follow each cell, as when filling. One undo step.
+    FillInputs {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row of the cell the entry was typed in.
+        row: u32,
+        /// 0-based column of the cell the entry was typed in.
+        col: u32,
+        /// The entry.
+        text: String,
+        /// The selected ranges.
+        ranges: Vec<Rng>,
     },
     /// Inserts a chart plotting a range.
     InsertChart {
@@ -2089,6 +2126,117 @@ pub(crate) fn current_region(ws: &Worksheet, r: CellRange) -> CellRange {
     CellRange::new(CellRef::new(r0, c0), CellRef::new(r1, c1))
 }
 
+/// Ctrl+arrow from `(row, col)`: inside a block of data (this cell and the next one
+/// filled) to the last filled cell of the run; otherwise to the next filled cell in that
+/// direction, or to the edge of the sheet when there is none.
+pub(crate) fn data_edge(ws: &Worksheet, row: u32, col: u32, dir: &str) -> Result<(u32, u32)> {
+    let (dr, dc): (i64, i64) = match dir {
+        "up" => (-1, 0),
+        "down" => (1, 0),
+        "left" => (0, -1),
+        "right" => (0, 1),
+        _ => return Err(EngineError::Sheet(format!("unknown direction {dir}"))),
+    };
+    let filled = |r: i64, c: i64| {
+        u32::try_from(r)
+            .ok()
+            .zip(u32::try_from(c).ok())
+            .is_some_and(|k| {
+                k.0 < MAX_ROWS && k.1 < MAX_COLS && ws.cells.get(&k).is_some_and(non_empty)
+            })
+    };
+    let (r, c) = (
+        i64::from(row.min(MAX_ROWS - 1)),
+        i64::from(col.min(MAX_COLS - 1)),
+    );
+    let inside =
+        |r: i64, c: i64| r >= 0 && c >= 0 && r < i64::from(MAX_ROWS) && c < i64::from(MAX_COLS);
+    let to = |r: i64, c: i64| (u32::try_from(r).unwrap_or(0), u32::try_from(c).unwrap_or(0));
+    if !inside(r + dr, c + dc) {
+        return Ok(to(r, c));
+    }
+    if filled(r, c) && filled(r + dr, c + dc) {
+        // Along the run of filled cells (bounded by the data itself).
+        let (mut r, mut c) = (r + dr, c + dc);
+        while inside(r + dr, c + dc) && filled(r + dr, c + dc) {
+            r += dr;
+            c += dc;
+        }
+        return Ok(to(r, c));
+    }
+    // The next filled cell: one scan of the stored cells in that direction.
+    let (row, col) = to(r, c);
+    let next = match dir {
+        "down" => ws
+            .cells
+            .range((row + 1, 0)..)
+            .find(|(&(_, cc), cell)| cc == col && non_empty(cell))
+            .map(|(&k, _)| k),
+        "up" => ws
+            .cells
+            .range(..(row, 0))
+            .rev()
+            .find(|(&(_, cc), cell)| cc == col && non_empty(cell))
+            .map(|(&k, _)| k),
+        "right" => ws
+            .cells
+            .range((row, col + 1)..=(row, u32::MAX))
+            .find(|(_, cell)| non_empty(cell))
+            .map(|(&k, _)| k),
+        _ => ws
+            .cells
+            .range((row, 0)..(row, col))
+            .rev()
+            .find(|(_, cell)| non_empty(cell))
+            .map(|(&k, _)| k),
+    };
+    Ok(next.unwrap_or(match dir {
+        "down" => (MAX_ROWS - 1, col),
+        "up" => (0, col),
+        "right" => (row, MAX_COLS - 1),
+        _ => (row, 0),
+    }))
+}
+
+/// Text entries of the filled run of column `col` above and below `row` (the cell itself
+/// excluded), nearest first, distinct ignoring case (the nearest spelling kept). Numbers,
+/// formulas and errors are not entries (only typed text is completed). The UI sorts them
+/// with the language's collation for the pick list.
+pub(crate) fn column_entries(ws: &Worksheet, row: u32, col: u32) -> Vec<String> {
+    /// A long list stops the walk (the completion stays responsive).
+    const LIMIT: u32 = 10_000;
+    let at = |r: u32| ws.cells.get(&(r, col)).filter(|c| non_empty(c));
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut out = Vec::new();
+    let mut take = |c: &Cell| {
+        if c.formula.is_none() {
+            if let CellValue::Text(t) = &c.value {
+                if !t.is_empty() && seen.insert(t.to_lowercase()) {
+                    out.push(t.clone());
+                }
+            }
+        }
+    };
+    let mut r = row;
+    for _ in 0..LIMIT {
+        let Some(up) = r.checked_sub(1) else { break };
+        let Some(c) = at(up) else { break };
+        take(c);
+        r = up;
+    }
+    let mut r = row;
+    for _ in 0..LIMIT {
+        let down = r + 1;
+        if down >= MAX_ROWS {
+            break;
+        }
+        let Some(c) = at(down) else { break };
+        take(c);
+        r = down;
+    }
+    out
+}
+
 fn tsv_field(s: &str) -> String {
     if s.contains(['\t', '\n', '\r', '"']) {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -3234,6 +3382,18 @@ impl SheetEngine {
                         .unwrap_or(Value::Null),
                 )
             }
+            C::DataEdge {
+                sheet,
+                row,
+                col,
+                dir,
+            } => {
+                let (row, col) = data_edge(self.sheet(sheet)?, row, col, &dir)?;
+                Ok(json!({ "row": row, "col": col }))
+            }
+            C::ColumnEntries { sheet, row, col } => {
+                Ok(json!(column_entries(self.sheet(sheet)?, row, col)))
+            }
             C::Sort {
                 sheet,
                 range,
@@ -3711,6 +3871,41 @@ impl SheetEngine {
                     "rejected": if blocked { serde_json::to_value(&r).unwrap_or(Value::Null) } else { Value::Null },
                     "warning": if blocked { Value::Null } else { serde_json::to_value(&r).unwrap_or(Value::Null) },
                 }))
+            }
+            C::FillInputs {
+                sheet,
+                row,
+                col,
+                text,
+                ranges,
+            } => {
+                let adj = bo_sheet::formula::BoFormula { now: None };
+                let mut seen = std::collections::BTreeSet::new();
+                let mut cells = Vec::new();
+                for rg in &ranges {
+                    let r = rg.range();
+                    if u64::from(r.rows()) * u64::from(r.cols()) + cells.len() as u64 > 1_000_000 {
+                        return Err(bad("too many cells"));
+                    }
+                    for rr in r.first.row..=r.last.row {
+                        for cc in r.first.col..=r.last.col {
+                            if !seen.insert((rr, cc)) {
+                                continue;
+                            }
+                            let moved = text.strip_prefix('=').and_then(|f| {
+                                adj.translate(
+                                    f,
+                                    i64::from(rr) - i64::from(row),
+                                    i64::from(cc) - i64::from(col),
+                                )
+                            });
+                            let input = moved.map_or_else(|| text.clone(), |t| format!("={t}"));
+                            cells.push((rr, cc, input));
+                        }
+                    }
+                }
+                self.set_inputs_checked(sheet, &cells, false)?;
+                Ok(json!({ "ok": true }))
             }
             C::InsertChart {
                 sheet,
@@ -5239,6 +5434,95 @@ mod tests {
             back.info().unwrap().sheets[0].merges,
             Vec::<[u32; 4]>::new()
         );
+    }
+
+    #[test]
+    fn ctrl_arrow_lands_on_the_edge_of_the_data() {
+        let mut e = engine();
+        // A1:A5 and A9:A10 filled; B1:D1 filled.
+        for r in [0, 1, 2, 3, 4, 8, 9] {
+            e.set_input(0, r, 0, "1").unwrap();
+        }
+        for c in 1..4 {
+            e.set_input(0, 0, c, "x").unwrap();
+        }
+        let mut edge = |row: u32, col: u32, dir: &str| {
+            let v = run(
+                &mut e,
+                json!({ "cmd": "dataEdge", "sheet": 0, "row": row, "col": col, "dir": dir }),
+            );
+            (v["row"].as_u64().unwrap(), v["col"].as_u64().unwrap())
+        };
+        // Down the run, across the gap, down the next run, then to the last row.
+        assert_eq!(edge(0, 0, "down"), (4, 0));
+        assert_eq!(edge(4, 0, "down"), (8, 0));
+        assert_eq!(edge(8, 0, "down"), (9, 0));
+        assert_eq!(edge(9, 0, "down"), (u64::from(MAX_ROWS) - 1, 0));
+        assert_eq!(edge(u32::MAX, 0, "up"), (9, 0));
+        // From an empty cell: the next filled one.
+        assert_eq!(edge(6, 0, "up"), (4, 0));
+        assert_eq!(edge(6, 0, "down"), (8, 0));
+        // Along a row and back.
+        assert_eq!(edge(0, 0, "right"), (0, 3));
+        assert_eq!(edge(0, 3, "right"), (0, u64::from(MAX_COLS) - 1));
+        assert_eq!(edge(0, MAX_COLS - 1, "left"), (0, 3));
+        assert_eq!(edge(0, 2, "left"), (0, 0));
+        // At the sheet edge: stays.
+        assert_eq!(edge(0, 0, "up"), (0, 0));
+        assert_eq!(edge(5, 0, "left"), (5, 0));
+    }
+
+    #[test]
+    fn column_entries_are_the_text_of_the_list_around_the_cell() {
+        let mut e = engine();
+        for (r, v) in ["Hà Nội", "Huế", "hà nội", "12", "Đà Nẵng", "=\"x\""]
+            .iter()
+            .enumerate()
+        {
+            e.set_input(0, r as u32, 0, v).unwrap();
+        }
+        // A gap at rows 7–8, then another list.
+        e.set_input(0, 9, 0, "Cần Thơ").unwrap();
+        let v = run(
+            &mut e,
+            json!({ "cmd": "columnEntries", "sheet": 0, "row": 6, "col": 0 }),
+        );
+        // Text only, nearest first, distinct ignoring case (the nearest spelling); the
+        // other list is left out.
+        assert_eq!(v, json!(["Đà Nẵng", "hà nội", "Huế"]));
+        let v = run(
+            &mut e,
+            json!({ "cmd": "columnEntries", "sheet": 0, "row": 10, "col": 0 }),
+        );
+        assert_eq!(v, json!(["Cần Thơ"]));
+    }
+
+    #[test]
+    fn ctrl_enter_fills_every_selected_cell_in_one_step() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "5").unwrap();
+        e.set_input(0, 1, 0, "6").unwrap();
+        // "=A1*2" typed in B1 with B1:B2 and D1 selected.
+        run(
+            &mut e,
+            json!({ "cmd": "fillInputs", "sheet": 0, "row": 0, "col": 1, "text": "=A1*2",
+                "ranges": [rng(0, 1, 1, 1), rng(0, 3, 0, 3)] }),
+        );
+        assert_eq!(e.cell(0, 0, 1).unwrap().input, "=A1*2");
+        assert_eq!(e.cell(0, 1, 1).unwrap().input, "=A2*2");
+        assert_eq!(e.cell(0, 1, 1).unwrap().display, "12");
+        assert_eq!(e.cell(0, 0, 3).unwrap().input, "=C1*2");
+        // Plain values are copied as typed; one undo step takes all of them back.
+        run(
+            &mut e,
+            json!({ "cmd": "fillInputs", "sheet": 0, "row": 4, "col": 0, "text": "x",
+                "ranges": [rng(4, 0, 5, 1)] }),
+        );
+        assert_eq!(e.cell(0, 5, 1).unwrap().input, "x");
+        assert!(e.undo().unwrap());
+        assert_eq!(e.cell(0, 5, 1).unwrap().input, "");
+        assert_eq!(e.cell(0, 4, 0).unwrap().input, "");
+        assert_eq!(e.cell(0, 1, 1).unwrap().input, "=A2*2");
     }
 
     #[test]

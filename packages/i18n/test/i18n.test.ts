@@ -42,3 +42,20 @@ describe('i18n', () => {
     expect(formatNumber(1234567.5, 'en-US')).toBe('1,234,567.5');
   });
 });
+
+describe('cached lookups (typing latency)', () => {
+  it('follows the language and leaves interpolation to i18next', async () => {
+    const i = createI18n('vi-VN');
+    const t = i.getFixedT(null, 'translation');
+    expect(t('commands.edit.copy')).toBe('Sao chép');
+    expect(t('commands.edit.copy')).toBe('Sao chép');
+    expect(t('status.words', { count: 3 })).toBe('3 từ');
+    expect(t('status.words', { count: 5 })).toBe('5 từ');
+    expect(i.exists('commands.edit.copy')).toBe(true);
+    expect(i.exists('commands.no.such')).toBe(false);
+    await i.changeLanguage('en-US');
+    expect(i.getFixedT(null, 'translation')('commands.edit.copy')).toBe('Copy');
+    i.addResource('en-US', 'translation', 'commands.no.such', 'Later');
+    expect(i.exists('commands.no.such')).toBe(true);
+  });
+});

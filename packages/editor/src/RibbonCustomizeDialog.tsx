@@ -925,7 +925,8 @@ export function useRibbonCustomization<S>(o: RibbonCustomizationOptions<S>) {
   /** The toolbar's buttons, labelled from the ribbon `tabs`, then `extra` (bound scripts). */
   const quickAccess = (tabs: readonly RibbonTab[], extra: readonly QuickAccessItem[] = []) => {
     const onRibbon = ribbonItems(tabs);
-    const others = new Map(o.extraCommands().map((c) => [c.id, c.label]));
+    // Built only when the toolbar holds a command the ribbon does not show (every render).
+    let others: Map<string, string> | null = null;
     const items: QuickAccessItem[] = [];
     for (const id of qat) {
       const ri = onRibbon.get(id);
@@ -940,7 +941,10 @@ export function useRibbonCustomization<S>(o: RibbonCustomizationOptions<S>) {
       } else if (registry.has(id))
         items.push({
           id,
-          label: others.get(id) ?? i18nHas(t, `commands.${id}`) ?? id,
+          label:
+            (others ??= new Map(o.extraCommands().map((c) => [c.id, c.label]))).get(id) ??
+            i18nHas(t, `commands.${id}`) ??
+            id,
           shortcut: registry.shortcut(id),
           enabled: o.enabled(id),
           onSelect: () => opts.current.run(id),

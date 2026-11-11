@@ -39,6 +39,20 @@ fn linked() -> Vec<u8> {
         Cell::new(CellValue::Number(7.0)).with_formula("[2]S!A1"),
     );
     ws.set_cell(3, 0, Cell::new(CellValue::Number(3.0)).with_formula("1+2"));
+    // A dynamic array (cell metadata XLDAPR) and a legacy array formula next to the links.
+    for (at, text, range, dynamic) in [
+        ((0, 4), "SEQUENCE(2)", "E1:E2", true),
+        ((0, 5), "A1:A2*2", "F1:F3", false),
+    ] {
+        let mut c = Cell::new(CellValue::Number(1.0)).with_formula(text);
+        if let Some(f) = c.formula.as_mut() {
+            f.kind = bo_model::sheet::FormulaKind::Array {
+                range: range.into(),
+            };
+            f.dynamic = dynamic;
+        }
+        ws.set_cell(at.0, at.1, c);
+    }
     wb.sheets.push(ws);
     wb.defined_names.push(DefinedName {
         name: "Giá_gốc".into(),
@@ -104,6 +118,10 @@ fn linked() -> Vec<u8> {
 
 /// The source workbook with new prices (B2 = 120, B3 = 300) and a sheet the link lacks.
 fn source() -> String {
+    base64::engine::general_purpose::STANDARD.encode(source_bytes())
+}
+
+fn source_bytes() -> Vec<u8> {
     let mut wb = Workbook::new();
     wb.sheets.clear();
     let mut ws = Worksheet::new("Bảng giá");
@@ -111,7 +129,7 @@ fn source() -> String {
     ws.set_a1("B3", CellValue::Number(300.0));
     ws.set_a1("Z99", CellValue::Number(1.0));
     wb.sheets.push(ws);
-    base64::engine::general_purpose::STANDARD.encode(bo_xlsx::write_xlsx(&wb).unwrap())
+    bo_xlsx::write_xlsx(&wb).unwrap()
 }
 
 fn value(e: &SheetEngine, a1: &str) -> CellValue {
@@ -163,6 +181,18 @@ fn saved_link_values_are_read_and_used() {
     e.set_inputs(0, &[(4, 0, "='[1]Bảng giá'!B3+1".into())])
         .unwrap();
     assert_eq!(value(&e, "A5"), CellValue::Number(251.0));
+    // The formula bar names the linked file; typed back that way it is the same link.
+    assert_eq!(e.cell(0, 0, 0).unwrap().input, "='[Giá.xlsx]Bảng giá'!B2*2");
+    e.set_inputs(
+        0,
+        &[(5, 0, "='[giá.xlsx]Bảng giá'!B2+'[Kho.xlsx]S'!A1".into())],
+    )
+    .unwrap();
+    assert_eq!(value(&e, "A6"), CellValue::Number(107.0));
+    assert_eq!(
+        formula(&e, "A6").as_deref(),
+        Some("'[1]Bảng giá'!B2+'[2]S'!A1")
+    );
     // Saved untouched, the link part is the same bytes.
     let out = e.save("xlsx", 0).unwrap();
     let mut again = SheetEngine::new();
@@ -248,10 +278,37 @@ fn break_link_keeps_values_and_renumbers() {
     assert_eq!(formula(&e, "A1").as_deref(), Some("'[1]Bảng giá'!B2*2"));
 }
 
-/// Writes the linked workbook for the OpenXML validator (`BO_WRITE_LINKED=<path>`).
+/// The corpus pair `tests/corpus/sheet/external-links.xlsx` (linking workbook) and
+/// `external-links-source.xlsx` (its source with new prices), regenerated with
+/// `BO_WRITE_CORPUS=1`; the committed linking workbook opens with its saved link values.
 #[test]
-fn write_linked_sample() {
-    if let Ok(path) = std::env::var("BO_WRITE_LINKED") {
-        std::fs::write(path, linked()).unwrap();
+fn corpus_files() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/sheet");
+    let files = [
+        ("external-links.xlsx", linked()),
+        ("external-links-source.xlsx", source_bytes()),
+    ];
+    for (name, bytes) in &files {
+        if std::env::var_os("BO_WRITE_CORPUS").is_some() {
+            std::fs::write(dir.join(name), bytes).unwrap();
+        }
     }
+    let Ok(bytes) = std::fs::read(dir.join("external-links.xlsx")) else {
+        return;
+    };
+    let mut e = SheetEngine::new();
+    e.open(&bytes, "external-links.xlsx").unwrap();
+    exec(&mut e, &json!({"cmd": "calculate"}));
+    assert_eq!(value(&e, "A1"), CellValue::Number(200.0));
+    assert_eq!(value(&e, "A3"), CellValue::Number(7.0));
+    // E1:E2 spills 1, 2; F1:F3 = A1:A2*2 = 400, 700, #N/A.
+    assert_eq!(value(&e, "E2"), CellValue::Number(2.0));
+    assert_eq!(value(&e, "F2"), CellValue::Number(700.0));
+    assert_eq!(
+        value(&e, "F3"),
+        CellValue::Error(bo_model::sheet::CellError::NA)
+    );
+    let ws = &e.workbook().unwrap().sheets[0];
+    assert!(ws.cell_a1("E1").unwrap().formula.as_ref().unwrap().dynamic);
+    assert!(!ws.cell_a1("F1").unwrap().formula.as_ref().unwrap().dynamic);
 }

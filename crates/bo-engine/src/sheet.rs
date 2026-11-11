@@ -1589,14 +1589,16 @@ impl SheetEngine {
                 .unwrap_or_default();
             return Ok(CellDetails {
                 address,
-                input: format!("{{={text}}}"),
+                input: format!("{{{}}}", links_cmd::display_links(wb, &format!("={text}"))),
                 display: format_cell(wb, cell, &self.locale).text,
                 array: Some(range.to_string()),
             });
         }
         let fmt_id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
         let input = match (&cell.formula, &cell.value) {
-            (Some(f), _) if !f.text.is_empty() => format!("={}", f.text),
+            (Some(f), _) if !f.text.is_empty() => {
+                links_cmd::display_links(wb, &format!("={}", f.text))
+            }
             (_, CellValue::Number(n)) => {
                 date_input(*n, &wb.styles, fmt_id, &self.locale, wb.date1904)
                     .unwrap_or_else(|| number_input(*n, &self.locale))
@@ -1652,6 +1654,7 @@ impl SheetEngine {
             .filter(|f| !f.trim().is_empty())
             .ok_or_else(|| EngineError::BadCommand("an array formula starts with =".into()))?;
         let text = bo_formula::localized_input(f, locale.decimal).unwrap_or_else(|| f.to_owned());
+        let text = links_cmd::input_links(self.wb()?, &text);
         bo_formula::parse(&text).map_err(|e| EngineError::BadCommand(e.to_string()))?;
         let ws = self.sheet(sheet)?;
         let range = if range.rows() * range.cols() == 1 {
@@ -1739,6 +1742,25 @@ impl SheetEngine {
         validate: bool,
     ) -> Result<Option<bo_sheet::validation::Rejection>> {
         self.writable()?;
+        // Linked workbooks typed by file name (`'[Prices.xlsx]P'!A1`) become link numbers.
+        let mapped: Vec<(u32, u32, String)>;
+        let cells = match self.wb.as_ref() {
+            Some(wb) if !wb.external_links.is_empty() => {
+                mapped = cells
+                    .iter()
+                    .map(|(r, c, t)| {
+                        let t = if t.starts_with('=') {
+                            links_cmd::input_links(wb, t)
+                        } else {
+                            t.clone()
+                        };
+                        (*r, *c, t)
+                    })
+                    .collect();
+                &mapped[..]
+            }
+            _ => cells,
+        };
         let locale = self.locale;
         let now = self.live.now();
         let mut notice = None;

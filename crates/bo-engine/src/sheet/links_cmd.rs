@@ -225,6 +225,77 @@ fn constant_text(v: &bo_formula::Value) -> String {
     }
 }
 
+/// Formula text as shown: link numbers replaced by the linked file names
+/// (`'[1]Prices'!A1` → `'[Prices.xlsx]Prices'!A1`), the way a closed source is shown.
+pub(super) fn display_links(wb: &Workbook, text: &str) -> String {
+    if wb.external_links.is_empty() {
+        return text.to_owned();
+    }
+    rename_sheets(text, &|s: &str| {
+        let named = link_of(s).and_then(|(n, sheet)| {
+            let l = wb
+                .external_links
+                .get(n.checked_sub(1)?)
+                .filter(|l| !l.part.is_empty())?;
+            Some(format!("[{}]{sheet}", source_name(&l.target)))
+        });
+        named.unwrap_or_else(|| s.to_owned())
+    })
+}
+
+/// Formula text as typed back: a linked file name in brackets becomes its link number
+/// (the inverse of [`display_links`]); names of files the workbook does not link stay.
+pub(super) fn input_links(wb: &Workbook, text: &str) -> String {
+    if wb.external_links.is_empty() {
+        return text.to_owned();
+    }
+    rename_sheets(text, &|s: &str| {
+        let numbered = s.strip_prefix('[').and_then(|rest| {
+            let (file, sheet) = rest.split_once(']')?;
+            let lower = file.to_lowercase();
+            let i = wb.external_links.iter().position(|l| {
+                !l.part.is_empty() && source_name(&l.target).to_lowercase() == lower
+            })?;
+            Some(format!("[{}]{sheet}", i + 1))
+        });
+        numbered.unwrap_or_else(|| s.to_owned())
+    })
+}
+
+/// `text` (with or without `=`) with every sheet qualifier passed through `fix`.
+fn rename_sheets(text: &str, fix: &dyn Fn(&str) -> String) -> String {
+    if !text.contains('[') {
+        return text.to_owned();
+    }
+    let (eq, body) = match text.strip_prefix('=') {
+        Some(b) => ("=", b),
+        None => ("", text),
+    };
+    let Ok(expr) = parse(body) else {
+        return text.to_owned();
+    };
+    let fix_ref = |s: &SheetRef| SheetRef {
+        first: fix(&s.first),
+        last: s.last.as_deref().map(fix),
+    };
+    let out = expr.map(&mut |e| match e {
+        Expr::Ref(mut r) => {
+            r.sheet = r.sheet.as_ref().map(fix_ref);
+            Expr::Ref(r)
+        }
+        Expr::Name { sheet, name } => Expr::Name {
+            sheet: sheet.as_ref().map(fix_ref),
+            name,
+        },
+        e => e,
+    });
+    if out == expr {
+        text.to_owned()
+    } else {
+        format!("{eq}{}", format(&out))
+    }
+}
+
 impl SheetEngine {
     /// Runs an external link command.
     pub(super) fn link_command(&mut self, cmd: LinkCommand) -> Result<Value> {

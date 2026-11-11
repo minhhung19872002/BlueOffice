@@ -73,6 +73,23 @@ fn render_group(
     bo_raster::render_page_png_with(&page, fonts, 2.0, &images).ok()
 }
 
+/// The source package of the document, opened when the first file diagram needs it.
+#[derive(Default)]
+struct SourcePackage {
+    tried: bool,
+    pkg: Option<bo_opc::Package>,
+}
+
+impl SourcePackage {
+    fn get(&mut self, doc: &Document) -> Option<&bo_opc::Package> {
+        if !self.tried {
+            self.tried = true;
+            self.pkg = bo_docx::diagram::source_package(doc);
+        }
+        self.pkg.as_ref()
+    }
+}
+
 /// Draw the diagram of frame `img` (its media part `bytes`) with what its other parts give: the
 /// pictures of its nodes, and — for a data model BlueOffice lays out — its layout definition and
 /// its own quick style and colours.
@@ -81,19 +98,12 @@ fn render_frame(
     img: &bo_model::Image,
     bytes: &[u8],
     theme: Option<&bo_model::slide::Theme>,
-    pkg: &mut Option<Option<bo_opc::Package>>,
+    pkg: &mut SourcePackage,
     fonts: &mut FontManager,
 ) -> Option<Vec<u8>> {
     let size = (img.width.0, img.height.0);
     // A file diagram's other parts are in the source package: opened once for all diagrams.
-    let pkg = img
-        .src
-        .is_some()
-        .then(|| {
-            pkg.get_or_insert_with(|| bo_docx::diagram::source_package(doc))
-                .as_ref()
-        })
-        .flatten();
+    let pkg = img.src.is_some().then(|| pkg.get(doc)).flatten();
     let Some(src) = bo_docx::diagram::diagram_source_in(doc, img, pkg) else {
         return render_png(bytes, size.0, size.1, fonts);
     };
@@ -237,7 +247,7 @@ impl SmartArtImages {
         // once, when a chart or diagram is drawn.
         let mut theme: Option<Option<bo_model::slide::Theme>> = None;
         // The source package, opened when the first file diagram is drawn.
-        let mut pkg: Option<Option<bo_opc::Package>> = None;
+        let mut pkg = SourcePackage::default();
         // The frame of each diagram part (the first that shows it).
         let mut frames: BTreeMap<&str, &bo_model::Image> = BTreeMap::new();
         for img in crate::media::pictures(doc) {

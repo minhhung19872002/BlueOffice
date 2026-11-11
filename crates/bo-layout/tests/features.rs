@@ -917,7 +917,7 @@ fn display_equation_takes_its_own_aligned_line() {
         assert_eq!(lines.len(), 3, "{jc:?}: text / equation / text");
         let eq = &lines[1];
         // The equation's own width: its start and end carets (the trailing space is not centred).
-        let (x0, x1) = (eq.carets[0].1, eq.carets[1].1);
+        let (x0, x1) = (eq.carets.first().unwrap().1, eq.carets.get(1).unwrap().1);
         assert!(x1 > x0);
         let expected = match want {
             "left" => left,
@@ -926,8 +926,8 @@ fn display_equation_takes_its_own_aligned_line() {
         };
         assert!((x0 - expected).abs() < 0.5, "{jc:?}: x {x0} vs {expected}");
         // The texts around it stay left aligned.
-        assert!((lines[0].carets[0].1 - left).abs() < 0.5);
-        assert!((lines[2].carets[0].1 - left).abs() < 0.5);
+        assert!((lines[0].carets.first().unwrap().1 - left).abs() < 0.5);
+        assert!((lines[2].carets.first().unwrap().1 - left).abs() < 0.5);
     }
     // An inline equation stays in the text line.
     let l = run(&equation_para(None, false));

@@ -39,6 +39,13 @@ trả lỗi chứ không panic — `src/bytes.rs`).
     `.docm`) — `crates/bo-cli/src/convert.rs` `document_to_docx`, `bo-cli/src/main.rs`.
   - `.xls`/`.xlsb` → BlueSheet (`bo-engine/src/sheet.rs` `from_legacy`), `bo-cli convert` sang xlsx/csv/ods/pdf.
   - `.ppt` → mô hình chữ ODF (`deck_to_presentation`), chỉ `bo-cli convert --to odp`.
+  - **Macro khi mở trong ứng dụng** (BlueDoc / BlueSheet / BlueSlide): tệp cũ có dự án VBA được lưu mặc định thành
+    `.docm` / `.xlsm` / `.pptm`. `vba::legacy_project_bin` dựng `vbaProject.bin` từ storage dự án ([MS-OVBA]: storage
+    `Macros` của .doc, `_VBA_PROJECT_CUR` của .xls, storage trong bản ghi `ExternalOleObjectStg` của .ppt có cấu trúc như
+    gốc của `vbaProject.bin` — chép nguyên các stream/storage sang compound file mới); luồng chữ ký
+    `DigitalSignature*` bị bỏ (không còn hợp lệ, `DocInfo.vbaSignatureDropped` → cảnh báo trên thanh macro).
+    `vba::attach_project` thêm part, quan hệ `vbaProject` ([MS-OFFMACRO2]) và content type. Chọn `.docx`/`.xlsx` thì bỏ
+    macro (hộp thoại Lưu thành cảnh báo trước).
 
 ## 2. Điểm mơ hồ & cách đã chọn
 

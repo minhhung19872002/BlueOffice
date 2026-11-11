@@ -130,8 +130,13 @@ pub struct WorkbookInfo {
     /// the conversion is the first undo step.
     pub legacy_converted: usize,
     /// Package variant (`xlsx`, `xlsm`, `xltx`, `xltm`) the next `.xlsx` save produces
-    /// — the opened file's unless `saveFormat` changed it (CORE-FMT-001).
+    /// — the opened file's unless `saveFormat` changed it (CORE-FMT-001). A legacy
+    /// `.xls` with a VBA project saves as `xlsm`.
     pub variant: Option<String>,
+    /// The VBA project of the opened `.xls` was signed: the signature cannot be carried
+    /// into the new file type and is left out when saving.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub vba_signature_dropped: bool,
 }
 
 /// Summary of one sheet (tab bar, navigation and frozen panes).
@@ -320,6 +325,9 @@ pub struct SheetEngine {
     file_variant: Option<crate::variant::Variant>,
     /// Variant the next saves produce when it differs (`saveFormat`).
     save_variant: Option<crate::variant::Variant>,
+    /// VBA project of the opened `.xls` rebuilt as a `vbaProject.bin` (saved into
+    /// macro-enabled variants).
+    legacy_vba: Option<bo_binary::vba::LegacyProject>,
     /// Cells the last legacy-font conversion changed.
     legacy_converted: usize,
     /// SmartArt drawing fallbacks of the open workbook, drawn on load and when a diagram changes.
@@ -785,6 +793,7 @@ impl SheetEngine {
             vba: None,
             file_variant: None,
             save_variant: None,
+            legacy_vba: None,
             legacy_converted: 0,
             drawings: Arc::default(),
             drawings_key: 0,
@@ -890,6 +899,19 @@ impl SheetEngine {
         self.macros = bo_binary::has_macros(bytes);
         self.vba = crate::vba_view::of_open_file(self.macros, bytes);
         self.file_variant = crate::variant::detect(bytes).or(self.file_variant);
+        self.legacy_vba = None;
+        // A legacy `.xls` with a VBA project: the project is kept (rebuilt as a
+        // `vbaProject.bin`) and the workbook saves as `.xlsm` by default.
+        if self.macros && bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
+            if let Ok(Some(p)) = bo_binary::vba::legacy_project_bin(bytes) {
+                self.legacy_vba = Some(p);
+                self.file_variant = Some(crate::variant::Variant::Xlsm);
+                self.save_variant = None;
+                if !self.name.is_empty() {
+                    self.name = crate::with_ext(&self.name, "xlsm");
+                }
+            }
+        }
         self.open_security(bytes);
         self.props = crate::props::PropsState::read(bytes);
         self.save_password = if encrypted {
@@ -983,6 +1005,7 @@ impl SheetEngine {
         self.macros = false;
         self.vba = None;
         self.file_variant = Some(crate::variant::Variant::Xlsx);
+        self.legacy_vba = None;
         self.save_variant = None;
         // One-cell / absolute chart anchors (§20.5.2.24, §20.5.2.1) → cells.
         for si in 0..wb.sheets.len() {
@@ -1073,6 +1096,10 @@ impl SheetEngine {
                 .save_variant
                 .or(self.file_variant)
                 .map(|v| v.ext().to_owned()),
+            vba_signature_dropped: self
+                .legacy_vba
+                .as_ref()
+                .is_some_and(|p| p.signature_dropped),
         })
     }
 
@@ -1735,11 +1762,23 @@ impl SheetEngine {
             "xlsx" | "xml" => {
                 let bytes =
                     bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
-                let bytes = match self.save_variant {
-                    Some(v) if Some(v) != self.file_variant => {
+                let target = self.save_variant.or(self.file_variant);
+                let bytes = match (&self.legacy_vba, target) {
+                    // A project from a legacy file: added to a macro-enabled target.
+                    (Some(p), Some(v)) => {
+                        let bytes = if v.macros() {
+                            crate::variant::attach_vba(&bytes, &p.bin)?
+                        } else {
+                            bytes
+                        };
                         crate::variant::convert(&bytes, v)?.bytes
                     }
-                    _ => bytes,
+                    _ => match self.save_variant {
+                        Some(v) if Some(v) != self.file_variant => {
+                            crate::variant::convert(&bytes, v)?.bytes
+                        }
+                        _ => bytes,
+                    },
                 };
                 let bytes = self.props.apply(bytes)?;
                 let bytes = crate::inspect::package::scrub(&bytes, &self.scrub)?;

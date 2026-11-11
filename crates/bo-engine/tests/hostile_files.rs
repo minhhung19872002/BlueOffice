@@ -38,11 +38,18 @@ use std::time::{Duration, Instant};
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
+/// The tests of this file run one at a time: the allocator counts every thread, so the
+/// other test's allocations would show in the measured heap.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Per-file budget for open + render + save + reopen in an unoptimised build on a
 /// loaded machine; a hang or an exponential expansion shows as minutes.
 const BUDGET: Duration = Duration::from_secs(60);
 /// Heap in use above the level before the case (sampled every millisecond).
 const MEMORY_CAP: i64 = 1 << 30;
+/// Heap in use while opening (parsing, laying out every page) a document made of one
+/// over-long word, per character of the word.
+const LONG_WORD_BYTES_PER_CHAR: f64 = 50.0;
 
 fn in_use() -> i64 {
     let s = GLOBAL.stats();
@@ -276,6 +283,9 @@ fn file_url(p: &Path) -> String {
 
 #[test]
 fn hostile_files_open_safely() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     // The watchers: a sentinel file and a listener for every http:// target.
     let dir = std::env::temp_dir().join(format!("bo-hostile-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -352,6 +362,52 @@ fn hostile_files_open_safely() {
             failures.push(format!("{name}: {:.0} MB of heap", mb(peak)));
         }
         failures.extend(out.problems.into_iter().map(|p| format!("{name}: {p}")));
+    }
+    // Over-long words: laying out a run without break opportunities stays linear and
+    // small in memory (chunks with emergency break opportunities).
+    for (label, chars) in [("1MiB", 1usize << 20), ("8MiB", 8 << 20)] {
+        let name = format!("long-word-{label}.docx");
+        if !(only.is_empty() || name.contains(only.as_str())) {
+            continue;
+        }
+        let bytes = bo_hostile::long_word_docx(chars).expect("sample");
+        // The fonts are loaded before measuring: only the document counts.
+        let mut e = Engine::with_bundled_fonts();
+        let (out, dt, peak) = measured(move || {
+            let info = e
+                .open(&bytes, "long-word.docx")
+                .map_err(|e| e.to_string())?;
+            let last = info.page_count.saturating_sub(1);
+            let text: usize = [0, last]
+                .iter()
+                .map(|&p| e.page_json(p).map_or(0, |j| j.len()))
+                .sum();
+            let chars = e.document().map_or(0, |d| d.plain_text().trim_end().len());
+            Ok::<_, String>((info.page_count, text, chars))
+        });
+        let per_char = peak as f64 / chars as f64;
+        println!(
+            "{name:<32} {chars:>9} {:>7.1}s {:>9.1}  {per_char:.1} bytes per character",
+            dt.as_secs_f64(),
+            mb(peak)
+        );
+        match out {
+            Ok((pages, json, kept)) => {
+                if pages < 2 || json == 0 {
+                    failures.push(format!("{name}: {pages} pages laid out"));
+                }
+                if kept != chars {
+                    failures.push(format!("{name}: {kept} of {chars} characters kept"));
+                }
+            }
+            Err(err) => failures.push(format!("{name}: {err}")),
+        }
+        if per_char >= LONG_WORD_BYTES_PER_CHAR {
+            failures.push(format!("{name}: {per_char:.1} bytes per character"));
+        }
+        if dt > BUDGET {
+            failures.push(format!("{name}: took {dt:?}"));
+        }
     }
     // Give a late connection the chance to show.
     std::thread::sleep(Duration::from_millis(50));
@@ -431,6 +487,9 @@ fn production_code(path: &Path, src: &str) -> String {
 
 #[test]
 fn engine_crates_cannot_reach_the_network_or_run_programs() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut todo = vec!["bo-engine".to_owned()];
     let mut seen = Vec::new();

@@ -118,7 +118,7 @@ pub fn body_lines(layout: &LayoutDocument) -> Vec<(usize, &Line)> {
 pub fn caret_x(line: &Line, offset: usize) -> f32 {
     let off = offset as u32;
     let mut x = line.carets.first().map_or(0.0, |c| c.1);
-    for &(o, cx) in &line.carets {
+    for (o, cx) in line.carets.iter() {
         if o <= off {
             x = cx;
         } else {
@@ -258,7 +258,7 @@ pub fn selection_rects(layout: &LayoutDocument, sel: Selection) -> Vec<SelRect> 
 /// Nearest caret stop to `x` in a line.
 fn offset_at(l: &Line, x: f32) -> usize {
     let mut best = (l.start, f32::INFINITY);
-    for &(o, cx) in &l.carets {
+    for (o, cx) in l.carets.iter() {
         let d = (cx - x).abs();
         if d < best.1 {
             best = (o, d);
@@ -393,7 +393,8 @@ mod tests {
             end,
             carets: (start..=end)
                 .map(|o| (o, x0 + (o - start) as f32 * 5.0))
-                .collect(),
+                .collect::<Vec<_>>()
+                .into(),
             rotation: None,
         }
     }

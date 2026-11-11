@@ -17,12 +17,13 @@ BlueDoc có trình kiểm tra trợ năng riêng cho tài liệu (Xem lại › 
 | `tests/e2e/specs/a11y.spec.ts` | Bộ quét: **lỗi nào cũng làm test thất bại**; danh sách loại trừ tường minh có lý do |
 | `tests/e2e/specs/a11y-keyboard.spec.ts` | Đi qua chỉ bằng bàn phím cho cả ba ứng dụng |
 | Vitest: `packages/ui/test/taskPanes.test.tsx` (F6), `packages/ui/test/dialog.test.tsx` (trả focus), `packages/canvas-host/test/ime.test.ts` (ô nhập có tên) | Hồi quy cho các sửa đổi |
+| `tests/e2e/specs/a11y-mirror.spec.ts` + Vitest `canvas-host/test/a11y.test.ts`, `sheet-editor/test/sheet-a11y.test.tsx`, `slide-editor/test/slide-a11y.test.tsx` | Lớp văn bản cho trình đọc màn hình (§1.1): cấu trúc trong cây trợ năng (`toMatchAriaSnapshot` / `ariaSnapshot`), thông báo `aria-live`, axe trên chính lớp này |
 
 Chạy lại:
 
 ```bash
 pnpm --filter @blueoffice/web build
-cd tests/e2e && E2E_PORT=4173 pnpm exec playwright test a11y.spec.ts a11y-keyboard.spec.ts --workers=1
+cd tests/e2e && E2E_PORT=4173 pnpm exec playwright test a11y.spec.ts a11y-keyboard.spec.ts a11y-mirror.spec.ts --workers=1
 # A11Y_OUT=<tệp> ghi thêm danh sách vi phạm ra tệp (để soạn báo cáo)
 ```
 
@@ -39,8 +40,31 @@ Chủ đề: `packages/ui/src/theme.ts` chọn chủ đề theo hệ thống —
 Lớp tiếp cận hiện có của tài liệu (đã kiểm tra trong mã): vùng cuộn `role="document"`
 (`packages/canvas-host/src/DocumentView.ts`), mỗi trang là `role="group"` tên "Trang n", ảnh / thanh cộng tác là
 `role="img"` có nhãn, bàn phím và IME đi vào một `<textarea>` có tên "Nội dung tài liệu" (`packages/canvas-host/src/ime.ts`).
-BlueSheet: ô đang nhập có nhãn "Ô đang nhập", thanh công thức có nhãn. **Chưa có** bản sao văn bản (mirror) của
-nội dung trang cho trình đọc màn hình — xem §5.
+BlueSheet: ô đang nhập có nhãn "Ô đang nhập", thanh công thức có nhãn. Nội dung (chữ trong canvas) đi qua lớp văn bản
+ẩn của §1.1.
+
+### 1.1 Lớp văn bản cho trình đọc màn hình (WCAG 1.3.1, 4.1.2)
+
+Canvas vẫn bị loại khỏi axe (là điểm ảnh), nhưng nội dung của nó có bản sao DOM **ẩn về thị giác** (`clip-path`, không
+`display:none` — vẫn nằm trong cây trợ năng, chế độ duyệt của NVDA/Narrator đọc được) và **được axe quét**:
+
+- **BlueDoc** (`packages/canvas-host/src/a11y.ts`, `DocMirror`): vùng `region` "Văn bản trang a–b" chứa các đoạn của các
+  trang đang thấy ± 1 trang và đoạn có con trỏ (ảo hoá: tài liệu lớn chỉ có vài trang trong DOM). Dữ liệu từ lệnh engine
+  `speechTree` (`crates/bo-engine/src/speech.rs`): văn bản chỉ mục, cấp đề mục (`outlineLvl` qua chuỗi kiểu) → `h1`…`h6`
+  (cấp 7–9 `role=heading aria-level`), mục danh sách (`numPr`) → `ul/li aria-level`, ô bảng (bảng ngoài cùng) → `table/tr/td`,
+  hàng tiêu đề lặp (`tblHeader`) → `th scope=col`, siêu liên kết → `a` (chỉ http/https/mailto/#), ảnh → `role=img` với văn
+  bản thay thế (`docPr@descr`) hoặc "Ảnh không có văn bản thay thế", phương trình / đối tượng có tên. Đoạn có con trỏ có
+  `aria-current="true"` và là `aria-describedby` của ô nhập "Nội dung tài liệu". Vùng `aria-live="polite"` đọc: ký tự (←/→),
+  từ (Ctrl+←/→), dòng (↑/↓/Home/End/PageUp/PageDown, khoảng dòng từ lệnh `speechLine`), chữ vừa gõ, "Đã xoá …".
+- **BlueSheet** (`packages/sheet-editor/src/SheetA11y.tsx`): canvas `aria-hidden`; lưới ẩn `role=grid` "Lưới bảng tính"
+  với các hàng/ô đang thấy (tối đa 60 × 30), `aria-rowindex`/`aria-colindex`, tiêu đề cột (A, B, …) và hàng (1, 2, …),
+  ô hiện hành `aria-selected`. Vùng `aria-live` đọc ô hiện hành khi di chuyển / đổi: địa chỉ, giá trị hiển thị, công thức,
+  tóm tắt định dạng (đậm, nghiêng, gạch chân, gạch ngang, định dạng số khác General, ô gộp).
+- **BlueSlide** (`packages/slide-editor/src/SlideA11y.tsx`, lệnh engine `slideOutline` —
+  `crates/bo-engine/src/slide_edit/a11y.rs`): hình theo thứ tự đọc (tiêu đề trước, rồi trên → dưới, trái → phải, hình trong
+  nhóm tại chỗ, bỏ hình ẩn). Mỗi hình thu nhỏ có tên "Slide n: tiêu đề" và mô tả là các hình còn lại; sân khấu có vùng
+  ẩn "Nội dung slide n" (tiêu đề `h2`, chữ `p`, ảnh / biểu đồ / SmartArt / bảng / đồ hoạ `role=img` với văn bản thay thế hoặc
+  tên). Vùng `aria-live` đọc hình được chọn ("Đã chọn …").
 
 ## 2. Các trang / trạng thái đã quét
 
@@ -121,21 +145,30 @@ Sau khi sửa: 3/3 kịch bản đạt.
 `packages/ui/src/{Dialog.tsx,TaskPanes.tsx,Ribbon.tsx,StatusBar.tsx,Backstage.module.css,TitleBar.module.css}`,
 khoá i18n mới `a11y.*`, `slideEditor.moveSlideUp/Down`, `sheetEditor.moveSheetLeft/Right` (vi-VN + en-US).
 
+Lớp văn bản (§1.1): `packages/canvas-host/src/{a11y.ts,DocumentView.ts}`, `packages/editor/src/{controller.ts,BlueEditor.tsx}`,
+`packages/sheet-editor/src/{SheetA11y.tsx,BlueSheetEditor.tsx}`, `packages/slide-editor/src/{SlideA11y.tsx,BlueSlideEditor.tsx}`,
+`packages/platform/src/{speech.ts,types.ts}`, `crates/bo-engine/src/{speech.rs,slide_edit/a11y.rs}`.
+Hạn chế: bảng lồng nhau được trình bày theo bảng ngoài cùng (đoạn của bảng con nằm trong ô của bảng ngoài); nhãn số /
+dấu đầu dòng của danh sách không được đọc (chỉ cấp); chú thích cuối trang, đầu/chân trang, hộp văn bản chưa có trong lớp
+BlueDoc; chữ trong SmartArt / bảng của slide đọc qua văn bản thay thế hoặc tên, không theo từng ô.
+
 ## 5. Cần người kiểm tra với trình đọc màn hình (chưa làm được tự động)
 
 Thực hiện trên Windows 11 với **NVDA 2024+** (Chrome, Edge) và **Narrator** (Edge, ứng dụng desktop WebView2), trên
 macOS với **VoiceOver** (Safari, Chrome). Ghi lại phát âm thực tế cho từng bước:
 
-1. **Đọc nội dung tài liệu BlueDoc.** Mở `tests/corpus/doc/phase1-sample.docx`, đưa con trỏ vào văn bản, dùng phím
-   mũi tên / Ctrl+mũi tên: trình đọc có đọc chữ, từ, dòng không? Hiện chỉ có ô nhập "Nội dung tài liệu" (không chứa văn
-   bản trang) → dự kiến **không đọc được nội dung** — cần xác nhận và quyết định thiết kế lớp mirror văn bản
-   (đề xuất: `aria-live` đọc đoạn tại con trỏ, hoặc cây DOM ẩn theo trang).
-2. **Chế độ duyệt (NVDA Browse / VoiceOver VO+mũi tên)** trên trang: các trang "Trang n", ảnh có nhãn, chú thích có
-   được liệt kê không; có bẫy focus nào không.
-3. **BlueSheet**: di chuyển ô bằng mũi tên — trình đọc có đọc địa chỉ ô và giá trị không (ô đang nhập "Ô đang nhập" +
-   hộp Tên)? Đọc công thức ở thanh công thức?
-4. **BlueSlide**: Tab qua các hình trên slide, ngăn Vùng chọn — tên hình, thứ tự, trạng thái chọn (`aria-selected`)
-   được đọc đúng không; nhập chữ vào hình.
+1. **Đọc nội dung tài liệu BlueDoc** (lớp §1.1, đã có test tự động cho cấu trúc và nội dung thông báo). Còn phải nghe
+   thật: mở `tests/corpus/doc/styles-01-headings.docx`, `tables-01-header-rows-long.docx`, `images-01-inline.docx` —
+   phím mũi tên / Ctrl+mũi tên / ↑↓ đọc ký tự, từ, dòng có đúng lúc không, có bị đọc đôi với tiếng vang phím của trình
+   đọc (NVDA "Speak typed characters") không; chế độ focus đọc `aria-describedby` của ô nhập (đoạn hiện tại) thế nào.
+2. **Chế độ duyệt (NVDA Browse / VoiceOver VO+mũi tên)**: vùng "Văn bản trang a–b" — đi theo đề mục (H), bảng (T), liên
+   kết (K), ảnh (G); số hàng/cột của bảng; khi cuộn trang, nội dung vùng thay đổi (ảo hoá) có làm trình đọc nhảy vị trí
+   không; có bẫy focus nào không.
+3. **BlueSheet**: di chuyển ô bằng mũi tên — thông báo "A2: 42, công thức =A1+1, đậm" có được đọc (vùng `aria-live`
+   polite) mà không bị cắt bởi việc đọc nhãn "Ô đang nhập"; chế độ duyệt trong lưới `role=grid` (Ctrl+Alt+mũi tên của
+   NVDA) đọc tiêu đề hàng/cột.
+4. **BlueSlide**: hình thu nhỏ đọc "Slide n: tiêu đề" và mô tả; vùng "Nội dung slide n" theo thứ tự đọc; thông báo
+   "Đã chọn …" khi chọn hình bằng chuột / Ctrl+A / ngăn Vùng chọn; nhập chữ vào hình.
 5. **Ribbon**: tên thẻ, trạng thái "đã nhấn" của nút bật/tắt (`aria-pressed`), nút mở bảng chọn (`aria-haspopup`,
    `aria-expanded`), KeyTips (Alt) — có được thông báo không.
 6. **Hộp thoại**: tiêu đề được đọc khi mở; focus đầu tiên hợp lý; Esc đóng và trình đọc thông báo vị trí trở về.

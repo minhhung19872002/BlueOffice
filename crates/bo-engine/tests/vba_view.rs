@@ -185,6 +185,128 @@ fn binary_documents_show_their_macro_source() {
     assert_sample(&v, "ThisDocument", "Selection.TypeText \"Xin chào\"");
 }
 
+/// Content type of a package's main part.
+fn main_content_type(bytes: &[u8]) -> String {
+    let pkg = Package::read(bytes, &Limits::default()).unwrap();
+    let main = pkg
+        .related_part("/", bo_opc::REL_OFFICE_DOCUMENT)
+        .unwrap()
+        .unwrap();
+    pkg.content_types().unwrap().get(&main).unwrap().to_owned()
+}
+
+/// The module sources of a file's VBA project, read back with the VBA reader.
+fn sources(bytes: &[u8]) -> Vec<(String, String)> {
+    bo_binary::vba::read_vba_from_file(bytes)
+        .unwrap()
+        .unwrap()
+        .modules
+        .into_iter()
+        .map(|m| (m.name, m.source))
+        .collect()
+}
+
+#[test]
+fn legacy_documents_with_macros_save_as_macro_enabled_files() {
+    let project = part(&corpus("macro/macro-vba.docm"), "/word/vbaProject.bin");
+    let want = sources(&project);
+    assert_eq!(want.len(), 2);
+
+    // .doc → .docm by default, the module sources carried over.
+    let doc = graft(&corpus("doc/binary-doc-01-sample.doc"), "/Macros", &project);
+    let mut e = Engine::with_bundled_fonts();
+    let info = e.open(&doc, "Báo cáo.doc").unwrap();
+    assert!(info.macros);
+    assert_eq!(info.variant.as_deref(), Some("docm"));
+    assert_eq!(info.name, "Báo cáo.docm");
+    assert!(!info.vba_signature_dropped);
+    let saved = e.save_docx().unwrap();
+    assert_eq!(
+        main_content_type(&saved),
+        "application/vnd.ms-word.document.macroEnabled.main+xml"
+    );
+    assert_eq!(
+        Package::read(&saved, &Limits::default())
+            .unwrap()
+            .content_types()
+            .unwrap()
+            .get("/word/vbaProject.bin"),
+        Some(bo_binary::vba::CT_VBA_PROJECT)
+    );
+    assert_eq!(sources(&saved), want);
+    let mut again = Engine::with_bundled_fonts();
+    let info = again.open(&saved, "Báo cáo.docm").unwrap();
+    assert!(info.macros);
+    assert_eq!(info.variant.as_deref(), Some("docm"));
+    // The user picks .docx explicitly: the macros are left out.
+    e.set_save_format("docx").unwrap();
+    assert_eq!(e.info().unwrap().name, "Báo cáo.docx");
+    let plain = e.save_docx().unwrap();
+    assert!(!bo_binary::has_macros(&plain));
+    assert_eq!(
+        main_content_type(&plain),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+    );
+    // … and back to .docm.
+    e.set_save_format("docm").unwrap();
+    assert_eq!(sources(&e.save_docx().unwrap()), want);
+
+    // .xls → .xlsm.
+    let sheet_project = part(&corpus("macro/macro-vba.xlsm"), "/xl/vbaProject.bin");
+    let xls = graft(
+        &corpus("sheet/binary-xls-01-features.xls"),
+        "/_VBA_PROJECT_CUR",
+        &sheet_project,
+    );
+    let mut s = SheetEngine::new();
+    let info = s.open(&xls, "Sổ.xls").unwrap();
+    assert!(info.macros);
+    assert_eq!(info.variant.as_deref(), Some("xlsm"));
+    assert_eq!(info.name, "Sổ.xlsm");
+    let saved = s.save("xlsx", 0).unwrap();
+    assert_eq!(
+        main_content_type(&saved),
+        "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+    );
+    assert_eq!(sources(&saved), sources(&sheet_project));
+    assert!(SheetEngine::new().open(&saved, "Sổ.xlsm").unwrap().macros);
+    s.set_save_format("xlsx").unwrap();
+    assert!(!bo_binary::has_macros(&s.save("xlsx", 0).unwrap()));
+
+    // A legacy file without macros still saves as .docx.
+    let mut e = Engine::with_bundled_fonts();
+    let info = e
+        .open(&corpus("doc/binary-doc-01-sample.doc"), "a.doc")
+        .unwrap();
+    assert_eq!(info.variant.as_deref(), Some("docx"));
+    assert_eq!(info.name, "a.docx");
+}
+
+#[test]
+fn signed_legacy_project_is_saved_without_its_signature() {
+    use std::io::Write;
+    let project = part(&corpus("macro/macro-vba.docm"), "/word/vbaProject.bin");
+    let mut doc = graft(&corpus("doc/binary-doc-01-sample.doc"), "/Macros", &project);
+    {
+        let mut cf = cfb::CompoundFile::open(Cursor::new(doc.clone())).unwrap();
+        cf.create_stream("/Macros/\u{5}DigitalSignature")
+            .unwrap()
+            .write_all(b"not verifiable any more")
+            .unwrap();
+        cf.flush().unwrap();
+        doc = cf.into_inner().into_inner();
+    }
+    let mut e = Engine::with_bundled_fonts();
+    let info = e.open(&doc, "signed.doc").unwrap();
+    assert!(info.vba_signature_dropped);
+    assert!(info.to_json().contains("\"vbaSignatureDropped\":true"));
+    let saved = e.save_docx().unwrap();
+    let bin = part(&saved, "/word/vbaProject.bin");
+    let cf = cfb::CompoundFile::open(Cursor::new(bin)).unwrap();
+    assert!(cf.walk().all(|en| !en.name().starts_with('\u{5}')));
+    assert_eq!(sources(&saved), sources(&project));
+}
+
 #[test]
 fn unreadable_project_is_reported_not_hidden() {
     // A package whose vbaProject.bin is not a compound file at all.

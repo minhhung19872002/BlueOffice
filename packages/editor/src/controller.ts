@@ -30,6 +30,8 @@ export interface EditView {
   ): void;
   /** The equation being edited in place (drawn with the next selection). */
   setMathMarks?(m: EditResult['math'] | null): void;
+  /** The caret for the screen-reader mirror (`edited`: the result changed the document). */
+  setAccessibleSelection?(focus: EditResult['selection']['focus'], edited: boolean): void;
 }
 
 /** Engine error of a click / `mathEnter` on an equation that cannot be edited in place (it is
@@ -83,6 +85,7 @@ export class DocController {
     if (r.dirty.length || r.info) this.view.refresh(r.info, r.dirty);
     this.view.setMathMarks?.(r.math ?? null);
     this.view.setSelection(r.caret, r.rects);
+    this.view.setAccessibleSelection?.(r.selection.focus, r.dirty.length > 0);
     this.last = r;
     this.onResult(r);
     return r;

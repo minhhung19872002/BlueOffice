@@ -461,6 +461,7 @@ fn graft_vba(host: &[u8], root: &str, project: &[u8]) -> Result<Vec<u8>> {
         .collect();
     let mut dst = cfb::CompoundFile::open(Cursor::new(host.to_vec()))?;
     dst.create_storage(root)?;
+    let mut storages = vec![root.to_owned()];
     for (path, is_stream) in entries {
         let target = format!("{root}{path}");
         if is_stream {
@@ -469,7 +470,13 @@ fn graft_vba(host: &[u8], root: &str, project: &[u8]) -> Result<Vec<u8>> {
             dst.create_stream(&target)?.write_all(&data)?;
         } else {
             dst.create_storage(&target)?;
+            storages.push(target);
         }
+    }
+    // Fixed timestamps: the same input gives the same bytes (committed corpus).
+    for st in storages.iter().map(String::as_str).chain(["/"]) {
+        dst.set_created_time(st, std::time::UNIX_EPOCH)?;
+        dst.set_modified_time(st, std::time::UNIX_EPOCH)?;
     }
     dst.flush()?;
     Ok(dst.into_inner().into_inner())
@@ -1036,7 +1043,7 @@ fn doc_cases(cfg: &Config, out: &mut Vec<Case>) -> Result<()> {
             &bo_binary::vba_write::sample_project("doc")?,
         )?,
         macros: true,
-        macros_saved: false,
+        macros_saved: true,
         keep_parts: vec![],
         keep_text: vec![],
     });
@@ -1591,7 +1598,7 @@ fn sheet_cases(cfg: &Config, out: &mut Vec<Case>) -> Result<()> {
             &bo_binary::vba_write::sample_project("sheet")?,
         )?,
         macros: true,
-        macros_saved: false,
+        macros_saved: true,
         keep_parts: vec![],
         keep_text: vec![],
     });
@@ -1987,6 +1994,33 @@ fn pdf_hostile(cfg: &Config) -> Vec<u8> {
     );
     out.extend_from_slice(x.as_bytes());
     out
+}
+
+/// A legacy binary file with the generated VBA project (`bo_binary::vba_write::sample_project`)
+/// in its project storage: `doc` → a `.doc` ([MS-DOC] `Macros`), `sheet` → an `.xls`
+/// ([MS-XLS] `_VBA_PROJECT_CUR`).
+///
+/// # Errors
+/// If the compound file cannot be written.
+pub fn legacy_with_macros(kind: &str) -> Result<Vec<u8>> {
+    let (host, root) = if kind == "sheet" {
+        (BASE_XLS, "/_VBA_PROJECT_CUR")
+    } else {
+        (BASE_DOC, "/Macros")
+    };
+    graft_vba(host, root, &bo_binary::vba_write::sample_project(kind)?)
+}
+
+/// A document whose one paragraph is a run of `chars` letters without a break
+/// opportunity (memory of laying out over-long words).
+///
+/// # Errors
+/// If the package cannot be built.
+pub fn long_word_docx(chars: usize) -> Result<Vec<u8>> {
+    docx(&format!(
+        "<w:p><w:r><w:t>{}</w:t></w:r></w:p>",
+        noise(chars, 3)
+    ))
 }
 
 /// Every hostile sample, BlueDoc, BlueSheet, then BlueSlide.

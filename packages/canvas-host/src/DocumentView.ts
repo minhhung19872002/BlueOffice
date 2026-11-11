@@ -13,6 +13,7 @@ import { ImeInput, type ImeEvent } from './ime';
 import { GlyphStore, ImageStore, PX_PER_PT, renderPage } from './renderer';
 import { drawMarkup, type MarkupSelect } from './markup';
 import { drawFormattingMarks } from './marks';
+import { DocMirror, type MirrorLabels } from './a11y';
 
 /**
  * How pages are shown: printed pages with gaps and shadows; web layout (the
@@ -64,6 +65,8 @@ export interface DocumentViewOptions {
   inputLabel?: string;
   /** Accessible name of page `n` (1-based; default "page n"). */
   pageLabel?: (n: number) => string;
+  /** Texts of the screen-reader mirror of the pages (default English). */
+  mirrorLabels?: MirrorLabels;
 }
 
 export const MIN_ZOOM = 0.25;
@@ -124,6 +127,8 @@ export class DocumentView {
   /** Read aloud: the paragraph and the word being spoken (CORE-LANG-003). */
   private speechMarks: { word: SelRect[]; para: SelRect[] } = { word: [], para: [] };
   private readonly ime: ImeInput;
+  /** Screen-reader mirror of the text of the pages in view (WCAG 1.3.1 / 4.1.2). */
+  readonly a11y: DocMirror;
   private slots: PageSlot[] = [];
   private lists = new Map<number, Promise<PageDisplayList>>();
   private info: DocInfo | null = null;
@@ -144,6 +149,7 @@ export class DocumentView {
       | 'markupLabel'
       | 'inputLabel'
       | 'pageLabel'
+      | 'mirrorLabels'
     >
   > &
     DocumentViewOptions;
@@ -167,6 +173,7 @@ export class DocumentView {
     this.scroller.appendChild(this.content);
     host.appendChild(this.scroller);
     this.ime = new ImeInput(this.scroller, (e) => this.opts.onInput?.(e), opts.inputLabel);
+    this.a11y = new DocMirror(this.scroller, engine, opts.mirrorLabels, this.ime.element);
     this.scroller.addEventListener('scroll', this.schedule);
     this.scroller.addEventListener('wheel', this.onWheel, { passive: false });
     this.scroller.addEventListener('mousedown', this.onMouseDown);
@@ -192,7 +199,13 @@ export class DocumentView {
     this.images.clear();
     this.buildSlots(info);
     this.scroller.scrollTop = 0;
+    this.a11y.invalidate();
     this.schedule();
+  }
+
+  /** The caret moved (`edited`: by an edit): the screen-reader mirror follows it. */
+  setAccessibleCaret(focus: { p: number; o: number }, edited: boolean): void {
+    this.a11y.select(focus, edited);
   }
 
   private makeSlot(i: number): PageSlot {
@@ -255,6 +268,7 @@ export class DocumentView {
       this.scroller.scrollTop = top;
     }
     for (const i of dirty) this.invalidate(i);
+    if (dirty.length) this.a11y.invalidate();
     this.schedule();
   }
 
@@ -677,6 +691,7 @@ export class DocumentView {
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
     this.ime.dispose();
+    this.a11y.dispose();
     this.scroller.remove();
     // Decoded pictures of the closed document (CORE-PERF-001: no leak across documents).
     this.images.clear();
@@ -758,6 +773,7 @@ export class DocumentView {
     if (!this.info || this.slots.length === 0) return;
     this.opts.onViewport?.();
     const [first, last] = this.visibleRange();
+    this.a11y.setRange(first, last);
     const from = Math.max(0, first - this.opts.overscan);
     const to = Math.min(this.slots.length - 1, last + this.opts.overscan);
     if (first !== this.currentPage) {

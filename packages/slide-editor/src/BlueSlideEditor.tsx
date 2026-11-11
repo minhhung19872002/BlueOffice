@@ -368,6 +368,7 @@ import {
   type RecordOptions,
 } from './recordTools';
 import { SlideCanvas } from './SlideCanvas';
+import { SlideStageMirror, ThumbDescription, thumbLabel, useSlideOutline } from './SlideA11y';
 import { DesignIdeasPane } from './designIdeas';
 import { zipStore } from './zip';
 import styles from './SlideEditor.module.css';
@@ -858,6 +859,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const showCache = useMemo(() => new ShowCache(engine), [engine]);
 
   const count = info?.pageCount ?? 0;
+  // Shapes of every slide in reading order for screen readers (WCAG 1.3.1 / 4.1.2).
+  const outline = useSlideOutline(engine, count, edit);
   const slideSize = info?.pages[0] ?? { width: 960, height: 540 };
   const modified = edit?.modified ?? false;
 
@@ -4486,6 +4489,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
               edit?.masterView?.items[i] ? masterThumbLabel(t, edit.masterView.items[i]) : undefined
             }
             aria-current={i === shown}
+            aria-label={thumbLabel(i, outline[i], (k, o) => String(t(k, o)))}
+            aria-describedby={`slide-a11y-thumb-${i}`}
             onClick={() => goTo(i)}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -4514,6 +4519,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             }}
           >
             <span className={styles.thumbNo}>{i + 1}</span>
+            <ThumbDescription id={`slide-a11y-thumb-${i}`} shapes={outline[i]} />
             {canvas(i, 150)}
             <PeerBadges peers={peersOn.get(i)} />
             {edit?.masterView?.items[i] && (
@@ -4679,7 +4685,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         }}
       />
       {macroBanner && view === 'normal' && (
-        <MacroBanner inline onView={showMacros} onDismiss={() => setMacroBanner(false)} />
+        <MacroBanner
+          inline
+          onView={showMacros}
+          signatureDropped={!!info?.vbaSignatureDropped}
+          onDismiss={() => setMacroBanner(false)}
+        />
       )}
       {view === 'normal' && <FileProtectionUi app="slide" p={protection} name={fileName} />}
       {passwordPrompt && (
@@ -4763,6 +4774,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                   onPointerDown={() => setMini(null)}
                 >
                   {canvas(shown, main.width, styles.mainSlide)}
+                  <SlideStageMirror
+                    index={shown}
+                    shapes={outline[shown]}
+                    selection={edit?.selection ?? []}
+                  />
                   {asYouType && !state.masterView && (
                     <SlideSpellLayer
                       engine={engine}

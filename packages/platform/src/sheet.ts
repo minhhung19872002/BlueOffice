@@ -65,6 +65,8 @@ export interface WorkbookInfo {
   legacyConverted?: number;
   /** Package variant the next `.xlsx` save produces (`xlsx`, `xlsm`, `xltx`, `xltm`). */
   variant?: string;
+  /** The VBA project of the opened `.xls` was signed: the signature is left out on save. */
+  vbaSignatureDropped?: boolean;
 }
 
 /** What stays allowed on a protected sheet (§18.3.1.85, inverted flags). */

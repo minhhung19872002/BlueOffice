@@ -8,6 +8,12 @@
 //!   styles and docDefaults), the language the text reads as, and the byte ranges not to speak
 //!   (hidden text §17.3.2.14 vanish, deleted text §17.13.5.14 del).
 //! * `speechRects` — highlight rectangles of byte ranges of body paragraphs (word and paragraph).
+//! * `speechTree` — the accessible structure of the body paragraphs laid out on a range of
+//!   pages (and the caret's paragraph), for the screen-reader mirror of the canvas (WCAG 2.2
+//!   1.3.1 / 4.1.2): index text, heading level (§17.3.1.20 outlineLvl through the style
+//!   chain), list level (§17.3.1.19 numPr), the table cell holding it (§17.4.38 tbl, header
+//!   rows from §17.4.49 tblHeader), hyperlinks (§17.16.22 hyperlink) and the alternative text
+//!   of pictures (§20.4.2.5 docPr `@descr`).
 
 use crate::edit::EditResult;
 use crate::nav::{self, SelRect};
@@ -33,6 +39,90 @@ pub enum SpeechCommand {
         /// Byte ranges of body paragraphs.
         ranges: Vec<SpeechRange>,
     },
+    /// Accessible structure of the body paragraphs on pages `from_page..=to_page`.
+    SpeechTree {
+        /// First page (0-based).
+        from_page: usize,
+        /// Last page (0-based, clamped to the last page).
+        to_page: usize,
+        /// A paragraph listed even when not on those pages (the caret's).
+        #[serde(default)]
+        include: Option<usize>,
+    },
+    /// The laid-out line showing byte `o` of body paragraph `p` (a position at a soft line
+    /// end belongs to the next line).
+    SpeechLine {
+        /// Body paragraph id.
+        p: usize,
+        /// Byte offset.
+        o: usize,
+    },
+}
+
+/// The table cell of a paragraph (outermost table).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TreeCell {
+    /// Table key (`section.block`): paragraphs with the same key are in one table.
+    pub table: String,
+    /// Row (0-based).
+    pub row: usize,
+    /// Column (0-based cell index in the row).
+    pub col: usize,
+    /// Rows of the table.
+    pub rows: usize,
+    /// Cells of the row.
+    pub cols: usize,
+    /// The row repeats as a header row (§17.4.49 tblHeader): its cells are column headers.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub header: bool,
+}
+
+/// A hyperlink of a paragraph: byte range of its index text and target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TreeLink {
+    /// Start byte offset.
+    pub start: usize,
+    /// End byte offset.
+    pub end: usize,
+    /// Target (URL or `#bookmark`).
+    pub href: String,
+}
+
+/// An object (U+FFFC) of a paragraph and its text alternative.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TreeObject {
+    /// Byte offset of the U+FFFC in the index text.
+    pub at: usize,
+    /// `picture`, `equation` or `object`.
+    pub kind: &'static str,
+    /// Alternative text (empty: none given).
+    pub alt: String,
+}
+
+/// One body paragraph of the accessible structure.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TreePara {
+    /// Body paragraph id.
+    pub p: usize,
+    /// Index text (offsets of `bo_edit::Pos`; objects are U+FFFC).
+    pub text: String,
+    /// Heading level 1–9 (outline level + 1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading: Option<u8>,
+    /// List level 1–9 of a numbered or bulleted paragraph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list: Option<u8>,
+    /// Table cell holding the paragraph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell: Option<TreeCell>,
+    /// Hyperlinks.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<TreeLink>,
+    /// Objects and their text alternatives.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub objects: Vec<TreeObject>,
+    /// First page showing the paragraph (0-based).
+    pub page: usize,
 }
 
 /// A byte range of a body paragraph's index text.
@@ -73,6 +163,12 @@ pub struct SpeechInfo {
     /// Rectangles of each range, in order (`speechRects`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rects: Option<Vec<Vec<SelRect>>>,
+    /// Accessible structure (`speechTree`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree: Option<Vec<TreePara>>,
+    /// Byte range `[start, end)` of the line (`speechLine`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<[usize; 2]>,
 }
 
 impl SpeechCommand {
@@ -116,6 +212,82 @@ fn para_speech(
         }
     }
     (lang, skip)
+}
+
+/// The table cell of the paragraph at `path` (outermost table), if any.
+fn tree_cell(doc: &bo_model::Document, path: &[usize]) -> Option<TreeCell> {
+    if path.len() < 5 {
+        return None;
+    }
+    let Some(bo_model::Block::Table(t)) = doc.sections.get(path[0])?.blocks.get(path[1]) else {
+        return None;
+    };
+    let row = t.rows.get(path[2])?;
+    Some(TreeCell {
+        table: format!("{}.{}", path[0], path[1]),
+        row: path[2],
+        col: path[3],
+        rows: t.rows.len(),
+        cols: row.cells.len(),
+        header: row.props.header,
+    })
+}
+
+/// The accessible description of body paragraph `id` at `path`.
+fn tree_para(doc: &bo_model::Document, id: usize, path: &[usize], page: usize) -> Option<TreePara> {
+    use bo_model::RunContent;
+    let p = bo_model::index::para_at(doc, path)?;
+    let (text, items) = bo_model::index::para_index(p);
+    let heading = bo_edit::fields::outline_level(doc, p).map(|l| l + 1);
+    // §17.3.1.19 numPr, directly or from the paragraph style (numId 0 removes it).
+    let num = p.props.num.or_else(|| {
+        let style = p.props.style.as_ref()?;
+        doc.styles.resolve_paragraph(style).0.num
+    });
+    let list = num.filter(|n| n.num_id != 0).map(|n| n.ilvl.min(8) + 1);
+    let mut links: Vec<TreeLink> = Vec::new();
+    let mut objects = Vec::new();
+    for it in &items {
+        if it.end == it.start {
+            continue;
+        }
+        let run = &p.runs[it.run];
+        let eff = bo_edit::effective_run(doc, p, &run.props);
+        if let Some(href) = eff.link.filter(|l| !l.is_empty()) {
+            match links.last_mut() {
+                Some(l) if l.end == it.start && l.href == href => l.end = it.end,
+                _ => links.push(TreeLink {
+                    start: it.start,
+                    end: it.end,
+                    href,
+                }),
+            }
+        }
+        if text[it.start..].starts_with(bo_model::index::OBJECT) {
+            let (kind, alt) = match run.content.get(it.item) {
+                Some(RunContent::Image(img)) => ("picture", img.description.clone()),
+                Some(RunContent::Markup(m)) if bo_model::index::is_math_xml(&m.xml) => {
+                    ("equation", String::new())
+                }
+                _ => ("object", String::new()),
+            };
+            objects.push(TreeObject {
+                at: it.start,
+                kind,
+                alt,
+            });
+        }
+    }
+    Some(TreePara {
+        p: id,
+        text,
+        heading,
+        list,
+        cell: tree_cell(doc, path),
+        links,
+        objects,
+        page,
+    })
 }
 
 impl crate::Engine {
@@ -167,6 +339,64 @@ impl crate::Engine {
                     })
                     .collect();
                 info.rects = Some(rects);
+            }
+            SpeechCommand::SpeechLine { p, o } => {
+                let layout = self.layout.document();
+                let lines = layout
+                    .pages
+                    .iter()
+                    .flat_map(|pg| pg.lines.iter())
+                    .filter(|l| l.source == bo_layout::LineSource::Body(p as u32));
+                let mut best = None;
+                for l in lines {
+                    let (s0, e0) = (l.start as usize, l.end as usize);
+                    if o >= s0 && o < e0 {
+                        best = Some([s0, e0]);
+                        break;
+                    }
+                    if o >= s0 || best.is_none() {
+                        best = Some([s0, e0]);
+                    }
+                }
+                info.line = best;
+            }
+            SpeechCommand::SpeechTree {
+                from_page,
+                to_page,
+                include,
+            } => {
+                let layout = self.layout.document();
+                // Paragraph id → first page showing it, for the pages asked for.
+                let mut on: std::collections::BTreeMap<usize, usize> =
+                    std::collections::BTreeMap::new();
+                let first_page = |id: usize| {
+                    layout.pages.iter().position(|pg| {
+                        pg.lines
+                            .iter()
+                            .any(|l| l.source == bo_layout::LineSource::Body(id as u32))
+                    })
+                };
+                let last = layout.pages.len().saturating_sub(1);
+                for pi in from_page.min(last)..=to_page.min(last) {
+                    let Some(page) = layout.pages.get(pi) else {
+                        continue;
+                    };
+                    for l in &page.lines {
+                        if let bo_layout::LineSource::Body(id) = l.source {
+                            on.entry(id as usize).or_insert(pi);
+                        }
+                    }
+                }
+                if let Some(id) = include {
+                    on.entry(id).or_insert_with(|| first_page(id).unwrap_or(0));
+                }
+                let doc = s.doc();
+                let paths = bo_model::index::body_paragraphs(doc);
+                info.tree = Some(
+                    on.into_iter()
+                        .filter_map(|(id, page)| tree_para(doc, id, paths.get(id)?, page))
+                        .collect(),
+                );
             }
         }
         let mut r = self.query_result()?;
@@ -301,6 +531,148 @@ mod tests {
             r#"{"cmd":"speechRects","ranges":[{"p":0,"start":10,"end":12}]}"#,
         );
         assert_eq!(r["speech"]["rects"][0].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn tree_describes_headings_lists_tables_links_and_pictures() {
+        use bo_model::{
+            Block, Cell, Emu, Image, NumRef, ParaProps, Paragraph, Row, RowProps, Run, RunContent,
+            RunProps, Section, Table,
+        };
+        let para = |props: ParaProps, runs: Vec<Run>| Block::Paragraph(Paragraph::new(props, runs));
+        let text = |t: &str| Run::text(t, RunProps::default());
+        let cell = |t: &str| Cell {
+            blocks: vec![para(ParaProps::default(), vec![text(t)])],
+            ..Default::default()
+        };
+        let table = Table {
+            rows: vec![
+                Row {
+                    props: RowProps {
+                        header: true,
+                        ..Default::default()
+                    },
+                    cells: vec![cell("Tên"), cell("Tuổi")],
+                },
+                Row {
+                    cells: vec![cell("An"), cell("30")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let picture = Run {
+            props: RunProps::default(),
+            content: vec![RunContent::Image(Box::new(Image {
+                media: String::new(),
+                width: Emu(914_400),
+                height: Emu(914_400),
+                anchor: None,
+                crop: None,
+                rotation: 0,
+                description: "Biểu đồ doanh thu".into(),
+                shape: None,
+                format: None,
+                src: None,
+                ole: None,
+            }))],
+        };
+        let link = Run::text(
+            "trang chủ",
+            RunProps {
+                link: Some("https://example.org/".into()),
+                ..Default::default()
+            },
+        );
+        let mut doc = crate::plain_text_document("x");
+        doc.sections = vec![Section::new(vec![
+            para(
+                ParaProps {
+                    outline_level: Some(0),
+                    ..Default::default()
+                },
+                vec![text("Chương 1")],
+            ),
+            para(
+                ParaProps {
+                    num: Some(NumRef { num_id: 1, ilvl: 1 }),
+                    ..Default::default()
+                },
+                vec![text("Mục a")],
+            ),
+            Block::Table(table),
+            para(ParaProps::default(), vec![text("Xem "), link, picture]),
+        ])];
+        let mut e = Engine::with_bundled_fonts();
+        e.load(doc, "t.docx").unwrap();
+        let before = cmd(&mut e, r#"{"cmd":"state"}"#)["selection"].clone();
+        let r = cmd(&mut e, r#"{"cmd":"speechTree","fromPage":0,"toPage":0}"#);
+        let tree = r["speech"]["tree"].as_array().unwrap();
+        assert_eq!(tree.len(), 7, "{tree:?}");
+        assert_eq!(tree[0]["text"], "Chương 1");
+        assert_eq!(tree[0]["heading"], 1);
+        assert_eq!(tree[1]["list"], 2);
+        assert!(tree[1].get("heading").is_none());
+        // The table: 2 × 2, its first row a header row.
+        let c = &tree[2]["cell"];
+        assert_eq!((c["row"].clone(), c["col"].clone()), (0.into(), 0.into()));
+        assert_eq!((c["rows"].clone(), c["cols"].clone()), (2.into(), 2.into()));
+        assert_eq!(c["header"], true);
+        assert_eq!(tree[5]["text"], "30");
+        assert_eq!(tree[5]["cell"]["row"], 1);
+        assert_eq!(tree[5]["cell"]["col"], 1);
+        assert!(tree[5]["cell"].get("header").is_none());
+        assert_eq!(tree[2]["cell"]["table"], tree[5]["cell"]["table"]);
+        // Link (byte range of "trang chủ") and picture (U+FFFC after it) with its alt text.
+        let last = &tree[6];
+        assert_eq!(last["links"][0]["href"], "https://example.org/");
+        assert_eq!(last["links"][0]["start"], 4);
+        assert_eq!(last["links"][0]["end"], 4 + "trang chủ".len());
+        assert_eq!(last["objects"][0]["kind"], "picture");
+        assert_eq!(last["objects"][0]["alt"], "Biểu đồ doanh thu");
+        assert_eq!(last["objects"][0]["at"], 4 + "trang chủ".len());
+        assert_eq!(last["page"], 0);
+        // Pages past the end: clamped to the last page.
+        let r = cmd(&mut e, r#"{"cmd":"speechTree","fromPage":5,"toPage":9}"#);
+        assert_eq!(r["speech"]["tree"].as_array().unwrap().len(), 7);
+        assert_eq!(r["selection"], before);
+    }
+
+    #[test]
+    fn tree_includes_the_caret_paragraph_and_lines_are_found() {
+        let text = (0..400)
+            .map(|i| format!("Đoạn {i} có vài chữ."))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        let mut e = engine(&text);
+        let r = cmd(&mut e, r#"{"cmd":"speechTree","fromPage":0,"toPage":0}"#);
+        let first = r["speech"]["tree"].as_array().unwrap().clone();
+        assert!(!first.is_empty() && first.len() < 400);
+        assert!(first.iter().all(|p| p["page"] == 0));
+        let r = cmd(
+            &mut e,
+            r#"{"cmd":"speechTree","fromPage":0,"toPage":0,"include":399}"#,
+        );
+        let with = r["speech"]["tree"].as_array().unwrap();
+        assert_eq!(with.len(), first.len() + 1);
+        let last = with.last().unwrap();
+        assert_eq!(last["p"], 399);
+        assert!(last["page"].as_u64().unwrap() > 0);
+        // A long paragraph breaks into lines: the line of an offset is found.
+        let long = "chữ ".repeat(200);
+        let mut e = engine(long.trim_end());
+        let r = cmd(&mut e, r#"{"cmd":"speechLine","p":0,"o":0}"#);
+        let [s0, e0] = [
+            r["speech"]["line"][0].as_u64().unwrap(),
+            r["speech"]["line"][1].as_u64().unwrap(),
+        ];
+        assert_eq!(s0, 0);
+        assert!(e0 > 0 && (e0 as usize) < long.trim_end().len());
+        let r = cmd(&mut e, &format!(r#"{{"cmd":"speechLine","p":0,"o":{e0}}}"#));
+        assert_eq!(r["speech"]["line"][0].as_u64().unwrap(), e0);
     }
 
     #[test]

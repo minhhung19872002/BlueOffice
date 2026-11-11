@@ -182,7 +182,7 @@ fn markup_area_bars_and_balloons() {
     assert_eq!(p0.bars.len(), 1);
     let first = &l.pages[0].lines[0];
     assert!((p0.bars[0].top - first.top).abs() < 0.01);
-    assert!(p0.bars[0].x < first.carets[0].1);
+    assert!(p0.bars[0].x < first.carets.first().unwrap().1);
     // One balloon (the comment) in the markup area, anchored on the third line.
     assert_eq!(p0.balloons.len(), 1);
     let b = &p0.balloons[0];

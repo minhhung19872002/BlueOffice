@@ -797,6 +797,20 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn vba_project_of_a_deck_becomes_a_vba_project_bin() {
+        let project = crate::vba_write::sample_project("slide").unwrap();
+        let want = crate::vba::read_vba_project(&project).unwrap();
+        for compressed in [true, false] {
+            let got = crate::vba::legacy_project_bin(&vba_ppt(&project, compressed))
+                .unwrap()
+                .unwrap();
+            assert!(!got.signature_dropped);
+            assert_eq!(crate::vba::read_vba_project(&got.bin).unwrap(), want);
+        }
+        assert_eq!(crate::vba::legacy_project_bin(&sample_ppt()).unwrap(), None);
+    }
+
+    #[test]
     fn encrypted_is_reported() {
         let (doc, cu) = sample_streams(true);
         assert!(matches!(

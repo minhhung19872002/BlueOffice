@@ -3216,6 +3216,7 @@
   },
   "security": {
     "macroWarning": "Tài liệu chứa macro — macro sẽ được giữ nguyên nhưng không chạy",
+    "macroSignatureDropped": "Dự án macro có chữ ký số; chữ ký không chuyển được sang kiểu tệp mới nên sẽ bị bỏ khi lưu (mã macro vẫn được giữ).",
     "viewMacros": "Xem macro",
     "dismiss": "Đóng",
     "passwordTitle": "Cần mật khẩu",
@@ -7522,6 +7523,40 @@
   },
   "a11y": {
     "documentInput": "Nội dung tài liệu",
-    "page": "Trang {{n}}"
+    "page": "Trang {{n}}",
+    "mirrorPage": "Văn bản trang {{n}}",
+    "mirrorPages": "Văn bản trang {{from}}–{{to}}",
+    "picture": "Ảnh: {{alt}}",
+    "pictureNoAlt": "Ảnh không có văn bản thay thế",
+    "equation": "Phương trình",
+    "object": "Đối tượng",
+    "deleted": "Đã xoá {{text}}",
+    "blank": "Trống",
+    "cell": "{{address}}: {{value}}",
+    "emptyCell": "trống",
+    "formula": "công thức {{formula}}",
+    "bold": "đậm",
+    "italic": "nghiêng",
+    "underline": "gạch chân",
+    "strike": "gạch ngang",
+    "numberFormat": "định dạng {{format}}",
+    "merged": "ô đã gộp",
+    "slideN": "Slide {{n}}",
+    "slideShapes": "Nội dung slide {{n}}",
+    "shapeSelected": "Đã chọn {{name}}",
+    "shapesSelected": "Đã chọn {{count}} đối tượng",
+    "shapeKind": {
+      "shape": "hình",
+      "picture": "ảnh",
+      "group": "nhóm",
+      "connector": "đường nối",
+      "table": "bảng",
+      "chart": "biểu đồ",
+      "smartart": "sơ đồ SmartArt",
+      "model3d": "mô hình 3D",
+      "zoom": "thu phóng",
+      "object": "đối tượng",
+      "graphic": "đồ hoạ"
+    }
   }
 }

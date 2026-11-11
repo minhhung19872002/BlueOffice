@@ -74,11 +74,14 @@ export function MacroBanner({
   onDismiss,
   onView,
   inline,
+  signatureDropped,
 }: {
   onDismiss: () => void;
   /** Opens the read-only macro viewer (CORE-VBA-002). */
   onView?: () => void;
   inline?: boolean;
+  /** The project of the opened legacy file was signed: its signature is left out on save. */
+  signatureDropped?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -89,6 +92,9 @@ export function MacroBanner({
       data-testid="macro-warning"
     >
       <span>{t('security.macroWarning')}</span>
+      {signatureDropped && (
+        <span data-testid="macro-signature-dropped">{t('security.macroSignatureDropped')}</span>
+      )}
       {onView && (
         <button type="button" onClick={onView} data-testid="macro-warning-view">
           {t('security.viewMacros')}

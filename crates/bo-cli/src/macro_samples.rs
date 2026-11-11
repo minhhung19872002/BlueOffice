@@ -3,6 +3,7 @@
 //! (`bo_binary::vba_write::sample_project` — written from source text per
 //! [MS-OVBA], no bytes from any other product). They exercise the read-only macro
 //! viewer and the preservation of the project on save; the macros are never run.
+//! `macro-legacy.doc` / `.xls` carry the projects in the storages of the binary formats.
 
 use bo_binary::vba::{CT_VBA_PROJECT, REL_VBA_PROJECT};
 use bo_opc::{Limits, Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT};
@@ -64,6 +65,16 @@ pub fn files() -> Res<Vec<(&'static str, Vec<u8>)>> {
         ("macro-vba.docm", attach_vba_project(&docx, &vba("doc")?)?),
         ("macro-vba.xlsm", attach_vba_project(&xlsx, &vba("sheet")?)?),
         ("macro-vba.pptm", attach_vba_project(&pptx, &vba("slide")?)?),
+        // Legacy binary files with the same projects in their project storages: they
+        // open with the macros kept and save as `.docm` / `.xlsm`.
+        (
+            "macro-legacy.doc",
+            bo_hostile::legacy_with_macros("doc").map_err(|e| e.to_string())?,
+        ),
+        (
+            "macro-legacy.xls",
+            bo_hostile::legacy_with_macros("sheet").map_err(|e| e.to_string())?,
+        ),
     ])
 }
 

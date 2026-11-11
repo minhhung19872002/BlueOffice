@@ -177,6 +177,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `insert.symbol` | Lucide (ISC) `Omega` |
 | `insert.table` | Lucide (ISC) `Table` |
 | `insert.textBox` | Lucide (ISC) `Type` |
+| `insert.timeline` | Lucide (ISC) `CalendarRange` |
 | `insert.triangle` | Lucide (ISC) `Triangle` |
 | `layout.columns` | Lucide (ISC) `Columns2` |
 | `layout.margins` | Lucide (ISC) `Ruler` |
@@ -211,6 +212,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `pivot.options` | Lucide (ISC) `Settings2` |
 | `pivot.refresh` | Lucide (ISC) `RefreshCw` |
 | `pivot.refreshAll` | Lucide (ISC) `RefreshCw` |
+| `pivot.showDetails` | Lucide (ISC) `ListChecks` |
 | `pivot.ungroupSelection` | Lucide (ISC) `Ungroup` |
 | `pivot.valuesOnRows` | Lucide (ISC) `Rows3` |
 | `references.crossReference` | Lucide (ISC) `Link2` |
@@ -251,6 +253,8 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `show.fromCurrent` | Lucide (ISC) `MonitorPlay` |
 | `show.fromStart` | Lucide (ISC) `Play` |
 | `show.presenter` | Lucide (ISC) `Presentation` |
+| `slicer.delete` | Lucide (ISC) `Trash` |
+| `slicer.settings` | Lucide (ISC) `Settings2` |
 | `slide.copy` | Lucide (ISC) `Files` |
 | `slide.cut` | Lucide (ISC) `Scissors` |
 | `slide.delete` | Lucide (ISC) `Trash` |

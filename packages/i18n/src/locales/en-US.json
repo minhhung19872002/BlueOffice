@@ -5110,6 +5110,50 @@
       "custom": "Other formula…"
     }
   },
+  "sheetSlicer": {
+    "insertTimeline": "Timeline",
+    "insertSlicers": "Insert slicers",
+    "insertTimelines": "Insert timelines",
+    "fields": "Fields",
+    "pickField": "Choose at least one field.",
+    "noFields": "The pivot table has no field a slicer can use.",
+    "noDateFields": "The pivot table has no date field.",
+    "settings": "Options",
+    "delete": "Delete",
+    "frameOptions": "Slicer / timeline options",
+    "frameDelete": "Delete slicer / timeline",
+    "resize": "Drag to resize",
+    "slicerOptions": "Slicer options",
+    "timelineOptions": "Timeline options",
+    "caption": "Caption",
+    "columns": "Columns",
+    "badColumns": "The number of columns must be between 1 and 50.",
+    "styleLabel": "Style",
+    "style": {
+      "light": "Light {{n}}",
+      "dark": "Dark {{n}}",
+      "other": "Grey {{n}}",
+      "none": "(none)"
+    },
+    "connections": "Report connections",
+    "needConnection": "Connect at least one pivot table.",
+    "level": "Time level",
+    "zoomIn": "Zoom in (finer level)",
+    "zoomOut": "Zoom out (coarser level)",
+    "allPeriods": "All periods",
+    "showDetails": "Show details",
+    "detailSheet": "Detail",
+    "detailShown": "Listed {{count}} source rows on sheet “{{name}}”.",
+    "sharedCache": "Shares its data with: {{names}}",
+    "chartField": {
+      "filter": "Report filter: {{name}}",
+      "axis": "Axis field: {{name}}",
+      "legend": "Legend field: {{name}}"
+    },
+    "chartItems": "Items of {{name}}",
+    "selectAll": "(Select all)",
+    "keepOne": "Keep at least one item."
+  },
   "pictureTools": {
     "tab": "Picture tools",
     "groupAdjust": "Picture adjustments",

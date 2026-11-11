@@ -615,6 +615,10 @@ export type PivotAreas = {
 export interface PivotInfo {
   index: number;
   name: string;
+  /** Other pivot tables on the same cache (shared groupings and calculated fields). */
+  sharedWith?: { sheet: number; sheetName: string; name: string }[];
+  /** The value cells of the report (`null` without value fields). */
+  dataArea?: SheetRange | null;
   location: SheetRange;
   /** Cells taken by the report, report filters included. */
   area: SheetRange;
@@ -1021,8 +1025,91 @@ export type SheetCommand =
   | { cmd: 'insertSlicer'; sheet: number; row: number; col: number }
   /** Choose a slicer's items (empty: clear its filter). */
   | { cmd: 'slicerSelect'; sheet: number; index: number; items: string[] }
-  /** Delete a slicer inserted in this session. */
+  /** Delete a slicer (its filter is cleared first). */
   | { cmd: 'deleteSlicer'; sheet: number; index: number }
+  /** Insert a slicer over a pivot table field (`pivotSheet` defaults to `sheet`). */
+  | {
+      cmd: 'insertPivotSlicer';
+      sheet: number;
+      pivotSheet?: number;
+      pivot: number;
+      field: number;
+      labels?: PivotLabels;
+    }
+  /** Caption, column count and style of a slicer (absent: unchanged). */
+  | {
+      cmd: 'slicerOptions';
+      sheet: number;
+      index: number;
+      caption?: string;
+      columns?: number;
+      style?: string;
+    }
+  /** The pivot tables a pivot slicer filters. */
+  | { cmd: 'slicerConnect'; sheet: number; index: number; pivots: string[]; labels?: PivotLabels }
+  /** Move / size a slicer: anchor cells `[row, col]`. */
+  | {
+      cmd: 'moveSlicer';
+      sheet: number;
+      index: number;
+      from: [number, number];
+      to: [number, number];
+    }
+  /** Insert a timeline over a date field of a pivot table. */
+  | {
+      cmd: 'insertTimeline';
+      sheet: number;
+      pivotSheet?: number;
+      pivot: number;
+      field: number;
+      labels?: PivotLabels;
+    }
+  /** Time level (0 years … 3 days), caption and style of a timeline (absent: unchanged). */
+  | {
+      cmd: 'timelineOptions';
+      sheet: number;
+      index: number;
+      level?: number;
+      caption?: string;
+      style?: string;
+    }
+  /** The pivot tables a timeline filters. */
+  | {
+      cmd: 'timelineConnect';
+      sheet: number;
+      index: number;
+      pivots: string[];
+      labels?: PivotLabels;
+    }
+  /** Move / size a timeline: anchor cells `[row, col]`. */
+  | {
+      cmd: 'moveTimeline';
+      sheet: number;
+      index: number;
+      from: [number, number];
+      to: [number, number];
+    }
+  /** Delete a timeline (its date filter is cleared first). */
+  | { cmd: 'deleteTimeline'; sheet: number; index: number }
+  /** Show the source records of a pivot table value cell on a new sheet (`{ sheet, name, rows }`). */
+  | {
+      cmd: 'pivotDrillDown';
+      sheet: number;
+      row: number;
+      col: number;
+      /** Base name of the new sheet. */
+      name?: string;
+      labels?: PivotLabels;
+    }
+  /** Hide items of a pivot field (a report filter: show the others), by item index. */
+  | {
+      cmd: 'pivotFieldItems';
+      sheet: number;
+      index: number;
+      field: number;
+      hidden: number[];
+      labels?: PivotLabels;
+    }
   /** Form controls of a sheet ([MS-XLSX] control properties, legacy VML client data). */
   | { cmd: 'formControls'; sheet: number }
   /** Insert a form control with its top-left corner at a cell. */
@@ -1250,17 +1337,40 @@ export interface ScenarioSummaryLabels {
   note?: string;
 }
 
+/** Colours of a slicer or timeline style (`#RRGGBB`), resolved from the workbook theme. */
+export interface FrameColors {
+  selected: string;
+  selectedText: string;
+  header: string;
+  headerText: string;
+  border: string;
+}
+
+/** A pivot table a slicer or timeline may filter (every pivot table on its cache). */
+export interface FrameConnection {
+  sheet: number;
+  sheetName: string;
+  index: number;
+  name: string;
+  connected: boolean;
+}
+
 /** A timeline as the engine lists it. */
 export interface TimelineInfo {
   index: number;
   name: string;
   caption: string;
+  /** The date field of the pivot cache. */
+  field?: string;
   /** 0 years, 1 quarters, 2 months, 3 days. */
   level: number;
+  style?: string | null;
+  colors?: FrameColors;
   from: [number, number];
   to: [number, number];
   filtered: boolean;
   periods: { label: string; start: number; end: number; selected: boolean }[];
+  pivots?: FrameConnection[];
 }
 
 /** Kinds of form controls; `activeX` controls are kept as they are (fallback picture). */
@@ -1335,6 +1445,13 @@ export interface SlicerInfo {
   index: number;
   name: string;
   caption: string;
+  /** `pivot`: filters a pivot table field; `table`: a table column. */
+  kind?: 'pivot' | 'table';
+  field?: string;
+  style?: string | null;
+  colors?: FrameColors;
+  /** Pivot tables on the slicer's cache (pivot slicers). */
+  pivots?: FrameConnection[];
   columns: number;
   /** Anchor cells [row, col]: top-left and bottom-right. */
   from: [number, number];
@@ -1400,6 +1517,10 @@ export interface ChartInfo {
   /** Cell holding the bottom-right corner. */
   to: [number, number];
   series: number;
+  /** `c:pivotSource` name of a pivot chart (`Sheet!Pivot`). */
+  pivot?: string | null;
+  /** Sheet and index of the pivot table a pivot chart plots (`null` when it is gone). */
+  pivotAt?: [number, number] | null;
   /** Region map options (`null` for other charts; CORE-CHART-006). */
   map?: ChartMapInfo | null;
 }

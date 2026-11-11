@@ -93,6 +93,7 @@ import {
   Baseline,
   Bold,
   Calendar,
+  CalendarRange,
   ChartColumn,
   ChartSpline,
   ClipboardCheck,
@@ -155,6 +156,7 @@ import {
   Target,
   Sparkles,
   Grid3x3,
+  ListChecks,
   ListFilter,
   FunnelX,
   FunnelPlus,
@@ -347,6 +349,14 @@ import {
   tableDesignTabGroups,
   useTables,
 } from './tableDesign';
+import {
+  FrameOptionsDialog,
+  InsertFramesDialog,
+  PivotChartFilters,
+  SlicerFrame,
+  TimelineFrame,
+  nextSlicerChoice,
+} from './slicers';
 import { SheetCheckDocumentDialog, type SheetGoTo } from './inspect';
 import { SheetShowChangesPane } from './showChanges';
 import { SheetEditSpelling, SheetSpellDialog, useSheetSpelling } from './spelling';
@@ -621,6 +631,10 @@ type DialogState =
   | { kind: 'pivotCalcItem'; pivot: PivotInfo }
   | { kind: 'pivotMove'; pivot: PivotInfo }
   | { kind: 'pivotSource'; pivot: PivotInfo }
+  /** Slicers / timelines to insert over the fields of a pivot table. */
+  | { kind: 'frameInsert'; pivot: PivotInfo; frames: 'slicer' | 'timeline' }
+  /** Options and report connections of a slicer / timeline of the sheet. */
+  | { kind: 'frameOptions'; frames: 'slicer' | 'timeline'; index: number }
   | { kind: 'message'; title: string; message: string };
 
 type MenuState = { kind: string; x: number; y: number };
@@ -635,6 +649,8 @@ esize, sizing) a chart: anchors in cells. */
       kind: 'chart';
       /** A SmartArt diagram instead of a chart (CORE-SMART-005). */
       smart?: boolean;
+      /** A slicer or timeline frame instead of a chart. */
+      frame?: 'slicer' | 'timeline';
       index: number;
       resize: boolean;
       start: CellPos;
@@ -1214,9 +1230,52 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     };
   }, [host, smartArt, sheet, view, px, revision]);
 
+  // The pivot table a selected pivot chart plots: its fields get filter buttons on the chart.
+  const [chartPivotLoaded, setChartPivotLoaded] = useState<{
+    sheet: number;
+    info: PivotInfo;
+  } | null>(null);
+  const chartPivotAt = chart !== null ? (chartInfo?.pivotAt ?? null) : null;
+  const chartPivotSheet = chartPivotAt?.[0] ?? -1;
+  const chartPivotIndex = chartPivotAt?.[1] ?? -1;
+  useEffect(() => {
+    if (!host || chartPivotSheet < 0) return;
+    let cancelled = false;
+    void host
+      .exec<PivotInfo[]>({ cmd: 'pivots', sheet: chartPivotSheet })
+      .then((list) => {
+        const p = list?.[chartPivotIndex];
+        if (!cancelled) setChartPivotLoaded(p ? { sheet: chartPivotSheet, info: p } : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, chartPivotSheet, chartPivotIndex, revision]);
+  const chartPivot =
+    chartPivotLoaded &&
+    chartPivotLoaded.sheet === chartPivotSheet &&
+    chartPivotLoaded.info.index === chartPivotIndex
+      ? chartPivotLoaded
+      : null;
+
+  // The selected slicer / timeline frame (options, delete, move and size). The selection
+  // belongs to one sheet of one opened file.
+  const frameKey = `${loadSeq}:${sheet}`;
+  const [frameSelAt, setFrameSelAt] = useState<{
+    key: string;
+    kind: 'slicer' | 'timeline';
+    index: number;
+  } | null>(null);
+  const frameSel = frameSelAt?.key === frameKey ? frameSelAt : null;
+  const setFrameSel = useCallback(
+    (v: { kind: 'slicer' | 'timeline'; index: number } | null) =>
+      setFrameSelAt(v && { key: frameKey, ...v }),
+    [frameKey],
+  );
+
   // Timelines of the sheet: a strip of periods over the grid.
   const [timelines, setTimelines] = useState<{ info: TimelineInfo; rect: Rect }[]>([]);
-  const timelineAnchor = useRef<number | null>(null);
   useEffect(() => {
     if (!host) return;
     let cancelled = false;
@@ -1269,6 +1328,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       cancelled = true;
     };
   }, [host, sheet, view, px, revision]);
+
+  /** The slicer / timeline whose options dialog is open. */
+  const frameDialog =
+    dialog?.kind === 'frameOptions'
+      ? dialog.frames === 'slicer'
+        ? (slicers.find((x) => x.info.index === dialog.index)?.info ?? null)
+        : (timelines.find((x) => x.info.index === dialog.index)?.info ?? null)
+      : null;
 
   // Form controls of the sheet: selected one (design mode), list, settings dialog.
   // The selection belongs to one sheet of one opened file.
@@ -1477,21 +1544,35 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
   const chooseSlicerItem = useCallback(
     (info: SlicerInfo, label: string, multi: boolean) => {
-      const chosen = info.items.filter((i) => i.selected).map((i) => i.label);
-      const all = chosen.length === info.items.length;
-      let next: string[];
-      if (multi) {
-        next = all
-          ? [label]
-          : chosen.includes(label)
-            ? chosen.filter((l) => l !== label)
-            : [...chosen, label];
-      } else {
-        next = !all && chosen.length === 1 && chosen[0] === label ? [] : [label];
-      }
-      void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: next });
+      const items = nextSlicerChoice(info, label, multi);
+      void exec({ cmd: 'slicerSelect', sheet, index: info.index, items });
     },
     [exec, sheet],
+  );
+  const deleteFrame = useCallback(
+    async (kind: 'slicer' | 'timeline', index: number) => {
+      setFrameSel(null);
+      await exec({ cmd: kind === 'slicer' ? 'deleteSlicer' : 'deleteTimeline', sheet, index });
+    },
+    [exec, sheet, setFrameSel],
+  );
+  /** The source records of a pivot table value cell on a new sheet (drill-down). */
+  const drillDown = useCallback(
+    async (row: number, col: number) => {
+      const r = await exec<{ sheet: number; name: string; rows: number }>({
+        cmd: 'pivotDrillDown',
+        sheet,
+        row,
+        col,
+        name: t('sheetSlicer.detailSheet'),
+        labels: pivotLabels,
+      });
+      if (!r) return;
+      setSheet(r.sheet);
+      setSelection(single({ row: 0, col: 0 }));
+      setStatus(t('sheetSlicer.detailShown', { count: r.rows, name: r.name }));
+    },
+    [exec, sheet, t, pivotLabels],
   );
 
   // ------------------------------------------------------------- comments
@@ -2696,16 +2777,59 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         setDialog({ kind: 'dedupe' });
       },
     });
+    // In a pivot table: slicers over its fields; otherwise for the table column of the cell.
     add(
       'insert.slicer',
-      (s) =>
-        exec({
+      async (s) => {
+        if (activePivot) {
+          setDialog({ kind: 'frameInsert', pivot: activePivot, frames: 'slicer' });
+          return;
+        }
+        await exec({
           cmd: 'insertSlicer',
           sheet: s.sheet,
           row: s.selection.active.row,
           col: s.selection.active.col,
-        }),
+        });
+      },
       has,
+    );
+    add(
+      'insert.timeline',
+      async () => {
+        if (activePivot) setDialog({ kind: 'frameInsert', pivot: activePivot, frames: 'timeline' });
+      },
+      { isEnabled: (s) => s.pivot !== null && !!activePivot && !activePivot.model },
+    );
+    add('pivot.showDetails', (s) => drillDown(s.selection.active.row, s.selection.active.col), {
+      isEnabled: (s) => {
+        const a = activePivot?.dataArea;
+        const at = s.selection.active;
+        return (
+          s.pivot !== null &&
+          !!a &&
+          !activePivot?.model &&
+          at.row >= a.r0 &&
+          at.row <= a.r1 &&
+          at.col >= a.c0 &&
+          at.col <= a.c1
+        );
+      },
+    });
+    add(
+      'slicer.settings',
+      async () => {
+        if (frameSel)
+          setDialog({ kind: 'frameOptions', frames: frameSel.kind, index: frameSel.index });
+      },
+      { isEnabled: () => frameSel !== null },
+    );
+    add(
+      'slicer.delete',
+      async () => {
+        if (frameSel) await deleteFrame(frameSel.kind, frameSel.index);
+      },
+      { isEnabled: () => frameSel !== null },
     );
     // Checkboxes and pictures in cells (SHEET-CELL-001).
     registerCellMediaCommands<SheetEditorState>(
@@ -3207,6 +3331,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('options.shortcuts', async () => setShortcutsShown(true));
     return reg;
   }, [
+    deleteFrame,
+    drillDown,
+    frameSel,
     showMacros,
     openSmartArt,
     readAloudLink,
@@ -3609,6 +3736,40 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     return host.hitTest(view, p.x, p.y);
   };
 
+  /** Start moving (header) or sizing (corner handle) a slicer / timeline: anchors in cells. */
+  const startFrameDrag = async (
+    e: ReactMouseEvent,
+    frame: 'slicer' | 'timeline',
+    f: { index: number; from: [number, number]; to: [number, number] },
+    resize: boolean,
+  ) => {
+    if (resize) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const at = { clientX: e.clientX, clientY: e.clientY };
+    const hit = await hitAt(at);
+    const start =
+      hit && (hit.kind === 'cell' || hit.kind === 'chart' || hit.kind === 'smartArt')
+        ? { row: hit.row, col: hit.col }
+        : { row: f.from[0], col: f.from[1] };
+    drag.current = {
+      kind: 'chart',
+      frame,
+      index: f.index,
+      resize,
+      start,
+      from: f.from,
+      to: f.to,
+    };
+  };
+
+  // The frames call the latest handler through a ref (it reads the current view and host).
+  const frameDrag = useRef<typeof startFrameDrag>(async () => {});
+  useEffect(() => {
+    frameDrag.current = startFrameDrag;
+  });
+
   const onMouseDown = async (e: ReactMouseEvent) => {
     if (e.button !== 0) return;
     if (edit) await commit();
@@ -3618,6 +3779,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     setChart(null);
     setSmartArt(null);
     setFormSel(null);
+    setFrameSel(null);
     const multi = (e.ctrlKey || e.metaKey) && !e.shiftKey;
     // Ctrl+click / Ctrl+drag starts another range of a multi-range selection.
     if (multi && (hit.kind === 'cell' || hit.kind === 'columnHeader' || hit.kind === 'rowHeader'))
@@ -3784,7 +3946,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setFillRect(null);
       if (target) {
         void exec({
-          cmd: d.smart ? 'moveSmartArt' : 'moveChart',
+          cmd:
+            d.frame === 'slicer'
+              ? 'moveSlicer'
+              : d.frame === 'timeline'
+                ? 'moveTimeline'
+                : d.smart
+                  ? 'moveSmartArt'
+                  : 'moveChart',
           sheet,
           index: d.index,
           from: target.from,
@@ -3836,7 +4005,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     } else if (hit.kind === 'smartArt') {
       void openSmartArt(sheet, hit.index);
     } else if (hit.kind === 'cell') {
-      void startEdit(true);
+      // A value cell of a pivot table shows its source records instead of being edited.
+      const p = pivots.sheet === sheet ? pivotAt(pivots.list, hit.row, hit.col) : null;
+      const a = p && !p.model ? p.dataArea : null;
+      if (a && hit.row >= a.r0 && hit.row <= a.r1 && hit.col >= a.c0 && hit.col <= a.c1)
+        void drillDown(hit.row, hit.col);
+      else void startEdit(true);
     }
   };
 
@@ -4245,6 +4419,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
               item('insert.table', t('sheetEditor.table.insert'), <Table2 size={18} />),
               item('insert.slicer', t('sheetEditor.slicer.insert'), <ListFilter size={18} />),
               item(
+                'insert.timeline',
+                t('sheetSlicer.insertTimeline'),
+                <CalendarRange size={s} />,
+                'small',
+              ),
+              item(
+                'slicer.settings',
+                t('sheetSlicer.frameOptions'),
+                <Settings2 size={s} />,
+                'small',
+              ),
+              item('slicer.delete', t('sheetSlicer.frameDelete'), <Trash2 size={s} />, 'small'),
+              item(
                 'pivot.options',
                 t('sheetEditor.pivot.options'),
                 <Settings2 size={s} />,
@@ -4422,6 +4609,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             label: t('sheetEditor.pivot.groupActions'),
             items: [
               item('pivot.chart', t('sheetEditor.pivot.chart'), <ChartColumn size={18} />),
+              item(
+                'insert.slicer',
+                t('sheetEditor.slicer.insert'),
+                <ListFilter size={s} />,
+                'small',
+              ),
+              item(
+                'insert.timeline',
+                t('sheetSlicer.insertTimeline'),
+                <CalendarRange size={s} />,
+                'small',
+              ),
+              item(
+                'pivot.showDetails',
+                t('sheetSlicer.showDetails'),
+                <ListChecks size={s} />,
+                'small',
+              ),
               item(
                 'pivot.fieldList',
                 t('sheetEditor.pivot.fieldList'),
@@ -5508,107 +5713,63 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 </div>
               )}
               {timelines.map(({ info, rect }) => (
-                <div
+                <TimelineFrame
                   key={`t${info.index}`}
-                  className={styles.slicer}
-                  data-testid="timeline"
-                  role="group"
-                  aria-label={info.caption}
-                  style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div className={styles.slicerHeader}>
-                    <span>
-                      {info.caption}
-                      <span className={styles.timelineLevel}>
-                        {' · '}
-                        {t(`sheetEditor.timeline.levels.${info.level}`)}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      data-testid="timeline-clear"
-                      title={t('sheetEditor.slicer.clear')}
-                      aria-label={t('sheetEditor.slicer.clear')}
-                      disabled={!info.filtered}
-                      onClick={() => void exec({ cmd: 'timelineSelect', sheet, index: info.index })}
-                    >
-                      <FunnelX size={14} />
-                    </button>
-                  </div>
-                  <div className={styles.timelineStrip}>
-                    {info.periods.map((p, k) => (
-                      <button
-                        key={p.label}
-                        type="button"
-                        className={info.filtered && p.selected ? styles.slicerOn : styles.slicerOff}
-                        aria-pressed={info.filtered && p.selected}
-                        onClick={(e) => {
-                          const from =
-                            e.shiftKey && timelineAnchor.current !== null
-                              ? timelineAnchor.current
-                              : k;
-                          if (!e.shiftKey) timelineAnchor.current = k;
-                          const a = info.periods[Math.min(from, k)] ?? p;
-                          const b = info.periods[Math.max(from, k)] ?? p;
-                          void exec({
-                            cmd: 'timelineSelect',
-                            sheet,
-                            index: info.index,
-                            start: a.start,
-                            end: b.end,
-                          });
-                        }}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  info={info}
+                  rect={rect}
+                  selected={frameSel?.kind === 'timeline' && frameSel.index === info.index}
+                  editable
+                  onSelect={() => setFrameSel({ kind: 'timeline', index: info.index })}
+                  onDragStart={(e, resize) => void frameDrag.current(e, 'timeline', info, resize)}
+                  onSettings={() =>
+                    setDialog({ kind: 'frameOptions', frames: 'timeline', index: info.index })
+                  }
+                  onDelete={() => void deleteFrame('timeline', info.index)}
+                  onRange={(start, end) =>
+                    void exec({ cmd: 'timelineSelect', sheet, index: info.index, start, end })
+                  }
+                  onClear={() => void exec({ cmd: 'timelineSelect', sheet, index: info.index })}
+                  onLevel={(level) =>
+                    void exec({ cmd: 'timelineOptions', sheet, index: info.index, level })
+                  }
+                />
               ))}
               {slicers.map(({ info, rect }) => (
-                <div
+                <SlicerFrame
                   key={info.index}
-                  className={styles.slicer}
-                  data-testid="slicer"
-                  role="group"
-                  aria-label={info.caption}
-                  style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div className={styles.slicerHeader}>
-                    <span>{info.caption}</span>
-                    <button
-                      type="button"
-                      data-testid="slicer-clear"
-                      title={t('sheetEditor.slicer.clear')}
-                      aria-label={t('sheetEditor.slicer.clear')}
-                      disabled={info.items.every((i) => i.selected)}
-                      onClick={() =>
-                        void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: [] })
-                      }
-                    >
-                      <FunnelX size={14} />
-                    </button>
-                  </div>
-                  <div
-                    className={styles.slicerItems}
-                    style={{ gridTemplateColumns: `repeat(${info.columns}, 1fr)` }}
-                  >
-                    {info.items.map((item) => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        className={item.selected ? styles.slicerOn : styles.slicerOff}
-                        aria-pressed={item.selected}
-                        onClick={(e) => chooseSlicerItem(info, item.label, e.ctrlKey || e.metaKey)}
-                      >
-                        {item.label || t('sheetEditor.slicer.blank')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  info={info}
+                  rect={rect}
+                  selected={frameSel?.kind === 'slicer' && frameSel.index === info.index}
+                  editable
+                  onSelect={() => setFrameSel({ kind: 'slicer', index: info.index })}
+                  onDragStart={(e, resize) => void frameDrag.current(e, 'slicer', info, resize)}
+                  onSettings={() =>
+                    setDialog({ kind: 'frameOptions', frames: 'slicer', index: info.index })
+                  }
+                  onDelete={() => void deleteFrame('slicer', info.index)}
+                  onChoose={(label, multi) => chooseSlicerItem(info, label, multi)}
+                  onClear={() =>
+                    void exec({ cmd: 'slicerSelect', sheet, index: info.index, items: [] })
+                  }
+                />
               ))}
+              {chart !== null && chartBox && chartPivot && host && (
+                <PivotChartFilters
+                  pivot={chartPivot.info}
+                  rect={chartBox}
+                  onApply={async (field, hidden) => {
+                    await host.exec({
+                      cmd: 'pivotFieldItems',
+                      sheet: chartPivot.sheet,
+                      index: chartPivot.info.index,
+                      field,
+                      hidden,
+                      labels: pivotLabels,
+                    });
+                    await refreshInfo();
+                  }}
+                />
+              )}
               <TableAutoBar last={tables?.lastAuto ?? null} run={run} />
               {host && (
                 <FormControlLayer
@@ -6651,6 +6812,71 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       )}
       {dialog?.kind === 'pivotSource' && (
         <PivotSourceDialog {...common} pivot={dialog.pivot} labels={pivotLabels} />
+      )}
+      {dialog?.kind === 'frameInsert' && host && (
+        <InsertFramesDialog
+          pivot={dialog.pivot}
+          kind={dialog.frames}
+          onClose={() => setDialog(null)}
+          onInsert={async (fields) => {
+            try {
+              for (const field of fields)
+                await host.exec({
+                  cmd: dialog.frames === 'slicer' ? 'insertPivotSlicer' : 'insertTimeline',
+                  sheet,
+                  pivot: dialog.pivot.index,
+                  field,
+                  labels: pivotLabels,
+                });
+            } finally {
+              await refreshInfo();
+            }
+          }}
+        />
+      )}
+      {dialog?.kind === 'frameOptions' && host && frameDialog && (
+        <FrameOptionsDialog
+          kind={dialog.frames}
+          caption={frameDialog.caption}
+          columns={'columns' in frameDialog ? frameDialog.columns : undefined}
+          style={frameDialog.style ?? null}
+          connections={frameDialog.pivots ?? []}
+          onClose={() => setDialog(null)}
+          onApply={async (o) => {
+            const index = dialog.index;
+            const was = (frameDialog.pivots ?? []).filter((p) => p.connected).map((p) => p.name);
+            const rewired =
+              !!o.pivots &&
+              (o.pivots.length !== was.length || o.pivots.some((n) => !was.includes(n)));
+            const cmds: SheetCommand[] =
+              dialog.frames === 'slicer'
+                ? [
+                    {
+                      cmd: 'slicerOptions',
+                      sheet,
+                      index,
+                      caption: o.caption,
+                      columns: o.columns,
+                      style: o.style,
+                    },
+                  ]
+                : [{ cmd: 'timelineOptions', sheet, index, caption: o.caption, style: o.style }];
+            if (rewired && o.pivots)
+              cmds.push({
+                cmd: dialog.frames === 'slicer' ? 'slicerConnect' : 'timelineConnect',
+                sheet,
+                index,
+                pivots: o.pivots,
+                labels: pivotLabels,
+              });
+            try {
+              // One undo step for the options and the connections.
+              await host.exec({ cmd: 'batch', cmds });
+            } finally {
+              await refreshInfo();
+            }
+          }}
+        />
       )}
       {dialog?.kind === 'pivotMove' && (
         <PivotMoveDialog

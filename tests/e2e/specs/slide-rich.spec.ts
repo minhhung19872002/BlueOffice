@@ -86,9 +86,8 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
   await expect.poll(async () => (await selectionAt(page, 'x')) - orig.x).toBeGreaterThan(5);
   const pasted = await box(page, 'selection-box');
   expect(pasted.y - orig.y).toBeGreaterThan(5);
-  // Move the copy away so both are visible.
-  await page.keyboard.press('Shift+ArrowDown');
-  await page.keyboard.press('Shift+ArrowDown');
+  // Move the copy away so both are visible (an arrow nudges by one grid step, 6 pt).
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
 
   // Table: double-click a cell and type.
   await page.getByRole('tab', { name: 'Chèn' }).click();
@@ -99,7 +98,7 @@ test('bolds part of a shape text, copies/pastes a shape, edits a table cell, sav
     .toBeGreaterThan(500);
   // Below the text boxes.
   const t0 = await box(page, 'selection-box');
-  for (let i = 0; i < 12; i++) await page.keyboard.press('Shift+ArrowDown');
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowDown');
   await expect.poll(async () => (await selectionAt(page, 'y')) - t0.y).toBeGreaterThan(100);
   const t = await box(page, 'selection-box');
   const cell = { x: t.x + t.width / 6, y: t.y + (t.height * 3) / 6 };

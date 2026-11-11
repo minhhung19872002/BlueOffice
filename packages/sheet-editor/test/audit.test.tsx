@@ -18,6 +18,7 @@ import {
   CalcStatus,
   DEFAULT_RULES,
   ErrorCheckDialog,
+  ErrorMarks,
   EvaluateFormulaDialog,
   nextTraces,
   parseIteration,
@@ -321,5 +322,45 @@ describe('WatchWindow and status', () => {
     expect(screen.getByTestId('status-circular').textContent).toBe('Circular reference: Sheet1!A1');
     fireEvent.click(screen.getByTestId('status-calculate'));
     expect(onCalculate).toHaveBeenCalled();
+  });
+});
+
+describe('ErrorMarks', () => {
+  it('marks the flagged cells and offers the fixes of the active one', async () => {
+    const findings: ErrorFinding[] = [
+      { row: 0, col: 0, rule: 'evalError' },
+      { row: 0, col: 1, rule: 'numberAsText', number: 42 },
+    ];
+    const { host, calls } = fakeHost((cmd) => (cmd.cmd === 'errorCheck' ? findings : null));
+    (host as unknown as { rangeRect: unknown }).rangeRect = vi.fn(
+      async (_v: unknown, row: number, col: number) => ({ x: col * 60, y: row * 20, w: 60, h: 20 }),
+    );
+    const onDone = vi.fn();
+    const onEvaluate = vi.fn();
+    wrap(
+      <ErrorMarks
+        host={host}
+        view={{ sheet: 0, scrollX: 0, scrollY: 0, width: 800, height: 600, zoom: 1 } as never}
+        revision={1}
+        rules={DEFAULT_RULES}
+        toScreen={(r) => r}
+        active={{ row: 0, col: 1 }}
+        onDone={onDone}
+        onEdit={() => {}}
+        onEvaluate={onEvaluate}
+        onOptions={() => {}}
+        fail={fail}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('error-mark')).toHaveLength(2));
+    expect(calls[0]).toEqual({ cmd: 'errorCheck', sheet: 0, rules: DEFAULT_RULES });
+    // The active cell (B1, a number stored as text): convert it.
+    fireEvent.click(screen.getByTestId('error-tag'));
+    expect(screen.getByTestId('error-tag-menu').textContent).toContain(
+      'A number is stored as text',
+    );
+    fireEvent.click(screen.getByTestId('error-tag-menu').querySelector('[data-action="convert"]')!);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(host.setInputs).toHaveBeenCalledWith(0, [[0, 1, '42']]);
   });
 });

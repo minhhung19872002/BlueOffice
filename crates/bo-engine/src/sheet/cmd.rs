@@ -551,6 +551,16 @@ pub enum SheetCommand {
         /// 0-based column.
         col: u32,
     },
+    /// What a quick sort of a selection would use: `{range, hasHeader, around}` —
+    /// the range (a single cell's current region), the guess whether its first row
+    /// holds labels, and the current region around the selection's first cell (wider
+    /// than a one-column selection: the "expand the selection?" question).
+    SortRegion {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Selected range.
+        range: Rng,
+    },
     /// Turns the AutoFilter on (over the selection's region) or off.
     ToggleFilter {
         /// 0-based sheet index.
@@ -583,6 +593,10 @@ pub enum SheetCommand {
         source: Rng,
         /// Whole range after filling (contains `source`).
         target: Rng,
+        /// `auto` (default), `toggle` (handle dragged with Ctrl), `copy`, `series`,
+        /// `formats` or `values` (the Auto Fill Options choices).
+        #[serde(default)]
+        mode: Option<String>,
     },
     /// Ctrl+D (`down`) / Ctrl+R (`right`): copies the first row / column.
     FillDir {
@@ -592,6 +606,26 @@ pub enum SheetCommand {
         range: Rng,
         /// `down` or `right`.
         dir: String,
+    },
+    /// Home › Fill › Series: a series from the first cell of each column (`columns`)
+    /// or row of `range`.
+    FillSeries {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Range to fill.
+        range: Rng,
+        /// Series in columns (down) rather than rows (right).
+        columns: bool,
+        /// `linear`, `growth`, `date` or `autoFill`.
+        kind: String,
+        /// Date unit: `day`, `weekday`, `month` or `year`.
+        #[serde(default)]
+        unit: Option<String>,
+        /// Step value.
+        step: f64,
+        /// Stop value (none: to the end of the range).
+        #[serde(default)]
+        stop: Option<f64>,
     },
     /// Adds a conditional formatting rule to a range.
     AddCf {
@@ -2371,6 +2405,10 @@ impl SheetEngine {
         if let Some(qc) = super::quick_cmd::QuickCommand::parse(&v) {
             return Ok(self.quick_command(&qc)?.to_string());
         }
+        // Defined names: Name Manager, New name, Create from Selection.
+        if let Some(nc) = super::names_cmd::NameCommand::parse(&v) {
+            return Ok(self.name_command(nc?)?.to_string());
+        }
         // AutoSum plan (read only; the UI applies it through the normal commands).
         if let Some(ac) = super::autosum_cmd::AutoSumCommand::parse(&v) {
             return Ok(self.auto_sum_command(&ac?)?.to_string());
@@ -3474,6 +3512,17 @@ impl SheetEngine {
             C::ColumnEntries { sheet, row, col } => {
                 Ok(json!(column_entries(self.sheet(sheet)?, row, col)))
             }
+            C::SortRegion { sheet, range } => {
+                let ws = self.sheet(sheet)?;
+                let sel = range.range();
+                let r = current_region(ws, sel);
+                let around = current_region(ws, CellRange::new(sel.first, sel.first));
+                Ok(json!({
+                    "range": Rng::of(r),
+                    "hasHeader": bo_sheet::sort::guess_header(self.wb()?, sheet, r),
+                    "around": Rng::of(around),
+                }))
+            }
             C::Sort {
                 sheet,
                 range,
@@ -3818,18 +3867,67 @@ impl SheetEngine {
                         af.columns.sort_by_key(|c| c.col_id);
                     }
                     let hidden = bo_sheet::filter::apply_auto_filter_at(wb, sheet, &locale, now);
-                    Ok(json!({ "hidden": hidden }))
+                    // Records of the list (rows under the header): "x of y records found".
+                    let total = range.rows().saturating_sub(1);
+                    Ok(json!({ "hidden": hidden, "total": total }))
                 })
             }
             C::Autofill {
                 sheet,
                 source,
                 target,
+                mode,
             } => {
+                use bo_sheet::fill::FillMode as M;
+                let mode = match mode.as_deref() {
+                    Some("toggle") => M::Toggle,
+                    Some("copy") => M::Copy,
+                    Some("series") => M::Series,
+                    Some("formats") => M::Formats,
+                    Some("values") => M::Values,
+                    _ => M::Auto,
+                };
                 let t = target.range();
                 self.edit(sheet, Recalc::Range(sheet, t), |wb, adj| {
-                    let done = bo_sheet::fill::autofill(wb, sheet, source.range(), t, &locale, adj);
+                    let done = bo_sheet::fill::autofill_with(
+                        wb,
+                        sheet,
+                        source.range(),
+                        t,
+                        &locale,
+                        adj,
+                        mode,
+                    );
                     Ok(json!({ "ok": done }))
+                })
+            }
+            C::FillSeries {
+                sheet,
+                range,
+                columns,
+                kind,
+                unit,
+                step,
+                stop,
+            } => {
+                use bo_sheet::fill::{DateUnit as U, SeriesKind as K};
+                let kind = match kind.as_str() {
+                    "growth" => K::Growth,
+                    "autoFill" => K::AutoFill,
+                    "date" => K::Date(match unit.as_deref() {
+                        Some("weekday") => U::Weekday,
+                        Some("month") => U::Month,
+                        Some("year") => U::Year,
+                        _ => U::Day,
+                    }),
+                    _ => K::Linear,
+                };
+                let r = range.range();
+                self.edit(sheet, Recalc::Range(sheet, r), |wb, adj| {
+                    let n = bo_sheet::fill::fill_series_range(
+                        wb, sheet, r, columns, kind, step, stop, &locale, adj,
+                    );
+                    Ok(json!({ "filled": n }))
                 })
             }
             C::FillDir { sheet, range, dir } => {
@@ -3842,17 +3940,21 @@ impl SheetEngine {
                     } else {
                         (r.cols(), r.first.row..=r.last.row)
                     };
-                    if n < 2 {
+                    // One row (Ctrl+D) / column (Ctrl+R) selected: copied from the cell
+                    // above / on the left; otherwise from the first row / column.
+                    let outside = n < 2;
+                    if outside && (if down { r.first.row } else { r.first.col }) == 0 {
                         return Ok(json!({ "ok": false }));
                     }
+                    let (skip, back) = if outside { (0, 1) } else { (1, 0) };
                     for lane in lanes {
                         let src = if down {
-                            (r.first.row, lane)
+                            (r.first.row - back, lane)
                         } else {
-                            (lane, r.first.col)
+                            (lane, r.first.col - back)
                         };
                         let cell = ws.cell(src.0, src.1).cloned();
-                        for i in 1..n {
+                        for i in skip..n {
                             let dst = if down {
                                 (r.first.row + i, lane)
                             } else {
@@ -3862,11 +3964,8 @@ impl SheetEngine {
                                 Some(c) => {
                                     let mut c = c.clone();
                                     if let Some(f) = c.formula.as_mut() {
-                                        let (dr, dc) = if down {
-                                            (i64::from(i), 0)
-                                        } else {
-                                            (0, i64::from(i))
-                                        };
+                                        let d = i64::from(i + back);
+                                        let (dr, dc) = if down { (d, 0) } else { (0, d) };
                                         if let Some(t) = adj.translate(&f.text, dr, dc) {
                                             f.text = t;
                                         }
@@ -4869,20 +4968,46 @@ impl SheetEngine {
             return Err(bad("selection too large to copy"));
         }
         let wb = self.wb()?;
+        // Rows a filter hides are left out of a copy (manually hidden rows are copied):
+        // the rows below move up, their formulas as if they had been copied from there.
+        let spans = if cut {
+            Vec::new()
+        } else {
+            bo_sheet::filter::filter_spans(ws)
+        };
+        let filtered = |r: u32| {
+            spans.iter().any(|&(a, b)| r >= a && r <= b)
+                && ws.rows.get(&r).is_some_and(|i| i.hidden)
+        };
         let mut cells = Vec::new();
         let mut lines = Vec::with_capacity(range.rows() as usize);
+        let mut skipped = 0u32;
         for r in range.first.row..=range.last.row {
+            if filtered(r) {
+                skipped += 1;
+                continue;
+            }
             let mut line = Vec::with_capacity(range.cols() as usize);
             for c in range.first.col..=range.last.col {
                 match ws.cell(r, c) {
-                    Some(cell) => {
-                        cells.push((r - range.first.row, c - range.first.col, cell.clone()));
-                        let text = if cell.formula.is_some() {
-                            bo_sheet::render::format_cell(wb, cell, &self.locale).text
+                    Some(src) => {
+                        let text = if src.formula.is_some() {
+                            bo_sheet::render::format_cell(wb, src, &self.locale).text
                         } else {
-                            self.input_of(cell)
+                            self.input_of(src)
                         };
                         line.push(tsv_field(&text));
+                        let mut cell = src.clone();
+                        if skipped > 0 {
+                            if let Some(f) = cell.formula.as_mut().filter(|f| !f.text.is_empty()) {
+                                if let Some(t) =
+                                    self.adjuster.translate(&f.text, -i64::from(skipped), 0)
+                                {
+                                    f.text = t;
+                                }
+                            }
+                        }
+                        cells.push((r - skipped - range.first.row, c - range.first.col, cell));
                     }
                     None => line.push(String::new()),
                 }
@@ -4890,6 +5015,14 @@ impl SheetEngine {
             lines.push(line.join("\t"));
         }
         let text = lines.join("\r\n");
+        // The block pasted is the visible rows only.
+        let range = CellRange::new(
+            range.first,
+            CellRef::new(
+                (range.last.row - skipped).max(range.first.row),
+                range.last.col,
+            ),
+        );
         self.clip = Some(super::Clip {
             sheet,
             range,
@@ -5296,6 +5429,87 @@ mod tests {
         assert_eq!(e.cell(0, 5, 0).unwrap().input, "29/02/2024 12:00:00");
         e.set_input(0, 5, 0, "0,25").unwrap();
         assert_eq!(e.cell(0, 5, 0).unwrap().input, "6:00:00");
+    }
+
+    #[test]
+    fn a_copy_of_a_filtered_list_takes_its_visible_rows() {
+        let mut e = engine();
+        for (r, row) in [
+            ["Tên", "Điểm", "Đôi"],
+            ["Lan", "7", "=B2*2"],
+            ["Bình", "5", "=B3*2"],
+            ["Châu", "8", "=B4*2"],
+        ]
+        .iter()
+        .enumerate()
+        {
+            for (c, v) in row.iter().enumerate() {
+                e.set_input(0, r as u32, c as u32, v).unwrap();
+            }
+        }
+        run(
+            &mut e,
+            json!({ "cmd": "toggleFilter", "sheet": 0, "range": rng(0, 0, 0, 0) }),
+        );
+        // Bình (row 3) is filtered out.
+        run(
+            &mut e,
+            json!({ "cmd": "setFilter", "sheet": 0, "col": 1, "filter": { "values": ["7", "8"] } }),
+        );
+        let copied = run(
+            &mut e,
+            json!({ "cmd": "copy", "sheet": 0, "range": rng(0, 0, 3, 2) }),
+        );
+        assert_eq!(
+            copied["text"],
+            json!("Tên\tĐiểm\tĐôi\r\nLan\t7\t14\r\nChâu\t8\t16")
+        );
+        run(
+            &mut e,
+            json!({ "cmd": "paste", "sheet": 0, "row": 10, "col": 0 }),
+        );
+        assert_eq!(e.cell(0, 12, 0).unwrap().input, "Châu");
+        assert_eq!(e.cell(0, 12, 2).unwrap().input, "=B13*2");
+        assert_eq!(e.cell(0, 13, 0).unwrap().input, "");
+    }
+
+    #[test]
+    fn new_formulas_take_a_date_or_the_format_they_read() {
+        let mut e = engine();
+        e.set_locale("vi-VN");
+        let fmt = |e: &SheetEngine, r: u32, c: u32| {
+            let wb = e.workbook().unwrap();
+            let cell = wb.sheets[0].cell(r, c).unwrap();
+            wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id)
+        };
+        // =DATE(…) and =TODAY() show a date (id 14), =NOW() a date and time (id 22).
+        e.set_input(0, 0, 0, "=DATE(2026;2;15)").unwrap();
+        assert_eq!(fmt(&e, 0, 0), 14);
+        assert_eq!(e.cell(0, 0, 0).unwrap().display, "15/02/2026");
+        e.set_input(0, 1, 0, "=NOW()").unwrap();
+        assert_eq!(fmt(&e, 1, 0), 22);
+        // A date plus days stays a date; a percentage summed stays a percentage.
+        e.set_input(0, 2, 0, "=A1+7").unwrap();
+        assert_eq!(e.cell(0, 2, 0).unwrap().display, "22/02/2026");
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(0, 1, 1, 1), "patch": { "numFmt": "0%" } }),
+        );
+        e.set_input(0, 0, 1, "0,1").unwrap();
+        e.set_input(0, 1, 1, "0,05").unwrap();
+        e.set_input(0, 2, 1, "=SUM(B1:B2)").unwrap();
+        assert_eq!(e.cell(0, 2, 1).unwrap().display, "15%");
+        // From a General cell: nothing changes (=A4*2 stays General).
+        e.set_input(0, 3, 0, "3").unwrap();
+        e.set_input(0, 4, 0, "=A4*2").unwrap();
+        assert_eq!(fmt(&e, 4, 0), 0);
+        // A cell formatted by the user keeps its format.
+        run(
+            &mut e,
+            json!({ "cmd": "format", "sheet": 0, "range": rng(5, 0, 5, 0), "patch": { "numFmt": "0.00" } }),
+        );
+        e.set_input(0, 5, 0, "=TODAY()").unwrap();
+        assert_ne!(fmt(&e, 5, 0), 14);
     }
 
     // source: ECMA-376 Part 1, §18.17.4.1 (serial 45351 = 2024-02-29), §18.8.30 (ids 14, 20, 22)
@@ -5839,6 +6053,24 @@ mod tests {
         );
         assert_eq!(e.cell(0, 13, 1).unwrap().input, "=A14*2");
         assert_eq!(e.cell(0, 13, 1).unwrap().display, "14");
+        // Ctrl+D in one cell copies the cell above, Ctrl+R the one on the left
+        // (B14 =A14*2 → B15 =A15*2; B11 =A11*2 → C11 =B11*2).
+        run(
+            &mut e,
+            json!({ "cmd": "fillDir", "sheet": 0, "range": rng(14, 1, 14, 1), "dir": "down" }),
+        );
+        assert_eq!(e.cell(0, 14, 1).unwrap().input, "=A15*2");
+        run(
+            &mut e,
+            json!({ "cmd": "fillDir", "sheet": 0, "range": rng(10, 2, 10, 2), "dir": "right" }),
+        );
+        assert_eq!(e.cell(0, 10, 2).unwrap().input, "=B11*2");
+        // Nothing above row 1.
+        let none = run(
+            &mut e,
+            json!({ "cmd": "fillDir", "sheet": 0, "range": rng(0, 5, 0, 5), "dir": "down" }),
+        );
+        assert_eq!(none["ok"], json!(false));
     }
 
     #[test]

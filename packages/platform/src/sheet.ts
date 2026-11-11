@@ -111,6 +111,29 @@ export interface FlashFillResult {
   filled: number;
 }
 
+/** A defined name (`nameList`). */
+export interface DefinedNameInfo {
+  name: string;
+  /** With its `=`: `=Sheet1!$B$2:$B$4`. */
+  refersTo: string;
+  /** Sheet index, or null for the workbook. */
+  scope: number | null;
+  comment: string | null;
+}
+
+/** How the fill handle fills (`autofill` command). */
+export type AutoFillMode = 'auto' | 'toggle' | 'copy' | 'series' | 'formats' | 'values';
+
+/** Result of the `sortRegion` command. */
+export interface SortRegion {
+  /** The range a quick sort uses (a single cell's current region). */
+  range: SheetRange;
+  /** Whether its first row looks like column labels. */
+  hasHeader: boolean;
+  /** The current region around the selection's first cell. */
+  around: SheetRange;
+}
+
 /** Engine error text of an edit refused by sheet protection. */
 export const SHEET_PROTECTED = 'sheet protected';
 /** Engine error text of a sheet operation refused by workbook protection. */
@@ -817,11 +840,56 @@ export type SheetCommand =
     }
   /** Text entries of the column's list around a cell (answer `string[]`): AutoComplete, Alt+Down. */
   | { cmd: 'columnEntries'; sheet: number; row: number; col: number }
+  /** → {@link SortRegion}. */
+  | { cmd: 'sortRegion'; sheet: number; range: SheetRange }
+  /** Defined names → {@link DefinedNameInfo}[]. */
+  | { cmd: 'nameList' }
+  | {
+      cmd: 'defineName';
+      name: string;
+      /** `=Sheet1!$A$1:$A$5`, `=0,1` (`;` / decimal commas accepted). */
+      refersTo: string;
+      /** Sheet index, or null for the workbook. */
+      scope?: number | null;
+      comment?: string;
+      /** The name being edited (replaced). */
+      old?: { name: string; scope: number | null };
+    }
+  | { cmd: 'deleteName'; name: string; scope?: number | null }
+  /** Names from the labels on the chosen sides of `range` → `{ created }`. */
+  | {
+      cmd: 'createNames';
+      sheet: number;
+      range: SheetRange;
+      top?: boolean;
+      left?: boolean;
+      bottom?: boolean;
+      right?: boolean;
+    }
   | { cmd: 'toggleFilter'; sheet: number; range: SheetRange }
   | { cmd: 'filterValues'; sheet: number; col: number }
   | { cmd: 'setFilter'; sheet: number; col: number; filter: FilterSpec | null }
-  | { cmd: 'autofill'; sheet: number; source: SheetRange; target: SheetRange }
+  | {
+      cmd: 'autofill';
+      sheet: number;
+      source: SheetRange;
+      target: SheetRange;
+      /** Auto Fill Options choice; `toggle`: the handle dragged with Ctrl held. */
+      mode?: AutoFillMode;
+    }
   | { cmd: 'fillDir'; sheet: number; range: SheetRange; dir: 'down' | 'right' }
+  /** Home › Fill › Series → `{ filled }`. */
+  | {
+      cmd: 'fillSeries';
+      sheet: number;
+      range: SheetRange;
+      /** Series in columns (down) rather than rows. */
+      columns: boolean;
+      kind: 'linear' | 'growth' | 'date' | 'autoFill';
+      unit?: 'day' | 'weekday' | 'month' | 'year';
+      step: number;
+      stop?: number | null;
+    }
   | { cmd: 'addCf'; sheet: number; range: SheetRange; rule: CfRuleSpec; pivot?: boolean }
   | { cmd: 'listCf'; sheet: number }
   | { cmd: 'editCf'; sheet: number; block: number; rule: number; op: CfOp }

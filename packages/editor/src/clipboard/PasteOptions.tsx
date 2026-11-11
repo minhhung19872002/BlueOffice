@@ -23,6 +23,9 @@ export interface PasteOptionsProps {
   onChoose: (id: string) => void;
   /** Extra menu entry, e.g. the default paste settings. */
   settings?: { label: string; onSelect: () => void };
+  /** Another use of the button (the sheet's Auto Fill Options): its name and test id. */
+  label?: string;
+  testId?: string;
 }
 
 /** Keyboard shortcut opening the menu while the button shows (shown in its tooltip). */
@@ -42,8 +45,11 @@ export function PasteOptionsButton({
   current,
   onChoose,
   settings,
+  label,
+  testId = 'paste-options',
 }: PasteOptionsProps) {
   const { t } = useTranslation();
+  const name = label ?? t('pasteOptions.button');
   const [open, setOpen] = useState(false);
   // Placed when shown (hosts remount the button for each paste), then kept in place
   // while the page scrolls or resizes.
@@ -128,12 +134,12 @@ export function PasteOptionsButton({
         ref={button}
         type="button"
         className={styles.pasteButton}
-        data-testid="paste-options"
-        aria-label={t('pasteOptions.button')}
+        data-testid={testId}
+        aria-label={name}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-keyshortcuts={PASTE_OPTIONS_SHORTCUT}
-        title={`${t('pasteOptions.button')} (${PASTE_OPTIONS_SHORTCUT})`}
+        title={`${name} (${PASTE_OPTIONS_SHORTCUT})`}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((o) => !o)}
       >
@@ -145,8 +151,8 @@ export function PasteOptionsButton({
           ref={menu}
           className={styles.pasteMenu}
           role="menu"
-          aria-label={t('pasteOptions.menu')}
-          data-testid="paste-options-menu"
+          aria-label={label ?? t('pasteOptions.menu')}
+          data-testid={`${testId}-menu`}
           onKeyDown={onMenuKey}
         >
           {options.map((o, i) => (

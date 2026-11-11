@@ -52,6 +52,9 @@ import type {
   AutoSumFunction,
   AutoSumPlan,
   FlashFillResult,
+  SortRegion,
+  AutoFillMode,
+  FormulaCheck,
   InvalidCellsResult,
   SheetPermissions,
   FormControlInfo,
@@ -197,6 +200,8 @@ import {
   Snowflake,
   Table2,
   TableProperties,
+  Tag,
+  Tags,
   TableCellsMerge,
   TextAlignCenter,
   TextAlignEnd,
@@ -325,6 +330,7 @@ import {
   ChartFormatPane,
   chartElementsGroup,
   registerChartElementCommands,
+  PasteOptionsButton,
 } from '@blueoffice/editor';
 import { cycleReference } from './formulaRef';
 import {
@@ -374,6 +380,7 @@ import {
   CalcOptionsDialog,
   CalcStatus,
   CircularWarning,
+  ErrorMarks,
   ErrorCheckDialog,
   EvaluateFormulaDialog,
   TraceArrowsOverlay,
@@ -473,7 +480,9 @@ import {
 } from './homeControls';
 import { VERTICAL_TEXT } from './orientation';
 import { PageSetupDialog, PrintPreviewDialog } from './pageSetup';
-import { AdvancedFilterDialog, SortDialog } from './sortFilter';
+import { AdvancedFilterDialog, SortDialog, SortWarningDialog } from './sortFilter';
+import { CreateNamesDialog, NameEditDialog, NameManagerDialog, absoluteRef } from './names';
+import { SeriesDialog } from './fillSeries';
 import {
   CustomViewsDialog,
   PageBreakOverlay,
@@ -770,6 +779,14 @@ type DialogState =
   /** Create table: its range and whether the first row holds the names. */
   | { kind: 'table'; range: string; headers: boolean }
   | { kind: 'sort' }
+  /** A quick sort of one column inside a wider block: expand the selection? */
+  | { kind: 'sortWarning'; descending: boolean; col: number; range: SheetRange }
+  /** Defined names: the Name Manager, New name, Create from Selection. */
+  | { kind: 'nameManager' }
+  /** Home › Fill › Series. */
+  | { kind: 'series'; firstIsDate: boolean }
+  | { kind: 'defineName' }
+  | { kind: 'createNames'; guess: { top: boolean; left: boolean } }
   | { kind: 'advancedFilter' }
   | { kind: 'cf' }
   | { kind: 'cfManage' }
@@ -1070,6 +1087,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     mode: SheetPasteChoice;
     base: SheetPasteBase;
     /** The selection the paste set: another selection ends the paste options. */
+    sel: Selection;
+  } | null>(null);
+  /** The last fill-handle fill while Auto Fill Options can redo it another way. */
+  const [fillUi, setFillUi] = useState<{
+    n: number;
+    mode: AutoFillMode;
+    source: SheetRange;
+    target: SheetRange;
     sel: Selection;
   } | null>(null);
   /** The last copy was a cut (pasted once: no paste options). */
@@ -1459,8 +1484,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   ]);
 
   // Selection overlay + formula bar contents.
+  /**
+   * An entry was refused (formula syntax, validation) and its edit given back: a read of
+   * the cell the commit had moved to, still on its way, must not blank the formula bar.
+   */
+  const holdBar = useRef(false);
   useEffect(() => {
     if (!host || !info) return;
+    // An edit given back after a refused entry is shown again: drop the hold.
+    if (edit) holdBar.current = false;
     const r = rangeOf(selection);
     let cancelled = false;
     if (hasGrid) {
@@ -1490,7 +1522,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       if (cancelled) return;
       setSelRect(px(rect));
       setActiveRect(px(act));
-      if (!edit) setBarText(cell.input);
+      if (!edit && !holdBar.current) setBarText(cell.input);
     })().catch(() => {});
     return () => {
       cancelled = true;
@@ -1678,7 +1710,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     void (async () => {
       const list = await host.exec<ChartInfo[]>({ cmd: 'charts', sheet });
       const c = list?.[chart];
-      if (cancelled || !c) return;
+      if (cancelled) return;
+      // The chart is gone (undo of its insertion, deleted by a collaborator): unselect.
+      if (!c) {
+        setChart(null);
+        return;
+      }
       const r = await host.rangeRect(view, c.from[0], c.from[1], c.to[0] - 1, c.to[1] - 1);
       if (cancelled) return;
       setChartInfo(c);
@@ -2164,6 +2201,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       // Move first so typing that follows lands in the next cell.
       if (next) setSelection(next);
       try {
+        // A formula that does not parse (even read with `;` separators, decimal commas
+        // and closing parentheses added) is not entered: the editor stays open on it.
+        if (e.text.length > 1 && e.text.startsWith('=')) {
+          const chk = await host.exec<FormulaCheck>({ cmd: 'checkFormula', formula: e.text });
+          if (chk && chk.error) {
+            holdBar.current = true;
+            setSelection(single(e.pos));
+            setEdit(e);
+            setBarText(e.text);
+            if (inputRef.current) inputRef.current.value = e.text;
+            setDialog({
+              kind: 'message',
+              title: t('sheetEditor.formulaError.title'),
+              message: t('sheetEditor.formulaError.message'),
+            });
+            return;
+          }
+        }
         if (hasRule) {
           // Cells with a validation rule are checked by the engine (§18.3.1.32).
           const r = await host.exec<{ rejected: Rejection | null; warning: Rejection | null }>({
@@ -2181,6 +2236,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             });
           }
           if (r?.rejected) {
+            holdBar.current = true;
             setSelection(single(e.pos));
             setEdit(e);
             setBarText(e.text);
@@ -3123,6 +3179,15 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         shortcut: 'Ctrl+R',
       },
     );
+    add('edit.fillSeries', async (s) => {
+      const r = rangeOf(s.selection);
+      // A date in the first cell (shown as a date in the formula bar) proposes date steps.
+      const first = await s.host.cell(s.sheet, r.r0, r.c0);
+      setDialog({
+        kind: 'series',
+        firstIsDate: /^\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}/.test(first.input),
+      });
+    });
     add('edit.find', open({ kind: 'find', replace: false }), { shortcut: 'Ctrl+F' });
     add('edit.replace', open({ kind: 'find', replace: true }), { shortcut: 'Ctrl+H' });
     add('edit.goto', open({ kind: 'goto' }), { shortcut: 'Ctrl+G' });
@@ -3513,6 +3578,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
 
     // Insert
     add('insert.chart', popup('chart', 'insert.chart'), has);
+    // Alt+F1: a clustered column chart of the selection's data on this sheet, selected.
+    add(
+      'insert.chartDefault',
+      async (s) => {
+        const res = await exec<{ index: number }>({
+          cmd: 'insertChart',
+          sheet: s.sheet,
+          range: toRange(rangeOf(s.selection)),
+          kind: 'column',
+        });
+        if (res) setChart(res.index);
+      },
+      { shortcut: 'Alt+F1', ...has },
+    );
     add('insert.chartRecommended', async () => setRecommendOpen(true), has);
     // Quick Analysis of a multi-cell selection (CORE-DESIGN-001).
     add('format.quickAnalysis', async () => setQuickOpen((o) => !o), {
@@ -3945,14 +4024,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     );
 
     // Data
+    // A→Z / Z→A: a single cell sorts its block of data, a range itself; the first row is
+    // kept in place when it looks like labels. One column of a wider block asks first
+    // whether to expand the selection (the default) or sort that column alone.
     const quickSort = (descending: boolean) => async (s: SheetEditorState) => {
       const r = rangeOf(s.selection);
+      const g = await query<SortRegion>({ cmd: 'sortRegion', sheet: s.sheet, range: toRange(r) });
+      if (!g) return;
+      const col = s.selection.active.col;
+      if (r.c0 === r.c1 && r.r0 !== r.r1 && (g.around.c0 < r.c0 || g.around.c1 > r.c1)) {
+        setDialog({ kind: 'sortWarning', descending, col, range: toRange(r) });
+        return;
+      }
       await exec({
         cmd: 'sort',
         sheet: s.sheet,
-        range: toRange(r),
-        keys: [{ col: s.selection.active.col, descending }],
-        hasHeader: cellsOf(r) === 1,
+        range: g.range,
+        keys: [{ col, descending }],
+        hasHeader: g.hasHeader,
       });
     };
     add('data.sortAsc', quickSort(false));
@@ -4017,6 +4106,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     add('data.ungroupRows', outlineGroup(true, true));
     add('data.groupCols', outlineGroup(false, false));
     add('data.ungroupCols', outlineGroup(false, true));
+    // Alt+Shift+→ / ←: whole columns selected group the columns, anything else the rows.
+    const wholeCols = (s: SheetEditorState) => {
+      const r = rangeOf(s.selection);
+      return r.r0 === 0 && r.r1 >= Math.max(info?.sheets[s.sheet]?.lastRow ?? 0, 999);
+    };
+    add('data.group', (s) => outlineGroup(!wholeCols(s), false)(s), {
+      shortcut: 'Alt+Shift+ArrowRight',
+    });
+    add('data.ungroup', (s) => outlineGroup(!wholeCols(s), true)(s), {
+      shortcut: 'Alt+Shift+ArrowLeft',
+    });
     add('data.autoOutline', async (s) => {
       const r = rangeOf(s.selection);
       try {
@@ -4174,6 +4274,24 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       );
     add('formula.autoSumMenu', popup('autoSum', 'formula.autoSumMenu'), has);
     add('formula.insertFunction', async () => setFnDialog(true), { shortcut: 'Shift+F3', ...has });
+    // Defined names.
+    add('formulas.nameManager', open({ kind: 'nameManager' }), { shortcut: 'Ctrl+F3', ...has });
+    add('formulas.defineName', open({ kind: 'defineName' }), has);
+    add(
+      'formulas.createFromSelection',
+      async (s) => {
+        // Ticked at first: the top row / left column when its first label cell holds text.
+        const r = rangeOf(s.selection);
+        const text = async (row: number, col: number) => {
+          const c = await s.host.cell(s.sheet, row, col);
+          return c.input !== '' && !c.input.startsWith('=') && Number.isNaN(Number(c.display));
+        };
+        const top = r.c1 > r.c0 ? await text(r.r0, r.c0 + 1) : await text(r.r0, r.c0);
+        const left = r.r1 > r.r0 ? await text(r.r0 + 1, r.c0) : false;
+        setDialog({ kind: 'createNames', guess: { top, left: left && r.c1 > r.c0 } });
+      },
+      { shortcut: 'Ctrl+Shift+F3', ...has },
+    );
     // F4 outside a formula: the last formatting / row-column command again (CORE-UI-004).
     reg.trackRepeat((id) => SHEET_REPEATABLE.test(id));
     add(
@@ -4223,6 +4341,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     clearSelection,
     info,
     exec,
+    query,
     formatSel,
     presets,
     painter,
@@ -4742,6 +4861,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (e.key === 'F5') {
       e.preventDefault();
       run('edit.goto');
+      return;
+    }
+    // Alt+Down on a heading of the AutoFilter: its drop-down.
+    const af = summary?.autoFilter;
+    const at = selection.active;
+    if (
+      e.altKey &&
+      e.key === 'ArrowDown' &&
+      af &&
+      at.row === af[0] &&
+      at.col >= af[1] &&
+      at.col <= af[3]
+    ) {
+      e.preventDefault();
+      const c = canvasRef.current?.getBoundingClientRect();
+      if (c && selRect)
+        setFilterMenu({ col: at.col, x: c.left + selRect.x, y: c.top + selRect.y + selRect.h });
       return;
     }
     if (e.altKey && e.key === 'ArrowDown' && !e.ctrlKey && !e.shiftKey) {
@@ -5442,6 +5578,32 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     }
   };
 
+  /** Fills `target` from `source` (one undo step); the Auto Fill Options button follows. */
+  const runFill = async (source: Range, target: Range, mode: AutoFillMode) => {
+    const done = await exec({
+      cmd: 'autofill',
+      sheet,
+      source: toRange(source),
+      target: toRange(target),
+      mode,
+    });
+    if (done === null) return;
+    const sel = span({ row: target.r0, col: target.c0 }, { row: target.r1, col: target.c1 });
+    setSelection(sel);
+    setFillUi({ n: Date.now(), mode, source: toRange(source), target: toRange(target), sel });
+  };
+
+  /** Auto Fill Options: the last fill again in another way (replacing it). */
+  const switchFill = async (mode: AutoFillMode) => {
+    const ui = fillUi && fillUi.sel === selection ? fillUi : null;
+    if (!host || !ui || ui.mode === mode) return;
+    if (!(await host.undo())) return;
+    await exec({ cmd: 'autofill', sheet, source: ui.source, target: ui.target, mode });
+    setSelection(ui.sel);
+    setFillUi({ ...ui, n: ui.n + 1, mode });
+    focusInput();
+  };
+
   // Mouse-up ends drags anywhere on the page.
   const endDrag = useRef<(e: MouseEvent) => void>(() => {});
   const onDragEnd = (e: MouseEvent) => {
@@ -5486,18 +5648,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       const target = fillTo.current;
       fillTo.current = null;
       setFillRect(null);
-      if (target) {
-        void exec({
-          cmd: 'autofill',
-          sheet,
-          source: toRange(d.source),
-          target: toRange(target),
-        }).then(() =>
-          setSelection(
-            span({ row: target.r0, col: target.c0 }, { row: target.r1, col: target.c1 }),
-          ),
-        );
-      }
+      // Ctrl held when the handle is released: a single number counts up, a series copies.
+      if (target) void runFill(d.source, target, e.ctrlKey || e.metaKey ? 'toggle' : 'auto');
     } else if (d.kind === 'move') {
       setFillRect(null);
       const to = d.to;
@@ -5660,14 +5812,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (!region || region.r1 <= src.r1) return;
     const target = fillTarget(src, { row: region.r1, col: src.c0 });
     if (!target) return;
-    const done = await exec({
-      cmd: 'autofill',
-      sheet,
-      source: toRange(src),
-      target: toRange(target),
-    });
-    if (done !== null)
-      setSelection(span({ row: target.r0, col: target.c0 }, { row: target.r1, col: target.c1 }));
+    await runFill(src, target, 'auto');
   };
 
   const onNameBox = (text: string) => {
@@ -5677,6 +5822,11 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       void host
         .exec<{ sheet: number; range: SheetRange } | null>({ cmd: 'resolve', sheet, text })
         .then((r) => {
+          // A new name typed in the Name Box names the selection (workbook scope).
+          if (!r && /^[\p{L}_\\][\p{L}\p{N}_.\\?]*$/u.test(text.trim())) {
+            const at = absoluteRef(info?.sheets[sheet]?.name ?? '', toRange(rangeOf(selection)));
+            void exec({ cmd: 'defineName', name: text.trim(), refersTo: at });
+          }
           if (!r) return;
           setSheet(r.sheet);
           select(span({ row: r.range.r0, col: r.range.c0 }, { row: r.range.r1, col: r.range.c1 }));
@@ -6079,6 +6229,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <ArrowRightToLine size={s} />,
                 'small',
               ),
+              item(
+                'edit.fillSeries',
+                t('sheetEditor.series.title'),
+                <ListOrdered size={s} />,
+                'small',
+              ),
               item('edit.find', t('sheetEditor.find.title'), <Search size={s} />, 'small'),
               item(
                 'edit.replace',
@@ -6392,6 +6548,20 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             ],
           },
           {
+            id: 'definedNames',
+            label: t('sheetNames.group'),
+            items: [
+              item('formulas.nameManager', t('sheetNames.manager'), <Tags size={18} />),
+              item('formulas.defineName', t('sheetNames.define'), <Tag size={s} />, 'small'),
+              item(
+                'formulas.createFromSelection',
+                t('sheetNames.createFromSelection'),
+                <TableProperties size={s} />,
+                'small',
+              ),
+            ],
+          },
+          {
             id: 'formulaAudit',
             label: t('sheetAudit.groupAudit'),
             items: [
@@ -6424,6 +6594,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 <AuditIcons.evaluate size={18} />,
               ),
               item('formulas.watch', t('sheetAudit.watch'), <AuditIcons.watch size={18} />),
+              // Show formulas (Ctrl+`) also sits with the auditing tools.
+              item(
+                'view.showFormulas',
+                t('sheetViews.showFormulas'),
+                <SquareFunction size={s} />,
+                'small',
+              ),
             ],
           },
           {
@@ -7513,6 +7690,23 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   height={size.h}
                 />
               )}
+              {host && (
+                <ErrorMarks
+                  host={host}
+                  view={view}
+                  revision={revision}
+                  rules={audit.rules}
+                  toScreen={px}
+                  active={selection.active}
+                  onDone={refreshInfo}
+                  onEdit={() => void startEdit(true)}
+                  onEvaluate={(row, col) =>
+                    setAuditDialog({ kind: 'evaluate', cell: { sheet, row, col } })
+                  }
+                  onOptions={() => setAuditDialog({ kind: 'errors' })}
+                  fail={fail}
+                />
+              )}
               <PeerSelections boxes={peerBoxes} />
               {selRect && chart === null && headers && (
                 <>
@@ -7942,6 +8136,25 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
             />
           )}
         </div>
+        {fillUi && fillUi.sel === selection && !edit && (
+          <PasteOptionsButton
+            key={fillUi.n}
+            testId="autofill-options"
+            label={t('sheetEditor.autoFill.button')}
+            anchor={() => {
+              const c = canvasRef.current?.getBoundingClientRect();
+              return c && selRect
+                ? { x: c.left + selRect.x + selRect.w, y: c.top + selRect.y + selRect.h }
+                : null;
+            }}
+            options={(['copy', 'series', 'formats', 'values'] as const).map((id) => ({
+              id,
+              label: t(`sheetEditor.autoFill.${id}`),
+            }))}
+            current={fillUi.mode}
+            onChoose={(id) => void switchFill(id as AutoFillMode)}
+          />
+        )}
         <SheetClipboardUi
           paste={pasteUi && pasteUi.sel === selection ? pasteUi : null}
           anchor={() => {
@@ -8501,6 +8714,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           col={filterMenu.col}
           x={filterMenu.x}
           y={filterMenu.y}
+          range={
+            summary?.autoFilter
+              ? {
+                  r0: summary.autoFilter[0],
+                  c0: summary.autoFilter[1],
+                  r1: summary.autoFilter[2],
+                  c1: summary.autoFilter[3],
+                }
+              : { r0: 0, c0: filterMenu.col, r1: 0, c1: filterMenu.col }
+          }
+          onNotice={setStatus}
           onClose={() => {
             setFilterMenu(null);
             focusInput();
@@ -8598,6 +8822,61 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         />
       )}
       {dialog?.kind === 'sort' && <SortDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'series' && (
+        <SeriesDialog
+          {...common}
+          range={toRange(r)}
+          firstIsDate={dialog.firstIsDate}
+          decimal={decimal}
+        />
+      )}
+      {dialog?.kind === 'nameManager' && (
+        <NameManagerDialog
+          {...common}
+          sheets={info?.sheets.map((x) => x.name) ?? []}
+          refersTo={absoluteRef(info?.sheets[sheet]?.name ?? '', toRange(r))}
+        />
+      )}
+      {dialog?.kind === 'defineName' && (
+        <NameEditDialog
+          {...common}
+          sheets={info?.sheets.map((x) => x.name) ?? []}
+          refersTo={absoluteRef(info?.sheets[sheet]?.name ?? '', toRange(r))}
+        />
+      )}
+      {dialog?.kind === 'createNames' && (
+        <CreateNamesDialog
+          {...common}
+          range={toRange(r)}
+          guess={dialog.guess}
+          onCreated={(names) => setStatus(t('sheetNames.created', { count: names.length }))}
+        />
+      )}
+      {dialog?.kind === 'sortWarning' && (
+        <SortWarningDialog
+          onClose={() => setDialog(null)}
+          onSort={(expand) => {
+            const d = dialog;
+            setDialog(null);
+            void (async () => {
+              // Expand: the block around the first cell; otherwise the selected cells.
+              const at = expand
+                ? { r0: d.range.r0, c0: d.range.c0, r1: d.range.r0, c1: d.range.c0 }
+                : d.range;
+              const g = await query<SortRegion>({ cmd: 'sortRegion', sheet, range: at });
+              if (!g) return;
+              await exec({
+                cmd: 'sort',
+                sheet,
+                range: g.range,
+                keys: [{ col: d.col, descending: d.descending }],
+                hasHeader: g.hasHeader,
+              });
+              focusInput();
+            })();
+          }}
+        />
+      )}
       {dialog?.kind === 'advancedFilter' && <AdvancedFilterDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'cf' && <CfDialog {...common} range={toRange(r)} />}
       {dialog?.kind === 'cfManage' && <CfManagerDialog {...common} />}

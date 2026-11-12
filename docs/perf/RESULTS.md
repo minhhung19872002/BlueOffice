@@ -187,3 +187,9 @@ nhánh chỉnh sửa story, tránh đóng đầu trang/chú thích. Hai kiểm t
 footnote đã qua; ba ca web từng lỗi cần chạy lại với WASM mới. Danh sách vẽ của trang xa
 vùng nhìn hiện được loại khỏi cache cùng canvas, có kiểm thử; chưa đo lại RAM nên chưa
 kết luận mức giảm hoặc đạt ngưỡng.
+
+Sau khi build WASM mới, ba ca web từng thất bại về sửa đầu trang, chú thích và sửa đầu trang
+có theo dõi thay đổi đã qua 3/3. Cache ảnh giải mã của vùng tài liệu BlueDoc hiện giới hạn
+64 MiB / 256 mục sau khi vẽ; ảnh đang được các trang sử dụng được giữ đến khi vẽ xong,
+bitmap bị loại được đóng. Các app khác chưa dùng cơ chế giới hạn này. Test đơn vị kiểm tra
+không đóng ảnh đang được vẽ đồng thời; chưa có phép đo RAM sau thay đổi.

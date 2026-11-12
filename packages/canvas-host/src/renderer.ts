@@ -84,16 +84,56 @@ const defaultDecoder: ImageDecoder = async (bytes) => {
 /** Caches pictures referenced by `image` commands (bytes fetched from the engine). */
 export class ImageStore {
   private images = new Map<string, LoadedImage | null>();
+  private pins = new Map<string, number>();
   /** Bumped by `clear`: decodes started for an earlier document are dropped. */
   private generation = 0;
 
   constructor(
     private readonly engine: Pick<EngineHost, 'getMedia'>,
     private readonly decode: ImageDecoder = defaultDecoder,
+    private readonly maxBytes = 64 * 1024 * 1024,
+    private readonly maxEntries = 256,
   ) {}
 
   get(media: string): LoadedImage | null | undefined {
-    return this.images.get(media);
+    const value = this.images.get(media);
+    if (this.images.has(media)) {
+      this.images.delete(media);
+      this.images.set(media, value ?? null);
+    }
+    return value;
+  }
+
+  /** Keep page images alive while they are fetched and drawn, then evict old bitmaps. */
+  async withPage<T>(page: PageDisplayList, draw: () => Promise<T> | T): Promise<T> {
+    const names = new Set(page.commands.flatMap((c) => (c.op === 'image' ? [c.image] : [])));
+    const generation = this.generation;
+    for (const name of names) this.pins.set(name, (this.pins.get(name) ?? 0) + 1);
+    try {
+      await this.ensure(page);
+      return await draw();
+    } finally {
+      if (generation === this.generation) {
+        for (const name of names) {
+          const count = this.pins.get(name) ?? 0;
+          if (count <= 1) this.pins.delete(name);
+          else this.pins.set(name, count - 1);
+        }
+        this.trim();
+      }
+    }
+  }
+
+  private trim(): void {
+    let bytes = 0;
+    for (const image of this.images.values()) if (image) bytes += image.width * image.height * 4;
+    for (const [name, image] of this.images) {
+      if (bytes <= this.maxBytes && this.images.size <= this.maxEntries) break;
+      if (this.pins.has(name)) continue;
+      if (image) bytes -= image.width * image.height * 4;
+      release(image);
+      this.images.delete(name);
+    }
   }
 
   /** Number of decoded pictures held (tests, CORE-PERF-001). */
@@ -107,6 +147,7 @@ export class ImageStore {
    */
   clear(): void {
     this.generation++;
+    this.pins.clear();
     for (const img of this.images.values()) release(img);
     this.images.clear();
   }

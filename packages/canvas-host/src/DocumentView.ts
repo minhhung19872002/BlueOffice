@@ -745,15 +745,20 @@ export class DocumentView {
   /** Draw page `index` into `canvas`, `width` CSS pixels wide (page thumbnails). */
   async renderThumbnail(index: number, canvas: HTMLCanvasElement, width: number): Promise<void> {
     const list = await this.pageList(index);
-    await Promise.all([this.glyphs.ensure(list), this.images.ensure(list)]);
-    const dpr = window.devicePixelRatio || 1;
-    const scale = (width / list.width) * dpr;
-    canvas.width = Math.max(1, Math.round(list.width * scale));
-    canvas.height = Math.max(1, Math.round(list.height * scale));
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${Math.round((width * list.height) / list.width)}px`;
-    const ctx = canvas.getContext('2d');
-    if (ctx) renderPage(ctx, list, this.glyphs, scale, this.images);
+    const glyphs = this.glyphs.ensure(list);
+    // Attach a handler while image decoding is pending; awaiting still propagates errors.
+    void glyphs.catch(() => {});
+    await this.images.withPage(list, async () => {
+      await glyphs;
+      const dpr = window.devicePixelRatio || 1;
+      const scale = (width / list.width) * dpr;
+      canvas.width = Math.max(1, Math.round(list.width * scale));
+      canvas.height = Math.max(1, Math.round(list.height * scale));
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${Math.round((width * list.height) / list.width)}px`;
+      const ctx = canvas.getContext('2d');
+      if (ctx) renderPage(ctx, list, this.glyphs, scale, this.images);
+    });
   }
 
   setZoom(z: number): void {
@@ -930,24 +935,28 @@ export class DocumentView {
         const slot = this.slots[i];
         if (!slot || slot.renderedAt === key) return;
         const list = await this.pageList(i);
-        await Promise.all([this.glyphs.ensure(list), this.images.ensure(list)]);
-        const scale = PX_PER_PT * this.zoomValue * dpr;
-        const canvas = slot.canvas ?? document.createElement('canvas');
-        canvas.width = Math.round(list.width * scale);
-        canvas.height = Math.round(list.height * scale);
-        canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        renderPage(ctx, list, this.glyphs, scale, this.images);
-        if (list.marks?.length) drawFormattingMarks(ctx, list.marks, scale);
-        slot.el.dataset.marks = String(list.marks?.length ?? 0);
-        this.paintMarkup(slot, list.width, list.height, list.markup);
-        if (!slot.canvas) {
-          slot.el.insertBefore(canvas, slot.overlay);
-          slot.canvas = canvas;
-        }
-        slot.renderedAt = key;
-        slot.el.dataset.rendered = 'true';
+        const glyphs = this.glyphs.ensure(list);
+        void glyphs.catch(() => {});
+        await this.images.withPage(list, async () => {
+          await glyphs;
+          const scale = PX_PER_PT * this.zoomValue * dpr;
+          const canvas = slot.canvas ?? document.createElement('canvas');
+          canvas.width = Math.round(list.width * scale);
+          canvas.height = Math.round(list.height * scale);
+          canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          renderPage(ctx, list, this.glyphs, scale, this.images);
+          if (list.marks?.length) drawFormattingMarks(ctx, list.marks, scale);
+          slot.el.dataset.marks = String(list.marks?.length ?? 0);
+          this.paintMarkup(slot, list.width, list.height, list.markup);
+          if (!slot.canvas) {
+            slot.el.insertBefore(canvas, slot.overlay);
+            slot.canvas = canvas;
+          }
+          slot.renderedAt = key;
+          slot.el.dataset.rendered = 'true';
+        });
       }),
     );
   }

@@ -196,6 +196,45 @@ describe('canvas renderer', () => {
     expect(peak).toBeLessThanOrEqual(10);
   });
 
+  it('bounds decoded images without closing bitmaps still being drawn', async () => {
+    const closed: string[] = [];
+    const images = new ImageStore(
+      { getMedia: async (name) => new TextEncoder().encode(name) },
+      async (bytes) => {
+        const name = new TextDecoder().decode(bytes);
+        return { image: { close: () => closed.push(name) }, width: 10, height: 10 };
+      },
+      400,
+      2,
+    );
+    const page = (name: string): PageDisplayList => ({
+      width: 10,
+      height: 10,
+      commands: [{ op: 'image', image: name, x: 0, y: 0, w: 10, h: 10 }],
+    });
+    let finish!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const first = images.withPage(page('first'), async () => {
+      started();
+      await held;
+      expect(closed).not.toContain('first');
+    });
+    await entered;
+    await images.withPage(page('second'), () => expect(images.get('second')).toBeDefined());
+    expect(closed).toContain('second');
+    finish();
+    await first;
+    expect(images.size).toBe(1);
+    images.clear();
+    expect(closed).toContain('first');
+  });
+
   it('draws slide paths, gradients, transforms and clip paths', async () => {
     const { ctx, ops } = recorder();
     const glyphs = new GlyphStore({ getGlyphOutlines: async () => [] }, (d) => `P(${d})`);

@@ -9,7 +9,8 @@ use tauri::State;
 #[tauri::command]
 pub fn engine_slide_command(state: State<'_, EngineState>, json: String) -> Result<String, String> {
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    e.slide_command_json(&json).map_err(|e| e.to_string())
+    crate::perf::timed("engine_slide_command", || e.slide_command_json(&json))
+        .map_err(|e| e.to_string())
 }
 
 /// Insert a picture (raw body, `x-file-name` header) on the current slide.

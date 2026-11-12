@@ -6,5 +6,6 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: { port: 1420, strictPort: true },
-  build: { target: 'es2022', outDir: 'dist' },
+  // No source maps in the shipped bundle (they would be embedded in the exe).
+  build: { target: 'es2022', outDir: 'dist', sourcemap: false },
 });

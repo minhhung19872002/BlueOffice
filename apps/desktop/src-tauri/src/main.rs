@@ -10,6 +10,7 @@
 
 mod automation;
 mod collab_cmds;
+mod perf;
 mod print;
 mod query_cmds;
 mod sheet_cmds;
@@ -89,14 +90,16 @@ fn engine_open(
         .and_then(|v| v.to_str().ok())
         .map(percent_decode);
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    e.open_with_password(&bytes, &name, password.as_deref())
-        .map_err(|e| e.to_string())
+    perf::timed("engine_open", || {
+        e.open_with_password(&bytes, &name, password.as_deref())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn engine_page(state: State<'_, EngineState>, index: usize) -> Result<String, String> {
     let e = state.0.lock().map_err(|e| e.to_string())?;
-    e.page_json(index).map_err(|e| e.to_string())
+    perf::timed("engine_page", || e.page_json(index)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -106,7 +109,9 @@ fn engine_glyph_outlines(
     glyphs: Vec<u16>,
 ) -> Result<String, String> {
     let e = state.0.lock().map_err(|e| e.to_string())?;
-    Ok(e.glyph_outlines_json(face, &glyphs))
+    Ok(perf::timed("engine_glyph_outlines", || {
+        e.glyph_outlines_json(face, &glyphs)
+    }))
 }
 
 #[tauri::command]
@@ -125,7 +130,7 @@ fn engine_new(state: State<'_, EngineState>, name: String) -> Result<DocInfo, St
 #[tauri::command]
 fn engine_command(state: State<'_, EngineState>, json: String) -> Result<String, String> {
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    e.command_json(&json).map_err(|e| e.to_string())
+    perf::timed("engine_command", || e.command_json(&json)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -716,11 +721,19 @@ fn set_title(window: tauri::WebviewWindow, title: String) -> Result<(), String> 
 }
 
 fn main() {
-    let builder = tauri::Builder::default()
-        // Must be the first plugin: a second launch forwards its args here.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+    perf::mark("process-main", None);
+    let builder = tauri::Builder::default();
+    // Must be the first plugin: a second launch forwards its args here. A measured run
+    // (BLUEOFFICE_PERF_LOG) is its own instance, so a copy already open elsewhere on the
+    // machine does not take its launch.
+    let builder = if perf::enabled() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             dispatch_requests(app, shell::classify_args(argv.iter().skip(1)));
         }))
+    };
+    let builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol(print::SCHEME, |ctx, req| {
@@ -728,10 +741,24 @@ fn main() {
         });
     #[cfg(feature = "updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // Start-up / latency probe of the web views (BLUEOFFICE_PERF_LOG only).
+    let builder = match perf::plugin() {
+        Some(p) => builder.plugin(p),
+        None => builder,
+    };
     builder
+        .on_page_load(|w, payload| {
+            let event = match payload.event() {
+                PageLoadEvent::Started => "page-load-started",
+                PageLoadEvent::Finished => "page-load-finished",
+            };
+            perf::mark(event, Some(serde_json::json!({ "window": w.label() })));
+        })
         .setup(|app| {
-            app.manage(EngineState(Mutex::new(Engine::with_bundled_fonts())));
-            app.manage(sheet_cmds::SheetState::new());
+            perf::mark("setup", None);
+            let engine = perf::timed("engine_create", Engine::with_bundled_fonts);
+            app.manage(EngineState(Mutex::new(engine)));
+            app.manage(perf::timed("sheet_create", sheet_cmds::SheetState::new));
             app.manage(PrintJobs::default());
             app.manage(FontsReady::default());
             #[cfg(feature = "webdriver")]
@@ -748,6 +775,7 @@ fn main() {
                     }
                 }
                 fonts_app.state::<FontsReady>().done();
+                perf::mark("system-fonts-ready", None);
             });
             // Windows/Linux dev builds: register schemes at runtime (installers do it at install time).
             #[cfg(all(debug_assertions, any(windows, target_os = "linux")))]
@@ -769,6 +797,7 @@ fn main() {
                     .collect();
                 dispatch_requests(&handle, reqs);
             });
+            perf::mark("setup-done", None);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -831,9 +860,14 @@ fn main() {
             sign_cmds::verify_document,
             sign_cmds::sign_defaults,
             sign_cmds::sign_token_certificates,
-            set_title
+            set_title,
+            perf::perf_mark
         ])
-        .run(tauri::generate_context!())
+        .run({
+            let context = tauri::generate_context!();
+            perf::mark("context-ready", None);
+            context
+        })
         .expect("error while running BlueOffice");
 }
 

@@ -6,7 +6,6 @@ export {
   type FileTypeOption,
 } from './FileTypeDialog';
 export {
-  Ribbon,
   ribbonLabels,
   SIMPLIFIED_COUNT,
   simplifiedItems,
@@ -78,7 +77,6 @@ export {
   type RibbonLayoutPlan,
 } from './ribbonLayout';
 export {
-  StatusBar,
   StatusButtons,
   StatusZoom,
   type StatusBarCustomize,
@@ -168,13 +166,7 @@ export {
   type IconLocale,
 } from './iconLibrary/catalog';
 export { svgToPng } from './iconLibrary/raster';
-export {
-  QuickAccessBar,
-  TitleBar,
-  type QuickAccessItem,
-  type SaveState,
-  type TitleBarProps,
-} from './TitleBar';
+export { type QuickAccessItem, type SaveState, type TitleBarProps } from './TitleBar';
 export {
   CommandSearch,
   isCommandSearchKey,
@@ -381,3 +373,16 @@ export {
   type PinnedFile,
   type SettingStore,
 } from './pinnedFiles';
+
+// Window chrome the editors rebuild on every keystroke: re-rendered only when its props change
+// in content, so typing does not re-render the ribbon / status bar / title bar
+// (docs/perf/RESULTS.md, step 4).
+import { Ribbon as RibbonView } from './Ribbon';
+import { StatusBar as StatusBarView } from './StatusBar';
+import { stableMemo } from './stableMemo';
+import { QuickAccessBar as QuickAccessBarView, TitleBar as TitleBarView } from './TitleBar';
+export { sameContent, stableMemo } from './stableMemo';
+export const Ribbon = stableMemo(RibbonView);
+export const StatusBar = stableMemo(StatusBarView);
+export const TitleBar = stableMemo(TitleBarView);
+export const QuickAccessBar = stableMemo(QuickAccessBarView);

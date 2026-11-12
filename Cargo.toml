@@ -84,9 +84,15 @@ fn_params_excessive_bools = "allow"
 # `as_chunks` needs Rust 1.88 (MSRV is 1.85).
 chunks_exact_to_as_chunks = "allow"
 
+# Shipping builds (desktop exe, bo-cli for the server, WASM): whole-program optimisation.
+# `panic = "abort"`: no code catches unwinding (no `catch_unwind`); a panic ends the process
+# either way, now without unwind tables / landing pads. `cargo test --release` still builds
+# test harnesses with unwinding. Measurements and build times: docs/perf/RESULTS.md (step 2).
 [profile.release]
-lto = "thin"
-codegen-units = 4
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
 
 [profile.release.package.bo-wasm]
 opt-level = "s"

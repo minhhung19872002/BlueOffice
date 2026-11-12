@@ -1246,7 +1246,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       opts: { custom?: number; rehearse?: boolean; record?: boolean } = {},
     ) => {
       if (!count) return;
-      const pr = edit?.presenting;
+      const pr = ctrl.last?.presenting;
       const st = pr?.setup ?? DEFAULT_SHOW_SETUP;
       let order = playOrder(count, {
         setup: st,
@@ -1287,7 +1287,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       const browse = st.showType === 'browse' && !presenter && !opts.rehearse && !opts.record;
       setView(presenter ? 'presenter' : browse ? 'reading' : 'show');
     },
-    [count, view, showCache, edit, ink, engine],
+    [count, view, showCache, ctrl, ink, engine],
   );
 
   // .ppsx / .ppsm open straight into the slide show (the deck itself opens normally).
@@ -2111,10 +2111,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     },
     [nodeEdit, run],
   );
+  // Callbacks read the latest result from the controller: new engine results do not make
+  // new callbacks (and a new command registry) on each keystroke (RESULTS.md step 4).
   const openSmartArt = useCallback(() => {
-    const s = edit?.smartart;
+    const s = ctrl.last?.smartart;
     if (s) setSmartArtDialog({ mode: 'edit', initial: s });
-  }, [edit]);
+  }, [ctrl]);
   const applySmartArt = useCallback(
     (d: SmartArtDraft) => {
       const mode = smartArtDialog?.mode;
@@ -2140,7 +2142,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const latestPreview = useMemo(() => latestOnly(), []);
   const smartApi = useMemo<SmartArtToolsApi>(
     () => ({
-      state: () => edit?.smartart ?? null,
+      state: () => ctrl.last?.smartart ?? null,
       node: () => smartNode,
       setNode: setSmartNode,
       apply: (patch) => run({ cmd: 'setSmartArt', ...patch }),
@@ -2150,7 +2152,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       togglePane: () => setSmartPane((v) => !v),
       loadPreviews: loadSmartArtPreviews,
       preview: (patch) => {
-        const s = edit?.smartart;
+        const s = ctrl.last?.smartart;
         if (!patch || !s || !smartFrame) {
           latestPreview(Promise.resolve(null), setSmartPreview);
           return;
@@ -2172,7 +2174,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         );
       },
     }),
-    [edit, smartNode, smartPane, run, ctrl, loadSmartArtPreviews, smartFrame, latestPreview],
+    [smartNode, smartPane, run, ctrl, loadSmartArtPreviews, smartFrame, latestPreview],
   );
   // A click on a shape inside a diagram selects that shape, as in the office suites: it becomes
   // the current shape of Add Shape, Promote / Demote and the text pane, marked in the frame.
@@ -2200,9 +2202,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [ctrl, smartId, smartNode, smartItems]);
   const openChart = useCallback(() => {
-    const c = edit?.chart;
+    const c = ctrl.last?.chart;
     if (c) setChartDialog({ mode: 'edit', initial: chartDraftOf(c) });
-  }, [edit]);
+  }, [ctrl]);
   // One element change of the selected chart = one `setChart` command (one undo step).
   const sendChartElements = useCallback(
     (patch: ChartElementsPatch) => run({ cmd: 'setChart', elements: patch }),
@@ -2310,12 +2312,13 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const [mediaHub] = useState(() => new MediaActionsHub());
   // The deck keeps its type: presentation, template, slide show, with or without
   // macros (CORE-FMT-001).
+  const deckVariant = info?.variant;
   const saveDeck = useCallback(
     async (variant?: string | null) => {
       await ctrl.idle();
       const name = saveName(
         deckBase(fileName) || t('slideEditor.untitled'),
-        variant ?? info?.variant,
+        variant ?? deckVariant,
         'pptx',
       );
       const saved = await platform.files.saveFile(
@@ -2329,7 +2332,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         setStatus(t('slideEditor.saved', { name: saved }));
       }
     },
-    [ctrl, fileName, info, t, platform, engine],
+    [ctrl, fileName, deckVariant, t, platform, engine],
   );
   /** Save as the type picked in the "Save as" dialog. */
   const saveAsTypeChosen = useCallback(
@@ -2530,6 +2533,10 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
 
   const registry = useMemo(() => {
     const reg = new CommandRegistry<SlideEditorState>();
+    // The latest engine result, read when a command runs or the ribbon asks: the registry is
+    // not rebuilt for each result (it was, on every keystroke; docs/perf/RESULTS.md step 4).
+    const cur = () => ctrl.last;
+    const showSetup = () => cur()?.presenting?.setup ?? DEFAULT_SHOW_SETUP;
     const guard = async (f: () => Promise<unknown>) => {
       try {
         await f();
@@ -2739,7 +2746,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       id: 'transition.applyAll',
       isEnabled: (s) => s.hasDeck && (s.transition ?? 'none') !== 'none',
       run: () => {
-        const tr = edit?.transition;
+        const tr = cur()?.transition;
         if (!tr) return;
         run({
           cmd: 'setTransition',
@@ -2866,11 +2873,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     reg.register({
       id: 'show.useTimings',
       isEnabled: deck,
-      isChecked: () => setup.useTimings,
+      isChecked: () => showSetup().useTimings,
       run: () =>
         run({
           cmd: 'setShowSetup',
-          setup: { ...setup, useTimings: !setup.useTimings },
+          setup: { ...showSetup(), useTimings: !showSetup().useTimings },
         }),
     });
     // Recording the show (SLIDE-REC-001).
@@ -2905,8 +2912,12 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     reg.register({
       id: 'show.playNarration',
       isEnabled: deck,
-      isChecked: () => setup.narration,
-      run: () => run({ cmd: 'setShowSetup', setup: { ...setup, narration: !setup.narration } }),
+      isChecked: () => showSetup().narration,
+      run: () =>
+        run({
+          cmd: 'setShowSetup',
+          setup: { ...showSetup(), narration: !showSetup().narration },
+        }),
     });
 
     // History and selection.
@@ -3070,7 +3081,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     reg.register({
       id: 'slide.hide',
       isEnabled: deck,
-      isChecked: (s) => (edit?.presenting?.hidden ?? []).includes(s.current),
+      isChecked: (s) => (cur()?.presenting?.hidden ?? []).includes(s.current),
       run: () => run({ cmd: 'hideSlides', slides: selectedSlides() }),
     });
     // WCAG 2.5.7: reorder slides without dragging their thumbnails (also Ctrl+Shift+↑ / ↓).
@@ -3107,7 +3118,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         shortcut: key,
         isEnabled: text,
         run: () => {
-          const size = edit?.format.size;
+          const size = cur()?.format.size;
           run({
             cmd: 'formatText',
             format:
@@ -3129,11 +3140,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         shortcut: key,
         isEnabled: text,
         isChecked: () => {
-          const b = (ctrl.last ?? edit)?.format.baseline ?? 0;
+          const b = cur()?.format.baseline ?? 0;
           return value > 0 ? b > 0 : b < 0;
         },
         run: () => {
-          const b = (ctrl.last ?? edit)?.format.baseline ?? 0;
+          const b = cur()?.format.baseline ?? 0;
           const on = value > 0 ? b > 0 : b < 0;
           run({ cmd: 'formatText', format: { kind: 'baseline', value: on ? 0 : value } });
         },
@@ -3154,7 +3165,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isEnabled: text,
       run: () =>
         guard(async () => {
-          const r = ctrl.last ?? edit;
+          const r = cur();
           const te = r?.textEdit;
           if (te) {
             let [a, z] = [Math.min(te.start, te.end), Math.max(te.start, te.end)];
@@ -3175,7 +3186,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       id: 'format.fontDialog',
       shortcut: 'Ctrl+T',
       isEnabled: text,
-      run: async () => setFontDialog(fontChoiceOf((ctrl.last ?? edit)?.format)),
+      run: async () => setFontDialog(fontChoiceOf(cur()?.format)),
     });
     // Format painter (Home › Clipboard): a click loads it once, a double-click keeps it.
     reg.register({
@@ -3291,7 +3302,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       begin: async () => {
         const req = await slideReadRequest({
           run: (c) => ctrl.run(c),
-          edit,
+          edit: cur(),
           withNotes: readNotes,
           fallbackLang: uiLang || 'vi-VN',
         });
@@ -3320,14 +3331,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       isEnabled: deck,
       run: () => {
         const exec = (c: SlideCommand) => ctrl.run(c);
-        const editing = !!edit?.textEdit;
+        const editing = !!cur()?.textEdit;
         thesaurusLink.open({
           target: {
-            word: slideWordAtCaret(edit)?.word ?? '',
+            word: slideWordAtCaret(cur())?.word ?? '',
             ...(editing
               ? {
                   replace: (text: string, word: string) => slideReplaceWord(exec, word, text),
-                  insert: (text: string) => spliceEdited(exec, edit, text, true),
+                  insert: (text: string) => spliceEdited(exec, cur(), text, true),
                 }
               : {}),
           },
@@ -3340,8 +3351,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       begin: async (_s, action) => {
         const exec = (c: SlideCommand) => ctrl.run(c);
         const provider = platform.translation;
-        const editing = !!edit?.textEdit;
-        const shapes = edit?.selection ?? [];
+        const editing = !!cur()?.textEdit;
+        const shapes = cur()?.selection ?? [];
         const single = !editing && shapes.length === 1 ? shapes[0] : undefined;
         const shapesAction: TranslateAction = {
           id: 'shapes',
@@ -3363,7 +3374,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             const texts = await readDeckTexts(
               exec,
               count,
-              edit?.slide ?? 0,
+              cur()?.slide ?? 0,
               shapes.map((s) => s.id),
             );
             const { deck: done, count: n } = await translateDeckTexts(texts, provider, from, to, {
@@ -3381,11 +3392,11 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
         };
         translateLink.open({
           source: {
-            text: editing ? editedSelection(edit) : (single?.text ?? '').replace(/\v/g, '\n'),
+            text: editing ? editedSelection(cur()) : (single?.text ?? '').replace(/\v/g, '\n'),
             ...(editing
               ? {
-                  replace: (tr: string) => spliceEdited(exec, edit, tr, true),
-                  insert: (tr: string) => spliceEdited(exec, edit, tr, false),
+                  replace: (tr: string) => spliceEdited(exec, cur(), tr, true),
+                  insert: (tr: string) => spliceEdited(exec, cur(), tr, false),
                 }
               : single
                 ? {
@@ -3701,7 +3712,6 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     showCache,
     count,
     displayTarget,
-    setup,
     captionsEnabled,
     captionsAvailable,
     paneOpen,
@@ -3728,7 +3738,6 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     openSmartArt,
     smartApi,
     openChart,
-    edit,
     pos.slide,
     runProtect,
     setProtectUi,
@@ -3749,6 +3758,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     deleteSlides,
     duplicateSlides,
   ]);
+
 
   // Add-ins of the organisation catalogue (CORE-ADDIN-001): ribbon commands, task panes.
   // Their calls go through the BlueScript API (ADR-0012), without moving the focus.
@@ -3813,7 +3823,14 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     };
   }, [count, current, edit, sectionPick, pointsFor, selectedId, panZoomFor]);
   // Built-in themes and variants (one command each).
-  const design = edit?.design;
+  // Every engine result carries the design list afresh: registered again only when it changed
+  // (re-registering on each keystroke re-rendered the whole ribbon twice; RESULTS.md step 4).
+  const designJson = edit?.design ? JSON.stringify(edit.design) : '';
+  const design = useMemo(
+    () =>
+      designJson ? (JSON.parse(designJson) as NonNullable<SlideEditResult['design']>) : undefined,
+    [designJson],
+  );
   useEffect(() => registerDesignChoices(registry, run, design), [registry, run, design]);
   useEffect(
     () => registerShapeTools(registry, run, setEditingPoints),

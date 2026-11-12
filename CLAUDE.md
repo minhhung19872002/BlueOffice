@@ -95,6 +95,7 @@ cargo install tauri-driver --locked                        # E2E desktop (WebDri
 pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater,webdriver --config src-tauri/tauri.webdriver.conf.json   # bản E2E khi chạy với quyền admin (CI): WebView2 bỏ qua biến WEBVIEW2_* ở tiến trình elevated
 MSEDGEDRIVER=<msedgedriver.exe> pnpm test:e2e:desktop      # target/release/bluedoc.exe (BLUEDOC_EXE=…; COLLAB_E2E=0 bỏ ca deep link); ca so ảnh P1.10 cần apps/web/dist
 pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater   # bản có auto-update (docs/deploy/desktop-update.md)
+MSEDGEDRIVER=<msedgedriver.exe> pnpm perf:desktop -- --runs 5 [--exe …] [--profile <máy>]   # tốc độ bản release: khởi động, mở 100 trang, phím→glyph, cuộn, RAM, render/phím (docs/perf/BASELINE.md; BLUEOFFICE_PERF_LOG)
 # Desktop env: BLUEOFFICE_SYSTEM_FONTS=0 · BLUEOFFICE_PRINT_DIALOG=0 · BLUEOFFICE_UPDATE_URL · BLUEOFFICE_E2E_SAVE_DIR (docs/deploy/desktop-print.md)
 BLUEOFFICE_SERVER=http://localhost:5000 bluedoc.exe "bluedoc://open?host=…&file=…&token=…"   # mở file host + cộng tác
 
@@ -144,6 +145,9 @@ cộng tác, chế độ chỉ xem — dùng chung cho web nhúng và desktop de
 - Khả năng tiếp cận (WCAG 2.2 AA, `docs/ui/accessibility-audit.md`): UI mới phải qua `tests/e2e/specs/a11y.spec.ts`;
   chữ màu accent dùng `--bo-*-accent-text`, nền mang chữ trắng dùng `--bo-*-accent-strong`; mục bấm ≥ 24 px; hộp thoại
   dùng `Dialog` của `packages/ui` (trả focus); vùng khung mới cho F6 đánh dấu `data-f6-region`; thao tác kéo phải có lệnh thay thế.
+- Gõ phím không được render lại ribbon / title bar / status bar (`tests/e2e/specs/perf-renders.spec.ts`): các
+  component này xuất qua `stableMemo` (`packages/ui`) — prop hàm chỉ là callback sự kiện (không render prop);
+  kết quả engine của BlueDoc render sau khi vẽ trang (`useDeferredStore`).
 - Code UI/editor không gọi API trình duyệt/Tauri trực tiếp cho việc phụ thuộc nền tảng → đi qua `Platform`.
 - **Thứ tự font = FaceId**: `assets/fonts/manifest.json`, `crates/bo-engine/src/bundled.rs`, `FONT_FILES` trong desktop phải khớp (có test).
   Font hệ thống (desktop, `SystemFontIndex`) nạp lười, FaceId luôn **sau** font đóng gói; parity/so ảnh tắt bằng `BLUEOFFICE_SYSTEM_FONTS=0`.

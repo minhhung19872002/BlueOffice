@@ -20,6 +20,7 @@
 // drive the app through tauri-driver + msedgedriver ($MSEDGEDRIVER, matching WebView2), as the
 // desktop E2E does. Windows only (process tree memory through CIM).
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, totalmem, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -38,6 +39,7 @@ const exe = resolve(
   opt('exe', process.env.BLUEDOC_EXE || join(targetDir, 'release', 'bluedoc.exe')),
 );
 const runs = Number(opt('runs', '5'));
+if (!Number.isInteger(runs) || runs < 1) throw new Error('--runs must be a positive integer');
 const outDir = resolve(opt('out', join(root, 'out', 'perf')));
 const profile = opt('profile', process.env.PERF_PROFILE || '');
 const baselinePath = opt(
@@ -188,7 +190,6 @@ async function waitNoOtherInstance() {
     const left = findOurs();
     if (left.length === 0) return;
     if (i === 0) console.log(`waiting for ${left.length} earlier ${exe} process(es) to exit…`);
-    if (i === 10) for (const p of left) killTree(p.pid);
     await sleep(1000);
   }
   throw new Error(`${exe} keeps running: stop it first`);
@@ -527,7 +528,7 @@ async function interactionRuns() {
   process.env.BLUEOFFICE_PERF_LOG = log;
   const driver = await startDriver();
   try {
-    for (let i = 0; i < Math.max(1, Math.min(runs, 3)); i++) {
+    for (let i = 0; i < runs; i++) {
       await waitNoOtherInstance();
       rmSync(log, { force: true });
       const r = await webdriverRun(log);
@@ -548,6 +549,8 @@ async function interactionRuns() {
       const total = fr.reduce((a, b) => a + b, 0);
       out.push({
         view: r.view,
+        keySamplesMs: field('latency'),
+        keyBreakdownSamples: keys,
         keyToPaintMs: { median: median(field('latency')), p95: pct(field('latency'), 0.95) },
         keyBreakdownMs: Object.fromEntries(
           [
@@ -644,6 +647,41 @@ function summarize(st, wdRuns) {
   return m;
 }
 
+// Percentiles are computed over runs (and, for key latency, over all measured keystrokes).
+// Keep the count so an incomplete run cannot be mistaken for ten observations.
+function distributions(st, wdRuns, metrics) {
+  const samples = Object.fromEntries(Object.keys(metrics).map((key) => [key, []]));
+  const count = Math.max(st.start.length, st.startScreen.length, st.open.length, wdRuns.length);
+  for (let i = 0; i < count; i++) {
+    const one = summarize(
+      {
+        start: st.start[i] ? [st.start[i]] : [],
+        startScreen: st.startScreen[i] ? [st.startScreen[i]] : [],
+        open: st.open[i] ? [st.open[i]] : [],
+      },
+      wdRuns[i] ? [wdRuns[i]] : [],
+    );
+    for (const [key, value] of Object.entries(one))
+      if (Number.isFinite(value) && samples[key]) samples[key].push(value);
+  }
+  const stats = (values) => ({
+    n: values.length,
+    median: r1(median(values)),
+    p95: r1(pct(values, 0.95)),
+  });
+  const result = Object.fromEntries(
+    Object.entries(samples).map(([key, values]) => [key, stats(values)]),
+  );
+  result['type.keyToPaintAllKeysMs'] = stats(wdRuns.flatMap((run) => run.keySamplesMs));
+  for (const key of Object.keys(wdRuns[0]?.keyBreakdownMs ?? {}))
+    result[`typeBreakdownAllKeys.${key}`] = stats(
+      wdRuns.flatMap((run) =>
+        run.keyBreakdownSamples.map((sample) => sample[key]).filter(Number.isFinite),
+      ),
+    );
+  return result;
+}
+
 // Lower is better except these.
 const HIGHER_IS_BETTER = new Set(['scroll.fps']);
 // Compared with the baseline (the rest is informative).
@@ -731,8 +769,9 @@ function markdown(result, cmp) {
       '',
       `Web view: ${v.pages} pages, engine status "${v.engine ?? '—'}", WASM fetched: ${v.wasm?.length ? v.wasm.join(', ') : 'none'}, devicePixelRatio ${v.dpr}, page canvas backing / CSS px ${v.backing == null ? '—' : r1(v.backing * 100) / 100}`,
     );
-  L.push('', '## All metrics (median)', '', '| Metric | Value |', '|---|---|');
-  for (const [k, v] of Object.entries(m)) L.push(`| \`${k}\` | ${v ?? 'n/a'} |`);
+  L.push('', '## Distributions', '', '| Metric | N | Median | p95 |', '|---|---:|---:|---:|');
+  for (const [k, v] of Object.entries(result.distributions))
+    L.push(`| \`${k}\` | ${v.n} | ${v.median ?? 'n/a'} | ${v.p95 ?? 'n/a'} |`);
   if (cmp) {
     L.push('', `## Against the baseline (warn > ${warnOver} %, fail > ${failOver} %)`, '');
     L.push('| Metric | Baseline | Now | Worse by | Status |', '|---|---|---|---|---|');
@@ -759,6 +798,7 @@ const wdRuns = useWebDriver ? await interactionRuns() : [];
 const result = {
   date: new Date().toISOString(),
   exe,
+  exeSha256: createHash('sha256').update(readFileSync(exe)).digest('hex'),
   runs,
   profile,
   machine: { ...mach, nodeCpus: cpus().length, totalMemGB: Math.round(totalmem() / 2 ** 30) },
@@ -768,6 +808,7 @@ const result = {
   raw: st,
   webdriver: wdRuns,
 };
+result.distributions = distributions(st, wdRuns, result.metrics);
 let cmp = null;
 if (baselinePath && existsSync(baselinePath) && !flag('update-baseline')) {
   cmp = compare(result.metrics, JSON.parse(readFileSync(baselinePath, 'utf8')));

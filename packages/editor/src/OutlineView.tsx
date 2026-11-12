@@ -212,7 +212,9 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
               onDragLeave={() => setDropOn((d) => (d === it.para ? null : d))}
               onDrop={(e) => drop(e, it.para)}
               // A click on the caret's line types in it; on another line moves the caret.
-              onClick={() => (it.para === current && it.editable ? setEditing(it.para) : select(it.para))}
+              onClick={() =>
+                it.para === current && it.editable ? setEditing(it.para) : select(it.para)
+              }
               onDoubleClick={() => onClose(it.para)}
             >
               <button

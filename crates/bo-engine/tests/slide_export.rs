@@ -504,14 +504,18 @@ fn package_copies_local_linked_clips_only() {
     let mut e = deck(1);
     let video = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video";
     let audio = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio";
+    let abs_path = abs.to_string_lossy().replace('\\', "/");
+    // Unix absolute paths already start with '/', unlike Windows drive paths. Four
+    // slashes denote a network share, which the package intentionally rejects.
+    let abs_uri = if abs_path.starts_with('/') {
+        format!("file://{abs_path}")
+    } else {
+        format!("file:///{abs_path}")
+    };
     let rels = &mut e.presentation_mut().unwrap().slides[0].info.rels;
     for (id, ty, target) in [
         ("rIdL1", video, "clips/intro.mp4".to_owned()),
-        (
-            "rIdL2",
-            audio,
-            format!("file:///{}", abs.to_string_lossy().replace('\\', "/")),
-        ),
+        ("rIdL2", audio, abs_uri),
         ("rIdL3", video, "https://example.com/remote.mp4".to_owned()),
         ("rIdL4", video, "missing.mp4".to_owned()),
     ] {

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, work/desktop-performance]
   pull_request:
 
 concurrency:
@@ -289,7 +289,7 @@ jobs:
         if: matrix.e2e
         run: |
           cargo build --release -p bo-cli
-          node scripts/perf-desktop.mjs --runs 5 --baseline out/perf-baseline/desktop-perf.json
+          node scripts/perf-desktop.mjs --runs 10 --baseline out/perf-baseline/desktop-perf.json
         env:
           BO_CLI: ${{ github.workspace }}/target/release/bo-cli.exe
       - uses: actions/upload-artifact@v4

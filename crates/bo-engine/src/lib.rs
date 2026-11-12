@@ -330,6 +330,9 @@ pub struct Engine {
     file_variant: Option<variant::Variant>,
     /// Variant the next saves produce when it differs (`saveFormat`).
     save_variant: Option<variant::Variant>,
+    /// Template the document was created from (its file name), recorded as the attached
+    /// template (§17.15.1.6) when saved as a document (CORE-FMT-001).
+    attached_template: Option<String>,
     /// VBA project of the opened legacy binary file (`.doc`, `.ppt`) rebuilt as a
     /// `vbaProject.bin`: added to saves of a macro-enabled variant.
     legacy_vba: Option<bo_binary::vba::LegacyProject>,
@@ -487,6 +490,7 @@ impl Engine {
             self.vba = vba_view::of_open_file(macros, bytes);
             if is_zip {
                 self.file_variant = variant::detect(bytes).or(self.file_variant);
+                self.attached_template = None;
             } else {
                 self.keep_legacy_vba(macros, bytes, variant::Variant::Pptm);
             }
@@ -558,6 +562,7 @@ impl Engine {
         self.vba = vba_view::of_open_file(macros, bytes);
         if is_zip {
             self.file_variant = variant::detect(bytes).or(self.file_variant);
+            self.attached_template = None;
         } else if bytes.starts_with(CFB_SIGNATURE) {
             self.keep_legacy_vba(macros, bytes, variant::Variant::Docm);
         }
@@ -618,6 +623,7 @@ impl Engine {
         self.file_variant = Some(variant::Variant::Docx);
         self.legacy_vba = None;
         self.save_variant = None;
+        self.attached_template = None;
         self.display = None;
         self.goal_x = None;
         self.drag_origin = None;
@@ -860,6 +866,7 @@ impl Engine {
         self.file_variant = Some(variant::Variant::Pptx);
         self.legacy_vba = None;
         self.save_variant = None;
+        self.attached_template = None;
         self.deck_seq += 1;
         self.collab = None;
         self.slide_collab = None;
@@ -1285,6 +1292,17 @@ impl Engine {
         let v = variant::Variant::from_ext(ext)
             .filter(|v| v.app() == app)
             .ok_or_else(|| EngineError::Unsupported(ext.to_owned()))?;
+        // A document made from a template names it (BlueDoc; decks have no attached
+        // template). Saving back as a template forgets it.
+        let from_template =
+            app == "doc" && self.file_variant.is_some_and(variant::Variant::template);
+        if from_template && !v.template() {
+            if self.attached_template.is_none() && !self.name.is_empty() {
+                self.attached_template = Some(self.name.clone());
+            }
+        } else if v.template() {
+            self.attached_template = None;
+        }
         self.save_variant = (Some(v) != self.file_variant).then_some(v);
         if !self.name.is_empty() {
             self.name = with_ext(&self.name, v.ext());
@@ -1304,6 +1322,7 @@ impl Engine {
             self.legacy_vba = Some(p);
             self.file_variant = Some(enabled);
             self.save_variant = None;
+            self.attached_template = None;
             if !self.name.is_empty() {
                 self.name = with_ext(&self.name, enabled.ext());
             }
@@ -1324,8 +1343,12 @@ impl Engine {
                 return Ok(variant::convert(&bytes, v)?.bytes);
             }
         }
-        match self.save_variant {
-            Some(v) if Some(v) != self.file_variant => Ok(variant::convert(&bytes, v)?.bytes),
+        let bytes = match self.save_variant {
+            Some(v) if Some(v) != self.file_variant => variant::convert(&bytes, v)?.bytes,
+            _ => bytes,
+        };
+        match &self.attached_template {
+            Some(t) if self.session.is_some() => variant::attach_template(&bytes, t),
             _ => Ok(bytes),
         }
     }

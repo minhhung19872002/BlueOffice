@@ -60,6 +60,53 @@ mod view_cmd;
 
 pub use cmd::{Clip, PasteMode, SheetCommand};
 
+/// An Excel 4.0 macro sheet ([MS-XLSX] `xlMacrosheet` / `xlIntlMacrosheet` relationship of
+/// a §18.2.19 `sheet`), kept as an opaque part.
+fn is_macro_sheet(ws: &bo_model::sheet::Worksheet) -> bool {
+    matches!(&ws.kind, bo_model::sheet::SheetKind::Opaque { rel_type, .. }
+        if rel_type.ends_with("/xlMacrosheet") || rel_type.ends_with("/xlIntlMacrosheet"))
+}
+
+/// The workbook without its macro sheets, for a macro-free file (`None`: it has none, or
+/// only macro sheets). Defined names local to a removed sheet or referring to one go too;
+/// the other local names follow their sheet's new index (§18.2.5 `localSheetId`).
+pub(crate) fn without_macro_sheets(wb: &Workbook) -> Option<Workbook> {
+    let removed: Vec<usize> = (0..wb.sheets.len())
+        .filter(|&i| is_macro_sheet(&wb.sheets[i]))
+        .collect();
+    if removed.is_empty() || removed.len() == wb.sheets.len() {
+        return None;
+    }
+    let names: Vec<String> = removed.iter().map(|&i| wb.sheets[i].name.clone()).collect();
+    let mut out = wb.clone();
+    for &i in removed.iter().rev() {
+        out.sheets.remove(i);
+    }
+    let refers = |f: &str| {
+        names.iter().any(|n| {
+            f.contains(&format!("{n}!")) || f.contains(&format!("'{}'!", n.replace('\'', "''")))
+        })
+    };
+    out.defined_names.retain_mut(|d| {
+        if refers(&d.formula) {
+            return false;
+        }
+        match d.local_sheet {
+            Some(l) if removed.contains(&(l as usize)) => false,
+            Some(l) => {
+                let shift = removed.iter().filter(|&&r| r < l as usize).count();
+                d.local_sheet = Some(l - shift as u32);
+                true
+            }
+            None => true,
+        }
+    });
+    Some(out)
+}
+
+/// Copies kept for the clipboard history pane (as many as its items).
+pub(crate) const CLIP_HISTORY_MAX: usize = 24;
+
 /// Hard limits of the grid (ECMA-376 Part 1, §18.3.1.73 `row/@r` ≤ 1 048 576; 16 384 columns).
 pub const MAX_ROWS: u32 = 1_048_576;
 /// Maximum number of columns (`XFD`).
@@ -508,6 +555,10 @@ pub struct SheetEngine {
     adjuster: BoFormula,
     /// Internal clipboard (cell records) for paste / paste special.
     clip: Option<Clip>,
+    /// Earlier copies, newest first, with their ids (clipboard history, CORE-PASTE-001).
+    clip_history: std::collections::VecDeque<(u64, Clip)>,
+    /// Id of the last copy.
+    clip_seq: u64,
     /// Password the next `.xlsx` saves are encrypted with ([MS-OFFCRYPTO]).
     save_password: Option<String>,
     /// Live collaboration binding (`bo-collab`).
@@ -1046,6 +1097,8 @@ impl SheetEngine {
             live: LiveCalc::new(),
             adjuster: BoFormula::new(),
             clip: None,
+            clip_history: std::collections::VecDeque::new(),
+            clip_seq: 0,
             save_password: None,
             collab: None,
             macros: false,
@@ -1282,6 +1335,7 @@ impl SheetEngine {
         self.drawings = Arc::new(diagram_overlays(&wb, &mut self.fonts));
         self.drawings_key = diagrams_key(&wb);
         self.clip = None;
+        self.clip_history.clear();
         self.collab = None;
         self.geometry = (0..wb.sheets.len()).map(|_| None).collect();
         self.wb = Some(wb);
@@ -2194,9 +2248,13 @@ impl SheetEngine {
         let wb = self.wb()?;
         match format {
             "xlsx" | "xml" => {
-                let bytes =
-                    bo_xlsx::write_xlsx(wb).map_err(|e| EngineError::Sheet(e.to_string()))?;
                 let target = self.save_variant.or(self.file_variant);
+                // A macro-free file keeps no Excel 4.0 macro sheets either.
+                let stripped = target
+                    .filter(|v| !v.macros())
+                    .and_then(|_| without_macro_sheets(wb));
+                let bytes = bo_xlsx::write_xlsx(stripped.as_ref().unwrap_or(wb))
+                    .map_err(|e| EngineError::Sheet(e.to_string()))?;
                 let bytes = match (&self.legacy_vba, target) {
                     // A project from a legacy file: added to a macro-enabled target.
                     (Some(p), Some(v)) => {

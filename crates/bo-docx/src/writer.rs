@@ -294,6 +294,30 @@ const SETTINGS_AFTER_BG: &[&str] = &[
     "listSeparator",
 ];
 
+/// `xml` (a settings part) with an attached template (ECMA-376 Part 1, §17.15.1.6
+/// `attachedTemplate`) pointing at relationship `rel_id`, in its schema place; unchanged
+/// when it already has one.
+pub fn with_attached_template(xml: &str, rel_id: &str) -> String {
+    if find_element(xml, "w:attachedTemplate").is_some() {
+        return xml.to_owned();
+    }
+    let rel_id = rel_id.replace('&', "&amp;").replace('"', "&quot;");
+    let mut out = insert_setting(
+        xml,
+        &format!(r#"<w:attachedTemplate r:id="{rel_id}"/>"#),
+        settings_after("attachedTemplate"),
+    );
+    // The `r` prefix (Part 1, §22.8 relationships namespace) on the root.
+    if !out.contains("xmlns:r=") {
+        out = out.replacen(
+            "<w:settings ",
+            r#"<w:settings xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" "#,
+            1,
+        );
+    }
+    out
+}
+
 /// The settings following `name` in [`SETTINGS_AFTER_BG`].
 fn settings_after(name: &str) -> &'static [&'static str] {
     SETTINGS_AFTER_BG

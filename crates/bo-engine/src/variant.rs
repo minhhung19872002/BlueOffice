@@ -300,6 +300,9 @@ pub fn convert(bytes: &[u8], target: Variant) -> Result<Converted> {
         bytes.to_vec()
     };
     let mut pkg = Package::read(&bytes, &Limits::default()).map_err(opc)?;
+    if !target.macros() && target.app() == "sheet" {
+        drop_unlinked_macro_sheets(&mut pkg)?;
+    }
     let mut types = pkg.content_types().map_err(opc)?;
     // ECMA-376 Part 2, §10.1.2.2.3 Override: the main part's content type.
     types.set_override(&main, &target.content_type());
@@ -310,12 +313,100 @@ pub fn convert(bytes: &[u8], target: Variant) -> Result<Converted> {
     })
 }
 
+/// Remove the Excel 4.0 macro sheet parts (`/xl/macrosheets/…`, [MS-XLSX] xlMacrosheet)
+/// that no relationship points at any more (the workbook writer leaves them out of a
+/// macro-free workbook), with their relationships and content type overrides.
+fn drop_unlinked_macro_sheets(pkg: &mut Package) -> Result<()> {
+    let mut linked = std::collections::BTreeSet::new();
+    let names: Vec<String> = pkg.parts().iter().map(|p| p.name.clone()).collect();
+    for n in &names {
+        if let Some(src) = n.strip_suffix(".rels").and_then(|_| {
+            let (dir, file) = n.rsplit_once("/_rels/")?;
+            Some(format!("{dir}/{}", file.trim_end_matches(".rels")))
+        }) {
+            let src = if src.is_empty() { "/".to_owned() } else { src };
+            for r in pkg.relationships(&src).map_err(opc)? {
+                if r.mode == bo_opc::TargetMode::Internal {
+                    linked.insert(bo_opc::resolve_target(&src, &r.target).to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    let gone: Vec<&String> = names
+        .iter()
+        .filter(|n| {
+            let l = n.to_ascii_lowercase();
+            l.starts_with("/xl/macrosheets/") && !l.contains("/_rels/") && !linked.contains(&l)
+        })
+        .collect();
+    if gone.is_empty() {
+        return Ok(());
+    }
+    let mut types = pkg.content_types().map_err(opc)?;
+    for n in gone {
+        pkg.remove_part(n);
+        let (dir, file) = n.rsplit_once('/').unwrap_or(("", n));
+        pkg.remove_part(&format!("{dir}/_rels/{file}.rels"));
+        types.overrides.retain(|(p, _)| !p.eq_ignore_ascii_case(n));
+    }
+    pkg.set_content_types(&types);
+    Ok(())
+}
+
 /// `bytes` (a saved package) with `bin` as its VBA project
 /// ([`bo_binary::vba::attach_project`]: part, [MS-OFFMACRO2] relationship, content types).
 pub fn attach_vba(bytes: &[u8], bin: &[u8]) -> Result<Vec<u8>> {
     let mut pkg = Package::read(bytes, &Limits::default()).map_err(opc)?;
     bo_binary::vba::attach_project(&mut pkg, bin)
         .map_err(|e| EngineError::Format(e.to_string()))?;
+    pkg.write().map_err(opc)
+}
+
+/// ECMA-376 Part 1, §17.15.1.6 attachedTemplate relationship (from the settings part).
+pub const REL_ATTACHED_TEMPLATE: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate";
+/// ECMA-376 Part 1, §11.3.3 document settings relationship.
+const REL_SETTINGS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings";
+
+/// `bytes` (a saved `.docx` / `.docm` package) recording `template` (the template file it
+/// was created from) as its attached template: §17.15.1.6 `w:attachedTemplate` in the
+/// settings part with an external relationship to the template. Unchanged when the
+/// package has no settings part or already names a template.
+pub fn attach_template(bytes: &[u8], template: &str) -> Result<Vec<u8>> {
+    let mut pkg = Package::read(bytes, &Limits::default()).map_err(opc)?;
+    let Some((main, _)) = main_part(&pkg)? else {
+        return Ok(bytes.to_vec());
+    };
+    let Some(settings) = pkg.related_part(&main, REL_SETTINGS).map_err(opc)? else {
+        return Ok(bytes.to_vec());
+    };
+    let Some(xml) = pkg
+        .part(&settings)
+        .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+    else {
+        return Ok(bytes.to_vec());
+    };
+    if xml.contains("attachedTemplate") {
+        return Ok(bytes.to_vec());
+    }
+    let mut rels = pkg.relationships(&settings).map_err(opc)?;
+    let mut n = 1;
+    while rels.iter().any(|r| r.id == format!("rIdTpl{n}")) {
+        n += 1;
+    }
+    let id = format!("rIdTpl{n}");
+    rels.push(bo_opc::Relationship {
+        id: id.clone(),
+        rel_type: REL_ATTACHED_TEMPLATE.into(),
+        target: template.to_owned(),
+        mode: bo_opc::TargetMode::External,
+    });
+    pkg.set_relationships(&settings, &rels);
+    pkg.put_part(
+        &settings,
+        bo_docx::with_attached_template(&xml, &id).into_bytes(),
+    );
     pkg.write().map_err(opc)
 }
 

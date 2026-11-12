@@ -343,10 +343,41 @@ fn new_document_from_template() {
     let mut e = Engine::with_bundled_fonts();
     e.open(&dotx, "Mẫu.dotx").unwrap();
     run(&mut e, &json!({"cmd":"saveFormat","ext":"docx"}));
-    assert_eq!(
-        variant::detect(&e.save_docx().unwrap()),
-        Some(Variant::Docx)
+    let saved = e.save_docx().unwrap();
+    assert_eq!(variant::detect(&saved), Some(Variant::Docx));
+    // The new document names the template it came from (§17.15.1.6 attachedTemplate).
+    keep("from-template.docx", &saved);
+    let p = pkg(&saved);
+    let settings = p
+        .related_part(
+            &main_part(&p),
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings",
+        )
+        .unwrap()
+        .unwrap();
+    let xml = String::from_utf8(part(&saved, &settings).unwrap()).unwrap();
+    let rels = p.relationships(&settings).unwrap();
+    let tpl = rels
+        .iter()
+        .find(|r| r.rel_type == variant::REL_ATTACHED_TEMPLATE)
+        .expect("attachedTemplate relationship");
+    assert_eq!(tpl.target, "Mẫu.dotx");
+    assert_eq!(tpl.mode, TargetMode::External);
+    assert!(
+        xml.contains(&format!(r#"<w:attachedTemplate r:id="{}"/>"#, tpl.id)),
+        "{xml}"
     );
+    // Saved again: still one.
+    let again = e.save_docx().unwrap();
+    let xml2 = String::from_utf8(part(&again, &settings).unwrap()).unwrap();
+    assert_eq!(xml2.matches("attachedTemplate").count(), 1);
+    // Editing the template itself records none.
+    let mut t = Engine::with_bundled_fonts();
+    t.open(&dotx, "Mẫu.dotx").unwrap();
+    let own = t.save_docx().unwrap();
+    assert!(!String::from_utf8(part(&own, &settings).unwrap())
+        .unwrap()
+        .contains("attachedTemplate"));
     // Documents and other files are left alone.
     let docx = doc_bytes();
     assert_eq!(variant::new_from_template(&docx).unwrap(), docx);
@@ -532,4 +563,100 @@ fn theme_files() {
     );
     assert!(r["error"].is_null(), "{r}");
     assert_eq!(r["design"]["theme"], name);
+}
+
+/// `bytes` (a workbook with macros) with an Excel 4.0 macro sheet "Macro1" between its
+/// two sheets and an Auto_Open name pointing into it ([MS-XLSX] xlMacrosheet).
+fn with_macro_sheet(bytes: &[u8]) -> Vec<u8> {
+    const REL_XLM: &str = "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet";
+    let mut p = pkg(bytes);
+    let main = main_part(&p);
+    p.put_part(
+        "/xl/macrosheets/sheet1.xml",
+        br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xm:macrosheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><sheetData><row r="1"><c r="A1" t="str"><f>HALT()</f><v></v></c></row></sheetData></xm:macrosheet>"#
+            .to_vec(),
+    );
+    let mut ct = p.content_types().unwrap();
+    ct.set_override(
+        "/xl/macrosheets/sheet1.xml",
+        "application/vnd.ms-excel.macrosheet+xml",
+    );
+    p.set_content_types(&ct);
+    let mut rels = p.relationships(&main).unwrap();
+    rels.push(Relationship {
+        id: "rIdXlm".into(),
+        rel_type: REL_XLM.into(),
+        target: "macrosheets/sheet1.xml".into(),
+        mode: TargetMode::Internal,
+    });
+    p.set_relationships(&main, &rels);
+    let wb = String::from_utf8(p.part(&main).unwrap().data.clone()).unwrap();
+    // Insert the macro sheet after the first <sheet …/>.
+    let first = wb.find("<sheet ").unwrap();
+    let end = first + wb[first..].find("/>").unwrap() + 2;
+    let mut wb = format!(
+        r#"{}<sheet name="Macro1" sheetId="9" r:id="rIdXlm"/>{}"#,
+        &wb[..end],
+        &wb[end..]
+    );
+    let names = r#"<definedNames><definedName name="Auto_Open">Macro1!$A$1</definedName><definedName name="Giu" localSheetId="2">Two!$A$1</definedName></definedNames>"#;
+    // definedNames follows sheets (§18.2.27); a workbook that has some keeps them.
+    if !wb.contains("<definedNames") {
+        let at = wb.find("</sheets>").unwrap() + "</sheets>".len();
+        wb.insert_str(at, names);
+    }
+    if !wb.contains("xmlns:r=") {
+        wb = wb.replacen(
+            "<workbook ",
+            r#"<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" "#,
+            1,
+        );
+    }
+    p.put_part(&main, wb.into_bytes());
+    p.write().unwrap()
+}
+
+#[test]
+fn macro_free_save_drops_excel4_macro_sheets() {
+    let mut book = SheetEngine::new();
+    book.new_workbook("b.xlsx").unwrap();
+    book.set_input(0, 0, 0, "một").unwrap();
+    book.add_sheet(Some("Two")).unwrap();
+    book.set_input(1, 0, 0, "hai").unwrap();
+    let xlsm = with_macro_sheet(&with_macros(&book.save("xlsx", 0).unwrap()));
+    let mut e = SheetEngine::new();
+    e.open(&xlsm, "book.xlsm").unwrap();
+    assert_eq!(e.workbook().unwrap().sheets.len(), 3);
+    // Macro-enabled: the macro sheet is kept.
+    let kept = e.save("xlsx", 0).unwrap();
+    assert!(part(&kept, "/xl/macrosheets/sheet1.xml").is_some());
+    // Macro-free: no macro sheet, no name pointing into it, local names re-indexed.
+    exec(&mut e, &json!({"cmd":"saveFormat","ext":"xlsx"}));
+    let xlsx = e.save("xlsx", 0).unwrap();
+    keep("no-macro-sheets.xlsx", &xlsx);
+    assert_macros_gone(&xlsx);
+    let p = pkg(&xlsx);
+    assert!(
+        !p.parts()
+            .iter()
+            .any(|x| x.name.to_ascii_lowercase().contains("macrosheet")),
+        "macro sheet part left"
+    );
+    let wb_xml = String::from_utf8(p.part(&main_part(&p)).unwrap().data.clone()).unwrap();
+    assert!(
+        !wb_xml.contains("Macro1") && !wb_xml.contains("Auto_Open"),
+        "{wb_xml}"
+    );
+    let ct = String::from_utf8(part_ct(&xlsx)).unwrap();
+    assert!(!ct.contains("macrosheet"), "{ct}");
+    let mut back = SheetEngine::new();
+    back.open(&xlsx, "x.xlsx").unwrap();
+    let w = back.workbook().unwrap();
+    assert_eq!(w.sheets.len(), 2);
+    assert_eq!(w.sheets[1].name, "Two");
+    let giu = w.defined_names.iter().find(|d| d.name == "Giu").unwrap();
+    assert_eq!(giu.local_sheet, Some(1));
+    // The open workbook keeps its macro sheet (only the file is macro-free).
+    assert_eq!(e.workbook().unwrap().sheets.len(), 3);
 }

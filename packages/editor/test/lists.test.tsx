@@ -71,6 +71,27 @@ describe('define new multilevel list dialog', () => {
     expect(s.levels[8]?.style).toBe('Heading9');
   });
 
+  it('restart after a level and legal-style numbering (§17.9.10, §17.9.4)', () => {
+    let levels: ListLevelSpec[] = [];
+    wrap(<DefineListDialog onClose={() => {}} onApply={(l) => (levels = l)} />);
+    // Level 1 has no "restart after" choice.
+    expect(screen.queryByTestId('list-restart')).toBeNull();
+    fireEvent.change(screen.getByTestId('list-format'), { target: { value: 'upperRoman' } });
+    fireEvent.click(screen.getByTestId('list-level-3'));
+    const restart = screen.getByTestId('list-restart') as HTMLSelectElement;
+    // The level above (default), levels 1–2, never.
+    expect(restart.options).toHaveLength(4);
+    fireEvent.change(restart, { target: { value: '1' } });
+    fireEvent.click(screen.getByTestId('list-legal'));
+    const preview = screen.getByTestId('list-preview');
+    expect(preview.querySelector('[data-level="2"]')?.textContent).toContain('I.1.');
+    expect(preview.querySelector('[data-level="3"]')?.textContent).toContain('1.1.1.');
+    fireEvent.click(screen.getByTestId('define-list-ok'));
+    expect(levels[2]).toMatchObject({ restart: 1, legal: true });
+    expect(levels[1]?.restart ?? null).toBeNull();
+    expect(levels[1]?.legal ?? false).toBe(false);
+  });
+
   it('switching to a bullet sets the bullet character', () => {
     let levels: ListLevelSpec[] = [];
     wrap(<DefineListDialog onClose={() => {}} onApply={(l) => (levels = l)} />);

@@ -164,3 +164,62 @@ fn set_numbering_value_restarts_and_continues() {
     .unwrap();
     assert!(r.get("error").is_some(), "{r}");
 }
+
+/// Corpus `lists-05-restart-legal.docx` on the page: level 3 restarts only after level 1
+/// (§17.9.10 lvlRestart = 1) and shows legal-style decimals (§17.9.4 isLgl, "I" → "1"); the
+/// second list instance restarts level 2 at 5 (§17.9.26 startOverride on ilvl 1) without
+/// resetting level 1. The same after a save, and the level properties are kept.
+#[test]
+fn corpus_restart_after_level_and_legal_style() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc/lists-05-restart-legal.docx");
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&std::fs::read(path).unwrap(), "l.docx").unwrap();
+    let want = [
+        "I.Chương",
+        "a)Mục",
+        "1.1.1.Điều",
+        "b)Mục",
+        "1.2.2.Điều nối tiếp",
+        "e)Mục bắt đầu lại từ e",
+        "II.Chương",
+        "2.1.1.Điều",
+    ];
+    assert_eq!(lines(&e), want);
+    let f = reopen(&e);
+    assert_eq!(lines(&f), want);
+    let d = f.document().unwrap();
+    let lvl = &d.numbering.abstracts[0].levels[2];
+    assert_eq!(lvl.restart, Some(1));
+    assert!(lvl.is_lgl);
+}
+
+/// `defineList` with "restart after level" and legal style (one undo step), saved and read back.
+#[test]
+fn define_list_with_restart_after_and_legal_style() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    write(
+        &mut e,
+        &[
+            ("A", "Heading1"),
+            ("B", "Heading2"),
+            ("C", "Heading3"),
+            ("D", "Heading2"),
+            ("E", "Heading3"),
+        ],
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"defineList","apply":false,"levels":[
+            {"format":"upperRoman","text":"%1.","start":1,"indent":432,"hanging":432,"style":"Heading1"},
+            {"format":"upperLetter","text":"%2.","start":1,"indent":720,"hanging":432,"style":"Heading2"},
+            {"format":"decimal","text":"%1.%2.%3.","start":1,"indent":1080,"hanging":720,"style":"Heading3","restart":1,"legal":true}
+        ]}"#,
+    );
+    let want = ["I.A", "A.B", "1.1.1.C", "B.D", "1.2.2.E"];
+    assert_eq!(lines(&e), want);
+    assert_eq!(lines(&reopen(&e)), want);
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(lines(&e)[0], "A");
+}

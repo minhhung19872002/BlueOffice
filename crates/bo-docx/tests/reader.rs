@@ -9,7 +9,7 @@ use bo_opc::{Package, Relationship, TargetMode, REL_OFFICE_DOCUMENT};
 fn docx(body: &str) -> Vec<u8> {
     let mut p = Package::new();
     let xml = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:body>{body}</w:body></w:document>"#
+        r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"><w:body>{body}</w:body></w:document>"#
     );
     p.add_part("/word/document.xml", CT_DOCUMENT, xml.into_bytes())
         .unwrap();
@@ -140,6 +140,80 @@ fn content_controls_inline_and_block() {
     let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
     assert_eq!(xml.matches("<w:sdt>").count(), 3);
     assert!(xml.contains(r#"<w:lock w:val="sdtContentLocked"/>"#));
+}
+
+/// ECMA-376 Part 1, §17.5.2.32 sdt around table rows ([MS-DOCX] w15:repeatingSection of
+/// w15:repeatingSectionItem rows): the controls sit on the rows and a changed table writes them
+/// back around the same rows.
+#[test]
+fn repeating_section_of_table_rows_round_trips() {
+    use bo_model::ControlKind;
+    let tr = |t: &str| format!("<w:tr><w:tc><w:p><w:r><w:t>{t}</w:t></w:r></w:p></w:tc></w:tr>");
+    let item = |id: u32, t: &str| {
+        format!(
+            r#"<w:sdt><w:sdtPr><w:id w:val="{id}"/><w15:repeatingSectionItem/></w:sdtPr><w:sdtContent>{}</w:sdtContent></w:sdt>"#,
+            tr(t)
+        )
+    };
+    let body = format!(
+        r#"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid>{}<w:sdt><w:sdtPr><w:alias w:val="Thành viên"/><w:id w:val="10"/><w15:repeatingSection/></w:sdtPr><w:sdtContent>{}{}</w:sdtContent></w:sdt>{}</w:tbl><w:p/>"#,
+        tr("Đầu"),
+        item(11, "An"),
+        item(12, "Bình"),
+        tr("Cuối")
+    );
+    let doc = read_docx(&docx(&body)).unwrap();
+    let Block::Table(t) = &doc.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    assert_eq!(t.rows.len(), 4);
+    let kinds: Vec<Vec<ControlKind>> = t
+        .rows
+        .iter()
+        .map(|r| r.props.controls.iter().map(|c| c.kind.clone()).collect())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            vec![],
+            vec![
+                ControlKind::RepeatingSection,
+                ControlKind::RepeatingSectionItem
+            ],
+            vec![ControlKind::RepeatingSectionItem],
+            vec![],
+        ]
+    );
+    let ends: Vec<u8> = t.rows.iter().map(|r| r.props.controls_end).collect();
+    assert_eq!(ends, [0, 1, 2, 0]);
+    assert_eq!(
+        t.rows[1].props.controls[0].alias.as_deref(),
+        Some("Thành viên")
+    );
+
+    // A changed table (the source XML no longer stands for it) writes the controls again.
+    let mut changed = doc.clone();
+    if let Block::Table(t) = &mut changed.sections[0].blocks[0] {
+        t.src = None;
+        t.grid[0] = Twips(2400);
+    }
+    let out = bo_docx::write_docx(&changed).unwrap();
+    let pkg = Package::read(&out, &bo_opc::Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap();
+    assert_eq!(xml.matches("<w:sdt>").count(), 3);
+    let at = |s: &str| xml.find(s).unwrap();
+    assert!(at("Đầu") < at("<w15:repeatingSection/>"));
+    assert!(at("<w15:repeatingSection/>") < at(">An<"));
+    assert!(at(">Bình<") < at("Cuối"));
+    // `</w:sdtContent></w:sdt>` twice after Bình's row: its item and the section.
+    let tail = &xml[at(">Bình<")..at("Cuối")];
+    assert_eq!(tail.matches("</w:sdtContent></w:sdt>").count(), 2);
+    let again = read_docx(&out).unwrap();
+    let Block::Table(t2) = &again.sections[0].blocks[0] else {
+        panic!("table")
+    };
+    let ends: Vec<u8> = t2.rows.iter().map(|r| r.props.controls_end).collect();
+    assert_eq!(ends, [0, 1, 2, 0]);
 }
 
 /// ECMA-376 Part 1, §17.4.58 tblpPr and §17.4.72 textDirection are read into the model,

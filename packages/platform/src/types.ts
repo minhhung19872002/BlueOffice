@@ -653,6 +653,10 @@ export interface ListLevelSpec {
   hanging: number;
   /** Paragraph style linked to the level (§17.9.23 pStyle), e.g. `Heading1`. */
   style?: string | null;
+  /** Restart after this (one-based) level (§17.9.10 lvlRestart); 0 = never, absent = the level above. */
+  restart?: number | null;
+  /** Legal-style numbering (§17.9.4 isLgl): every number shown as a decimal. */
+  legal?: boolean;
 }
 
 /** Set numbering value (mirrors `bo_edit::ListNumbering`). */

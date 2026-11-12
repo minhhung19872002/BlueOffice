@@ -180,11 +180,8 @@ pub fn word_legacy_key(password: &str) -> u32 {
 /// The key's bytes in reverse order as an upper-case hex string (ECMA's example
 /// `0x64CEED7E` → `"7EEDCE64"`), the value hashed in the second stage.
 pub fn word_legacy_key_hex(password: &str) -> String {
-    word_legacy_key(password)
-        .to_le_bytes()
-        .iter()
-        .map(|b| format!("{b:02X}"))
-        .collect()
+    let [a, b, c, d] = word_legacy_key(password).to_le_bytes();
+    format!("{a:02X}{b:02X}{c:02X}{d:02X}")
 }
 
 /// Attributes of a WordprocessingML legacy verifier (§17.15.1.29 `w:hash` and friends).

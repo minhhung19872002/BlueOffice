@@ -4496,6 +4496,10 @@
     "hanging": "Number hanging",
     "linkHeadings": "Link levels 1–9 to Heading 1–9",
     "apply": "Apply to selected paragraphs",
+    "restartAfter": "Restart the list after",
+    "restartDefault": "The level above",
+    "restartNever": "Never",
+    "legal": "Legal style numbering (all numbers as 1, 2, 3)",
     "preview": "Preview",
     "formats": {
       "decimal": "1, 2, 3",

@@ -2585,6 +2585,19 @@ pub struct RowProps {
     /// Tracked change of the row properties (§17.13.5.37 trPrChange).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<Box<RowPropsChange>>,
+    /// Row-level content controls (ECMA-376 Part 1, §17.5.2.32 sdt around `w:tr`,
+    /// `CT_SdtContentRow`) opening before this row, outermost first — e.g. a repeating section
+    /// and its first item ([MS-DOCX] w15:repeatingSection / w15:repeatingSectionItem).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub controls: Vec<ContentControl>,
+    /// How many row-level content controls close after this row.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub controls_end: u8,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
 }
 
 /// Previous row properties of a tracked change (ECMA-376 Part 1, §17.13.5.37
@@ -3187,6 +3200,10 @@ pub struct Level {
     /// numbered through the style's `numPr` take this level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pstyle: Option<String>,
+    /// Legal numbering style (§17.9.4 isLgl): every number in the level text is shown as a
+    /// decimal, whatever the format of the level it comes from.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_lgl: bool,
 }
 
 /// Abstract numbering definition (§17.9.1 abstractNum).
@@ -3301,6 +3318,7 @@ impl Numbering {
                 restart: None,
                 suffix: "tab".into(),
                 pstyle: None,
+                is_lgl: false,
             })
             .collect();
         self.abstracts.push(AbstractNum { id: abs_id, levels });

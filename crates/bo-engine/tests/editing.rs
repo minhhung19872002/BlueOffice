@@ -853,6 +853,77 @@ fn corpus_repeating_section_round_trips_and_grows() {
     assert_eq!(r["control"]["tag"], "ma_ho_so");
 }
 
+/// Corpus `controls-06-repeating-rows.docx`: a repeating section of table rows (§17.5.2.32 sdt
+/// around w:tr, [MS-DOCX] w15:repeatingSection). The caret in a row of an item reports the
+/// section; "+" adds a row after it and "−" deletes one, one undo step each; saved, the rows
+/// stay wrapped in their controls.
+#[test]
+fn corpus_repeating_rows_grow_and_shrink() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/corpus/doc/controls-06-repeating-rows.docx");
+    let bytes = std::fs::read(path).unwrap();
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&bytes, "r.docx").unwrap();
+    let xml = |b: &[u8]| {
+        let pkg = bo_opc::Package::read(b, &bo_opc::Limits::default()).unwrap();
+        String::from_utf8(pkg.part("/word/document.xml").unwrap().data.clone()).unwrap()
+    };
+    assert_eq!(
+        xml(&e.save_docx().unwrap())
+            .matches("<w15:repeatingSectionItem")
+            .count(),
+        2
+    );
+    let text = |e: &Engine| e.document().unwrap().plain_text();
+    // Paragraph 4 = "Bình" (header 0-1, An 2-3).
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":4,"o":1},"focus":{"p":4,"o":1}}}"#,
+    );
+    assert_eq!(r["control"]["kind"], "repeatingSection");
+    assert_eq!(r["control"]["title"], "Thành viên");
+    assert_eq!(r["control"]["repeating"], true);
+    let r = cmd(&mut e, r#"{"cmd":"addRepeatingItem"}"#);
+    assert_eq!(r["count"], 1);
+    assert_eq!(r["selection"]["focus"]["p"], 6);
+    assert!(
+        text(&e).contains("Bình\tThành viên\nBình\tThành viên\nTổng"),
+        "{}",
+        text(&e)
+    );
+    let saved = e.save_docx().unwrap();
+    let x = xml(&saved);
+    assert_eq!(x.matches("<w15:repeatingSectionItem").count(), 3, "{x}");
+    assert_eq!(x.matches("<w15:repeatingSection/>").count(), 1);
+    // The total row stays after the section.
+    let at = |s: &str| x.find(s).unwrap();
+    assert!(x.rfind("</w:sdtContent></w:sdt>").unwrap() < at(">Tổng<"));
+    // Read back: still three items, "−" on the first one leaves two.
+    let mut f = Engine::with_bundled_fonts();
+    f.open(&saved, "r.docx").unwrap();
+    cmd(
+        &mut f,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":2,"o":0},"focus":{"p":2,"o":0}}}"#,
+    );
+    let r = cmd(&mut f, r#"{"cmd":"deleteRepeatingItem"}"#);
+    assert_eq!(r["count"], 1);
+    assert!(!text(&f).contains("An"), "{}", text(&f));
+    let x = xml(&f.save_docx().unwrap());
+    assert_eq!(x.matches("<w15:repeatingSectionItem").count(), 2);
+    assert_eq!(x.matches("<w15:repeatingSection/>").count(), 1);
+    // Undo brings the row back.
+    cmd(&mut f, r#"{"cmd":"undo"}"#);
+    assert!(text(&f).contains("An\tTrưởng nhóm"));
+    // BO_CC_OUT=<dir>: keep the edited file (to check with `bo-cli validate --openxml require`).
+    if let Ok(dir) = std::env::var("BO_CC_OUT") {
+        std::fs::write(
+            std::path::Path::new(&dir).join("repeating-rows.docx"),
+            &saved,
+        )
+        .unwrap();
+    }
+}
+
 #[test]
 fn ctrl_f9_turns_the_selected_text_into_a_field() {
     let mut e = Engine::with_bundled_fonts();

@@ -205,6 +205,16 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
       return t !== before ? t : null;
     }, 'status bar update after typing');
     assert.notEqual(afterText, before);
+    const caret = await waitFor(
+      () =>
+        exec(`const c=document.querySelector('.bo-caret');
+        if (!c) return null;
+        const style=getComputedStyle(c);
+        return {position:style.position, width:c.getBoundingClientRect().width};`),
+      'document caret',
+    );
+    assert.equal(caret.position, 'absolute', 'caret overlay stylesheet must load in the desktop');
+    assert.ok(caret.width > 0 && caret.width <= 3, `caret width: ${caret.width}`);
   });
 
   it('runs BlueSheet in the same shell with the native sheet engine', async () => {

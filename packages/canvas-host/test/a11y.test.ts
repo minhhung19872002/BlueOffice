@@ -174,4 +174,23 @@ describe('DocMirror', () => {
     m.dispose();
     expect(host.querySelector('[data-testid="doc-a11y-mirror"]')).toBeNull();
   });
+
+  it('announces an edit when an earlier caret query sees the new text first', async () => {
+    const host = document.createElement('div');
+    const input = document.createElement('textarea');
+    host.appendChild(input);
+    const paras = { current: [{ p: 0, text: 'abc', page: 0 }] as DocTreePara[] };
+    const mirror = new DocMirror(host, fakeEngine(paras, []), DEFAULT_MIRROR_LABELS, input);
+    mirror.select({ p: 0, o: 0 }, false);
+    await mirror.idle();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'X', bubbles: true }));
+    paras.current = [{ p: 0, text: 'Xabc', page: 0 }];
+    // A movement response flushes after the edit is in the engine but before its result.
+    mirror.select({ p: 0, o: 0 }, false);
+    await mirror.idle();
+    mirror.select({ p: 0, o: 1 }, true);
+    await mirror.idle();
+    expect(mirror.live.textContent).toBe('X');
+    mirror.dispose();
+  });
 });

@@ -282,7 +282,10 @@ jobs:
           $runs = gh run list --workflow ci.yml --branch main --status success --limit 1 --json databaseId | ConvertFrom-Json
           if ($runs.Count -gt 0) {
             gh run download $runs[0].databaseId --name desktop-ui --dir out/ui-screens/baseline
-            if ($LASTEXITCODE -ne 0) { Write-Warning 'Previous visual artifact unavailable; reporting without comparison.' }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning 'Previous visual artifact unavailable; reporting without comparison.'
+              $global:LASTEXITCODE = 0
+            }
           }
       - name: Compare desktop visual regression screens
         if: matrix.e2e
@@ -306,7 +309,10 @@ jobs:
           $runs = gh run list --workflow ci.yml --branch main --status success --limit 1 --json databaseId | ConvertFrom-Json
           if ($runs.Count -gt 0) {
             gh run download $runs[0].databaseId --name desktop-perf --dir out/perf-baseline
-            if ($LASTEXITCODE -ne 0) { Write-Warning 'Previous performance artifact unavailable; reporting without comparison.' }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning 'Previous performance artifact unavailable; reporting without comparison.'
+              $global:LASTEXITCODE = 0
+            }
           }
       - name: Desktop performance
         if: matrix.e2e

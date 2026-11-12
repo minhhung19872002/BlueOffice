@@ -1,0 +1,517 @@
+{
+  "exe": "D:\\bo-targets\\perf\\release\\bluedoc.exe",
+  "exeSha256": "4629ac6dd15d4ae8dbe7ea93348b04522ec5860de9baeb0bf3f31aec1331ba5c",
+  "capturedAt": "2026-11-12T20:18:47.490Z",
+  "windowsScalePercent": 125,
+  "captures": [
+    {
+      "file": "doc-light-home.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-trang-au.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-chen.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-thiet-ke.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Thiết kế",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-bo-cuc.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Bố cục",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-tham-chieu.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Tham chiếu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-gui-thu.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Gửi thư",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-xem-lai.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-xem.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-file.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    }
+  ],
+  "warnings": [
+    "Dialogs, menus, tooltip and alternate physical DPI are not yet covered."
+  ],
+  "docPixels": {
+    "canvas": {
+      "height": 1543,
+      "width": 1091
+    },
+    "canvasPixel": [
+      255,
+      255,
+      255,
+      255
+    ],
+    "elements": [
+      {
+        "className": "",
+        "tag": "CANVAS"
+      },
+      {
+        "className": "bo-page",
+        "tag": "DIV"
+      },
+      {
+        "className": "",
+        "tag": "DIV"
+      },
+      {
+        "className": "bo-doc-scroller",
+        "tag": "DIV"
+      },
+      {
+        "className": "_viewHost_10kem_34 _withRulers_10kem_332",
+        "tag": "DIV"
+      }
+    ],
+    "overlaps": [
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "",
+        "height": "782.545px",
+        "inline": null,
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "static",
+        "tag": "HTML",
+        "width": "1164.36px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "",
+        "height": "782.545px",
+        "inline": null,
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "static",
+        "tag": "BODY",
+        "width": "1164.36px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "",
+        "height": "782.545px",
+        "inline": null,
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "static",
+        "tag": "DIV",
+        "width": "1164.36px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "fui-FluentProvider fui-FluentProviderr0 bo-fluent-root bo-root _root_10kem_1 ___jdtuxv0 f19n0e5 fxugw4r f1o700av fk6fouc fkhj508 figsok6 f1i3iumi",
+        "height": "782.545px",
+        "inline": "--bo-chrome-h: 186px;",
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "static",
+        "tag": "DIV",
+        "width": "1164.36px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgb(227, 231, 238)",
+        "boxShadow": "none",
+        "className": "_workspace_10kem_27",
+        "height": "572.091px",
+        "inline": null,
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "relative",
+        "tag": "MAIN",
+        "width": "1164.36px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "_viewHost_10kem_34 _withRulers_10kem_332",
+        "height": "550.091px",
+        "inline": null,
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "absolute",
+        "tag": "DIV",
+        "width": "1142.36px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "bo-doc-scroller",
+        "height": "550.091px",
+        "inline": "position: relative; overflow: auto; width: 100%; height: 100%; outline: none;",
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "relative",
+        "tag": "DIV",
+        "width": "1127.09px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "",
+        "height": "1123px",
+        "inline": "position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px 0px; min-width: min-content;",
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "relative",
+        "tag": "DIV",
+        "width": "1127.09px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgb(255, 255, 255)",
+        "boxShadow": "rgba(0, 0, 0, 0.25) 0px 1px 3px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px",
+        "className": "bo-page",
+        "height": "1123px",
+        "inline": "position: relative; background: rgb(255, 255, 255); box-shadow: rgba(0, 0, 0, 0.25) 0px 1px 3px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px; flex: 0 0 auto; cursor: text; box-sizing: content-box; width: 794px; height: 1123px; margin-right: 0px;",
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "relative",
+        "tag": "DIV",
+        "width": "794px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "",
+        "height": "1123px",
+        "inline": "position: absolute; inset: 0px; width: 100%; height: 100%;",
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "position": "absolute",
+        "tag": "CANVAS",
+        "width": "794px",
+        "zIndex": "auto"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "bo-overlay",
+        "height": "1123px",
+        "inline": "position: absolute; inset: 0px; z-index: 2; pointer-events: none;",
+        "opacity": "1",
+        "pointerEvents": "none",
+        "position": "absolute",
+        "tag": "DIV",
+        "width": "794px",
+        "zIndex": "2"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "boxShadow": "none",
+        "className": "_layer_1v265_180",
+        "height": "572.091px",
+        "inline": null,
+        "opacity": "1",
+        "pointerEvents": "none",
+        "position": "absolute",
+        "tag": "DIV",
+        "width": "1164.36px",
+        "zIndex": "30"
+      }
+    ],
+    "rect": {
+      "height": 1123,
+      "width": 794,
+      "x": 188.5454559326172,
+      "y": 224.45455932617188
+    },
+    "rows": [
+      {
+        "dy": 1,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 5,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 10,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 15,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 20,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 25,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 30,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "dy": 40,
+        "elements": [
+          {
+            "className": "",
+            "tag": "CANVAS"
+          },
+          {
+            "className": "bo-page",
+            "tag": "DIV"
+          },
+          {
+            "className": "",
+            "tag": "DIV"
+          },
+          {
+            "className": "bo-doc-scroller",
+            "tag": "DIV"
+          }
+        ],
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      }
+    ]
+  }
+}

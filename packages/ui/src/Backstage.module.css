@@ -35,7 +35,13 @@
 
 .back:hover,
 .navItem:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
+  /* Darkening the brand keeps white navigation text readable while hovered. */
+  background: color-mix(in srgb, var(--bo-app-accent-strong, #3730a3) 90%, black);
+}
+
+:global([data-theme='hc']) .back:hover,
+:global([data-theme='hc']) .navItem:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bo-app-accent-strong, #ffd600) 90%, white);
 }
 
 .back:focus-visible,

@@ -161,6 +161,16 @@ try {
           if (!c) return null;
           const r=c.getBoundingClientRect(), x=r.left+r.width/2, y=r.top+10;
           return { canvasPixel:[...c.getContext('2d').getImageData(Math.floor(c.width/2), 10, 1, 1).data],
+            rect:{x:r.x,y:r.y,width:r.width,height:r.height}, canvas:{width:c.width,height:c.height},
+            overlaps:[...document.querySelectorAll('*')].flatMap(e=>{
+              const b=e.getBoundingClientRect(), s=getComputedStyle(e);
+              return b.left<=x && b.right>x && b.top<=r.top+5 && b.bottom>r.top+5 && s.visibility!=='hidden' && s.display!=='none'
+                ? [{tag:e.tagName, className:typeof e.className==='string'?e.className:'', background:s.backgroundColor,
+                    opacity:s.opacity, zIndex:s.zIndex, pointerEvents:s.pointerEvents, boxShadow:s.boxShadow, position:s.position, width:s.width, height:s.height, inline:e.getAttribute('style')}] : [];
+            }),
+            rows:[1,5,10,15,20,25,30,40].map(dy=>({dy,
+              rgba:[...c.getContext('2d').getImageData(Math.floor(c.width/2), Math.floor(dy*c.height/r.height),1,1).data],
+              elements:document.elementsFromPoint(x,r.top+dy).slice(0,4).map(e=>({tag:e.tagName,className:e.className}))})),
             elements:document.elementsFromPoint(x,y).slice(0,5).map(e=>({tag:e.tagName,className:e.className})) };`);
       }
       await capture('home', app, theme);

@@ -157,6 +157,11 @@ async function themes(page: Page, app: string, extra: () => Promise<void>) {
     await scan(page, `${app} ${name}`);
     await extra();
     await page.emulateMedia({ colorScheme: 'light', contrast: 'no-preference' });
+    // Let the editor observe this transition before switching the OS theme again.
+    await expect(page.locator('[data-app][data-theme]').first()).toHaveAttribute(
+      'data-theme',
+      'light',
+    );
   }
 }
 

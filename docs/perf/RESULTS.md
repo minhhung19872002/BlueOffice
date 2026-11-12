@@ -167,3 +167,17 @@ bị Windows từ chối `0x80070005` (Access is denied); không có native heap
 [CI cho commit Fluent](https://github.com/minhhung19872002/BlueOffice/actions/runs/43269570854)
 đã chạy và job performance đạt, nhưng job fidelity thất bại; các job còn lại đang chạy tại
 thời điểm ghi. Chưa xác nhận CI toàn bộ xanh. Bản sửa điều kiện chờ E2E cần một lượt CI mới.
+
+## Tiếp tục sửa lỗi desktop / accessibility
+
+Dải đen đầu trang là con trỏ bị trải rộng vì CSS lớp phủ tạo động không áp dụng trên desktop;
+đã đưa các quy tắc vào stylesheet đóng gói và chụp lại bản release (xem [báo cáo thị giác](../ui/REPORT.md)).
+Đã sửa trường hợp truy vấn accessibility đọc nội dung đã sửa trước khi nhận kết quả con trỏ:
+so sánh với bản trước sự kiện nhập; kiểm thử đơn vị cho thứ tự này đạt và E2E BlueDoc lặp 5/5 đạt.
+Bản release sau các thay đổi này cần được đo lại trước khi kết luận có ảnh hưởng hiệu năng.
+
+[CI gần nhất](https://github.com/minhhung19872002/BlueOffice/actions/runs/43273616492)
+thất bại ở web E2E, desktop Windows và fidelity. Desktop Windows dừng do bước tải artifact
+ảnh chuẩn thiếu nhưng để lại mã thoát lỗi; đã sửa xử lý trường hợp thiếu artifact. Trên web,
+đã sửa và kiểm lại lỗi contrast BlueSheet và lỗi thông báo BlueDoc; những ca lỗi còn lại và
+hai sai lệch fidelity vẫn cần được xác minh. Chưa tuyên bố CI xanh.

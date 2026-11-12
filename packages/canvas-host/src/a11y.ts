@@ -236,6 +236,9 @@ export class DocMirror {
   private moved: Pos | null = null;
   private edited = false;
   private texts = new Map<number, string>();
+  // A pending caret query can observe an edit before its selection result arrives.
+  // Preserve the pre-input text so the eventual edit announcement still has a baseline.
+  private editBase: Map<number, string> | null = null;
   private lastKey: { key: string; ctrl: boolean } | null = null;
   private pending: Promise<void> | null = null;
   private again = false;
@@ -266,10 +269,24 @@ export class DocMirror {
     parent.appendChild(this.live);
     // The key that moved the caret decides what is announced.
     parent.addEventListener('keydown', this.onKey, true);
+    parent.addEventListener('beforeinput', this.onBeforeInput, true);
   }
 
   private onKey = (e: KeyboardEvent) => {
-    this.lastKey = { key: e.key, ctrl: e.ctrlKey || e.metaKey };
+    const ctrl = e.ctrlKey || e.metaKey;
+    this.lastKey = { key: e.key, ctrl };
+    if (
+      (!ctrl &&
+        !e.altKey &&
+        (e.key.length === 1 || ['Backspace', 'Delete', 'Enter'].includes(e.key))) ||
+      (ctrl && ['v', 'x', 'z', 'y'].includes(e.key.toLowerCase()))
+    ) {
+      this.editBase ??= new Map(this.texts);
+    }
+  };
+
+  private onBeforeInput = () => {
+    this.editBase ??= new Map(this.texts);
   };
 
   /** The pages in view (0-based, inclusive): the mirror covers them ± one page. */
@@ -307,6 +324,7 @@ export class DocMirror {
 
   dispose(): void {
     this.root.parentElement?.removeEventListener('keydown', this.onKey, true);
+    this.root.parentElement?.removeEventListener('beforeinput', this.onBeforeInput, true);
     this.root.remove();
     this.live.remove();
   }
@@ -374,7 +392,9 @@ export class DocMirror {
     const text = this.texts.get(focus.p) ?? '';
     if (edited && prev) {
       // Typed or deleted text (a paragraph joined or split shows as a deletion / insertion).
-      const ch = prev.p === focus.p ? textChange(old.get(focus.p) ?? '', text) : null;
+      const baseline = this.editBase ?? old;
+      this.editBase = null;
+      const ch = prev.p === focus.p ? textChange(baseline.get(focus.p) ?? '', text) : null;
       if (ch?.deleted && !ch.inserted) this.announce(this.labels.deleted(ch.deleted));
       else if (ch?.inserted) this.announce(ch.inserted);
       return;

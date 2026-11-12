@@ -1,3 +1,4 @@
+import './document-view.css';
 import type {
   CaretRect,
   DocInfo,
@@ -192,16 +193,6 @@ export class DocumentView {
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('resize', this.schedule);
     this.watchDpr();
-    // Caret: one pixel wide, blinking 530 ms on / 530 ms off (the system default word processors
-    // use). Selection: a neutral grey that darkens the text under it like a multiply blend
-    // (black stays black, white paper becomes light grey), as word processors show it.
-    if (!document.getElementById('bo-caret-style')) {
-      const st = document.createElement('style');
-      st.id = 'bo-caret-style';
-      st.textContent =
-        '@keyframes bo-blink{0%,49%{opacity:1}50%,100%{opacity:0}}.bo-caret{position:absolute;width:1px;background:#000;animation:bo-blink 1.06s step-end infinite;pointer-events:none}.bo-sel{position:absolute;background:rgba(0,0,0,.2);pointer-events:none}.bo-find{position:absolute;background:rgba(255,200,0,.45);pointer-events:none}.bo-cc-frame{position:absolute;box-sizing:border-box;border:1px solid rgba(80,120,190,.75);pointer-events:none}.bo-cc-tag{position:absolute;box-sizing:border-box;padding:0 4px;border:1px solid rgba(80,120,190,.75);border-radius:3px;background:#eef3fb;color:#1f3d6e;font:10px system-ui,sans-serif;white-space:nowrap;pointer-events:none}.bo-cc-title{position:absolute;left:-1px;bottom:100%;padding:0 6px;border:1px solid rgba(80,120,190,.75);border-bottom:none;border-radius:3px 3px 0 0;background:#eef3fb;color:#1f3d6e;font:11px/16px system-ui,sans-serif;white-space:nowrap}.bo-speech-para{position:absolute;background:rgba(51,120,220,.08);pointer-events:none}.bo-speech-word{position:absolute;background:rgba(51,120,220,.3);box-shadow:inset 0 -2px 0 rgba(30,90,190,.85);pointer-events:none}.bo-region{position:absolute;background:rgba(255,236,150,.4);box-shadow:inset 0 -1px 0 rgba(170,130,0,.7);pointer-events:none}.bo-math-zone{position:absolute;background:rgba(0,0,0,.05);pointer-events:none}.bo-math-slot{position:absolute;box-sizing:border-box;border:1px dotted #777;pointer-events:none}.bo-peer-sel{position:absolute;opacity:.18;pointer-events:none}.bo-peer-caret{position:absolute;width:2px;pointer-events:none}.bo-peer-name{position:absolute;left:0;bottom:100%;padding:0 4px;border-radius:3px 3px 3px 0;color:#fff;font:600 11px/16px system-ui,sans-serif;white-space:nowrap}.bo-peer-bar{position:absolute;width:3px;border-radius:2px;pointer-events:none}.bo-peer-bar-name{position:absolute;right:6px;top:0;padding:0 4px;border-radius:3px;color:#fff;font:600 10px/14px system-ui,sans-serif;white-space:nowrap;opacity:.9}.bo-spell{position:absolute;height:4px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%23d32f2f%27 stroke-width=%271%27/%3E%3C/svg%3E") repeat-x}.bo-spell.bo-grammar{background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%274%27 height=%274%27%3E%3Cpath d=%27M0 3 L1 1 L2 1 L3 3 L4 3%27 fill=%27none%27 stroke=%27%231a5fd0%27 stroke-width=%271%27/%3E%3C/svg%3E")}';
-      document.head.appendChild(st);
-    }
   }
 
   get zoom(): number {

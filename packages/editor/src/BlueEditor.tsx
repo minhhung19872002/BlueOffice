@@ -28,7 +28,6 @@ import type {
   ControlInfo,
   MergePrompt,
   OpenedFile,
-  SelRect,
   ParaFormat,
   DocPasteMode,
   PdfExport,

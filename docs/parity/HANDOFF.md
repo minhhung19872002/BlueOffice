@@ -1,4 +1,39 @@
-# Bàn giao phiên (cập nhật 2026-11-11)
+# Bàn giao phiên (cập nhật 2026-11-12, dừng theo yêu cầu chủ dự án)
+
+Trạng thái vòng lặp Parity (`BlueOffice-PARITY-PROMPT.md`). Phiên sau đọc file này trước, rồi `BACKLOG.md`.
+Số liệu: 85 `[x]`, 82 `[p]`, 2 `[~]`/`[ ]` (CORE-MISC-001 mục gom + mục OFFICE-BEHAVIOUR, CORE-MISC-006 test chập chờn).
+
+## Trạng thái khi dừng (2026-11-12)
+- `origin/main` = `0493c49a`: đã kiểm tra xanh (regression + 368 E2E). Gồm: BlueSheet giống Excel (lưới, di chuyển/nhập,
+  định dạng, dữ liệu & công thức), BlueDoc giống Word lượt 1, BlueSlide giống PowerPoint lượt 1–2, công thức BlueSheet
+  (GROUPBY/PIVOTBY tổng phụ, CSE, liên kết sổ ngoài), trường + content control BlueDoc (2 đợt), SmartArt (ngăn văn bản +
+  thẻ thiết kế), biểu đồ / slicer / timeline.
+- **`main` local, CHƯA PUSH, CHƯA KIỂM TRA XONG** — 3 nhánh đã gộp: công cụ BlueSheet (thanh dàn ý, Text to Columns 3 bước,
+  Consolidate liên kết, Custom View, Page Break Preview, Watch Window lưu tệp), biểu đồ/SmartArt/slicer đợt 2 (lỗ bánh vòng
+  75 %, tạo kiểu slicer/timeline, chọn từng hình SmartArt, khung SmartArt BlueDoc), in ấn / sparkline / Flash Fill (+ thước
+  ngắt cột, hỏi ghi đè, Shift+F9, Page Layout sửa trong ô). Đã qua: `cargo fmt`, clippy workspace, `cargo test` bo-model /
+  bo-xlsx / bo-sheet / bo-formula / bo-engine, `pnpm build:wasm`, `bo-cli`, `pnpm typecheck` (sau khi sửa import trùng
+  `SelRect` trong `BlueEditor.tsx`). **Còn phải chạy:** `pnpm lint`, `pnpm test`, build web, E2E (sheet*, smartart*,
+  doc-chart, slide-chartex, a11y.spec, fields-controls), rồi push + build lại `out/desktop/bluesheet.exe`.
+- Lý do dừng: RAM. `explorer.exe` rò bộ nhớ tới ~12,8 GB (+ WSL ~2–3 GB) → hệ thống liên tục dừng lệnh build/test nền.
+  Khởi động lại Windows Explorer (Task Manager → Restart) trước khi chạy tiếp; chạy cargo với `CARGO_BUILD_JOBS=3`.
+- E2E `download.path: canceled` hàng loạt = môi trường (tải tệp chậm 60–90 s), không phải lỗi mã — xem pitfalls trong
+  `.claude/skills/blueoffice-merge-agent-branch/SKILL.md`.
+- Bản desktop trong `out/desktop/`: `bluesheet.exe` (2026-11-11 21:25, trước các nhánh BlueSheet công cụ/in ấn),
+  `blueslide.exe` (2026-11-12 00:40, có BlueSlide lượt 2), `bluedoc.exe` cũ. Không còn agent / worktree đang chạy
+  (kiểm `git worktree list`; các worktree đã gộp có thể xoá bằng Node `fs.rmSync` + `git worktree prune`).
+
+## Việc tiếp theo
+1. Chạy nốt kiểm tra của `main` local (mục trên), push, build lại `bluesheet.exe` (và `bluedoc.exe` có trường/content control).
+2. Các `[p]` còn phần (a): DOC-CC-001 (phần lặp lại cấp dòng bảng), DOC-FIELD-001 (EQ `\ai \di \vs \hs`), SHEET-VIEW-001
+   (Sheet View cộng tác), SHEET-FLASH-001, SHEET-SPARK-001, SHEET-PRINT-001 (`&G`), rồi các mục P1/P2 khác.
+3. Còn khác Office (xem `docs/parity/office-behaviour-*.md`): BlueDoc độ trễ gõ ~55–63 ms, kéo-thả văn bản; BlueSheet sao
+   chép/ẩn trang tính, tự nới cột `####`; chờ chủ dự án quyết: phím BlueDoc (Ctrl+Shift+= / Ctrl+Shift+E / Ctrl+Q),
+   `1/2` thành ngày, thanh công thức hiện `,` hay `;`.
+4. Cuối: chạy lại fuzz soak 1 giờ (docx + tabular), rà soát cuối, `docs/parity/FINAL_REPORT.md`.
+
+---
+## (Phần cũ, 2026-11-11)
 
 Trạng thái vòng lặp Parity (`BlueOffice-PARITY-PROMPT.md`). Phiên sau đọc file này trước, rồi `BACKLOG.md`.
 Số liệu: 79 `[x]`, 89 `[p]`, 2 `[~]`/`[ ]` (CORE-MISC-001 mục gom của rà soát, CORE-MISC-006 phần test chập chờn còn lại).

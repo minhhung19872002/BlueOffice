@@ -29,6 +29,10 @@ pub struct Query {
 pub struct LoadTarget {
     /// Name of the table (§18.5.1.2 `table/@name`) holding the result.
     pub table: String,
+    /// The result's columns at the last load: the table's other columns are the user's
+    /// (kept, and calculated ones filled down, on refresh).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
 }
 
 /// Where a query reads its data.

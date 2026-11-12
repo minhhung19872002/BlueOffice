@@ -890,6 +890,16 @@ pub fn resize_table(
     Ok(())
 }
 
+/// Write the calculated column formulas (§18.5.1.3 `calculatedColumnFormula`) of the table
+/// `ti` into its empty cells of rows `r0..=r1` (a table whose rows were rewritten, e.g. a
+/// refreshed query table); the cells written.
+pub fn fill_calculated_rows(ws: &mut Worksheet, ti: usize, r0: u32, r1: u32) -> Vec<(u32, u32)> {
+    if ti >= ws.tables.len() || r0 > r1 {
+        return Vec::new();
+    }
+    fill_calculated(ws, ti, r0, r1)
+}
+
 /// Write the calculated column formulas of the table into its empty cells of rows `r0..=r1`.
 fn fill_calculated(ws: &mut Worksheet, ti: usize, r0: u32, r1: u32) -> Vec<(u32, u32)> {
     let t = ws.tables[ti].clone();

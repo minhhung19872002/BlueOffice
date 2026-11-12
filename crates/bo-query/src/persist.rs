@@ -4,12 +4,15 @@
 //!   data properties; the part is kept by other software and means nothing to it) whose
 //!   root is `<queries xmlns="http://schemas.bluestar.vn/blueoffice/2026/queries">` with one
 //!   `<query name="…">` per query holding its JSON definition;
-//! * where the source has a standard form, a connection (§18.13 `xl/connections.xml`: text
-//!   files §18.13.12 `textPr`, web pages §18.13.15 `webPr`) and a query table part (§18.12)
-//!   linked to the loaded table (`table/@tableType="queryTable"`, `tableColumn/@queryTableFieldId`,
-//!   §18.5.1.2–3), so other software sees a table refreshed from a connection. Both carry an
-//!   `extLst` extension ([`EXT_URI`]) naming the query, which is how BlueOffice finds (and
-//!   rewrites) its own elements; everything else in those parts is kept as it was.
+//! * a connection (§18.13 `xl/connections.xml`) and a query table part (§18.12) linked to the
+//!   loaded table (`table/@tableType="queryTable"`, `tableColumn/@queryTableFieldId`,
+//!   §18.5.1.2–3), so other software sees a table refreshed from a connection. Text files and
+//!   web pages have a standard form (§18.13.12 `textPr`, §18.13.15 `webPr`) other software can
+//!   refresh; JSON, XML, workbook, folder and query sources have none in ECMA-376, so they are
+//!   written as an OLE DB connection (`type="5"`, §18.13.4 `dbPr`) naming the BlueOffice query
+//!   provider: other software keeps the connection and the table but cannot refresh it. Both
+//!   carry an `extLst` extension ([`EXT_URI`]) naming the query, which is how BlueOffice finds
+//!   (and rewrites) its own elements; everything else in those parts is kept as it was.
 
 use crate::def::{Query, Source};
 use bo_opc::xml::{escape, unescape, XmlReader};
@@ -133,13 +136,17 @@ fn ext(name: &str, p: &str) -> String {
     )
 }
 
-/// Does the query's source have a standard connection form (text file or web page)?
+/// Does the query's source have a standard connection form other software refreshes (text
+/// file or web page)? The other sources get a connection only BlueOffice can refresh.
 pub fn has_connection(q: &Query) -> bool {
     matches!(q.source, Source::Csv { .. } | Source::Web { .. })
 }
 
-/// A `connection` element (§18.13.1) for `q`, with id `id` and name `name`; `None` when the
-/// source has no standard form. `prefix` is the namespace prefix of the part (`""` or `x:`).
+/// OLE DB provider named by the connections of sources without a standard form.
+pub const PROVIDER: &str = "BlueOffice.Query";
+
+/// A `connection` element (§18.13.1) for `q`, with id `id` and name `name`. `prefix` is the
+/// namespace prefix of the part (`""` or `x:`).
 pub fn connection_xml(q: &Query, id: u32, name: &str, prefix: &str) -> Option<String> {
     let p = prefix;
     let head = |ty: u32| {
@@ -182,18 +189,61 @@ pub fn connection_xml(q: &Query, id: u32, name: &str, prefix: &str) -> Option<St
             escape(url),
             table + 1
         ),
-        _ => return None,
+        // No standard form: §18.13.4 dbPr of an OLE DB connection (type 5) naming the
+        // BlueOffice provider, the query (`Location`), the source kind and its file, folder
+        // or query; commandType 3 = table (ST_CredMethod-free, §18.13.4 `commandType`).
+        other => {
+            let (kind, key) = match other {
+                Source::Json { file, .. } => ("json", file.as_str()),
+                Source::Xml { file, .. } => ("xml", file.as_str()),
+                Source::Workbook { file, .. } => ("workbook", file.as_str()),
+                Source::Folder { folder, .. } => ("folder", folder.as_str()),
+                Source::Query { query } => ("query", query.as_str()),
+                Source::Csv { file, .. } => ("csv", file.as_str()),
+                Source::Web { url, .. } => ("web", url.as_str()),
+            };
+            // Connection string values with `;` or `=` are quoted (OLE DB rules).
+            let quote = |v: &str| {
+                if v.contains([';', '=', '"']) {
+                    format!("\"{}\"", v.replace('"', "\"\""))
+                } else {
+                    v.to_owned()
+                }
+            };
+            let conn = format!(
+                "Provider={PROVIDER};Location={};Source={kind};Data Source={}",
+                quote(&q.name),
+                quote(key)
+            );
+            format!(
+                "<{p}connection id=\"{id}\" name=\"{}\" description=\"{}\" type=\"5\" refreshedVersion=\"0\" background=\"1\" saveData=\"1\"><{p}dbPr connection=\"{}\" command=\"{}\" commandType=\"3\"/>",
+                escape(name),
+                escape(&format!("BlueOffice query \u{201c}{}\u{201d} ({kind})", q.name)),
+                escape(&conn),
+                escape(&q.name)
+            )
+        }
     };
     Some(format!("{body}{}</{p}connection>", ext(&q.name, p)))
 }
 
-/// A query table part (§18.12.3 `queryTable`) for the table columns `fields` (table column
-/// id, name) of `q`'s table, fed by connection `connection_id`.
-pub fn query_table_xml(q: &Query, connection_id: u32, fields: &[(u32, String)]) -> String {
+/// A column of a query table: table column id, name, and whether the query fills it (`false`:
+/// a column the user added, §18.12.4 `queryTableField/@dataBound="0"`).
+pub type QueryField = (u32, String, bool);
+
+/// A query table part (§18.12.3 `queryTable`) for the table columns `fields` of `q`'s table,
+/// fed by connection `connection_id`. With columns the user added, `fillFormulas` asks for
+/// their formulas to be filled down on refresh.
+pub fn query_table_xml(q: &Query, connection_id: u32, fields: &[QueryField]) -> String {
     let mut out = String::from(DECL);
+    let fill = if fields.iter().any(|f| !f.2) {
+        " fillFormulas=\"1\""
+    } else {
+        ""
+    };
     let _ = write!(
         out,
-        "<queryTable xmlns=\"{MAIN_NS}\" name=\"{}\" connectionId=\"{connection_id}\" autoFormatId=\"16\" applyNumberFormats=\"0\" applyBorderFormats=\"0\" applyFontFormats=\"0\" applyPatternFormats=\"0\" applyAlignmentFormats=\"0\" applyWidthHeightFormats=\"0\">",
+        "<queryTable xmlns=\"{MAIN_NS}\" name=\"{}\" connectionId=\"{connection_id}\"{fill} autoFormatId=\"16\" applyNumberFormats=\"0\" applyBorderFormats=\"0\" applyFontFormats=\"0\" applyPatternFormats=\"0\" applyAlignmentFormats=\"0\" applyWidthHeightFormats=\"0\">",
         escape(&q.name)
     );
     let _ = write!(
@@ -202,13 +252,21 @@ pub fn query_table_xml(q: &Query, connection_id: u32, fields: &[(u32, String)]) 
         fields.len() + 1,
         fields.len()
     );
-    for (k, (col_id, name)) in fields.iter().enumerate() {
-        let _ = write!(
-            out,
-            "<queryTableField id=\"{}\" name=\"{}\" tableColumnId=\"{col_id}\"/>",
-            k + 1,
-            escape(name)
-        );
+    for (k, (col_id, name, bound)) in fields.iter().enumerate() {
+        if *bound {
+            let _ = write!(
+                out,
+                "<queryTableField id=\"{}\" name=\"{}\" tableColumnId=\"{col_id}\"/>",
+                k + 1,
+                escape(name)
+            );
+        } else {
+            let _ = write!(
+                out,
+                "<queryTableField id=\"{}\" dataBound=\"0\" tableColumnId=\"{col_id}\"/>",
+                k + 1
+            );
+        }
     }
     out.push_str("</queryTableFields></queryTableRefresh>");
     out.push_str(&ext(&q.name, ""));

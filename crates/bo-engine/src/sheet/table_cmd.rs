@@ -119,7 +119,14 @@ impl SheetEngine {
         self.table_exists(sheet, table)?;
         self.edit(sheet, Recalc::All, |wb, _| {
             if let Some(n) = &u.name {
+                let old = wb.sheets[sheet].tables[table].name.clone();
                 tb::rename_table(wb, sheet, table, n).map_err(bad)?;
+                // A query loading into the table keeps its link.
+                super::query_cmd::table_renamed(
+                    wb,
+                    &old,
+                    &wb.sheets[sheet].tables[table].name.clone(),
+                );
             }
             if let Some(h) = u.header_row {
                 tb::set_header_row(wb, sheet, table, h).map_err(bad)?;

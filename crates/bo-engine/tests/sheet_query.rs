@@ -392,7 +392,10 @@ fn other_sources_merge_existing_sheet_and_errors() {
     let parts = wb_parts(&e.save("xlsx", 0).unwrap());
     let conns = part(&parts, "xl/connections.xml").unwrap();
     assert!(conns.contains("url=\"https://example.test/prices\""));
-    assert_eq!(conns.matches("<connection ").count(), 2);
+    // Text and web sources have standard connections; the folder and XML ones an OLE DB
+    // connection naming the BlueOffice provider (no standard form, kept by other software).
+    assert_eq!(conns.matches("<connection ").count(), 4);
+    assert_eq!(conns.matches("Provider=BlueOffice.Query").count(), 2);
     // A query step error is reported with the step.
     let r = exec(
         &mut e,
@@ -593,11 +596,147 @@ fn corpus_files_reopen_with_their_queries() {
         ("query-1.xlsx", 1),
         ("query-2.xlsx", 2),
         ("query-3.xlsx", 1),
+        ("query-4.xlsx", 2),
     ] {
         let bytes = std::fs::read(corpus(file)).unwrap();
         let mut e = SheetEngine::new();
         e.open(&bytes, file).unwrap();
         let list = exec(&mut e, &json!({"cmd": "queryList"})).unwrap();
         assert_eq!(list["queries"].as_array().unwrap().len(), n, "{file}");
+    }
+}
+
+/// Columns added to a loaded query table survive a refresh (a calculated column fills the new
+/// rows, a plain one keeps its values row by row), a renamed table keeps its query, and a JSON
+/// query is saved with an OLE DB connection and a query table whose added columns are not bound
+/// to the query (§18.12.4 `dataBound="0"`, `fillFormulas`).
+///
+/// `BO_WRITE_CORPUS=1` writes `tests/corpus/sheet/query-4.xlsx`.
+#[test]
+fn user_columns_survive_refresh_and_rename_keeps_the_query() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("q.xlsx").unwrap();
+    provide(&mut e, "sales.csv", &fixture("sales.csv"));
+    let q = sales_query(&mut e);
+    let r = exec(
+        &mut e,
+        &json!({"cmd": "querySave", "query": q, "load": "newSheet"}),
+    )
+    .unwrap();
+    let s = r["sheet"].as_u64().unwrap() as usize;
+    // A1:E5 (5 columns, 4 rows). Type a header right of it (the table grows), then a formula
+    // (a calculated column), and a plain column of notes.
+    e.set_input(s, 0, 5, "Gấp đôi").unwrap();
+    e.set_input(s, 1, 5, "=[@[Số lượng]]*2").unwrap();
+    e.set_input(s, 0, 6, "Ghi chú").unwrap();
+    e.set_input(s, 1, 6, "kiểm").unwrap();
+    e.set_input(s, 3, 6, "đủ").unwrap();
+    let t = &e.workbook().unwrap().sheets[s].tables[0];
+    assert_eq!(t.columns.len(), 7, "{:?}", t.columns);
+    // The reference is qualified with the table name as it is typed.
+    assert!(
+        t.columns[5]
+            .calculated_formula
+            .as_deref()
+            .is_some_and(|f| f.ends_with("[Số lượng]]*2")),
+        "{:?}",
+        t.columns[5]
+    );
+    assert_eq!(shown(&e, s, "F5"), "6");
+
+    // The source grows by a row and changes a value: the query's columns are rewritten, the
+    // added columns stay where they were, the formula fills the new row.
+    let changed = String::from_utf8(fixture("sales.csv"))
+        .unwrap()
+        .replace("A02;Lê;Nam;4", "A02;Lê;Nam;40")
+        + "A05;Xoài;Nam;6;9;2024-03-01\r\n";
+    provide(&mut e, "sales.csv", changed.as_bytes());
+    exec(&mut e, &json!({"cmd": "queryRefresh"})).unwrap();
+    assert_eq!(shown(&e, s, "F1"), "Gấp đôi");
+    assert_eq!(shown(&e, s, "F3"), "80");
+    assert_eq!(shown(&e, s, "A6"), "A05");
+    assert_eq!(shown(&e, s, "F6"), "12");
+    assert!(input(&e, s, "F6").ends_with("[Số lượng]]*2"), "{}", input(&e, s, "F6"));
+    assert_eq!(shown(&e, s, "G2"), "kiểm");
+    assert_eq!(shown(&e, s, "G4"), "đủ");
+    assert_eq!(shown(&e, s, "G6"), "");
+    let t = &e.workbook().unwrap().sheets[s].tables[0];
+    assert_eq!(t.range.to_string(), "A1:G6");
+
+    // The query drops a column: the user's columns move left with the table.
+    let mut q2 = exec(&mut e, &json!({"cmd": "queryGet", "name": "Doanh số"})).unwrap();
+    q2["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"op": "removeColumns", "columns": ["Ngày"]}));
+    exec(
+        &mut e,
+        &json!({"cmd": "querySave", "query": q2, "original": "Doanh số"}),
+    )
+    .unwrap();
+    assert_eq!(shown(&e, s, "E1"), "Gấp đôi");
+    assert_eq!(shown(&e, s, "E6"), "12");
+    assert_eq!(shown(&e, s, "F2"), "kiểm");
+    assert_eq!(shown(&e, s, "G1"), "");
+
+    // Rename the table: the query follows it and refreshes into it.
+    exec(
+        &mut e,
+        &json!({"cmd": "tableUpdate", "sheet": s, "table": 0, "name": "BanHang"}),
+    )
+    .unwrap();
+    let list = exec(&mut e, &json!({"cmd": "queryList"})).unwrap();
+    assert_eq!(list["queries"][0]["table"], "BanHang");
+    let r = exec(&mut e, &json!({"cmd": "queryRefresh"})).unwrap();
+    assert_eq!(r["refreshed"][0]["rows"], 5);
+    // Undo of the rename takes the link back too.
+    assert!(e.undo().unwrap());
+    assert!(e.undo().unwrap());
+    let list = exec(&mut e, &json!({"cmd": "queryList"})).unwrap();
+    assert_eq!(list["queries"][0]["table"], "Doanh_số");
+    assert!(e.redo().unwrap());
+
+    // A JSON query loaded as a table: an OLE DB connection only BlueOffice refreshes.
+    provide(&mut e, "products.json", &fixture("products.json"));
+    exec(
+        &mut e,
+        &json!({"cmd": "querySave", "load": "newSheet",
+                "query": {"name": "Sản phẩm", "source": {"kind": "json", "file": "products.json"}}}),
+    )
+    .unwrap();
+    let bytes = e.save("xlsx", 0).unwrap();
+    let parts = wb_parts(&bytes);
+    let conns = part(&parts, "xl/connections.xml").unwrap();
+    assert!(conns.contains("type=\"6\""), "{conns}");
+    assert!(
+        conns.contains("type=\"5\"")
+            && conns.contains(
+                "Provider=BlueOffice.Query;Location=Sản phẩm;Source=json;Data Source=products.json"
+            ),
+        "{conns}"
+    );
+    let qts: Vec<String> = parts
+        .iter()
+        .filter(|(n, _)| n.starts_with("xl/queryTables/"))
+        .map(|(_, d)| String::from_utf8_lossy(d).into_owned())
+        .collect();
+    assert_eq!(qts.len(), 2);
+    let sales_qt = qts.iter().find(|x| x.contains("fillFormulas")).unwrap();
+    assert_eq!(sales_qt.matches("dataBound=\"0\"").count(), 2, "{sales_qt}");
+    // Reopened: the added columns are still the user's on the next refresh.
+    let mut f = SheetEngine::new();
+    f.open(&bytes, "q.xlsx").unwrap();
+    provide(&mut f, "sales.csv", &fixture("sales.csv"));
+    exec(
+        &mut f,
+        &json!({"cmd": "queryRefresh", "names": ["Doanh số"]}),
+    )
+    .unwrap();
+    assert_eq!(shown(&f, s, "E1"), "Gấp đôi");
+    assert_eq!(shown(&f, s, "E3"), "8");
+    assert_eq!(shown(&f, s, "E6"), "");
+    assert_eq!(shown(&f, s, "F2"), "kiểm");
+    if std::env::var_os("BO_WRITE_CORPUS").is_some() {
+        std::fs::write(corpus("query-4.xlsx"), &bytes).unwrap();
     }
 }

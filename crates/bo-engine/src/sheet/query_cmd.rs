@@ -532,16 +532,80 @@ fn load_new(
     Ok(name)
 }
 
+/// A column of a reloaded query table: column `i` of the query result, or the user's column
+/// `k` of the old table.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Query(usize),
+    User(usize),
+}
+
+/// The columns of the reloaded table: the query result's columns in their new order, each
+/// column the user added (an old column that is not a query column) kept after the query
+/// column it followed (or first when none did), like a spreadsheet application keeps the
+/// columns added to a query table. `query_cols` are the result's columns of the last load;
+/// empty (a definition saved before they were kept), the calculated columns not in the
+/// result are taken as the user's.
+fn slots(old: &bo_model::sheet::Table, t: &QTable, query_cols: &[String]) -> Vec<Slot> {
+    let in_result = |n: &str| t.columns.iter().position(|c| c.eq_ignore_ascii_case(n));
+    let is_user = |c: &bo_model::sheet::TableColumn| {
+        in_result(&c.name).is_none()
+            && if query_cols.is_empty() {
+                c.calculated_formula.is_some()
+            } else {
+                !query_cols.iter().any(|q| q.eq_ignore_ascii_case(&c.name))
+            }
+    };
+    let mut out: Vec<Slot> = (0..t.columns.len()).map(Slot::Query).collect();
+    for (k, c) in old.columns.iter().enumerate() {
+        if !is_user(c) {
+            continue;
+        }
+        // The nearest query column before it that is still in the result.
+        let anchor = old.columns[..k].iter().rev().find_map(|p| {
+            if is_user(p) {
+                None
+            } else {
+                in_result(&p.name)
+            }
+        });
+        let mut pos = anchor.map_or(0, |i| {
+            out.iter()
+                .position(|s| *s == Slot::Query(i))
+                .map_or(out.len(), |p| p + 1)
+        });
+        while matches!(out.get(pos), Some(Slot::User(_))) {
+            pos += 1;
+        }
+        out.insert(pos, Slot::User(k));
+    }
+    out
+}
+
 /// Rewrite the table (`sheet`, `ti`) with `t`: same top-left cell and style, columns kept by
-/// name (their ids and settings), the totals row (if any) moved below the new rows.
-fn reload(wb: &mut Workbook, sheet: usize, ti: usize, t: &QTable, locale: &Locale) -> Result<()> {
+/// name (their ids and settings), the totals row (if any) moved below the new rows. Columns
+/// the user added to the table stay: a calculated column (§18.5.1.3 `calculatedColumnFormula`)
+/// is filled down over the new rows, other cells keep their values row by row.
+fn reload(
+    wb: &mut Workbook,
+    sheet: usize,
+    ti: usize,
+    t: &QTable,
+    query_cols: &[String],
+    locale: &Locale,
+) -> Result<()> {
     if t.columns.is_empty() {
         return Err(bad("query: the result has no columns"));
     }
     let old = wb.sheets[sheet].tables[ti].clone();
     let totals = old.totals_row_count.unwrap_or(0) > 0;
     let at = old.range.first;
+    let layout = slots(&old, t, query_cols);
     let mut range = range_for(at, t)?;
+    range.last.col = at.col + layout.len() as u32 - 1;
+    if range.last.col >= super::MAX_COLS {
+        return Err(bad("query: the result does not fit on the sheet"));
+    }
     if totals {
         range.last.row += 1;
     }
@@ -568,30 +632,84 @@ fn reload(wb: &mut Workbook, sheet: usize, ti: usize, t: &QTable, locale: &Local
     } else {
         HashMap::new()
     };
+    // Cells of the user's plain columns, by data row (header included at index 0).
+    let old_data_last = old.range.last.row - u32::from(totals);
+    let user_cells: HashMap<usize, Vec<Option<Cell>>> = layout
+        .iter()
+        .filter_map(|s| match s {
+            Slot::User(k) if old.columns[*k].calculated_formula.is_none() => Some(*k),
+            _ => None,
+        })
+        .map(|k| {
+            let col = old.range.first.col + k as u32;
+            let cells = (old.range.first.row..=old_data_last)
+                .map(|r| ws.cells.get(&(r, col)).cloned())
+                .collect();
+            (k, cells)
+        })
+        .collect();
     let ds = date_style(wb, locale);
     let ws = &mut wb.sheets[sheet];
     clear_range(ws, old.range);
-    write_cells(ws, at, t, ds);
+    // The query's columns in their places, blank where the user's columns are.
+    let shown = QTable::new(
+        layout
+            .iter()
+            .map(|s| match s {
+                Slot::Query(i) => t.columns[*i].clone(),
+                Slot::User(k) => old.columns[*k].name.clone(),
+            })
+            .collect(),
+        t.rows
+            .iter()
+            .map(|row| {
+                layout
+                    .iter()
+                    .map(|s| match s {
+                        Slot::Query(i) => row.get(*i).cloned().unwrap_or(Val::Null),
+                        Slot::User(_) => Val::Null,
+                    })
+                    .collect()
+            })
+            .collect(),
+    );
+    write_cells(ws, at, &shown, ds);
+    let data_rows = t.rows.len().max(1) as u32;
+    for (p, s) in layout.iter().enumerate() {
+        let Slot::User(k) = s else { continue };
+        let Some(cells) = user_cells.get(k) else {
+            continue;
+        };
+        let col = at.col + p as u32;
+        for (r, cell) in cells.iter().enumerate().take(data_rows as usize + 1) {
+            if let Some(cell) = cell {
+                ws.cells.insert((at.row + r as u32, col), cell.clone());
+            }
+        }
+    }
     let mut next_id = old.columns.iter().map(|c| c.id).max().unwrap_or(0) + 1;
-    let columns: Vec<_> = t
-        .columns
+    let columns: Vec<_> = layout
         .iter()
-        .map(|name| {
-            if let Some(c) = old
-                .columns
-                .iter()
-                .find(|c| c.name.eq_ignore_ascii_case(name))
-            {
-                let mut c = c.clone();
-                c.name = name.clone();
-                c
-            } else {
-                let id = next_id;
-                next_id += 1;
-                bo_model::sheet::TableColumn {
-                    id,
-                    name: name.clone(),
-                    ..Default::default()
+        .map(|s| match s {
+            Slot::User(k) => old.columns[*k].clone(),
+            Slot::Query(i) => {
+                let name = &t.columns[*i];
+                if let Some(c) = old
+                    .columns
+                    .iter()
+                    .find(|c| c.name.eq_ignore_ascii_case(name))
+                {
+                    let mut c = c.clone();
+                    c.name.clone_from(name);
+                    c
+                } else {
+                    let id = next_id;
+                    next_id += 1;
+                    bo_model::sheet::TableColumn {
+                        id,
+                        name: name.clone(),
+                        ..Default::default()
+                    }
                 }
             }
         })
@@ -616,7 +734,38 @@ fn reload(wb: &mut Workbook, sheet: usize, ti: usize, t: &QTable, locale: &Local
         let af = CellRange::new(range.first, CellRef::new(data_last, range.last.col));
         tab.auto_filter = Some(format!("<autoFilter ref=\"{af}\"/>"));
     }
+    // Calculated columns of the user's fill the new rows.
+    let first_data = range.first.row + 1;
+    bo_sheet::table::fill_calculated_rows(ws, ti, first_data, first_data + data_rows - 1);
     Ok(())
+}
+
+/// The load target of a query after loading `t` into table `table`.
+fn load_target(table: String, t: &QTable) -> bo_query::LoadTarget {
+    bo_query::LoadTarget {
+        table,
+        columns: t.columns.clone(),
+    }
+}
+
+/// A table was renamed from `old` to `new`: the queries loading into it follow (the link
+/// between a query and its table is the table name).
+pub(crate) fn table_renamed(wb: &mut Workbook, old: &str, new: &str) {
+    let mut defs = read_defs(wb);
+    let mut changed = false;
+    for q in &mut defs {
+        if let Some(l) = q
+            .load
+            .as_mut()
+            .filter(|l| l.table.eq_ignore_ascii_case(old))
+        {
+            new.clone_into(&mut l.table);
+            changed = true;
+        }
+    }
+    if changed {
+        write_defs(wb, &defs);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -957,7 +1106,12 @@ impl SheetEngine {
             let mut out = (None, None, 0usize);
             if let Some(t) = t {
                 if let Some((s, ti)) = table_target {
-                    reload(wb, s, ti, t, &locale)?;
+                    let cols = query.load.as_ref().map_or(&[][..], |l| &l.columns[..]);
+                    reload(wb, s, ti, t, cols, &locale)?;
+                    let tname = wb.sheets[s].tables[ti].name.clone();
+                    if let Some(q) = defs.iter_mut().find(|q| q.name == name) {
+                        q.load = Some(load_target(tname, t));
+                    }
                     out = (
                         Some(wb.sheets[s].tables[ti].name.clone()),
                         Some(s),
@@ -975,9 +1129,7 @@ impl SheetEngine {
                     };
                     let tname = load_new(wb, s, at, t, &name, &locale)?;
                     if let Some(q) = defs.iter_mut().find(|q| q.name == name) {
-                        q.load = Some(bo_query::LoadTarget {
-                            table: tname.clone(),
-                        });
+                        q.load = Some(load_target(tname.clone(), t));
                     }
                     out = (Some(tname), Some(s), t.rows.len());
                 }
@@ -1032,10 +1184,27 @@ impl SheetEngine {
         if !results.is_empty() {
             let locale = self.locale;
             let first = results[0].1 .0;
+            let mut defs = defs.clone();
             self.edit(first, Recalc::All, |wb, _| {
+                let mut columns_changed = false;
                 for (name, (s, ti), t) in &results {
-                    reload(wb, *s, *ti, t, &locale)?;
+                    let q = defs.iter_mut().find(|q| &q.name == name);
+                    let cols = q
+                        .as_ref()
+                        .and_then(|q| q.load.as_ref())
+                        .map(|l| l.columns.clone())
+                        .unwrap_or_default();
+                    reload(wb, *s, *ti, t, &cols, &locale)?;
+                    if let Some(l) = q.and_then(|q| q.load.as_mut()) {
+                        if l.columns != t.columns {
+                            l.columns.clone_from(&t.columns);
+                            columns_changed = true;
+                        }
+                    }
                     refreshed.push(json!({ "name": name, "rows": t.rows.len() }));
+                }
+                if columns_changed {
+                    write_defs(wb, &defs);
                 }
                 Ok(())
             })?;
@@ -1127,9 +1296,6 @@ pub(crate) fn sync_ecma_parts(wb: &mut Workbook) {
     let mut ours = Vec::new();
     let mut qt_no = 1;
     for q in &defs {
-        if !persist::has_connection(q) {
-            continue;
-        }
         let Some((s, ti)) = q.load.as_ref().and_then(|l| find_table(wb, &l.table)) else {
             continue;
         };
@@ -1166,7 +1332,16 @@ pub(crate) fn sync_ecma_parts(wb: &mut Workbook) {
         }
         qt_no += 1;
         let t = &mut wb.sheets[s].tables[ti];
-        let fields: Vec<(u32, String)> = t.columns.iter().map(|c| (c.id, c.name.clone())).collect();
+        // Columns the user added are not bound to the query (§18.12.4 dataBound).
+        let bound = q.load.as_ref().map_or(&[][..], |l| &l.columns[..]);
+        let fields: Vec<persist::QueryField> = t
+            .columns
+            .iter()
+            .map(|c| {
+                let b = bound.is_empty() || bound.iter().any(|n| n.eq_ignore_ascii_case(&c.name));
+                (c.id, c.name.clone(), b)
+            })
+            .collect();
         t.attrs.retain(|(k, _)| k != "tableType");
         t.attrs.push(("tableType".into(), "queryTable".into()));
         for (k, c) in t.columns.iter_mut().enumerate() {

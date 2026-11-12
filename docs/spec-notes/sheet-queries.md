@@ -48,8 +48,13 @@ gửi byte bằng `querySource`. Web: desktop gọi thẳng; bản web chỉ qua
 2. **Kết nối chuẩn**, khi nguồn có dạng chuẩn (CSV → `connection type="6"` + `textPr` §18.13.12; web →
    `type="4"` + `webPr`/`tables` §18.13.15), ghi lúc lưu `.xlsx`: `xl/connections.xml` (§18.13), một phần
    `queryTable` (§18.12.3, `queryTableRefresh/queryTableFields` trỏ `tableColumnId`) có quan hệ từ phần bảng, bảng có
-   `tableType="queryTable"`, mỗi cột `queryTableFieldId`. Bảng tải lên vẫn là bảng thường ở phần mềm khác. JSON, XML,
-   workbook, thư mục, truy vấn: không có kết nối chuẩn (chỉ định nghĩa).
+   `tableType="queryTable"`, mỗi cột `queryTableFieldId`. Bảng tải lên vẫn là bảng thường ở phần mềm khác.
+   JSON, XML, workbook, thư mục, truy vấn: ECMA-376 không có dạng kết nối tương ứng, nên ghi kết nối OLE DB
+   (`type="5"`, §18.13.4 `dbPr connection="Provider=BlueOffice.Query;Location=<tên truy vấn>;Source=<kiểu>;Data
+   Source=<tệp/thư mục/truy vấn>" command="<tên>" commandType="3"`) cùng query table như trên: phần mềm khác giữ
+   kết nối, bảng và liên kết nhưng không làm mới được (không có trình cung cấp `BlueOffice.Query`); định nghĩa thật
+   vẫn ở phần custom XML. Cột người dùng thêm vào bảng: `queryTableField dataBound="0"` (§18.12.4), `queryTable
+   fillFormulas="1"` (công thức được điền xuống khi làm mới).
    Phần tử BlueOffice mang `extLst/ext uri="{6E1B3C2A-9D84-4F5B-A7C1-3B0E5D9F2A41}"` chứa
    `<bq:query xmlns:bq="…/queries" name="…"/>`; mỗi lần lưu chỉ các phần tử có dấu này được viết lại, kết nối và
    query table của phần mềm khác giữ nguyên byte.
@@ -62,4 +67,13 @@ Close & Load: bảng (SHEET-TABLE-001) trên trang mới hoặc tại ô chọn;
 và viết lại bảng tại chỗ (giữ ô góc, kiểu bảng, cài đặt cột theo tên, hàng tổng), một bước hoàn tác cho cả "làm mới
 tất cả". Nguồn thiếu byte → `errors[].missing` để UI hỏi lại tệp.
 
-Hạn chế: cột người dùng thêm vào bảng đã tải bị bỏ khi làm mới; không có trình soạn mã M; không chạy truy vấn M.
+Cột người dùng thêm vào bảng đã tải (như phần mềm bảng tính phổ biến): `load.columns` ghi các cột kết quả của lần tải
+trước; cột khác của bảng là của người dùng. Khi làm mới, cột của truy vấn theo thứ tự mới, mỗi cột người dùng đứng sau
+cột truy vấn nó đứng sau trước đó (không có thì đứng đầu); cột tính (`calculatedColumnFormula`) điền công thức xuống
+mọi hàng mới, cột thường giữ giá trị theo số thứ tự hàng. Định nghĩa cũ không có `load.columns`: cột tính không có
+trong kết quả được coi là của người dùng.
+
+Đổi tên bảng (lệnh `tableUpdate`): truy vấn nạp vào bảng đó đổi `load.table` theo (cùng bước hoàn tác).
+
+Hạn chế: không có trình soạn mã M; không chạy truy vấn M; phần mềm khác không làm mới được truy vấn JSON/XML/sổ
+tính/thư mục (kết nối OLE DB trỏ trình cung cấp riêng).

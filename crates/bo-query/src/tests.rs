@@ -573,6 +573,7 @@ fn definitions_part_and_connections() {
     let base = Evaluator::new(&f).source(&csv()).unwrap();
     let mut sales = q("Doanh số & <Q>", csv(), suggest_steps(&base, true));
     sales.load = Some(LoadTarget {
+        columns: Vec::new(),
         table: "DoanhSo".into(),
     });
     let web = q(
@@ -596,20 +597,33 @@ fn definitions_part_and_connections() {
     assert!(c.contains("semicolon") || c.contains("comma"));
     let w = persist::connection_xml(&web, 4, "Web", "").unwrap();
     assert!(w.contains("url=\"https://example.com/a?b=1&amp;c=2\""));
-    assert!(persist::connection_xml(
+    // No standard form: an OLE DB connection (type 5, dbPr) naming the BlueOffice provider,
+    // the query and its file; values with `;` are quoted.
+    let j = persist::connection_xml(
         &q(
-            "J",
+            "J;1",
             Source::Json {
                 file: "a.json".into(),
-                path: None
+                path: None,
             },
-            vec![]
+            vec![],
         ),
         1,
         "J",
-        ""
+        "",
     )
-    .is_none());
+    .unwrap();
+    assert!(j.contains("type=\"5\""), "{j}");
+    assert!(j.contains(
+        "connection=\"Provider=BlueOffice.Query;Location=&quot;J;1&quot;;Source=json;Data Source=a.json\""
+    ), "{j}");
+    assert!(j.contains("command=\"J;1\" commandType=\"3\""));
+    assert!(j.contains(persist::EXT_URI));
+    assert!(!persist::has_connection(&q(
+        "F",
+        Source::Query { query: "J".into() },
+        vec![]
+    )));
     // Other connections stay byte for byte; ours are replaced.
     let other = "<connection id=\"7\" name=\"Theirs\" type=\"5\" refreshedVersion=\"6\"><dbPr connection=\"x\" command=\"y\"/></connection>";
     let part = persist::connections_part(None, std::slice::from_ref(&c)).unwrap();
@@ -622,7 +636,20 @@ fn definitions_part_and_connections() {
     let again = persist::connections_part(Some(&stripped), &[w]).unwrap();
     assert!(again.contains(other) && again.contains("webPr"));
     assert!(!again.contains("textPr"));
-    let qt = persist::query_table_xml(&sales, 3, &[(1, "Mã".into()), (2, "Ngày".into())]);
+    let qt = persist::query_table_xml(
+        &sales,
+        3,
+        &[(1, "Mã".into(), true), (2, "Ngày".into(), true)],
+    );
     assert!(qt.contains("connectionId=\"3\"") && qt.contains("tableColumnId=\"2\""));
+    assert!(!qt.contains("fillFormulas"));
     assert!(persist::is_own_query_table(qt.as_bytes()));
+    // A column the user added: not bound (§18.12.4 dataBound), formulas filled down.
+    let qt = persist::query_table_xml(
+        &sales,
+        3,
+        &[(1, "Mã".into(), true), (5, "Ghi chú".into(), false)],
+    );
+    assert!(qt.contains("fillFormulas=\"1\""));
+    assert!(qt.contains("<queryTableField id=\"2\" dataBound=\"0\" tableColumnId=\"5\"/>"));
 }

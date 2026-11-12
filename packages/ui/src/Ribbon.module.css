@@ -51,6 +51,10 @@
   color: var(--bo-app-accent-on);
   opacity: 1;
 }
+/* The selected tab over Mica: an accent underline (its background is the see-through ribbon). */
+:global(:root[data-backdrop='mica']) .tab[data-state='active']:not([data-context]) {
+  box-shadow: inset 0 -2px 0 var(--bo-app-accent);
+}
 :global(:root[data-backdrop='mica']) .fileTab:hover {
   background: var(--bo-app-accent-strong);
   box-shadow: inset 0 0 0 1px var(--bo-app-accent-on);

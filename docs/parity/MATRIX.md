@@ -46,7 +46,7 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | Cộng tác thời gian thực | all | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | collab tests + E2E, collab_objects.rs | ✅ | đối tượng mới + hiện ai đang sửa đoạn/ô/slide (CORE-COLLAB-001, `docs/collab-coverage.md`); cùng một part/thiết lập: người ghi sau thắng |
 | Comment luồng | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests, mentions.rs, mentions.test.tsx, server tests | ✅ | @mention (people part docx, mentions xlsx, ext pptx), thông báo host/e-mail, giao việc (CORE-COMMENT-001) |
 | Lịch sử phiên bản | all | — | ✅ | ✅ | — | ✅ | ✅ | — | server tests, bo-sheet diff, slide_compare, showChanges/compareVersions tests | 🟡 | so sánh Doc/Sheet/Slide + Hiện thay đổi (CORE-VERSION-001); chưa tách theo từng phiên bản trung gian |
-| Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop, protection.rs | 🟡 | + đánh dấu bản cuối, khuyến nghị chỉ đọc, vùng được sửa, nhãn độ mật (CORE-SEC-001); thiếu mật khẩu kiểu cũ w:hash |
+| Mật khẩu / bảo vệ | all | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | interop, protection.rs | 🟡 | + đánh dấu bản cuối, khuyến nghị chỉ đọc, vùng được sửa, nhãn độ mật (CORE-SEC-001); mật khẩu kiểu cũ w:hash/w:salt kiểm tra theo chuẩn |
 | Ký số | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-sign, sigline.rs | 🟡 | + dòng chữ ký BlueDoc, nhiều chữ ký (CORE-SIGLINE-001); thiếu Sheet/Slide |
 | Kiểm tra tài liệu / tiếp cận | all | — | ✅ | ✅ | — | ✅ | ✅ | — | inspect.rs | 🟡 | rà soát nội dung, trợ năng, tương thích (CORE-INSPECT-001); thiếu ngăn bên, sửa nhanh Sheet |
 | VBA | all | ✅ | — | — | ✅ | — | — | — | test | — (chủ ý) | giữ nguyên, cảnh báo, không chạy |
@@ -78,7 +78,7 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 |---|---|---|---|---|---|---|---|---|---|---|
 | Định dạng ký tự/đoạn cơ bản | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus text-*, para-* | ✅ | |
 | Thuộc tính ký tự nâng cao (emboss, ruby, ligature…) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | char_props.rs, corpus text-04..07 | 🟡 | w14 effects, OpenType, ruby, combine (DOC-FMT-001); combine chỉ 1 run |
-| Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | định nghĩa danh sách mới, liên kết heading, đặt giá trị (DOC-LIST-001); thiếu restart cấp con, legal-style |
+| Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | định nghĩa danh sách mới, liên kết heading, đặt giá trị, bắt đầu lại ở cấp con giữ cấp trên, lvlRestart, kiểu pháp lý isLgl (DOC-LIST-001); thiếu căn số/font số trong hộp thoại |
 | Section, cột, header/footer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus sections-* | ✅ | |
 | Drop cap, đánh số dòng, gạch nối, chữ dọc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus layout-0* | 🟡 | DOC-LAYOUT-001; gạch nối tiếng Anh gần đúng, chưa cân cột |
 | Viền trang, nền, watermark | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus page-* | 🟡 | viền thường + nghệ thuật tự vẽ, màu trang, hình mờ chữ/ảnh, chủ đề (DOC-PAGE-001); thiếu in không màu trang, w:frame |
@@ -86,8 +86,8 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | Ảnh & wrap | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus images-* | ✅ | |
 | Footnote/endnote, TOC, caption, cross-ref | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests bo-edit | ✅ | |
 | Chỉ mục, TOA, trích dẫn | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | refs_tests, references.rs | ✅ | mục lục hình, INDEX/XE, TOA/TA, chuyển chú thích (DOC-REF-001) |
-| Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields | 🟡 | một phần danh sách |
-| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01/03, tests bo-docx/bo-edit/bo-engine, content-controls.spec | 🟡 | Custom XML + data binding hai chiều (DOC-CC-002); chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày; thiếu tạo ảnh/phần lặp, hộp thoại thuộc tính, khung viền; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
+| Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields, fields-controls.spec | 🟡 | một phần danh sách; EQ có \vs \hs \ai \di \li (trừ \ba); Shift+F9 từng trường |
+| Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01/03/04/06, tests bo-docx/bo-edit/bo-engine, content-controls.spec, fields-controls.spec | 🟡 | Custom XML + data binding hai chiều (DOC-CC-002); chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày/ảnh, phần lặp (đoạn và dòng bảng, + / −), hộp thoại thuộc tính, khung viền; thiếu khung quanh các dòng của phần lặp; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
 | Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E, track_moves.rs | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); cặp di chuyển, chi tiết định dạng, khoá mật khẩu (DOC-REVIEW-002); cắt-dán chưa thành di chuyển |
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |

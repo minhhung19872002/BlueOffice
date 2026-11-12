@@ -2489,12 +2489,11 @@ fn word_pieces(
             }
             let n = sub.len();
             for (i, p) in sub.iter_mut().enumerate() {
-                let o0 = if i == 0 {
-                    at.start as u32
-                } else {
-                    at.end as u32
-                };
-                p.offsets = vec![o0, at.end as u32];
+                // The unit's start is left of its first piece, its end right of its last
+                // one (a field code "{ = 2+3 }" shapes into several pieces; the caret
+                // after the field goes after the closing brace).
+                let o1 = if i + 1 == n { at.end } else { at.start };
+                p.offsets = vec![at.start as u32, o1 as u32];
                 p.note = if i + 1 == n { at.note } else { None };
             }
             pieces.extend(sub);

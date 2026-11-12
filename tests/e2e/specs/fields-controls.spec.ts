@@ -91,19 +91,14 @@ test('Shift+F9 shows the code of the field at the caret only', async ({ page }) 
   };
   await field('= 6*7 + 0');
   await page.keyboard.insertText(' và ');
+  // The second field ends the paragraph: the caret at the line's end is right after it.
   await field('= 2+3 + 0');
-  await page.keyboard.insertText(' nữa');
-  await expect(page.getByTestId('status-words')).toHaveText('4 từ');
+  await expect(page.getByTestId('status-words')).toHaveText('3 từ');
   const lineEnd = async () => {
     await page.keyboard.press('End');
     const box = await page.getByTestId('caret').boundingBox();
     if (!box) throw new Error('no caret');
     return box.x;
-  };
-  /** The caret just after the second field (before " nữa"). */
-  const atSecond = async () => {
-    await page.keyboard.press('End');
-    for (let i = 0; i < ' nữa'.length; i++) await page.keyboard.press('ArrowLeft');
   };
   const results = await lineEnd();
   // The caret at the first field: Shift+F9 shows its code only.
@@ -111,12 +106,12 @@ test('Shift+F9 shows the code of the field at the caret only', async ({ page }) 
   await page.keyboard.press('Shift+F9');
   await expect.poll(lineEnd).toBeGreaterThan(results + 15);
   const one = await lineEnd();
-  // The caret at the second field: Shift+F9 shows its code too — wider still.
-  await atSecond();
+  // The caret right after the last field (End): Shift+F9 shows its code too — the caret
+  // stays after the closing brace, further right still.
   await page.keyboard.press('Shift+F9');
   await expect.poll(lineEnd).toBeGreaterThan(one + 15);
   // Shift+F9 again on each field: the results come back one at a time.
-  await atSecond();
+  await page.keyboard.press('End');
   await page.keyboard.press('Shift+F9');
   await expect.poll(lineEnd).toBeLessThan(one + 2);
   await page.keyboard.press('Control+Home');

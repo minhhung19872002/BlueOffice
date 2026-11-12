@@ -1380,7 +1380,11 @@ export interface AutoCorrectOptions {
   fractions: boolean;
   autoLists: boolean;
   autoLinks: boolean;
+  /** Replacement list used whatever the language (symbols). */
   entries: AutoCorrectEntry[];
+  /** Replacement lists by language tag (`vi-VN`, `en-US`): the list of the typed text's
+   * language applies; untagged text uses them all. */
+  languageEntries?: Record<string, AutoCorrectEntry[]>;
   /** Abbreviations after which no capital is forced. */
   exceptions: string[];
   /** Words that keep two initial capitals. */

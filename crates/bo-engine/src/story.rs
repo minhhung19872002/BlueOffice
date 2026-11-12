@@ -361,6 +361,7 @@ impl Engine {
             cmd,
             &mut clip,
             &mut cur_page,
+            self.autocorrect.as_ref(),
         );
         hf.page = cur_page;
         let handled = match res {
@@ -441,7 +442,8 @@ pub(crate) fn sync_tracking(sub: &mut Session, main: &Session) {
 
 /// Run an editing command in a story session laid out as `layout`: story y = page y
 /// − `dy`; hit tests use page `hit_page` (`None`: the clicked page). Returns `false`
-/// for commands that are not story commands.
+/// for commands that are not story commands. `autocorrect`: AutoCorrect as you type in
+/// the story, as in the main text (CORE-AUTOCORR-001: headers, footers, notes, text boxes).
 pub(crate) fn sub_command(
     s: &mut Session,
     layout: &LayoutDocument,
@@ -449,6 +451,7 @@ pub(crate) fn sub_command(
     cmd: &Command,
     clip: &mut Option<crate::edit::ClipOut>,
     cur_page: &mut usize,
+    autocorrect: Option<&bo_edit::AutoCorrectOptions>,
 ) -> bo_edit::Result<bool> {
     let sel = s.selection();
     match cmd {
@@ -514,6 +517,11 @@ pub(crate) fn sub_command(
         }
         Command::InsertText { text } => {
             s.insert_text(text)?;
+            // AutoCorrect after one typed character (its own undo step).
+            let mut cs = text.chars();
+            if let (Some(c), None, Some(o)) = (cs.next(), cs.next(), autocorrect) {
+                s.autocorrect(o, c)?;
+            }
         }
         Command::Tab { .. } => {
             s.insert_text("\t")?;
@@ -542,7 +550,11 @@ pub(crate) fn sub_command(
             }
         }
         Command::SplitParagraph => {
+            let n = s.paragraph_count();
             s.split_paragraph()?;
+            if let Some(o) = autocorrect.filter(|_| s.paragraph_count() > n) {
+                s.autocorrect_break(o)?;
+            }
         }
         Command::FormatText { format } => {
             s.format_text(format)?;

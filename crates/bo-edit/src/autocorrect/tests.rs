@@ -126,7 +126,11 @@ fn rule_table() {
         ("a) |", ' ', "[list]|"),
         ("- |nội dung", ' ', "[list]|nội dung"),
         ("x - |", ' ', "x - |"),
-        ("2. |", ' ', "2. |"),
+        ("2. |", ' ', "[list]|"),
+        ("C) |", ' ', "[list]|"),
+        ("ii. |", ' ', "[list]|"),
+        ("2026. |", ' ', "2026. |"),
+        ("ab. |", ' ', "Ab. |"),
         // Links.
         (
             "Xem www.bluestar.vn |",
@@ -178,7 +182,7 @@ fn options_switch_rules_off() {
     // Table cells have their own switch.
     let cell = Context {
         in_table: true,
-        list: false,
+        ..Context::default()
     };
     assert_eq!(run_ctx("một |", ' ', cell, &o), "Một |");
     let o = AutoCorrectOptions {
@@ -189,8 +193,8 @@ fn options_switch_rules_off() {
     assert_eq!(run_ctx("một |", ' ', Context::default(), &o), "Một |");
     // A list item does not start another list.
     let item = Context {
-        in_table: false,
         list: true,
+        ..Context::default()
     };
     assert_eq!(
         run_ctx("- |", ' ', item, &AutoCorrectOptions::default()),
@@ -391,4 +395,142 @@ fn tracked_correction() {
     assert_eq!(s.selection().focus.offset, t.len());
     assert!(s.undo());
     assert_eq!(text0(&s), "Có teh ");
+}
+
+#[test]
+fn tracked_auto_list_and_link_are_revisions() {
+    use crate::revisions::RevKind;
+    let o = AutoCorrectOptions::default();
+    // A list made while tracking: the paragraph change keeps the old properties.
+    let mut s = Session::new(doc(""));
+    s.set_track_changes(true);
+    s.set_author("Người duyệt");
+    type_str(&mut s, &o, "1. ");
+    let Block::Paragraph(p) = &s.doc().sections[0].blocks[0] else {
+        panic!()
+    };
+    assert!(p.props.num.is_some());
+    let change = p.props.change.as_ref().expect("pPrChange");
+    assert!(change.old.num.is_none());
+    assert_eq!(change.info.author, "Người duyệt");
+    let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();
+    assert!(kinds.contains(&RevKind::ParagraphFormat), "{kinds:?}");
+    let mut rejected = Session::new(s.doc().clone());
+    rejected.resolve_revisions(None, false).unwrap();
+    let Block::Paragraph(p) = &rejected.doc().sections[0].blocks[0] else {
+        panic!()
+    };
+    assert!(p.props.num.is_none(), "{:?}", p.props.num);
+    assert_eq!(rejected.revisions().len(), 0);
+
+    // A link over existing (untracked) text: the plain text deleted, the link inserted.
+    let mut s = Session::new(doc("Xem www.bluestar.vn"));
+    s.set_track_changes(true);
+    s.set_selection(Selection::caret(Pos::new(0, "Xem www.bluestar.vn".len())));
+    type_str(&mut s, &o, " ");
+    let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();
+    assert!(kinds.contains(&RevKind::Delete), "{kinds:?}");
+    assert!(kinds.contains(&RevKind::Insert), "{kinds:?}");
+    // The caret stays after the typed blank.
+    assert_eq!(s.selection().focus.offset, text0(&s).len());
+    let mut accepted = Session::new(s.doc().clone());
+    accepted.resolve_revisions(None, true).unwrap();
+    assert_eq!(accepted.para_text(0).unwrap(), "Xem www.bluestar.vn ");
+    let Block::Paragraph(p) = &accepted.doc().sections[0].blocks[0] else {
+        panic!()
+    };
+    assert!(p.runs.iter().any(|r| r.props.link.is_some()));
+    let mut rejected = Session::new(s.doc().clone());
+    rejected.resolve_revisions(None, false).unwrap();
+    assert_eq!(rejected.para_text(0).unwrap(), "Xem www.bluestar.vn");
+    let Block::Paragraph(p) = &rejected.doc().sections[0].blocks[0] else {
+        panic!()
+    };
+    assert!(p.runs.iter().all(|r| r.props.link.is_none()));
+    // Typed while tracking: the link is part of the author's insertion.
+    let mut s = Session::new(doc(""));
+    s.set_track_changes(true);
+    type_str(&mut s, &o, "Xem www.bluestar.vn ");
+    let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();
+    assert!(!kinds.contains(&RevKind::Format), "{kinds:?}");
+}
+
+#[test]
+fn numbered_marker_starts_at_the_typed_value() {
+    let o = AutoCorrectOptions::default();
+    for (marker, format, text, start) in [
+        ("2. ", NumFormat::Decimal, "%1.", 2),
+        ("15) ", NumFormat::Decimal, "%1)", 15),
+        ("c. ", NumFormat::LowerLetter, "%1.", 3),
+        ("B) ", NumFormat::UpperLetter, "%1)", 2),
+        ("iii. ", NumFormat::LowerRoman, "%1.", 3),
+        ("I. ", NumFormat::UpperRoman, "%1.", 1),
+    ] {
+        let mut s = Session::new(doc(""));
+        type_str(&mut s, &o, marker);
+        assert_eq!(text0(&s), "", "{marker}");
+        let Block::Paragraph(p) = &s.doc().sections[0].blocks[0] else {
+            panic!()
+        };
+        let level = s
+            .doc()
+            .numbering
+            .level(p.props.num.expect("list"))
+            .expect("level");
+        assert_eq!(level.format, format, "{marker}");
+        assert_eq!(level.text, text, "{marker}");
+        assert_eq!(level.start, start, "{marker}");
+    }
+}
+
+#[test]
+fn replacement_list_follows_the_text_language() {
+    let o = AutoCorrectOptions::default();
+    let vi = Context {
+        lang: Some("vi-VN"),
+        ..Context::default()
+    };
+    let en = Context {
+        lang: Some("en-US"),
+        ..Context::default()
+    };
+    let en_gb = Context {
+        lang: Some("en-GB"),
+        ..Context::default()
+    };
+    // Vietnamese list only for Vietnamese (or untagged) text.
+    assert_eq!(run_ctx("Cần bổ xung |", ' ', vi, &o), "Cần bổ sung |");
+    assert_eq!(run_ctx("Cần bổ xung |", ' ', en, &o), "Cần bổ xung |");
+    assert_eq!(
+        run_ctx("Cần bổ xung |", ' ', Context::default(), &o),
+        "Cần bổ sung |"
+    );
+    // English list for any English variant.
+    assert_eq!(run_ctx("I recieve |", ' ', en_gb, &o), "I receive |");
+    assert_eq!(run_ctx("I recieve |", ' ', vi, &o), "I recieve |");
+    // Symbols whatever the language.
+    assert_eq!(run_ctx("(c)|", ')', vi, &o), "©|");
+    assert_eq!(run_ctx("(c)|", ')', en, &o), "©|");
+    // A host list for another language.
+    let mut fr = o.clone();
+    fr.language_entries
+        .insert("fr".into(), vec![Replacement::new("ca", "ça")]);
+    let fr_ctx = Context {
+        lang: Some("fr-FR"),
+        ..Context::default()
+    };
+    assert_eq!(run_ctx("Et ca |", ' ', fr_ctx, &fr), "Et ça |");
+}
+
+#[test]
+fn session_uses_the_run_language() {
+    let o = AutoCorrectOptions::default();
+    let mut d = doc("");
+    d.default_run.lang = Some(bo_model::Lang {
+        val: Some("en-US".into()),
+        ..Default::default()
+    });
+    let mut s = Session::new(d);
+    type_str(&mut s, &o, "Cần bổ xung teh ");
+    assert_eq!(text0(&s), "Cần bổ xung the ");
 }

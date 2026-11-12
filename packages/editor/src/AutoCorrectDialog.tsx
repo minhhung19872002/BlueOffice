@@ -1,5 +1,10 @@
 import { useTranslation } from '@blueoffice/i18n';
-import type { AutoCorrectOptions, EditCommand, EditResult } from '@blueoffice/platform';
+import type {
+  AutoCorrectEntry,
+  AutoCorrectOptions,
+  EditCommand,
+  EditResult,
+} from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
 import { useEffect, useState } from 'react';
 import ac from './AutoCorrectDialog.module.css';
@@ -68,6 +73,20 @@ export function openSetupCommand(
   };
 }
 
+/** Entries of replacement list `list` ('' = every language, else a language tag). */
+export function listEntries(o: AutoCorrectOptions, list: string): AutoCorrectEntry[] {
+  return list ? (o.languageEntries?.[list] ?? []) : o.entries;
+}
+
+/** `o` with replacement list `list` set to `entries`. */
+export function withListEntries(
+  o: AutoCorrectOptions,
+  list: string,
+  entries: AutoCorrectEntry[],
+): Partial<AutoCorrectOptions> {
+  return list ? { languageEntries: { ...o.languageEntries, [list]: entries } } : { entries };
+}
+
 const lines = (s: string) =>
   s
     .split('\n')
@@ -92,6 +111,8 @@ export function AutoCorrectDialog({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [isDefault, setIsDefault] = useState(false);
+  // Replacement list being edited: '' = every language, else a language tag.
+  const [list, setList] = useState('');
 
   const show = (o: AutoCorrectOptions) => {
     setOpts(o);
@@ -117,8 +138,8 @@ export function AutoCorrectDialog({
   const add = () => {
     const f = from.trim();
     if (!opts || !f || !to) return;
-    const rest = opts.entries.filter((e) => e.from !== f);
-    patch({ entries: [...rest, { from: f, to }] });
+    const rest = listEntries(opts, list).filter((e) => e.from !== f);
+    patch(withListEntries(opts, list, [...rest, { from: f, to }]));
     setFrom('');
     setTo('');
   };
@@ -144,9 +165,9 @@ export function AutoCorrectDialog({
   };
 
   // Matching entries when the "typed" box has text (the list is long).
-  const shown = opts
-    ? opts.entries.filter((e) => !from.trim() || e.from.includes(from.trim()))
-    : [];
+  const entries = opts ? listEntries(opts, list) : [];
+  const shown = entries.filter((e) => !from.trim() || e.from.includes(from.trim()));
+  const tags = Object.keys(opts?.languageEntries ?? {}).sort();
 
   return (
     <Dialog
@@ -208,9 +229,24 @@ export function AutoCorrectDialog({
           </fieldset>
           <div className={ac.section}>
             {t('autoCorrect.entries')}{' '}
-            <span className={ac.count}>
-              {t('autoCorrect.count', { count: opts.entries.length })}
-            </span>
+            <span className={ac.count}>{t('autoCorrect.count', { count: entries.length })}</span>
+            {tags.length > 0 && (
+              <label className={ac.language}>
+                {t('autoCorrect.language')}{' '}
+                <select
+                  data-testid="autocorrect-language"
+                  value={list}
+                  onChange={(e) => setList(e.target.value)}
+                >
+                  <option value="">{t('autoCorrect.allLanguages')}</option>
+                  {tags.map((tag) => (
+                    <option key={tag} value={tag}>
+                      {t(`autoCorrect.lang.${tag}`, { defaultValue: tag })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <div className={ac.addRow}>
             <input
@@ -246,7 +282,15 @@ export function AutoCorrectDialog({
                 <button
                   type="button"
                   aria-label={`${t('autoCorrect.remove')} ${e.from}`}
-                  onClick={() => patch({ entries: opts.entries.filter((x) => x.from !== e.from) })}
+                  onClick={() =>
+                    patch(
+                      withListEntries(
+                        opts,
+                        list,
+                        entries.filter((x) => x.from !== e.from),
+                      ),
+                    )
+                  }
                 >
                   {t('autoCorrect.remove')}
                 </button>

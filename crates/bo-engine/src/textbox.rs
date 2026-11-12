@@ -330,7 +330,16 @@ impl Engine {
         let res = {
             let layout = self.layout.document();
             nav::with_story(be.story(), || {
-                sub_command(&mut be.sub, layout, (0.0, None), cmd, &mut clip, &mut page)
+                let ac = self.autocorrect.as_ref();
+                sub_command(
+                    &mut be.sub,
+                    layout,
+                    (0.0, None),
+                    cmd,
+                    &mut clip,
+                    &mut page,
+                    ac,
+                )
             })
         };
         be.page = page;

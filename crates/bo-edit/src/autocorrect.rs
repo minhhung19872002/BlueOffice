@@ -18,6 +18,7 @@ use crate::{Op, Pos, Selection};
 use bo_model::index::body_paragraphs;
 use bo_model::{Color, NumFormat, NumRef, RunProps, Underline, VertAlign};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// One replacement-list entry: `from` typed as a word (or ending in a symbol) becomes `to`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,8 +64,12 @@ pub struct AutoCorrectOptions {
     pub auto_lists: bool,
     /// URLs and e-mail addresses become hyperlinks.
     pub auto_links: bool,
-    /// Replacement list.
+    /// Replacement list used whatever the language of the text (symbols).
     pub entries: Vec<Replacement>,
+    /// Replacement lists by language (BCP 47 tag such as `vi-VN`, `en-US`): the list of the
+    /// language of the typed text (§17.3.2.20 lang; same primary subtag also matches)
+    /// applies after [`AutoCorrectOptions::entries`]. Text without a language uses them all.
+    pub language_entries: BTreeMap<String, Vec<Replacement>>,
     /// Abbreviations ending in a full stop after which no capital is forced.
     pub exceptions: Vec<String>,
     /// Words that keep two initial capitals.
@@ -86,6 +91,7 @@ impl Default for AutoCorrectOptions {
             auto_lists: true,
             auto_links: true,
             entries: default_entries(),
+            language_entries: default_language_entries(),
             exceptions: DEFAULT_EXCEPTIONS.iter().map(|s| (*s).to_owned()).collect(),
             caps_exceptions: DEFAULT_CAPS_EXCEPTIONS
                 .iter()
@@ -95,8 +101,7 @@ impl Default for AutoCorrectOptions {
     }
 }
 
-/// BlueDoc's default replacement list: symbols typed with ASCII, frequent English
-/// typos and frequent Vietnamese misspellings (s/x, ch/tr, d/gi/r confusions).
+/// BlueDoc's default language-independent replacement list: symbols typed with ASCII.
 pub fn default_entries() -> Vec<Replacement> {
     const LIST: &[(&str, &str)] = &[
         // Symbols.
@@ -114,7 +119,14 @@ pub fn default_entries() -> Vec<Replacement> {
         ("=/=", "≠"),
         (":)", "☺"),
         (":(", "☹"),
-        // English typos.
+    ];
+    LIST.iter().map(|(f, t)| Replacement::new(f, t)).collect()
+}
+
+/// BlueDoc's default replacement lists by language: frequent English typos (`en-US`) and
+/// frequent Vietnamese misspellings (`vi-VN`: s/x, ch/tr, d/gi/r confusions).
+pub fn default_language_entries() -> BTreeMap<String, Vec<Replacement>> {
+    const EN: &[(&str, &str)] = &[
         ("teh", "the"),
         ("adn", "and"),
         ("taht", "that"),
@@ -149,7 +161,8 @@ pub fn default_entries() -> Vec<Replacement> {
         ("didnt", "didn't"),
         ("isnt", "isn't"),
         ("wasnt", "wasn't"),
-        // Vietnamese misspellings.
+    ];
+    const VI: &[(&str, &str)] = &[
         ("chuẩn đoán", "chẩn đoán"),
         ("sắc xuất", "xác suất"),
         ("xác xuất", "xác suất"),
@@ -171,7 +184,36 @@ pub fn default_entries() -> Vec<Replacement> {
         ("ngiêm", "nghiêm"),
         ("ngĩa", "nghĩa"),
     ];
-    LIST.iter().map(|(f, t)| Replacement::new(f, t)).collect()
+    let list = |l: &[(&str, &str)]| l.iter().map(|(f, t)| Replacement::new(f, t)).collect();
+    BTreeMap::from([
+        ("en-US".to_owned(), list(EN)),
+        ("vi-VN".to_owned(), list(VI)),
+    ])
+}
+
+/// Same language: equal tags, or equal primary subtags ("vi" and "vi-VN").
+fn same_language(a: &str, b: &str) -> bool {
+    let primary = |t: &str| {
+        t.split(['-', '_'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    };
+    a.eq_ignore_ascii_case(b) || (!primary(a).is_empty() && primary(a) == primary(b))
+}
+
+impl AutoCorrectOptions {
+    /// The replacement entries for text in language `lang` (`None`: every list).
+    pub fn entries_for(&self, lang: Option<&str>) -> Vec<&Replacement> {
+        let lang = lang.filter(|l| !l.trim().is_empty() && !l.eq_ignore_ascii_case("x-none"));
+        let mut out: Vec<&Replacement> = self.entries.iter().collect();
+        for (tag, list) in &self.language_entries {
+            if lang.is_none_or(|l| same_language(l, tag)) {
+                out.extend(list.iter());
+            }
+        }
+        out
+    }
 }
 
 /// Abbreviations after which the next word keeps its small letter.
@@ -233,16 +275,30 @@ pub struct TextEdit {
 pub enum AutoList {
     /// "- " / "* ".
     Bullet,
-    /// "1." (`paren` = "1)").
-    Decimal {
+    /// "1." / "2)" / "a." / "C)" / "i." (§17.9.17 numFmt, §17.9.25 start).
+    Numbered {
+        /// Number style of the marker.
+        style: ListStyle,
         /// Marker ends with ")".
         paren: bool,
+        /// Value of the typed marker: "2." starts the list at 2, "c)" at 3.
+        start: i32,
     },
-    /// "a." (`paren` = "a)").
-    Letter {
-        /// Marker ends with ")".
-        paren: bool,
-    },
+}
+
+/// Number style of a typed list marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListStyle {
+    /// 1, 2, 3.
+    Decimal,
+    /// a, b, c.
+    LowerLetter,
+    /// A, B, C.
+    UpperLetter,
+    /// i, ii, iii.
+    LowerRoman,
+    /// I, II, III.
+    UpperRoman,
 }
 
 /// What one typed character triggers.
@@ -276,11 +332,13 @@ impl Correction {
 
 /// Where the paragraph is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Context {
+pub struct Context<'a> {
     /// Inside a table cell.
     pub in_table: bool,
     /// The paragraph is already a list item.
     pub list: bool,
+    /// Language of the typed text (§17.3.2.20 lang); picks the replacement list.
+    pub lang: Option<&'a str>,
 }
 
 /// Paragraph break pseudo-character for [`correct`] (Enter at the caret).
@@ -358,12 +416,12 @@ fn adapt_case(typed: &str, to: &str) -> String {
 fn find_entry<'a>(
     text: &str,
     end: usize,
-    entries: &'a [Replacement],
+    entries: &[&'a Replacement],
     symbols: bool,
 ) -> Option<(usize, &'a Replacement)> {
     let hay = &text[..end];
     let mut best: Option<(usize, &Replacement)> = None;
-    for e in entries {
+    for &e in entries {
         let Some(last) = e.from.chars().last() else {
             continue;
         };
@@ -412,7 +470,7 @@ pub fn correct(
         return opts.smart_quotes.then(|| smart_quote(before, typed));
     }
     if typed != ENTER && opts.replace_text {
-        if let Some((start, e)) = find_entry(text, caret, &opts.entries, true) {
+        if let Some((start, e)) = find_entry(text, caret, &opts.entries_for(ctx.lang), true) {
             let to = if has_upper(&e.from) {
                 e.to.clone()
             } else {
@@ -490,7 +548,7 @@ fn word_rules(
     let mut es = ws;
     let mut word = before[ws..we].to_owned();
     if opts.replace_text {
-        if let Some((start, e)) = find_entry(text, we, &opts.entries, false) {
+        if let Some((start, e)) = find_entry(text, we, &opts.entries_for(ctx.lang), false) {
             es = start;
             word = if has_upper(&e.from) {
                 e.to.clone()
@@ -722,17 +780,45 @@ fn ordinal_suffix(w: &str) -> Option<usize> {
     (w[split..] == *want).then_some(split)
 }
 
-/// List kind for a marker typed at a paragraph start.
+/// List kind for a marker typed at a paragraph start: a bullet, or a number (up to
+/// three digits), a single letter or a roman one / "ii." / "iii." followed by "." or ")".
+/// The list starts at the typed value, so "2. " starts a list at 2.
 fn list_marker(token: &str) -> Option<AutoList> {
-    match token {
-        "-" | "*" | "•" => return Some(AutoList::Bullet),
-        "1." => return Some(AutoList::Decimal { paren: false }),
-        "1)" => return Some(AutoList::Decimal { paren: true }),
-        "a." => return Some(AutoList::Letter { paren: false }),
-        "a)" => return Some(AutoList::Letter { paren: true }),
+    if matches!(token, "-" | "*" | "•") {
+        return Some(AutoList::Bullet);
+    }
+    let paren = token.ends_with(')');
+    let body = token.strip_suffix(['.', ')'])?;
+    let numbered = |style, start| {
+        Some(AutoList::Numbered {
+            style,
+            paren,
+            start,
+        })
+    };
+    if !body.is_empty() && body.len() <= 3 && body.bytes().all(|b| b.is_ascii_digit()) {
+        let n: i32 = body.parse().ok()?;
+        return numbered(ListStyle::Decimal, n);
+    }
+    match body {
+        "i" => return numbered(ListStyle::LowerRoman, 1),
+        "ii" => return numbered(ListStyle::LowerRoman, 2),
+        "iii" => return numbered(ListStyle::LowerRoman, 3),
+        "I" => return numbered(ListStyle::UpperRoman, 1),
+        "II" => return numbered(ListStyle::UpperRoman, 2),
+        "III" => return numbered(ListStyle::UpperRoman, 3),
         _ => {}
     }
-    None
+    let mut cs = body.chars();
+    match (cs.next(), cs.next()) {
+        (Some(c @ 'a'..='z'), None) => {
+            numbered(ListStyle::LowerLetter, i32::from(c as u8 - b'a') + 1)
+        }
+        (Some(c @ 'A'..='Z'), None) => {
+            numbered(ListStyle::UpperLetter, i32::from(c as u8 - b'A') + 1)
+        }
+        _ => None,
+    }
 }
 
 /// Hyperlink target of a typed URL or e-mail address.
@@ -798,9 +884,18 @@ impl Session {
         };
         let p = para_clone(&self.doc, path)?;
         let text = bo_model::index::para_index_text(&p);
+        // Language of the typed character's run (direct, style or document default).
+        let lang = {
+            let atoms = para::flatten(&p);
+            let props = para::props_at(&atoms, at.offset);
+            crate::effective_run(&self.doc, &p, &props)
+                .lang
+                .and_then(|l| l.val)
+        };
         let ctx = Context {
             in_table: path.len() > 2,
             list: p.props.num.is_some_and(|n| n.num_id != 0),
+            lang: lang.as_deref(),
         };
         let Some(c) = correct(&text, at.offset, typed, &ctx, opts) else {
             return Ok(None);
@@ -843,10 +938,37 @@ fn apply(tx: &mut Tx<'_>, at: Pos, c: &Correction) -> Result<usize> {
         replace_range(tx, &mut atoms, e.start, e.end, &e.text, &props);
     }
     if let Some((s, e, target)) = &c.link {
-        let a = para::split_at(&mut atoms, *s);
-        let b = para::split_at(&mut atoms, *e);
-        for (r, _) in &mut atoms[a..b] {
-            link_props(r, target);
+        let (s, e) = (*s, *e);
+        let tracked_other = tx.track.as_ref().is_some_and(|tr| {
+            para::slice(&atoms, s, e)
+                .iter()
+                .any(|(r, item)| para::atom_len(item) > 0 && !tr.owns(r))
+        });
+        if tracked_other {
+            // Tracked over text that is not the author's own insertion: a w:hyperlink
+            // (§17.16.22) cannot carry rPrChange, so the plain text becomes a deletion and
+            // the linked text an insertion (§17.13.5.14 del / §17.13.5.18 ins); rejecting
+            // brings the plain text back.
+            let mut linked = para::slice(&atoms, s, e);
+            for (r, _) in &mut linked {
+                link_props(r, target);
+            }
+            let removed = match tx.track.as_mut() {
+                Some(tr) => {
+                    let mark = tr.mark();
+                    revisions::mark_deleted(&mut atoms, s, e, tr, &mark)
+                }
+                None => 0,
+            };
+            let at = e - removed;
+            let new = tx.mark_new(&atoms, at, linked);
+            para::insert(&mut atoms, at, new);
+        } else {
+            let a = para::split_at(&mut atoms, s);
+            let b = para::split_at(&mut atoms, e);
+            for (r, _) in &mut atoms[a..b] {
+                link_props(r, target);
+            }
         }
     }
     if let Some((kind, end)) = c.list {
@@ -859,10 +981,26 @@ fn apply(tx: &mut Tx<'_>, at: Pos, c: &Correction) -> Result<usize> {
             old: Box::new(old),
             new: Box::new(new),
         })?;
+        let old_props = p.props.clone();
         p.props.num = Some(NumRef {
             num_id: id,
             ilvl: 0,
         });
+        // Tracked: §17.13.5.29 pPrChange keeps the paragraph properties before the list.
+        if old_props.change.is_none() {
+            if let Some(info) = tx.track.as_mut().map(|t| t.mark().info) {
+                p.props.change = Some(Box::new(bo_model::ParaPropsChange {
+                    info,
+                    old: bo_model::ParaProps {
+                        mark_ins: None,
+                        mark_del: None,
+                        change: None,
+                        unknown: Vec::new(),
+                        ..old_props
+                    },
+                }));
+            }
+        }
     }
     let caret = para::len(&atoms).saturating_sub(tail);
     tx.replace_para(&path, para::with_atoms(&p, atoms))?;
@@ -1016,16 +1154,22 @@ fn add_list(n: &mut bo_model::Numbering, kind: AutoList) -> i32 {
     let abs = n.nums.iter().find(|x| x.id == id).map(|x| x.abstract_id);
     if let Some(a) = n.abstracts.iter_mut().find(|a| Some(a.id) == abs) {
         if let Some(l0) = a.levels.first_mut() {
-            match kind {
-                AutoList::Bullet => {}
-                AutoList::Decimal { paren } => {
-                    l0.format = NumFormat::Decimal;
-                    l0.text = format!("%1{}", suffix(paren));
-                }
-                AutoList::Letter { paren } => {
-                    l0.format = NumFormat::LowerLetter;
-                    l0.text = format!("%1{}", suffix(paren));
-                }
+            if let AutoList::Numbered {
+                style,
+                paren,
+                start,
+            } = kind
+            {
+                l0.format = match style {
+                    ListStyle::Decimal => NumFormat::Decimal,
+                    ListStyle::LowerLetter => NumFormat::LowerLetter,
+                    ListStyle::UpperLetter => NumFormat::UpperLetter,
+                    ListStyle::LowerRoman => NumFormat::LowerRoman,
+                    ListStyle::UpperRoman => NumFormat::UpperRoman,
+                };
+                l0.text = format!("%1{}", suffix(paren));
+                // §17.9.25 start: the value typed in the marker.
+                l0.start = start;
             }
         }
     }

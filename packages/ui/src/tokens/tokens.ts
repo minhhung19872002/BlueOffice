@@ -322,6 +322,42 @@ export const FONT_SIZES = [11, 12, 13, 14, 16, 20, 24, 32] as const;
 /** UI font stack: Be Vietnam Pro / Inter (OFL), then system fonts. */
 export const FONT_UI =
   "'Be Vietnam Pro', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif";
+/**
+ * Desktop UI font stacks (ADR-0016): the desktop shell tags `<html data-os>` and the apps use
+ * the system UI font — Segoe UI Variable (Text / Display optical sizes, Windows 11; Segoe UI on
+ * Windows 10), San Francisco on macOS, the desktop's `system-ui` on Linux. None is bundled; Be
+ * Vietnam Pro (bundled) and the generic family close every stack. The web keeps {@link FONT_UI}.
+ * Document text (canvas) fonts are unrelated (ADR-0003).
+ */
+export const FONT_UI_OS = {
+  windows: {
+    text: "'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif",
+    display:
+      "'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif",
+  },
+  macos: {
+    text: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Be Vietnam Pro', sans-serif",
+    display: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Be Vietnam Pro', sans-serif",
+  },
+  linux: {
+    text: "system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif",
+    display:
+      "system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif",
+  },
+} as const;
+
+/**
+ * Close button of the desktop caption on hover / press (ADR-0016): red with a white glyph, the
+ * platform convention for closing a window (not a brand colour).
+ */
+export const CAPTION_CLOSE = { bg: '#C42B1C', active: '#A1271A', text: '#ffffff' } as const;
+
+/**
+ * Approximate solid colours of the Windows 11 Mica backdrop (light / dark, before any wallpaper
+ * tint): the band tints over Mica are checked against them for WCAG 1.4.3 (tokens.test.ts).
+ */
+export const MICA_BASE = { light: '#F3F3F3', dark: '#202020' } as const;
+
 /** 4px spacing grid: --bo-space-1 = 4px … --bo-space-8 = 32px. */
 export const SPACE = [4, 8, 12, 16, 20, 24, 28, 32] as const;
 export const RADIUS = { sm: 4, md: 8 } as const;
@@ -390,6 +426,7 @@ export function renderTokensCss(): string {
   const scale = [
     `  --bo-font: ${FONT_UI};`,
     '  --bo-font-ui: var(--bo-font);',
+    '  --bo-font-display: var(--bo-font);',
     ...FONT_SIZES.map((s) => `  --bo-font-size-${s}: ${s}px;`),
     ...SPACE.map((s, i) => `  --bo-space-${i + 1}: ${s}px;`),
     `  --bo-radius-sm: ${RADIUS.sm}px;`,
@@ -418,6 +455,13 @@ export function renderTokensCss(): string {
         `  --bo-ribbon-large-h: ${DENSITY[d].ribbonLarge}px;\n}`,
     )
     .join('\n\n');
+  const osFonts = (Object.keys(FONT_UI_OS) as (keyof typeof FONT_UI_OS)[])
+    .map(
+      (os) =>
+        `:root[data-os='${os}'] {\n  --bo-font: ${FONT_UI_OS[os].text};\n` +
+        `  --bo-font-display: ${FONT_UI_OS[os].display};\n}`,
+    )
+    .join('\n\n');
   return `/* Generated from tokens.ts — do not edit by hand (BO_WRITE_TOKENS=1 pnpm --filter @blueoffice/ui test). */
 :root {
 ${scale}
@@ -435,6 +479,14 @@ ${themeBlock('hc')}
 ${apps}
 
 ${density}
+
+${osFonts}
+
+:root {
+  --bo-caption-close-bg: ${CAPTION_CLOSE.bg};
+  --bo-caption-close-active: ${CAPTION_CLOSE.active};
+  --bo-caption-close-text: ${CAPTION_CLOSE.text};
+}
 
 @media (forced-colors: active) {
   :root,

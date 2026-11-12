@@ -73,6 +73,7 @@ import {
   useStatusBarPrefs,
   useThemePref,
   TitleBar,
+  titleBarWindow,
   QuickAccessBar,
   useCommandSearchShortcut,
   nextDensity,
@@ -5716,6 +5717,8 @@ function EditorInner({
         saveState={state.doc ? (state.edit?.modified ? 'unsaved' : 'saved') : null}
         saveLabel={t(state.edit?.modified ? 'titleBar.unsaved' : 'titleBar.saved')}
         quickAccessLabel={t('titleBar.quickAccess')}
+        // Desktop: the title bar is the window caption (ADR-0016).
+        window={titleBarWindow(platform.window.chrome, t)}
         search={{
           label: t('commandSearch.placeholder'),
           shortcut: 'Alt+Q',

@@ -3,11 +3,15 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ACCENTS,
+  CAPTION_CLOSE,
   CHROME,
   CHROME_FORCED,
   PAPER,
   FONT_SIZES,
+  FONT_UI,
+  FONT_UI_OS,
   gray,
+  MICA_BASE,
   renderTokensCss,
   STATUS,
   THEMES,
@@ -171,5 +175,62 @@ describe('motion tokens', () => {
       expect(v).toBeGreaterThanOrEqual(120);
       expect(v).toBeLessThanOrEqual(200);
     }
+  });
+});
+
+/** `fg` at `alpha` over `bg` (sRGB hex, like `color-mix(in srgb, fg alpha, bg)`). */
+function over(fg: string, alpha: number, bg: string): string {
+  const ch = (h: string, i: number) => parseInt(h.replace('#', '').slice(i, i + 2), 16);
+  return `#${[0, 2, 4]
+    .map((i) => Math.round(ch(fg, i) * alpha + ch(bg, i) * (1 - alpha)))
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+describe('desktop window chrome (ADR-0016)', () => {
+  // Mica as the wallpaper may tint it: neutral, and tinted towards saturated wallpapers.
+  const micaBases = {
+    light: [MICA_BASE.light, '#DCE4F2', '#EFE3D6'],
+    dark: [MICA_BASE.dark, '#1A2233', '#2A2018'],
+  } as const;
+
+  it.each(['light', 'dark'] as const)('%s: text over the Mica band and ribbon reaches AA', (t) => {
+    const s = THEMES[t];
+    for (const mica of micaBases[t]) {
+      // theme.css: the band is 40 % of --bo-bg over Mica, the ribbon 72 % of --bo-surface over it.
+      const band = over(s.bg, 0.4, mica);
+      const ribbon = over(s.surface, 0.72, band);
+      for (const bg of [band, ribbon]) {
+        expect(contrast(s.text, bg), `${t} ${mica} text`).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(s['text-muted'], bg), `${t} ${mica} muted`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Accent text (selected ribbon controls) sits on the ribbon layer; on the band the
+      // accent is a fill (File tab: on-accent text, checked above) or a subtle chip.
+      for (const [app, a] of Object.entries(ACCENTS[t])) {
+        expect(contrast(a.text, ribbon), `${t} ${mica} ${app}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it('the close button keeps its white glyph at AA on hover and press', () => {
+    expect(contrast(CAPTION_CLOSE.text, CAPTION_CLOSE.bg)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(CAPTION_CLOSE.text, CAPTION_CLOSE.active)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('desktop UI fonts are the system fonts, closed by the bundled UI font', () => {
+    expect(FONT_UI_OS.windows.text.startsWith("'Segoe UI Variable Text'")).toBe(true);
+    expect(FONT_UI_OS.windows.display.startsWith("'Segoe UI Variable Display'")).toBe(true);
+    expect(FONT_UI_OS.macos.text.startsWith('-apple-system')).toBe(true);
+    expect(FONT_UI_OS.linux.text.startsWith('system-ui')).toBe(true);
+    for (const f of Object.values(FONT_UI_OS)) {
+      for (const stack of [f.text, f.display]) {
+        expect(stack).toContain("'Be Vietnam Pro'");
+        expect(stack.endsWith('sans-serif')).toBe(true);
+      }
+    }
+    const css = renderTokensCss();
+    expect(css).toContain(`:root[data-os='windows'] {\n  --bo-font: ${FONT_UI_OS.windows.text};`);
+    // The web keeps the project font.
+    expect(css).toContain(`  --bo-font: ${FONT_UI};`);
   });
 });

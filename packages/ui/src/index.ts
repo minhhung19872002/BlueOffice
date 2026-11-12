@@ -169,11 +169,15 @@ export {
 } from './iconLibrary/catalog';
 export { svgToPng } from './iconLibrary/raster';
 export {
+  isCaptionTarget,
   QuickAccessBar,
   TitleBar,
   type QuickAccessItem,
   type SaveState,
   type TitleBarProps,
+  titleBarWindow,
+  type TitleBarWindow,
+  type WindowControls,
 } from './TitleBar';
 export {
   CommandSearch,

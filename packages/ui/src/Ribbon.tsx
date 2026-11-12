@@ -785,6 +785,8 @@ export function Ribbon({
         ref={root}
         className={styles.ribbon}
         data-testid="ribbon"
+        // Window chrome (ADR-0016): the desktop backdrop shows through down to here.
+        data-bo-chrome=""
         data-f6-region="ribbon"
         data-simplified={simplified ? 'true' : undefined}
         data-collapsed={collapsed ? 'true' : undefined}

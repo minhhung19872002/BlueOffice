@@ -98,6 +98,7 @@ import {
   useStatusBarPrefs,
   useThemePref,
   TitleBar,
+  titleBarWindow,
   QuickAccessBar,
   useCommandSearchShortcut,
   useResolvedTheme,
@@ -7805,6 +7806,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
         appName={t('app.sheet')}
         docName={fileName}
         quickAccessLabel={t('titleBar.quickAccess')}
+        // Desktop: the title bar is the window caption (ADR-0016).
+        window={titleBarWindow(platform.window.chrome, t)}
         search={{
           label: t('commandSearch.placeholder'),
           shortcut: 'Alt+Q',

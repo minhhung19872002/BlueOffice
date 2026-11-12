@@ -103,6 +103,7 @@
 
 .pageTitle {
   margin: 0 0 16px;
+  font-family: var(--bo-font-display, inherit);
   font-size: var(--bo-font-size-24, 24px);
   font-weight: 600;
 }

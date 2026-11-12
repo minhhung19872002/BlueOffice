@@ -17,7 +17,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .bar {
-    transition: opacity 120ms linear;
+    transition: opacity var(--bo-duration-fast, 120ms) var(--bo-ease, linear);
   }
 }
 

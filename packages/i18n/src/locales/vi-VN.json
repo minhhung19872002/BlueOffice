@@ -4790,7 +4790,13 @@
     "quickAccess": "Thanh truy cập nhanh",
     "saved": "Đã lưu",
     "unsaved": "Chưa lưu",
-    "saving": "Đang lưu…"
+    "saving": "Đang lưu…",
+    "window": {
+      "minimize": "Thu nhỏ",
+      "maximize": "Phóng to",
+      "restore": "Khôi phục",
+      "close": "Đóng"
+    }
   },
   "markup": {
     "title": "Danh sách sửa đổi",

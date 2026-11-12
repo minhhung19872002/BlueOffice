@@ -42,6 +42,8 @@ import { createDesktopPlatform, isOidcCallback } from '@blueoffice/platform/desk
 import { BlueSheetEditor } from '@blueoffice/sheet-editor';
 import { BlueSlideEditor } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
+import { createI18n } from '@blueoffice/i18n';
+import { TitleBar, titleBarWindow } from '@blueoffice/ui';
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -60,6 +62,8 @@ const fetchImpl = window.fetch.bind(window) as FetchLike;
 const saves = new OfflineSaves(base.offline);
 const root = createRoot(document.getElementById('root')!);
 const SYNC_KEY = 'syncFolders';
+const i18n = createI18n(language);
+const tr = (key: string): string => i18n.t(key);
 const UPDATE_CHECK_KEY = 'lastUpdateCheck';
 
 /** Platform whose editor opens `file` once (the OS open requests are routed by this shell). */
@@ -89,6 +93,25 @@ function Editor({ app, platform }: { app: HostedApp; platform: Platform }) {
       app={app}
       sampleUrl={`${import.meta.env.BASE_URL}samples/phase1-sample.docx`}
     />
+  );
+}
+
+/**
+ * Window caption of the Start screen (ADR-0016): the editors draw their own title bar; without
+ * a system frame the Start screen needs one too to move, maximise and close the window.
+ */
+function StartCaption() {
+  const controls = base.window.chrome;
+  if (!controls) return null;
+  return (
+    <div className="bo-root" data-app={shellApp} data-theme="light">
+      <TitleBar
+        app={shellApp}
+        appName={tr(`app.${shellApp}`)}
+        quickAccessLabel={tr('titleBar.quickAccess')}
+        window={titleBarWindow(controls, tr)}
+      />
+    </div>
   );
 }
 
@@ -132,7 +155,19 @@ let drive: DriveSession | null = null;
 let current: HostedEditor | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
+// Window chrome first (UI font, caption buttons, ADR-0016): nothing renders before it is known,
+// so the first paint of any view already has its caption.
+let chromeKnown = false;
+void base
+  .initChrome()
+  .catch(() => null)
+  .then(() => {
+    chromeKnown = true;
+    render();
+  });
+
 function render(): void {
+  if (!chromeKnown) return;
   root.render(
     <StrictMode>
       {notice ? <Notice text={notice} /> : null}
@@ -161,6 +196,7 @@ function render(): void {
       {view === 'start' ? (
         <StartScreen
           language={language}
+          caption={<StartCaption />}
           fetchImpl={fetchImpl}
           serverUrl={server}
           serverFromEnv={serverFromEnv}

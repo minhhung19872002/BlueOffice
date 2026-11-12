@@ -153,11 +153,11 @@ test('select all instances selects every heading; formatting applies to all', as
   await headingTile(page).click();
   await page.keyboard.press('Control+End');
   await headingTile(page).click();
-  // The style commands are on the Home tab next to the gallery.
-  for (const id of ['view.newStyle', 'view.styleInspector', 'view.revealFormatting']) {
-    await expect(page.locator(`[data-command="${id}"]`)).toBeVisible();
-  }
-  await page.locator('[data-command="view.revealFormatting"]').click();
+  // The style commands are in the ⋯ menu of the styles gallery (Home tab).
+  await page.getByTestId('styles-gallery-tools').click();
+  const tools = page.getByTestId('styles-gallery-tools-panel');
+  await expect(tools.getByRole('menuitem')).toHaveCount(4);
+  await tools.locator('[data-command="view.revealFormatting"]').click();
   await expect(page.getByTestId('reveal-formatting')).toBeVisible();
 
   await openStylesPane(page);

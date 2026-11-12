@@ -75,3 +75,38 @@
 :global([data-simplified='true']) .name {
   display: none;
 }
+
+/* ▾ (styles pane) above ⋯ (style commands): one narrow column. */
+.side {
+  display: flex;
+  flex-direction: column;
+  width: 24px;
+}
+
+.side > .more {
+  flex: 1;
+  min-height: 24px;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px 0;
+}
+
+.menu > button {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu > button:hover,
+.menu > button:focus-visible {
+  background: var(--bo-hover);
+}

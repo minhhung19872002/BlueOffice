@@ -1,6 +1,7 @@
 import type { DocStyleEntry } from '@blueoffice/platform';
 import { useTranslation } from '@blueoffice/i18n';
-import { ChevronDown } from 'lucide-react';
+import { Popover } from '@blueoffice/ui';
+import { ChevronDown, Ellipsis } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { visibleStyles } from './StylesPane';
 import styles from './StylesGallery.module.css';
@@ -29,6 +30,8 @@ export interface StylesGalleryProps {
   apply: (id: string) => void;
   /** The ▾ button: every style (the styles pane). */
   onMore: () => void;
+  /** Style commands in the ⋯ menu under ▾ (new style, inspector, reveal, organizer). */
+  tools?: { id: string; label: string; run: () => void }[];
 }
 
 /**
@@ -43,6 +46,7 @@ export function StylesGallery({
   disabled,
   apply,
   onMore,
+  tools,
 }: StylesGalleryProps) {
   const { t } = useTranslation();
   const [list, setList] = useState<DocStyleEntry[]>([]);
@@ -103,17 +107,49 @@ export function StylesGallery({
           </button>
         );
       })}
-      <button
-        type="button"
-        className={styles.more}
-        data-testid="styles-gallery-more"
-        aria-label={t('commands.view.stylesPane')}
-        title={t('commands.view.stylesPane')}
-        disabled={disabled}
-        onClick={onMore}
-      >
-        <ChevronDown size={14} />
-      </button>
+      <div className={styles.side}>
+        <button
+          type="button"
+          className={styles.more}
+          data-testid="styles-gallery-more"
+          aria-label={t('commands.view.stylesPane')}
+          title={t('commands.view.stylesPane')}
+          disabled={disabled}
+          onClick={onMore}
+        >
+          <ChevronDown size={14} />
+        </button>
+        {tools && tools.length > 0 && (
+          // The style commands, under ▾ in the same narrow column (no extra ribbon width).
+          <Popover
+            label={t('ribbon.groups.styleTools')}
+            disabled={disabled}
+            testId="styles-gallery-tools"
+            className={styles.more}
+            trigger={<Ellipsis size={14} />}
+          >
+            {(close) => (
+              <div className={styles.menu} role="menu" aria-label={t('ribbon.groups.styleTools')}>
+                {tools.map((x) => (
+                  <button
+                    key={x.id}
+                    type="button"
+                    role="menuitem"
+                    data-command={x.id}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      close();
+                      x.run();
+                    }}
+                  >
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Popover>
+        )}
+      </div>
     </div>
   );
 }

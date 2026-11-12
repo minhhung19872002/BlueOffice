@@ -319,7 +319,7 @@ fn anchors<'a>(
                     .iter()
                     .filter(|l| l.source == LineSource::Other)
                     .filter(|l| (l.top < half) == *header);
-                let line = if *header { it.next() } else { it.last() }?;
+                let line = if *header { it.next() } else { it.next_back() }?;
                 Some((pi, line))
             })
             .collect(),

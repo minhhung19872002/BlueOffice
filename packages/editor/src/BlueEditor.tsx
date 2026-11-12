@@ -4487,16 +4487,19 @@ function EditorInner({
                 disabled={noDoc}
                 apply={(id) => void runFocus({ cmd: 'applyStyle', id })}
                 onMore={() => void registry.execute('view.stylesPane', store.getState())}
+                tools={(
+                  [
+                    'view.newStyle',
+                    'view.styleInspector',
+                    'view.revealFormatting',
+                    'view.styleOrganizer',
+                  ] as const
+                ).map((id) => ({
+                  id,
+                  label: t(`commands.${id}`),
+                  run: () => void registry.execute(id, store.getState()),
+                }))}
               />,
-            ),
-            // Style management (DOC-STYLE-001) next to the gallery.
-            s('view.newStyle', 'commands.view.newStyle', <FilePlus size={SMALL} />),
-            s('view.styleInspector', 'commands.view.styleInspector', <FileSearch size={SMALL} />),
-            s('view.revealFormatting', 'commands.view.revealFormatting', <Eye size={SMALL} />),
-            s(
-              'view.styleOrganizer',
-              'commands.view.styleOrganizer',
-              <ArrowLeftRight size={SMALL} />,
             ),
           ],
         },

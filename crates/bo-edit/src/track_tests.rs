@@ -658,8 +658,7 @@ fn tracked_property_changes_list_their_details() {
     let detail = |k: RevKind| {
         revs.iter()
             .find(|r| r.kind == k)
-            .map(|r| r.detail.clone())
-            .unwrap_or_else(|| panic!("{k:?} missing: {revs:?}"))
+            .map_or_else(|| panic!("{k:?} missing: {revs:?}"), |r| r.detail.clone())
     };
     let t = detail(RevKind::TableFormat);
     assert!(t.contains(&"width") && t.contains(&"align"), "{t:?}");

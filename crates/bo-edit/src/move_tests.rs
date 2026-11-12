@@ -400,5 +400,5 @@ fn drag_and_drop_of_text_moves_it() {
     assert_eq!(texts(&t), ["một hai", "bamột "]);
     assert_eq!(markers(t.doc()), 4);
     assert!(t.undo());
-    assert!(t.revisions().is_empty());
+    assert_eq!(t.revisions().len(), 0);
 }

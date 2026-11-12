@@ -1355,7 +1355,7 @@ impl Session {
                         mark_lang: p.props.mark_lang.clone(),
                         mark_no_proof: p.props.mark_no_proof,
                         change: p.props.change.clone(),
-                        frame: p.props.frame.clone(),
+                        frame: p.props.frame,
                         unknown: p.props.unknown.clone(),
                         ..ParaProps::default()
                     };

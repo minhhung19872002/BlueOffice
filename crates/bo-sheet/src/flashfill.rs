@@ -8,6 +8,14 @@
 //! first or last characters and optionally changes its case. A *program* is a
 //! concatenation of atoms and literal text.
 //!
+//! An atom may also *repeat* over every token of its kind (initials of every
+//! word, however many words a name has), pick a token *nested* inside a field
+//! (the first label of the domain of an e-mail address) and *convert* a number
+//! (leading zeros dropped or padded to two digits, month 1–12 written as a
+//! Vietnamese or English month name). Month names in the sources ("tháng Ba",
+//! "tháng 3", "March", "Mar") form their own token kind holding the month
+//! number, so dates written in words can be rewritten as numbers and back.
+//!
 //! For each example the ways of producing its output form a graph whose nodes
 //! are character positions in the output and whose edges are atoms or literal
 //! characters. The graphs of all examples are walked together (a node is one
@@ -41,6 +49,35 @@ pub enum TokenKind {
     AllDigits,
     /// Every letter of the text, joined.
     AllLetters,
+    /// A month written in words ("tháng Ba", "tháng Mười Hai", "tháng 3",
+    /// "March", "Mar"), as its number `1`–`12`.
+    Month,
+}
+
+/// Number conversion applied to a token before its characters are taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Conv {
+    /// Unchanged.
+    Same,
+    /// A digit run as a number: leading zeros dropped (`"03"` → `"3"`).
+    Number,
+    /// A number below 100 padded to two digits (`"3"` → `"03"`).
+    Pad2,
+    /// Month 1–12 as its Vietnamese name ("Một" … "Mười Hai").
+    MonthVi,
+    /// Month 1–12 as its English name ("January" …).
+    MonthEn,
+    /// Month 1–12 as its three-letter English abbreviation ("Jan" …).
+    MonthEnShort,
+}
+
+/// How a repeating atom joins the texts of the tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Join {
+    /// Directly (`"NVA"`).
+    Concat,
+    /// With a separator character (`"N.V.A"`, `"ha-noi"`).
+    With(char),
 }
 
 /// Case change applied to an atom.
@@ -80,6 +117,30 @@ pub struct Atom {
     pub take: Take,
     /// Case change.
     pub case: Case,
+    /// Number conversion applied to the token first.
+    pub conv: Conv,
+    /// A token inside the selected one (kind, index): `Field('@')[-1]` then
+    /// `Field('.')[0]` is the first label of a domain.
+    pub inner: Option<(TokenKind, i32)>,
+    /// Repeat over every token of the kind (index ignored), joined.
+    pub repeat: Option<Join>,
+}
+
+impl Atom {
+    /// A plain atom: one token, no conversion, nesting or repetition.
+    #[must_use]
+    pub fn flat(col: usize, kind: TokenKind, index: i32, take: Take, case: Case) -> Atom {
+        Atom {
+            col,
+            kind,
+            index,
+            take,
+            case,
+            conv: Conv::Same,
+            inner: None,
+            repeat: None,
+        }
+    }
 }
 
 /// A piece of a program.
@@ -126,6 +187,48 @@ const MAX_TAKE: usize = 8;
 const MAX_TOKENS: usize = 32;
 /// Longest source / output text considered (characters).
 const MAX_LEN: usize = 512;
+/// Longest prefix / suffix a repeating atom keeps from each token.
+const MAX_REPEAT_TAKE: usize = 3;
+/// Separators a repeating atom may join tokens with.
+const JOINS: [Join; 7] = [
+    Join::Concat,
+    Join::With(' '),
+    Join::With('.'),
+    Join::With('-'),
+    Join::With('_'),
+    Join::With(','),
+    Join::With('/'),
+];
+/// Vietnamese month names, capitalised as in a date written out in words.
+const MONTHS_VI: [&str; 12] = [
+    "Một",
+    "Hai",
+    "Ba",
+    "Tư",
+    "Năm",
+    "Sáu",
+    "Bảy",
+    "Tám",
+    "Chín",
+    "Mười",
+    "Mười Một",
+    "Mười Hai",
+];
+/// English month names.
+const MONTHS_EN: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
 /// Search budget (graph nodes expanded).
 const MAX_EXPANSIONS: usize = 200_000;
 /// Cheapest programs compared for ambiguity.
@@ -139,6 +242,121 @@ fn is_letter(c: char) -> bool {
 fn normalize(s: &str) -> String {
     // Vietnamese text may arrive decomposed; compare in NFC.
     s.nfc().collect()
+}
+
+/// Month number of a Vietnamese month word after "tháng" (lower case; the
+/// traditional "giêng" / "chạp" for 1 / 12 and "bốn" / "tư" for 4 accepted).
+fn month_vi(word: &str, next: Option<&str>) -> Option<(u32, usize)> {
+    let n = match word {
+        "một" | "giêng" => 1,
+        "hai" => 2,
+        "ba" => 3,
+        "tư" | "bốn" => 4,
+        "năm" => 5,
+        "sáu" => 6,
+        "bảy" => 7,
+        "tám" => 8,
+        "chín" => 9,
+        "mười" => {
+            return Some(match next {
+                Some("một") => (11, 2),
+                Some("hai") => (12, 2),
+                _ => (10, 1),
+            })
+        }
+        "chạp" => 12,
+        _ => {
+            let n: u32 = word.parse().ok()?;
+            return (word.chars().all(|c| c.is_ascii_digit()) && (1..=12).contains(&n))
+                .then_some((n, 1));
+        }
+    };
+    Some((n, 1))
+}
+
+/// Months written in words in `s`, as numbers: "tháng" followed by a month
+/// word or number, and English month names or their abbreviations.
+fn month_tokens(s: &str) -> Vec<String> {
+    let lower = s.to_lowercase();
+    let words = runs(&lower, |c| is_letter(c) || c.is_ascii_digit());
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let w = words[i].as_str();
+        if w == "tháng" {
+            if let Some((n, used)) = words
+                .get(i + 1)
+                .and_then(|m| month_vi(m, words.get(i + 2).map(String::as_str)))
+            {
+                out.push(n.to_string());
+                i += 1 + used;
+                continue;
+            }
+        } else if let Some(k) = MONTHS_EN.iter().position(|m| {
+            let m = m.to_lowercase();
+            w == m || (w.len() == 3 && m.starts_with(w)) || (w == "sept" && m == "september")
+        }) {
+            out.push((k + 1).to_string());
+        }
+        i += 1;
+    }
+    out
+}
+
+/// The number conversion of a token, `None` when it does not apply.
+fn convert(tok: &str, conv: Conv) -> Option<String> {
+    if conv == Conv::Same {
+        return Some(tok.to_owned());
+    }
+    if tok.is_empty() || tok.len() > 18 || !tok.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let n: u64 = tok.parse().ok()?;
+    let month = || usize::try_from(n).ok().filter(|m| (1..=12).contains(m));
+    Some(match conv {
+        Conv::Same | Conv::Number => n.to_string(),
+        Conv::Pad2 => {
+            if n >= 100 {
+                return None;
+            }
+            format!("{n:02}")
+        }
+        Conv::MonthVi => MONTHS_VI[month()? - 1].to_owned(),
+        Conv::MonthEn => MONTHS_EN[month()? - 1].to_owned(),
+        Conv::MonthEnShort => MONTHS_EN[month()? - 1].chars().take(3).collect(),
+    })
+}
+
+/// Token `index` (from the start, or from the end when negative).
+fn pick(toks: &[String], index: i32) -> Option<&String> {
+    let i = if index >= 0 {
+        usize::try_from(index).ok()?
+    } else {
+        toks.len()
+            .checked_sub(usize::try_from(index.unsigned_abs()).ok()?)?
+    };
+    toks.get(i)
+}
+
+fn index_cost(index: i32) -> u32 {
+    // 0, 1, 2 … → 0, 2, 4 …; -1, -2 … → 1, 3 …: the last token is nearly
+    // as natural as the first.
+    if index >= 0 {
+        index.unsigned_abs() * 2
+    } else {
+        index.unsigned_abs() * 2 - 1
+    }
+}
+
+fn kind_cost(kind: TokenKind) -> u32 {
+    match kind {
+        TokenKind::Whole => 20,
+        TokenKind::Word | TokenKind::Digits => 22,
+        TokenKind::Field(_) | TokenKind::Month => 24,
+        TokenKind::AllDigits => 25,
+        TokenKind::Alnum => 26,
+        TokenKind::AllLetters => 28,
+    }
 }
 
 fn runs(s: &str, keep: impl Fn(char) -> bool) -> Vec<String> {
@@ -194,6 +412,7 @@ fn tokens(s: &str, kind: TokenKind) -> Vec<String> {
                 vec![t]
             }
         }
+        TokenKind::Month => month_tokens(s),
     };
     v.truncate(MAX_TOKENS);
     v
@@ -245,39 +464,64 @@ impl Atom {
     pub fn eval(&self, inputs: &[String]) -> Option<String> {
         let src = normalize(inputs.get(self.col)?);
         let toks = tokens(&src, self.kind);
-        let i = if self.index >= 0 {
-            usize::try_from(self.index).ok()?
-        } else {
-            toks.len()
-                .checked_sub(usize::try_from(self.index.unsigned_abs()).ok()?)?
+        match self.repeat {
+            None => self.transform(pick(&toks, self.index)?),
+            Some(join) => {
+                let mut out = String::new();
+                for tok in &toks {
+                    let t = self.transform(tok)?;
+                    if t.is_empty() {
+                        continue;
+                    }
+                    if let (Join::With(c), false) = (join, out.is_empty()) {
+                        out.push(c);
+                    }
+                    out.push_str(&t);
+                }
+                (!out.is_empty()).then_some(out)
+            }
+        }
+    }
+
+    /// Nested token, conversion, characters kept and case of one token.
+    fn transform(&self, tok: &str) -> Option<String> {
+        let nested;
+        let tok = match self.inner {
+            Some((kind, index)) => {
+                nested = pick(&tokens(tok, kind), index)?.clone();
+                nested.as_str()
+            }
+            None => tok,
         };
-        let tok = toks.get(i)?;
-        Some(apply_case(&apply_take(tok, self.take), self.case))
+        let tok = convert(tok, self.conv)?;
+        Some(apply_case(&apply_take(&tok, self.take), self.case))
     }
 
     fn cost(&self) -> u32 {
-        let kind = match self.kind {
-            TokenKind::Whole => 20,
-            TokenKind::Word | TokenKind::Digits => 22,
-            TokenKind::Field(_) => 24,
-            TokenKind::AllDigits => 25,
-            TokenKind::Alnum => 26,
-            TokenKind::AllLetters => 28,
-        };
-        // 0, 1, 2 … → 0, 2, 4 …; -1, -2 … → 1, 3 …: the last token is nearly
-        // as natural as the first.
-        let index = if self.index >= 0 {
-            self.index.unsigned_abs() * 2
-        } else {
-            self.index.unsigned_abs() * 2 - 1
-        };
         let take = match self.take {
             Take::All => 0,
             Take::Prefix(_) => 5,
             Take::Suffix(_) => 6,
         };
         let case = if self.case == Case::Same { 0 } else { 3 };
-        kind + index + take + case
+        let conv = match self.conv {
+            Conv::Same => 0,
+            Conv::Number => 4,
+            Conv::Pad2 => 5,
+            Conv::MonthVi | Conv::MonthEn | Conv::MonthEnShort => 6,
+        };
+        // A nested token costs more than any plain one, so it is only chosen
+        // when no plain token explains the output.
+        let inner = self
+            .inner
+            .map_or(0, |(k, i)| 12 + kind_cost(k) / 4 + index_cost(i));
+        // Repeating: no index, a fixed premium (a separator one more).
+        let (index, repeat) = match self.repeat {
+            None => (index_cost(self.index), 0),
+            Some(Join::Concat) => (0, 8),
+            Some(Join::With(_)) => (0, 9),
+        };
+        kind_cost(self.kind) + index + take + case + conv + inner + repeat
     }
 }
 
@@ -341,9 +585,27 @@ fn candidates(inputs: &[String], output: &str) -> Vec<(usize, usize, Atom)> {
         TokenKind::Alnum,
         TokenKind::AllDigits,
         TokenKind::AllLetters,
+        TokenKind::Month,
     ];
     kinds.extend(DELIMITERS.iter().map(|&d| TokenKind::Field(d)));
     let mut seen = std::collections::HashSet::new();
+    let mut add = |found: &mut Vec<(usize, usize, Atom)>, s: &str, atom: Atom| {
+        if s.is_empty() {
+            return;
+        }
+        // Every occurrence, overlapping ones included.
+        let mut from = 0;
+        while let Some(p) = output[from..].find(s) {
+            let at = from + p;
+            if seen.insert((at, atom)) {
+                found.push((at, at + s.len(), atom));
+            }
+            from = at + output[at..].chars().next().map_or(1, char::len_utf8);
+            if from >= output.len() {
+                break;
+            }
+        }
+    };
     for (col, src) in inputs.iter().enumerate() {
         let src = normalize(src);
         if src.chars().count() > MAX_LEN {
@@ -366,30 +628,68 @@ fn candidates(inputs: &[String], output: &str) -> Vec<(usize, usize, Atom)> {
                 }
                 for &take in &takes {
                     let part = apply_take(tok, take);
-                    for case in [Case::Same, Case::Lower, Case::Upper, Case::Title] {
+                    for case in CASES {
                         let s = apply_case(&part, case);
-                        if s.is_empty() {
-                            continue;
+                        for &index in &indices {
+                            add(&mut found, &s, Atom::flat(col, kind, index, take, case));
                         }
-                        // Every occurrence, overlapping ones included.
-                        let mut from = 0;
-                        while let Some(p) = output[from..].find(s.as_str()) {
-                            let at = from + p;
+                    }
+                }
+                // Numbers converted (whole token only).
+                if matches!(kind, TokenKind::Digits | TokenKind::Month) {
+                    for conv in CONVS {
+                        let Some(c) = convert(tok, conv) else {
+                            continue;
+                        };
+                        for case in CASES {
+                            let s = apply_case(&c, case);
                             for &index in &indices {
-                                let atom = Atom {
-                                    col,
-                                    kind,
-                                    index,
-                                    take,
-                                    case,
-                                };
-                                if seen.insert((at, atom)) {
-                                    found.push((at, at + s.len(), atom));
+                                let mut atom = Atom::flat(col, kind, index, Take::All, case);
+                                atom.conv = conv;
+                                add(&mut found, &s, atom);
+                            }
+                        }
+                    }
+                }
+                // A token nested inside a field (whole inner token only).
+                if let TokenKind::Field(d) = kind {
+                    for inner_kind in inner_kinds(d) {
+                        let inner = tokens(tok, inner_kind);
+                        let m = inner.len();
+                        for (j, it) in inner.iter().enumerate() {
+                            let mut inner_idx = Vec::with_capacity(2);
+                            inner_idx.extend(i32::try_from(j).ok());
+                            inner_idx.extend(i32::try_from(m - j).ok().map(|x| -x));
+                            for case in CASES {
+                                let s = apply_case(it, case);
+                                for &index in &indices {
+                                    for &ii in &inner_idx {
+                                        let mut atom =
+                                            Atom::flat(col, kind, index, Take::All, case);
+                                        atom.inner = Some((inner_kind, ii));
+                                        add(&mut found, &s, atom);
+                                    }
                                 }
                             }
-                            from = at + output[at..].chars().next().map_or(1, char::len_utf8);
-                            if from >= output.len() {
-                                break;
+                        }
+                    }
+                }
+            }
+            // Every token of the kind, joined (initials of every word).
+            if n >= 2 && !single(kind) && kind != TokenKind::Month {
+                let mut takes = vec![Take::All];
+                for t in 1..=MAX_REPEAT_TAKE {
+                    takes.push(Take::Prefix(t));
+                    takes.push(Take::Suffix(t));
+                }
+                for &take in &takes {
+                    for case in CASES {
+                        for join in JOINS {
+                            let mut atom = Atom::flat(0, kind, 0, take, case);
+                            atom.repeat = Some(join);
+                            if let Some(s) = atom.eval(std::slice::from_ref(&src)) {
+                                atom.col = col;
+                                add(&mut found, &s, atom);
                             }
                         }
                     }
@@ -398,6 +698,27 @@ fn candidates(inputs: &[String], output: &str) -> Vec<(usize, usize, Atom)> {
         }
     }
     found
+}
+
+const CASES: [Case; 4] = [Case::Same, Case::Lower, Case::Upper, Case::Title];
+const CONVS: [Conv; 5] = [
+    Conv::Number,
+    Conv::Pad2,
+    Conv::MonthVi,
+    Conv::MonthEn,
+    Conv::MonthEnShort,
+];
+
+/// Token kinds looked for inside a field split on `d`.
+fn inner_kinds(d: char) -> Vec<TokenKind> {
+    let mut v = vec![TokenKind::Word, TokenKind::Digits, TokenKind::Alnum];
+    v.extend(
+        DELIMITERS
+            .iter()
+            .filter(|&&e| e != d)
+            .map(|&e| TokenKind::Field(e)),
+    );
+    v
 }
 
 /// An edge of the joint graph.
@@ -499,7 +820,15 @@ pub fn learn(examples: &[Example]) -> Option<Vec<Program>> {
                 }
             });
             if fits {
-                let w = atom.cost() + split_penalty(&outputs[0], pos[0], end0);
+                // Part of a token cut at a space (" An" as the last three characters
+                // of "Nguyễn Văn An") is a coincidence of lengths, not a pattern.
+                let text = &outputs[0][pos[0]..end0];
+                let cut_at_space = atom.take != Take::All
+                    && (text.starts_with(char::is_whitespace)
+                        || text.ends_with(char::is_whitespace));
+                let w = atom.cost()
+                    + split_penalty(&outputs[0], pos[0], end0)
+                    + if cut_at_space { 15 } else { 0 };
                 edges.push((next, w, Edge::Atom(ci)));
             }
         }
@@ -576,4 +905,69 @@ pub fn flash_fill(examples: &[Example], rows: &[Vec<String>]) -> Option<Vec<Opti
         out.push(v.filter(|s| !s.is_empty()));
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn month_words_table() {
+        // (text, month numbers found) — worked out by hand.
+        let table: &[(&str, &[&str])] = &[
+            ("ngày 5 tháng Ba năm 2024", &["3"]),
+            ("Tháng Mười Hai", &["12"]),
+            ("tháng mười một", &["11"]),
+            ("tháng Mười", &["10"]),
+            ("tháng Giêng và tháng Chạp", &["1", "12"]),
+            ("tháng tư / tháng Bốn", &["4", "4"]),
+            ("Ngày 20 tháng 10 năm 2020", &["10"]),
+            ("tháng 13", &[]),
+            ("March 5, 2024", &["3"]),
+            ("5 sep 1945, Sept", &["9", "9"]),
+            ("năm 2024", &[]),
+        ];
+        for (text, want) in table {
+            assert_eq!(&month_tokens(&normalize(text)), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn conversions_table() {
+        let table: &[(&str, Conv, Option<&str>)] = &[
+            ("03", Conv::Number, Some("3")),
+            ("0", Conv::Number, Some("0")),
+            ("3", Conv::Pad2, Some("03")),
+            ("123", Conv::Pad2, None),
+            ("4", Conv::MonthVi, Some("Tư")),
+            ("12", Conv::MonthVi, Some("Mười Hai")),
+            ("13", Conv::MonthVi, None),
+            ("09", Conv::MonthEn, Some("September")),
+            ("5", Conv::MonthEnShort, Some("May")),
+            ("ab", Conv::Number, None),
+            ("ab", Conv::Same, Some("ab")),
+        ];
+        for (tok, conv, want) in table {
+            assert_eq!(convert(tok, *conv).as_deref(), *want, "{tok} {conv:?}");
+        }
+    }
+
+    #[test]
+    fn repeating_and_nested_atoms() {
+        let row = |s: &str| vec![s.to_owned()];
+        let mut each = Atom::flat(0, TokenKind::Word, 0, Take::Prefix(1), Case::Upper);
+        each.repeat = Some(Join::With('.'));
+        assert_eq!(each.eval(&row("lê văn  hưu")).as_deref(), Some("L.V.H"));
+        assert_eq!(each.eval(&row("")), None);
+        let mut nested = Atom::flat(0, TokenKind::Field('@'), -1, Take::All, Case::Same);
+        nested.inner = Some((TokenKind::Field('.'), 0));
+        assert_eq!(nested.eval(&row("a@mail.gov.vn")).as_deref(), Some("mail"));
+        assert_eq!(nested.eval(&row("a@localhost")), None);
+        // Costs: nesting and repetition are dearer than the plain token.
+        let plain = Atom::flat(0, TokenKind::Word, 0, Take::Prefix(1), Case::Upper);
+        assert!(each.cost() > plain.cost());
+        assert!(
+            nested.cost() > Atom::flat(0, TokenKind::Field('@'), -1, Take::All, Case::Same).cost()
+        );
+    }
 }

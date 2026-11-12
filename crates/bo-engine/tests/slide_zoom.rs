@@ -279,3 +279,43 @@ fn foreign_markup_is_kept() {
     assert_ne!(moved, xml);
     assert_eq!(moved.matches("<pslz:sldZm>").count(), 2);
 }
+
+/// Alpha of the top-left pixel of the zoom preview on slide `slide` (its last picture relationship).
+fn preview_corner_alpha(e: &Engine, slide: usize) -> u8 {
+    let p = e.presentation().unwrap();
+    let s = &p.slides[slide];
+    let rel = s
+        .info
+        .rels
+        .iter()
+        .rev()
+        .find(|r| r.rel_type.ends_with("/image") && !r.external)
+        .unwrap();
+    let part = bo_opc::resolve_target(&s.info.part_name, &rel.target);
+    let data = p.part_data(&part).unwrap();
+    let mut reader = png::Decoder::new(std::io::Cursor::new(data.to_vec()))
+        .read_info()
+        .unwrap();
+    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgba);
+    buf[3]
+}
+
+#[test]
+fn zoom_background_option_makes_the_preview_transparent() {
+    let mut e = open_bytes(&deck("slide-edit-text.pptx"));
+    run(&mut e, &json!({ "cmd": "goTo", "slide": 0 }));
+    run(&mut e, &json!({ "cmd": "zoomInsertSlides", "slides": [2] }));
+    // The preview shows the destination with its background: opaque.
+    assert_eq!(preview_corner_alpha(&e, 0), 255);
+    // showBg="0": the destination's background is left out — the corner (no
+    // shape there) is transparent, so the parent slide shows through.
+    run(&mut e, &json!({ "cmd": "zoomOptions", "showBg": false }));
+    assert_eq!(preview_corner_alpha(&e, 0), 0);
+    run(&mut e, &json!({ "cmd": "zoomOptions", "showBg": true }));
+    assert_eq!(preview_corner_alpha(&e, 0), 255);
+    // One undo step per option change, the preview included.
+    run(&mut e, &json!({ "cmd": "undo" }));
+    assert_eq!(preview_corner_alpha(&e, 0), 0);
+}

@@ -3,7 +3,8 @@
  * paragraph as an editable line. Structure changes (Enter, Tab, Shift+Tab,
  * Ctrl+Enter, Backspace on an empty line) and text edits (when a line loses
  * focus) are sent as one `applyOutline` command each — one undo step in the
- * engine.
+ * engine. Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) in a line are the engine's undo /
+ * redo, not the text box's own: typing not sent yet becomes a step first.
  */
 import { useTranslation } from '@blueoffice/i18n';
 import type { SlideCommand, SlideEditResult, SlideOutlineEdit } from '@blueoffice/platform';
@@ -56,20 +57,45 @@ export function OutlineView({ runResult, revision, current, onSelect, preview }:
   const inFlight = useRef(0);
   const focusAt = useRef<{ line: number; caret: number } | null>(null);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
+  /** The last `applyOutline` sent (undo / redo waits for it). */
+  const pending = useRef<Promise<unknown>>(Promise.resolve());
 
-  const load = useCallback(async () => {
-    const r = await runResult({ cmd: 'outline' });
-    if (!r?.outline || dirty.current || inFlight.current > 0) return;
-    const next = linesOf(r.outline);
-    // The engine's answer to our own last edit: keep the lines as typed (focus, empty lines).
-    if (
-      sent.current &&
-      outlineKey(editsOf(next)) === outlineKey(JSON.parse(sent.current) as SlideOutlineEdit[])
-    )
-      return;
-    sent.current = JSON.stringify(editsOf(next));
-    setLines(next);
-  }, [runResult]);
+  const load = useCallback(
+    async (force = false) => {
+      const r = await runResult({ cmd: 'outline' });
+      if (!r?.outline) return;
+      if (!force && (dirty.current || inFlight.current > 0)) return;
+      const next = linesOf(r.outline);
+      // The engine's answer to our own last edit: keep the lines as typed (focus, empty lines).
+      if (
+        sent.current &&
+        outlineKey(editsOf(next)) === outlineKey(JSON.parse(sent.current) as SlideOutlineEdit[])
+      )
+        return;
+      sent.current = JSON.stringify(editsOf(next));
+      setLines(next);
+    },
+    [runResult],
+  );
+
+  /** Engine undo / redo from a line: the outline is read back afterwards. */
+  const history = useCallback(
+    async (cmd: 'undo' | 'redo', line: number) => {
+      await pending.current;
+      inFlight.current++;
+      try {
+        await runResult({ cmd });
+      } finally {
+        inFlight.current--;
+      }
+      dirty.current = false;
+      sent.current = '';
+      const el = refs.current[line];
+      focusAt.current = { line, caret: el?.value.length ?? 0 };
+      await load(true);
+    },
+    [runResult, load],
+  );
 
   useEffect(() => {
     if (!dirty.current && inFlight.current === 0) void load();
@@ -84,7 +110,9 @@ export function OutlineView({ runResult, revision, current, onSelect, preview }:
       inFlight.current++;
       const numbered = renumber(next);
       sent.current = JSON.stringify(editsOf(numbered));
-      void runResult({ cmd: 'applyOutline', slides, current: slideOfLine(next, focus) })
+      const done = runResult({ cmd: 'applyOutline', slides, current: slideOfLine(next, focus) });
+      pending.current = done.catch(() => null);
+      void done
         .then((r) => {
           inFlight.current--;
           if (!r || r.error) {
@@ -119,7 +147,16 @@ export function OutlineView({ runResult, revision, current, onSelect, preview }:
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>, i: number) => {
     const caret = e.currentTarget.selectionStart ?? 0;
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    if (mod && !e.altKey && (k === 'z' || k === 'y')) {
+      // The engine's history, not the text box's (one step per outline change).
+      e.preventDefault();
+      e.stopPropagation();
+      const redo = k === 'y' || e.shiftKey;
+      if (dirty.current) setLines(commit(lines, i));
+      void history(redo ? 'redo' : 'undo', i);
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       change(newSlide(lines, i));
     } else if (e.key === 'Enter') {

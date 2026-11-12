@@ -104,6 +104,9 @@ describe('ExportDocsDialog', () => {
     fireEvent.change(screen.getByTestId('export-order'), { target: { value: 'vertical' } });
     fireEvent.click(screen.getByTestId('export-frame'));
     fireEvent.change(screen.getByTestId('export-paper'), { target: { value: 'letter' } });
+    fireEvent.change(screen.getByTestId('export-orientation'), {
+      target: { value: 'landscape' },
+    });
     fireEvent.click(screen.getByTestId('export-from-master'));
     fireEvent.change(screen.getByTestId('export-footer'), { target: { value: 'Bluestar' } });
     fireEvent.click(screen.getByTestId('export-docs-ok'));
@@ -114,9 +117,15 @@ describe('ExportDocsDialog', () => {
       order: 'vertical',
       frame: false,
       paper: 'letter',
+      landscape: true,
       fromMaster: false,
       footer: 'Bluestar',
       date: '09/11/2026',
+    });
+    // Landscape pages reach the engine options.
+    expect(exportPlan(s, 'deck', 0, 7).options).toMatchObject({
+      kind: 'handout',
+      landscape: true,
     });
   });
 

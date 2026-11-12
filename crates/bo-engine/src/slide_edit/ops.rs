@@ -61,6 +61,8 @@ pub struct PresFields {
     pub slide_size: bo_model::slide::SlideSize,
     /// Notes and handout page size (§19.2.1.23 notesSz).
     pub notes_size: bo_model::slide::SlideSize,
+    /// Text style of text outside placeholders (§19.2.1.8 defaultTextStyle).
+    pub default_text_style: Option<bo_model::slide::ListStyle>,
 }
 
 impl PresFields {
@@ -74,6 +76,7 @@ impl PresFields {
             themes: p.themes.clone(),
             slide_size: p.slide_size.clone(),
             notes_size: p.notes_size.clone(),
+            default_text_style: p.default_text_style.clone(),
         }
     }
 }
@@ -252,6 +255,8 @@ impl SlideOp {
                 pres.themes.clone_from(&after.themes);
                 pres.slide_size.clone_from(&after.slide_size);
                 pres.notes_size.clone_from(&after.notes_size);
+                pres.default_text_style
+                    .clone_from(&after.default_text_style);
                 Ok(())
             }
         }

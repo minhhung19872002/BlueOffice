@@ -27,6 +27,8 @@ export interface HandoutExport extends SlideHeaderFooter {
   /** Thin frame around each slide (default on). */
   frame?: boolean;
   paper?: SlidePaper;
+  /** `true` landscape pages, `false` portrait; omitted: as the paper comes. */
+  landscape?: boolean;
 }
 
 export interface NotesExport extends SlideHeaderFooter {

@@ -894,6 +894,7 @@ impl Engine {
                     themes,
                     slide_size,
                     notes_size,
+                    default_text_style: before.default_text_style.clone(),
                 };
                 if after != before {
                     let op = SlideOp::Pres {

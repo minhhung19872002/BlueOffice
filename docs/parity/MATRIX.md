@@ -126,15 +126,15 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Shape, text, bảng, ảnh | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus + E2E | ✅ | |
-| Master/layout/theme | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests, slide_master.rs | 🟡 | sửa master/layout, theme + biến thể, kích thước slide (SLIDE-MASTER-001); chưa co cỡ chữ khi đổi kích thước |
-| Chế độ xem | — | 🟡 | — | — | ✅ | ✅ | — | E2E | 🟡 | Normal, Sorter, Reading, Presenter |
+| Master/layout/theme | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests, slide_master.rs | 🟡 | sửa master/layout, theme + biến thể, kích thước slide co cả cỡ chữ, định dạng placeholder master vào titleStyle/bodyStyle/lstStyle (SLIDE-MASTER-001) |
+| Chế độ xem | — | 🟡 | — | — | ✅ | ✅ | — | E2E, slide_views.rs | 🟡 | Normal, Sorter, Reading, Presenter, dàn ý (Ctrl+Z của engine), trang ghi chú có đầu/chân trang (SLIDE-VIEW-001); trạng thái thu gọn phần không lưu (đặc tả không có chỗ) |
 | Transition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus anim-*, slide-edit-transitions-all (Choice + Fallback hợp lệ), transitionFx test, slide-show-media.spec | ✅ | 55 hiệu ứng (§19.3.1 + [MS-PPTX] p14/p15 prstTrans), biến thể hướng, thời lượng, âm thanh WAV/dừng, áp dụng tất cả; Morph theo đối tượng (vị trí/cỡ/xoay/màu; chưa theo từ/ký tự) |
 | Animation | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus slide-edit-animations-all, anim_play/anim_catalog tests, effectFx test, slide-show-media.spec | ✅ | SLIDE-ANIM-004/005: 4 nhóm hiệu ứng, đường chuyển động (vẽ, sửa điểm, khoá, đảo), theo đoạn / từ / chữ, theo phần tử biểu đồ / SmartArt, Ngăn hiệu ứng (kéo thả, trigger, âm thanh, sau hiệu ứng, tua lại), Animation Painter; chưa so ảnh tham chiếu |
 | Morph | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | morph tests, anim corpus, slide-show specs | ✅ | SLIDE-ANIM-003: theo đối tượng / từ / ký tự, nội suy vị trí / cỡ / xoay / màu / đường viền; chưa so ảnh tham chiếu |
 | Audio/video | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus media-*, slide_media.rs | ✅ | trim, fade, bookmark, phụ đề WebVTT, chế độ bắt đầu (SLIDE-MEDIA-001) |
 | Trình chiếu + Presenter | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, slide_present.rs | 🟡 | custom show, tập dượt, bút/laser, phóng, kiosk (SLIDE-SHOW-001); thiếu thuyết minh |
 | Ghi thuyết trình / xuất video | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_video.rs, video.test, slide_record.rs, slide-record.spec | 🟡 | ghi thuyết minh/camera/nét vẽ/thời gian vào .pptx, phát lại (SLIDE-REC-001); xuất MP4/WebM có tiếng + camera (web), GIF/PNG mọi nơi; desktop chưa thử thiết bị thật |
-| Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); thiếu media liên kết |
+| Xuất PDF/PNG | — | ✅ | — | — | ✅ | ✅ | — | tests, slide_export.rs | 🟡 | + handout 1–9, trang ghi chú, JPEG/SVG, gói (SLIDE-EXPORT-002); ghi chú giữ định dạng + sang trang, handout ngang, gói chép media liên kết cục bộ (CLI; web/desktop chưa) |
 | Điều khiển từ điện thoại, chiếu trực tuyến, phụ đề trực tiếp | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | PresentTests, qr/remote tests, collab-remote.spec | ✅ | SLIDE-REMOTE-001 |
 | Album ảnh, slide từ dàn ý, dùng lại slide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slide_album.rs, slide_reuse.rs, slide-album.spec | ✅ | SLIDE-ALBUM-001 |
 | Hyperlink & action | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 | — | slide_action.rs, actions tests, slide-actions.spec | 🟡 | SLIDE-ACTION-001: hình + chữ, click/hover, nút hành động, âm thanh, chính sách an toàn; thiếu ô bảng, mailto desktop, menu chuột phải |

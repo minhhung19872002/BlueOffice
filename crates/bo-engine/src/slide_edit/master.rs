@@ -18,6 +18,7 @@
 //!   slide size (§19.2.1.39 sldSz) with "scale" or "fit" of the content.
 
 use super::build;
+use super::font_scale;
 use super::geom::{Rect, EMU_PT};
 use super::ops::{PresFields, SlideOp, Tx};
 use super::{next_shape_id, refuse, EditError, Outcome, SizeFit, SlideEditor, SlideSel, Txn, R};
@@ -710,6 +711,112 @@ fn pres_edit(tx: &mut Tx<'_>, f: impl FnOnce(&mut PresFields) -> R<()>) -> R<()>
         })?;
     }
     Ok(())
+}
+
+/// A character format (or an alignment) put into list style levels: `levels`
+/// (0-based) when given, else every level the style defines (level 1 at least).
+fn style_levels(
+    ls: &mut ListStyle,
+    levels: Option<&[u8]>,
+    f: &super::text::TextFormat,
+    state: &super::text::FormatState,
+) {
+    let mut want: Vec<usize> = match levels {
+        Some(l) => l.iter().map(|&x| usize::from(x)).collect(),
+        None => (0..9).filter(|&i| ls.levels[i].is_some()).collect(),
+    };
+    if want.is_empty() {
+        want.push(0);
+    }
+    want.sort_unstable();
+    want.dedup();
+    let change = super::text::run_change(f, state, state.size.unwrap_or(18.0));
+    for i in want.into_iter().filter(|&i| i < 9) {
+        let pp = ls.levels[i].get_or_insert_with(ParaProps::default);
+        if let Some(ch) = &change {
+            // §21.1.2.3.2 defRPr of the level.
+            ch(pp.def_rpr.get_or_insert_with(RunProps::default));
+        }
+        if let super::text::TextFormat::Align { align } = f {
+            // §21.1.2.2.7 pPr@algn of the level.
+            pp.algn = Some(align.code().into());
+        }
+    }
+}
+
+/// In the master view, put a format applied to the placeholder at `path` of
+/// the current view slide into the style its slides inherit (see
+/// `cmd_format_master`). Shapes that are not placeholders keep the direct
+/// formatting only.
+pub(super) fn format_style(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    path: &[usize],
+    levels: Option<&[u8]>,
+    f: &super::text::TextFormat,
+    state: &super::text::FormatState,
+) -> R<()> {
+    let supported = matches!(f, super::text::TextFormat::Align { .. })
+        || super::text::run_change(f, state, 18.0).is_some();
+    if !supported || matches!(f, super::text::TextFormat::Paint(_)) {
+        return Ok(());
+    }
+    let Some(target) = current_target(tx.pres, sel) else {
+        return Ok(());
+    };
+    let Some(ShapeNode::Shape(s)) = super::ops::node_at(tx.pres, sel.slide, path) else {
+        return Ok(());
+    };
+    let Some(ph) = &s.nv.placeholder else {
+        return Ok(());
+    };
+    // §19.3.1.52 txStyles: title placeholders take titleStyle, the other body
+    // placeholders bodyStyle; date / footer / number / header their own lstStyle.
+    let master_style = match (target, ph.kind.as_deref()) {
+        (Target::Master(_), Some("title" | "ctrTitle")) => Some(true),
+        (Target::Master(_), Some("dt" | "ftr" | "sldNum" | "hdr")) | (Target::Layout(_), _) => None,
+        (Target::Master(_), _) => Some(false),
+    };
+    if let (Target::Master(m), Some(title)) = (target, master_style) {
+        pres_edit(tx, |p| {
+            let Some(master) = p.masters.get_mut(m) else {
+                return Ok(());
+            };
+            let ts = &mut master.text_styles;
+            let ls = if title {
+                ts.title.get_or_insert_with(ListStyle::default)
+            } else {
+                ts.body.get_or_insert_with(ListStyle::default)
+            };
+            style_levels(ls, levels, f, state);
+            Ok(())
+        })
+    } else {
+        {
+            let mut n = ShapeNode::Shape(s.clone());
+            if let ShapeNode::Shape(s) = &mut n {
+                if let Some(tb) = &mut s.text {
+                    let paras: Vec<u8> = tb
+                        .paragraphs
+                        .iter()
+                        .map(|p| p.props.as_ref().and_then(|pp| pp.lvl).unwrap_or(0))
+                        .collect();
+                    let ls = tb.list_style.get_or_insert_with(ListStyle::default);
+                    // A whole placeholder: the levels its paragraphs use and those
+                    // its list style already defines.
+                    let mut all: Vec<u8> = (0..9u8)
+                        .filter(|&i| ls.levels[usize::from(i)].is_some())
+                        .chain(paras)
+                        .collect();
+                    all.sort_unstable();
+                    all.dedup();
+                    style_levels(ls, Some(levels.unwrap_or(&all)), f, state);
+                }
+            }
+            tx.replace_node(sel.slide, path, n)?;
+            Ok(())
+        }
+    }
 }
 
 /// Master of the current slide (normal view) or view slide.
@@ -1519,6 +1626,8 @@ fn set_slide_size(
     };
     let to = SlideSize { cx, cy, kind };
     let fit = size_fit(&from, &to, mode);
+    // Text scales with the content (font sizes, point spacing, bullet sizes).
+    let k = fit.scale;
     let slides: Vec<Slide> = tx
         .pres
         .slides
@@ -1526,15 +1635,28 @@ fn set_slide_size(
         .map(|s| {
             let mut s = s.clone();
             fit.apply(&mut s.data.shapes);
+            font_scale::nodes(&mut s.data.shapes, k);
             s
         })
         .collect();
     pres_edit(tx, |p| {
         for l in &mut p.layouts {
             fit.apply(&mut l.data.shapes);
+            font_scale::nodes(&mut l.data.shapes, k);
         }
         for m in &mut p.masters {
             fit.apply(&mut m.data.shapes);
+            font_scale::nodes(&mut m.data.shapes, k);
+            let ts = &mut m.text_styles;
+            for ls in [&mut ts.title, &mut ts.body, &mut ts.other]
+                .into_iter()
+                .flatten()
+            {
+                font_scale::list_style(ls, k);
+            }
+        }
+        if let Some(ls) = &mut p.default_text_style {
+            font_scale::list_style(ls, k);
         }
         p.slide_size = to.clone();
         Ok(())

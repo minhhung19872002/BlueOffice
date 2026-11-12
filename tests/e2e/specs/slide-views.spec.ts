@@ -95,6 +95,49 @@ test('notes page view edits the notes of a slide', async ({ page }) => {
   await expect(page.getByTestId('notes-editor')).toHaveValue('Ghi chú từ trang ghi chú');
 });
 
+test('outline view: Ctrl+Z / Ctrl+Y in a line are the deck undo / redo', async ({ page }) => {
+  await page.goto('/slide');
+  await openDeck(page, deck);
+  await viewTab(page);
+  await button(page, 'Dàn ý');
+  const first = page.getByTestId('outline-line-0');
+  const before = await first.inputValue();
+  await first.click();
+  await page.keyboard.press('End');
+  await page.keyboard.insertText(' — sửa');
+  await expect(first).toHaveValue(`${before} — sửa`);
+  // The typing becomes one step of the deck's history, then it is undone.
+  await page.keyboard.press('Control+z');
+  await expect(first).toHaveValue(before);
+  await page.keyboard.press('Control+y');
+  await expect(first).toHaveValue(`${before} — sửa`);
+  // The slide follows the outline.
+  await button(page, 'Thường');
+  await expect(page.getByTestId('thumb-1')).toBeVisible();
+  await viewTab(page);
+  await button(page, 'Dàn ý');
+  await expect(page.getByTestId('outline-line-0')).toHaveValue(`${before} — sửa`);
+  await page.getByTestId('outline-line-0').click();
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('outline-line-0')).toHaveValue(before);
+});
+
+test('notes pages show the notes master page number', async ({ page }) => {
+  await page.goto('/slide');
+  await openDeck(page, deck);
+  await viewTab(page);
+  await button(page, 'Ghi chú cái');
+  await page.getByRole('tab', { name: 'Ghi chú cái', exact: true }).click();
+  const number = page.getByRole('button', { name: 'Số trang', exact: true });
+  if ((await number.getAttribute('aria-pressed')) !== 'true') await number.click();
+  await expect(number).toHaveAttribute('aria-pressed', 'true');
+  await button(page, 'Đóng dạng xem trang cái');
+  await viewTab(page);
+  await button(page, 'Trang ghi chú');
+  await expect(page.getByTestId('notes-page-hf-number-1')).toHaveText('1');
+  await expect(page.getByTestId('notes-page-hf-number-2')).toHaveText('2');
+});
+
 test('sections: add, rename, collapse, move; handout and notes masters; saved', async ({
   page,
 }) => {

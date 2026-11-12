@@ -118,6 +118,23 @@
   overflow: hidden;
 }
 
+.notesPageHf {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 0 0.4em;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #4a4f55;
+  pointer-events: none;
+}
+
+.notesPageHf[data-bottom='true'] {
+  justify-content: flex-end;
+}
+
 .notesPageText {
   position: absolute;
   box-sizing: border-box;

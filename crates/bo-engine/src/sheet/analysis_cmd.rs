@@ -491,6 +491,14 @@ mod tests {
         assert_eq!(ws.charts[1].from.row, ws.charts[0].from.row + 16);
         // Saved as standard chart parts.
         let bytes = e.save("xlsx", 0).unwrap();
+        // `BO_TEST_OUT=<dir>` keeps the file for `bo-cli validate --openxml require`.
+        if let Some(dir) = std::env::var_os("BO_TEST_OUT") {
+            std::fs::write(
+                std::path::Path::new(&dir).join("analysis-charts.xlsx"),
+                &bytes,
+            )
+            .unwrap();
+        }
         let back = bo_xlsx::read_xlsx(&bytes).unwrap();
         assert_eq!(back.sheets[1].charts.len(), 3);
         assert!(back.sheets[1].charts[0].plots[0].series[0].no_line);

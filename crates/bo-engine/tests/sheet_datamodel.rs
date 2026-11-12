@@ -602,6 +602,14 @@ fn model_pivot_show_all_measure_filters_slicer_and_cache_records() {
 
     // Cache records: the measure of each sales row (its own quantity, 1…20).
     let bytes = e.save("xlsx", 0).unwrap();
+    // `BO_TEST_OUT=<dir>` keeps the file for `bo-cli validate --openxml require`.
+    if let Some(dir) = std::env::var_os("BO_TEST_OUT") {
+        std::fs::write(
+            std::path::Path::new(&dir).join("datamodel-filters.xlsx"),
+            &bytes,
+        )
+        .unwrap();
+    }
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
     let mut def = String::new();
     std::io::Read::read_to_string(

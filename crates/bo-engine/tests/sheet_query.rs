@@ -656,7 +656,11 @@ fn user_columns_survive_refresh_and_rename_keeps_the_query() {
     assert_eq!(shown(&e, s, "F3"), "80");
     assert_eq!(shown(&e, s, "A6"), "A05");
     assert_eq!(shown(&e, s, "F6"), "12");
-    assert!(input(&e, s, "F6").ends_with("[Số lượng]]*2"), "{}", input(&e, s, "F6"));
+    assert!(
+        input(&e, s, "F6").ends_with("[Số lượng]]*2"),
+        "{}",
+        input(&e, s, "F6")
+    );
     assert_eq!(shown(&e, s, "G2"), "kiểm");
     assert_eq!(shown(&e, s, "G4"), "đủ");
     assert_eq!(shown(&e, s, "G6"), "");

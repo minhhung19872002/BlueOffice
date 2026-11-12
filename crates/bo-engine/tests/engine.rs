@@ -27,6 +27,25 @@ fn opens_sample_and_paginates() {
 }
 
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn layout_timing_is_opt_in_and_consumed_once() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("timing.docx").unwrap();
+    e.command_json(r#"{"cmd":"insertText","text":"a"}"#)
+        .unwrap();
+    assert!(e.take_layout_time().is_none());
+    e.set_layout_timing(true);
+    e.command_json(r#"{"cmd":"insertText","text":"b"}"#)
+        .unwrap();
+    assert!(e.take_layout_time().is_some());
+    assert!(e.take_layout_time().is_none());
+    e.set_layout_timing(false);
+    e.command_json(r#"{"cmd":"insertText","text":"c"}"#)
+        .unwrap();
+    assert!(e.take_layout_time().is_none());
+}
+
+#[test]
 fn deterministic_display_list() {
     let mut a = Engine::with_bundled_fonts();
     let mut b = Engine::with_bundled_fonts();

@@ -101,6 +101,7 @@ import {
   titleBarWindow,
   QuickAccessBar,
   useCommandSearchShortcut,
+  BlueFluentProvider,
   useResolvedTheme,
   TaskPaneHost,
   useTaskPaneLayout,
@@ -7793,7 +7794,9 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   };
 
   return (
-    <div
+    <BlueFluentProvider
+      app="sheet"
+      mode={theme}
       // `bo-root`: the shared theme rules (focus ring of every control, WCAG 2.4.7) apply here too.
       className={`bo-root ${styles.root}`}
       data-theme={theme}
@@ -10101,6 +10104,6 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       {dialog?.kind === 'message' && (
         <MessageDialog title={dialog.title} message={dialog.message} onClose={common.onClose} />
       )}
-    </div>
+    </BlueFluentProvider>
   );
 }

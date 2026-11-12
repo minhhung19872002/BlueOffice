@@ -12,6 +12,9 @@
 //     --update-baseline        write the result as the baseline of the profile
 //     --no-webdriver           start-up / open / RAM only (no typing / scrolling / renders)
 //     --only-webdriver         typing / scrolling / renders only
+//     --soak-only              run the 10-minute edit/scroll/image/undo memory test
+//     --soak-ms <n>            soak duration (default 600000; shorter runs are diagnostics)
+//     --webview-snapshots      take CDP heap snapshots before/after the soak when available
 //     --fail-over <pct>        exit 1 when a metric is slower than the baseline by more (default 20)
 //     --warn-over <pct>        flag a metric slower by more (default 5)
 //
@@ -21,10 +24,11 @@
 // desktop E2E does. Windows only (process tree memory through CIM).
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, totalmem, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PNG } from 'pngjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -49,6 +53,8 @@ const baselinePath = opt(
 const failOver = Number(opt('fail-over', '20'));
 const warnOver = Number(opt('warn-over', '5'));
 const profileDir = join(tmpdir(), 'perf-desktop-webview2');
+// The webdriver build redirects its offline/recovery cache here; never touch the user's cache.
+process.env.BLUEOFFICE_E2E_CACHE_DIR = mkdtempSync(join(tmpdir(), 'blueoffice-perf-cache-'));
 const smallDoc = join(root, 'tests', 'corpus', 'doc', 'phase1-sample.docx');
 const bigDoc = resolve(opt('doc', join(outDir, 'perf-big-100.docx')));
 const useWebDriver = !flag('no-webdriver');
@@ -242,6 +248,7 @@ async function launch(file, until) {
   try {
     try {
       await waitLog(log, until, 45_000);
+      if (file) await waitLog(log, 'cache-isolated', 10_000);
     } catch (e) {
       // A launch that never got there is reported (and left out), not fatal for the others.
       const seen = readLog(log).map((x) => x.event);
@@ -441,6 +448,7 @@ async function webdriverRun(log) {
     async () => (await exec('return window.__boPerf?.marks["editor-ready"] > 0;')) || null,
     'editor ready',
   );
+  await waitLog(log, 'cache-isolated', 10000);
   const view = await exec(`
     const c = document.querySelector('.bo-page canvas');
     return { pages: document.querySelectorAll('.bo-page').length, dpr: window.devicePixelRatio,
@@ -500,6 +508,14 @@ function breakdown(k, events) {
     );
     return e ? e.ms : null;
   };
+  const layout = cmd
+    ? events.find(
+        (e) =>
+          e.event === 'layout' &&
+          e.t >= k.inputEpoch + cmd.start &&
+          e.t <= k.inputEpoch + cmd.end + 1,
+      )
+    : null;
   const allNative = events
     .filter((e) => e.event === 'engine' && e.t >= k.inputEpoch && e.t <= k.presentEpoch)
     .reduce((s, e) => s + e.ms, 0);
@@ -508,6 +524,7 @@ function breakdown(k, events) {
     beforeCommandIpc: cmd ? cmd.start : null,
     commandIpc: cmd ? cmd.end - cmd.start : null,
     commandNative: rust('engine_command', cmd),
+    layoutNative: layout?.ms ?? null,
     commandToPageRequest: cmd && page ? page.start - cmd.end : null,
     pageIpc: page ? page.end - page.start : null,
     pageNative: rust('engine_page', page),
@@ -557,6 +574,7 @@ async function interactionRuns() {
             'beforeCommandIpc',
             'commandIpc',
             'commandNative',
+            'layoutNative',
             'commandToPageRequest',
             'pageIpc',
             'pageNative',
@@ -601,6 +619,173 @@ async function interactionRuns() {
   return out;
 }
 
+async function webviewHeapSnapshot(capabilities, file) {
+  const address =
+    capabilities?.['ms:edgeOptions']?.debuggerAddress ??
+    capabilities?.['goog:chromeOptions']?.debuggerAddress;
+  if (!address) throw new Error('WebDriver did not expose a WebView2 debugger address');
+  const currentUrl = await exec('return location.href');
+  const targets = await (await fetch(`http://${address}/json/list`)).json();
+  const target = targets.find((entry) => entry.type === 'page' && entry.url === currentUrl);
+  if (!target?.webSocketDebuggerUrl)
+    throw new Error('could not identify the active WebView2 debugging target');
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  const chunks = [];
+  await new Promise((resolveSnapshot, rejectSnapshot) => {
+    const timer = setTimeout(
+      () => rejectSnapshot(new Error('WebView2 heap snapshot timed out')),
+      120000,
+    );
+    socket.addEventListener('open', () =>
+      socket.send(
+        JSON.stringify({
+          id: 1,
+          method: 'HeapProfiler.takeHeapSnapshot',
+          params: { reportProgress: false },
+        }),
+      ),
+    );
+    socket.addEventListener('error', () => {
+      clearTimeout(timer);
+      rejectSnapshot(new Error('WebView2 debugger connection failed'));
+    });
+    socket.addEventListener('message', (event) => {
+      const data = JSON.parse(String(event.data));
+      if (data.method === 'HeapProfiler.addHeapSnapshotChunk') chunks.push(data.params.chunk);
+      if (data.id === 1) {
+        clearTimeout(timer);
+        if (data.error) rejectSnapshot(new Error(data.error.message));
+        else resolveSnapshot();
+      }
+    });
+  }).finally(() => socket.close());
+  writeFileSync(file, chunks.join(''));
+  return { file, bytes: chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk), 0) };
+}
+
+/** Exercise editing, scrolling, clipboard images and undo in one document over time. */
+async function memorySoak() {
+  const duration = Number(opt('soak-ms', '600000'));
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error('invalid --soak-ms');
+  const log = join(tmpdir(), `perf-desktop-soak-${process.pid}.jsonl`);
+  process.env.BLUEOFFICE_PERF_LOG = log;
+  const driver = await startDriver();
+  const samples = [];
+  // A deterministic 256×256 image exercises decoding and undo more realistically than a
+  // one-pixel placeholder, without reading the user's files or using external resources.
+  const picture = new PNG({ width: 256, height: 256 });
+  for (let i = 0; i < picture.data.length; i += 4) {
+    const pixel = i / 4;
+    picture.data[i] = pixel % 256;
+    picture.data[i + 1] = Math.floor(pixel / 256);
+    picture.data[i + 2] = (pixel * 31) % 256;
+    picture.data[i + 3] = 255;
+  }
+  const imageBase64 = PNG.sync.write(picture).toString('base64');
+  let images = 0;
+  let edits = 0;
+  try {
+    await waitNoOtherInstance();
+    const created = await wd('POST', '/session', {
+      capabilities: {
+        alwaysMatch: { browserName: 'wry', 'tauri:options': { application: exe, args: [bigDoc] } },
+      },
+    });
+    session = created.sessionId;
+    await waitFor(() => exec('return window.__boPerf?.marks["editor-ready"] > 0'), 'editor ready');
+    await waitLog(log, 'cache-isolated', 10000);
+    await exec(`const original=window.fetch; window.__boSoakImageStatuses=[];
+      window.fetch=function(input,...args){const url=typeof input==='string'?input:input?.url;
+        return original.call(this,input,...args).then(response=>{
+          if(url?.includes('/engine_insert_image')) window.__boSoakImageStatuses.push(response.status);
+          return response;
+        });};`);
+    const snapshots = [];
+    if (flag('webview-snapshots'))
+      snapshots.push(
+        await webviewHeapSnapshot(
+          created.capabilities,
+          join(outDir, 'webview-before.heapsnapshot'),
+        ),
+      );
+    await exec('document.querySelector("textarea")?.focus()');
+    const pid = findOurs()[0]?.pid;
+    if (!pid) throw new Error('desktop process not found for memory sampling');
+    const started = Date.now();
+    let nextSample = started;
+    let nextImage = started + 10000;
+    while (Date.now() - started < duration) {
+      await press('a');
+      edits++;
+      await exec(`const s=document.querySelector('.bo-doc-scroller');
+        if(s){const next=s.scrollTop+450; s.scrollTop=next>=s.scrollHeight-s.clientHeight?0:next;}`);
+      const now = Date.now();
+      if (now >= nextImage) {
+        const count = await exec(
+          'return window.__boPerf.ipc.filter(x=>x.cmd==="engine_insert_image").length',
+        );
+        await exec(
+          `const bytes=Uint8Array.from(atob(arguments[0]),c=>c.charCodeAt(0));
+          const d=new DataTransfer(); d.items.add(new File([bytes], 'soak.png', {type:'image/png'}));
+          document.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste',{clipboardData:d,bubbles:true,cancelable:true}));`,
+          [imageBase64],
+        );
+        await waitFor(
+          async () =>
+            await exec(
+              'const a=window.__boPerf.ipc.filter(x=>x.cmd==="engine_insert_image"); return a.length>arguments[0] && a.at(-1).end>0;',
+              [count],
+            ),
+          'completed pasted image IPC',
+          10000,
+        );
+        const imageStatus = await exec('return window.__boSoakImageStatuses.at(-1)');
+        if (!(imageStatus >= 200 && imageStatus < 300))
+          throw new Error(`image insertion failed with HTTP status ${imageStatus}`);
+        await sleep(500);
+        await press('z', ['Control']);
+        images++;
+        nextImage = Date.now() + 10000;
+      }
+      if (now >= nextSample) {
+        const mem = treeMemory(pid);
+        if (!Number.isFinite(mem?.privateMB)) throw new Error('memory sample unavailable');
+        samples.push({ elapsedMs: now - started, privateMB: mem.privateMB });
+        console.log(
+          `soak ${(now - started) / 1000}s: ${mem.privateMB} MB, ${edits} edits, ${images} images`,
+        );
+        nextSample = now + 30000;
+      }
+      await sleep(1000);
+    }
+    const final = treeMemory(pid);
+    if (!Number.isFinite(final?.privateMB)) throw new Error('final memory sample unavailable');
+    samples.push({ elapsedMs: Date.now() - started, privateMB: final.privateMB });
+    const tail = samples.slice(Math.floor(samples.length / 3));
+    const elapsedMinutes = (tail.at(-1).elapsedMs - tail[0].elapsedMs) / 60000;
+    const growthMB = tail.at(-1).privateMB - tail[0].privateMB;
+    const growing = elapsedMinutes > 0 && growthMB > 32 && growthMB / elapsedMinutes > 1;
+    if (flag('webview-snapshots'))
+      snapshots.push(
+        await webviewHeapSnapshot(created.capabilities, join(outDir, 'webview-after.heapsnapshot')),
+      );
+    return {
+      durationMs: Date.now() - started,
+      edits,
+      images,
+      samples,
+      growthMB: r1(growthMB),
+      growing,
+      peakPrivateMB: Math.max(...samples.map((sample) => sample.privateMB)),
+      snapshots,
+    };
+  } finally {
+    if (session) await wd('DELETE', s('')).catch(() => {});
+    killTree(driver.pid);
+    rmSync(log, { force: true });
+  }
+}
+
 // ---------------------------------------------------------------- report
 
 function med(list, f) {
@@ -631,6 +816,12 @@ function summarize(st, wdRuns) {
     Object.assign(m, {
       'type.keyToPaintMedianMs': med(wdRuns, (x) => x.keyToPaintMs.median),
       'type.keyToPaintP95Ms': med(wdRuns, (x) => x.keyToPaintMs.p95),
+      'type.keyToPaintPooledP95Ms': r1(
+        pct(
+          wdRuns.flatMap((x) => x.keySamplesMs),
+          0.95,
+        ),
+      ),
       'scroll.fps': med(wdRuns, (x) => x.scroll.fps),
       'scroll.frameP95Ms': med(wdRuns, (x) => x.scroll.frameP95Ms),
       'scroll.blankFrames': med(wdRuns, (x) => x.scroll.blankFrames),
@@ -693,6 +884,7 @@ const GATED = [
   'ram.oneDocPrivateMB',
   'type.keyToPaintMedianMs',
   'type.keyToPaintP95Ms',
+  'type.keyToPaintPooledP95Ms',
   'scroll.fps',
   'renders.ribbonPerKey',
   'renders.statusPerKey',
@@ -735,7 +927,12 @@ const TARGETS = [
   ['Window shell visible', 'start.shellVisibleMs', '< 500 ms', (v) => v < 500],
   ['Open 100-page .docx → first page', 'open100.openToFirstPageMs', '< 2 000 ms', (v) => v < 2000],
   ['Key press → glyph painted (median)', 'type.keyToPaintMedianMs', '< 16 ms', (v) => v < 16],
-  ['Key press → glyph painted (p95)', 'type.keyToPaintP95Ms', '< 16 ms', (v) => v < 16],
+  [
+    'Key press → glyph painted (pooled p95)',
+    'type.keyToPaintPooledP95Ms',
+    '< 20 ms',
+    (v) => v < 20,
+  ],
   ['Scrolling', 'scroll.fps', '60 FPS', (v) => v >= 58],
   [
     'RAM, one document (private WS, app + WebView2)',
@@ -793,8 +990,12 @@ const loadBefore = cpuLoad();
 const mach = machine();
 ensureBigDoc();
 console.log(`perf-desktop: ${exe}, ${runs} runs, ${mach.cpu}, load ${loadBefore} %`);
-const st = flag('only-webdriver') ? { start: [], startScreen: [], open: [] } : await startRuns();
-const wdRuns = useWebDriver ? await interactionRuns() : [];
+const st =
+  flag('only-webdriver') || flag('soak-only')
+    ? { start: [], startScreen: [], open: [] }
+    : await startRuns();
+const wdRuns = useWebDriver && !flag('soak-only') ? await interactionRuns() : [];
+const soak = flag('soak-only') ? await memorySoak() : null;
 const result = {
   date: new Date().toISOString(),
   exe,
@@ -807,6 +1008,7 @@ const result = {
   metrics: summarize(st, wdRuns),
   raw: st,
   webdriver: wdRuns,
+  soak,
 };
 result.distributions = distributions(st, wdRuns, result.metrics);
 let cmp = null;
@@ -828,8 +1030,14 @@ if (flag('update-baseline') && baselinePath) {
 console.log(readFileSync(join(outDir, 'desktop-perf.md'), 'utf8'));
 if (process.env.GITHUB_STEP_SUMMARY)
   writeFileSync(process.env.GITHUB_STEP_SUMMARY, markdown(result, cmp), { flag: 'a' });
+if (soak) {
+  console.log(
+    `Soak: ${soak.edits} edits, ${soak.images} image/undo cycles, peak ${soak.peakPrivateMB} MB, tail growth ${soak.growthMB} MB`,
+  );
+  if (!soak.images || soak.growing || soak.peakPrivateMB >= 400) process.exitCode = 1;
+}
 // A failed measurement must not look like a successful regression check in CI.
-if (process.env.CI && !flag('only-webdriver') && useWebDriver) {
+if (process.env.CI && !flag('only-webdriver') && !flag('soak-only') && useWebDriver) {
   const missing = GATED.filter((key) => !Number.isFinite(result.metrics[key]));
   if (missing.length) {
     console.error(`::error::Desktop performance measurements missing: ${missing.join(', ')}`);

@@ -29,6 +29,8 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
+// The dedicated webdriver build routes offline and recovery data to this temporary folder.
+process.env.BLUEOFFICE_E2E_CACHE_DIR = mkdtempSync(join(tmpdir(), 'blueoffice-desktop-e2e-cache-'));
 const exe =
   process.env.BLUEDOC_EXE ??
   join(root, 'target/release', process.platform === 'win32' ? 'bluedoc.exe' : 'bluedoc');
@@ -55,6 +57,13 @@ async function wd(method, path, body) {
 
 const s = (path) => `/session/${session}${path}`;
 const exec = (script, args = []) => wd('POST', s('/execute/sync'), { script, args });
+
+async function confirmIsolatedCache() {
+  const isolated = await exec(
+    'return window.__TAURI_INTERNALS__.invoke("automation_cache_isolated")',
+  );
+  assert.equal(isolated, true, 'build with webdriver and configure a separate test cache');
+}
 
 async function waitFor(fn, what, timeout = 20_000) {
   const end = Date.now() + timeout;
@@ -126,6 +135,7 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
       },
     });
     session = created.sessionId;
+    await confirmIsolatedCache();
   });
 
   after(async () => {
@@ -281,6 +291,7 @@ describe(
         },
       });
       session = created.sessionId;
+      await confirmIsolatedCache();
       await waitFor(
         async () => (await wd('GET', s('/title'))).includes('review-01-insert-delete.docx'),
         'document title',
@@ -458,6 +469,7 @@ describe(
         },
       });
       session = created.sessionId;
+      await confirmIsolatedCache();
     });
 
     after(async () => {
@@ -618,6 +630,7 @@ describe('desktop deep link joins the web users of a BlueDrive file', { skip: co
       },
     });
     session = created.sessionId;
+    await confirmIsolatedCache();
   });
 
   after(async () => {
@@ -799,6 +812,7 @@ describe(
         },
       });
       session = created.sessionId;
+      await confirmIsolatedCache();
     }
     const opens = async (fileId) =>
       (await api('GET', `${urls.mock}/_admin/webhooks`)).filter(

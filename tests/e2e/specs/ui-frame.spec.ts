@@ -13,6 +13,11 @@ for (const app of ['doc', 'sheet', 'slide'] as const) {
     await page.goto(`/${app}`);
     const bar = page.getByTestId('title-bar');
     await expect(bar).toBeVisible();
+    const root = page.locator(`.bo-root[data-app="${app}"]`);
+    await expect(root).toHaveCSS('background-color', 'rgb(238, 241, 245)');
+    expect(await root.evaluate((el) => getComputedStyle(el).fontFamily)).toContain(
+      'Be Vietnam Pro',
+    );
     const box = await bar.boundingBox();
     expect(box?.height).toBe(40);
     expect(await bar.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(accents[app]);

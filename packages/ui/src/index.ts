@@ -1,3 +1,4 @@
+export { BlueFluentProvider, blueOfficeBrand, blueOfficeFluentTheme } from './BlueFluentProvider';
 export { Dialog, type DialogProps } from './Dialog';
 export {
   FileTypeDialog,

@@ -91,6 +91,8 @@ Công cụ fuzz (`fuzz/`, workspace riêng, không đóng gói vào sản phẩm
 | zustand | 5.0.16 | MIT | State UI |
 | i18next / react-i18next | 26.7.1 / 17.1.12 | MIT | Đa ngôn ngữ (vi-VN, en-US) |
 | lucide-react | 1.69.0 | ISC | Icon |
+| @fluentui/react-components | 9.75.2 | MIT | Component và theme Fluent UI React |
+| @fluentui/react-icons | 2.0.345 | MIT | Fluent System Icons cho lệnh giao diện; icon sản phẩm BlueOffice giữ riêng |
 | quickjs-emscripten-core, @jitl/quickjs-wasmfile-release-sync, @jitl/quickjs-ffi-types (QuickJS © Fabrice Bellard, Charlie Gordon) | 0.32.0 | MIT | Sandbox BlueScript (QuickJS WASM trong Web Worker, ADR-0012) |
 | @radix-ui/react-tabs, @radix-ui/react-tooltip, @radix-ui/react-dialog | 1.2.1 / 1.4.1 / 1.3.1 | MIT | Primitive ribbon/tooltip/dialog |
 | @tauri-apps/api | 2.12.4 | Apache-2.0 OR MIT | IPC desktop |

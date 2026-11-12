@@ -146,6 +146,7 @@ import {
   QuickAccessBar,
   useCommandSearchShortcut,
   usePictureTools,
+  BlueFluentProvider,
   useResolvedTheme,
   toBase64 as pictureBase64,
   PictureActionsHub,
@@ -3760,7 +3761,6 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     duplicateSlides,
   ]);
 
-
   // Add-ins of the organisation catalogue (CORE-ADDIN-001): ribbon commands, task panes.
   // Their calls go through the BlueScript API (ADR-0012), without moving the focus.
   const selectedShapes = (edit?.selection ?? []).map((x) => x.id);
@@ -5642,7 +5642,9 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       : status;
 
   return (
-    <div
+    <BlueFluentProvider
+      app="slide"
+      mode={theme}
       className={`bo-root ${styles.root}`}
       data-theme={theme}
       data-app="slide"
@@ -7059,6 +7061,6 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
       {readAloud.bar}
       {dictation.bar}
       {translate.pane}
-    </div>
+    </BlueFluentProvider>
   );
 }

@@ -131,7 +131,20 @@ fn engine_new(state: State<'_, EngineState>, name: String) -> Result<DocInfo, St
 #[tauri::command]
 fn engine_command(state: State<'_, EngineState>, json: String) -> Result<String, String> {
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    perf::timed("engine_command", || e.command_json(&json)).map_err(|e| e.to_string())
+    let measuring = perf::enabled();
+    if measuring {
+        e.set_layout_timing(true);
+    }
+    let result = perf::timed("engine_command", || e.command_json(&json));
+    if measuring {
+        if let Some(elapsed) = e.take_layout_time() {
+            perf::mark(
+                "layout",
+                Some(serde_json::json!({ "ms": elapsed.as_secs_f64() * 1000.0 })),
+            );
+        }
+    }
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -520,12 +533,26 @@ fn open_url(url: String) -> Result<(), String> {
 /// `<app local data>/offline/<hex key>.bin`. Holds offline saves of host files,
 /// so it is not the OS cache directory (which may be cleaned).
 fn cache_path(app: &tauri::AppHandle, key: &str) -> Result<PathBuf, String> {
+    // Automation must never overwrite the user's recovery or offline files. This override
+    // exists only in the webdriver build and points to a per-run temporary directory.
+    #[cfg(feature = "webdriver")]
+    if let Some(dir) = std::env::var_os("BLUEOFFICE_E2E_CACHE_DIR").filter(|v| !v.is_empty()) {
+        perf::mark("cache-isolated", None);
+        return Ok(PathBuf::from(dir).join(shell::cache_file_name(key)?));
+    }
     let dir = app
         .path()
         .app_local_data_dir()
         .map_err(|e| e.to_string())?
         .join("offline");
     Ok(dir.join(shell::cache_file_name(key)?))
+}
+
+/// Whether the dedicated WebDriver build has a separate test cache configured.
+#[tauri::command]
+fn automation_cache_isolated() -> bool {
+    cfg!(feature = "webdriver")
+        && std::env::var_os("BLUEOFFICE_E2E_CACHE_DIR").is_some_and(|v| !v.is_empty())
 }
 
 #[tauri::command]
@@ -820,6 +847,7 @@ fn main() {
             chrome_cmds::chrome_set_backdrop,
             chrome_cmds::chrome_set_max_button,
             chrome_cmds::chrome_system_menu,
+            automation_cache_isolated,
             engine_init,
             engine_open,
             engine_page,

@@ -3,6 +3,10 @@
 Sinh từ `Icon.tsx` (`BO_WRITE_ICONS=1 pnpm --filter @blueoffice/ui test`). Không icon nào được vẽ theo icon của sản
 phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICES.md).
 
+Các icon Lưu, Hoàn tác và Làm lại trong thanh truy cập nhanh dùng Fluent System Icons
+(`@fluentui/react-icons`, MIT, <https://github.com/microsoft/fluentui-system-icons>).
+Icon và logo sản phẩm BlueOffice vẫn là tài sản riêng của dự án.
+
 | Command id | Nguồn |
 |---|---|
 | `anim.preview` | Lucide (ISC) `Eye` |

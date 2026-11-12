@@ -81,6 +81,7 @@ import {
   setDensity,
   getDensity,
   useDensity,
+  BlueFluentProvider,
   useResolvedTheme,
   usePictureTools,
   PictureActionsHub,
@@ -5716,7 +5717,9 @@ function EditorInner({
       selection: { anchor: { p: para, o: 0 }, focus: { p: para, o: 0 } },
     });
   return (
-    <div
+    <BlueFluentProvider
+      app={app}
+      mode={resolvedTheme}
       className={`bo-root ${styles.root}`}
       data-theme={resolvedTheme}
       data-app={app}
@@ -7006,7 +7009,7 @@ function EditorInner({
         onShare={host?.showShare ? host.onShare : undefined}
         onCloseDocument={host?.showClose ? host.onClose : undefined}
       />
-    </div>
+    </BlueFluentProvider>
   );
 }
 

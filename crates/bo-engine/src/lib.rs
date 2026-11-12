@@ -276,6 +276,11 @@ pub struct Engine {
     unsaved: BlockChanges,
     /// Layout of the open document, updated incrementally after each edit.
     layout: IncrementalLayout,
+    /// Optional native instrumentation; disabled for normal editing and WebAssembly.
+    #[cfg(not(target_arch = "wasm32"))]
+    layout_timing_enabled: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_layout_time: Option<std::time::Duration>,
     /// Display list of each page of the open document, built when first requested.
     doc_display: Vec<OnceCell<PageList>>,
     /// The layout shows a mail-merge preview instead of the document.
@@ -407,6 +412,19 @@ impl Engine {
     /// Number of loaded faces.
     pub fn face_count(&self) -> usize {
         self.fonts.len()
+    }
+
+    /// Enable or disable timing of incremental document layout for host diagnostics.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_layout_timing(&mut self, enabled: bool) {
+        self.layout_timing_enabled = enabled;
+        self.last_layout_time = None;
+    }
+
+    /// Consume the measured duration of the most recent incremental layout, if enabled.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn take_layout_time(&mut self) -> Option<std::time::Duration> {
+        self.last_layout_time.take()
     }
 
     /// Lets documents use the installed OS fonts (desktop): a family that is not
@@ -746,9 +764,15 @@ impl Engine {
         // Web and draft layouts lay out a view copy (same blocks, other page setup).
         let shown = views::view_document(doc, self.view_layout);
         let doc = shown.as_ref().unwrap_or(doc);
+        #[cfg(not(target_arch = "wasm32"))]
+        let layout_started = self.layout_timing_enabled.then(std::time::Instant::now);
         let dirty = self
             .layout
             .update(doc, &mut self.fonts, &mut self.cache, opts, &changes)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(started) = layout_started {
+            self.last_layout_time = Some(started.elapsed());
+        }
         let n = self.layout.document().pages.len();
         self.doc_display.truncate(n);
         self.doc_display.resize_with(n, OnceCell::new);

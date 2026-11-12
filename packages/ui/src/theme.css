@@ -39,6 +39,14 @@
   background: var(--bo-bg);
 }
 
+/* Fluent supplies the component tokens; the app root keeps BlueOffice's own web font and
+   surfaces. The more specific Mica rule below still controls the desktop backdrop. */
+.bo-root.bo-fluent-root {
+  font-family: var(--bo-font);
+  color: var(--bo-text);
+  background: var(--bo-bg);
+}
+
 /* ---- Window chrome band: title bar + ribbon tab strip (ADR-0016). Declared per app scope so
    the accent references resolve to the app's accent. Default: the app accent band. */
 :root,

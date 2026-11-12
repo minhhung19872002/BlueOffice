@@ -43,8 +43,13 @@ riêng chưa được tách khỏi lệnh native. FPS p95 là percentile tốc �
 trường hợp xấu nhất; p95 thời gian khung hình theo phiên là 13,8 ms.
 
 Desktop E2E đầy đủ trên cùng executable: 16/16 ca qua, bao gồm hai nhóm cộng tác.
-[CI nhánh](https://github.com/minhhung19872002/BlueOffice/actions/runs/43225468559) đang
-chạy; CI gần nhất trên `main` trước đó đã thất bại, không được coi là bằng chứng xanh.
+Lưu ý: lượt đo này dùng thư mục khôi phục/offline mặc định của app. Sau đó phát hiện
+bản tự lưu benchmark; thao tác benchmark có thể đã ghi đè bản khôi phục trước đó. Không
+xóa dữ liệu hiện có. Các lượt tiếp theo yêu cầu bản WebDriver xác nhận cache tạm riêng.
+[CI nhánh lần 1](https://github.com/minhhung19872002/BlueOffice/actions/runs/43225468559)
+và [lần 2](https://github.com/minhhung19872002/BlueOffice/actions/runs/43265642208)
+đã chạy thật; lần 2 hiện có lỗi fidelity và web, các job khác còn chạy. Chưa có bằng chứng CI xanh.
+Hai ảnh fidelity khác baseline cũng tái hiện trên CI `main`; chưa tự ý cập nhật baseline.
 
 ## Các bước và bằng chứng
 

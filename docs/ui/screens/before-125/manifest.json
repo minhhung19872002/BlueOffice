@@ -1,0 +1,618 @@
+{
+  "exe": "D:\\Source\\BlueOffice\\out\\perf\\before-fluent.exe",
+  "capturedAt": "2026-11-12T13:34:43.731Z",
+  "captures": [
+    {
+      "file": "doc-light-home.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-trang-au.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-chen.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-thiet-ke.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Thiết kế",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-bo-cuc.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Bố cục",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-tham-chieu.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Tham chiếu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-gui-thu.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Gửi thư",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-xem-lai.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-tab-xem.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-light-file.png",
+      "app": "doc",
+      "theme": "light",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-home.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-trang-au.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-chen.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-bang-tong-hop.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Bảng tổng hợp",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-cong-thuc.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Công thức",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-du-lieu.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Dữ liệu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-bo-cuc-trang.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Bố cục trang",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-xem-lai.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-tab-xem.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-light-file.png",
+      "app": "sheet",
+      "theme": "light",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-home.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-trang-au.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-chen.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-thiet-ke.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Thiết kế",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-chuyen-trang.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Chuyển trang",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-hieu-ung.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Hiệu ứng",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-ve.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Vẽ",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-trinh-chieu.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Trình chiếu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-xem-lai.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-sap-xep.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Sắp xếp",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-tab-xem.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-light-file.png",
+      "app": "slide",
+      "theme": "light",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-home.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-trang-au.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-chen.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-thiet-ke.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Thiết kế",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-bo-cuc.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Bố cục",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-tham-chieu.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Tham chiếu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-gui-thu.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Gửi thư",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-xem-lai.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-tab-xem.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-file.png",
+      "app": "doc",
+      "theme": "dark",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-home.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-trang-au.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-chen.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-bang-tong-hop.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Bảng tổng hợp",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-cong-thuc.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Công thức",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-du-lieu.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Dữ liệu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-bo-cuc-trang.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Bố cục trang",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-xem-lai.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-tab-xem.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "sheet-dark-file.png",
+      "app": "sheet",
+      "theme": "dark",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-home.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "home",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-trang-au.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Trang đầu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-chen.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Chèn",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-thiet-ke.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Thiết kế",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-chuyen-trang.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Chuyển trang",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-hieu-ung.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Hiệu ứng",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-ve.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Vẽ",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-trinh-chieu.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Trình chiếu",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-xem-lai.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Xem lại",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-sap-xep.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Sắp xếp",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-tab-xem.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "tab-Xem",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    },
+    {
+      "file": "slide-dark-file.png",
+      "app": "slide",
+      "theme": "dark",
+      "name": "file",
+      "dpr": 1.375,
+      "height": 782,
+      "width": 1164
+    }
+  ],
+  "warnings": [
+    "Dialogs, menus, tooltip and alternate physical DPI are not yet covered."
+  ],
+  "docPixels": {
+    "canvasPixel": [
+      255,
+      255,
+      255,
+      255
+    ],
+    "elements": [
+      {
+        "className": "",
+        "tag": "CANVAS"
+      },
+      {
+        "className": "bo-page",
+        "tag": "DIV"
+      },
+      {
+        "className": "",
+        "tag": "DIV"
+      },
+      {
+        "className": "bo-doc-scroller",
+        "tag": "DIV"
+      },
+      {
+        "className": "_viewHost_10kem_34 _withRulers_10kem_332",
+        "tag": "DIV"
+      }
+    ]
+  },
+  "exeSha256": "b0024503e3e77c73cc59d1ecbc43032a198e887ec46a6fa91666db3b9763e690",
+  "windowsScalePercent": 125,
+  "note": "Captured before isolation hardening; no editing beyond creating blank documents. This is a baseline screenshot, not a multi-DPI sharpness test."
+}

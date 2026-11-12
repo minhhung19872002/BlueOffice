@@ -270,6 +270,29 @@ jobs:
         run: pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater,webdriver --config src-tauri/tauri.webdriver.conf.json
       - run: pnpm test:e2e:desktop
         if: matrix.e2e
+      - name: Capture desktop visual regression screens
+        if: matrix.e2e
+        run: node scripts/capture-desktop-ui.mjs --out out/ui-screens/current
+      - name: Download previous main desktop screens
+        if: matrix.e2e
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $runs = gh run list --workflow ci.yml --branch main --status success --limit 1 --json databaseId | ConvertFrom-Json
+          if ($runs.Count -gt 0) {
+            gh run download $runs[0].databaseId --name desktop-ui --dir out/ui-screens/baseline
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Previous visual artifact unavailable; reporting without comparison.' }
+          }
+      - name: Compare desktop visual regression screens
+        if: matrix.e2e
+        run: node scripts/compare-desktop-ui.mjs --baseline out/ui-screens/baseline --current out/ui-screens/current
+      - uses: actions/upload-artifact@v4
+        if: matrix.e2e && always()
+        with:
+          name: desktop-ui
+          path: out/ui-screens/current
+          if-no-files-found: ignore
       # Desktop speed (docs/perf/BASELINE.md): start-up, open a 100-page .docx, key → paint,
       # scrolling, RAM and React renders per keystroke, on the release (webdriver) build above.
       # Compare against the most recent successful main run on the same runner class.

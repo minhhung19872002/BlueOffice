@@ -1,3 +1,5 @@
+import { Button } from '@fluentui/react-components';
+import { ArrowRedo16Regular, ArrowUndo16Regular, Save16Regular } from '@fluentui/react-icons';
 import {
   useEffect,
   useRef,
@@ -111,9 +113,11 @@ export function QuickAccessBar({
       data-testid={below ? 'qat-below' : 'qat'}
     >
       {items.map((q) => (
-        <button
+        <Button
           key={q.id}
           type="button"
+          appearance="subtle"
+          size="small"
           className={styles.qatButton}
           data-command={`qat:${q.id}`}
           aria-label={q.label}
@@ -121,8 +125,16 @@ export function QuickAccessBar({
           disabled={q.enabled === false}
           onClick={q.onSelect}
         >
-          <Icon name={q.icon ?? q.id} size={16} />
-        </button>
+          {!q.icon && q.id === 'file.save' ? (
+            <Save16Regular />
+          ) : !q.icon && q.id === 'edit.undo' ? (
+            <ArrowUndo16Regular />
+          ) : !q.icon && q.id === 'edit.redo' ? (
+            <ArrowRedo16Regular />
+          ) : (
+            <Icon name={q.icon ?? q.id} size={16} />
+          )}
+        </Button>
       ))}
     </div>
   );

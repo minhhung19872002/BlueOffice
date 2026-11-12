@@ -109,6 +109,9 @@ pub(crate) struct Ctx<'a> {
     pub text_formatter: Option<TextFormatter>,
     /// Fetcher for `WEBSERVICE` (`None`: web access disabled).
     pub web: Option<&'a dyn WebProvider>,
+    /// Set when `WEBSERVICE` was called without a provider (web access disabled): the
+    /// workbook then keeps the value saved with the file instead of this result.
+    pub web_offline: bool,
     now: Option<f64>,
     rng: &'a AtomicU64,
     scopes: Vec<(String, Value)>,
@@ -134,6 +137,7 @@ impl<'a> Ctx<'a> {
             date_system: config.date_system,
             text_formatter: config.text_formatter,
             web: config.web_provider.as_deref(),
+            web_offline: false,
             now: config.now,
             rng,
             scopes: Vec::new(),

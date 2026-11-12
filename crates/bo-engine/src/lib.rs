@@ -651,8 +651,16 @@ impl Engine {
         LayoutOptions {
             view: self.view,
             field_codes: self.field_codes,
-            marks: self.markup.filter(),
+            marks: self.mark_filter(),
         }
+    }
+
+    /// Markup filter of the layout: the review options, and hidden text shown while
+    /// the formatting marks are (§17.3.2.41 vanish).
+    pub(crate) fn mark_filter(&self) -> bo_layout::MarkFilter {
+        let mut f = self.markup.filter();
+        f.show_hidden = self.show_marks;
+        f
     }
 
     /// Review display mode and markup options.

@@ -124,6 +124,9 @@ pub struct CharAdvanced {
     pub outline: bool,
     /// §17.3.2.31 shadow.
     pub shadow: bool,
+    /// §17.3.2.41 vanish (hidden text).
+    #[serde(default)]
+    pub hidden: bool,
     /// §17.3.2.35 spacing, twips (0 = normal).
     pub spacing: i32,
     /// §17.3.2.24 position, half-points (positive = raised).
@@ -181,6 +184,7 @@ impl CharAdvanced {
             imprint: r.imprint.unwrap_or(false),
             outline: r.outline.unwrap_or(false),
             shadow: r.shadow.unwrap_or(false),
+            hidden: r.hidden.unwrap_or(false),
             spacing: r.spacing.map_or(0, |t| t.0),
             position: r.position.unwrap_or(0),
             scale: r.scale.unwrap_or(100),
@@ -270,6 +274,8 @@ pub struct CharAdvancedPatch {
     pub outline: Option<bool>,
     /// §17.3.2.31 shadow.
     pub shadow: Option<bool>,
+    /// §17.3.2.41 vanish: hidden text.
+    pub hidden: Option<bool>,
     /// Spacing in twips (0 removes it).
     pub spacing: Option<i32>,
     /// Position in half-points (0 removes it).
@@ -344,6 +350,9 @@ impl CharAdvancedPatch {
         }
         if let Some(v) = self.shadow {
             r.shadow = flag(v);
+        }
+        if let Some(v) = self.hidden {
+            r.hidden = flag(v);
         }
         if let Some(v) = self.spacing {
             r.spacing = (v != 0).then_some(Twips(v.clamp(-31_680, 31_680)));

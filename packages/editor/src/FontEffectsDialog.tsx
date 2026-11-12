@@ -27,6 +27,7 @@ export const PLAIN: CharAdvanced = {
   imprint: false,
   outline: false,
   shadow: false,
+  hidden: false,
   spacing: 0,
   position: 0,
   scale: 100,
@@ -278,6 +279,12 @@ export function FontEffectsDialog({ run, onClose }: { run: Run; onClose: () => v
           onChange={(on) =>
             set(on ? { imprint: true, emboss: false, outline: false } : { imprint: false })
           }
+        />
+        <Check
+          label={t('charFx.hidden')}
+          checked={v.hidden}
+          testId="fx-hidden"
+          onChange={(on) => set({ hidden: on })}
         />
       </fieldset>
       <Optional

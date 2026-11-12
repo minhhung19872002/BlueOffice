@@ -16,7 +16,11 @@ export type FormatMarkKind =
   | 'lineBreak'
   | 'pageBreak'
   | 'columnBreak'
-  | 'anchor';
+  | 'anchor'
+  /** End of a table cell (¤ in place of ¶). */
+  | 'cellEnd'
+  /** End of a table row (¤ right of the row). */
+  | 'rowEnd';
 
 /** A formatting mark on a page (points), drawn by the view only. */
 export interface FormatMark {
@@ -35,6 +39,8 @@ export interface OutlineItem {
   /** 0-based outline level (0 = Heading 1); null = body text. */
   level: number | null;
   text: string;
+  /** `text` is the paragraph's whole text: the outline view edits it in place. */
+  editable?: boolean;
   section: number;
   /** 0-based page where the paragraph starts. */
   page: number;
@@ -57,4 +63,6 @@ export type ViewCommand =
   | { cmd: 'setOutlineLevel'; para?: number; level?: number | null }
   | { cmd: 'moveOutline'; para?: number; up: boolean }
   | { cmd: 'moveOutlineTo'; para: number; before?: number | null }
+  /** Outline view: the paragraph's text typed in place (one undo step). */
+  | { cmd: 'setOutlineText'; para: number; text: string }
   | { cmd: 'findResults'; query: string; options?: FindOptions };

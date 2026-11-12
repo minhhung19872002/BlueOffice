@@ -42,7 +42,10 @@ pub use markup::{
     MarkupStyle, PageMarkup, BALLOON_GAP, MAX_HIDDEN_REVIEWERS,
 };
 pub use math::{layout_equation, EquationGeometry, EquationGlyphs, EquationRun, MathSlotBox};
-pub use page::{border_items, border_lines, border_width, ArtMotif};
+pub use page::{
+    border_items, border_items_around, border_lines, border_lines_around, border_width, ArtMotif,
+    Surround,
+};
 pub use paragraph::equation_geometry;
 pub use paragraph::{FieldContext, LayoutCache};
 pub use sigline::signature_line_page;

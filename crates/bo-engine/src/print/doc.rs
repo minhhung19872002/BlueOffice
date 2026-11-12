@@ -182,14 +182,25 @@ impl Engine {
                 width: None,
             })?;
         }
-        if unmark {
-            self.markup.mode = MarkupMode::None;
-            self.view = self.markup.layout_view();
+        // Hidden text shown with the formatting marks is not printed (§17.3.2.41 vanish).
+        let marks = self.show_marks;
+        if unmark || marks {
+            if unmark {
+                self.markup.mode = MarkupMode::None;
+                self.view = self.markup.layout_view();
+            }
+            self.show_marks = false;
             self.view_changed = true;
             self.relayout()?;
         }
         let pages = self.doc_pages_now(o);
+        if marks && !unmark {
+            self.show_marks = true;
+            self.view_changed = true;
+            self.relayout()?;
+        }
         if unmark {
+            self.show_marks = marks;
             self.markup = saved_markup;
             self.view = self.markup.layout_view();
             self.view_changed = true;
@@ -226,6 +237,21 @@ impl Engine {
         let mut out = Vec::with_capacity(chosen.len());
         for i in chosen {
             let mut page = self.page(i)?.clone();
+            // §17.2.1 background: the page colour is the first command (bo-render); left
+            // out unless asked for.
+            let coloured = self
+                .layout
+                .document()
+                .pages
+                .get(i)
+                .is_some_and(|p| p.decor.background.is_some());
+            if coloured && !o.doc.background {
+                if let Some(Command::FillRect { x, y, w, h, .. }) = page.commands.first() {
+                    if *x == 0.0 && *y == 0.0 && *w == page.width && *h == page.height {
+                        page.commands.remove(0);
+                    }
+                }
+            }
             if o.doc.markup {
                 if let Some(m) = self.page_markup(i).cloned() {
                     draw_markup(&mut self.fonts, &mut page.commands, &m, page.width);

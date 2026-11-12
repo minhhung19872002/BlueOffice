@@ -36,6 +36,9 @@ export function markSymbol(kind: FormatMark['kind']): string {
       return '↵';
     case 'anchor':
       return '⚓';
+    case 'cellEnd':
+    case 'rowEnd':
+      return '¤';
     case 'pageBreak':
     case 'columnBreak':
       return '';
@@ -44,8 +47,8 @@ export function markSymbol(kind: FormatMark['kind']): string {
 
 /**
  * Draw formatting marks over a rendered page: ¶ at paragraph ends, · for spaces,
- * → for tabs, ↵ for line breaks, a dotted rule for page/column breaks and an
- * anchor beside floating objects. `scale` is canvas pixels per point.
+ * → for tabs, ↵ for line breaks, ¤ at the ends of table cells and rows, a dotted
+ * rule for page/column breaks and an anchor beside floating objects. `scale` is canvas pixels per point.
  */
 export function drawFormattingMarks(ctx: MarkCanvas, marks: FormatMark[], scale: number): void {
   ctx.save();

@@ -317,6 +317,9 @@ export function PrintPanel({
               {check('properties', t('print.doc.properties'), !!doc.properties, (v) =>
                 set({ doc: { ...doc, properties: v, labels: propertyLabels(t) } }),
               )}
+              {check('background', t('print.doc.background'), !!doc.background, (v) =>
+                set({ doc: { ...doc, background: v } }),
+              )}
             </div>
           )}
           {app === 'slide' && (

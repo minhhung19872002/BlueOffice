@@ -218,7 +218,8 @@ pub fn run_style(doc: &Document, fonts: &mut FontManager, rp: &RunProps) -> Opti
         kern,
         size,
         shift,
-        color: rp.color.unwrap_or(Color::BLACK),
+        // §17.3.2.6: a theme colour follows the document theme.
+        color: doc.run_color(rp).unwrap_or(Color::BLACK),
         underline: rp.underline.unwrap_or(Underline::None),
         strike: rp.strike.unwrap_or(false),
         double_strike: rp.double_strike.unwrap_or(false),
@@ -313,6 +314,13 @@ pub fn revision_style(
     marks: &crate::MarkFilter,
 ) -> RunStyle {
     use crate::RevisionView as V;
+    // §17.3.2.41 vanish: shown with the formatting marks, dotted underline.
+    if marks.show_hidden && rp.hidden == Some(true) {
+        st.hidden = false;
+        if st.underline == Underline::None {
+            st.underline = Underline::Dotted;
+        }
+    }
     match view {
         V::Markup => {
             let plain = |author: &str| marks.hide_ins_del || marks.hides(author);

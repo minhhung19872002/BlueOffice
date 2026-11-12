@@ -67,6 +67,8 @@ export interface CharAdvanced {
   imprint: boolean;
   outline: boolean;
   shadow: boolean;
+  /** Hidden text (§17.3.2.41 vanish): shown only with the formatting marks. */
+  hidden: boolean;
   /** Twips (0 = normal). */
   spacing: number;
   /** Half-points, positive = raised. */

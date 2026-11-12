@@ -1100,6 +1100,14 @@ pub enum Command {
         #[serde(default)]
         before: Option<usize>,
     },
+    /// Outline view: the text of a top-level paragraph typed in place (only the changed
+    /// part is replaced; one undo step).
+    SetOutlineText {
+        /// Body paragraph id.
+        para: usize,
+        /// New text of the paragraph (plain text).
+        text: String,
+    },
     /// Find results with context (`results`, `matches`, `highlights`).
     FindResults {
         /// Text to look for.
@@ -1719,6 +1727,7 @@ impl crate::Engine {
         let mut new_note = None;
         let mut corrected = None;
         {
+            let marks = self.mark_filter();
             let layout = self.layout.document();
             let s = self
                 .session
@@ -1730,7 +1739,7 @@ impl crate::Engine {
                 LayoutOptions {
                     view: self.view,
                     field_codes: self.field_codes,
-                    marks: self.markup.filter(),
+                    marks,
                 },
             );
             // Table tools measure the table first (row heights, content widths).
@@ -1880,6 +1889,7 @@ impl crate::Engine {
                     | Command::SetOutlineLevel { .. }
                     | Command::MoveOutline { .. }
                     | Command::MoveOutlineTo { .. }
+                    | Command::SetOutlineText { .. }
                     | Command::FindResults { .. }
                     | Command::PageLayout
                     | Command::SetColumns { .. }

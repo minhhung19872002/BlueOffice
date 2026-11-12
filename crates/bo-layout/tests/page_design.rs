@@ -352,3 +352,47 @@ fn picture_watermark_is_washed_out() {
     assert!(close(img.1, 0.3));
     assert!(close(img.2, 200.0) && close(img.3, 150.0));
 }
+
+/// §17.15.1.18 / §17.15.1.19: page borders measured from the text go around the header
+/// and footer unless bordersDoNotSurroundHeader / Footer is set; borders measured from
+/// the page edge never move.
+#[test]
+fn borders_surround_header_and_footer_unless_told_not_to() {
+    let mut d = doc(3);
+    d.sections[0].headers.default = Some(vec![para("Đầu trang")]);
+    d.sections[0].footers.default = Some(vec![para("Chân trang")]);
+    d.sections[0].page_borders = Some(boxed("single", 8, 24, false));
+    let l = layout(&d);
+    let page = &l.pages[0];
+    let other: Vec<_> = page
+        .lines
+        .iter()
+        .filter(|l| matches!(l.source, bo_layout::LineSource::Other))
+        .collect();
+    let head_top = other.iter().map(|l| l.top).fold(f32::MAX, f32::min);
+    let foot_bottom = other.iter().map(|l| l.top + l.height).fold(0.0, f32::max);
+    assert!(head_top < 56.7 && foot_bottom > 841.9 - 56.7);
+    let r = rules(page);
+    assert!(close(r[0].1, head_top - 24.5), "{:?} {head_top}", r[0]);
+    assert!(
+        close(r[1].1, foot_bottom + 24.5),
+        "{:?} {foot_bottom}",
+        r[1]
+    );
+    // The side edges join the moved top and bottom edges.
+    assert!(close(r[2].1, head_top - 24.5 - 0.5), "{:?}", r[2]);
+    // Not around the header only: the top edge goes back to the body text.
+    d.design.borders_do_not_surround_header = true;
+    let r = rules(&layout(&d).pages[0]);
+    assert!(close(r[0].1, 32.2), "{:?}", r[0]);
+    assert!(close(r[1].1, foot_bottom + 24.5), "{:?}", r[1]);
+    d.design.borders_do_not_surround_footer = true;
+    let r = rules(&layout(&d).pages[0]);
+    assert!(close(r[1].1, 809.7), "{:?}", r[1]);
+    // Measured from the page edge: unaffected by the header.
+    d.design.borders_do_not_surround_header = false;
+    d.design.borders_do_not_surround_footer = false;
+    d.sections[0].page_borders = Some(boxed("single", 8, 24, true));
+    let r = rules(&layout(&d).pages[0]);
+    assert!(close(r[0].1, 24.5), "{:?}", r[0]);
+}

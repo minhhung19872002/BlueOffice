@@ -1027,6 +1027,10 @@ export interface PageBordersSpec {
   display?: PageBorderDisplay;
   behind?: boolean;
   shadow?: boolean;
+  /** Borders measured from the text go around the header (§17.15.1.18); absent = keep. */
+  surroundHeader?: boolean;
+  /** … around the footer (§17.15.1.19). */
+  surroundFooter?: boolean;
 }
 
 /** A watermark request (mirrors `bo_engine::design::WatermarkSpec`). */

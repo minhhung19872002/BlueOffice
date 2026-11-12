@@ -932,6 +932,7 @@ impl Session {
                 for (r, _) in &mut atoms[i..j] {
                     if r.link.take().is_some() {
                         r.color = None;
+                        r.theme_color = None;
                         r.underline = None;
                     }
                 }

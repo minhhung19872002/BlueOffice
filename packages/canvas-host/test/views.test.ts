@@ -58,6 +58,9 @@ describe('formatting marks', () => {
     expect(markSymbol('paragraph')).toBe('¶');
     expect(markSymbol('tab')).toBe('→');
     expect(markSymbol('pageBreak')).toBe('');
+    // Table cells and rows end with ¤.
+    expect(markSymbol('cellEnd')).toBe('¤');
+    expect(markSymbol('rowEnd')).toBe('¤');
   });
 });
 

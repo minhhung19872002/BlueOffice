@@ -482,11 +482,6 @@ impl Session {
 
     /// Turn the selected paragraphs (side by side in one container) into a table.
     fn text_to_table(&mut self, sep: &str, cols: Option<usize>) -> Result<Selection> {
-        if self.track {
-            return Err(EditError::Unsupported(
-                "converting text to a table is not recorded as a tracked change".into(),
-            ));
-        }
         let (a, b) = self.selection.ordered();
         let paths = body_paragraphs(&self.doc);
         let pa = paths.get(a.para).ok_or(EditError::BadPosition)?;
@@ -514,10 +509,36 @@ impl Session {
         let width = avail_width(&self.doc, &prefix);
         let table = tools::paragraphs_to_table(&paras, sep, cols, width);
         self.edit(move |tx, _| {
-            let mut insert = vec![Block::Table(table)];
-            // A table never ends its container (§17.4.66).
-            if need_after {
-                insert.push(Block::Paragraph(Paragraph::default()));
+            let mut table = table;
+            let mut insert = Vec::new();
+            // Track changes (§17.13.5): the new table's rows inserted (§17.13.5.19), the
+            // paragraphs kept after it marked deleted (§17.13.5.14 on runs, §17.13.5.15
+            // on their marks); the last one keeps its mark when it ends the container,
+            // where it is the paragraph that must follow the table.
+            let deleted = if let Some(tr) = tx.track.as_mut() {
+                let mark = tr.mark();
+                for r in &mut table.rows {
+                    r.props.ins = Some(mark.clone());
+                }
+                let mut d = removed.clone();
+                mark_blocks_deleted(&mut d, tr, &mark);
+                if !need_after {
+                    if let Some(Block::Paragraph(p)) = d.last_mut() {
+                        if p.props.mark_del.is_none() {
+                            p.props.mark_del = Some(mark.clone());
+                        }
+                    }
+                }
+                Some(d)
+            } else {
+                None
+            };
+            insert.push(Block::Table(table));
+            match deleted {
+                Some(d) => insert.extend(d),
+                // A table never ends its container (§17.4.66).
+                None if need_after => insert.push(Block::Paragraph(Paragraph::default())),
+                None => {}
             }
             tx.push(Op::Blocks {
                 path: prefix.clone(),
@@ -611,10 +632,22 @@ impl Session {
             .ok_or(EditError::BadPath)?;
         let ((r0, r1), (g0, g1)) = self.cell_rect(&at, &old);
         match cmd {
-            TableEdit::ToText { .. } | TableEdit::Sort { .. } if self.track => {
-                return Err(EditError::Unsupported(
-                    "this table command is not recorded as a tracked change".into(),
-                ));
+            // Track changes (§17.13.5): the table's rows deleted, the text inserted after it.
+            TableEdit::ToText { separator } if self.track => {
+                let blocks = tools::table_to_blocks(&old, separator);
+                return self.track_to_text(&at, old, &blocks);
+            }
+            // Track changes: rows that move are deleted where they were and inserted
+            // where they go (§17.13.5.12 / §17.13.5.19 on rows).
+            TableEdit::Sort { header, keys } if self.track => {
+                let (lo, hi) = sort_range(&old, r0, r1, *header);
+                if let Some(why) = tools::sort_blocker(&old, lo, hi) {
+                    return Err(EditError::Unsupported(why.into()));
+                }
+                let Some(order) = tools::sort_order(&old, lo, hi, keys) else {
+                    return Ok(self.selection);
+                };
+                return self.track_sort(&at, old, lo, &order);
             }
             TableEdit::ToText { separator } => {
                 let blocks = tools::table_to_blocks(&old, separator);
@@ -1015,6 +1048,120 @@ impl Session {
             let mut path = container.clone();
             path.extend([index, r, c, 0]);
             Ok(id_of(tx.doc, &path).map_or(sel, |id| Selection::caret(Pos::new(id, 0))))
+        })
+    }
+
+    /// Sort with track changes on: rows of `order` (sorted indexes of the rows from
+    /// `lo`) out of their relative order are marked deleted (§17.13.5.12 del in trPr)
+    /// where they were and inserted (§17.13.5.19 ins) where the sort puts them, so
+    /// accepting gives the sorted table and rejecting the original one.
+    fn track_sort(
+        &mut self,
+        at: &CellAt,
+        old: Table,
+        lo: usize,
+        order: &[usize],
+    ) -> Result<Selection> {
+        let keep = tools::rows_in_place(order);
+        if keep.iter().all(|k| *k) {
+            return Ok(self.selection);
+        }
+        let container = at.container.clone();
+        let index = at.index;
+        self.edit(move |tx, sel| {
+            let mark = tx
+                .track
+                .as_mut()
+                .map(crate::revisions::Tracker::mark)
+                .ok_or(EditError::BadPath)?;
+            let mut t = old.clone();
+            t.src = None;
+            let hi = lo + order.len();
+            let moved: std::collections::BTreeSet<usize> = order
+                .iter()
+                .zip(&keep)
+                .filter(|(_, k)| !**k)
+                .map(|(o, _)| *o)
+                .collect();
+            // Walk the old rows and the sorted ones together: the rows in place are
+            // common to both; before each of them come the moved rows deleted from the
+            // old order, then the moved rows inserted in the new order.
+            let mut rows = Vec::with_capacity(old.rows.len() + moved.len());
+            rows.extend(old.rows[..lo].iter().cloned());
+            let mut olds = (lo..hi).peekable();
+            for (&o, &k) in order.iter().zip(&keep) {
+                if !k {
+                    let mut row = old.rows[o].clone();
+                    row.props.ins = Some(mark.clone());
+                    rows.push(row);
+                    continue;
+                }
+                while let Some(&i) = olds.peek() {
+                    olds.next();
+                    if i == o {
+                        break;
+                    }
+                    if moved.contains(&i) {
+                        let mut row = old.rows[i].clone();
+                        row.props.del = Some(mark.clone());
+                        rows.push(row);
+                    }
+                }
+                rows.push(old.rows[o].clone());
+            }
+            for i in olds {
+                if moved.contains(&i) {
+                    let mut row = old.rows[i].clone();
+                    row.props.del = Some(mark.clone());
+                    rows.push(row);
+                }
+            }
+            rows.extend(old.rows[hi..].iter().cloned());
+            t.rows = rows;
+            tx.push(Op::Blocks {
+                path: container.clone(),
+                index,
+                remove: vec![Block::Table(old)],
+                insert: vec![Block::Table(t)],
+            })?;
+            Ok(sel)
+        })?;
+        self.fix_selection();
+        Ok(self.selection)
+    }
+
+    /// Table to text with track changes on: every row of the table is marked deleted
+    /// (§17.13.5.12) and the text follows it marked inserted (§17.13.5.18 ins on runs,
+    /// §17.13.5.16 on paragraph marks); the caret goes to the start of the text.
+    fn track_to_text(&mut self, at: &CellAt, old: Table, blocks: &[Block]) -> Result<Selection> {
+        let container = at.container.clone();
+        let index = at.index;
+        let blocks = blocks.to_vec();
+        self.edit(move |tx, _| {
+            let mark = tx
+                .track
+                .as_mut()
+                .map(crate::revisions::Tracker::mark)
+                .ok_or(EditError::BadPath)?;
+            let mut t = old.clone();
+            t.src = None;
+            for r in &mut t.rows {
+                if r.props.del.is_none() {
+                    r.props.del = Some(mark.clone());
+                }
+            }
+            let mut insert = vec![Block::Table(t)];
+            insert.extend(mark_blocks_inserted(&blocks, &mark));
+            tx.push(Op::Blocks {
+                path: container.clone(),
+                index,
+                remove: vec![Block::Table(old)],
+                insert,
+            })?;
+            let mut path = container;
+            path.push(index + 1);
+            let id = id_of(tx.doc, &path).ok_or(EditError::BadPath)?;
+            Ok(Selection::caret(Pos::new(id, 0)))
         })
     }
 

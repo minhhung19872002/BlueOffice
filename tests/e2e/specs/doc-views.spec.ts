@@ -110,6 +110,53 @@ test('outline view: levels, move with Alt+Shift+Up, promote, drag, undo', async 
   await expect(page1(page)).toHaveAttribute('data-rendered', 'true');
 });
 
+test('outline view: typing in a line edits the paragraph, one undo step', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await headedDocument(page);
+  await viewTab(page);
+  await cmd(page, 'view.outline').click();
+  const outline = page.getByTestId('outline-view');
+  const rows = outline.getByTestId('outline-item');
+  await expect(rows).toHaveCount(4);
+  // The caret's line ("Nội dung hai"): typing a character starts typing at its end.
+  await page.getByTestId('outline-list').focus();
+  await page.keyboard.type('!');
+  const edit = outline.getByTestId('outline-edit');
+  await expect(edit).toBeFocused();
+  await expect(edit).toHaveValue('Nội dung hai!');
+  await page.keyboard.press('Enter');
+  await expect(edit).toBeHidden();
+  await expect(rows.nth(3)).toContainText('Nội dung hai!');
+  // A click on a heading moves the caret there; a second click types in it.
+  await rows.nth(0).click();
+  await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
+  await rows.nth(0).click();
+  await expect(edit).toBeFocused();
+  await edit.fill('Phần mở đầu');
+  // ↓ sends the text and moves to the next line.
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(0)).toContainText('Phần mở đầu');
+  await expect(rows.nth(0)).toHaveAttribute('data-level', '0');
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true');
+  // Esc drops what is typed.
+  await page.keyboard.press('F2');
+  await edit.fill('bỏ đi');
+  await page.keyboard.press('Escape');
+  await expect(rows.nth(1)).toContainText('Nội dung một');
+  // Each sent line is one undo step.
+  await page.keyboard.press('Control+z');
+  await expect(rows.nth(0)).toContainText('Mở đầu');
+  await expect(rows.nth(3)).toContainText('Nội dung hai!');
+  await page.keyboard.press('Control+z');
+  await expect(rows.nth(3)).toHaveText(/Nội dung hai$/);
+  // The print layout shows the edited document.
+  await page.keyboard.press('Control+y');
+  await page.getByTestId('outline-close').click();
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText('Nội dung hai!');
+  expect(errors).toEqual([]);
+});
+
 test('web layout reflows to the window; draft hides page decorations', async ({ page }) => {
   await headedDocument(page);
   const printWidth = (await page1(page).boundingBox())!.width;

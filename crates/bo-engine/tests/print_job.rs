@@ -193,6 +193,32 @@ fn doc_properties_page() {
     assert!(t.iter().any(|l| l == "pages: 1"), "{t:?}");
 }
 
+/// DOC-PAGE-001: the page colour (§17.2.1 background) is left out of a print job unless
+/// "print background colours" is on, as in word processors; the view keeps it.
+#[test]
+fn doc_page_colour_printed_only_when_asked() {
+    let mut e = doc(1);
+    cmd(&mut e, r#"{"cmd":"setPageColor","color":"FFF2CC"}"#);
+    let fill = |p: &PageList| {
+        p.commands.iter().any(|c| {
+            matches!(c, Command::FillRect { x, y, w, h, color }
+                if *x == 0.0 && *y == 0.0 && *w == p.width && *h == p.height
+                    && *color == bo_render::Rgba(0xFF, 0xF2, 0xCC, 255))
+        })
+    };
+    assert!(fill(e.page(0).unwrap()), "the view shows the page colour");
+    let s = e.print_sheets(&PrintOptions::default()).unwrap();
+    assert!(!fill(&s[0]));
+    assert!(texts(&s[0]).iter().any(|t| t == "Trang 1"));
+    let mut o = PrintOptions::default();
+    o.doc.background = true;
+    let s = e.print_sheets(&o).unwrap();
+    assert!(fill(&s[0]));
+    // The JSON of the print panel.
+    let o = PrintOptions::from_json(r#"{"doc":{"background":true}}"#).unwrap();
+    assert!(o.doc.background);
+}
+
 #[test]
 fn doc_preview_matches_the_pdf_sheets() {
     let mut e = doc(3);

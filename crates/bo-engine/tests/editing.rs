@@ -1118,6 +1118,45 @@ fn shift_f9_toggles_each_field_alone() {
     assert!(page.contains("{ = 6*7 + 0 }") && page.contains("{ = 2+3 + 0 }"));
 }
 
+/// The caret right after a field showing its code (the last thing of its paragraph, or
+/// before more text) is after the closing brace, not after the code's first word.
+#[test]
+fn caret_after_a_field_showing_its_code() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"insertText","text":"ab = 2+3 + 0"}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":3},"focus":{"p":0,"o":12}}}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertFieldFromSelection"}"#);
+    let end = |e: &mut Engine| {
+        let r = cmd(e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+        r["caret"]["x"].as_f64().unwrap()
+    };
+    let result = end(&mut e);
+    let r = cmd(&mut e, r#"{"cmd":"toggleFieldCodes"}"#);
+    assert_eq!(r["count"], 1);
+    let code = end(&mut e);
+    // "{ = 2+3 + 0 }" is much wider than "5": the caret follows the whole code.
+    assert!(code > result + 40.0, "{result} → {code}");
+    // Text after the field: the caret just after the field is at the same place.
+    cmd(&mut e, r#"{"cmd":"insertText","text":" xy"}"#);
+    // The field is one object (U+FFFC, 3 bytes of the index text) at 3..6.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":6},"focus":{"p":0,"o":6}}}"#,
+    );
+    let after = r["caret"]["x"].as_f64().unwrap();
+    assert!((after - code).abs() < 0.5, "{after} vs {code}");
+    // The caret before the field stays before its opening brace.
+    let r = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":3},"focus":{"p":0,"o":3}}}"#,
+    );
+    assert!(r["caret"]["x"].as_f64().unwrap() < result - 2.0);
+}
+
 #[test]
 fn f9_shift_f9_and_ctrl_f9_in_place() {
     let mut e = Engine::with_bundled_fonts();

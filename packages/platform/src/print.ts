@@ -19,6 +19,8 @@ export interface DocPrintOptions {
   markup?: boolean;
   /** Add a document properties page. */
   properties?: boolean;
+  /** Print the page colour (off by default, as word processors do). */
+  background?: boolean;
   /** Labels of the properties page by key (`title`, `author`, …). */
   labels?: Record<string, string>;
 }

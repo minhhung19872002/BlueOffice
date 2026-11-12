@@ -44,6 +44,13 @@ pub struct PageBordersSpec {
     /// Shadow on the edges (`w:shadow`).
     #[serde(default)]
     pub shadow: bool,
+    /// Borders measured from the text go around the header (document setting, absent
+    /// §17.15.1.18 bordersDoNotSurroundHeader); `None` keeps the setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surround_header: Option<bool>,
+    /// The same for the footer (§17.15.1.19 bordersDoNotSurroundFooter).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surround_footer: Option<bool>,
 }
 
 fn all_sides() -> [bool; 4] {
@@ -232,6 +239,20 @@ pub const STYLE_SETS: &[StyleSetDef] = &[
     },
 ];
 
+/// The colour scheme slots of BlueOffice theme `t` (§20.1.6.2 clrScheme), which
+/// resolve the theme colours of runs (§17.3.2.6).
+fn theme_colors(t: &ThemeDef) -> Vec<(String, Color)> {
+    const NAMES: [&str; 12] = [
+        "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5",
+        "accent6", "hlink", "folHlink",
+    ];
+    NAMES
+        .iter()
+        .zip(t.colors)
+        .filter_map(|(n, c)| Some(((*n).to_owned(), Color::from_hex(c)?)))
+        .collect()
+}
+
 /// Theme part (DrawingML §20.1.6.9 theme: §20.1.4.1.9 clrScheme, §20.1.4.1.18
 /// fontScheme, §20.1.4.1.14 fmtScheme) of a BlueOffice theme.
 pub fn theme_xml(t: &ThemeDef) -> String {
@@ -304,6 +325,11 @@ fn themed_styles(sheet: &StyleSheet, t: &ThemeDef) -> StyleSheet {
             set_theme_font(&mut s.rpr, "majorHAnsi");
             let title = s.id.starts_with("Title");
             s.rpr.color = if title { dk2 } else { accent };
+            // §17.3.2.6 themeColor: the heading colour follows later theme changes.
+            s.rpr.theme_color = Some(bo_model::ThemeColorRef {
+                name: if title { "text2" } else { "accent1" }.to_owned(),
+                ..Default::default()
+            });
         } else if s.kind == StyleKind::Paragraph && s.is_default {
             set_theme_font(&mut s.rpr, "minorHAnsi");
         }
@@ -411,12 +437,19 @@ impl Session {
 
     /// Apply a theme part read from a theme file (`.thmx`) or another document
     /// (DrawingML §20.1.6.9 theme, written as the document's theme part §14.2.7)
-    /// with its font scheme (§20.1.4.1.18) in one undo step (CORE-FMT-001).
-    pub fn apply_theme_xml(&mut self, xml: &str, fonts: ThemeFonts) -> Result<()> {
+    /// with its font scheme (§20.1.4.1.18) and colour scheme slots (§20.1.6.2, the theme
+    /// colours of runs) in one undo step (CORE-FMT-001).
+    pub fn apply_theme_xml(
+        &mut self,
+        xml: &str,
+        fonts: ThemeFonts,
+        colors: Vec<(String, Color)>,
+    ) -> Result<()> {
         let old = (self.doc.design.clone(), self.doc.theme_fonts.clone());
         let mut new = old.clone();
         new.0.theme_xml = Some(xml.into());
         new.0.theme_id = None;
+        new.0.theme_colors = colors;
         new.1 = fonts;
         self.design_op(old, new)
     }
@@ -432,6 +465,7 @@ impl Session {
         let mut new = old.clone();
         new.0.theme_xml = Some(theme_xml(t).into());
         new.0.theme_id = Some(t.id.to_owned());
+        new.0.theme_colors = theme_colors(t);
         new.1 = ThemeFonts {
             major_latin: t.major.to_owned(),
             minor_latin: t.minor.to_owned(),
@@ -521,7 +555,22 @@ impl Session {
         let pb = spec
             .filter(|s| !matches!(s.style.as_str(), "none" | "nil") && s.sides.contains(&true))
             .map(PageBordersSpec::to_model);
+        // §17.15.1.18 / §17.15.1.19: document settings sent with the borders.
+        let design = (self.doc.design.clone(), self.doc.theme_fonts.clone());
+        let mut new_design = design.clone();
+        if let Some(on) = spec.and_then(|s| s.surround_header) {
+            new_design.0.borders_do_not_surround_header = !on;
+        }
+        if let Some(on) = spec.and_then(|s| s.surround_footer) {
+            new_design.0.borders_do_not_surround_footer = !on;
+        }
         self.edit(|tx, sel| {
+            if new_design != design {
+                tx.push(Op::Design {
+                    old: Box::new(design),
+                    new: Box::new(new_design),
+                })?;
+            }
             for si in targets {
                 let old = tx.doc.sections.get(si).cloned().ok_or(EditError::BadPath)?;
                 let mut new = old.clone();
@@ -775,9 +824,14 @@ mod tests {
             display: PageBorderDisplay::FirstPage,
             behind: true,
             shadow: false,
+            surround_header: Some(false),
+            surround_footer: None,
         };
         s.set_page_borders(Some(&spec), SetupScope::Document)
             .unwrap();
+        // §17.15.1.18 set in the same undo step; the footer setting kept.
+        assert!(s.doc().design.borders_do_not_surround_header);
+        assert!(!s.doc().design.borders_do_not_surround_footer);
         for sec in &s.doc().sections {
             let pb = sec.page_borders.as_ref().unwrap();
             // Art width clamped to 31 pt, spacing to 31 pt (§17.6.10 ranges).
@@ -792,7 +846,9 @@ mod tests {
             .sections
             .iter()
             .all(|sec| sec.page_borders.is_none()));
+        assert!(!s.doc().design.borders_do_not_surround_header);
         assert!(s.redo());
+        assert!(s.doc().design.borders_do_not_surround_header);
         // Removing on the caret's section only.
         s.set_page_borders(None, SetupScope::Section).unwrap();
         assert!(s.doc().sections[0].page_borders.is_none());

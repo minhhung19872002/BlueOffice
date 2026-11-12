@@ -12,7 +12,7 @@ use crate::{Engine, Result};
 use bo_edit::outline::OutlineEntry;
 use bo_edit::Match;
 use bo_layout::{Line, LineSource};
-use bo_model::index::{body_paragraphs, para_at, para_index, OBJECT};
+use bo_model::index::{blocks_at, body_paragraphs, para_at, para_index, OBJECT};
 use bo_model::{Columns, Document, HeaderFooter, RunContent, SectionBreak, Twips};
 use serde::{Deserialize, Serialize};
 
@@ -105,6 +105,11 @@ pub enum FormatMarkKind {
     ColumnBreak,
     /// Anchor of a floating object (§20.4.2.3 anchor).
     Anchor,
+    /// End of a table cell (¤ in place of ¶ after the cell's last paragraph,
+    /// §17.4.66 tc).
+    CellEnd,
+    /// End of a table row (¤ right of the row, §17.4.79 tr).
+    RowEnd,
 }
 
 /// A formatting mark on a page (points), drawn by the view only (never printed).
@@ -154,6 +159,9 @@ pub struct FindResult {
     /// 0-based page index.
     pub page: usize,
 }
+
+/// Gap between a table row's right edge and its end-of-row mark (points).
+const ROW_END_GAP: f32 = 2.0;
 
 /// Characters of context on each side of a find result.
 const CONTEXT: usize = 32;
@@ -208,6 +216,20 @@ impl Engine {
         let mut out = Vec::new();
         let mut cached: Option<(u32, String, Vec<usize>)> = None;
         for line in &page.lines {
+            if line.source == LineSource::RowEnd {
+                if let Some((_, x)) = line.carets.first() {
+                    out.push(FormatMark {
+                        kind: FormatMarkKind::RowEnd,
+                        x: x + ROW_END_GAP,
+                        w: 0.0,
+                        top: line.top,
+                        h: line.height,
+                        baseline: line.baseline,
+                        size: (line.height * 0.75).max(6.0),
+                    });
+                }
+                continue;
+            }
             let LineSource::Body(id) = line.source else {
                 continue;
             };
@@ -251,7 +273,18 @@ impl Engine {
                 out.push(mark(line, kind, off, off + ch.len_utf8()));
             }
             if line.end as usize >= text.len() {
-                let mut m = mark(line, FormatMarkKind::Paragraph, text.len(), text.len());
+                // The last paragraph of a table cell ends the cell: ¤ instead of ¶.
+                let cell_end = paths.get(id as usize).is_some_and(|path| {
+                    path.len() >= 4
+                        && blocks_at(doc, &path[..path.len() - 1])
+                            .is_some_and(|b| b.len() == path[path.len() - 1] + 1)
+                });
+                let kind = if cell_end {
+                    FormatMarkKind::CellEnd
+                } else {
+                    FormatMarkKind::Paragraph
+                };
+                let mut m = mark(line, kind, text.len(), text.len());
                 m.w = 0.0;
                 out.push(m);
             }
@@ -347,9 +380,15 @@ impl Engine {
                 let dirty = if self.show_marks == *on {
                     Vec::new()
                 } else {
-                    (0..self.layout.document().pages.len()).collect()
+                    self.show_marks = *on;
+                    // Hidden text (§17.3.2.41 vanish) comes and goes with the marks.
+                    self.view_changed = true;
+                    let mut d = self.relayout()?;
+                    d.extend(0..self.layout.document().pages.len());
+                    d.sort_unstable();
+                    d.dedup();
+                    d
                 };
-                self.show_marks = *on;
                 Ok(Some(self.edit_result(dirty, (None, None, None), None)?))
             }
             // Headers and footers are edited on printed pages only.
@@ -367,7 +406,8 @@ impl Engine {
             }
             Command::SetOutlineLevel { .. }
             | Command::MoveOutline { .. }
-            | Command::MoveOutlineTo { .. } => {
+            | Command::MoveOutlineTo { .. }
+            | Command::SetOutlineText { .. } => {
                 self.close_header_footer()?;
                 self.close_note()?;
                 self.close_text_box()?;
@@ -382,6 +422,7 @@ impl Engine {
                     }
                     Command::MoveOutline { para, up } => s.move_outline(para.unwrap_or(here), *up),
                     Command::MoveOutlineTo { para, before } => s.move_outline_to(*para, *before),
+                    Command::SetOutlineText { para, text } => s.set_outline_text(*para, text),
                     _ => Ok(s.selection()),
                 };
                 let error = res.err().map(|e| e.to_string());
@@ -536,6 +577,92 @@ mod tests {
         cmd(&mut e, r#"{"cmd":"showFormattingMarks","on":false}"#);
         let page: serde_json::Value = serde_json::from_str(&e.page_json(0).unwrap()).unwrap();
         assert!(page.get("marks").is_none());
+    }
+
+    /// Hidden text (§17.3.2.41 vanish) shows with the formatting marks, underlined with
+    /// dots, and takes room on the line; printing leaves it out.
+    #[test]
+    fn hidden_text_shows_with_the_formatting_marks() {
+        let mut e = engine("Hiện ẩn cuối");
+        let text = |e: &Engine| e.layout().unwrap().page_text(0);
+        // "ẩn " (4 bytes + 1) hidden.
+        cmd(
+            &mut e,
+            r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":6},"focus":{"p":0,"o":11}}}"#,
+        );
+        let r = cmd(
+            &mut e,
+            r#"{"cmd":"formatText","format":{"kind":"advanced","patch":{"hidden":true}}}"#,
+        );
+        assert!(!text(&e).contains("ẩn"), "{}", text(&e));
+        assert_eq!(r["format"]["advanced"]["hidden"], true, "{}", r["format"]);
+        cmd(&mut e, r#"{"cmd":"showFormattingMarks","on":true}"#);
+        assert!(text(&e).contains("ẩn"), "{}", text(&e));
+        let dotted = e.layout().unwrap().pages[0]
+            .lines
+            .iter()
+            .flat_map(|l| l.fragments.iter())
+            .filter(|f| f.text.contains("ẩn"))
+            .all(|f| f.underline == bo_model::Underline::Dotted);
+        assert!(dotted);
+        // Not printed even while shown.
+        let sheets = e
+            .print_sheets(&crate::print::PrintOptions::default())
+            .unwrap();
+        let printed: String = sheets[0]
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                bo_render::Command::Glyphs { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            printed.contains("Hiện") && !printed.contains("ẩn"),
+            "{printed}"
+        );
+        assert!(text(&e).contains("ẩn"), "the view keeps showing it");
+        cmd(&mut e, r#"{"cmd":"showFormattingMarks","on":false}"#);
+        assert!(!text(&e).contains("ẩn"));
+    }
+
+    /// With the formatting marks, a table cell's last paragraph ends with ¤ (not ¶)
+    /// and each row has a ¤ right of its last cell.
+    #[test]
+    fn cell_and_row_end_marks() {
+        let mut e = engine("");
+        cmd(&mut e, r#"{"cmd":"insertTable","rows":2,"cols":3}"#);
+        cmd(&mut e, r#"{"cmd":"insertText","text":"a"}"#);
+        cmd(&mut e, r#"{"cmd":"splitParagraph"}"#);
+        cmd(&mut e, r#"{"cmd":"insertText","text":"b"}"#);
+        cmd(&mut e, r#"{"cmd":"showFormattingMarks","on":true}"#);
+        let marks = e.formatting_marks(0);
+        let count = |k: FormatMarkKind| marks.iter().filter(|m| m.kind == k).count();
+        assert_eq!(count(FormatMarkKind::CellEnd), 6);
+        assert_eq!(count(FormatMarkKind::RowEnd), 2);
+        // The first cell's first paragraph ("a") keeps its ¶; the paragraph after the
+        // table too.
+        assert_eq!(count(FormatMarkKind::Paragraph), 2);
+        let cells: Vec<&FormatMark> = marks
+            .iter()
+            .filter(|m| m.kind == FormatMarkKind::CellEnd)
+            .collect();
+        let rows: Vec<&FormatMark> = marks
+            .iter()
+            .filter(|m| m.kind == FormatMarkKind::RowEnd)
+            .collect();
+        // Each row mark is right of every cell mark of its row, one row below the other.
+        let right = cells.iter().map(|m| m.x).fold(0.0, f32::max);
+        assert!(rows.iter().all(|r| r.x > right), "{rows:?} {right}");
+        assert!(rows[1].top > rows[0].top);
+        let page: serde_json::Value = serde_json::from_str(&e.page_json(0).unwrap()).unwrap();
+        let kinds: Vec<&str> = page["marks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["kind"].as_str().unwrap())
+            .collect();
+        assert!(kinds.contains(&"cellEnd") && kinds.contains(&"rowEnd"));
     }
 
     #[test]

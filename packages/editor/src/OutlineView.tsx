@@ -1,6 +1,6 @@
 import type { EditCommand, EditResult, OutlineItem } from '@blueoffice/platform';
 import { useTranslation } from '@blueoffice/i18n';
-import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { hasChildren, itemAt, levelOf, visibleItems } from './outlineModel';
 import styles from './Views.module.css';
 
@@ -38,12 +38,25 @@ export function outlineDragPara(e: DragEvent): number | null {
  * Outline view: the document's paragraphs by outline level. Headings expand and
  * collapse, Tab / Shift+Tab lower / raise a level, Alt+Shift+↑/↓ (editor commands)
  * move a heading with its subordinate text, and rows can be dragged to a new place.
+ * The caret's line is typed in place (a click on it, F2 or typing a character): the
+ * text goes to the engine (`setOutlineText`) on Enter, ↑ / ↓, Tab or leaving the line —
+ * one undo step each time; Esc drops it.
  */
 export function OutlineView({ items, caretPara, run, onCommand, onClose }: OutlineViewProps) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   const [showLevel, setShowLevel] = useState<number | null>(null);
   const [dropOn, setDropOn] = useState<number | 'end' | null>(null);
+  /** The line being typed in (the caret's paragraph) and its text not sent yet. */
+  const [editing, setEditing] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [draft, setDraftState] = useState<{ para: number; text: string } | null>(null);
+  // The same, read by blur / key handlers that run before React re-renders.
+  const draftRef = useRef(draft);
+  const setDraft = (d: { para: number; text: string } | null) => {
+    draftRef.current = d;
+    setDraftState(d);
+  };
   const all = useMemo(() => items ?? [], [items]);
   const shown = useMemo(() => visibleItems(all, collapsed, showLevel), [all, collapsed, showLevel]);
   const current = itemAt(all, caretPara)?.para;
@@ -53,6 +66,17 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
       cmd: 'setSelection',
       selection: { anchor: { p: para, o: 0 }, focus: { p: para, o: 0 } },
     });
+  /** Send the typed text of a line (one engine edit, one undo step). */
+  const commit = () => {
+    setEditing(null);
+    const d = draftRef.current;
+    if (!d) return;
+    const it = all.find((x) => x.para === d.para);
+    setDraft(null);
+    if (it && it.text !== d.text) {
+      void run({ cmd: 'setOutlineText', para: d.para, text: d.text });
+    }
+  };
   const toggle = (para: number) =>
     setCollapsed((c) => {
       const n = new Set(c);
@@ -63,6 +87,14 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const here = all.find((x) => x.para === current);
+    // F2 or a typed character starts typing in the caret's line (at its end).
+    if (editing === null && here?.editable && (e.key === 'F2' || e.key.length === 1)) {
+      e.preventDefault();
+      setEditing(here.para);
+      setDraft({ para: here.para, text: e.key === 'F2' ? here.text : here.text + e.key });
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       onCommand(e.shiftKey ? 'outline.promote' : 'outline.demote');
@@ -138,6 +170,7 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
         </button>
       </div>
       <div
+        ref={listRef}
         className={styles.outlineList}
         role="tree"
         tabIndex={0}
@@ -178,7 +211,8 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
               }}
               onDragLeave={() => setDropOn((d) => (d === it.para ? null : d))}
               onDrop={(e) => drop(e, it.para)}
-              onClick={() => select(it.para)}
+              // A click on the caret's line types in it; on another line moves the caret.
+              onClick={() => (it.para === current && it.editable ? setEditing(it.para) : select(it.para))}
               onDoubleClick={() => onClose(it.para)}
             >
               <button
@@ -196,19 +230,64 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
               >
                 {parent ? (open ? '⊖' : '⊕') : it.level === null ? '▫' : '•'}
               </button>
-              <span
-                className={styles.outlineText}
-                style={
-                  it.level === null ? undefined : { fontSize: `${Math.max(13, 20 - level * 2)}px` }
-                }
-                title={
-                  it.level === null
-                    ? t('views.outline.bodyText')
-                    : t('views.outline.level', { n: level + 1 })
-                }
-              >
-                {it.text || ' '}
-              </span>
+              {it.para === current && it.para === editing && it.editable ? (
+                // The caret's line is typed in place (the engine edits the paragraph).
+                <input
+                  key={it.para}
+                  autoFocus
+                  className={`${styles.outlineText} ${styles.outlineInput}`}
+                  style={
+                    it.level === null
+                      ? undefined
+                      : { fontSize: `${Math.max(13, 20 - level * 2)}px` }
+                  }
+                  aria-label={t('views.outline.editText')}
+                  data-testid="outline-edit"
+                  value={draft?.para === it.para ? draft.text : it.text}
+                  onChange={(e) => setDraft({ para: it.para, text: e.target.value })}
+                  onBlur={commit}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.stopPropagation();
+                      setDraft(null);
+                      setEditing(null);
+                      listRef.current?.focus();
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      commit();
+                      listRef.current?.focus();
+                      return;
+                    }
+                    // Tab, ↑ / ↓ and Alt+Shift commands act on the paragraph once its
+                    // text is sent (they reach the list).
+                    if (e.key === 'Tab' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                      commit();
+                      listRef.current?.focus();
+                    }
+                  }}
+                />
+              ) : (
+                <span
+                  className={styles.outlineText}
+                  style={
+                    it.level === null
+                      ? undefined
+                      : { fontSize: `${Math.max(13, 20 - level * 2)}px` }
+                  }
+                  title={
+                    it.level === null
+                      ? t('views.outline.bodyText')
+                      : t('views.outline.level', { n: level + 1 })
+                  }
+                >
+                  {it.text || ' '}
+                </span>
+              )}
             </div>
           );
         })}

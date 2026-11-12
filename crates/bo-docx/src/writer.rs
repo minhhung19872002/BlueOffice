@@ -156,6 +156,11 @@ pub fn write_docx(doc: &Document) -> Result<Vec<u8>> {
         }
         if src.even_and_odd_headers != doc.even_and_odd_headers
             || src.display_background_shape != doc.design.display_background_shape
+            || src.borders_do_not_surround
+                != (
+                    doc.design.borders_do_not_surround_header,
+                    doc.design.borders_do_not_surround_footer,
+                )
             || src.protection != doc.protection
             || src.hyphenation != doc.hyphenation
             || src.track_revisions != doc.track_revisions
@@ -232,6 +237,84 @@ fn signature_line_xml(l: &bo_model::SignatureLine) -> String {
 /// Fingerprint of the footnotes and endnotes (detects edited notes).
 pub(crate) fn notes_fingerprint(doc: &Document) -> u64 {
     fingerprint(&(&doc.footnotes, &doc.endnotes))
+}
+
+/// The `CT_Settings` children (§17.15.1.78) following displayBackgroundShape, in order.
+const SETTINGS_AFTER_BG: &[&str] = &[
+    "printPostScriptOverText",
+    "printFractionalCharacterWidth",
+    "printFormsData",
+    "embedTrueTypeFonts",
+    "embedSystemFonts",
+    "saveSubsetFonts",
+    "saveFormsData",
+    "mirrorMargins",
+    "alignBordersAndEdges",
+    "bordersDoNotSurroundHeader",
+    "bordersDoNotSurroundFooter",
+    "gutterAtTop",
+    "hideSpellingErrors",
+    "hideGrammaticalErrors",
+    "activeWritingStyle",
+    "proofState",
+    "formsDesign",
+    "attachedTemplate",
+    "linkStyles",
+    "stylePaneFormatFilter",
+    "stylePaneSortMethod",
+    "documentType",
+    "mailMerge",
+    "revisionView",
+    "trackRevisions",
+    "doNotTrackMoves",
+    "doNotTrackFormatting",
+    "documentProtection",
+    "autoFormatOverride",
+    "styleLockTheme",
+    "styleLockQFSet",
+    "defaultTabStop",
+    "autoHyphenation",
+    "consecutiveHyphenLimit",
+    "hyphenationZone",
+    "doNotHyphenateCaps",
+    "showEnvelope",
+    "summaryLength",
+    "clickAndTypeStyle",
+    "defaultTableStyle",
+    "evenAndOddHeaders",
+    "bookFoldRevPrinting",
+    "bookFoldPrinting",
+    "characterSpacingControl",
+    "compat",
+    "rsids",
+    "themeFontLang",
+    "clrSchemeMapping",
+    "shapeDefaults",
+    "decimalSymbol",
+    "listSeparator",
+];
+
+/// The settings following `name` in [`SETTINGS_AFTER_BG`].
+fn settings_after(name: &str) -> &'static [&'static str] {
+    SETTINGS_AFTER_BG
+        .iter()
+        .position(|n| *n == name)
+        .map_or(&[], |i| &SETTINGS_AFTER_BG[i + 1..])
+}
+
+/// `xml` (a settings part) with `el` inserted before the first of `after` present, else
+/// at the end.
+fn insert_setting(xml: &str, el: &str, after: &[&str]) -> String {
+    let at = after
+        .iter()
+        .filter_map(|n| find_element(xml, &format!("w:{n}")))
+        .min()
+        .or_else(|| xml.rfind("</w:settings>"));
+    let mut s = xml.to_owned();
+    if let Some(at) = at {
+        s.insert_str(at, el);
+    }
+    s
 }
 
 /// Byte offset of the first `<tag` start (followed by `/`, `>` or whitespace).
@@ -1945,67 +2028,28 @@ impl Writer<'_> {
             if self.doc.design.display_background_shape {
                 // CT_Settings: displayBackgroundShape follows doNotDisplayPageBoundaries and
                 // precedes printPostScriptOverText … defaultTabStop … (§17.15.1.78).
-                const AFTER_BG: &[&str] = &[
-                    "printPostScriptOverText",
-                    "printFractionalCharacterWidth",
-                    "printFormsData",
-                    "embedTrueTypeFonts",
-                    "embedSystemFonts",
-                    "saveSubsetFonts",
-                    "saveFormsData",
-                    "mirrorMargins",
-                    "alignBordersAndEdges",
-                    "bordersDoNotSurroundHeader",
-                    "bordersDoNotSurroundFooter",
-                    "gutterAtTop",
-                    "hideSpellingErrors",
-                    "hideGrammaticalErrors",
-                    "activeWritingStyle",
-                    "proofState",
-                    "formsDesign",
-                    "attachedTemplate",
-                    "linkStyles",
-                    "stylePaneFormatFilter",
-                    "stylePaneSortMethod",
-                    "documentType",
-                    "mailMerge",
-                    "revisionView",
-                    "trackRevisions",
-                    "doNotTrackMoves",
-                    "doNotTrackFormatting",
-                    "documentProtection",
-                    "autoFormatOverride",
-                    "styleLockTheme",
-                    "styleLockQFSet",
-                    "defaultTabStop",
-                    "autoHyphenation",
-                    "consecutiveHyphenLimit",
-                    "hyphenationZone",
-                    "doNotHyphenateCaps",
-                    "showEnvelope",
-                    "summaryLength",
-                    "clickAndTypeStyle",
-                    "defaultTableStyle",
-                    "evenAndOddHeaders",
-                    "bookFoldRevPrinting",
-                    "bookFoldPrinting",
-                    "characterSpacingControl",
-                    "compat",
-                    "rsids",
-                    "themeFontLang",
-                    "clrSchemeMapping",
-                    "shapeDefaults",
-                    "decimalSymbol",
-                    "listSeparator",
-                ];
-                let at = AFTER_BG
-                    .iter()
-                    .filter_map(|n| find_element(&s, &format!("w:{n}")))
-                    .min()
-                    .or_else(|| s.rfind("</w:settings>"));
-                if let Some(at) = at {
-                    s.insert_str(at, "<w:displayBackgroundShape/>");
-                }
+                s = insert_setting(&s, "<w:displayBackgroundShape/>", SETTINGS_AFTER_BG);
+            }
+        }
+        // §17.15.1.18 / §17.15.1.19 bordersDoNotSurroundHeader / Footer, in CT_Settings
+        // order (both follow alignBordersAndEdges and precede gutterAtTop).
+        let surround = (
+            self.doc.design.borders_do_not_surround_header,
+            self.doc.design.borders_do_not_surround_footer,
+        );
+        if src.is_none_or(|p| p.borders_do_not_surround != surround) {
+            s = remove_empty_element(&s, "w:bordersDoNotSurroundHeader");
+            s = remove_empty_element(&s, "w:bordersDoNotSurroundFooter");
+            let after_footer = settings_after("bordersDoNotSurroundFooter");
+            if surround.1 {
+                s = insert_setting(&s, "<w:bordersDoNotSurroundFooter/>", after_footer);
+            }
+            if surround.0 {
+                s = insert_setting(
+                    &s,
+                    "<w:bordersDoNotSurroundHeader/>",
+                    settings_after("bordersDoNotSurroundHeader"),
+                );
             }
         }
         // §17.15.1.89 trackRevisions: after revisionView, before doNotTrackMoves …
@@ -2148,6 +2192,13 @@ impl Writer<'_> {
         // §17.15.1.32 displayBackgroundShape (before documentProtection and defaultTabStop).
         if self.doc.design.display_background_shape {
             s.push_str("<w:displayBackgroundShape/>");
+        }
+        // §17.15.1.18 / §17.15.1.19, between displayBackgroundShape and trackRevisions.
+        if self.doc.design.borders_do_not_surround_header {
+            s.push_str("<w:bordersDoNotSurroundHeader/>");
+        }
+        if self.doc.design.borders_do_not_surround_footer {
+            s.push_str("<w:bordersDoNotSurroundFooter/>");
         }
         // §17.15.1.89 trackRevisions precedes documentProtection.
         if self.doc.track_revisions {
@@ -3419,11 +3470,25 @@ fn rpr_children(p: &RunProps) -> Vec<(String, String)> {
     if let Some(fx) = &p.effects {
         v.extend(crate::textfx::w14_items(fx));
     }
-    if let Some(c) = p.color {
-        v.push((
-            "color".into(),
-            format!("<w:color w:val=\"{}\"/>", c.to_hex()),
-        ));
+    // §17.3.2.6 color: `w:val` plus the theme colour it came from (themeColor,
+    // themeTint, themeShade); `auto` when only the theme colour is known.
+    if p.color.is_some() || p.theme_color.is_some() {
+        let mut x = format!(
+            "<w:color w:val=\"{}\"",
+            p.color
+                .map_or_else(|| "auto".to_owned(), bo_model::Color::to_hex)
+        );
+        if let Some(t) = &p.theme_color {
+            let _ = write!(x, " w:themeColor=\"{}\"", escape(&t.name));
+            if let Some(v) = t.tint {
+                let _ = write!(x, " w:themeTint=\"{v:02X}\"");
+            }
+            if let Some(v) = t.shade {
+                let _ = write!(x, " w:themeShade=\"{v:02X}\"");
+            }
+        }
+        x.push_str("/>");
+        v.push(("color".into(), x));
     }
     if let Some(s) = p.spacing {
         v.push(("spacing".into(), format!("<w:spacing w:val=\"{}\"/>", s.0)));

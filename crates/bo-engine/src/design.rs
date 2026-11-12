@@ -86,6 +86,10 @@ pub struct BordersState {
     pub shadow: bool,
     /// The style is an art border.
     pub art: bool,
+    /// Borders measured from the text go around the header (§17.15.1.18).
+    pub surround_header: bool,
+    /// … and around the footer (§17.15.1.19).
+    pub surround_footer: bool,
 }
 
 /// A theme of the gallery.
@@ -150,6 +154,8 @@ impl Engine {
                 behind: pb.behind,
                 shadow: first.shadow,
                 art: first.line.is_art(),
+                surround_header: !d.borders_do_not_surround_header,
+                surround_footer: !d.borders_do_not_surround_footer,
             })
         });
         Some(DesignState {
@@ -287,7 +293,8 @@ impl Engine {
             Command::ApplyThemeFile { file } => {
                 crate::theme_file::theme_xml_of_b64(file).and_then(|x| {
                     let fonts = crate::theme_file::theme_fonts(&x)?;
-                    Some((String::from_utf8(x).ok()?, fonts))
+                    let colors = crate::theme_file::theme_colors(&x);
+                    Some((String::from_utf8(x).ok()?, fonts, colors))
                 })
             }
             _ => None,
@@ -329,8 +336,8 @@ impl Engine {
                 }
                 Command::ApplyTheme { id } => s.apply_theme(id),
                 Command::ApplyThemeFile { .. } => {
-                    if let Some((xml, fonts)) = theme_in {
-                        s.apply_theme_xml(&xml, fonts)
+                    if let Some((xml, fonts, colors)) = theme_in {
+                        s.apply_theme_xml(&xml, fonts, colors)
                     } else {
                         error = Some("noTheme".to_owned());
                         Ok(())

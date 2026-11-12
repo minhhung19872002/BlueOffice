@@ -3439,7 +3439,11 @@ impl Session {
             }
             CharFormat::Color { hex } => {
                 let c = hex.as_deref().and_then(Color::from_hex);
-                Box::new(move |r| r.color = c)
+                // A colour chosen replaces the theme colour too (§17.3.2.6).
+                Box::new(move |r| {
+                    r.color = c;
+                    r.theme_color = None;
+                })
             }
             CharFormat::Highlight { hex } => {
                 let c = hex.as_deref().and_then(Color::from_hex);

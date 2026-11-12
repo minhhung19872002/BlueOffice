@@ -234,6 +234,7 @@ fn apply_spec(st: &mut Style, spec: &StyleSpec, cur: &StyleSpec) {
     }
     if changed!(color) {
         r.color = spec.color.as_deref().and_then(Color::from_hex);
+        r.theme_color = None;
     }
     if st.kind == StyleKind::Character {
         return;

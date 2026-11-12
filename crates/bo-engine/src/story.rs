@@ -181,7 +181,7 @@ impl Engine {
         let opts = LayoutOptions {
             view: self.view,
             field_codes: self.field_codes,
-            marks: self.markup_options().filter(),
+            marks: self.mark_filter(),
         };
         hf.layout = layout_document_with(hf.sub.doc(), &mut self.fonts, &mut self.cache, opts)?;
         let sub_top = hf

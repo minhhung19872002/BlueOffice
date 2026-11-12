@@ -141,6 +141,8 @@ describe('page borders dialog', () => {
         behind: false,
         shadow: true,
         art: false,
+        surroundHeader: true,
+        surroundFooter: false,
       },
     };
     const { run, sent } = engine(state);
@@ -152,6 +154,12 @@ describe('page borders dialog', () => {
       ),
     );
     expect((screen.getByTestId('borders-color') as HTMLInputElement).value).toBe('FF0000');
+    // §17.15.1.18 / §17.15.1.19: measured from the text, the borders go around the header
+    // (and here not the footer) — the footer is turned on too.
+    expect((screen.getByTestId('borders-surroundHeader') as HTMLInputElement).checked).toBe(true);
+    const footer = screen.getByTestId('borders-surroundFooter') as HTMLInputElement;
+    expect(footer.checked).toBe(false);
+    fireEvent.click(footer);
     fireEvent.change(screen.getByTestId('borders-art'), { target: { value: 'diamondsGray' } });
     fireEvent.change(screen.getByTestId('borders-width'), { target: { value: '16' } });
     fireEvent.change(screen.getByTestId('borders-measure'), { target: { value: 'page' } });
@@ -172,6 +180,7 @@ describe('page borders dialog', () => {
         offsetFromPage: true,
         shadow: false,
         sides: [true, true, true, true],
+        surroundFooter: true,
       },
     });
   });

@@ -13,9 +13,9 @@ const info = (name: string): DocInfo => ({
   wordCount: 0,
 });
 
-function result(name: string, bold: boolean, modified: boolean): EditResult {
+function result(name: string, bold: boolean, modified: boolean, doc?: DocInfo): EditResult {
   return {
-    info: info(name),
+    info: doc ?? info(name),
     selection: { anchor: { p: 0, o: 0 }, focus: { p: 0, o: 0 } },
     caret: { page: 0, x: 85, y: 56, h: 15 },
     rects: [],
@@ -49,6 +49,7 @@ function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[];
   let bold = false;
   let modified = false;
   let current = '';
+  let openedInfo: DocInfo | undefined;
   return {
     opened,
     commands,
@@ -81,7 +82,8 @@ function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[];
       open: async (_b, name) => {
         opened.push(name);
         current = name;
-        return {
+        // Edits of an opened file report its layout (3 pages), as the engine does.
+        return (openedInfo = {
           name,
           pageCount: 3,
           pages: [
@@ -90,20 +92,21 @@ function fakePlatform(): Platform & { opened: string[]; commands: EditCommand[];
             { width: 595, height: 842 },
           ],
           wordCount: 42,
-        };
+        });
       },
       getPage: async () => ({ width: 595, height: 842, commands: [] }),
       getGlyphOutlines: async () => [],
       exportPdf: async () => new Uint8Array([37]),
       newDocument: async (name) => {
         current = name;
+        openedInfo = undefined;
         return info(name);
       },
       command: async ({ now: _now, ...cmd }) => {
         commands.push(cmd);
         if (cmd.cmd === 'insertText') modified = true;
         if (cmd.cmd === 'formatText') bold = !bold;
-        return result(current, bold, modified);
+        return result(current, bold, modified, openedInfo);
       },
       insertImage: async () => result('x', bold, modified),
       getMedia: async () => new Uint8Array(),
@@ -375,6 +378,8 @@ describe('BlueEditor digital signatures', () => {
     await waitFor(() =>
       expect(screen.getByTestId('signature-bar').dataset.state).toBe('untrusted'),
     );
+    // The opened document is shown (engine results render just after).
+    await waitFor(() => expect(screen.getByTestId('doc-name').textContent).toBe('a.docx'));
     fireEvent.click(screen.getByTestId('file-tab'));
     fireEvent.click(document.querySelector('[data-command="file.sign"]')!);
     await waitFor(() => expect(screen.getByTestId('sign-dialog')).toBeTruthy());

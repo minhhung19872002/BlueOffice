@@ -277,7 +277,6 @@ import {
 import { docScriptHost, recordEngine, ScriptPane, ScriptRecorder } from '@blueoffice/script';
 import { docSelection, useAddins } from '@blueoffice/addins';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useStore } from 'zustand';
 import { CommandRegistry } from './commands';
 import { useScriptBindings } from './scriptBindings';
 import { DocController, MATH_UNSUPPORTED, type EditView } from './controller';
@@ -339,6 +338,7 @@ import {
   type RememberedSigning,
   type SignForm,
 } from './signing';
+import { useDeferredStore } from './deferredStore';
 import { createEditorStore, togglePane, type DocTaskPane, type EditorState } from './store';
 import { StylesGallery } from './StylesGallery';
 import { StylesPane, type StylesPaneRequest } from './StylesPane';
@@ -558,6 +558,17 @@ const REMEMBERED_DOC_PANES = [
 ] as const satisfies readonly DocTaskPane[];
 
 /** The editor. Everything platform-specific comes from `platform`. */
+/** What every engine result writes (DocController's `onResult`): rendered after the paint. */
+const DEFERRED_STATE = [
+  'edit',
+  'doc',
+  'outline',
+  'layoutVersion',
+  'review',
+  'merge',
+  'security',
+] as const satisfies readonly (keyof EditorState)[];
+
 export function BlueEditor(props: BlueEditorProps) {
   const [i18n] = useState(() => createI18n(props.language));
   return (
@@ -592,7 +603,8 @@ function EditorInner({
   const [, setRecorderTick] = useState(0);
   useEffect(() => recorder.subscribe(() => setRecorderTick((n) => n + 1)), [recorder]);
   const [store] = useState(() => createEditorStore(language, theme));
-  const state = useStore(store);
+  // Engine results re-render the editor in a transition (after the page is painted).
+  const state = useDeferredStore(store, DEFERRED_STATE);
   // The theme picked in File › Options (remembered) wins over the editor's own setting.
   const themeSetting = useThemePref(state.theme);
   const resolvedTheme = useResolvedTheme(themeSetting);

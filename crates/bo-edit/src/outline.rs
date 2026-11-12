@@ -148,6 +148,8 @@ impl Session {
         if from == to && middle.is_empty() {
             return Ok(self.selection);
         }
+        // Its own undo step, never joined to the typing before it.
+        self.end_typing();
         self.set_selection(Selection {
             anchor: Pos::new(para, from),
             focus: Pos::new(para, to),
@@ -413,6 +415,15 @@ mod tests {
         assert_eq!(s.para_text(1).unwrap(), "Đậm chữ thường");
         assert!(s.undo());
         assert_eq!(s.doc(), &before);
+        // Typed at the caret, then one character added from the outline: two steps.
+        s.set_selection(Selection::caret(Pos::new(5, 1)));
+        s.insert_text("c").unwrap();
+        s.set_outline_text(5, "bc!").unwrap();
+        assert_eq!(s.para_text(5).unwrap(), "bc!");
+        assert!(s.undo());
+        assert_eq!(s.para_text(5).unwrap(), "bc");
+        assert!(s.undo());
+        assert_eq!(s.para_text(5).unwrap(), "b");
         // A line break in the paragraph: shown, not edited in place.
         if let Block::Paragraph(q) = &mut s.doc.sections[0].blocks[3] {
             q.runs = vec![Run {

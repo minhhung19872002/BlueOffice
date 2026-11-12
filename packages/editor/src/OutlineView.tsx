@@ -265,7 +265,10 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
                     }
                     // Tab, ↑ / ↓ and Alt+Shift commands act on the paragraph once its
                     // text is sent (they reach the list).
-                    if (e.key === 'Tab' || e.key === 'ArrowUp' || e.key === 'ArrowDown') commit();
+                    if (e.key === 'Tab' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                      commit();
+                      listRef.current?.focus();
+                    }
                   }}
                 />
               ) : (

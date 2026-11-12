@@ -523,7 +523,7 @@ fn header_footer_pictures_print_and_round_trip() {
         .parts
         .iter()
         .any(|p| p.name.contains("vmlDrawingHF") || p.name.contains("hfimage")));
-    assert!(images(&back.print_pages(0).unwrap()[0]).is_empty());
+    assert_eq!(images(&back.print_pages(0).unwrap()[0]), vec![]);
     // Undo brings the picture back.
     back.undo().unwrap();
     assert_eq!(images(&back.print_pages(0).unwrap()[0]).len(), 1);
@@ -532,7 +532,7 @@ fn header_footer_pictures_print_and_round_trip() {
         &mut back,
         json!({ "cmd": "setPageSetup", "sheet": 0, "headerFooter": { "oddFooter": "&RTrang" } }),
     );
-    assert!(images(&back.print_pages(0).unwrap()[0]).is_empty());
+    assert_eq!(images(&back.print_pages(0).unwrap()[0]), vec![]);
     assert!(back
         .exec_json(
             &json!({ "cmd": "headerFooterPicture", "sheet": 0, "section": "XX" }).to_string()

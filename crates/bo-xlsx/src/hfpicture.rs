@@ -231,17 +231,17 @@ fn image_content_type(ext: &str) -> &'static str {
 
 /// A part name `prefix{n}.ext` not used yet.
 fn fresh(parts: &[OpaquePart], prefix: &str, ext: &str) -> String {
-    (1..)
+    (1..=parts.len() + 1)
         .map(|n| format!("{prefix}{n}.{ext}"))
         .find(|n| part(parts, n).is_none())
         .unwrap_or_default()
 }
 
-/// A relationship id not used in `rels`.
-fn fresh_rid<'a>(ids: impl Iterator<Item = &'a str> + Clone) -> String {
-    (1..)
+/// A relationship id not among `ids`.
+fn fresh_rid(ids: &[&str]) -> String {
+    (1..=ids.len() + 1)
         .map(|n| format!("rId{n}"))
-        .find(|c| !ids.clone().any(|i| i == c))
+        .find(|c| !ids.contains(&c.as_str()))
         .unwrap_or_default()
 }
 
@@ -288,32 +288,32 @@ pub fn set_picture(
     if existing.is_none() && picture.is_none() {
         return Ok(());
     }
-    let vml = match existing {
-        Some(p) => p,
-        None => {
-            let block = first_free_block(&wb.opaque.parts);
-            let name = fresh(&wb.opaque.parts, "/xl/drawings/vmlDrawingHF", "vml");
-            put(
-                &mut wb.opaque.parts,
-                &name,
-                Some(CT_VML),
-                empty_vml(block).into_bytes(),
-            );
-            let ws = &mut wb.sheets[sheet];
-            let rid = fresh_rid(ws.rels.iter().map(|r| r.id.as_str()));
-            ws.rels.push(OpaqueRel {
-                id: rid.clone(),
-                rel_type: REL_VML.to_owned(),
-                target: name.clone(),
-                external: false,
-            });
-            ws.unknown.retain(|u| !u.xml.contains("legacyDrawingHF"));
-            ws.unknown.push(RawXml {
-                after: "legacyDrawingHF".into(),
-                xml: format!("<legacyDrawingHF r:id=\"{rid}\"/>"),
-            });
-            name
-        }
+    let vml = if let Some(p) = existing {
+        p
+    } else {
+        let block = first_free_block(&wb.opaque.parts);
+        let name = fresh(&wb.opaque.parts, "/xl/drawings/vmlDrawingHF", "vml");
+        put(
+            &mut wb.opaque.parts,
+            &name,
+            Some(CT_VML),
+            empty_vml(block).into_bytes(),
+        );
+        let ws = &mut wb.sheets[sheet];
+        let ids: Vec<&str> = ws.rels.iter().map(|r| r.id.as_str()).collect();
+        let rid = fresh_rid(&ids);
+        ws.rels.push(OpaqueRel {
+            id: rid.clone(),
+            rel_type: REL_VML.to_owned(),
+            target: name.clone(),
+            external: false,
+        });
+        ws.unknown.retain(|u| !u.xml.contains("legacyDrawingHF"));
+        ws.unknown.push(RawXml {
+            after: "legacyDrawingHF".into(),
+            xml: format!("<legacyDrawingHF r:id=\"{rid}\"/>"),
+        });
+        name
     };
     let mut xml = part(&wb.opaque.parts, &vml)
         .map(|p| String::from_utf8_lossy(&p.data).into_owned())
@@ -346,7 +346,8 @@ pub fn set_picture(
             Some(image_content_type(&ext)),
             p.data.to_vec(),
         );
-        let rid = fresh_rid(rels.iter().map(|r| r.id.as_str()));
+        let ids: Vec<&str> = rels.iter().map(|r| r.id.as_str()).collect();
+        let rid = fresh_rid(&ids);
         rels.push(Relationship {
             id: rid.clone(),
             rel_type: REL_IMAGE.to_owned(),

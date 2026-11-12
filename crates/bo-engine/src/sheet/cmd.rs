@@ -5499,6 +5499,11 @@ impl SheetEngine {
     }
 }
 
+/// Modifier keys of a list box click.
+fn fc_click(ctrl: bool, shift: bool) -> bo_sheet::formctl::ListClick {
+    bo_sheet::formctl::ListClick { ctrl, shift }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{HitInfo, ViewRequest};
@@ -7145,9 +7150,4 @@ mod tests {
             ColumnFilter::Color { .. }
         ));
     }
-}
-
-/// Modifier keys of a list box click.
-fn fc_click(ctrl: bool, shift: bool) -> bo_sheet::formctl::ListClick {
-    bo_sheet::formctl::ListClick { ctrl, shift }
 }

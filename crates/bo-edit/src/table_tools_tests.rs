@@ -354,5 +354,5 @@ fn rows_in_place_keeps_the_longest_ordered_run() {
     let keep = rows_in_place(&[2, 0, 3, 1]);
     assert_eq!(keep.iter().filter(|k| **k).count(), 2);
     assert_eq!(rows_in_place(&[3, 2, 1]).iter().filter(|k| **k).count(), 1);
-    assert!(rows_in_place(&[]).is_empty());
+    assert_eq!(rows_in_place(&[]), Vec::<bool>::new());
 }

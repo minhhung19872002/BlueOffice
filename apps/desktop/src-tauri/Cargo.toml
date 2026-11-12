@@ -18,6 +18,8 @@ bo-engine = { workspace = true, features = ["bundled-fonts"] }
 # Ký số: .p12/.pem, USB token (PKCS#11, desktop only), remote signing, RFC 3161.
 bo-sign = { path = "../../../crates/bo-sign", features = ["http", "pkcs11", "pkcs12"] }
 base64 = "0.22"
+# Snap layouts over the custom maximise button, system menu (Windows; ADR-0016).
+bo-winchrome = { path = "../../../crates/bo-winchrome" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

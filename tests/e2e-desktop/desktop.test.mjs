@@ -59,8 +59,9 @@ const s = (path) => `/session/${session}${path}`;
 const exec = (script, args = []) => wd('POST', s('/execute/sync'), { script, args });
 
 async function confirmIsolatedCache() {
-  const isolated = await exec(
-    'return window.__TAURI_INTERNALS__.invoke("automation_cache_isolated")',
+  const isolated = await waitFor(
+    () => exec('return window.__TAURI_INTERNALS__?.invoke?.("automation_cache_isolated") ?? false'),
+    'webdriver build with separate test cache',
   );
   assert.equal(isolated, true, 'build with webdriver and configure a separate test cache');
 }

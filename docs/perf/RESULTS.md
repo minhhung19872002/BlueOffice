@@ -116,5 +116,54 @@ Từ mẫu một phần ba thời gian tới mẫu cuối tăng **87,2 MB**: bà
 tăng và trả mã lỗi. Đây là một phiên, không phải 10 lượt hay bằng chứng xác định nguyên
 nhân rò rỉ. [Mẫu và môi trường](baselines/round2-soak-ryzen7-7435hs.json).
 
-Chưa có heap profile Rust hoặc snapshot WebView hợp lệ để quy phần tăng cho undo, cache
-hay canvas. Chưa chứng minh mọi cache có giới hạn; chưa đạt tiêu chí RAM.
+Chưa có heap profile Rust hoặc snapshot WebView đầu/cuối bài thử 10 phút để quy phần tăng
+cho undo, cache hay canvas. Chưa chứng minh mọi cache có giới hạn; chưa đạt tiêu chí RAM.
+
+## Đợt 2 — đo lại sau Fluent và cách ly dữ liệu
+
+Cùng executable SHA-256 `319c3831c59c6197ad87f714ba253d9ea944c4fcf4edfe42b7d2f2cdf91d5d12`
+đã dùng cho bài thử RAM; 10 lượt khởi động/mở, 10 phiên tương tác gồm 270 phím. CPU
+trước/sau 14% / 10%. p95 dùng nearest-rank; p95 phím gộp toàn bộ 270 phím.
+[Dữ liệu từng lượt](baselines/round2-fluent-10runs-ryzen7-7435hs.json).
+
+| Chỉ số | Trước: trung vị / p95 | Sau: trung vị / p95 | Kết luận |
+|---|---:|---:|---|
+| Editor sẵn sàng | 943,6 / 981,4 ms | 948,5 / 1.009,9 ms | đạt < 1.500 ms |
+| Shell | 512,5 / 529,2 ms | 508,1 / 535,5 ms | chưa đạt < 500 ms |
+| Mở 100 trang | 993,1 / 1.010,1 ms | 1.008,5 / 1.032,7 ms | đạt < 2.000 ms |
+| Phím tới khung hình, 270 mẫu | 33,8 / 47,2 ms | 33,8 / 46,5 ms | chưa đạt < 16 / p95 < 20 ms |
+| Cuộn, FPS theo phiên | 138,9 / 144 | 136,5 / 143,4 | đạt 60 FPS trong phép thử; p95 FPS không phải trường hợp xấu nhất |
+| RAM sau mở | 299,9 / 301,5 MB | 300,8 / 303,2 MB | dưới 400 MB |
+| RAM sau gõ/cuộn | 483 / 497,6 MB | 495,8 / 507,8 MB | chưa đạt < 400 MB |
+| Render ribbon / status mỗi phím | 0 / 0 | 0 / 0 | đạt |
+
+Phân rã 270 phím sau, trung vị/p95: nhận sự kiện → IPC 1 / 1,3 ms; IPC lệnh
+7,5 / 10,5 ms (lõi 4,8 / 7,2 ms, trong đó dàn trang tăng dần 0,6 / 0,8 ms); kết quả
+→ yêu cầu trang 0,4 / 0,5 ms; IPC trang 7 / 8,3 ms; trang → vẽ 0,6 / 7,5 ms; vẽ
+2,1 / 3,3 ms; vẽ → trình bày 13 / 26,2 ms. Trung vị 3 IPC, p95 4. Các chặng được
+đo riêng; không cộng p95 của từng chặng để suy ra p95 tổng.
+
+Chưa có local echo, một IPC/diff hay vẽ native DirectWrite. IME hiện hiển thị vùng
+composition riêng và chỉ commit khi composition kết thúc; chưa xác nhận Unikey/EVKey
+trên các kiểu chữ và trường hợp sửa ký tự trước. Cần mở rộng hợp đồng vị trí/kiểu chữ và
+đồng bộ kết quả shaping trước khi có thể thay chữ tạm bằng chữ chính thức không nhảy.
+Điều này là việc còn làm, không phải bằng chứng không thể đạt.
+
+Desktop E2E trên executable này: **16/16 qua, không bỏ qua**, bao gồm hai nhóm cộng tác.
+Lượt đầu có một ca bị hủy vì bước xác nhận cache mới chạy trước khi Tauri khởi tạo; đã sửa
+điều kiện chờ và chạy lại toàn bộ. Bài thử nhập tiếng Việt tự động không thay thế kiểm tra
+Unikey/EVKey thực tế.
+
+### Thử công cụ heap
+
+Một phiên chẩn đoán riêng 15 giây (12 phím, một ảnh/undo) đã lấy hai V8 heap snapshot
+từ đúng WebView, lưu cục bộ tại `out/perf/snapshot-diagnostic/` (không đưa snapshot vào
+Git). Tổng kích thước shallow theo node trong snapshot tăng từ 32,66 lên 34,05 MiB;
+`JSArrayBufferData` giữ nguyên 15.196.089 byte. Đây không phải heap snapshot trước/sau
+bài thử 10 phút và không thể dùng để xác định nguyên nhân tăng private working set.
+Thử bật Windows Performance Recorder heap tracing cho tên executable thử nghiệm riêng
+bị Windows từ chối `0x80070005` (Access is denied); không có native heap profile.
+
+[CI cho commit Fluent](https://github.com/minhhung19872002/BlueOffice/actions/runs/43269570854)
+đã chạy và job performance đạt, nhưng job fidelity thất bại; các job còn lại đang chạy tại
+thời điểm ghi. Chưa xác nhận CI toàn bộ xanh. Bản sửa điều kiện chờ E2E cần một lượt CI mới.

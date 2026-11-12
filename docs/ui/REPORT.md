@@ -26,7 +26,7 @@ cập nhật tại đây; số đo hiệu năng nằm trong [RESULTS.md](../perf
 |---|---|
 | Nền, font và màu thương hiệu | Đã sửa Fluent không ghi đè font web và nền BlueOffice; đã chụp lại trên bản desktop mới; cần rà đầy đủ các màn hình. |
 | Viền và độ sắc ở 100/125/150/200% | Chưa xác nhận; hiện mới chụp 125%. Chưa có màn hình thứ hai để thử kéo qua DPI khác. |
-| Trang tài liệu | Ảnh WebDriver có dải đen ở đầu trang BlueDoc; pixel tương ứng đọc trực tiếp từ canvas lại là trắng. Chưa xác định được hiện tượng thuộc compositor, screenshot hay lớp khác. |
+| Trang tài liệu | Dải đen ở đầu trang BlueDoc cũng nhìn thấy trực tiếp trên cửa sổ Windows, không chỉ trong ảnh WebDriver. Pixel đọc trực tiếp từ canvas là trắng; nguyên nhân hiển thị chưa xác định và lỗi chưa được sửa. |
 | Khoảng cách và cắt chữ | Một số nhãn nhóm ribbon thu gọn như “Giọn…”; chưa hoàn thành rà tất cả tab và sửa. |
 | Dialog, menu, tooltip | Chưa có bộ ảnh/kiểm tra bao phủ. |
 | DirectWrite và renderer GPU native | Chưa triển khai; xem [ADR-0017](../adr/0017-desktop-document-rendering.md). |

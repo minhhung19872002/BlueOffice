@@ -52,11 +52,103 @@ pub enum Out {
     Error(OutError),
 }
 
-/// A tool's output: rows of cells (rows may differ in length).
+/// A tool's output: rows of cells (rows may differ in length) and the charts drawn from them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Table {
     /// The rows, top to bottom.
     pub rows: Vec<Vec<Out>>,
+    /// Charts of the output ("chart output", residual / line fit / normal probability plots),
+    /// placed by the engine next to the table.
+    pub charts: Vec<OutChart>,
+}
+
+/// The range a chart series reads its data from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataSource {
+    /// The output table.
+    Table,
+    /// The (first) input range.
+    Input,
+    /// The second input range.
+    Second,
+}
+
+/// Cells of a chart series: zero-based, inclusive offsets inside [`DataSource`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DataRange {
+    /// The range the offsets are relative to.
+    pub source: DataSource,
+    /// First row.
+    pub r0: usize,
+    /// First column.
+    pub c0: usize,
+    /// Last row.
+    pub r1: usize,
+    /// Last column.
+    pub c1: usize,
+}
+
+impl DataRange {
+    fn col(source: DataSource, col: usize, r0: usize, r1: usize) -> Self {
+        DataRange {
+            source,
+            r0,
+            c0: col,
+            r1,
+            c1: col,
+        }
+    }
+
+    fn row(source: DataSource, row: usize, c0: usize, c1: usize) -> Self {
+        DataRange {
+            source,
+            r0: row,
+            c0,
+            r1: row,
+            c1,
+        }
+    }
+}
+
+/// Chart type of an output chart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutChartKind {
+    /// Clustered columns over categories (histogram).
+    Column,
+    /// Lines over categories (forecasts).
+    Line,
+    /// XY points without lines (residual, line fit and normal probability plots).
+    Scatter,
+}
+
+/// One series of an output chart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutSeries {
+    /// Series name.
+    pub name: String,
+    /// Categories (column / line charts) or X values (scatter).
+    pub cats: Option<DataRange>,
+    /// Values (Y).
+    pub vals: DataRange,
+    /// Drawn as a line in a column chart (a combo chart: cumulative percentage).
+    pub line: bool,
+    /// Plotted on the secondary value axis.
+    pub secondary: bool,
+}
+
+/// A chart of a tool's output.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutChart {
+    /// Chart type.
+    pub kind: OutChartKind,
+    /// Chart title.
+    pub title: String,
+    /// Horizontal axis title.
+    pub x_title: Option<String>,
+    /// Vertical axis title.
+    pub y_title: Option<String>,
+    /// The series.
+    pub series: Vec<OutSeries>,
 }
 
 impl Table {
@@ -150,6 +242,10 @@ fn default_damping() -> f64 {
 fn default_interval() -> usize {
     3
 }
+fn default_one() -> u32 {
+    1
+}
+
 fn default_true() -> bool {
     true
 }
@@ -195,6 +291,23 @@ pub enum RandomDist {
     },
     /// Values with probabilities from the input range: two columns, value then probability.
     Discrete,
+    /// Not random: `from`, `from + step`, … up to `to`, each value written `repeat_each` times,
+    /// the whole sequence `repeat_seq` times (every column the same). `count` 0 writes the whole
+    /// pattern; otherwise the pattern is cut or cycled to `count` values.
+    Patterned {
+        /// First value.
+        from: f64,
+        /// Last value (reached when it lies on the step grid).
+        to: f64,
+        /// Step (> 0 counting up, < 0 counting down).
+        step: f64,
+        /// Times each value is repeated (≥ 1).
+        #[serde(default = "default_one")]
+        repeat_each: u32,
+        /// Times the sequence is repeated (≥ 1).
+        #[serde(default = "default_one")]
+        repeat_seq: u32,
+    },
 }
 
 /// How to sample.
@@ -364,6 +477,9 @@ pub enum Tool {
         /// Also output standard errors.
         #[serde(default)]
         std_errors: bool,
+        /// Chart of the actual values and the forecast.
+        #[serde(default)]
+        chart: bool,
     },
     /// Moving average over `interval` values.
     MovingAverage {
@@ -376,6 +492,9 @@ pub enum Tool {
         /// Also output standard errors.
         #[serde(default)]
         std_errors: bool,
+        /// Chart of the actual values and the forecast.
+        #[serde(default)]
+        chart: bool,
     },
     /// Frequency table over bins (second input; automatic when absent).
     Histogram {
@@ -388,6 +507,9 @@ pub enum Tool {
         /// Add cumulative percentages.
         #[serde(default)]
         cumulative: bool,
+        /// Column chart of the frequencies (with the cumulative percentage as a line).
+        #[serde(default)]
+        chart: bool,
     },
     /// Ordinal and percentage rank of each value.
     RankPercentile {
@@ -439,6 +561,15 @@ pub enum Tool {
         /// Output standardized residuals.
         #[serde(default)]
         std_residuals: bool,
+        /// A residual plot (X against residuals) per X variable.
+        #[serde(default)]
+        residual_plots: bool,
+        /// A line fit plot (X against Y and predicted Y) per X variable.
+        #[serde(default)]
+        line_fit_plots: bool,
+        /// Probability output (percentiles of the sorted Y) and its normal probability plot.
+        #[serde(default)]
+        normal_plot: bool,
     },
     /// Discrete Fourier transform (radix-2 FFT) of 2ⁿ real or complex values.
     Fourier {
@@ -477,7 +608,8 @@ impl Tool {
                     | RandomDist::Normal { .. }
                     | RandomDist::Bernoulli { .. }
                     | RandomDist::Binomial { .. }
-                    | RandomDist::Poisson { .. },
+                    | RandomDist::Poisson { .. }
+                    | RandomDist::Patterned { .. },
                 ..
             }
         )
@@ -555,29 +687,47 @@ pub fn run(tool: &Tool, input: &Grid, second: Option<&Grid>, vi: bool) -> Res<Ta
             labels,
             damping,
             std_errors,
+            chart,
         } => {
             let s = single(input, *labels, l)?;
-            exp_smoothing(&s.v, *damping, *std_errors, *labels, l)
+            let mut t = exp_smoothing(&s.v, *damping, *std_errors, *labels, l)?;
+            if *chart {
+                t.charts
+                    .push(forecast_chart(input, *labels, s.v.len(), "expSmoothing", l));
+            }
+            Ok(t)
         }
         Tool::MovingAverage {
             labels,
             interval,
             std_errors,
+            chart,
         } => {
             let s = single(input, *labels, l)?;
-            moving_average(&s.v, *interval, *std_errors, *labels, l)
+            let mut t = moving_average(&s.v, *interval, *std_errors, *labels, l)?;
+            if *chart {
+                t.charts.push(forecast_chart(
+                    input,
+                    *labels,
+                    s.v.len(),
+                    "movingAverage",
+                    l,
+                ));
+            }
+            Ok(t)
         }
         Tool::Histogram {
             labels,
             pareto,
             cumulative,
+            chart,
         } => {
             let data = single(input, *labels, l)?;
             let bins = match second {
                 Some(g) if !is_blank(g) => Some(single(g, *labels, l)?.v),
                 _ => None,
             };
-            Ok(histogram(&data.v, bins, *pareto, *cumulative, l))
+            Ok(histogram(&data.v, bins, *pareto, *cumulative, *chart, l))
         }
         Tool::RankPercentile { by_rows, labels } => {
             Ok(rank_percentile(&split(input, *by_rows, *labels, l)?, l))
@@ -602,6 +752,9 @@ pub fn run(tool: &Tool, input: &Grid, second: Option<&Grid>, vi: bool) -> Res<Ta
             confidence,
             residuals,
             std_residuals,
+            residual_plots,
+            line_fit_plots,
+            normal_plot,
         } => regression(
             input,
             second.ok_or(AnalysisError::Shape)?,
@@ -611,6 +764,9 @@ pub fn run(tool: &Tool, input: &Grid, second: Option<&Grid>, vi: bool) -> Res<Ta
                 confidence: *confidence,
                 residuals: *residuals,
                 std_residuals: *std_residuals,
+                residual_plots: *residual_plots,
+                line_fit_plots: *line_fit_plots,
+                normal_plot: *normal_plot,
             },
             l,
         ),
@@ -742,6 +898,18 @@ impl Labels {
             "residuals" => ("Residuals", "Phần dư"),
             "stdResiduals" => ("Standardized residuals", "Phần dư chuẩn hóa"),
             "fourier" => ("Fourier Transform", "Biến đổi Fourier"),
+            "histogram" => ("Histogram", "Biểu đồ tần suất"),
+            "actual" => ("Actual", "Thực tế"),
+            "expSmoothing" => ("Exponential Smoothing", "Làm trơn mũ"),
+            "movingAverage" => ("Moving Average", "Trung bình trượt"),
+            "dataPoint" => ("Data Point", "Điểm dữ liệu"),
+            "value" => ("Value", "Giá trị"),
+            "residualPlot" => ("Residual Plot", "Đồ thị phần dư"),
+            "lineFitPlot" => ("Line Fit Plot", "Đồ thị đường khớp"),
+            "probabilityOutput" => ("Probability output", "Kết quả xác suất"),
+            "percentile" => ("Percentile", "Phân vị"),
+            "normalPlot" => ("Normal Probability Plot", "Đồ thị xác suất chuẩn"),
+            "samplePercentile" => ("Sample Percentile", "Phân vị mẫu"),
             "inverseFourier" => ("Inverse Fourier Transform", "Biến đổi Fourier ngược"),
             _ => (key, key),
         };
@@ -1534,6 +1702,42 @@ fn forecast_table(
     t
 }
 
+/// Line chart of the actual values (the input) and the forecast (first output column).
+fn forecast_chart(
+    input: &Grid,
+    labels: bool,
+    n: usize,
+    title: &'static str,
+    l: Labels,
+) -> OutChart {
+    let lab = usize::from(labels);
+    let actual = if input.len() > 1 {
+        DataRange::col(DataSource::Input, 0, lab, lab + n - 1)
+    } else {
+        DataRange::row(DataSource::Input, 0, lab, lab + n - 1)
+    };
+    let series = |name: &'static str, vals: DataRange| OutSeries {
+        name: l.t(name),
+        cats: None,
+        vals,
+        line: true,
+        secondary: false,
+    };
+    OutChart {
+        kind: OutChartKind::Line,
+        title: l.t(title),
+        x_title: Some(l.t("dataPoint")),
+        y_title: Some(l.t("value")),
+        series: vec![
+            series("actual", actual),
+            series(
+                "forecast",
+                DataRange::col(DataSource::Table, 0, lab, lab + n - 1),
+            ),
+        ],
+    }
+}
+
 fn exp_smoothing(y: &[f64], damping: f64, se: bool, labels: bool, l: Labels) -> Res<Table> {
     if !(0.0..=1.0).contains(&damping) {
         return Err(AnalysisError::Param);
@@ -1567,6 +1771,7 @@ fn histogram(
     bins: Option<Vec<f64>>,
     pareto: bool,
     cumulative: bool,
+    chart: bool,
     l: Labels,
 ) -> Table {
     let mut bins = bins.unwrap_or_else(|| {
@@ -1613,12 +1818,42 @@ fn histogram(
     };
     let order: Vec<usize> = (0..freq.len()).collect();
     let mut t = build(&order);
+    // The chart plots the sorted table when there is one.
+    let mut chart_col = 0;
     if pareto {
         let mut sorted = order.clone();
         // Stable: equal frequencies keep the bin order.
         sorted.sort_by(|a, b| freq[*b].cmp(&freq[*a]));
         let w = t.width();
+        chart_col = w;
         t.beside(build(&sorted), w);
+    }
+    if chart {
+        let last = freq.len();
+        let cats = DataRange::col(DataSource::Table, chart_col, 1, last);
+        let mut series = vec![OutSeries {
+            name: l.t("frequency"),
+            cats: Some(cats),
+            vals: DataRange::col(DataSource::Table, chart_col + 1, 1, last),
+            line: false,
+            secondary: false,
+        }];
+        if cumulative {
+            series.push(OutSeries {
+                name: l.t("cumulative"),
+                cats: Some(cats),
+                vals: DataRange::col(DataSource::Table, chart_col + 2, 1, last),
+                line: true,
+                secondary: true,
+            });
+        }
+        t.charts.push(OutChart {
+            kind: OutChartKind::Column,
+            title: l.t("histogram"),
+            x_title: Some(l.t("bin")),
+            y_title: Some(l.t("frequency")),
+            series,
+        });
     }
     t
 }
@@ -1709,7 +1944,60 @@ fn poisson(rng: &mut Rng, lambda: f64) -> f64 {
     k
 }
 
+/// The values of a patterned "distribution" ([`RandomDist::Patterned`]).
+fn pattern(from: f64, to: f64, step: f64, each: u32, times: u32) -> Res<Vec<f64>> {
+    if !(from.is_finite() && to.is_finite() && step.is_finite())
+        || each == 0
+        || times == 0
+        || (step == 0.0 && (from - to).abs() > 0.0)
+        || (step != 0.0 && (to - from) * step < 0.0)
+    {
+        return Err(AnalysisError::Param);
+    }
+    // Values on the step grid from `from` towards `to` (a small tolerance absorbs rounding).
+    let k = if step == 0.0 {
+        0.0
+    } else {
+        ((to - from) / step + 1e-9).floor()
+    };
+    let len = (k + 1.0) * f64::from(each) * f64::from(times);
+    if len > MAX_OUTPUT_CELLS as f64 {
+        return Err(AnalysisError::TooLarge);
+    }
+    let mut seq = Vec::new();
+    for i in 0..=(k as usize) {
+        let x = from + step * i as f64;
+        // Trim the binary noise of the products (0.1 · 3 …) to 15 significant digits.
+        let x = format!("{x:.14e}").parse().unwrap_or(x);
+        seq.extend(std::iter::repeat_n(x, each as usize));
+    }
+    let one = seq.len();
+    Ok(seq.into_iter().cycle().take(one * times as usize).collect())
+}
+
 fn random(columns: usize, count: usize, seed: u64, dist: &RandomDist, input: &Grid) -> Res<Table> {
+    if let RandomDist::Patterned {
+        from,
+        to,
+        step,
+        repeat_each,
+        repeat_seq,
+    } = *dist
+    {
+        let values = pattern(from, to, step, repeat_each, repeat_seq)?;
+        let n = if count == 0 { values.len() } else { count };
+        if columns == 0 {
+            return Err(AnalysisError::Param);
+        }
+        if columns.saturating_mul(n) > MAX_OUTPUT_CELLS {
+            return Err(AnalysisError::TooLarge);
+        }
+        let mut t = Table::default();
+        for x in values.iter().cycle().take(n) {
+            t.push(vec![Out::Num(*x); columns]);
+        }
+        return Ok(t);
+    }
     if columns == 0 || count == 0 {
         return Err(AnalysisError::Param);
     }
@@ -1761,6 +2049,7 @@ fn random(columns: usize, count: usize, seed: u64, dist: &RandomDist, input: &Gr
                     (0..trials).filter(|_| rng.unit() < p).count() as f64
                 }
                 RandomDist::Poisson { lambda } => poisson(&mut rng, lambda),
+                RandomDist::Patterned { .. } => 0.0,
                 RandomDist::Discrete => {
                     let u = rng.unit();
                     let mut acc = 0.0;
@@ -1803,6 +2092,7 @@ fn sampling(v: &[f64], method: SamplingMethod, seed: u64) -> Res<Table> {
     };
     Ok(Table {
         rows: out.into_iter().map(|x| vec![Out::Num(x)]).collect(),
+        charts: Vec::new(),
     })
 }
 
@@ -1814,6 +2104,9 @@ struct RegOptions {
     confidence: f64,
     residuals: bool,
     std_residuals: bool,
+    residual_plots: bool,
+    line_fit_plots: bool,
+    normal_plot: bool,
 }
 
 fn regression(y_in: &Grid, x_in: &Grid, o: &RegOptions, l: Labels) -> Res<Table> {
@@ -1950,11 +2243,16 @@ fn regression(y_in: &Grid, x_in: &Grid, o: &RegOptions, l: Labels) -> Res<Table>
     {
         t.push(coef_row(Out::Text(name.clone()), *b, Some(*se)));
     }
-    if o.residuals || o.std_residuals {
-        let y_name = match (o.labels, y_in.first().and_then(|r| r.first())) {
-            (true, Some(c)) => label_of(c),
-            _ => "Y".to_owned(),
-        };
+    let y_name = match (o.labels, y_in.first().and_then(|r| r.first())) {
+        (true, Some(c)) => label_of(c),
+        _ => "Y".to_owned(),
+    };
+    // Residual and line fit plots chart the residual output, so they bring it along.
+    let residual_block = o.residuals || o.std_residuals || o.residual_plots || o.line_fit_plots;
+    // Rows of the residual / probability blocks: title, blank, header, then one per observation.
+    let block_row = t.rows.len() + 2;
+    let first_obs = block_row + 3;
+    if residual_block {
         let pred: Vec<f64> = x
             .iter()
             .map(|r| {
@@ -1988,6 +2286,92 @@ fn regression(y_in: &Grid, x_in: &Grid, o: &RegOptions, l: Labels) -> Res<Table>
             }
             t.push(row);
         }
+    }
+    let lab = usize::from(o.labels);
+    let last_obs = first_obs + n - 1;
+    let x_rows = (lab, lab + n - 1);
+    if o.residual_plots {
+        for (j, name) in x_names.iter().enumerate() {
+            t.charts.push(OutChart {
+                kind: OutChartKind::Scatter,
+                title: format!("{name} {}", l.t("residualPlot")),
+                x_title: Some(name.clone()),
+                y_title: Some(l.t("residuals")),
+                series: vec![OutSeries {
+                    name: l.t("residuals"),
+                    cats: Some(DataRange::col(DataSource::Second, j, x_rows.0, x_rows.1)),
+                    vals: DataRange::col(DataSource::Table, 2, first_obs, last_obs),
+                    line: false,
+                    secondary: false,
+                }],
+            });
+        }
+    }
+    if o.line_fit_plots {
+        for (j, name) in x_names.iter().enumerate() {
+            let xs = DataRange::col(DataSource::Second, j, x_rows.0, x_rows.1);
+            t.charts.push(OutChart {
+                kind: OutChartKind::Scatter,
+                title: format!("{name} {}", l.t("lineFitPlot")),
+                x_title: Some(name.clone()),
+                y_title: Some(y_name.clone()),
+                series: vec![
+                    OutSeries {
+                        name: y_name.clone(),
+                        cats: Some(xs),
+                        vals: DataRange::col(DataSource::Input, 0, x_rows.0, x_rows.1),
+                        line: false,
+                        secondary: false,
+                    },
+                    OutSeries {
+                        name: format!("{} {y_name}", l.t("predicted")),
+                        cats: Some(xs),
+                        vals: DataRange::col(DataSource::Table, 1, first_obs, last_obs),
+                        line: false,
+                        secondary: false,
+                    },
+                ],
+            });
+        }
+    }
+    if o.normal_plot {
+        // Percentile of the i-th smallest Y: 100·(i − ½)/n (plotting position (i − 0.5)/n).
+        let mut sorted = y.clone();
+        sorted.sort_by(f64::total_cmp);
+        let mut p = Table::default();
+        p.push(vec![l.cell("probabilityOutput")]);
+        p.blank();
+        p.push(vec![l.cell("percentile"), Out::Text(y_name.clone())]);
+        for (i, v) in sorted.iter().enumerate() {
+            p.push(vec![num(100.0 * (i as f64 + 0.5) / nf), num(*v)]);
+        }
+        // Beside the residual output (one blank column between), else in its place.
+        let col = if residual_block {
+            t.rows[block_row..].iter().map(Vec::len).max().unwrap_or(0) + 1
+        } else {
+            t.blank();
+            t.blank();
+            0
+        };
+        let mut below = Table {
+            rows: t.rows.split_off(block_row.min(t.rows.len())),
+            charts: Vec::new(),
+        };
+        below.beside(p, col);
+        t.rows.extend(below.rows);
+        t.charts.push(OutChart {
+            kind: OutChartKind::Scatter,
+            title: l.t("normalPlot"),
+            x_title: Some(l.t("samplePercentile")),
+            y_title: Some(y_name.clone()),
+            series: vec![OutSeries {
+                name: y_name,
+                cats: Some(DataRange::col(DataSource::Table, col, first_obs, last_obs)),
+                vals: DataRange::col(DataSource::Table, col + 1, first_obs, last_obs),
+                line: false,
+                secondary: false,
+            }],
+        });
     }
     Ok(t)
 }

@@ -4,8 +4,12 @@
 use super::cmd::{At, Recalc, Rng};
 use super::{SheetEngine, MAX_COLS, MAX_ROWS};
 use crate::{EngineError, Result};
-use bo_model::sheet::{CellError, CellRange, CellRef, CellValue, Workbook, Worksheet};
-use bo_sheet::analysis::{self, Grid, Item, Out, OutError, Tool};
+use bo_model::sheet::{
+    CellError, CellRange, CellRef, CellValue, Chart, ChartSeries, Workbook, Worksheet,
+};
+use bo_sheet::analysis::{
+    self, DataRange, DataSource, Grid, Item, Out, OutChart, OutChartKind, OutError, Tool,
+};
 use bo_sheet::style::StylePatch;
 use serde_json::{json, Value};
 
@@ -34,6 +38,80 @@ fn overlaps(a: CellRange, b: CellRange) -> bool {
         && b.first.row <= a.last.row
         && a.first.col <= b.last.col
         && b.first.col <= a.last.col
+}
+
+/// Rows and columns a chart of the output covers (about 3 by 4.5 inches at the default size).
+const CHART_ROWS: u32 = 15;
+const CHART_COLS: u32 = 8;
+
+/// Where the ranges a chart of the output refers to lie: the output table, the first and the
+/// second input (sheet index, top-left cell).
+struct Origins {
+    table: (usize, CellRef),
+    input: Option<(usize, CellRef)>,
+    second: Option<(usize, CellRef)>,
+}
+
+/// The chart of an analysis output `oc` (ECMA-376 Part 1, §21.2.2 charts: a §21.2.2.16
+/// barChart with an optional §21.2.2.97 lineChart on the secondary axis, a lineChart or a
+/// §21.2.2.161 scatterChart of markers), anchored at `from`; `None` when a range it needs is
+/// missing.
+fn output_chart(wb: &Workbook, oc: &OutChart, o: &Origins, from: CellRef) -> Option<Chart> {
+    let resolve = |d: &DataRange| -> Option<String> {
+        let (si, at) = match d.source {
+            DataSource::Table => Some(o.table),
+            DataSource::Input => o.input,
+            DataSource::Second => o.second,
+        }?;
+        let cell = |r: usize, c: usize| -> Option<CellRef> {
+            Some(CellRef::new(
+                at.row.checked_add(u32::try_from(r).ok()?)?,
+                at.col.checked_add(u32::try_from(c).ok()?)?,
+            ))
+        };
+        let range = CellRange::new(cell(d.r0, d.c0)?, cell(d.r1, d.c1)?);
+        Some(bo_sheet::cells::abs_ref(&wb.sheets.get(si)?.name, range))
+    };
+    let scatter = oc.kind == OutChartKind::Scatter;
+    let mut main = bo_sheet::chart::plot_for(match oc.kind {
+        OutChartKind::Column => "column",
+        OutChartKind::Line => "line",
+        OutChartKind::Scatter => "scatter",
+    });
+    let mut lines = bo_sheet::chart::plot_for("line");
+    for s in &oc.series {
+        let series = ChartSeries {
+            name: Some(s.name.clone()),
+            cat_ref: match &s.cats {
+                Some(c) => Some(resolve(c)?),
+                None => None,
+            },
+            val_ref: Some(resolve(&s.vals)?),
+            no_line: scatter,
+            ..ChartSeries::default()
+        };
+        if s.line && oc.kind == OutChartKind::Column {
+            lines.secondary |= s.secondary;
+            lines.series.push(series);
+        } else {
+            main.series.push(series);
+        }
+    }
+    let mut plots = vec![main];
+    if !lines.series.is_empty() {
+        plots.push(lines);
+    }
+    Some(Chart {
+        from,
+        to: Some(CellRef::new(from.row + CHART_ROWS, from.col + CHART_COLS)),
+        title: Some(oc.title.clone()),
+        x_title: oc.x_title.clone(),
+        y_title: oc.y_title.clone(),
+        legend: (oc.series.len() > 1).then(|| "r".to_owned()),
+        plots,
+        dirty: true,
+        ..Chart::default()
+    })
 }
 
 /// A sheet name not yet used: `base`, else `base (2)`, `base (3)`, …
@@ -193,7 +271,24 @@ impl SheetEngine {
                 let one = CellRange::new(CellRef::new(r, c), CellRef::new(r, c));
                 bo_sheet::style::apply_patch(wb, ds, one, &patch);
             }
-            Ok(json!({ "sheet": ds, "range": Rng::of(range) }))
+            // Charts of the output, one under the other to the right of the table.
+            let origins = Origins {
+                table: (ds, at),
+                input: first.as_ref().map(|f| (f.0, f.1.first)),
+                second: second.as_ref().map(|f| (f.0, f.1.first)),
+            };
+            let mut charts = 0u32;
+            for oc in &table.charts {
+                let from = CellRef::new(at.row + charts * (CHART_ROWS + 1), at.col + w + 1);
+                if from.row + CHART_ROWS >= MAX_ROWS || from.col + CHART_COLS >= MAX_COLS {
+                    break;
+                }
+                if let Some(chart) = output_chart(wb, oc, &origins, from) {
+                    wb.sheets[ds].charts.push(chart);
+                    charts += 1;
+                }
+            }
+            Ok(json!({ "sheet": ds, "range": Rng::of(range), "charts": charts }))
         })?;
         if new_sheet {
             // A new sheet needs its own geometry slot.
@@ -321,5 +416,84 @@ mod tests {
         assert_eq!(out["range"]["r1"], 2);
         assert_eq!(out["range"]["c1"], 7);
         assert!(matches!(value(&e, 0, 2, 7), CellValue::Number(x) if (0.0..1.0).contains(&x)));
+    }
+
+    #[test]
+    fn chart_outputs_are_real_charts() {
+        let mut e = engine();
+        // A1:A8 data, B1:B2 bins (2, 4): histogram with cumulative % and a chart at D1.
+        for (i, v) in [1, 2, 2, 3, 3, 3, 4, 5].iter().enumerate() {
+            e.set_input(0, i as u32, 0, &v.to_string()).unwrap();
+        }
+        e.set_input(0, 0, 1, "2").unwrap();
+        e.set_input(0, 1, 1, "4").unwrap();
+        let out = run(
+            &mut e,
+            json!({
+                "cmd": "analysis", "sheet": 0, "input": "A1:A8", "input2": "B1:B2",
+                "tool": { "tool": "histogram", "cumulative": true, "chart": true },
+                "dest": { "sheet": 0, "row": 0, "col": 3 },
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["charts"], 1);
+        let wb = e.wb().unwrap();
+        let c = &wb.sheets[0].charts[0];
+        // Table D1:F4 (3 columns): the chart starts one column to its right (H1).
+        assert_eq!(c.from, CellRef::new(0, 7));
+        assert_eq!(c.plots.len(), 2);
+        let freq = &c.plots[0].series[0];
+        assert_eq!(freq.cat_ref.as_deref(), Some("Sheet1!$D$2:$D$4"));
+        assert_eq!(freq.val_ref.as_deref(), Some("Sheet1!$E$2:$E$4"));
+        assert!(c.plots[1].secondary);
+        assert_eq!(
+            c.plots[1].series[0].val_ref.as_deref(),
+            Some("Sheet1!$F$2:$F$4")
+        );
+        // Saving fills the caches from the cells: 3, 4, 1 over the bins 2, 4 and "More".
+        e.save("xlsx", 0).unwrap();
+        let freq = &e.wb().unwrap().sheets[0].charts[0].plots[0].series[0];
+        assert_eq!(freq.values, vec![Some(3.0), Some(4.0), Some(1.0)]);
+        assert_eq!(freq.categories.len(), 3);
+        assert!(e.undo().unwrap());
+        assert!(e.wb().unwrap().sheets[0].charts.is_empty());
+
+        // Regression of A on C (y = 2x + noise) with every plot, on a new sheet.
+        for (i, (x, y)) in [(1, 3.1), (2, 4.9), (3, 7.2), (4, 8.8), (5, 11.1)]
+            .iter()
+            .enumerate()
+        {
+            e.set_input(0, i as u32, 2, &x.to_string()).unwrap();
+            e.set_input(0, i as u32, 0, &y.to_string()).unwrap();
+        }
+        let out = run(
+            &mut e,
+            json!({
+                "cmd": "analysis", "sheet": 0, "input": "A1:A5", "input2": "C1:C5",
+                "tool": { "tool": "regression", "residualPlots": true, "lineFitPlots": true,
+                          "normalPlot": true },
+                "sheetName": "Fit",
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["charts"], 3);
+        let wb = e.wb().unwrap();
+        let ws = &wb.sheets[1];
+        let kinds: Vec<_> = ws.charts.iter().map(|c| c.plots[0].kind.clone()).collect();
+        assert!(kinds
+            .iter()
+            .all(|k| *k == bo_model::sheet::ChartKind::Scatter));
+        // Residual plot: X from the input sheet, residuals from the output; markers only.
+        let res = &ws.charts[0].plots[0].series[0];
+        assert_eq!(res.cat_ref.as_deref(), Some("Sheet1!$C$1:$C$5"));
+        assert!(res.no_line);
+        // Charts stack down the right of the table.
+        assert_eq!(ws.charts[1].from.row, ws.charts[0].from.row + 16);
+        // Saved as standard chart parts.
+        let bytes = e.save("xlsx", 0).unwrap();
+        let back = bo_xlsx::read_xlsx(&bytes).unwrap();
+        assert_eq!(back.sheets[1].charts.len(), 3);
+        assert!(back.sheets[1].charts[0].plots[0].series[0].no_line);
+        assert_eq!(back.sheets[1].charts[0].plots[0].series[0].values.len(), 5);
     }
 }

@@ -2421,6 +2421,10 @@ pub struct ChartSeries {
     /// `c:smooth`: the line is drawn as a smooth curve.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub smooth: bool,
+    /// The series line is not drawn (`c:spPr/a:ln/a:noFill`, ECMA-376 Part 1, §20.1.2.2.24 ln,
+    /// §20.1.8.44 noFill): markers only, as on an XY scatter of points.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_line: bool,
     /// Data labels of this series (`c:ser/c:dLbls`); `None` = the chart's
     /// ([`crate::chart_style::ChartFormat::data_labels`]). A value showing nothing turns them off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2946,6 +2950,11 @@ pub struct PivotFieldOptions {
     pub sort_by: Option<u32>,
     /// Hidden items (`item/@h`), by value.
     pub hidden: Vec<CellValue>,
+    /// `showAll` (§18.10.1.69): the field's items without data (cache items no record of the
+    /// report has, e.g. data model dimension rows without fact rows) are shown too. The
+    /// attribute defaults to true in the file; a new field starts without it, as inserted by
+    /// spreadsheet applications.
+    pub show_all: bool,
 }
 
 impl Default for PivotFieldOptions {
@@ -2958,6 +2967,7 @@ impl Default for PivotFieldOptions {
             sort: PivotSort::Manual,
             sort_by: None,
             hidden: Vec::new(),
+            show_all: false,
         }
     }
 }

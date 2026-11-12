@@ -104,6 +104,64 @@ describe('AnalysisDialog', () => {
     );
   });
 
+  it('patterned numbers take from / to / step / repeats and no count or seed', async () => {
+    const { host } = setup(async () => ({ sheet: 0 }));
+    fireEvent.change(screen.getByTestId('analysis-tool'), { target: { value: 'random' } });
+    fireEvent.change(screen.getByTestId('analysis-dist'), { target: { value: 'patterned' } });
+    expect(screen.queryByTestId('analysis-count')).toBeNull();
+    expect(screen.queryByTestId('analysis-seed')).toBeNull();
+    fireEvent.change(screen.getByTestId('analysis-p2'), { target: { value: '5' } });
+    fireEvent.change(screen.getByTestId('analysis-p3'), { target: { value: '0,5' } });
+    fireEvent.change(screen.getByTestId('analysis-p4'), { target: { value: '2' } });
+    fireEvent.change(screen.getByTestId('analysis-p5'), { target: { value: '3' } });
+    fireEvent.click(screen.getByTestId('analysis-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: expect.objectContaining({
+            tool: 'random',
+            count: 0,
+            dist: { kind: 'patterned', from: 1, to: 5, step: 0.5, repeatEach: 2, repeatSeq: 3 },
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('asks for chart outputs and regression plots', async () => {
+    const { host } = setup(async () => ({ sheet: 1 }));
+    fireEvent.change(screen.getByTestId('analysis-tool'), { target: { value: 'histogram' } });
+    fireEvent.click(screen.getByTestId('analysis-chart'));
+    fireEvent.click(screen.getByTestId('analysis-ok'));
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: { tool: 'histogram', labels: false, pareto: false, cumulative: false, chart: true },
+        }),
+      ),
+    );
+    cleanup();
+    const second = setup(async () => ({ sheet: 1 }));
+    fireEvent.change(screen.getByTestId('analysis-tool'), { target: { value: 'regression' } });
+    fireEvent.change(screen.getByTestId('analysis-input2'), { target: { value: 'C1:C10' } });
+    fireEvent.click(screen.getByTestId('analysis-residualPlots'));
+    fireEvent.click(screen.getByTestId('analysis-lineFitPlots'));
+    fireEvent.click(screen.getByTestId('analysis-normalPlot'));
+    fireEvent.click(screen.getByTestId('analysis-ok'));
+    await waitFor(() =>
+      expect(second.host.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: expect.objectContaining({
+            tool: 'regression',
+            residualPlots: true,
+            lineFitPlots: true,
+            normalPlot: true,
+          }),
+        }),
+      ),
+    );
+  });
+
   it('shows engine and form errors in the dialog', async () => {
     const { host, fail, onClose } = setup(async () => {
       throw new Error('spreadsheet error: analysis: nonNumeric');

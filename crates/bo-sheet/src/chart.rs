@@ -2657,7 +2657,9 @@ fn draw_xy_plain(
                             look.shape(segs, [pl, pt, pr, pb], s.color, out);
                         }
                     } else {
-                        out.push(elements::series_line(s, &pts, line_w));
+                        if !s.opts.no_line {
+                            out.push(elements::series_line(s, &pts, line_w));
+                        }
                         if !elements::own_markers(s, &pts, out) {
                             look.markers(&pts, s.color, out);
                         }

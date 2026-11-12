@@ -1548,6 +1548,7 @@
       "subtotalTop": "Show subtotals at the top of each group (compact, outline)",
       "layoutSection": "Layout & print",
       "repeatLabels": "Repeat item labels",
+      "showAll": "Show items with no data",
       "blankRow": "Insert a blank line after each item",
       "sortSection": "Sort",
       "sortBy": "Sort by",
@@ -1935,6 +1936,7 @@
       "stdErrors": "Standard errors",
       "pareto": "Pareto (sorted histogram)",
       "cumulative": "Cumulative percentage",
+      "chartOutput": "Chart output",
       "variables": "Number of variables",
       "count": "Number of random numbers",
       "distribution": "Distribution",
@@ -1944,6 +1946,7 @@
         "bernoulli": "Bernoulli",
         "binomial": "Binomial",
         "poisson": "Poisson",
+        "patterned": "Patterned",
         "discrete": "Discrete"
       },
       "params": {
@@ -1953,7 +1956,12 @@
         "sd": "Standard deviation",
         "p": "p value",
         "trials": "Number of trials",
-        "lambda": "Lambda"
+        "lambda": "Lambda",
+        "from": "From",
+        "to": "To",
+        "step": "In steps of",
+        "repeatEach": "Repeat each number (times)",
+        "repeatSeq": "Repeat the sequence (times)"
       },
       "seed": "Random seed (optional)",
       "samplingMethod": "Sampling method",
@@ -1965,6 +1973,9 @@
       "confidenceLevel": "Additional confidence level",
       "residuals": "Residuals",
       "stdResiduals": "Standardized residuals",
+      "residualPlots": "Residual plots",
+      "lineFitPlots": "Line fit plots",
+      "normalPlot": "Normal probability plot",
       "inverse": "Inverse",
       "output": "Output options",
       "newSheet": "New worksheet",

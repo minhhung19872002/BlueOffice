@@ -1548,6 +1548,7 @@
       "subtotalTop": "Hiện tổng phụ ở đầu nhóm (bố cục thu gọn, phác thảo)",
       "layoutSection": "Bố cục và in",
       "repeatLabels": "Lặp lại nhãn mục",
+      "showAll": "Hiện mục không có dữ liệu",
       "blankRow": "Chèn dòng trống sau mỗi mục",
       "sortSection": "Sắp xếp",
       "sortBy": "Sắp xếp theo",
@@ -1935,6 +1936,7 @@
       "stdErrors": "Sai số chuẩn",
       "pareto": "Pareto (sắp theo tần số)",
       "cumulative": "Phần trăm tích lũy",
+      "chartOutput": "Xuất biểu đồ",
       "variables": "Số biến",
       "count": "Số lượng số ngẫu nhiên",
       "distribution": "Phân phối",
@@ -1944,6 +1946,7 @@
         "bernoulli": "Bernoulli",
         "binomial": "Nhị thức",
         "poisson": "Poisson",
+        "patterned": "Theo mẫu",
         "discrete": "Rời rạc"
       },
       "params": {
@@ -1953,7 +1956,12 @@
         "sd": "Độ lệch chuẩn",
         "p": "Giá trị p",
         "trials": "Số phép thử",
-        "lambda": "Lambda"
+        "lambda": "Lambda",
+        "from": "Từ",
+        "to": "Đến",
+        "step": "Bước nhảy",
+        "repeatEach": "Lặp mỗi số (lần)",
+        "repeatSeq": "Lặp cả dãy (lần)"
       },
       "seed": "Hạt giống ngẫu nhiên (không bắt buộc)",
       "samplingMethod": "Phương pháp lấy mẫu",
@@ -1965,6 +1973,9 @@
       "confidenceLevel": "Mức tin cậy bổ sung",
       "residuals": "Phần dư",
       "stdResiduals": "Phần dư chuẩn hóa",
+      "residualPlots": "Đồ thị phần dư",
+      "lineFitPlots": "Đồ thị đường khớp",
+      "normalPlot": "Đồ thị xác suất chuẩn",
       "inverse": "Biến đổi ngược",
       "output": "Kết quả",
       "newSheet": "Trang tính mới",

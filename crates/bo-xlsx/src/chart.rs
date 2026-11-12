@@ -533,6 +533,10 @@ fn normalise_series(c: &mut Chart) {
             if !line_like || s.line_w == fmt.line_w {
                 s.line_w = None;
             }
+            // Only line-like series have a line to leave out (stock series always do).
+            if !line_like {
+                s.no_line = false;
+            }
             let auto = match p.kind {
                 ChartKind::Line | ChartKind::Radar if fmt.markers => Some(("circle", Some(6))),
                 ChartKind::Line | ChartKind::Radar => Some(("none", None)),
@@ -737,6 +741,8 @@ fn parse_series(s: &Node) -> ChartSeries {
             .child("ln")
             .and_then(|l| l.attr("w"))
             .and_then(|w| w.trim().parse().ok());
+        // §20.1.8.44 noFill on the line: markers only.
+        out.no_line = sp.child("ln").is_some_and(|l| l.child("noFill").is_some());
     }
     // §21.2.2.106 marker: §21.2.2.174 symbol, size.
     if let Some(m) = s.child("marker") {

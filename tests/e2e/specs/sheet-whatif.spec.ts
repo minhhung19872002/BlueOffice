@@ -100,3 +100,58 @@ test('BlueSheet: Solver maximises a linear model and keeps the solution', async 
   await expect(page.getByTestId('status-sum')).toHaveText('Tổng: 8');
   expect(errors).toEqual([]);
 });
+
+test('BlueSheet: Analysis histogram with chart output, patterned numbers', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/sheet');
+  await expect(page.getByTestId('sheet-canvas')).toHaveAttribute('data-rendered', /\d+/);
+  for (const v of ['1', '2', '2', '3', '3', '3', '4', '5']) {
+    await page.keyboard.type(v);
+    await page.keyboard.press('Enter');
+  }
+  await goTo(page, 'A1:A8');
+  await page.getByRole('tab', { name: 'Dữ liệu' }).click();
+  await page.locator('[data-command="data.analysis"]').click();
+  const dialog = page.getByTestId('analysis-dialog');
+  await expect(dialog).toBeVisible();
+  await page.getByTestId('analysis-tool').selectOption('histogram');
+  await page.getByTestId('analysis-cumulative').check();
+  await page.getByTestId('analysis-chart').check();
+  await page.getByTestId('analysis-ok').click();
+  await expect(dialog).toHaveCount(0);
+  // ⌈√8⌉ = 3 automatic bins from 1 to 5: 1 2 2 | 3 3 3 | 4 5.
+  await goTo(page, 'B2');
+  await expect(page.getByLabel('Thanh công thức')).toHaveValue('3');
+  await goTo(page, 'B4');
+  await expect(page.getByLabel('Thanh công thức')).toHaveValue('2');
+  // The chart sits right of the table (A:C), from E1: clicking inside it selects it.
+  await goTo(page, 'H6');
+  const b = (await page.getByLabel('Ô đang nhập').boundingBox())!;
+  await page.keyboard.press('Escape');
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  await expect(page.getByTestId('chart-selection')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Patterned "random" numbers: 1 to 3 by 1, each twice.
+  await goTo(page, 'A20');
+  await page.getByRole('tab', { name: 'Dữ liệu' }).click();
+  await page.locator('[data-command="data.analysis"]').click();
+  await page.getByTestId('analysis-tool').selectOption('random');
+  await page.getByTestId('analysis-dist').selectOption('patterned');
+  await expect(page.getByTestId('analysis-count')).toHaveCount(0);
+  await page.getByTestId('analysis-p1').fill('1');
+  await page.getByTestId('analysis-p2').fill('3');
+  await page.getByTestId('analysis-p3').fill('1');
+  await page.getByTestId('analysis-p4').fill('2');
+  await page.getByTestId('analysis-p5').fill('1');
+  await page.getByTestId('analysis-ok').click();
+  await expect(page.getByTestId('analysis-dialog')).toHaveCount(0);
+  await goTo(page, 'A1:A6');
+  await expect(page.getByTestId('status-sum')).toHaveText('Tổng: 12');
+  await goTo(page, 'A5');
+  await expect(page.getByLabel('Thanh công thức')).toHaveValue('3');
+  await goTo(page, 'A7');
+  await expect(page.getByLabel('Thanh công thức')).toHaveValue('');
+  expect(errors).toEqual([]);
+});

@@ -176,6 +176,9 @@ fn series(out: &mut String, p: &ChartPlot, s: &ChartSeries, idx: usize, fmt: &Ch
     if *kind == ChartKind::Stock {
         // Stock series draw only their high–low lines and ticks (§21.2.2.198).
         out.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr><c:marker><c:symbol val=\"none\"/></c:marker>");
+    } else if line_like && s.no_line {
+        // Markers only: §20.1.2.2.24 ln with §20.1.8.44 noFill.
+        out.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>");
     } else if !pie {
         out.push_str(&cf::series_sp_pr_w(&color, fmt, line_like, s.line_w));
     }

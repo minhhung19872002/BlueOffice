@@ -41,7 +41,15 @@ export const ANALYSIS_TOOL_IDS = [
 ] as const;
 export type AnalysisToolId = (typeof ANALYSIS_TOOL_IDS)[number];
 
-const DISTS = ['uniform', 'normal', 'bernoulli', 'binomial', 'poisson', 'discrete'] as const;
+const DISTS = [
+  'uniform',
+  'normal',
+  'bernoulli',
+  'binomial',
+  'poisson',
+  'patterned',
+  'discrete',
+] as const;
 type DistKind = (typeof DISTS)[number];
 
 const TWO_SAMPLE: AnalysisToolId[] = [
@@ -88,6 +96,8 @@ export interface AnalysisForm {
   stdErrors: boolean;
   pareto: boolean;
   cumulative: boolean;
+  /** Chart output (histogram, exponential smoothing, moving average). */
+  chart: boolean;
   rowsPerSample: string;
   columns: string;
   count: string;
@@ -95,12 +105,19 @@ export interface AnalysisForm {
   dist: DistKind;
   p1: string;
   p2: string;
+  /** Patterned distribution: step, times each value, times the sequence. */
+  p3: string;
+  p4: string;
+  p5: string;
   sampling: 'periodic' | 'random';
   period: string;
   constant: boolean;
   regConfidence: boolean;
   residuals: boolean;
   stdResiduals: boolean;
+  residualPlots: boolean;
+  lineFitPlots: boolean;
+  normalPlot: boolean;
   inverse: boolean;
 }
 
@@ -111,6 +128,7 @@ const DIST_DEFAULTS: Record<DistKind, [string, string]> = {
   bernoulli: ['0.5', ''],
   binomial: ['0.5', '10'],
   poisson: ['1', ''],
+  patterned: ['1', '10'],
   discrete: ['', ''],
 };
 
@@ -121,8 +139,12 @@ const DIST_PARAMS: Record<DistKind, string[]> = {
   bernoulli: ['p'],
   binomial: ['p', 'trials'],
   poisson: ['lambda'],
+  patterned: ['from', 'to', 'step', 'repeatEach', 'repeatSeq'],
   discrete: [],
 };
+
+/** Form fields holding the distribution parameters, in order. */
+const PARAM_FIELDS = ['p1', 'p2', 'p3', 'p4', 'p5'] as const;
 
 const seedOf = (s: string): number =>
   s.trim() === '' ? Math.floor(Math.random() * 2 ** 31) : Math.trunc(num(s));
@@ -141,6 +163,15 @@ function dist(f: AnalysisForm): AnalysisRandomDist {
       return { kind: 'binomial', p: a, trials: Math.trunc(b) };
     case 'poisson':
       return { kind: 'poisson', lambda: a };
+    case 'patterned':
+      return {
+        kind: 'patterned',
+        from: a,
+        to: b,
+        step: num(f.p3),
+        repeatEach: Math.trunc(num(f.p4)),
+        repeatSeq: Math.trunc(num(f.p5)),
+      };
     case 'discrete':
       return { kind: 'discrete' };
   }
@@ -201,6 +232,7 @@ export function toolSpec(f: AnalysisForm): AnalysisTool | null {
         labels: f.labels,
         damping: num(f.damping),
         stdErrors: f.stdErrors,
+        chart: f.chart,
       };
       break;
     case 'movingAverage':
@@ -209,16 +241,24 @@ export function toolSpec(f: AnalysisForm): AnalysisTool | null {
         labels: f.labels,
         interval: Math.trunc(num(f.interval)),
         stdErrors: f.stdErrors,
+        chart: f.chart,
       };
       break;
     case 'histogram':
-      spec = { tool: 'histogram', labels: f.labels, pareto: f.pareto, cumulative: f.cumulative };
+      spec = {
+        tool: 'histogram',
+        labels: f.labels,
+        pareto: f.pareto,
+        cumulative: f.cumulative,
+        chart: f.chart,
+      };
       break;
     case 'random':
       spec = {
         tool: 'random',
         columns: Math.trunc(num(f.columns)),
-        count: Math.trunc(num(f.count)),
+        // A pattern is written whole (the count does not apply).
+        count: f.dist === 'patterned' ? 0 : Math.trunc(num(f.count)),
         seed: seedOf(f.seed),
         dist: dist(f),
       };
@@ -242,6 +282,9 @@ export function toolSpec(f: AnalysisForm): AnalysisTool | null {
         confidence: f.regConfidence ? num(f.confidence) / 100 : 0.95,
         residuals: f.residuals,
         stdResiduals: f.stdResiduals,
+        residualPlots: f.residualPlots,
+        lineFitPlots: f.lineFitPlots,
+        normalPlot: f.normalPlot,
       };
       break;
     case 'fourier':
@@ -316,6 +359,7 @@ export function AnalysisDialog({
     stdErrors: false,
     pareto: false,
     cumulative: false,
+    chart: false,
     rowsPerSample: '2',
     columns: '1',
     count: '10',
@@ -323,12 +367,18 @@ export function AnalysisDialog({
     dist: 'uniform',
     p1: '0',
     p2: '1',
+    p3: '1',
+    p4: '1',
+    p5: '1',
     sampling: 'periodic',
     period: '2',
     constant: true,
     regConfidence: false,
     residuals: false,
     stdResiduals: false,
+    residualPlots: false,
+    lineFitPlots: false,
+    normalPlot: false,
     inverse: false,
   });
   const [output, setOutput] = useState<'newSheet' | 'cell'>('newSheet');
@@ -488,10 +538,12 @@ export function AnalysisDialog({
             {check('cumulative', tl('cumulative'))}
           </>
         )}
+        {(tool === 'histogram' || tool === 'expSmoothing' || tool === 'movingAverage') &&
+          check('chart', tl('chartOutput'))}
         {tool === 'random' && (
           <>
             {text('columns', tl('variables'))}
-            {text('count', tl('count'))}
+            {f.dist !== 'patterned' && text('count', tl('count'))}
             <label>
               {tl('distribution')}
               <select
@@ -500,7 +552,7 @@ export function AnalysisDialog({
                 onChange={(e) => {
                   const d = e.target.value as DistKind;
                   const [p1, p2] = DIST_DEFAULTS[d];
-                  setF((old) => ({ ...old, dist: d, p1, p2 }));
+                  setF((old) => ({ ...old, dist: d, p1, p2, p3: '1', p4: '1', p5: '1' }));
                 }}
               >
                 {DISTS.map((d) => (
@@ -511,9 +563,9 @@ export function AnalysisDialog({
               </select>
             </label>
             {DIST_PARAMS[f.dist].map((p, i) =>
-              text(i === 0 ? 'p1' : 'p2', t(`sheetEditor.analysis.params.${p}`)),
+              text(PARAM_FIELDS[i] ?? 'p1', t(`sheetEditor.analysis.params.${p}`)),
             )}
-            {text('seed', tl('seed'))}
+            {f.dist !== 'patterned' && text('seed', tl('seed'))}
           </>
         )}
         {tool === 'sampling' && (
@@ -542,6 +594,9 @@ export function AnalysisDialog({
             {f.regConfidence && text('confidence', tl('confidence'))}
             {check('residuals', tl('residuals'))}
             {check('stdResiduals', tl('stdResiduals'))}
+            {check('residualPlots', tl('residualPlots'))}
+            {check('lineFitPlots', tl('lineFitPlots'))}
+            {check('normalPlot', tl('normalPlot'))}
           </>
         )}
         {tool === 'fourier' && check('inverse', tl('inverse'))}

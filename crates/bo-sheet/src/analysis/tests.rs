@@ -566,6 +566,7 @@ fn exponential_smoothing() {
             labels: false,
             damping: 0.5,
             std_errors: true,
+            chart: false,
         },
         &g,
         None,
@@ -585,7 +586,8 @@ fn exponential_smoothing() {
             &Tool::ExpSmoothing {
                 labels: false,
                 damping: 1.5,
-                std_errors: false
+                std_errors: false,
+                chart: false,
             },
             &g,
             None,
@@ -608,6 +610,7 @@ fn moving_average() {
             labels: true,
             interval: 3,
             std_errors: true,
+            chart: false,
         },
         &g,
         None,
@@ -634,6 +637,7 @@ fn histogram_bins() {
             labels: false,
             pareto: true,
             cumulative: true,
+            chart: false,
         },
         &data,
         Some(&bins),
@@ -662,6 +666,7 @@ fn histogram_bins() {
             labels: false,
             pareto: false,
             cumulative: false,
+            chart: false,
         },
         &grid(&[&[1.0, 2.0, 3.0, 4.0]]),
         None,
@@ -837,6 +842,9 @@ fn regression_anscombe() {
         confidence: 0.90,
         residuals: true,
         std_residuals: true,
+        residual_plots: false,
+        line_fit_plots: false,
+        normal_plot: false,
     };
     let t = run_en(&tool, &grid(&[&y]), Some(&grid(&[&x])));
     assert_eq!(t.rows[0], vec![txt("Regression results")]);
@@ -922,6 +930,9 @@ fn regression_exact_two_variables() {
         confidence: 0.95,
         residuals: false,
         std_residuals: false,
+        residual_plots: false,
+        line_fit_plots: false,
+        normal_plot: false,
     };
     let t = run_en(&tool, &yg, Some(&xg));
     close(n(&row(&t, "Intercept")[1]), 1.0, 1e-9);
@@ -935,6 +946,9 @@ fn regression_exact_two_variables() {
         confidence: 0.95,
         residuals: false,
         std_residuals: false,
+        residual_plots: false,
+        line_fit_plots: false,
+        normal_plot: false,
     };
     let t = run_en(&none, &yg, Some(&xg));
     let b0 = row(&t, "Intercept");
@@ -1028,5 +1042,218 @@ fn tool_json() {
             labels: false,
             alpha: 0.05
         }
+    );
+}
+
+#[test]
+fn random_patterned() {
+    // hand: 1 to 3 step 1, each value twice, the sequence twice:
+    // 1 1 2 2 3 3 1 1 2 2 3 3, the same in both columns.
+    let tool = |count, dist| Tool::Random {
+        columns: 2,
+        count,
+        seed: None,
+        dist,
+    };
+    let p = RandomDist::Patterned {
+        from: 1.0,
+        to: 3.0,
+        step: 1.0,
+        repeat_each: 2,
+        repeat_seq: 2,
+    };
+    let t = run_en(&tool(0, p.clone()), &Grid::new(), None);
+    let col = |t: &Table, c: usize| t.rows.iter().map(|r| n(&r[c])).collect::<Vec<_>>();
+    let want = vec![1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0];
+    assert_eq!(col(&t, 0), want);
+    assert_eq!(col(&t, 1), want);
+    // A count cuts the pattern (or cycles it).
+    assert_eq!(
+        col(&run_en(&tool(3, p.clone()), &Grid::new(), None), 0),
+        vec![1.0, 1.0, 2.0]
+    );
+    // hand: 0 to 0.3 step 0.1 gives exactly 0, 0.1, 0.2, 0.3 (no 0.30000000000000004); counting
+    // down 5 to 1 step −2 gives 5, 3, 1; a bound off the grid stops before it (0..1 step 0.4).
+    let pat = |from, to, step| RandomDist::Patterned {
+        from,
+        to,
+        step,
+        repeat_each: 1,
+        repeat_seq: 1,
+    };
+    let seq = |d| col(&run_en(&tool(0, d), &Grid::new(), None), 0);
+    assert_eq!(seq(pat(0.0, 0.3, 0.1)), vec![0.0, 0.1, 0.2, 0.3]);
+    assert_eq!(seq(pat(5.0, 1.0, -2.0)), vec![5.0, 3.0, 1.0]);
+    assert_eq!(seq(pat(0.0, 1.0, 0.4)), vec![0.0, 0.4, 0.8]);
+    // The step must lead from `from` to `to`.
+    assert_eq!(
+        run(&tool(0, pat(1.0, 3.0, -1.0)), &Grid::new(), None, false).unwrap_err(),
+        AnalysisError::Param
+    );
+    // No input range is read.
+    assert!(!tool(0, p).uses_input());
+}
+
+#[test]
+fn histogram_chart_output() {
+    // Bins ≤2, (2, 4], More (rows 1..=3): a column chart of the frequencies, the cumulative
+    // percentage as a line on the secondary axis; with Pareto the sorted table is charted.
+    let data = grid(&[&[1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 5.0]]);
+    let bins = grid(&[&[4.0, 2.0]]);
+    let tool = |pareto| Tool::Histogram {
+        labels: false,
+        pareto,
+        cumulative: true,
+        chart: true,
+    };
+    let t = run_en(&tool(false), &data, Some(&bins));
+    assert_eq!(t.charts.len(), 1);
+    let c = &t.charts[0];
+    assert_eq!(c.kind, OutChartKind::Column);
+    assert_eq!(c.title, "Histogram");
+    assert_eq!(c.x_title.as_deref(), Some("Bin"));
+    assert_eq!(c.series.len(), 2);
+    assert_eq!(
+        c.series[0].cats,
+        Some(DataRange::col(DataSource::Table, 0, 1, 3))
+    );
+    assert_eq!(c.series[0].vals, DataRange::col(DataSource::Table, 1, 1, 3));
+    assert!(!c.series[0].line);
+    assert_eq!(c.series[1].vals, DataRange::col(DataSource::Table, 2, 1, 3));
+    assert!(c.series[1].line && c.series[1].secondary);
+    let p = run_en(&tool(true), &data, Some(&bins));
+    assert_eq!(
+        p.charts[0].series[0].cats,
+        Some(DataRange::col(DataSource::Table, 3, 1, 3))
+    );
+    // No chart unless asked.
+    let none = Tool::Histogram {
+        labels: false,
+        pareto: false,
+        cumulative: false,
+        chart: false,
+    };
+    assert!(run_en(&none, &data, Some(&bins)).charts.is_empty());
+}
+
+#[test]
+fn forecast_chart_output() {
+    // Moving average of a labelled column: "Actual" = the input below its label, "Forecast" =
+    // the first output column below its header.
+    let g: Grid = std::iter::once(vec![text("Sales")])
+        .chain((1..=5).map(|i| vec![Item::Num(f64::from(i))]))
+        .collect();
+    let t = run_en(
+        &Tool::MovingAverage {
+            labels: true,
+            interval: 3,
+            std_errors: false,
+            chart: true,
+        },
+        &g,
+        None,
+    );
+    let c = &t.charts[0];
+    assert_eq!(c.kind, OutChartKind::Line);
+    assert_eq!(c.title, "Moving Average");
+    assert_eq!(c.series[0].name, "Actual");
+    assert_eq!(c.series[0].vals, DataRange::col(DataSource::Input, 0, 1, 5));
+    assert_eq!(c.series[1].name, "Forecast");
+    assert_eq!(c.series[1].vals, DataRange::col(DataSource::Table, 0, 1, 5));
+    // A row of values (no labels) is read along the row.
+    let r = run_en(
+        &Tool::ExpSmoothing {
+            labels: false,
+            damping: 0.5,
+            std_errors: false,
+            chart: true,
+        },
+        &rows(&[&[10.0, 20.0, 30.0, 40.0]]),
+        None,
+    );
+    assert_eq!(
+        r.charts[0].series[0].vals,
+        DataRange::row(DataSource::Input, 0, 0, 3)
+    );
+}
+
+#[test]
+fn regression_plots() {
+    // Anscombe (1973) data set I with residual, line fit and normal probability plots: the
+    // residual output comes along (residual plots need it), the probability output sits beside
+    // it after one blank column; percentiles are 100·(i − ½)/11.
+    let x = [10.0, 8.0, 13.0, 9.0, 11.0, 14.0, 6.0, 4.0, 12.0, 7.0, 5.0];
+    let y = [
+        8.04, 6.95, 7.58, 8.81, 8.33, 9.96, 7.24, 4.26, 10.84, 4.82, 5.68,
+    ];
+    let tool = |plots: bool| Tool::Regression {
+        labels: false,
+        constant: true,
+        confidence: 0.95,
+        residuals: false,
+        std_residuals: false,
+        residual_plots: plots,
+        line_fit_plots: plots,
+        normal_plot: true,
+    };
+    let t = run_en(&tool(true), &grid(&[&y]), Some(&grid(&[&x])));
+    let head = t
+        .rows
+        .iter()
+        .position(|r| r.first() == Some(&txt("Observation")))
+        .expect("residual output");
+    assert_eq!(t.rows[head - 2][0], txt("Residuals by observation"));
+    assert_eq!(t.rows[head - 2][4], txt("Probability output"));
+    assert_eq!(t.rows[head][4..6], [txt("Percentile"), txt("Y")]);
+    close(n(&t.rows[head + 1][4]), 100.0 * 0.5 / 11.0, 1e-12);
+    close(n(&t.rows[head + 1][5]), 4.26, 1e-12);
+    close(n(&t.rows[head + 11][4]), 100.0 * 10.5 / 11.0, 1e-12);
+    close(n(&t.rows[head + 11][5]), 10.84, 1e-12);
+    assert_eq!(t.charts.len(), 3);
+    let (first, last) = (head + 1, head + 11);
+    let res = &t.charts[0];
+    assert_eq!(res.kind, OutChartKind::Scatter);
+    assert_eq!(res.title, "X 1 Residual Plot");
+    assert_eq!(
+        res.series[0].cats,
+        Some(DataRange::col(DataSource::Second, 0, 0, 10))
+    );
+    assert_eq!(
+        res.series[0].vals,
+        DataRange::col(DataSource::Table, 2, first, last)
+    );
+    let fit = &t.charts[1];
+    assert_eq!(fit.title, "X 1 Line Fit Plot");
+    assert_eq!(
+        fit.series[0].vals,
+        DataRange::col(DataSource::Input, 0, 0, 10)
+    );
+    assert_eq!(fit.series[1].name, "Predicted Y");
+    assert_eq!(
+        fit.series[1].vals,
+        DataRange::col(DataSource::Table, 1, first, last)
+    );
+    let normal = &t.charts[2];
+    assert_eq!(normal.title, "Normal Probability Plot");
+    assert_eq!(
+        normal.series[0].cats,
+        Some(DataRange::col(DataSource::Table, 4, first, last))
+    );
+    assert_eq!(
+        normal.series[0].vals,
+        DataRange::col(DataSource::Table, 5, first, last)
+    );
+    // The probability output alone takes the residual output's place.
+    let t = run_en(&tool(false), &grid(&[&y]), Some(&grid(&[&x])));
+    let head = t
+        .rows
+        .iter()
+        .position(|r| r.first() == Some(&txt("Percentile")))
+        .expect("probability output");
+    assert_eq!(t.rows[head - 2][0], txt("Probability output"));
+    assert_eq!(t.charts.len(), 1);
+    assert_eq!(
+        t.charts[0].series[0].cats,
+        Some(DataRange::col(DataSource::Table, 0, head + 1, head + 11))
     );
 }

@@ -494,6 +494,8 @@ export interface PivotFieldOptions {
   subtotalTop: boolean;
   blankRow: boolean;
   repeatLabels: boolean;
+  /** Show the items without data (`showAll`; data model dimension rows without fact rows). */
+  showAll?: boolean;
   sort: PivotSort;
   /** Sort by this value field (index) instead of by label. */
   sortBy: number | null;
@@ -1430,6 +1432,15 @@ export type AnalysisRandomDist =
   | { kind: 'bernoulli'; p: number }
   | { kind: 'binomial'; p: number; trials: number }
   | { kind: 'poisson'; lambda: number }
+  /** Not random: `from` to `to` by `step`, each value `repeatEach` times, the run `repeatSeq` times. */
+  | {
+      kind: 'patterned';
+      from: number;
+      to: number;
+      step: number;
+      repeatEach?: number;
+      repeatSeq?: number;
+    }
   | { kind: 'discrete' };
 
 /** An analysis tool with its options (`bo_sheet::analysis::Tool`). */
@@ -1461,9 +1472,29 @@ export type AnalysisTool =
       varA: number;
       varB: number;
     }
-  | { tool: 'expSmoothing'; labels?: boolean; damping?: number; stdErrors?: boolean }
-  | { tool: 'movingAverage'; labels?: boolean; interval?: number; stdErrors?: boolean }
-  | { tool: 'histogram'; labels?: boolean; pareto?: boolean; cumulative?: boolean }
+  | {
+      tool: 'expSmoothing';
+      labels?: boolean;
+      damping?: number;
+      stdErrors?: boolean;
+      /** Line chart of the actual values and the forecast. */
+      chart?: boolean;
+    }
+  | {
+      tool: 'movingAverage';
+      labels?: boolean;
+      interval?: number;
+      stdErrors?: boolean;
+      chart?: boolean;
+    }
+  | {
+      tool: 'histogram';
+      labels?: boolean;
+      pareto?: boolean;
+      cumulative?: boolean;
+      /** Column chart of the frequencies (cumulative % as a line on the secondary axis). */
+      chart?: boolean;
+    }
   | {
       tool: 'random';
       columns: number;
@@ -1484,6 +1515,12 @@ export type AnalysisTool =
       confidence?: number;
       residuals?: boolean;
       stdResiduals?: boolean;
+      /** Residual plot per X variable (brings the residual output). */
+      residualPlots?: boolean;
+      /** Line fit plot per X variable (brings the residual output). */
+      lineFitPlots?: boolean;
+      /** Probability output and normal probability plot. */
+      normalPlot?: boolean;
     }
   | { tool: 'fourier'; labels?: boolean; inverse?: boolean };
 

@@ -28,6 +28,8 @@ pub(crate) struct SerOpts {
     pub marker: Option<Marker>,
     /// smooth.
     pub smooth: bool,
+    /// No series line (markers only).
+    pub no_line: bool,
     /// Data labels of the series; `None` = the chart's.
     pub labels: Option<DataLabels>,
     /// Data labels of single points.
@@ -42,6 +44,7 @@ impl SerOpts {
                 .map(|w| (f64::from(w) / 12_700.0).clamp(0.25, 12.0)),
             marker: s.marker.clone(),
             smooth: s.smooth,
+            no_line: s.no_line,
             labels: s.labels.clone(),
             point_labels: s.point_labels.clone(),
         }

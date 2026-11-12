@@ -89,6 +89,8 @@ import {
   taskPaneInsets,
   useTaskPaneLayout,
   useRememberOpenTaskPanes,
+  activateTaskPane,
+  taskPaneDock,
   reopenedTaskPanes,
   type TaskPaneDef,
   type RibbonTab,
@@ -692,6 +694,26 @@ function EditorInner({
   const [searchOpen, setSearchOpen] = useState(false);
   // Task pane layout of BlueDoc, remembered per app (CORE-UI-006).
   const [paneLayout, setPaneLayout] = useTaskPaneLayout('doc', platform.preferences);
+  const paneLayoutRef = useRef(paneLayout);
+  useEffect(() => {
+    paneLayoutRef.current = paneLayout;
+  }, [paneLayout]);
+  /**
+   * The command of a pane: a pane that is open but behind another tab of its dock comes to
+   * the front (as a shortcut does in the reference app); otherwise the pane opens or closes.
+   */
+  const togglePaneShown = useCallback(
+    (panes: DocTaskPane[], id: DocTaskPane): DocTaskPane[] => {
+      const layout = paneLayoutRef.current;
+      const dock = taskPaneDock(layout, { id });
+      if (panes.includes(id) && dock !== 'float' && layout.active[dock] !== id) {
+        setPaneLayout(activateTaskPane(layout, dock, id));
+        return panes;
+      }
+      return togglePane(panes, id);
+    },
+    [setPaneLayout],
+  );
   // The panes left open last time come back (CORE-UI-006); contextual ones (chart format,
   // thesaurus, BlueAI, add-ins, version history of a hosted file) are not remembered.
   const navRemembered = !!state.navPane;
@@ -2706,7 +2728,7 @@ function EditorInner({
       id: 'review.versions',
       isEnabled: hasDoc,
       isChecked: (s) => s.taskPanes.includes('versions'),
-      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'versions') }),
+      run: (s) => store.setState({ taskPanes: togglePaneShown(s.taskPanes, 'versions') }),
     });
     r.register({
       id: 'review.checkAdminFormat',
@@ -3135,21 +3157,21 @@ function EditorInner({
       shortcut: 'Ctrl+Alt+Shift+S',
       isEnabled: hasDoc,
       isChecked: (s) => s.taskPanes.includes('styles'),
-      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'styles') }),
+      run: (s) => store.setState({ taskPanes: togglePaneShown(s.taskPanes, 'styles') }),
     });
     // Style management (DOC-STYLE-001).
     r.register({
       id: 'view.styleInspector',
       isEnabled: hasDoc,
       isChecked: (s) => s.taskPanes.includes('styleInspector'),
-      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'styleInspector') }),
+      run: (s) => store.setState({ taskPanes: togglePaneShown(s.taskPanes, 'styleInspector') }),
     });
     r.register({
       id: 'view.revealFormatting',
       shortcut: 'Shift+F1',
       isEnabled: hasDoc,
       isChecked: (s) => s.taskPanes.includes('revealFormatting'),
-      run: (s) => store.setState({ taskPanes: togglePane(s.taskPanes, 'revealFormatting') }),
+      run: (s) => store.setState({ taskPanes: togglePaneShown(s.taskPanes, 'revealFormatting') }),
     });
     for (const [id, kind] of [
       ['view.newStyle', 'newStyle'],
@@ -3427,6 +3449,7 @@ function EditorInner({
     return r;
   }, [
     showMacros,
+    togglePaneShown,
     platform,
     store,
     activeView,

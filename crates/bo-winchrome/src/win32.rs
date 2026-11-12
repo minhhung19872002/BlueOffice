@@ -17,13 +17,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnableMenuItem, GetClientRect, GetSystemMenu,
     IsWindow, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetCursor,
     SetLayeredWindowAttributes, SetMenuDefaultItem, SetWindowPos, TrackPopupMenu, HTMAXBUTTON,
-    HWND_TOP, IDC_ARROW, LWA_ALPHA, MA_NOACTIVATE, MF_BYCOMMAND, MF_ENABLED, MF_GRAYED,
-    SC_CLOSE, SC_MAXIMIZE, SC_MINIMIZE, SC_MOVE, SC_RESTORE, SC_SIZE, SWP_HIDEWINDOW,
-    SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    WM_MOUSEACTIVATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN,
-    WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCRBUTTONUP, WM_SETCURSOR, WM_SYSCOMMAND,
-    WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_NOREDIRECTIONBITMAP,
+    HWND_TOP, IDC_ARROW, LWA_ALPHA, MA_NOACTIVATE, MF_BYCOMMAND, MF_ENABLED, MF_GRAYED, SC_CLOSE,
+    SC_MAXIMIZE, SC_MINIMIZE, SC_MOVE, SC_RESTORE, SC_SIZE, SWP_HIDEWINDOW, SWP_NOACTIVATE,
+    SWP_NOOWNERZORDER, SWP_SHOWWINDOW, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_MOUSEACTIVATE,
+    WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP,
+    WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCRBUTTONUP, WM_SETCURSOR, WM_SYSCOMMAND, WNDCLASSEXW,
+    WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
 };
 
 /// Hover / press state of the native maximise button, mirrored by the web button.
@@ -240,16 +239,13 @@ fn create_overlay(parent: isize, on_state: StateCallback) -> Result<isize, Strin
     // SAFETY: `h` was just created; full opacity keeps it hit-testable.
     unsafe { SetLayeredWindowAttributes(h, 0, 255, LWA_ALPHA) };
     let id = h as isize;
-    OVERLAYS
-        .lock()
-        .map_err(|e| e.to_string())?
-        .push(Overlay {
-            parent,
-            hwnd: id,
-            state: ButtonState::default(),
-            tracking: false,
-            on_state,
-        });
+    OVERLAYS.lock().map_err(|e| e.to_string())?.push(Overlay {
+        parent,
+        hwnd: id,
+        state: ButtonState::default(),
+        tracking: false,
+        on_state,
+    });
     Ok(id)
 }
 
@@ -296,11 +292,10 @@ pub fn set_maximize_button(
 
 /// Destroys the overlay of `parent` (if any).
 pub fn release(parent: isize) {
-    let found = OVERLAYS.lock().ok().and_then(|l| {
-        l.iter()
-            .find(|o| o.parent == parent)
-            .map(|o| o.hwnd)
-    });
+    let found = OVERLAYS
+        .lock()
+        .ok()
+        .and_then(|l| l.iter().find(|o| o.parent == parent).map(|o| o.hwnd));
     if let Some(h) = found {
         // SAFETY: destroys our own child window (WM_NCDESTROY removes its entry).
         unsafe { DestroyWindow(hwnd(h)) };
@@ -328,7 +323,11 @@ fn show_system_menu_at_screen(parent: isize, x: i32, y: i32) {
         }
         let zoomed = IsZoomed(w) != 0;
         let set = |id: u32, on: bool| {
-            EnableMenuItem(menu, id, MF_BYCOMMAND | if on { MF_ENABLED } else { MF_GRAYED });
+            EnableMenuItem(
+                menu,
+                id,
+                MF_BYCOMMAND | if on { MF_ENABLED } else { MF_GRAYED },
+            );
         };
         set(SC_RESTORE, zoomed);
         set(SC_MOVE, !zoomed);

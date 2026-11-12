@@ -169,7 +169,10 @@ mod tests {
             None
         );
         // Entirely outside the client area.
-        assert_eq!(to_physical(css(200.0, 0.0, 46.0, 40.0), 1.0, (100, 100)), None);
+        assert_eq!(
+            to_physical(css(200.0, 0.0, 46.0, 40.0), 1.0, (100, 100)),
+            None
+        );
         assert_eq!(to_physical(r, 1.0, (0, 0)), None);
     }
 

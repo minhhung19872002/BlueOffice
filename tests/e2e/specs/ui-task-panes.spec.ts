@@ -94,16 +94,22 @@ test('BlueDoc styles pane: apply, float, dock back, tabs, keyboard, remembered',
   await page.keyboard.insertText(' tiếp');
   await expect(page.getByTestId('status-words')).toHaveText('3 từ');
 
-  // Reload: the pane opens where it was left, with its width.
+  // Reload: the panes left open come back where they were, with the dock's width.
   await page.reload();
   await page.getByTestId('new-document').click();
   await expect(page.getByTestId('caret')).toBeVisible();
-  await viewTab(page);
-  await cmd(page, 'view.stylesPane').click();
   const again = page.getByTestId('taskpane-dock-left');
   await expect(again).toHaveAttribute('data-active', 'styles');
+  await expect(again.getByRole('tab')).toHaveCount(2);
   await expect(again.getByTestId('taskpane-splitter-left')).toHaveAttribute('aria-valuenow', '364');
   await again.getByTestId('taskpane-close').click();
+  await expect(again).toHaveAttribute('data-active', 'navigation');
+  await again.getByTestId('navigation-close').click();
+  await expect(page.getByTestId('taskpane-dock-left')).toHaveCount(0);
+  // Closed panes stay closed after the next reload.
+  await page.reload();
+  await page.getByTestId('new-document').click();
+  await expect(page.getByTestId('caret')).toBeVisible();
   await expect(page.getByTestId('taskpane-dock-left')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -119,11 +125,22 @@ test('BlueSheet comments and BlueSlide selection panes use the shared host', asy
   await expect(sheetDock.getByTestId('comment-threads')).toBeVisible();
   await sheetDock.getByTestId('taskpane-to-float').click();
   await expect(page.getByTestId('taskpane-float-comments')).toBeVisible();
+  // The floating window moves with the keyboard too (arrows; Shift+arrows resize).
+  const floatWin = page.getByTestId('taskpane-float-comments');
+  const b0 = (await floatWin.boundingBox())!;
+  await floatWin.getByTestId('taskpane-move').focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Shift+ArrowDown');
+  const b1 = (await floatWin.boundingBox())!;
+  expect(Math.round(b1.x)).toBe(Math.round(b0.x) - 32);
+  expect(Math.round(b1.height)).toBe(Math.round(b0.height) + 16);
+  // Reload: the pane was left open, so it comes back, floating where it was.
   await page.reload();
   await expect(page.getByTestId('sheet-canvas')).toHaveAttribute('data-rendered', /\d+/);
-  await page.getByRole('tab', { name: 'Chèn', exact: true }).click();
-  await cmd(page, 'review.comments').click();
   await expect(page.getByTestId('taskpane-float-comments')).toBeVisible();
+  const b2 = (await page.getByTestId('taskpane-float-comments').boundingBox())!;
+  expect(Math.round(b2.x)).toBe(Math.round(b1.x));
 
   await page.goto('/slide');
   const chooser = page.waitForEvent('filechooser');

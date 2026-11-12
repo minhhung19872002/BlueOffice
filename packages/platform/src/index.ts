@@ -31,6 +31,7 @@ export {
   BrowserClipboard,
   FileAccessStorage,
   IndexedDbCache,
+  LocalPreferences,
   LocalRecentFiles,
   mimeFor,
   shouldCheckForUpdates,

@@ -109,8 +109,9 @@ export function MiniToolbar({ x, y, items, label, onClose }: MiniToolbarProps) {
       data-testid="mini-toolbar"
       style={{ left: pos.left, top: pos.top, opacity }}
       onMouseDown={(e) => {
-        // Keep the caret / IME focus in the document (inputs inside still focus).
-        if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+        // Keep the caret / IME focus in the document (inputs and drop-downs inside still focus).
+        if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement))
+          e.preventDefault();
       }}
     >
       {items.map((i) =>

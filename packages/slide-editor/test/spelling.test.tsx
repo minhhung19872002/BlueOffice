@@ -150,6 +150,7 @@ describe('BlueSlide spelling', () => {
           width={960}
           marks={[{ from: [100, 200], to: [180, 200], h: 24, id: 2 }]}
           onChanged={() => {}}
+          menuTail={() => [{ id: 'edit.copy', label: 'Copy', onSelect: () => {} }]}
         />
       </div>,
     );
@@ -173,6 +174,17 @@ describe('BlueSlide spelling', () => {
     fireEvent.contextMenu(box.current!, { clientX: 140, clientY: 190 });
     const menu = await screen.findByTestId('spell-menu');
     expect(sent).toContainEqual({ cmd: 'slideSpellAt', slide: 0, x: 140, y: 190 });
+    // The shared context menu (CORE-UI-003): corrections first, then the text commands.
+    expect(menu.getAttribute('role')).toBe('menu');
+    const cmds = [...menu.querySelectorAll('[data-menu-command]')].map((b) =>
+      b.getAttribute('data-menu-command'),
+    );
+    expect(cmds).toEqual([
+      'spell.pick.document',
+      'spell.ignoreAll',
+      'spell.addToDictionary',
+      'edit.copy',
+    ]);
     fireEvent.click(menu.querySelector('button')!);
     await waitFor(() =>
       expect(sent).toContainEqual({

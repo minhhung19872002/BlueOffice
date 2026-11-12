@@ -159,6 +159,8 @@ export { objectPlatform, objectToolsLabels, registerObjectCommands } from './obj
 // Spelling shared with BlueSheet / BlueSlide (CORE-SPELL-006).
 export {
   SpellMenu,
+  spellMenuLines,
+  type SpellMenuActions,
   loadIgnoredWords,
   loadUserWords,
   saveIgnoredWord,

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { ContextMenu, type MenuLine } from '@blueoffice/ui';
 import { useTranslation } from '@blueoffice/i18n';
 import type { SpellInfo } from '@blueoffice/platform';
 
@@ -43,95 +43,74 @@ function saveWord(key: string, word: string): void {
   }
 }
 
-interface Props {
-  menu: { x: number; y: number; info: SpellInfo };
+/** What the correction lines of a context menu do. */
+export interface SpellMenuActions {
   onPick: (text: string) => void;
   onIgnore: (word: string) => void;
   onAdd: (word: string) => void;
-  onClose: () => void;
 }
 
-/** Corrections for a misspelt word, opened by a right click on it. */
-export function SpellMenu({ menu, onPick, onIgnore, onAdd, onClose }: Props) {
+/**
+ * The spelling / grammar lines that head the shared context menu of a marked word
+ * (CORE-UI-003, CORE-SPELL-006): the grammar rule, the suggestions (bold), then
+ * "ignore all" and "add to dictionary" (spelling only), closed by a separator.
+ */
+export function spellMenuLines(
+  info: SpellInfo,
+  t: (key: string) => string,
+  { onPick, onIgnore, onAdd }: SpellMenuActions,
+): MenuLine[] {
+  const lines: MenuLine[] = [];
+  if (info.rule) lines.push({ heading: t(`grammar.${info.rule}`), testId: 'grammar-rule' });
+  if (info.suggestions.length === 0) lines.push({ heading: t('spell.noSuggestions') });
+  for (const word of info.suggestions)
+    lines.push({
+      id: `spell.pick.${word}`,
+      label: word,
+      emphasis: true,
+      onSelect: () => onPick(word),
+    });
+  lines.push({ separator: true });
+  lines.push({
+    id: 'spell.ignoreAll',
+    label: t('spell.ignoreAll'),
+    onSelect: () => onIgnore(info.word),
+  });
+  if (!info.rule)
+    lines.push({
+      id: 'spell.addToDictionary',
+      label: t('spell.addToDictionary'),
+      onSelect: () => onAdd(info.word),
+    });
+  lines.push({ separator: true });
+  return lines;
+}
+
+interface Props extends SpellMenuActions {
+  menu: { x: number; y: number; info: SpellInfo };
+  onClose: () => void;
+  /** Commands of the app's own context menu shown under the corrections. */
+  tail?: MenuLine[];
+}
+
+/**
+ * Corrections for a misspelt word, opened by a right click on it: the shared context menu
+ * (`role=menu`, arrows / Home / End / Enter / Esc) with the corrections first and then the
+ * app's commands (`tail`).
+ */
+export function SpellMenu({ menu, onPick, onIgnore, onAdd, onClose, tail = [] }: Props) {
   const { t } = useTranslation();
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      if (
-        e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)
-      )
-        onClose();
-    };
-    window.addEventListener('mousedown', close);
-    window.addEventListener('keydown', close);
-    return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('keydown', close);
-    };
-  }, [onClose]);
-  const item: React.CSSProperties = {
-    display: 'block',
-    width: '100%',
-    textAlign: 'left',
-    padding: '4px 12px',
-    border: 0,
-    background: 'transparent',
-    font: 'inherit',
-    cursor: 'pointer',
-  };
+  const lines = spellMenuLines(menu.info, (k) => t(k), { onPick, onIgnore, onAdd });
+  // No trailing separator without commands below.
+  const items = tail.length ? [...lines, ...tail] : lines.slice(0, -1);
   return (
-    <div
-      ref={ref}
-      role="menu"
-      aria-label={t('spell.title')}
-      data-testid="spell-menu"
-      style={{
-        position: 'fixed',
-        left: menu.x,
-        top: menu.y,
-        zIndex: 50,
-        minWidth: 180,
-        padding: '4px 0',
-        background: 'var(--bo-surface, #fff)',
-        color: 'var(--bo-text, #1f1f1f)',
-        border: '1px solid var(--bo-border, #c8c8c8)',
-        borderRadius: 6,
-        boxShadow: '0 4px 16px rgba(0,0,0,.18)',
-        font: '13px system-ui, sans-serif',
-      }}
-    >
-      {menu.info.rule && (
-        <div
-          data-testid="grammar-rule"
-          style={{ ...item, cursor: 'default', fontSize: 12, opacity: 0.8 }}
-        >
-          {t(`grammar.${menu.info.rule}`)}
-        </div>
-      )}
-      {menu.info.suggestions.length === 0 && (
-        <div style={{ ...item, cursor: 'default', opacity: 0.7 }}>{t('spell.noSuggestions')}</div>
-      )}
-      {menu.info.suggestions.map((s) => (
-        <button
-          key={s}
-          type="button"
-          role="menuitem"
-          style={{ ...item, fontWeight: 600 }}
-          onClick={() => onPick(s)}
-        >
-          {s}
-        </button>
-      ))}
-      <hr style={{ margin: '4px 0', border: 0, borderTop: '1px solid var(--bo-border, #ddd)' }} />
-      <button type="button" role="menuitem" style={item} onClick={() => onIgnore(menu.info.word)}>
-        {t('spell.ignoreAll')}
-      </button>
-      {!menu.info.rule && (
-        <button type="button" role="menuitem" style={item} onClick={() => onAdd(menu.info.word)}>
-          {t('spell.addToDictionary')}
-        </button>
-      )}
-    </div>
+    <ContextMenu
+      x={menu.x}
+      y={menu.y}
+      items={items}
+      label={t('spell.title')}
+      testId="spell-menu"
+      onClose={onClose}
+    />
   );
 }

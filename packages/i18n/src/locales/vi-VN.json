@@ -6814,6 +6814,7 @@
     "close": "Đóng ngăn",
     "resize": "Đổi độ rộng ngăn",
     "move": "Kéo để di chuyển; nhấp đúp để gắn lại",
+    "moveKeys": "Di chuyển bằng phím mũi tên; Shift+mũi tên đổi cỡ; Home gắn lại",
     "tabs": "Các ngăn",
     "styles": {
       "title": "Kiểu",

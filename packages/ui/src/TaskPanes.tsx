@@ -1,4 +1,4 @@
-import { AppWindow, PanelLeft, PanelRight, X } from 'lucide-react';
+import { AppWindow, Move, PanelLeft, PanelRight, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -42,6 +42,8 @@ export interface TaskPaneLayout {
   width: Record<TaskPaneSide, number>;
   /** Selected tab of each dock. */
   active: Partial<Record<TaskPaneSide, string>>;
+  /** Panes open when the app was last used (reopened on the next start). */
+  open?: string[];
 }
 
 /** A pane the editor currently shows. */
@@ -64,6 +66,8 @@ export interface TaskPaneLabels {
   close: string;
   resize: string;
   move: string;
+  /** Keyboard move / size button of a floating pane (arrows move, Shift+arrows resize). */
+  moveKeys?: string;
   tabs: string;
 }
 
@@ -109,6 +113,8 @@ export function parseTaskPaneLayout(raw: unknown): TaskPaneLayout {
     if (typeof active.left === 'string') out.active.left = active.left;
     if (typeof active.right === 'string') out.active.right = active.right;
   }
+  if (Array.isArray(r.open))
+    out.open = r.open.filter((v): v is string => typeof v === 'string').slice(0, 32);
   const panes = r.panes as Record<string, unknown> | undefined;
   if (panes && typeof panes === 'object') {
     for (const [id, v] of Object.entries(panes)) {
@@ -210,6 +216,53 @@ export function activateTaskPane(
   return layout.active[side] === id
     ? layout
     : { ...layout, active: { ...layout.active, [side]: id } };
+}
+
+/** Records the open panes (same list: the layout itself, so no store write happens). */
+export function rememberOpenTaskPanes(
+  layout: TaskPaneLayout,
+  open: readonly string[],
+): TaskPaneLayout {
+  const prev = layout.open ?? [];
+  if (prev.length === open.length && prev.every((id, i) => id === open[i])) return layout;
+  return { ...layout, open: [...open] };
+}
+
+/** Panes of `known` that were open when the app was last used. */
+export function reopenedTaskPanes<T extends string>(
+  layout: TaskPaneLayout,
+  known: readonly T[],
+): T[] {
+  return (layout.open ?? []).filter((id): id is T => (known as readonly string[]).includes(id));
+}
+
+/**
+ * Keeps the list of open panes in the layout (CORE-UI-006) and reopens them on the next
+ * start: `restore` runs once on mount with the panes open last time (the editor opens those
+ * it knows, see {@link reopenedTaskPanes}); `open` is what the editor has open, in its own
+ * order (contextual panes left out). Until the restored panes show up the stored list is kept.
+ */
+export function useRememberOpenTaskPanes(
+  layout: TaskPaneLayout,
+  onLayout: (next: TaskPaneLayout) => void,
+  open: readonly string[],
+  restore?: (ids: string[]) => void,
+) {
+  const key = open.join('|');
+  const waiting = useRef(!!restore && (layout.open?.length ?? 0) > 0);
+  const restoreRef = useRef(restore);
+  const first = useRef(layout.open ?? []);
+  useEffect(() => {
+    restoreRef.current?.(first.current);
+  }, []);
+  useEffect(() => {
+    if (waiting.current) {
+      if (!key) return;
+      waiting.current = false;
+    }
+    const next = rememberOpenTaskPanes(layout, key ? key.split('|') : []);
+    if (next !== layout) onLayout(next);
+  }, [key, layout, onLayout]);
 }
 
 /** Room the open docked panes take on each side of the work area. */
@@ -433,8 +486,42 @@ export function TaskPaneHost({
     onPointerCancel: onDragEnd,
   };
 
+  // Keyboard alternative to dragging a floating window (WCAG 2.5.7): arrows move it, Shift +
+  // arrows resize it, Home docks it back.
+  const onMoveKey = (e: ReactKeyboardEvent, def: TaskPaneDef) => {
+    const stored = layout.panes[def.id]?.rect ?? { x: 24, y: 24, w: 320, h: 400 };
+    const step = e.ctrlKey ? 1 : KEY_STEP;
+    const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+    const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    if (e.key === 'Home') {
+      e.preventDefault();
+      move(def, layout.panes[def.id]?.side ?? def.defaultDock ?? 'right');
+      return;
+    }
+    if (!dx && !dy) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = e.shiftKey
+      ? { ...stored, w: stored.w + dx, h: stored.h + dy }
+      : { ...stored, x: stored.x + dx, y: stored.y + dy };
+    onLayout(dockTaskPane(layout, def.id, 'float', clampTaskPaneRect(r, bounds())));
+  };
+
   const buttons = (def: TaskPaneDef, dock: TaskPaneDock) => (
     <span className={styles.buttons}>
+      {dock === 'float' && (
+        <button
+          type="button"
+          className={styles.tool}
+          title={labels.moveKeys ?? labels.move}
+          aria-label={labels.moveKeys ?? labels.move}
+          aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown Home"
+          data-testid="taskpane-move"
+          onKeyDown={(e) => onMoveKey(e, def)}
+        >
+          <Move size={14} aria-hidden />
+        </button>
+      )}
       {dock !== 'left' && (
         <button
           type="button"

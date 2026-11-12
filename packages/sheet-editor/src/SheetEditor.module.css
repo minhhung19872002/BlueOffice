@@ -778,6 +778,13 @@
   font-size: 12px;
 }
 
+.pivotEmbedded {
+  width: auto;
+  flex: 1;
+  border-left: 0;
+  background: transparent;
+}
+
 .pivotHead {
   display: flex;
   align-items: center;

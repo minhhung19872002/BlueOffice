@@ -152,6 +152,7 @@ import {
   ObjectActionsHub,
   TaskPaneHost,
   useTaskPaneLayout,
+  useRememberOpenTaskPanes,
   type RibbonTab,
   type TaskPaneDef,
   type ThemeSetting,
@@ -870,7 +871,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   // Design suggestions pane (CORE-DESIGN-001).
   const [designOpen, setDesignOpen] = useState(false);
   // Task pane layout of BlueSlide, remembered per app (CORE-UI-006).
-  const [paneLayout, setPaneLayout] = useTaskPaneLayout('slide');
+  const [paneLayout, setPaneLayout] = useTaskPaneLayout('slide', platform.preferences);
+  // Selection, animation and comments panes come back when left open (CORE-UI-006).
+  useRememberOpenTaskPanes(
+    paneLayout,
+    setPaneLayout,
+    [
+      ...(selectionOpen ? ['selection'] : []),
+      ...(paneOpen ? ['animation'] : []),
+      ...(commentsOpen ? ['comments'] : []),
+    ],
+    (ids) => {
+      if (ids.includes('selection')) setSelectionOpen(true);
+      if (ids.includes('animation')) setPaneOpen(true);
+      if (ids.includes('comments')) setCommentsOpen(true);
+    },
+  );
   /** Slide size dialog and master / layout rename dialog (SLIDE-MASTER-001). */
   const [sizeOpen, setSizeOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -5241,10 +5257,64 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
   const homeItems = new Map<string, RibbonItem>(
     ribbonTabs.flatMap((tb) => tb.groups.flatMap((g) => g.items.map((i) => [i.id, i] as const))),
   );
-  const miniItems = SLIDE_MINI.flatMap((id) => {
-    const it = homeItems.get(id);
-    return it && !it.render ? [it] : [];
+  // Font name and size boxes of the format bar and the floating mini toolbar (CORE-UI-003).
+  const fontBox = (testId: string) => (
+    <select
+      data-testid={testId}
+      aria-label={t('slideEditor.font')}
+      disabled={!state.hasText}
+      value={edit?.format.font ?? ''}
+      onChange={(e) => {
+        exec(`format.font.${e.target.value}`);
+        refocusText();
+      }}
+    >
+      {[...new Set([edit?.format.font ?? '', ...FONTS])].map((f) => (
+        <option key={f} value={f} disabled={!FONTS.includes(f)}>
+          {f}
+        </option>
+      ))}
+    </select>
+  );
+  const sizeBox = (testId: string) => (
+    <select
+      data-testid={testId}
+      aria-label={t('slideEditor.fontSize')}
+      disabled={!state.hasText}
+      value={String(edit?.format.size ?? '')}
+      onChange={(e) => {
+        const points = Number(e.target.value);
+        if (points > 0) run({ cmd: 'formatText', format: { kind: 'size', points } });
+        refocusText();
+      }}
+    >
+      {[...new Set([edit?.format.size ?? null, ...FONT_SIZES])]
+        .sort((a, b) => (a ?? 0) - (b ?? 0))
+        .map((v) => (
+          <option key={v ?? ''} value={String(v ?? '')} disabled={v === null}>
+            {v === null ? '' : v.toLocaleString()}
+          </option>
+        ))}
+    </select>
+  );
+  const miniBox = (id: string, render: ReactNode): RibbonItem => ({
+    id,
+    label: id,
+    onSelect: () => {},
+    render,
   });
+  const miniItems = [
+    ...(mini
+      ? [
+          miniBox('format.fontName', fontBox('mini-font-family')),
+          miniBox('format.fontSize', sizeBox('mini-font-size')),
+        ]
+      : []),
+    ...SLIDE_MINI.flatMap((id) => {
+      const it = homeItems.get(id);
+      return it && !it.render ? [it] : [];
+    }),
+  ];
   const onTextSelectEnd = (at: { x: number; y: number }) => {
     void ctrl.idle().then(() => {
       const te = latestEdit.current?.textEdit;
@@ -5777,41 +5847,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                 role="toolbar"
                 aria-label={t('slideEditor.groupFont')}
               >
-                <select
-                  data-testid="slide-font"
-                  aria-label={t('slideEditor.font')}
-                  disabled={!state.hasText}
-                  value={edit?.format.font ?? ''}
-                  onChange={(e) => {
-                    exec(`format.font.${e.target.value}`);
-                    refocusText();
-                  }}
-                >
-                  {[...new Set([edit?.format.font ?? '', ...FONTS])].map((f) => (
-                    <option key={f} value={f} disabled={!FONTS.includes(f)}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  data-testid="slide-font-size"
-                  aria-label={t('slideEditor.fontSize')}
-                  disabled={!state.hasText}
-                  value={String(edit?.format.size ?? '')}
-                  onChange={(e) => {
-                    const points = Number(e.target.value);
-                    if (points > 0) run({ cmd: 'formatText', format: { kind: 'size', points } });
-                    refocusText();
-                  }}
-                >
-                  {[...new Set([edit?.format.size ?? null, ...FONT_SIZES])]
-                    .sort((a, b) => (a ?? 0) - (b ?? 0))
-                    .map((v) => (
-                      <option key={v ?? ''} value={String(v ?? '')} disabled={v === null}>
-                        {v === null ? '' : v.toLocaleString()}
-                      </option>
-                    ))}
-                </select>
+                {fontBox('slide-font')}
+                {sizeBox('slide-font-size')}
                 <select
                   data-testid="slide-line-spacing"
                   aria-label={t('slideEditor.lineSpacing')}
@@ -5877,6 +5914,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                       width={main.width}
                       marks={spelling.marks}
                       onChanged={spelling.refresh}
+                      menuTail={() => resolveMenu(SLIDE_MENUS.text, menuLookup)}
                     />
                   )}
                   <SlideOverlay

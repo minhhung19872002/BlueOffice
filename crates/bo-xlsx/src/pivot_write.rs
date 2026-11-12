@@ -400,7 +400,7 @@ pub fn cache_records_xml(cache: &PivotCache) -> String {
     a(&mut out, "xmlns", SML_NS);
     a(&mut out, "xmlns:r", R_NS);
     let _ = write!(out, " count=\"{}\">", cache.records.len());
-    for rec in &cache.records {
+    for rec in cache.records.iter() {
         out.push_str("<r>");
         for (i, f) in cache.fields.iter().enumerate().filter(|(_, f)| !f.derived) {
             let v = rec.get(i).unwrap_or(&CellValue::Empty);

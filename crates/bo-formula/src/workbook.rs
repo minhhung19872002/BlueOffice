@@ -252,6 +252,164 @@ impl Workbook {
         self.sheets.len() - 1
     }
 
+    /// Number of sheets (linked workbooks' sheets included).
+    pub fn sheet_count(&self) -> usize {
+        self.sheets.len()
+    }
+
+    /// Removes the sheets from index `n` on (sheets appended earlier, e.g. the new
+    /// sheet of a pivot table being undone) and re-registers the formulas of the
+    /// remaining sheets that name them, which then evaluate to `#REF!`
+    /// ([`Workbook::refresh_sheet_references`]).
+    pub fn truncate_sheets(&mut self, n: usize) {
+        if n >= self.sheets.len() {
+            return;
+        }
+        let names: Vec<String> = self.sheets[n..].iter().map(|s| s.name.clone()).collect();
+        let ids: Vec<CellId> = self.sheets[n..]
+            .iter()
+            .enumerate()
+            .flat_map(|(i, s)| {
+                s.cells
+                    .iter()
+                    .filter(|(_, d)| d.formula.is_some())
+                    .map(move |(&(r, c), _)| CellId::new(n + i, r, c))
+            })
+            .collect();
+        for id in ids {
+            self.remove_formula(id);
+        }
+        self.sheets.truncate(n);
+        let keep = |id: &CellId| id.sheet < n;
+        self.precedents.retain(|id, _| keep(id));
+        self.dependents.retain(|id, _| keep(id));
+        self.volatile.retain(keep);
+        self.changed.retain(keep);
+        self.spills.retain(|id, _| keep(id));
+        self.spill_owner.retain(|id, _| keep(id));
+        self.spill_blocked.retain(keep);
+        self.spill_changed.retain(keep);
+        self.circular.retain(keep);
+        self.recalculated.retain(keep);
+        self.round_to.retain(|id, _| keep(id));
+        self.web_cached.retain(keep);
+        self.names
+            .retain(|(scope, _), _| scope.is_none_or(|s| s < n));
+        self.tables.retain(|t| t.sheet < n);
+        self.refresh_sheet_references(&names);
+    }
+
+    /// After sheets named `names` were added or removed: the formulas naming one of
+    /// them (directly, in a 3-D reference or through a defined name) collect their
+    /// dependencies again and are marked for recalculation — a reference to a sheet
+    /// that did not exist read nothing, one to a removed sheet now reads `#REF!`.
+    pub fn refresh_sheet_references(&mut self, names: &[String]) {
+        if names.is_empty() {
+            return;
+        }
+        let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+        let hits = |s: &str| {
+            let s = s.to_lowercase();
+            lower.contains(&s)
+        };
+        let names_hit: FxHashSet<(Option<usize>, String)> = self
+            .names
+            .iter()
+            .filter(|(_, e)| expr_names_sheet(e, &hits))
+            .map(|(k, _)| k.clone())
+            .collect();
+        let mut ids = Vec::new();
+        for (si, s) in self.sheets.iter().enumerate() {
+            for (&(r, c), d) in &s.cells {
+                let Some(f) = &d.formula else {
+                    continue;
+                };
+                let hit = expr_names_sheet(&f.expr, &hits)
+                    || (!names_hit.is_empty() && expr_uses_names(&f.expr, &names_hit));
+                if hit {
+                    ids.push(CellId::new(si, r, c));
+                }
+            }
+        }
+        self.recollect(&ids);
+    }
+
+    /// Replaces the defined names (scope, name, formula text; texts that do not parse
+    /// are skipped, as when loading). Only the formulas using a name whose
+    /// definition changed — directly or through another name — collect their
+    /// dependencies again and are recalculated.
+    pub fn replace_names(&mut self, names: &[(Option<usize>, String, String)]) {
+        let mut next: FxHashMap<(Option<usize>, String), Expr> = FxHashMap::default();
+        for (scope, name, formula) in names {
+            if let Ok(e) = parse_with(formula, &ParseOptions::default()) {
+                next.insert((*scope, name.to_uppercase()), e);
+            }
+        }
+        let mut changed: FxHashSet<(Option<usize>, String)> = self
+            .names
+            .iter()
+            .filter(|(k, e)| next.get(*k) != Some(*e))
+            .map(|(k, _)| k.clone())
+            .collect();
+        changed.extend(
+            next.iter()
+                .filter(|(k, e)| self.names.get(*k) != Some(*e))
+                .map(|(k, _)| k.clone()),
+        );
+        if changed.is_empty() {
+            return;
+        }
+        self.names = next;
+        // Names defined through a changed name change too.
+        loop {
+            let more: Vec<(Option<usize>, String)> = self
+                .names
+                .iter()
+                .filter(|(k, e)| !changed.contains(*k) && expr_uses_names(e, &changed))
+                .map(|(k, _)| k.clone())
+                .collect();
+            if more.is_empty() {
+                break;
+            }
+            changed.extend(more);
+        }
+        let mut ids = Vec::new();
+        for (si, s) in self.sheets.iter().enumerate() {
+            for (&(r, c), d) in &s.cells {
+                if d.formula
+                    .as_ref()
+                    .is_some_and(|f| expr_uses_names(&f.expr, &changed))
+                {
+                    ids.push(CellId::new(si, r, c));
+                }
+            }
+        }
+        self.recollect(&ids);
+    }
+
+    /// Collects the dependencies of formula cells `ids` again and marks them.
+    fn recollect(&mut self, ids: &[CellId]) {
+        for &id in ids {
+            let Some(expr) = self
+                .sheets
+                .get(id.sheet)
+                .and_then(|s| s.cells.get(&(id.row, id.col)))
+                .and_then(|d| d.formula.as_ref())
+                .map(|f| f.expr.clone())
+            else {
+                continue;
+            };
+            self.unregister(id);
+            self.volatile.remove(&id);
+            let (areas, volatile) = self.collect_deps(&expr, id);
+            self.register(id, areas);
+            if volatile {
+                self.volatile.insert(id);
+            }
+            self.changed.push(id);
+        }
+    }
+
     /// Make room for `additional` more cells on `sheet` (bulk loading).
     pub fn reserve_cells(&mut self, sheet: usize, additional: usize) {
         if let Some(s) = self.sheets.get_mut(sheet) {
@@ -1796,6 +1954,37 @@ impl Workbook {
         }
         Value::Empty
     }
+}
+
+/// Whether `expr` names a sheet `hits` accepts (reference, 3-D span end or
+/// sheet-qualified name).
+fn expr_names_sheet(expr: &Expr, hits: &dyn Fn(&str) -> bool) -> bool {
+    let mut found = false;
+    expr.walk(&mut |e| {
+        let sheet = match e {
+            Expr::Ref(r) => r.sheet.as_ref(),
+            Expr::Name { sheet, .. } => sheet.as_ref(),
+            _ => None,
+        };
+        if let Some(s) = sheet {
+            found |= hits(&s.first) || s.last.as_deref().is_some_and(hits);
+        }
+    });
+    found
+}
+
+/// Whether `expr` uses one of the defined names `names` (scope ignored: a name of
+/// the same spelling in any scope counts).
+fn expr_uses_names(expr: &Expr, names: &FxHashSet<(Option<usize>, String)>) -> bool {
+    let mut found = false;
+    expr.walk(&mut |e| {
+        let (Expr::Name { name, .. } | Expr::Call { name, .. }) = e else {
+            return;
+        };
+        let up = name.to_uppercase();
+        found |= names.iter().any(|(_, n)| *n == up);
+    });
+    found
 }
 
 /// Round half away from zero to `d` decimal places (negative `d`: to tens,

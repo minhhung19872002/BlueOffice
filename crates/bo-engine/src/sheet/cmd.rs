@@ -2175,9 +2175,6 @@ pub(super) enum Recalc {
     No,
     All,
     Range(usize, CellRange),
-    /// Only the hidden rows of the sheet changed (AutoFilter): pushed to the
-    /// live engine without reloading every cell.
-    HiddenRows(usize),
 }
 
 /// Factor columns are drawn wider by while the sheet shows formulas (§18.3.1.87).
@@ -2780,7 +2777,6 @@ impl SheetEngine {
             Recalc::No => {}
             // Manual calculation keeps the shown results until F9.
             Recalc::All => self.live.reload(wb),
-            Recalc::HiddenRows(si) => self.live.sync_hidden_rows(wb, si),
             Recalc::Range(si, r) => {
                 let cells: Vec<(u32, u32)> = (r.first.row..=r.last.row)
                     .flat_map(|row| (r.first.col..=r.last.col).map(move |c| (row, c)))
@@ -2793,19 +2789,19 @@ impl SheetEngine {
         Ok(out)
     }
 
-    /// [`SheetEngine::edit`] for large edits (sort, AutoFilter, pivot tables) whose
-    /// undo step does not copy the cells (SHEET-PERF-002): the cells of `quadrants`
-    /// (sheet, top-left) are saved before the edit and only the rectangle the edit
-    /// changed is kept; the edit reports the rows it permuted, the pivot caches it
-    /// added or replaced and the sheets whose hidden rows changed (`LightFx`), and the
-    /// formula engine is updated for exactly those. A workbook with a protected sheet
-    /// takes the whole-workbook step of [`SheetEngine::edit`] (locked cells are
-    /// checked against it, with `fallback` recalculation).
+    /// [`SheetEngine::edit`] for large edits (sort, AutoFilter, pivot tables, Advanced
+    /// Filter, Subtotal) whose undo step does not copy the whole workbook
+    /// (SHEET-PERF-002): the cells of `areas` (sheet, rectangle) are saved before the
+    /// edit and only the rectangle of each that the edit changed is kept; the edit
+    /// reports the rows it permuted, the pivot caches it added or replaced, the
+    /// formulas it rewrote elsewhere and the sheets whose hidden rows changed
+    /// (`LightFx`), and the formula engine is updated for exactly those. On a sheet
+    /// protected before the edit, a changed locked cell refuses the edit (as
+    /// [`SheetEngine::edit`] does), checked on the recorded cells only.
     pub(super) fn edit_light<R>(
         &mut self,
         sheet: usize,
-        fallback: Recalc,
-        quadrants: &[(usize, CellRef)],
+        areas: &[(usize, CellRange)],
         f: impl FnOnce(
             &mut Workbook,
             &bo_sheet::formula::BoFormula,
@@ -2817,20 +2813,15 @@ impl SheetEngine {
         if sheet >= wb.sheets.len() {
             return Err(EngineError::PageOutOfRange(sheet));
         }
-        if wb
+        let protected = wb
             .sheets
             .iter()
-            .any(|ws| super::protect::sheet_info(ws).protected)
-        {
-            return self.edit(sheet, fallback, |wb, adj| {
-                f(wb, adj, &mut lu::LightFx::default())
-            });
-        }
+            .any(|ws| super::protect::sheet_info(ws).protected);
         let sheets = wb.sheets.len();
         let shell = lu::shell(wb);
-        let saved: Vec<(usize, CellRef, lu::Cells)> = quadrants
+        let saved: Vec<(usize, CellRange, lu::Cells)> = areas
             .iter()
-            .map(|&(s, at)| (s, at, lu::quadrant(wb, s, at)))
+            .map(|&(s, a)| (s, a, lu::cells_in(wb, s, a)))
             .collect();
         let mut fx = lu::LightFx::default();
         let out = match f(wb, &self.adjuster, &mut fx) {
@@ -2839,7 +2830,7 @@ impl SheetEngine {
                 // A failed edit leaves the workbook as it was.
                 let regions = saved
                     .into_iter()
-                    .map(|(s, at, cells)| lu::whole_quadrant(s, at, cells))
+                    .map(|(s, a, cells)| lu::whole_area(s, a, cells))
                     .collect();
                 drop(lu::Light::new(shell, regions, fx).apply(wb, &self.adjuster));
                 return Err(e);
@@ -2847,12 +2838,68 @@ impl SheetEngine {
         };
         let regions = saved
             .into_iter()
-            .filter_map(|(s, at, cells)| lu::changed_region(wb, s, at, cells))
+            .filter_map(|(s, a, cells)| lu::changed_region(wb, s, a, cells))
             .collect();
         let step = lu::Light::new(shell, regions, fx);
+        if protected && step.touches_locked(wb, &self.open_ranges) {
+            drop(step.apply(wb, &self.adjuster));
+            return Err(EngineError::Sheet(super::protect::SHEET_PROTECTED.into()));
+        }
         self.sync_light(&step, sheets);
         self.invalidate(Some(sheet));
         self.push_undo(UndoEntry::Light(Box::new(step)));
+        Ok(out)
+    }
+
+    /// [`SheetEngine::edit_light`] for a pivot table edit (update, group, calculated
+    /// fields / items, delete, move, change source, refresh all): every report is
+    /// rendered again from its top-left, so the saved areas are the quadrant of each
+    /// report (and of `extra`, a new location); the pivot caches are saved as a list
+    /// whose records are shared, not copied.
+    pub(super) fn pivot_light<R>(
+        &mut self,
+        sheet: usize,
+        extra: Option<(usize, CellRef)>,
+        f: impl FnOnce(&mut Workbook) -> std::result::Result<R, String>,
+    ) -> Result<R> {
+        use super::light_undo as lu;
+        let wb = self.wb()?;
+        let mut areas: Vec<(usize, CellRange)> = wb
+            .sheets
+            .iter()
+            .enumerate()
+            .flat_map(|(s, ws)| {
+                ws.pivots.iter().map(move |p| {
+                    // Report filters added above the report: at most one row per
+                    // cache field, plus the blank row (`occupied`).
+                    let fields = wb
+                        .pivot_caches
+                        .iter()
+                        .find(|c| c.cache_id == p.cache_id)
+                        .map_or(0, |c| c.fields.len() as u32);
+                    let at = bo_sheet::pivot::occupied(p).first;
+                    let top = at.row.saturating_sub(fields + 1);
+                    (s, lu::quadrant(CellRef::new(top, at.col)))
+                })
+            })
+            .collect();
+        if let Some((s, at)) = extra {
+            areas.push((s, lu::quadrant(at)));
+        }
+        // A quadrant inside another of the same sheet adds nothing.
+        let all = areas.clone();
+        areas.retain(|(s, a)| {
+            !all.iter().any(|(t, b)| {
+                t == s && b != a && b.first.row <= a.first.row && b.first.col <= a.first.col
+            })
+        });
+        areas.dedup();
+        let caches = wb.pivot_caches.clone();
+        let out = self.edit_light(sheet, &areas, |wb, _, fx| {
+            fx.caches = lu::CacheUndo::Whole(caches);
+            f(wb).map_err(bad)
+        })?;
+        self.invalidate(None);
         Ok(out)
     }
 
@@ -3862,7 +3909,7 @@ impl SheetEngine {
                         left_to_right,
                         adj,
                     );
-                    if let Some(m) = moved {
+                    if let Some(m) = moved.filter(|_| !left_to_right) {
                         let start = m.start;
                         let formulas = formulas
                             .into_iter()
@@ -3889,12 +3936,11 @@ impl SheetEngine {
                     Ok(serde_json::to_value(Rng::of(r)).unwrap_or(Value::Null))
                 };
                 if left_to_right {
-                    // Columns: whole-workbook step.
-                    self.edit(sheet, Recalc::All, |wb, adj| {
-                        sort(wb, adj, &mut super::light_undo::LightFx::default())
-                    })
+                    // Columns move inside the range only: its previous content is the
+                    // undo step (the formula engine is updated for those cells).
+                    self.edit_light(sheet, &[(sheet, r)], sort)
                 } else {
-                    self.edit_light(sheet, Recalc::All, &[], sort)
+                    self.edit_light(sheet, &[], sort)
                 }
             }
             C::SortColors {
@@ -3928,7 +3974,7 @@ impl SheetEngine {
             C::ShowAllData { sheet } => self.show_all_data(sheet),
             C::ToggleFilter { sheet, range } => {
                 let r = current_region(self.sheet(sheet)?, range.range());
-                self.edit_light(sheet, Recalc::HiddenRows(sheet), &[], |wb, _, fx| {
+                self.edit_light(sheet, &[], |wb, _, fx| {
                     fx.hidden.push(sheet);
                     let ws = &mut wb.sheets[sheet];
                     if let Some(af) = ws.auto_filter.take() {
@@ -4030,7 +4076,7 @@ impl SheetEngine {
             }
             C::SetFilter { sheet, col, filter } => {
                 let now = self.live.now();
-                self.edit_light(sheet, Recalc::HiddenRows(sheet), &[], |wb, _, fx| {
+                self.edit_light(sheet, &[], |wb, _, fx| {
                     fx.hidden.push(sheet);
                     let range = wb.sheets[sheet]
                         .auto_filter
@@ -4764,14 +4810,34 @@ impl SheetEngine {
                 let r = current_region(self.sheet(sheet)?, range.range());
                 let labels = self.pivot_labels(labels);
                 // The report grows right and down from `dest` (report filters included).
-                let quadrants: Vec<(usize, CellRef)> = dest
+                let mut areas: Vec<(usize, CellRange)> = dest
                     .iter()
-                    .map(|a| (a.sheet, CellRef::new(a.row, a.col)))
+                    .map(|a| {
+                        (
+                            a.sheet,
+                            super::light_undo::quadrant(CellRef::new(a.row, a.col)),
+                        )
+                    })
                     .collect();
                 // A cache shared with a pivot table read from the file is refreshed first,
-                // which renders that pivot table again: undone as a whole.
+                // which renders the pivot tables using it again: their reports are saved
+                // too, and the cache list (records shared, not copied).
                 let refreshes = bo_sheet::pivot::shareable_cache(self.wb()?, sheet, r)
                     .is_some_and(|(_, loaded)| !loaded);
+                let before_caches = if refreshes {
+                    let wb = self.wb()?;
+                    for (s, ws) in wb.sheets.iter().enumerate() {
+                        for p in &ws.pivots {
+                            areas.push((
+                                s,
+                                super::light_undo::quadrant(bo_sheet::pivot::occupied(p).first),
+                            ));
+                        }
+                    }
+                    Some(wb.pivot_caches.clone())
+                } else {
+                    None
+                };
                 let create = |wb: &mut Workbook| -> Result<(Value, usize)> {
                     let caches = wb.pivot_caches.len();
                     let spec = PivotSpec {
@@ -4821,15 +4887,14 @@ impl SheetEngine {
                             .map_err(bad)?;
                     Ok((json!({ "sheet": dest_sheet, "index": index }), caches))
                 };
-                let out = if refreshes {
-                    self.edit(sheet, Recalc::All, |wb, _| create(wb).map(|(v, _)| v))?
-                } else {
-                    self.edit_light(sheet, Recalc::All, &quadrants, |wb, _, fx| {
-                        let (v, caches) = create(wb)?;
-                        fx.caches = super::light_undo::CacheUndo::Truncate(caches);
-                        Ok(v)
-                    })?
-                };
+                let out = self.edit_light(sheet, &areas, |wb, _, fx| {
+                    let (v, caches) = create(wb)?;
+                    fx.caches = match before_caches {
+                        Some(list) => super::light_undo::CacheUndo::Whole(list),
+                        None => super::light_undo::CacheUndo::Truncate(caches),
+                    };
+                    Ok(v)
+                })?;
                 // A new sheet needs its own geometry slot.
                 self.invalidate(None);
                 Ok(out)
@@ -4860,10 +4925,10 @@ impl SheetEngine {
                     .pivots
                     .get(index)
                     .ok_or_else(|| bad("no such pivot table"))?;
-                self.edit(sheet, Recalc::All, |wb, _| {
+                self.pivot_light(sheet, None, |wb| {
                     let pt = wb.sheets[sheet].pivots[index].clone();
                     let spec = updated_spec(wb, &pt, (rows, cols, values, filters), settings);
-                    bo_sheet::pivot::update_pivot(wb, sheet, index, &spec, &labels).map_err(bad)?;
+                    bo_sheet::pivot::update_pivot(wb, sheet, index, &spec, &labels)?;
                     Ok(json!({ "ok": true }))
                 })
             }
@@ -4950,7 +5015,7 @@ impl SheetEngine {
             } => {
                 let labels = self.pivot_labels(labels);
                 // Every report of the cache is rendered again from its top-left.
-                let quadrants: Vec<(usize, CellRef)> = {
+                let quadrants: Vec<(usize, CellRange)> = {
                     let wb = self.wb()?;
                     let id = wb
                         .sheets
@@ -4964,11 +5029,13 @@ impl SheetEngine {
                             ws.pivots
                                 .iter()
                                 .filter(|p| Some(p.cache_id) == id)
-                                .map(move |p| (s, bo_sheet::pivot::occupied(p).first))
+                                .map(move |p| {
+                                    (s, super::light_undo::quadrant(bo_sheet::pivot::occupied(p).first))
+                                })
                         })
                         .collect()
                 };
-                let out = self.edit_light(sheet, Recalc::All, &quadrants, |wb, _, fx| {
+                let out = self.edit_light(sheet, &quadrants, |wb, _, fx| {
                     let mut prev = None;
                     let res = bo_sheet::pivot::refresh_pivot_keeping(
                         wb, sheet, index, &labels, &mut prev,

@@ -343,6 +343,34 @@ fn style_at(ws: &Worksheet, row: u32, col: u32) -> u32 {
         .unwrap_or(0)
 }
 
+/// [`cell_locked`] for a cell given apart from the sheet (`cell`: its content
+/// before an edit, `None` when it was empty: the row / column format applies).
+pub(crate) fn locked_with(
+    wb: &Workbook,
+    ws: &Worksheet,
+    cell: Option<&bo_model::sheet::Cell>,
+    row: u32,
+    col: u32,
+) -> bool {
+    let style = cell.map_or_else(
+        || {
+            ws.rows.get(&row).and_then(|r| r.style).unwrap_or_else(|| {
+                ws.cols
+                    .iter()
+                    .find(|c| c.min <= col && col <= c.max)
+                    .and_then(|c| c.style)
+                    .unwrap_or(0)
+            })
+        },
+        |c| c.style,
+    );
+    wb.styles
+        .xf(style)
+        .and_then(|x| x.protection.as_ref())
+        .and_then(|p| p.locked)
+        .unwrap_or(true)
+}
+
 /// `protection/@locked` of the cell's format (§18.8.33, default true).
 pub fn cell_locked(wb: &Workbook, ws: &Worksheet, row: u32, col: u32) -> bool {
     wb.styles

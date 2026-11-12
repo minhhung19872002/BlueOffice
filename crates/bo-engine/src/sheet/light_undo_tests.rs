@@ -113,7 +113,21 @@ fn check_round_trip(e: &mut SheetEngine, cmd: &Value, what: &str) {
     let after = model(e);
     assert_eq!(reloaded(&after), after, "{what}: incremental ≠ full reload");
     assert!(e.undo().unwrap());
-    assert_eq!(model(e), before, "{what}: undo");
+    let undone = model(e);
+    if undone != before {
+        let (a, b) = (format!("{undone:?}"), format!("{before:?}"));
+        let at = a
+            .bytes()
+            .zip(b.bytes())
+            .position(|(x, y)| x != y)
+            .unwrap_or(0);
+        let from = at.saturating_sub(300);
+        panic!(
+            "{what}: undo differs at {at}:\n now {}\n was {}",
+            &a[from..(at + 300).min(a.len())],
+            &b[from..(at + 300).min(b.len())]
+        );
+    }
     assert!(e.redo().unwrap());
     assert_eq!(model(e), after, "{what}: redo");
     assert!(e.undo().unwrap());
@@ -228,4 +242,192 @@ fn failed_pivot_leaves_the_workbook_unchanged() {
         "rows": [0], "values": [{ "field": 2, "function": "sum" }] });
     assert!(e.exec_json(&bad.to_string()).is_err());
     assert_eq!(model(&e), before);
+}
+
+/// The last undo step is a light one (no copy of the whole workbook).
+fn assert_light(e: &SheetEngine, what: &str) {
+    assert!(
+        matches!(e.undo.last(), Some(crate::sheet::UndoEntry::Light(_))),
+        "{what}: expected a light undo step"
+    );
+}
+
+/// [`check_round_trip`] and the step recorded is a light one.
+fn check_light(e: &mut SheetEngine, cmd: &Value, what: &str) {
+    check_round_trip(e, cmd, what);
+    assert_light(e, what);
+}
+
+fn col_name(c: u32) -> String {
+    let a = bo_model::sheet::CellRef::new(0, c).to_string();
+    a.trim_end_matches(|ch: char| ch.is_ascii_digit())
+        .to_owned()
+}
+
+// source: ECMA-376 Part 1, §18.3.1.92 sortState/@columnSort (left-to-right sort)
+#[test]
+fn random_left_to_right_sorts_undo_redo_exactly() {
+    for seed in 0..8u64 {
+        let mut g = Lcg(seed + 900);
+        let n = 5 + g.next(20) as u32;
+        let mut e = random_engine(&mut g, n);
+        // Sheet `Other` rows 21..23 × n columns, formulas reading across.
+        let mut cells = Vec::new();
+        for c in 0..n {
+            cells.push((20, c, g.next(50).to_string()));
+            cells.push((21, c, REGIONS[g.next(5) as usize].to_owned()));
+            if g.next(3) == 0 {
+                let at = bo_model::sheet::CellRef::new(20, c).to_string();
+                cells.push((22, c, format!("={at}*3")));
+            }
+        }
+        cells.push((25, 0, format!("=SUM(A21:{}21)", col_name(n - 1))));
+        e.set_inputs(1, &cells).unwrap();
+        let cmd = json!({ "cmd": "sort", "sheet": 1, "range": rng(20, 0, 22, n - 1),
+            "hasHeader": false, "leftToRight": true,
+            "keys": [{ "col": 21 }, { "col": 20, "descending": true }] });
+        check_light(&mut e, &cmd, &format!("seed {seed} left to right"));
+    }
+}
+
+// source: ECMA-376 Part 1, §18.3.1.85 sheetProtection (locked cells keep their content)
+#[test]
+fn sorts_with_a_protected_sheet_undo_lightly_and_refuse_locked_cells() {
+    let mut g = Lcg(31);
+    let mut e = random_engine(&mut g, 25);
+    run(&mut e, &json!({ "cmd": "protectSheet", "sheet": 1 }));
+    let sort = json!({ "cmd": "sort", "sheet": 0, "range": rng(0, 0, 25, 4),
+        "hasHeader": true, "keys": [{ "col": 2 }] });
+    check_light(&mut e, &sort, "protected other sheet");
+    match e.undo.last() {
+        Some(crate::sheet::UndoEntry::Light(step)) => assert!(step.holds_no_cells()),
+        _ => panic!("light step expected"),
+    }
+    // The sorted sheet itself protected (sorting allowed): its locked cells refuse it.
+    run(
+        &mut e,
+        &json!({ "cmd": "protectSheet", "sheet": 0, "allow": { "sort": true } }),
+    );
+    let before = model(&e);
+    let undo_len = e.undo.len();
+    let desc = json!({ "cmd": "sort", "sheet": 0, "range": rng(0, 0, 25, 4),
+        "hasHeader": true, "keys": [{ "col": 2, "descending": true }] });
+    assert!(e.exec_json(&desc.to_string()).is_err());
+    assert_eq!(model(&e), before, "refused sort changes nothing");
+    assert_eq!(e.undo.len(), undo_len);
+}
+
+/// A pivot table on sheet `Other` at C3 over the list.
+fn with_pivot(g: &mut Lcg, n: u32) -> SheetEngine {
+    let mut e = random_engine(g, n);
+    run(
+        &mut e,
+        &json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, n, 3),
+            "dest": { "sheet": 1, "row": 2, "col": 2 },
+            "rows": [0], "cols": [1], "values": [{ "field": 2, "function": "sum" }] }),
+    );
+    // A formula reading the report.
+    e.set_input(1, 0, 6, "=SUM(C3:J40)").unwrap();
+    e
+}
+
+// source: ECMA-376 Part 1, §18.10.1 pivotTableDefinition / pivotCacheDefinition
+#[test]
+fn pivot_edits_undo_redo_lightly_and_exactly() {
+    for seed in 0..4u64 {
+        let mut g = Lcg(seed + 700);
+        let n = 8 + g.next(30) as u32;
+        let mut e = with_pivot(&mut g, n);
+        let cmds = [
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0, 3], "cols": [],
+                "values": [{ "field": 2, "function": "count" }],
+                "filters": [{ "field": 1 }] }),
+            json!({ "cmd": "pivotGroup", "sheet": 1, "index": 0, "field": 2,
+                "by": "numbers", "start": -50, "end": 150, "interval": 25 }),
+            json!({ "cmd": "pivotMove", "sheet": 1, "index": 0,
+                "dest": { "sheet": 1, "row": 50, "col": 1 } }),
+            json!({ "cmd": "pivotChangeSource", "sheet": 1, "index": 0,
+                "source": format!("Data!A1:D{}", n / 2 + 1) }),
+            json!({ "cmd": "pivotRefreshAll" }),
+            json!({ "cmd": "pivotDelete", "sheet": 1, "index": 0 }),
+        ];
+        for (i, cmd) in cmds.iter().enumerate() {
+            if i == 4 {
+                e.set_input(0, 1, 2, "999").unwrap();
+            }
+            check_light(&mut e, cmd, &format!("seed {seed} {}", cmd["cmd"]));
+        }
+    }
+}
+
+// source: ECMA-376 Part 1, §18.10 pivot tables; §18.17.2.3 references to other sheets
+#[test]
+fn pivot_on_a_new_sheet_updates_formulas_naming_it() {
+    let mut g = Lcg(77);
+    let mut e = random_engine(&mut g, 20);
+    // Reads the sheet the pivot table will create (`Sheet3`, report from A3).
+    e.set_input(1, 30, 0, "=Sheet3!A3").unwrap();
+    e.set_input(1, 31, 0, "=COUNTA(Sheet3!A:A)").unwrap();
+    let create = json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(0, 0, 20, 3),
+        "rows": [0], "values": [{ "field": 2, "function": "sum" }] });
+    check_light(&mut e, &create, "new sheet");
+    let after = model(&e);
+    assert_eq!(after.sheets.len(), 3);
+    assert_ne!(
+        after.sheets[1].cells[&(31, 0)].value,
+        bo_model::sheet::CellValue::Number(0.0),
+        "the formula reads the new sheet"
+    );
+}
+
+// source: ECMA-376 Part 1, §18.2.5 definedName (_FilterDatabase, Criteria, Extract)
+#[test]
+fn advanced_filters_undo_redo_lightly_and_exactly() {
+    for seed in 0..4u64 {
+        let mut g = Lcg(seed + 300);
+        let n = 8 + g.next(30) as u32;
+        let mut e = random_engine(&mut g, n);
+        e.set_inputs(
+            1,
+            &[
+                (10, 0, "Vùng".into()),
+                (11, 0, REGIONS[g.next(3) as usize].into()),
+            ],
+        )
+        .unwrap();
+        // Reads the extract by name once it exists.
+        e.set_input(0, 0, 9, "=ROWS(Extract)").unwrap();
+        let in_place = json!({ "cmd": "advancedFilter", "sheet": 0, "list": rng(0, 0, n, 4),
+            "criteriaSheet": 1, "criteria": rng(10, 0, 11, 0) });
+        check_light(&mut e, &in_place, &format!("seed {seed} in place"));
+        let copy = json!({ "cmd": "advancedFilter", "sheet": 0, "list": rng(0, 0, n, 3),
+            "criteriaSheet": 1, "criteria": rng(10, 0, 11, 0),
+            "copyTo": rng(0, 12, 0, 12), "unique": g.next(2) == 1 });
+        check_light(&mut e, &copy, &format!("seed {seed} copy"));
+        // Copied again (the previous extract is cleared).
+        check_light(&mut e, &copy, &format!("seed {seed} copy again"));
+    }
+}
+
+// source: ECMA-376 Part 1, §18.17.7 SUBTOTAL; §18.3.1.73 row outline levels
+#[test]
+fn subtotals_undo_redo_lightly_and_exactly() {
+    for seed in 0..4u64 {
+        let mut g = Lcg(seed + 400);
+        let n = 8 + g.next(30) as u32;
+        let mut e = random_engine(&mut g, n);
+        // Grouped by region first; formulas below the list and on `Other` move.
+        run(
+            &mut e,
+            &json!({ "cmd": "sort", "sheet": 0, "range": rng(0, 0, n, 4),
+                "hasHeader": true, "keys": [{ "col": 0 }] }),
+        );
+        e.set_input(0, n + 3, 1, &format!("=SUM(C2:C{})", n + 1))
+            .unwrap();
+        let sub = json!({ "cmd": "subtotal", "sheet": 0, "range": rng(0, 0, n, 4),
+            "groupBy": 0, "function": "sum", "columns": [2] });
+        check_light(&mut e, &sub, &format!("seed {seed} subtotal"));
+        let remove = json!({ "cmd": "removeSubtotals", "sheet": 0, "range": rng(0, 0, 0, 0) });
+        check_light(&mut e, &remove, &format!("seed {seed} remove"));
+    }
 }

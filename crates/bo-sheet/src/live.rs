@@ -285,6 +285,143 @@ impl LiveCalc {
         }
     }
 
+    /// Whether the engine can follow a change of the sheet list without a reload:
+    /// automatic calculation with full precision, no linked workbooks (their sheets
+    /// follow the workbook's own in the engine).
+    fn follows_sheets(&self, wb: &Workbook) -> bool {
+        let calc = CalcSettings::read(wb);
+        self.engine.is_some()
+            && !self.stale
+            && wb.external_links.is_empty()
+            && calc.mode != CalcMode::Manual
+            && calc.full_precision
+    }
+
+    /// Recalculates what is marked and writes the results back.
+    fn settle(&mut self, wb: &mut Workbook) {
+        let Some(fw) = self.engine.as_mut() else {
+            return;
+        };
+        fw.recalculate();
+        let ids = fw.last_recalculated().to_vec();
+        write_ids(fw, wb, &ids, None);
+        if CalcSettings::read(wb).mode == CalcMode::AutoNoTable {
+            self.tables_pending = true;
+        } else {
+            crate::whatif::calculate_data_tables(fw, wb);
+        }
+    }
+
+    /// After sheets `from..` were appended to the model (a pivot table on a new
+    /// sheet, or undoing its removal): loads only those sheets into the engine and
+    /// recalculates the formulas that name them — instead of reloading the workbook.
+    /// Falls back to [`LiveCalc::reload`] when [`Self::follows_sheets`] does not
+    /// hold or a new sheet has tables or shared / array formulas.
+    pub fn sheets_appended(&mut self, wb: &mut Workbook, from: usize) {
+        let plain = wb.sheets.iter().skip(from).all(|ws| {
+            ws.tables.is_empty()
+                && ws.cells.values().all(|c| {
+                    c.formula
+                        .as_ref()
+                        .is_none_or(|f| !f.text.is_empty() && f.kind == FormulaKind::Normal)
+                })
+        });
+        let in_step = self
+            .engine
+            .as_ref()
+            .is_some_and(|fw| fw.sheet_count() == from);
+        if !plain || !in_step || !self.follows_sheets(wb) {
+            self.reload(wb);
+            return;
+        }
+        let system = if wb.date1904 {
+            DateSystem::Date1904
+        } else {
+            DateSystem::Date1900
+        };
+        let Some(fw) = self.engine.as_mut() else {
+            return;
+        };
+        let mut names = Vec::new();
+        for (si, ws) in wb.sheets.iter().enumerate().skip(from) {
+            fw.add_sheet(&ws.name);
+            names.push(ws.name.clone());
+            fw.reserve_cells(si, ws.cells.len());
+            for (&(r, c), cell) in &ws.cells {
+                match &cell.formula {
+                    Some(f) if !keeps_saved_result(cell, &f.text) => {
+                        if fw.set_formula(si, r, c, &f.text).is_err() {
+                            fw.set_value(si, r, c, to_value(&cell.value, system));
+                        }
+                    }
+                    _ => fw.load_value(si, r, c, to_value(&cell.value, system)),
+                }
+            }
+            fw.set_hidden_rows(
+                si,
+                ws.rows.iter().filter(|(_, i)| i.hidden).map(|(r, _)| *r),
+            );
+            fw.set_filter_spans(si, crate::filter::filter_spans(ws));
+        }
+        if crate::pivot::formula_info::workbook_reads_pivots(wb) {
+            fw.set_pivots(crate::pivot::formula_info::formula_pivots(wb));
+        }
+        fw.refresh_sheet_references(&names);
+        self.settle(wb);
+    }
+
+    /// After the sheets named `removed` were taken off the end of the model
+    /// (undoing a pivot table on a new sheet): drops them from the engine and
+    /// recalculates the formulas that named them. Falls back to
+    /// [`LiveCalc::reload`] like [`LiveCalc::sheets_appended`].
+    pub fn sheets_removed(&mut self, wb: &mut Workbook, removed: usize) {
+        let n = wb.sheets.len();
+        let in_step = self
+            .engine
+            .as_ref()
+            .is_some_and(|fw| fw.sheet_count() == n + removed);
+        if !in_step || !self.follows_sheets(wb) {
+            self.reload(wb);
+            return;
+        }
+        if let Some(fw) = self.engine.as_mut() {
+            fw.truncate_sheets(n);
+            if crate::pivot::formula_info::workbook_reads_pivots(wb) {
+                fw.set_pivots(crate::pivot::formula_info::formula_pivots(wb));
+            }
+        }
+        self.settle(wb);
+    }
+
+    /// After the defined names of the model changed (an Advanced Filter sets
+    /// `_FilterDatabase`, `Criteria`, `Extract`; §18.2.5): gives the engine the new
+    /// names and recalculates only the formulas using a changed one.
+    pub fn sync_names(&mut self, wb: &mut Workbook) {
+        if self.engine.is_none() || self.stale {
+            self.reload(wb);
+            return;
+        }
+        let names: Vec<(Option<usize>, String, String)> = wb
+            .defined_names
+            .iter()
+            .map(|d| {
+                (
+                    d.local_sheet.map(|s| s as usize),
+                    d.name.clone(),
+                    d.formula.clone(),
+                )
+            })
+            .collect();
+        if let Some(fw) = self.engine.as_mut() {
+            fw.replace_names(&names);
+        }
+        if CalcSettings::read(wb).mode == CalcMode::Manual {
+            self.pending = true;
+            return;
+        }
+        self.settle(wb);
+    }
+
     /// Pushes the hidden rows of sheet `sheet` (AutoFilter, outline) into the live
     /// engine in one step and recalculates (`SUBTOTAL` / `AGGREGATE` skip hidden
     /// rows), without reloading the cells. Falls back to [`LiveCalc::rebuild`]

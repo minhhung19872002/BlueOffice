@@ -2460,8 +2460,9 @@ pub struct PivotCache {
     /// `cacheFields/cacheField` (§18.10.1.3) with their shared items.
     pub fields: Vec<PivotCacheField>,
     /// Source records (one value per field) of a new or refreshed cache; empty
-    /// for caches read from a file (their records part stays opaque).
-    pub records: Vec<Vec<CellValue>>,
+    /// for caches read from a file (their records part stays opaque). Shared:
+    /// cloning a cache (an undo step) does not copy the records.
+    pub records: std::sync::Arc<Vec<Vec<CellValue>>>,
     /// Regenerate the cache parts on write.
     pub dirty: bool,
     /// `calculatedItems` (§18.10.1.9) of the cache definition.

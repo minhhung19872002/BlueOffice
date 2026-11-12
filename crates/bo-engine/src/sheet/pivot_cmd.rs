@@ -479,15 +479,15 @@ impl SheetEngine {
         l
     }
 
-    /// Run a pivot operation as one undoable edit that may touch every sheet.
+    /// Run a pivot operation as one undoable edit that may render every pivot table
+    /// again (and append a sheet): a light undo step holding the reports' previous
+    /// cells and the cache list (SHEET-PERF-002, [`SheetEngine::pivot_light`]).
     pub(super) fn pivot_edit<R>(
         &mut self,
         sheet: usize,
         f: impl FnOnce(&mut Workbook) -> std::result::Result<R, String>,
     ) -> Result<R> {
-        let out = self.edit(sheet, super::cmd::Recalc::All, |wb, _| f(wb).map_err(bad))?;
-        self.invalidate(None);
-        Ok(out)
+        self.pivot_light(sheet, None, f)
     }
 
     /// `pivotMove`: returns the new sheet and index.
@@ -498,7 +498,8 @@ impl SheetEngine {
         dest: At,
         labels: &PivotLabels,
     ) -> Result<Value> {
-        self.pivot_edit(sheet, |wb| {
+        let to = (dest.sheet, CellRef::new(dest.row, dest.col));
+        self.pivot_light(sheet, Some(to), |wb| {
             let i = bo_sheet::pivot::move_pivot(
                 wb,
                 sheet,

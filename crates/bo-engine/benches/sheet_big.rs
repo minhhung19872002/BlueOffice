@@ -3,7 +3,11 @@
 //!   (10 485 760 cells: numbers and shared strings; generated here, not committed);
 //! * `engine_sort_1m_rows` / `engine_filter_1m_rows` / `engine_pivot_1m_rows`: the
 //!   `sort`, `setFilter` and `pivotCreate` commands on a 1 048 576-row list, with
-//!   the undo snapshot and recalculation the engine performs.
+//!   the undo snapshot and recalculation the engine performs;
+//! * SHEET-PERF-002: sort with a protected sheet in the workbook, a left-to-right
+//!   sort, pivot table on a new sheet / update / group / move / change source /
+//!   refresh all, Advanced Filter and Subtotal on the same list (`BO_BENCH_ONCE`
+//!   also prints the time of undoing each case).
 //!
 //! `cargo bench -p bo-engine --bench sheet_big`; `BO_BENCH_ONCE=1` runs every case
 //! once and prints its time (`BO_BENCH_ONLY=<part of a name>` selects cases).
@@ -76,8 +80,28 @@ fn list() -> Workbook {
             name: "Pivot".into(),
             ..Worksheet::default()
         },
+        Worksheet {
+            name: "Wide".into(),
+            cells: wide().collect(),
+            ..Worksheet::default()
+        },
     ];
     wb
+}
+
+/// Sheet `Wide`: 4 rows × 1000 columns (a left-to-right sort), and an Advanced
+/// Filter criteria range in A11:A12 (`Vùng` = `Bắc`).
+fn wide() -> impl Iterator<Item = ((u32, u32), Cell)> {
+    let rows = (0..4u32).flat_map(|r| {
+        (0..1000u32).map(move |c| {
+            let h = hash(r + 7, c);
+            ((r, c), Cell::new(CellValue::Number(f64::from(h % 1000))))
+        })
+    });
+    rows.chain([
+        ((10, 0), Cell::new(CellValue::Text("Vùng".into()))),
+        ((11, 0), Cell::new(CellValue::Text("Bắc".into()))),
+    ])
 }
 
 fn rng(r1: u32, c1: u32) -> serde_json::Value {
@@ -103,15 +127,96 @@ fn pivot_cmd() -> serde_json::Value {
         "rows": [0], "cols": [1], "values": [{ "field": 2, "function": "sum" }] })
 }
 
-/// The engine holding the list (with an AutoFilter for the filter case).
-fn fresh(base: &Workbook, filter: bool) -> SheetEngine {
+/// A measured command: `pre` runs first (not measured), then `cmd`.
+struct Case {
+    name: &'static str,
+    pre: Vec<serde_json::Value>,
+    cmd: serde_json::Value,
+}
+
+/// The cases on the 1 048 576-row list (SHEET-PERF-001 / SHEET-PERF-002).
+fn cases() -> Vec<Case> {
+    let toggle = json!({ "cmd": "toggleFilter", "sheet": 0, "range": rng(0, 0) });
+    let case = |name, pre: &[serde_json::Value], cmd| Case {
+        name,
+        pre: pre.to_vec(),
+        cmd,
+    };
+    let pivot = pivot_cmd();
+    vec![
+        case("engine_sort_1m_rows_2_keys", &[], sort_cmd()),
+        case("engine_filter_1m_rows", &[toggle], filter_cmd()),
+        case("engine_pivot_1m_rows", &[], pivot_cmd()),
+        case(
+            "engine_sort_1m_rows_protected_sheet",
+            &[json!({ "cmd": "protectSheet", "sheet": 1 })],
+            sort_cmd(),
+        ),
+        case(
+            "engine_sort_left_to_right_1m_workbook",
+            &[],
+            json!({ "cmd": "sort", "sheet": 2, "range": { "r0": 0, "c0": 0, "r1": 3, "c1": 999 },
+                "hasHeader": false, "leftToRight": true, "keys": [{ "col": 0 }] }),
+        ),
+        case(
+            "engine_pivot_new_sheet_1m_rows",
+            &[],
+            json!({ "cmd": "pivotCreate", "sheet": 0, "range": rng(MAX_ROWS - 1, 3),
+                "rows": [0], "cols": [1], "values": [{ "field": 2, "function": "sum" }] }),
+        ),
+        case(
+            "engine_pivot_update_1m_rows",
+            std::slice::from_ref(&pivot),
+            json!({ "cmd": "pivotUpdate", "sheet": 1, "index": 0, "rows": [0], "cols": [1],
+                "values": [{ "field": 2, "function": "count" }] }),
+        ),
+        case(
+            "engine_pivot_group_1m_rows",
+            std::slice::from_ref(&pivot),
+            json!({ "cmd": "pivotGroup", "sheet": 1, "index": 0, "field": 1,
+                "by": "numbers", "interval": 2 }),
+        ),
+        case(
+            "engine_pivot_move_1m_rows",
+            std::slice::from_ref(&pivot),
+            json!({ "cmd": "pivotMove", "sheet": 1, "index": 0,
+                "dest": { "sheet": 1, "row": 0, "col": 20 } }),
+        ),
+        case(
+            "engine_pivot_change_source_1m_rows",
+            std::slice::from_ref(&pivot),
+            json!({ "cmd": "pivotChangeSource", "sheet": 1, "index": 0,
+                "source": "Data!A1:D524288" }),
+        ),
+        case(
+            "engine_pivot_refresh_all_1m_rows",
+            &[pivot],
+            json!({ "cmd": "pivotRefreshAll" }),
+        ),
+        case(
+            "engine_advanced_filter_1m_rows",
+            &[],
+            json!({ "cmd": "advancedFilter", "sheet": 0, "list": rng(MAX_ROWS - 1, 3),
+                "criteriaSheet": 2, "criteria": { "r0": 10, "c0": 0, "r1": 11, "c1": 0 } }),
+        ),
+        case(
+            "engine_subtotal_1m_rows",
+            &[
+                json!({ "cmd": "sort", "sheet": 0, "range": rng(MAX_ROWS - 1, 3),
+                "hasHeader": true, "keys": [{ "col": 0 }] }),
+            ],
+            json!({ "cmd": "subtotal", "sheet": 0, "range": rng(MAX_ROWS - 8, 3),
+                "groupBy": 0, "function": "sum", "columns": [2] }),
+        ),
+    ]
+}
+
+/// The engine holding the list, after the case's preparing commands.
+fn fresh(base: &Workbook, pre: &[serde_json::Value]) -> SheetEngine {
     let mut e = SheetEngine::new();
     e.load(base.clone(), "list.xlsx").expect("load");
-    if filter {
-        run(
-            &mut e,
-            &json!({ "cmd": "toggleFilter", "sheet": 0, "range": rng(0, 0) }),
-        );
+    for p in pre {
+        run(&mut e, p);
     }
     e
 }
@@ -145,16 +250,12 @@ fn bench(c: &mut Criterion) {
     });
     drop(bytes);
     let base = list();
-    for (name, filter, cmd) in [
-        ("engine_sort_1m_rows_2_keys", false, sort_cmd()),
-        ("engine_filter_1m_rows", true, filter_cmd()),
-        ("engine_pivot_1m_rows", false, pivot_cmd()),
-    ] {
-        g.bench_function(name, |b| {
+    for c in cases() {
+        g.bench_function(c.name, |b| {
             b.iter_batched(
-                || fresh(&base, filter),
+                || fresh(&base, &c.pre),
                 |mut e| {
-                    run(&mut e, &cmd);
+                    run(&mut e, &c.cmd);
                     e
                 },
                 BatchSize::PerIteration,
@@ -177,18 +278,21 @@ fn once() {
         println!("  {} = {}", last.address, last.display);
     }
     let base = list();
-    for (name, filter, cmd) in [
-        ("engine_sort_1m_rows_2_keys", false, sort_cmd()),
-        ("engine_filter_1m_rows", true, filter_cmd()),
-        ("engine_pivot_1m_rows", false, pivot_cmd()),
-    ] {
-        if !name.contains(only.as_str()) {
+    for c in cases() {
+        if !c.name.contains(only.as_str()) {
             continue;
         }
-        let mut e = fresh(&base, filter);
+        let mut e = fresh(&base, &c.pre);
         let t = Instant::now();
-        run(&mut e, &cmd);
-        println!("{name}: {:.3} s", t.elapsed().as_secs_f64());
+        run(&mut e, &c.cmd);
+        let edit = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        e.undo().expect("undo");
+        println!(
+            "{}: {edit:.3} s (undo {:.3} s)",
+            c.name,
+            t.elapsed().as_secs_f64()
+        );
     }
 }
 

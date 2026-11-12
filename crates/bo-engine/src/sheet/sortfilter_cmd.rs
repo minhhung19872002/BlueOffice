@@ -2,7 +2,7 @@
 //! AutoFilter (ECMA-376 Part 1, §18.3.1.92 `sortState`, §18.3.1.91 `sortCondition`),
 //! the Advanced Filter (`bo_sheet::advfilter`) and "show all data".
 
-use super::cmd::{Recalc, Rng};
+use super::cmd::Rng;
 use super::SheetEngine;
 use crate::{EngineError, Result};
 use bo_model::sheet::{
@@ -145,7 +145,27 @@ impl SheetEngine {
             copy_to: copy_to.map(Rng::range),
             unique,
         };
-        self.edit(sheet, Recalc::All, |wb, _| {
+        // Light undo step (SHEET-PERF-002): filtering in place changes hidden rows and
+        // names only; copying writes below-right of the destination and clears the
+        // previous extract (the sheet-scoped name `Extract`, §18.2.5).
+        let mut areas = Vec::new();
+        if let Some(dest) = spec.copy_to {
+            areas.push((sheet, super::light_undo::quadrant(dest.first)));
+            let wb = self.wb()?;
+            let old = wb
+                .defined_names
+                .iter()
+                .find(|d| {
+                    d.local_sheet == Some(sheet as u32) && d.name.eq_ignore_ascii_case("Extract")
+                })
+                .and_then(|d| d.formula.rsplit('!').next())
+                .and_then(|body| CellRange::parse(&body.replace('$', "")));
+            if let Some(o) = old {
+                areas.push((sheet, o));
+            }
+        }
+        self.edit_light(sheet, &areas, |wb, _, fx| {
+            fx.hidden.push(sheet);
             let out = bo_sheet::advfilter::apply(wb, sheet, &spec, &locale, now)
                 .map_err(|e| bad(e.to_string()))?;
             Ok(json!({
@@ -159,7 +179,7 @@ impl SheetEngine {
 
     /// Show every row a filter hides on `sheet` (one undo step). Returns `{ shown }`.
     pub(super) fn show_all_data(&mut self, sheet: usize) -> Result<Value> {
-        self.edit_light(sheet, Recalc::HiddenRows(sheet), &[], |wb, _, fx| {
+        self.edit_light(sheet, &[], |wb, _, fx| {
             fx.hidden.push(sheet);
             let shown = bo_sheet::advfilter::show_all(wb, sheet);
             Ok(json!({ "shown": shown }))

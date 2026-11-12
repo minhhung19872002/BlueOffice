@@ -359,7 +359,7 @@ fn report(spec: &PivotSpec) -> Vec<String> {
     let (names, records) = source_data(&wb.sheets[0], source(), &PivotLabels::default()).unwrap();
     let cache = PivotCache {
         fields: cache_fields(&names, &records),
-        records,
+        records: records.into(),
         ..PivotCache::default()
     };
     body(&layout(&cache, spec, &PivotLabels::default()).unwrap())
@@ -2263,7 +2263,7 @@ fn getpivotdata_reads_the_report() {
     check(&wb);
     // A cache read from a file has no records loaded: they are read from the source.
     for c in &mut wb.pivot_caches {
-        c.records.clear();
+        c.records = std::sync::Arc::default();
         c.dirty = false;
     }
     for c in wb.sheets[0].cells.values_mut() {
@@ -2273,5 +2273,5 @@ fn getpivotdata_reads_the_report() {
     }
     crate::formula::BoFormula::new().recalculate(&mut wb);
     check(&wb);
-    assert_eq!(wb.pivot_caches[0].records, Vec::<Vec<CellValue>>::new());
+    assert_eq!(*wb.pivot_caches[0].records, Vec::<Vec<CellValue>>::new());
 }

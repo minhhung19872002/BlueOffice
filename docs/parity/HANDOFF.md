@@ -1,4 +1,34 @@
-# Bàn giao phiên (cập nhật 2026-11-12 chiều, vòng lặp Parity đang chạy)
+# Bàn giao phiên (cập nhật 2026-11-12 tối, DỪNG theo yêu cầu chủ dự án)
+
+## Trạng thái khi dừng
+- `origin/main` = commit này: đã kiểm tra xanh tới đợt 4 (cargo workspace 2792 test, clippy/fmt, WASM, lint, typecheck,
+  `pnpm test`, build web, E2E 359/361 — `a11y.spec.ts:206` chập chờn khi chạy song song (CORE-MISC-006); lỗi thật
+  `doc-styles` sau khi nhớ ngăn đã sửa ở `a355d9ff`). Bản desktop `out/desktop/*.exe` build 17:11–17:36 từ đợt 4.
+- Số liệu BACKLOG: 86 `[x]`, 82 `[p]`, 2 `[~]`/`[ ]`.
+- **5 nhánh dở, CHƯA KIỂM TRA, chưa gộp** (mỗi nhánh có commit cuối `wip: stopped at owner's request`; worktree vẫn còn ở
+  `.claude/worktrees/agent-*`, thư mục build ở `D:/bo-targets/{doc5,sheet5,core5,perf,chrome}`):
+
+| Nhánh origin | Nội dung đã commit | Còn phải làm |
+|---|---|---|
+| `wip/batch5-doc-review-styles` | DOC-REVIEW-002 di chuyển bằng cắt-dán/kéo-thả + chi tiết thay đổi thuộc tính, bong bóng đầu/chân trang/chú thích; DOC-STYLE-001 tự cập nhật, chọn mọi chỗ dùng (đa vùng), xoá trong comment; DOC-VIEW-001 Enter tách dòng dàn ý, chế độ đọc dàn cột | kiểm tra commit WIP, test đầy đủ, E2E review/doc-styles/doc-views + a11y, ghi BACKLOG/MATRIX |
+| `wip/batch5-sheet-query-dm-atp` | SHEET-PQ-001 giữ cột người dùng/đổi tên bảng/kết nối mọi nguồn; SHEET-DM-001 slicer, mục không dữ liệu, lọc theo measure; SHEET-ATP-001 biểu đồ đầu ra + phân phối patterned; SHEET-AUDIT-001 mũi tên qua INDIRECT/OFFSET (6 tệp qua OpenXmlValidator) | test engine đang chạy dở, E2E sheet-query/datamodel |
+| `wip/batch5-core-autocorrect-paste-print` | CORE-AUTOCORR-001, CORE-PASTE-001, CORE-PRINT-001 (in vùng chọn, hướng giấy, xem trước trực tiếp, E2E bảng In), CORE-INSPECT-001, CORE-FMT-001 (bỏ sheet macro XLM, `w:attachedTemplate`) | đếm lại cargo test, E2E + a11y |
+| `wip/desktop-perf-baseline` | `docs/perf/BASELINE.md` + `scripts/perf-desktop.mjs` (`pnpm perf:desktop`), shell hiện ngay + nạp editor theo yêu cầu, giữ registry lệnh, bỏ render lại khung cửa sổ | bước 2 (profile release fat LTO/cu=1/panic=abort, bỏ source map), RESULTS.md, job CI, test chặn render ribbon |
+| `wip/desktop-win11-chrome` | ADR-0016, cửa sổ không viền + thanh tiêu đề làm caption, snap layouts (WM_NCHITTEST), menu hệ thống, Mica (đặc trên Win10), font hệ thống Segoe UI Variable | ảnh chụp 100/150 %, E2E ui-frame/a11y, cargo deny/license-check |
+
+## Chương trình tăng tốc desktop (yêu cầu chủ dự án 2026-11-12, bước 1→6, xem memory `desktop-perf-programme`)
+Mốc đo (bản release, Ryzen 7 7435HS, 125 %, máy đang bận): khởi động→editor 1 558 ms (mục tiêu < 1 500), shell hiện 1 215 ms
+(< 500), mở .docx 100 trang 1 674 ms (đạt < 2 000; trong đó IPC `engine_open` 801 ms > `Engine::open` 490 ms), phím→glyph
+trung vị 71 ms / p95 95 ms (mục tiêu < 16 — chưa đạt, việc chính của bước 3–4), cuộn 62 FPS (sát), RAM 291 MB (đạt; sau
+gõ + cuộn 491 MB — chưa đạt), ribbon render 489 lần mỗi phím (mục tiêu 0). Chi tiết: `docs/perf/BASELINE.md` trên nhánh
+`wip/desktop-perf-baseline`. Bước 3 (GPU/DirectWrite) chưa bắt đầu — cần ADR vì đụng ADR-0003.
+
+## Việc tiếp theo
+1. Với từng nhánh `wip/*`: checkout worktree (hoặc `git worktree add`), kiểm tra commit WIP, chạy test, gộp vào `main`
+   (skill `blueoffice-merge-agent-branch`), regression, push.
+2. Tiếp chương trình desktop bước 2 → 6; tiếp vòng `[p]` Parity.
+
+---
 
 ## Trạng thái (2026-11-12 chiều)
 - `origin/main` = `13e1b631`: đã kiểm tra xanh — cargo fmt/clippy/test workspace (2756 test), WASM, lint, typecheck,

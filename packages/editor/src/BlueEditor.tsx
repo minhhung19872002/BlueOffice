@@ -763,6 +763,18 @@ function EditorInner({
   );
   /** Print panel (CORE-PRINT-001). */
   const [printOpen, setPrintOpen] = useState(false);
+  // Document revision for the print preview: every change of the pages (an edit, a
+  // collaborator's change) makes it again while the panel is open.
+  const [docRevision, setDocRevision] = useState(0);
+  const [revisedEdit, setRevisedEdit] = useState(state.edit);
+  if (revisedEdit !== state.edit) {
+    setRevisedEdit(state.edit);
+    if (state.edit?.dirty.length) setDocRevision((r) => r + 1);
+  }
+  const textSelected =
+    !!state.edit &&
+    (state.edit.selection.anchor.p !== state.edit.selection.focus.p ||
+      state.edit.selection.anchor.o !== state.edit.selection.focus.o);
   // Alt+Q only: Ctrl+Q removes paragraph formatting, as in word processors.
   useCommandSearchShortcut(() => setSearchOpen(true), { ctrl: false });
   const [recent, setRecent] = useState<RecentFile[]>([]);
@@ -6150,6 +6162,8 @@ function EditorInner({
                   getMedia: platform.engine.getMedia.bind(platform.engine),
                 }}
                 initial={{ current: state.edit?.caret?.page ?? state.page }}
+                allowSelection={textSelected}
+                revision={docRevision}
                 onPrint={(pdf) => platform.print.printPdf(pdf, state.doc?.name ?? '')}
                 onClose={() => setPrintOpen(false)}
                 fail={(e) => fail('errors.export', e)}

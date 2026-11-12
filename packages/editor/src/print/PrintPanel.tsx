@@ -12,6 +12,7 @@ import type {
   PrintColor,
   PrintHost,
   PrintOptions,
+  PrintOrientation,
   PrintPageChoice,
   PrintPaper,
   PrintPerSheet,
@@ -30,14 +31,21 @@ export type PrintApp = 'doc' | 'slide' | 'sheet';
 export const PER_SHEET: PrintPerSheet[] = [1, 2, 4, 6, 8, 16];
 export const PAPERS: PrintPaper[] = ['a4', 'a3', 'a5', 'b5', 'letter', 'legal'];
 export const HANDOUT_PER_PAGE = [1, 2, 3, 4, 6, 9] as const;
+export const ORIENTATIONS: PrintOrientation[] = ['auto', 'portrait', 'landscape'];
 
 /** Next preview job number: the engine rebuilds the sheets for a new number. */
 let jobCounter = 0;
 
 /** Options the panel sends: copies clamped, the range only when it is used. */
-export function jobOptions(o: PrintOptions, app: PrintApp, job: number): PrintOptions {
+export function jobOptions(
+  o: PrintOptions,
+  app: PrintApp,
+  job: number,
+  revision?: number,
+): PrintOptions {
   const copies = Math.min(999, Math.max(1, Math.floor(Number(o.copies) || 1)));
-  const out: PrintOptions = { ...o, copies, job };
+  const out: PrintOptions = { ...o, copies, job, ...(revision !== undefined ? { revision } : {}) };
+  if (out.orientation === 'auto') delete out.orientation;
   if (out.pages !== 'range') delete out.range;
   if (app !== 'doc') delete out.doc;
   if (app !== 'slide') delete out.slide;
@@ -56,8 +64,11 @@ export interface PrintPanelProps {
   host: PrintHost & Pick<EngineHost, 'getGlyphOutlines'> & Partial<Pick<EngineHost, 'getMedia'>>;
   /** Starting options (current page, selection, active sheet …). */
   initial: PrintOptions;
-  /** The selection choice is offered (slides selected, cells selected). */
+  /** The selection choice is offered (text, slides or cells selected). */
   allowSelection?: boolean;
+  /** Changes whenever the document changes (an edit, a collaborator's change): the
+   * preview is made again while the panel is open. */
+  revision?: number;
   /** Prints the job's PDF (the platform's print). */
   onPrint: (pdf: Uint8Array) => Promise<void>;
   onClose: () => void;
@@ -70,6 +81,7 @@ export function PrintPanel({
   host,
   initial,
   allowSelection,
+  revision,
   onPrint,
   onClose,
   fail,
@@ -110,7 +122,7 @@ export function PrintPanel({
         : undefined,
     [hasMedia],
   );
-  const opts = useMemo(() => jobOptions(o, app, job), [o, app, job]);
+  const opts = useMemo(() => jobOptions(o, app, job, revision), [o, app, job, revision]);
   const key = JSON.stringify(opts);
 
   useEffect(() => {
@@ -448,6 +460,14 @@ export function PrintPanel({
             ['none', ...PAPERS] as const,
             (v) => t(`print.papers.${v}`),
             (v) => set({ paper: v === 'none' ? undefined : v }),
+          )}
+          {select(
+            'orientation',
+            t('print.orientation'),
+            o.orientation ?? 'auto',
+            ORIENTATIONS,
+            (v) => t(`print.orientations.${v}`),
+            (v) => set({ orientation: v }),
           )}
           {select(
             'color',

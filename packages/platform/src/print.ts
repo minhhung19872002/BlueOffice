@@ -10,6 +10,9 @@ export type PrintPageChoice = 'all' | 'current' | 'selection' | 'range';
 export type PrintSubset = 'all' | 'odd' | 'even';
 export type PrintPerSheet = 1 | 2 | 4 | 6 | 8 | 16;
 export type PrintPaper = 'a3' | 'a4' | 'a5' | 'b5' | 'letter' | 'legal';
+
+/** Orientation of the printed sheets of paper. */
+export type PrintOrientation = 'auto' | 'portrait' | 'landscape';
 export type PrintColor = 'color' | 'grayscale' | 'blackWhite';
 export type SlidePrintLayout = 'slides' | 'notes' | 'outline' | 'handouts';
 export type SheetPrintScope = 'active' | 'workbook' | 'selection';
@@ -65,6 +68,8 @@ export interface PrintOptions {
   order?: 'across' | 'down';
   /** Scale to this paper; omitted = the page's own size. */
   paper?: PrintPaper;
+  /** Orientation of the sheets of paper; omitted = automatic (as the pages need). */
+  orientation?: PrintOrientation;
   /** Thin frame around every page (BlueSlide: frame slides). */
   frame?: boolean;
   color?: PrintColor;
@@ -76,6 +81,8 @@ export interface PrintOptions {
    * (this number included) stays the same; the panel changes it each time it opens.
    */
   job?: number;
+  /** Document revision the preview was made for: a new one rebuilds the sheets. */
+  revision?: number;
 }
 
 /** `printPreview` result. */

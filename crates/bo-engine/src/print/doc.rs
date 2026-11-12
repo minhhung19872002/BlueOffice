@@ -216,6 +216,9 @@ impl Engine {
     }
 
     fn doc_pages_now(&mut self, o: &PrintOptions) -> Result<Vec<Logical>> {
+        if o.pages == super::PageChoice::Selection {
+            return self.doc_selection_pages();
+        }
         let keys: Vec<PageKey> = self
             .layout
             .document()
@@ -271,6 +274,40 @@ impl Engine {
             out.push((out.len() + 1, page));
         }
         Ok(out)
+    }
+
+    /// Print the selection: the selected blocks laid out on their own, from the top of a
+    /// first page, with the page setup, headers and footers of the section they start in
+    /// (word processors print a selection this way). Nothing selected prints nothing.
+    fn doc_selection_pages(&mut self) -> Result<Vec<Logical>> {
+        let opts = self.options();
+        let Some(s) = self.session.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let sel = s.selection();
+        if sel.is_collapsed() {
+            return Ok(Vec::new());
+        }
+        let blocks = s.selected_blocks();
+        let first = sel.ordered().0.para;
+        let si = bo_model::index::body_paragraphs(s.doc())
+            .get(first)
+            .and_then(|p| p.first().copied())
+            .unwrap_or(0);
+        let mut doc = s.doc().clone();
+        let Some(mut section) = doc.sections.get(si).cloned() else {
+            return Ok(Vec::new());
+        };
+        section.blocks = blocks;
+        doc.sections = vec![section];
+        let mut cache = bo_layout::LayoutCache::new();
+        let layout = bo_layout::layout_document_with(&doc, &mut self.fonts, &mut cache, opts)?;
+        Ok(layout
+            .pages
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i + 1, bo_render::build_page_list(p, &self.fonts)))
+            .collect())
     }
 
     /// A page listing the document properties ("label: value", one per line).

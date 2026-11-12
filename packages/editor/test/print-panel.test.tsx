@@ -79,6 +79,38 @@ describe('jobOptions', () => {
 });
 
 describe('PrintPanel', () => {
+  it('orientation is sent unless automatic; a new revision previews again', async () => {
+    const h = fakeHost(1);
+    const props = {
+      app: 'doc' as const,
+      host: h.host,
+      initial: {},
+      allowSelection: true,
+      onPrint: vi.fn(async () => {}),
+      onClose: vi.fn(),
+      fail: () => {},
+    };
+    const view = wrap(<PrintPanel {...props} revision={1} />);
+    await waitFor(() => expect(h.previews.length).toBeGreaterThan(0));
+    expect(last(h.previews).orientation).toBeUndefined();
+    expect(last(h.previews).revision).toBe(1);
+    // The selection choice of BlueDoc (text selected).
+    fireEvent.change(screen.getByTestId('print-pages'), { target: { value: 'selection' } });
+    fireEvent.change(screen.getByTestId('print-orientation'), { target: { value: 'landscape' } });
+    await waitFor(() =>
+      expect(last(h.previews)).toMatchObject({ orientation: 'landscape', pages: 'selection' }),
+    );
+    const n = h.previews.length;
+    // The document changed while the panel is open.
+    view.rerender(
+      <I18nextProvider i18n={i18n}>
+        <PrintPanel {...props} revision={2} />
+      </I18nextProvider>,
+    );
+    await waitFor(() => expect(h.previews.length).toBeGreaterThan(n));
+    expect(last(h.previews).revision).toBe(2);
+  });
+
   it('previews the job and pages through its sheets', async () => {
     const h = fakeHost(3);
     panel('doc', h);

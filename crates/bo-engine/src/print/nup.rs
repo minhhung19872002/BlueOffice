@@ -33,6 +33,40 @@ pub enum NupOrder {
     Down,
 }
 
+/// Orientation of the printed sheet of paper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Orientation {
+    /// As the pages need (the orientation giving the largest pages).
+    #[default]
+    Auto,
+    /// Taller than wide.
+    Portrait,
+    /// Wider than tall.
+    Landscape,
+}
+
+impl Orientation {
+    /// The `(width, height)` candidates of a `w × h` sheet in this orientation.
+    fn sheets(self, (w, h): (f32, f32)) -> Vec<(f32, f32)> {
+        let (short, long) = (w.min(h), w.max(h));
+        match self {
+            Orientation::Auto => vec![(w, h), (h, w)],
+            Orientation::Portrait => vec![(short, long)],
+            Orientation::Landscape => vec![(long, short)],
+        }
+    }
+
+    /// `w × h` is already in this orientation.
+    fn fits(self, (w, h): (f32, f32)) -> bool {
+        match self {
+            Orientation::Auto => true,
+            Orientation::Portrait => h >= w,
+            Orientation::Landscape => w >= h,
+        }
+    }
+}
+
 /// Pages per sheet the panel offers.
 pub const PER_SHEET: [u8; 6] = [1, 2, 4, 6, 8, 16];
 
@@ -119,11 +153,23 @@ fn fit_scale((cw, ch): (f32, f32), (w, h): (f32, f32)) -> f32 {
 /// Layout of a sheet holding `per_sheet` pages of size `page` on `paper`
 /// (`None`: the page's own size).
 pub fn layout(per_sheet: u8, paper: Option<(f32, f32)>, page: (f32, f32)) -> SheetLayout {
+    layout_oriented(per_sheet, paper, page, Orientation::Auto)
+}
+
+/// [`layout`] on a sheet turned to `orient` (a page of the other orientation without a
+/// paper size prints scaled on its own size turned).
+pub fn layout_oriented(
+    per_sheet: u8,
+    paper: Option<(f32, f32)>,
+    page: (f32, f32),
+    orient: Orientation,
+) -> SheetLayout {
     let n = if PER_SHEET.contains(&per_sheet) {
         per_sheet
     } else {
         1
     };
+    let paper = paper.or_else(|| (!orient.fits(page)).then_some(page));
     if n == 1 && paper.is_none() {
         return SheetLayout {
             width: page.0,
@@ -138,7 +184,7 @@ pub fn layout(per_sheet: u8, paper: Option<(f32, f32)>, page: (f32, f32)) -> She
     let (pw, ph) = paper.unwrap_or(page);
     let (margin, gap) = if n == 1 { (0.0, 0.0) } else { (MARGIN, GAP) };
     let mut best: Option<SheetLayout> = None;
-    for (w, h) in [(pw, ph), (ph, pw)] {
+    for (w, h) in orient.sheets((pw, ph)) {
         for &(cols, rows) in grids(n) {
             let mut l = SheetLayout {
                 width: w,
@@ -196,6 +242,18 @@ pub fn compose(
     paper: Option<(f32, f32)>,
     framed: bool,
 ) -> Vec<PageList> {
+    compose_oriented(pages, per_sheet, order, paper, framed, Orientation::Auto)
+}
+
+/// [`compose`] on sheets turned to `orient`.
+pub fn compose_oriented(
+    pages: Vec<PageList>,
+    per_sheet: u8,
+    order: NupOrder,
+    paper: Option<(f32, f32)>,
+    framed: bool,
+    orient: Orientation,
+) -> Vec<PageList> {
     let n = if PER_SHEET.contains(&per_sheet) {
         usize::from(per_sheet)
     } else {
@@ -204,9 +262,10 @@ pub fn compose(
     let mut out = Vec::with_capacity(pages.len().div_ceil(n));
     let mut it = pages.into_iter().peekable();
     while let Some(first) = it.peek() {
-        let l = layout(per_sheet, paper, (first.width, first.height));
+        let size = (first.width, first.height);
+        let l = layout_oriented(per_sheet, paper, size, orient);
         // One page at its own size: kept as it is.
-        if n == 1 && paper.is_none() {
+        if n == 1 && paper.is_none() && orient.fits(size) {
             let Some(mut p) = it.next() else { break };
             if framed {
                 p.commands.push(frame(0.0, 0.0, p.width, p.height));
@@ -362,6 +421,31 @@ mod tests {
             matches!(sheets[0].commands[1], Command::PushClip { w, h, .. } if w == 612.0 && h == 792.0)
         );
         assert_eq!(sheets[1].commands.len(), 6);
+        // A forced orientation: portrait pages two per sheet on portrait Letter are
+        // stacked (1 × 2); a landscape page alone is turned onto a portrait sheet.
+        let l = layout_oriented(2, Some(LETTER), (612.0, 792.0), Orientation::Portrait);
+        assert_eq!((l.width, l.height, l.cols, l.rows), (612.0, 792.0, 1, 2));
+        let l = layout_oriented(2, Some(LETTER), (612.0, 792.0), Orientation::Auto);
+        assert_eq!((l.width, l.height, l.cols, l.rows), (792.0, 612.0, 2, 1));
+        let l = layout_oriented(1, None, (792.0, 612.0), Orientation::Portrait);
+        assert_eq!((l.width, l.height), (612.0, 792.0));
+        close(l.scale, 612.0 / 792.0);
+        let l = layout_oriented(1, None, (612.0, 792.0), Orientation::Portrait);
+        assert_eq!((l.width, l.height, l.scale), (612.0, 792.0, 1.0));
+        let wide = PageList {
+            width: 792.0,
+            height: 612.0,
+            commands: Vec::new(),
+        };
+        let s = compose_oriented(
+            vec![wide],
+            1,
+            NupOrder::Across,
+            None,
+            false,
+            Orientation::Portrait,
+        );
+        assert_eq!((s[0].width, s[0].height), (612.0, 792.0));
         // Unknown counts fall back to one page per sheet.
         assert_eq!(
             compose(

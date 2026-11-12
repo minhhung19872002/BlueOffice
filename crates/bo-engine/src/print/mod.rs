@@ -36,8 +36,9 @@ pub enum PageChoice {
     All,
     /// The page (slide) shown in the editor: [`PrintOptions::current`].
     Current,
-    /// The host's selection: [`PrintOptions::selected`] (slides); BlueSheet
-    /// prints the selected cells instead ([`SheetPrint::selection`]).
+    /// The host's selection: [`PrintOptions::selected`] (slides); BlueDoc prints the
+    /// selected text laid out on its own, BlueSheet the selected cells
+    /// ([`SheetPrint::selection`]).
     Selection,
     /// The pages of [`PrintOptions::range`].
     Range,
@@ -220,6 +221,8 @@ pub struct PrintOptions {
     /// Scale to this paper (`None`: one page per sheet keeps its size; several
     /// per sheet use the first page's size).
     pub paper: Option<PaperSize>,
+    /// Orientation of the sheets of paper (automatic: as the pages need).
+    pub orientation: nup::Orientation,
     /// Thin frame around every placed page (BlueSlide: frame slides).
     pub frame: bool,
     /// Colour mode.
@@ -246,6 +249,7 @@ impl Default for PrintOptions {
             per_sheet: 1,
             order: NupOrder::Across,
             paper: None,
+            orientation: nup::Orientation::Auto,
             frame: false,
             color: ColorMode::Color,
             doc: DocPrint::default(),
@@ -303,12 +307,13 @@ pub(crate) fn finish(pages: Vec<Logical>, o: &PrintOptions, frame: bool) -> Vec<
             p
         })
         .collect();
-    let mut sheets = nup::compose(
+    let mut sheets = nup::compose_oriented(
         pages,
         o.per_sheet,
         o.order,
         o.paper.map(PaperSize::size),
         frame,
+        o.orientation,
     );
     if o.reverse {
         sheets.reverse();

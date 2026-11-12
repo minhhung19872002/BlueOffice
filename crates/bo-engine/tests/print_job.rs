@@ -7,6 +7,7 @@
 #[path = "support/pdf_pages.rs"]
 mod pdf;
 
+use bo_engine::print::nup::Orientation;
 use bo_engine::print::{PageChoice, PaperSize, PrintOptions, SheetScope, SlideLayout, Subset};
 use bo_engine::{Engine, SheetEngine};
 use bo_pptx::build::{build_pptx, DeckSpec, ParaSpec, ShapeSpec, SlideSpec};
@@ -434,4 +435,99 @@ fn sheet_workbook_and_ignore_print_area() {
     )
     .unwrap();
     assert_eq!(v["sheets"], 1);
+}
+
+#[test]
+fn doc_selection_prints_only_the_selected_text() {
+    let mut e = doc(3);
+    // Select "Trang 2" (the second page's paragraph).
+    let v = cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":1,"o":0},"focus":{"p":1,"o":7}}}"#,
+    );
+    assert!(v["error"].is_null(), "{v}");
+    let o = PrintOptions {
+        pages: PageChoice::Selection,
+        ..PrintOptions::default()
+    };
+    let s = e.print_sheets(&o).unwrap();
+    // One A4 page with the selected text only, from the top of the page.
+    assert_eq!(s.len(), 1);
+    close(s[0].width, DOC_A4.0);
+    let t = texts(&s[0]);
+    assert!(t.iter().any(|x| x == "Trang 2"), "{t:?}");
+    assert!(!t.iter().any(|x| x == "Trang 1" || x == "Trang 3"), "{t:?}");
+    let pdf = pdf::pages(&e.print_pdf(&o).unwrap());
+    assert_eq!(pdf.len(), 1);
+    // The document is unchanged; a caret selects nothing to print.
+    assert_eq!(e.info().unwrap().page_count, 3);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    assert_eq!(e.print_sheets(&o).unwrap().len(), 0);
+    assert!(e.print_pdf(&o).is_err());
+}
+
+#[test]
+fn paper_orientation_is_a_choice() {
+    let mut e = doc(2);
+    // Automatic: two portrait pages per sheet go side by side on a landscape sheet.
+    let mut o = PrintOptions {
+        per_sheet: 2,
+        paper: Some(PaperSize::A4),
+        ..PrintOptions::default()
+    };
+    let s = e.print_sheets(&o).unwrap();
+    assert!(s[0].width > s[0].height);
+    // Portrait: the same pages stacked on a portrait sheet.
+    o.orientation = Orientation::Portrait;
+    let s = e.print_sheets(&o).unwrap();
+    close(s[0].width, A4.0);
+    close(s[0].height, A4.1);
+    // One portrait page on landscape paper (no paper size: its own size turned).
+    let o = PrintOptions {
+        orientation: Orientation::Landscape,
+        ..PrintOptions::default()
+    };
+    let pdf = pdf::pages(&e.print_pdf(&o).unwrap());
+    close(pdf[0].media_box[2], DOC_A4.1);
+    close(pdf[0].media_box[3], DOC_A4.0);
+    // From the panel JSON.
+    let o = PrintOptions::from_json(r#"{"orientation":"landscape","paper":"a4"}"#).unwrap();
+    let s = e.print_sheets(&o).unwrap();
+    close(s[0].width, A4.1);
+}
+
+#[test]
+fn sheet_several_selected_sheets() {
+    let mut e = book(2, 1);
+    e.add_sheet(Some("Two")).unwrap();
+    e.set_input(1, 0, 0, "second").unwrap();
+    e.add_sheet(Some("Three")).unwrap();
+    e.set_input(2, 0, 0, "third").unwrap();
+    // Sheets 1 and 3 selected (Ctrl + click on their tabs): one page each, in order.
+    let mut o = PrintOptions::default();
+    o.sheet.scope = SheetScope::Active;
+    o.sheet.sheets = vec![0, 2];
+    let s = e.print_sheets(&o).unwrap();
+    assert_eq!(s.len(), 2);
+    assert!(texts(&s[0]).iter().any(|t| t == "r1c1"));
+    assert!(texts(&s[1]).iter().any(|t| t == "third"));
+    assert!(!s.iter().any(|p| texts(p).iter().any(|t| t == "second")));
+}
+
+#[test]
+fn preview_follows_document_changes() {
+    let mut e = doc(1);
+    let n = |e: &mut Engine, rev: u32| -> u64 {
+        let v: Value = serde_json::from_str(
+            &e.print_preview_json(&format!(r#"{{"job":7,"revision":{rev}}}"#), 0)
+                .unwrap(),
+        )
+        .unwrap();
+        v["sheets"].as_u64().unwrap()
+    };
+    assert_eq!(n(&mut e, 1), 1);
+    cmd(&mut e, r#"{"cmd":"move","motion":"docEnd"}"#);
+    cmd(&mut e, r#"{"cmd":"insertPageBreak"}"#);
+    // The panel sends the new revision: the sheets are made again.
+    assert_eq!(n(&mut e, 2), 2);
 }

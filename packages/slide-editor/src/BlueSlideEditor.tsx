@@ -6846,6 +6846,8 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
             getMedia: engine.getMedia.bind(engine),
           }}
           initial={{ current }}
+          // Any slide redrawn (an edit, a collaborator's change): a new preview.
+          revision={revs.reduce((a, b) => a + b, revs.length)}
           onPrint={(pdf) =>
             platform.print.printPdf(
               pdf,

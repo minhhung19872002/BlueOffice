@@ -185,31 +185,18 @@ pub(crate) fn protect(
 }
 
 /// Stop the restriction when `password` matches its verifier (the restriction type is kept,
-/// not enforced). A legacy verifier (`w:hash` / `w:salt`, §17.15.1.29 legacy attributes) cannot
-/// be checked yet, so such a protection is refused rather than accepting any password.
+/// not enforced): the iterated verifier (`w:algorithmName` / `w:hashValue` / `w:saltValue` /
+/// `w:spinCount`) or the legacy one (`w:hash` / `w:salt` / `w:cryptAlgorithmSid` /
+/// `w:cryptSpinCount`, ECMA-376 Part 1, §17.15.1.29 legacy attributes). A verifier in a form
+/// that cannot be checked (MD5, `algIdExt`) is refused rather than accepting any password.
 pub(crate) fn unprotect(s: &mut Session, password: Option<&str>) -> Result<(), &'static str> {
     let Some(p) = s.protection().cloned() else {
         return Ok(());
     };
-    if let (Some(alg), Some(hash), Some(salt)) = (
-        p.attr("algorithmName"),
-        p.attr("hashValue"),
-        p.attr("saltValue"),
-    ) {
-        let h = bo_crypto::protection::ProtectionHash {
-            algorithm_name: alg.to_owned(),
-            hash_value: hash.to_owned(),
-            salt_value: salt.to_owned(),
-            spin_count: p
-                .attr("spinCount")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0),
-        };
-        if !bo_crypto::protection::verify_protection(password.unwrap_or_default(), &h) {
-            return Err(WRONG_PASSWORD);
-        }
-    } else if p.attr("hash").is_some() || p.attr("cryptProviderType").is_some() {
-        return Err(crate::security::UNSUPPORTED_HASH);
+    match crate::security::verify_password(&p.attrs, "", password.unwrap_or_default()) {
+        Some(true) => {}
+        Some(false) => return Err(WRONG_PASSWORD),
+        None => return Err(crate::security::UNSUPPORTED_HASH),
     }
     s.set_protection(Some(DocProtection {
         edit: p.edit,
@@ -240,21 +227,38 @@ mod legacy_password_tests {
         s
     }
 
-    /// A legacy verifier (`w:hash` / `w:salt`) cannot be checked: stopping is refused and the
-    /// restriction stays enforced, whatever password is given.
+    /// A legacy verifier (`w:hash` / `w:salt`, ECMA-376 Part 1, §17.15.1.29) computed here per
+    /// the standard: only the right password stops the restriction.
     #[test]
-    fn legacy_verifier_is_refused_not_bypassed() {
+    fn legacy_verifier_checks_the_password() {
+        let h = bo_crypto::protection::word_legacy_hash_with_salt(
+            bo_crypto::HashAlgorithm::Sha1,
+            "Mật khẩu",
+            &[9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6],
+            1000,
+        );
         let mut s = protected(&[
             ("cryptProviderType", "rsaFull"),
-            ("hash", "AbCd"),
-            ("salt", "EfGh"),
+            ("cryptAlgorithmClass", "hash"),
+            ("cryptAlgorithmType", "typeAny"),
+            ("cryptAlgorithmSid", "4"),
+            ("cryptSpinCount", "1000"),
+            ("hash", h.hash.as_str()),
+            ("salt", h.salt.as_str()),
         ]);
+        assert_eq!(unprotect(&mut s, Some("anything")), Err(WRONG_PASSWORD));
+        assert_eq!(unprotect(&mut s, None), Err(WRONG_PASSWORD));
+        assert!(s.protection().is_some_and(|p| p.enforced));
+        assert_eq!(unprotect(&mut s, Some("Mật khẩu")), Ok(()));
+        assert!(s.protection().is_some_and(|p| !p.enforced));
+    }
+
+    /// A verifier in a form that cannot be checked (MD5) is refused, never bypassed.
+    #[test]
+    fn uncheckable_verifier_is_refused_not_bypassed() {
+        let mut s = protected(&[("cryptAlgorithmSid", "3"), ("hash", "AbCd")]);
         assert_eq!(
             unprotect(&mut s, Some("anything")),
-            Err(crate::security::UNSUPPORTED_HASH)
-        );
-        assert_eq!(
-            unprotect(&mut s, None),
             Err(crate::security::UNSUPPORTED_HASH)
         );
         assert!(s.protection().is_some_and(|p| p.enforced));

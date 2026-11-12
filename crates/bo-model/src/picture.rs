@@ -210,6 +210,11 @@ pub struct PictureFormat {
     /// original picture and the removal settings are kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub removal: Option<Box<RemovedBackground>>,
+    /// SVG version of the picture (CORE-PIC-001): media part of the SVG the
+    /// [MS-ODRAWXML] `asvg:svgBlip` extension of the blip names; the media part of
+    /// the picture is its PNG fallback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub svg: Option<String>,
 }
 
 impl PictureFormat {
@@ -218,6 +223,7 @@ impl PictureFormat {
         self.fx.is_identity()
             && self.shape.as_deref().is_none_or(|s| s == "rect")
             && self.removal.is_none()
+            && self.svg.is_none()
     }
 }
 

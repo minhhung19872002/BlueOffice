@@ -11,6 +11,9 @@ import {
   emptyTaskPaneLayout,
   loadTaskPaneLayout,
   parseTaskPaneLayout,
+  rememberOpenTaskPanes,
+  reopenedTaskPanes,
+  useRememberOpenTaskPanes,
   resizeTaskPaneDock,
   saveTaskPaneLayout,
   taskPaneDock,
@@ -278,5 +281,68 @@ describe('TaskPaneHost', () => {
     expect(document.activeElement).toBe(screen.getByTestId('app'));
     f6(true);
     expect(document.activeElement).toBe(screen.getByTestId('status'));
+  });
+});
+
+/** Harness whose open panes are remembered and reopened (CORE-UI-006). */
+function Remembering({ storage, known }: { storage: TaskPaneStorage; known: string[] }) {
+  const [layout, setLayout] = useTaskPaneLayout('test', storage);
+  const [open, setOpen] = useState<string[]>([]);
+  useRememberOpenTaskPanes(layout, setLayout, open, (ids) =>
+    setOpen(reopenedTaskPanes({ ...layout, open: ids }, known)),
+  );
+  return (
+    <div>
+      <button type="button" data-testid="open-b" onClick={() => setOpen((o) => [...o, 'b'])}>
+        b
+      </button>
+      <TaskPaneHost
+        layout={layout}
+        onLayout={setLayout}
+        panes={open.map((id) => pane(id))}
+        onClose={(id) => setOpen((o) => o.filter((x) => x !== id))}
+        labels={labels}
+      />
+    </div>
+  );
+}
+
+describe('remembered panes and keyboard move', () => {
+  it('reopens the panes left open, only those the editor knows', () => {
+    const s = memoryStorage();
+    s.setItem(taskPaneStorageKey('test'), JSON.stringify({ open: ['a', 'gone', 7] }));
+    expect(loadTaskPaneLayout('test', s).open).toEqual(['a', 'gone']);
+    const first = render(<Remembering storage={s} known={['a', 'b']} />);
+    expect(screen.getByTestId('taskpane-dock-right').dataset.active).toBe('a');
+    fireEvent.click(screen.getByTestId('open-b'));
+    expect(JSON.parse(s.data.get(taskPaneStorageKey('test'))!).open).toEqual(['a', 'b']);
+    fireEvent.click(screen.getByTestId('taskpane-close'));
+    expect(JSON.parse(s.data.get(taskPaneStorageKey('test'))!).open).toEqual(['a']);
+    first.unmount();
+    render(<Remembering storage={s} known={['a', 'b']} />);
+    expect(screen.getByTestId('taskpane-dock-right').dataset.active).toBe('a');
+    const empty = emptyTaskPaneLayout();
+    expect(rememberOpenTaskPanes(empty, [])).toBe(empty);
+  });
+
+  it('moves and resizes a floating pane with the keyboard; Home docks it back', () => {
+    const s = memoryStorage();
+    render(<Harness ids={['a']} storage={s} />);
+    fireEvent.click(screen.getByTestId('taskpane-to-float'));
+    const win = () => screen.getByTestId('taskpane-float-a');
+    const mover = () => within(win()).getByTestId('taskpane-move');
+    expect(mover().getAttribute('aria-label')).toBe('Move');
+    const x0 = parseInt(win().style.left, 10);
+    const y0 = parseInt(win().style.top, 10);
+    fireEvent.keyDown(mover(), { key: 'ArrowRight' });
+    fireEvent.keyDown(mover(), { key: 'ArrowDown' });
+    expect(parseInt(win().style.left, 10)).toBe(x0 + 16);
+    expect(parseInt(win().style.top, 10)).toBe(y0 + 16);
+    const w0 = parseInt(win().style.width, 10);
+    fireEvent.keyDown(mover(), { key: 'ArrowRight', shiftKey: true });
+    expect(parseInt(win().style.width, 10)).toBe(w0 + 16);
+    expect(JSON.parse(s.data.get(taskPaneStorageKey('test'))!).panes.a.rect.x).toBe(x0 + 16);
+    fireEvent.keyDown(mover(), { key: 'Home' });
+    expect(screen.getByTestId('taskpane-dock-right')).toBeTruthy();
   });
 });

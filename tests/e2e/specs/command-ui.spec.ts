@@ -239,3 +239,58 @@ test('slide: thumbnail and shape menus', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(shape).toHaveCount(0);
 });
+
+test('slide: the mini toolbar has font name / size boxes; spelling uses the shared menu', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/slide');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Mở', exact: true }).click();
+  await (await chooser).setFiles(deck);
+  await expect(page.getByTestId('slide-status')).toHaveText(/^Slide 1 \/ \d+$/);
+  await page.getByRole('button', { name: '+ Thêm slide' }).click();
+  await page.getByRole('tab', { name: 'Chèn' }).click();
+  await page.getByRole('button', { name: 'Hộp văn bản' }).click();
+  await page.keyboard.press('Enter');
+  const tb = (await page.getByTestId('selection-box').first().boundingBox())!;
+  await page.mouse.dblclick(tb.x + tb.width / 2, tb.y + tb.height / 2);
+  const editor = page.getByTestId('slide-text-editor');
+  await expect(editor).toBeFocused();
+  await page.keyboard.insertText('Xin chaò the documnet');
+
+  // Corrections head the shared text menu (role=menu, arrows), with the text commands below.
+  const marks = page.getByTestId('slide-spell-mark');
+  await expect(marks).toHaveCount(2, { timeout: 15_000 });
+  const m = (await marks.first().boundingBox())!;
+  await page.mouse.click(m.x + m.width / 2, m.y - 4, { button: 'right' });
+  const menu = page.getByTestId('spell-menu');
+  await expect(menu).toHaveAttribute('role', 'menu');
+  await expect(menu.locator('[data-menu-command="edit.copy"]')).toBeVisible();
+  // Keyboard: Home goes to the first correction ("chào"), Enter runs it (the pointer may rest
+  // on another line of the menu).
+  const pick = menu.locator('[data-menu-command="spell.pick.chào"]');
+  await page.keyboard.press('Home');
+  await expect(pick).toHaveAttribute('data-active', 'true');
+  await page.keyboard.press('ArrowDown');
+  await expect(pick).not.toHaveAttribute('data-active', 'true');
+  await page.keyboard.press('Home');
+  await expect(pick).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(editor).toHaveValue('Xin chào the documnet', { timeout: 15_000 });
+  await expect(menu).toHaveCount(0);
+
+  // Select the text with the mouse: the floating bar shows the font name and size boxes.
+  const box = tb;
+  await page.mouse.move(box.x + 6, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 6, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  const mini = page.getByTestId('mini-toolbar');
+  await expect(mini).toBeVisible();
+  await expect(mini.getByTestId('mini-font-family')).toBeVisible();
+  await mini.getByTestId('mini-font-size').selectOption('32');
+  await expect(page.getByTestId('slide-font-size')).toHaveValue('32');
+  expect(errors).toEqual([]);
+});

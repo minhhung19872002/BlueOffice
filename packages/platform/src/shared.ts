@@ -9,6 +9,7 @@ import type {
   FileAccess,
   MessageBus,
   OfflineCache,
+  PreferenceStore,
   RecentFile,
   StoredDocument,
   UpdateStatus,
@@ -43,6 +44,34 @@ export function shouldCheckForUpdates(
 }
 
 /** Async Clipboard API (works in browsers and in the Tauri WebView). */
+/**
+ * Preferences in the web view's local storage (web and desktop: the desktop web view keeps
+ * its own profile). Blocked storage (private window, sandboxed frame) reads as empty.
+ */
+export class LocalPreferences implements PreferenceStore {
+  private store(): Storage | null {
+    try {
+      return globalThis.localStorage ?? null;
+    } catch {
+      return null;
+    }
+  }
+  getItem(key: string): string | null {
+    try {
+      return this.store()?.getItem(key) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  setItem(key: string, value: string): void {
+    try {
+      this.store()?.setItem(key, value);
+    } catch {
+      // Full or blocked: the preference only lasts for this session.
+    }
+  }
+}
+
 export class BrowserClipboard implements ClipboardAccess {
   readText(): Promise<string> {
     return navigator.clipboard.readText();

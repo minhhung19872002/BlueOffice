@@ -470,3 +470,136 @@ fn connector_snaps_to_a_freeform_site() {
         "{conn:?}"
     );
 }
+
+/// Connection sites (slide points) of shape `id`'s custom geometry: its `vtx` guides.
+fn custom_site_count(e: &Engine, id: u32) -> usize {
+    match shape(e, id).props.geometry {
+        Some(Geometry::Custom(c)) => c.gd.iter().filter(|g| g.name.starts_with("vtxX")).count(),
+        _ => 0,
+    }
+}
+
+#[test]
+fn glue_points_follow_edited_points() {
+    let mut e = open();
+    // A = [100,200]×[100,160] as a freeform; B an ellipse to the right.
+    let a = insert(&mut e, "rect", 100.0, 100.0, 100.0, 60.0);
+    run(&mut e, r#"{"cmd":"convertToFreeform"}"#);
+    let b = insert(&mut e, "ellipse", 400.0, 100.0, 100.0, 60.0);
+    select(&mut e, &[a, b]);
+    let conn = run(&mut e, r#"{"cmd":"insertConnector"}"#)
+        .connector
+        .unwrap();
+    // The baked rectangle's right site (200, 130).
+    assert!(near(conn.ends[0][0], 200.0, 0.01) && near(conn.ends[0][1], 130.0, 0.01));
+    // Edit a point: the sites become the outline's vertices (corners), the connector glues to
+    // the nearest one — (200, 100) and (200, 160) are both 30 away; the first wins.
+    select(&mut e, &[a]);
+    run(
+        &mut e,
+        r#"{"cmd":"editPoint","edit":{"kind":"move","path":0,"point":0,"x":90,"y":100}}"#,
+    );
+    assert_eq!(custom_site_count(&e, a), 4);
+    let conn = select(&mut e, &[conn.id]).connector.unwrap();
+    assert!(conn.attached[0]);
+    assert!(
+        near(conn.ends[0][0], 200.0, 0.01) && near(conn.ends[0][1], 100.0, 0.01),
+        "{conn:?}"
+    );
+    // Moving the vertex the connector is glued to: the connector follows it.
+    select(&mut e, &[a]);
+    run(
+        &mut e,
+        r#"{"cmd":"editPoint","edit":{"kind":"move","path":0,"point":1,"x":230,"y":80}}"#,
+    );
+    let conn = select(&mut e, &[conn.id]).connector.unwrap();
+    assert!(
+        near(conn.ends[0][0], 230.0, 0.01) && near(conn.ends[0][1], 80.0, 0.01),
+        "{conn:?}"
+    );
+    // A new point adds a site; the connector stays where it was.
+    select(&mut e, &[a]);
+    run(
+        &mut e,
+        r#"{"cmd":"editPoint","edit":{"kind":"add","x":95,"y":130,"tolerance":10}}"#,
+    );
+    assert_eq!(custom_site_count(&e, a), 5);
+    let conn = select(&mut e, &[conn.id]).connector.unwrap();
+    assert!(
+        near(conn.ends[0][0], 230.0, 0.01) && near(conn.ends[0][1], 80.0, 0.01),
+        "{conn:?}"
+    );
+    let bytes = e.save_pptx().unwrap();
+    save_for_validation(&bytes, "glue-edit-points.pptx");
+}
+
+#[test]
+fn merged_shape_keeps_its_connectors_glued() {
+    let mut e = open();
+    let (a, b) = two_squares(&mut e);
+    let c = insert(&mut e, "ellipse", 400.0, 120.0, 60.0, 60.0);
+    // B's right site (250, 200) – C.
+    select(&mut e, &[b, c]);
+    let conn = run(&mut e, r#"{"cmd":"insertConnector"}"#)
+        .connector
+        .unwrap();
+    assert!(near(conn.ends[0][0], 250.0, 0.01) && near(conn.ends[0][1], 200.0, 0.01));
+    select(&mut e, &[a, b]);
+    let r = run(&mut e, r#"{"cmd":"mergeShapes","op":"union"}"#);
+    let merged = r.selection[0].id;
+    // Union outline: 8 vertices, each a site.
+    assert_eq!(custom_site_count(&e, merged), 8);
+    let conn = select(&mut e, &[conn.id]).connector.unwrap();
+    assert_eq!(conn.attached, [true, true], "{conn:?}");
+    // The nearest vertex of the union to (250, 200): (250, 150) or (250, 250), 50 away.
+    assert!(near(conn.ends[0][0], 250.0, 0.01), "{conn:?}");
+    assert!(
+        near((conn.ends[0][1] - 200.0).abs(), 50.0, 0.01),
+        "{conn:?}"
+    );
+}
+
+#[test]
+fn merge_shapes_inside_a_group() {
+    let mut e = open();
+    let (a, b) = two_squares(&mut e);
+    let c = insert(&mut e, "rect", 400.0, 100.0, 50.0, 50.0);
+    select(&mut e, &[a, b, c]);
+    run(&mut e, r#"{"cmd":"group"}"#);
+    // The two squares inside the group: their union, still in the group.
+    select(&mut e, &[a, b]);
+    let r = run(&mut e, r#"{"cmd":"mergeShapes","op":"union"}"#);
+    assert_eq!(r.selection.len(), 1);
+    let rect = r.selection[0].rect;
+    // Union box [100,250]² on the slide.
+    assert!(
+        near(rect.cx, 175.0, 0.05) && near(rect.cy, 175.0, 0.05),
+        "{rect:?}"
+    );
+    assert!(
+        near(rect.w, 150.0, 0.05) && near(rect.h, 150.0, 0.05),
+        "{rect:?}"
+    );
+    let p = e.presentation().unwrap();
+    let group = p.slides[0]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            ShapeNode::Group(g) => Some(g),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(group.children.len(), 2, "merged result + the third shape");
+    let ShapeNode::Shape(m) = &group.children[0] else {
+        panic!()
+    };
+    assert!(near(area_pt2(m), 17_500.0, 1.0));
+    // A shape of the group with one outside it: refused.
+    let d = insert(&mut e, "rect", 500.0, 300.0, 50.0, 50.0);
+    select(&mut e, &[c, d]);
+    let r = try_run(&mut e, r#"{"cmd":"mergeShapes","op":"union"}"#);
+    assert_eq!(r.error.as_deref(), Some("mergeSameGroup"));
+    let bytes = e.save_pptx().unwrap();
+    save_for_validation(&bytes, "merge-in-group.pptx");
+}

@@ -11,6 +11,7 @@ export function taskPaneLabels(t: T): TaskPaneLabels {
     close: t('taskPane.close'),
     resize: t('taskPane.resize'),
     move: t('taskPane.move'),
+    moveKeys: t('taskPane.moveKeys'),
     tabs: t('taskPane.tabs'),
   };
 }

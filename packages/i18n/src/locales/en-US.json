@@ -6814,6 +6814,7 @@
     "close": "Close pane",
     "resize": "Resize pane",
     "move": "Drag to move; double-click to dock again",
+    "moveKeys": "Move with the arrow keys; Shift+arrows resize; Home docks it again",
     "tabs": "Panes",
     "styles": {
       "title": "Styles",

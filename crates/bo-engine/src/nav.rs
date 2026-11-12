@@ -291,6 +291,45 @@ pub fn click_on_checkbox(
         .any(|r| r.page == page && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
 }
 
+/// The picture under a point of a page (CORE-PIC-001: a click on a picture selects it, as in
+/// word processors): the topmost picture box there that is not behind the text, found among
+/// the main-text paragraphs of the page. Only the body story has pictures to select.
+pub fn picture_at(
+    layout: &LayoutDocument,
+    s: &bo_edit::Session,
+    page: usize,
+    x: f32,
+    y: f32,
+) -> Option<Selection> {
+    if STORY.with(std::cell::Cell::get) != Story::Body {
+        return None;
+    }
+    let p = layout.pages.get(page)?;
+    let media = p.items.iter().rev().find_map(|it| match it {
+        bo_layout::PageItem::Image {
+            x: ix,
+            y: iy,
+            w,
+            h,
+            media,
+            layer,
+            ..
+        } if *layer != bo_layout::Layer::Back
+            && x >= *ix
+            && x <= ix + w
+            && y >= *iy
+            && y <= iy + h =>
+        {
+            Some(media.as_str())
+        }
+        _ => None,
+    })?;
+    let mut paras: Vec<usize> = p.lines.iter().filter_map(body_id).collect();
+    paras.sort_unstable();
+    paras.dedup();
+    s.picture_selection(&paras, media)
+}
+
 /// Position under a point of a page (nearest line, then nearest caret stop).
 pub fn hit_test(layout: &LayoutDocument, page: usize, x: f32, y: f32) -> Option<Pos> {
     let p = layout.pages.get(page)?;

@@ -5,7 +5,7 @@
 
 use crate::{DocxError, Result};
 use bo_model::custom_xml::DataBinding;
-use bo_model::picture::{PictureFormat, RemovedBackground};
+use bo_model::picture::RemovedBackground;
 use bo_model::slide::Theme;
 
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -1584,17 +1584,17 @@ fn with_src(mut img: Image, raw: Raw) -> Image {
         crate::shape::shape_fingerprint(&img)
     } else {
         // Adjustments and crop shape of the picture (CORE-PIC-001).
-        let original = img
-            .format
-            .take()
-            .and_then(|f| f.removal)
-            .map(|r| r.original);
+        let read_format = img.format.take();
+        let svg = read_format.as_ref().and_then(|f| f.svg.clone());
+        let original = read_format.and_then(|f| f.removal).map(|r| r.original);
         if let Some(mut p) = crate::picture::read(&raw.xml) {
             // The original picture of a removed background, resolved while reading.
             p.format.removal = p.format.removal.zip(original).map(|(mut r, original)| {
                 r.original = original;
                 r
             });
+            // The SVG version, resolved while reading (a part the package lacks is dropped).
+            p.format.svg = p.format.svg.and(svg);
             img.format = (!p.format.is_plain()).then(|| Box::new(p.format));
         }
         fingerprint(&img.anchor)
@@ -1949,14 +1949,24 @@ fn read_drawing_frame(
                             media
                                 .entry(target.clone())
                                 .or_insert_with(|| Arc::new(p.data.clone()));
-                            img.format = Some(Box::new(PictureFormat {
-                                removal: Some(Box::new(RemovedBackground {
+                            img.format.get_or_insert_with(Box::default).removal =
+                                Some(Box::new(RemovedBackground {
                                     original: target,
                                     ..RemovedBackground::default()
-                                })),
-                                ..PictureFormat::default()
-                            }));
+                                }));
                         }
+                    }
+                }
+            }
+            // [MS-ODRAWXML] asvg:svgBlip@r:embed: the SVG version of the picture (its
+            // blip is the PNG fallback), CORE-PIC-001.
+            b"svgBlip" => {
+                if let Some(target) = attr(&e, b"embed").and_then(|id| ctx.target(&id)) {
+                    if let Some(p) = ctx.pkg.part(&target) {
+                        media
+                            .entry(target.clone())
+                            .or_insert_with(|| Arc::new(p.data.clone()));
+                        img.format.get_or_insert_with(Box::default).svg = Some(target);
                     }
                 }
             }

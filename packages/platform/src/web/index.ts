@@ -4,6 +4,7 @@ import {
   BrowserClipboard,
   FileAccessStorage,
   IndexedDbCache,
+  LocalPreferences,
   LocalRecentFiles,
 } from '../shared';
 import type {
@@ -359,6 +360,7 @@ export function createWebPlatform(opts: WebPlatformOptions = {}): Platform {
     shell: new WebShell(),
     // A page shown through the Presentation API talks over its presentation connection.
     channel: (name: string) => presentationReceiverBus() ?? new BroadcastBus(name),
+    preferences: new LocalPreferences(),
     sheet: createWebSheetHost(
       fonts,
       () => document.documentElement.lang || 'vi-VN',

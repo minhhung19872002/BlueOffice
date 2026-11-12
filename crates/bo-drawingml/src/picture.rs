@@ -552,6 +552,39 @@ pub fn svg_blip_embed(children: &[XmlElement]) -> Option<String> {
         })
 }
 
+/// [MS-ODRAWXML] namespace of `asvg:svgBlip`.
+pub const NS_ASVG: &str = "http://schemas.microsoft.com/office/drawing/2016/SVG/main";
+
+/// Sets (`Some(rid)`) or removes the SVG version of a blip ([MS-ODRAWXML] `asvg:svgBlip`
+/// in an `a:ext` of the blip's `a:extLst`, §20.1.2.2.15 extLst); other extensions stay.
+pub fn write_svg_blip(children: &mut Vec<XmlElement>, rid: Option<&str>) {
+    for list in children.iter_mut().filter(|c| c.local() == "extLst") {
+        list.children
+            .retain(|n| !matches!(n, XmlNode::Element(e) if e.attr("uri") == Some(SVG_BLIP_EXT)));
+    }
+    children.retain(|c| c.local() != "extLst" || c.elements().next().is_some());
+    let Some(rid) = rid else {
+        return;
+    };
+    let li = children
+        .iter()
+        .position(|c| c.local() == "extLst")
+        .unwrap_or_else(|| {
+            children.push(El::new("a:extLst").done());
+            children.len() - 1
+        });
+    let ext = El::new("a:ext")
+        .a("uri", SVG_BLIP_EXT)
+        .child(
+            El::new("asvg:svgBlip")
+                .a("xmlns:asvg", NS_ASVG)
+                .a("r:embed", rid)
+                .done(),
+        )
+        .done();
+    children[li].children.push(XmlNode::Element(ext));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -687,5 +720,32 @@ mod tests {
         let mut c = Vec::new();
         write_fx(&mut c, &fx);
         assert_eq!(read_fx(&c), fx);
+    }
+
+    #[test]
+    fn svg_blip_set_and_removed() {
+        let mut kids = vec![];
+        write_svg_blip(&mut kids, Some("rId7"));
+        assert_eq!(svg_blip_embed(&kids).as_deref(), Some("rId7"));
+        // Next to the a14 picture effects in the same extension list.
+        write_fx(
+            &mut kids,
+            &PictureFx {
+                sharpen: 20_000,
+                ..PictureFx::default()
+            },
+        );
+        write_svg_blip(&mut kids, Some("rId8"));
+        assert_eq!(kids.iter().filter(|k| k.local() == "extLst").count(), 1);
+        assert_eq!(svg_blip_embed(&kids).as_deref(), Some("rId8"));
+        let mut xml = String::new();
+        for k in &kids {
+            write_element(k, &mut xml);
+        }
+        assert_eq!(xml.matches("svgBlip").count(), 1, "{xml}");
+        assert!(xml.contains("imgProps"), "{xml}");
+        write_svg_blip(&mut kids, None);
+        assert!(svg_blip_embed(&kids).is_none());
+        assert!(kids.iter().any(|k| k.local() == "extLst"), "a14 kept");
     }
 }

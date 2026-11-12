@@ -348,3 +348,141 @@ fn doc_compress_and_reopened_edit() {
     let xml = String::from_utf8_lossy(&pkg.part("/word/document.xml").unwrap().data).into_owned();
     assert!(xml.contains("<a:biLevel thresh=\"50000\"/>"), "{xml}");
 }
+
+const LOGO: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect x="0" y="0" width="100" height="100" fill="#ff0000"/><circle cx="150" cy="50" r="50" fill="#0000ff"/></svg>"##;
+
+fn document_xml(bytes: &[u8]) -> String {
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
+    String::from_utf8_lossy(&pkg.part("/word/document.xml").unwrap().data).into_owned()
+}
+
+#[test]
+fn doc_svg_picture_round_trip_and_to_shapes() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    let v = doc_json(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"pictureInsertSvg","data":"{}","name":"logo.svg"}}"#,
+            b64(LOGO)
+        ),
+    );
+    assert!(v.get("error").is_none(), "{v}");
+    let v = doc_json(&mut e, r#"{"cmd":"pictureInfo"}"#);
+    assert_eq!(v["picture"]["svg"], true, "{v}");
+    // 200 × 100 px at 96 dpi: 150 × 75 pt.
+    assert!(
+        (v["picture"]["width"].as_f64().unwrap() - 150.0).abs() < 0.5,
+        "{v}"
+    );
+    let bytes = e.save_docx().unwrap();
+    validate(&bytes, "pic-doc-svg.docx");
+    let xml = document_xml(&bytes);
+    // [MS-ODRAWXML] svgBlip next to the PNG fallback blip.
+    assert!(
+        xml.contains("{96DAC541-7B7A-43D3-8B79-37D633B846F1}"),
+        "{xml}"
+    );
+    assert!(xml.contains("asvg:svgBlip"), "{xml}");
+    let pkg = bo_opc::Package::read(&bytes, &bo_opc::Limits::default()).unwrap();
+    let svg_part = pkg
+        .parts()
+        .iter()
+        .find(|p| p.name.ends_with(".svg"))
+        .expect("svg part");
+    assert_eq!(svg_part.data, LOGO);
+    assert!(pkg.parts().iter().any(|p| p.name.ends_with(".png")));
+
+    // Reopened: still an SVG picture, saved again with its SVG.
+    let mut e2 = Engine::with_bundled_fonts();
+    e2.open(&bytes, "x.docx").unwrap();
+    doc_json(&mut e2, r#"{"cmd":"selectAll"}"#);
+    let v = doc_json(&mut e2, r#"{"cmd":"pictureInfo"}"#);
+    assert_eq!(v["picture"]["svg"], true, "{v}");
+    let again = e2.save_docx().unwrap();
+    assert!(document_xml(&again).contains("svgBlip"));
+    // A colour change patches the XML and keeps the SVG.
+    doc_json(&mut e2, r#"{"cmd":"pictureFx","fx":{"grayscale":true}}"#);
+    let patched = e2.save_docx().unwrap();
+    let xml = document_xml(&patched);
+    assert!(
+        xml.contains("<a:grayscl/>") && xml.contains("svgBlip"),
+        "{xml}"
+    );
+
+    // Convert to shapes: a group of two freeforms, drawn as paths; one undo step.
+    let v = doc_json(&mut e2, r#"{"cmd":"pictureToShapes"}"#);
+    assert!(v.get("error").is_none(), "{v}");
+    let page = e2.page(0).unwrap();
+    assert!(!page.commands.iter().any(
+        |c| matches!(c, bo_render::Command::Image { image, .. } if image.contains("/word/media/"))
+    ));
+    let shapes = e2.save_docx().unwrap();
+    validate(&shapes, "pic-doc-svg-shapes.docx");
+    let xml = document_xml(&shapes);
+    assert!(xml.contains("wpg:wgp"), "{xml}");
+    assert_eq!(xml.matches("<a:custGeom>").count(), 2, "{xml}");
+    assert!(!xml.contains("svgBlip"));
+    let pkg = bo_opc::Package::read(&shapes, &bo_opc::Limits::default()).unwrap();
+    assert!(
+        !pkg.parts()
+            .iter()
+            .any(|p| p.name.starts_with("/word/media/")),
+        "the picture's parts go"
+    );
+    doc_json(&mut e2, r#"{"cmd":"undo"}"#);
+    let v = doc_json(&mut e2, r#"{"cmd":"pictureInfo"}"#);
+    assert_eq!(v["picture"]["svg"], true, "{v}");
+
+    // Change picture to an SVG file keeps the new SVG too.
+    let mut e3 = doc_with_picture();
+    let v = doc_json(
+        &mut e3,
+        &format!(
+            r#"{{"cmd":"pictureChange","data":"{}","name":"b.svg"}}"#,
+            b64(LOGO)
+        ),
+    );
+    assert!(v.get("error").is_none(), "{v}");
+    assert_eq!(v["picture"]["svg"], true, "{v}");
+}
+
+#[test]
+fn doc_click_selects_the_picture() {
+    let mut e = doc_with_picture();
+    doc_json(&mut e, r#"{"cmd":"insertText","text":" after"}"#);
+    let v = doc_json(&mut e, r#"{"cmd":"state"}"#);
+    assert_ne!(v["format"]["pictureTools"], true, "{v}");
+    let (x, y, w, h) = e
+        .page(0)
+        .unwrap()
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            bo_render::Command::Image { x, y, w, h, .. } => Some((*x, *y, *w, *h)),
+            _ => None,
+        })
+        .unwrap();
+    let v = doc_json(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"click","page":0,"x":{},"y":{}}}"#,
+            x + w / 2.0,
+            y + h / 2.0
+        ),
+    );
+    let sel = &v["selection"];
+    assert_eq!(sel["anchor"]["o"], 0, "{v}");
+    assert!(sel["focus"]["o"].as_u64().unwrap() > 0, "{v}");
+    assert_eq!(v["format"]["pictureTools"], true, "{v}");
+    // A click on the text after it places the caret as before.
+    let v = doc_json(
+        &mut e,
+        &format!(
+            r#"{{"cmd":"click","page":0,"x":{},"y":{}}}"#,
+            x + w + 30.0,
+            y + h - 4.0
+        ),
+    );
+    assert_eq!(v["selection"]["anchor"], v["selection"]["focus"], "{v}");
+}

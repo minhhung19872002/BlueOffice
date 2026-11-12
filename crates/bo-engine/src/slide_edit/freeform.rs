@@ -13,7 +13,7 @@ use super::geom::{find, place_slide, BoxR, Placed, EMU_PT};
 use super::ops::{self, Tx};
 use super::{next_shape_id, node_clone, refuse, the_one, EditError, SlideSel, R};
 use bo_drawingml::boolean::{self, BoolOp, Contour, Region};
-use bo_drawingml::freeform::{editable, EditPath, PointKind};
+use bo_drawingml::freeform::{editable, has_outline_sites, outline_sites, EditPath, PointKind};
 use bo_drawingml::geom::FillMode;
 use bo_model::slide::{
     CustomGeometry, GeomPath, Geometry, PathCommand, Presentation, ShapeNode, Xfrm,
@@ -327,6 +327,16 @@ pub fn cmd_point_edit(tx: &mut Tx<'_>, sel: &SlideSel, edit: &PointEdit) -> R<()
         return refuse("noFreeform");
     };
     let f = visual(&p, flips(tx.pres, sel.slide, &n));
+    // Vertex sites keep their order when the points stay the same (a moved point keeps the
+    // connectors glued to it); other edits glue them to the nearest new site.
+    let same_points = has_outline_sites(&c)
+        && matches!(
+            edit,
+            PointEdit::Move { .. }
+                | PointEdit::Handle { .. }
+                | PointEdit::Segment { .. }
+                | PointEdit::PointType { .. }
+        );
     let mut eps: Vec<EditPath> = c
         .paths
         .iter()
@@ -437,6 +447,8 @@ pub fn cmd_point_edit(tx: &mut Tx<'_>, sel: &SlideSel, edit: &PointEdit) -> R<()
         }
         *gp = ep.write(gp);
     }
+    // CORE-SHAPE-001: the glue points follow the new outline (§20.1.9.10 cxnLst).
+    outline_sites(&mut c);
     s.props.geometry = Some(Geometry::Custom(c));
     if refit {
         let base = super::geom::node_xfrm(tx.pres, sel.slide, &n).unwrap_or_default();
@@ -451,6 +463,9 @@ pub fn cmd_point_edit(tx: &mut Tx<'_>, sel: &SlideSel, edit: &PointEdit) -> R<()
         s.props.xfrm = Some(p.frame.to_xfrm(&nb, &base));
     }
     tx.replace_node(sel.slide, &p.path, ShapeNode::Shape(s))?;
+    if !same_points {
+        super::reglue(tx, sel.slide, &[p.id], &[p.id])?;
+    }
     Ok(())
 }
 
@@ -535,11 +550,13 @@ pub fn cmd_merge(tx: &mut Tx<'_>, sel: &mut SlideSel, op: MergeOp) -> R<()> {
     if items.len() < 2 {
         return refuse("mergeNeedsTwo");
     }
+    // Shapes side by side in the same container: the slide, or one group (CORE-SHAPE-001).
+    let parent: Vec<usize> = items[0].path[..items[0].path.len() - 1].to_vec();
     let mut regions = Vec::new();
     let mut nodes = Vec::new();
     for p in &items {
-        if p.path.len() != 1 {
-            return refuse("mergeShapesOnly");
+        if p.path.len() != parent.len() + 1 || p.path[..parent.len()] != parent[..] {
+            return refuse("mergeSameGroup");
         }
         let n = node_clone(tx.pres, sel.slide, &p.path)?;
         let r =
@@ -576,7 +593,22 @@ pub fn cmd_merge(tx: &mut Tx<'_>, sel: &mut SlideSel, op: MergeOp) -> R<()> {
         let ShapeNode::Shape(mut s) = nodes[from].clone() else {
             return refuse("mergeShapesOnly");
         };
-        let (geom, xfrm) = geometry_of(piece).ok_or(EditError::Refused("mergeEmpty"))?;
+        let (mut geom, mut xfrm) = geometry_of(piece).ok_or(EditError::Refused("mergeEmpty"))?;
+        if !parent.is_empty() {
+            // Into the group's child space (§20.1.7.5 chOff / chExt), as the shapes were.
+            let (ox, oy) = xfrm.off.unwrap_or((0, 0));
+            let (w, h) = xfrm.ext.unwrap_or((0, 0));
+            let nb = BoxR {
+                cx: (ox as f64 + w as f64 / 2.0) / EMU_PT,
+                cy: (oy as f64 + h as f64 / 2.0) / EMU_PT,
+                w: w as f64 / EMU_PT,
+                h: h as f64 / EMU_PT,
+                rot: 0.0,
+            };
+            xfrm = items[0].frame.to_xfrm(&nb, &Xfrm::default());
+        }
+        // Glue points at the vertices of the result (CORE-SHAPE-001).
+        outline_sites(&mut geom);
         s.nv.id = next;
         s.nv.name = format!("Freeform {next}");
         s.nv.placeholder = None;
@@ -588,15 +620,20 @@ pub fn cmd_merge(tx: &mut Tx<'_>, sel: &mut SlideSel, op: MergeOp) -> R<()> {
         out.push(ShapeNode::Shape(s));
     }
     // Replace the merged shapes: the result goes where the lowest one was.
-    let mut idx: Vec<usize> = items.iter().map(|p| p.path[0]).collect();
+    let mut idx: Vec<usize> = items.iter().map(|p| p.path[parent.len()]).collect();
     idx.sort_unstable();
     idx.dedup();
     let at = idx[0];
     for i in idx.iter().rev() {
-        tx.remove_node(sel.slide, &[*i])?;
+        let mut path = parent.clone();
+        path.push(*i);
+        tx.remove_node(sel.slide, &path)?;
     }
+    let merged: Vec<u32> = items.iter().map(|p| p.id).collect();
     sel.ids = out.iter().filter_map(|n| n.nv().map(|nv| nv.id)).collect();
-    tx.insert_nodes(sel.slide, &[], at, out)?;
+    tx.insert_nodes(sel.slide, &parent, at, out)?;
+    // Connectors glued to a merged shape glue to the result.
+    super::reglue(tx, sel.slide, &merged, &sel.ids)?;
     Ok(())
 }
 

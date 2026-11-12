@@ -2013,7 +2013,14 @@ impl crate::Engine {
                                 _ => Selection::caret(p),
                             };
                             s.set_selection(new);
-                            if count == 1 && !extend {
+                            // A click on a picture selects it (CORE-PIC-001).
+                            let picked = (count == 1 && !extend)
+                                .then(|| nav::picture_at(layout, s, page, x, y))
+                                .flatten();
+                            if let Some(pic) = picked {
+                                s.set_selection(pic);
+                            }
+                            if count == 1 && !extend && picked.is_none() {
                                 // A click in a placeholder selects all of it (§17.5.2.39); one on
                                 // a check box's mark toggles it ([MS-DOCX] w14:checkbox).
                                 s.select_control_placeholder();
@@ -2022,7 +2029,10 @@ impl crate::Engine {
                                 }
                             }
                             // A drag that follows extends by characters, words or paragraphs.
-                            self.drag_origin = Some(if extend && count < 2 {
+                            self.drag_origin = Some(if let Some(pic) = picked {
+                                // Dragging from a picture keeps it whole (word steps).
+                                (pic, 2)
+                            } else if extend && count < 2 {
                                 (Selection::caret(sel.anchor), 1)
                             } else {
                                 (new, count.clamp(1, 3))
@@ -2609,6 +2619,30 @@ impl crate::Engine {
                 r.error = Some(self.sec.refusal().into());
                 return Ok(r);
             }
+        }
+        // CORE-PIC-001: an SVG picture keeps its SVG next to a PNG fallback
+        // ([MS-ODRAWXML] asvg:svgBlip), sized from the SVG.
+        if crate::picture_tools::is_svg(&bytes) {
+            let (png, mut wpt, mut hpt) = crate::doc_picture::svg_fallback(&bytes)
+                .ok_or_else(|| crate::EngineError::Unsupported(name.to_owned()))?;
+            let s = self
+                .session
+                .as_mut()
+                .ok_or(crate::EngineError::NoDocument)?;
+            let max_w = s.doc().sections.first().map_or(453.0, |sec| {
+                (sec.page.width.0 - sec.page.margin_left.0 - sec.page.margin_right.0) as f32 / 20.0
+            });
+            if wpt > max_w {
+                hpt *= max_w / wpt;
+                wpt = max_w;
+            }
+            let res =
+                s.insert_svg_image(png, bytes, (wpt * 12_700.0) as i64, (hpt * 12_700.0) as i64);
+            let error = res.err().map(|e| e.to_string());
+            let dirty = self.relayout()?;
+            let mut r = self.edit_result(dirty, (None, None, None), error)?;
+            r.collab = self.collab_after_edit();
+            return Ok(r);
         }
         // GIF, BMP and TIFF pictures are stored as PNG.
         let bytes = if image_size(&bytes).is_none() {

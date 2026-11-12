@@ -3385,6 +3385,15 @@ export interface UpdateService {
   install(): Promise<void>;
 }
 
+/**
+ * Small per-user UI preferences (task pane layout and the panes left open, …): synchronous
+ * key / value strings. A write that fails (storage full or blocked) is dropped silently.
+ */
+export interface PreferenceStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
 /** Everything platform-specific, in one object. */
 export interface Platform {
   readonly kind: 'web' | 'desktop';
@@ -3400,6 +3409,8 @@ export interface Platform {
   shell: ShellIntegration;
   /** Channel between windows (web: BroadcastChannel, desktop: Tauri events). */
   channel?(name: string): MessageBus;
+  /** Per-user UI preferences (absent: the editors fall back to the browser's local storage). */
+  preferences?: PreferenceStore;
   /** BlueSheet engine (absent in hosts that only embed BlueDoc). */
   sheet?: import('./sheet').SheetHost;
   /** Digital signatures (absent where not available). */

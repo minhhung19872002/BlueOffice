@@ -292,6 +292,7 @@ export function PivotPanel({
   onOptions,
   onCalc,
   fail,
+  embedded = false,
 }: {
   host: SheetHost;
   sheet: number;
@@ -305,6 +306,8 @@ export function PivotPanel({
   onOptions: () => void;
   onCalc: () => void;
   fail: (e: unknown) => void;
+  /** Inside the shared task pane host (CORE-UI-006): it has the title and the close button. */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const [areas, setAreas] = useState<PivotAreas>(() => areasOf(pivot));
@@ -451,14 +454,16 @@ export function PivotPanel({
     }
   };
 
+  // Embedded: a plain block (the host's region is the landmark).
+  const Shell = embedded ? 'div' : 'aside';
   return (
-    <aside
-      className={styles.pivotPanel}
+    <Shell
+      className={`${styles.pivotPanel} ${embedded ? styles.pivotEmbedded : ''}`}
       data-testid="pivot-panel"
-      aria-label={t('sheetEditor.pivot.panelTitle')}
+      aria-label={embedded ? undefined : t('sheetEditor.pivot.panelTitle')}
     >
       <div className={styles.pivotHead}>
-        <strong>{t('sheetEditor.pivot.panelTitle')}</strong>
+        {!embedded && <strong>{t('sheetEditor.pivot.panelTitle')}</strong>}
         <span className={styles.pivotTools}>
           <button
             type="button"
@@ -490,15 +495,17 @@ export function PivotPanel({
           >
             <Settings2 size={14} />
           </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            title={t('sheetEditor.pivot.close')}
-            aria-label={t('sheetEditor.pivot.close')}
-            onClick={onClose}
-          >
-            <X size={14} />
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              className={styles.iconBtn}
+              title={t('sheetEditor.pivot.close')}
+              aria-label={t('sheetEditor.pivot.close')}
+              onClick={onClose}
+            >
+              <X size={14} />
+            </button>
+          )}
         </span>
       </div>
       <p className={styles.hint}>{pivot.name}</p>
@@ -689,6 +696,6 @@ export function PivotPanel({
           </div>
         </Popover>
       )}
-    </aside>
+    </Shell>
   );
 }

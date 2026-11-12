@@ -682,6 +682,127 @@ pub fn cxn_list(angles: &[f64]) -> Extra {
     }
 }
 
+/// Most connection sites a freeform gets from its outline.
+pub const MAX_OUTLINE_SITES: usize = 64;
+
+/// Does the custom geometry carry connection sites made by [`outline_sites`]?
+pub fn has_outline_sites(c: &CustomGeometry) -> bool {
+    c.gd.iter().any(|g| g.name == "vtxX0")
+}
+
+/// Connection sites of a freeform at the vertices of its outline (CORE-SHAPE-001: after edit
+/// points or a merge the glue points follow the new outline, as a freeform's do): each end
+/// point of the literal paths (the closing point of a contour once), pointing away from the
+/// paths' centre. The sites replace the previous `a:cxnLst` (§20.1.9.10) and its guides; they
+/// are guides proportional to the shape's size (§20.1.9.11), so they scale with it. Nothing
+/// changes when a path is not literal (guide references, arcs).
+pub fn outline_sites(c: &mut CustomGeometry) {
+    let num = |s: &str| s.trim().parse::<f64>().ok();
+    // (x, y, path w, path h) per vertex.
+    let mut pts: Vec<(f64, f64, Option<i64>, Option<i64>)> = Vec::new();
+    for p in &c.paths {
+        let mut start: Option<(f64, f64)> = None;
+        let mut last: Option<(f64, f64)> = None;
+        for cmd in &p.commands {
+            let end = match cmd {
+                PathCommand::MoveTo(x, y) | PathCommand::LineTo(x, y) => Some((num(x), num(y))),
+                PathCommand::QuadTo(v) => Some((num(&v[2]), num(&v[3]))),
+                PathCommand::CubicTo(v) => Some((num(&v[4]), num(&v[5]))),
+                PathCommand::ArcTo { .. } => return,
+                PathCommand::Close => {
+                    // The closing point repeats the contour's start: drop it.
+                    if let (Some(s), Some(l)) = (start, last) {
+                        if (s.0 - l.0).abs() < 0.5 && (s.1 - l.1).abs() < 0.5 && pts.len() > 1 {
+                            pts.pop();
+                        }
+                    }
+                    start = None;
+                    None
+                }
+            };
+            let Some((x, y)) = end else { continue };
+            let (Some(x), Some(y)) = (x, y) else { return };
+            if matches!(cmd, PathCommand::MoveTo(..)) {
+                start = Some((x, y));
+            }
+            last = Some((x, y));
+            pts.push((x, y, p.w, p.h));
+        }
+    }
+    if pts.is_empty() {
+        return;
+    }
+    // Evenly spread when the outline has many points (flattened curves of a merge).
+    if pts.len() > MAX_OUTLINE_SITES {
+        let n = pts.len();
+        pts = (0..MAX_OUTLINE_SITES)
+            .map(|i| pts[i * n / MAX_OUTLINE_SITES])
+            .collect();
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for &(x, y, _, _) in &pts {
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    let (cx, cy) = (f64::midpoint(x0, x1), f64::midpoint(y0, y1));
+    c.gd.retain(|g| {
+        !(g.name.starts_with("cxnX")
+            || g.name.starts_with("cxnY")
+            || g.name.starts_with("vtxX")
+            || g.name.starts_with("vtxY"))
+    });
+    c.extra.retain(|e| e.xml.local() != "cxnLst");
+    let guide = |name: String, axis: &str, v: f64, of: Option<i64>| match of.filter(|v| *v > 0) {
+        Some(of) => rel_guide(name, axis, v, of),
+        // Path in shape coordinates (no path size): the value itself.
+        None => Guide {
+            name,
+            fmla: format!("val {}", v.round() as i64),
+        },
+    };
+    let mut angles = Vec::new();
+    for (i, &(x, y, w, h)) in pts.iter().enumerate() {
+        c.gd.push(guide(format!("vtxX{i}"), "w", x, w));
+        c.gd.push(guide(format!("vtxY{i}"), "h", y, h));
+        // §20.1.9.9 cxn@ang: degrees clockwise from +x (y grows down).
+        let (dx, dy) = (x - cx, y - cy);
+        angles.push(if dx.abs() < 1e-9 && dy.abs() < 1e-9 {
+            0.0
+        } else {
+            dy.atan2(dx).to_degrees().rem_euclid(360.0)
+        });
+    }
+    let mut list = cxn_list(&angles);
+    // The positions name the vertex guides.
+    for (i, e) in list
+        .xml
+        .children
+        .iter_mut()
+        .filter_map(|n| match n {
+            bo_model::slide::XmlNode::Element(e) => Some(e),
+            bo_model::slide::XmlNode::Text(_) => None,
+        })
+        .enumerate()
+    {
+        for p in &mut e.children {
+            if let bo_model::slide::XmlNode::Element(pos) = p {
+                pos.attrs = vec![
+                    ("x".into(), format!("vtxX{i}")),
+                    ("y".into(), format!("vtxY{i}")),
+                ];
+            }
+        }
+    }
+    let at = c
+        .extra
+        .iter()
+        .position(|e| e.key > list.key)
+        .unwrap_or(c.extra.len());
+    c.extra.insert(at, list);
+}
+
 /// Guide `name = v / of` of the shape's width or height (`*/ w v of`, §20.1.9.11),
 /// so text rectangles and connection sites scale with the shape.
 fn rel_guide(name: String, axis: &str, v: f64, of: i64) -> Guide {

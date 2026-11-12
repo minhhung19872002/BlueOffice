@@ -3167,6 +3167,66 @@ fn reroute_connectors(tx: &mut Tx<'_>) -> R<()> {
     Ok(())
 }
 
+/// Connectors glued to the shapes `from` are glued again to the nearest connection site of
+/// the shapes `to`, by where their end is now (CORE-SHAPE-001: after an outline change — edit
+/// points, merge — the sites move or the shape is replaced; the connector keeps its place and
+/// is routed to the new site when the transaction ends, see [`reroute_connectors`]).
+pub(super) fn reglue(tx: &mut Tx<'_>, slide: usize, from: &[u32], to: &[u32]) -> R<()> {
+    let placed = place_slide(tx.pres, slide);
+    let mut targets: Vec<(u32, (f64, f64))> = Vec::new();
+    for &id in to {
+        if let Some(p) = find(&placed, id) {
+            if let Some(n) = ops::node_at(tx.pres, slide, &p.path) {
+                targets.extend(
+                    connect::sites(tx.pres, slide, p, n)
+                        .into_iter()
+                        .map(|s| (id, s)),
+                );
+            }
+        }
+    }
+    let mut all: Vec<&Placed> = Vec::new();
+    connect::walk(&placed, &mut |p| all.push(p));
+    let mut changes = Vec::new();
+    for p in all {
+        let Some(ShapeNode::Connector(c)) = ops::node_at(tx.pres, slide, &p.path) else {
+            continue;
+        };
+        let Some(x) = c.props.xfrm.as_ref() else {
+            continue;
+        };
+        let ends = connect::ends(p, x);
+        let mut nc = (**c).clone();
+        let mut changed = false;
+        for (e, at) in ends.iter().enumerate() {
+            if !connect::cxn_ref(c, e).is_some_and(|(id, _)| from.contains(&id)) {
+                continue;
+            }
+            // Site index within its shape.
+            let best = targets
+                .iter()
+                .enumerate()
+                .min_by(|a, b| {
+                    let d = |s: &(f64, f64)| (s.0 - at.0).hypot(s.1 - at.1);
+                    d(&a.1 .1).total_cmp(&d(&b.1 .1))
+                })
+                .map(|(i, (id, _))| {
+                    let first = targets.iter().position(|t| t.0 == *id).unwrap_or(i);
+                    (*id, (i - first) as u32)
+                });
+            connect::set_cxn_ref(&mut nc, e, best);
+            changed = true;
+        }
+        if changed {
+            changes.push((p.path.clone(), ShapeNode::Connector(Box::new(nc))));
+        }
+    }
+    for (path, n) in changes {
+        tx.replace_node(slide, &path, n)?;
+    }
+    Ok(())
+}
+
 fn the_one(tx: &Tx<'_>, sel: &SlideSel) -> R<(Placed, ShapeNode)> {
     let placed = place_slide(tx.pres, sel.slide);
     let [id] = sel.ids.as_slice() else {

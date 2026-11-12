@@ -49,6 +49,10 @@ test('BlueSheet: create a pivot table, change the aggregation, save and reopen',
   await expect(page.getByRole('tab', { name: 'Sheet2' })).toHaveAttribute('aria-selected', 'true');
   const panel = page.getByTestId('pivot-panel');
   await expect(panel).toBeVisible();
+  // The field list is a task pane of the shared host (CORE-UI-006): docked right, labelled.
+  const dock = page.getByTestId('taskpane-dock-right');
+  await expect(dock).toHaveAttribute('data-active', 'pivot');
+  await expect(dock.getByTestId('pivot-panel')).toBeVisible();
 
   // Tick "Vùng" (→ Rows) and "Doanh thu" (numbers → Values, Sum).
   await page.getByTestId('pivot-field-0').check();

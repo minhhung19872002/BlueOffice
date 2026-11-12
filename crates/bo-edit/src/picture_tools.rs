@@ -7,8 +7,51 @@ use crate::ops::Op;
 use crate::para::{self, Atom};
 use crate::{EditError, Result, Selection, Session};
 use bo_model::index::{body_paragraphs, para_at};
-use bo_model::{Image, RunContent};
+use bo_model::{Block, Image, RunContent, Section};
 use std::sync::Arc;
+
+/// Every picture of `blocks` (paragraphs and table cells, nested), mutably.
+fn pictures_mut(blocks: &mut [Block], f: &mut dyn FnMut(&mut Image)) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => {
+                for r in &mut p.runs {
+                    for c in &mut r.content {
+                        if is_picture(c) {
+                            if let RunContent::Image(img) = c {
+                                f(img);
+                            }
+                        }
+                    }
+                }
+            }
+            Block::Table(t) => {
+                for row in &mut t.rows {
+                    for cell in &mut row.cells {
+                        pictures_mut(&mut cell.blocks, f);
+                    }
+                }
+            }
+            Block::Opaque(_) => {}
+        }
+    }
+}
+
+/// The header and footer stories of a section (§17.10.5 default / first / even).
+fn header_footer_blocks_mut(s: &mut Section) -> impl Iterator<Item = &mut Vec<Block>> {
+    let h = &mut s.headers;
+    let f = &mut s.footers;
+    [
+        h.default.as_mut(),
+        h.first.as_mut(),
+        h.even.as_mut(),
+        f.default.as_mut(),
+        f.first.as_mut(),
+        f.even.as_mut(),
+    ]
+    .into_iter()
+    .flatten()
+}
 
 /// Is the atom a picture the tools handle (not a shape, text box or SmartArt)?
 fn is_picture(item: &RunContent) -> bool {
@@ -84,6 +127,16 @@ impl Session {
         media: Option<(String, Arc<Vec<u8>>)>,
         f: impl FnOnce(&mut Image),
     ) -> Result<Selection> {
+        self.update_picture_parts(media.into_iter().collect(), f)
+    }
+
+    /// [`Session::update_picture`] with more new media parts: the first one is what the
+    /// picture shows, the others are added with it (e.g. the SVG version of a new picture).
+    pub fn update_picture_parts(
+        &mut self,
+        parts: Vec<(String, Arc<Vec<u8>>)>,
+        f: impl FnOnce(&mut Image),
+    ) -> Result<Selection> {
         let (id, k) = self
             .tools_target()
             .ok_or_else(|| EditError::Unsupported("no picture here".into()))?;
@@ -95,15 +148,19 @@ impl Session {
                 return Err(EditError::BadPosition);
             };
             let mut img = *img;
-            if let Some((name, bytes)) = media {
+            for (i, (name, bytes)) in parts.into_iter().enumerate() {
                 tx.push(Op::Media {
                     name: name.clone(),
                     old: None,
                     new: Some(bytes),
                 })?;
-                img.media = name;
+                if i == 0 {
+                    img.media = name;
+                }
             }
+            let old_svg = img.format.as_ref().and_then(|f| f.svg.clone());
             f(&mut img);
+            let new_svg = img.format.as_ref().and_then(|f| f.svg.clone());
             let changed_media = img.media != old_media;
             atoms[k] = (props, RunContent::Image(Box::new(img)));
             tx.replace_para(&path, para::with_atoms(&p, atoms))?;
@@ -117,8 +174,86 @@ impl Session {
                     })?;
                 }
             }
+            // The SVG version of the picture goes with it ([MS-ODRAWXML] svgBlip).
+            if let Some(svg) = old_svg.filter(|s| new_svg.as_ref() != Some(s)) {
+                if !media_in_use(&*tx.doc, &svg) {
+                    let old = tx.doc.media.get(&svg).cloned();
+                    if old.is_some() {
+                        tx.push(Op::Media {
+                            name: svg,
+                            old,
+                            new: None,
+                        })?;
+                    }
+                }
+            }
             Ok(sel)
         })
+    }
+
+    /// The pictures of the headers and footers of every section (CORE-PIC-001: compress
+    /// pictures there too).
+    pub fn header_footer_pictures(&self) -> Vec<Image> {
+        fn walk(blocks: &[Block], out: &mut Vec<Image>) {
+            for b in blocks {
+                match b {
+                    Block::Paragraph(p) => out.extend(
+                        p.runs
+                            .iter()
+                            .flat_map(|r| &r.content)
+                            .filter(|c| is_picture(c))
+                            .filter_map(|c| match c {
+                                RunContent::Image(img) => Some((**img).clone()),
+                                _ => None,
+                            }),
+                    ),
+                    Block::Table(t) => {
+                        for cell in t.rows.iter().flat_map(|r| &r.cells) {
+                            walk(&cell.blocks, out);
+                        }
+                    }
+                    Block::Opaque(_) => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for s in &self.doc.sections {
+            for hf in [&s.headers, &s.footers] {
+                for blocks in [&hf.default, &hf.first, &hf.even].into_iter().flatten() {
+                    walk(blocks, &mut out);
+                }
+            }
+        }
+        out
+    }
+
+    /// Selection of the picture showing image `media` (its media part or
+    /// [`Image::display_id`]) in one of the body paragraphs `paras`, tried in order:
+    /// the picture's atom from its start to its end (a click on a picture selects it).
+    pub fn picture_selection(&self, paras: &[usize], media: &str) -> Option<Selection> {
+        let paths = body_paragraphs(&self.doc);
+        for &id in paras {
+            let Some(p) = paths.get(id).and_then(|path| para_at(&self.doc, path)) else {
+                continue;
+            };
+            let mut off = 0;
+            for (props, item) in para::flatten(p) {
+                let l = para::atom_len(&item);
+                if let RunContent::Image(img) = &item {
+                    if is_picture(&item)
+                        && props.del.is_none()
+                        && (img.media == media || img.display_id() == media)
+                    {
+                        return Some(Selection {
+                            anchor: crate::Pos::new(id, off),
+                            focus: crate::Pos::new(id, off + l),
+                        });
+                    }
+                }
+                off += l;
+            }
+        }
+        None
     }
 
     /// Every picture of the main text the tools handle (copies).
@@ -170,6 +305,30 @@ impl Session {
                 }
                 if changed {
                     tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                }
+            }
+            // Headers and footers (one section op each that holds a swapped picture).
+            for index in 0..tx.doc.sections.len() {
+                let old = tx.doc.sections[index].clone();
+                let mut new = old.clone();
+                let mut changed = false;
+                for blocks in header_footer_blocks_mut(&mut new) {
+                    pictures_mut(blocks, &mut |img| {
+                        if let Some(sw) = swaps.iter().find(|s| s.old == img.media) {
+                            img.media = sw.new.clone();
+                            if sw.clear_crop {
+                                img.crop = None;
+                            }
+                            changed = true;
+                        }
+                    });
+                }
+                if changed {
+                    tx.push(Op::Sections {
+                        index,
+                        remove: vec![old],
+                        insert: vec![new],
+                    })?;
                 }
             }
             for sw in &swaps {
@@ -302,5 +461,63 @@ mod tests {
         assert!(!s.doc().media.contains_key("/word/media/image2.jpeg"));
         assert!(s.undo());
         assert_eq!(s.tools_picture().unwrap().crop, None);
+    }
+
+    #[test]
+    fn compress_swaps_header_and_footer_pictures_too() {
+        let mut doc = doc_with_picture();
+        let hp = Paragraph::new(
+            ParaProps::default(),
+            vec![Run {
+                props: RunProps::default(),
+                content: vec![RunContent::Image(Box::new(picture()))],
+            }],
+        );
+        doc.sections[0].headers.default = Some(vec![Block::Paragraph(hp.clone())]);
+        // In a footer table cell.
+        let cell = bo_model::Cell {
+            blocks: vec![Block::Paragraph(hp)],
+            ..Default::default()
+        };
+        doc.sections[0].footers.first = Some(vec![Block::Table(bo_model::Table {
+            rows: vec![bo_model::Row {
+                cells: vec![cell],
+                ..Default::default()
+            }],
+            ..Default::default()
+        })]);
+        let mut s = Session::new(doc);
+        assert_eq!(s.header_footer_pictures().len(), 2);
+        s.replace_media(vec![MediaSwap {
+            old: "/word/media/image1.png".into(),
+            new: "/word/media/image9.png".into(),
+            bytes: Arc::new(vec![7]),
+            clear_crop: false,
+        }])
+        .unwrap();
+        let hf = s.header_footer_pictures();
+        assert!(
+            hf.iter().all(|i| i.media == "/word/media/image9.png"),
+            "{hf:?}"
+        );
+        assert_eq!(s.body_pictures()[0].media, "/word/media/image9.png");
+        // Nothing shows the old part any more: it goes.
+        assert!(!s.doc().media.contains_key("/word/media/image1.png"));
+        // One undo step brings everything back.
+        assert!(s.undo());
+        assert!(s
+            .header_footer_pictures()
+            .iter()
+            .all(|i| i.media == "/word/media/image1.png"));
+        assert!(s.doc().media.contains_key("/word/media/image1.png"));
+    }
+
+    #[test]
+    fn picture_selection_covers_the_picture_atom() {
+        let s = Session::new(doc_with_picture());
+        let sel = s.picture_selection(&[0], "/word/media/image1.png").unwrap();
+        let len = para::atom_len(&RunContent::Image(Box::new(picture())));
+        assert_eq!((sel.anchor.offset, sel.focus.offset), (2, 2 + len));
+        assert!(s.picture_selection(&[0], "/word/media/other.png").is_none());
     }
 }

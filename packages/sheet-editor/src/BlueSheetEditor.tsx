@@ -103,6 +103,7 @@ import {
   useResolvedTheme,
   TaskPaneHost,
   useTaskPaneLayout,
+  useRememberOpenTaskPanes,
   type RibbonItem,
   type RibbonTab,
   type TaskPaneDef,
@@ -1110,7 +1111,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [platform.sheet],
   );
   // Task pane layout of BlueSheet, remembered per app (CORE-UI-006).
-  const [paneLayout, setPaneLayout] = useTaskPaneLayout('sheet');
+  const [paneLayout, setPaneLayout] = useTaskPaneLayout('sheet', platform.preferences);
+  // The comments pane comes back when it was left open (CORE-UI-006); the PivotTable field
+  // list follows the active cell, version history and the other panes are contextual.
+  useRememberOpenTaskPanes(paneLayout, setPaneLayout, commentsOpen ? ['comments'] : [], (ids) => {
+    if (ids.includes('comments')) setCommentsOpen(true);
+  });
   const [threads, setThreads] = useState<SheetThreadInfo[]>([]);
   /** Symbol picker panel (insert into the cell being edited, else the active cell). */
   const [symbolsOpen, setSymbolsOpen] = useState(false);
@@ -2330,7 +2336,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     let cancelled = false;
     void host
       .exec<SheetThreadInfo[]>({ cmd: 'comments', sheet })
-      .then((r) => !cancelled && setThreads(r ?? []))
+      .then((r) => !cancelled && setThreads(Array.isArray(r) ? r : []))
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -8892,6 +8898,46 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   } satisfies TaskPaneDef,
                 ]
               : []),
+            ...(activePivot && pivotPanel && host
+              ? [
+                  {
+                    // PivotTable field list (CORE-UI-006): in the shared host like the other panes.
+                    id: 'pivot',
+                    title: t('sheetEditor.pivot.panelTitle'),
+                    icon: <Table2 size={14} aria-hidden />,
+                    closeTestId: 'pivot-close',
+                    content: (
+                      <PivotPanel
+                        embedded
+                        host={host}
+                        sheet={sheet}
+                        pivot={activePivot}
+                        labels={pivotLabels}
+                        onChanged={refreshInfo}
+                        onRefresh={() => run('pivot.refresh')}
+                        onClose={() => {
+                          setPivotPanel(false);
+                          focusInput();
+                        }}
+                        onSettings={(area, idx) => {
+                          if (area === 'values')
+                            setDialog({ kind: 'pivotValue', pivot: activePivot, idx });
+                          else {
+                            const field = (area === 'rows' ? activePivot.rows : activePivot.cols)[
+                              idx
+                            ];
+                            if (field !== undefined)
+                              setDialog({ kind: 'pivotField', pivot: activePivot, field });
+                          }
+                        }}
+                        onOptions={() => setDialog({ kind: 'pivotOptions', pivot: activePivot })}
+                        onCalc={() => setDialog({ kind: 'pivotCalc', pivot: activePivot })}
+                        fail={fail}
+                      />
+                    ),
+                  } satisfies TaskPaneDef,
+                ]
+              : []),
             ...(info ? addins.panes : []),
           ]}
           onClose={(id) =>
@@ -8903,42 +8949,19 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   ? thesaurus.close()
                   : id === 'ai'
                     ? ai.close()
-                    : id === 'comments'
-                      ? setCommentsOpen(false)
-                      : id === 'script'
-                        ? setScriptOpen(false)
-                        : id === 'chartFormat'
-                          ? setChartFormatOpen(false)
-                          : setVersionsOpen(false)
+                    : id === 'pivot'
+                      ? setPivotPanel(false)
+                      : id === 'comments'
+                        ? setCommentsOpen(false)
+                        : id === 'script'
+                          ? setScriptOpen(false)
+                          : id === 'chartFormat'
+                            ? setChartFormatOpen(false)
+                            : setVersionsOpen(false)
           }
           labels={taskPaneLabels(t)}
           focusApp={focusInput}
         />
-        {activePivot && pivotPanel && (
-          <PivotPanel
-            host={host}
-            sheet={sheet}
-            pivot={activePivot}
-            labels={pivotLabels}
-            onChanged={refreshInfo}
-            onRefresh={() => run('pivot.refresh')}
-            onClose={() => {
-              setPivotPanel(false);
-              focusInput();
-            }}
-            onSettings={(area, idx) => {
-              if (area === 'values') setDialog({ kind: 'pivotValue', pivot: activePivot, idx });
-              else {
-                const field = (area === 'rows' ? activePivot.rows : activePivot.cols)[idx];
-                if (field !== undefined)
-                  setDialog({ kind: 'pivotField', pivot: activePivot, field });
-              }
-            }}
-            onOptions={() => setDialog({ kind: 'pivotOptions', pivot: activePivot })}
-            onCalc={() => setDialog({ kind: 'pivotCalc', pivot: activePivot })}
-            fail={fail}
-          />
-        )}
       </div>
       <div className={styles.tabs}>
         {/* Only tabs inside the tab list (WAI-ARIA tabs pattern); "add sheet" sits beside it. */}

@@ -5,7 +5,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import { BrowserClipboard, FileAccessStorage, LocalRecentFiles } from '../shared';
+import { BrowserClipboard, FileAccessStorage, LocalPreferences, LocalRecentFiles } from '../shared';
 import { DesktopDisplays } from './displays';
 import type {
   CollabChange,
@@ -774,6 +774,7 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     auth: new DesktopAuth({ scheme: opts.scheme ?? 'bluedoc', shell }),
     window: new DesktopWindow(call),
     offline: new DesktopDiskCache(call),
+    preferences: new LocalPreferences(),
     shell,
     channel: (name: string) => new TauriBus(name),
     sheet: createFallbackSheetHost(

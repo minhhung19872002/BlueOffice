@@ -9,7 +9,7 @@ import {
 import { overtypeInsert } from './overtype';
 import { WordCountDialog } from './WordCountDialog';
 import { useWindowTools, type WindowTools } from './windowTools';
-import { loadIgnoredWords, loadUserWords, saveUserWord } from './SpellMenu';
+import { loadIgnoredWords, loadUserWords, saveUserWord, spellMenuLines } from './SpellMenu';
 import {
   LanguageDialog,
   PROOF_LANGUAGES,
@@ -88,6 +88,8 @@ import {
   TaskPaneHost,
   taskPaneInsets,
   useTaskPaneLayout,
+  useRememberOpenTaskPanes,
+  reopenedTaskPanes,
   type TaskPaneDef,
   type RibbonTab,
   type ThemeSetting,
@@ -545,6 +547,14 @@ function painterDoubleClick(): boolean {
   return double;
 }
 
+/** Task panes reopened on the next start when left open (CORE-UI-006). */
+const REMEMBERED_DOC_PANES = [
+  'styles',
+  'comments',
+  'styleInspector',
+  'revealFormatting',
+] as const satisfies readonly DocTaskPane[];
+
 /** The editor. Everything platform-specific comes from `platform`. */
 export function BlueEditor(props: BlueEditorProps) {
   const [i18n] = useState(() => createI18n(props.language));
@@ -681,7 +691,27 @@ function EditorInner({
   const sentLayout = useRef('print:0');
   const [searchOpen, setSearchOpen] = useState(false);
   // Task pane layout of BlueDoc, remembered per app (CORE-UI-006).
-  const [paneLayout, setPaneLayout] = useTaskPaneLayout('doc');
+  const [paneLayout, setPaneLayout] = useTaskPaneLayout('doc', platform.preferences);
+  // The panes left open last time come back (CORE-UI-006); contextual ones (chart format,
+  // thesaurus, BlueAI, add-ins, version history of a hosted file) are not remembered.
+  const navRemembered = !!state.navPane;
+  useRememberOpenTaskPanes(
+    paneLayout,
+    setPaneLayout,
+    [
+      ...(navRemembered ? ['navigation'] : []),
+      ...state.taskPanes.filter((p) => (REMEMBERED_DOC_PANES as readonly string[]).includes(p)),
+    ],
+    (ids) => {
+      const panes = reopenedTaskPanes(paneLayout, REMEMBERED_DOC_PANES).filter((p) =>
+        ids.includes(p),
+      );
+      store.setState({
+        taskPanes: panes,
+        ...(ids.includes('navigation') ? { navPane: 'headings' as const } : {}),
+      });
+    },
+  );
   const loadStyles = useCallback(
     async () => (await controller.current?.query({ cmd: 'styleList' }))?.styles ?? null,
     [],
@@ -2043,7 +2073,7 @@ function EditorInner({
       isEnabled: hasDoc,
       run: async () => {
         try {
-          const file = await platform.files.openFile(['.png', '.jpg', '.jpeg']);
+          const file = await platform.files.openFile(['.png', '.jpg', '.jpeg', '.svg']);
           if (file) await controller.current?.insertImage(file.bytes, file.name);
           view.current?.focus();
         } catch (e) {
@@ -3720,7 +3750,9 @@ function EditorInner({
     selectionKey: JSON.stringify(state.edit?.selection ?? null),
     run: (c) => controller.current?.run(c) ?? Promise.resolve(null),
     exec: (id) => void registry.execute(id, store.getState()),
-    pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp']),
+    pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg']),
+    // SVG pictures convert to shapes (CORE-PIC-001).
+    shapes: true,
     onError: (code) => fail(`pictureTools.error.${code}`, code),
     hub: pictureHub,
   });
@@ -5427,14 +5459,9 @@ function EditorInner({
     const lines: MenuLine[] = [];
     const sp = m.spell;
     if (m.context === 'spelling' && sp) {
-      if (sp.rule) lines.push({ heading: t(`grammar.${sp.rule}`), testId: 'grammar-rule' });
-      if (sp.suggestions.length === 0) lines.push({ heading: t('spell.noSuggestions') });
-      for (const word of sp.suggestions)
-        lines.push({
-          id: `spell.pick.${word}`,
-          label: word,
-          emphasis: true,
-          onSelect: () => {
+      lines.push(
+        ...spellMenuLines(sp, (k) => t(k), {
+          onPick: (word) =>
             void controller.current
               ?.run({
                 cmd: 'setSelection',
@@ -5443,30 +5470,19 @@ function EditorInner({
                   focus: { p: sp.para, o: sp.end },
                 },
               })
-              .then(() => controller.current?.run({ cmd: 'insertText', text: word }));
-          },
-        });
-      lines.push({ separator: true });
-      lines.push({
-        id: 'spell.ignoreAll',
-        label: t('spell.ignoreAll'),
-        onSelect: () =>
-          void controller.current?.run(
-            sp.rule
-              ? { cmd: 'grammarIgnore', rule: sp.rule, text: sp.word }
-              : { cmd: 'spellIgnore', word: sp.word },
-          ),
-      });
-      if (!sp.rule)
-        lines.push({
-          id: 'spell.addToDictionary',
-          label: t('spell.addToDictionary'),
-          onSelect: () => {
+              .then(() => controller.current?.run({ cmd: 'insertText', text: word })),
+          onIgnore: () =>
+            void controller.current?.run(
+              sp.rule
+                ? { cmd: 'grammarIgnore', rule: sp.rule, text: sp.word }
+                : { cmd: 'spellIgnore', word: sp.word },
+            ),
+          onAdd: () => {
             saveUserWord(sp.word);
             void controller.current?.run({ cmd: 'spellAddWord', word: sp.word });
           },
-        });
-      lines.push({ separator: true });
+        }),
+      );
     }
     // Open / remove a link only on a link; on one, "Link" edits it.
     const onLink = !!store.getState().edit?.format.link;

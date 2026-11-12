@@ -25,6 +25,7 @@ import {
   type ProofWalkActions,
   type WalkIssue,
 } from '@blueoffice/editor';
+import type { MenuLine } from '@blueoffice/ui';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { SlideController } from './controller';
 
@@ -152,6 +153,7 @@ export function SlideSpellLayer({
   width,
   marks,
   onChanged,
+  menuTail,
 }: {
   engine: EngineHost;
   controller: SlideController;
@@ -165,6 +167,8 @@ export function SlideSpellLayer({
   marks: SlideSpellMark[];
   /** Words or the text changed: check again. */
   onChanged: () => void;
+  /** Commands of the text context menu shown under the corrections (CORE-UI-003). */
+  menuTail?: () => MenuLine[];
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [menu, setMenu] = useState<{
@@ -246,6 +250,7 @@ export function SlideSpellLayer({
         <SpellMenu
           menu={menu}
           onClose={close}
+          tail={menuTail?.()}
           onPick={(text) => {
             const { target, para, start, end, word } = menu.issue;
             setMenu(null);

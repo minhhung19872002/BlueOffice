@@ -105,3 +105,16 @@ giải phóng, nhưng không suy ra bộ nhớ tiến trình sẽ giảm tương
 
 Các lý do này là trạng thái kỹ thuật chưa hoàn tất, không phải xác nhận rằng các mục tiêu
 không thể đạt.
+
+## Đợt 2 — thử RAM liên tục trên bản Fluent
+
+Bản release `updater,webdriver`, SHA-256 `319c3831c59c6197ad87f714ba253d9ea944c4fcf4edfe42b7d2f2cdf91d5d12`,
+cache khôi phục cách ly; cùng máy và Windows 125% như trên. Đo private working set của
+cây tiến trình app và WebView2 mỗi khoảng 30 giây. Trong 602,8 giây có 491 lần gõ, cuộn
+và 52 chu kỳ chèn ảnh 256×256/undo; đỉnh **442,6 MB**, cao hơn mục tiêu 400 MB.
+Từ mẫu một phần ba thời gian tới mẫu cuối tăng **87,2 MB**: bài thử đánh dấu có xu hướng
+tăng và trả mã lỗi. Đây là một phiên, không phải 10 lượt hay bằng chứng xác định nguyên
+nhân rò rỉ. [Mẫu và môi trường](baselines/round2-soak-ryzen7-7435hs.json).
+
+Chưa có heap profile Rust hoặc snapshot WebView hợp lệ để quy phần tăng cho undo, cache
+hay canvas. Chưa chứng minh mọi cache có giới hạn; chưa đạt tiêu chí RAM.

@@ -156,9 +156,9 @@ test('BlueSheet: a new slicer style joins the workbook styles and comes back fro
   await page.getByTestId('frame-options-ok').click();
   await expect(slicer).toHaveAttribute('data-style', 'Bộ lọc xanh lá');
   const on = slicer.locator('[aria-pressed="true"]').first();
-  await expect.poll(() => on.evaluate((b) => getComputedStyle(b).backgroundColor)).toBe(
-    'rgb(84, 130, 53)',
-  );
+  await expect
+    .poll(() => on.evaluate((b) => getComputedStyle(b).backgroundColor))
+    .toBe('rgb(84, 130, 53)');
 
   // One undo step takes the choice back, the next the new style.
   await page.getByLabel('Ô đang nhập').focus();

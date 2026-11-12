@@ -2174,7 +2174,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     if (!host || smartArt === null || smartNode === null) return;
     let live = true;
     void host
-      .exec<SmartArtFrameNode | null>({ cmd: 'smartArtNodeAt', sheet, index: smartArt, node: smartNode })
+      .exec<SmartArtFrameNode | null>({
+        cmd: 'smartArtNodeAt',
+        sheet,
+        index: smartArt,
+        node: smartNode,
+      })
       .then((n) => {
         if (live) setSmartNodeBox(n ?? null);
       })

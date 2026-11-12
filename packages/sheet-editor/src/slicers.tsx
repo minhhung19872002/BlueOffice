@@ -733,7 +733,8 @@ export function nextFrameStyleName(
   taken: readonly string[],
   t: T,
 ): string {
-  const key = kind === 'slicer' ? 'sheetSlicer.newStyle.slicerName' : 'sheetSlicer.newStyle.timelineName';
+  const key =
+    kind === 'slicer' ? 'sheetSlicer.newStyle.slicerName' : 'sheetSlicer.newStyle.timelineName';
   const lower = taken.map((n) => n.toLowerCase());
   for (let n = 1; ; n++) {
     const name = t(key, { n });
@@ -747,10 +748,7 @@ export function hasFormat(f: FrameElementFormat | undefined): boolean {
 }
 
 /** The colours of `base` with the formats of a new style over them (the dialog's preview). */
-export function previewColors(
-  base: FrameColors,
-  formats: NewFrameStyle['formats'],
-): FrameColors {
+export function previewColors(base: FrameColors, formats: NewFrameStyle['formats']): FrameColors {
   const c: FrameColors = { ...base };
   const w = formats.whole;
   if (w?.fill) c.background = w.fill;
@@ -872,7 +870,9 @@ export function NewFrameStyleDialog({
       open
       onOpenChange={(o) => !o && onClose()}
       title={t(
-        kind === 'slicer' ? 'sheetSlicer.newStyle.slicerTitle' : 'sheetSlicer.newStyle.timelineTitle',
+        kind === 'slicer'
+          ? 'sheetSlicer.newStyle.slicerTitle'
+          : 'sheetSlicer.newStyle.timelineTitle',
       )}
       testId="frame-style-dialog"
       footer={<Footer onClose={onClose} onOk={() => void ok()} testId="frame-style-ok" />}
@@ -912,8 +912,18 @@ export function NewFrameStyleDialog({
           </fieldset>
           <fieldset className={styles.frameConnections} data-testid="frame-style-format">
             <legend>{t('sheetSlicer.newStyle.format')}</legend>
-            {colorRow('fill', t('sheetSlicer.newStyle.useFill'), t('sheetSlicer.newStyle.fill'), '#DDEBF7')}
-            {colorRow('text', t('sheetSlicer.newStyle.useText'), t('sheetSlicer.newStyle.text'), '#1F4E79')}
+            {colorRow(
+              'fill',
+              t('sheetSlicer.newStyle.useFill'),
+              t('sheetSlicer.newStyle.fill'),
+              '#DDEBF7',
+            )}
+            {colorRow(
+              'text',
+              t('sheetSlicer.newStyle.useText'),
+              t('sheetSlicer.newStyle.text'),
+              '#1F4E79',
+            )}
             {colorRow(
               'border',
               t('sheetSlicer.newStyle.useBorder'),

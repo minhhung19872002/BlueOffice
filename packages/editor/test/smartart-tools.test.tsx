@@ -156,7 +156,11 @@ describe('SmartArtSelection', () => {
     );
     const frame = screen.getByTestId('smartart-frame');
     expect(frame.style.position).toBe('fixed');
-    expect([frame.style.left, frame.style.top, frame.style.width]).toEqual(['10px', '20px', '300px']);
+    expect([frame.style.left, frame.style.top, frame.style.width]).toEqual([
+      '10px',
+      '20px',
+      '300px',
+    ]);
     const node = screen.getByTestId('smartart-node-selection');
     expect(node.getAttribute('data-node')).toBe('2');
     expect([node.style.left, node.style.height]).toEqual(['110px', '40px']);

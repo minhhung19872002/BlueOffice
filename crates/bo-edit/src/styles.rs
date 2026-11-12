@@ -429,6 +429,10 @@ fn map_stories(
     for b in doc.footnotes.values_mut().chain(doc.endnotes.values_mut()) {
         map_blocks(b, f, t);
     }
+    // Comment text uses styles too (§17.13.4.2 comment holds block-level content).
+    for c in &mut doc.comments {
+        map_blocks(&mut c.blocks, f, t);
+    }
 }
 
 /// Delete style `id` from `doc`: content using it is reassigned to its `basedOn`
@@ -1006,6 +1010,12 @@ impl Session {
                     });
                 }
             }
+            if d.comments != doc.comments {
+                ops.push(Op::Comments {
+                    old: doc.comments.clone(),
+                    new: d.comments.clone(),
+                });
+            }
             ops
         };
         self.edit(move |tx, _| {
@@ -1258,6 +1268,129 @@ impl Session {
         st.rpr = dr.inherit(&st.rpr);
         st.rpr.style = None;
         self.push_styles(sheet)
+    }
+
+    /// "Automatically update" (§17.7.4.2 autoRedefine): after direct formatting of
+    /// the selected paragraphs (`para`: paragraph formatting; otherwise character
+    /// formatting, which counts only when whole paragraphs are selected), a paragraph
+    /// style marked autoRedefine takes that formatting and the paragraphs drop it, so
+    /// every paragraph of the style changes. The change joins the formatting's undo
+    /// step (recorded after history depth `depth`). Returns whether a style changed.
+    pub fn auto_redefine_after(&mut self, depth: usize, para: bool) -> Result<bool> {
+        let (a, b) = self.selection.ordered();
+        if !para {
+            let whole = a.offset == 0
+                && self
+                    .para_text(b.para)
+                    .is_some_and(|t| b.offset >= t.len() && (b.para > a.para || !t.is_empty()));
+            if !whole {
+                return Ok(false);
+            }
+        }
+        let default_id = self
+            .doc
+            .styles
+            .default_of(StyleKind::Paragraph)
+            .map(|s| s.id.clone());
+        let paths = body_paragraphs(&self.doc);
+        // The first selected paragraph of an autoRedefine style gives the formatting.
+        let mut target: Option<(String, ParaProps, RunProps)> = None;
+        for id in a.para..=b.para {
+            let Some(p) = paths.get(id).and_then(|path| para_at(&self.doc, path)) else {
+                continue;
+            };
+            let sid = p.props.style.clone().or_else(|| default_id.clone());
+            let Some(sid) = sid else { continue };
+            if !self.doc.style(&sid).is_some_and(|s| s.auto_redefine) {
+                continue;
+            }
+            let atoms = para::flatten(p);
+            let run = atoms
+                .iter()
+                .find(|(_, c)| para::atom_len(c) > 0)
+                .map(|(r, _)| clean_run(r))
+                .unwrap_or_default();
+            target = Some((sid, clean_para(&p.props), run));
+            break;
+        }
+        let Some((sid, dp, dr)) = target else {
+            return Ok(false);
+        };
+        let mut sheet = self.doc.styles.clone();
+        let Some(st) = sheet.styles.iter_mut().find(|s| s.id == sid) else {
+            return Ok(false);
+        };
+        if para {
+            st.ppr = dp.inherit(&st.ppr);
+            st.ppr.style = None;
+        } else {
+            st.rpr = dr.inherit(&st.rpr);
+            st.rpr.style = None;
+        }
+        let is_default = default_id.as_deref() == Some(sid.as_str());
+        let old = self.doc.styles.clone();
+        self.end_typing();
+        self.edit(move |tx, sel| {
+            tx.push(Op::Styles {
+                old: Box::new(old),
+                new: Box::new(sheet),
+            })?;
+            // The selected paragraphs of the style drop what the style now holds.
+            for id in a.para..=b.para {
+                let (path, p, atoms) = tx.atoms(id)?;
+                let mine = match &p.props.style {
+                    Some(s) => *s == sid,
+                    None => is_default,
+                };
+                if !mine {
+                    continue;
+                }
+                let mut q = if para {
+                    let mut q = p.clone();
+                    q.props = ParaProps {
+                        style: p.props.style.clone(),
+                        num: p.props.num,
+                        mark_ins: p.props.mark_ins.clone(),
+                        mark_del: p.props.mark_del.clone(),
+                        mark_lang: p.props.mark_lang.clone(),
+                        mark_no_proof: p.props.mark_no_proof,
+                        change: p.props.change.clone(),
+                        frame: p.props.frame.clone(),
+                        unknown: p.props.unknown.clone(),
+                        ..ParaProps::default()
+                    };
+                    q
+                } else {
+                    let atoms = atoms
+                        .into_iter()
+                        .map(|(r, c)| {
+                            if clean_run(&r) == dr {
+                                let kept = RunProps {
+                                    style: r.style.clone(),
+                                    link: r.link.clone(),
+                                    ins: r.ins.clone(),
+                                    del: r.del.clone(),
+                                    change: r.change.clone(),
+                                    unknown: r.unknown.clone(),
+                                    ..RunProps::default()
+                                };
+                                (kept, c)
+                            } else {
+                                (r, c)
+                            }
+                        })
+                        .collect();
+                    para::with_atoms(&p, atoms)
+                };
+                if q != p {
+                    q.props.change = p.props.change.clone();
+                    tx.replace_para(&path, q)?;
+                }
+            }
+            Ok(sel)
+        })?;
+        self.merge_history_since(depth);
+        Ok(true)
     }
 
     /// Inspector values at the caret.

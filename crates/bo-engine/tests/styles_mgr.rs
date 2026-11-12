@@ -713,3 +713,165 @@ fn corpus_styles_survive_modify_and_round_trip() {
     }
     assert!(n > 0);
 }
+
+/// "Select all N instances" selects every range (a multiple selection): italic and a
+/// style then apply to all of them in one undo step; moving the caret ends it.
+#[test]
+fn select_all_instances_is_a_multiple_selection() {
+    let mut e = engine(base_doc());
+    let r = cmd(&mut e, &json!({"cmd":"styleSelectAll","id":"Heading1"}));
+    assert_eq!(r["matches"].as_array().unwrap().len(), 2);
+    // Both headings are drawn selected.
+    assert!(r["rects"].as_array().unwrap().len() >= 2);
+    let r = cmd(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"italic"}}),
+    );
+    assert!(r["rects"].as_array().unwrap().len() >= 2);
+    let italic = |e: &Engine, i: usize| {
+        let Block::Paragraph(p) = &e.document().unwrap().sections[0].blocks[i] else {
+            panic!()
+        };
+        p.runs.iter().all(|r| r.props.italic == Some(true))
+    };
+    assert!(italic(&e, 0) && italic(&e, 2));
+    assert!(!italic(&e, 1));
+    // A style applies to every range too, then one undo takes it back.
+    cmd(&mut e, &json!({"cmd":"applyStyle","id":"Heading2"}));
+    let style_of = |e: &Engine, i: usize| {
+        let Block::Paragraph(p) = &e.document().unwrap().sections[0].blocks[i] else {
+            panic!()
+        };
+        p.props.style.clone()
+    };
+    assert_eq!(style_of(&e, 0).as_deref(), Some("Heading2"));
+    assert_eq!(style_of(&e, 2).as_deref(), Some("Heading2"));
+    cmd(&mut e, &json!({"cmd":"undo"}));
+    assert_eq!(style_of(&e, 0).as_deref(), Some("Heading1"));
+    assert_eq!(style_of(&e, 2).as_deref(), Some("Heading1"));
+    cmd(&mut e, &json!({"cmd":"undo"}));
+    assert!(!italic(&e, 0) && !italic(&e, 2));
+    // Moving the selection ends the multiple selection: italic goes to one place only.
+    cmd(&mut e, &json!({"cmd":"styleSelectAll","id":"Heading1"}));
+    cmd(
+        &mut e,
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":2,"o":0},"focus":{"p":2,"o":3}}}),
+    );
+    cmd(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"italic"}}),
+    );
+    assert!(italic(&e, 2) && !italic(&e, 0));
+}
+
+/// §17.7.4.2 autoRedefine: direct formatting of a paragraph of an "automatically
+/// update" style updates the style (every paragraph of it follows) in one undo step;
+/// without the flag only the paragraph changes.
+#[test]
+fn automatically_update_style_follows_direct_formatting() {
+    let mut d = base_doc();
+    d.styles
+        .styles
+        .iter_mut()
+        .find(|s| s.id == "Heading1")
+        .unwrap()
+        .auto_redefine = true;
+    let mut e = engine(d);
+    caret(&mut e, 0, 1);
+    cmd(
+        &mut e,
+        &json!({"cmd":"formatParagraph","format":{"kind":"align","align":"Center"}}),
+    );
+    let doc = e.document().unwrap();
+    assert_eq!(
+        doc.style("Heading1").unwrap().ppr.align,
+        Some(bo_model::Alignment::Center)
+    );
+    let Block::Paragraph(p) = &doc.sections[0].blocks[0] else {
+        panic!()
+    };
+    assert_eq!(
+        p.props.align, None,
+        "the paragraph keeps no direct alignment"
+    );
+    // Character formatting of the whole paragraph also updates the style.
+    cmd(
+        &mut e,
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":2,"o":0},"focus":{"p":2,"o":3}}}),
+    );
+    cmd(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"italic"}}),
+    );
+    let doc = e.document().unwrap();
+    assert_eq!(doc.style("Heading1").unwrap().rpr.italic, Some(true));
+    let Block::Paragraph(p) = &doc.sections[0].blocks[2] else {
+        panic!()
+    };
+    assert!(p.runs.iter().all(|r| r.props.italic.is_none()));
+    // Part of a paragraph: direct formatting only.
+    cmd(
+        &mut e,
+        &json!({"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":1}}}),
+    );
+    cmd(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"underline"}}),
+    );
+    let h1 = |e: &Engine| e.document().unwrap().style("Heading1").unwrap().clone();
+    assert!(h1(&e).rpr.underline.is_none());
+    // The flag survives a round trip.
+    assert!(
+        reopen(&e)
+            .document()
+            .unwrap()
+            .style("Heading1")
+            .unwrap()
+            .auto_redefine
+    );
+    // One undo step each: underline, then italic, then centring.
+    cmd(&mut e, &json!({"cmd":"undo"}));
+    assert_eq!(h1(&e).rpr.italic, Some(true));
+    cmd(&mut e, &json!({"cmd":"undo"}));
+    assert_eq!(h1(&e).rpr.italic, None);
+    assert_eq!(h1(&e).ppr.align, Some(bo_model::Alignment::Center));
+    cmd(&mut e, &json!({"cmd":"undo"}));
+    assert_eq!(h1(&e).ppr.align, None);
+    // Heading 2 (no flag): only the paragraph is centred.
+    caret(&mut e, 3, 0);
+    cmd(
+        &mut e,
+        &json!({"cmd":"formatParagraph","format":{"kind":"align","align":"Center"}}),
+    );
+    assert_eq!(
+        e.document().unwrap().style("Heading2").unwrap().ppr.align,
+        None
+    );
+}
+
+/// Deleting a style reassigns the paragraphs of comments as well.
+#[test]
+fn delete_style_reassigns_comment_text() {
+    let mut d = base_doc();
+    let mut q = style("Quote", "Quote", StyleKind::Paragraph, Some("Heading1"));
+    q.rpr.italic = Some(true);
+    d.styles.styles.push(q);
+    d.comments.push(bo_model::Comment {
+        id: 0,
+        author: "A".into(),
+        initials: None,
+        date: None,
+        blocks: vec![para("ghi chú", Some("Quote"))],
+        para_id: None,
+        parent_para_id: None,
+        done: false,
+        durable_id: None,
+        task: None,
+    });
+    let mut e = engine(d);
+    cmd(&mut e, &json!({"cmd":"styleDelete","id":"Quote"}));
+    let Block::Paragraph(p) = &e.document().unwrap().comments[0].blocks[0] else {
+        panic!()
+    };
+    assert_eq!(p.props.style.as_deref(), Some("Heading1"));
+}

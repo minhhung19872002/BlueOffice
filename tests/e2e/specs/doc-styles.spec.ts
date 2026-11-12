@@ -139,3 +139,45 @@ test('organizer copies a style from a second file', async ({ page }) => {
   await expect.poll(async () => (await revealed(page, 'align')).text).toMatch(/center/);
   expect(errors).toEqual([]);
 });
+
+test('select all instances selects every heading; formatting applies to all', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await newDocument(page);
+  await page.keyboard.insertText('Chương một');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('Nội dung của chương');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('Chương hai');
+  await page.keyboard.press('Control+Home');
+  await headingTile(page).click();
+  await page.keyboard.press('Control+End');
+  await headingTile(page).click();
+  // The style commands are on the Home tab next to the gallery.
+  for (const id of ['view.newStyle', 'view.styleInspector', 'view.revealFormatting']) {
+    await expect(page.locator(`[data-command="${id}"]`)).toBeVisible();
+  }
+  await page.locator('[data-command="view.revealFormatting"]').click();
+  await expect(page.getByTestId('reveal-formatting')).toBeVisible();
+
+  await openStylesPane(page);
+  await page.locator('[data-testid="style-menu"][data-style-id="Heading1"]').click();
+  await page.getByTestId('style-select-all').click();
+  await expect(page.getByTestId('styles-note')).toContainText('2');
+  // Both headings are drawn selected (not the body paragraph between them).
+  const sel = page1(page).locator('.bo-sel');
+  await expect.poll(() => sel.count()).toBeGreaterThanOrEqual(2);
+  const tops = await sel.evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetTop));
+  expect(Math.max(...tops) - Math.min(...tops)).toBeGreaterThan(20);
+  // Italic from the ribbon goes to every instance.
+  await page.locator('[data-command="format.italic"]').click();
+  for (const p of [0, 2]) {
+    await toParagraph(page, p);
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+    await expect.poll(async () => (await revealed(page, 'italic')).text).toMatch(/\S/);
+  }
+  await toParagraph(page, 1);
+  await expect.poll(async () => (await revealed(page, 'italic')).text).toBe('');
+  expect(errors).toEqual([]);
+});

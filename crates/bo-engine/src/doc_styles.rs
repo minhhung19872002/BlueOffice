@@ -226,6 +226,9 @@ impl crate::Engine {
         let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
         let mut out = StyleMgrOut::default();
         let mut matches = None;
+        let mut multi: Vec<bo_edit::Selection> = Vec::new();
+        let before_sel = s.selection();
+        let before_len = s.history_len();
         let key = |e: bo_edit::EditError| match e {
             bo_edit::EditError::Unsupported(k) => k,
             other => other.to_string(),
@@ -249,11 +252,17 @@ impl crate::Engine {
                 StyleCommand::StyleDelete { id } => s.delete_style(&id).map(|_| ()),
                 StyleCommand::StyleSelectAll { id } => {
                     let m = s.style_instances(&id);
-                    if let Some(first) = m.first() {
-                        s.set_selection(bo_edit::Selection {
-                            anchor: bo_edit::Pos::new(first.para, first.start),
-                            focus: bo_edit::Pos::new(first.para, first.end),
-                        });
+                    // Every instance is selected (a multiple selection: formatting and
+                    // styles then apply to all of them).
+                    multi = m
+                        .iter()
+                        .map(|x| bo_edit::Selection {
+                            anchor: bo_edit::Pos::new(x.para, x.start),
+                            focus: bo_edit::Pos::new(x.para, x.end),
+                        })
+                        .collect();
+                    if let Some(first) = multi.first() {
+                        s.set_selection(*first);
                     }
                     matches = Some(m);
                     Ok(())
@@ -290,10 +299,19 @@ impl crate::Engine {
             .map_err(key)
         };
         let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
+        if multi.len() > 1 {
+            self.multi_sel = multi;
+        } else if s.selection() != before_sel || s.history_len() != before_len {
+            self.multi_sel.clear();
+        }
+        let s = self.session.as_ref().ok_or(EngineError::NoDocument)?;
         out.inspector = Some(s.inspector());
         let gallery = crate::gallery::styles(s.doc());
         let dirty = self.relayout()?;
         let mut r = self.story_result(dirty, res.err())?;
+        if !self.multi_sel.is_empty() {
+            r.rects = self.multi_rects();
+        }
         if let Some(m) = matches {
             r.highlights = Some(self.match_rects(&m));
             r.matches = Some(m);

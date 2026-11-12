@@ -2073,7 +2073,7 @@ function EditorInner({
       isEnabled: hasDoc,
       run: async () => {
         try {
-          const file = await platform.files.openFile(['.png', '.jpg', '.jpeg']);
+          const file = await platform.files.openFile(['.png', '.jpg', '.jpeg', '.svg']);
           if (file) await controller.current?.insertImage(file.bytes, file.name);
           view.current?.focus();
         } catch (e) {
@@ -3750,7 +3750,9 @@ function EditorInner({
     selectionKey: JSON.stringify(state.edit?.selection ?? null),
     run: (c) => controller.current?.run(c) ?? Promise.resolve(null),
     exec: (id) => void registry.execute(id, store.getState()),
-    pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp']),
+    pickFile: () => platform.files.openFile(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg']),
+    // SVG pictures convert to shapes (CORE-PIC-001).
+    shapes: true,
     onError: (code) => fail(`pictureTools.error.${code}`, code),
     hub: pictureHub,
   });

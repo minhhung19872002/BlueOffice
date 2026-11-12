@@ -277,7 +277,7 @@ fn solid(c: u32, opacity: f64) -> Fill {
 }
 
 /// Shapes of an SVG document placed in the frame `x` (a group scaled to the frame).
-fn svg_group(doc: &SvgDoc, x: &Xfrm, mut next: u32, name: &str) -> Option<ShapeNode> {
+pub(crate) fn svg_group(doc: &SvgDoc, x: &Xfrm, mut next: u32, name: &str) -> Option<ShapeNode> {
     let k = EMU_PER_PX;
     let mut children = Vec::new();
     for s in &doc.shapes {

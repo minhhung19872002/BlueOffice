@@ -28,6 +28,67 @@ fn set_format(img: &mut Image, f: PictureFormat) {
     img.format = (!f.is_plain()).then(|| Box::new(f));
 }
 
+/// The shape group (`bo_model::diagram::group_name` media, a `dsp:drawing` shape tree) of an
+/// SVG picture converted to shapes (CORE-PIC-001): one `a:custGeom` freeform per SVG shape,
+/// in a child space of the SVG's size (§20.1.7.5 chOff / chExt) that the frame scales.
+pub(crate) fn svg_group_tree(svg: &[u8]) -> Option<Vec<u8>> {
+    use bo_model::slide::{ShapeNode, XmlElement, XmlNode};
+    let doc = bo_drawingml::svg::parse_svg(svg)?;
+    let (cx, cy) = (
+        (doc.width * EMU_PER_PX).round().max(1.0) as i64,
+        (doc.height * EMU_PER_PX).round().max(1.0) as i64,
+    );
+    let frame = bo_model::slide::Xfrm {
+        off: Some((0, 0)),
+        ext: Some((cx, cy)),
+        ..bo_model::slide::Xfrm::default()
+    };
+    let Some(ShapeNode::Group(g)) = crate::slide_edit::picture::svg_group(&doc, &frame, 1, "")
+    else {
+        return None;
+    };
+    let mut tree = XmlElement::new("dsp:spTree");
+    let mut nv = XmlElement::new("dsp:nvGrpSpPr");
+    let mut c_nv = XmlElement::new("dsp:cNvPr");
+    c_nv.attrs = vec![("id".into(), "0".into()), ("name".into(), String::new())];
+    nv.children.push(XmlNode::Element(c_nv));
+    nv.children
+        .push(XmlNode::Element(XmlElement::new("dsp:cNvGrpSpPr")));
+    tree.children.push(XmlNode::Element(nv));
+    tree.children
+        .push(XmlNode::Element(XmlElement::new("dsp:grpSpPr")));
+    for c in &g.children {
+        tree.children.push(XmlNode::Element(bo_pptx::write_node(c)));
+    }
+    let mut root = XmlElement::new("dsp:drawing");
+    root.attrs = vec![
+        (
+            "xmlns:dsp".into(),
+            "http://schemas.microsoft.com/office/drawing/2008/diagram".into(),
+        ),
+        (
+            "xmlns:a".into(),
+            "http://schemas.openxmlformats.org/drawingml/2006/main".into(),
+        ),
+        (
+            "xmlns:p".into(),
+            "http://schemas.openxmlformats.org/presentationml/2006/main".into(),
+        ),
+    ];
+    root.children.push(XmlNode::Element(tree));
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+    bo_drawingml::dom::write_element(&root, &mut xml);
+    bo_pptx::diagram::group_tree(xml.as_bytes(), (cx, cy), &|_: &str| None)
+}
+
+/// An SVG picture as its PNG fallback (drawn from its shapes) and its size in points.
+pub(crate) fn svg_fallback(svg: &[u8]) -> Option<(Vec<u8>, f32, f32)> {
+    let doc = bo_drawingml::svg::parse_svg(svg)?;
+    let png = pt::svg_png(&doc, 1024.0)?;
+    // 96 dpi: 1 px = 0.75 pt.
+    Some((png, (doc.width * 0.75) as f32, (doc.height * 0.75) as f32))
+}
+
 /// Resize for a new crop so the picture keeps its scale.
 fn recrop(img: &mut Image, new: Option<[i32; 4]>) {
     let [ol, ot, or, ob] = img.crop.unwrap_or([0; 4]).map(f64::from);
@@ -62,6 +123,18 @@ impl crate::Engine {
             .as_ref()
             .and_then(|p| self.doc_media_pixels(&p.media));
         let mut error: Option<String> = None;
+        // The SVG of a "change picture" to an SVG file (its PNG fallback is the new media).
+        let mut svg_part: Option<Vec<u8>> = None;
+        // "Insert SVG": the same as inserting the file as a picture.
+        if let PictureCommand::PictureInsertSvg { data, name } = &cmd {
+            let bytes = pt::decode_data(data).filter(|b| pt::is_svg(b));
+            if let Some(b) = bytes {
+                return self.insert_image(b, name);
+            }
+            let mut r = self.query_result()?;
+            r.error = Some("badImage".into());
+            return Ok(r);
+        }
         // CORE-PIC-002: the picture a background removal works on (the original when the
         // background was removed before).
         let source = picture.as_ref().and_then(|p| {
@@ -95,7 +168,8 @@ impl crate::Engine {
             let run =
                 |r: bo_edit::Result<bo_edit::Selection>| r.map(|_| ()).map_err(|e| e.to_string());
             match cmd {
-                PictureCommand::PictureInfo => Ok(()),
+                // "Insert SVG" returned above.
+                PictureCommand::PictureInfo | PictureCommand::PictureInsertSvg { .. } => Ok(()),
                 PictureCommand::PicturePreviews { presets, size } => {
                     if let Some(img) = &picture {
                         if let Some(d) = s.doc().media.get(&img.media) {
@@ -165,7 +239,10 @@ impl crate::Engine {
                 PictureCommand::PictureCompress(spec) => {
                     let opts = spec.options();
                     let targets: Vec<Image> = if spec.all {
-                        s.body_pictures()
+                        // Headers and footers too (CORE-PIC-001).
+                        let mut all = s.body_pictures();
+                        all.extend(s.header_footer_pictures());
+                        all
                     } else {
                         picture.iter().cloned().collect()
                     };
@@ -224,7 +301,16 @@ impl crate::Engine {
                 }
                 PictureCommand::PictureChange { data, name } => match (
                     picture.as_ref(),
-                    pt::decode_data(&data).and_then(pt::drawable),
+                    pt::decode_data(&data).and_then(|b| {
+                        if pt::is_svg(&b) {
+                            // An SVG: its PNG fallback shows, the SVG goes with it.
+                            let (png, _, _) = svg_fallback(&b)?;
+                            svg_part = Some(b);
+                            Some((png, "png", "image/png"))
+                        } else {
+                            pt::drawable(b)
+                        }
+                    }),
                 ) {
                     (None, _) => Err("noPicture".into()),
                     (_, None) => Err("badImage".into()),
@@ -233,7 +319,13 @@ impl crate::Engine {
                             None => Err("badImage".into()),
                             Some((iw, ih)) => {
                                 let media = s.new_media_name(ext);
-                                run(s.update_picture(Some((media, Arc::new(bytes))), |img| {
+                                let svg = svg_part
+                                    .take()
+                                    .map(|b| (s.new_media_name("svg"), Arc::new(b)));
+                                let svg_name = svg.as_ref().map(|(n, _)| n.clone());
+                                let mut parts = vec![(media, Arc::new(bytes))];
+                                parts.extend(svg);
+                                run(s.update_picture_parts(parts, |img| {
                                     // Same box, no distortion: crop to fill it.
                                     let c = fill_crop(
                                         f64::from(iw),
@@ -245,6 +337,7 @@ impl crate::Engine {
                                     // A removed background belonged to the old picture.
                                     let mut f = format_of(img);
                                     f.removal = None;
+                                    f.svg = svg_name;
                                     set_format(img, f);
                                     if !name.is_empty() {
                                         img.description.clone_from(&name);
@@ -301,9 +394,35 @@ impl crate::Engine {
                         }
                     },
                 },
-                PictureCommand::PictureToShapes | PictureCommand::PictureInsertSvg { .. } => {
-                    Err("unsupported".into())
-                }
+                // CORE-PIC-001: an SVG picture becomes a group of freeform shapes (one undo
+                // step); its PNG fallback and SVG parts go when nothing else shows them.
+                PictureCommand::PictureToShapes => match picture.as_ref() {
+                    None => Err("noPicture".into()),
+                    Some(img) => match img
+                        .format
+                        .as_ref()
+                        .and_then(|f| f.svg.as_ref())
+                        .and_then(|n| s.doc().media.get(n).cloned())
+                        .and_then(|svg| svg_group_tree(&svg))
+                    {
+                        None => Err("notSvg".into()),
+                        Some(tree) => {
+                            let mut n = s.part_number_start(1);
+                            let name = loop {
+                                let cand = bo_model::diagram::group_name("/word", n);
+                                if !s.doc().media.contains_key(&cand) {
+                                    break cand;
+                                }
+                                n += 1;
+                            };
+                            run(s.update_picture(Some((name, Arc::new(tree))), |img| {
+                                img.format = None;
+                                img.crop = None;
+                                img.src = None;
+                            }))
+                        }
+                    },
+                },
             }
         };
         if let Err(e) = res {
@@ -350,6 +469,11 @@ impl crate::Engine {
         );
         i.previews = previews;
         i.compressed = report;
+        // An SVG picture can be converted to shapes.
+        i.svg = f
+            .svg
+            .as_ref()
+            .is_some_and(|n| self.document().is_some_and(|d| d.media.contains_key(n)));
         i.removal = f
             .removal
             .as_ref()

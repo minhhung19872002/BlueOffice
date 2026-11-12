@@ -3892,6 +3892,29 @@ impl Session {
         width: i64,
         height: i64,
     ) -> Result<Selection> {
+        self.insert_picture(bytes, ext, None, width, height)
+    }
+
+    /// Insert an SVG picture (CORE-PIC-001): `png` is its fallback picture (the blip),
+    /// `svg` the SVG version ([MS-ODRAWXML] `asvg:svgBlip`), both new media parts.
+    pub fn insert_svg_image(
+        &mut self,
+        png: Vec<u8>,
+        svg: Vec<u8>,
+        width: i64,
+        height: i64,
+    ) -> Result<Selection> {
+        self.insert_picture(png, "png", Some(svg), width, height)
+    }
+
+    fn insert_picture(
+        &mut self,
+        bytes: Vec<u8>,
+        ext: &str,
+        svg: Option<Vec<u8>>,
+        width: i64,
+        height: i64,
+    ) -> Result<Selection> {
         let ext = ext.trim_start_matches('.').to_ascii_lowercase();
         let mut n = self.part_number_start(self.doc.media.len() + 1);
         let name = loop {
@@ -3901,6 +3924,16 @@ impl Session {
             }
             n += 1;
         };
+        let svg = svg.map(|data| {
+            let mut n = n + 1;
+            loop {
+                let cand = format!("/word/media/image{n}.svg");
+                if !self.doc.media.contains_key(&cand) {
+                    break (cand, Arc::new(data));
+                }
+                n += 1;
+            }
+        });
         let bytes = Arc::new(bytes);
         self.edit(|tx, sel| {
             let (a, b) = sel.ordered();
@@ -3910,6 +3943,20 @@ impl Session {
                 old: None,
                 new: Some(bytes),
             })?;
+            let format = match svg {
+                Some((svg_name, data)) => {
+                    tx.push(Op::Media {
+                        name: svg_name.clone(),
+                        old: None,
+                        new: Some(data),
+                    })?;
+                    Some(Box::new(bo_model::picture::PictureFormat {
+                        svg: Some(svg_name),
+                        ..Default::default()
+                    }))
+                }
+                None => None,
+            };
             let (_, _, atoms) = tx.atoms(at.para)?;
             let props = para::props_at(&atoms, at.offset);
             let img = Image {
@@ -3921,7 +3968,7 @@ impl Session {
                 rotation: 0,
                 description: String::new(),
                 shape: None,
-                format: None,
+                format,
                 src: None,
                 ole: None,
             };

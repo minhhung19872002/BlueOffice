@@ -792,6 +792,10 @@ impl Writer<'_> {
         if foreign {
             p.format.removal = None;
         }
+        // The SVG version ([MS-ODRAWXML] svgBlip) is kept as written: compared by part name.
+        if let Some(svg) = p.format.svg.as_mut() {
+            *svg = resolve(svg).unwrap_or_default();
+        }
         let media_changed = target.is_some_and(|t| t != img.media) && !img.media.is_empty();
         let crop = img.crop.filter(|c| c.iter().any(|v| *v != 0));
         if !media_changed && p.format == format && p.crop == crop {
@@ -807,7 +811,12 @@ impl Writer<'_> {
             (None, true) => crate::picture::Layer::Keep,
             (None, false) => crate::picture::Layer::Clear,
         };
-        crate::picture::patch(xml, embed.as_deref(), &format, crop, layer)
+        let svg = format
+            .svg
+            .as_ref()
+            .filter(|s| self.doc.media.contains_key(*s))
+            .map(|s| self.rels.id_for(REL_IMAGE, s, false));
+        crate::picture::patch(xml, embed.as_deref(), &format, crop, layer, svg.as_deref())
             .unwrap_or_else(|| xml.to_owned())
     }
 
@@ -908,10 +917,17 @@ impl Writer<'_> {
             .as_deref()
             .and_then(|f| f.removal.as_ref())
             .map(|r| self.rels.id_for(REL_IMAGE, &r.original, false));
+        // [MS-ODRAWXML] asvg:svgBlip: the SVG version next to the PNG fallback.
+        let svg = img
+            .format
+            .as_deref()
+            .and_then(|f| f.svg.as_ref())
+            .filter(|s| self.doc.media.contains_key(*s))
+            .map(|s| self.rels.id_for(REL_IMAGE, s, false));
         let fx = img
             .format
             .as_deref()
-            .map(|f| crate::picture::blip_children_xml(f, layer.as_deref()))
+            .map(|f| crate::picture::blip_children_xml(f, layer.as_deref(), svg.as_deref()))
             .unwrap_or_default();
         let prst = escape(
             img.format

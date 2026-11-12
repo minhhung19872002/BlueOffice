@@ -5,7 +5,10 @@
 //! everything else in it is kept.
 
 use bo_drawingml::dom::{parse, write_element, El};
-use bo_drawingml::picture::{read_background_removal, read_fx, write_background_removal, write_fx};
+use bo_drawingml::picture::{
+    read_background_removal, read_fx, svg_blip_embed, write_background_removal, write_fx,
+    write_svg_blip,
+};
 use bo_model::picture::{PictureFormat, RemovedBackground};
 use bo_model::slide::{XmlElement, XmlNode};
 
@@ -67,6 +70,8 @@ fn props_of(pic: &XmlElement) -> PicProps {
             p.format.removal = read_background_removal(&kids).and_then(|(rid, settings)| {
                 rid.map(|original| Box::new(RemovedBackground { original, settings }))
             });
+            // [MS-ODRAWXML] asvg:svgBlip: the SVG version, by relationship id here too.
+            p.format.svg = svg_blip_embed(&kids);
         }
         if let Some(r) = fill.elements().find(|e| e.local() == "srcRect") {
             let v = |n: &str| {
@@ -117,6 +122,7 @@ pub(crate) fn patch(
     format: &PictureFormat,
     crop: Option<[i32; 4]>,
     layer: Layer<'_>,
+    svg: Option<&str>,
 ) -> Option<String> {
     let mut root = parse(xml.as_bytes(), "drawing").ok()?;
     let pic = find_mut(&mut root, "pic")?;
@@ -140,6 +146,7 @@ pub(crate) fn patch(
             (Layer::Set(r), Some(b)) => write_background_removal(&mut kids, Some((r, &b.settings))),
             _ => write_background_removal(&mut kids, None),
         }
+        write_svg_blip(&mut kids, svg);
         blip.children = kids.into_iter().map(XmlNode::Element).collect();
         // §20.1.8.55 srcRect follows the blip (CT_BlipFillProperties).
         fill.children
@@ -182,8 +189,12 @@ pub(crate) fn patch(
 }
 
 /// Children of `a:blip` for a new picture (written by the generator); `layer` as in
-/// [`patch`].
-pub(crate) fn blip_children_xml(format: &PictureFormat, layer: Option<&str>) -> String {
+/// [`patch`], `svg` the relationship id of the SVG version ([MS-ODRAWXML] svgBlip).
+pub(crate) fn blip_children_xml(
+    format: &PictureFormat,
+    layer: Option<&str>,
+    svg: Option<&str>,
+) -> String {
     let mut kids = Vec::new();
     write_fx(&mut kids, &format.fx);
     write_background_removal(
@@ -192,6 +203,7 @@ pub(crate) fn blip_children_xml(format: &PictureFormat, layer: Option<&str>) -> 
             .zip(format.removal.as_deref())
             .map(|(r, b)| (r, &b.settings)),
     );
+    write_svg_blip(&mut kids, svg);
     let mut out = String::new();
     for k in &kids {
         write_element(k, &mut out);
@@ -223,6 +235,7 @@ mod tests {
             &f,
             Some([10_000, 0, 10_000, 0]),
             Layer::Clear,
+            None,
         )
         .unwrap();
         assert!(
@@ -244,6 +257,7 @@ mod tests {
             &PictureFormat::default(),
             None,
             Layer::Clear,
+            None,
         )
         .unwrap();
         // CORE-PIC-002: a removal BlueOffice set is written, read back, and kept as it is when
@@ -258,7 +272,7 @@ mod tests {
             })),
             ..PictureFormat::default()
         };
-        let with = patch(XML, None, &removed, None, Layer::Set("rId8")).unwrap();
+        let with = patch(XML, None, &removed, None, Layer::Set("rId8"), None).unwrap();
         assert!(with.contains(r#"<a14:imgLayer r:embed="rId8"><a14:imgEffect><a14:backgroundRemoval t="2000" b="98000" l="1000" r="99000"/>"#), "{with}");
         let r = read(&with).unwrap().format.removal.unwrap();
         assert_eq!(
@@ -271,11 +285,51 @@ mod tests {
             &PictureFormat::default(),
             Some([5000, 0, 0, 0]),
             Layer::Keep,
+            None,
         )
         .unwrap();
         assert!(kept.contains("a14:backgroundRemoval") && kept.contains("srcRect"));
-        let cleared = patch(&with, None, &PictureFormat::default(), None, Layer::Clear).unwrap();
+        let cleared = patch(
+            &with,
+            None,
+            &PictureFormat::default(),
+            None,
+            Layer::Clear,
+            None,
+        )
+        .unwrap();
         assert!(!cleared.contains("imgLayer"), "{cleared}");
         assert_eq!(read(&back).unwrap(), read(XML).unwrap());
+    }
+
+    #[test]
+    fn svg_version_is_written_and_read() {
+        let f = PictureFormat {
+            svg: Some("rId4".into()),
+            ..PictureFormat::default()
+        };
+        let out = patch(XML, None, &f, None, Layer::Clear, Some("rId4")).unwrap();
+        assert!(out.contains(r"<asvg:svgBlip xmlns:asvg="), "{out}");
+        assert!(
+            out.contains("a14:useLocalDpi"),
+            "other extensions stay: {out}"
+        );
+        assert_eq!(read(&out).unwrap().format.svg.as_deref(), Some("rId4"));
+        let gone = patch(
+            &out,
+            None,
+            &PictureFormat::default(),
+            None,
+            Layer::Clear,
+            None,
+        )
+        .unwrap();
+        assert!(!gone.contains("svgBlip"), "{gone}");
+        let fresh = blip_children_xml(&f, None, Some("rId6"));
+        assert!(fresh.contains(r#"r:embed="rId6""#), "{fresh}");
+        assert!(
+            fresh.contains("{96DAC541-7B7A-43D3-8B79-37D633B846F1}"),
+            "{fresh}"
+        );
     }
 }

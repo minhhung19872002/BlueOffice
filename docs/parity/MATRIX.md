@@ -81,17 +81,17 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | Style, danh sách đa cấp | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus styles-*, lists-* | 🟡 | định nghĩa danh sách mới, liên kết heading, đặt giá trị, bắt đầu lại ở cấp con giữ cấp trên, lvlRestart, kiểu pháp lý isLgl (DOC-LIST-001); thiếu căn số/font số trong hộp thoại |
 | Section, cột, header/footer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus sections-* | ✅ | |
 | Drop cap, đánh số dòng, gạch nối, chữ dọc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus layout-0* | 🟡 | DOC-LAYOUT-001; gạch nối tiếng Anh gần đúng, chưa cân cột |
-| Viền trang, nền, watermark | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus page-* | 🟡 | viền thường + nghệ thuật tự vẽ, màu trang, hình mờ chữ/ảnh, chủ đề (DOC-PAGE-001); thiếu in không màu trang, w:frame |
-| Bảng (gộp, lồng, lặp tiêu đề) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus tables-* | 🟡 | + sắp xếp, công thức, AutoFit, văn bản↔bảng, chữ dọc, bảng nổi (DOC-TABLE-001); thiếu vẽ/tẩy bảng |
+| Viền trang, nền, watermark | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus page-* | 🟡 | viền thường + nghệ thuật tự vẽ, màu trang, hình mờ chữ/ảnh, chủ đề + màu chữ theo chủ đề (themeColor/Tint/Shade), in không kèm màu trang (tuỳ chọn), viền bao/không bao đầu-chân trang (DOC-PAGE-001); thiếu w:frame, hình mờ DrawingML |
+| Bảng (gộp, lồng, lặp tiêu đề) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus tables-* | 🟡 | + sắp xếp, công thức, AutoFit (cả ô trải cột), văn bản↔bảng, chữ dọc, bảng nổi; sắp xếp và văn bản↔bảng ghi theo dõi thay đổi (DOC-TABLE-001); thiếu vẽ/tẩy bảng, bảng nổi tách trang |
 | Ảnh & wrap | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | corpus images-* | ✅ | |
 | Footnote/endnote, TOC, caption, cross-ref | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests bo-edit | ✅ | |
 | Chỉ mục, TOA, trích dẫn | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | refs_tests, references.rs | ✅ | mục lục hình, INDEX/XE, TOA/TA, chuyển chú thích (DOC-REF-001) |
-| Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields, fields-controls.spec | 🟡 | một phần danh sách; EQ có \vs \hs \ai \di \li (trừ \ba); Shift+F9 từng trường |
+| Field đầy đủ | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | 🟡 | tests fields, fields-controls.spec | 🟡 | một phần danh sách; EQ có \vs \hs \ai \di \li (trừ \ba); Shift+F9 từng trường (cả trường cuối đoạn) |
 | Content controls | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | corpus controls-01/03/04/06, tests bo-docx/bo-edit/bo-engine, content-controls.spec, fields-controls.spec | 🟡 | Custom XML + data binding hai chiều (DOC-CC-002); chèn + điền text/rich/hộp kiểm/danh sách/kết hợp/ngày/ảnh, phần lặp (đoạn và dòng bảng, + / −), hộp thoại thuộc tính, khung viền; thiếu khung quanh các dòng của phần lặp; + trường biểu mẫu cũ & chế độ chỉ điền (DOC-FORM-001) |
 | Track changes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests + E2E, track_moves.rs | 🟡 | chế độ hiển thị + bong bóng + ngăn danh sách (DOC-REVIEW-001); cặp di chuyển, chi tiết định dạng, khoá mật khẩu (DOC-REVIEW-002); cắt-dán chưa thành di chuyển |
 | So sánh / kết hợp | — | — | ✅ | — | ✅ | ✅ | — | compare::tests, compare_with_the_original_document, combine_two_reviewers_copies, review.spec | ✅ | so sánh với bản gốc → track changes (đoạn, từ, định dạng, bảng); kết hợp bản sửa của hai người (trộn 3 chiều theo đoạn/từ, theo tác giả) |
 | Mail merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | 🟡 | thiếu SQL, email, nhãn |
-| Chế độ xem (Read, Outline, Draft…) | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E doc-views | 🟡 | đọc, web, nháp, dàn ý, tập trung, ngăn điều hướng, ký hiệu định dạng (DOC-VIEW-001) |
+| Chế độ xem (Read, Outline, Draft…) | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E doc-views | 🟡 | đọc, web, nháp, dàn ý (gõ chữ tại chỗ), tập trung, ngăn điều hướng, ký hiệu định dạng + văn bản ẩn gạch chấm, dấu cuối ô/hàng ¤ (DOC-VIEW-001); thiếu chế độ đọc dàn theo cột |
 | Mẫu hành chính NĐ 30 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | E2E, templates tests, admin_format.rs | ✅ | 8 mẫu + kiểm tra thể thức (DOC-TPL-001); kiểm tra tài liệu bất kỳ + sửa một/sửa tất cả (DOC-TPL-002) |
 | Phương trình | ✅ | 🟡 | ⬜ | ✅ | 🟡 | 🟡 | ✅ | corpus math-* | 🟡 | xem CORE |
 

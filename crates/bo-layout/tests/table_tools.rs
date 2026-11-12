@@ -202,3 +202,40 @@ fn measures_rows_and_content_widths() {
     );
     assert!(m.max_widths[1] > 10.8);
 }
+
+/// AutoFit to contents with a cell spanning two columns (§17.4.17 gridSpan): the
+/// columns it covers grow (in proportion) until its text fits on one line.
+#[test]
+fn spanning_cell_widens_the_columns_it_covers() {
+    let mut t = Table::simple(2, 3, Twips(9000));
+    // Row 0: one cell over columns 0–1 with a long title, then a short cell.
+    t.rows[0].cells.remove(1);
+    t.rows[0].cells[0].props.grid_span = 2;
+    t.rows[0].cells[0].blocks = vec![p("Tiêu đề rất dài trải qua hai cột của bảng")];
+    t.rows[0].cells[1].blocks = vec![p("C")];
+    t.rows[1].cells[0].blocks = vec![p("Mã")];
+    t.rows[1].cells[1].blocks = vec![p("Tên hàng")];
+    t.rows[1].cells[2].blocks = vec![p("SL")];
+    let d = doc(vec![Block::Table(t.clone())]);
+    let m = measure_table(&d, &mut fonts(), &mut LayoutCache::new(), &t, 450.0).unwrap();
+    // The title alone, measured as a one-column cell.
+    let mut alone = Table::simple(1, 1, Twips(9000));
+    alone.rows[0].cells[0].blocks = vec![p("Tiêu đề rất dài trải qua hai cột của bảng")];
+    let d1 = doc(vec![Block::Table(alone.clone())]);
+    let title = measure_table(&d1, &mut fonts(), &mut LayoutCache::new(), &alone, 450.0)
+        .unwrap()
+        .max_widths[0];
+    let w = &m.max_widths;
+    assert_eq!(w.len(), 3);
+    assert!((w[0] + w[1] - title).abs() < 0.5, "{w:?} vs {title}");
+    // In proportion: "Tên hàng" is wider than "Mã", so column 1 stays the wider one.
+    assert!(w[1] > w[0], "{w:?}");
+    // The third column only holds its own text.
+    let mut sl = Table::simple(1, 1, Twips(9000));
+    sl.rows[0].cells[0].blocks = vec![p("SL")];
+    let d2 = doc(vec![Block::Table(sl.clone())]);
+    let own = measure_table(&d2, &mut fonts(), &mut LayoutCache::new(), &sl, 450.0)
+        .unwrap()
+        .max_widths[0];
+    assert!((w[2] - own).abs() < 0.5, "{w:?} vs {own}");
+}

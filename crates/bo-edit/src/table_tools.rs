@@ -300,23 +300,36 @@ pub(crate) fn sort_blocker(t: &Table, r0: usize, r1: usize) -> Option<&'static s
 /// Sort rows `r0..=r1` by `keys` (first key most significant). The sort is stable;
 /// blank and unreadable keys go last in both directions.
 pub(crate) fn sort_rows(t: &mut Table, r0: usize, r1: usize, keys: &[SortKey]) {
-    if r1 >= t.rows.len() || r0 >= r1 || keys.is_empty() {
+    let Some(order) = sort_order(t, r0, r1, keys) else {
         return;
+    };
+    let mut old: Vec<Option<bo_model::Row>> = t.rows.drain(r0..=r1).map(Some).collect();
+    for (i, o) in order.into_iter().enumerate() {
+        if let Some(row) = old.get_mut(o - r0).and_then(Option::take) {
+            t.rows.insert(r0 + i, row);
+        }
     }
-    let mut rows: Vec<(Vec<Option<Value>>, bo_model::Row)> = t
-        .rows
-        .drain(r0..=r1)
-        .map(|row| {
+}
+
+/// The rows of `r0..=r1` (their indexes) in sorted order (see [`sort_rows`]); `None`
+/// when there is nothing to sort.
+pub(crate) fn sort_order(t: &Table, r0: usize, r1: usize, keys: &[SortKey]) -> Option<Vec<usize>> {
+    if r1 >= t.rows.len() || r0 >= r1 || keys.is_empty() {
+        return None;
+    }
+    let mut rows: Vec<(Vec<Option<Value>>, usize)> = (r0..=r1)
+        .map(|i| {
+            let row = &t.rows[i];
             let vals = keys
                 .iter()
                 .map(|k| {
-                    let text = cell_covering(&row, k.column)
-                        .map(|i| cell_text(&row.cells[i]))
+                    let text = cell_covering(row, k.column)
+                        .map(|c| cell_text(&row.cells[c]))
                         .unwrap_or_default();
                     value(&text, k.kind)
                 })
                 .collect();
-            (vals, row)
+            (vals, i)
         })
         .collect();
     rows.sort_by(|(a, _), (b, _)| {
@@ -340,9 +353,34 @@ pub(crate) fn sort_rows(t: &mut Table, r0: usize, r1: usize, keys: &[SortKey]) {
         }
         Ordering::Equal
     });
-    for (i, (_, row)) in rows.into_iter().enumerate() {
-        t.rows.insert(r0 + i, row);
+    Some(rows.into_iter().map(|(_, i)| i).collect())
+}
+
+/// Rows of `order` (a permutation of the indexes `r0..r0 + order.len()`) that keep
+/// their relative order — a longest increasing subsequence: with track changes on, a
+/// sort marks the other rows deleted where they were and inserted where they go.
+pub(crate) fn rows_in_place(order: &[usize]) -> Vec<bool> {
+    // Patience sorting with back links (O(n log n)).
+    let mut tails: Vec<usize> = Vec::new(); // positions in `order`
+    let mut prev = vec![usize::MAX; order.len()];
+    for (i, &v) in order.iter().enumerate() {
+        let k = tails.partition_point(|&j| order[j] < v);
+        if k > 0 {
+            prev[i] = tails[k - 1];
+        }
+        if k == tails.len() {
+            tails.push(i);
+        } else {
+            tails[k] = i;
+        }
     }
+    let mut keep = vec![false; order.len()];
+    let mut at = tails.last().copied();
+    while let Some(i) = at {
+        keep[i] = true;
+        at = (prev[i] != usize::MAX).then_some(prev[i]);
+    }
+    keep
 }
 
 /// Text direction of the cells covering rows `r0..=r1`, grid columns `g0..=g1`

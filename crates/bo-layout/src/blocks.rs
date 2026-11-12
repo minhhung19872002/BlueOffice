@@ -825,7 +825,8 @@ pub struct TableMeasure {
 }
 
 /// Measure `t` laid out in a box `avail` points wide: row heights and the content
-/// widths of each grid column (cells spanning one column only).
+/// widths of each grid column (cells spanning several columns widen the columns they
+/// cover when they need more room).
 pub(crate) fn measure_table(
     ctx: &mut Ctx<'_>,
     t: &Table,
@@ -851,15 +852,38 @@ pub(crate) fn measure_table(
             .unwrap_or(0),
     );
     let mut max_widths = vec![ml + mr; cols];
+    // Cells spanning several grid columns (§17.4.17 gridSpan): (first column, span, width).
+    let mut spans: Vec<(usize, usize, f32)> = Vec::new();
     for row in &t.rows {
         let mut g = 0usize;
         for c in &row.cells {
             let n = c.props.grid_span.max(1) as usize;
-            if n == 1 && c.props.v_merge != Some(VMerge::Continue) && g < cols {
+            if c.props.v_merge != Some(VMerge::Continue) && g + n <= cols {
                 let (wide, _) = measure_blocks(ctx, &c.blocks, 20_000.0, false)?;
-                max_widths[g] = max_widths[g].max(wide + ml + mr);
+                if n == 1 {
+                    max_widths[g] = max_widths[g].max(wide + ml + mr);
+                } else {
+                    spans.push((g, n, wide + ml + mr));
+                }
             }
             g += n;
+        }
+    }
+    // Then the spanning cells, narrowest spans first: what a cell needs beyond the
+    // columns it covers is shared among them in proportion to their widths.
+    spans.sort_by_key(|s| s.1);
+    for (g, n, need) in spans {
+        let cover = &mut max_widths[g..g + n];
+        let have: f32 = cover.iter().sum();
+        if need > have {
+            let extra = need - have;
+            for w in cover.iter_mut() {
+                *w += if have > 0.0 {
+                    extra * *w / have
+                } else {
+                    extra / n as f32
+                };
+            }
         }
     }
     Ok(TableMeasure {

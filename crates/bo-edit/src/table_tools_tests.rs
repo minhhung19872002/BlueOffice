@@ -170,7 +170,7 @@ fn paragraphs_become_cells() {
 }
 
 #[test]
-fn sort_refuses_merged_rows_and_tracking() {
+fn sort_refuses_merged_rows() {
     let mut s = Session::new(doc(&["a", "b"]));
     select(&mut s, (0, 0), (1, 1));
     s.edit_table(&TableEdit::FromText {
@@ -192,11 +192,167 @@ fn sort_refuses_merged_rows_and_tracking() {
         s.edit_table(&sort),
         Err(EditError::Unsupported(_))
     ));
+}
+
+/// Plain texts of the body blocks (a table as its rows joined with "|").
+fn blocks_text(s: &Session) -> Vec<String> {
+    s.doc().sections[0]
+        .blocks
+        .iter()
+        .map(|b| match b {
+            Block::Paragraph(p) => p.plain_text(),
+            Block::Table(t) => t
+                .rows
+                .iter()
+                .map(|r| {
+                    r.cells
+                        .iter()
+                        .map(crate::table_tools::cell_text)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .collect::<Vec<_>>()
+                .join("|"),
+            Block::Opaque(_) => String::new(),
+        })
+        .collect()
+}
+
+/// Sort with track changes on (ECMA-376 Part 1, §17.13.5.12 / §17.13.5.19 on rows):
+/// rows that keep their relative order are untouched, the others are deleted where
+/// they were and inserted where they go; accepting gives the sorted table, rejecting
+/// the original one; one undo step.
+#[test]
+fn tracked_sort_records_moved_rows() {
+    let mut s = Session::new(doc(&["Tên", "Cam", "An", "Bưởi", "Dừa", "sau"]));
+    select(&mut s, (0, 0), (5, 0));
+    s.edit_table(&TableEdit::FromText {
+        separator: ",".into(),
+        cols: None,
+    })
+    .unwrap();
+    let before = s.doc().clone();
     s.set_track_changes(true);
-    assert!(matches!(
-        s.edit_table(&TableEdit::ToText {
-            separator: "\t".into()
-        }),
-        Err(EditError::Unsupported(_))
-    ));
+    select(&mut s, (0, 0), (0, 0));
+    s.edit_table(&TableEdit::Sort {
+        keys: vec![SortKey {
+            column: 0,
+            kind: SortKind::Text,
+            descending: false,
+        }],
+        header: true,
+    })
+    .unwrap();
+    let t = table(&s);
+    // Sorted: Tên | An Bưởi Cam Dừa. In place: An, Bưởi, Dừa (their order is kept);
+    // Cam moves: deleted where it was, inserted after Bưởi.
+    let rows: Vec<(String, bool, bool)> = t
+        .rows
+        .iter()
+        .map(|r| {
+            (
+                crate::table_tools::cell_text(&r.cells[0]),
+                r.props.del.is_some(),
+                r.props.ins.is_some(),
+            )
+        })
+        .collect();
+    let row = |t: &str, del: bool, ins: bool| (t.to_owned(), del, ins);
+    assert_eq!(
+        rows,
+        [
+            row("Tên", false, false),
+            row("Cam", true, false),
+            row("An", false, false),
+            row("Bưởi", false, false),
+            row("Cam", false, true),
+            row("Dừa", false, false),
+        ]
+    );
+    let tracked = s.doc().clone();
+    assert!(s.resolve_revisions(None, true).unwrap() > 0);
+    assert_eq!(blocks_text(&s), ["Tên|An|Bưởi|Cam|Dừa", "sau"]);
+    assert!(s.undo());
+    assert_eq!(s.doc(), &tracked);
+    s.resolve_revisions(None, false).unwrap();
+    assert_eq!(blocks_text(&s), ["Tên|Cam|An|Bưởi|Dừa", "sau"]);
+    assert!(s.undo());
+    assert!(s.undo());
+    assert_eq!(s.doc(), &before);
+}
+
+/// Text ↔ table with track changes on: the text is deleted and the table inserted
+/// (§17.13.5.14 / §17.13.5.19), or the table's rows deleted and the text inserted;
+/// accepting gives the converted document, rejecting the original.
+#[test]
+fn tracked_text_to_table_and_back() {
+    let mut s = Session::new(doc(&["a,1", "b,2", "sau"]));
+    let original = s.doc().clone();
+    s.set_track_changes(true);
+    select(&mut s, (0, 0), (2, 0));
+    s.edit_table(&TableEdit::FromText {
+        separator: ",".into(),
+        cols: None,
+    })
+    .unwrap();
+    let t = table(&s);
+    assert!(t.rows.iter().all(|r| r.props.ins.is_some()));
+    // The text stays after the table, marked deleted (left out of the plain text).
+    assert_eq!(blocks_text(&s), ["a,1|b,2", "", "", "sau"]);
+    for i in [1, 2] {
+        let Block::Paragraph(p) = &s.doc().sections[0].blocks[i] else {
+            panic!("paragraph {i}")
+        };
+        assert!(!p.runs.is_empty() && p.runs.iter().all(|r| r.props.del.is_some()));
+        assert!(p.props.mark_del.is_some());
+    }
+    let tracked = s.doc().clone();
+    s.resolve_revisions(None, true).unwrap();
+    assert_eq!(blocks_text(&s), ["a,1|b,2", "sau"]);
+    assert!(table(&s).rows.iter().all(|r| r.props.ins.is_none()));
+    assert!(s.undo());
+    assert_eq!(s.doc(), &tracked);
+    s.resolve_revisions(None, false).unwrap();
+    assert_eq!(blocks_text(&s), ["a,1", "b,2", "sau"]);
+    assert!(s.undo());
+    assert!(s.undo());
+    assert_eq!(s.doc(), &original);
+    // A table at the end of the document: the last paragraph keeps its mark (the
+    // paragraph a table needs after it).
+    let mut s = Session::new(doc(&["x;y"]));
+    s.set_track_changes(true);
+    select(&mut s, (0, 0), (0, 3));
+    s.edit_table(&TableEdit::FromText {
+        separator: ";".into(),
+        cols: None,
+    })
+    .unwrap();
+    s.resolve_revisions(None, true).unwrap();
+    assert_eq!(blocks_text(&s), ["x,y", ""]);
+    // Back to text, tracked: rows deleted, text inserted after the table.
+    select(&mut s, (0, 0), (0, 0));
+    s.edit_table(&TableEdit::ToText {
+        separator: "\t".into(),
+    })
+    .unwrap();
+    assert!(table(&s).rows.iter().all(|r| r.props.del.is_some()));
+    assert_eq!(blocks_text(&s), ["x,y", "x\ty", ""]);
+    let tracked = s.doc().clone();
+    s.resolve_revisions(None, true).unwrap();
+    assert_eq!(blocks_text(&s), ["x\ty", ""]);
+    assert!(s.undo());
+    assert_eq!(s.doc(), &tracked);
+    s.resolve_revisions(None, false).unwrap();
+    assert_eq!(blocks_text(&s), ["x,y", ""]);
+}
+
+#[test]
+fn rows_in_place_keeps_the_longest_ordered_run() {
+    use crate::table_tools::rows_in_place;
+    assert_eq!(rows_in_place(&[1, 2, 3]), [true, true, true]);
+    // Sorted 2,0,3,1 from 0,1,2,3: two rows can stay (0 and 1 or 0 and 3 …).
+    let keep = rows_in_place(&[2, 0, 3, 1]);
+    assert_eq!(keep.iter().filter(|k| **k).count(), 2);
+    assert_eq!(rows_in_place(&[3, 2, 1]).iter().filter(|k| **k).count(), 1);
+    assert!(rows_in_place(&[]).is_empty());
 }

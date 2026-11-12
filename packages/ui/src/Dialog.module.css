@@ -25,6 +25,26 @@
   font-size: 13px;
 }
 
+/* Modeless: a pane docked at the right edge, below the ribbon. */
+.pane {
+  position: fixed;
+  top: 120px;
+  right: 8px;
+  bottom: 32px;
+  max-width: calc(100vw - 16px);
+  overflow: auto;
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  background: var(--bo-surface, #fff);
+  color: var(--bo-text, #1b2430);
+  border: 1px solid var(--bo-border, #d7dde7);
+  box-shadow: var(--bo-shadow-2, 0 12px 40px rgb(0 0 0 / 25%));
+  border-radius: var(--bo-radius-md, 8px);
+  font-family: var(--bo-font, system-ui, sans-serif);
+  font-size: 13px;
+}
+
 .title {
   margin: 0;
   padding: 12px 16px 8px;

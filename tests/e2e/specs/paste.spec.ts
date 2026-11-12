@@ -144,6 +144,39 @@ test('BlueSheet: paste options transpose the pasted cells, one undo step', async
   await expect(page.getByLabel('Thanh công thức')).toHaveValue('');
 });
 
+test('BlueSheet: an older clipboard-history item pastes its formulas, not its values', async ({
+  page,
+}) => {
+  await page.goto('/sheet');
+  await expect(page.getByTestId('sheet-canvas')).toHaveAttribute('data-rendered', /\d+/);
+  await page.keyboard.type('=1+1');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('chữ');
+  await page.keyboard.press('Enter');
+  await goTo(page, 'A1');
+  await page.keyboard.press('Control+c');
+  await goTo(page, 'B1');
+  await page.keyboard.press('Control+c');
+  await page.getByRole('tab', { name: 'Trang đầu' }).click();
+  await page.locator('[data-command="edit.clipboardPanel"]').first().click();
+  const items = page.getByTestId('clipboard-panel').getByTestId('clipboard-item');
+  await expect(items).toHaveCount(2);
+  // The older item (A1) pastes as a cell: its formula comes with it.
+  await goTo(page, 'D2');
+  await items.nth(1).getByRole('button').first().click();
+  await goTo(page, 'D2');
+  await expect(page.getByLabel('Thanh công thức')).toHaveValue('=1+1');
+  // Paste Special offers "all except borders" and "column widths".
+  await page.keyboard.press('Control+Alt+v');
+  await expect(page.getByTestId('paste-special')).toBeVisible();
+  await expect(page.getByTestId('paste-special-allExceptBorders')).toBeVisible();
+  await page.getByTestId('paste-special-columnWidths').check();
+  await page.getByTestId('paste-special-ok').click();
+  // Column widths only: the cell keeps its content.
+  await goTo(page, 'D2');
+  await expect(page.getByLabel('Thanh công thức')).toHaveValue('=1+1');
+});
+
 test('BlueSlide: paste options for copied shapes', async ({ page }) => {
   await page.goto('/slide');
   const chooser = page.waitForEvent('filechooser');

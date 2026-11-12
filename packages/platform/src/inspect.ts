@@ -68,7 +68,8 @@ export type InspectTarget =
   | { kind: 'sheet'; sheet: number }
   | { kind: 'range'; sheet: number; r0: number; c0: number; r1: number; c1: number };
 
-export type A11yFixKind = 'altText' | 'headerRow';
+/** `unmerge` / `rename`: BlueSheet (merged cells, default sheet names). */
+export type A11yFixKind = 'altText' | 'headerRow' | 'unmerge' | 'rename';
 
 export interface A11yIssue {
   rule: A11yRule;
@@ -84,7 +85,9 @@ export interface A11yIssue {
 /** A quick fix request. */
 export type InspectFix =
   | { kind: 'altText'; target: InspectTarget; text: string }
-  | { kind: 'headerRow'; target: InspectTarget };
+  | { kind: 'headerRow'; target: InspectTarget }
+  | { kind: 'unmerge'; target: InspectTarget }
+  | { kind: 'rename'; target: InspectTarget; text: string };
 
 /** `legacy`: the 97–2003 binary formats · `odf`: OpenDocument as BlueOffice writes it. */
 export type CompatFormat = 'legacy' | 'odf';
@@ -144,4 +147,5 @@ export interface InspectReport {
 export type InspectCommand =
   | { cmd: 'inspect' }
   | { cmd: 'inspectRemove'; categories: InspectCategory[] }
-  | { cmd: 'inspectKeep'; categories: InspectCategory[] };
+  | { cmd: 'inspectKeep'; categories: InspectCategory[] }
+  | { cmd: 'inspectFix'; fix: InspectFix };

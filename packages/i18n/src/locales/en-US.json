@@ -1354,6 +1354,8 @@
       "values": "Values",
       "formulas": "Formulas",
       "formats": "Formats",
+      "allExceptBorders": "All except borders",
+      "columnWidths": "Column widths",
       "transpose": "Transpose",
       "skipBlanks": "Skip blanks",
       "empty": "Copy cells in BlueSheet first"
@@ -4696,6 +4698,12 @@
     "add": "Add",
     "remove": "Remove",
     "count": "{{count}} entries",
+    "language": "List",
+    "allLanguages": "All languages (symbols)",
+    "lang": {
+      "vi-VN": "Vietnamese",
+      "en-US": "English"
+    },
     "exceptions": "No capital after these abbreviations (one per line)",
     "capsExceptions": "Keep two leading capitals in these words (one per line)",
     "reset": "Restore defaults",
@@ -4946,9 +4954,13 @@
     "apply": "Apply",
     "altTextPlaceholder": "Describe what it shows",
     "altTextLabel": "Alternative text",
+    "renameLabel": "New sheet name",
+    "renamePlaceholder": "A name that describes the sheet",
     "fix": {
       "altText": "Add alternative text",
-      "headerRow": "Use first row as header"
+      "headerRow": "Use first row as header",
+      "unmerge": "Unmerge cells",
+      "rename": "Rename sheet"
     },
     "compatIntro": "Features that are lost or changed when the file is saved in another format.",
     "compatNone": "Nothing in this file is affected.",
@@ -6546,6 +6558,12 @@
       "b5": "B5 (JIS)",
       "letter": "Letter",
       "legal": "Legal"
+    },
+    "orientation": "Orientation",
+    "orientations": {
+      "auto": "Automatic",
+      "portrait": "Portrait",
+      "landscape": "Landscape"
     },
     "color": "Colour",
     "colors": {

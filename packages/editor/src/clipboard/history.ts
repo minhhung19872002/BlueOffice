@@ -19,6 +19,9 @@ export interface ClipItem {
   internal?: string;
   /** Picture of the content (PNG, base64). */
   png?: string;
+  /** The copy as the app that made it keeps it (BlueSheet: editor instance + engine clip
+   * id), so the item pastes with its formats there; not compared between items. */
+  ref?: string;
   /** Unix ms. */
   time: number;
 }

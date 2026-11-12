@@ -1,9 +1,10 @@
 //! BlueSheet commands of the "Check document" panel (CORE-INSPECT-001):
-//! `inspect`, `inspectRemove`, `inspectKeep`.
+//! `inspect`, `inspectRemove`, `inspectKeep`, `inspectFix` (quick fixes of the
+//! accessibility checker: unmerge, table header row, sheet name).
 
-use super::cmd::Recalc;
+use super::cmd::{Recalc, Rng, SheetCommand};
 use super::SheetEngine;
-use crate::inspect::{self, Category};
+use crate::inspect::{self, Category, Fix, Target};
 use crate::Result;
 use serde_json::Value;
 
@@ -44,6 +45,69 @@ impl SheetEngine {
             self.invalidate(None);
         }
         self.inspect_json()
+    }
+
+    /// Apply an accessibility quick fix (one undo step); returns the new report, with
+    /// `error` when the fix does not apply.
+    pub(super) fn inspect_fix(&mut self, fix: &Fix) -> Result<Value> {
+        let res: std::result::Result<(), String> = match fix {
+            Fix::Unmerge {
+                target:
+                    Target::Range {
+                        sheet,
+                        r0,
+                        c0,
+                        r1,
+                        c1,
+                    },
+            } => self
+                .exec(SheetCommand::Unmerge {
+                    sheet: *sheet,
+                    range: Rng {
+                        r0: *r0,
+                        c0: *c0,
+                        r1: *r1,
+                        c1: *c1,
+                    },
+                })
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            Fix::HeaderRow {
+                target: Target::Range { sheet, r0, c0, .. },
+            } => {
+                let table = self.wb()?.sheets.get(*sheet).and_then(|ws| {
+                    ws.tables
+                        .iter()
+                        .position(|t| t.range.first.row == *r0 && t.range.first.col == *c0)
+                });
+                match table {
+                    Some(table) => self
+                        .table_update(
+                            *sheet,
+                            table,
+                            &super::table_cmd::TableUpdate {
+                                header_row: Some(true),
+                                ..Default::default()
+                            },
+                        )
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                    None => Err("no table there".to_owned()),
+                }
+            }
+            Fix::Rename {
+                target: Target::Sheet { sheet },
+                text,
+            } => self
+                .rename_sheet(*sheet, text.trim())
+                .map_err(|e| e.to_string()),
+            _ => Err("this fix does not apply to a workbook".to_owned()),
+        };
+        let mut v = self.inspect_json()?;
+        if let (Err(e), Value::Object(m)) = (res, &mut v) {
+            m.insert("error".into(), Value::String(e));
+        }
+        Ok(v)
     }
 
     pub(super) fn inspect_keep(&mut self, categories: &[Category]) -> Result<Value> {

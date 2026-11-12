@@ -4,7 +4,11 @@
 //! them as one reversible transaction.
 
 use crate::{Op, Result, Selection, Session};
-use bo_model::{Comment, Section};
+use bo_model::{Block, Comment, Section};
+use std::collections::BTreeMap;
+
+/// Footnotes or endnotes by id.
+pub type NoteMap = BTreeMap<i32, Vec<Block>>;
 
 impl Session {
     /// Replace the sections and the comments by `sections` / `comments` as one undo
@@ -15,13 +19,44 @@ impl Session {
         sections: Vec<Section>,
         comments: Vec<Comment>,
     ) -> Result<bool> {
+        let notes = (self.doc.footnotes.clone(), self.doc.endnotes.clone());
+        self.replace_content_and_notes(sections, comments, notes)
+    }
+
+    /// [`Session::replace_content`] that also replaces the footnotes and endnotes
+    /// (§17.11.10 footnote, §17.11.2 endnote: `(footnotes, endnotes)` by id), in the same
+    /// undo step.
+    pub fn replace_content_and_notes(
+        &mut self,
+        sections: Vec<Section>,
+        comments: Vec<Comment>,
+        (footnotes, endnotes): (NoteMap, NoteMap),
+    ) -> Result<bool> {
         let same_sections = self.doc.sections == sections;
         let same_comments = self.doc.comments == comments;
-        if same_sections && same_comments {
+        let same_foot = self.doc.footnotes == footnotes;
+        let same_end = self.doc.endnotes == endnotes;
+        if same_sections && same_comments && same_foot && same_end {
             return Ok(false);
         }
         let sel = self.selection;
         self.edit(|tx, _| {
+            if !same_foot {
+                let old = tx.doc.footnotes.clone();
+                tx.push(Op::Notes {
+                    endnote: false,
+                    old,
+                    new: footnotes,
+                })?;
+            }
+            if !same_end {
+                let old = tx.doc.endnotes.clone();
+                tx.push(Op::Notes {
+                    endnote: true,
+                    old,
+                    new: endnotes,
+                })?;
+            }
             if !same_sections {
                 if tx.doc.sections.len() == sections.len() {
                     for (i, s) in sections.into_iter().enumerate() {

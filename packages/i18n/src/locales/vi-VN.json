@@ -1354,6 +1354,8 @@
       "values": "Giá trị",
       "formulas": "Công thức",
       "formats": "Định dạng",
+      "allExceptBorders": "Tất cả trừ đường viền",
+      "columnWidths": "Độ rộng cột",
       "transpose": "Chuyển vị",
       "skipBlanks": "Bỏ qua ô trống",
       "empty": "Hãy sao chép ô trong BlueSheet trước"
@@ -4696,6 +4698,12 @@
     "add": "Thêm",
     "remove": "Xoá",
     "count": "{{count}} mục",
+    "language": "Danh sách",
+    "allLanguages": "Mọi ngôn ngữ (ký hiệu)",
+    "lang": {
+      "vi-VN": "Tiếng Việt",
+      "en-US": "Tiếng Anh"
+    },
     "exceptions": "Không viết hoa sau các chữ viết tắt (mỗi dòng một mục)",
     "capsExceptions": "Giữ nguyên hai chữ hoa đầu cho các từ (mỗi dòng một mục)",
     "reset": "Khôi phục mặc định",
@@ -4946,9 +4954,13 @@
     "apply": "Áp dụng",
     "altTextPlaceholder": "Mô tả nội dung được hiển thị",
     "altTextLabel": "Văn bản thay thế",
+    "renameLabel": "Tên mới của trang tính",
+    "renamePlaceholder": "Tên mô tả nội dung trang tính",
     "fix": {
       "altText": "Thêm văn bản thay thế",
-      "headerRow": "Dùng hàng đầu làm tiêu đề"
+      "headerRow": "Dùng hàng đầu làm tiêu đề",
+      "unmerge": "Bỏ gộp ô",
+      "rename": "Đổi tên trang tính"
     },
     "compatIntro": "Các tính năng bị mất hoặc thay đổi khi lưu tệp sang định dạng khác.",
     "compatNone": "Không có nội dung nào trong tệp bị ảnh hưởng.",
@@ -6546,6 +6558,12 @@
       "b5": "B5 (JIS)",
       "letter": "Letter",
       "legal": "Legal"
+    },
+    "orientation": "Hướng giấy",
+    "orientations": {
+      "auto": "Tự động",
+      "portrait": "Dọc",
+      "landscape": "Ngang"
     },
     "color": "Màu",
     "colors": {

@@ -6,8 +6,8 @@ use super::a11y;
 use super::compat::{self, uses_new_function, BOTH, LEGACY, ODF};
 use super::package::{self, PackageScan, Scrub};
 use super::{
-    looks_like_url, sample, Action, Category, Feature, Finding, Issue, Report, Rule, Severity,
-    Target,
+    looks_like_url, sample, Action, Category, Feature, Finding, FixKind, Issue, Report, Rule,
+    Severity, Target,
 };
 use bo_model::sheet::{CellRange, CellValue, Fill, SheetColor, SheetState, Workbook, Worksheet};
 use bo_sheet::calc::FormulaAdjuster;
@@ -264,30 +264,39 @@ fn accessibility(wb: &Workbook, pkg: &PackageScan) -> Vec<Issue> {
             ));
         }
         for m in &ws.merges {
-            out.push(Issue::new(
-                Rule::MergedCells,
-                Severity::Warning,
-                range(si, m),
-                m.to_string(),
-            ));
+            out.push(
+                Issue::new(
+                    Rule::MergedCells,
+                    Severity::Warning,
+                    range(si, m),
+                    m.to_string(),
+                )
+                .fix(FixKind::Unmerge),
+            );
         }
         for t in &ws.tables {
             if t.header_row_count == Some(0) {
-                out.push(Issue::new(
-                    Rule::TableHeader,
-                    Severity::Warning,
-                    range(si, &t.range),
-                    t.display_name.clone(),
-                ));
+                out.push(
+                    Issue::new(
+                        Rule::TableHeader,
+                        Severity::Warning,
+                        range(si, &t.range),
+                        t.display_name.clone(),
+                    )
+                    .fix(FixKind::HeaderRow),
+                );
             }
         }
         if default_name(&ws.name) {
-            out.push(Issue::new(
-                Rule::SheetName,
-                Severity::Tip,
-                Target::Sheet { sheet: si },
-                ws.name.clone(),
-            ));
+            out.push(
+                Issue::new(
+                    Rule::SheetName,
+                    Severity::Tip,
+                    Target::Sheet { sheet: si },
+                    ws.name.clone(),
+                )
+                .fix(FixKind::Rename),
+            );
         }
         for h in &ws.hyperlinks {
             let at = h.range.first;

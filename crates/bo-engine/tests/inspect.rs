@@ -707,7 +707,7 @@ fn sheet_report_remove_save_reopen() {
     assert_eq!(count(&r, "serverProperties"), 1);
     assert_eq!(count(&r, "macros"), 1);
     // Accessibility: one merge, one default sheet name (Sheet1), one bare-URL link.
-    let merged = issues(&r, "mergedCells");
+    let merged: Vec<Value> = issues(&r, "mergedCells").into_iter().cloned().collect();
     assert_eq!(merged.len(), 1);
     assert_eq!(
         merged[0]["target"],
@@ -989,4 +989,153 @@ fn slide_titles_and_contrast() {
     assert_eq!(c.len(), 1, "{}", r["accessibility"]);
     // #AAAAAA on white ≈ 2.32:1.
     assert!((c[0]["ratio"].as_f64().unwrap() - 2.32).abs() < 0.01);
+}
+
+/// A Sheet1!A1:B1 workbook to embed.
+fn small_book() -> Vec<u8> {
+    let mut s = SheetEngine::with_bundled_fonts();
+    s.new_workbook("b.xlsx").unwrap();
+    s.set_input(0, 0, 0, "Năm").unwrap();
+    s.set_input(0, 0, 1, "2026").unwrap();
+    s.save("xlsx", 0).unwrap()
+}
+
+#[test]
+fn doc_hidden_text_in_notes_and_embedded_documents() {
+    use base64::Engine as _;
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    doc_cmd(&mut e, &json!({"cmd": "insertText", "text": "Thân bài "}));
+    doc_cmd(
+        &mut e,
+        &json!({"cmd": "insertNote", "endnote": false, "text": "Ghi chú"}),
+    );
+    doc_cmd(&mut e, &json!({"cmd": "closeHeaderFooter"}));
+    let book = base64::engine::general_purpose::STANDARD.encode(small_book());
+    let v = doc_cmd(
+        &mut e,
+        &json!({"cmd": "oleInsert", "data": book, "range": "Sheet1!A1:B1"}),
+    );
+    assert!(v.get("error").is_none(), "{v}");
+    // Hide the footnote text (§17.3.2.41 vanish), as a file would have it.
+    let saved = e.save_docx().unwrap();
+    let mut pkg = Package::read(&saved, &Limits::default()).unwrap();
+    let xml = String::from_utf8(pkg.part("/word/footnotes.xml").unwrap().data.clone()).unwrap();
+    let at = xml.find("Ghi chú").unwrap();
+    let run = xml[..at]
+        .rfind("<w:r>")
+        .or_else(|| xml[..at].rfind("<w:r "))
+        .unwrap();
+    let open_end = run + xml[run..].find('>').unwrap() + 1;
+    let xml = if xml[open_end..].starts_with("<w:rPr>") {
+        format!(
+            "{}<w:rPr><w:vanish/>{}",
+            &xml[..open_end],
+            &xml[open_end + 7..]
+        )
+    } else {
+        format!(
+            "{}<w:rPr><w:vanish/></w:rPr>{}",
+            &xml[..open_end],
+            &xml[open_end..]
+        )
+    };
+    pkg.put_part("/word/footnotes.xml", xml.into_bytes());
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&pkg.write().unwrap(), "a.docx").unwrap();
+    let r = doc_report(&mut e);
+    assert_eq!(count(&r, "hiddenText"), 1, "{r}");
+    assert!(count(&r, "embedded") >= 1, "{r}");
+    let embedded = r["inspector"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["category"] == "embedded")
+        .unwrap()
+        .clone();
+    assert_eq!(embedded["action"], "remove", "{embedded}");
+    let res = doc_cmd(
+        &mut e,
+        &json!({"cmd": "inspectRemove", "categories": ["hiddenText", "embedded"]}),
+    );
+    assert!(res.get("error").is_none(), "{res}");
+    assert_eq!(count(&res["inspection"], "hiddenText"), 0);
+    let d = e.document().unwrap();
+    let note: String = d
+        .footnotes
+        .values()
+        .flatten()
+        .filter_map(Block::as_paragraph)
+        .map(Paragraph::plain_text)
+        .collect();
+    assert!(!note.contains("Ghi chú"), "{note}");
+    // The object keeps its picture, without the workbook.
+    let pictures = d.sections[0]
+        .blocks
+        .iter()
+        .filter_map(Block::as_paragraph)
+        .flat_map(|p| &p.runs)
+        .flat_map(|r| &r.content)
+        .filter(|c| matches!(c, RunContent::Image(i) if i.ole.is_none()))
+        .count();
+    assert_eq!(pictures, 1);
+    // Saved: no embedded package is left.
+    let saved = e.save_docx().unwrap();
+    keep("doc-no-embedded.docx", &saved);
+    let pkg = Package::read(&saved, &Limits::default()).unwrap();
+    assert!(
+        !pkg.parts().iter().any(|p| p.name.contains("/embeddings/")),
+        "embedded part left"
+    );
+    assert!(
+        !String::from_utf8_lossy(&pkg.part("/word/document.xml").unwrap().data)
+            .contains("<w:object")
+    );
+    // One undo step brings both back.
+    doc_cmd(&mut e, &json!({"cmd": "undo"}));
+    let back = doc_report(&mut e);
+    assert_eq!(count(&back, "hiddenText"), 1);
+}
+
+fn sheet_cmd(e: &mut SheetEngine, v: &Value) -> Value {
+    serde_json::from_str(&e.exec_json(&v.to_string()).unwrap()).unwrap()
+}
+
+#[test]
+fn sheet_quick_fixes() {
+    let mut e = SheetEngine::with_bundled_fonts();
+    e.new_workbook("Book1.xlsx").unwrap();
+    e.set_input(0, 0, 0, "Tiêu đề").unwrap();
+    sheet_cmd(
+        &mut e,
+        &json!({"cmd": "merge", "sheet": 0, "range": {"r0": 0, "c0": 0, "r1": 0, "c1": 2}}),
+    );
+    let r = sheet_cmd(&mut e, &json!({"cmd": "inspect"}));
+    let merged: Vec<Value> = issues(&r, "mergedCells").into_iter().cloned().collect();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0]["fix"], "unmerge");
+    let named = issues(&r, "sheetName");
+    assert_eq!(named[0]["fix"], "rename");
+    // Unmerge: one undo step, the issue is gone.
+    let r = sheet_cmd(
+        &mut e,
+        &json!({"cmd": "inspectFix", "fix": {"kind": "unmerge", "target": merged[0]["target"]}}),
+    );
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(issues(&r, "mergedCells").len(), 0);
+    e.undo().unwrap();
+    assert_eq!(e.workbook().unwrap().sheets[0].merges.len(), 1);
+    // Rename the default-named sheet.
+    let r = sheet_cmd(
+        &mut e,
+        &json!({"cmd": "inspectFix", "fix": {"kind": "rename", "target": {"kind": "sheet", "sheet": 0}, "text": " Doanh thu "}}),
+    );
+    assert_eq!(issues(&r, "sheetName").len(), 0, "{r}");
+    assert_eq!(e.workbook().unwrap().sheets[0].name, "Doanh thu");
+    // A fix that does not apply reports an error and changes nothing.
+    let r = sheet_cmd(
+        &mut e,
+        &json!({"cmd": "inspectFix", "fix": {"kind": "headerRow", "target": {"kind": "range", "sheet": 0, "r0": 5, "c0": 5, "r1": 6, "c1": 6}}}),
+    );
+    assert!(r["error"].is_string(), "{r}");
 }

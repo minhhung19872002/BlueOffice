@@ -22,6 +22,8 @@ export interface SheetPasteBase {
   row: number;
   col: number;
   range: SheetRange;
+  /** Clipboard-history copy pasted (engine clip id); none = the last copy. */
+  clip?: number;
 }
 
 /** The engine command pasting the internal clipboard in `choice`. */

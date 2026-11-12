@@ -321,6 +321,10 @@ pub struct Scrub {
     /// of a document whose comments were removed.
     #[serde(default)]
     pub comments: bool,
+    /// Drop embedded object parts (`…/embeddings/…`) no part refers to any more (their
+    /// objects were removed from the document, §15.2.10 / §15.2.11).
+    #[serde(default)]
+    pub embedded: bool,
 }
 
 impl Scrub {
@@ -333,6 +337,7 @@ impl Scrub {
             Category::ServerProperties => self.server_properties,
             Category::Macros => self.macros,
             Category::Comments => self.comments,
+            Category::Embedded => self.embedded,
             _ => false,
         }
     }
@@ -346,6 +351,7 @@ impl Scrub {
             Category::ServerProperties => &mut self.server_properties,
             Category::Macros => &mut self.macros,
             Category::Comments => &mut self.comments,
+            Category::Embedded => &mut self.embedded,
             _ => return false,
         };
         *f = on;
@@ -547,6 +553,23 @@ pub fn scrub(bytes: &[u8], s: &Scrub) -> Result<Vec<u8>> {
         {
             // Worksheet notes are modelled (and written) by the workbook writer.
             remove.extend(want(t, &any).into_iter().filter(|n| !n.starts_with("/xl/")));
+        }
+    }
+    if s.embedded {
+        // Embedded objects whose relationship id no longer appears in their source part.
+        for (src, rels) in &all_rels {
+            let Some(xml) = pkg
+                .part(src)
+                .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            else {
+                continue;
+            };
+            for r in rels.iter().filter(|r| r.mode == TargetMode::Internal) {
+                let t = lower(&resolve_target(src, &r.target));
+                if t.contains("/embeddings/") && !xml.contains(&format!("\"{}\"", r.id)) {
+                    remove.insert(t);
+                }
+            }
         }
     }
     // Parts only reachable from a removed part go too (vbaData.xml, itemProps1.xml, …).

@@ -11,6 +11,7 @@ use super::{
 };
 use bo_model::index::para_index;
 use bo_model::{Block, Color, Comment, Document, Image, Paragraph, RunContent, Section};
+use std::collections::BTreeMap;
 
 /// Documents with at least this many words should have headings.
 const LONG_DOCUMENT_WORDS: usize = 1000;
@@ -86,12 +87,17 @@ fn visit_mut(blocks: &mut [Block], f: &mut dyn FnMut(&mut Paragraph)) {
     }
 }
 
+/// Every paragraph: the body, headers / footers (`true`) and the footnotes and endnotes
+/// (§17.11).
 fn all_paragraphs(doc: &Document, f: &mut dyn FnMut(&Paragraph, bool)) {
     for s in &doc.sections {
         visit(&s.blocks, &mut |p| f(p, false));
         for b in hf_blocks(s) {
             visit(b, &mut |p| f(p, true));
         }
+    }
+    for b in doc.footnotes.values().chain(doc.endnotes.values()) {
+        visit(b, &mut |p| f(p, false));
     }
 }
 
@@ -147,7 +153,7 @@ fn run_text(r: &bo_model::Run) -> String {
 /// Inspector, accessibility and compatibility report of a document.
 pub fn report(doc: &Document, pkg: &PackageScan, pending: &Scrub) -> Report {
     Report::new(
-        inspector(doc, pkg),
+        inspector(doc, pkg, pending),
         accessibility(doc, pkg),
         compatibility(doc, pkg),
         pending,
@@ -174,16 +180,15 @@ fn package_findings(pkg: &PackageScan) -> Vec<Finding> {
             Action::OnSave,
         ),
         Finding::new(Category::Macros, pkg.macros, Action::OnSave),
-        Finding::new(Category::Embedded, pkg.embedded, Action::None)
-            .with_details(pkg.embedded_names.iter().cloned()),
     ]
 }
 
-fn inspector(doc: &Document, pkg: &PackageScan) -> Vec<Finding> {
+fn inspector(doc: &Document, pkg: &PackageScan, pending: &Scrub) -> Vec<Finding> {
     let mut hidden_runs = 0;
     let mut hidden_samples = Vec::new();
     let mut watermarks = 0;
     let mut invisible = 0;
+    let mut embedded = 0;
     all_paragraphs(doc, &mut |p, in_hf| {
         for r in &p.runs {
             let t = run_text(r);
@@ -197,6 +202,9 @@ fn inspector(doc: &Document, pkg: &PackageScan) -> Vec<Finding> {
                 }
                 if is_invisible(c) {
                     invisible += 1;
+                }
+                if is_embedded(c) {
+                    embedded += 1;
                 }
             }
         }
@@ -219,8 +227,29 @@ fn inspector(doc: &Document, pkg: &PackageScan) -> Vec<Finding> {
         Finding::new(Category::HeadersFooters, hf, Action::Remove),
         Finding::new(Category::Watermarks, watermarks, Action::Remove),
         Finding::new(Category::InvisibleObjects, invisible, Action::Remove),
+        // Embedded objects (§17.3.3.19 object): removed from the model, each keeps its
+        // picture; other embedded parts of the package are only reported.
+        if embedded > 0 {
+            Finding::new(Category::Embedded, embedded, Action::Remove)
+                .with_details(pkg.embedded_names.iter().cloned())
+        } else {
+            // Parts the model has no object for are only reported; once the objects were
+            // removed (queued), their parts go with the next save.
+            let left = if pending.has(Category::Embedded) {
+                0
+            } else {
+                pkg.embedded
+            };
+            Finding::new(Category::Embedded, left, Action::None)
+                .with_details(pkg.embedded_names.iter().cloned())
+        },
     ]);
     out
+}
+
+/// An embedded (not linked) OLE object (§17.3.3.19 object with `o:OLEObject Type="Embed"`).
+fn is_embedded(c: &RunContent) -> bool {
+    matches!(c, RunContent::Image(img) if img.ole.as_ref().is_some_and(|o| o.link.is_none()))
 }
 
 /// The blocks hold text or objects.
@@ -554,11 +583,74 @@ fn strip(p: &mut Paragraph, drop: &mut dyn FnMut(&RunContent) -> bool) {
     }
 }
 
-/// Sections and comments with the model-level categories in `cats` removed.
-pub fn remove(doc: &Document, cats: &[Category]) -> (Vec<Section>, Vec<Comment>) {
+/// The document content after the inspector removed something.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cleaned {
+    /// Sections (§17.6).
+    pub sections: Vec<Section>,
+    /// Comments (§17.13.4).
+    pub comments: Vec<Comment>,
+    /// Footnotes by id (§17.11.10).
+    pub footnotes: BTreeMap<i32, Vec<Block>>,
+    /// Endnotes by id (§17.11.2).
+    pub endnotes: BTreeMap<i32, Vec<Block>>,
+}
+
+/// The content with the model-level categories in `cats` removed (hidden text, comment
+/// marks and invisible objects also inside footnotes and endnotes).
+pub fn remove(doc: &Document, cats: &[Category]) -> Cleaned {
     let mut sections = doc.sections.clone();
     let mut comments = doc.comments.clone();
+    let mut footnotes = doc.footnotes.clone();
+    let mut endnotes = doc.endnotes.clone();
     let has = |c: Category| cats.contains(&c);
+    let clean = |p: &mut Paragraph, in_hf: bool| {
+        if has(Category::Comments) {
+            strip(p, &mut |c| {
+                matches!(
+                    c,
+                    RunContent::CommentStart(_)
+                        | RunContent::CommentEnd(_)
+                        | RunContent::CommentRef(_)
+                )
+            });
+        }
+        if has(Category::Watermarks) && in_hf {
+            strip(p, &mut is_watermark);
+        }
+        if has(Category::InvisibleObjects) {
+            strip(p, &mut is_invisible);
+        }
+        if has(Category::Embedded) {
+            // The embedded document goes; its picture stays in its place.
+            for r in &mut p.runs {
+                for c in &mut r.content {
+                    if is_embedded(c) {
+                        if let RunContent::Image(img) = c {
+                            img.ole = None;
+                            img.src = None;
+                        }
+                    }
+                }
+            }
+        }
+        if has(Category::HiddenText) {
+            let snapshot = p.clone();
+            let mut changed = false;
+            for (r, orig) in p.runs.iter_mut().zip(&snapshot.runs) {
+                if hidden(doc, &snapshot, orig) && !run_text(orig).trim().is_empty() {
+                    r.content.retain(|c| !is_text(c));
+                    changed = true;
+                }
+            }
+            if changed {
+                p.runs.retain(|r| !r.content.is_empty());
+            }
+        }
+    };
+    for blocks in footnotes.values_mut().chain(endnotes.values_mut()) {
+        visit_mut(blocks, &mut |p| clean(p, false));
+    }
     for s in &mut sections {
         if has(Category::HeadersFooters) {
             s.headers = bo_model::HeaderFooter::default();
@@ -581,43 +673,18 @@ pub fn remove(doc: &Document, cats: &[Category]) -> (Vec<Section>, Vec<Comment>)
         }
         for (li, blocks) in lists.into_iter().enumerate() {
             let in_hf = li >= hf_start;
-            visit_mut(blocks, &mut |p| {
-                if has(Category::Comments) {
-                    strip(p, &mut |c| {
-                        matches!(
-                            c,
-                            RunContent::CommentStart(_)
-                                | RunContent::CommentEnd(_)
-                                | RunContent::CommentRef(_)
-                        )
-                    });
-                }
-                if has(Category::Watermarks) && in_hf {
-                    strip(p, &mut is_watermark);
-                }
-                if has(Category::InvisibleObjects) {
-                    strip(p, &mut is_invisible);
-                }
-                if has(Category::HiddenText) {
-                    let snapshot = p.clone();
-                    let mut changed = false;
-                    for (r, orig) in p.runs.iter_mut().zip(&snapshot.runs) {
-                        if hidden(doc, &snapshot, orig) && !run_text(orig).trim().is_empty() {
-                            r.content.retain(|c| !is_text(c));
-                            changed = true;
-                        }
-                    }
-                    if changed {
-                        p.runs.retain(|r| !r.content.is_empty());
-                    }
-                }
-            });
+            visit_mut(blocks, &mut |p| clean(p, in_hf));
         }
     }
     if has(Category::Comments) {
         comments.clear();
     }
-    (sections, comments)
+    Cleaned {
+        sections,
+        comments,
+        footnotes,
+        endnotes,
+    }
 }
 
 /// Sections with the first row of the table starting at paragraph `para` marked as

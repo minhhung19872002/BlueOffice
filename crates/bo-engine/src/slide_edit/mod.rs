@@ -3385,7 +3385,13 @@ fn copy_shapes(pres: &Presentation, sel: &SlideSel, deck: u64) -> R<(clip::Clip,
         clip::Clip {
             deck,
             source: None,
-            look: Some(keep_source::source_look(pres, sel.slide)),
+            look: Some(keep_source::SourceLook {
+                inherited: nodes
+                    .iter()
+                    .map(|n| keep_source::pin_inherited(pres, sel.slide, n))
+                    .collect(),
+                ..keep_source::source_look(pres, sel.slide)
+            }),
             kind: clip::ClipKind::Shapes {
                 slide: sel.slide,
                 nodes,
@@ -3489,8 +3495,14 @@ fn paste_shapes(tx: &mut Tx<'_>, sel: &mut SlideSel, c: &mut clip::Clip, deck: u
     let mut next = next_shape_id(tx.pres, slide);
     let mut ids = Vec::new();
     let mut out = Vec::new();
-    for n in nodes {
-        let mut n = clip::remap_rels(n, &map);
+    for (i, n) in nodes.iter().enumerate() {
+        // Keep source formatting: the copy with its inherited look written on it.
+        let src = c
+            .look
+            .as_ref()
+            .and_then(|l| l.inherited.get(i))
+            .unwrap_or(n);
+        let mut n = clip::remap_rels(src, &map);
         if let Some(look) = &c.look {
             n = keep_source::apply_look(&n, look);
         }

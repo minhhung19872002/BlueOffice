@@ -523,3 +523,30 @@ fn controls_and_sparklines_shift_once_with_a_row_insert_from_the_same_peer() {
     assert_eq!(placed(&a).0, "C5");
     assert_eq!(placed(&a), placed(&b));
 }
+
+#[test]
+fn inspector_removals_and_quick_fixes_are_shared() {
+    let (mut a, mut b) = pair(&[(0, 0, "giữ"), (1, 0, "ẩn"), (2, 0, "sau")]);
+    // A hides row 2 and merges A4:B4; B sees both.
+    a.exec(r#"{"cmd":"hide","sheet":0,"rows":true,"first":1,"last":1,"hidden":true}"#);
+    a.exec(r#"{"cmd":"merge","sheet":0,"range":{"r0":3,"c0":0,"r1":3,"c1":1}}"#);
+    settle(&mut a, &mut b);
+    assert_eq!(a.view(), b.view());
+    // The inspector removes the hidden row (the rows below move up) …
+    a.exec(r#"{"cmd":"inspectRemove","categories":["hiddenRows"]}"#);
+    // … and a quick fix of the accessibility checker splits the merged cells.
+    let v: serde_json::Value = serde_json::from_str(
+        &a.engine
+            .exec_json(
+                r#"{"cmd":"inspectFix","fix":{"kind":"unmerge","target":{"kind":"range","sheet":0,"r0":2,"c0":0,"r1":2,"c1":1}}}"#,
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    a.share();
+    assert!(v.get("error").is_none(), "{v}");
+    settle(&mut a, &mut b);
+    assert_eq!(b.input_at(0, 1, 0), "sau");
+    assert_eq!(b.engine.workbook().unwrap().sheets[0].merges.len(), 0);
+    assert_eq!(a.view(), b.view());
+}

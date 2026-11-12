@@ -54,14 +54,19 @@ impl crate::Engine {
                                 | Category::HeadersFooters
                                 | Category::Watermarks
                                 | Category::InvisibleObjects
+                                | Category::Embedded
                         )
                     })
                     .collect();
                 let mut error = None;
                 if !model.is_empty() {
                     let s = self.session.as_mut().ok_or(EngineError::NoDocument)?;
-                    let (sections, comments) = doc::remove(s.doc(), &model);
-                    if let Err(e) = s.replace_content(sections, comments) {
+                    let c = doc::remove(s.doc(), &model);
+                    if let Err(e) = s.replace_content_and_notes(
+                        c.sections,
+                        c.comments,
+                        (c.footnotes, c.endnotes),
+                    ) {
                         error = Some(e.to_string());
                     }
                 }

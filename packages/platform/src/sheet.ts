@@ -435,7 +435,8 @@ export interface SortKeySpec {
   customList?: string[];
 }
 
-export type PasteMode = 'all' | 'values' | 'formats' | 'formulas';
+/** `columnWidths`: only the copied columns' widths (Paste Special). */
+export type PasteMode = 'all' | 'values' | 'formats' | 'formulas' | 'columnWidths';
 
 /** Aggregation of a pivot value field (ECMA-376 `ST_DataConsolidateFunction`). */
 export type PivotFunction =
@@ -1033,6 +1034,8 @@ export type SheetCommand =
       colWidths?: boolean;
       /** Paste without cell borders. */
       noBorders?: boolean;
+      /** Paste an earlier copy of the clipboard history (`clipId` of its `copy` result). */
+      clip?: number;
     }
   | { cmd: 'pageSetup'; sheet: number }
   | { cmd: 'pivotSource'; sheet: number; range: SheetRange }

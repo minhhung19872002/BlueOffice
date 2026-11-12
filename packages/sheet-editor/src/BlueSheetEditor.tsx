@@ -36,7 +36,6 @@ import type {
   SheetSmartArtInfo,
   SmartArtFrameNode,
   SmartArtPreview,
-  PasteMode,
   PivotInfo,
   Platform,
   Rejection,
@@ -474,6 +473,7 @@ import {
   Menu,
   MessageDialog,
   PasteSpecialDialog,
+  type PasteSpecialMode,
   ValidationDialog,
   type MenuItem,
 } from './dialogs';
@@ -940,6 +940,18 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const [pdfOptions, setPdfOptions] = useState(false);
   const [fileName, setFileName] = useState('');
   const [sheet, setSheet] = useState(0);
+  /** Other sheets selected with the active one (Ctrl / Shift + click on their tabs): the
+   * print panel prints them all ("active sheets"). */
+  const [tabGroup, setTabGroup] = useState<number[]>([]);
+  // Workbook revision for the print preview: every refresh after a change makes it again;
+  // sheets added, deleted or moved also end the tab selection.
+  const [bookRevision, setBookRevision] = useState(0);
+  const [revisedInfo, setRevisedInfo] = useState(info);
+  if (revisedInfo !== info) {
+    setRevisedInfo(info);
+    setBookRevision((r) => r + 1);
+    if ((revisedInfo?.sheets.length ?? 0) !== (info?.sheets.length ?? 0)) setTabGroup([]);
+  }
   /** The sheet shown now (read by BlueScript runs). */
   const sheetNow = useRef(sheet);
   useEffect(() => {
@@ -1179,6 +1191,8 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
   const composing = useRef(false);
   /** TSV text of our last copy (paste uses the internal cell records when it matches). */
   const [lastCopy, setLastCopy] = useState<string | null>(null);
+  /** This editor in clipboard-history references (`<nonce>:<engine clip id>`). */
+  const [clipNonce] = useState(() => Math.random().toString(36).slice(2));
   /** Other ranges of a Ctrl multi-range selection (the current one is `selection`). */
   const [extra, setExtra] = useState<Range[]>([]);
   const [engineExtraRects, setExtraRects] = useState<Rect[]>([]);
@@ -2828,7 +2842,7 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       if (!host) return;
       const r = rangeOf(selection);
       if (cellsOf(r) > 1_000_000) return;
-      const res = await host.exec<{ text: string }>({
+      const res = await host.exec<{ text: string; clipId?: number }>({
         cmd: 'copy',
         sheet,
         range: toRange(r),
@@ -2838,26 +2852,34 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
       setLastCopy(text);
       setLastCut(cut);
       setCopyMark({ sheet, range: r, cut });
-      clipboardHistory.push({ app: 'sheet', kind: 'cells', text });
+      // The engine keeps each copy: the history item pastes with its formats here.
+      const ref = res?.clipId != null ? { ref: `${clipNonce}:${res.clipId}` } : {};
+      clipboardHistory.push({ app: 'sheet', kind: 'cells', text, ...ref });
       await platform.clipboard.writeText(text);
       setStatus(cut ? t('sheetEditor.cutDone') : t('sheetEditor.copied'));
     },
-    [host, selection, sheet, platform, t],
+    [host, selection, sheet, platform, t, clipNonce],
   );
 
   const internalPaste = useCallback(
-    async (mode: PasteMode, transpose: boolean, skipBlanks: boolean): Promise<boolean> => {
+    async (
+      special: PasteSpecialMode,
+      transpose: boolean,
+      skipBlanks: boolean,
+    ): Promise<boolean> => {
       if (!host) return false;
       const r = rangeOf(selection);
+      const noBorders = special === 'allExceptBorders';
       const res = await host.exec<{ range: SheetRange } | null>({
         cmd: 'paste',
         sheet,
         row: r.r0,
         col: r.c0,
-        mode,
+        mode: noBorders ? 'all' : special,
         transpose,
         skipBlanks,
         range: toRange(r),
+        ...(noBorders ? { noBorders } : {}),
       });
       if (!res) return false;
       setSelection(
@@ -2869,24 +2891,36 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [host, selection, sheet, refreshInfo],
   );
 
-  /** Paste our own copied cells, then offer the other paste modes. */
-  const ownPaste = useCallback(async (): Promise<boolean> => {
-    if (!host) return false;
-    const r = rangeOf(selection);
-    const base: SheetPasteBase = { sheet, row: r.r0, col: r.c0, range: toRange(r) };
-    const res = await host.exec<{ range: SheetRange } | null>(sheetPasteCommand('all', base));
-    if (!res) return false;
-    const sel = span(
-      { row: res.range.r0, col: res.range.c0 },
-      { row: res.range.r1, col: res.range.c1 },
-    );
-    setSelection(sel);
-    await refreshInfo();
-    setPasteUi(lastCut ? null : (old) => ({ n: (old?.n ?? 0) + 1, mode: 'all', base, sel }));
-    // Cut cells move once: their mark ends with the paste (copied ones stay marked).
-    if (lastCut) setCopyMark(null);
-    return true;
-  }, [host, selection, sheet, refreshInfo, lastCut]);
+  /** Paste our own copied cells (`clip`: an earlier copy of the clipboard history), then
+   * offer the other paste modes. */
+  const ownPaste = useCallback(
+    async (clip?: number): Promise<boolean> => {
+      if (!host) return false;
+      const r = rangeOf(selection);
+      const base: SheetPasteBase = {
+        sheet,
+        row: r.r0,
+        col: r.c0,
+        range: toRange(r),
+        ...(clip != null ? { clip } : {}),
+      };
+      const res = await host.exec<{ range: SheetRange } | null>(sheetPasteCommand('all', base));
+      if (!res) return false;
+      const sel = span(
+        { row: res.range.r0, col: res.range.c0 },
+        { row: res.range.r1, col: res.range.c1 },
+      );
+      setSelection(sel);
+      await refreshInfo();
+      // A history item is a copy even when it was cut (its cells moved with the first paste).
+      const moved = lastCut && clip == null;
+      setPasteUi(moved ? null : (old) => ({ n: (old?.n ?? 0) + 1, mode: 'all', base, sel }));
+      // Cut cells move once: their mark ends with the paste (copied ones stay marked).
+      if (moved) setCopyMark(null);
+      return true;
+    },
+    [host, selection, sheet, refreshInfo, lastCut],
+  );
 
   /** Redo the last paste in another mode: undo it, paste again (one undo step overall). */
   const switchPaste = useCallback(
@@ -2926,15 +2960,17 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
     [host, selection, sheet, refreshInfo],
   );
 
-  /** Paste an item of the clipboard history: our latest copy as cells, others as text. */
+  /** Paste an item of the clipboard history: copies made in this workbook as cells (with
+   * formats and formulas), others as text. */
   const pasteItem = useCallback(
     async (item: ClipItem) => {
-      if (item.app === 'sheet' && lastCopy !== null && norm(item.text) === norm(lastCopy)) {
-        if (await ownPaste()) return;
+      const [nonce, id] = item.ref?.split(':') ?? [];
+      if (item.app === 'sheet' && nonce === clipNonce && id) {
+        if (await ownPaste(Number(id))) return;
       }
       await pasteTsv(item.text);
     },
-    [lastCopy, ownPaste, pasteTsv],
+    [clipNonce, ownPaste, pasteTsv],
   );
 
   const paste = useCallback(async () => {
@@ -8998,8 +9034,14 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                 key={i}
                 type="button"
                 role="tab"
-                aria-selected={i === sheet}
-                className={i === sheet ? styles.tabActive : styles.tab}
+                aria-selected={i === sheet || tabGroup.includes(i)}
+                className={
+                  i === sheet
+                    ? styles.tabActive
+                    : tabGroup.includes(i)
+                      ? styles.tabGrouped
+                      : styles.tab
+                }
                 data-testid={`sheet-tab-${i}`}
                 data-tab-color={s.tabColor ?? undefined}
                 style={s.tabColor ? { boxShadow: `inset 0 -4px 0 #${s.tabColor}` } : undefined}
@@ -9038,6 +9080,26 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
                   if (pointable()) {
                     pointSheet(i);
                     return;
+                  }
+                  // Ctrl + click adds the sheet to the selected ones (or takes it out),
+                  // Shift + click selects the tabs from the active one to it.
+                  if ((e.ctrlKey || e.metaKey || e.shiftKey) && i !== sheet) {
+                    if (e.shiftKey) {
+                      const [a, b] = [Math.min(sheet, i), Math.max(sheet, i)];
+                      setTabGroup(
+                        Array.from({ length: b - a + 1 }, (_, k) => a + k).filter(
+                          (x) => x !== sheet,
+                        ),
+                      );
+                      return;
+                    }
+                    if (tabGroup.includes(i)) {
+                      setTabGroup(tabGroup.filter((x) => x !== i));
+                      return;
+                    }
+                    setTabGroup([...tabGroup, sheet]);
+                  } else {
+                    setTabGroup([]);
                   }
                   setSheet(i);
                   setSelection(single({ row: 0, col: 0 }));
@@ -10049,10 +10111,12 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           initial={{
             sheet: {
               scope: 'active',
-              sheets: [sheet],
+              // Every selected sheet, in workbook order (Ctrl / Shift + click on tabs).
+              sheets: [sheet, ...tabGroup.filter((x) => x !== sheet)].sort((a, b) => a - b),
               selection: `${colName(r.c0)}${r.r0 + 1}:${colName(r.c1)}${r.r1 + 1}`,
             },
           }}
+          revision={bookRevision}
           onPrint={(pdf) =>
             platform.print.printPdf(
               pdf,

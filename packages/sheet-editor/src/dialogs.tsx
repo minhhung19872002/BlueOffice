@@ -1355,15 +1355,27 @@ export function GoToDialog({
 
 // ----------------------------------------------------------------- paste special
 
+/** What the Paste Special dialog pastes: an engine paste mode, or everything but borders. */
+export type PasteSpecialMode = PasteMode | 'allExceptBorders';
+
+export const PASTE_SPECIAL_MODES: readonly PasteSpecialMode[] = [
+  'all',
+  'values',
+  'formulas',
+  'formats',
+  'allExceptBorders',
+  'columnWidths',
+];
+
 export function PasteSpecialDialog({
   onClose,
   onPaste,
 }: {
   onClose: () => void;
-  onPaste: (mode: PasteMode, transpose: boolean, skipBlanks: boolean) => void;
+  onPaste: (mode: PasteSpecialMode, transpose: boolean, skipBlanks: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<PasteMode>('all');
+  const [mode, setMode] = useState<PasteSpecialMode>('all');
   const [transpose, setTranspose] = useState(false);
   const [skip, setSkip] = useState(false);
   return (
@@ -1384,11 +1396,12 @@ export function PasteSpecialDialog({
       }
     >
       <div className={styles.form} role="radiogroup">
-        {(['all', 'values', 'formulas', 'formats'] as const).map((m) => (
+        {PASTE_SPECIAL_MODES.map((m) => (
           <label key={m} className={styles.check}>
             <input
               type="radio"
               name="paste-mode"
+              data-testid={`paste-special-${m}`}
               checked={mode === m}
               onChange={() => setMode(m)}
             />

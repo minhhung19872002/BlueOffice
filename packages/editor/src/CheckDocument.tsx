@@ -34,8 +34,14 @@ export interface CheckDocumentBridge {
 
 const SEVERITIES: A11ySeverity[] = ['error', 'warning', 'tip'];
 
-/** Inline alternative-text editor of one issue. */
-function AltTextFix({ onApply }: { onApply: (text: string) => void }) {
+/** Inline text editor of one issue (alternative text, or a new sheet name). */
+function AltTextFix({
+  onApply,
+  rename = false,
+}: {
+  onApply: (text: string) => void;
+  rename?: boolean;
+}) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
   return (
@@ -43,9 +49,9 @@ function AltTextFix({ onApply }: { onApply: (text: string) => void }) {
       <input
         className={cd.input}
         value={text}
-        placeholder={t('inspect.altTextPlaceholder')}
-        aria-label={t('inspect.altTextLabel')}
-        data-testid="inspect-alt-input"
+        placeholder={t(rename ? 'inspect.renamePlaceholder' : 'inspect.altTextPlaceholder')}
+        aria-label={t(rename ? 'inspect.renameLabel' : 'inspect.altTextLabel')}
+        data-testid={rename ? 'inspect-rename-input' : 'inspect-alt-input'}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && text.trim()) onApply(text.trim());
@@ -83,6 +89,9 @@ export function CheckDocumentDialog({
   const [report, setReport] = useState<InspectReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
+  // After "Go to" the checker becomes a side pane: the document shows the object and
+  // stays usable while the list stays open (as the accessibility pane of word processors).
+  const [docked, setDocked] = useState(false);
 
   const apply = useCallback(async (p: Promise<InspectReport | null>) => {
     setBusy(true);
@@ -199,22 +208,34 @@ export function CheckDocumentDialog({
               data-testid="inspect-goto"
               onClick={() => {
                 bridge.goTo?.(i.target);
-                // The dialog is modal: close it so the selected object can be seen.
-                onClose();
+                setDocked(true);
               }}
             >
               {t('inspect.goTo')}
             </button>
           )}
-          {i.fix === 'altText' && bridge.fix && editing !== n && (
+          {(i.fix === 'altText' || i.fix === 'rename') && bridge.fix && editing !== n && (
             <button
               type="button"
               className={styles.dialogButton}
               disabled={busy}
-              data-testid="inspect-fix-altText"
+              data-testid={`inspect-fix-${i.fix}`}
               onClick={() => setEditing(n)}
             >
-              {t('inspect.fix.altText')}
+              {t(`inspect.fix.${i.fix}`)}
+            </button>
+          )}
+          {i.fix === 'unmerge' && bridge.fix && (
+            <button
+              type="button"
+              className={styles.dialogButton}
+              disabled={busy}
+              data-testid="inspect-fix-unmerge"
+              onClick={() =>
+                bridge.fix && void apply(bridge.fix({ kind: 'unmerge', target: i.target }))
+              }
+            >
+              {t('inspect.fix.unmerge')}
             </button>
           )}
           {i.fix === 'headerRow' && bridge.fix && (
@@ -233,9 +254,11 @@ export function CheckDocumentDialog({
         </div>
         {editing === n && bridge.fix && (
           <AltTextFix
+            rename={i.fix === 'rename'}
             onApply={(text) => {
               setEditing(null);
-              if (bridge.fix) void apply(bridge.fix({ kind: 'altText', target: i.target, text }));
+              const kind = i.fix === 'rename' ? 'rename' : 'altText';
+              if (bridge.fix) void apply(bridge.fix({ kind, target: i.target, text }));
             }}
           />
         )}
@@ -301,10 +324,13 @@ export function CheckDocumentDialog({
   const errors = issues.filter((i) => i.severity === 'error').length;
   return (
     <Dialog
+      // Docking makes a new (modeless) dialog: the modal one's focus trap goes away.
+      key={docked ? 'pane' : 'dialog'}
       open
+      modeless={docked}
       onOpenChange={(o) => !o && onClose()}
       title={t('inspect.title')}
-      width={560}
+      width={docked ? 380 : 560}
       testId="inspect-dialog"
       footer={
         <>

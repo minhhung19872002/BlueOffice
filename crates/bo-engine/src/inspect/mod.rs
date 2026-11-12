@@ -232,6 +232,10 @@ pub enum FixKind {
     AltText,
     /// Mark the first row as the header row.
     HeaderRow,
+    /// Split the merged cells (BlueSheet).
+    Unmerge,
+    /// Ask for a new name (BlueSheet: a sheet with a default name).
+    Rename,
 }
 
 /// One accessibility issue.
@@ -297,6 +301,18 @@ pub enum Fix {
     HeaderRow {
         /// A `Table` (BlueDoc), `Shape` (BlueSlide) or `Range` (BlueSheet table) target.
         target: Target,
+    },
+    /// Split the merged cells of a `Range` target (BlueSheet, §18.3.1.55 mergeCell).
+    Unmerge {
+        /// A `Range` target.
+        target: Target,
+    },
+    /// Rename the `Sheet` target (BlueSheet, §18.2.19 sheet `@name`).
+    Rename {
+        /// A `Sheet` target.
+        target: Target,
+        /// The new name.
+        text: String,
     },
 }
 

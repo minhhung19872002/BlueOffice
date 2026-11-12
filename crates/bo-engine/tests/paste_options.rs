@@ -197,3 +197,171 @@ fn slide_shapes_paste_with_destination_theme_or_source_formatting() {
     slide_run(&mut e, &json!({"cmd":"undo"}));
     assert_eq!(e.presentation().unwrap().slides[0].data.shapes.len(), n - 1);
 }
+
+/// First run properties of the shape `id` of slide 0.
+fn first_run(e: &Engine, id: u32) -> bo_model::slide::RunProps {
+    let p = e.presentation().unwrap();
+    let n = p.slides[0]
+        .data
+        .shapes
+        .iter()
+        .find(|n| n.nv().is_some_and(|nv| nv.id == id))
+        .unwrap();
+    let bo_model::slide::ShapeNode::Shape(s) = n else {
+        panic!("shape")
+    };
+    s.text.as_ref().unwrap().paragraphs[0]
+        .runs
+        .iter()
+        .find_map(|r| match r {
+            bo_model::slide::TextRun::Run { props, .. } => Some(props.clone()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn keep_source_formatting_pins_what_placeholders_inherit() {
+    let bytes = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-action-links.pptx"),
+    )
+    .unwrap();
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&bytes, "a.pptx").unwrap();
+    // A placeholder with text whose runs take their look from the layout / master.
+    let id = {
+        let p = e.presentation().unwrap();
+        p.slides[0]
+            .data
+            .shapes
+            .iter()
+            .find_map(|n| match n {
+                bo_model::slide::ShapeNode::Shape(s)
+                    if s.nv.placeholder.is_some()
+                        && s.text.as_ref().is_some_and(|t| !t.text().trim().is_empty()) =>
+                {
+                    Some(s.nv.id)
+                }
+                _ => None,
+            })
+            .expect("a placeholder with text on slide 0")
+    };
+    let own = first_run(&e, id);
+    assert!(own.sz.is_none() && own.fill.is_none(), "{own:?}");
+    slide_run(&mut e, &json!({"cmd":"select","ids":[id]}));
+    slide_run(&mut e, &json!({"cmd":"copy"}));
+    // Destination theme: the copy still inherits.
+    let r = slide_run(&mut e, &json!({"cmd":"paste"}));
+    let dest = first_run(&e, r.selection[0].id);
+    assert!(dest.sz.is_none() && dest.fill.is_none(), "{dest:?}");
+    slide_run(&mut e, &json!({"cmd":"undo"}));
+    // Keep source: size and a literal colour written from the master's text styles.
+    let r = slide_run(&mut e, &json!({"cmd":"paste","keepSource":true}));
+    let kept = first_run(&e, r.selection[0].id);
+    assert!(kept.sz.is_some(), "{kept:?}");
+    let fill = serde_json::to_string(&kept.fill).unwrap();
+    assert!(fill.contains("Srgb"), "{fill}");
+    assert!(!fill.contains("Scheme"), "{fill}");
+}
+
+/// Style index of a cell of the first sheet.
+fn style_of(e: &SheetEngine, r: u32, c: u32) -> u32 {
+    e.workbook().unwrap().sheets[0]
+        .cells
+        .get(&(r, c))
+        .map_or(0, |x| x.style)
+}
+
+#[test]
+fn clipboard_history_items_paste_with_formats() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    e.set_inputs(
+        0,
+        &[
+            (0, 0, "5".into()),
+            (0, 1, "=A1*2".into()),
+            (1, 0, "chữ".into()),
+        ],
+    )
+    .unwrap();
+    sheet_exec(
+        &mut e,
+        &json!({"cmd":"format","sheet":0,"range":{"r0":0,"c0":0,"r1":0,"c1":1},"patch":{"bold":true}}),
+    );
+    let first = sheet_exec(
+        &mut e,
+        &json!({"cmd":"copy","sheet":0,"range":{"r0":0,"c0":0,"r1":0,"c1":1}}),
+    );
+    let id = first["clipId"].as_u64().unwrap();
+    // A later copy (even a cut) does not lose the earlier one.
+    let second = sheet_exec(
+        &mut e,
+        &json!({"cmd":"copy","sheet":0,"range":{"r0":1,"c0":0,"r1":1,"c1":0},"cut":true}),
+    );
+    assert!(second["clipId"].as_u64().unwrap() > id);
+    let r = sheet_exec(
+        &mut e,
+        &json!({"cmd":"paste","sheet":0,"row":5,"col":2,"clip":id}),
+    );
+    assert_eq!(r["range"]["r0"], 5);
+    // Formats and the formula (shifted) came with it.
+    assert_eq!(e.cell(0, 5, 2).unwrap().input, "5");
+    assert_eq!(e.cell(0, 5, 3).unwrap().input, "=C6*2");
+    assert_eq!(style_of(&e, 5, 2), style_of(&e, 0, 0));
+    assert_ne!(style_of(&e, 5, 2), 0);
+    // The last copy is still the cut: pasting it moves the cell.
+    sheet_exec(&mut e, &json!({"cmd":"paste","sheet":0,"row":8,"col":0}));
+    assert_eq!(e.cell(0, 8, 0).unwrap().input, "chữ");
+    assert_eq!(e.cell(0, 1, 0).unwrap().input, "");
+    // The cut is kept in the history as a copy.
+    let cut_id = second["clipId"].as_u64().unwrap();
+    sheet_exec(
+        &mut e,
+        &json!({"cmd":"paste","sheet":0,"row":9,"col":0,"clip":cut_id}),
+    );
+    assert_eq!(e.cell(0, 9, 0).unwrap().input, "chữ");
+    assert_eq!(e.cell(0, 8, 0).unwrap().input, "chữ");
+    // An unknown copy pastes nothing.
+    let r = sheet_exec(
+        &mut e,
+        &json!({"cmd":"paste","sheet":0,"row":0,"col":9,"clip":9999}),
+    );
+    assert!(r.is_null());
+    // A new workbook forgets the history.
+    e.new_workbook("u.xlsx").unwrap();
+    let r = sheet_exec(
+        &mut e,
+        &json!({"cmd":"paste","sheet":0,"row":0,"col":0,"clip":id}),
+    );
+    assert!(r.is_null());
+}
+
+#[test]
+fn paste_special_column_widths_only() {
+    let mut e = SheetEngine::new();
+    e.new_workbook("t.xlsx").unwrap();
+    e.set_inputs(0, &[(0, 0, "1".into()), (0, 4, "giữ".into())])
+        .unwrap();
+    sheet_exec(
+        &mut e,
+        &json!({"cmd":"resize","sheet":0,"rows":false,"first":0,"last":0,"size":120.0}),
+    );
+    sheet_exec(
+        &mut e,
+        &json!({"cmd":"copy","sheet":0,"range":{"r0":0,"c0":0,"r1":0,"c1":0},"cut":true}),
+    );
+    let w0 = col_width(&e, 0).unwrap();
+    let r = sheet_exec(
+        &mut e,
+        &json!({"cmd":"paste","sheet":0,"row":0,"col":4,"mode":"columnWidths"}),
+    );
+    assert!(!r.is_null());
+    assert!((col_width(&e, 4).unwrap() - w0).abs() < 0.01);
+    // The cells stay: the destination keeps its text, the cut source is not moved.
+    assert_eq!(e.cell(0, 0, 4).unwrap().input, "giữ");
+    assert_eq!(e.cell(0, 0, 0).unwrap().input, "1");
+    e.undo().unwrap();
+    assert_eq!(col_width(&e, 4), None);
+}

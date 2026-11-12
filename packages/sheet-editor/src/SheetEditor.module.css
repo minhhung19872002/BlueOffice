@@ -360,6 +360,7 @@
 
 .tab,
 .tabActive,
+.tabGrouped,
 .tabAdd {
   border: 0;
   padding: 0 14px;
@@ -382,6 +383,12 @@
   color: var(--bo-sheet-accent-text, #0b7a6b);
   font-weight: 600;
   border-bottom: 2px solid var(--bo-sheet-accent, #0b7a6b);
+}
+
+/* Selected with the active sheet (Ctrl / Shift + click): lighter, no accent bar. */
+.tabGrouped {
+  background: var(--bo-surface, #fff);
+  border-bottom: 2px solid var(--bo-border, #c8c8c8);
 }
 
 .tabAdd {

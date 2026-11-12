@@ -187,6 +187,8 @@ pub enum PasteMode {
     Formats,
     /// Formulas (or constants) without formats.
     Formulas,
+    /// Only the copied columns' widths (§18.3.1.13 col `@width`); the cells stay.
+    ColumnWidths,
 }
 
 /// Internal clipboard: cell records relative to the copied range.
@@ -255,6 +257,12 @@ pub enum SheetCommand {
     InspectKeep {
         /// Inspector categories.
         categories: Vec<crate::inspect::Category>,
+    },
+    /// Apply an accessibility quick fix (unmerge, table header row, sheet name). Returns
+    /// the new report.
+    InspectFix {
+        /// The fix.
+        fix: crate::inspect::Fix,
     },
     /// Choices of the next PDF exports (CORE-FMT-002): PDF/A part (`"1b"`,
     /// `"2b"`, `"3b"`), tagged PDF and bookmarks. Returns the choices.
@@ -922,7 +930,8 @@ pub enum SheetCommand {
         #[serde(default)]
         cut: bool,
     },
-    /// Pastes the internal clipboard at a cell.
+    /// Pastes the internal clipboard at a cell (or, with `clip`, an earlier copy kept in the
+    /// clipboard history).
     Paste {
         /// 0-based sheet index of the destination.
         sheet: usize,
@@ -950,6 +959,10 @@ pub enum SheetCommand {
         /// Paste without cell borders (§18.8.4 border).
         #[serde(default)]
         no_borders: bool,
+        /// Id of an earlier copy (`clipId` of a `copy` result) to paste instead of the last
+        /// one: clipboard-history items paste with their formats and formulas.
+        #[serde(default)]
+        clip: Option<u64>,
     },
     /// Page setup of a sheet (orientation, paper, scale, margins, print area).
     PageSetup {
@@ -3659,6 +3672,7 @@ impl SheetEngine {
             }
             C::InspectRemove { categories } => self.inspect_remove(&categories),
             C::InspectKeep { categories } => self.inspect_keep(&categories),
+            C::InspectFix { fix } => self.inspect_fix(&fix),
             C::Presets => Ok(json!({
                 "numberFormats": bo_sheet::style::NUMBER_PRESETS
                     .iter()
@@ -4709,18 +4723,35 @@ impl SheetEngine {
                 range,
                 col_widths,
                 no_borders,
+                clip,
             } => {
-                let extras = self.paste_extras(sheet, col, transpose, col_widths, no_borders)?;
-                self.paste(
-                    sheet,
-                    row,
-                    col,
-                    mode,
-                    transpose,
-                    skip_blanks,
-                    range,
-                    &extras,
-                )
+                // An earlier copy of the history stands in for the last one during the paste.
+                let kept = match clip {
+                    Some(id) => match self.clip_history.iter().find(|(i, _)| *i == id) {
+                        Some((_, c)) => Some(self.clip.replace(c.clone())),
+                        None => return Ok(Value::Null),
+                    },
+                    None => None,
+                };
+                let col_widths = col_widths || mode == PasteMode::ColumnWidths;
+                let res = self
+                    .paste_extras(sheet, col, transpose, col_widths, no_borders)
+                    .and_then(|extras| {
+                        self.paste(
+                            sheet,
+                            row,
+                            col,
+                            mode,
+                            transpose,
+                            skip_blanks,
+                            range,
+                            &extras,
+                        )
+                    });
+                if let Some(last) = kept {
+                    self.clip = last;
+                }
+                res
             }
             C::PageSetup { sheet } => {
                 let ws = self.sheet(sheet)?;
@@ -5444,13 +5475,26 @@ impl SheetEngine {
                 range.last.col,
             ),
         );
-        self.clip = Some(super::Clip {
+        let clip = super::Clip {
             sheet,
             range,
             cells,
             cut,
-        });
-        Ok(json!({ "text": text }))
+        };
+        // Clipboard history (CORE-PASTE-001): every copy is kept (a cut as a copy, since
+        // its source is moved only by the paste right after it) for the history pane.
+        self.clip_seq += 1;
+        let id = self.clip_seq;
+        self.clip_history.push_front((
+            id,
+            super::Clip {
+                cut: false,
+                ..clip.clone()
+            },
+        ));
+        self.clip_history.truncate(super::CLIP_HISTORY_MAX);
+        self.clip = Some(clip);
+        Ok(json!({ "text": text, "clipId": id }))
     }
 
     #[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
@@ -5497,7 +5541,9 @@ impl SheetEngine {
             CellRef::new(row, col),
             CellRef::new(last_r as u32, last_c as u32),
         );
-        let cut = clip.cut;
+        // Column widths only: the cells (and a cut's source) stay as they are.
+        let widths_only = mode == PasteMode::ColumnWidths;
+        let cut = clip.cut && !widths_only;
         let recalc = if cut {
             // References elsewhere follow the moved cells.
             Recalc::All
@@ -5519,7 +5565,7 @@ impl SheetEngine {
                 .iter()
                 .map(|(r, c, cell)| ((*r, *c), cell))
                 .collect();
-            for ti in 0..tiles_r {
+            for ti in 0..if widths_only { 0 } else { tiles_r } {
                 for tj in 0..tiles_c {
                     let (row, col) = (row + ti * h, col + tj * w);
                     let ws = &mut wb.sheets[sheet];
@@ -5576,6 +5622,7 @@ impl SheetEngine {
                                     n.style = s.map_or(0, |c| c.style);
                                     Some(n)
                                 }
+                                (PasteMode::ColumnWidths, _) => old.clone(),
                             };
                             match new {
                                 Some(c) if non_empty(&c) || c.style != 0 => {

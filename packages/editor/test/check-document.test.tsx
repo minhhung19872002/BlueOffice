@@ -122,11 +122,19 @@ describe('CheckDocumentDialog', () => {
         target: { kind: 'table', para: 7 },
       }),
     );
-    // Go to: no button for document-wide issues; going to an object closes the dialog.
+    // Go to: no button for document-wide issues; going to an object keeps the checker
+    // open as a side pane (no overlay: the document stays usable).
     const goTo = screen.getAllByTestId('inspect-goto');
     expect(goTo).toHaveLength(3);
     fireEvent.click(goTo[0] as HTMLElement);
     expect(bridge.goTo).toHaveBeenCalledWith({ kind: 'drawing', para: 4, at: 0 });
+    expect(onClose).not.toHaveBeenCalled();
+    const pane = await screen.findByTestId('inspect-dialog');
+    expect(pane.getAttribute('data-f6-region')).toBe('');
+    // The next issue can be reached from the pane.
+    fireEvent.click(screen.getAllByTestId('inspect-goto')[1] as HTMLElement);
+    expect(bridge.goTo).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByTestId('inspect-close'));
     expect(onClose).toHaveBeenCalled();
   });
 

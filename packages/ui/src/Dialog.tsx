@@ -13,6 +13,9 @@ export interface DialogProps {
   width?: number;
   /** `data-testid` of the dialog content. */
   testId?: string;
+  /** A side pane instead of a modal dialog: no overlay, docked at the right, the
+   * document stays usable (clicks outside do not close it; Escape still does). */
+  modeless?: boolean;
 }
 
 /** Modal dialog (Radix Dialog): focus trap, Escape to close, labelled title. */
@@ -24,6 +27,7 @@ export function Dialog({
   children,
   width,
   testId,
+  modeless,
 }: DialogProps) {
   // WCAG 2.4.3: when the dialog goes away, the keyboard goes back to what had focus when it
   // opened. Radix does this when the element is still focusable at that moment; editors
@@ -42,14 +46,16 @@ export function Dialog({
     };
   }, [open]);
   return (
-    <RD.Root open={open} onOpenChange={onOpenChange}>
+    <RD.Root open={open} onOpenChange={onOpenChange} modal={!modeless}>
       <RD.Portal>
-        <RD.Overlay className={styles.overlay} />
+        {!modeless && <RD.Overlay className={styles.overlay} />}
         <RD.Content
-          className={styles.content}
+          className={modeless ? styles.pane : styles.content}
           style={{ width: width ?? 420 }}
           data-testid={testId}
+          data-f6-region={modeless ? '' : undefined}
           aria-describedby={undefined}
+          onInteractOutside={modeless ? (e) => e.preventDefault() : undefined}
         >
           <RD.Title className={styles.title}>{title}</RD.Title>
           <div className={styles.body}>{children}</div>

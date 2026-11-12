@@ -19,6 +19,9 @@ export function sheetCheckBridge(exec: Exec, goTo: (to: SheetGoTo) => void): Che
     inspect: () => exec<InspectReport>({ cmd: 'inspect' }),
     remove: (categories) => exec<InspectReport>({ cmd: 'inspectRemove', categories }),
     keep: (categories) => exec<InspectReport>({ cmd: 'inspectKeep', categories }),
+    // Quick fixes (unmerge, table header row, sheet name): one undo step each, through
+    // the editor's host (shared with collaborators when the workbook is shared).
+    fix: (fix) => exec<InspectReport>({ cmd: 'inspectFix', fix }),
     goTo: (target: InspectTarget) => {
       if (target.kind === 'range') goTo(target);
       else if (target.kind === 'sheet') goTo({ sheet: target.sheet, r0: 0, c0: 0, r1: 0, c1: 0 });

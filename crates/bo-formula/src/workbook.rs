@@ -1183,6 +1183,17 @@ impl Workbook {
         }
     }
 
+    /// Mark every formula of `sheet` for the next recalculation.
+    pub fn mark_all_formulas_of(&mut self, sheet: usize) {
+        if let Some(s) = self.sheets.get(sheet) {
+            for (&(r, c), d) in &s.cells {
+                if d.formula.is_some() {
+                    self.changed.push(CellId::new(sheet, r, c));
+                }
+            }
+        }
+    }
+
     fn is_formula(&self, id: CellId) -> bool {
         self.sheets
             .get(id.sheet)
@@ -1358,6 +1369,55 @@ impl Workbook {
         self.recalculated.sort_unstable();
         self.recalculated.dedup();
         self.spill_changed.clear();
+    }
+
+    /// Recalculate only the formulas of `sheet` among those affected by edits since the last
+    /// recalculation (plus its volatile cells): "calculate sheet". A formula reading a cell of
+    /// another sheet that is still out of date reads its current (old) value; the other
+    /// sheets' cells stay marked and are calculated by the next [`Workbook::recalculate`].
+    pub fn recalculate_sheet(&mut self, sheet: usize) {
+        self.evaluations.store(0, Ordering::Relaxed);
+        let mut seeds = std::mem::take(&mut self.changed);
+        seeds.extend(self.volatile.iter().copied());
+        let dirty = self.propagate(seeds.clone());
+        // This sheet's dirty formulas, renumbered, with the edges between them.
+        let mut index = vec![u32::MAX; dirty.nodes.len()];
+        let mut nodes = Vec::new();
+        for (i, id) in dirty.nodes.iter().enumerate() {
+            if id.sheet == sheet {
+                index[i] = nodes.len() as u32;
+                nodes.push(*id);
+            }
+        }
+        let mut succ = vec![Vec::new(); nodes.len()];
+        for (i, out) in dirty.succ.iter().enumerate() {
+            if index[i] == u32::MAX {
+                continue;
+            }
+            succ[index[i] as usize] = out
+                .iter()
+                .filter_map(|&d| Some(index[d as usize]).filter(|&n| n != u32::MAX))
+                .collect();
+        }
+        // Everything else stays dirty for the next calculation.
+        let mut later: Vec<CellId> = seeds
+            .into_iter()
+            .filter(|c| c.sheet != sheet && !self.volatile.contains(c))
+            .collect();
+        later.extend(dirty.nodes.iter().copied().filter(|c| c.sheet != sheet));
+        later.sort_unstable();
+        later.dedup();
+        let mine = DirtyGraph { nodes, succ };
+        self.recalculated = mine.nodes.clone();
+        self.calc_set(&mine);
+        self.spill_changed.clear();
+        self.recalculated.sort_unstable();
+        self.changed = later;
+    }
+
+    /// Whether edits wait for a calculation (cells marked since the last recalculation).
+    pub fn has_pending_changes(&self) -> bool {
+        !self.changed.is_empty()
     }
 
     /// Number of formula evaluations performed by the last

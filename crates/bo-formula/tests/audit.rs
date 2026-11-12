@@ -208,3 +208,28 @@ fn iteration_stops_at_max_change_or_count() {
     wb.recalculate();
     assert_eq!(wb.value_a1(0, "A1"), Value::Error(ErrorKind::Calc));
 }
+
+/// "Calculate sheet": only the sheet's dirty formulas are evaluated; a formula on another
+/// sheet keeps its old value until the next full recalculation.
+#[test]
+fn recalculate_sheet_leaves_other_sheets_dirty() {
+    let mut wb = bo_formula::Workbook::with_sheets(&["Sheet1", "Sheet2"]);
+    wb.set_value(0, 0, 0, 1.0);
+    wb.set_formula(0, 0, 1, "=A1*2").unwrap();
+    wb.set_formula(1, 0, 0, "=Sheet1!A1+1").unwrap();
+    wb.set_formula(1, 0, 1, "=Sheet1!B1+A1").unwrap();
+    wb.recalculate();
+    assert_eq!(wb.value(1, 0, 1), bo_formula::Value::Number(4.0));
+    wb.set_value(0, 0, 0, 5.0);
+    wb.recalculate_sheet(0);
+    assert_eq!(wb.value(0, 0, 1), bo_formula::Value::Number(10.0));
+    assert_eq!(wb.value(1, 0, 0), bo_formula::Value::Number(2.0));
+    assert_eq!(wb.last_recalc_evaluations(), 1);
+    assert!(wb.has_pending_changes());
+    // Calculating Sheet2 alone now reads the new Sheet1 values: 5 + 1 and 10 + 6.
+    wb.recalculate_sheet(1);
+    assert_eq!(wb.value(1, 0, 0), bo_formula::Value::Number(6.0));
+    assert_eq!(wb.value(1, 0, 1), bo_formula::Value::Number(16.0));
+    wb.recalculate();
+    assert!(!wb.has_pending_changes());
+}

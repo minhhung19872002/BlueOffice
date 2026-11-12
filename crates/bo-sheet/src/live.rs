@@ -36,6 +36,9 @@ pub struct LiveCalc {
     /// Results calculated but not written into the model yet (other sheets
     /// after [`LiveCalc::calculate`] for one sheet).
     unwritten: Vec<CellId>,
+    /// Manual mode: the engine was reloaded after a structural edit without calculating,
+    /// so the next calculation is a full one.
+    stale: bool,
 }
 
 impl LiveCalc {
@@ -87,6 +90,24 @@ impl LiveCalc {
         self.pending = false;
         self.tables_pending = false;
         self.unwritten.clear();
+        self.stale = false;
+    }
+
+    /// After rows / columns are inserted or deleted: like [`LiveCalc::rebuild`], except in
+    /// manual calculation mode (§18.2.2 `calcPr/@calcMode="manual"`), where nothing is
+    /// calculated: the moved cells keep the values they had, the engine is reloaded with
+    /// them as cached results and the next [`LiveCalc::calculate`] recalculates everything.
+    pub fn rebuild_structural(&mut self, wb: &mut Workbook) {
+        if self.engine.is_none() || CalcSettings::read(wb).mode != CalcMode::Manual {
+            self.rebuild(wb);
+            return;
+        }
+        let mut fw = load_with(wb, self.now, true);
+        fw.set_web_provider(self.web.clone());
+        crate::drop_in_background(self.engine.replace(fw));
+        self.pending = true;
+        self.unwritten.clear();
+        self.stale = true;
     }
 
     /// Loads a workbook just read from a file, keeping the saved results of
@@ -117,6 +138,7 @@ impl LiveCalc {
         self.pending = false;
         self.tables_pending = false;
         self.unwritten.clear();
+        self.stale = false;
     }
 
     /// Pushes the current content of `cells` of sheet `sheet` into the live
@@ -296,21 +318,34 @@ impl LiveCalc {
 
     /// Calculates what is pending (manual mode, "automatic except tables"):
     /// cells edited since the last calculation, their dependents, volatile
-    /// functions and data tables. With `sheet`, only that sheet's results are
-    /// shown; the others wait for the next calculation of the workbook.
+    /// functions and data tables. With `sheet` ("calculate sheet"), only that sheet's
+    /// formulas are calculated; the others stay out of date until the next calculation of
+    /// the workbook.
     pub fn calculate(&mut self, wb: &mut Workbook, sheet: Option<usize>) {
+        if self.stale && sheet.is_none() {
+            self.rebuild(wb);
+            return;
+        }
         let Some(fw) = self.engine.as_mut() else {
             self.rebuild(wb);
             return;
         };
-        fw.recalculate();
+        match sheet {
+            Some(s) if self.stale => {
+                // After a deferred reload nothing is known to be up to date.
+                fw.mark_all_formulas_of(s);
+                fw.recalculate_sheet(s);
+            }
+            Some(s) => fw.recalculate_sheet(s),
+            None => fw.recalculate(),
+        }
         let mut ids = std::mem::take(&mut self.unwritten);
         ids.extend_from_slice(fw.last_recalculated());
         ids.sort_unstable();
         ids.dedup();
         self.unwritten = write_ids(fw, wb, &ids, sheet);
         crate::whatif::calculate_data_tables(fw, wb);
-        self.pending = false;
+        self.pending = fw.has_pending_changes() || self.stale;
         self.tables_pending = false;
     }
 

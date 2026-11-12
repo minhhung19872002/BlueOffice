@@ -704,6 +704,61 @@ mod tests {
         assert_eq!(s["circular"][0]["label"], json!("Sheet1!C1"));
     }
 
+    /// Shift+F9 ("calculate sheet") in manual mode calculates the active sheet only; rows
+    /// inserted in manual mode are not calculated until F9 (§18.2.2 `calcMode="manual"`).
+    #[test]
+    fn calculate_sheet_and_structural_edits_in_manual_mode() {
+        let mut e = engine(
+            &[
+                (0, "A1", "1"),
+                (0, "B1", "=A1*2"),
+                (1, "A1", "=Sheet1!A1+1"),
+            ],
+            &["Sheet1", "Sheet2"],
+        );
+        let mut opts = run(&mut e, &json!({"cmd": "calcOptions"}))["options"].clone();
+        opts["mode"] = json!("manual");
+        run(&mut e, &json!({"cmd": "setCalcOptions", "options": opts}));
+        e.set_input(0, 0, 0, "5").unwrap();
+        assert_eq!(e.cell(0, 0, 1).unwrap().display, "2");
+        run(&mut e, &json!({"cmd": "calculate", "sheet": 0}));
+        // hand: Sheet1!B1 = 5 × 2; Sheet2!A1 waits (still 1 + 1).
+        assert_eq!(e.cell(0, 0, 1).unwrap().display, "10");
+        assert_eq!(e.cell(1, 0, 0).unwrap().display, "2");
+        assert_eq!(e.live.last_evaluations(), 1, "only Sheet1!B1 evaluated");
+        let s = run(&mut e, &json!({"cmd": "calcOptions"}));
+        assert_eq!(s["needsCalc"], json!(true));
+        run(&mut e, &json!({"cmd": "calculate"}));
+        assert_eq!(e.cell(1, 0, 0).unwrap().display, "6", "hand: 5 + 1");
+        // Inserting a row: the cells move with their values, nothing is calculated.
+        e.set_input(0, 0, 0, "7").unwrap();
+        e.structural(0, true, 0, 1, false).unwrap();
+        assert_eq!(e.cell(0, 1, 0).unwrap().display, "7");
+        assert_eq!(
+            e.cell(0, 1, 1).unwrap().display,
+            "10",
+            "not recalculated yet"
+        );
+        assert_eq!(e.cell(1, 0, 0).unwrap().display, "6");
+        assert_eq!(e.live.last_evaluations(), 0);
+        let s = run(&mut e, &json!({"cmd": "calcOptions"}));
+        assert_eq!(s["needsCalc"], json!(true));
+        run(&mut e, &json!({"cmd": "calculate"}));
+        assert_eq!(e.cell(0, 1, 1).unwrap().display, "14", "hand: 7 × 2");
+        assert_eq!(e.cell(1, 0, 0).unwrap().display, "8", "hand: Sheet1!A2 + 1");
+        assert_eq!(
+            e.wb().unwrap().sheets[1]
+                .cell(0, 0)
+                .unwrap()
+                .formula
+                .as_ref()
+                .map(|f| f.text.as_str()),
+            Some("Sheet1!A2+1")
+        );
+        let s = run(&mut e, &json!({"cmd": "calcOptions"}));
+        assert_eq!(s["needsCalc"], json!(false));
+    }
+
     #[test]
     fn calc_pr_and_ignored_errors_round_trip() {
         let mut e = engine(&[(0, "A1", "'12"), (0, "B1", "=A1")], &["Sheet1"]);

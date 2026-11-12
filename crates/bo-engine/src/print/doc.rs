@@ -226,6 +226,21 @@ impl Engine {
         let mut out = Vec::with_capacity(chosen.len());
         for i in chosen {
             let mut page = self.page(i)?.clone();
+            // §17.2.1 background: the page colour is the first command (bo-render); left
+            // out unless asked for.
+            let coloured = self
+                .layout
+                .document()
+                .pages
+                .get(i)
+                .is_some_and(|p| p.decor.background.is_some());
+            if coloured && !o.doc.background {
+                if let Some(Command::FillRect { x, y, w, h, .. }) = page.commands.first() {
+                    if *x == 0.0 && *y == 0.0 && *w == page.width && *h == page.height {
+                        page.commands.remove(0);
+                    }
+                }
+            }
             if o.doc.markup {
                 if let Some(m) = self.page_markup(i).cloned() {
                     draw_markup(&mut self.fonts, &mut page.commands, &m, page.width);

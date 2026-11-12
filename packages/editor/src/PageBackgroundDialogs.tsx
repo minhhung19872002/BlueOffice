@@ -754,6 +754,18 @@ export function PageBordersDialog({ run, onClose }: { run: Run; onClose: () => v
             />
             {t('design.borders.behind')}
           </label>
+          {!spec.offsetFromPage &&
+            (['surroundHeader', 'surroundFooter'] as const).map((k) => (
+              <label key={k} className={styles.field}>
+                <input
+                  type="checkbox"
+                  data-testid={`borders-${k}`}
+                  checked={spec[k] !== false}
+                  onChange={(e) => patch({ [k]: e.target.checked })}
+                />
+                {t(`design.borders.${k}`)}
+              </label>
+            ))}
           {setting === 'custom' && (
             <fieldset className={own.sides}>
               <legend>{t('design.borders.sides')}</legend>

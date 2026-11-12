@@ -4886,6 +4886,8 @@
       "fromPage": "Mép trang",
       "spacing": "Khoảng cách",
       "behind": "Sau chữ",
+      "surroundHeader": "Bao quanh đầu trang",
+      "surroundFooter": "Bao quanh chân trang",
       "sides": "Cạnh",
       "top": "Trên",
       "left": "Trái",
@@ -5365,7 +5367,8 @@
       "bodyText": "Văn bản thường",
       "close": "Đóng dàn ý",
       "empty": "Tài liệu chưa có đoạn văn nào.",
-      "dropEnd": "Thả vào đây để chuyển xuống cuối"
+      "dropEnd": "Thả vào đây để chuyển xuống cuối",
+      "editText": "Nội dung đoạn văn"
     },
     "read": {
       "title": "Đọc",
@@ -6068,6 +6071,7 @@
     "shadow": "Đổ bóng",
     "emboss": "Chữ nổi",
     "imprint": "Chữ chìm",
+    "hidden": "Ẩn",
     "glow": "Phát sáng",
     "softShadow": "Bóng mờ",
     "reflection": "Phản chiếu",
@@ -6558,6 +6562,7 @@
     "doc": {
       "markup": "In sửa đổi và bình luận",
       "properties": "Thêm trang thuộc tính tài liệu",
+      "background": "In màu nền trang",
       "props": {
         "title": "Tiêu đề",
         "subject": "Chủ đề",

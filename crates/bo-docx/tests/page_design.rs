@@ -250,3 +250,35 @@ fn new_document_with_design() {
     assert_eq!(back.design.background, doc.design.background);
     assert!(back.design.display_background_shape);
 }
+
+/// §17.15.1.18 bordersDoNotSurroundHeader / §17.15.1.19 bordersDoNotSurroundFooter: read,
+/// written in CT_Settings order for a new document, patched into a read one.
+#[test]
+fn borders_do_not_surround_settings_round_trip() {
+    let mut doc = Document::default();
+    doc.sections.push(bo_model::Section::default());
+    doc.design.borders_do_not_surround_header = true;
+    doc.design.display_background_shape = true;
+    let out = write_docx(&doc).unwrap();
+    let settings = part(&out, "/word/settings.xml");
+    let h = settings.find("<w:bordersDoNotSurroundHeader/>").unwrap();
+    assert!(settings.find("<w:displayBackgroundShape/>").unwrap() < h);
+    assert!(!settings.contains("bordersDoNotSurroundFooter"));
+    let mut back = read_docx(&out).unwrap();
+    assert!(back.design.borders_do_not_surround_header);
+    assert!(!back.design.borders_do_not_surround_footer);
+    // Changed in a read document: the settings part is patched, footer after header.
+    back.design.borders_do_not_surround_footer = true;
+    let out = write_docx(&back).unwrap();
+    let settings = part(&out, "/word/settings.xml");
+    let h = settings.find("<w:bordersDoNotSurroundHeader/>").unwrap();
+    let f = settings.find("<w:bordersDoNotSurroundFooter/>").unwrap();
+    assert!(h < f, "{settings}");
+    assert_eq!(settings.matches("bordersDoNotSurroundHeader").count(), 1);
+    let mut again = read_docx(&out).unwrap();
+    assert!(again.design.borders_do_not_surround_footer);
+    again.design.borders_do_not_surround_header = false;
+    again.design.borders_do_not_surround_footer = false;
+    let settings = part(&write_docx(&again).unwrap(), "/word/settings.xml");
+    assert!(!settings.contains("bordersDoNotSurround"), "{settings}");
+}

@@ -102,6 +102,9 @@ pub struct DocPrint {
     /// Labels of the properties page by key (`title`, `author`, …), in the
     /// host's language.
     pub labels: BTreeMap<String, String>,
+    /// Print the page colour (ECMA-376 Part 1, §17.2.1 background). Off by
+    /// default, as word processors leave background colours out of print jobs.
+    pub background: bool,
 }
 
 impl Default for DocPrint {
@@ -110,6 +113,7 @@ impl Default for DocPrint {
             markup: true,
             properties: false,
             labels: BTreeMap::new(),
+            background: false,
         }
     }
 }

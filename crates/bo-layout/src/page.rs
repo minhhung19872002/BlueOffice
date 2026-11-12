@@ -97,6 +97,23 @@ pub fn border_width(b: &Border) -> f32 {
 /// bottom y, right x (§17.6.10: `w:space` from the page edge with
 /// `offsetFrom="page"`, else from the text area given by the margins).
 pub fn border_lines(pb: &PageBorders, setup: &PageSetup) -> [f32; 4] {
+    border_lines_around(pb, setup, Surround::default())
+}
+
+/// Header and footer the page borders measured from the text enclose (§17.15.1.18
+/// bordersDoNotSurroundHeader and §17.15.1.19 bordersDoNotSurroundFooter absent): the
+/// top of the header's text and the bottom of the footer's text on the page (points).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Surround {
+    /// Top of the header text, when the border goes around the header.
+    pub header_top: Option<f32>,
+    /// Bottom of the footer text, when the border goes around the footer.
+    pub footer_bottom: Option<f32>,
+}
+
+/// [`border_lines`] with the edges measured from the text pushed out around the
+/// header and footer of `around`.
+pub fn border_lines_around(pb: &PageBorders, setup: &PageSetup, around: Surround) -> [f32; 4] {
     let (pw, ph) = (setup.width.to_pt(), setup.height.to_pt());
     let half = |e: Option<&PageBorder>| {
         e.filter(|b| b.line.is_visible())
@@ -115,10 +132,13 @@ pub fn border_lines(pb: &PageBorders, setup: &PageSetup) -> [f32; 4] {
         let mb = setup.margin_bottom.to_pt().abs();
         let ml = setup.margin_left.to_pt();
         let mr = setup.margin_right.to_pt();
+        // The text of the header / footer counts as text the border surrounds.
+        let top = around.header_top.map_or(mt, |h| h.min(mt));
+        let bottom = around.footer_bottom.map_or(ph - mb, |f| f.max(ph - mb));
         [
-            mt - t.1 - t.0 / 2.0,
+            top - t.1 - t.0 / 2.0,
             ml - l.1 - l.0 / 2.0,
-            ph - mb + b.1 + b.0 / 2.0,
+            bottom + b.1 + b.0 / 2.0,
             pw - mr + r.1 + r.0 / 2.0,
         ]
     }
@@ -150,7 +170,12 @@ pub(crate) fn decorate_pages(doc: &Document, pages: &mut [Page]) -> Vec<usize> {
                     PageBorderDisplay::NotFirstPage => !first,
                 };
                 if shown {
-                    decor.borders = border_items(pb, &sec.page);
+                    let around = if pb.offset_from_page {
+                        Surround::default()
+                    } else {
+                        surround(doc, p, &sec.page)
+                    };
+                    decor.borders = border_items_around(pb, &sec.page, around);
                     decor.borders_behind = pb.behind;
                 }
             }
@@ -163,12 +188,40 @@ pub(crate) fn decorate_pages(doc: &Document, pages: &mut [Page]) -> Vec<usize> {
     changed
 }
 
+/// The header and footer text of page `p` the page borders surround (§17.15.1.18,
+/// §17.15.1.19): header/footer lines above the top margin or below the bottom one.
+fn surround(doc: &Document, p: &Page, setup: &PageSetup) -> Surround {
+    let mt = setup.margin_top.to_pt().abs();
+    let low = p.height - setup.margin_bottom.to_pt().abs();
+    let other = p
+        .lines
+        .iter()
+        .filter(|l| matches!(l.source, LineSource::Other) && l.height > 0.0);
+    let mut s = Surround::default();
+    for l in other {
+        if !doc.design.borders_do_not_surround_header && l.top < mt {
+            s.header_top = Some(s.header_top.map_or(l.top, |t: f32| t.min(l.top)));
+        }
+        let bottom = l.top + l.height;
+        if !doc.design.borders_do_not_surround_footer && bottom > low {
+            s.footer_bottom = Some(s.footer_bottom.map_or(bottom, |b: f32| b.max(bottom)));
+        }
+    }
+    s
+}
+
 /// Page items drawing `pb` on a page of `setup`.
 pub fn border_items(pb: &PageBorders, setup: &PageSetup) -> Vec<PageItem> {
+    border_items_around(pb, setup, Surround::default())
+}
+
+/// [`border_items`] with the edges measured from the text around the header and
+/// footer of `around`.
+pub fn border_items_around(pb: &PageBorders, setup: &PageSetup, around: Surround) -> Vec<PageItem> {
     fn edge(e: Option<&PageBorder>) -> Option<&PageBorder> {
         e.filter(|b| b.line.is_visible())
     }
-    let [top, left, bottom, right] = border_lines(pb, setup);
+    let [top, left, bottom, right] = border_lines_around(pb, setup, around);
     let w = |e: Option<&PageBorder>| edge(e).map_or(0.0, |b| border_width(&b.line));
     let (wt, wl, wb, wr) = (
         w(pb.top.as_ref()),

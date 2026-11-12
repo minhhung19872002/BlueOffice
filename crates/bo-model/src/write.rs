@@ -178,6 +178,10 @@ pub struct SourcePackage {
     /// §17.15.1.32 displayBackgroundShape as read (changed ⇒ settings patched).
     #[serde(default)]
     pub display_background_shape: bool,
+    /// §17.15.1.18 / §17.15.1.19 bordersDoNotSurroundHeader / Footer as read (changed ⇒
+    /// settings patched).
+    #[serde(default)]
+    pub borders_do_not_surround: (bool, bool),
     /// `documentProtection` as read (changed ⇒ the settings part is patched).
     #[serde(default)]
     pub protection: Option<crate::form::DocProtection>,
@@ -268,10 +272,22 @@ pub struct DocDesign {
     /// §17.15.1.32 displayBackgroundShape: show the background in print layout.
     #[serde(default)]
     pub display_background_shape: bool,
+    /// §17.15.1.18 bordersDoNotSurroundHeader: page borders measured from the text
+    /// (`w:offsetFrom="text"`) leave the header outside; absent = they surround it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub borders_do_not_surround_header: bool,
+    /// §17.15.1.19 bordersDoNotSurroundFooter: the same for the footer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub borders_do_not_surround_footer: bool,
     /// Theme part authored by BlueOffice (`word/theme/theme1.xml`, DrawingML
     /// §20.1.6.9 theme) replacing the one of the source package; `None` keeps it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_xml: Option<Arc<str>>,
+    /// sRGB of the colour scheme slots of the document theme (DrawingML §20.1.6.2
+    /// clrScheme: `dk1`, `lt1`, … `folHlink`), resolving the theme colours of runs
+    /// (§17.3.2.6); follows the theme when it changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub theme_colors: Vec<(String, Color)>,
     /// Id of the BlueOffice theme applied (`theme_xml`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_id: Option<String>,
@@ -398,6 +414,16 @@ impl Comment {
 }
 
 impl Document {
+    /// Text colour of effective run properties `rp`: the theme colour (§17.3.2.6
+    /// `w:themeColor`) when the document theme has it, else `w:val`.
+    #[must_use]
+    pub fn run_color(&self, rp: &RunProps) -> Option<Color> {
+        rp.theme_color
+            .as_ref()
+            .and_then(|t| t.resolve(&self.design.theme_colors))
+            .or(rp.color)
+    }
+
     /// Iterate over top-level paragraphs in document order (tables are skipped).
     pub fn paragraphs(&self) -> impl Iterator<Item = &Paragraph> {
         self.sections.iter().flat_map(|s| {
@@ -1656,6 +1682,11 @@ pub struct RunProps {
     pub double_strike: Option<bool>,
     /// Text colour (`w:color`).
     pub color: Option<Color>,
+    /// Theme colour of the text (§17.3.2.6 `w:themeColor` / `w:themeTint` /
+    /// `w:themeShade`): when the theme has it, it supersedes [`RunProps::color`].
+    /// Inherited together with `color`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_color: Option<crate::theme_color::ThemeColorRef>,
     /// Highlight colour (`w:highlight`), stored as RGB.
     pub highlight: Option<Color>,
     /// Background shading fill (`w:shd/@w:fill`).
@@ -1776,6 +1807,7 @@ impl RunProps {
             (&self.font_cs, &self.theme_cs),
             (&base.font_cs, &base.theme_cs),
         );
+        let own_color = self.color.is_some() || self.theme_color.is_some();
         RunProps {
             style: self.style.clone().or_else(|| base.style.clone()),
             font: ascii.0,
@@ -1795,7 +1827,13 @@ impl RunProps {
             underline: self.underline.or(base.underline),
             strike: self.strike.or(base.strike),
             double_strike: self.double_strike.or(base.double_strike),
-            color: self.color.or(base.color),
+            // §17.3.2.6: the colour and its theme colour are one property.
+            color: if own_color { self.color } else { base.color },
+            theme_color: if own_color {
+                self.theme_color.clone()
+            } else {
+                base.theme_color.clone()
+            },
             highlight: self.highlight.or(base.highlight),
             shading: self.shading.or(base.shading),
             vert_align: self.vert_align.or(base.vert_align),

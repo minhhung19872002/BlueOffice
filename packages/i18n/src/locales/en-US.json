@@ -4886,6 +4886,8 @@
       "fromPage": "Edge of page",
       "spacing": "Spacing",
       "behind": "Behind text",
+      "surroundHeader": "Surround header",
+      "surroundFooter": "Surround footer",
       "sides": "Edges",
       "top": "Top",
       "left": "Left",
@@ -5365,7 +5367,8 @@
       "bodyText": "Body text",
       "close": "Close outline",
       "empty": "The document has no paragraphs yet.",
-      "dropEnd": "Drop here to move to the end"
+      "dropEnd": "Drop here to move to the end",
+      "editText": "Text of the paragraph"
     },
     "read": {
       "title": "Reading",
@@ -6068,6 +6071,7 @@
     "shadow": "Drop shadow",
     "emboss": "Raised",
     "imprint": "Engraved",
+    "hidden": "Hidden",
     "glow": "Glow",
     "softShadow": "Soft shadow",
     "reflection": "Reflection",
@@ -6558,6 +6562,7 @@
     "doc": {
       "markup": "Print changes and comments",
       "properties": "Add a document properties page",
+      "background": "Print page colour",
       "props": {
         "title": "Title",
         "subject": "Subject",

@@ -41,6 +41,14 @@ pub fn theme_fonts(xml: &[u8]) -> Option<ThemeFonts> {
     })
 }
 
+/// sRGB of the colour scheme slots of a theme part (§20.1.6.2 clrScheme), which resolve
+/// the theme colours of runs (§17.3.2.6).
+pub fn theme_colors(xml: &[u8]) -> Vec<(String, bo_model::Color)> {
+    bo_drawingml::theme::parse_theme(xml, "/word/theme/theme1.xml")
+        .map(|t| bo_drawingml::theme::scheme_rgb(&t))
+        .unwrap_or_default()
+}
+
 impl Engine {
     /// The open document's or presentation's theme as a `.thmx` package (for a
     /// presentation, the theme of its first slide master). Errors with

@@ -208,6 +208,10 @@ pub fn read_docx(bytes: &[u8]) -> Result<Document> {
         even_and_odd_headers: doc.even_and_odd_headers,
         background: doc.design.background,
         display_background_shape: doc.design.display_background_shape,
+        borders_do_not_surround: (
+            doc.design.borders_do_not_surround_header,
+            doc.design.borders_do_not_surround_footer,
+        ),
         protection: doc.protection.clone(),
         hyphenation: doc.hyphenation,
         track_revisions: doc.track_revisions,
@@ -642,6 +646,13 @@ fn read_settings(data: &[u8], part: &str, doc: &mut Document) -> Result<()> {
                 b"doNotHyphenateCaps" => doc.hyphenation.no_caps = on_off(&e),
                 // §17.15.1.32 displayBackgroundShape
                 b"displayBackgroundShape" => doc.design.display_background_shape = on_off(&e),
+                // §17.15.1.18 bordersDoNotSurroundHeader, §17.15.1.19 …Footer (CT_OnOff)
+                b"bordersDoNotSurroundHeader" => {
+                    doc.design.borders_do_not_surround_header = on_off(&e);
+                }
+                b"bordersDoNotSurroundFooter" => {
+                    doc.design.borders_do_not_surround_footer = on_off(&e);
+                }
                 // §17.15.1.29 documentProtection
                 b"documentProtection" => {
                     doc.protection = Some(crate::forms::read_protection(&e));
@@ -1609,6 +1620,7 @@ fn read_theme(pkg: &Package, main: &str, doc: &mut Document) -> Option<Arc<Theme
     let name = pkg.related_part(main, REL_THEME).ok()??;
     let part = pkg.part(&name)?;
     let t = bo_drawingml::theme::parse_theme(&part.data, &part.name).ok()?;
+    doc.design.theme_colors = bo_drawingml::theme::scheme_rgb(&t);
     let f = &t.fonts;
     doc.theme_fonts = ThemeFonts {
         major_latin: f.major.latin.typeface.clone(),
@@ -2336,6 +2348,16 @@ fn read_rpr(r: &mut XmlReader<'_>) -> Result<RunProps> {
                 } else if attr(e, b"val").as_deref() == Some("auto") {
                     p.color = Some(Color::BLACK);
                 }
+                // §17.3.2.6 themeColor (§17.18.97 ST_ThemeColor), themeTint / themeShade
+                // (§17.18.38 ST_UcharHexNumber).
+                p.theme_color = attr(e, b"themeColor").map(|name| {
+                    let byte = |a: &[u8]| attr(e, a).and_then(|v| u8::from_str_radix(&v, 16).ok());
+                    bo_model::ThemeColorRef {
+                        name,
+                        tint: byte(b"themeTint"),
+                        shade: byte(b"themeShade"),
+                    }
+                });
             }
             b"highlight" => {
                 p.highlight = attr(e, b"val").as_deref().and_then(Color::from_highlight);

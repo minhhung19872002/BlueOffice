@@ -318,3 +318,91 @@ fn base64(b: &[u8]) -> String {
     }
     s
 }
+
+/// DOC-PAGE-001: a run coloured from the theme (§17.3.2.6 `w:themeColor`, with a tint)
+/// follows the theme when another one is applied, back on undo; the attributes are
+/// saved; a colour chosen afterwards is a plain colour.
+#[test]
+fn theme_colours_of_runs_follow_the_theme() {
+    use bo_model::{Block, Document, ParaProps, Paragraph, Run, RunProps, Section, ThemeColorRef};
+    let accent = |tint: Option<u8>| RunProps {
+        color: bo_model::Color::from_hex("4472C4"),
+        theme_color: Some(ThemeColorRef {
+            name: "accent1".into(),
+            tint,
+            shade: None,
+        }),
+        ..RunProps::default()
+    };
+    let doc = Document {
+        sections: vec![Section::new(vec![Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![
+                Run::text("Xanh", accent(None)),
+                Run::text(" nhạt", accent(Some(0x80))),
+            ],
+        ))])],
+        ..Document::default()
+    };
+    let mut e = Engine::with_bundled_fonts();
+    e.open(&bo_docx::write_docx(&doc).unwrap(), "t.docx")
+        .unwrap();
+    // Colour of the fragment showing `word`.
+    let of = |e: &Engine, word: &str| -> String {
+        e.layout().unwrap().pages[0]
+            .lines
+            .iter()
+            .flat_map(|l| l.fragments.iter())
+            .find(|f| f.text.contains(word))
+            .map(|f| f.color.to_hex())
+            .unwrap_or_default()
+    };
+    let colours = |e: &Engine| [of(e, "Xanh"), of(e, "nhạt")];
+    // No theme part: `w:val` is used.
+    assert_eq!(colours(&e), ["4472C4", "4472C4"]);
+    cmd(&mut e, r#"{"cmd":"applyTheme","id":"ocean"}"#);
+    let ocean = colours(&e);
+    assert_eq!(ocean[0], "1F6FB2");
+    // Tint 0x80: about halfway to white.
+    assert_ne!(ocean[1], "1F6FB2");
+    let light = bo_model::Color::from_hex(&ocean[1]).unwrap();
+    assert!(
+        light.r > 0x1F && light.g > 0x6F && light.b > 0xB2,
+        "{light:?}"
+    );
+    cmd(&mut e, r#"{"cmd":"applyTheme","id":"bamboo"}"#);
+    assert_eq!(colours(&e)[0], "3C7D3A");
+    cmd(&mut e, r#"{"cmd":"undo"}"#);
+    assert_eq!(colours(&e), ocean);
+    // Saved with the theme part and the attributes; reopened in the same colours.
+    let bytes = e.save_docx().unwrap();
+    let f = {
+        let mut f = Engine::with_bundled_fonts();
+        f.open(&bytes, "x.docx").unwrap();
+        f
+    };
+    assert_eq!(colours(&f), ocean);
+    let r = &f.document().unwrap().sections[0].blocks[0];
+    let Block::Paragraph(p) = r else {
+        panic!("{r:?}")
+    };
+    assert_eq!(
+        p.runs[1]
+            .props
+            .theme_color
+            .as_ref()
+            .map(|t| (t.name.as_str(), t.tint)),
+        Some(("accent1", Some(0x80)))
+    );
+    // A colour picked for the first word replaces its theme colour.
+    cmd(
+        &mut e,
+        r#"{"cmd":"setSelection","selection":{"anchor":{"p":0,"o":0},"focus":{"p":0,"o":4}}}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"formatText","format":{"kind":"color","hex":"FF0000"}}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"applyTheme","id":"sunset"}"#);
+    assert_eq!(of(&e, "Xanh"), "FF0000");
+}

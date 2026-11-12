@@ -52,6 +52,32 @@ fn write_font_coll(f: &FontCollection, name: &str) -> XmlElement {
     k.build(El::new(name))
 }
 
+/// sRGB of every colour scheme slot of `t` (§20.1.6.2 clrScheme; `sysClr` by its
+/// `lastClr`), in schema order — for word-processing theme colours (§17.3.2.6).
+pub fn scheme_rgb(t: &Theme) -> Vec<(String, bo_model::Color)> {
+    let ctx = crate::color::ColorContext {
+        theme: Some(t),
+        ..Default::default()
+    };
+    t.colors
+        .colors
+        .iter()
+        .map(|(k, c)| {
+            let v = crate::color::resolve(c, &ctx);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let byte = |x: f64| (x * 255.0).round().clamp(0.0, 255.0) as u8;
+            (
+                k.clone(),
+                bo_model::Color {
+                    r: byte(v.r),
+                    g: byte(v.g),
+                    b: byte(v.b),
+                },
+            )
+        })
+        .collect()
+}
+
 /// Parse a theme part (`/ppt/theme/themeN.xml`).
 pub fn parse_theme(data: &[u8], part: &str) -> dom::DomResult<Theme> {
     let root = dom::parse(data, part)?;

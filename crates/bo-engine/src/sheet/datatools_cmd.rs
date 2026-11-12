@@ -388,7 +388,7 @@ impl SheetEngine {
     ) -> Result<Value> {
         let locale = self.locale;
         spec.range = self.list_range(sheet, range)?;
-        self.edit(sheet, Recalc::All, |wb, adj| {
+        self.rows_edit(sheet, spec.range.first.row, |wb, adj| {
             let r = outline::subtotal(wb, sheet, &spec, adj, &locale)
                 .map_err(|e| bad(format!("subtotal: {e}")))?;
             Ok(json!({ "groups": r.groups, "range": Rng::of(r.range), "levels": r.levels }))
@@ -398,9 +398,34 @@ impl SheetEngine {
     /// Removes the subtotal rows of the list; `{ range }`.
     pub(super) fn remove_subtotals(&mut self, sheet: usize, range: Rng) -> Result<Value> {
         let range = self.list_range(sheet, range)?;
-        self.edit(sheet, Recalc::All, |wb, adj| {
+        self.rows_edit(sheet, range.first.row, |wb, adj| {
             let r = outline::remove_subtotals(wb, sheet, range, adj).map_err(bad)?;
             Ok(json!({ "range": Rng::of(r) }))
+        })
+    }
+
+    /// An edit inserting / deleting whole rows of `sheet` at or below `first` (Subtotal):
+    /// a light undo step (SHEET-PERF-002) holding the previous cells of those rows,
+    /// the previous text of the formulas elsewhere whose references moved, and the
+    /// pivot cache list (source references move too; records shared, not copied).
+    /// The formula engine is reloaded (rows moved).
+    fn rows_edit(
+        &mut self,
+        sheet: usize,
+        first: u32,
+        f: impl FnOnce(&mut Workbook, &bo_sheet::formula::BoFormula) -> Result<Value>,
+    ) -> Result<Value> {
+        use super::light_undo as lu;
+        let areas = [(sheet, lu::quadrant(CellRef::new(first, 0)))];
+        let wb = self.wb()?;
+        let texts = lu::formula_texts(wb, &areas);
+        let caches = wb.pivot_caches.clone();
+        self.edit_light(sheet, &areas, |wb, adj, fx| {
+            let out = f(wb, adj)?;
+            fx.texts = lu::changed_texts(wb, texts);
+            fx.caches = lu::CacheUndo::Whole(caches);
+            fx.reload = true;
+            Ok(out)
         })
     }
 

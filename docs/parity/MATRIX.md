@@ -114,13 +114,14 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | Lấy & biến đổi dữ liệu / data model | 🟡 | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-query, sheet_query.rs, sheet-query.spec | 🟡 | truy vấn CSV/JSON/XML/sổ tính/thư mục/web + bước biến đổi, làm mới (SHEET-PQ-001); DataMashup của phần mềm khác giữ nguyên; data model: quan hệ, measure, pivot nhiều bảng (SHEET-DM-001, một phần) |
 | Flash Fill, Text to Columns | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | Flash Fill (SHEET-FLASH-001: lặp mọi token, token lồng, tên tháng Việt/Anh ↔ số), Text to Columns + xoá trùng + Consolidate + Subtotal + dàn ý (SHEET-DATA-002); thiếu gợi ý khi gõ, thanh dàn ý |
 | Analysis ToolPak | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | 19 công cụ phân tích thống kê (SHEET-ATP-001); thiếu biểu đồ đầu ra |
+| Ảnh trong ô, hàm IMAGE, checkbox trong ô | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⬜ | corpus writer-cell-media-1, writer-image-function-1; cell_media.rs, cell_image_fn.rs, sheet_cell_media.rs | 🟡 | SHEET-CELL-001: `_localImage` + `_webimage` (IMAGE lưu `_xlfn.IMAGE` + rich value ảnh web, OpenXmlValidator sạch), checkbox Feature Property Bag; thiếu chuyển ảnh nổi ↔ ô, cộng tác, .ods/.xlsb, E2E |
 | Sparklines | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-sparklines-* | 🟡 | đọc/ghi/vẽ/sửa (SHEET-SPARK-001); chưa dịch theo chèn hàng/cột |
 | Bảng (ListObject) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu total row tự động |
 | Comment luồng / notes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | Bảo vệ sheet/workbook | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | ✅ | |
 | Form controls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-form-controls-*, sheet_form_controls.rs | 🟡 | 9 loại, ô liên kết hai chiều, dịch theo chèn/xoá hàng cột theo `moveWithCells`/`sizeWithCells`, đổi cỡ, list box chọn nhiều (SHEET-FORMCTL-001); chưa in/PDF điều khiển |
 | In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests, view_cmd_tests, sheet-views.spec, print_job.rs | 🟡 | + Page Break Preview kéo ngắt, Page Layout view, Custom Views, Show Formulas (SHEET-VIEW-001); bảng In chung, nhiều trang/tờ, chọn trang (CORE-PRINT-001); ảnh đầu/chân trang `&G` (SHEET-PRINT-001); chưa in bình luận "như hiển thị" |
-| Hiệu năng 1 triệu ô | — | ✅ | ✅ | — | ✅ | ✅ | — | bench | 🟡 | chưa đo 10 triệu ô, pivot 1 triệu dòng |
+| Hiệu năng 1 triệu ô | — | ✅ | ✅ | — | ✅ | ✅ | — | bench big_sheet, sheet_big, light_undo tests | 🟡 | SHEET-PERF-001/002 (đợt 4): qua SheetEngine sort 1,6 s, lọc 0,65 s, pivot 1,8–2,0 s / 1 triệu dòng; hoàn tác không chụp cả sổ cho sort (cả trái→phải, sổ có trang bảo vệ), lọc, pivot mọi lệnh, Advanced Filter, Subtotal; mở 10 triệu ô ~13 s / ~4 GB; Advanced Filter 9,6 s, Subtotal 12 s chưa tối ưu |
 
 ## BlueSlide
 

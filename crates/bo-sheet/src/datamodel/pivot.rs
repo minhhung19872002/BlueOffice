@@ -399,7 +399,7 @@ pub fn sync(wb: &mut Workbook, cache_id: u32) -> Result<ModelPivot, String> {
     let base_name = md.tables[base].name.clone();
     let cache = &mut wb.pivot_caches[ci];
     cache.fields = fields;
-    cache.records = records;
+    cache.records = records.into();
     cache.dirty = true;
     cache.model = true;
     cache.source_name = Some(base_name);

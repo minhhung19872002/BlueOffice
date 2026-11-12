@@ -96,6 +96,66 @@ mới — sau lệnh trùng nạp lại bộ tính đầy đủ; undo → mô h�
 `bo-formula/tests/proptest_permute.rs` (hoán vị có / không có công thức trong khối = sổ mới với đầu
 vào đã hoán vị). Cộng tác: lệnh không đổi đường đồng bộ (`collab_local` so mô hình), test collab xanh.
 
+## SHEET-PERF-002 đợt 4 (2026-11-12): các lệnh còn chụp cả sổ
+
+`BO_BENCH_ONCE=1 BO_BENCH_ONLY=engine cargo bench -p bo-engine --bench sheet_big` (bench mở rộng: thêm
+trang `Wide` 4 × 1000 ô + vùng điều kiện A11:A12; mỗi ca in cả thời gian **hoàn tác**). "Trước" = bản
+main 13e1b631 (đã sao exe để chạy lại), "Sau" = nhánh này; mỗi bên một lần chạy, máy dùng chung (có
+tải nền), nên chênh ±30 % là bình thường.
+
+| Ca (danh sách 1 048 575 bản ghi × 4 cột) | Trước: lệnh / hoàn tác | Sau: lệnh / hoàn tác |
+|---|---|---|
+| `sort` 2 khoá | 2,02 s / 1,64 s | 1,61 s / 1,16 s |
+| `setFilter` | 1,03 s / 0,13 s | 0,65 s / 0,10 s |
+| `pivotCreate` (đích có sẵn) | 2,64 s / 0,08 s | 1,78 s / 0,05 s |
+| `sort` khi sổ có trang bảo vệ | 4,40 s / 2,10 s | **1,60 s / 1,25 s** |
+| `sort` trái → phải (4 × 1000 ô, sổ 4 triệu ô) | 2,85 s / 2,04 s | **0,07 s / 0,05 s** |
+| `pivotCreate` trên **trang mới** | 4,67 s / 1,98 s | **2,01 s / 0,07 s** |
+| `pivotUpdate` | 5,08 s / 2,02 s | **0,57 s / 0,05 s** |
+| `pivotGroup` (số, bước 2) | 4,18 s / 2,07 s | **0,50 s / 0,05 s** |
+| `pivotMove` | 3,93 s / 1,86 s | **0,47 s / 0,05 s** |
+| `pivotChangeSource` (nửa danh sách) | 4,64 s / 2,04 s | **1,03 s / 0,05 s** |
+| `pivotRefreshAll` | 6,47 s / 2,15 s | **1,90 s / 0,00 s** |
+| `advancedFilter` tại chỗ | 28,7 s / 3,02 s | **9,61 s / 0,15 s** |
+| `subtotal` (6 nhóm, chèn 7 hàng) | 17,7 s / 1,83 s | 12,2 s / 3,16 s |
+
+Thay đổi:
+
+- `SheetEngine::edit_light` nhận **vùng chữ nhật** bất kỳ (trước: chỉ góc phần tư) và không còn quay về
+  ảnh chụp cả sổ khi có trang bảo vệ: ô khoá được kiểm trên chính bước hoàn tác (`Light::touches_locked`:
+  vùng đã ghi, các hàng hoán vị, công thức bị viết lại — nội dung trước so với sau, khoá theo định dạng
+  của ô *trước* sửa, vùng được mở khoá bằng mật khẩu trong phiên) → sửa chạm ô khoá bị từ chối, sổ trả
+  lại như cũ.
+- **Sắp xếp trái → phải**: bước hoàn tác = nội dung cũ của vùng sắp xếp; bộ tính cập nhật đúng các ô đó.
+- **Pivot update / group / trường-mục tính / xoá / di chuyển / đổi nguồn / làm mới tất cả / slicer /
+  drill-down** (`SheetEngine::pivot_light`): lưu góc phần tư của mọi báo cáo (nâng lên đủ chỗ cho bộ lọc
+  báo cáo thêm mới phía trên) + vị trí đích khi di chuyển, và danh sách bộ đệm pivot
+  (`CacheUndo::Whole`). `PivotCache::records` thành `Arc<Vec<…>>` nên sao danh sách bộ đệm không chép
+  bản ghi (1 triệu dòng).
+- **Pivot trên trang mới không nạp lại bộ tính**: `LiveCalc::sheets_appended` chỉ nạp trang mới vào
+  engine, `LiveCalc::sheets_removed` (hoàn tác) bỏ trang cuối; công thức có tên trang đó (trực tiếp, 3-D,
+  qua tên định nghĩa) được thu lại phụ thuộc và tính lại (`bo_formula::Workbook::refresh_sheet_references`,
+  `truncate_sheets`). Nạp lại đầy đủ khi: tính tay, "precision as displayed", có liên kết ngoài, trang
+  mới có bảng / công thức chia sẻ-mảng.
+- **Advanced Filter**: tại chỗ = chỉ "vỏ" (hàng ẩn, tên); sao chép = vùng đích + vùng `Extract` cũ. Tên
+  định nghĩa đổi (`_FilterDatabase`, `Criteria`, `Extract`) được đưa vào engine bằng
+  `LiveCalc::sync_names` → `bo_formula::Workbook::replace_names` (chỉ công thức dùng tên đổi — kể cả qua
+  tên khác — được tính lại). Lõi: văn bản hiển thị của ô chữ định dạng General/`@` không qua bộ định
+  dạng (28,7 → 9,6 s; phần còn lại là so điều kiện từng hàng, chưa tối ưu).
+- **Subtotal / bỏ Subtotal**: bước hoàn tác = các hàng từ đầu danh sách trở xuống của trang đó + văn bản
+  cũ của công thức ở chỗ khác bị dịch tham chiếu (`LightFx::texts`) + danh sách bộ đệm pivot; bộ tính vẫn
+  nạp lại (hàng chèn/xoá, `LightFx::reload`). Thời gian còn lại là lõi `insert_rows` (dựng lại cây ô 4
+  triệu ô mỗi hàng chèn) — chưa tối ưu, ngoài phạm vi hạng mục này.
+
+Kiểm thử đúng (`sheet::light_undo::tests`, sổ ngẫu nhiên có công thức tương đối / tuyệt đối / trang khác
+/ `SUBTOTAL`): sau lệnh = nạp lại bộ tính đầy đủ; undo → mô hình **giống hệt** trước; redo → giống hệt
+sau; bước ghi là `UndoEntry::Light` — sắp xếp trái → phải, sắp xếp khi có trang bảo vệ (bước không giữ ô)
+và bị từ chối khi chạm ô khoá (sổ không đổi, không thêm bước), pivot update/group/move/đổi nguồn/làm mới
+tất cả/xoá, pivot trên trang mới có công thức đọc trang đó (`=Sheet3!A3`, `COUNTA(Sheet3!A:A)`),
+Advanced Filter tại chỗ / sao chép / sao chép lại có công thức `=ROWS(Extract)`, Subtotal và bỏ Subtotal.
+`bo-formula/tests/sheet_list_changes.rs`: trang thêm/bỏ ở cuối, thay tên định nghĩa chỉ tính lại công
+thức liên quan.
+
 ## Điểm nóng đã sửa
 
 - **Sắp xếp** (`bo_sheet::sort::sort_lines`): mỗi mức khoá quy về một **thứ hạng u32 cho mỗi dòng**
@@ -144,8 +204,10 @@ Song song: không thêm `rayon`; chỉ `std::thread` có `cfg(not(target_arch = 
 ## Còn lại
 
 - ~~Ảnh chụp undo cả sổ + nạp lại bộ tính sau sort / pivot~~: xong ở SHEET-PERF-002 (mục trên).
-  Vẫn chụp cả sổ: sắp xếp trái → phải, sổ có trang tính bảo vệ, pivot update / group / move / đổi
-  nguồn / làm mới tất cả, Advanced Filter, Subtotal. Pivot tạo trên **trang mới** vẫn nạp lại bộ tính
-  (engine chưa thêm trang tăng dần). Undo của sort vẫn đồng bộ bộ tính bằng hoán vị ngược (~0,5 s).
+  ~~Vẫn chụp cả sổ: sắp xếp trái → phải, sổ có trang tính bảo vệ, pivot update / group / move / đổi
+  nguồn / làm mới tất cả, Advanced Filter, Subtotal; pivot trên trang mới nạp lại bộ tính~~: xong ở
+  đợt 4 (mục trên). Undo của sort vẫn đồng bộ bộ tính bằng hoán vị ngược (~1,2 s); Subtotal vẫn nạp
+  lại bộ tính và lõi chèn hàng chậm (12 s / 1 triệu dòng); so điều kiện Advanced Filter ~9,6 s / 1
+  triệu dòng. Các lệnh sửa cấu trúc khác (chèn/xoá hàng-cột, bảng…) vẫn dùng ảnh chụp cả sổ.
 - Mở 10 triệu ô ~14 s, bộ nhớ ~4 GB (mỗi `Cell` 152 byte trong BTreeMap + bản sao trong bộ tính).
   Hướng tiếp: lưu ô theo cột / chuỗi dùng chung dạng chỉ số, `Box` công thức trong `Cell`.

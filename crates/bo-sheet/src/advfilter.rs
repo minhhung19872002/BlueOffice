@@ -115,8 +115,21 @@ fn norm(s: &str) -> String {
 
 /// Displayed text of a cell (empty for none).
 fn shown(wb: &Workbook, cell: Option<&Cell>, locale: &Locale) -> String {
-    cell.map(|c| format_cell(wb, c, locale).text)
-        .unwrap_or_default()
+    let Some(c) = cell else {
+        return String::new();
+    };
+    // Text under General (0) or `@` (49) shows as itself (§18.8.31 numFmt: the text
+    // section of both is `@`): skips the formatter on a million-row list.
+    if let CellValue::Text(t) = &c.value {
+        if wb
+            .styles
+            .xf(c.style)
+            .is_none_or(|x| x.num_fmt_id == 0 || x.num_fmt_id == 49)
+        {
+            return t.clone();
+        }
+    }
+    format_cell(wb, c, locale).text
 }
 
 /// Split `>=10` into its operator and operand.

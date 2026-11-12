@@ -805,7 +805,7 @@ pub fn create_pivot(
             source_sheet: Some(source_name),
             source_ref: Some(source.to_string()),
             fields,
-            records,
+            records: records.into(),
             dirty: true,
             ..PivotCache::default()
         });
@@ -1270,7 +1270,7 @@ fn refresh_cache(
     }
     let cache = &mut wb.pivot_caches[ci];
     cache.fields = fields;
-    let old_records = std::mem::replace(&mut cache.records, records);
+    let old_records = std::mem::replace(&mut cache.records, records.into());
     let old_dirty = std::mem::replace(&mut cache.dirty, true);
     crate::slicer::restore_choices(wb, cache_id, slicer_choices);
     let cache = &mut wb.pivot_caches[ci];

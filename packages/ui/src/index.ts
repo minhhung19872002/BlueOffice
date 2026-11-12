@@ -166,7 +166,15 @@ export {
   type IconLocale,
 } from './iconLibrary/catalog';
 export { svgToPng } from './iconLibrary/raster';
-export { type QuickAccessItem, type SaveState, type TitleBarProps } from './TitleBar';
+export {
+  isCaptionTarget,
+  type QuickAccessItem,
+  type SaveState,
+  type TitleBarProps,
+  titleBarWindow,
+  type TitleBarWindow,
+  type WindowControls,
+} from './TitleBar';
 export {
   CommandSearch,
   isCommandSearchKey,

@@ -80,4 +80,22 @@ export const CUSTOM_ICONS: Record<string, IconSpec> = {
       'CurrencyVnd',
     ),
   ),
+  // Window buttons of the desktop caption (ADR-0016), drawn for 16px: coordinates sit on
+  // half-pixels there (×2/3) so the 1px strokes stay crisp. Plain geometric glyphs.
+  'window.minimize': own(frame(<path d="M5.25 12.75h13.5" />, 'WindowMinimize')),
+  'window.maximize': own(
+    frame(<rect x="5.25" y="5.25" width="13.5" height="13.5" rx="1.5" />, 'WindowMaximize'),
+  ),
+  'window.restore': own(
+    frame(
+      <>
+        <rect x="5.25" y="8.25" width="10.5" height="10.5" rx="1.5" />
+        <path d="M8.25 6.75a1.5 1.5 0 0 1 1.5-1.5h7.5a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5" />
+      </>,
+      'WindowRestore',
+    ),
+  ),
+  'window.close': own(
+    frame(<path d="M5.25 5.25l13.5 13.5M18.75 5.25l-13.5 13.5" />, 'WindowClose'),
+  ),
 };

@@ -121,6 +121,7 @@ bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formu
 bo-query (Lấy & biến đổi dữ liệu: nguồn CSV/JSON/XML/sổ/thư mục/web + ngôn ngữ bước JSON; docs/spec-notes/sheet-queries.md) ◄─ bo-engine (lệnh `query*`)
 bo-segment (xoá nền ảnh: graph cut họ GrabCut, max-flow Boykov–Kolmogorov tự viết, GMM; trait `SegmentationProvider`) ◄─ bo-engine (`picture_bg`: lệnh `pictureBackgroundPreview`/`pictureRemoveBackground`, ô `cellImage*Background`)
 bo-engine (facade: Engine doc+slide, SheetEngine) ◄─ bo-wasm (web) · bo-cli · apps/desktop/src-tauri
+bo-winchrome (Win32: snap layouts trên nút phóng to tự vẽ, menu hệ thống, build Windows; ADR-0016) ◄─ apps/desktop/src-tauri
 bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 bo-script (BlueScript headless: QuickJS-ng/rquickjs + bundle API của packages/script, cầu engine đồng bộ) ◄─ bo-cli (`script run`)
 ```
@@ -184,3 +185,4 @@ cung cấp).
 - [0013](docs/adr/0013-headless-bluescript-runtime.md) BlueScript headless trên server: QuickJS-ng (`rquickjs`, MIT) trong `bo-cli script run`, chạy đúng bundle API của trình duyệt, lịch chạy lưu phiên bản mới (`Scripts:ScheduleEnabled` mặc định tắt)
 - [0014](docs/adr/0014-web-addins.md) Add-in web: iframe sandbox + CSP, JSON-RPC qua postMessage, quyền kiểm từng lệnh, dùng lại API BlueScript, danh mục tổ chức trên server (mặc định tắt)
 - [0015](docs/adr/0015-math-caret-in-place-equation-editing.md) Sửa phương trình tại chỗ: con trỏ toán (vị trí phương trình + đường dẫn ô + offset) trong engine, sửa trên cây `bo_math::Node`, mỗi thay đổi một op thay đối tượng, hình học ô từ layout
+- [0016](docs/adr/0016-desktop-window-chrome.md) Khung cửa sổ desktop: Windows không khung hệ thống, thanh tiêu đề là caption (kéo, nhấp đúp, menu hệ thống, nút cửa sổ), snap layouts qua cửa sổ con `HTMAXBUTTON` (`bo-winchrome`, ngoại lệ `unsafe` duy nhất), Mica Windows 11 sau dải chrome, font giao diện hệ điều hành (`html[data-os]`)

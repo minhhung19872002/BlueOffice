@@ -58,6 +58,9 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | tauri-plugin-deep-link | 2.6.3 | Apache-2.0 OR MIT | Deep link `bluedoc://` · `bluesheet://` · `blueslide://` |
 | tauri-plugin-single-instance | 2.5.5 | Apache-2.0 OR MIT | Chuyển file/deep link sang tiến trình đang chạy |
 | tauri-plugin-updater (feature `updater`) | 2.14.1 | Apache-2.0 OR MIT | Tự cập nhật bản desktop |
+| windows-sys (bo-winchrome, chỉ Windows) | 0.61.2 | MIT OR Apache-2.0 | Binding Win32 (microsoft/windows-rs): vùng bấm snap layouts trên nút phóng to, menu hệ thống của thanh tiêu đề tự vẽ (ADR-0016) |
+| windows-version (bo-winchrome, chỉ Windows) | 0.1.7 | MIT OR Apache-2.0 | Số build Windows: Mica chỉ từ Windows 11 (build 22000), Windows 10 dùng màu đặc (ADR-0016) |
+| window-vibrancy (qua tauri, `set_effects`) | 0.8.1 | Apache-2.0 OR MIT | Nền Mica sau thanh tiêu đề và ribbon trên Windows 11 (ADR-0016) |
 | rsa, sha2, x509-cert, cms, der, spki, const-oid (bo-sign) | 0.9.10, 0.10.9, 0.2.5, 0.2.3, 0.7.10, 0.7.3, 0.9.6 | Apache-2.0 OR MIT | Ký số PAdES / OOXML (RustCrypto) |
 | p256, p384, ecdsa, elliptic-curve, primeorder, sec1, crypto-bigint, ff, group, base16ct, rfc6979 (bo-sign) | 0.13.2, 0.13.1, 0.16.9, 0.13.8, 0.13.6, 0.7.3, 0.5.5, 0.13.1, 0.13.0, 0.2.0, 0.4.0 | Apache-2.0 OR MIT | Ký và kiểm tra chữ ký ECDSA P-256 / P-384 (chứng thư, CRL, OCSP, CMS, XML-DSig) |
 | base64 (bo-sign) | 0.22 | Apache-2.0 OR MIT | Mã hoá chữ ký XML-DSig |

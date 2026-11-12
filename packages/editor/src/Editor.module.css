@@ -12,15 +12,16 @@
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+  gap: var(--bo-space-1, 4px);
+  padding: var(--bo-space-1, 4px) 10px;
   border-radius: var(--bo-radius);
-  color: var(--bo-app-accent-on);
-  font-size: 12px;
+  /* On the title bar's chrome band (accent, or Mica on the desktop; ADR-0016). */
+  color: var(--bo-chrome-band-text, var(--bo-app-accent-on));
+  font-size: var(--bo-font-size-12, 12px);
 }
 
 .hostButton:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--bo-chrome-band-hover, rgb(255 255 255 / 12%));
 }
 
 .workspace {
@@ -50,7 +51,7 @@
   border: 1px solid var(--bo-border);
   border-radius: 10px;
   padding: 28px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--bo-shadow-2);
 }
 
 .card h1 {
@@ -143,7 +144,7 @@
   color: var(--bo-text);
   border: 1px solid var(--bo-border);
   border-radius: var(--bo-radius);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--bo-shadow-2);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -196,7 +197,7 @@
   background: var(--bo-surface, #fff);
   color: var(--bo-text);
   border-left: 1px solid var(--bo-border);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--bo-shadow-1);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -293,7 +294,7 @@
   background: var(--bo-surface, #fff);
   border: 1px solid var(--bo-accent, #2b6cb0);
   border-radius: var(--bo-radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--bo-shadow-2);
 }
 
 .commentReply {
@@ -525,7 +526,7 @@
   background: var(--bo-surface, #fff);
   border: 1px solid var(--bo-accent);
   border-radius: var(--bo-radius);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
+  box-shadow: var(--bo-shadow-2);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -622,7 +623,7 @@
   border: 1px solid var(--bo-border);
   background: var(--bo-surface);
   color: var(--bo-text);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--bo-shadow-2);
   font:
     13px/1.4 system-ui,
     sans-serif;

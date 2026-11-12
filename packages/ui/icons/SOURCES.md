@@ -334,3 +334,7 @@ phẩm khác. Lucide: <https://lucide.dev>, giấy phép ISC (THIRD_PARTY_NOTICE
 | `view.unfreeze` | Lucide (ISC) `Columns2` |
 | `view.zoomIn` | Lucide (ISC) `ZoomIn` |
 | `view.zoomOut` | Lucide (ISC) `ZoomOut` |
+| `window.close` | Bluestar — tự vẽ (`custom.tsx` WindowClose) |
+| `window.maximize` | Bluestar — tự vẽ (`custom.tsx` WindowMaximize) |
+| `window.minimize` | Bluestar — tự vẽ (`custom.tsx` WindowMinimize) |
+| `window.restore` | Bluestar — tự vẽ (`custom.tsx` WindowRestore) |

@@ -3195,6 +3195,54 @@ export interface WindowManager {
    * Absent where the platform cannot move windows (browser tabs).
    */
   arrangeAll?(): Promise<number>;
+  /**
+   * The window's own caption (desktop, ADR-0016): present where the app title bar is the window
+   * caption and draws the window buttons (Windows); absent on the web and on native frames.
+   */
+  chrome?: WindowChrome;
+}
+
+/** Backdrop material behind the title bar and ribbon (`none`: solid colours). */
+export type WindowBackdrop = 'mica' | 'none';
+
+/** Maximised / focused state of the window, for the caption buttons. */
+export interface WindowChromeState {
+  maximized: boolean;
+  focused: boolean;
+}
+
+/** Hover / press state of the native maximise button (snap layouts overlay). */
+export interface MaximizeButtonState {
+  hover: boolean;
+  pressed: boolean;
+}
+
+/**
+ * Caption of a frameless desktop window (ADR-0016). Coordinates are CSS pixels of the page.
+ * The desktop shell also tags `<html>` with `data-os` (font stack) and `data-backdrop`.
+ */
+export interface WindowChrome {
+  readonly os: 'windows' | 'macos' | 'linux';
+  minimize(): void;
+  toggleMaximize(): void;
+  close(): void;
+  /** Starts moving the window with the pressed mouse button (caption drag). */
+  startDragging(): void;
+  /** The system menu (Restore, Move, Size, Minimise, Maximise, Close) at a page point. */
+  showSystemMenu(x: number, y: number): void;
+  getState(): Promise<WindowChromeState>;
+  onStateChange(handler: (state: WindowChromeState) => void): () => void;
+  /**
+   * Where the maximise button is drawn (`null`: nowhere); the shell puts the snap-layouts hit
+   * area there. Its hover / press arrive through {@link onMaximizeButton}.
+   */
+  setMaximizeButton(rect: { x: number; y: number; width: number; height: number } | null): void;
+  onMaximizeButton(handler: (state: MaximizeButtonState) => void): () => void;
+  /**
+   * The backdrop the title bar asks for (follows the app theme; `solid` for high contrast or
+   * reduced transparency); resolves the backdrop now in effect.
+   */
+  setAppearance(appearance: { dark: boolean; solid: boolean }): Promise<WindowBackdrop>;
 }
 
 export interface OfflineCache {

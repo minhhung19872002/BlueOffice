@@ -47,6 +47,9 @@ importers:
       '@blueoffice/hosted':
         specifier: workspace:*
         version: link:../../packages/hosted
+      '@blueoffice/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@blueoffice/platform':
         specifier: workspace:*
         version: link:../../packages/platform
@@ -59,6 +62,9 @@ importers:
       '@blueoffice/storage-providers':
         specifier: workspace:*
         version: link:../../packages/storage-providers
+      '@blueoffice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4

@@ -27,8 +27,10 @@
 
 .title {
   margin: 0;
-  padding: 12px 16px 8px;
-  font-size: 15px;
+  padding: var(--bo-space-3, 12px) var(--bo-space-4, 16px) var(--bo-space-2, 8px);
+  /* Dialog titles: 16px (type scale), display optical size of the OS font (ADR-0016). */
+  font-family: var(--bo-font-display, inherit);
+  font-size: var(--bo-font-size-16, 16px);
   font-weight: 600;
 }
 

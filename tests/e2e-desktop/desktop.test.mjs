@@ -149,6 +149,42 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
     assert.equal(backend, 'doc');
   });
 
+  it(
+    'the title bar is the window caption: maximise / restore from its button (ADR-0016)',
+    {
+      skip: process.platform !== 'win32' && 'native frame outside Windows',
+    },
+    async () => {
+      const root = await exec(
+        'const r = document.documentElement; return [r.dataset.os, r.dataset.chrome, r.dataset.backdrop];',
+      );
+      assert.deepEqual(root.slice(0, 2), ['windows', 'custom']);
+      assert.ok(['mica', 'none'].includes(root[2]));
+      const label = () =>
+        exec(
+          'return document.querySelector("[data-testid=window-maximize]")?.getAttribute("aria-label");',
+        );
+      const maximized = () =>
+        exec(
+          'return window.__TAURI_INTERNALS__.invoke("plugin:window|is_maximized", { label: "main" });',
+        );
+      const before = await label();
+      assert.ok(before, 'window buttons in the title bar');
+      assert.equal(await maximized(), false);
+      await wd('POST', s(`/element/${await find('[data-testid=window-maximize]')}/click`), {});
+      await waitFor(async () => (await maximized()) === true, 'maximised window');
+      await waitFor(async () => ((await label()) !== before ? true : null), 'restore label');
+      await wd('POST', s(`/element/${await find('[data-testid=window-maximize]')}/click`), {});
+      await waitFor(async () => (await maximized()) === false, 'restored window');
+      assert.equal(await label(), before);
+      // Close and minimise are real buttons too (not clicked: they would end the session).
+      const names = await exec(
+        'return [...document.querySelectorAll("[data-testid=window-buttons] button")].map((b) => b.getAttribute("aria-label"));',
+      );
+      assert.equal(names.length, 3);
+    },
+  );
+
   it('types Vietnamese text into the document through the IME input', async () => {
     const before = await exec('return document.querySelector("[role=status]")?.textContent ?? "";');
     const input = await waitFor(() => find('textarea'), 'IME textarea');

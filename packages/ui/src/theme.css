@@ -39,6 +39,61 @@
   background: var(--bo-bg);
 }
 
+/* ---- Window chrome band: title bar + ribbon tab strip (ADR-0016). Declared per app scope so
+   the accent references resolve to the app's accent. Default: the app accent band. */
+:root,
+[data-app],
+.bo-root {
+  --bo-chrome-band-bg: var(--bo-app-accent-strong);
+  --bo-chrome-band-text: var(--bo-app-accent-on);
+  --bo-chrome-band-text-inactive: var(--bo-app-accent-on);
+  --bo-chrome-band-hover: rgb(255 255 255 / 16%);
+  --bo-chrome-band-active: rgb(255 255 255 / 24%);
+  --bo-chrome-band-focus: var(--bo-app-accent-on);
+  --bo-chrome-band-context-bg: rgb(255 255 255 / 6%);
+  --bo-chrome-band-context-text: var(--bo-app-accent-on);
+  --bo-chrome-search-bg: rgb(0 0 0 / 16%);
+  --bo-chrome-search-hover: rgb(0 0 0 / 22%);
+  --bo-chrome-search-edge: rgb(255 255 255 / 28%);
+  --bo-chrome-tab-active-bg: var(--bo-surface);
+  --bo-ribbon-bg: var(--bo-surface);
+}
+
+/* Mica (Windows 11 desktop, `<html data-backdrop="mica">`): the band and the ribbon are
+   see-through; neutral text, the accent only on the app mark, the File tab and the selected
+   tab. The tints over Mica keep text at AA whatever the wallpaper (MICA_BASE, tokens.test.ts). */
+:root[data-backdrop='mica'],
+:root[data-backdrop='mica'] body {
+  background: transparent;
+}
+:root[data-backdrop='mica'] [data-app],
+:root[data-backdrop='mica'] .bo-root {
+  --bo-chrome-band-bg: transparent;
+  --bo-chrome-band-text: var(--bo-text);
+  --bo-chrome-band-text-inactive: var(--bo-text-muted);
+  --bo-chrome-band-hover: var(--bo-hover);
+  --bo-chrome-band-active: var(--bo-active);
+  --bo-chrome-band-focus: var(--bo-focus);
+  --bo-chrome-band-context-bg: var(--bo-app-accent-subtle);
+  --bo-chrome-band-context-text: var(--bo-app-accent-text);
+  --bo-chrome-search-bg: color-mix(in srgb, var(--bo-surface) 70%, transparent);
+  --bo-chrome-search-hover: var(--bo-surface);
+  --bo-chrome-search-edge: var(--bo-border);
+  --bo-chrome-tab-active-bg: var(--bo-ribbon-bg);
+  --bo-chrome-mark: var(--bo-app-accent);
+  --bo-chrome-mark-on: var(--bo-icon-on);
+  --bo-ribbon-bg: color-mix(in srgb, var(--bo-surface) 72%, transparent);
+}
+/* Only the chrome band (title bar + ribbon, `--bo-chrome-h` measured by the title bar) shows
+   the backdrop, under a light tint of the page colour; the document area stays opaque. */
+:root[data-backdrop='mica'] .bo-root {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bo-bg) 40%, transparent) 0 var(--bo-chrome-h, 0px),
+    var(--bo-bg) var(--bo-chrome-h, 0px)
+  );
+}
+
 .bo-root *:focus-visible {
   outline: var(--bo-chrome-focus-width, 2px) solid var(--bo-focus);
   outline-offset: 1px;

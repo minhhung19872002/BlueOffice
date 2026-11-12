@@ -1,4 +1,5 @@
-/* Title bar: 40px on the app accent band (docs/ui/DESIGN.md). */
+/* Title bar: 40px on the chrome band — the app accent, or Mica on Windows 11 desktop
+   (docs/ui/DESIGN.md, ADR-0016). Colours come from the band tokens in theme.css. */
 .bar {
   display: flex;
   align-items: center;
@@ -6,21 +7,28 @@
   height: 40px;
   min-height: 40px;
   padding: 0 var(--bo-space-2, 8px) 0 var(--bo-space-3, 12px);
-  background: var(--bo-app-accent-strong);
-  color: var(--bo-app-accent-on);
+  background: var(--bo-chrome-band-bg);
+  color: var(--bo-chrome-band-text);
   font-size: var(--bo-font-size-13, 13px);
   min-width: 0;
+  /* The caption never selects text when dragged. */
+  user-select: none;
+}
+
+/* Desktop caption: the window buttons run flush to the window edge. */
+.bar[data-caption] {
+  padding-right: 0;
 }
 
 .app {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--bo-space-2, 8px);
   font-weight: 600;
   white-space: nowrap;
-  /* The app mark keeps its own on-accent drawing. */
-  --bo-app-accent: var(--bo-app-accent-on);
-  --bo-icon-on: var(--bo-app-accent-strong);
+  /* The app mark: drawn on-accent over the accent band, in the accent over Mica. */
+  --bo-app-accent: var(--bo-chrome-mark, var(--bo-app-accent-on));
+  --bo-icon-on: var(--bo-chrome-mark-on, var(--bo-app-accent-strong));
 }
 
 .qat {
@@ -30,7 +38,7 @@
 
 .qatBelow {
   display: flex;
-  height: 30px;
+  height: 32px;
   align-items: center;
   padding: 0 var(--bo-space-2, 8px);
   background: var(--bo-surface);
@@ -51,15 +59,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--bo-control-h, 28px);
+  height: var(--bo-control-h, 28px);
   border-radius: var(--bo-radius-sm, 4px);
   cursor: pointer;
   transition: background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
 }
 
 .qatButton:hover:not(:disabled) {
-  background: rgb(255 255 255 / 16%);
+  background: var(--bo-chrome-band-hover);
+}
+
+.qatButton:active:not(:disabled) {
+  background: var(--bo-chrome-band-active);
 }
 
 .qatButton:disabled {
@@ -69,7 +81,7 @@
 
 .qatButton:focus-visible,
 .search:focus-visible {
-  outline: 2px solid var(--bo-app-accent-on);
+  outline: 2px solid var(--bo-chrome-band-focus);
   outline-offset: 1px;
 }
 
@@ -93,27 +105,85 @@
   font-size: var(--bo-font-size-12, 12px);
 }
 
+/* Inactive window: the caption text dims, as framed windows do. */
+.bar[data-focused='false'] .app,
+.bar[data-focused='false'] .doc,
+.bar[data-focused='false'] .captionButton {
+  color: var(--bo-chrome-band-text-inactive);
+}
+
 .search {
   all: unset;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: var(--bo-control-h, 28px);
   padding: 0 10px;
   min-width: 160px;
   border-radius: var(--bo-radius-sm, 4px);
-  /* A darker pill with a light edge: white text keeps 4.5:1 on every app accent (a white
-     tint over the BlueSheet teal gave 4.0:1, WCAG 1.4.3). */
-  background: rgb(0 0 0 / 16%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 28%);
+  /* Accent band: a darker pill with a light edge keeps white text at 4.5:1 on every app accent
+     (a white tint over the BlueSheet teal gave 4.0:1, WCAG 1.4.3). Mica: a surface field. */
+  background: var(--bo-chrome-search-bg);
+  box-shadow: inset 0 0 0 1px var(--bo-chrome-search-edge);
   cursor: text;
   font-size: var(--bo-font-size-12, 12px);
+  transition: background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
+}
+
+.search:hover {
+  background: var(--bo-chrome-search-hover);
 }
 
 .actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ---- Window buttons (desktop caption, ADR-0016): full bar height, 46px wide. */
+.caption {
+  display: inline-flex;
+  align-self: stretch;
+  margin-left: calc(-1 * var(--bo-space-1, 4px));
+}
+
+.captionButton {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  color: var(--bo-chrome-band-text);
+  transition: background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
+}
+
+/* `data-hover` / `data-pressed`: the native snap-layouts hit area sits over the maximise
+   button and reports the pointer state (the page never sees the pointer there). */
+.captionButton:hover,
+.captionButton[data-hover] {
+  background: var(--bo-chrome-band-hover);
+}
+
+.captionButton:active,
+.captionButton[data-pressed] {
+  background: var(--bo-chrome-band-active);
+}
+
+/* Close turns red on hover: the platform convention for the window close button. */
+.closeButton:hover,
+.closeButton:active {
+  background: var(--bo-caption-close-bg);
+  color: var(--bo-caption-close-text);
+}
+
+.closeButton:active {
+  background: var(--bo-caption-close-active);
+}
+
+.captionButton:focus-visible {
+  outline: 2px solid var(--bo-chrome-band-focus);
+  outline-offset: -2px;
 }
 
 @media (max-width: 720px) {
@@ -127,7 +197,20 @@
 }
 
 /* High contrast: the band is yellow on black text; hover uses a solid outline instead. */
-:global([data-theme='hc']) .qatButton:hover:not(:disabled) {
+:global([data-theme='hc']) .qatButton:hover:not(:disabled),
+:global([data-theme='hc']) .captionButton:hover,
+:global([data-theme='hc']) .captionButton[data-hover] {
   background: transparent;
   outline: 1px solid currentColor;
+  outline-offset: -1px;
+}
+
+@media (forced-colors: active) {
+  .captionButton:hover,
+  .captionButton[data-hover],
+  .closeButton:hover {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
 }

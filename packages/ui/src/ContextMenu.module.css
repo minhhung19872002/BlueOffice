@@ -78,7 +78,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .menu {
-    animation: bo-menu-in 120ms ease-out;
+    animation: bo-menu-in var(--bo-duration-fast, 120ms) var(--bo-ease, ease-out);
   }
 }
 

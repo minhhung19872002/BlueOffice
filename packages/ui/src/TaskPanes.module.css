@@ -230,6 +230,6 @@
 @media (prefers-reduced-motion: no-preference) {
   .tool,
   .tab {
-    transition: background-color 120ms ease;
+    transition: background-color var(--bo-duration-fast, 120ms) var(--bo-ease, ease);
   }
 }

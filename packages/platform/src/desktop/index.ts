@@ -40,6 +40,7 @@ import type {
   SlideEditResult,
   UpdateService,
   UpdateStatus,
+  WindowChrome,
   WindowManager,
 } from '../types';
 import { RpcSheetHost, type SheetMethod, type SheetRpc } from '../sheet';
@@ -49,6 +50,7 @@ import { BundledFontSource } from '../web';
 import { WebEngineHost } from '../web/WebEngineHost';
 import { webSheetTransport } from '../web/WebSheetHost';
 import { DesktopAuth, type DesktopScheme } from './auth';
+import { initWindowChrome, type ChromeInfo } from './chrome';
 import { WebCodecsVideo } from '../webcodecs';
 import { FetchRemoteImages } from '../remoteImages';
 import { webSpeech } from '../speech';
@@ -61,6 +63,8 @@ import { webHandwriting } from '../handwriting';
 import { webMediaCapture } from '../mediaCapture';
 
 export { DesktopAuth, DESKTOP_OIDC_PATH, isOidcCallback } from './auth';
+export { DesktopChrome, initWindowChrome, MAX_BUTTON_EVENT } from './chrome';
+export type { ChromeInfo, ChromeWindowApi } from './chrome';
 export type { DesktopAuthOptions, DesktopScheme } from './auth';
 
 /** Minimal `invoke` signature so tests can inject a fake. */
@@ -556,6 +560,8 @@ export class DesktopSigning implements SigningService {
 }
 
 class DesktopWindow implements WindowManager {
+  /** Set by {@link DesktopPlatform.initChrome} where the app title bar is the caption. */
+  chrome?: WindowChrome;
   constructor(private readonly call: Invoke) {}
   setTitle(title: string): void {
     document.title = title;
@@ -749,6 +755,11 @@ export interface DesktopPlatformOptions {
 export interface DesktopPlatform extends Platform {
   auth: DesktopAuth;
   updates: UpdateService;
+  /**
+   * Window chrome (ADR-0016): tags `<html>` with the OS (UI font) and, where the app title bar
+   * is the caption, gives `window.chrome`. Await once before the first render.
+   */
+  initChrome(): Promise<ChromeInfo | null>;
 }
 
 /** Build the desktop platform. */
@@ -763,8 +774,10 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
   );
   const locale = () =>
     (typeof document === 'undefined' ? '' : document.documentElement.lang) || 'vi-VN';
+  const windows = new DesktopWindow(call);
   return {
     kind: 'desktop',
+    initChrome: () => initWindowChrome(windows, call as Parameters<typeof initWindowChrome>[1]),
     files,
     storage: opts.storage ? opts.storage(files) : new FileAccessStorage(files),
     clipboard: new BrowserClipboard(),
@@ -772,7 +785,7 @@ export function createDesktopPlatform(opts: DesktopPlatformOptions = {}): Deskto
     print: new DesktopPrint(call),
     engine,
     auth: new DesktopAuth({ scheme: opts.scheme ?? 'bluedoc', shell }),
-    window: new DesktopWindow(call),
+    window: windows,
     offline: new DesktopDiskCache(call),
     preferences: new LocalPreferences(),
     shell,

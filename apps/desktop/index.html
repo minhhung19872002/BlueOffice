@@ -11,6 +11,11 @@
         margin: 0;
         height: 100%;
       }
+      /* The window is transparent for Mica (ADR-0016): opaque page until the title bar asks
+         for the backdrop (theme.css, html[data-backdrop='mica']). */
+      html {
+        background: var(--bo-bg, #eef1f5);
+      }
     </style>
   </head>
   <body>

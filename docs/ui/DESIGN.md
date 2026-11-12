@@ -27,7 +27,12 @@ trên thanh tiêu đề, tab đang chọn, nút chính. Thang xám trung tính 1
 
 ## Chữ, khoảng cách, chuyển động
 
-- Font UI: Be Vietnam Pro / Inter (OFL), fallback font hệ thống. Cỡ: 11 / 12 / 13 / 14 / 16 / 20 / 24 / 32 px; nhãn ribbon 12px,
+- Font UI: Be Vietnam Pro / Inter (OFL), fallback font hệ thống. Desktop dùng font giao diện của hệ điều hành (`html[data-os]`,
+  `FONT_UI_OS` trong `tokens.ts`, không đóng gói): Windows `Segoe UI Variable Text` (tiêu đề hộp thoại / màn hình Tệp:
+  `--bo-font-display` = `Segoe UI Variable Display`) → `Segoe UI Variable` → `Segoe UI` (Windows 10) → Be Vietnam Pro → `system-ui`
+  → `sans-serif`; macOS `-apple-system` (San Francisco) → `BlinkMacSystemFont` → `Helvetica Neue` → Be Vietnam Pro → `sans-serif`;
+  Linux `system-ui` (font GTK) → Cantarell → Ubuntu → Noto Sans → DejaVu Sans → Be Vietnam Pro → `sans-serif`. Font chữ tài liệu
+  (canvas) không đổi (ADR-0003). Cỡ: 11 / 12 / 13 / 14 / 16 / 20 / 24 / 32 px; nhãn ribbon 12px,
   tiêu đề hộp thoại 16–20px.
 - Lưới 4px; bo góc 4px (nút, ô nhập), 8px (hộp thoại, thẻ, popover); bóng 3 mức (menu, hộp thoại, cửa sổ nổi).
 - Mật độ: Thường (mặc định), Gọn, Cảm ứng (vùng chạm ≥ 40px).
@@ -38,6 +43,13 @@ trên thanh tiêu đề, tab đang chọn, nút chính. Thang xám trung tính 1
 Thanh tiêu đề 40px (icon app, truy cập nhanh, tên tài liệu + trạng thái lưu, ô Tìm kiếm Ctrl+Q / Alt+Q, người cùng sửa, Bình
 luận, Chia sẻ, tài khoản) → hàng tab (Tệp + tab app + tab ngữ cảnh + chuyển chế độ ribbon) → thân ribbon (~92px đầy đủ, ~40px
 đơn giản, tự ẩn) → vùng làm việc (ngăn trái tuỳ app, ngăn tác vụ phải dock/resize) → thanh trạng thái 24px.
+
+Desktop Windows ([ADR-0016](../adr/0016-desktop-window-chrome.md)): cửa sổ không có khung hệ thống, thanh tiêu đề là caption —
+kéo để di chuyển, nhấp đúp phóng to/khôi phục, chuột phải hoặc Alt+Space mở menu hệ thống, cuối thanh là ba nút cửa sổ 46 × 40px
+(Thu nhỏ, Phóng to/Khôi phục, Đóng; Đóng chuyển đỏ `--bo-caption-close-bg` khi rê — quy ước của hệ điều hành). Rê nút Phóng to hiện
+snap layouts. Windows 11: nền Mica sau thanh tiêu đề + ribbon (`html[data-backdrop='mica']`, chữ trung tính, màu nhấn ở icon app,
+tab Tệp và tab đang chọn); Windows 10, tương phản cao, giảm trong suốt: dải màu nhấn như web. Màu của dải lấy từ token
+`--bo-chrome-band-*` / `--bo-ribbon-bg` trong `theme.css`. Web giữ thanh tiêu đề trong trang, không có nút cửa sổ.
 
 ## Quyết định
 

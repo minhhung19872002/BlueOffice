@@ -39,6 +39,8 @@ import {
 } from '@blueoffice/platform';
 import { createDesktopPlatform, isOidcCallback } from '@blueoffice/platform/desktop';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
+import { createI18n } from '@blueoffice/i18n';
+import { TitleBar, titleBarWindow } from '@blueoffice/ui';
 import { lazy, StrictMode, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -57,6 +59,8 @@ const fetchImpl = window.fetch.bind(window) as FetchLike;
 const saves = new OfflineSaves(base.offline);
 const root = createRoot(document.getElementById('root')!);
 const SYNC_KEY = 'syncFolders';
+const i18n = createI18n(language);
+const tr = (key: string): string => i18n.t(key);
 const UPDATE_CHECK_KEY = 'lastUpdateCheck';
 
 // Each app's editor is its own chunk, loaded when that app is shown: the window starts
@@ -125,6 +129,25 @@ function editorOf(app: HostedApp, platform: Platform) {
   );
 }
 
+/**
+ * Window caption of the Start screen (ADR-0016): the editors draw their own title bar; without
+ * a system frame the Start screen needs one too to move, maximise and close the window.
+ */
+function StartCaption() {
+  const controls = base.window.chrome;
+  if (!controls) return null;
+  return (
+    <div className="bo-root" data-app={shellApp} data-theme="light">
+      <TitleBar
+        app={shellApp}
+        appName={tr(`app.${shellApp}`)}
+        quickAccessLabel={tr('titleBar.quickAccess')}
+        window={titleBarWindow(controls, tr)}
+      />
+    </div>
+  );
+}
+
 /** One-line notice over the editor (opening / errors / offline sync of host files). */
 function Notice({ text }: { text: string }) {
   return (
@@ -165,7 +188,19 @@ let drive: DriveSession | null = null;
 let current: HostedEditor | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
+// Window chrome first (UI font, caption buttons, ADR-0016): nothing renders before it is known,
+// so the first paint of any view already has its caption.
+let chromeKnown = false;
+void base
+  .initChrome()
+  .catch(() => null)
+  .then(() => {
+    chromeKnown = true;
+    render();
+  });
+
 function render(): void {
+  if (!chromeKnown) return;
   root.render(
     <StrictMode>
       {notice ? <Notice text={notice} /> : null}
@@ -194,6 +229,7 @@ function render(): void {
       {view === 'start' ? (
         <StartScreen
           language={language}
+          caption={<StartCaption />}
           fetchImpl={fetchImpl}
           serverUrl={server}
           serverFromEnv={serverFromEnv}

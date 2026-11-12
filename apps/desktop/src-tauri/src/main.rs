@@ -9,6 +9,7 @@
 #![allow(clippy::needless_pass_by_value)]
 
 mod automation;
+mod chrome_cmds;
 mod collab_cmds;
 mod perf;
 mod print;
@@ -584,6 +585,10 @@ async fn open_window(app: tauri::AppHandle, query: String) -> Result<String, Str
     .title(title)
     .inner_size(1280.0, 860.0)
     .min_inner_size(720.0, 480.0)
+    // Same chrome as the main window (tauri.conf.json, ADR-0016): the web title bar is the
+    // caption on Windows; macOS / Linux keep their native frame.
+    .decorations(!cfg!(windows))
+    .transparent(cfg!(windows))
     .build()
     .map_err(|e| e.to_string())?;
     Ok(label)
@@ -763,6 +768,12 @@ fn main() {
             app.manage(FontsReady::default());
             #[cfg(feature = "webdriver")]
             automation::create_main(app)?;
+            // The configs turn the system frame off for the Windows caption (ADR-0016); the
+            // other desktops keep their native frame.
+            #[cfg(not(windows))]
+            for w in app.webview_windows().values() {
+                let _ = w.set_decorations(true);
+            }
             // Index the installed fonts without delaying the window.
             let fonts_app = app.handle().clone();
             std::thread::spawn(move || {
@@ -801,6 +812,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            chrome_cmds::chrome_info,
+            chrome_cmds::chrome_set_backdrop,
+            chrome_cmds::chrome_set_max_button,
+            chrome_cmds::chrome_system_menu,
             engine_init,
             engine_open,
             engine_page,

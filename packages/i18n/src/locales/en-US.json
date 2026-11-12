@@ -4790,7 +4790,13 @@
     "quickAccess": "Quick access",
     "saved": "Saved",
     "unsaved": "Not saved",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "window": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    }
   },
   "markup": {
     "title": "Change list",

@@ -2,6 +2,7 @@
 :root {
   --bo-font: 'Be Vietnam Pro', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
   --bo-font-ui: var(--bo-font);
+  --bo-font-display: var(--bo-font);
   --bo-font-size-11: 11px;
   --bo-font-size-12: 12px;
   --bo-font-size-13: 13px;
@@ -301,6 +302,27 @@
 [data-density='touch'] {
   --bo-control-h: 40px;
   --bo-ribbon-large-h: 76px;
+}
+
+:root[data-os='windows'] {
+  --bo-font: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif;
+  --bo-font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif;
+}
+
+:root[data-os='macos'] {
+  --bo-font: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Be Vietnam Pro', sans-serif;
+  --bo-font-display: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Be Vietnam Pro', sans-serif;
+}
+
+:root[data-os='linux'] {
+  --bo-font: system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif;
+  --bo-font-display: system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif;
+}
+
+:root {
+  --bo-caption-close-bg: #C42B1C;
+  --bo-caption-close-active: #A1271A;
+  --bo-caption-close-text: #ffffff;
 }
 
 @media (forced-colors: active) {

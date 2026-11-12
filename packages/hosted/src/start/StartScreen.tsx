@@ -34,6 +34,8 @@ export interface DriveSession {
 
 export interface StartScreenProps {
   language: Language;
+  /** Window caption above the page (desktop title bar without a system frame, ADR-0016). */
+  caption?: ReactNode;
   fetchImpl: FetchLike;
   /** Normalised server URL, or null. */
   serverUrl: string | null;
@@ -700,6 +702,9 @@ export function StartScreen(p: StartScreenProps) {
   const t = (k: StartKey) => startText(p.language, k);
   return (
     <div data-testid="start-screen" style={page}>
+      {p.caption && (
+        <div style={{ position: 'sticky', top: 0, zIndex: 1, flex: 'none' }}>{p.caption}</div>
+      )}
       <header
         style={{
           display: 'flex',

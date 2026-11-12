@@ -1,4 +1,19 @@
-# Bàn giao phiên (cập nhật 2026-11-12, dừng theo yêu cầu chủ dự án)
+# Bàn giao phiên (cập nhật 2026-11-12 chiều, vòng lặp Parity đang chạy)
+
+## Trạng thái (2026-11-12 chiều)
+- `origin/main` = `13e1b631`: đã kiểm tra xanh — cargo fmt/clippy/test workspace (2756 test), WASM, lint, typecheck,
+  `pnpm test`, build web, E2E 354/358 (4 ca hỏng khi chạy song song, qua khi chạy riêng; `a11y.spec.ts:206` hỏng ở cả hai
+  lượt chạy song song → CORE-MISC-006).
+- Đã gộp đợt 3 (Doc: mật khẩu kiểu cũ `w:hash`/`w:salt`, phần lặp theo dòng bảng, EQ `s \hs i \di`, `lvlRestart`/`isLgl`;
+  Sheet: WEBSERVICE giữ cache, FILTERXML namespace, form control theo ô/đổi cỡ/chọn nhiều, Flash Fill token lặp/lồng/tháng VN,
+  ảnh `&G`; Slide: trang ghi chú đầu/chân trang, PDF ghi chú nhiều trang + định dạng, handout ngang, co cỡ chữ khi đổi kích
+  thước, định dạng master vào kiểu master, zoom `showBg`).
+- Đợt 4 đang chạy (worktree agent): BlueDoc DOC-VIEW-001/DOC-TABLE-001/DOC-PAGE-001 + lỗi Shift+F9 cuối đoạn; BlueSheet
+  SHEET-PERF-002/001, SHEET-CELL-001; Core CORE-UI-003/006, CORE-PIC-001, CORE-SHAPE-001.
+- Bài học: agent `isolation: worktree` có thể tạo nhánh từ `origin/main` cũ → luôn bảo agent `git merge origin/main` trước;
+  push `main` trước khi giao agent mới.
+
+---
 
 Trạng thái vòng lặp Parity (`BlueOffice-PARITY-PROMPT.md`). Phiên sau đọc file này trước, rồi `BACKLOG.md`.
 Số liệu: 85 `[x]`, 82 `[p]`, 2 `[~]`/`[ ]` (CORE-MISC-001 mục gom + mục OFFICE-BEHAVIOUR, CORE-MISC-006 test chập chờn).

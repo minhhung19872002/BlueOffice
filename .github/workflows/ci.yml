@@ -267,3 +267,21 @@ jobs:
         run: pnpm --filter @blueoffice/desktop tauri build --no-bundle --features updater,webdriver --config src-tauri/tauri.webdriver.conf.json
       - run: pnpm test:e2e:desktop
         if: matrix.e2e
+      # Desktop speed (docs/perf/BASELINE.md): start-up, open a 100-page .docx, key → paint,
+      # scrolling, RAM and React renders per keystroke, on the release (webdriver) build above.
+      # Compared with docs/perf/baselines/ci-windows-latest.json: warn > 5 % slower, fail
+      # > 20 % (shared runners are noisy; differences under 5 ms / 10 MB / 2 FPS are ignored).
+      # Without a committed baseline the step only reports (seed it from the uploaded JSON).
+      - name: Desktop performance
+        if: matrix.e2e
+        run: |
+          cargo build --release -p bo-cli
+          node scripts/perf-desktop.mjs --runs 5 --profile ci-windows-latest
+        env:
+          BO_CLI: ${{ github.workspace }}/target/release/bo-cli.exe
+      - uses: actions/upload-artifact@v4
+        if: matrix.e2e && always()
+        with:
+          name: desktop-perf
+          path: out/perf/desktop-perf.*
+          if-no-files-found: ignore

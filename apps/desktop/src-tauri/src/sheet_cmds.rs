@@ -148,7 +148,7 @@ pub fn sheet_call(
     args: Vec<Value>,
 ) -> Result<Value, String> {
     let mut e = state.0.lock().map_err(|e| e.to_string())?;
-    dispatch(&mut e, &method, &args)
+    crate::perf::timed(&method, || dispatch(&mut e, &method, &args))
 }
 
 /// Binary results: `save` (format, sheet), `exportPdf` and `printPdf` (options JSON).

@@ -27,7 +27,9 @@ pub use cell_media::{
     CellImage, CellImageSource, ImageSizing, CALC_ORIGIN_DECORATIVE, CALC_ORIGIN_STANDALONE,
 };
 pub use custom_view::{CustomSheetView, CustomWorkbookView, SheetViewType};
-pub use form_control::{CheckState, ControlAnchor, FormControl, FormControlKind};
+pub use form_control::{
+    CheckState, ControlAnchor, ControlPlacement, FormControl, FormControlKind, SelType,
+};
 
 /// Maximum number of rows in a worksheet (ECMA-376 Part 1, §18.3.1.73: `r` ≤ 1048576).
 pub const MAX_ROWS: u32 = 1_048_576;

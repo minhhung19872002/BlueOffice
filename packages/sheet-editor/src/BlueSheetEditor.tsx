@@ -9565,7 +9565,13 @@ function SheetEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSheetE
           }}
         />
       )}
-      {dialog?.kind === 'pageSetup' && <PageSetupDialog {...common} range={toRange(r)} />}
+      {dialog?.kind === 'pageSetup' && (
+        <PageSetupDialog
+          {...common}
+          range={toRange(r)}
+          pickFile={(accept) => platform.files.openFile(accept)}
+        />
+      )}
       {dialog?.kind === 'customViews' && host && (
         <CustomViewsDialog
           host={host}

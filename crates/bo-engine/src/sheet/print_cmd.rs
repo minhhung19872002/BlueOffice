@@ -201,8 +201,20 @@ pub(super) fn apply_extra(ws: &mut Worksheet, x: PrintSetupExtra) -> Result<()> 
     Ok(())
 }
 
-/// Extra fields of the `pageSetup` query.
-pub(super) fn extra_json(ws: &Worksheet) -> Value {
+/// Extra fields of the `pageSetup` query (`parts`: the workbook's kept parts, for the
+/// header / footer pictures).
+pub(super) fn extra_json(ws: &Worksheet, parts: &[bo_model::sheet::OpaquePart]) -> Value {
+    let pictures: Vec<Value> = bo_xlsx::hfpicture::pictures(ws, parts)
+        .into_iter()
+        .map(|p| {
+            json!({
+                "section": p.section,
+                "width": p.width,
+                "height": p.height,
+                "name": p.title,
+            })
+        })
+        .collect();
     let p = &ws.page_setup;
     let (_, cols) = ws
         .print_titles
@@ -225,6 +237,7 @@ pub(super) fn extra_json(ws: &Worksheet) -> Value {
         "errors": attr(a, "errors").unwrap_or("displayed"),
         "comments": attr(a, "cellComments").unwrap_or("none"),
         "hfMargins": [m.header, m.footer],
+        "hfPictures": pictures,
         "headerFooter": {
             "oddHeader": p.odd_header.clone().unwrap_or_default(),
             "oddFooter": p.odd_footer.clone().unwrap_or_default(),

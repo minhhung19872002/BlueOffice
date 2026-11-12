@@ -99,7 +99,7 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 
 | Tính năng | Đọc | Hiển thị | Tạo/sửa | Round-trip | Web | Desktop | Cộng tác | Test | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 508/515 tính được; 7 hàm Cube giữ công thức + giá trị cache (không có nguồn OLAP, gõ mới → #NAME?); RTD giữ giá trị cache; WEBSERVICE cần provider |
+| Hàm (515) | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | functions.md | 🟡 | 508/515 tính được; 7 hàm Cube giữ công thức + giá trị cache (không có nguồn OLAP, gõ mới → #NAME?); RTD giữ giá trị cache; WEBSERVICE cần provider (không có thì giữ giá trị cache của file), FILTERXML giải namespace (SHEET-FN-WEB) |
 | Mảng động, LET, LAMBDA | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | @, trim ref, liên kết ngoài | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | |
 | Định dạng số | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu [DBNum], lịch âm |
@@ -109,16 +109,16 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | PivotChart | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests | 🟡 | |
 | Slicer / Timeline | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | slicers.rs, timelines.rs, writer-slicers-*, timeline-1, sheet-slicer/timeline.spec | 🟡 | slicer bảng tạo/lọc/lưu; slicer pivot và timeline đọc/lọc/lưu lựa chọn (chưa tạo mới) |
 | Goal Seek / Data Table / Solver | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | + Scenario Manager & báo cáo (SHEET-WHATIF-003); Solver phi tuyến/tiến hoá/`dif` + 3 báo cáo (SHEET-SOLVER-002) |
-| Kiểm tra công thức / tuỳ chọn tính | — | — | ✅ | ✅ | ✅ | ✅ | — | audit.rs, audit.test | 🟡 | truy vết, đánh giá từng bước, kiểm tra lỗi, cửa sổ theo dõi, thủ công/lặp/precision (SHEET-AUDIT-001) |
+| Kiểm tra công thức / tuỳ chọn tính | — | — | ✅ | ✅ | ✅ | ✅ | — | audit.rs, audit.test | 🟡 | truy vết, đánh giá từng bước, kiểm tra lỗi, cửa sổ theo dõi, thủ công/lặp/precision, Shift+F9 chỉ tính sheet hiện tại, chèn hàng ở chế độ thủ công không tính (SHEET-AUDIT-001) |
 | Lấy & biến đổi dữ liệu / data model | 🟡 | ✅ | ✅ | ✅ | ✅ | ✅ | — | bo-query, sheet_query.rs, sheet-query.spec | 🟡 | truy vấn CSV/JSON/XML/sổ tính/thư mục/web + bước biến đổi, làm mới (SHEET-PQ-001); DataMashup của phần mềm khác giữ nguyên; data model: quan hệ, measure, pivot nhiều bảng (SHEET-DM-001, một phần) |
-| Flash Fill, Text to Columns | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | Flash Fill (SHEET-FLASH-001), Text to Columns + xoá trùng + Consolidate + Subtotal + dàn ý (SHEET-DATA-002); thiếu gợi ý khi gõ, thanh dàn ý |
+| Flash Fill, Text to Columns | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | Flash Fill (SHEET-FLASH-001: lặp mọi token, token lồng, tên tháng Việt/Anh ↔ số), Text to Columns + xoá trùng + Consolidate + Subtotal + dàn ý (SHEET-DATA-002); thiếu gợi ý khi gõ, thanh dàn ý |
 | Analysis ToolPak | — | — | ✅ | — | ✅ | ✅ | — | — | 🟡 | 19 công cụ phân tích thống kê (SHEET-ATP-001); thiếu biểu đồ đầu ra |
 | Sparklines | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-sparklines-* | 🟡 | đọc/ghi/vẽ/sửa (SHEET-SPARK-001); chưa dịch theo chèn hàng/cột |
 | Bảng (ListObject) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | 🟡 | thiếu total row tự động |
 | Comment luồng / notes | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | tests | ✅ | |
 | Bảo vệ sheet/workbook | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | tests | ✅ | |
-| Form controls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-form-controls-* | 🟡 | 9 loại, ô liên kết hai chiều (SHEET-FORMCTL-001); chưa dịch theo chèn hàng/cột |
-| In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests, view_cmd_tests, sheet-views.spec, print_job.rs | 🟡 | + Page Break Preview kéo ngắt, Page Layout view, Custom Views, Show Formulas (SHEET-VIEW-001); bảng In chung, nhiều trang/tờ, chọn trang (CORE-PRINT-001) |
+| Form controls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | corpus writer-form-controls-*, sheet_form_controls.rs | 🟡 | 9 loại, ô liên kết hai chiều, dịch theo chèn/xoá hàng cột theo `moveWithCells`/`sizeWithCells`, đổi cỡ, list box chọn nhiều (SHEET-FORMCTL-001); chưa in/PDF điều khiển |
+| In bảng tính | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | tests, view_cmd_tests, sheet-views.spec, print_job.rs | 🟡 | + Page Break Preview kéo ngắt, Page Layout view, Custom Views, Show Formulas (SHEET-VIEW-001); bảng In chung, nhiều trang/tờ, chọn trang (CORE-PRINT-001); ảnh đầu/chân trang `&G` (SHEET-PRINT-001); chưa in bình luận "như hiển thị" |
 | Hiệu năng 1 triệu ô | — | ✅ | ✅ | — | ✅ | ✅ | — | bench | 🟡 | chưa đo 10 triệu ô, pivot 1 triệu dòng |
 
 ## BlueSlide

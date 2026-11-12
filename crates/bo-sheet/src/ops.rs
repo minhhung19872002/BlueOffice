@@ -9,7 +9,8 @@
 use crate::calc::{Dimension, FormulaAdjuster, StructuralChange};
 use crate::shift::{lost_ref, AnchorMode, RefShift};
 use bo_model::sheet::{
-    CellRef, ChartAnchor, ColInfo, PaneState, TableColumn, Workbook, Worksheet, MAX_COLS, MAX_ROWS,
+    CellRef, ChartAnchor, ColInfo, ControlPlacement, PaneState, TableColumn, Workbook, Worksheet,
+    MAX_COLS, MAX_ROWS,
 };
 use std::collections::BTreeMap;
 
@@ -281,11 +282,17 @@ fn move_sheet_content(ws: &mut Worksheet, m: RefShift) {
     for g in ws.shape_groups.iter_mut().filter(|g| !g.in_file) {
         frame(&mut g.from, &mut g.to);
     }
-    // Form controls ([MS-XLSX] `controlPr/anchor` with `moveWithCells`, the default Excel
-    // writes): they move with their top-left cell and keep their size. Their linked cell
-    // and input range are formulas, rewritten in `adjust_formulas`.
+    // Form controls ([MS-XLSX] `controlPr/anchor` `moveWithCells` / `sizeWithCells`): by
+    // default they move with their top-left cell and keep their size; "move and size"
+    // controls stretch with their cells, "fixed" ones stay. Their linked cell and input
+    // range are formulas, rewritten in `adjust_formulas`.
     for c in &mut ws.form_controls {
-        c.anchor = m.anchor(&c.anchor, AnchorMode::Move);
+        let mode = match c.placement {
+            ControlPlacement::Move => AnchorMode::Move,
+            ControlPlacement::MoveAndSize => AnchorMode::MoveAndSize,
+            ControlPlacement::Fixed => AnchorMode::Fixed,
+        };
+        c.anchor = m.anchor(&c.anchor, mode);
     }
     // Sparklines ([MS-XLSX] `x14:sparkline` `xm:sqref`): drawn in one cell, gone with it;
     // a group left without sparklines is removed. Data ranges: `adjust_formulas`.

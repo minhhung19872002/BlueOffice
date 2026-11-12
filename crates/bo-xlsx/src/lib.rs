@@ -32,6 +32,7 @@ pub mod diagram_write;
 pub mod extlink;
 pub mod formctl;
 mod group;
+pub mod hfpicture;
 mod pivot;
 pub mod pivot_write;
 mod read;

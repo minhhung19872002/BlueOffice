@@ -295,3 +295,30 @@
   border-radius: 4px;
   padding: 4px 8px;
 }
+
+/* Bottom-right handle of a selected control: drag to resize (Shift+arrow keys too). */
+.resizeHandle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--bo-sheet-accent, #0b7a6b);
+  background: var(--bo-surface, #fff);
+  cursor: nwse-resize;
+}
+
+/* Keyboard focus of a multi-select list box. */
+.itemFocus {
+  outline: 1px dotted currentcolor;
+  outline-offset: -1px;
+}
+
+.placements {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--bo-border, #c9d1dc);
+  border-radius: 6px;
+  padding: 6px 10px;
+}

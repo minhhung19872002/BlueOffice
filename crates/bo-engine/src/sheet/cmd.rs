@@ -945,6 +945,26 @@ pub enum SheetCommand {
         /// 0-based sheet index.
         sheet: usize,
     },
+    /// Put (base64 `image`) or remove (`image: null`) the picture of a header / footer
+    /// section printed where its text has `&G` (§18.3.1.50 legacyDrawingHF). One undo step.
+    HeaderFooterPicture {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Section: `LH` `CH` `RH` `LF` `CF` `RF`, optionally + `FIRST` / `EVEN`.
+        section: String,
+        /// Image bytes, base64 (PNG, JPEG, GIF, BMP).
+        #[serde(default)]
+        image: Option<String>,
+        /// File extension of the image (default `png`).
+        #[serde(default)]
+        ext: Option<String>,
+        /// Printed size in points `[width, height]` (default: the image at 96 dpi).
+        #[serde(default)]
+        size: Option<[f64; 2]>,
+        /// Name of the picture.
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// Source range (current region of the selection) and field names for
     /// the "Insert pivot table" dialog.
     PivotSource {
@@ -1826,7 +1846,9 @@ pub enum SheetCommand {
         /// Index of the control on the sheet.
         index: usize,
     },
-    /// Choose item `sel` (1-based, 0 = none) of a combo / list box. One undo step.
+    /// Choose item `sel` (1-based, 0 = none) of a combo / list box; a multi-select list box
+    /// ([MS-XLSX] `selType` `multi` / `extend`) combines the click with its selection
+    /// (`ctrl` / `shift` for `extend`). One undo step.
     FormControlSelect {
         /// 0-based sheet index.
         sheet: usize,
@@ -1834,6 +1856,12 @@ pub enum SheetCommand {
         index: usize,
         /// Item.
         sel: u32,
+        /// Ctrl held.
+        #[serde(default)]
+        ctrl: bool,
+        /// Shift held.
+        #[serde(default)]
+        shift: bool,
     },
     /// Set or step a scroll bar / spin button. One undo step.
     FormControlValue {
@@ -1859,6 +1887,21 @@ pub enum SheetCommand {
         index: usize,
         /// The settings.
         spec: super::formctl_cmd::FormatControlSpec,
+    },
+    /// Resize a form control: its bottom-right corner goes to `row`, `col` (+ offset in
+    /// points); the top-left corner stays. One undo step.
+    ResizeFormControl {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Index of the control on the sheet.
+        index: usize,
+        /// New bottom-right cell.
+        row: u32,
+        /// Its column.
+        col: u32,
+        /// Offset into the cell in points (x, y).
+        #[serde(default)]
+        offset: Option<(f64, f64)>,
     },
     /// Move a form control (size in cells kept). One undo step.
     MoveFormControl {
@@ -2531,6 +2574,7 @@ impl SheetEngine {
             | C::InsertFormControl { sheet, .. }
             | C::FormatFormControl { sheet, .. }
             | C::MoveFormControl { sheet, .. }
+            | C::ResizeFormControl { sheet, .. }
             | C::DeleteFormControl { sheet, .. }
             | C::SparklineInsert { sheet, .. }
             | C::SparklineEdit { sheet, .. }
@@ -3218,9 +3262,13 @@ impl SheetEngine {
                 name,
             } => self.form_control_insert(sheet, kind, row, col, text, name),
             C::FormControlClick { sheet, index } => self.form_control_click(sheet, index),
-            C::FormControlSelect { sheet, index, sel } => {
-                self.form_control_select(sheet, index, sel)
-            }
+            C::FormControlSelect {
+                sheet,
+                index,
+                sel,
+                ctrl,
+                shift,
+            } => self.form_control_select(sheet, index, sel, fc_click(ctrl, shift)),
             C::FormControlValue {
                 sheet,
                 index,
@@ -3238,6 +3286,13 @@ impl SheetEngine {
                 col,
                 offset,
             } => self.form_control_move(sheet, index, row, col, offset.unwrap_or_default()),
+            C::ResizeFormControl {
+                sheet,
+                index,
+                row,
+                col,
+                offset,
+            } => self.form_control_resize(sheet, index, row, col, offset.unwrap_or_default()),
             C::DeleteFormControl { sheet, index } => self.form_control_delete(sheet, index),
             C::RangeStats { sheet, ranges } => {
                 let ws = self.sheet(sheet)?;
@@ -4427,10 +4482,52 @@ impl SheetEngine {
                     "printArea": ws.print_area,
                     "titleRows": rows.map(|(a, b)| [a, b]),
                     "gridLines": p.print_grid_lines,
-                    "extra": super::print_cmd::extra_json(ws),
+                    "extra": super::print_cmd::extra_json(
+                        ws,
+                        self.wb.as_ref().map_or(&[][..], |wb| &wb.opaque.parts),
+                    ),
                 }))
             }
             C::PrintPreview { sheet, page } => self.print_preview(sheet, page),
+            C::HeaderFooterPicture {
+                sheet,
+                section,
+                image,
+                ext,
+                size,
+                name,
+            } => {
+                let bytes = match image {
+                    Some(b64) => Some(
+                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64.trim())
+                            .map_err(|_| bad("bad picture data"))?,
+                    ),
+                    None => None,
+                };
+                let size = size.or_else(|| {
+                    let (w, h) = crate::edit::image_size(bytes.as_deref()?)?;
+                    Some([f64::from(w) * 0.75, f64::from(h) * 0.75])
+                });
+                let ext = ext.unwrap_or_else(|| "png".to_owned());
+                let title = name.unwrap_or_default();
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let pic = match (&bytes, size) {
+                        (Some(b), Some([w, h])) if !b.is_empty() => {
+                            Some(bo_xlsx::hfpicture::NewPicture {
+                                data: b,
+                                ext: &ext,
+                                width: w,
+                                height: h,
+                                title: &title,
+                            })
+                        }
+                        (Some(_), _) => return Err(bad("unreadable picture")),
+                        (None, _) => None,
+                    };
+                    bo_xlsx::hfpicture::set_picture(wb, sheet, &section, pic).map_err(bad)?;
+                    Ok(json!({ "ok": true }))
+                })
+            }
             C::PivotSource { sheet, range } => {
                 let ws = self.sheet(sheet)?;
                 let r = current_region(ws, range.range());
@@ -7048,4 +7145,9 @@ mod tests {
             ColumnFilter::Color { .. }
         ));
     }
+}
+
+/// Modifier keys of a list box click.
+fn fc_click(ctrl: bool, shift: bool) -> bo_sheet::formctl::ListClick {
+    bo_sheet::formctl::ListClick { ctrl, shift }
 }

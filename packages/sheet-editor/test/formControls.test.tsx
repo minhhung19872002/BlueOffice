@@ -35,6 +35,9 @@ function ctl(kind: FormControlKind, index: number, extra: Partial<FormControlInf
     items: null,
     checked: 'unchecked',
     sel: 0,
+    selType: 'single',
+    multiSel: [],
+    placement: 'move',
     val: 0,
     min: 0,
     max: 100,
@@ -197,6 +200,85 @@ describe('FormControlLayer', () => {
     expect(screen.getByText('Frame')).toBeTruthy();
   });
 
+  it('multi-select list boxes show their selection and pass the modifier keys', async () => {
+    const list = [
+      ctl('listBox', 0, {
+        items: ['A', 'B', 'C', 'D'],
+        selType: 'extend',
+        multiSel: [1, 3],
+        sel: 3,
+      }),
+    ];
+    const { calls } = layer(list);
+    const lb = await screen.findByRole('listbox');
+    expect(lb.getAttribute('aria-multiselectable')).toBe('true');
+    const options = within(lb).getAllByRole('option');
+    expect(options.map((o) => o.getAttribute('aria-selected'))).toEqual([
+      'true',
+      'false',
+      'true',
+      'false',
+    ]);
+    fireEvent.click(options[3]!, { ctrlKey: true });
+    expect(calls.at(-1)).toEqual({
+      cmd: 'formControlSelect',
+      sheet: 0,
+      index: 0,
+      sel: 4,
+      ctrl: true,
+    });
+    fireEvent.click(options[1]!, { shiftKey: true });
+    expect(calls.at(-1)).toEqual({
+      cmd: 'formControlSelect',
+      sheet: 0,
+      index: 0,
+      sel: 2,
+      shift: true,
+    });
+    // Keyboard: Space chooses the focused item.
+    fireEvent.keyDown(lb, { key: ' ', ctrlKey: true });
+    expect(calls.at(-1)).toEqual({
+      cmd: 'formControlSelect',
+      sheet: 0,
+      index: 0,
+      sel: 2,
+      ctrl: true,
+    });
+  });
+
+  it('resizes with the corner handle and with Shift+arrow keys', async () => {
+    const list = [ctl('button', 0)];
+    const { calls } = layer(list, {}, 0);
+    const handle = await screen.findByTestId('form-control-resize');
+    fireEvent.mouseDown(handle, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 160, clientY: 130 });
+    fireEvent.mouseUp(window, { clientX: 160, clientY: 130 });
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'resizeFormControl' && c.row === 4 && c.col === 2)).toBe(
+        true,
+      ),
+    );
+    const frame = screen.getByTestId('form-control-selected');
+    fireEvent.keyDown(frame, { key: 'ArrowDown', shiftKey: true });
+    expect(calls.at(-1)).toEqual({
+      cmd: 'resizeFormControl',
+      sheet: 0,
+      index: 0,
+      row: 2,
+      col: 3,
+      offset: [0, 0],
+    });
+    fireEvent.keyDown(frame, { key: 'ArrowRight' });
+    expect(calls.at(-1)).toEqual({
+      cmd: 'moveFormControl',
+      sheet: 0,
+      index: 0,
+      row: 0,
+      col: 2,
+      offset: [0, 0],
+    });
+  });
+
   it('reports a button macro instead of running it', async () => {
     const { onNotice, calls } = layer(
       [ctl('button', 0, { text: 'Báo cáo', macro: 'ChayBaoCao' })],
@@ -281,6 +363,29 @@ describe('FormatControlDialog', () => {
       page: 10,
       horiz: true,
       noThreeD: false,
+      placement: 'move',
+    });
+  });
+
+  it('sends the selection type of a list box and the object positioning', async () => {
+    const onApply = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <FormatControlDialog
+          info={ctl('listBox', 0, { inputRange: '$A$1:$A$3' })}
+          onClose={() => {}}
+          onApply={onApply}
+        />
+      </I18nextProvider>,
+    );
+    fireEvent.click(screen.getByTestId('fc-seltype-extend'));
+    fireEvent.click(screen.getByTestId('fc-placement-moveAndSize'));
+    fireEvent.click(screen.getByTestId('format-control-ok'));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(onApply.mock.calls[0]![0]).toMatchObject({
+      inputRange: '$A$1:$A$3',
+      selType: 'extend',
+      placement: 'moveAndSize',
     });
   });
 

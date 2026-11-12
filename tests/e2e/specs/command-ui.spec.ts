@@ -268,16 +268,21 @@ test('slide: the mini toolbar has font name / size boxes; spelling uses the shar
   const menu = page.getByTestId('spell-menu');
   await expect(menu).toHaveAttribute('role', 'menu');
   await expect(menu.locator('[data-menu-command="edit.copy"]')).toBeVisible();
-  await expect(menu.locator('[data-menu-command="spell.pick.chào"]')).toHaveAttribute(
-    'data-active',
-    'true',
-  );
+  // Keyboard: Home goes to the first correction ("chào"), Enter runs it (the pointer may rest
+  // on another line of the menu).
+  const pick = menu.locator('[data-menu-command="spell.pick.chào"]');
+  await page.keyboard.press('Home');
+  await expect(pick).toHaveAttribute('data-active', 'true');
+  await page.keyboard.press('ArrowDown');
+  await expect(pick).not.toHaveAttribute('data-active', 'true');
+  await page.keyboard.press('Home');
+  await expect(pick).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(editor).toHaveValue('Xin chào the documnet', { timeout: 15_000 });
   await expect(menu).toHaveCount(0);
 
   // Select the text with the mouse: the floating bar shows the font name and size boxes.
-  const box = (await page.getByTestId('selection-box').first().boundingBox())!;
+  const box = tb;
   await page.mouse.move(box.x + 6, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width - 6, box.y + box.height / 2, { steps: 6 });

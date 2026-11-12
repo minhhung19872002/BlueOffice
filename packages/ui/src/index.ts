@@ -350,6 +350,7 @@ export {
   type TaskPaneHostProps,
   type TaskPaneLabels,
   type TaskPaneLayout,
+  type TaskPaneLayoutUpdate,
   type TaskPanePlacement,
   type TaskPaneRect,
   type TaskPaneSide,

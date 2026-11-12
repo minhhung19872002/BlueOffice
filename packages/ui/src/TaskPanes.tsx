@@ -244,7 +244,7 @@ export function reopenedTaskPanes<T extends string>(
  */
 export function useRememberOpenTaskPanes(
   layout: TaskPaneLayout,
-  onLayout: (next: TaskPaneLayout) => void,
+  onLayout: (next: (prev: TaskPaneLayout) => TaskPaneLayout) => void,
   open: readonly string[],
   restore?: (ids: string[]) => void,
 ) {
@@ -260,8 +260,9 @@ export function useRememberOpenTaskPanes(
       if (!key) return;
       waiting.current = false;
     }
-    const next = rememberOpenTaskPanes(layout, key ? key.split('|') : []);
-    if (next !== layout) onLayout(next);
+    const ids = key ? key.split('|') : [];
+    if (rememberOpenTaskPanes(layout, ids) !== layout)
+      onLayout((prev) => rememberOpenTaskPanes(prev, ids));
   }, [key, layout, onLayout]);
 }
 
@@ -291,16 +292,24 @@ export function clampTaskPaneRect(r: TaskPaneRect, bounds: { w: number; h: numbe
 }
 
 /** Layout state of one app's panes, remembered in `storage` (default: local storage). */
+/** A new layout, or how to make it from the latest one. */
+export type TaskPaneLayoutUpdate = TaskPaneLayout | ((prev: TaskPaneLayout) => TaskPaneLayout);
+
 export function useTaskPaneLayout(
   app: string,
   storage?: TaskPaneStorage | null,
-): [TaskPaneLayout, (next: TaskPaneLayout) => void] {
+): [TaskPaneLayout, (next: TaskPaneLayoutUpdate) => void] {
   const [store] = useState(() => (storage === undefined ? defaultStorage() : storage));
   const [layout, setLayout] = useState(() => loadTaskPaneLayout(app, store));
+  // Updates in one commit (the host's and the open-pane list's) build on each other.
+  const latest = useRef(layout);
   const update = useCallback(
-    (next: TaskPaneLayout) => {
-      setLayout(next);
-      saveTaskPaneLayout(app, next, store);
+    (next: TaskPaneLayoutUpdate) => {
+      const value = typeof next === 'function' ? next(latest.current) : next;
+      if (value === latest.current) return;
+      latest.current = value;
+      setLayout(value);
+      saveTaskPaneLayout(app, value, store);
     },
     [app, store],
   );

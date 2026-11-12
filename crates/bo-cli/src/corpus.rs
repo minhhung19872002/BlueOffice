@@ -871,6 +871,36 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
         ..Doc::default()
     }));
 
+    // §17.9.10 lvlRestart, §17.9.4 isLgl, and a restart at level 2 (§17.9.26 startOverride on
+    // ilvl 1) that keeps the level-1 counter.
+    let lvl = |ilvl: u8, fmt: &str, extra: &str, text: &str| {
+        let ind = 720 * (u32::from(ilvl) + 1);
+        format!(
+            r#"<w:lvl w:ilvl="{ilvl}"><w:start w:val="1"/><w:numFmt w:val="{fmt}"/>{extra}<w:lvlText w:val="{text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="{ind}" w:hanging="720"/></w:pPr></w:lvl>"#
+        )
+    };
+    v.push(("lists-05-restart-legal.docx", "lists", "Danh sách đa cấp: cấp 3 chỉ bắt đầu lại sau cấp 1 (lvlRestart), kiểu pháp lý isLgl (I → 1), bắt đầu lại ở cấp 2 (startOverride ilvl 1) không đặt lại cấp 1", Doc {
+        body: [
+            li(1, 0, "Chương"),
+            li(1, 1, "Mục"),
+            li(1, 2, "Điều"),
+            li(1, 1, "Mục"),
+            li(1, 2, "Điều nối tiếp"),
+            li(2, 1, "Mục bắt đầu lại từ e"),
+            li(1, 0, "Chương"),
+            li(1, 2, "Điều"),
+        ]
+        .concat(),
+        sect: s.clone(),
+        numbering: Some(format!(
+            r#"<w:abstractNum w:abstractNumId="0"><w:nsid w:val="1A2B3C50"/><w:multiLevelType w:val="multilevel"/>{}{}{}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="1"><w:startOverride w:val="5"/></w:lvlOverride></w:num>"#,
+            lvl(0, "upperRoman", "", "%1."),
+            lvl(1, "lowerLetter", "", "%2)"),
+            lvl(2, "decimal", r#"<w:lvlRestart w:val="1"/><w:isLgl/>"#, "%1.%2.%3."),
+        )),
+        ..Doc::default()
+    }));
+
     // ---- sections, headers/footers (§17.6, §17.10)
     let hdr = |t: &str| p(t);
     v.push(("sections-01-landscape-columns.docx", "sections", "Section dọc → ngang (nextPage) → 2 cột (continuous)", Doc {
@@ -1348,6 +1378,41 @@ fn documents() -> Vec<(&'static str, &'static str, &'static str, Doc)> {
             r#"<w:p><w:r><w:t xml:space="preserve">Date: </w:t></w:r><w:sdt><w:sdtPr><w:id w:val="5003"/><w:date w:fullDate="2026-11-12T00:00:00Z"><w:dateFormat w:val="MMMM d, yyyy"/><w:lid w:val="en-US"/><w:storeMappedDataAs w:val="dateTime"/><w:calendar w:val="gregorian"/></w:date></w:sdtPr><w:sdtContent><w:r><w:t>November 12, 2026</w:t></w:r></w:sdtContent></w:sdt></w:p>"#,
             r#"<w:sdt><w:sdtPr><w:alias w:val="Khối"/><w:id w:val="5004"/><w:showingPlcHdr/><w:docPartList><w:docPartGallery w:val="Quick Parts"/><w:docPartCategory w:val="General"/></w:docPartList></w:sdtPr><w:sdtContent><w:p><w:r><w:t>Chọn một khối dựng sẵn.</w:t></w:r></w:p></w:sdtContent></w:sdt>"#,
             r#"<w:p><w:r><w:t xml:space="preserve">EQ: </w:t></w:r><w:fldSimple w:instr=" EQ \f(1,2) "><w:r><w:t>1/2</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ \r(3,x) "><w:r><w:t>x</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ x\s\up8(2) "><w:r><w:t>x2</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ \x(A) "><w:r><w:t>A</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> </w:t></w:r><w:fldSimple w:instr=" EQ \b\bc\{(\a\co2(1,2,3,4)) "><w:r><w:t>1 2 3 4</w:t></w:r></w:fldSimple></w:p>"#,
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    // A repeating section of table rows (§17.5.2.32 sdt around w:tr, CT_SdtContentRow; [MS-DOCX]
+    // w15:repeatingSection / w15:repeatingSectionItem): a header row, two items of one row each,
+    // a total row.
+    let row_item = |id: u32, name: &str, role: &str| {
+        format!(
+            r#"<w:sdt><w:sdtPr><w:id w:val="{id}"/><w15:repeatingSectionItem/></w:sdtPr><w:sdtContent>{}</w:sdtContent></w:sdt>"#,
+            row("", &[cell(4677, "", name), cell(4678, "", role)])
+        )
+    };
+    v.push(("controls-06-repeating-rows.docx", "controls", "Phần lặp lại theo dòng bảng (w:sdt bao w:tr, w15:repeatingSection) có hai mục, giữa dòng tiêu đề và dòng tổng", Doc {
+        body: [
+            table(
+                &[4677, 4678],
+                &[
+                    row("<w:tblHeader/>", &[cell(4677, "", "Họ tên"), cell(4678, "", "Vai trò")]),
+                    format!(r#"<w:sdt><w:sdtPr><w:alias w:val="Thành viên"/><w:tag w:val="thanh_vien"/><w:id w:val="6001"/><w15:repeatingSection/></w:sdtPr><w:sdtContent>{}{}</w:sdtContent></w:sdt>"#, row_item(6002, "An", "Trưởng nhóm"), row_item(6003, "Bình", "Thành viên")),
+                    row("", &[cell(4677, "", "Tổng"), cell(4678, "", "2 người")]),
+                ],
+                r#"<w:tblW w:w="0" w:type="auto"/>"#,
+            ),
+            p(""),
+        ].concat(),
+        sect: s.clone(),
+        ..Doc::default()
+    }));
+    // EQ field spacing options (ECMA-376 Part 1, §17.16.5.17): \a\vs \hs, \s\ai \di, \d\li.
+    v.push(("fields-07-eq-spacing.docx", "fields", "Trường EQ với tuỳ chọn khoảng cách: mảng \\a\\vs\\hs, xếp chồng \\s\\ai\\di, dịch chuyển \\d\\fo\\li (gạch dưới)", Doc {
+        body: [
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Mảng: </w:t></w:r>{}</w:p>"#, field_simple(r"EQ \a\co2\vs6\hs12(1,2,3,4)", "1 2 3 4")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Xếp chồng: </w:t></w:r>{}</w:p>"#, field_simple(r"EQ \s\ai4\di4(a,b)", "a b")),
+            format!(r#"<w:p><w:r><w:t xml:space="preserve">Họ tên: </w:t></w:r>{}</w:p>"#, field_simple(r"EQ \d\fo60\li()", " ")),
         ].concat(),
         sect: s.clone(),
         ..Doc::default()

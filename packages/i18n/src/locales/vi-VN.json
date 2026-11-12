@@ -4511,6 +4511,10 @@
     "hanging": "Thụt treo của số",
     "linkHeadings": "Liên kết cấp 1–9 với Đề mục 1–9",
     "apply": "Áp dụng cho các đoạn đang chọn",
+    "restartAfter": "Bắt đầu lại danh sách sau",
+    "restartDefault": "Cấp ngay trên",
+    "restartNever": "Không bao giờ",
+    "legal": "Đánh số kiểu pháp lý (mọi số dạng 1, 2, 3)",
     "preview": "Xem trước",
     "formats": {
       "decimal": "1, 2, 3",

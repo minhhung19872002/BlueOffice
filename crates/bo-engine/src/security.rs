@@ -270,8 +270,10 @@ impl SecurityCommand {
 /// `hashValue` / `saltValue` / `spinCount` (or PresentationML `spinValue`),
 /// `cryptAlgorithmSid` + `hashData` / `saltData` (the iterated method of
 /// [MS-OFFCRYPTO] §2.4.2.4) and the legacy 16-bit `legacy` attribute.
-/// `None` when the hash is in a form BlueOffice cannot check (WordprocessingML
-/// `w:hash` / `w:salt`); `Some(true)` when no password is stored.
+/// WordprocessingML legacy `w:hash` / `w:salt` verifiers are checked after the
+/// legacy pre-processing ([`bo_crypto::protection::verify_word_legacy`]).
+/// `None` when the hash is in a form BlueOffice cannot check (MD2/MD4/MD5 or a
+/// non-standard `algIdExt` algorithm); `Some(true)` when no password is stored.
 pub fn verify_password(attrs: &Attrs, legacy: &str, password: &str) -> Option<bool> {
     let spin = |names: &[&str]| {
         names
@@ -318,8 +320,23 @@ pub fn verify_password(attrs: &Attrs, legacy: &str, password: &str) -> Option<bo
             },
         ));
     }
-    if get(attrs, "hash").is_some() {
-        return None;
+    // ECMA-376 Part 1, §17.15.1.29 / §17.15.1.93 legacy verifier (`w:hash` / `w:salt` /
+    // `w:cryptAlgorithmSid` / `w:cryptSpinCount`), hashed after the legacy pre-processing.
+    if let Some(hash) = get(attrs, "hash") {
+        // A non-standard algorithm (`algIdExt`) cannot be checked.
+        if get(attrs, "algIdExt").is_some() {
+            return None;
+        }
+        let alg = bo_crypto::protection::word_legacy_algorithm(get(attrs, "cryptAlgorithmSid"))?;
+        return Some(bo_crypto::protection::verify_word_legacy(
+            password,
+            &bo_crypto::protection::WordLegacyHash {
+                algorithm: alg,
+                hash: hash.to_owned(),
+                salt: get(attrs, "salt").unwrap_or_default().to_owned(),
+                spin_count: spin(&["cryptSpinCount", "spinCount"]),
+            },
+        ));
     }
     match get(attrs, legacy) {
         Some(hex) => Some(
@@ -990,8 +1007,33 @@ mod tests {
             verify_password(&legacy, "reservationPassword", "test"),
             Some(true)
         );
+        // A legacy verifier that does not match is now a wrong password, not "unsupported".
         let word = parse_attrs(r#"<w:writeProtection w:hash="AAAA" w:salt="BBBB"/>"#);
-        assert_eq!(verify_password(&word, "", "x"), None);
+        assert_eq!(verify_password(&word, "", "x"), Some(false));
+        let md5 = parse_attrs(r#"<w:writeProtection w:cryptAlgorithmSid="3" w:hash="AAAA"/>"#);
+        assert_eq!(verify_password(&md5, "", "x"), None);
         assert_eq!(verify_password(&Vec::new(), "", "x"), Some(true));
+    }
+
+    /// ECMA-376 Part 1, §17.15.1.93 writeProtection / §17.15.1.29 documentProtection with the
+    /// legacy attributes: the hash is computed here per the standard (key of "Example" →
+    /// "7EEDCE64", SHA-1, salt prepended, 100 000 spins).
+    #[test]
+    fn word_legacy_verifier_is_checked() {
+        let salt = [7u8, 1, 9, 9, 2, 0, 2, 6, 1, 1, 1, 2, 3, 5, 8, 13];
+        let h = bo_crypto::protection::word_legacy_hash_with_salt(
+            bo_crypto::HashAlgorithm::Sha1,
+            "Example",
+            &salt,
+            100_000,
+        );
+        let xml = format!(
+            r#"<w:documentProtection w:edit="forms" w:enforcement="1" w:cryptProviderType="rsaFull" w:cryptAlgorithmClass="hash" w:cryptAlgorithmType="typeAny" w:cryptAlgorithmSid="4" w:cryptSpinCount="100000" w:hash="{}" w:salt="{}"/>"#,
+            h.hash, h.salt
+        );
+        let a = parse_attrs(&xml);
+        assert_eq!(verify_password(&a, "", "Example"), Some(true));
+        assert_eq!(verify_password(&a, "", "example"), Some(false));
+        assert_eq!(verify_password(&a, "", ""), Some(false));
     }
 }

@@ -1251,7 +1251,30 @@ impl Writer<'_> {
             s.push_str("</w:tblGrid></w:tblGridChange>");
         }
         s.push_str("</w:tblGrid>");
+        // Row-level content controls (§17.5.2.32 sdt, CT_SdtContentRow) open before their
+        // first row and close after their last one; kept balanced whatever the edits did.
+        let mut open_rows = 0usize;
         for row in &t.rows {
+            for cc in &row.props.controls {
+                let _ = write!(s, "<w:sdt>{}<w:sdtContent>", sdt_pr(cc));
+                open_rows += 1;
+            }
+            self.table_row(&mut s, row);
+            for _ in 0..usize::from(row.props.controls_end).min(open_rows) {
+                s.push_str("</w:sdtContent></w:sdt>");
+                open_rows -= 1;
+            }
+        }
+        for _ in 0..open_rows {
+            s.push_str("</w:sdtContent></w:sdt>");
+        }
+        s.push_str("</w:tbl>");
+        s
+    }
+
+    /// One §17.4.79 tr.
+    fn table_row(&mut self, s: &mut String, row: &bo_model::Row) {
+        {
             s.push_str("<w:tr>");
             // CT_TrPrBase children (§17.4.82 trPr).
             let base =
@@ -1306,8 +1329,6 @@ impl Writer<'_> {
             }
             s.push_str("</w:tr>");
         }
-        s.push_str("</w:tbl>");
-        s
     }
 
     fn cell(&mut self, c: &Cell) -> String {
@@ -1595,6 +1616,10 @@ impl Writer<'_> {
                 // §17.9.23 pStyle (CT_Lvl order: start, numFmt, lvlRestart, pStyle, isLgl, suff, lvlText, …).
                 if let Some(ps) = &l.pstyle {
                     let _ = write!(s, "<w:pStyle w:val=\"{}\"/>", escape(ps));
+                }
+                // §17.9.4 isLgl: legal numbering style.
+                if l.is_lgl {
+                    s.push_str("<w:isLgl/>");
                 }
                 if l.suffix != "tab" {
                     let _ = write!(s, "<w:suff w:val=\"{}\"/>", escape(&l.suffix));
@@ -3953,6 +3978,11 @@ mod tests {
         let mut doc = sample();
         let id = doc.numbering.nums[0].id;
         doc.numbering.abstracts[0].levels[0].pstyle = Some("Heading1".into());
+        // §17.9.10 lvlRestart, §17.9.4 isLgl.
+        if let Some(l) = doc.numbering.abstracts[0].levels.get_mut(1) {
+            l.restart = Some(0);
+            l.is_lgl = true;
+        }
         doc.numbering.nums.push(bo_model::Num {
             id: id + 1,
             abstract_id: doc.numbering.nums[0].abstract_id,
@@ -3978,6 +4008,9 @@ mod tests {
         let at = |s: &str| xml.find(s).unwrap();
         assert!(at("<w:numFmt") < at("<w:pStyle w:val=\"Heading1\"/>"));
         assert!(at("<w:pStyle w:val=\"Heading1\"/>") < at("<w:lvlText"));
+        if doc.numbering.abstracts[0].levels.len() > 1 {
+            assert!(at("<w:lvlRestart w:val=\"0\"/>") < at("<w:isLgl/>"));
+        }
         assert!(xml.contains("<w:startOverride w:val=\"7\"/>"));
     }
 

@@ -582,6 +582,7 @@ fn read_level<'a>(r: &mut XmlReader<'a>, e: &BytesStart<'a>) -> Result<Level> {
         restart: None,
         suffix: "tab".into(),
         pstyle: None,
+        is_lgl: false,
     };
     children(r, |r, e, s, _| {
         match name(e).as_slice() {
@@ -589,7 +590,10 @@ fn read_level<'a>(r: &mut XmlReader<'a>, e: &BytesStart<'a>) -> Result<Level> {
             b"numFmt" => l.format = NumFormat::parse(&attr(e, b"val").unwrap_or_default()),
             b"lvlText" => l.text = attr(e, b"val").unwrap_or_default(),
             b"lvlJc" => l.align = align(attr(e, b"val").as_deref()).unwrap_or_default(),
+            // ECMA-376 Part 1, §17.9.10 lvlRestart.
             b"lvlRestart" => l.restart = int(e, b"val").map(|v| v.clamp(0, 9) as u8),
+            // §17.9.4 isLgl (on/off).
+            b"isLgl" => l.is_lgl = on_off(e),
             // §17.9.23 pStyle: paragraph style linked to the level.
             b"pStyle" => l.pstyle = attr(e, b"val").filter(|v| !v.is_empty()),
             b"suff" => l.suffix = attr(e, b"val").unwrap_or_else(|| "tab".into()),
@@ -2524,105 +2528,9 @@ fn read_table(
                 })?;
             }
             // §17.4.79 tr
-            b"tr" if s => {
-                let mut row = Row::default();
-                children(r, |r, e, s, before| {
-                    match name(e).as_slice() {
-                        b"trPr" if s => {
-                            children(r, |r, e, s, before| {
-                                match name(e).as_slice() {
-                                    b"tblHeader" => row.props.header = on_off(e),
-                                    // §17.13.5.19 ins / §17.13.5.12 del (tracked rows)
-                                    b"ins" => {
-                                        row.props.ins = Some(RevMark {
-                                            info: rev_info(e),
-                                            moved: false,
-                                        });
-                                        return Ok(!s);
-                                    }
-                                    b"del" => {
-                                        row.props.del = Some(RevMark {
-                                            info: rev_info(e),
-                                            moved: false,
-                                        });
-                                        return Ok(!s);
-                                    }
-                                    b"cantSplit" => row.props.cant_split = on_off(e),
-                                    b"trHeight" => row.props.height = tr_height(e),
-                                    // §17.13.5.37 trPrChange (previous CT_TrPrBase)
-                                    b"trPrChange" if s => {
-                                        let mut ch = RowPropsChange {
-                                            info: rev_info(e),
-                                            ..RowPropsChange::default()
-                                        };
-                                        children(r, |r, e, s, _| {
-                                            if s && name(e) == b"trPr" {
-                                                children(r, |_, e, s, _| {
-                                                    match name(e).as_slice() {
-                                                        b"tblHeader" => ch.header = on_off(e),
-                                                        b"cantSplit" => ch.cant_split = on_off(e),
-                                                        b"trHeight" => ch.height = tr_height(e),
-                                                        _ => {}
-                                                    }
-                                                    Ok(!s)
-                                                })?;
-                                                return Ok(true);
-                                            }
-                                            Ok(!s)
-                                        })?;
-                                        row.props.change = Some(Box::new(ch));
-                                    }
-                                    _ => row.props.unknown.push(capture(r, s, before)?),
-                                }
-                                Ok(true)
-                            })?;
-                        }
-                        // §17.4.66 tc
-                        b"tc" if s => {
-                            let mut cell = Cell::default();
-                            let end = r.depth() - 1;
-                            loop {
-                                let before = r.pos();
-                                match r.read()? {
-                                    Event::Start(e) if name(&e) == b"tcPr" => {
-                                        cell.props = read_tcpr(r)?;
-                                    }
-                                    Event::Start(e) => {
-                                        let mut sect = None;
-                                        cell.blocks.extend(read_block(
-                                            r, &e, ctx, media, before, &mut sect,
-                                        )?);
-                                    }
-                                    Event::Empty(e) => {
-                                        let raw = Raw::new(r.slice(before, r.pos()), 0);
-                                        if name(&e) == b"p" {
-                                            let mut p = Paragraph::default();
-                                            p.src =
-                                                Some(Raw::new(raw.xml, p.content_fingerprint()));
-                                            cell.blocks.push(Block::Paragraph(p));
-                                        } else if name(&e) != b"tcPr" {
-                                            cell.blocks.push(Block::Opaque(raw));
-                                        }
-                                    }
-                                    Event::End(_) if r.depth() == end => break,
-                                    Event::Eof => {
-                                        return Err(r.err("unexpected EOF in w:tc").into())
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            row.cells.push(cell);
-                        }
-                        _ => {
-                            let raw = capture(r, s, before)?;
-                            row.props.unknown.push(raw);
-                        }
-                    }
-                    Ok(true)
-                })?;
-                fold_h_merge(&mut row);
-                t.rows.push(row);
-            }
+            b"tr" if s => t.rows.push(read_row(r, ctx, media)?),
+            // §17.5.2.32 sdt around rows (CT_SdtRow): a repeating section of rows, …
+            b"sdt" if s => t.rows.extend(read_row_sdt(r, ctx, media)?),
             _ => return Ok(!s),
         }
         Ok(true)
@@ -2642,6 +2550,151 @@ fn read_table(
         t.grid = vec![Twips(9000 / cols.max(1) as i32); cols];
     }
     Ok(t)
+}
+
+/// §17.4.79 tr.
+fn read_row(
+    r: &mut XmlReader<'_>,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Result<Row> {
+    let mut row = Row::default();
+    children(r, |r, e, s, before| {
+        match name(e).as_slice() {
+            b"trPr" if s => {
+                children(r, |r, e, s, before| {
+                    match name(e).as_slice() {
+                        b"tblHeader" => row.props.header = on_off(e),
+                        // §17.13.5.19 ins / §17.13.5.12 del (tracked rows)
+                        b"ins" => {
+                            row.props.ins = Some(RevMark {
+                                info: rev_info(e),
+                                moved: false,
+                            });
+                            return Ok(!s);
+                        }
+                        b"del" => {
+                            row.props.del = Some(RevMark {
+                                info: rev_info(e),
+                                moved: false,
+                            });
+                            return Ok(!s);
+                        }
+                        b"cantSplit" => row.props.cant_split = on_off(e),
+                        b"trHeight" => row.props.height = tr_height(e),
+                        // §17.13.5.37 trPrChange (previous CT_TrPrBase)
+                        b"trPrChange" if s => {
+                            let mut ch = RowPropsChange {
+                                info: rev_info(e),
+                                ..RowPropsChange::default()
+                            };
+                            children(r, |r, e, s, _| {
+                                if s && name(e) == b"trPr" {
+                                    children(r, |_, e, s, _| {
+                                        match name(e).as_slice() {
+                                            b"tblHeader" => ch.header = on_off(e),
+                                            b"cantSplit" => ch.cant_split = on_off(e),
+                                            b"trHeight" => ch.height = tr_height(e),
+                                            _ => {}
+                                        }
+                                        Ok(!s)
+                                    })?;
+                                    return Ok(true);
+                                }
+                                Ok(!s)
+                            })?;
+                            row.props.change = Some(Box::new(ch));
+                        }
+                        _ => row.props.unknown.push(capture(r, s, before)?),
+                    }
+                    Ok(true)
+                })?;
+            }
+            // §17.4.66 tc
+            b"tc" if s => {
+                let mut cell = Cell::default();
+                let end = r.depth() - 1;
+                loop {
+                    let before = r.pos();
+                    match r.read()? {
+                        Event::Start(e) if name(&e) == b"tcPr" => {
+                            cell.props = read_tcpr(r)?;
+                        }
+                        Event::Start(e) => {
+                            let mut sect = None;
+                            cell.blocks
+                                .extend(read_block(r, &e, ctx, media, before, &mut sect)?);
+                        }
+                        Event::Empty(e) => {
+                            let raw = Raw::new(r.slice(before, r.pos()), 0);
+                            if name(&e) == b"p" {
+                                let mut p = Paragraph::default();
+                                p.src = Some(Raw::new(raw.xml, p.content_fingerprint()));
+                                cell.blocks.push(Block::Paragraph(p));
+                            } else if name(&e) != b"tcPr" {
+                                cell.blocks.push(Block::Opaque(raw));
+                            }
+                        }
+                        Event::End(_) if r.depth() == end => break,
+                        Event::Eof => return Err(r.err("unexpected EOF in w:tc").into()),
+                        _ => {}
+                    }
+                }
+                row.cells.push(cell);
+            }
+            _ => {
+                let raw = capture(r, s, before)?;
+                row.props.unknown.push(raw);
+            }
+        }
+        Ok(true)
+    })?;
+    fold_h_merge(&mut row);
+    Ok(row)
+}
+
+/// §17.5.2.32 sdt around table rows (`CT_SdtRow` / `CT_SdtContentRow`): its rows, the control
+/// opening before the first and closing after the last (nested controls inside it, e.g. the
+/// items of a [MS-DOCX] w15:repeatingSection). A control holding no row is dropped.
+fn read_row_sdt(
+    r: &mut XmlReader<'_>,
+    ctx: &Ctx<'_>,
+    media: &mut BTreeMap<String, Arc<Vec<u8>>>,
+) -> Result<Vec<Row>> {
+    if r.depth() > MAX_WRAPPER_DEPTH {
+        return Err(r.err("content controls nested too deeply").into());
+    }
+    let mut cc = None;
+    let mut rows: Vec<Row> = Vec::new();
+    children(r, |r, e, s, at| match name(e).as_slice() {
+        b"sdtPr" => {
+            let raw = capture(r, s, at)?;
+            cc = Some(parse_sdt_pr(&raw.xml, true));
+            Ok(true)
+        }
+        b"sdtContent" if s => {
+            children(r, |r, e, s, _| match name(e).as_slice() {
+                b"tr" if s => {
+                    rows.push(read_row(r, ctx, media)?);
+                    Ok(true)
+                }
+                b"sdt" if s => {
+                    rows.extend(read_row_sdt(r, ctx, media)?);
+                    Ok(true)
+                }
+                _ => Ok(!s),
+            })?;
+            Ok(true)
+        }
+        _ => Ok(!s),
+    })?;
+    if let (Some(cc), Some(first)) = (cc, rows.first_mut()) {
+        first.props.controls.insert(0, cc);
+        if let Some(last) = rows.last_mut() {
+            last.props.controls_end = last.props.controls_end.saturating_add(1);
+        }
+    }
+    Ok(rows)
 }
 
 /// `w:hMerge` of a cell (§17.4.22, legacy horizontal merge): `Some(true)` = restart,

@@ -125,7 +125,10 @@ impl Session {
     /// repeating section stands for its section).
     #[must_use]
     pub fn block_control_at_caret(&self) -> Option<ContentControl> {
-        let s = self.block_span_at(|_| true)?;
+        // §17.5.2.32 row-level controls around the caret's table row.
+        let Some(s) = self.block_span_at(|_| true) else {
+            return self.row_control_at_caret();
+        };
         if s.cc.kind == ControlKind::RepeatingSectionItem {
             return self
                 .block_span_at(|c| c.kind == ControlKind::RepeatingSection)
@@ -140,6 +143,7 @@ impl Session {
     pub fn in_repeating_item(&self) -> bool {
         self.block_span_at(|c| c.kind == ControlKind::RepeatingSectionItem)
             .is_some()
+            || self.in_repeating_row_item()
     }
 
     /// The content range (paragraph, from, to) of the innermost inline control around the
@@ -310,7 +314,8 @@ impl Session {
     /// start of the new item. Returns whether an item was added (one undo step).
     pub fn add_repeating_item(&mut self) -> Result<bool> {
         let Some(item) = self.block_span_at(|c| c.kind == ControlKind::RepeatingSectionItem) else {
-            return Ok(false);
+            // An item made of table rows (§17.5.2.32 sdt around w:tr).
+            return self.add_repeating_row_item();
         };
         let section = self.block_span_at(|c| c.kind == ControlKind::RepeatingSection);
         if section.as_ref().is_some_and(|s| {
@@ -474,7 +479,7 @@ impl Session {
     /// step).
     pub fn delete_repeating_item(&mut self) -> Result<bool> {
         let Some(item) = self.block_span_at(|c| c.kind == ControlKind::RepeatingSectionItem) else {
-            return Ok(false);
+            return self.delete_repeating_row_item();
         };
         let Some(section) = self.block_span_at(|c| c.kind == ControlKind::RepeatingSection) else {
             return Ok(false);

@@ -495,6 +495,7 @@ fn other_doc() -> Document {
             restart: None,
             suffix: "tab".into(),
             pstyle: Some("Top".into()),
+            is_lgl: false,
         }],
     });
     d.numbering.nums.push(Num {

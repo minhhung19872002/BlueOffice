@@ -231,6 +231,7 @@ fn document(specs: &[Spec], split: usize, variant: u8) -> Document {
                     restart: None,
                     suffix: "tab".into(),
                     pstyle: None,
+                    is_lgl: false,
                 }],
             }],
             nums: vec![Num {

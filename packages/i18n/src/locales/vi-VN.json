@@ -1423,6 +1423,9 @@
         "italic": "Nghiêng",
         "underline": "Gạch chân"
       },
+      "picture": "Ảnh…",
+      "removePicture": "Bỏ ảnh",
+      "hasPicture": "{{section}}: có ảnh",
       "area": "Vùng cần in",
       "useSelection": "Dùng vùng đang chọn",
       "titleCols": "Cột lặp lại bên trái",
@@ -2173,7 +2176,20 @@
       "decrease": "Giảm",
       "increase": "Tăng",
       "selected": "Đang chọn điều khiển {{name}}",
-      "designHint": "Kéo để di chuyển · Enter hoặc nhấp đúp để thiết lập · Delete để xoá · Esc để thôi chọn"
+      "designHint": "Kéo để di chuyển, kéo góc để đổi cỡ (hoặc phím mũi tên / Shift+mũi tên) · Enter hoặc nhấp đúp để thiết lập · Delete để xoá · Esc để thôi chọn",
+      "resize": "Đổi cỡ {{name}}",
+      "selType": "Kiểu chọn",
+      "selTypes": {
+        "single": "Một mục",
+        "multi": "Nhiều mục (mỗi lần bấm bật/tắt một mục)",
+        "extend": "Mở rộng (Ctrl+bấm, Shift+bấm)"
+      },
+      "placement": "Vị trí đối tượng",
+      "placements": {
+        "move": "Di chuyển theo ô, không đổi cỡ",
+        "moveAndSize": "Di chuyển và đổi cỡ theo ô",
+        "fixed": "Không di chuyển, không đổi cỡ theo ô"
+      }
     },
     "cellMedia": {
       "pictureInCell": "Ảnh trong ô",

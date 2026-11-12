@@ -14,7 +14,7 @@
 
 use bo_model::sheet::{
     CellError, CellRange, CellRef, CellValue, CheckState, ControlAnchor, FormControl,
-    FormControlKind as K, Workbook,
+    FormControlKind as K, SelType, Workbook,
 };
 use serde::Serialize;
 
@@ -223,6 +223,8 @@ pub fn state(wb: &Workbook, sheet: usize, index: usize) -> Option<ControlState> 
                 }
             }
         }
+        // A multi-select list box ignores its linked cell ([MS-XLSX] `selType`).
+        K::ListBox if c.sel_type != SelType::Single => {}
         K::ComboBox | K::ListBox => {
             if let Some(n) = link_value(wb, sheet, c).and_then(as_number) {
                 s.sel = if n >= 1.0 { n.floor() as u32 } else { 0 };
@@ -382,9 +384,82 @@ pub fn select(
     let c = control_mut(wb, sheet, index)?;
     c.sel = sel;
     c.dirty = true;
+    if c.kind == K::ListBox && c.sel_type != SelType::Single {
+        c.multi_sel = if sel > 0 { vec![sel] } else { Vec::new() };
+        return Ok(());
+    }
     if let (Some(link), true) = (c.link.clone(), sel > 0) {
         write_link(wb, sheet, &link, CellValue::Number(f64::from(sel)))?;
     }
+    Ok(())
+}
+
+/// How a click on a list box item combines with the current selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ListClick {
+    /// Ctrl held (an `extend` list box toggles the item).
+    pub ctrl: bool,
+    /// Shift held (an `extend` list box selects from the last clicked item).
+    pub shift: bool,
+}
+
+/// A click on item `item` (1-based) of a multi-select list box ([MS-XLSX] `selType`
+/// `multi` / `extend`): `multi` toggles the item; `extend` chooses only it, toggles it with
+/// Ctrl, or selects the run from the last clicked item (`sel`) with Shift. The selection is
+/// kept in `multiSel`; such a list box does not write its linked cell. A single-selection
+/// list box behaves like [`select`].
+pub fn click_item(
+    wb: &mut Workbook,
+    sheet: usize,
+    index: usize,
+    item: u32,
+    how: ListClick,
+    locale: &Locale,
+) -> Result<(), FormControlError> {
+    let c = wb
+        .sheets
+        .get(sheet)
+        .and_then(|s| s.form_controls.get(index))
+        .ok_or(FormControlError::NoControl)?;
+    if c.kind != K::ListBox {
+        return select(wb, sheet, index, item, locale);
+    }
+    if c.sel_type == SelType::Single {
+        return select(wb, sheet, index, item, locale);
+    }
+    let n = items(wb, sheet, c, locale).len() as u32;
+    if item == 0 || item > n {
+        return Ok(());
+    }
+    let c = control_mut(wb, sheet, index)?;
+    let mut set: Vec<u32> = c.multi_sel.iter().copied().filter(|&i| i <= n).collect();
+    let toggle = |set: &mut Vec<u32>| {
+        if let Some(p) = set.iter().position(|&i| i == item) {
+            set.remove(p);
+        } else {
+            set.push(item);
+        }
+    };
+    match c.sel_type {
+        SelType::Multi => toggle(&mut set),
+        SelType::Extend if how.shift && c.sel > 0 => {
+            let (a, b) = (c.sel.min(item), c.sel.max(item));
+            if !how.ctrl {
+                set.clear();
+            }
+            set.extend(a..=b);
+        }
+        SelType::Extend if how.ctrl => toggle(&mut set),
+        _ => set = vec![item],
+    }
+    set.sort_unstable();
+    set.dedup();
+    c.multi_sel = set;
+    // The last clicked item: the start of a later Shift+click run.
+    if !(how.shift && c.sel > 0) {
+        c.sel = item;
+    }
+    c.dirty = true;
     Ok(())
 }
 

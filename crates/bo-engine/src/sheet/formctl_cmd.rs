@@ -6,7 +6,9 @@
 //! workbook. Buttons report their assigned macro, which is kept but never run.
 
 use base64::Engine as _;
-use bo_model::sheet::{CellRef, CheckState, ControlAnchor, FormControl, FormControlKind};
+use bo_model::sheet::{
+    CellRef, CheckState, ControlAnchor, ControlPlacement, FormControl, FormControlKind, SelType,
+};
 use bo_sheet::formctl::{self as fc, FormControlError};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -59,6 +61,10 @@ pub struct FormatControlSpec {
     pub horiz: Option<bool>,
     /// Assigned macro (`""` clears).
     pub macro_name: Option<String>,
+    /// Object positioning: move (and size) with cells, or neither.
+    pub placement: Option<ControlPlacement>,
+    /// List box selection type.
+    pub sel_type: Option<SelType>,
 }
 
 /// Size of a new control in cells (columns, rows) and the end offset (EMU): an up-down
@@ -157,6 +163,9 @@ impl SheetEngine {
                 "items": items,
                 "checked": st.checked,
                 "sel": st.sel,
+                "selType": c.sel_type,
+                "multiSel": c.multi_sel,
+                "placement": c.placement,
                 "val": st.val,
                 "min": c.min,
                 "max": c.max,
@@ -257,10 +266,11 @@ impl SheetEngine {
         sheet: usize,
         index: usize,
         sel: u32,
+        how: fc::ListClick,
     ) -> Result<Value> {
         let locale = self.locale;
         self.edit(sheet, Recalc::All, |wb, _| {
-            fc::select(wb, sheet, index, sel, &locale).map_err(|e| err(&e))
+            fc::click_item(wb, sheet, index, sel, how, &locale).map_err(|e| err(&e))
         })?;
         self.invalidate(None);
         Ok(json!({ "ok": true }))
@@ -347,6 +357,20 @@ impl SheetEngine {
             if let Some(m) = spec.macro_name {
                 c.macro_name = (!m.trim().is_empty()).then_some(m);
             }
+            if let Some(p) = spec.placement {
+                c.placement = p;
+            }
+            if let Some(t) = spec.sel_type.filter(|_| c.kind == FormControlKind::ListBox) {
+                if t != c.sel_type {
+                    // Switching type keeps the focused item as the only selection.
+                    c.multi_sel = if t == SelType::Single || c.sel == 0 {
+                        Vec::new()
+                    } else {
+                        vec![c.sel]
+                    };
+                }
+                c.sel_type = t;
+            }
             c.dirty = true;
             let kind = c.kind;
             let has_link = c.link.is_some();
@@ -407,6 +431,43 @@ impl SheetEngine {
                 to: CellRef::new(from.row + rows, from.col + cols),
                 to_off: a.to_off,
             };
+            c.dirty = true;
+            Ok(json!({ "ok": true }))
+        })
+    }
+
+    /// Resizes a control: the bottom-right marker (ECMA-376 Part 1 §20.5.2.32 `to`) goes to
+    /// `row`, `col` with `off` points into that cell; it never goes above / left of the
+    /// top-left marker.
+    pub(super) fn form_control_resize(
+        &mut self,
+        sheet: usize,
+        index: usize,
+        row: u32,
+        col: u32,
+        off: (f64, f64),
+    ) -> Result<Value> {
+        self.edit(sheet, Recalc::No, |wb, _| {
+            let c = wb.sheets[sheet]
+                .form_controls
+                .get_mut(index)
+                .ok_or_else(|| err(&FormControlError::NoControl))?;
+            let a = c.anchor;
+            let mut to = CellRef::new(row.min(MAX_ROWS - 1), col.min(MAX_COLS - 1));
+            let mut to_off = (
+                (off.0.max(0.0) * EMU_PER_PT) as i64,
+                (off.1.max(0.0) * EMU_PER_PT) as i64,
+            );
+            // Not past the top-left corner: at least the corner itself plus one point.
+            if (to.col, to_off.0) <= (a.from.col, a.from_off.0) {
+                to.col = a.from.col;
+                to_off.0 = a.from_off.0 + EMU_PER_PT as i64;
+            }
+            if (to.row, to_off.1) <= (a.from.row, a.from_off.1) {
+                to.row = a.from.row;
+                to_off.1 = a.from_off.1 + EMU_PER_PT as i64;
+            }
+            c.anchor = ControlAnchor { to, to_off, ..a };
             c.dirty = true;
             Ok(json!({ "ok": true }))
         })

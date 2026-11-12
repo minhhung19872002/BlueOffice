@@ -360,3 +360,159 @@ fn activex_controls_are_kept_with_their_picture() {
     )
     .is_err());
 }
+
+/// [MS-XLSX] `controlPr/anchor` `moveWithCells` / `sizeWithCells`: a "move and size"
+/// control stretches over rows inserted inside it, a "fixed" one stays, the default one
+/// moves without sizing; the placement and size survive saving and reopening.
+#[test]
+fn placement_decides_how_controls_follow_their_cells() {
+    let mut e = new_engine();
+    // Three list boxes at B2 (rows 1..=5 zero-based after the default size).
+    let a = insert(&mut e, "listBox", 1, 1);
+    let b = insert(&mut e, "listBox", 1, 4);
+    let c = insert(&mut e, "listBox", 1, 7);
+    format(&mut e, b, json!({"placement": "moveAndSize"}));
+    format(&mut e, c, json!({"placement": "fixed"}));
+    let before = list(&mut e);
+    assert_eq!(before[a]["placement"], "move");
+    assert_eq!(before[b]["placement"], "moveAndSize");
+    let from = |l: &[Value], i: usize| l[i]["from"][0].as_u64().unwrap();
+    let to = |l: &[Value], i: usize| l[i]["to"][0].as_u64().unwrap();
+    let h = to(&before, a) - from(&before, a);
+    // Two rows inserted at row 3 (inside every control).
+    e.structural(0, true, 2, 2, false).unwrap();
+    let l = list(&mut e);
+    assert_eq!(
+        (from(&l, a), to(&l, a)),
+        (1, 1 + h),
+        "hand: starts above row 3, size kept"
+    );
+    assert_eq!(
+        (from(&l, b), to(&l, b)),
+        (1, 1 + h + 2),
+        "hand: stretched by 2 rows"
+    );
+    assert_eq!((from(&l, c), to(&l, c)), (1, 1 + h), "hand: fixed");
+    // Two rows inserted above: move and move-and-size shift by 2, fixed stays.
+    e.structural(0, true, 0, 2, false).unwrap();
+    let l = list(&mut e);
+    assert_eq!(from(&l, a), 3);
+    assert_eq!(from(&l, b), 3);
+    assert_eq!(from(&l, c), 1);
+    // Saved and reopened: the attributes come back.
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut f = SheetEngine::new();
+    f.open(&bytes, "t.xlsx").unwrap();
+    let m = list(&mut f);
+    assert_eq!(m[a]["placement"], "move");
+    assert_eq!(m[b]["placement"], "moveAndSize");
+    assert_eq!(m[c]["placement"], "fixed");
+    assert_eq!((from(&m, b), to(&m, b)), (3, 3 + h + 2));
+    // Changing the placement of a control read from the file patches its entry in place.
+    format(&mut f, a, json!({"placement": "moveAndSize"}));
+    let bytes = f.save("xlsx", 0).unwrap();
+    if let Ok(dir) = std::env::var("BO_VALIDATE_DIR") {
+        // Hand-run check against the OpenXML validator (`bo-cli validate`).
+        std::fs::write(format!("{dir}/fc-placement.xlsx"), &bytes).unwrap();
+    }
+    let mut g = SheetEngine::new();
+    g.open(&bytes, "t.xlsx").unwrap();
+    assert_eq!(list(&mut g)[a]["placement"], "moveAndSize");
+    g.structural(0, true, 4, 1, false).unwrap();
+    let n = list(&mut g);
+    assert_eq!(to(&n, a) - from(&n, a), h + 1);
+}
+
+#[test]
+fn resize_moves_the_bottom_right_corner() {
+    let mut e = new_engine();
+    let i = insert(&mut e, "button", 2, 2);
+    run(
+        &mut e,
+        json!({"cmd": "resizeFormControl", "sheet": 0, "index": i, "row": 6, "col": 5, "offset": [10.0, 4.0]}),
+    );
+    let l = list(&mut e);
+    assert_eq!(l[i]["from"], json!([2, 2]));
+    assert_eq!(l[i]["to"], json!([6, 5]));
+    assert_eq!(l[i]["toOff"], json!([10.0, 4.0]));
+    // Never above / left of the top-left corner.
+    run(
+        &mut e,
+        json!({"cmd": "resizeFormControl", "sheet": 0, "index": i, "row": 0, "col": 0}),
+    );
+    let l = list(&mut e);
+    assert_eq!(l[i]["to"], json!([2, 2]));
+    assert_eq!(l[i]["toOff"], json!([1.0, 1.0]));
+    e.undo().unwrap();
+    assert_eq!(list(&mut e)[i]["to"], json!([6, 5]));
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut f = SheetEngine::new();
+    f.open(&bytes, "t.xlsx").unwrap();
+    assert_eq!(list(&mut f)[i]["to"], json!([6, 5]));
+}
+
+/// [MS-XLSX] `selType` `multi` / `extend` with `multiSel`: clicks combine with the
+/// selection, the linked cell is left alone, and the selection survives saving.
+#[test]
+fn multi_select_list_boxes_keep_their_selection() {
+    let mut e = new_engine();
+    for (r, t) in ["Một", "Hai", "Ba", "Bốn", "Năm"].iter().enumerate() {
+        e.set_input(0, r as u32, 0, t).unwrap();
+    }
+    let i = insert(&mut e, "listBox", 0, 2);
+    format(
+        &mut e,
+        i,
+        json!({"inputRange": "$A$1:$A$5", "link": "$G$1", "selType": "multi"}),
+    );
+    let click = |e: &mut SheetEngine, sel: u32, ctrl: bool, shift: bool| {
+        run(
+            e,
+            json!({"cmd": "formControlSelect", "sheet": 0, "index": i, "sel": sel, "ctrl": ctrl, "shift": shift}),
+        );
+    };
+    click(&mut e, 2, false, false);
+    click(&mut e, 4, false, false);
+    assert_eq!(list(&mut e)[i]["multiSel"], json!([2, 4]));
+    click(&mut e, 2, false, false);
+    assert_eq!(
+        list(&mut e)[i]["multiSel"],
+        json!([4]),
+        "hand: second click toggles off"
+    );
+    assert_eq!(
+        shown(&e, "G1"),
+        "",
+        "a multi-select list box leaves its cell alone"
+    );
+    e.undo().unwrap();
+    assert_eq!(list(&mut e)[i]["multiSel"], json!([2, 4]));
+    // Extend: plain click replaces, Ctrl toggles, Shift selects the run.
+    format(&mut e, i, json!({"selType": "extend"}));
+    click(&mut e, 1, false, false);
+    assert_eq!(list(&mut e)[i]["multiSel"], json!([1]));
+    click(&mut e, 3, false, true);
+    assert_eq!(list(&mut e)[i]["multiSel"], json!([1, 2, 3]), "hand: 1..=3");
+    click(&mut e, 5, true, false);
+    assert_eq!(list(&mut e)[i]["multiSel"], json!([1, 2, 3, 5]));
+    click(&mut e, 2, true, false);
+    assert_eq!(list(&mut e)[i]["multiSel"], json!([1, 3, 5]));
+    let bytes = e.save("xlsx", 0).unwrap();
+    if let Ok(dir) = std::env::var("BO_VALIDATE_DIR") {
+        // Hand-run check against the OpenXML validator (`bo-cli validate`).
+        std::fs::write(format!("{dir}/fc-multisel.xlsx"), &bytes).unwrap();
+    }
+    let mut f = SheetEngine::new();
+    f.open(&bytes, "t.xlsx").unwrap();
+    let l = list(&mut f);
+    assert_eq!(l[i]["selType"], "extend");
+    assert_eq!(l[i]["multiSel"], json!([1, 3, 5]));
+    // Back to single selection: the cell is written again.
+    format(&mut f, i, json!({"selType": "single"}));
+    run(
+        &mut f,
+        json!({"cmd": "formControlSelect", "sheet": 0, "index": i, "sel": 4}),
+    );
+    assert_eq!(shown(&f, "G1"), "4");
+    assert_eq!(list(&mut f)[i]["multiSel"], json!([]));
+}

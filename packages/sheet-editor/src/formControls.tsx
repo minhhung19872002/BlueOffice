@@ -5,15 +5,19 @@
  * style and working through the engine (`formControl*` commands write the linked cell, one
  * undo step each). ActiveX controls show their fallback picture and are kept as they are.
  *
- * Right-click selects a control (design mode): drag moves it, Enter / double-click opens the
- * settings dialog, Delete removes it, Escape leaves design mode.
+ * Right-click selects a control (design mode): drag moves it, the corner handle resizes it
+ * (arrow keys move by a cell, Shift+arrow keys resize by a cell), Enter / double-click opens
+ * the settings dialog, Delete removes it, Escape leaves design mode. A list box may select
+ * several items ([MS-XLSX] `selType` `multi` / `extend`).
  */
 import { useTranslation } from '@blueoffice/i18n';
 import type {
   CheckState,
+  ControlPlacement,
   FormControlInfo,
   FormControlKind,
   FormatControlSpec,
+  ListSelType,
   SheetCommand,
   SheetHost,
   SheetView,
@@ -182,7 +186,14 @@ function ControlView({
   onNotice,
 }: FormControlLayerProps & { placed: PlacedControl }) {
   const { t } = useTranslation();
-  const [drag, setDrag] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
+  const [drag, setDrag] = useState<{
+    x: number;
+    y: number;
+    dx: number;
+    dy: number;
+    resize?: boolean;
+  } | null>(null);
+  const [focus, setFocus] = useState(info.sel);
   const frameRef = useRef<HTMLDivElement>(null);
   const isSelected = selected === info.index;
   const label = info.text || info.name;
@@ -204,8 +215,15 @@ function ControlView({
           : t('sheetEditor.formControl.noMacro', { name: label }),
       );
   };
-  const select = (sel: number) =>
-    void exec({ cmd: 'formControlSelect', sheet, index: info.index, sel });
+  const select = (sel: number, ctrl = false, shift = false) =>
+    void exec({
+      cmd: 'formControlSelect',
+      sheet,
+      index: info.index,
+      sel,
+      ...(ctrl ? { ctrl } : {}),
+      ...(shift ? { shift } : {}),
+    });
   const step = (n: number, page = false) =>
     void exec({ cmd: 'formControlValue', sheet, index: info.index, step: n, page });
 
@@ -222,6 +240,12 @@ function ControlView({
     e.stopPropagation();
     setDrag({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 });
   };
+  const startResize = (e: ReactMouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDrag({ x: e.clientX, y: e.clientY, dx: 0, dy: 0, resize: true });
+  };
   useEffect(() => {
     if (!drag) return;
     const move = (e: MouseEvent) =>
@@ -231,6 +255,28 @@ function ControlView({
       const dy = e.clientY - drag.y;
       setDrag(null);
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      if (drag.resize) {
+        void (async () => {
+          // Bottom-right corner in sheet points → the cell under it and the offset into it.
+          const x = (box.x + box.w + dx) / scale;
+          const y = (box.y + box.h + dy) / scale;
+          const hit = await host.hitTest(view, Math.max(x, 0), Math.max(y, 0));
+          if (hit.kind !== 'cell') return;
+          const cell = await host.rangeRect(view, hit.row, hit.col, hit.row, hit.col);
+          const off: [number, number] = cell
+            ? [Math.max(x - cell.x, 0), Math.max(y - cell.y, 0)]
+            : [0, 0];
+          await exec({
+            cmd: 'resizeFormControl',
+            sheet,
+            index: info.index,
+            row: hit.row,
+            col: hit.col,
+            offset: off,
+          });
+        })();
+        return;
+      }
       void (async () => {
         // Top-left corner in sheet points → the cell under it and the offset into it.
         const x = (box.x + dx) / scale;
@@ -270,14 +316,39 @@ function ControlView({
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onSelect(null);
+    } else if (e.key.startsWith('Arrow')) {
+      // Keyboard alternative to dragging: move by a cell, Shift resizes by a cell.
+      e.preventDefault();
+      const dr = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+      const dc = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (e.shiftKey) {
+        void exec({
+          cmd: 'resizeFormControl',
+          sheet,
+          index: info.index,
+          row: Math.max(info.to[0] + dr, 0),
+          col: Math.max(info.to[1] + dc, 0),
+          offset: info.toOff,
+        });
+      } else {
+        void exec({
+          cmd: 'moveFormControl',
+          sheet,
+          index: info.index,
+          row: Math.max(info.from[0] + dr, 0),
+          col: Math.max(info.from[1] + dc, 0),
+          offset: info.fromOff,
+        });
+      }
     }
   };
 
+  const resizing = drag?.resize === true;
   const style = {
-    left: box.x + (drag?.dx ?? 0),
-    top: box.y + (drag?.dy ?? 0),
-    width: box.w,
-    height: box.h,
+    left: box.x + (resizing ? 0 : (drag?.dx ?? 0)),
+    top: box.y + (resizing ? 0 : (drag?.dy ?? 0)),
+    width: Math.max(box.w + (resizing ? (drag?.dx ?? 0) : 0), 4),
+    height: Math.max(box.h + (resizing ? (drag?.dy ?? 0) : 0), 4),
     fontSize: Math.max(Math.round(11 * scale * 0.75), 8),
   };
   const common = {
@@ -348,26 +419,45 @@ function ControlView({
       break;
     case 'listBox': {
       const items = info.items ?? [];
+      const multi = info.selType !== 'single';
+      const chosen = (n: number) => (multi ? info.multiSel.includes(n) : info.sel === n);
       body = (
         <div
           role="listbox"
           aria-label={info.name}
+          aria-multiselectable={multi || undefined}
           tabIndex={0}
           className={styles.list}
           onKeyDown={(e) => {
+            if (multi && e.key === ' ') {
+              // Space toggles (multi) or chooses (extend) the focused item.
+              e.preventDefault();
+              if (focus > 0) select(focus, e.ctrlKey || e.metaKey, e.shiftKey);
+              return;
+            }
             const d = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
             if (d === 0) return;
             e.preventDefault();
-            select(moveSel(info.sel, d, items.length));
+            const next = moveSel(multi ? focus : info.sel, d, items.length);
+            if (!multi) select(next);
+            else {
+              setFocus(next);
+              if (info.selType === 'extend' && !e.ctrlKey) select(next, false, e.shiftKey);
+            }
           }}
         >
           {items.map((item, i) => (
             <div
               key={i}
               role="option"
-              aria-selected={info.sel === i + 1}
-              className={info.sel === i + 1 ? styles.itemOn : styles.item}
-              onClick={() => select(i + 1)}
+              aria-selected={chosen(i + 1)}
+              className={`${chosen(i + 1) ? styles.itemOn : styles.item} ${
+                multi && focus === i + 1 ? styles.itemFocus : ''
+              }`}
+              onClick={(e) => {
+                setFocus(i + 1);
+                select(i + 1, e.ctrlKey || e.metaKey, e.shiftKey);
+              }}
             >
               {item || ' '}
             </div>
@@ -504,6 +594,15 @@ function ControlView({
           onContextMenu={onContextMenu}
         />
       )}
+      {isSelected && info.kind !== 'activeX' && (
+        <div
+          className={styles.resizeHandle}
+          data-testid="form-control-resize"
+          aria-hidden="true"
+          title={t('sheetEditor.formControl.resize', { name: info.name })}
+          onMouseDown={startResize}
+        />
+      )}
     </div>
   );
 }
@@ -525,6 +624,8 @@ interface Draft {
   noThreeD: boolean;
   horiz: boolean;
   macroName: string;
+  selType?: ListSelType;
+  placement?: ControlPlacement;
 }
 
 const draftOf = (i: FormControlInfo): Draft => ({
@@ -542,6 +643,8 @@ const draftOf = (i: FormControlInfo): Draft => ({
   noThreeD: i.noThreeD,
   horiz: i.horiz,
   macroName: i.macro ?? '',
+  selType: i.selType,
+  placement: i.placement,
 });
 
 const INT = /^-?\d+$/;
@@ -575,6 +678,8 @@ export function specOf(kind: FormControlKind, d: Draft): FormatControlSpec | str
     spec.horiz = d.horiz;
   }
   if (kind !== 'button' && kind !== 'label') spec.noThreeD = d.noThreeD;
+  if (kind === 'listBox' && d.selType) spec.selType = d.selType;
+  if (kind !== 'activeX' && d.placement) spec.placement = d.placement;
   return spec;
 }
 
@@ -691,9 +796,43 @@ export function FormatControlDialog({
             <p className={editorStyles.hint}>{t('sheetEditor.formControl.macroHint')}</p>
           </>
         )}
+        {k === 'listBox' && (
+          <fieldset className={styles.states}>
+            <legend>{t('sheetEditor.formControl.selType')}</legend>
+            {(['single', 'multi', 'extend'] as const).map((s) => (
+              <label key={s} className={editorStyles.check}>
+                <input
+                  type="radio"
+                  name="fc-seltype"
+                  data-testid={`fc-seltype-${s}`}
+                  checked={d.selType === s}
+                  onChange={() => set({ selType: s })}
+                />
+                {t(`sheetEditor.formControl.selTypes.${s}`)}
+              </label>
+            ))}
+          </fieldset>
+        )}
         {k !== 'button' &&
           k !== 'label' &&
           flagRow('noThreeD', 'sheetEditor.formControl.flat', 'fc-flat')}
+        {k !== 'activeX' && (
+          <fieldset className={styles.placements}>
+            <legend>{t('sheetEditor.formControl.placement')}</legend>
+            {(['move', 'moveAndSize', 'fixed'] as const).map((p) => (
+              <label key={p} className={editorStyles.check}>
+                <input
+                  type="radio"
+                  name="fc-placement"
+                  data-testid={`fc-placement-${p}`}
+                  checked={d.placement === p}
+                  onChange={() => set({ placement: p })}
+                />
+                {t(`sheetEditor.formControl.placements.${p}`)}
+              </label>
+            ))}
+          </fieldset>
+        )}
         {error && (
           <p className={editorStyles.error} role="alert">
             {error}

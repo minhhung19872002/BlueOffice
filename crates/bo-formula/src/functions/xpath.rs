@@ -15,8 +15,15 @@
 //!   `substring`, `string-length`, `normalize-space`, `translate`, `boolean`, `not`, `true`,
 //!   `false`, `number`, `sum`, `floor`, `ceiling`, `round`.
 //!
-//! Names are matched as written (prefix included); namespace declarations are not resolved and
-//! are not attribute nodes. Whitespace-only text between elements is dropped, as XML parsers
+//! Namespaces (Namespaces in XML 1.0 §6, XPath 1.0 §2.3): every element and attribute name
+//! is expanded with the namespace URI its prefix is bound to in scope. A prefixed name test
+//! `p:local` / `p:*` resolves `p` with the declarations found in the document itself (the
+//! first `xmlns:p` in document order — `FILTERXML` has no other way to supply bindings) and
+//! matches by namespace URI + local name, so `//m:v` finds `<a:v xmlns:a="urn:x"/>` when the
+//! document also binds `m` to `urn:x`; a prefix the document never declares is matched as
+//! written. Unprefixed name tests match the name as written (default-namespace elements
+//! included). `namespace-uri()` (§4.1) reports the expanded URI. Namespace declarations are
+//! not attribute nodes. Whitespace-only text between elements is dropped, as XML parsers
 //! do by default when whitespace is not significant. Variables, comments and processing
 //! instructions are not modelled.
 
@@ -38,7 +45,10 @@ enum Kind {
     Root,
     Element {
         name: String,
-        attrs: Vec<(String, String)>,
+        /// Namespace URI of the element name (`None`: no namespace).
+        ns: Option<String>,
+        /// (qualified name, value, namespace URI); unprefixed attributes have no namespace.
+        attrs: Vec<(String, String, Option<String>)>,
     },
     Text(String),
 }
@@ -53,11 +63,47 @@ struct Node {
 
 struct Doc {
     nodes: Vec<Node>,
+    /// First declaration of each prefix in document order (prefix, URI), used to resolve the
+    /// prefixes written in the XPath expression.
+    prefixes: Vec<(String, String)>,
 }
 
-fn element(e: &BytesStart<'_>, parent: usize, index: usize) -> Option<Node> {
+/// In-scope namespace bindings: (prefix, URI) pushed per element; `""` is the default
+/// namespace, an empty URI undeclares it (Namespaces in XML 1.0 §6.2).
+type Scope = Vec<(String, String)>;
+
+fn lookup<'s>(scope: &'s Scope, prefix: &str) -> Option<&'s str> {
+    scope
+        .iter()
+        .rev()
+        .find(|(p, _)| p == prefix)
+        .map(|(_, u)| u.as_str())
+        .filter(|u| !u.is_empty())
+}
+
+/// Namespace URI of a qualified name: the bound prefix, or the default namespace for an
+/// unprefixed element name (never for an unprefixed attribute, §6.2).
+fn expand(scope: &Scope, qname: &str, is_attr: bool) -> Option<String> {
+    match qname.split_once(':') {
+        Some(("xml", _)) => Some("http://www.w3.org/XML/1998/namespace".to_owned()),
+        Some((p, _)) => lookup(scope, p).map(str::to_owned),
+        None if is_attr => None,
+        None => lookup(scope, "").map(str::to_owned),
+    }
+}
+
+/// Build an element node, pushing its namespace declarations onto `scope` (the caller pops
+/// `scope` back to its length before the call when the element closes) and recording the
+/// first declaration of each prefix in `prefixes`.
+fn element(
+    e: &BytesStart<'_>,
+    parent: usize,
+    index: usize,
+    scope: &mut Scope,
+    prefixes: &mut Vec<(String, String)>,
+) -> Option<Node> {
     let name = <_ as AsRef<str>>::as_ref(&e.name()).to_owned();
-    let mut attrs = Vec::new();
+    let mut raw = Vec::new();
     for a in e.attributes() {
         let a = a.ok()?;
         let key = <_ as AsRef<str>>::as_ref(&a.key).to_owned();
@@ -66,13 +112,29 @@ fn element(e: &BytesStart<'_>, parent: usize, index: usize) -> Option<Node> {
             .ok()?
             .into_owned();
         // Namespace declarations are not attributes in the XPath data model (§5.3).
-        if key == "xmlns" || key.starts_with("xmlns:") {
+        if key == "xmlns" {
+            scope.push((String::new(), value));
             continue;
         }
-        attrs.push((key, value));
+        if let Some(p) = key.strip_prefix("xmlns:") {
+            if !value.is_empty() && !prefixes.iter().any(|(q, _)| q == p) {
+                prefixes.push((p.to_owned(), value.clone()));
+            }
+            scope.push((p.to_owned(), value));
+            continue;
+        }
+        raw.push((key, value));
     }
+    let ns = expand(scope, &name, false);
+    let attrs = raw
+        .into_iter()
+        .map(|(k, v)| {
+            let ns = expand(scope, &k, true);
+            (k, v, ns)
+        })
+        .collect();
     Some(Node {
-        kind: Kind::Element { name, attrs },
+        kind: Kind::Element { name, ns, attrs },
         parent,
         children: Vec::new(),
         end: index + 1,
@@ -89,7 +151,11 @@ impl Doc {
                 children: Vec::new(),
                 end: 1,
             }],
+            prefixes: Vec::new(),
         };
+        let mut scope: Scope = Vec::new();
+        // Scope length before each open element, popped on its end tag.
+        let mut marks: Vec<usize> = Vec::new();
         let mut stack = vec![0usize];
         let mut roots = 0;
         loop {
@@ -97,7 +163,9 @@ impl Doc {
                 Event::Start(e) => {
                     let top = doc.open_child(&mut roots, &stack)?;
                     let idx = doc.nodes.len();
-                    doc.nodes.push(element(&e, top, idx)?);
+                    marks.push(scope.len());
+                    let node = element(&e, top, idx, &mut scope, &mut doc.prefixes)?;
+                    doc.nodes.push(node);
                     doc.nodes[top].children.push(idx);
                     stack.push(idx);
                     if stack.len() > MAX_NESTING {
@@ -107,10 +175,14 @@ impl Doc {
                 Event::Empty(e) => {
                     let top = doc.open_child(&mut roots, &stack)?;
                     let idx = doc.nodes.len();
-                    doc.nodes.push(element(&e, top, idx)?);
+                    let mark = scope.len();
+                    let node = element(&e, top, idx, &mut scope, &mut doc.prefixes)?;
+                    scope.truncate(mark);
+                    doc.nodes.push(node);
                     doc.nodes[top].children.push(idx);
                 }
                 Event::End(_) => {
+                    scope.truncate(marks.pop()?);
                     let idx = stack.pop()?;
                     if stack.is_empty() {
                         return None;
@@ -203,6 +275,52 @@ impl Doc {
                 Kind::Element { attrs, .. } => &attrs[a].0,
                 _ => "",
             },
+        }
+    }
+
+    /// Expanded namespace URI of an element or attribute (`None`: no namespace).
+    fn namespace(&self, item: Item) -> Option<&str> {
+        match item {
+            Item::Node(i) => match &self.nodes[i].kind {
+                Kind::Element { ns, .. } => ns.as_deref(),
+                _ => None,
+            },
+            Item::Attr(e, a) => match &self.nodes[e].kind {
+                Kind::Element { attrs, .. } => attrs[a].2.as_deref(),
+                _ => None,
+            },
+        }
+    }
+
+    /// URI the document binds `prefix` to (first declaration in document order).
+    fn prefix_uri(&self, prefix: &str) -> Option<&str> {
+        self.prefixes
+            .iter()
+            .find(|(p, _)| p == prefix)
+            .map(|(_, u)| u.as_str())
+    }
+
+    /// Whether `item`'s name matches the qualified name test `qname` (§2.3): `p:local`
+    /// with a prefix the document declares compares namespace URI + local name.
+    fn name_matches(&self, item: Item, qname: &str) -> bool {
+        let written = self.name(item);
+        if let Some((p, local)) = qname.split_once(':') {
+            if let Some(uri) = self.prefix_uri(p) {
+                let own_local = written.rsplit(':').next().unwrap_or(written);
+                return own_local == local && self.namespace(item) == Some(uri);
+            }
+        }
+        written == qname
+    }
+
+    /// Whether `item` matches the `prefix:*` test.
+    fn prefix_matches(&self, item: Item, prefix: &str) -> bool {
+        match self.prefix_uri(prefix) {
+            Some(uri) => self.namespace(item) == Some(uri),
+            None => self
+                .name(item)
+                .split_once(':')
+                .is_some_and(|(q, _)| q == prefix),
         }
     }
 
@@ -1129,15 +1247,8 @@ impl Eval<'_> {
                 matches!(item, Item::Node(i) if matches!(self.doc.nodes[i].kind, Kind::Text(_)))
             }
             Test::Any => principal,
-            Test::Name(n) => principal && self.doc.name(item) == n,
-            Test::Prefix(p) => {
-                principal
-                    && self
-                        .doc
-                        .name(item)
-                        .split_once(':')
-                        .is_some_and(|(q, _)| q == p)
-            }
+            Test::Name(n) => principal && self.doc.name_matches(item, n),
+            Test::Prefix(p) => principal && self.doc.prefix_matches(item, p),
         }
     }
 
@@ -1184,6 +1295,12 @@ impl Eval<'_> {
                     full
                 };
                 Val::Str(shown.to_owned())
+            }
+            "namespace-uri" => {
+                arity(0, 1)?;
+                let n = nodes_arg(0)?;
+                let uri = n.first().and_then(|&i| self.doc.namespace(i));
+                Val::Str(uri.unwrap_or_default().to_owned())
             }
             "string" => {
                 arity(0, 1)?;
@@ -1356,6 +1473,28 @@ mod tests {
         assert_eq!(q(X, "//a[").map(|_| ()), None);
         assert_eq!(q("<r><a></r>", "//a"), None);
         assert_eq!(q("<r/><s/>", "//r"), None);
+    }
+
+    #[test]
+    fn namespaces_resolve_through_document_declarations() {
+        // Same URI under two prefixes: `m:v` matches `a:v` (Namespaces in XML §6).
+        let x = "<r xmlns:m=\"urn:x\"><a:v xmlns:a=\"urn:x\">1</a:v><m:v>2</m:v><b:v xmlns:b=\"urn:y\">3</b:v></r>";
+        assert_eq!(q(x, "//m:v").unwrap(), ["1", "2"]);
+        assert_eq!(q(x, "//b:v").unwrap(), ["3"]);
+        assert_eq!(q(x, "//m:*").unwrap(), ["1", "2"]);
+        assert_eq!(q(x, "//a:v").unwrap(), ["1", "2"]);
+        // Undeclared prefix: matched as written (no element is named `z:v`).
+        assert_eq!(q(x, "//z:v"), Some(vec![]));
+        assert_eq!(q(x, "namespace-uri(//b:v)"), None);
+        assert_eq!(q(x, "//*[namespace-uri()='urn:y']").unwrap(), ["3"]);
+        // Default namespace and namespaced attributes.
+        let d = "<feed xmlns=\"urn:atom\" xmlns:g=\"urn:g\"><e g:id=\"7\" id=\"8\">t</e></feed>";
+        assert_eq!(q(d, "//e").unwrap(), ["t"]);
+        assert_eq!(q(d, "//e/@g:id").unwrap(), ["7"]);
+        assert_eq!(q(d, "//*[namespace-uri()='urn:atom']/@id").unwrap(), ["8"]);
+        // A redeclared prefix applies only inside its element.
+        let s = "<r xmlns:p=\"urn:1\"><p:a>1</p:a><s xmlns:p=\"urn:2\"><p:a>2</p:a></s><p:a>3</p:a></r>";
+        assert_eq!(q(s, "//p:a").unwrap(), ["1", "3"]);
     }
 
     #[test]

@@ -12,7 +12,7 @@ import {
   parseRowSpan,
   splitSections,
 } from '../src/hfCodes';
-import { PageSetupDialog } from '../src/pageSetup';
+import { PageSetupDialog, pictureSection } from '../src/pageSetup';
 
 afterEach(cleanup);
 
@@ -187,5 +187,66 @@ describe('PageSetupDialog', () => {
     fireEvent.click(screen.getByTestId('page-ok'));
     await screen.findByText(/not a valid list of ranges/);
     expect(host.exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('names picture sections like the VML shapes and sends chosen pictures on OK', async () => {
+    expect(pictureSection('oddHeader', 'center')).toBe('CH');
+    expect(pictureSection('evenFooter', 'left')).toBe('LFEVEN');
+    expect(pictureSection('firstHeader', 'right')).toBe('RHFIRST');
+    const calls: SheetCommand[] = [];
+    const withPicture = info();
+    withPicture.extra.hfPictures = [{ section: 'RF', width: 40, height: 20, name: 'logo' }];
+    withPicture.extra.headerFooter.oddFooter = '&R&G';
+    const host = {
+      exec: vi.fn(async (cmd: SheetCommand) => {
+        calls.push(cmd);
+        return cmd.cmd === 'pageSetup' ? withPicture : { ok: true };
+      }),
+    } as unknown as SheetHost;
+    const pickFile = vi.fn(async () => ({ name: 'mark.png', bytes: new Uint8Array([1, 2, 3]) }));
+    const onDone = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <PageSetupDialog
+          host={host}
+          sheet={0}
+          range={{ r0: 0, c0: 0, r1: 0, c1: 0 }}
+          onClose={() => {}}
+          onDone={onDone}
+          fail={(e) => {
+            throw e;
+          }}
+          pickFile={pickFile}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByTestId('page-setup');
+    fireEvent.click(screen.getByTestId('page-tab-headerFooter'));
+    expect(screen.getByText('Right part: picture')).toBeTruthy();
+    // A picture in the header's centre: &G goes into the text.
+    fireEvent.focus(screen.getByTestId('page-hf-oddHeader-center'));
+    fireEvent.click(screen.getByTestId('page-hf-oddHeader-picture'));
+    await waitFor(() => expect(pickFile).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId('page-hf-oddHeader-center') as HTMLTextAreaElement).value,
+      ).toContain('&G'),
+    );
+    // The footer's picture is removed, with its code.
+    fireEvent.focus(screen.getByTestId('page-hf-oddFooter-right'));
+    fireEvent.click(screen.getByTestId('page-hf-oddFooter-remove-picture'));
+    fireEvent.click(screen.getByTestId('page-ok'));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(calls).toContainEqual({
+      cmd: 'headerFooterPicture',
+      sheet: 0,
+      section: 'CH',
+      image: 'AQID',
+      ext: 'png',
+      name: 'mark.png',
+    });
+    expect(calls).toContainEqual({ cmd: 'headerFooterPicture', sheet: 0, section: 'RF' });
+    const set = calls.find((c) => c.cmd === 'setPageSetup');
+    expect(set).toMatchObject({ headerFooter: { oddFooter: '', oddHeader: '&CReport&G' } });
   });
 });

@@ -462,6 +462,19 @@ fn hf_texts(ws: &Worksheet, index: usize) -> (Option<&str>, Option<&str>) {
     }
 }
 
+/// Suffix of the picture shape ids of page `index`: `FIRST`, `EVEN` or none (the same
+/// choice as [`hf_texts`]).
+fn hf_suffix(ws: &Worksheet, index: usize) -> &'static str {
+    let p = &ws.page_setup;
+    if p.different_first && index == 0 {
+        "FIRST"
+    } else if p.different_odd_even && index % 2 == 1 {
+        "EVEN"
+    } else {
+        ""
+    }
+}
+
 /// Black-and-white printing: white fills, black text and lines, grey shape fills.
 fn black_and_white(commands: &mut [Command]) {
     const BLACK: Rgba = Rgba(0, 0, 0, 255);
@@ -1024,6 +1037,13 @@ impl SheetEngine {
         let ws = self.sheet(sheet)?;
         let (head, foot) = hf_texts(ws, index);
         let (head, foot) = (head.map(hf::parse), foot.map(hf::parse));
+        // `&G` pictures (§18.3.1.50 legacyDrawingHF): the section's VML shape.
+        let pictures = self
+            .wb
+            .as_ref()
+            .map(|wb| bo_xlsx::hfpicture::pictures(ws, &wb.opaque.parts))
+            .unwrap_or_default();
+        let suffix = hf_suffix(ws, index);
         let scale_with_doc = attr(&ws.page_setup.header_footer_attrs, "scaleWithDoc")
             .is_none_or(|v| v == "1" || v == "true");
         let mut ctx = self.hf_context(sheet);
@@ -1037,19 +1057,55 @@ impl SheetEngine {
         };
         for (text, header) in [(head, true), (foot, false)] {
             let Some(text) = text else { continue };
-            for (sec, align, x) in [
-                (&text.left, HfAlign::Left, ml),
-                (&text.center, HfAlign::Center, pw / 2.0),
-                (&text.right, HfAlign::Right, pw - mr),
+            for (sec, align, x, letter) in [
+                (&text.left, HfAlign::Left, ml, 'L'),
+                (&text.center, HfAlign::Center, pw / 2.0, 'C'),
+                (&text.right, HfAlign::Right, pw - mr, 'R'),
             ] {
                 let runs = hf::expand(sec, &ctx);
+                let id = format!("{letter}{}{suffix}", if header { 'H' } else { 'F' });
+                let picture = pictures
+                    .iter()
+                    .find(|p| p.section == id)
+                    .filter(|_| sec.iter().any(|p| p.field == hf::HfField::Picture));
+                if runs.is_empty() && picture.is_none() {
+                    continue;
+                }
+                // Our layout: the picture sits on its own above the section's text (header)
+                // or below it (footer), aligned like the section, at its printed size
+                // scaled like the text.
+                let (pw_pt, ph_pt) = picture.map_or((0.0, 0.0), |p| {
+                    (p.width * base.scale, p.height * base.scale)
+                });
+                let text_h = if runs.is_empty() {
+                    0.0
+                } else {
+                    hf::height(&runs, &base)
+                };
+                if let Some(p) = picture {
+                    let px = match align {
+                        HfAlign::Left => x,
+                        HfAlign::Center => x - pw_pt / 2.0,
+                        HfAlign::Right => x - pw_pt,
+                    };
+                    let py = if header { mh } else { ph - mf - ph_pt };
+                    commands.push(Command::Image {
+                        x: f(px),
+                        y: f(py),
+                        w: f(pw_pt),
+                        h: f(ph_pt),
+                        image: p.image_part.clone(),
+                        crop: None,
+                        rotation: 0.0,
+                    });
+                }
                 if runs.is_empty() {
                     continue;
                 }
                 let top = if header {
-                    mh
+                    mh + ph_pt
                 } else {
-                    ph - mf - hf::height(&runs, &base)
+                    ph - mf - ph_pt - text_h
                 };
                 commands.extend(hf::draw(&mut self.fonts, &runs, &base, align, x, top));
             }

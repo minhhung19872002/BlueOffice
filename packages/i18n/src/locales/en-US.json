@@ -1423,6 +1423,9 @@
         "italic": "Italic",
         "underline": "Underline"
       },
+      "picture": "Picture…",
+      "removePicture": "Remove picture",
+      "hasPicture": "{{section}}: picture",
       "area": "Area to print",
       "useSelection": "Use the current selection",
       "titleCols": "Columns to repeat on the left",
@@ -2173,7 +2176,20 @@
       "decrease": "Decrease",
       "increase": "Increase",
       "selected": "Control {{name}} selected",
-      "designHint": "Drag to move · Enter or double-click for settings · Delete to remove · Esc to deselect"
+      "designHint": "Drag to move, drag the corner to resize (or arrow keys / Shift+arrow keys) · Enter or double-click for settings · Delete to remove · Esc to deselect",
+      "resize": "Resize {{name}}",
+      "selType": "Selection type",
+      "selTypes": {
+        "single": "Single",
+        "multi": "Multi (each click toggles an item)",
+        "extend": "Extend (Ctrl+click, Shift+click)"
+      },
+      "placement": "Object positioning",
+      "placements": {
+        "move": "Move but don't size with cells",
+        "moveAndSize": "Move and size with cells",
+        "fixed": "Don't move or size with cells"
+      }
     },
     "cellMedia": {
       "pictureInCell": "Picture in cell",

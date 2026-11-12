@@ -84,14 +84,20 @@ fn filterxml(ctx: &mut Ctx, args: &[Value]) -> R {
 /// Every failure is `#VALUE!` — the error the function's published definition gives for a
 /// request that cannot be completed — including "web access disabled" (no provider
 /// installed), so a workbook opened where web access is off shows the same error it shows
-/// offline. A URL that is not `http://` / `https://`, longer than 2048 characters, or a
+/// offline — except that a formula loaded with a cached value (ECMA-376 Part 1, §18.3.1.96
+/// `v`) keeps that value while no provider is installed. A URL that is not `http://` / `https://`, longer than 2048 characters, or a
 /// response longer than 32767 characters is also `#VALUE!`.
 fn webservice(ctx: &mut Ctx, args: &[Value]) -> R {
     let url = ctx.text(&args[0])?;
     if !is_web_url(&url) {
         return Err(ErrorKind::Value);
     }
-    let provider = ctx.web.ok_or(ErrorKind::Value)?;
+    let Some(provider) = ctx.web else {
+        // Web access disabled: the workbook keeps a cached value loaded from the file
+        // (see `Workbook::load_formula`) rather than this `#VALUE!`.
+        ctx.web_offline = true;
+        return Err(ErrorKind::Value);
+    };
     let body = provider.fetch(&url).map_err(|_| ErrorKind::Value)?;
     if body.chars().count() > MAX_TEXT {
         return Err(ErrorKind::Value);

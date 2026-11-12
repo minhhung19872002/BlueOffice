@@ -147,6 +147,101 @@ const CASES: &[Case] = &[
         examples: &[(&["An"], "Ông An")],
         rows: &[(&["Bình"], Some("Ông Bình"))],
     },
+    // --- repeat over every token (names of any length) ---
+    Case {
+        name: "initials of every word, any number of words",
+        examples: &[(&["Nguyễn Văn An"], "NVA")],
+        rows: &[
+            (&["Trần Thị Bích Ngọc"], Some("TTBN")),
+            (&["Lê Hùng"], Some("LH")),
+            (&["Tôn Nữ Thị Minh Châu"], Some("TNTMC")),
+        ],
+    },
+    Case {
+        name: "initials with dots, any number of words",
+        examples: &[(&["John Ronald Tolkien"], "J.R.T.")],
+        rows: &[
+            (&["Mary Jones"], Some("M.J.")),
+            (&["Ho Chi Minh City"], Some("H.C.M.C.")),
+        ],
+    },
+    Case {
+        name: "slug: every word lower case joined by hyphens",
+        examples: &[(&["Hà Nội Mới"], "hà-nội-mới")],
+        rows: &[
+            (&["Thành phố Hồ Chí Minh"], Some("thành-phố-hồ-chí-minh")),
+            (&["Đà Nẵng"], Some("đà-nẵng")),
+        ],
+    },
+    Case {
+        name: "initials of every word then the last word",
+        examples: &[(&["Nguyễn Văn An"], "NVA - An")],
+        rows: &[(&["Trần Thị Bích Ngọc"], Some("TTBN - Ngọc"))],
+    },
+    // --- nested tokens ---
+    Case {
+        name: "first label of an e-mail domain (field inside a field)",
+        examples: &[
+            (&["an.nguyen@bluestar.vn"], "bluestar"),
+            (&["hung@cty.com.vn"], "cty"),
+        ],
+        rows: &[
+            (&["lan.tran.thi@mail.gov.vn"], Some("mail")),
+            (&["minh@example.org"], Some("example")),
+        ],
+    },
+    Case {
+        name: "file name without extension from a path",
+        examples: &[
+            (&["/home/an/bao-cao.v2.pdf"], "bao-cao"),
+            (&["/srv/data/ke-hoach-2025.xlsx"], "ke-hoach-2025"),
+        ],
+        rows: &[
+            (&["/tmp/so-lieu.csv"], Some("so-lieu")),
+            (&["/a/b/c/du-toan-q3.final.docx"], Some("du-toan-q3")),
+        ],
+    },
+    // --- month names and numbers ---
+    Case {
+        name: "month number to Vietnamese month name",
+        examples: &[(&["15/03/2024"], "tháng Ba")],
+        rows: &[
+            (&["01/12/1999"], Some("tháng Mười Hai")),
+            (&["20/1/2025"], Some("tháng Một")),
+            (&["07/11/2023"], Some("tháng Mười Một")),
+            (&["30/04/1975"], Some("tháng Tư")),
+        ],
+    },
+    Case {
+        name: "month number without leading zero",
+        examples: &[(&["15/03/2024"], "tháng 3 năm 2024")],
+        rows: &[
+            (&["01/12/1999"], Some("tháng 12 năm 1999")),
+            (&["02/09/1945"], Some("tháng 9 năm 1945")),
+        ],
+    },
+    Case {
+        name: "Vietnamese date in words to dd/mm/yyyy",
+        examples: &[(&["ngày 5 tháng Ba năm 2024"], "05/03/2024")],
+        rows: &[
+            (&["ngày 17 tháng Mười Một năm 2023"], Some("17/11/2023")),
+            (&["ngày 1 tháng Giêng năm 2025"], Some("01/01/2025")),
+            (&["Ngày 20 tháng 10 năm 2020"], Some("20/10/2020")),
+        ],
+    },
+    Case {
+        name: "English month name to number",
+        examples: &[(&["March 5, 2024"], "2024-03-05")],
+        rows: &[
+            (&["December 25, 1999"], Some("1999-12-25")),
+            (&["Sep 2, 1945"], Some("1945-09-02")),
+        ],
+    },
+    Case {
+        name: "month number to English abbreviation",
+        examples: &[(&["2024-03-15"], "15 Mar 2024")],
+        rows: &[(&["1999-12-01"], Some("01 Dec 1999"))],
+    },
     Case {
         name: "month name of a day/month/year date",
         examples: &[(&["15/03/2024"], "March")],

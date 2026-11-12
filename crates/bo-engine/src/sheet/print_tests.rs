@@ -416,3 +416,126 @@ fn page_setup_round_trips_through_xlsx() {
         Vec::<RawAttr>::new()
     );
 }
+
+/// 1 × 1 PNG.
+const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+fn images(p: &PageList) -> Vec<(f32, f32, f32, f32, String)> {
+    p.commands
+        .iter()
+        .filter_map(|c| match c {
+            Command::Image {
+                x, y, w, h, image, ..
+            } => Some((*x, *y, *w, *h, image.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `&G` (§18.3.1.50 legacyDrawingHF, VML shapes `CH` / `RF`): the picture is printed in its
+/// section at its size, saved in a header / footer drawing, read back, and removed cleanly.
+#[test]
+fn header_footer_pictures_print_and_round_trip() {
+    let mut e = filled(3, 2);
+    run(
+        &mut e,
+        json!({ "cmd": "setPageSetup", "sheet": 0, "scale": 100,
+                "headerFooter": { "oddHeader": "&C&GLogo", "oddFooter": "&R&G", "scaleWithDoc": false } }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "headerFooterPicture", "sheet": 0, "section": "CH", "image": PNG_1X1,
+                "size": [60.0, 30.0], "name": "logo" }),
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "headerFooterPicture", "sheet": 0, "section": "RF", "image": PNG_1X1,
+                "size": [40.0, 20.0] }),
+    );
+    let check = |e: &mut SheetEngine| {
+        let pages = e.print_pages(0).unwrap();
+        let imgs = images(&pages[0]);
+        assert_eq!(imgs.len(), 2, "{imgs:?}");
+        let (pw, ph) = (f64::from(pages[0].width), f64::from(pages[0].height));
+        // Default margins: header 0.3 in = 21.6 pt, footer 0.3 in, right 0.7 in = 50.4 pt.
+        let ch = &imgs[0];
+        assert!(
+            (f64::from(ch.0) - (pw / 2.0 - 30.0)).abs() < 0.01,
+            "centred: {ch:?}"
+        );
+        assert!(
+            (f64::from(ch.1) - 21.6).abs() < 0.01,
+            "at the header margin"
+        );
+        assert_eq!((ch.2, ch.3), (60.0, 30.0));
+        let rf = &imgs[1];
+        assert!(
+            (f64::from(rf.0) - (pw - 50.4 - 40.0)).abs() < 0.01,
+            "right-aligned: {rf:?}"
+        );
+        assert!(
+            (f64::from(rf.1) - (ph - 21.6 - 20.0)).abs() < 0.01,
+            "bottom at the footer margin"
+        );
+        // The header text goes below the picture.
+        let y = pages[0]
+            .commands
+            .iter()
+            .find_map(|c| match c {
+                Command::Glyphs { text, y, .. } if text == "Logo" => Some(*y),
+                _ => None,
+            })
+            .unwrap();
+        assert!(f64::from(y) > 21.6 + 30.0, "{y}");
+        // The PDF embeds the picture.
+        let pdf = e.export_pdf().unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains("/Subtype /Image"));
+    };
+    check(&mut e);
+    let ps = run(&mut e, json!({ "cmd": "pageSetup", "sheet": 0 }));
+    assert_eq!(ps["extra"]["hfPictures"].as_array().unwrap().len(), 2);
+    assert_eq!(ps["extra"]["hfPictures"][0]["name"], "logo");
+    let bytes = e.save("xlsx", 0).unwrap();
+    if let Ok(dir) = std::env::var("BO_VALIDATE_DIR") {
+        // Hand-run check against the OpenXML validator (`bo-cli validate`).
+        std::fs::write(format!("{dir}/hf-pictures.xlsx"), &bytes).unwrap();
+    }
+    let mut back = SheetEngine::with_bundled_fonts();
+    back.open(&bytes, "x.xlsx").unwrap();
+    check(&mut back);
+    // Removing one keeps the other; removing both drops the drawing and the reference.
+    run(
+        &mut back,
+        json!({ "cmd": "headerFooterPicture", "sheet": 0, "section": "CH", "image": null }),
+    );
+    assert_eq!(images(&back.print_pages(0).unwrap()[0]).len(), 1);
+    run(
+        &mut back,
+        json!({ "cmd": "headerFooterPicture", "sheet": 0, "section": "RF" }),
+    );
+    let wb = back.wb.as_ref().unwrap();
+    assert!(!wb.sheets[0]
+        .unknown
+        .iter()
+        .any(|u| u.xml.contains("legacyDrawingHF")));
+    assert!(!wb
+        .opaque
+        .parts
+        .iter()
+        .any(|p| p.name.contains("vmlDrawingHF") || p.name.contains("hfimage")));
+    assert_eq!(images(&back.print_pages(0).unwrap()[0]), vec![]);
+    // Undo brings the picture back.
+    back.undo().unwrap();
+    assert_eq!(images(&back.print_pages(0).unwrap()[0]).len(), 1);
+    // Without `&G` in the section text the picture is not printed.
+    run(
+        &mut back,
+        json!({ "cmd": "setPageSetup", "sheet": 0, "headerFooter": { "oddFooter": "&RTrang" } }),
+    );
+    assert_eq!(images(&back.print_pages(0).unwrap()[0]), vec![]);
+    assert!(back
+        .exec_json(
+            &json!({ "cmd": "headerFooterPicture", "sheet": 0, "section": "XX" }).to_string()
+        )
+        .is_err());
+}

@@ -94,6 +94,69 @@ pub enum CheckState {
     Mixed,
 }
 
+/// How a control follows the cells under it when rows / columns are inserted, deleted or
+/// resized ([MS-XLSX] `CT_ObjectAnchor` `moveWithCells` / `sizeWithCells`; the DrawingML
+/// twin's §20.5.2.33 `twoCellAnchor/@editAs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ControlPlacement {
+    /// Moves with its top-left cell, keeps its size (`moveWithCells="1"`, the default of
+    /// a new control).
+    #[default]
+    Move,
+    /// Moves and sizes with the cells (`moveWithCells="1" sizeWithCells="1"`).
+    MoveAndSize,
+    /// Neither moves nor sizes (no attribute).
+    Fixed,
+}
+
+/// Selection type of a list box ([MS-XLSX] `ST_SelType` attribute `seltype`; VML `x:SelType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SelType {
+    /// One item (`single`): the chosen index goes to the linked cell.
+    #[default]
+    Single,
+    /// A click toggles an item (`multi`); the linked cell is not used.
+    Multi,
+    /// A click chooses one item, Ctrl+click toggles, Shift+click extends (`extend`); the
+    /// linked cell is not used.
+    Extend,
+}
+
+impl SelType {
+    /// The [MS-XLSX] `ST_SelType` value of `formControlPr/@seltype`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::Multi => "multi",
+            Self::Extend => "extended",
+        }
+    }
+
+    /// The VML `x:SelType` text.
+    #[must_use]
+    pub fn vml_str(self) -> &'static str {
+        match self {
+            Self::Single => "Single",
+            Self::Multi => "Multi",
+            Self::Extend => "Extend",
+        }
+    }
+
+    /// From an `ST_SelType` / VML value (case-insensitive).
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "single" => Self::Single,
+            "multi" => Self::Multi,
+            "extend" | "extended" => Self::Extend,
+            _ => return None,
+        })
+    }
+}
+
 /// Where a control sits: two cells with offsets in EMU
 /// (`controlPr/anchor` `from` / `to`, ECMA-376 Part 1 §20.5.2.15 `CT_Marker`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -151,6 +214,13 @@ pub struct FormControl {
     pub macro_name: Option<String>,
     /// Placement.
     pub anchor: ControlAnchor,
+    /// How the control follows its cells.
+    pub placement: ControlPlacement,
+    /// List box selection type.
+    pub sel_type: SelType,
+    /// Items chosen in a multi-select list box (1-based, ascending; [MS-XLSX] `multiSel`,
+    /// VML `x:MultiSel`, comma-separated).
+    pub multi_sel: Vec<u32>,
     /// `control/@shapeId` (also the VML shape `_x0000_s<id>`; 0 for a new control).
     pub shape_id: u32,
     /// Absolute name of the control properties part (empty when there is none).
@@ -187,6 +257,9 @@ impl Default for FormControl {
             first_button: false,
             macro_name: None,
             anchor: ControlAnchor::default(),
+            placement: ControlPlacement::Move,
+            sel_type: SelType::Single,
+            multi_sel: Vec::new(),
             shape_id: 0,
             ctrl_prop_part: String::new(),
             vml_part: String::new(),

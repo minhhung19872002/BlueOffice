@@ -193,6 +193,9 @@ pub struct Workbook {
     /// Decimal places numbers of a cell are rounded to when read ("precision
     /// as displayed", §18.2.2 calcPr `fullPrecision`).
     round_to: FxHashMap<CellId, i32>,
+    /// Formulas calling `WEBSERVICE` loaded with a cached value (§18.3.1.96 `v`): while no
+    /// web provider is installed their evaluation keeps that value instead of `#VALUE!`.
+    web_cached: FxHashSet<CellId>,
 }
 
 impl Default for Workbook {
@@ -227,6 +230,7 @@ impl Workbook {
             area_cache: RwLock::new(FxHashMap::default()),
             index_cache: RwLock::new(FxHashMap::default()),
             round_to: FxHashMap::default(),
+            web_cached: FxHashSet::default(),
         }
     }
 
@@ -507,6 +511,9 @@ impl Workbook {
             self.volatile.insert(id);
         }
         let known = cached.is_some();
+        if known && volatile && formula.to_ascii_uppercase().contains("WEBSERVICE") {
+            self.web_cached.insert(id);
+        }
         self.sheets[sheet].cells.insert(
             (row, col),
             CellData {
@@ -1021,6 +1028,7 @@ impl Workbook {
     fn remove_formula(&mut self, id: CellId) {
         self.unregister(id);
         self.volatile.remove(&id);
+        self.web_cached.remove(&id);
         self.circular.remove(&id);
         self.clear_spill(id);
         self.spill_blocked.remove(&id);
@@ -1539,6 +1547,12 @@ impl Workbook {
         self.evaluations.fetch_add(1, Ordering::Relaxed);
         let mut ctx = Ctx::new(view, id.sheet, id.row, id.col, &self.config, &self.rng);
         let v = ctx.eval(&f.expr);
+        if ctx.web_offline && self.web_cached.contains(&id) {
+            // `WEBSERVICE` without a provider: keep the value saved with the file.
+            if let Some(c) = self.sheets[id.sheet].cells.get(&(id.row, id.col)) {
+                return c.value.clone();
+            }
+        }
         ctx.finalize(v)
     }
 

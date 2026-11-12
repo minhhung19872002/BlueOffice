@@ -1034,7 +1034,7 @@ fn write_pivot_tables(
     }
 }
 
-fn bo_opc_rels_xml(rels: &[Relationship]) -> String {
+pub(crate) fn bo_opc_rels_xml(rels: &[Relationship]) -> String {
     // Same serialization as bo-opc's relationships writer.
     let mut p = Package::new();
     p.set_relationships("/", rels);

@@ -376,3 +376,90 @@ fn web_functions_use_xlfn_storage_prefix() {
     assert_eq!(to_storage(shown), stored);
     assert_eq!(from_storage(stored), shown);
 }
+
+/// A workbook saved where web access worked keeps the response it saved (ECMA-376 Part 1,
+/// §18.3.1.96 `v`) while no provider is installed, instead of turning into `#VALUE!` on
+/// the first recalculation; dependents read the kept value. A formula typed afresh (no
+/// cache) or a re-entered formula still gives `#VALUE!`.
+#[test]
+fn webservice_keeps_cached_value_without_provider() {
+    let mut wb = Workbook::with_sheets(&["Sheet1"]);
+    wb.load_formula(
+        0,
+        0,
+        0,
+        "WEBSERVICE(\"https://api.example.vn/rate?ccy=USD\")",
+        Some(Value::Text("25400".to_owned())),
+    )
+    .expect("formula parses");
+    wb.load_formula(
+        0,
+        1,
+        0,
+        "FILTERXML(WEBSERVICE(\"https://api.example.vn/rates.xml\"),\"//rate[@ccy='EUR']\")",
+        Some(Value::Number(27_500.5)),
+    )
+    .expect("formula parses");
+    wb.load_formula(0, 2, 0, "VALUE(A1)*2", Some(Value::Number(0.0)))
+        .expect("formula parses");
+    // No cached value: nothing to keep.
+    wb.load_formula(0, 3, 0, "WEBSERVICE(\"https://api.example.vn/x\")", None)
+        .expect("formula parses");
+    wb.recalculate_all();
+    assert_eq!(wb.value(0, 0, 0), Value::Text("25400".to_owned()));
+    assert_eq!(wb.value(0, 1, 0), Value::Number(27_500.5));
+    assert_eq!(
+        wb.value(0, 2, 0),
+        Value::Number(50_800.0),
+        "hand: 25400 × 2"
+    );
+    assert_eq!(wb.value(0, 3, 0), Value::Error(ErrorKind::Value));
+    wb.recalculate();
+    assert_eq!(wb.value(0, 0, 0), Value::Text("25400".to_owned()));
+    // Once a provider exists the function fetches again.
+    let provider = Arc::new(Canned::default());
+    wb.set_web_provider(Some(provider.clone()));
+    wb.recalculate();
+    assert_eq!(wb.value(0, 0, 0), Value::Text("25400".to_owned()));
+    assert_eq!(wb.value(0, 3, 0), Value::Error(ErrorKind::Value));
+    assert!(provider.calls.load(Ordering::Relaxed) >= 3);
+    // Re-entering the formula drops the file's cache.
+    wb.set_web_provider(None);
+    wb.set_formula(0, 1, 0, "=WEBSERVICE(\"https://api.example.vn/rates.xml\")")
+        .expect("formula parses");
+    wb.recalculate();
+    assert_eq!(wb.value(0, 1, 0), Value::Error(ErrorKind::Value));
+}
+
+#[test]
+fn filterxml_resolves_document_namespaces() {
+    let rss = "'<rss xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><channel>\
+<item><title>A</title><creator xmlns=\"http://purl.org/dc/elements/1.1/\">Lan</creator></item>\
+<item><title>B</title><dc:creator>Minh</dc:creator></item></channel></rss>";
+    check(
+        &[("A1", rss)],
+        &[
+            (
+                "=FILTERXML(A1,\"//dc:creator\")",
+                A("{\"Lan\";\"Minh\"}"),
+                "hand: dc bound to the Dublin Core URI; the first creator is in that namespace \
+                 through a default declaration (Namespaces in XML 1.0 §6.2)",
+            ),
+            (
+                "=FILTERXML(A1,\"//item[dc:creator='Minh']/title\")",
+                T("B"),
+                "hand: prefixed name inside a predicate",
+            ),
+            (
+                "=FILTERXML(A1,\"namespace-uri(//dc:creator)\")",
+                E("#VALUE!"),
+                "hand: a string, not a node set",
+            ),
+            (
+                "=FILTERXML(A1,\"//*[namespace-uri()='http://purl.org/dc/elements/1.1/']\")",
+                A("{\"Lan\";\"Minh\"}"),
+                "hand: namespace-uri() (XPath 1.0 §4.1)",
+            ),
+        ],
+    );
+}

@@ -1926,7 +1926,7 @@ impl SheetEngine {
             (false, true) => bo_sheet::ops::delete_cols(wb, sheet, at, count, adj),
         }
         .map_err(|e| EngineError::Sheet(e.to_string()))?;
-        self.live.rebuild(wb);
+        self.live.reload(wb);
         self.invalidate(Some(sheet));
         self.push_undo(UndoEntry::Workbook(before));
         if let Some(c) = self.collab.as_mut() {

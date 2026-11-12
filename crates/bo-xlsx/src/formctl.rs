@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use bo_model::sheet::{
-    CellRef, CheckState, ControlAnchor, FormControl, FormControlKind, OpaquePart, OpaqueRel,
-    RawXml, Worksheet,
+    CellRef, CheckState, ControlAnchor, ControlPlacement, FormControl, FormControlKind, OpaquePart,
+    OpaqueRel, RawXml, SelType, Worksheet,
 };
 use bo_opc::xml::{escape, unescape};
 use bo_opc::{Relationship, TargetMode};
@@ -54,7 +54,7 @@ const EMU_PER_PX: i64 = 9525;
 
 /// Kind of a scanned tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TagKind {
+pub(crate) enum TagKind {
     Open,
     Close,
     Empty,
@@ -62,10 +62,10 @@ enum TagKind {
 
 /// A tag found by [`tags`]: byte span and qualified-name span.
 #[derive(Debug, Clone, Copy)]
-struct Tag {
-    start: usize,
-    end: usize,
-    kind: TagKind,
+pub(crate) struct Tag {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) kind: TagKind,
     name: (usize, usize),
 }
 
@@ -74,19 +74,19 @@ impl Tag {
         &xml[self.name.0..self.name.1]
     }
 
-    fn local<'a>(&self, xml: &'a str) -> &'a str {
+    pub(crate) fn local<'a>(&self, xml: &'a str) -> &'a str {
         let q = self.qname(xml);
         q.rsplit_once(':').map_or(q, |(_, l)| l)
     }
 
-    fn text<'a>(&self, xml: &'a str) -> &'a str {
+    pub(crate) fn text<'a>(&self, xml: &'a str) -> &'a str {
         &xml[self.start..self.end]
     }
 }
 
 /// The tags of an XML (or loosely-formed VML) text, skipping comments, processing
 /// instructions, declarations and CDATA; `>` inside quoted attribute values is honoured.
-fn tags(xml: &str) -> Vec<Tag> {
+pub(crate) fn tags(xml: &str) -> Vec<Tag> {
     let b = xml.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -203,7 +203,7 @@ fn attr_span(tag: &str, name: &str) -> Option<(usize, usize, usize)> {
 }
 
 /// Unescaped value of attribute `name` (qualified, as written) in a start tag.
-fn attr_of(tag: &str, name: &str) -> Option<String> {
+pub(crate) fn attr_of(tag: &str, name: &str) -> Option<String> {
     attr_span(tag, name).map(|(_, vs, ve)| unescape(&tag[vs..ve]))
 }
 
@@ -411,6 +411,9 @@ fn apply_vml(c: &mut FormControl, s: &VmlShape) {
             "Inc" => c.inc = num(v).unwrap_or(1),
             "Page" => c.page = num(v).unwrap_or(10),
             "DropLines" => c.drop_lines = num(v).unwrap_or(8),
+            // VML Part 4 §2.4 `x:SelType` / `x:MultiSel` (list box selection).
+            "SelType" => c.sel_type = SelType::parse(v).unwrap_or_default(),
+            "MultiSel" => c.multi_sel = multi_sel(v),
             "Horiz" => c.horiz = true,
             "NoThreeD" => c.no_three_d = true,
             "FirstButton" => c.first_button = true,
@@ -422,6 +425,47 @@ fn apply_vml(c: &mut FormControl, s: &VmlShape) {
     }
     if let Some(a) = s.anchor() {
         c.anchor = a;
+    }
+}
+
+/// A `multiSel` list ("1,3,4", 1-based item numbers), ascending without duplicates.
+fn multi_sel(v: &str) -> Vec<u32> {
+    let mut out: Vec<u32> = v
+        .split(',')
+        .filter_map(|p| p.trim().parse().ok())
+        .filter(|&n| n > 0)
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Placement from `controlPr/anchor` ([MS-XLSX] `CT_ObjectAnchor`: `moveWithCells`,
+/// `sizeWithCells`, both default false).
+fn placement(anchor: &Node) -> ControlPlacement {
+    let flag = |n: &str| anchor.attr(n).is_some_and(pbool);
+    match (flag("moveWithCells"), flag("sizeWithCells")) {
+        (_, true) => ControlPlacement::MoveAndSize,
+        (true, false) => ControlPlacement::Move,
+        (false, false) => ControlPlacement::Fixed,
+    }
+}
+
+/// `moveWithCells` / `sizeWithCells` attribute values of a placement.
+fn placement_attrs(p: ControlPlacement) -> (Option<&'static str>, Option<&'static str>) {
+    match p {
+        ControlPlacement::Move => (Some("1"), None),
+        ControlPlacement::MoveAndSize => (Some("1"), Some("1")),
+        ControlPlacement::Fixed => (None, None),
+    }
+}
+
+/// §20.5.2.33 `twoCellAnchor/@editAs` of the DrawingML twin for a placement.
+fn edit_as(p: ControlPlacement) -> &'static str {
+    match p {
+        ControlPlacement::Move => "oneCell",
+        ControlPlacement::MoveAndSize => "twoCell",
+        ControlPlacement::Fixed => "absolute",
     }
 }
 
@@ -468,6 +512,17 @@ fn apply_ctrl_prop(c: &mut FormControl, n: &Node) {
     if let Some(v) = n.attr("dropLines").and_then(num) {
         c.drop_lines = v;
     }
+    // [MS-XLSX] `CT_FormControlPr` `seltype` (`ST_SelType`) and `multiSel`.
+    if let Some(v) = n
+        .attr("seltype")
+        .or_else(|| n.attr("selType"))
+        .and_then(SelType::parse)
+    {
+        c.sel_type = v;
+    }
+    if let Some(v) = n.attr("multiSel") {
+        c.multi_sel = multi_sel(v);
+    }
     if let Some(v) = n.attr("horiz") {
         c.horiz = pbool(v);
     }
@@ -507,6 +562,7 @@ struct Entry {
     rid: String,
     macro_name: Option<String>,
     anchor: Option<ControlAnchor>,
+    placement: Option<ControlPlacement>,
     image_rid: Option<String>,
 }
 
@@ -539,6 +595,7 @@ fn entries(unknown: &[RawXml]) -> HashMap<u32, Entry> {
             if out.get(&id).is_some_and(|_| pr.is_none()) {
                 continue;
             }
+            let placement = pr.and_then(|p| p.child("anchor")).map(placement);
             let anchor = pr.and_then(|p| p.child("anchor")).and_then(|a| {
                 let (from, from_off) = marker(a.child("from")?);
                 let (to, to_off) = marker(a.child("to")?);
@@ -559,6 +616,7 @@ fn entries(unknown: &[RawXml]) -> HashMap<u32, Entry> {
                         .filter(|m| !m.is_empty())
                         .map(str::to_owned),
                     anchor,
+                    placement,
                     image_rid: pr.and_then(|p| p.attr("id")).map(str::to_owned),
                 },
             );
@@ -624,6 +682,11 @@ pub(crate) fn file_controls(
             }
             if let Some(a) = e.anchor {
                 c.anchor = a;
+            }
+            // Without a `controls` anchor (VML only) the control keeps the default
+            // "move with cells".
+            if let Some(p) = e.placement {
+                c.placement = p;
             }
             if e.macro_name.is_some() {
                 c.macro_name.clone_from(&e.macro_name);
@@ -711,6 +774,15 @@ struct Setting {
     flag: bool,
 }
 
+/// A setting's VML text: `x:SelType` is written `Single` / `Multi` / `Extend`, the
+/// `seltype` attribute `single` / `multi` / `extended` ([MS-XLSX] `ST_SelType`).
+fn vml_value(st: &Setting, v: &str) -> String {
+    match (st.vml, SelType::parse(v)) {
+        ("SelType", Some(t)) => t.vml_str().to_owned(),
+        _ => v.to_owned(),
+    }
+}
+
 fn settings(c: &FormControl) -> Vec<Setting> {
     use FormControlKind as K;
     let s = |vml, attr, value: Option<String>| Setting {
@@ -745,6 +817,19 @@ fn settings(c: &FormControl) -> Vec<Setting> {
             out.push(s("Sel", "sel", (c.sel > 0).then(|| c.sel.to_string())));
             if c.kind == K::ComboBox {
                 out.push(s("DropLines", "dropLines", Some(c.drop_lines.to_string())));
+            } else {
+                let multi = c.sel_type != SelType::Single;
+                out.push(s(
+                    "SelType",
+                    "seltype",
+                    multi.then(|| c.sel_type.as_str().to_owned()),
+                ));
+                let list: Vec<String> = c.multi_sel.iter().map(u32::to_string).collect();
+                out.push(s(
+                    "MultiSel",
+                    "multiSel",
+                    (multi && !list.is_empty()).then(|| list.join(",")),
+                ));
             }
         }
         K::ScrollBar | K::Spinner => {
@@ -844,7 +929,11 @@ fn patch_vml_shape(shape_xml: &str, c: &FormControl, old_text: Option<&str>) -> 
             if st.flag {
                 format!("<{prefix}{}/>", st.vml)
             } else {
-                format!("<{prefix}{0}>{1}</{prefix}{0}>", st.vml, escape(v))
+                format!(
+                    "<{prefix}{0}>{1}</{prefix}{0}>",
+                    st.vml,
+                    escape(&vml_value(&st, v))
+                )
             }
         });
         xml = match (existing, new) {
@@ -935,7 +1024,12 @@ fn vml_shape_xml(c: &FormControl, id: u32, z: usize) -> String {
                 let _ = write!(out, "<x:{}/>", st.vml);
             }
             (Some(v), false) => {
-                let _ = write!(out, "<x:{0}>{1}</x:{0}>", st.vml, escape(v));
+                let _ = write!(
+                    out,
+                    "<x:{0}>{1}</x:{0}>",
+                    st.vml,
+                    escape(&vml_value(&st, v))
+                );
             }
             (None, _) => {}
         }
@@ -960,8 +1054,16 @@ fn entry_xml(c: &FormControl, id: u32, rid: &str) -> String {
         .as_ref()
         .map(|m| format!(" macro=\"{}\"", escape(m)))
         .unwrap_or_default();
+    let (mv, sz) = placement_attrs(c.placement);
+    let mut anchor_attrs = String::new();
+    if let Some(v) = mv {
+        let _ = write!(anchor_attrs, " moveWithCells=\"{v}\"");
+    }
+    if let Some(v) = sz {
+        let _ = write!(anchor_attrs, " sizeWithCells=\"{v}\"");
+    }
     format!(
-        "<mc:AlternateContent xmlns:mc=\"{NS_MC}\"><mc:Choice Requires=\"x14\"><control shapeId=\"{id}\" r:id=\"{rid}\" name=\"{}\"><controlPr defaultSize=\"0\" autoFill=\"0\" autoLine=\"0\" autoPict=\"0\"{macro_attr}><anchor moveWithCells=\"1\" xmlns:xdr=\"{NS_XDR}\">{}{}</anchor></controlPr></control></mc:Choice></mc:AlternateContent>",
+        "<mc:AlternateContent xmlns:mc=\"{NS_MC}\"><mc:Choice Requires=\"x14\"><control shapeId=\"{id}\" r:id=\"{rid}\" name=\"{}\"><controlPr defaultSize=\"0\" autoFill=\"0\" autoLine=\"0\" autoPict=\"0\"{macro_attr}><anchor{anchor_attrs} xmlns:xdr=\"{NS_XDR}\">{}{}</anchor></controlPr></control></mc:Choice></mc:AlternateContent>",
         escape(&c.name),
         marker_xml("from", a.from, a.from_off),
         marker_xml("to", a.to, a.to_off)
@@ -1098,9 +1200,10 @@ fn sync_control_anchors(
         let Some(f) = in_file.iter().find(|f| f.shape_id == c.shape_id) else {
             continue;
         };
-        if f.anchor == c.anchor {
+        if f.anchor == c.anchor && f.placement == c.placement {
             continue;
         }
+        let placed = f.placement != c.placement;
         // `controls` entries (§18.3.1.19 `control` with `controlPr/anchor`).
         for u in unknown.iter_mut() {
             let ts = tags(&u.xml);
@@ -1117,9 +1220,11 @@ fn sync_control_anchors(
                 if entry_shape_id(entry) != Some(c.shape_id) || !entry.contains("anchor") {
                     continue;
                 }
-                if let Some(p) = patch_markers(entry, &c.anchor) {
-                    out.replace_range(s..e, &p);
+                let mut p = patch_markers(entry, &c.anchor).unwrap_or_else(|| entry.to_owned());
+                if placed {
+                    p = patch_placement(&p, c.placement);
                 }
+                out.replace_range(s..e, &p);
             }
             u.xml = out;
         }
@@ -1170,12 +1275,39 @@ fn sync_control_anchors(
             let Some((s, e)) = kids.into_iter().find(|&(s, e)| xml[s..e].contains(&needle)) else {
                 continue;
             };
-            if let Some(p) = patch_markers(&xml[s..e], &c.anchor) {
+            if let Some(mut p) = patch_markers(&xml[s..e], &c.anchor) {
+                if placed {
+                    // The twin is (an `mc:AlternateContent` around) a `twoCellAnchor`.
+                    let ts = tags(&p);
+                    if let Some(t) = ts
+                        .iter()
+                        .find(|t| t.kind != TagKind::Close && t.local(&p) == "twoCellAnchor")
+                    {
+                        let head = set_attr(t.text(&p), "editAs", Some(edit_as(c.placement)));
+                        p = format!("{}{head}{}", &p[..t.start], &p[t.end..]);
+                    }
+                }
                 let out = format!("{}{p}{}", &xml[..s], &xml[e..]);
                 ctx.overrides.insert(r.target.clone(), out.into_bytes());
             }
         }
     }
+}
+
+/// A `controls` entry with the `moveWithCells` / `sizeWithCells` of its `controlPr/anchor`
+/// set for `p` ([MS-XLSX] `CT_ObjectAnchor`).
+fn patch_placement(entry: &str, p: ControlPlacement) -> String {
+    let ts = tags(entry);
+    let Some(t) = ts
+        .iter()
+        .find(|t| t.kind != TagKind::Close && t.local(entry) == "anchor")
+    else {
+        return entry.to_owned();
+    };
+    let (mv, sz) = placement_attrs(p);
+    let head = set_attr(t.text(entry), "moveWithCells", mv);
+    let head = set_attr(&head, "sizeWithCells", sz);
+    format!("{}{head}{}", &entry[..t.start], &entry[t.end..])
 }
 
 /// Shape id of a `controls` entry span.

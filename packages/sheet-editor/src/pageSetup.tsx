@@ -41,6 +41,18 @@ interface Common {
   onClose: () => void;
   onDone: () => void | Promise<void>;
   fail: (e: unknown) => void;
+  /** Picks a picture file (through the platform); absent: no header / footer pictures. */
+  pickFile?: (accept: string[]) => Promise<{ name: string; bytes: Uint8Array } | null>;
+}
+
+const HF_PICTURE_TYPES = ['.png', '.jpg', '.jpeg', '.gif', '.bmp'];
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
 }
 
 type Tab = 'page' | 'margins' | 'headerFooter' | 'sheet';
@@ -72,16 +84,36 @@ function parseAreas(text: string): SheetRange[] | null {
   return out;
 }
 
+/** VML shape id of a header / footer picture (§18.3.1.50 legacyDrawingHF): `L`/`C`/`R`,
+ * `H`/`F`, then `FIRST` / `EVEN` for those variants. */
+export function pictureSection(key: HfKey, sec: Section): string {
+  const letter = sec === 'left' ? 'L' : sec === 'center' ? 'C' : 'R';
+  const hf = key.endsWith('Header') ? 'H' : 'F';
+  const suffix = key.startsWith('first') ? 'FIRST' : key.startsWith('even') ? 'EVEN' : '';
+  return `${letter}${hf}${suffix}`;
+}
+
+/** A picture chosen for a section (applied on OK); `null` removes the section's picture. */
+export type PendingPicture = { image: string; ext: string; name: string } | null;
+
 function HeaderFooterEditor({
   label,
   value,
   onChange,
   testId,
+  hfKey,
+  pictures,
+  onPicture,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   testId: string;
+  hfKey: HfKey;
+  /** Sections (shape ids) that have a picture. */
+  pictures: Set<string>;
+  /** Choose (`true`) or remove (`false`) the focused section's picture; absent: no picker. */
+  onPicture?: (section: string, add: boolean) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
   const sections = splitSections(value);
@@ -123,11 +155,42 @@ function HeaderFooterEditor({
             {t(`sheetEditor.printSetup.code.${key}`)}
           </button>
         ))}
+        {onPicture && (
+          <button
+            type="button"
+            className={styles.btn}
+            data-testid={`${testId}-picture`}
+            onClick={() =>
+              void onPicture(pictureSection(hfKey, focus), true).then((ok) => {
+                if (ok && !sections[focus].includes('&G')) insert('&G');
+              })
+            }
+          >
+            {t('sheetEditor.printSetup.picture')}
+          </button>
+        )}
+        {onPicture && pictures.has(pictureSection(hfKey, focus)) && (
+          <button
+            type="button"
+            className={styles.btn}
+            data-testid={`${testId}-remove-picture`}
+            onClick={() => {
+              void onPicture(pictureSection(hfKey, focus), false);
+              set(focus, sections[focus].split('&G').join(''));
+            }}
+          >
+            {t('sheetEditor.printSetup.removePicture')}
+          </button>
+        )}
       </div>
       <div className={ps.hfSections}>
         {(['left', 'center', 'right'] as const).map((sec) => (
           <label key={sec}>
-            {t(`sheetEditor.printSetup.section.${sec}`)}
+            {pictures.has(pictureSection(hfKey, sec))
+              ? t('sheetEditor.printSetup.hasPicture', {
+                  section: t(`sheetEditor.printSetup.section.${sec}`),
+                })
+              : t(`sheetEditor.printSetup.section.${sec}`)}
             <textarea
               ref={refs[sec]}
               rows={2}
@@ -150,8 +213,10 @@ export function PageSetupDialog({
   onClose,
   onDone,
   fail,
+  pickFile,
 }: Common & { range: SheetRange }) {
   const { t } = useTranslation();
+  const [pending, setPending] = useState<Record<string, PendingPicture>>({});
   const [tab, setTab] = useState<Tab>('page');
   const [info, setInfo] = useState<PageSetupInfo | null>(null);
   const [fit, setFit] = useState(false);
@@ -176,6 +241,24 @@ export function PageSetupDialog({
       .catch(fail);
   }, [host, sheet, fail]);
   if (!info || !hf) return null;
+  const pictureSet = new Set(
+    (info.extra.hfPictures ?? []).map((p) => p.section).filter((sec) => pending[sec] !== null),
+  );
+  for (const [sec, p] of Object.entries(pending)) if (p) pictureSet.add(sec);
+  const choosePicture = async (section: string, add: boolean): Promise<boolean> => {
+    if (!add) {
+      setPending((m) => ({ ...m, [section]: null }));
+      return true;
+    }
+    const f = await pickFile?.(HF_PICTURE_TYPES);
+    if (!f) return false;
+    const ext = f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.') + 1) : 'png';
+    setPending((m) => ({
+      ...m,
+      [section]: { image: bytesToBase64(f.bytes), ext, name: f.name },
+    }));
+    return true;
+  };
   const x = info.extra;
   const setX = (patch: Partial<PageSetupInfo['extra']>) =>
     setInfo({ ...info, extra: { ...x, ...patch } });
@@ -219,6 +302,21 @@ export function PageSetupDialog({
         hfMargins: x.hfMargins,
         headerFooter: hf,
       });
+      // Pictures chosen in the dialog (§18.3.1.50 legacyDrawingHF), one step each.
+      for (const [section, p] of Object.entries(pending)) {
+        await host.exec(
+          p
+            ? {
+                cmd: 'headerFooterPicture',
+                sheet,
+                section,
+                image: p.image,
+                ext: p.ext,
+                name: p.name,
+              }
+            : { cmd: 'headerFooterPicture', sheet, section },
+        );
+      }
       await onDone();
       onClose();
     } catch (e) {
@@ -463,6 +561,9 @@ export function PageSetupDialog({
               value={hf[k]}
               testId={`page-hf-${k}`}
               onChange={(v) => setHf({ ...hf, [k]: v })}
+              hfKey={k}
+              pictures={pictureSet}
+              onPicture={pickFile ? choosePicture : undefined}
             />
           ))}
         </div>

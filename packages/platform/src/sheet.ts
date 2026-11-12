@@ -1292,8 +1292,18 @@ export type SheetCommand =
     }
   /** Click a control (check box, option button, button: reports its macro, not run). */
   | { cmd: 'formControlClick'; sheet: number; index: number }
-  /** Choose item `sel` (1-based, 0 none) of a combo / list box. */
-  | { cmd: 'formControlSelect'; sheet: number; index: number; sel: number }
+  /**
+   * Choose item `sel` (1-based, 0 none) of a combo / list box; a multi-select list box
+   * combines the click with its selection (`ctrl` / `shift` for `extend`).
+   */
+  | {
+      cmd: 'formControlSelect';
+      sheet: number;
+      index: number;
+      sel: number;
+      ctrl?: boolean;
+      shift?: boolean;
+    }
   /** Set (`value`) or step (`step` arrow steps, pages with `page`) a scroll bar / spin button. */
   | {
       cmd: 'formControlValue';
@@ -1314,8 +1324,31 @@ export type SheetCommand =
       col: number;
       offset?: [number, number];
     }
+  /** Resize a control: its bottom-right corner goes to a cell (+ `offset` in points). */
+  | {
+      cmd: 'resizeFormControl';
+      sheet: number;
+      index: number;
+      row: number;
+      col: number;
+      offset?: [number, number];
+    }
   /** Delete a form control (ActiveX controls are kept). */
   | { cmd: 'deleteFormControl'; sheet: number; index: number }
+  /**
+   * Put (base64 `image`) or remove (`image` absent) the picture of a header / footer
+   * section, printed where the section has `&G` (`section`: `LH` `CH` `RH` `LF` `CF` `RF`,
+   * optionally + `FIRST` / `EVEN`); `size` in points.
+   */
+  | {
+      cmd: 'headerFooterPicture';
+      sheet: number;
+      section: string;
+      image?: string;
+      ext?: string;
+      size?: [number, number];
+      name?: string;
+    }
   /**
    * Solver (`simplex` default, `nonlinear`, `evolutionary`; integer / binary / `dif` by branch
    * and bound or permutation genes); `apply` enters the solution and `reports` are written on
@@ -1579,6 +1612,12 @@ export type FormControlKind =
 
 export type CheckState = 'unchecked' | 'checked' | 'mixed';
 
+/** How a control follows its cells ([MS-XLSX] `moveWithCells` / `sizeWithCells`). */
+export type ControlPlacement = 'move' | 'moveAndSize' | 'fixed';
+
+/** List box selection type ([MS-XLSX] `selType`). */
+export type ListSelType = 'single' | 'multi' | 'extend';
+
 /** Settings of the Format Control dialog. */
 export interface FormatControlSpec {
   text?: string;
@@ -1595,6 +1634,8 @@ export interface FormatControlSpec {
   noThreeD?: boolean;
   horiz?: boolean;
   macroName?: string;
+  placement?: ControlPlacement;
+  selType?: ListSelType;
 }
 
 /** A form control as the engine lists it (state read from its linked cell). */
@@ -1608,8 +1649,14 @@ export interface FormControlInfo {
   /** Items of a combo / list box. */
   items: string[] | null;
   checked: CheckState;
-  /** Chosen item, 1-based (0 none). */
+  /** Chosen item, 1-based (0 none); the focused item of a multi-select list box. */
   sel: number;
+  /** List box selection type. */
+  selType: ListSelType;
+  /** Items chosen in a multi-select list box (1-based). */
+  multiSel: number[];
+  /** How the control follows its cells. */
+  placement: ControlPlacement;
   val: number;
   min: number;
   max: number;
@@ -1841,6 +1888,8 @@ export interface PrintSetupInfo {
   comments: PrintComments;
   hfMargins: [number, number];
   headerFooter: Required<HeaderFooterSpec>;
+  /** Header / footer pictures (`&G`) by section id (`CH`, `LFFIRST`, …), size in points. */
+  hfPictures?: { section: string; width: number; height: number; name: string }[];
   /** 1-based first row / column of each page after a manual break. */
   rowBreaks: number[];
   colBreaks: number[];

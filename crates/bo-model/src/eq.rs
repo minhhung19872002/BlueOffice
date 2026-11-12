@@ -11,11 +11,15 @@
 //! - `\o` (overstrike): the first element is the base; each further single character becomes a
 //!   combining mark drawn over it when one exists (`/` → U+0338, `|` → U+20D2, `~` → U+0303, …),
 //!   otherwise an accent (§22.1.2.1 acc) over the base.
-//! - `\d` (displacement): `\fo n` becomes about `n` points of space; `\ba` (backwards) and `\li`
-//!   (line under the space) are not drawn.
+//! - `\d` (displacement): `\fo n` becomes about `n` points of space, `\li` draws a line under
+//!   that space (§22.1.2.7 bar); `\ba` (backwards) cannot move left in a math zone and is not
+//!   drawn.
 //! - `\s` with several elements and no `\up` / `\do`: the elements stacked (§22.1.2.34 eqArr);
-//!   `\ai` / `\di` (extra line spacing) are ignored.
-//! - `\a`: `\vs` / `\hs` (extra spacing) are ignored.
+//!   `\ai n` / `\di n` (space above / below each line) become the row spacing of the stack
+//!   (§22.1.2.90 rSpRule "exactly" + §22.1.2.89 rSp, points). With a single element or a script
+//!   they have no effect.
+//! - `\a`: `\vs n` becomes the row spacing (rSpRule 3 + rSp, points) and `\hs n` the column gap
+//!   (§22.1.2.13 cGpRule 3 + §22.1.2.12 cGp, twips) of the matrix.
 
 /// OMML namespace (§22.1).
 const NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/math";
@@ -262,7 +266,16 @@ impl Parser<'_> {
                     format!("<m:sSub><m:e/>{}</m:sSub>", el("sub", &all))
                 } else if args.len() > 1 {
                     let rows: String = args.iter().map(|a| el("e", a)).collect();
-                    el("eqArr", &rows)
+                    // \ai n / \di n: space above / below each line → the row spacing
+                    // (CT_EqArrPr order: rSpRule, rSp).
+                    let (ai, di) = (num("ai"), num("di"));
+                    if ai.is_some() || di.is_some() {
+                        let extra = ai.unwrap_or(0.0).max(0.0) + di.unwrap_or(0.0).max(0.0);
+                        let pr = format!("{}{}", val("rSpRule", "3"), val("rSp", &whole(extra)));
+                        format!("<m:eqArr>{}{rows}</m:eqArr>", el("eqArrPr", &pr))
+                    } else {
+                        el("eqArr", &rows)
+                    }
                 } else {
                     all
                 }
@@ -331,8 +344,25 @@ impl Parser<'_> {
                     }
                     rows.push_str(&el("mr", &cells));
                 }
+                // \vs n: row spacing in points, \hs n: column gap (CT_MPr order: rSpRule,
+                // cGpRule, rSp, cGp, mcs).
+                let vs = num("vs").map(|v| v.max(0.0));
+                let hs = num("hs").map(|v| v.max(0.0));
+                let mut spacing = String::new();
+                if vs.is_some() {
+                    spacing.push_str(&val("rSpRule", "3"));
+                }
+                if hs.is_some() {
+                    spacing.push_str(&val("cGpRule", "3"));
+                }
+                if let Some(v) = vs {
+                    spacing.push_str(&val("rSp", &whole(v)));
+                }
+                if let Some(h) = hs {
+                    spacing.push_str(&val("cGp", &whole(h * 20.0)));
+                }
                 format!(
-                    "<m:m><m:mPr><m:mcs><m:mc><m:mcPr>{}{}</m:mcPr></m:mc></m:mcs></m:mPr>{rows}</m:m>",
+                    "<m:m><m:mPr>{spacing}<m:mcs><m:mc><m:mcPr>{}{}</m:mcPr></m:mc></m:mcs></m:mPr>{rows}</m:m>",
                     val("count", &cols.to_string()),
                     val("mcJc", jc)
                 )
@@ -359,15 +389,33 @@ impl Parser<'_> {
                     el("e", &arg(2))
                 )
             }
-            // \d: displacement (\fo n points forward; \ba / \li not drawn).
+            // \d: displacement (\fo n points forward; \li a line under the space, §22.1.2.7
+            // bar at the bottom; \ba not drawn).
             "d" => {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let n = (num("fo").unwrap_or(0.0).max(0.0) / 4.0).round() as usize;
-                format!("{}{}", run(&"\u{2004}".repeat(n)), args.concat())
+                let space = run(&"\u{2004}".repeat(n));
+                let space = if flag("li") && !space.is_empty() {
+                    format!(
+                        "<m:bar>{}{}</m:bar>",
+                        el("barPr", &val("pos", "bot")),
+                        el("e", &space)
+                    )
+                } else {
+                    space
+                };
+                format!("{space}{}", args.concat())
             }
             _ => return None,
         })
     }
+}
+
+/// A non-negative size as the whole number an `ST_UnSignedInteger` attribute takes.
+fn whole(v: f32) -> String {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = v.clamp(0.0, 31_680.0).round() as u32;
+    n.to_string()
 }
 
 /// The closing bracket of an opening one (`\bc\{` draws `{` and `}`).
@@ -616,5 +664,44 @@ mod tests {
             body("EQ a\\d\\fo8()b"),
             format!("{}{}{}", r("a"), r("\u{2004}\u{2004}"), r("b"))
         );
+        // \li: the space underlined.
+        assert_eq!(
+            body("EQ a\\d\\fo8\\li()b"),
+            format!(
+                "{}<m:bar><m:barPr><m:pos m:val=\"bot\"/></m:barPr><m:e>{}</m:e></m:bar>{}",
+                r("a"),
+                r("\u{2004}\u{2004}"),
+                r("b")
+            )
+        );
+    }
+
+    /// ECMA-376 Part 1, §17.16.5.17: \a\vs / \hs and \s\ai / \di spacing options.
+    #[test]
+    fn spacing_options() {
+        let a = body("EQ \\a\\co2\\vs6\\hs4(1,2,3,4)");
+        assert!(
+            a.starts_with("<m:m><m:mPr><m:rSpRule m:val=\"3\"/><m:cGpRule m:val=\"3\"/><m:rSp m:val=\"6\"/><m:cGp m:val=\"80\"/><m:mcs>"),
+            "{a}"
+        );
+        // Only one of them.
+        let v = body("EQ \\a\\vs 3(1,2)");
+        assert!(
+            v.starts_with("<m:m><m:mPr><m:rSpRule m:val=\"3\"/><m:rSp m:val=\"3\"/><m:mcs>"),
+            "{v}"
+        );
+        // No option: no spacing elements.
+        assert!(body("EQ \\a(1,2)").starts_with("<m:m><m:mPr><m:mcs>"));
+        let s = body("EQ \\s\\ai4\\di2(a,b)");
+        assert_eq!(
+            s,
+            format!(
+                "<m:eqArr><m:eqArrPr><m:rSpRule m:val=\"3\"/><m:rSp m:val=\"6\"/></m:eqArrPr><m:e>{}</m:e><m:e>{}</m:e></m:eqArr>",
+                r("a"),
+                r("b")
+            )
+        );
+        // A script with \ai keeps its shape.
+        assert!(body("EQ x\\s\\up8\\ai2(2)").contains("<m:sSup>"));
     }
 }

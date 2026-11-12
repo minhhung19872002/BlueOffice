@@ -598,8 +598,8 @@ pub(crate) fn frame_name(wb: &Workbook, caption: &str) -> String {
 /// placed at `at` (top-left cell) on sheet `sheet`. Returns the slicer's index on the sheet.
 ///
 /// # Errors
-/// An unknown pivot table or field, a calculated or grouping field, or a pivot table over the
-/// data model (its tables take table slicers).
+/// An unknown pivot table or field, a calculated or grouping field, or a measure of the data
+/// model (a slicer filters a column).
 pub fn insert_pivot_slicer(
     wb: &mut Workbook,
     sheet: usize,
@@ -618,8 +618,19 @@ pub fn insert_pivot_slicer(
         .and_then(|s| s.pivots.get(pivot))
         .ok_or("no such pivot table")?;
     let (cache_id, pivot_name) = (pt.cache_id, pt.name.clone());
+    // A pivot table over the data model: its cache (one field per model column) is rebuilt
+    // from the model on every render; the slicer's items follow it by value
+    // ([`choices`] / [`restore_choices`] in `datamodel::pivot::sync`).
     if crate::datamodel::pivot::is_model_cache(wb, cache_id) {
-        return Err("not available for a pivot table over the data model".into());
+        let measure = wb
+            .pivot_caches
+            .iter()
+            .find(|c| c.cache_id == cache_id)
+            .and_then(|c| c.fields.get(field as usize))
+            .is_some_and(|f| f.name.starts_with('['));
+        if measure {
+            return Err("a slicer needs a source field".into());
+        }
     }
     let field_of = |wb: &Workbook| {
         wb.pivot_caches

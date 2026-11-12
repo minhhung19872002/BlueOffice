@@ -218,6 +218,7 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
   const [subtotalTop, setSubtotalTop] = useState(opts.subtotalTop);
   const [blankRow, setBlankRow] = useState(opts.blankRow);
   const [repeatLabels, setRepeatLabels] = useState(opts.repeatLabels);
+  const [showAll, setShowAll] = useState(opts.showAll ?? false);
   const [sort, setSort] = useState<PivotSort>(opts.sort);
   const [sortBy, setSortBy] = useState(opts.sortBy === null ? 'label' : String(opts.sortBy));
   const initialMode: FilterMode = !current
@@ -310,6 +311,7 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
             subtotalTop,
             blankRow,
             repeatLabels,
+            showAll,
             sort,
             sortBy: sortBy === 'label' ? null : Number(sortBy),
             hidden: opts.hidden,
@@ -405,6 +407,15 @@ export function PivotFieldDialog({ field, ...c }: Common & { field: number }) {
               onChange={(e) => setRepeatLabels(e.target.checked)}
             />
             {t('sheetEditor.pivot.repeatLabels')}
+          </label>
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              checked={showAll}
+              data-testid="pivot-show-all"
+              onChange={(e) => setShowAll(e.target.checked)}
+            />
+            {t('sheetEditor.pivot.showAll')}
           </label>
           <label className={styles.check}>
             <input

@@ -450,3 +450,183 @@ fn foreign_data_model_parts_are_kept_byte_for_byte() {
     let info = run(&mut g, json!({"cmd": "modelInfo"}));
     assert_eq!(info["measures"].as_array().unwrap().len(), 4);
 }
+
+/// Rows of the body of pivot 0 as (label, first value) pairs, without the header row.
+fn pairs(e: &mut SheetEngine, sheet: usize) -> Vec<(String, String)> {
+    body(e, sheet)[1..]
+        .iter()
+        .map(|r| (r[0].clone(), r.get(1).cloned().unwrap_or_default()))
+        .collect()
+}
+
+/// Items without fact rows shown on request, value / top-N filters ranking by a measure, a
+/// pivot field slicer on a model pivot table, and the measure values written in the cache
+/// records (other software summing them gets the report's totals).
+#[test]
+fn model_pivot_show_all_measure_filters_slicer_and_cache_records() {
+    let mut e = SheetEngine::new();
+    let (p, r, _) = build_first(&mut e);
+    run(
+        &mut e,
+        json!({"cmd": "modelPivotCreate", "dest": {"sheet": 0, "row": 14, "col": 0}}),
+    );
+    let group = field(&mut e, 0, &format!("{p}[Nhóm]"));
+    let region = field(&mut e, 0, &format!("{r}[Vùng]"));
+    let total = field(&mut e, 0, "[Tổng SL]");
+    run(
+        &mut e,
+        json!({"cmd": "pivotUpdate", "sheet": 0, "index": 0, "rows": [group],
+               "values": [{"field": total}], "layout": "tabular"}),
+    );
+    let vp = fmt(qty(Some("Văn phòng"), None));
+    let tp = fmt(qty(Some("Thực phẩm"), None));
+    let all = fmt(qty(None, None));
+    // "Gia dụng" (Đèn) has no sales: not shown by default.
+    assert_eq!(
+        pairs(&mut e, 0),
+        vec![
+            ("Thực phẩm".to_owned(), tp.clone()),
+            ("Văn phòng".to_owned(), vp.clone()),
+            ("Grand Total".to_owned(), all.clone()),
+        ]
+    );
+    // Show items with no data: the dimension's item appears, blank; the total stays.
+    run(
+        &mut e,
+        json!({"cmd": "pivotUpdate", "sheet": 0, "index": 0, "rows": [group],
+               "values": [{"field": total}], "fieldOptions": [{"field": group, "showAll": true}]}),
+    );
+    assert_eq!(
+        pairs(&mut e, 0),
+        vec![
+            ("Gia dụng".to_owned(), String::new()),
+            ("Thực phẩm".to_owned(), tp.clone()),
+            ("Văn phòng".to_owned(), vp.clone()),
+            ("Grand Total".to_owned(), all.clone()),
+        ]
+    );
+    let pv = run(&mut e, json!({"cmd": "pivots", "sheet": 0}));
+    assert_eq!(pv[0]["fieldOptions"][group]["showAll"], true);
+    // Saved as §18.10.1.69 showAll (default true: written only when off).
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut f = SheetEngine::new();
+    f.open(&bytes, "dm.xlsx").unwrap();
+    assert_eq!(pairs(&mut f, 0).len(), 4);
+    run(
+        &mut e,
+        json!({"cmd": "pivotUpdate", "sheet": 0, "index": 0, "rows": [group],
+               "values": [{"field": total}], "fieldOptions": [{"field": group, "showAll": false}]}),
+    );
+
+    // Top 1 group by the measure: Thực phẩm (46) over Văn phòng (21).
+    run(
+        &mut e,
+        json!({"cmd": "pivotUpdate", "sheet": 0, "index": 0, "rows": [group],
+               "values": [{"field": total}], "fieldFilters": [
+            {"field": group, "kind": "count", "measure": 0, "top": true, "count": 1.0}]}),
+    );
+    assert_eq!(
+        pairs(&mut e, 0),
+        vec![
+            ("Thực phẩm".to_owned(), tp.clone()),
+            ("Grand Total".to_owned(), tp.clone())
+        ]
+    );
+    // Value filter: measure below 30 keeps Văn phòng.
+    run(
+        &mut e,
+        json!({"cmd": "pivotUpdate", "sheet": 0, "index": 0, "rows": [group],
+               "values": [{"field": total}], "fieldFilters": [
+            {"field": group, "kind": "valueLessThan", "measure": 0, "value1": "30"}]}),
+    );
+    assert_eq!(
+        pairs(&mut e, 0),
+        vec![
+            ("Văn phòng".to_owned(), vp.clone()),
+            ("Grand Total".to_owned(), vp.clone())
+        ]
+    );
+    run(
+        &mut e,
+        json!({"cmd": "pivotUpdate", "sheet": 0, "index": 0, "rows": [group],
+               "values": [{"field": total}], "fieldFilters": []}),
+    );
+
+    // A slicer over the region dimension (a model column, not in the report).
+    let made = run(
+        &mut e,
+        json!({"cmd": "insertPivotSlicer", "sheet": 0, "pivot": 0, "field": region}),
+    );
+    let si = made["index"].as_u64().unwrap();
+    let list = run(&mut e, json!({"cmd": "slicers", "sheet": 0}));
+    let labels: Vec<&str> = list[si as usize]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["label"].as_str().unwrap())
+        .collect();
+    assert!(
+        labels.contains(&"Bắc") && labels.contains(&"Nam"),
+        "{labels:?}"
+    );
+    run(
+        &mut e,
+        json!({"cmd": "slicerSelect", "sheet": 0, "index": si, "items": ["Bắc"]}),
+    );
+    assert_eq!(
+        pairs(&mut e, 0),
+        vec![
+            (
+                "Thực phẩm".to_owned(),
+                fmt(qty(Some("Thực phẩm"), Some("N")))
+            ),
+            (
+                "Văn phòng".to_owned(),
+                fmt(qty(Some("Văn phòng"), Some("N")))
+            ),
+            ("Grand Total".to_owned(), fmt(qty(None, Some("N")))),
+        ]
+    );
+    // A measure is no slicer field.
+    assert!(exec(
+        &mut e,
+        &json!({"cmd": "insertPivotSlicer", "sheet": 0, "pivot": 0, "field": total})
+    )
+    .is_err());
+    // The slicer's choice survives a model change (the cache is rebuilt from the model).
+    measure(&mut e, "Hai lần", &p, "[Tổng SL] * 2");
+    assert_eq!(pairs(&mut e, 0)[2].1, fmt(qty(None, Some("N"))));
+    e.undo().unwrap();
+    e.undo().unwrap();
+    assert_eq!(pairs(&mut e, 0)[2].1, all);
+
+    // Cache records: the measure of each sales row (its own quantity, 1…20).
+    let bytes = e.save("xlsx", 0).unwrap();
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    let mut def = String::new();
+    std::io::Read::read_to_string(
+        &mut z
+            .by_name("xl/pivotCache/pivotCacheDefinition1.xml")
+            .unwrap(),
+        &mut def,
+    )
+    .unwrap();
+    assert!(
+        def.contains("<cacheField name=\"[Tổng SL]\" numFmtId=\"0\"><sharedItems containsSemiMixedTypes=\"0\" containsString=\"0\" containsNumber=\"1\" containsInteger=\"1\" minValue=\"1\" maxValue=\"20\"/>"),
+        "{def}"
+    );
+    let mut rec = String::new();
+    std::io::Read::read_to_string(
+        &mut z.by_name("xl/pivotCache/pivotCacheRecords1.xml").unwrap(),
+        &mut rec,
+    )
+    .unwrap();
+    let total_in_records: f64 = rec
+        .split("<n v=\"")
+        .skip(1)
+        .filter_map(|s| s.split('"').next()?.parse::<f64>().ok())
+        .sum();
+    // Only the measure is written inline (columns index their shared items): the records add
+    // up to the report's total.
+    assert_eq!(total_in_records, qty(None, None));
+}

@@ -273,7 +273,24 @@ pub fn cache_definition_xml(cache: &PivotCache, records_rid: &str, date1904: boo
             a(&mut out, "databaseField", "0");
         }
         out.push('>');
-        if !f.derived {
+        if !f.derived && f.items.is_empty() && !cache.records.is_empty() {
+            // Values written in the records only (a data model measure): the flags of
+            // §18.10.1.90 sharedItems describe them, without an item list.
+            let values: Vec<CellValue> = cache
+                .records
+                .iter()
+                .filter_map(|r| r.get(i))
+                .filter(|v| !matches!(v, CellValue::Empty))
+                .cloned()
+                .collect();
+            let mut flags = String::new();
+            shared_items_xml(&mut flags, &values);
+            if let Some(open) = flags.find(" count=") {
+                flags.truncate(open);
+                flags.push_str("/>");
+            }
+            out.push_str(&flags);
+        } else if !f.derived {
             if date_base(f, i) {
                 shared_items_xml(&mut out, &as_dates(&f.items, date1904));
             } else {
@@ -650,7 +667,9 @@ pub fn pivot_table_xml(pt: &PivotTable, cache: &PivotCache) -> String {
         if multi {
             a(&mut out, "multipleItemSelectionAllowed", "1");
         }
-        a(&mut out, "showAll", "0");
+        if !opts.show_all {
+            a(&mut out, "showAll", "0");
+        }
         if opts.blank_row {
             a(&mut out, "insertBlankRow", "1");
         }

@@ -345,6 +345,8 @@ fn read_field_options(f: &Node, values: &[CellValue]) -> PivotFieldOptions {
         sort: PivotSort::parse(f.attr("sortType").unwrap_or("manual")),
         sort_by,
         hidden,
+        // §18.10.1.69 showAll, default true.
+        show_all: flag(f, "showAll", true),
     }
 }
 

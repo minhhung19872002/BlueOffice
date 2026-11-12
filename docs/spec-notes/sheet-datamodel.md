@@ -90,10 +90,18 @@ cache được dựng lại từ mô hình:
    bộ lọc báo cáo + mục ẩn của mọi trường), kể cả tổng phụ và tổng chung.
 
 **Slicer**: slicer của bảng (SHEET-SLICER) trên một bảng của mô hình lọc cả các bảng tổng hợp trên mô hình (giá trị có
-văn bản hiển thị được chọn), và mục ẩn của một trường bất kỳ (không chỉ trường trên trục) lọc báo cáo.
+văn bản hiển thị được chọn), và mục ẩn của một trường bất kỳ (không chỉ trường trên trục) lọc báo cáo. Slicer trường
+pivot (`insertPivotSlicer`) cũng dùng được trên bảng tổng hợp mô hình với mọi trường cột (không với số đo): cache dựng
+lại mỗi lần dựng báo cáo nên lựa chọn của slicer được giữ theo giá trị (`slicer::choices`/`restore_choices`).
 
-Không có trên mô hình: nhóm mục, trường/mục tính toán, đổi nguồn (báo lỗi); lọc giá trị/top-N trên số đo; mục danh
-mục không có dòng giao dịch không hiện (báo cáo theo bản ghi của bảng gốc).
+**Hiện mục không có dữ liệu** (`showAll`, §18.10.1.69, hộp thoại cài đặt trường): mỗi mục của trường (không ẩn) có một
+dòng dưới mỗi mục cha, kể cả mục bảng chiều không có dòng fact; số đo tính trong ngữ cảnh của mục đó (thường trống).
+Thuộc tính mặc định của tệp là bật nên chỉ ghi `showAll="0"` khi tắt (trường mới tắt).
+
+**Lọc giá trị / top-N** theo trường giá trị là số đo: mỗi mục được xếp theo số đo tính trong ngữ cảnh của mục (và mục
+cha, bộ lọc báo cáo, mục ẩn).
+
+Không có trên mô hình: nhóm mục, trường/mục tính toán, đổi nguồn (báo lỗi).
 
 ## Lưu trong tệp
 
@@ -113,7 +121,10 @@ mục không có dòng giao dịch không hiện (báo cáo theo bản ghi của
    `pivot/@cacheId` đánh dấu pivot cache dựng từ mô hình. Mô hình trống thì phần bị xoá. Hoàn tác/làm lại đi theo phần
    này như mọi phần khác.
 2. **Pivot cache thường** (§18.10.1.67–68) với bản ghi đã nối, `worksheetSource name` = bảng gốc, **không**
-   `refreshOnLoad` — phần mềm khác hiện giá trị của báo cáo (ô của báo cáo là ô thường). Trường số đo có bản ghi trống.
+   `refreshOnLoad` — phần mềm khác hiện giá trị của báo cáo (ô của báo cáo là ô thường). Trường số đo của các trường giá trị mang giá
+   trị số đo tính cho đúng một dòng bảng gốc (bộ lọc dòng), ghi thẳng trong bản ghi (`<n v>`), `sharedItems` chỉ có cờ
+   kiểu và min/max: phần mềm khác cộng lại được tổng của báo cáo với số đo cộng được (SUM, COUNTROWS…). Giới hạn
+   `số bản ghi² × số đo ≤ 4·10⁷` (mỗi lần tính đọc các dòng được lọc); vượt thì để trống.
 3. **Mô hình dữ liệu của phần mềm khác** — `xl/model/item.data`, mục custom XML của mô hình, kết nối
    `ThisWorkbookDataModel` (`xl/connections.xml`): giữ nguyên byte; `modelInfo.foreign` liệt kê (chỉ đọc).
 

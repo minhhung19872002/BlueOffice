@@ -77,6 +77,9 @@ pub struct PivotFieldSpec {
     /// Hidden items by index into the field's items.
     #[serde(default)]
     pub hidden: Vec<usize>,
+    /// Show the items without data (§18.10.1.69 `showAll`).
+    #[serde(default)]
+    pub show_all: bool,
 }
 
 /// `pivotTableStyleInfo` from the UI.
@@ -205,6 +208,7 @@ pub(super) fn updated_spec(
                     .iter()
                     .filter_map(|x| items.get(*x).cloned())
                     .collect(),
+                show_all: o.show_all,
             };
         }
     }
@@ -369,6 +373,7 @@ pub(super) fn pivot_json(wb: &Workbook, index: usize, p: &PivotTable, locale: &L
                 "sort": o.sort,
                 "sortBy": o.sort_by,
                 "hidden": o.hidden.iter().filter_map(|v| item_index(f, v)).collect::<Vec<_>>(),
+                "showAll": o.show_all,
             })
         })
         .collect();

@@ -11,9 +11,11 @@
 //! ([`crate::pivot::compute::MeasureSource`]).
 //!
 //! The records are written as an ordinary pivot cache (§18.10.1.67–68, without
-//! `refreshOnLoad`), so other software shows the report's values.
+//! `refreshOnLoad`), so other software shows the report's values. The measure fields of the
+//! records hold each measure evaluated for that one base row ([`fill_measures`]): other
+//! software summing them gets the report's totals for additive measures.
 
-use super::eval::{Context, Evaluator};
+use super::eval::{Context, Evaluator, Filter};
 use super::{DataModel, ModelData};
 use crate::pivot::compute::{FieldFilter, MeasureSource};
 use crate::pivot::{PivotLabels, PivotSpec};
@@ -294,6 +296,50 @@ pub fn join(md: &ModelData, base: usize, kinds: &[FieldKind]) -> Vec<Vec<CellVal
         .collect()
 }
 
+/// Most measure evaluations [`fill_measures`] spends (each one reads the rows it filters:
+/// about `records² · measures` steps).
+const MEASURE_RECORD_BUDGET: u64 = 40_000_000;
+
+/// Fill the measure fields `measures` of `records` (one per base row): each measure in the
+/// filter context of its one base row. Left blank when the model is too large for the budget.
+fn fill_measures(
+    md: &ModelData,
+    base: usize,
+    kinds: &[FieldKind],
+    measures: &HashSet<usize>,
+    records: &mut [Vec<CellValue>],
+) {
+    let n = records.len() as u64;
+    if measures.is_empty()
+        || n.saturating_mul(n).saturating_mul(measures.len() as u64) > MEASURE_RECORD_BUDGET
+    {
+        return;
+    }
+    let ev = Evaluator::new(md);
+    let slots: Vec<(usize, usize)> = kinds
+        .iter()
+        .enumerate()
+        .filter_map(|(fi, k)| match k {
+            FieldKind::Measure(mi) if measures.contains(mi) => Some((fi, *mi)),
+            _ => None,
+        })
+        .collect();
+    for (r, rec) in records.iter_mut().enumerate() {
+        let ctx = Context {
+            filters: vec![Filter::Row {
+                table: base,
+                row: r,
+            }],
+            use_rels: Vec::new(),
+        };
+        for &(fi, mi) in &slots {
+            if let Some(slot) = rec.get_mut(fi) {
+                *slot = ev.measure(mi, &ctx).into_cell();
+            }
+        }
+    }
+}
+
 /// Fields of a pivot table's areas (and hidden items).
 fn used_fields(pt: &PivotTable) -> Vec<u32> {
     let mut out: Vec<u32> = pt.rows.iter().chain(&pt.cols).copied().collect();
@@ -346,11 +392,18 @@ pub fn sync(wb: &mut Workbook, cache_id: u32) -> Result<ModelPivot, String> {
             crate::pivot::remap_pivot(&mut wb.sheets[*s].pivots[*i], &remap, names.len());
         }
     }
-    // Tables the reports use.
+    // Tables the reports use, and the measures of their value fields.
     let mut used: HashSet<usize> = HashSet::new();
     let mut seen = HashSet::new();
+    let mut value_measures: HashSet<usize> = HashSet::new();
     for (s, i) in &users {
-        for f in used_fields(&wb.sheets[*s].pivots[*i]) {
+        let pt = &wb.sheets[*s].pivots[*i];
+        for d in &pt.values {
+            if let Some(FieldKind::Measure(mi)) = kinds.get(d.field as usize) {
+                value_measures.insert(*mi);
+            }
+        }
+        for f in used_fields(pt) {
             match kinds.get(f as usize) {
                 Some(FieldKind::Column(t, _)) => {
                     used.insert(*t);
@@ -361,7 +414,10 @@ pub fn sync(wb: &mut Workbook, cache_id: u32) -> Result<ModelPivot, String> {
         }
     }
     let base = base_table(&md, &used);
-    let records = join(&md, base, &kinds);
+    let mut records = join(&md, base, &kinds);
+    fill_measures(&md, base, &kinds, &value_measures, &mut records);
+    // Slicers index the items of their field: their choices are kept by value.
+    let slicer_choices = crate::slicer::choices(wb, cache_id);
     let reached: HashSet<usize> = md
         .reachable(base, &[])
         .into_iter()
@@ -406,6 +462,7 @@ pub fn sync(wb: &mut Workbook, cache_id: u32) -> Result<ModelPivot, String> {
     cache.source_sheet = None;
     cache.source_ref = None;
     cache.calculated_items.clear();
+    crate::slicer::restore_choices(wb, cache_id, slicer_choices);
     // Value fields over a measure are captioned with the measure's name.
     for (s, i) in &users {
         let pt = &mut wb.sheets[*s].pivots[*i];

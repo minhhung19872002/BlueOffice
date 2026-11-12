@@ -427,6 +427,10 @@ pub(crate) struct Engine<'a> {
     col_children: HashMap<Vec<u32>, Vec<u32>>,
     /// Data model measures (a pivot table over the workbook data model).
     model: Option<&'a dyn MeasureSource>,
+    /// Axis fields with a label / value / top-N filter and the items it kept (by level):
+    /// a measure in a total above the field is evaluated over those items only (visual
+    /// totals, like the report's own sums).
+    kept: Vec<(Axis, usize, FieldFilter)>,
 }
 
 impl<'a> Engine<'a> {
@@ -556,6 +560,7 @@ impl<'a> Engine<'a> {
             row_children: HashMap::new(),
             col_children: HashMap::new(),
             model,
+            kept: Vec::new(),
         })
     }
 
@@ -942,6 +947,9 @@ impl<'a> Engine<'a> {
                     });
                     self.add(slot, &self.cache.records[p.rec]);
                 }
+                // A value / top-N filter by a data model measure: the measure evaluated for
+                // each item (in the report's filters and the item's parents).
+                self.model_values(axis, &mut agg);
                 let mut keep: HashSet<Vec<u32>> = HashSet::new();
                 for (parent, items) in &mut siblings {
                     items.sort_unstable();
@@ -956,6 +964,188 @@ impl<'a> Engine<'a> {
                     }
                 }
                 paths.retain(|p| keep.contains(&p.key(axis)[..=level]));
+            }
+        }
+    }
+
+    /// The items left by the label / value / top-N filters of the axis fields (see
+    /// [`Engine::kept`]).
+    fn kept_items(&self, paths: &[Path]) -> Vec<(Axis, usize, FieldFilter)> {
+        let mut out = Vec::new();
+        for axis in [Axis::Row, Axis::Col] {
+            for (level, f) in self.axis_fields(axis).iter().enumerate() {
+                if !self.spec.field_filters.iter().any(|x| x.field == *f) {
+                    continue;
+                }
+                let mut xs: Vec<u32> = paths.iter().map(|p| p.key(axis)[level]).collect();
+                xs.sort_unstable();
+                xs.dedup();
+                let values = xs
+                    .iter()
+                    .map(|x| {
+                        self.items(*f)
+                            .get(*x as usize)
+                            .cloned()
+                            .unwrap_or(CellValue::Empty)
+                    })
+                    .collect();
+                out.push((
+                    axis,
+                    level,
+                    FieldFilter {
+                        field: *f,
+                        values,
+                        exclude: false,
+                    },
+                ));
+            }
+        }
+        out
+    }
+
+    /// The data model measures of the value fields: `(slot, cache field)`.
+    fn model_slots(&self) -> Vec<(usize, u32)> {
+        self.measures
+            .iter()
+            .filter_map(|m| match m {
+                Measure::Model(s) => Some((*s, self.slot_fields[*s])),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The report filters and hidden items as measure filters.
+    fn model_base_filters(&self) -> Vec<FieldFilter> {
+        let mut base: Vec<FieldFilter> = Vec::new();
+        for f in &self.spec.filters {
+            if !f.selected.is_empty() {
+                base.push(FieldFilter {
+                    field: f.field,
+                    values: f.selected.clone(),
+                    exclude: false,
+                });
+            }
+        }
+        for (i, o) in self.spec.fields.iter().enumerate() {
+            if !o.hidden.is_empty() {
+                base.push(FieldFilter {
+                    field: i as u32,
+                    values: o.hidden.clone(),
+                    exclude: true,
+                });
+            }
+        }
+        base
+    }
+
+    /// The filters of the items `key` of the first fields of `fields`.
+    fn item_filters(&self, fields: &[u32], key: &[u32], out: &mut Vec<FieldFilter>) {
+        for (f, x) in fields.iter().zip(key.iter()) {
+            let v = self
+                .items(*f)
+                .get(*x as usize)
+                .cloned()
+                .unwrap_or(CellValue::Empty);
+            out.push(FieldFilter {
+                field: *f,
+                values: vec![v],
+                exclude: false,
+            });
+        }
+    }
+
+    /// Put the data model measures into the aggregates of item paths of `axis` (a value or
+    /// top-N filter ranks items by them).
+    fn model_values(&self, axis: Axis, agg: &mut HashMap<Vec<u32>, Vec<Acc>>) {
+        let Some(model) = self.model else {
+            return;
+        };
+        let slots = self.model_slots();
+        if slots.is_empty() {
+            return;
+        }
+        let base = self.model_base_filters();
+        let fields = self.axis_fields(axis);
+        for (key, accs) in agg.iter_mut() {
+            let mut ctx = base.clone();
+            self.item_filters(fields, key, &mut ctx);
+            for (s, f) in &slots {
+                if let Some(a) = accs.get_mut(*s) {
+                    *a = Acc::of_value(&model.measure(*f, &ctx));
+                }
+            }
+        }
+    }
+
+    /// "Show items with no data" (§18.10.1.69 `showAll`): every item of such an axis field
+    /// (not hidden) gets a report line under each of its parents, with empty aggregates.
+    fn add_items_without_data(&mut self) {
+        for axis in [Axis::Row, Axis::Col] {
+            let fields = self.axis_fields(axis);
+            if !fields.iter().any(|f| self.spec.field(*f).show_all) {
+                continue;
+            }
+            // Prefixes of the other axis (its totals included).
+            let others: Vec<Vec<u32>> = {
+                let mut v: Vec<Vec<u32>> = self
+                    .cells
+                    .keys()
+                    .filter_map(|(rp, cp)| match axis {
+                        Axis::Row if rp.is_empty() => Some(cp.clone()),
+                        Axis::Col if cp.is_empty() => Some(rp.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                if v.is_empty() {
+                    v.push(Vec::new());
+                }
+                v
+            };
+            for (level, f) in fields.iter().enumerate() {
+                let opts = self.spec.field(*f);
+                if !opts.show_all {
+                    continue;
+                }
+                let hidden: Vec<PivotItemKey> = opts.hidden.iter().map(PivotItemKey::of).collect();
+                let items: Vec<u32> = self
+                    .items(*f)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, v)| !hidden.contains(&PivotItemKey::of(v)))
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                let mut parents: Vec<Vec<u32>> = self
+                    .cells
+                    .keys()
+                    .filter_map(|(rp, cp)| {
+                        let (k, o) = match axis {
+                            Axis::Row => (rp, cp),
+                            Axis::Col => (cp, rp),
+                        };
+                        (k.len() == level && o.is_empty()).then(|| k.clone())
+                    })
+                    .collect();
+                if level == 0 && parents.is_empty() {
+                    parents.push(Vec::new());
+                }
+                parents.sort_unstable();
+                parents.dedup();
+                for p in &parents {
+                    for x in &items {
+                        let mut k = p.clone();
+                        k.push(*x);
+                        for o in &others {
+                            let key = match axis {
+                                Axis::Row => (k.clone(), o.clone()),
+                                Axis::Col => (o.clone(), k.clone()),
+                            };
+                            if !self.cells.contains_key(&key) {
+                                let accs = self.new_accs();
+                                self.cells.insert(key, accs);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -997,6 +1187,7 @@ impl<'a> Engine<'a> {
             }
         }
         self.cells = cells;
+        self.add_items_without_data();
         self.apply_calc_items();
         self.apply_model_measures();
     }
@@ -1007,51 +1198,24 @@ impl<'a> Engine<'a> {
         let Some(model) = self.model else {
             return;
         };
-        let slots: Vec<(usize, u32)> = self
-            .measures
-            .iter()
-            .filter_map(|m| match m {
-                Measure::Model(s) => Some((*s, self.slot_fields[*s])),
-                _ => None,
-            })
-            .collect();
+        let slots = self.model_slots();
         if slots.is_empty() {
             return;
         }
-        let mut base: Vec<FieldFilter> = Vec::new();
-        for f in &self.spec.filters {
-            if !f.selected.is_empty() {
-                base.push(FieldFilter {
-                    field: f.field,
-                    values: f.selected.clone(),
-                    exclude: false,
-                });
-            }
-        }
-        for (i, o) in self.spec.fields.iter().enumerate() {
-            if !o.hidden.is_empty() {
-                base.push(FieldFilter {
-                    field: i as u32,
-                    values: o.hidden.clone(),
-                    exclude: true,
-                });
-            }
-        }
+        let base = self.model_base_filters();
         let keys: Vec<CellKey> = self.cells.keys().cloned().collect();
         for key in keys {
             let mut ctx = base.clone();
-            for (fields, items) in [(&self.spec.rows, &key.0), (&self.spec.cols, &key.1)] {
-                for (f, x) in fields.iter().zip(items.iter()) {
-                    let v = self
-                        .items(*f)
-                        .get(*x as usize)
-                        .cloned()
-                        .unwrap_or(CellValue::Empty);
-                    ctx.push(FieldFilter {
-                        field: *f,
-                        values: vec![v],
-                        exclude: false,
-                    });
+            self.item_filters(&self.spec.rows, &key.0, &mut ctx);
+            self.item_filters(&self.spec.cols, &key.1, &mut ctx);
+            // Filtered fields below the cell's level: only their kept items count.
+            for (axis, level, keep) in &self.kept {
+                let depth = match axis {
+                    Axis::Row => key.0.len(),
+                    Axis::Col => key.1.len(),
+                };
+                if *level >= depth {
+                    ctx.push(keep.clone());
                 }
             }
             let values: Vec<(usize, Acc)> = slots
@@ -1560,6 +1724,9 @@ impl<'a> Engine<'a> {
     fn build(&mut self) -> Result<(Layout, Vec<Path>), String> {
         let mut paths = self.paths();
         self.apply_field_filters(&mut paths);
+        if self.model.is_some() {
+            self.kept = self.kept_items(&paths);
+        }
         self.aggregate(&paths);
         self.row_children = self.children(Axis::Row);
         self.col_children = self.children(Axis::Col);

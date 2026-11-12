@@ -125,9 +125,14 @@ test('outline view: typing in a line edits the paragraph, one undo step', async 
   const edit = outline.getByTestId('outline-edit');
   await expect(edit).toBeFocused();
   await expect(edit).toHaveValue('Nội dung hai!');
+  // Enter splits the paragraph at the caret and goes on typing in the new line.
   await page.keyboard.press('Enter');
-  await expect(edit).toBeHidden();
+  await expect(rows).toHaveCount(5);
   await expect(rows.nth(3)).toContainText('Nội dung hai!');
+  await expect(edit).toBeFocused();
+  await expect(edit).toHaveValue('');
+  await page.keyboard.press('Escape');
+  await expect(edit).toBeHidden();
   // A click on a heading moves the caret there; a second click types in it.
   await rows.nth(0).click();
   await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
@@ -150,6 +155,7 @@ test('outline view: typing in a line edits the paragraph, one undo step', async 
   await expect(rows.nth(3)).toContainText('Nội dung hai!');
   await page.keyboard.press('Control+z');
   await expect(rows.nth(3)).toHaveText(/Nội dung hai$/);
+  await expect(rows).toHaveCount(4);
   // The print layout shows the edited document.
   await page.keyboard.press('Control+y');
   await page.getByTestId('outline-close').click();

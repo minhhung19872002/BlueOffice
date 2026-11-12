@@ -14,6 +14,12 @@ export interface ReadModeProps {
   renderPage: (index: number, canvas: HTMLCanvasElement, width: number) => Promise<void>;
   /** Leave read mode on a page. */
   onExit: (page: number) => void;
+  /**
+   * Reflow the text into column pages `width` × `height` points (the engine's read
+   * layout); resolves to the page of the caret in that layout. Absent: the printed
+   * pages are shown as they are.
+   */
+  reflow?: (width: number, height: number) => Promise<number | null>;
 }
 
 /** Room around the pages (CSS px). */
@@ -26,6 +32,25 @@ export function spreadSize(width: number, height: number, page: PageSize | undef
   const h = height - 2 * MARGIN;
   const k = h / page.height;
   return 2 * page.width * k + GAP + 2 * MARGIN <= width && width > 900 ? 2 : 1;
+}
+
+/** Widest reading column (CSS px): longer lines are hard to read. */
+const COLUMN_MAX = 720;
+/** CSS pixels per point at 100 %. */
+const PX_PER_PT = 96 / 72;
+
+/**
+ * Read mode column page (points) for a screen `width` × `height` CSS px: two columns
+ * side by side on wide screens, each at most {@link COLUMN_MAX} wide, as tall as the
+ * screen — text shows at 100 %.
+ */
+export function readColumn(width: number, height: number): { width: number; height: number } {
+  const per = width > 900 ? 2 : 1;
+  const col = Math.min(COLUMN_MAX, (width - 2 * MARGIN - (per - 1) * GAP) / per);
+  return {
+    width: Math.floor(Math.max(200, col) / PX_PER_PT),
+    height: Math.floor(Math.max(200, height - 2 * MARGIN) / PX_PER_PT),
+  };
 }
 
 /** First page of the screen holding `page`. */
@@ -42,7 +67,7 @@ const stepTo = (page: number, delta: number, per: 1 | 2, total: number): number 
  * Read mode: the document full window, one or two pages per screen, turned with
  * ←/→, PageUp/PageDown, Space, Home/End; Esc leaves.
  */
-export function ReadMode({ name, pages, start, renderPage, onExit }: ReadModeProps) {
+export function ReadMode({ name, pages, start, renderPage, onExit, reflow }: ReadModeProps) {
   const { t } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -52,8 +77,9 @@ export function ReadMode({ name, pages, start, renderPage, onExit }: ReadModePro
   const per = spreadSize(size.w, size.h, pages[0]);
   const [shownFrom, setFirst] = useState(start);
   // The screen starts on a page aligned to the spread size.
-  const first = spreadStart(shownFrom, per);
   const total = pages.length;
+  // Fewer pages after a reflow: stay inside the document.
+  const first = spreadStart(Math.min(shownFrom, Math.max(0, total - 1)), per);
   const shown = Array.from({ length: per }, (_, i) => first + i).filter((i) => i < total);
 
   useLayoutEffect(() => {
@@ -64,6 +90,20 @@ export function ReadMode({ name, pages, start, renderPage, onExit }: ReadModePro
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
+  // The text reflows to the screen's columns (again when the window is resized),
+  // opening on the caret's page.
+  const col = readColumn(size.w, size.h);
+  useEffect(() => {
+    if (!reflow) return;
+    let live = true;
+    void reflow(col.width, col.height).then((page) => {
+      if (live && page !== null) setFirst(page);
+    });
+    return () => {
+      live = false;
+    };
+  }, [reflow, col.width, col.height]);
 
   const go = (delta: number) => setFirst((raw) => stepTo(raw, delta, per, total));
   useEffect(() => {
@@ -112,7 +152,7 @@ export function ReadMode({ name, pages, start, renderPage, onExit }: ReadModePro
     >
       <div className={styles.readBar}>
         <strong>{name}</strong>
-        <span data-testid="read-position">
+        <span data-testid="read-position" aria-live="polite">
           {shown.length > 1
             ? t('views.read.pages', { from: first + 1, to: last + 1, total })
             : t('views.read.page', { n: first + 1, total })}

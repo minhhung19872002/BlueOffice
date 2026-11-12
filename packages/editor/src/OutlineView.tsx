@@ -212,7 +212,9 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
               onDragLeave={() => setDropOn((d) => (d === it.para ? null : d))}
               onDrop={(e) => drop(e, it.para)}
               // A click on the caret's line types in it; on another line moves the caret.
-              onClick={() => (it.para === current && it.editable ? setEditing(it.para) : select(it.para))}
+              onClick={() =>
+                it.para === current && it.editable ? setEditing(it.para) : select(it.para)
+              }
               onDoubleClick={() => onClose(it.para)}
             >
               <button
@@ -257,10 +259,19 @@ export function OutlineView({ items, caretPara, run, onCommand, onClose }: Outli
                       return;
                     }
                     if (e.key === 'Enter') {
+                      // Enter splits the paragraph at the caret (with the typed text, one
+                      // undo step) and goes on typing in the new line.
                       e.preventDefault();
                       e.stopPropagation();
-                      commit();
-                      listRef.current?.focus();
+                      const text = e.currentTarget.value;
+                      const at = utf8Length(
+                        text.slice(0, e.currentTarget.selectionStart ?? text.length),
+                      );
+                      setDraft(null);
+                      void run({ cmd: 'splitOutlineText', para: it.para, text, at }).then((r) => {
+                        if (r && !r.error) setEditing(r.selection.focus.p);
+                        else setEditing(null);
+                      });
                       return;
                     }
                     // Tab, ↑ / ↓ and Alt+Shift commands act on the paragraph once its
@@ -315,4 +326,9 @@ function prevHeadingLevel(items: OutlineItem[], index: number): number {
     if (l !== null && l !== undefined) return l;
   }
   return -1;
+}
+
+/** Length in UTF-8 bytes (engine offsets are byte offsets). */
+function utf8Length(s: string): number {
+  return new TextEncoder().encode(s).length;
 }

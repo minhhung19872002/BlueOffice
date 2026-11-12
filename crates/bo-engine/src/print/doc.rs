@@ -180,6 +180,7 @@ impl Engine {
             self.view_command(&crate::edit::Command::SetViewLayout {
                 mode: ViewMode::Print,
                 width: None,
+                height: None,
             })?;
         }
         // Hidden text shown with the formatting marks is not printed (§17.3.2.41 vanish).
@@ -210,6 +211,7 @@ impl Engine {
             self.view_command(&crate::edit::Command::SetViewLayout {
                 mode: saved_view.mode,
                 width: Some(saved_view.width),
+                height: Some(saved_view.height),
             })?;
         }
         pages

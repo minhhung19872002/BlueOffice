@@ -27,6 +27,9 @@ pub enum ViewMode {
     Web,
     /// Print page width, no headers/footers or page decorations.
     Draft,
+    /// Read mode: text reflows into screen-sized column pages (`width` × `height`),
+    /// independent of the page setup; no headers/footers or page decorations.
+    Read,
 }
 
 /// The view layout and, for the web layout, the window width.
@@ -34,8 +37,10 @@ pub enum ViewMode {
 pub struct ViewLayout {
     /// Layout.
     pub mode: ViewMode,
-    /// Width of the web layout page in points.
+    /// Width of the web layout page (read mode: of a column page) in points.
     pub width: f32,
+    /// Height of a read mode column page in points (0 otherwise).
+    pub height: f32,
 }
 
 /// Narrowest and widest web layout page (points).
@@ -46,6 +51,10 @@ const WEB_SIDE: f32 = 24.0;
 const WEB_TOP: f32 = 12.0;
 /// Height of one web layout strip (points): the view stacks strips without gaps.
 const WEB_HEIGHT: f32 = 1440.0;
+/// Lowest and highest read mode column page (points).
+const READ_HEIGHT: (f32, f32) = (144.0, 4000.0);
+/// Margins of a read mode column page (points).
+const READ_MARGIN: f32 = 24.0;
 
 fn twips(pt: f32) -> Twips {
     Twips((pt * 20.0).round() as i32)
@@ -77,6 +86,24 @@ pub fn view_document(doc: &Document, view: ViewLayout) -> Option<Document> {
             p.header = Twips(0);
             p.footer = Twips(0);
             // §17.6.22 type: sections follow each other without new pages.
+            if i > 0 {
+                s.break_type = SectionBreak::Continuous;
+            }
+        }
+        if view.mode == ViewMode::Read {
+            // §17.6.13 pgSz / §17.6.11 pgMar replaced by the reading column: the text
+            // reflows to the screen whatever the printed page size.
+            let height = view.height.clamp(READ_HEIGHT.0, READ_HEIGHT.1);
+            let margin = READ_MARGIN.min(width / 8.0).min(height / 8.0);
+            let p = &mut s.page;
+            p.width = twips(width);
+            p.height = twips(height);
+            p.margin_left = twips(margin);
+            p.margin_right = p.margin_left;
+            p.margin_top = twips(margin);
+            p.margin_bottom = twips(margin);
+            p.header = Twips(0);
+            p.footer = Twips(0);
             if i > 0 {
                 s.break_type = SectionBreak::Continuous;
             }
@@ -354,13 +381,24 @@ impl Engine {
     /// View commands (`None`: not one).
     pub(crate) fn view_command(&mut self, cmd: &Command) -> Result<Option<EditResult>> {
         match cmd {
-            Command::SetViewLayout { mode, width } => {
+            Command::SetViewLayout {
+                mode,
+                width,
+                height,
+            } => {
                 let next = ViewLayout {
                     mode: *mode,
                     width: match mode {
-                        ViewMode::Web => width
+                        ViewMode::Web | ViewMode::Read => width
                             .unwrap_or(self.view_layout.width)
                             .clamp(WEB_WIDTH.0, WEB_WIDTH.1)
+                            .round(),
+                        _ => 0.0,
+                    },
+                    height: match mode {
+                        ViewMode::Read => height
+                            .unwrap_or(self.view_layout.height)
+                            .clamp(READ_HEIGHT.0, READ_HEIGHT.1)
                             .round(),
                         _ => 0.0,
                     },
@@ -407,7 +445,8 @@ impl Engine {
             Command::SetOutlineLevel { .. }
             | Command::MoveOutline { .. }
             | Command::MoveOutlineTo { .. }
-            | Command::SetOutlineText { .. } => {
+            | Command::SetOutlineText { .. }
+            | Command::SplitOutlineText { .. } => {
                 self.close_header_footer()?;
                 self.close_note()?;
                 self.close_text_box()?;
@@ -423,6 +462,9 @@ impl Engine {
                     Command::MoveOutline { para, up } => s.move_outline(para.unwrap_or(here), *up),
                     Command::MoveOutlineTo { para, before } => s.move_outline_to(*para, *before),
                     Command::SetOutlineText { para, text } => s.set_outline_text(*para, text),
+                    Command::SplitOutlineText { para, text, at } => {
+                        s.split_outline_text(*para, text, *at)
+                    }
                     _ => Ok(s.selection()),
                 };
                 let error = res.err().map(|e| e.to_string());
@@ -505,6 +547,43 @@ mod tests {
         cmd(&mut e, r#"{"cmd":"setViewLayout","mode":"print"}"#);
         assert_eq!(e.layout().unwrap().pages[0].lines.len(), print_lines);
         assert!((e.layout().unwrap().pages[0].width - 595.3).abs() < 1.0);
+    }
+
+    /// Read mode reflows the text into column pages of the given size, whatever the
+    /// printed page setup; the print layout comes back unchanged.
+    #[test]
+    fn read_mode_reflows_to_a_column() {
+        let long = "lorem ipsum dolor sit amet consectetur ".repeat(200);
+        let mut e = engine(&long);
+        let print_pages = e.layout().unwrap().pages.len();
+        let print_lines = e.layout().unwrap().pages[0].lines.len();
+        let r = cmd(
+            &mut e,
+            r#"{"cmd":"setViewLayout","mode":"read","width":360,"height":480}"#,
+        );
+        assert_eq!(r["info"]["pages"][0]["width"].as_f64(), Some(360.0));
+        assert_eq!(r["info"]["pages"][0]["height"].as_f64(), Some(480.0));
+        let layout = e.layout().unwrap();
+        // Smaller pages than A4: more of them, every line inside the column.
+        assert!(layout.pages.len() > print_pages);
+        for page in &layout.pages {
+            assert!((page.width - 360.0).abs() < 0.1);
+            for l in &page.lines {
+                for f in &l.fragments {
+                    assert!(f.x >= 23.0 && f.x + f.width <= 360.0 - 23.0);
+                }
+            }
+        }
+        let short = layout.pages.len();
+        // A taller column holds more lines per page; print layout restores A4.
+        cmd(
+            &mut e,
+            r#"{"cmd":"setViewLayout","mode":"read","width":360,"height":900}"#,
+        );
+        assert!(e.layout().unwrap().pages.len() < short);
+        cmd(&mut e, r#"{"cmd":"setViewLayout","mode":"print"}"#);
+        assert_eq!(e.layout().unwrap().pages.len(), print_pages);
+        assert_eq!(e.layout().unwrap().pages[0].lines.len(), print_lines);
     }
 
     fn page_lines(e: &mut Engine, width: f32) -> usize {

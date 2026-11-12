@@ -161,6 +161,23 @@ impl Session {
         }
     }
 
+    /// Outline view: Enter in a line typed in place — the line's text becomes `text`
+    /// (as [`Session::set_outline_text`]) and the paragraph is split at byte offset `at`
+    /// of `text`, all in one undo step. The caret goes to the start of the new paragraph.
+    pub fn split_outline_text(&mut self, para: usize, text: &str, at: usize) -> Result<Selection> {
+        if !text.is_char_boundary(at) {
+            return Err(EditError::BadPath);
+        }
+        let depth = self.history_len();
+        self.set_outline_text(para, text)?;
+        self.end_typing();
+        self.set_selection(Selection::caret(Pos::new(para, at)));
+        let res = self.split_paragraph();
+        self.merge_history_since(depth);
+        self.end_typing();
+        res
+    }
+
     /// Body paragraph ids of the family of `para` (first, last inclusive).
     pub fn outline_family(&self, para: usize) -> Result<(usize, usize)> {
         let doc = self.doc();
@@ -440,6 +457,29 @@ mod tests {
             s.set_outline_text(3, "xy"),
             Err(EditError::Unsupported(_))
         ));
+    }
+
+    /// Enter in an outline line: the typed text is set and the paragraph split at the
+    /// caret in one undo step; the caret starts the new paragraph.
+    #[test]
+    fn enter_in_an_outline_line_splits_it() {
+        let mut s = session();
+        let before = s.doc().clone();
+        // "b" typed as "bước một hai", Enter after "bước một".
+        let sel = s
+            .split_outline_text(5, "bước một hai", "bước một".len())
+            .unwrap();
+        assert_eq!(texts(&s)[5..], ["bước một".to_owned(), " hai".to_owned()]);
+        assert_eq!(sel, Selection::caret(Pos::new(6, 0)));
+        // Enter at the end of a heading: an empty paragraph after it.
+        s.split_outline_text(0, "A", 1).unwrap();
+        assert_eq!(texts(&s)[0..2], ["A".to_owned(), String::new()]);
+        assert!(s.undo());
+        assert_eq!(s.paragraph_count(), 7);
+        assert!(s.undo());
+        assert_eq!(s.doc(), &before);
+        // Not a character boundary.
+        assert!(s.split_outline_text(5, "bước", 2).is_err());
     }
 
     #[test]

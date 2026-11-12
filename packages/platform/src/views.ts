@@ -5,7 +5,7 @@
 import type { FindMatch, FindOptions } from './types';
 
 /** Engine layout of the view (`bo_engine::views::ViewMode`). */
-export type ViewLayoutMode = 'print' | 'web' | 'draft';
+export type ViewLayoutMode = 'print' | 'web' | 'draft' | 'read';
 
 /** Kind of a formatting mark (`bo_engine::views::FormatMarkKind`). */
 export type FormatMarkKind =
@@ -57,7 +57,8 @@ export interface FindResult {
 
 /** View commands sent to the engine. */
 export type ViewCommand =
-  | { cmd: 'setViewLayout'; mode: ViewLayoutMode; width?: number }
+  /** `read`: column pages `width` × `height` points (read mode reflow). */
+  | { cmd: 'setViewLayout'; mode: ViewLayoutMode; width?: number; height?: number }
   | { cmd: 'showFormattingMarks'; on: boolean }
   | { cmd: 'outline' }
   | { cmd: 'setOutlineLevel'; para?: number; level?: number | null }
@@ -65,4 +66,6 @@ export type ViewCommand =
   | { cmd: 'moveOutlineTo'; para: number; before?: number | null }
   /** Outline view: the paragraph's text typed in place (one undo step). */
   | { cmd: 'setOutlineText'; para: number; text: string }
+  /** Outline view: Enter in a typed line — set its text, split at byte offset `at`. */
+  | { cmd: 'splitOutlineText'; para: number; text: string; at: number }
   | { cmd: 'findResults'; query: string; options?: FindOptions };

@@ -16,7 +16,7 @@ import {
   promoted,
   visibleItems,
 } from '../src/outlineModel';
-import { ReadMode, spreadSize, spreadStart } from '../src/ReadMode';
+import { ReadMode, readColumn, spreadSize, spreadStart } from '../src/ReadMode';
 
 afterEach(cleanup);
 
@@ -290,5 +290,29 @@ describe('ReadMode', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onExit).toHaveBeenCalledWith(0);
     expect(renderPage).toHaveBeenCalled();
+  });
+
+  it('reflows the text into screen columns and opens on the caret page', async () => {
+    // Two columns on a wide screen (at most 720 px each), one on a narrow one; points.
+    expect(readColumn(1600, 900)).toEqual({ width: 540, height: 639 });
+    expect(readColumn(600, 900).width).toBe(414);
+    const col = { width: 540, height: 639 };
+    const reflow = vi.fn(() => Promise.resolve(2));
+    wrap(
+      <ReadMode
+        name="a.docx"
+        pages={[col, col, col, col]}
+        start={0}
+        renderPage={() => Promise.resolve()}
+        onExit={() => {}}
+        reflow={reflow}
+      />,
+    );
+    expect(reflow).toHaveBeenCalled();
+    const [w, h] = reflow.mock.calls.at(-1) as unknown as [number, number];
+    expect(w).toBeGreaterThan(100);
+    expect(h).toBeGreaterThan(100);
+    // The caret's page (3 of 4) is on the screen.
+    await screen.findByText(/3/, { selector: '[data-testid="read-position"]' });
   });
 });

@@ -38,6 +38,20 @@ export interface SlideNotesPage {
   text: string;
   /** Notes text size in points. */
   size: number;
+  /** Header, date, footer and page number from the notes master (`p:hf` flags). */
+  hf?: SlideNotesHf[];
+}
+
+/** A header / footer item of a notes page (§19.7.10 `hdr` `dt` `ftr` `sldNum`). */
+export interface SlideNotesHf {
+  kind: 'header' | 'date' | 'footer' | 'number';
+  rect: SlideRect;
+  text: string;
+  align: 'left' | 'center' | 'right';
+  /** Font size in points. */
+  size: number;
+  /** Text at the bottom of the box (footer, page number). */
+  bottom: boolean;
 }
 
 /** A section of the deck (`first`: index of its first slide). */

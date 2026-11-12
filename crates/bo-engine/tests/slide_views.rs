@@ -348,6 +348,34 @@ fn notes_page_geometry_comes_from_the_notes_master() {
     run(&mut e, &json!({ "cmd": "undo" }));
     let r = run(&mut e, &json!({ "cmd": "notesPages" }));
     assert_eq!(r["notesPages"][0]["text"], "");
+    // The built notes master has no header / footer placeholders: none shown.
+    assert_eq!(r["notesPages"][0]["hf"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn notes_pages_show_the_notes_master_header_and_footer() {
+    let mut e = open();
+    run(
+        &mut e,
+        &json!({ "cmd": "pageMasterView", "kind": "notes", "on": true }),
+    );
+    run(
+        &mut e,
+        &json!({ "cmd": "pageMasterElements", "header": true, "number": true, "date": false, "footer": false }),
+    );
+    run(&mut e, &json!({ "cmd": "pageMasterView", "on": false }));
+    let r = run(&mut e, &json!({ "cmd": "notesPages" }));
+    let hf = r["notesPages"][1]["hf"].as_array().unwrap();
+    // The header placeholder is empty (nothing to draw); the page number
+    // placeholder's slidenum field shows the slide number, at the bottom right.
+    assert_eq!(hf.len(), 1, "{hf:?}");
+    assert_eq!(hf[0]["kind"], "number");
+    assert_eq!(hf[0]["text"], "2");
+    assert_eq!(hf[0]["bottom"], true);
+    assert_eq!(hf[0]["align"], "right");
+    let rect = &hf[0]["rect"];
+    assert!(rect["y"].as_f64().unwrap() > 600.0, "{rect}");
+    assert!(rect["x"].as_f64().unwrap() > 270.0, "{rect}");
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +542,17 @@ fn handout_master_is_created_edited_and_round_trips() {
     run(&mut e, &json!({ "cmd": "pageMasterView", "on": false }));
     let bytes = e.save_pptx().unwrap();
     keep("views-handout-master.pptx", &bytes);
+    // The notes master follows the page (sx = 4/3, sy = 3/4): its slide image
+    // (685 800, 1 143 000) 5 486 400 × 3 086 100 keeps its aspect at k = 3/4 →
+    // 4 114 800 × 2 314 575, centred in the scaled box (914 400, 857 250)
+    // 7 315 200 × 2 314 575 → x = 914 400 + 1 600 200 = 2 514 600; the notes
+    // body (685 800, 4 400 550) 5 486 400 × 3 600 450 → (914 400, 3 300 413)
+    // 7 315 200 × 2 700 338 (rounded).
+    let nm = part_text(&bytes, NOTES_MASTER);
+    assert!(nm.contains(r#"<a:off x="2514600" y="857250"/>"#), "{nm}");
+    assert!(nm.contains(r#"<a:ext cx="4114800" cy="2314575"/>"#), "{nm}");
+    assert!(nm.contains(r#"<a:off x="914400" y="3300413"/>"#), "{nm}");
+    assert!(nm.contains(r#"<a:ext cx="7315200" cy="2700338"/>"#), "{nm}");
     let xml = part_text(&bytes, "/ppt/handoutMasters/handoutMaster1.xml");
     assert!(xml.contains(r#"type="hdr""#));
     assert!(xml.contains(r#"type="sldNum""#));

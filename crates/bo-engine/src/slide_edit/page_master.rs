@@ -138,6 +138,64 @@ pub struct NotesPageOut {
     pub text: String,
     /// Notes text size (§19.3.1.28 notesStyle level 1), points.
     pub size: f64,
+    /// Header, date, footer and page number of the page, from the notes
+    /// master's placeholders shown by its `p:hf` flags (§19.3.1.25).
+    pub hf: Vec<NotesHfOut>,
+}
+
+/// A header / footer item of a notes page.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotesHfOut {
+    /// `header`, `date`, `footer` or `number` (§19.7.10 `hdr`, `dt`, `ftr`, `sldNum`).
+    pub kind: &'static str,
+    /// The placeholder's box (points of the notes page).
+    pub rect: Rect,
+    /// Text, slide number fields (§21.1.2.2.4 `fld type="slidenum"`) filled in.
+    pub text: String,
+    /// `left`, `center` or `right` (§21.1.2.2.7 `pPr@algn`).
+    pub align: &'static str,
+    /// Font size, points.
+    pub size: f64,
+    /// At the bottom of its box (footer, number).
+    pub bottom: bool,
+}
+
+/// Header / footer items of the notes page of slide number `number`.
+fn notes_hf(master: Option<&masters::MasterInfo>, number: usize) -> Vec<NotesHfOut> {
+    use masters::{Align, HfKind};
+    let Some(m) = master else {
+        return Vec::new();
+    };
+    let page_no = number.to_string();
+    HfKind::ALL
+        .iter()
+        .filter(|k| m.shows(**k))
+        .filter_map(|&k| {
+            let p = m.placeholder(k)?;
+            let text = p.text(&page_no);
+            if text.trim().is_empty() {
+                return None;
+            }
+            Some(NotesHfOut {
+                kind: match k {
+                    HfKind::Header => "header",
+                    HfKind::Date => "date",
+                    HfKind::Footer => "footer",
+                    HfKind::SlideNumber => "number",
+                },
+                rect: rect(p.frame),
+                text,
+                align: match p.align.unwrap_or(k.default_align()) {
+                    Align::Left => "left",
+                    Align::Center => "center",
+                    Align::Right => "right",
+                },
+                size: f64::from(p.size_pt.unwrap_or(12.0)),
+                bottom: k.at_bottom(),
+            })
+        })
+        .collect()
 }
 
 fn rect(f: handout::Frame) -> Rect {
@@ -168,7 +226,8 @@ pub fn notes_pages(pres: &Presentation) -> Vec<NotesPageOut> {
     let master = masters::notes_master(pres);
     pres.slides
         .iter()
-        .map(|s| {
+        .enumerate()
+        .map(|(i, s)| {
             let own = s
                 .notes
                 .as_ref()
@@ -198,6 +257,7 @@ pub fn notes_pages(pres: &Presentation) -> Vec<NotesPageOut> {
                         .and_then(|m| m.notes_size_pt)
                         .unwrap_or(12.0),
                 ),
+                hf: notes_hf(master.as_ref(), i + 1),
             }
         })
         .collect()
@@ -681,6 +741,27 @@ fn assembled(pres: &Presentation, pv: &PageView) -> (Vec<RawPart>, PresFields) {
     };
     let size_changed = (size.cx, size.cy) != notes_size_of(&pv.entry);
     if size_changed {
+        // The notes and the handout master share the page size (§19.2.1.23
+        // notesSz): the master not being edited follows the new orientation.
+        let (ow, oh) = notes_size_of(&pv.entry);
+        let (sx, sy) = (
+            size.cx as f64 / ow.max(1) as f64,
+            size.cy as f64 / oh.max(1) as f64,
+        );
+        let other = match pv.kind {
+            PageKind::Notes => HANDOUT_CT,
+            PageKind::Handout => NOTES_CT,
+        };
+        if let Some(p) = parts
+            .iter_mut()
+            .find(|p| p.content_type.as_deref() == Some(other))
+        {
+            if let Ok(mut root) = bo_drawingml::dom::parse(&p.data, &p.name) {
+                if scale_tree(&mut root, sx, sy) {
+                    p.data = bo_drawingml::dom::to_part_xml(&root);
+                }
+            }
+        }
         fields.notes_size = size;
     }
     if !changed_root && !changed_rels && !size_changed {
@@ -722,6 +803,159 @@ fn assembled(pres: &Presentation, pv: &PageView) -> (Vec<RawPart>, PresFields) {
     (parts, fields)
 }
 
+/// The deck's slides with their notes pages moved to the new page size
+/// (notes slides that set their own placeholder boxes, §19.3.1.26 notes).
+fn scaled_slides(pres: &Presentation, pv: &PageView) -> Vec<Slide> {
+    let (ow, oh) = notes_size_of(&pv.entry);
+    let (nw, nh) = (pres.slide_size.cx, pres.slide_size.cy);
+    if (ow, oh) == (nw, nh) || nw <= 0 || nh <= 0 {
+        return pv.slides.clone();
+    }
+    let (sx, sy) = (nw as f64 / ow.max(1) as f64, nh as f64 / oh.max(1) as f64);
+    pv.slides
+        .iter()
+        .map(|s| {
+            let mut s = s.clone();
+            if let Some(n) = &mut s.notes {
+                scale_nodes(&mut n.data.shapes, sx, sy);
+            }
+            s
+        })
+        .collect()
+}
+
+/// Child elements, mutable.
+fn kids_mut(e: &mut XmlElement) -> impl Iterator<Item = &mut XmlElement> {
+    e.children.iter_mut().filter_map(|n| match n {
+        XmlNode::Element(x) => Some(x),
+        XmlNode::Text(_) => None,
+    })
+}
+
+/// Is this shape element the slide image placeholder (§19.7.10 `sldImg`)?
+fn xml_is_sld_img(shape: &XmlElement) -> bool {
+    shape
+        .elements()
+        .find(|e| e.local().starts_with("nv"))
+        .and_then(|nv| nv.elements().find(|e| e.local() == "nvPr"))
+        .and_then(|p| p.elements().find(|e| e.local() == "ph"))
+        .is_some_and(|ph| ph.attr("type") == Some("sldImg"))
+}
+
+fn num(e: &XmlElement, name: &str) -> Option<f64> {
+    e.attr(name).and_then(|v| v.parse::<f64>().ok())
+}
+
+fn set_num(e: &mut XmlElement, name: &str, v: f64) {
+    let v = (v.round() as i64).to_string();
+    match e.attrs.iter_mut().find(|(k, _)| k == name) {
+        Some(a) => a.1 = v,
+        None => e.attrs.push((name.to_owned(), v)),
+    }
+}
+
+/// Scale an `a:xfrm` (§20.1.7.6 off / ext) by `sx` × `sy`; with `keep` the box
+/// keeps its aspect ratio, centred in the scaled one.
+fn scale_xml_xfrm(x: &mut XmlElement, sx: f64, sy: f64, keep: bool) -> bool {
+    let off = x
+        .elements()
+        .find(|e| e.local() == "off")
+        .and_then(|o| Some((num(o, "x")?, num(o, "y")?)));
+    let ext = x
+        .elements()
+        .find(|e| e.local() == "ext")
+        .and_then(|o| Some((num(o, "cx")?, num(o, "cy")?)));
+    let (Some((ox, oy)), Some((cx, cy))) = (off, ext) else {
+        return false;
+    };
+    let (bx, by, bw, bh) = (ox * sx, oy * sy, cx * sx, cy * sy);
+    let (nx, ny, nw, nh) = if keep {
+        let k = sx.min(sy);
+        let (fw, fh) = (cx * k, cy * k);
+        (bx + (bw - fw) / 2.0, by + (bh - fh) / 2.0, fw, fh)
+    } else {
+        (bx, by, bw, bh)
+    };
+    for e in kids_mut(x) {
+        match e.local() {
+            "off" => {
+                set_num(e, "x", nx);
+                set_num(e, "y", ny);
+            }
+            "ext" => {
+                set_num(e, "cx", nw);
+                set_num(e, "cy", nh);
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Move and size the top-level shapes of a notes / handout master part
+/// (§19.3.1.16 cSld, §19.3.1.45 spTree) for a page `sx` × `sy` the size; group
+/// children keep their child coordinates (§20.1.7.5 grpSpPr chOff / chExt).
+fn scale_tree(root: &mut XmlElement, sx: f64, sy: f64) -> bool {
+    let mut changed = false;
+    for csld in kids_mut(root).filter(|e| e.local() == "cSld") {
+        for tree in kids_mut(csld).filter(|e| e.local() == "spTree") {
+            for shape in kids_mut(tree) {
+                let keep = xml_is_sld_img(shape);
+                let props = match shape.local() {
+                    "sp" | "pic" | "cxnSp" => Some("spPr"),
+                    "grpSp" => Some("grpSpPr"),
+                    _ => None,
+                };
+                let xfrm = match props {
+                    Some(pp) => kids_mut(shape)
+                        .find(|e| e.local() == pp)
+                        .and_then(|p| kids_mut(p).find(|e| e.local() == "xfrm")),
+                    // §19.3.1.21 graphicFrame: p:xfrm.
+                    None if shape.local() == "graphicFrame" => {
+                        kids_mut(shape).find(|e| e.local() == "xfrm")
+                    }
+                    None => None,
+                };
+                if let Some(x) = xfrm {
+                    changed |= scale_xml_xfrm(x, sx, sy, keep);
+                }
+            }
+        }
+    }
+    changed
+}
+
+/// Scale the top-level shapes of a page (§20.1.7.6 xfrm); the slide image
+/// (§19.7.10 `sldImg`) keeps its aspect ratio.
+fn scale_nodes(nodes: &mut [ShapeNode], sx: f64, sy: f64) {
+    for n in nodes {
+        let keep_aspect = ph_kind(n) == Some("sldImg");
+        let xfrm = match n {
+            ShapeNode::Shape(x) => x.props.xfrm.as_mut(),
+            ShapeNode::Picture(x) => x.props.xfrm.as_mut(),
+            ShapeNode::Connector(x) => x.props.xfrm.as_mut(),
+            ShapeNode::Group(g) => g.props.xfrm.as_mut(),
+            ShapeNode::Frame(f) => Some(&mut f.xfrm),
+            ShapeNode::Other(_) => None,
+        };
+        let Some(x) = xfrm else { continue };
+        let (Some((ox, oy)), Some((cx, cy))) = (x.off, x.ext) else {
+            continue;
+        };
+        let (bx, by) = (ox as f64 * sx, oy as f64 * sy);
+        let (bw, bh) = (cx as f64 * sx, cy as f64 * sy);
+        if keep_aspect {
+            let k = sx.min(sy);
+            let (fw, fh) = (cx as f64 * k, cy as f64 * k);
+            x.off = Some(((bx + (bw - fw) / 2.0) as i64, (by + (bh - fh) / 2.0) as i64));
+            x.ext = Some((fw as i64, fh as i64));
+        } else {
+            x.off = Some((bx as i64, by as i64));
+            x.ext = Some((bw as i64, bh as i64));
+        }
+    }
+}
+
 fn notes_size_of(f: &PresFields) -> (i64, i64) {
     if f.notes_size.cx > 0 && f.notes_size.cy > 0 {
         (f.notes_size.cx, f.notes_size.cy)
@@ -730,8 +964,13 @@ fn notes_size_of(f: &PresFields) -> (i64, i64) {
     }
 }
 
-fn restore(pres: &mut Presentation, pv: &PageView, parts: Vec<RawPart>, fields: &PresFields) {
-    pres.slides.clone_from(&pv.slides);
+fn restore(
+    pres: &mut Presentation,
+    slides: Vec<Slide>,
+    parts: Vec<RawPart>,
+    fields: &PresFields,
+) {
+    pres.slides = slides;
     pres.parts = parts;
     pres.info.rels.clone_from(&fields.rels);
     pres.extra.clone_from(&fields.extra);
@@ -746,11 +985,19 @@ fn exit(ed: &mut SlideEditor, pres: &mut Presentation, out: &mut Outcome) {
     let Some(pv) = ed.page.take() else { return };
     let saved_now = !pv.modified(ed.state_id());
     let (parts, fields) = assembled(pres, &pv);
-    restore(pres, &pv, parts.clone(), &fields);
+    let slides = scaled_slides(pres, &pv);
+    restore(pres, slides.clone(), parts.clone(), &fields);
     ed.sel = pv.sel;
     ed.undo = pv.undo;
     ed.redo = pv.redo;
     let mut ops = Vec::new();
+    if slides != pv.slides {
+        ops.push(SlideOp::Slides {
+            index: 0,
+            remove: pv.slides.clone(),
+            insert: slides,
+        });
+    }
     if parts != pv.entry_parts {
         ops.push(SlideOp::Parts {
             index: 0,
@@ -785,8 +1032,9 @@ fn exit(ed: &mut SlideEditor, pres: &mut Presentation, out: &mut Outcome) {
 pub(crate) fn assemble(pres: &Presentation, ed: &SlideEditor) -> Option<Presentation> {
     let pv = ed.page.as_ref()?;
     let (parts, fields) = assembled(pres, pv);
+    let slides = scaled_slides(pres, pv);
     let mut p = pres.clone();
-    restore(&mut p, pv, parts, &fields);
+    restore(&mut p, slides, parts, &fields);
     Some(p)
 }
 
@@ -925,31 +1173,7 @@ fn set_orientation(tx: &mut Tx<'_>, portrait: bool) -> R<()> {
         .cloned()
         .ok_or(EditError::Refused("noSlide"))?;
     let mut s = old.clone();
-    for n in &mut s.data.shapes {
-        let keep_aspect = ph_kind(n) == Some("sldImg");
-        let xfrm = match n {
-            ShapeNode::Shape(x) => x.props.xfrm.as_mut(),
-            ShapeNode::Picture(x) => x.props.xfrm.as_mut(),
-            ShapeNode::Connector(x) => x.props.xfrm.as_mut(),
-            ShapeNode::Group(g) => g.props.xfrm.as_mut(),
-            _ => None,
-        };
-        let Some(x) = xfrm else { continue };
-        let (Some((ox, oy)), Some((cx, cy))) = (x.off, x.ext) else {
-            continue;
-        };
-        let (bx, by) = (ox as f64 * sx, oy as f64 * sy);
-        let (bw, bh) = (cx as f64 * sx, cy as f64 * sy);
-        if keep_aspect {
-            let k = sx.min(sy);
-            let (fw, fh) = (cx as f64 * k, cy as f64 * k);
-            x.off = Some(((bx + (bw - fw) / 2.0) as i64, (by + (bh - fh) / 2.0) as i64));
-            x.ext = Some((fw as i64, fh as i64));
-        } else {
-            x.off = Some((bx as i64, by as i64));
-            x.ext = Some((bw as i64, bh as i64));
-        }
-    }
+    scale_nodes(&mut s.data.shapes, sx, sy);
     let before = PresFields::of(tx.pres);
     let mut after = before.clone();
     after.slide_size = SlideSize {

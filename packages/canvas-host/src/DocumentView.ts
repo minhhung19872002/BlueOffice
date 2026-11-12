@@ -143,6 +143,7 @@ export class DocumentView {
   private info: DocInfo | null = null;
   private zoomValue = 1;
   private frame = 0;
+  private dprMedia: MediaQueryList | null = null;
   private currentPage = -1;
   private mode: PageMode = 'print';
   private readonly opts: Required<
@@ -190,6 +191,7 @@ export class DocumentView {
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('resize', this.schedule);
+    this.watchDpr();
     // Caret: one pixel wide, blinking 530 ms on / 530 ms off (the system default word processors
     // use). Selection: a neutral grey that darkens the text under it like a multiply blend
     // (black stays black, white paper becomes light grey), as word processors show it.
@@ -807,6 +809,7 @@ export class DocumentView {
 
   dispose(): void {
     cancelAnimationFrame(this.frame);
+    this.dprMedia?.removeEventListener('change', this.onDprChange);
     window.removeEventListener('resize', this.schedule);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
@@ -816,6 +819,20 @@ export class DocumentView {
     // Decoded pictures of the closed document (CORE-PERF-001: no leak across documents).
     this.images.clear();
   }
+
+  // A window can cross monitors without changing its CSS size. Re-arm the query for the new
+  // scale each time, so visible canvases are redrawn at the new physical pixel density.
+  private watchDpr(): void {
+    this.dprMedia?.removeEventListener('change', this.onDprChange);
+    if (typeof window.matchMedia !== 'function') return;
+    this.dprMedia = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    this.dprMedia.addEventListener('change', this.onDprChange);
+  }
+
+  private onDprChange = () => {
+    this.watchDpr();
+    this.schedule();
+  };
 
   private onWheel = (e: WheelEvent) => {
     if (!e.ctrlKey) return;
@@ -903,6 +920,10 @@ export class DocumentView {
     // Release canvases far from the viewport (memory).
     this.slots.forEach((s, i) => {
       if ((i < from - 2 || i > to + 2) && s.canvas) {
+        // Release the backing store immediately; removing the DOM node alone leaves the
+        // multi-megabyte surface alive until the WebView's garbage collector runs.
+        s.canvas.width = 0;
+        s.canvas.height = 0;
         s.canvas.remove();
         s.canvas = null;
         s.renderedAt = null;

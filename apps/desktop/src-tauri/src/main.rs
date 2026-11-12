@@ -25,14 +25,14 @@ use print::PrintJobs;
 use shell::{percent_decode, LaunchRequest};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 
-pub(crate) struct EngineState(pub(crate) Mutex<Engine>);
+pub(crate) struct EngineState(pub(crate) LazyLock<Mutex<Engine>>);
 
 /// Fonts compiled into the engine, in face-id order (same as the web manifest).
 const FONT_FILES: &[&str] = &[
@@ -761,9 +761,10 @@ fn main() {
         })
         .setup(|app| {
             perf::mark("setup", None);
-            let engine = perf::timed("engine_create", Engine::with_bundled_fonts);
-            app.manage(EngineState(Mutex::new(engine)));
-            app.manage(perf::timed("sheet_create", sheet_cmds::SheetState::new));
+            app.manage(EngineState(LazyLock::new(|| {
+                Mutex::new(perf::timed("engine_create", Engine::with_bundled_fonts))
+            })));
+            app.manage(sheet_cmds::SheetState::new());
             app.manage(PrintJobs::default());
             app.manage(FontsReady::default());
             #[cfg(feature = "webdriver")]
@@ -777,6 +778,9 @@ fn main() {
             // Index the installed fonts without delaying the window.
             let fonts_app = app.handle().clone();
             std::thread::spawn(move || {
+                // Construct the engine off the window setup path, even when system fonts are
+                // disabled. LazyLock also makes a simultaneous first command wait safely.
+                LazyLock::force(&fonts_app.state::<EngineState>().0);
                 if let Some(fonts) = system_fonts(&fonts_app) {
                     if let Ok(mut e) = fonts_app.state::<EngineState>().0.lock() {
                         e.set_system_fonts(fonts.clone());

@@ -18,7 +18,7 @@ export function createWebSheetHost(
   return new RpcSheetHost(t.rpc, t.init);
 }
 
-/** Transport to the WASM sheet worker (also the desktop fallback engine). */
+/** Transport to the web WASM sheet worker. */
 export function webSheetTransport(
   fonts: FontSource,
   locale: () => string = () => 'vi-VN',

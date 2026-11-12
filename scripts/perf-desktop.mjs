@@ -787,6 +787,14 @@ if (flag('update-baseline') && baselinePath) {
 console.log(readFileSync(join(outDir, 'desktop-perf.md'), 'utf8'));
 if (process.env.GITHUB_STEP_SUMMARY)
   writeFileSync(process.env.GITHUB_STEP_SUMMARY, markdown(result, cmp), { flag: 'a' });
+// A failed measurement must not look like a successful regression check in CI.
+if (process.env.CI && !flag('only-webdriver') && useWebDriver) {
+  const missing = GATED.filter((key) => !Number.isFinite(result.metrics[key]));
+  if (missing.length) {
+    console.error(`::error::Desktop performance measurements missing: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+}
 if (cmp) {
   for (const r of cmp.rows.filter((x) => x.status === 'warn'))
     console.log(`::warning::${r.k} ${r.rel} % slower than the baseline (${r.old} → ${r.cur})`);

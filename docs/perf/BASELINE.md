@@ -26,7 +26,7 @@ thường (xem các lần chạy bên dưới).
 
 ```bash
 export PATH="$USERPROFILE/.cargo/bin:$PATH" CARGO_TARGET_DIR=D:/bo-targets/perf CARGO_BUILD_JOBS=4
-pnpm build:wasm                                             # gói engine-wasm (fallback của desktop)
+pnpm build:wasm                                             # WASM cho replica cộng tác; engine soạn thảo desktop là native
 pnpm --filter @blueoffice/desktop tauri build --no-bundle   # → $CARGO_TARGET_DIR/release/bluedoc.exe
 ```
 
@@ -84,16 +84,13 @@ pnpm perf:desktop -- --profile <máy> --update-baseline     # ghi docs/perf/base
 
 ## CI
 
-Job `desktop` (Windows) chạy `node scripts/perf-desktop.mjs --runs 5 --profile ci-windows-latest`
-trên bản build E2E (release, `--features updater,webdriver`) sau `pnpm test:e2e:desktop`, đưa
-`desktop-perf.json/.md` lên artifact `desktop-perf` và tóm tắt vào trang job. So với
-`docs/perf/baselines/ci-windows-latest.json` (các chỉ số chính: khởi động, shell, mở 100 trang,
-`engine_open`, RAM, phím → glyph trung vị / p95, FPS cuộn, render ribbon / status mỗi phím):
-**cảnh báo** khi chậm hơn > 5 % (quy tắc của `BlueOffice-PARITY-PROMPT.md`), **thất bại** khi > 20 %;
-chênh lệch dưới 5 ms / 10 MB / 2 FPS / 0,5 render bỏ qua (máy CI dùng chung, nhiễu). Chưa có tệp mốc
-của CI thì bước chỉ báo cáo — lấy `desktop-perf.json` từ artifact của một lần chạy trên `main`, chạy
-lại cục bộ `--update-baseline` hoặc chép thành `docs/perf/baselines/ci-windows-latest.json`. Mốc của
-máy dev này: `docs/perf/baselines/dev-ryzen7-7435hs.json` (so với `--profile dev-ryzen7-7435hs`).
+Job `desktop` (Windows) chạy `scripts/perf-desktop.mjs --runs 5` trên bản release WebDriver,
+đưa JSON và báo cáo lên artifact `desktop-perf`. CI tải kết quả từ lần CI thành công gần nhất
+trên `main` làm mốc cùng loại runner; lần chạy đầu hoặc khi artifact đã hết hạn chỉ báo cáo,
+không có phép so sánh. Chênh lệch trên 5% được cảnh báo và trên 20% làm job thất bại, với
+ngưỡng nhiễu tối thiểu 5 ms / 10 MB / 2 FPS / 0,5 render. Runner dùng chung có thể biến động;
+cần đối chiếu nhiều lần trước khi kết luận hồi quy. Mốc máy dev trong bảng dưới là một phép đo
+riêng và không được giả làm mốc CI.
 
 ## Kết quả mốc
 

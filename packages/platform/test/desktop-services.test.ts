@@ -1,15 +1,8 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  DesktopAuth,
-  FallbackEngineHost,
-  createDesktopPlatform,
-  isOidcCallback,
-  type Invoke,
-} from '../src/desktop';
+import { DesktopAuth, createDesktopPlatform, isOidcCallback, type Invoke } from '../src/desktop';
 import type { KeyValueStore, OidcFetch } from '../src/oidc';
 import { shouldCheckForUpdates, updateNotice } from '../src/shared';
-import type { EngineHost } from '../src/types';
 
 class MemoryStore implements KeyValueStore {
   map = new Map<string, string>();
@@ -24,94 +17,27 @@ class MemoryStore implements KeyValueStore {
   }
 }
 
-/** A fake engine whose methods record their calls. */
-function fakeEngine(backend: 'wasm' | 'native', init: () => Promise<void>) {
-  const calls: string[] = [];
-  const engine = new Proxy({ backend, init } as unknown as EngineHost, {
-    get(target, prop: string) {
-      // Not a thenable (the host is returned from async functions).
-      if (prop === 'then') return undefined;
-      if (prop === 'backend') return backend;
-      if (prop === 'init') return init;
-      if (prop === 'dispose') return () => calls.push('dispose');
-      return async (...args: unknown[]) => {
-        calls.push(`${prop}:${JSON.stringify(args[1] ?? args[0] ?? null)}`);
-        return prop === 'getSlideNotes' ? backend : { name: 'a.docx', pageCount: 1 };
-      };
-    },
-  });
-  return { engine, calls };
-}
-
-describe('desktop engine fallback (native → WASM)', () => {
-  it('stays native when the native engine starts', async () => {
-    const native = fakeEngine('native', async () => {});
-    const wasm = vi.fn(() => fakeEngine('wasm', async () => {}).engine);
-    const e = new FallbackEngineHost(native.engine, wasm, () => {});
-    await e.open(new Uint8Array([1]), 'a.docx');
-    expect(e.backend).toBe('native');
-    expect(wasm).not.toHaveBeenCalled();
-    expect(native.calls).toEqual(['open:"a.docx"']);
-  });
-
-  it('switches to the WASM engine when the native one does not start', async () => {
-    const native = fakeEngine('native', async () => {
-      throw new Error('engine.nativeUnavailable');
-    });
-    const w = fakeEngine('wasm', async () => {});
-    const reasons: unknown[] = [];
-    const e = new FallbackEngineHost(
-      native.engine,
-      () => w.engine,
-      (r) => reasons.push(r),
-    );
-    expect(e.backend).toBe('native');
-    expect(await e.getSlideNotes(0)).toBe('wasm');
-    expect(e.backend).toBe('wasm');
-    await e.newDocument('b.docx');
-    expect(w.calls).toEqual(['getSlideNotes:0', 'newDocument:"b.docx"']);
-    expect(native.calls).toEqual([]);
-    expect(String(reasons[0])).toMatch(/nativeUnavailable/);
-  });
-
-  it('the platform probes engine_init and moves BlueSheet to WASM with it', async () => {
-    const fake = vi.fn(async (cmd: string) => {
-      if (cmd === 'engine_init') return 0; // no fonts: the native engine is unusable
-      throw new Error(`unexpected native call ${cmd}`);
+describe('desktop native engine', () => {
+  it('reports native initialization failure without falling back to WASM', async () => {
+    const call = vi.fn(async (cmd: string) => {
+      if (cmd === 'engine_init') return 0;
+      throw new Error(`unexpected call ${cmd}`);
     }) as unknown as Invoke;
-    const w = fakeEngine('wasm', async () => {});
-    const sheetCalls: string[] = [];
-    const p = createDesktopPlatform({
-      invoke: fake,
-      wasmEngine: () => w.engine,
-      wasmSheet: () => ({
-        init: async () => {},
-        rpc: async (method) => {
-          sheetCalls.push(method);
-          return { name: 'b.xlsx', sheets: [] };
-        },
-      }),
-    });
-    await p.engine.init();
-    expect(p.engine.backend).toBe('wasm');
-    await p.sheet!.newWorkbook('b.xlsx');
-    expect(sheetCalls).toEqual(['newWorkbook']);
+    const p = createDesktopPlatform({ invoke: call });
+    expect(p.engine.backend).toBe('native');
+    await expect(p.engine.init()).rejects.toThrow('engine.nativeUnavailable');
+    await expect(p.sheet!.newWorkbook('b.xlsx')).rejects.toThrow('engine.nativeUnavailable');
   });
 
-  it('BlueSheet stays native when the native engine runs', async () => {
+  it('uses native commands for BlueSheet', async () => {
     const calls: string[] = [];
-    const fake = vi.fn(async (cmd: string, args?: unknown) => {
+    const call = vi.fn(async (cmd: string, args?: unknown) => {
       calls.push(cmd);
       if (cmd === 'engine_init') return 16;
       if (cmd === 'sheet_call') return { name: (args as { args: string[] }).args[0] };
       return null;
     }) as unknown as Invoke;
-    const p = createDesktopPlatform({
-      invoke: fake,
-      wasmSheet: () => {
-        throw new Error('WASM must not start');
-      },
-    });
+    const p = createDesktopPlatform({ invoke: call });
     expect((await p.sheet!.newWorkbook('c.xlsx')).name).toBe('c.xlsx');
     expect(calls).toEqual(['engine_init', 'sheet_call']);
   });

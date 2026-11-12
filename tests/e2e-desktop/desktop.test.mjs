@@ -206,18 +206,21 @@ describe('desktop app (Tauri, native engine)', { skip }, () => {
         (await exec('return document.querySelector("[data-app=sheet]") !== null;')) || null,
       'BlueSheet',
     );
-    const cell = await waitFor(() => find('input[aria-label]'), 'cell input');
-    const editor = await exec(
-      'return [...document.querySelectorAll("input")].find(i => /Ô đang nhập|Cell editor/.test(i.getAttribute("aria-label") ?? "")) ?? null;',
-    );
-    const target = editor?.[ELEMENT] ?? cell;
+    // The start screen also contains an input. Wait for the asynchronously loaded sheet
+    // editor itself, instead of typing into the start screen while its chunk is loading.
+    const target = await waitFor(async () => {
+      const editor = await exec(
+        'return [...document.querySelectorAll("textarea")].find(i => /Ô đang nhập|Cell editor/.test(i.getAttribute("aria-label") ?? "")) ?? null;',
+      );
+      return editor?.[ELEMENT] ?? null;
+    }, 'sheet cell editor');
     await wd('POST', s(`/element/${target}/value`), { text: '41' });
     await wd('POST', s(`/element/${target}/value`), { text: '' }); // Enter
     await wd('POST', s(`/element/${target}/value`), { text: '=A1+1' });
     await wd('POST', s(`/element/${target}/value`), { text: '' }); // ArrowUp
     const bar = await waitFor(async () => {
       const v = await exec(
-        'return [...document.querySelectorAll("input")].find(i => /Thanh công thức|Formula bar/.test(i.getAttribute("aria-label") ?? ""))?.value ?? "";',
+        'return [...document.querySelectorAll("textarea")].find(i => /Thanh công thức|Formula bar/.test(i.getAttribute("aria-label") ?? ""))?.value ?? "";',
       );
       return v === '=A1+1' ? v : null;
     }, 'formula bar shows the formula');

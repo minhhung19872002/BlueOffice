@@ -33,10 +33,10 @@ Biến môi trường `BLUEOFFICE_PRINT_DIALOG=0` mở cửa sổ in mà không 
 - Lần mở tài liệu đầu tiên chờ tối đa 3 giây cho việc liệt kê font.
 - `BLUEOFFICE_SYSTEM_FONTS=0` tắt font hệ thống (hiển thị giống hệt bản web; dùng trong E2E so ảnh P1.10).
 
-## Lõi dự phòng WASM (prompt §3.4 `engine`)
-`FallbackEngineHost` (`packages/platform/src/desktop/index.ts`) dùng lõi native qua IPC; nếu `engine_init` lỗi hoặc
-không có font, lõi WASM của bản web chạy trong Web Worker với font đóng gói trong `fonts/` của app, BlueSheet đi theo.
-Thanh trạng thái hiển thị "Lõi: WASM".
+## Lõi soạn thảo desktop
+Desktop dùng `NativeEngineHost` và lệnh Tauri native cho BlueDoc, BlueSlide và BlueSheet.
+Nếu engine không khởi tạo được, ứng dụng báo lỗi thay vì tự chuyển sang engine WASM.
+WASM vẫn có thể được sử dụng cho replica cộng tác và các tính năng web riêng.
 
 ## Đăng nhập người dùng BlueOffice (OIDC)
 `DesktopAuth` dùng cấu hình `GET /api/auth/config` của máy chủ BlueOffice (Start → Cài đặt). Đăng nhập mở trình

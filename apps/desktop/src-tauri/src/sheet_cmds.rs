@@ -3,15 +3,17 @@
 
 use bo_engine::sheet::{SheetEngine, ViewRequest};
 use serde_json::Value;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::State;
 
-pub struct SheetState(pub Mutex<SheetEngine>);
+pub struct SheetState(pub LazyLock<Mutex<SheetEngine>>);
 
 impl SheetState {
     pub fn new() -> Self {
-        Self(Mutex::new(SheetEngine::with_bundled_fonts()))
+        Self(LazyLock::new(|| {
+            Mutex::new(SheetEngine::with_bundled_fonts())
+        }))
     }
 }
 

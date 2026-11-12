@@ -16,10 +16,42 @@
       html {
         background: var(--bo-bg, #eef1f5);
       }
+      .startup-frame {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: #e8ebf0;
+      }
+      .startup-title,
+      .startup-status {
+        background: #f3f5f8;
+        flex: none;
+      }
+      .startup-title {
+        height: 32px;
+      }
+      .startup-ribbon {
+        height: 120px;
+        background: #fbfcfd;
+        flex: none;
+      }
+      .startup-page {
+        flex: 1;
+      }
+      .startup-status {
+        height: 24px;
+      }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="startup-frame" aria-busy="true" aria-label="Đang mở BlueOffice">
+        <div class="startup-title"></div>
+        <div class="startup-ribbon"></div>
+        <div class="startup-page"></div>
+        <div class="startup-status"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

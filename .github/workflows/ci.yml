@@ -170,6 +170,9 @@ jobs:
             docs/fidelity-visual.md
 
   desktop:
+    permissions:
+      contents: read
+      actions: read
     name: Desktop (${{ matrix.os }}, package + E2E)
     runs-on: ${{ matrix.os }}
     strategy:
@@ -269,14 +272,24 @@ jobs:
         if: matrix.e2e
       # Desktop speed (docs/perf/BASELINE.md): start-up, open a 100-page .docx, key → paint,
       # scrolling, RAM and React renders per keystroke, on the release (webdriver) build above.
-      # Compared with docs/perf/baselines/ci-windows-latest.json: warn > 5 % slower, fail
-      # > 20 % (shared runners are noisy; differences under 5 ms / 10 MB / 2 FPS are ignored).
-      # Without a committed baseline the step only reports (seed it from the uploaded JSON).
+      # Compare against the most recent successful main run on the same runner class.
+      # The first run, or an expired artifact, has no reference and reports only.
+      - name: Download previous main performance result
+        if: matrix.e2e
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $runs = gh run list --workflow ci.yml --branch main --status success --limit 1 --json databaseId | ConvertFrom-Json
+          if ($runs.Count -gt 0) {
+            gh run download $runs[0].databaseId --name desktop-perf --dir out/perf-baseline
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Previous performance artifact unavailable; reporting without comparison.' }
+          }
       - name: Desktop performance
         if: matrix.e2e
         run: |
           cargo build --release -p bo-cli
-          node scripts/perf-desktop.mjs --runs 5 --profile ci-windows-latest
+          node scripts/perf-desktop.mjs --runs 5 --baseline out/perf-baseline/desktop-perf.json
         env:
           BO_CLI: ${{ github.workspace }}/target/release/bo-cli.exe
       - uses: actions/upload-artifact@v4

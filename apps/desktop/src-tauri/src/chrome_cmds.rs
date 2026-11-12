@@ -6,7 +6,9 @@
 //! macOS and Linux keep their native frame (the web title bar then draws no window buttons).
 
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, WebviewWindow};
+#[cfg(windows)]
+use tauri::Emitter;
+use tauri::WebviewWindow;
 
 /// What the web title bar needs to know about the window chrome.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -57,10 +59,12 @@ pub fn chrome_info() -> ChromeInfo {
 }
 
 /// Event to the web title bar with the native maximise button's hover / press state.
+#[cfg(windows)]
 pub const MAX_BUTTON_EVENT: &str = "bo-chrome:max-button";
 
 /// A rectangle in CSS pixels of the web view.
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct CssRectIn {
     x: f64,
     y: f64,
@@ -109,6 +113,7 @@ pub fn chrome_set_backdrop(window: WebviewWindow, backdrop: Backdrop) -> bool {
 }
 
 #[derive(Clone, Serialize)]
+#[cfg(windows)]
 struct MaxButtonState {
     hover: bool,
     pressed: bool,
@@ -117,6 +122,7 @@ struct MaxButtonState {
 /// Places the snap-layouts overlay over the web maximise button (`rect` in CSS pixels, `scale`
 /// = `devicePixelRatio`); `None` removes it. No-op off Windows.
 #[tauri::command]
+#[cfg_attr(not(windows), allow(clippy::unnecessary_wraps))]
 pub fn chrome_set_max_button(
     window: WebviewWindow,
     rect: Option<CssRectIn>,
@@ -164,6 +170,7 @@ pub fn chrome_set_max_button(
 /// Shows the system menu at a point of the web view (CSS pixels; right-click on the caption,
 /// Alt+Space).
 #[tauri::command]
+#[cfg_attr(not(windows), allow(clippy::unnecessary_wraps))]
 pub fn chrome_system_menu(window: WebviewWindow, x: f64, y: f64, scale: f64) -> Result<(), String> {
     #[cfg(windows)]
     {

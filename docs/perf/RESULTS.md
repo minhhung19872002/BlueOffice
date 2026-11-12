@@ -17,6 +17,35 @@ sau. Baseline trước thay đổi chạy với tải 41–94%, nên mức cải
 | RAM một tài liệu / sau gõ và cuộn | 291 / 491 MB | 301,4 / 486,6 MB | 297,8 / 476,1 MB | < 400 MB |
 | Render ribbon mỗi phím | 489 | 0 | 0 | 0 |
 
+## Đợt 2 — mốc thống nhất 10 lượt
+
+Đo 10 lượt khởi động/mở và 10 phiên WebDriver (270 phím), cùng một bản release
+`updater,webdriver`, SHA-256 `b0024503e3e77c73cc59d1ecbc43032a198e887ec46a6fa91666db3b9763e690`; CPU 7% trước và 10% sau. Máy Windows 11,
+Ryzen 7 7435HS, màn hình 125%, WebView2 157.0.4341.46. p95 là nearest-rank, tính trên
+10 phiên; độ trễ phím lấy trên toàn bộ 270 phím. [Số liệu và mẫu](baselines/round2-10runs-ryzen7-7435hs.json).
+
+| Chỉ số | Số mẫu | Trung vị | p95 | Mục tiêu |
+|---|---:|---:|---:|---:|
+| Khởi động tới editor | 10 | 943,6 ms | 981,4 ms | < 1.500 ms |
+| Shell | 10 | 512,5 ms | 529,2 ms | < 500 ms |
+| Mở tài liệu 100 trang | 10 | 993,1 ms | 1.010,1 ms | < 2.000 ms |
+| Phím → khung hình | 270 | 33,8 ms | 47,2 ms | < 16 / p95 < 20 ms |
+| Cuộn | 10 | 138,9 FPS | 144 FPS | ≥ 60 FPS |
+| RAM sau mở | 10 | 299,9 MB | 301,5 MB | < 400 MB |
+| RAM sau gõ/cuộn | 10 | 483 MB | 497,6 MB | < 400 MB |
+| Render ribbon / status mỗi phím | 10 | 0 / 0 | 0 / 0 | 0 |
+
+Phân rã 270 phím, trung vị/p95: trước IPC 1/1,3 ms; IPC lệnh 7,8/10,8 ms
+(trong đó native 5/7,7 ms); từ kết quả đến yêu cầu trang 0,4/0,5 ms; IPC trang
+6,8/8 ms (native 0,2/0,3 ms); sau trang tới vẽ 0,6/7,4 ms; vẽ 2,1/3,1 ms;
+sau vẽ tới khung hình 14,1/26,3 ms. Tổng 3 IPC trung vị, p95 4. Thời gian dàn trang
+riêng chưa được tách khỏi lệnh native. FPS p95 là percentile tốc độ, không phải
+trường hợp xấu nhất; p95 thời gian khung hình theo phiên là 13,8 ms.
+
+Desktop E2E đầy đủ trên cùng executable: 16/16 ca qua, bao gồm hai nhóm cộng tác.
+[CI nhánh](https://github.com/minhhung19872002/BlueOffice/actions/runs/43225468559) đang
+chạy; CI gần nhất trên `main` trước đó đã thất bại, không được coi là bằng chứng xanh.
+
 ## Các bước và bằng chứng
 
 1. Đã tích hợp bộ đo release và baseline. CI lưu kết quả và so với artifact lần `main` thành

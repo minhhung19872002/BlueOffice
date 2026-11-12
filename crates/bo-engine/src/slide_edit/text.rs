@@ -385,7 +385,7 @@ pub enum Align {
 }
 
 impl Align {
-    fn code(self) -> &'static str {
+    pub(super) fn code(self) -> &'static str {
         match self {
             Align::Left => "l",
             Align::Center => "ctr",
@@ -455,10 +455,14 @@ pub fn parse_hex(hex: &str) -> Option<u32> {
     u32::from_str_radix(h, 16).ok()
 }
 
-type RunChange = Box<dyn Fn(&mut RunProps)>;
+pub(super) type RunChange = Box<dyn Fn(&mut RunProps)>;
 
 /// The run-property change of a character format (`None` for paragraph formats).
-fn run_change(f: &TextFormat, state: &FormatState, default_size: f64) -> Option<RunChange> {
+pub(super) fn run_change(
+    f: &TextFormat,
+    state: &FormatState,
+    default_size: f64,
+) -> Option<RunChange> {
     let toggle = |v: Option<bool>, cur: bool| v.unwrap_or(!cur);
     match f {
         TextFormat::Bold { value } => {

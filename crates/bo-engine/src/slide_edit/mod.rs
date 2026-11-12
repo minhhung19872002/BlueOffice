@@ -24,6 +24,7 @@ pub mod comments;
 pub mod connect;
 pub mod designer;
 pub mod effects;
+mod font_scale;
 pub mod freeform;
 pub mod geom;
 pub mod guides;
@@ -2713,6 +2714,63 @@ fn cmd_set_text(
     Ok(())
 }
 
+/// [`cmd_format`] in the master view: the format also goes into the text style
+/// the slides inherit — the master's title / body style (§19.3.1.49 titleStyle,
+/// §19.3.1.5 bodyStyle) for its title and body placeholders, the placeholder's
+/// own list style (§21.1.2.4.12 lstStyle) on a layout or for the master's other
+/// placeholders — at the list levels of the formatted paragraphs (every level
+/// the style defines when whole placeholders are selected).
+fn cmd_format_master(
+    tx: &mut Tx<'_>,
+    sel: &SlideSel,
+    f: &TextFormat,
+    text_sel: Option<rich::TextSel>,
+) -> R<()> {
+    let placed = place_slide(tx.pres, sel.slide);
+    // Shapes, the list levels formatted in each (`None`: whole shape) and the
+    // formatting state the toggles start from — all read before the change.
+    let mut targets: Vec<(Vec<usize>, Option<Vec<u8>>, FormatState)> = Vec::new();
+    match text_sel {
+        Some(ts) if ts.cell.is_some() => {}
+        Some(ts) => {
+            if let Some(p) = find(&placed, ts.id) {
+                if let Some(ShapeNode::Shape(s)) = ops::node_at(tx.pres, sel.slide, &p.path) {
+                    if let Some(tb) = &s.text {
+                        let (mut a, mut b) = (ts.start.min(ts.end), ts.start.max(ts.end));
+                        if a == b && !f.is_paragraph() {
+                            (a, b) = text::word_at(&text::body_text(tb), a);
+                        }
+                        let levels: Vec<u8> = text::para_ranges(tb)
+                            .iter()
+                            .zip(&tb.paragraphs)
+                            .filter(|((s0, e0), _)| *s0 <= b && a <= *e0)
+                            .map(|(_, p)| p.props.as_ref().and_then(|pp| pp.lvl).unwrap_or(0))
+                            .collect();
+                        let state =
+                            format_state_at(tx.pres, sel.slide, s, Some((ts.start, ts.end)));
+                        targets.push((p.path.clone(), Some(levels), state));
+                    }
+                }
+            }
+        }
+        None => {
+            for p in selected(&placed, &sel.ids) {
+                if let Some(ShapeNode::Shape(s)) = ops::node_at(tx.pres, sel.slide, &p.path) {
+                    if s.text.is_some() {
+                        let state = format_state(tx.pres, sel.slide, s);
+                        targets.push((p.path.clone(), None, state));
+                    }
+                }
+            }
+        }
+    }
+    cmd_format(tx, sel, f, text_sel)?;
+    for (path, levels, state) in targets {
+        master::format_style(tx, sel, &path, levels.as_deref(), f, &state)?;
+    }
+    Ok(())
+}
+
 fn cmd_format(
     tx: &mut Tx<'_>,
     sel: &SlideSel,
@@ -4424,7 +4482,14 @@ impl Engine {
                         }
                         (None, cur) => cur,
                     };
-                    ed.mutate(pres, &mut out, |tx, sel| cmd_format(tx, sel, &format, ts));
+                    let view = ed.in_master_view();
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        if view {
+                            cmd_format_master(tx, sel, &format, ts)
+                        } else {
+                            cmd_format(tx, sel, &format, ts)
+                        }
+                    });
                 }
                 SlideCommand::TextSelect {
                     id,

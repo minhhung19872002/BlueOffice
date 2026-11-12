@@ -544,6 +544,203 @@ fn slide_size_scale_versus_fit() {
 }
 
 /// Theme part of `bytes` with `extra` inserted before `</a:theme>`.
+#[test]
+fn slide_size_scales_font_sizes() {
+    let mut e = open();
+    let title_sz = |e: &Engine| {
+        pres(e).masters[0]
+            .text_styles
+            .title
+            .as_ref()
+            .and_then(|t| t.levels[0].as_ref())
+            .and_then(|l| l.def_rpr.as_ref())
+            .and_then(|r| r.sz)
+    };
+    let body_sz = |e: &Engine, lvl: usize| {
+        pres(e).masters[0]
+            .text_styles
+            .body
+            .as_ref()
+            .and_then(|t| t.levels[lvl].as_ref())
+            .and_then(|l| l.def_rpr.as_ref())
+            .and_then(|r| r.sz)
+    };
+    // build master: titleStyle 40 pt, bodyStyle level 1 28 pt.
+    assert_eq!(title_sz(&e), Some(4000));
+    assert_eq!(body_sz(&e, 0), Some(2800));
+    // A run with its own size on slide 2's title.
+    let title_id = pres(&e).slides[1]
+        .data
+        .shapes
+        .iter()
+        .find(|n| ph_kind(n).as_deref() == Some("title"))
+        .and_then(|n| n.nv().map(|nv| nv.id))
+        .unwrap();
+    run_json(&mut e, &json!({"cmd":"goTo","slide":1}));
+    run_json(&mut e, &json!({"cmd":"select","ids":[title_id]}));
+    run_json(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"size","points":36}}),
+    );
+    // 16:9 → 4:3 fit: k = 9 144 000 / 12 192 000 = 0.75 → 40 → 30 pt,
+    // 28 → 21 pt, the run's 36 → 27 pt.
+    run_json(
+        &mut e,
+        &json!({"cmd":"setSlideSize","cx":9_144_000,"cy":6_858_000,"kind":"screen4x3","mode":"fit"}),
+    );
+    assert_eq!(title_sz(&e), Some(3000));
+    assert_eq!(body_sz(&e, 0), Some(2100));
+    let r = run_json(&mut e, &json!({"cmd":"select","ids":[title_id]}));
+    assert_eq!(r["format"]["size"], 27.0);
+    // Undo restores every size.
+    run_json(&mut e, &json!({"cmd":"undo"}));
+    assert_eq!(title_sz(&e), Some(4000));
+    let r = run_json(&mut e, &json!({"cmd":"select","ids":[title_id]}));
+    assert_eq!(r["format"]["size"], 36.0);
+    // Scale from 16:9 to 16:10 (12 192 000 × 7 620 000): k = max(1, 1.111) = 10/9,
+    // 40 pt → 44.44 pt (4444 hundredths).
+    run_json(
+        &mut e,
+        &json!({"cmd":"setSlideSize","cx":12_192_000,"cy":7_620_000,"mode":"scale"}),
+    );
+    assert_eq!(title_sz(&e), Some(4444));
+    let xml = String::from_utf8(
+        part(&e.save_pptx().unwrap(), "/ppt/slideMasters/slideMaster1.xml").unwrap(),
+    )
+    .unwrap();
+    assert!(xml.contains(r#"sz="4444""#), "{xml}");
+}
+
+#[test]
+fn formatting_master_placeholders_changes_the_master_styles() {
+    let mut e = open();
+    run_json(&mut e, &json!({"cmd":"masterView","on":true}));
+    let id_of = |e: &Engine, slide: usize, kind: &str| {
+        pres(e).slides[slide]
+            .data
+            .shapes
+            .iter()
+            .find(|n| ph_kind(n).as_deref() == Some(kind))
+            .and_then(|n| n.nv().map(|nv| nv.id))
+            .unwrap()
+    };
+    // View slide 0 is the master: its title placeholder → p:titleStyle.
+    let t = id_of(&e, 0, "title");
+    run_json(&mut e, &json!({"cmd":"goTo","slide":0}));
+    run_json(&mut e, &json!({"cmd":"select","ids":[t]}));
+    run_json(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"bold","value":true}}),
+    );
+    run_json(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"color","hex":"1F4E79"}}),
+    );
+    // The body placeholder: every level of p:bodyStyle gets the size.
+    let b = id_of(&e, 0, "body");
+    run_json(&mut e, &json!({"cmd":"select","ids":[b]}));
+    run_json(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"size","points":20}}),
+    );
+    {
+        let ts = &pres(&e).masters[0].text_styles;
+        let lvl1 = ts.title.as_ref().unwrap().levels[0].as_ref().unwrap();
+        let r = lvl1.def_rpr.as_ref().unwrap();
+        assert_eq!(r.b, Some(true));
+        assert!(matches!(
+            &r.fill,
+            Some(Fill::Solid(c)) if matches!(c.kind, ColorKind::Srgb(0x1F_4E_79))
+        ));
+        // Title size untouched.
+        assert_eq!(r.sz, Some(4000));
+        let body = ts.body.as_ref().unwrap();
+        for l in body.levels.iter().flatten() {
+            assert_eq!(l.def_rpr.as_ref().unwrap().sz, Some(2000));
+        }
+    }
+    // A layout's title placeholder: its own a:lstStyle (the master stays).
+    let lay_slide = (1..pres(&e).slides.len())
+        .find(|&i| {
+            pres(&e).slides[i]
+                .data
+                .shapes
+                .iter()
+                .any(|n| ph_kind(n).as_deref() == Some("ctrTitle"))
+        })
+        .unwrap();
+    let lt = id_of(&e, lay_slide, "ctrTitle");
+    run_json(&mut e, &json!({"cmd":"goTo","slide":lay_slide}));
+    run_json(&mut e, &json!({"cmd":"select","ids":[lt]}));
+    run_json(
+        &mut e,
+        &json!({"cmd":"formatText","format":{"kind":"italic","value":true}}),
+    );
+    run_json(&mut e, &json!({"cmd":"masterView","on":false}));
+    let p = pres(&e);
+    let lay = &p.layouts[p.slides[0].layout];
+    let ls = lay
+        .data
+        .shapes
+        .iter()
+        .find(|n| ph_kind(n).as_deref() == Some("ctrTitle"))
+        .and_then(|n| match n {
+            ShapeNode::Shape(s) => s.text.as_ref().and_then(|t| t.list_style.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        ls.levels[0].as_ref().unwrap().def_rpr.as_ref().unwrap().i,
+        Some(true)
+    );
+    assert_eq!(
+        p.masters[0].text_styles.title.as_ref().unwrap().levels[0]
+            .as_ref()
+            .unwrap()
+            .def_rpr
+            .as_ref()
+            .unwrap()
+            .i,
+        None
+    );
+    // The slides inherit: slide 2's title (title layout of master 1) is bold,
+    // slide 1's centred title (the edited layout) is bold and italic.
+    let id = |e: &Engine, s: usize, k: &str| {
+        pres(e).slides[s]
+            .data
+            .shapes
+            .iter()
+            .find(|n| ph_kind(n).as_deref() == Some(k))
+            .and_then(|n| n.nv().map(|nv| nv.id))
+            .unwrap()
+    };
+    let t2 = id(&e, 1, "title");
+    run_json(&mut e, &json!({"cmd":"goTo","slide":1}));
+    let r = run_json(&mut e, &json!({"cmd":"select","ids":[t2]}));
+    assert_eq!(r["format"]["bold"], true);
+    assert_eq!(r["format"]["color"], "1F4E79");
+    assert_eq!(r["format"]["italic"], false);
+    let t1 = id(&e, 0, "ctrTitle");
+    run_json(&mut e, &json!({"cmd":"goTo","slide":0}));
+    let r = run_json(&mut e, &json!({"cmd":"select","ids":[t1]}));
+    assert_eq!(r["format"]["bold"], true);
+    assert_eq!(r["format"]["italic"], true);
+    // The whole master session is one step.
+    run_json(&mut e, &json!({"cmd":"undo"}));
+    assert_ne!(
+        pres(&e).masters[0].text_styles.title.as_ref().unwrap().levels[0]
+            .as_ref()
+            .unwrap()
+            .def_rpr
+            .as_ref()
+            .unwrap()
+            .b,
+        Some(true)
+    );
+    let bytes = e.save_pptx().unwrap();
+    keep("master-format-styles.pptx", &bytes);
+}
+
 fn with_theme_ext(bytes: &[u8], extra: &str) -> Vec<u8> {
     let mut pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).unwrap();
     let xml = String::from_utf8(pkg.part("/ppt/theme/theme1.xml").unwrap().data.clone()).unwrap();

@@ -1082,6 +1082,42 @@ fn caret_at(e: &mut Engine, p: usize, o: usize) -> serde_json::Value {
 
 // Reference behaviour (word processor): F9 updates the field at the caret only; Shift+F9 shows
 // that field's code; Ctrl+F9 puts empty braces where the code is typed, F9 then shows the result.
+/// Shift+F9 on one field, then on the other one at the end of the line: each toggles alone.
+#[test]
+fn shift_f9_toggles_each_field_alone() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    // Made as Ctrl+F9 makes them: the typed code selected, then wrapped.
+    let field = |e: &mut Engine, code: &str| {
+        let r = cmd(
+            e,
+            &serde_json::json!({ "cmd": "insertText", "text": code }).to_string(),
+        );
+        let o = r["selection"]["focus"]["o"].as_u64().unwrap();
+        let from = o - code.len() as u64;
+        cmd(
+            e,
+            &format!(
+                r#"{{"cmd":"setSelection","selection":{{"anchor":{{"p":0,"o":{from}}},"focus":{{"p":0,"o":{o}}}}}}}"#
+            ),
+        );
+        cmd(e, r#"{"cmd":"insertFieldFromSelection"}"#);
+        cmd(e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    };
+    field(&mut e, "= 6*7 + 0");
+    cmd(&mut e, r#"{"cmd":"insertText","text":" và "}"#);
+    field(&mut e, "= 2+3 + 0");
+    assert_eq!(e.document().unwrap().plain_text(), "42 và 5");
+    cmd(&mut e, r#"{"cmd":"move","motion":"docStart"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"toggleFieldCodes"}"#);
+    assert_eq!(r["count"], 1);
+    cmd(&mut e, r#"{"cmd":"move","motion":"lineEnd"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"toggleFieldCodes"}"#);
+    assert_eq!(r["count"], 1, "{r}");
+    let page = e.page_json(0).unwrap();
+    assert!(page.contains("{ = 6*7 + 0 }") && page.contains("{ = 2+3 + 0 }"));
+}
+
 #[test]
 fn f9_shift_f9_and_ctrl_f9_in_place() {
     let mut e = Engine::with_bundled_fonts();

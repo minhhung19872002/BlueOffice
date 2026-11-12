@@ -75,44 +75,53 @@ test('Ctrl+F9, F11 / Shift+F11 and the questions of ASK / FILLIN fields on F9', 
   expect(errors).toEqual([]);
 });
 
-test('Shift+F9 shows the code of the field at the caret only, Alt+F9 of every field', async ({
-  page,
-}) => {
+test('Shift+F9 shows the code of the field at the caret only', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/doc');
   await page.getByTestId('new-document').click();
   await expect(page.getByTestId('caret')).toBeVisible();
-  const mirror = page.getByTestId('doc-a11y-mirror');
-  // Two formula fields made with Ctrl+F9 over their typed codes.
+  // Two formula fields made with Ctrl+F9 over their typed codes: results "42" and "5", codes
+  // much wider. The line's width (the caret at its end) tells what is shown.
   const field = async (code: string) => {
     await page.keyboard.insertText(code);
     for (let i = 0; i < code.length; i++) await page.keyboard.press('Shift+ArrowLeft');
     await page.keyboard.press('Control+F9');
     await page.keyboard.press('End');
   };
-  await field('= 6*7');
+  await field('= 6*7 + 0');
   await page.keyboard.insertText(' và ');
-  await field('= 2+3');
-  await expect(mirror).toContainText('42 và 5');
-  await expect(mirror).not.toContainText('6*7');
-  // The caret in the first field: Shift+F9 shows its code, the second keeps its result.
+  await field('= 2+3 + 0');
+  await page.keyboard.insertText(' nữa');
+  await expect(page.getByTestId('status-words')).toHaveText('4 từ');
+  const lineEnd = async () => {
+    await page.keyboard.press('End');
+    const box = await page.getByTestId('caret').boundingBox();
+    if (!box) throw new Error('no caret');
+    return box.x;
+  };
+  /** The caret just after the second field (before " nữa"). */
+  const atSecond = async () => {
+    await page.keyboard.press('End');
+    for (let i = 0; i < ' nữa'.length; i++) await page.keyboard.press('ArrowLeft');
+  };
+  const results = await lineEnd();
+  // The caret at the first field: Shift+F9 shows its code only.
   await page.keyboard.press('Control+Home');
-  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Shift+F9');
-  await expect(mirror).toContainText('6*7');
-  await expect(mirror).not.toContainText('42');
-  await expect(mirror).not.toContainText('2+3');
-  await expect(mirror).toContainText('5');
-  // Shift+F9 again: the result is back.
+  await expect.poll(lineEnd).toBeGreaterThan(results + 15);
+  const one = await lineEnd();
+  // The caret at the second field: Shift+F9 shows its code too — wider still.
+  await atSecond();
   await page.keyboard.press('Shift+F9');
-  await expect(mirror).toContainText('42 và 5');
-  // Alt+F9: every field shows its code, then every result again.
-  await page.keyboard.press('Alt+F9');
-  await expect(mirror).toContainText('6*7');
-  await expect(mirror).toContainText('2+3');
-  await page.keyboard.press('Alt+F9');
-  await expect(mirror).toContainText('42 và 5');
+  await expect.poll(lineEnd).toBeGreaterThan(one + 15);
+  // Shift+F9 again on each field: the results come back one at a time.
+  await atSecond();
+  await page.keyboard.press('Shift+F9');
+  await expect.poll(lineEnd).toBeLessThan(one + 2);
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Shift+F9');
+  await expect.poll(lineEnd).toBeLessThan(results + 2);
   expect(errors).toEqual([]);
 });
 

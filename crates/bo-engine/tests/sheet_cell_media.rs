@@ -293,6 +293,42 @@ fn image_function_is_fetched_by_the_host() {
     assert_eq!(r["ready"], false);
 }
 
+/// [MS-XLSX] §2.3.6.1.11: an `IMAGE` result is saved as a `_webimage` rich value
+/// (formula `_xlfn.IMAGE` + `vm`), and the picture is back on opening the file,
+/// before any recalculation.
+#[test]
+fn image_function_results_are_saved_as_web_pictures() {
+    let mut e = new_engine();
+    e.set_input(
+        0,
+        0,
+        0,
+        "=IMAGE(\"https://example.vn/a.png\",\"Bản đồ\",3,30,50)",
+    )
+    .unwrap();
+    let bytes = e.save("xlsx", 0).unwrap();
+    let wb = bo_xlsx::read_xlsx(&bytes).unwrap();
+    let cell = wb.sheets[0].cell(0, 0).unwrap();
+    assert!(cell.vm.is_some());
+    assert!(wb.opaque.parts.iter().any(|p| p
+        .name
+        .to_ascii_lowercase()
+        .ends_with("rdrichvaluewebimage.xml")));
+    let mut back = SheetEngine::new();
+    back.open(&bytes, "a.xlsx").unwrap();
+    let info = run(
+        &mut back,
+        json!({"cmd": "cellImageInfo", "sheet": 0, "row": 0, "col": 0}),
+    );
+    assert_eq!(info["kind"], "web");
+    assert_eq!(info["url"], "https://example.vn/a.png");
+    assert_eq!(info["alt"], "Bản đồ");
+    assert_eq!(info["sizing"], 3);
+    // Saving the reopened file again keeps the same rich value.
+    let again = bo_xlsx::read_xlsx(&back.save("xlsx", 0).unwrap()).unwrap();
+    assert_eq!(again.sheets[0].cell(0, 0).unwrap().vm, cell.vm);
+}
+
 #[test]
 fn bad_pictures_are_refused() {
     let mut e = new_engine();

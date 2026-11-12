@@ -19,7 +19,7 @@
 
 use crate::write::{relative_target, Names, RelIds};
 use crate::xmlpatch::{children, index, El, Patch};
-use bo_model::sheet::{CellImage, CellImageSource, OpaquePart, OpaqueRel, Workbook};
+use bo_model::sheet::{CellImage, CellImageSource, ImageSizing, OpaquePart, OpaqueRel, Workbook};
 use bo_opc::xml::escape;
 use bo_opc::{resolve_target, Relationship, TargetMode};
 use std::collections::HashMap;
@@ -58,6 +58,20 @@ pub const EXT_RVB: &str = "{3E2802C4-A4D2-4D8B-9148-E3BE6C30E623}";
 pub const XLRICHVALUE: &str = "XLRICHVALUE";
 /// Key of the picture relationship index ([MS-XLSX] §2.3.6.1.10).
 const KEY_IMAGE: &str = "_rvRel:LocalImageIdentifier";
+/// Key of the web picture index ([MS-XLSX] §2.3.6.1.11 Web Image Type): the
+/// 0-based `webImageSrd` entry of the Rich Value Web Image part.
+const KEY_WEB_IMAGE: &str = "WebImageIdentifier";
+/// Rich Value Web Image part relationship ([MS-XLSX] rich data web image part).
+pub const REL_WEBIMAGE: &str =
+    "http://schemas.microsoft.com/office/2020/07/relationships/rdrichvaluewebimage";
+/// Rich Value Web Image part content type.
+pub const CT_WEBIMAGE: &str = "application/vnd.ms-excel.rdrichvaluewebimage+xml";
+/// Namespace of `webImagesSrd` ([MS-XLSX] CT_WebImagesSupportingRichData).
+pub const NS_WEBIMAGE: &str =
+    "http://schemas.microsoft.com/office/spreadsheetml/2020/richdatawebimage";
+/// Hyperlink relationship (ECMA-376 Part 1, §15.3): the `address` of a web picture.
+pub const REL_HYPERLINK: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 
 const XML_DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n";
 const SML_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -71,12 +85,19 @@ struct Parts {
     rv: Option<String>,
     rvs: Option<String>,
     rvrel: Option<String>,
+    webimage: Option<String>,
 }
 
 fn find_parts(rels: &[OpaqueRel], parts: &[OpaquePart]) -> Parts {
     let by = |suffix: &str, rels: &[OpaqueRel]| {
         rels.iter()
-            .find(|r| !r.external && r.rel_type.rsplit('/').next() == Some(suffix))
+            .find(|r| {
+                !r.external
+                    && r.rel_type
+                        .rsplit('/')
+                        .next()
+                        .is_some_and(|t| t.eq_ignore_ascii_case(suffix))
+            })
             .map(|r| r.target.clone())
     };
     let mut p = Parts {
@@ -84,6 +105,7 @@ fn find_parts(rels: &[OpaqueRel], parts: &[OpaquePart]) -> Parts {
         rv: by("rdRichValue", rels),
         rvs: by("rdRichValueStructure", rels),
         rvrel: by("richValueRel", rels),
+        webimage: by("rdRichValueWebImage", rels),
     };
     // The rich value parts may also hang off the metadata part ([MS-XLSX] §2.1.10).
     if let Some(meta) = &p.metadata {
@@ -91,6 +113,7 @@ fn find_parts(rels: &[OpaqueRel], parts: &[OpaquePart]) -> Parts {
         p.rv = p.rv.or_else(|| by("rdRichValue", &extra));
         p.rvs = p.rvs.or_else(|| by("rdRichValueStructure", &extra));
         p.rvrel = p.rvrel.or_else(|| by("richValueRel", &extra));
+        p.webimage = p.webimage.or_else(|| by("rdRichValueWebImage", &extra));
     }
     p
 }
@@ -228,8 +251,33 @@ fn rel_ids(els: &[El]) -> Vec<String> {
         .collect()
 }
 
-/// After reading: attach `_localImage` pictures to the cells that point at them.
-pub(crate) fn resolve(wb: &mut Workbook) {
+/// External URLs of the [MS-XLSX] Rich Value Web Image part (CT_WebImagesSupportingRichData
+/// `webImagesSrd`): the `webImageSrd/address/@r:id` target of every entry, in order.
+fn web_addresses(op: &[OpaquePart], name: Option<&String>) -> Vec<Option<String>> {
+    let Some(name) = name else {
+        return Vec::new();
+    };
+    let rels = part_rels(op, name);
+    let Some(els) = data_of(op, Some(name)).and_then(|d| index(d, name)) else {
+        return Vec::new();
+    };
+    children(&els, 0)
+        .filter(|(_, e)| e.local == "webImageSrd")
+        .map(|(i, _)| {
+            let (_, a) = children(&els, i).find(|(_, e)| e.local == "address")?;
+            let id = a.attr("id")?;
+            rels.iter()
+                .find(|r| r.id == id && r.external)
+                .map(|r| r.target.clone())
+        })
+        .collect()
+}
+
+/// The pictures the rich values of the file describe, by `vm` (1-based): local
+/// pictures (`_localImage`, [MS-XLSX] §2.3.6.1.10) and web pictures (`_webimage`,
+/// §2.3.6.1.11). Only `vm`s used by a cell are resolved.
+fn images_by_vm(wb: &Workbook) -> HashMap<u32, CellImage> {
+    let mut out = HashMap::new();
     let parts = find_parts(&wb.opaque.workbook_rels, &wb.opaque.parts);
     let op = &wb.opaque.parts;
     let (Some(meta), Some(rv), Some(rvs)) = (
@@ -237,14 +285,14 @@ pub(crate) fn resolve(wb: &mut Workbook) {
         data_of(op, parts.rv.as_ref()),
         data_of(op, parts.rvs.as_ref()),
     ) else {
-        return;
+        return out;
     };
     let (Some(meta), Some(rv), Some(rvs)) = (
         index(meta, "/metadata"),
         index(rv, "/rdrichvalue"),
         index(rvs, "/rdrichvaluestructure"),
     ) else {
-        return;
+        return out;
     };
     let vms = value_metadata(&meta);
     let values = rich_values(&rv);
@@ -272,34 +320,72 @@ pub(crate) fn resolve(wb: &mut Workbook) {
         }
         None => Vec::new(),
     };
+    let web = web_addresses(op, parts.webimage.as_ref());
     let image_of = |vm: u32| -> Option<CellImage> {
         let rvi = (*vms.get((vm as usize).checked_sub(1)?)?)? as usize;
         let rv = values.get(rvi)?;
         let (t, keys) = structs.get(rv.s)?;
-        if t != "_localImage" {
-            return None;
-        }
         let val = |k: &str| {
             keys.iter()
                 .position(|n| n.eq_ignore_ascii_case(k))
                 .and_then(|i| rv.values.get(i))
         };
-        let rel: usize = val(KEY_IMAGE)?.trim().parse().ok()?;
-        let (data, ext) = pictures.get(rel)?.clone()?;
-        let mut img = CellImage::local(data, &ext, val("Text").cloned());
+        let num = |k: &str| val(k).and_then(|v| v.trim().parse::<f64>().ok());
+        let mut img = match t.as_str() {
+            "_localImage" => {
+                let rel: usize = val(KEY_IMAGE)?.trim().parse().ok()?;
+                let (data, ext) = pictures.get(rel)?.clone()?;
+                CellImage::local(data, &ext, val("Text").cloned())
+            }
+            "_webimage" => {
+                let w: usize = val(KEY_WEB_IMAGE)?.trim().parse().ok()?;
+                let url = web.get(w)?.clone()?;
+                let sizing = num("ImageSizing")
+                    .and_then(|s| ImageSizing::from_code(s as u32))
+                    .unwrap_or_default();
+                CellImage {
+                    source: CellImageSource::Web {
+                        url,
+                        sizing,
+                        height: num("ImageHeight"),
+                        width: num("ImageWidth"),
+                    },
+                    alt_text: val("Text").cloned(),
+                    calc_origin: 1,
+                }
+            }
+            _ => return None,
+        };
         if let Some(o) = val("CalcOrigin").and_then(|v| v.trim().parse().ok()) {
             img.calc_origin = o;
         }
         Some(img)
     };
-    let mut cache: HashMap<u32, Option<CellImage>> = HashMap::new();
+    for ws in &wb.sheets {
+        for cell in ws.cells.values() {
+            if let Some(vm) = cell.vm {
+                if let std::collections::hash_map::Entry::Vacant(e) = out.entry(vm) {
+                    if let Some(img) = image_of(vm) {
+                        e.insert(img);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// After reading: attach `_localImage` and `_webimage` pictures to the cells that
+/// point at them (an `IMAGE` result read from a file shows before it is recalculated).
+pub(crate) fn resolve(wb: &mut Workbook) {
+    let images = images_by_vm(wb);
+    if images.is_empty() {
+        return;
+    }
     for ws in &mut wb.sheets {
         for cell in ws.cells.values_mut() {
-            if let Some(vm) = cell.vm {
-                let img = cache.entry(vm).or_insert_with(|| image_of(vm));
-                if let Some(img) = img {
-                    cell.image = Some(Box::new(img.clone()));
-                }
+            if let Some(img) = cell.vm.and_then(|vm| images.get(&vm)) {
+                cell.image = Some(Box::new(img.clone()));
             }
         }
     }
@@ -315,27 +401,72 @@ pub(crate) struct WriteCtx<'a> {
     pub overrides: &'a mut HashMap<String, Vec<u8>>,
 }
 
-/// Picture identity for de-duplication: media key, alt text, origin.
-type ImageKey = (String, Option<String>, u32);
+/// Whether the rich value a cell's `vm` points at no longer describes its picture
+/// (always for pictures without a `vm`). Local pictures read from the file keep
+/// their `vm`; an `IMAGE` result is compared with the web picture of its `vm`.
+fn needs_new_value(img: &CellImage, vm: Option<u32>, old: &HashMap<u32, CellImage>) -> bool {
+    match (vm, &img.source) {
+        (None, _) => true,
+        (Some(_), CellImageSource::Local { .. }) => false,
+        (Some(vm), CellImageSource::Web { .. }) => old.get(&vm) != Some(img),
+    }
+}
 
-/// `vm` of every cell holding a picture placed since reading, keyed by
-/// (sheet, row, col). Appends the pictures to the rich-data parts.
+/// Picture in a cell to write; `ComputedImage` and the key order of
+/// [MS-XLSX] §2.3.6.1.11 for web pictures.
+fn web_keys(img: &CellImage) -> Vec<(String, &'static str)> {
+    let mut keys = vec![
+        (KEY_WEB_IMAGE.to_owned(), "i"),
+        ("CalcOrigin".to_owned(), "i"),
+        ("ComputedImage".to_owned(), "b"),
+        ("ImageSizing".to_owned(), "i"),
+    ];
+    if let CellImageSource::Web {
+        height: Some(_), ..
+    } = &img.source
+    {
+        keys.push(("ImageHeight".to_owned(), "d"));
+    }
+    if let CellImageSource::Web { width: Some(_), .. } = &img.source {
+        keys.push(("ImageWidth".to_owned(), "d"));
+    }
+    if img.alt_text.is_some() {
+        keys.push(("Text".to_owned(), "s"));
+    }
+    keys
+}
+
+/// A number as written in a rich value `v` (shortest round-trip form).
+fn num_text(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        format!("{v}")
+    }
+}
+
+/// `vm` of every cell holding a picture placed since reading (or an `IMAGE`
+/// result whose rich value changed), keyed by (sheet, row, col). Appends the
+/// pictures to the rich-data parts: `_localImage` ([MS-XLSX] §2.3.6.1.10) and
+/// `_webimage` (§2.3.6.1.11, the `IMAGE` function: its URL in the Rich Value Web
+/// Image part as an external hyperlink relationship, no picture bytes).
+#[allow(clippy::too_many_lines)]
 pub(crate) fn write_new(wb: &Workbook, ctx: &mut WriteCtx<'_>) -> HashMap<(usize, u32, u32), u32> {
-    let mut pending: Vec<(ImageKey, &CellImage)> = Vec::new();
+    let old_images = images_by_vm(wb);
+    let mut pending: Vec<&CellImage> = Vec::new();
     let mut cells: Vec<((usize, u32, u32), usize)> = Vec::new();
     for (si, ws) in wb.sheets.iter().enumerate() {
         for (&(r, c), cell) in &ws.cells {
             let Some(img) = cell.image.as_deref() else {
                 continue;
             };
-            if cell.vm.is_some() || !matches!(img.source, CellImageSource::Local { .. }) {
+            if !needs_new_value(img, cell.vm, &old_images) {
                 continue;
             }
-            let key = (img.media_id(), img.alt_text.clone(), img.calc_origin);
-            let i = if let Some(i) = pending.iter().position(|(k, _)| *k == key) {
+            let i = if let Some(i) = pending.iter().position(|p| *p == img) {
                 i
             } else {
-                pending.push((key, img));
+                pending.push(img);
                 pending.len() - 1
             };
             cells.push(((si, r, c), i));
@@ -354,101 +485,183 @@ pub(crate) fn write_new(wb: &Workbook, ctx: &mut WriteCtx<'_>) -> HashMap<(usize
             .or_else(|| data_of(&wb.opaque.parts, Some(n)).map(<[u8]>::to_vec))?;
         Some((n.clone(), data))
     };
-
-    // 1. Pictures → media parts and Rich Value Rels entries.
-    let rvrel = current(&parts.rvrel, ctx);
-    let rvrel_name = rvrel.as_ref().map_or_else(
-        || {
-            ctx.names
-                .fresh(|n| numbered("/xl/richData/richValueRel", n, "xml"))
-        },
-        |(n, _)| n.clone(),
-    );
-    let rels_name = bo_opc::rels_part_name(&rvrel_name);
-    let old_rels = data_of(&wb.opaque.parts, Some(&rels_name)).map(<[u8]>::to_vec);
-    let mut used_ids: Vec<String> = old_rels
-        .as_deref()
-        .and_then(|d| index(d, &rels_name))
-        .map(|els| els.iter().filter_map(|e| e.attr("Id")).collect())
-        .unwrap_or_default();
-    let first_rel = rvrel
-        .as_ref()
-        .and_then(|(n, d)| index(d, n))
-        .map_or(0, |e| rel_ids(&e).len());
-    let mut new_rel_xml = String::new();
-    let mut new_rels = String::new();
-    let mut media_seen: HashMap<String, usize> = HashMap::new();
-    let mut rel_of: Vec<usize> = Vec::new();
-    for (_, img) in &pending {
-        let CellImageSource::Local { data, ext, key } = &img.source else {
-            continue;
-        };
-        if let Some(&i) = media_seen.get(key) {
-            rel_of.push(i);
-            continue;
-        }
-        let ext = if ext.is_empty() { "png" } else { ext.as_str() };
-        let media = ctx.names.fresh(|n| format!("/xl/media/image{n}.{ext}"));
-        ctx.out_parts
-            .push((media.clone(), Some(media_type(ext).into()), data.clone()));
-        let mut n = used_ids.len() + 1;
+    let fresh_id = |used: &mut Vec<String>| -> String {
+        let mut n = used.len() + 1;
         let id = loop {
             let id = format!("rId{n}");
-            if !used_ids.contains(&id) {
+            if !used.contains(&id) {
                 break id;
             }
             n += 1;
         };
-        used_ids.push(id.clone());
-        // [MS-XLSX] §2.6.241 CT_RichValueRelRelationship.
-        new_rel_xml.push_str(&format!("<rel r:id=\"{id}\"/>"));
-        new_rels.push_str(&format!(
-            "<Relationship Id=\"{id}\" Type=\"{REL_IMAGE}\" Target=\"{}\"/>",
-            escape(&relative_target(&rvrel_name, &media))
-        ));
-        let i = first_rel + media_seen.len();
-        media_seen.insert(key.clone(), i);
-        rel_of.push(i);
-    }
-    if let Some((name, data)) = &rvrel {
-        if let Some(out) = append_root(data, name, |root| {
-            // The `r` prefix may not be declared on an existing root.
-            let needs_r = !root.attrs.iter().any(|(q, _)| q == "xmlns:r");
-            let xml = if needs_r {
-                new_rel_xml.replace("<rel ", &format!("<{} xmlns:r=\"{R_NS}\" ", root.q("rel")))
-            } else {
-                new_rel_xml.replace("<rel ", &format!("<{} ", root.q("rel")))
+        used.push(id.clone());
+        id
+    };
+    let has = |local: bool| {
+        pending
+            .iter()
+            .any(|p| matches!(p.source, CellImageSource::Local { .. }) == local)
+    };
+
+    // 1. Pictures → media parts and Rich Value Rels entries.
+    let mut rel_of: Vec<usize> = vec![0; pending.len()];
+    if has(true) {
+        let rvrel = current(&parts.rvrel, ctx);
+        let rvrel_name = rvrel.as_ref().map_or_else(
+            || {
+                ctx.names
+                    .fresh(|n| numbered("/xl/richData/richValueRel", n, "xml"))
+            },
+            |(n, _)| n.clone(),
+        );
+        let rels_name = bo_opc::rels_part_name(&rvrel_name);
+        let old_rels = data_of(&wb.opaque.parts, Some(&rels_name)).map(<[u8]>::to_vec);
+        let mut used_ids: Vec<String> = old_rels
+            .as_deref()
+            .and_then(|d| index(d, &rels_name))
+            .map(|els| els.iter().filter_map(|e| e.attr("Id")).collect())
+            .unwrap_or_default();
+        let first_rel = rvrel
+            .as_ref()
+            .and_then(|(n, d)| index(d, n))
+            .map_or(0, |e| rel_ids(&e).len());
+        let mut new_rel_xml = String::new();
+        let mut new_rels = String::new();
+        let mut media_seen: HashMap<String, usize> = HashMap::new();
+        for (pi, img) in pending.iter().enumerate() {
+            let CellImageSource::Local { data, ext, key } = &img.source else {
+                continue;
             };
-            (xml, None)
-        }) {
-            ctx.overrides.insert(name.clone(), out);
-        }
-    } else {
-        ctx.out_parts.push((
-            rvrel_name.clone(),
-            Some(CT_RVREL.into()),
-            format!(
-                "{XML_DECL}<richValueRels xmlns=\"{NS_RVREL}\" xmlns:r=\"{R_NS}\">{new_rel_xml}</richValueRels>"
-            )
-            .into_bytes(),
-        ));
-        add_wb_rel(ctx, REL_RVREL, &rvrel_name);
-    }
-    match old_rels {
-        Some(data) => {
-            if let Some(out) = append_root(&data, &rels_name, |_| (new_rels.clone(), None)) {
-                ctx.overrides.insert(rels_name.clone(), out);
+            if let Some(&i) = media_seen.get(key) {
+                rel_of[pi] = i;
+                continue;
             }
+            let ext = if ext.is_empty() { "png" } else { ext.as_str() };
+            let media = ctx.names.fresh(|n| format!("/xl/media/image{n}.{ext}"));
+            ctx.out_parts
+                .push((media.clone(), Some(media_type(ext).into()), data.clone()));
+            let id = fresh_id(&mut used_ids);
+            // [MS-XLSX] §2.6.241 CT_RichValueRelRelationship.
+            new_rel_xml.push_str(&format!("<rel r:id=\"{id}\"/>"));
+            new_rels.push_str(&format!(
+                "<Relationship Id=\"{id}\" Type=\"{REL_IMAGE}\" Target=\"{}\"/>",
+                escape(&relative_target(&rvrel_name, &media))
+            ));
+            let i = first_rel + media_seen.len();
+            media_seen.insert(key.clone(), i);
+            rel_of[pi] = i;
         }
-        None => ctx.out_parts.push((
-            rels_name,
-            None,
-            format!("{XML_DECL}<Relationships xmlns=\"{PKG_REL_NS}\">{new_rels}</Relationships>")
+        if let Some((name, data)) = &rvrel {
+            if let Some(out) = append_root(data, name, |root| {
+                // The `r` prefix may not be declared on an existing root.
+                let needs_r = !root.attrs.iter().any(|(q, _)| q == "xmlns:r");
+                let xml = if needs_r {
+                    new_rel_xml.replace("<rel ", &format!("<{} xmlns:r=\"{R_NS}\" ", root.q("rel")))
+                } else {
+                    new_rel_xml.replace("<rel ", &format!("<{} ", root.q("rel")))
+                };
+                (xml, None)
+            }) {
+                ctx.overrides.insert(name.clone(), out);
+            }
+        } else {
+            ctx.out_parts.push((
+                rvrel_name.clone(),
+                Some(CT_RVREL.into()),
+                format!(
+                    "{XML_DECL}<richValueRels xmlns=\"{NS_RVREL}\" xmlns:r=\"{R_NS}\">{new_rel_xml}</richValueRels>"
+                )
                 .into_bytes(),
-        )),
+            ));
+            add_wb_rel(ctx, REL_RVREL, &rvrel_name);
+        }
+        append_rels(ctx, &rels_name, old_rels, &new_rels);
     }
 
-    // 2. Structures: `_localImage` with and without alt text ([MS-XLSX] §2.3.6.1.10).
+    // 1b. Web pictures → `webImageSrd` entries of the Rich Value Web Image part, the
+    // URL as an external hyperlink relationship (`address`).
+    let mut web_of: Vec<usize> = vec![0; pending.len()];
+    if has(false) {
+        let part = current(&parts.webimage, ctx);
+        let part_name = part.as_ref().map_or_else(
+            || {
+                ctx.names
+                    .fresh(|n| numbered("/xl/richData/rdRichValueWebImage", n, "xml"))
+            },
+            |(n, _)| n.clone(),
+        );
+        let rels_name = bo_opc::rels_part_name(&part_name);
+        let old_rels = data_of(&wb.opaque.parts, Some(&rels_name)).map(<[u8]>::to_vec);
+        let mut used_ids: Vec<String> = old_rels
+            .as_deref()
+            .and_then(|d| index(d, &rels_name))
+            .map(|els| els.iter().filter_map(|e| e.attr("Id")).collect())
+            .unwrap_or_default();
+        let first = part
+            .as_ref()
+            .and_then(|(n, d)| index(d, n))
+            .map_or(0, |els| {
+                children(&els, 0)
+                    .filter(|(_, e)| e.local == "webImageSrd")
+                    .count()
+            });
+        let mut xml = String::new();
+        let mut new_rels = String::new();
+        let mut url_seen: HashMap<String, usize> = HashMap::new();
+        for (pi, img) in pending.iter().enumerate() {
+            let CellImageSource::Web { url, .. } = &img.source else {
+                continue;
+            };
+            if let Some(&i) = url_seen.get(url) {
+                web_of[pi] = i;
+                continue;
+            }
+            let id = fresh_id(&mut used_ids);
+            xml.push_str(&format!(
+                "<webImageSrd><address r:id=\"{id}\"/></webImageSrd>"
+            ));
+            new_rels.push_str(&format!(
+                "<Relationship Id=\"{id}\" Type=\"{REL_HYPERLINK}\" Target=\"{}\" TargetMode=\"External\"/>",
+                escape(url)
+            ));
+            let i = first + url_seen.len();
+            url_seen.insert(url.clone(), i);
+            web_of[pi] = i;
+        }
+        if let Some((name, data)) = &part {
+            if let Some(out) = append_root(data, name, |root| {
+                let needs_r = !root.attrs.iter().any(|(q, _)| q == "xmlns:r");
+                let p = root.prefix();
+                let mut x = if p.is_empty() {
+                    xml.clone()
+                } else {
+                    prefixed(&xml, p)
+                };
+                if needs_r {
+                    // The `r` prefix may not be declared on an existing root.
+                    let tag = root.q("webImageSrd");
+                    x = x.replace(&format!("<{tag}>"), &format!("<{tag} xmlns:r=\"{R_NS}\">"));
+                }
+                (x, None)
+            }) {
+                ctx.overrides.insert(name.clone(), out);
+            }
+        } else {
+            ctx.out_parts.push((
+                part_name.clone(),
+                Some(CT_WEBIMAGE.into()),
+                format!(
+                    "{XML_DECL}<webImagesSrd xmlns=\"{NS_WEBIMAGE}\" xmlns:r=\"{R_NS}\">{xml}</webImagesSrd>"
+                )
+                .into_bytes(),
+            ));
+            add_wb_rel(ctx, REL_WEBIMAGE, &part_name);
+        }
+        append_rels(ctx, &rels_name, old_rels, &new_rels);
+    }
+
+    // 2. Structures: `_localImage` with and without alt text ([MS-XLSX] §2.3.6.1.10),
+    // `_webimage` with the keys its picture uses (§2.3.6.1.11).
     let rvs = current(&parts.rvs, ctx);
     let mut structs = rvs
         .as_ref()
@@ -456,30 +669,35 @@ pub(crate) fn write_new(wb: &Workbook, ctx: &mut WriteCtx<'_>) -> HashMap<(usize
         .map(|e| structures(&e))
         .unwrap_or_default();
     let old_struct_count = structs.len();
-    let mut struct_of = |alt: bool| -> usize {
-        let mut keys = vec![KEY_IMAGE.to_owned(), "CalcOrigin".to_owned()];
-        if alt {
-            keys.push("Text".to_owned());
-        }
-        if let Some(i) = structs
-            .iter()
-            .position(|(t, k)| t == "_localImage" && *k == keys)
-        {
+    let mut types: Vec<Vec<(String, &'static str)>> = vec![Vec::new(); old_struct_count];
+    let mut struct_of = |img: &CellImage| -> usize {
+        let (t, keys): (&str, Vec<(String, &'static str)>) = match img.source {
+            CellImageSource::Local { .. } => {
+                let mut keys = vec![(KEY_IMAGE.to_owned(), "i"), ("CalcOrigin".to_owned(), "i")];
+                if img.alt_text.is_some() {
+                    keys.push(("Text".to_owned(), "s"));
+                }
+                ("_localImage", keys)
+            }
+            CellImageSource::Web { .. } => ("_webimage", web_keys(img)),
+        };
+        let names: Vec<String> = keys.iter().map(|(k, _)| k.clone()).collect();
+        if let Some(i) = structs.iter().position(|(st, k)| st == t && *k == names) {
             return i;
         }
-        structs.push(("_localImage".into(), keys));
+        structs.push((t.into(), names));
+        types.push(keys);
         structs.len() - 1
     };
-    let struct_ids: Vec<usize> = pending
-        .iter()
-        .map(|((_, alt, _), _)| struct_of(alt.is_some()))
-        .collect();
+    let struct_ids: Vec<usize> = pending.iter().map(|img| struct_of(img)).collect();
     let mut new_s = String::new();
-    for (t, keys) in &structs[old_struct_count..] {
+    for ((t, _), keys) in structs[old_struct_count..]
+        .iter()
+        .zip(&types[old_struct_count..])
+    {
         // §2.6.180 CT_RichValueStructure / §2.6.163 CT_Key.
         new_s.push_str(&format!("<s t=\"{}\">", escape(t)));
-        for k in keys {
-            let ty = if k == "Text" { "s" } else { "i" };
+        for (k, ty) in keys {
             new_s.push_str(&format!("<k n=\"{}\" t=\"{ty}\"/>", escape(k)));
         }
         new_s.push_str("</s>");
@@ -503,12 +721,31 @@ pub(crate) fn write_new(wb: &Workbook, ctx: &mut WriteCtx<'_>) -> HashMap<(usize
         .and_then(|(n, d)| index(d, n))
         .map_or(0, |e| rich_values(&e).len());
     let mut new_rv = String::new();
-    for (i, ((_, alt, origin), _)) in pending.iter().enumerate() {
-        new_rv.push_str(&format!(
-            "<rv s=\"{}\"><v>{}</v><v>{origin}</v>",
-            struct_ids[i], rel_of[i]
-        ));
-        if let Some(a) = alt {
+    for (i, img) in pending.iter().enumerate() {
+        let origin = img.calc_origin;
+        new_rv.push_str(&format!("<rv s=\"{}\">", struct_ids[i]));
+        match &img.source {
+            CellImageSource::Local { .. } => {
+                new_rv.push_str(&format!("<v>{}</v><v>{origin}</v>", rel_of[i]));
+            }
+            CellImageSource::Web {
+                sizing,
+                height,
+                width,
+                ..
+            } => {
+                // ComputedImage: the picture is the result of a formula.
+                new_rv.push_str(&format!(
+                    "<v>{}</v><v>{origin}</v><v>1</v><v>{}</v>",
+                    web_of[i],
+                    sizing.code()
+                ));
+                for v in [height, width].into_iter().flatten() {
+                    new_rv.push_str(&format!("<v>{}</v>", num_text(*v)));
+                }
+            }
+        }
+        if let Some(a) = &img.alt_text {
             new_rv.push_str(&format!("<v>{}</v>", escape(a)));
         }
         new_rv.push_str("</rv>");
@@ -1109,6 +1346,23 @@ pub(crate) fn write_dynamic(
         }
     };
     cells.into_iter().map(|k| (k, cm)).collect()
+}
+
+/// Appends `new_rels` to the relationships part `rels_name` (created when missing).
+fn append_rels(ctx: &mut WriteCtx<'_>, rels_name: &str, old: Option<Vec<u8>>, new_rels: &str) {
+    match ctx.overrides.get(rels_name).cloned().or(old) {
+        Some(data) => {
+            if let Some(out) = append_root(&data, rels_name, |_| (new_rels.to_owned(), None)) {
+                ctx.overrides.insert(rels_name.to_owned(), out);
+            }
+        }
+        None => ctx.out_parts.push((
+            rels_name.to_owned(),
+            None,
+            format!("{XML_DECL}<Relationships xmlns=\"{PKG_REL_NS}\">{new_rels}</Relationships>")
+                .into_bytes(),
+        )),
+    }
 }
 
 #[cfg(test)]

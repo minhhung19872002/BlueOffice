@@ -605,7 +605,11 @@ fn slide_size_scales_font_sizes() {
     );
     assert_eq!(title_sz(&e), Some(4444));
     let xml = String::from_utf8(
-        part(&e.save_pptx().unwrap(), "/ppt/slideMasters/slideMaster1.xml").unwrap(),
+        part(
+            &e.save_pptx().unwrap(),
+            "/ppt/slideMasters/slideMaster1.xml",
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(xml.contains(r#"sz="4444""#), "{xml}");
@@ -728,7 +732,12 @@ fn formatting_master_placeholders_changes_the_master_styles() {
     // The whole master session is one step.
     run_json(&mut e, &json!({"cmd":"undo"}));
     assert_ne!(
-        pres(&e).masters[0].text_styles.title.as_ref().unwrap().levels[0]
+        pres(&e).masters[0]
+            .text_styles
+            .title
+            .as_ref()
+            .unwrap()
+            .levels[0]
             .as_ref()
             .unwrap()
             .def_rpr

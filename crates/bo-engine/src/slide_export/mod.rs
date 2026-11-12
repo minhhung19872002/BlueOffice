@@ -11,7 +11,7 @@
 
 pub mod handout;
 pub(crate) mod masters;
-mod package;
+pub mod package;
 pub mod svg;
 pub(crate) mod text;
 
@@ -162,15 +162,11 @@ impl Default for ImageOptions {
     }
 }
 
-/// Options of a presentation package.
+/// Options of a presentation package (none yet; linked clips need the host,
+/// see [`Engine::export_package_with`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct PackageOptions {
-    /// Folder of the deck on this computer: linked clips that are local files
-    /// (relative to it, or absolute) are copied into the package. Native
-    /// builds only; network locations are never read.
-    pub link_base: Option<String>,
-}
+pub struct PackageOptions {}
 
 /// What to export (JSON: `{"kind":"handout","perPage":6,…}`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -571,9 +567,16 @@ impl Engine {
                 self.write_pdf_list(&list)
             }
             SlideExport::Image(o) => self.export_images(o),
-            SlideExport::Package(p) => package::build(self, p.link_base.as_deref()),
+            SlideExport::Package(_) => package::build(self, &|_| None),
             SlideExport::Pdf(c) => self.export_pdf_with(c),
         }
+    }
+
+    /// The presentation package with linked clips that are local files copied
+    /// in: `read_link` is the host's file access (the engine never reads files;
+    /// network locations are never passed to it).
+    pub fn export_package_with(&self, read_link: package::LinkReader<'_>) -> Result<Vec<u8>> {
+        package::build(self, read_link)
     }
 
     /// JSON variant of [`Engine::export_slides`] (the WASM / Tauri bridge).

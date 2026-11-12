@@ -279,8 +279,9 @@ fn slides_handouts_notes_outline() {
     o.slide.layout = SlideLayout::Notes;
     let s = e.print_sheets(&o).unwrap();
     assert_eq!(s.len(), 3);
+    // The notes are laid out like slide text: runs may break at spaces.
     assert!(
-        texts(&s[0]).iter().any(|t| t == "Note 2"),
+        texts(&s[0]).concat().contains("Note 2"),
         "{:?}",
         texts(&s[0])
     );

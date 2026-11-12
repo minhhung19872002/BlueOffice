@@ -560,8 +560,8 @@ fn deck_export(
     folder: Option<&std::path::Path>,
 ) -> Result<Exported, Box<dyn std::error::Error>> {
     use bo_engine::slide_export::{
-        handout::Order, HandoutOptions, ImageFormat, ImageOptions, NotesOptions, PackageOptions,
-        Paper, SlideExport,
+        handout::Order, package, HandoutOptions, ImageFormat, ImageOptions, NotesOptions, Paper,
+        SlideExport,
     };
     let paper = if a.letter { Paper::Letter } else { Paper::A4 };
     let opts = match to {
@@ -593,16 +593,25 @@ fn deck_export(
             width: a.width,
             ..ImageOptions::default()
         }),
-        // Linked clips beside the deck are copied too (local files only).
-        "zip" => SlideExport::Package(PackageOptions {
-            link_base: folder.map(|f| {
-                if f.as_os_str().is_empty() {
-                    ".".to_owned()
+        // Linked clips that are local files are copied too (relative ones from
+        // the input's folder); the engine offers no network locations.
+        "zip" => {
+            let base = folder.unwrap_or_else(|| std::path::Path::new("."));
+            let read = |l: &package::LocalLink| {
+                let p = std::path::Path::new(&l.path);
+                let full = if l.relative {
+                    base.join(p)
                 } else {
-                    f.to_string_lossy().into_owned()
+                    p.to_path_buf()
+                };
+                let meta = std::fs::metadata(&full).ok()?;
+                if !meta.is_file() || meta.len() > package::MAX_LINKED {
+                    return None;
                 }
-            }),
-        }),
+                std::fs::read(&full).ok()
+            };
+            return Ok(Some((engine.export_package_with(&read)?, "zip".into())));
+        }
         _ => return Ok(None),
     };
     let one = a.slide.is_some() || engine.slide_count() == 1;

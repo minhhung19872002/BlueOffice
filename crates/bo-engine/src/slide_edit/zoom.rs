@@ -344,8 +344,7 @@ fn add_object_rels(
     let mut taken: Vec<String> = Vec::new();
     let mut rels: Vec<Rel> = Vec::new();
     for p in plan {
-        let png =
-            thumbnail(tx.pres, p.preview, true, fonts).ok_or(EditError::Refused("render"))?;
+        let png = thumbnail(tx.pres, p.preview, true, fonts).ok_or(EditError::Refused("render"))?;
         let part = image_part(tx, png, "png", "image/png")?;
         let s = tx.pres.slides.get(slide).ok_or(OpError::NoSlide(slide))?;
         let image = new_rid(&s.info.rels, &taken);
@@ -899,8 +898,8 @@ fn refresh_object(
     let Some(preview) = preview_slide(tx.pres, &o.target) else {
         return Ok(());
     };
-    let png = thumbnail(tx.pres, preview, o.props.show_bg, fonts)
-        .ok_or(EditError::Refused("render"))?;
+    let png =
+        thumbnail(tx.pres, preview, o.props.show_bg, fonts).ok_or(EditError::Refused("render"))?;
     let current = o
         .image_rid
         .as_deref()

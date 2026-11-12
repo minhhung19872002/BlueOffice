@@ -4,11 +4,12 @@
 //! the fonts the slides use whose licence allows redistribution — only the
 //! bundled SIL Open Font License 1.1 families, each with its licence text
 //! (OFL condition 2). Clips linked outside the package (`TargetMode="External"`,
-//! ECMA-376 Part 2, §9.3) are copied too when the host names the deck's folder
-//! (`linkBase`, native builds only) and the link is a local file — a relative
-//! path keeps its place beside the deck so the link still resolves, an
-//! absolute one goes to `media/`; network locations (URLs, UNC shares,
-//! `file://host/…`) are never read. Links not copied are listed in `links.txt`.
+//! ECMA-376 Part 2, §9.3) are copied too when the link is a local file and the
+//! host reads it ([`Engine::export_package_with`]: the engine itself never
+//! touches the file system) — a relative path keeps its place beside the deck
+//! so the link still resolves, an absolute one goes to `media/`; network
+//! locations (URLs, UNC shares, `file://host/…`) are never offered to the
+//! host. Links not copied are listed in `links.txt`.
 
 use crate::{Engine, EngineError, Result};
 use bo_render::Command;
@@ -75,8 +76,8 @@ fn font_file(family: &str, bold: bool, italic: bool) -> String {
     format!("{fam}-{style}.ttf")
 }
 
-/// Largest linked clip copied into a package (bytes).
-const MAX_LINKED: u64 = 1 << 30;
+/// Largest linked clip a host should copy into a package (bytes).
+pub const MAX_LINKED: u64 = 1 << 30;
 
 /// Where a linked clip's target points on this computer: a relative path, an
 /// absolute path or a `file:` URI without host (RFC 8089). `None` for anything
@@ -185,28 +186,8 @@ fn link_entry(link: &LocalLink) -> String {
     format!("media/{}", parts.last().copied().unwrap_or("clip"))
 }
 
-/// Read a local linked clip relative to `base` (native builds only).
-#[cfg(not(target_arch = "wasm32"))]
-fn read_link(link: &LocalLink, base: &str) -> Option<Vec<u8>> {
-    let p = std::path::Path::new(&link.path);
-    let full = if link.relative {
-        std::path::Path::new(base).join(p)
-    } else {
-        p.to_path_buf()
-    };
-    let meta = std::fs::metadata(&full).ok()?;
-    if !meta.is_file() || meta.len() > MAX_LINKED {
-        return None;
-    }
-    std::fs::read(&full).ok()
-}
-
-/// No file system in the browser: linked clips stay links.
-#[cfg(target_arch = "wasm32")]
-fn read_link(_link: &LocalLink, _base: &str) -> Option<Vec<u8>> {
-    let _ = MAX_LINKED;
-    None
-}
+/// Reads a local linked clip for the package (the host's file access).
+pub type LinkReader<'a> = &'a dyn Fn(&LocalLink) -> Option<Vec<u8>>;
 
 /// A free name for `name` among `taken` (lower case): `dir/2-file`, `dir/3-file`…
 fn free_name(name: &str, taken: &BTreeSet<String>) -> String {
@@ -214,7 +195,7 @@ fn free_name(name: &str, taken: &BTreeSet<String>) -> String {
         return name.to_owned();
     }
     let (dir, file) = name.rsplit_once('/').map_or(("", name), |(d, f)| (d, f));
-    (2..)
+    (2..=taken.len() + 2)
         .map(|k| {
             if dir.is_empty() {
                 format!("{k}-{file}")
@@ -226,9 +207,9 @@ fn free_name(name: &str, taken: &BTreeSet<String>) -> String {
         .unwrap_or_default()
 }
 
-/// Build the package of the open presentation; `link_base` is the deck's
-/// folder, for linked clips.
-pub fn build(engine: &Engine, link_base: Option<&str>) -> Result<Vec<u8>> {
+/// Build the package of the open presentation; `read_link` gets the linked
+/// clips that are local files.
+pub fn build(engine: &Engine, read_link: LinkReader<'_>) -> Result<Vec<u8>> {
     let pres = engine.deck()?;
     let base = engine
         .name
@@ -264,10 +245,7 @@ pub fn build(engine: &Engine, link_base: Option<&str>) -> Result<Vec<u8>> {
     let mut taken: BTreeSet<String> = files.iter().map(|(n, _)| n.to_ascii_lowercase()).collect();
     for target in links {
         let link = local_link(&target);
-        let data = link
-            .as_ref()
-            .zip(link_base)
-            .and_then(|(l, base)| read_link(l, base));
+        let data = link.as_ref().and_then(read_link);
         match (link, data) {
             (Some(link), Some(data)) => {
                 let want = link_entry(&link);

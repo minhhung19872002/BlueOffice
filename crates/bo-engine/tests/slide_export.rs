@@ -5,8 +5,8 @@
 #![allow(clippy::unwrap_used)]
 
 use bo_engine::slide_export::{
-    handout::Order, HandoutOptions, HeaderFooter, ImageFormat, ImageOptions, NotesOptions, Paper,
-    SlideExport,
+    handout::Order, HandoutOptions, HeaderFooter, ImageFormat, ImageOptions, NotesOptions,
+    PackageOptions, Paper, SlideExport,
 };
 use bo_engine::Engine;
 use bo_model::slide::RawPart;
@@ -290,7 +290,10 @@ fn notes_pages_place_slide_and_notes() {
     assert_eq!(texts_of, ["First speaker note", "Second paragraph"]);
     // First baseline: one 12 pt line under the 3.6 pt top inset; the second
     // paragraph a single-spaced 12 pt line lower.
-    assert!(lines[0].0 > 3.6 + 12.0 * 0.7 && lines[0].0 < 3.6 + 12.0 * 1.3, "{lines:?}");
+    assert!(
+        lines[0].0 > 3.6 + 12.0 * 0.7 && lines[0].0 < 3.6 + 12.0 * 1.3,
+        "{lines:?}"
+    );
     let pitch = lines[1].0 - lines[0].0;
     assert!(pitch > 12.0 && pitch < 16.0, "{lines:?}");
     // Slides without notes have no notes text; the PDF has one page per slide.
@@ -400,11 +403,11 @@ fn notes_pages_keep_run_formatting() {
     let m = list.pages[0]
         .commands
         .iter()
-        .filter_map(|c| match c {
+        .rev()
+        .find_map(|c| match c {
             Command::PushTransform { m } => Some(*m),
             _ => None,
         })
-        .last()
         .unwrap();
     close(m[4], 54.0);
     close(m[5], 346.5);
@@ -442,7 +445,7 @@ fn long_notes_flow_onto_further_pages() {
     // starts at the slide image's top (90 pt) and every line stays above the
     // body box's bottom (346.5 + 283.5 = 630 pt).
     for p in &list.pages[1..slide1] {
-        assert!(placements(p).is_empty());
+        assert_eq!(placements(p).len(), 0);
         let clip = p
             .commands
             .iter()
@@ -490,7 +493,7 @@ fn landscape_handouts() {
 
 #[test]
 fn package_copies_local_linked_clips_only() {
-    use bo_engine::slide_export::PackageOptions;
+    use bo_engine::slide_export::package::LocalLink;
     use bo_model::slide::Rel;
     let dir = std::env::temp_dir().join(format!("bo-pkg-links-{}", std::process::id()));
     let clips = dir.join("clips");
@@ -519,11 +522,24 @@ fn package_copies_local_linked_clips_only() {
             external: true,
         });
     }
-    let zip = e
-        .export_slides(&SlideExport::Package(PackageOptions {
-            link_base: Some(dir.to_string_lossy().into_owned()),
-        }))
-        .unwrap();
+    // The host's file access (what `bo-cli convert --to zip` does): relative
+    // links from the deck's folder.
+    let base = dir.clone();
+    let offered = std::cell::RefCell::new(Vec::new());
+    let read = |l: &LocalLink| {
+        offered.borrow_mut().push(l.path.clone());
+        let p = std::path::Path::new(&l.path);
+        std::fs::read(if l.relative {
+            base.join(p)
+        } else {
+            p.to_path_buf()
+        })
+        .ok()
+    };
+    let zip = e.export_package_with(&read).unwrap();
+    // The network link is never offered to the host.
+    assert!(!offered.borrow().iter().any(|p| p.contains("example.com")));
+    assert_eq!(offered.borrow().len(), 3);
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
     let read = |z: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, n: &str| {
         let mut v = Vec::new();
@@ -538,10 +554,8 @@ fn package_copies_local_linked_clips_only() {
     assert!(links.contains("missing.mp4"), "{links}");
     assert!(links.contains("-> media/narration.wav"), "{links}");
     assert!(!links.contains("clips/intro.mp4"), "{links}");
-    // Without the deck's folder nothing is read.
-    let zip = e
-        .export_slides_json(r#"{"kind":"package"}"#)
-        .unwrap();
+    // Through the JSON bridge (web, desktop) nothing is read.
+    let zip = e.export_slides_json(r#"{"kind":"package"}"#).unwrap();
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
     assert!(z.by_name("clips/intro.mp4").is_err());
     let links = String::from_utf8(read(&mut z, "links.txt")).unwrap();
@@ -624,7 +638,9 @@ fn presentation_package_contents() {
     let mut e = deck(2);
     e.slide_insert_picture(b"not really a video".to_vec(), "clip.mp4")
         .unwrap();
-    let zip = e.export_slides(&SlideExport::Package(Default::default())).unwrap();
+    let zip = e
+        .export_slides(&SlideExport::Package(PackageOptions::default()))
+        .unwrap();
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
     let mut names: Vec<String> = z.file_names().map(|n| n.unwrap().into_owned()).collect();
     names.sort();

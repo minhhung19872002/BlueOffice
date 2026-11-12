@@ -314,14 +314,28 @@ mod tests {
         let l = layout(6, A4.1, A4.0, 16.0 / 9.0).unwrap();
         assert_eq!((l.cols, l.rows), (3, 2));
         frame(&l.frames[0], 36.0, 102.5168, 244.6299, 137.6043);
-        frame(&l.frames[2], 36.0 + 2.0 * (244.6299 + 18.0), 102.5168, 244.6299, 137.6043);
+        frame(
+            &l.frames[2],
+            36.0 + 2.0 * (244.6299 + 18.0),
+            102.5168,
+            244.6299,
+            137.6043,
+        );
         // Two side by side: cells (769.8898 − 18) / 2 = 375.9449 × 487.2756, 4:3 width-limited
         // → 375.9449 × 281.9587, top = 54 + (487.2756 − 281.9587) / 2 = 156.6585.
         let l = layout(2, A4.1, A4.0, 4.0 / 3.0).unwrap();
         assert_eq!((l.cols, l.rows), (2, 1));
-        frame(&l.frames[1], 36.0 + 375.9449 + 18.0, 156.6585, 375.9449, 281.9587);
+        frame(
+            &l.frames[1],
+            36.0 + 375.9449 + 18.0,
+            156.6585,
+            375.9449,
+            281.9587,
+        );
         // Vertical order on a 3 × 2 landscape page: down the first column, then across.
-        let v: Vec<usize> = (0..6).map(|i| slot_on(i, 6, Order::Vertical, true)).collect();
+        let v: Vec<usize> = (0..6)
+            .map(|i| slot_on(i, 6, Order::Vertical, true))
+            .collect();
         assert_eq!(v, [0, 3, 1, 4, 2, 5]);
     }
 

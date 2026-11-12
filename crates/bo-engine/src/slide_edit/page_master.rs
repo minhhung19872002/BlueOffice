@@ -964,12 +964,7 @@ fn notes_size_of(f: &PresFields) -> (i64, i64) {
     }
 }
 
-fn restore(
-    pres: &mut Presentation,
-    slides: Vec<Slide>,
-    parts: Vec<RawPart>,
-    fields: &PresFields,
-) {
+fn restore(pres: &mut Presentation, slides: Vec<Slide>, parts: Vec<RawPart>, fields: &PresFields) {
     pres.slides = slides;
     pres.parts = parts;
     pres.info.rels.clone_from(&fields.rels);

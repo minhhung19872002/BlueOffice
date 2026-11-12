@@ -49,11 +49,6 @@ export interface ImageExport {
 
 export interface PackageExport {
   kind: 'package';
-  /**
-   * Folder of the deck on this computer (desktop): linked clips that are local
-   * files are copied into the package. Network locations are never read.
-   */
-  linkBase?: string;
 }
 
 /**

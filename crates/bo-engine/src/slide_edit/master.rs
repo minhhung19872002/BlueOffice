@@ -774,13 +774,11 @@ pub(super) fn format_style(
     // placeholders bodyStyle; date / footer / number / header their own lstStyle.
     let master_style = match (target, ph.kind.as_deref()) {
         (Target::Master(_), Some("title" | "ctrTitle")) => Some(true),
-        (Target::Master(_), Some("dt" | "ftr" | "sldNum" | "hdr")) | (Target::Layout(_), _) => {
-            None
-        }
+        (Target::Master(_), Some("dt" | "ftr" | "sldNum" | "hdr")) | (Target::Layout(_), _) => None,
         (Target::Master(_), _) => Some(false),
     };
-    match (target, master_style) {
-        (Target::Master(m), Some(title)) => pres_edit(tx, |p| {
+    if let (Target::Master(m), Some(title)) = (target, master_style) {
+        pres_edit(tx, |p| {
             let Some(master) = p.masters.get_mut(m) else {
                 return Ok(());
             };
@@ -792,8 +790,9 @@ pub(super) fn format_style(
             };
             style_levels(ls, levels, f, state);
             Ok(())
-        }),
-        _ => {
+        })
+    } else {
+        {
             let mut n = ShapeNode::Shape(s.clone());
             if let ShapeNode::Shape(s) = &mut n {
                 if let Some(tb) = &mut s.text {

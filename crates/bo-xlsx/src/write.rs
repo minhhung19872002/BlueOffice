@@ -1107,6 +1107,10 @@ fn workbook_xml(
                 if let Some(f) = &ws.print_titles {
                     dn("_xlnm.Print_Titles", Some(i as u32), false, &[], f);
                 }
+                // Hidden rows / columns / print area of the custom views (hidden names).
+                for (name, f) in crate::custom_views::view_names(ws) {
+                    dn(&name, Some(i as u32), true, &[], &f);
+                }
             }
             if !items.is_empty() {
                 let _ = write!(out, "<definedNames>{items}</definedNames>");

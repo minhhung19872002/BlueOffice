@@ -53,3 +53,8 @@ description: Use this skill when merging a `worktree-agent-*` branch (or any fea
 - Test hỏng vì kỳ vọng liệt kê cứng (danh sách định dạng "Lưu thành", nhóm ribbon) sau khi thêm tính năng: sửa kỳ vọng và ghi
   lý do trong commit; mọi trường hợp khác sửa mã, không sửa test.
 - Hai nhánh cùng thêm export vào `packages/platform/src/index.ts` → chạy `pnpm typecheck` (đã gặp trùng tên).
+- Hàng loạt E2E lỗi `download.path: canceled` sau Ctrl+S (2026-11-12): có lúc **mọi** lượt tải của Chromium dưới Playwright
+  mất 60–90 s (môi trường: máy quá tải / quét tệp tải về), test hết 60 s. Thử trước bằng probe tối thiểu (trang trống,
+  `<a download>` blob vài byte): nếu cũng chậm thì là môi trường, chờ rồi chạy lại — đừng sửa mã.
+- Ổ đầy khi link (`link.exe … exit code: 1318`) làm `pnpm build:wasm` hỏng → E2E chạy với engine cũ, lỗi hàng loạt giả.
+  Lệnh cargo tự chạy ngoài `regress.sh` cũng phải có `CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0`.

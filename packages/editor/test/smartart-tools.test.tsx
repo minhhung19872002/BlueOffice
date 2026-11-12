@@ -9,6 +9,7 @@ import {
   PANE_COMMIT_MS,
   SMARTART_COMMANDS,
   SMARTART_RESET,
+  SmartArtSelection,
   SmartArtTextPane,
   canSmartArtAction,
   paneKey,
@@ -140,6 +141,42 @@ describe('SmartArt text pane keys', () => {
       148,
     );
     expect(panePosition({ left: 50, top: 100, width: 300, height: 200 }, 1200, 800).left).toBe(362);
+  });
+});
+
+describe('SmartArtSelection', () => {
+  it('draws the frame and the current shape where they are, not in the way of the pointer', () => {
+    wrap(
+      <SmartArtSelection
+        position="fixed"
+        frame={{ left: 10, top: 20, width: 300, height: 120 }}
+        node={{ left: 110, top: 50, width: 90, height: 40 }}
+        nodeIndex={2}
+      />,
+    );
+    const frame = screen.getByTestId('smartart-frame');
+    expect(frame.style.position).toBe('fixed');
+    expect([frame.style.left, frame.style.top, frame.style.width]).toEqual([
+      '10px',
+      '20px',
+      '300px',
+    ]);
+    const node = screen.getByTestId('smartart-node-selection');
+    expect(node.getAttribute('data-node')).toBe('2');
+    expect([node.style.left, node.style.height]).toEqual(['110px', '40px']);
+    expect(node.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('marks no shape without a current one', () => {
+    wrap(
+      <SmartArtSelection
+        frame={null}
+        node={{ left: 0, top: 0, width: 1, height: 1 }}
+        nodeIndex={null}
+      />,
+    );
+    expect(screen.queryByTestId('smartart-node-selection')).toBeNull();
+    expect(screen.queryByTestId('smartart-frame')).toBeNull();
   });
 });
 

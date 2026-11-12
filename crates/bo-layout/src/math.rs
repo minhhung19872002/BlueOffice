@@ -703,7 +703,8 @@ impl MathCtx<'_> {
                     })
                     .collect();
                 let axis = self.axis_at(size);
-                Self::grid(rows, size, axis, true)
+                let gaps = Self::grid_gaps(el, "mPr", size);
+                Self::grid(rows, size, axis, true, gaps)
             }
             // §22.1.2.34 eqArr: equations stacked, left aligned.
             "eqArr" => {
@@ -713,7 +714,8 @@ impl MathCtx<'_> {
                     .map(|c| vec![self.children(c, size)])
                     .collect();
                 let axis = self.axis_at(size);
-                Self::grid(rows, size, axis, false)
+                let gaps = Self::grid_gaps(el, "eqArrPr", size);
+                Self::grid(rows, size, axis, false, gaps)
             }
             // §22.1.2.39 func: function name upright, thin space, argument.
             "func" => {
@@ -1167,8 +1169,45 @@ impl MathCtx<'_> {
         self.slot_row(el, size, true)
     }
 
-    /// Rows of cells: columns centred (matrix) or left aligned, rows centred on the axis.
-    fn grid(rows: Vec<Vec<MathBox>>, size: f32, axis: f32, centred: bool) -> MathBox {
+    /// Column and row gaps (points) of a matrix / equation array: ECMA-376 Part 1, §22.1.2.13
+    /// cGpRule + §22.1.2.12 cGp (rule 3: twips, 4: half-ems) and §22.1.2.90 rSpRule +
+    /// §22.1.2.89 rSp (rule 3: points, 4: half-lines; 0/1/2: single, 1.5, double). Without a
+    /// rule the default gaps.
+    fn grid_gaps(el: &XmlElement, pr: &str, size: f32) -> (f32, f32) {
+        let num = |name: &str| {
+            Self::prop(el, pr, name)
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .filter(|v| v.is_finite() && *v >= 0.0)
+        };
+        let col = match Self::prop(el, pr, "cGpRule").map(str::trim) {
+            Some("1") => size * 1.5,
+            Some("2") => size * 2.0,
+            Some("0") => size,
+            Some("3") => num("cGp").map_or(size * 0.6, |t| t / 20.0),
+            Some("4") => num("cGp").map_or(size * 0.6, |h| h * size / 2.0),
+            _ => size * 0.6,
+        };
+        let line = size * 1.2;
+        let row = match Self::prop(el, pr, "rSpRule").map(str::trim) {
+            Some("1") => line * 0.5 + size * 0.2,
+            Some("2") => line + size * 0.2,
+            Some("3") => num("rSp").unwrap_or(size * 0.2),
+            Some("4") => num("rSp").map_or(size * 0.2, |h| h * line / 2.0),
+            _ => size * 0.2,
+        };
+        // Keep pathological values from blowing up the layout.
+        (col.min(size * 50.0), row.min(size * 50.0))
+    }
+
+    /// Rows of cells: columns centred (matrix) or left aligned, rows centred on the axis;
+    /// `gaps` = (column gap, row gap) in points.
+    fn grid(
+        rows: Vec<Vec<MathBox>>,
+        size: f32,
+        axis: f32,
+        centred: bool,
+        gaps: (f32, f32),
+    ) -> MathBox {
         let ncol = rows.iter().map(Vec::len).max().unwrap_or(0);
         let mut widths = vec![0.0f32; ncol];
         for r in &rows {
@@ -1176,8 +1215,7 @@ impl MathCtx<'_> {
                 widths[i] = widths[i].max(c.w);
             }
         }
-        let col_gap = size * 0.6;
-        let row_gap = size * 0.2;
+        let (col_gap, row_gap) = gaps;
         let heights: Vec<(f32, f32)> = rows
             .iter()
             .map(|r| {
@@ -1572,6 +1610,63 @@ mod tests {
         assert!(bar.is_some(), "{:?}", b.rules);
         let (_, sign_x, _) = sign[0];
         assert!(bar.unwrap().0 > sign_x);
+    }
+
+    // source: ECMA-376 Part 1, §22.1.2.90 rSpRule / §22.1.2.89 rSp (3 = exactly, points) and
+    // §22.1.2.13 cGpRule / §22.1.2.12 cGp (3 = exactly, twips) — EQ \a\vs \hs, \s\ai \di.
+    #[test]
+    fn matrix_and_stack_spacing_rules() {
+        let (mut fm, text, math) = fonts();
+        let cell = |t: &str| format!("<m:e><m:r><m:t>{t}</m:t></m:r></m:e>");
+        let rows = format!(
+            "<m:mr>{}{}</m:mr><m:mr>{}{}</m:mr>",
+            cell("1"),
+            cell("2"),
+            cell("3"),
+            cell("4")
+        );
+        let plain = lay(
+            &mut fm,
+            text,
+            math,
+            &format!("<m:oMath {M}><m:m>{rows}</m:m></m:oMath>"),
+        );
+        let spaced = lay(
+            &mut fm,
+            text,
+            math,
+            &format!("<m:oMath {M}><m:m><m:mPr><m:rSpRule m:val=\"3\"/><m:cGpRule m:val=\"3\"/><m:rSp m:val=\"30\"/><m:cGp m:val=\"600\"/></m:mPr>{rows}</m:m></m:oMath>"),
+        );
+        // Row gap 30 pt instead of 0.2 em (4 pt at 20 pt); column gap 30 pt (600 twips)
+        // instead of 0.6 em (12 pt).
+        let h = |b: &MathBox| b.asc + b.desc;
+        assert!(
+            (h(&spaced) - h(&plain) - 26.0).abs() < 0.5,
+            "{} {}",
+            h(&spaced),
+            h(&plain)
+        );
+        assert!(
+            (spaced.w - plain.w - 18.0).abs() < 0.5,
+            "{} {}",
+            spaced.w,
+            plain.w
+        );
+        let stack = |pr: &str| {
+            format!(
+                "<m:oMath {M}><m:eqArr>{pr}{}{}</m:eqArr></m:oMath>",
+                cell("a"),
+                cell("b")
+            )
+        };
+        let a = lay(&mut fm, text, math, &stack(""));
+        let b = lay(
+            &mut fm,
+            text,
+            math,
+            &stack("<m:eqArrPr><m:rSpRule m:val=\"3\"/><m:rSp m:val=\"14\"/></m:eqArrPr>"),
+        );
+        assert!((h(&b) - h(&a) - 10.0).abs() < 0.5, "{} {}", h(&b), h(&a));
     }
 }
 

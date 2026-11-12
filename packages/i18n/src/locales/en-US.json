@@ -1781,6 +1781,12 @@
         "varp": "Variance (population)"
       },
       "split": {
+        "stepTitle": "Split text into columns — step {{step}} of 3",
+        "back": "< Back",
+        "next": "Next >",
+        "finish": "Finish",
+        "dateKind": "Date",
+        "dateOrder": "Date order",
         "title": "Split text into columns",
         "kind": "How the text is divided",
         "delimited": "By separator characters",
@@ -1806,7 +1812,9 @@
         "errors": {
           "oneColumn": "Select cells in a single column.",
           "tooLarge": "The result does not fit on the sheet."
-        }
+        },
+        "ruler": "Break lines over the text",
+        "rulerHint": "Click the text to add a break line, drag a line to move it, drag it out of the text or double-click it to remove it."
       },
       "dedupe": {
         "title": "Delete repeated rows",
@@ -2194,6 +2202,10 @@
     },
     "smartArt": {
       "delete": "Delete smart diagram"
+    },
+    "replaceWarn": {
+      "title": "Replace cell contents",
+      "message": "The cells where the data goes are not empty. Replace their contents?"
     }
   },
   "recovery": {
@@ -2248,6 +2260,9 @@
     "orderHorizontal": "Across, then down",
     "orderVertical": "Down, then across",
     "frame": "Draw a frame around each slide",
+    "orientation": "Orientation",
+    "portrait": "Portrait",
+    "landscape": "Landscape",
     "paper": "Paper",
     "paperA4": "A4 (210 × 297 mm)",
     "paperLetter": "Letter (8.5 × 11 in)",
@@ -4512,6 +4527,10 @@
     "hanging": "Number hanging",
     "linkHeadings": "Link levels 1–9 to Heading 1–9",
     "apply": "Apply to selected paragraphs",
+    "restartAfter": "Restart the list after",
+    "restartDefault": "The level above",
+    "restartNever": "Never",
+    "legal": "Legal style numbering (all numbers as 1, 2, 3)",
     "preview": "Preview",
     "formats": {
       "decimal": "1, 2, 3",
@@ -5052,6 +5071,23 @@
       "models3d": "3D models"
     }
   },
+  "sheetOutline": {
+    "row": {
+      "bar": "Row outline",
+      "level": "Show row level {{n}}",
+      "show": "Show detail of row {{n}}",
+      "hide": "Hide detail of row {{n}}"
+    },
+    "col": {
+      "bar": "Column outline",
+      "level": "Show column level {{n}}",
+      "show": "Show detail of column {{n}}",
+      "hide": "Hide detail of column {{n}}"
+    },
+    "showDetail": "Show detail",
+    "hideDetail": "Hide detail",
+    "symbols": "Outline symbols"
+  },
   "sheetAudit": {
     "tab": "Formulas",
     "groupAudit": "Formula auditing",
@@ -5143,7 +5179,9 @@
       "maxIterations": "Maximum number of iterations",
       "maxChange": "Stop when values change by less than",
       "precision": "Calculate with the precision shown",
-      "precisionWarn": "Numbers are rounded to the decimals their format shows before they are used in formulas.",
+      "precisionWarn": "Numbers will permanently lose accuracy: stored numbers are rounded to the decimals their format shows (one undo step).",
+      "precisionConfirmTitle": "Precision as displayed",
+      "precisionConfirm": "Stored numbers will be rounded to the decimals their format shows. The lost digits cannot be recovered.",
       "invalid": "Enter a whole number of iterations from 1 to {{max}} and a change of 0 or more."
     }
   },
@@ -5158,6 +5196,7 @@
     "groupTemp": "Sheet view",
     "tempViews": "Temporary views…",
     "pageLabel": "Page {{n}}",
+    "areaEdge": "Drag to change the print area",
     "breakManual": "Manual page break — drag to move",
     "breakAuto": "Automatic page break — drag to set a manual break",
     "breakPreview": "Page regions and page breaks",
@@ -5539,7 +5578,14 @@
     "clear": "Clear",
     "clearGroup": "Clear group",
     "invalidRange": "Enter a valid cell range.",
-    "minMax": "The minimum must be less than the maximum."
+    "minMax": "The minimum must be less than the maximum.",
+    "groupData": "Data",
+    "editData": "Edit data",
+    "editSingle": "This sparkline's data",
+    "switch": "Switch rows and columns",
+    "editDataTitle": "Edit sparkline group data and location",
+    "editSingleTitle": "Edit the data of this sparkline",
+    "singleHint": "One row or one column, for example A2:D2 or Sheet2!A2:D2"
   },
   "cite": {
     "style": "Style",
@@ -5861,7 +5907,41 @@
     },
     "chartItems": "Items of {{name}}",
     "selectAll": "(Select all)",
-    "keepOne": "Keep at least one item."
+    "keepOne": "Keep at least one item.",
+    "dragStart": "Drag to move the start of the selection",
+    "dragEnd": "Drag to move the end of the selection",
+    "newStyle": {
+      "button": "New style…",
+      "slicerTitle": "New slicer style",
+      "timelineTitle": "New timeline style",
+      "name": "Name",
+      "slicerName": "Slicer style {{n}}",
+      "timelineName": "Timeline style {{n}}",
+      "elements": "Elements",
+      "format": "Element format",
+      "fill": "Fill colour",
+      "text": "Text colour",
+      "border": "Border colour",
+      "bold": "Bold",
+      "italic": "Italic",
+      "useFill": "Fill",
+      "useText": "Set text colour",
+      "useBorder": "Border",
+      "clear": "Clear format",
+      "formatted": "formatted",
+      "preview": "Preview",
+      "sample": "Item {{n}}",
+      "nameNeeded": "Enter a style name.",
+      "element": {
+        "whole": "Whole slicer",
+        "header": "Header",
+        "selected": "Selected item with data",
+        "unselected": "Unselected item with data",
+        "wholeTimeline": "Whole timeline",
+        "selectedTime": "Selected time block",
+        "unselectedTime": "Unselected time block"
+      }
+    }
   },
   "pictureTools": {
     "tab": "Picture tools",

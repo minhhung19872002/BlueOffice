@@ -528,6 +528,17 @@ pub enum SheetCommand {
         /// Selected range.
         range: Rng,
     },
+    /// Whether any cell of `range` outside `except` holds data (read only): what a
+    /// command that writes over cells asks about first ("replace the data here?").
+    Occupied {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Cells about to be written.
+        range: Rng,
+        /// Cells the command reads from (overwriting them is expected).
+        #[serde(default)]
+        except: Option<Rng>,
+    },
     /// Where Ctrl+arrow lands from a cell (read only): the edge of the block of data, or
     /// the next filled cell, or the sheet edge (`{ "row", "col" }`).
     DataEdge {
@@ -1248,6 +1259,9 @@ pub enum SheetCommand {
         /// 0-based page index (clamped to the last page).
         #[serde(default)]
         page: usize,
+        /// The page as the page layout view shows it (full-page grid, screen gridlines).
+        #[serde(default)]
+        layout: bool,
     },
     /// Apply the theme of a theme file (`.thmx`) or of another document, workbook or
     /// presentation (base64 bytes; CORE-FMT-001). `{ok:false,error:"noTheme"}` when
@@ -1604,6 +1618,36 @@ pub enum SheetCommand {
         #[serde(default)]
         whole_groups: bool,
     },
+    /// Edit group location and data: the group shows `data` in `location` (settings
+    /// kept). One undo step.
+    SparklineData {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Group index (from `sparklines`).
+        group: usize,
+        /// Data range (A1, optionally sheet-qualified).
+        data: String,
+        /// Cells that show the sparklines.
+        location: Rng,
+    },
+    /// Edit the data of the sparkline in one cell. One undo step.
+    SparklineSingleData {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based row of the sparkline.
+        row: u32,
+        /// 0-based column of the sparkline.
+        col: u32,
+        /// Data range (one row or column, optionally sheet-qualified).
+        data: String,
+    },
+    /// Split a group's data the other way (rows ↔ columns). One undo step.
+    SparklineSwitch {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Group index (from `sparklines`).
+        group: usize,
+    },
     /// Timelines of a sheet with their periods and anchors.
     Timelines {
         /// 0-based sheet index.
@@ -1745,6 +1789,20 @@ pub enum SheetCommand {
         /// Which parts are shown (header, selection label, time level, scroll bar).
         #[serde(default, flatten)]
         show: super::slicer_cmd::TimelineShow,
+    },
+    /// A new custom slicer or timeline style of the workbook (New Slicer Style / New Timeline
+    /// Style): its formats per element, saved in the styles part. One undo step.
+    CreateFrameStyle {
+        /// The sheet whose undo history records the change.
+        sheet: usize,
+        /// Style name (unique, not a built-in name).
+        name: String,
+        /// A timeline style rather than a slicer style.
+        #[serde(default)]
+        timeline: bool,
+        /// Formats of the elements (absent: the element keeps the default look).
+        #[serde(default, flatten)]
+        formats: super::slicer_cmd::FrameStyleFormats,
     },
     /// The first day the strip of a timeline shows (`timeline/@scrollPosition`): a view
     /// setting saved with the file, not an undo step.
@@ -1945,6 +2003,19 @@ pub enum SheetCommand {
         /// Its column.
         col: u32,
     },
+    /// Flash Fill suggestion while `text` is typed in (`row`, `col`) (read only): the
+    /// values the other empty cells of the column would get, `{ cells: [[row, text]] }`
+    /// (empty when no pattern begins with the typed text).
+    FlashFillPreview {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// The cell being typed in (0-based).
+        row: u32,
+        /// Its column.
+        col: u32,
+        /// What has been typed so far.
+        text: String,
+    },
     /// Text to Columns: split the cells of a one-column range into columns.
     /// One undo step; `{ rows, columns }`, or with `preview` (nothing changes)
     /// `{ rows: [[field]], columns }` for the first rows.
@@ -2077,6 +2148,19 @@ pub enum SheetCommand {
         /// Level (1 = outermost summaries only).
         level: u8,
     },
+    /// Show Detail (`show`) / Hide Detail of the outline group at row / column `at`
+    /// (its summary, or a row / column inside it): the +/− buttons of the outline
+    /// bar. One undo step; `{ changed }`.
+    OutlineDetail {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Rows (otherwise columns).
+        rows: bool,
+        /// The summary row / column, or one inside the group.
+        at: u32,
+        /// Show (otherwise hide) the detail.
+        show: bool,
+    },
     /// Cells holding values that violate their data validation:
     /// `{ cells: [[row, col]], truncated }`.
     InvalidCells {
@@ -2094,6 +2178,28 @@ pub(super) enum Recalc {
     /// Only the hidden rows of the sheet changed (AutoFilter): pushed to the
     /// live engine without reloading every cell.
     HiddenRows(usize),
+}
+
+/// Factor columns are drawn wider by while the sheet shows formulas (§18.3.1.87).
+fn formulas_widen(ws: &Worksheet) -> f64 {
+    if ws
+        .views
+        .first()
+        .is_some_and(bo_model::sheet::SheetView::show_formulas)
+    {
+        bo_sheet::geometry::SHOW_FORMULAS_WIDTH
+    } else {
+        1.0
+    }
+}
+
+/// §18.3.1.61 outlinePr: summaries follow their detail (below / right) unless set to 0.
+pub(crate) fn summary_after(ws: &Worksheet, rows: bool) -> bool {
+    if rows {
+        ws.props.summary_below != Some(false)
+    } else {
+        ws.props.summary_right != Some(false)
+    }
 }
 
 fn bad(msg: impl Into<String>) -> EngineError {
@@ -2140,18 +2246,26 @@ fn map_info(
     })
 }
 
+/// Most cells a Flash Fill suggestion lists.
+const MAX_FLASH_PREVIEW: usize = 5_000;
+
 fn non_empty(c: &Cell) -> bool {
     !matches!(c.value, CellValue::Empty) || c.formula.is_some()
 }
 
 /// Flash Fill over the block of data around `row`, `col`: the cells of column `col`
 /// to fill and their text, or `None` when no pattern fits the examples.
+///
+/// With `typing` (`row`, text being typed there), that row is not an example yet: the
+/// pattern is learned from the others and kept only when its result for `row` starts with
+/// the typed text — the suggestion shown while typing; the cells to fill exclude `row`.
 fn flash_fill_cells(
     wb: &Workbook,
     ws: &Worksheet,
     row: u32,
     col: u32,
     locale: &bo_sheet::numfmt::Locale,
+    typing: Option<(u32, &str)>,
 ) -> Option<Vec<(u32, String)>> {
     use bo_sheet::flashfill::{flash_fill, Example};
     let at = CellRef::new(row.min(MAX_ROWS - 1), col.min(MAX_COLS - 1));
@@ -2173,6 +2287,10 @@ fn flash_fill_cells(
     let mut targets: Vec<(u32, Vec<String>)> = Vec::new();
     for r in region.first.row..=region.last.row {
         let inputs: Vec<String> = sources.iter().map(|&c| text(r, c)).collect();
+        if typing.is_some_and(|(t, _)| t == r) {
+            targets.push((r, inputs));
+            continue;
+        }
         let output = text(r, col);
         if !output.is_empty() {
             examples.push((r, Example { inputs, output }));
@@ -2191,13 +2309,21 @@ fn flash_fill_cells(
         result = learn(&examples[1..]);
     }
     let result = result?;
-    Some(
-        targets
-            .iter()
-            .zip(result)
-            .filter_map(|((r, _), v)| v.map(|t| (*r, t)))
-            .collect(),
-    )
+    let fills: Vec<(u32, String)> = targets
+        .iter()
+        .zip(result)
+        .filter_map(|((r, _), v)| v.map(|t| (*r, t)))
+        .collect();
+    let Some((at, typed)) = typing else {
+        return Some(fills);
+    };
+    // The typed text must begin what the pattern gives for its row.
+    let typed = typed.to_lowercase();
+    let own = fills.iter().find(|(r, _)| *r == at)?;
+    if typed.is_empty() || !own.1.to_lowercase().starts_with(&typed) {
+        return None;
+    }
+    Some(fills.into_iter().filter(|(r, _)| *r != at).collect())
 }
 
 /// The contiguous block of data around a single cell (Ctrl+A / sort / filter).
@@ -2581,6 +2707,9 @@ impl SheetEngine {
             | C::SparklineGroup { sheet, .. }
             | C::SparklineUngroup { sheet, .. }
             | C::SparklineClear { sheet, .. }
+            | C::SparklineData { sheet, .. }
+            | C::SparklineSingleData { sheet, .. }
+            | C::SparklineSwitch { sheet, .. }
             | C::InsertSlicer { sheet, .. }
             | C::InsertPivotSlicer { sheet, .. }
             | C::SlicerOptions { sheet, .. }
@@ -2649,7 +2778,8 @@ impl SheetEngine {
         }
         match recalc {
             Recalc::No => {}
-            Recalc::All => self.live.rebuild(wb),
+            // Manual calculation keeps the shown results until F9.
+            Recalc::All => self.live.reload(wb),
             Recalc::HiddenRows(si) => self.live.sync_hidden_rows(wb, si),
             Recalc::Range(si, r) => {
                 let cells: Vec<(u32, u32)> = (r.first.row..=r.last.row)
@@ -3126,6 +3256,19 @@ impl SheetEngine {
                 range,
                 whole_groups,
             } => self.sparkline_clear(sheet, range, whole_groups),
+            C::SparklineData {
+                sheet,
+                group,
+                data,
+                location,
+            } => self.sparkline_data(sheet, group, &data, location),
+            C::SparklineSingleData {
+                sheet,
+                row,
+                col,
+                data,
+            } => self.sparkline_single_data(sheet, row, col, &data),
+            C::SparklineSwitch { sheet, group } => self.sparkline_switch(sheet, group),
             C::Timelines { sheet } => self.timelines_list(sheet),
             C::InsertPivotSlicer {
                 sheet,
@@ -3169,6 +3312,12 @@ impl SheetEngine {
                 show,
             } => self.timeline_options(sheet, index, level, caption, style, &show),
             C::TimelineScroll { sheet, index, day } => self.timeline_scroll(sheet, index, day),
+            C::CreateFrameStyle {
+                sheet,
+                name,
+                timeline,
+                formats,
+            } => self.frame_style_create(sheet, &name, timeline, &formats),
             C::TimelineConnect {
                 sheet,
                 index,
@@ -3385,18 +3534,30 @@ impl SheetEngine {
             }),
             C::OutlineShowLevel { sheet, rows, level } => self.edit(sheet, Recalc::All, |wb, _| {
                 let ws = &mut wb.sheets[sheet];
-                // §18.3.1.61 outlinePr: summaries follow their detail unless set to 0.
-                let after = if rows {
-                    ws.props.summary_below != Some(false)
-                } else {
-                    ws.props.summary_right != Some(false)
-                };
+                let after = summary_after(ws, rows);
                 bo_sheet::outline::show_level(ws, rows, level, after);
                 Ok(json!({ "ok": true }))
             }),
+            C::OutlineDetail {
+                sheet,
+                rows,
+                at,
+                show,
+            } => {
+                let ws = self.sheet(sheet)?;
+                let after = summary_after(ws, rows);
+                if bo_sheet::outline::detail_target(ws, rows, at, show, after).is_none() {
+                    return Ok(json!({ "changed": false }));
+                }
+                self.edit(sheet, Recalc::All, |wb, _| {
+                    bo_sheet::outline::set_detail(&mut wb.sheets[sheet], rows, at, show, after);
+                    Ok(json!({ "changed": true }))
+                })
+            }
             C::InvalidCells { sheet } => self.invalid_cells(sheet),
             C::FlashFill { sheet, row, col } => {
-                let fills = flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale);
+                let fills =
+                    flash_fill_cells(self.wb()?, self.sheet(sheet)?, row, col, &locale, None);
                 let Some(fills) = fills else {
                     return Ok(json!({ "found": false, "filled": 0 }));
                 };
@@ -3413,6 +3574,33 @@ impl SheetEngine {
                     })?;
                 }
                 Ok(json!({ "found": true, "filled": filled }))
+            }
+            C::FlashFillPreview {
+                sheet,
+                row,
+                col,
+                text,
+            } => {
+                let typed = text.trim();
+                let fills = if typed.is_empty() || typed.starts_with('=') {
+                    None
+                } else {
+                    flash_fill_cells(
+                        self.wb()?,
+                        self.sheet(sheet)?,
+                        row,
+                        col,
+                        &locale,
+                        Some((row, typed)),
+                    )
+                };
+                let cells: Vec<Value> = fills
+                    .unwrap_or_default()
+                    .into_iter()
+                    .take(MAX_FLASH_PREVIEW)
+                    .map(|(r, t)| json!([r, t]))
+                    .collect();
+                Ok(json!({ "cells": cells }))
             }
             C::Inspect => self.inspect_json(),
             C::DocProperties => serde_json::to_value(self.props.get())
@@ -3483,6 +3671,10 @@ impl SheetEngine {
                     } else {
                         (px + 5.0) * bo_sheet::geometry::PT_PER_PX
                     }
+                } else if !rows {
+                    // A width dragged while formulas are shown is a drawn (widened)
+                    // width: the file keeps the normal one.
+                    size / formulas_widen(self.sheet(sheet)?)
                 } else {
                     size
                 };
@@ -3498,12 +3690,14 @@ impl SheetEngine {
                 })
             }
             C::SizeOf { sheet, rows, index } => {
+                let widen = formulas_widen(self.sheet(sheet)?);
                 let g = self.geometry(sheet)?;
                 let size = if rows {
                     g.row_height(index)
                 } else {
-                    // Pixels less the 5 px padding, in maximum digit widths, to 1/100.
-                    let px = (g.col_width(index) / bo_sheet::geometry::PT_PER_PX).round();
+                    // Pixels less the 5 px padding, in maximum digit widths, to 1/100
+                    // (the normal width while formulas are shown wider).
+                    let px = (g.col_width(index) / widen / bo_sheet::geometry::PT_PER_PX).round();
                     let mdw = g.metrics.mdw_px.max(1.0);
                     (((px - 5.0).max(0.0) / mdw) * 100.0).round() / 100.0
                 };
@@ -3584,6 +3778,24 @@ impl SheetEngine {
                     serde_json::to_value(Rng::of(current_region(ws, range.range())))
                         .unwrap_or(Value::Null),
                 )
+            }
+            C::Occupied {
+                sheet,
+                range,
+                except,
+            } => {
+                let ws = self.sheet(sheet)?;
+                let r = range.range();
+                let skip = except.map(Rng::range);
+                let found = ws
+                    .cells
+                    .range((r.first.row, 0)..=(r.last.row, u32::MAX))
+                    .any(|(&(rr, cc), cell)| {
+                        r.contains(CellRef::new(rr, cc))
+                            && non_empty(cell)
+                            && !skip.is_some_and(|x| x.contains(CellRef::new(rr, cc)))
+                    });
+                Ok(json!(found))
             }
             C::DataEdge {
                 sheet,
@@ -4488,7 +4700,11 @@ impl SheetEngine {
                     ),
                 }))
             }
-            C::PrintPreview { sheet, page } => self.print_preview(sheet, page),
+            C::PrintPreview {
+                sheet,
+                page,
+                layout,
+            } => self.print_preview(sheet, page, layout),
             C::HeaderFooterPicture {
                 sheet,
                 section,
@@ -6009,6 +6225,34 @@ mod tests {
             back.info().unwrap().sheets[0].merges,
             Vec::<[u32; 4]>::new()
         );
+    }
+
+    #[test]
+    fn occupied_finds_data_outside_the_source() {
+        let mut e = engine();
+        e.set_input(0, 0, 0, "a,b").unwrap();
+        e.set_input(0, 1, 0, "c,d").unwrap();
+        let mut occupied = |r1: u32, c1: u32, except: Value| {
+            run(
+                &mut e,
+                json!({ "cmd": "occupied", "sheet": 0,
+                    "range": { "r0": 0, "c0": 0, "r1": r1, "c1": c1 }, "except": except }),
+            )
+        };
+        // A1:B2 minus the source A1:A2: column B is empty.
+        let src = json!({ "r0": 0, "c0": 0, "r1": 1, "c1": 0 });
+        assert_eq!(occupied(1, 1, src.clone()), json!(false));
+        // Without the exception the source itself counts.
+        assert_eq!(occupied(1, 1, Value::Null), json!(true));
+        e.set_input(0, 1, 1, "x").unwrap();
+        let mut occupied = |r1: u32, c1: u32, except: Value| {
+            run(
+                &mut e,
+                json!({ "cmd": "occupied", "sheet": 0,
+                    "range": { "r0": 0, "c0": 0, "r1": r1, "c1": c1 }, "except": except }),
+            )
+        };
+        assert_eq!(occupied(1, 1, src), json!(true));
     }
 
     #[test]

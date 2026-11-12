@@ -1183,17 +1183,6 @@ impl Workbook {
         }
     }
 
-    /// Mark every formula of `sheet` for the next recalculation.
-    pub fn mark_all_formulas_of(&mut self, sheet: usize) {
-        if let Some(s) = self.sheets.get(sheet) {
-            for (&(r, c), d) in &s.cells {
-                if d.formula.is_some() {
-                    self.changed.push(CellId::new(sheet, r, c));
-                }
-            }
-        }
-    }
-
     fn is_formula(&self, id: CellId) -> bool {
         self.sheets
             .get(id.sheet)
@@ -1371,53 +1360,24 @@ impl Workbook {
         self.spill_changed.clear();
     }
 
-    /// Recalculate only the formulas of `sheet` among those affected by edits since the last
-    /// recalculation (plus its volatile cells): "calculate sheet". A formula reading a cell of
-    /// another sheet that is still out of date reads its current (old) value; the other
-    /// sheets' cells stay marked and are calculated by the next [`Workbook::recalculate`].
+    /// Recalculate only the dirty formula cells of `sheet` ("calculate sheet",
+    /// Shift+F9 in manual mode): formulas there read the current — possibly out of
+    /// date — values of the other sheets, which are not evaluated and stay dirty
+    /// for the next [`Workbook::recalculate`].
     pub fn recalculate_sheet(&mut self, sheet: usize) {
         self.evaluations.store(0, Ordering::Relaxed);
-        let mut seeds = std::mem::take(&mut self.changed);
+        let mut seeds = self.changed.clone();
         seeds.extend(self.volatile.iter().copied());
-        let dirty = self.propagate(seeds.clone());
-        // This sheet's dirty formulas, renumbered, with the edges between them.
-        let mut index = vec![u32::MAX; dirty.nodes.len()];
-        let mut nodes = Vec::new();
-        for (i, id) in dirty.nodes.iter().enumerate() {
-            if id.sheet == sheet {
-                index[i] = nodes.len() as u32;
-                nodes.push(*id);
-            }
-        }
-        let mut succ = vec![Vec::new(); nodes.len()];
-        for (i, out) in dirty.succ.iter().enumerate() {
-            if index[i] == u32::MAX {
-                continue;
-            }
-            succ[index[i] as usize] = out
-                .iter()
-                .filter_map(|&d| Some(index[d as usize]).filter(|&n| n != u32::MAX))
-                .collect();
-        }
-        // Everything else stays dirty for the next calculation.
-        let mut later: Vec<CellId> = seeds
-            .into_iter()
-            .filter(|c| c.sheet != sheet && !self.volatile.contains(c))
-            .collect();
-        later.extend(dirty.nodes.iter().copied().filter(|c| c.sheet != sheet));
-        later.sort_unstable();
-        later.dedup();
-        let mine = DirtyGraph { nodes, succ };
-        self.recalculated = mine.nodes.clone();
-        self.calc_set(&mine);
-        self.spill_changed.clear();
+        let dirty = self.propagate(seeds).restricted_to(sheet);
+        self.recalculated = dirty.nodes.clone();
+        self.calc_set(&dirty);
         self.recalculated.sort_unstable();
-        self.changed = later;
+        self.recalculated.dedup();
     }
 
-    /// Whether edits wait for a calculation (cells marked since the last recalculation).
+    /// Whether edits are waiting for a recalculation.
     pub fn has_pending_changes(&self) -> bool {
-        !self.changed.is_empty()
+        !self.changed.is_empty() || !self.spill_changed.is_empty()
     }
 
     /// Number of formula evaluations performed by the last
@@ -1840,7 +1800,7 @@ impl Workbook {
 
 /// Round half away from zero to `d` decimal places (negative `d`: to tens,
 /// hundreds…), after removing binary noise beyond 15 significant digits.
-fn round_decimals(n: f64, d: i32) -> f64 {
+pub fn round_decimals(n: f64, d: i32) -> f64 {
     let d = d.clamp(-15, 15);
     let m = 10f64.powi(d);
     let r = crate::value::round_sig15(n * m).round() / m;
@@ -1875,6 +1835,30 @@ enum Step {
 }
 
 impl DirtyGraph {
+    /// The nodes of one sheet and the edges between them.
+    fn restricted_to(self, sheet: usize) -> Self {
+        let mut map = vec![u32::MAX; self.nodes.len()];
+        let mut nodes = Vec::new();
+        for (i, id) in self.nodes.iter().enumerate() {
+            if id.sheet == sheet {
+                map[i] = nodes.len() as u32;
+                nodes.push(*id);
+            }
+        }
+        let mut succ = vec![Vec::new(); nodes.len()];
+        for (i, list) in self.succ.into_iter().enumerate() {
+            let from = map[i];
+            if from == u32::MAX {
+                continue;
+            }
+            succ[from as usize] = list
+                .into_iter()
+                .filter_map(|d| Some(map[d as usize]).filter(|&m| m != u32::MAX))
+                .collect();
+        }
+        DirtyGraph { nodes, succ }
+    }
+
     /// Evaluation order: Kahn's topological sort by levels for the acyclic
     /// part (small consecutive levels merged into one sequential step), then
     /// the remaining nodes (cycles and their dependents) ordered by Tarjan SCC

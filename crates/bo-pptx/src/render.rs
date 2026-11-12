@@ -39,6 +39,9 @@ pub struct RenderOptions {
     /// Draw only some elements of one chart or SmartArt frame (`cNvPr@id`): a slide show building
     /// it element by element (ECMA-376 Part 1, §19.5 bldGraphic).
     pub element_mask: Option<(u32, ElementMask)>,
+    /// Leave the background out (§19.3.1.1 bg): the page stays transparent
+    /// under the shapes (zoom previews with `showBg="0"`, [MS-PPTX] §2.3.x zmPr).
+    pub no_background: bool,
 }
 
 /// The elements of a chart or SmartArt frame drawn (see [`RenderOptions::element_mask`]).
@@ -254,6 +257,9 @@ pub fn render_with(
     if only.is_some() || opts.layer.is_some_and(|l| !l.backdrop) {
         bg_levels.clear();
         levels.retain(|l| matches!(l, Level::Slide(_)));
+    }
+    if opts.no_background {
+        bg_levels.clear();
     }
     for lv in bg_levels {
         let Some((data, rels, part)) = level_data(pres, lv) else {
@@ -2241,6 +2247,105 @@ fn styled_text(
         }
     }
     out
+}
+
+/// Speaker notes laid out for a notes page (ECMA-376 Part 1, §19.3.1.26 notes:
+/// the text of its `body` placeholder, §19.7.10 ST_PlaceholderType), with the
+/// run formatting kept (§21.1.2.3.9 rPr: size, bold, italic, colour, font…).
+#[derive(Debug, Clone, Default)]
+pub struct NotesText {
+    /// Drawing commands, origin at the top-left corner of the notes box.
+    pub commands: Vec<Command>,
+    /// Top and bottom of every laid-out line, in order (same coordinates):
+    /// a caller splits long notes between pages at these boundaries.
+    pub lines: Vec<(f64, f64)>,
+}
+
+fn notes_body(nodes: &[ShapeNode]) -> Option<&bo_model::slide::Shape> {
+    nodes.iter().find_map(|n| match n {
+        ShapeNode::Shape(s)
+            if s.nv
+                .placeholder
+                .as_ref()
+                .is_some_and(|p| p.kind.as_deref() == Some("body")) =>
+        {
+            Some(&**s)
+        }
+        ShapeNode::Group(g) => notes_body(&g.children),
+        _ => None,
+    })
+}
+
+/// Lay out the speaker notes of slide `slide` `width` points wide, from the top
+/// of an unbounded box: the notes master's text style (§19.3.1.28 notesStyle,
+/// `notes_style`; 12 pt when absent) under the body's own list style
+/// (§21.1.2.4.12 lstStyle), colours through `clr_map` (§19.3.1.6 clrMap of the
+/// notes master). Autofit (§21.1.2.1.3 normAutofit) is ignored: a printed notes
+/// page flows onto further pages instead of shrinking the text.
+pub fn notes_text(
+    pres: &Presentation,
+    slide: usize,
+    notes_style: Option<&bo_model::slide::ListStyle>,
+    clr_map: &[(String, String)],
+    width: f64,
+    fonts: &mut FontManager,
+) -> Option<NotesText> {
+    let notes = pres.slides.get(slide)?.notes.as_ref()?;
+    let body = notes_body(&notes.data.shapes)?;
+    let tb = body.text.as_ref()?;
+    if tb.paragraphs.iter().all(|p| p.text().trim().is_empty()) {
+        return None;
+    }
+    let mut bp = tb.body_pr.clone();
+    bp.autofit = None;
+    bp.anchor = Some("t".into());
+    bp.num_col = None;
+    let base = notes_style.cloned().unwrap_or_else(|| {
+        // §21.1.2.4.13 lvl1pPr defRPr@sz 1200: the usual notes text size.
+        let mut ls = bo_model::slide::ListStyle::default();
+        ls.levels[0] = Some(bo_model::slide::ParaProps {
+            def_rpr: Some(bo_model::slide::RunProps {
+                sz: Some(1200),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        ls
+    });
+    let mut layers = vec![base];
+    if let Some(ls) = &tb.list_style {
+        layers.push(ls.clone());
+    }
+    let stack = TextStyleStack {
+        layers,
+        font_ref: None,
+        master_layers: 1,
+    };
+    let theme = theme_of(pres, Level::Slide(slide));
+    let env = TextEnv {
+        theme,
+        colors: ColorContext {
+            theme,
+            clr_map,
+            ph_clr: None,
+        },
+        slide_number: slide + 1,
+        part: &notes.info.part_name,
+        rels: &notes.info.rels,
+        followed: &[],
+    };
+    let rect = [0.0, 0.0, width.max(1.0), 1.0e7];
+    let geom = crate::text_layout::text_geometry(tb, &bp, &stack, rect, &env, fonts);
+    let mut commands = Vec::new();
+    draw_text(tb, &bp, &stack, rect, &env, fonts, &mut commands);
+    Some(NotesText {
+        commands,
+        lines: geom
+            .lines
+            .iter()
+            .map(|l| (l.top, l.top + l.height))
+            .collect(),
+    })
 }
 
 #[cfg(test)]

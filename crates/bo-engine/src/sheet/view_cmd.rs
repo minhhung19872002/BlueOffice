@@ -13,9 +13,9 @@
 //!   whole percent at which that page fits; manual breaks the drag passes over
 //!   are removed; dragging a break out of the print area removes it;
 //! * a saved custom view keeps the exact hidden rows / columns and the print
-//!   area for the session only (the file format flags them, §18.3.1.25
-//!   `hiddenRows` / `hiddenColumns` / `printArea`, without listing them);
-//!   after reopening, applying the view re-applies its AutoFilter instead.
+//!   area (§18.3.1.25 only flags them; `bo-xlsx` writes the lists as hidden
+//!   `Z_<guid>_.wvu.*` defined names); a view without them re-applies its
+//!   AutoFilter instead.
 
 use super::cmd::Recalc;
 use super::print::{settings, PageBox, Pagination};
@@ -34,13 +34,17 @@ use serde_json::{json, Value};
 pub enum ViewCommand {
     /// View type, show formulas and zoom of a sheet → `{ view, showFormulas, zoom, zooms }`.
     SheetViewState { sheet: usize },
-    /// Changes the view type, show formulas and / or the zoom (no undo step).
+    /// Changes the view type, show formulas, the outline bar and / or the zoom (no
+    /// undo step).
     SetSheetView {
         sheet: usize,
         #[serde(default)]
         view: Option<SheetViewType>,
         #[serde(default)]
         show_formulas: Option<bool>,
+        /// `showOutlineSymbols` (§18.3.1.87).
+        #[serde(default)]
+        outline_symbols: Option<bool>,
         /// Zoom percent of the (new) view type, 10–400.
         #[serde(default)]
         zoom: Option<u32>,
@@ -71,6 +75,14 @@ pub enum ViewCommand {
         page: usize,
         x: f64,
         y: f64,
+    },
+    /// Where cell `row`, `col` is drawn on page `page` (points) → `{ x, y, w, h }` or
+    /// `null` when the page does not print it.
+    PageCellRect {
+        sheet: usize,
+        page: usize,
+        row: u32,
+        col: u32,
     },
     /// Custom views of the workbook → `[{ name, guid, includePrintSettings, includeHiddenRowCol }]`.
     CustomViews,
@@ -115,6 +127,7 @@ impl ViewCommand {
             "movePageBreak",
             "pageLayout",
             "pageHit",
+            "pageCellRect",
             "customViews",
             "addCustomView",
             "applyCustomView",
@@ -203,6 +216,7 @@ fn state_json(ws: &Worksheet) -> Value {
     json!({
         "view": t,
         "showFormulas": v.is_some_and(SheetView::show_formulas),
+        "outlineSymbols": v.is_none_or(SheetView::show_outline_symbols),
         "zoom": v.and_then(|v| v.zoom_scale).filter(|z| *z > 0).unwrap_or_else(|| zoom_for(v, t)),
         "zooms": {
             "normal": zoom_for(v, SheetViewType::Normal),
@@ -229,8 +243,21 @@ impl SheetEngine {
                 sheet,
                 view,
                 show_formulas,
+                outline_symbols,
                 zoom,
-            } => self.set_sheet_view(sheet, view, show_formulas, zoom),
+            } => {
+                if let Some(on) = outline_symbols {
+                    let ws = self
+                        .wb
+                        .as_mut()
+                        .ok_or(EngineError::NoDocument)?
+                        .sheets
+                        .get_mut(sheet)
+                        .ok_or(EngineError::PageOutOfRange(sheet))?;
+                    view_mut(ws).set_show_outline_symbols(on);
+                }
+                self.set_sheet_view(sheet, view, show_formulas, zoom)
+            }
             ViewCommand::PageBreakPreview { sheet } => self.break_preview(sheet),
             ViewCommand::MovePageBreak {
                 sheet,
@@ -244,6 +271,12 @@ impl SheetEngine {
                 Ok(json!({ "pages": pages }))
             }
             ViewCommand::PageHit { sheet, page, x, y } => self.page_hit(sheet, page, x, y),
+            ViewCommand::PageCellRect {
+                sheet,
+                page,
+                row,
+                col,
+            } => self.page_cell_rect(sheet, page, row, col),
             ViewCommand::CustomViews => {
                 let wb = self.wb()?;
                 Ok(Value::Array(
@@ -468,6 +501,23 @@ impl SheetEngine {
             }
             Ok(json!({ "scale": rescale }))
         })
+    }
+
+    fn page_cell_rect(&mut self, sheet: usize, page: usize, row: u32, col: u32) -> Result<Value> {
+        let pages = self.page_layout(sheet)?;
+        let Some(cells) = pages.get(page).and_then(|p| p.cells.clone()) else {
+            return Ok(Value::Null);
+        };
+        if row < cells.rows.0 || row > cells.rows.1 || col < cells.cols.0 || col > cells.cols.1 {
+            return Ok(Value::Null);
+        }
+        let (ox, oy) = cells.origin;
+        let g = self.geometry(sheet)?;
+        let x = ox + (g.col_x(col) - g.col_x(cells.cols.0)) * cells.scale;
+        let y = oy + (g.row_y(row) - g.row_y(cells.rows.0)) * cells.scale;
+        let w = (g.col_x(col + 1) - g.col_x(col)) * cells.scale;
+        let h = (g.row_y(row + 1) - g.row_y(row)) * cells.scale;
+        Ok(json!({ "x": x, "y": y, "w": w, "h": h }))
     }
 
     fn page_hit(&mut self, sheet: usize, page: usize, x: f64, y: f64) -> Result<Value> {

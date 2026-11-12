@@ -18,6 +18,8 @@ export interface ExportDocsState {
   order: 'horizontal' | 'vertical';
   frame: boolean;
   paper: Exclude<SlidePaper, 'notes'>;
+  /** Handout pages in landscape orientation. */
+  landscape: boolean;
   /** Header / footer from the handout / notes master. */
   fromMaster: boolean;
   header: string;
@@ -38,6 +40,7 @@ export function defaultExportState(date: string): ExportDocsState {
     order: 'horizontal',
     frame: true,
     paper: 'a4',
+    landscape: false,
     fromMaster: true,
     header: '',
     footer: '',
@@ -82,6 +85,7 @@ export function exportPlan(
           order: s.order,
           frame: s.frame,
           paper: s.paper,
+          ...(s.landscape ? { landscape: true } : {}),
           ...hf,
         },
         name: `${base}-handout-${s.perPage}.pdf`,
@@ -229,6 +233,17 @@ export function ExportDocsDialog({
               onChange={(e) => set('frame', e.target.checked)}
             />
             {t('slideExport.frame')}
+          </label>
+          <label>
+            {t('slideExport.orientation')}{' '}
+            <select
+              data-testid="export-orientation"
+              value={s.landscape ? 'landscape' : 'portrait'}
+              onChange={(e) => set('landscape', e.target.value === 'landscape')}
+            >
+              <option value="portrait">{t('slideExport.portrait')}</option>
+              <option value="landscape">{t('slideExport.landscape')}</option>
+            </select>
           </label>
         </fieldset>
       )}

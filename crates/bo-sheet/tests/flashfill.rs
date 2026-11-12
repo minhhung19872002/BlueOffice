@@ -242,6 +242,32 @@ const CASES: &[Case] = &[
         examples: &[(&["2024-03-15"], "15 Mar 2024")],
         rows: &[(&["1999-12-01"], Some("01 Dec 1999"))],
     },
+    Case {
+        name: "month name of a day/month/year date",
+        examples: &[(&["15/03/2024"], "March")],
+        rows: &[
+            (&["02/11/2023"], Some("November")),
+            (&["7/1/2022"], Some("January")),
+        ],
+    },
+    Case {
+        name: "short month name with the year",
+        examples: &[(&["15/03/2024"], "Mar 2024")],
+        rows: &[(&["28/12/2025"], Some("Dec 2025"))],
+    },
+    Case {
+        name: "month name to a two-digit number",
+        examples: &[(&["Mar 2024"], "03/2024")],
+        rows: &[
+            (&["Oct 2023"], Some("10/2023")),
+            (&["december 2025"], Some("12/2025")),
+        ],
+    },
+    Case {
+        name: "full month name to its number",
+        examples: &[(&["Ngày 5 September"], "9")],
+        rows: &[(&["Ngày 20 May"], Some("5"))],
+    },
 ];
 
 fn examples(c: &Case) -> Vec<Example> {

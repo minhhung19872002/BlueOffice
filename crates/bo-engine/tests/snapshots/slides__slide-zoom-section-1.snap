@@ -21,10 +21,10 @@ transform [1.000 0.000 0.000 1.000 108.0 252.0]
   text 24.0pt 448.1,23.5 #595959ff "2026"
 pop transform
 transform [1.000 0.000 0.000 1.000 225.0 202.5]
-  image /ppt/media/zoom-9a1d600464fedd33.png 0.0,0.0 240.0x135.0 crop=None
+  image /ppt/media/zoom-2c2edcc6fe6cb6e2.png 0.0,0.0 240.0x135.0 crop=None
   path n=5 [0.0 0.0 240.0 135.0] stroke=#bfbfbfff w0.25
 pop transform
 transform [1.000 0.000 0.000 1.000 495.0 202.5]
-  image /ppt/media/zoom-1325ce126d6408ab.png 0.0,0.0 240.0x135.0 crop=None
+  image /ppt/media/zoom-b01d9f89acc7eda1.png 0.0,0.0 240.0x135.0 crop=None
   path n=5 [0.0 0.0 240.0 135.0] stroke=#bfbfbfff w0.25
 pop transform

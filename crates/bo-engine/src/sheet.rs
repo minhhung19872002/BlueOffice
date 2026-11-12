@@ -260,6 +260,43 @@ pub struct SheetInfo {
     pub protected: bool,
     /// `sheetPr/tabColor` as `RRGGBB` (§18.3.1.93).
     pub tab_color: Option<String>,
+    /// The row / column outline drawn in the outline bar, when the sheet has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outline: Option<OutlineInfo>,
+}
+
+/// Groups of a sheet's outline (row / column `outlineLevel`, §18.3.1.73 / §18.3.1.13).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineInfo {
+    /// Deepest row level in use (`sheetFormatPr/@outlineLevelRow`, §18.3.1.81).
+    pub row_levels: u8,
+    /// Deepest column level in use.
+    pub col_levels: u8,
+    /// Row groups (outer levels first), with their summary row.
+    pub rows: Vec<bo_sheet::outline::OutlineGroup>,
+    /// Column groups.
+    pub cols: Vec<bo_sheet::outline::OutlineGroup>,
+}
+
+/// Most groups listed per axis in [`OutlineInfo`].
+const MAX_OUTLINE_GROUPS: usize = 20_000;
+
+fn outline_info(ws: &Worksheet) -> Option<OutlineInfo> {
+    use bo_sheet::outline::outline_groups;
+    let rows = outline_groups(ws, true, cmd::summary_after(ws, true), MAX_OUTLINE_GROUPS);
+    let cols = outline_groups(ws, false, cmd::summary_after(ws, false), MAX_OUTLINE_GROUPS);
+    if rows.is_empty() && cols.is_empty() {
+        return None;
+    }
+    let deepest =
+        |g: &[bo_sheet::outline::OutlineGroup]| g.iter().map(|g| g.level).max().unwrap_or(0);
+    Some(OutlineInfo {
+        row_levels: deepest(&rows),
+        col_levels: deepest(&cols),
+        rows,
+        cols,
+    })
 }
 
 /// Where a screen point falls (viewport-relative, points).
@@ -1307,6 +1344,7 @@ impl SheetEngine {
                             .as_ref()
                             .and_then(|c| bo_sheet::color::resolve_color(c, wb.theme.as_ref()))
                             .map(|c| format!("{:02X}{:02X}{:02X}", c.0, c.1, c.2)),
+                        outline: outline_info(ws),
                     }
                 })
                 .collect(),
@@ -1888,7 +1926,7 @@ impl SheetEngine {
             (false, true) => bo_sheet::ops::delete_cols(wb, sheet, at, count, adj),
         }
         .map_err(|e| EngineError::Sheet(e.to_string()))?;
-        self.live.rebuild_structural(wb);
+        self.live.reload(wb);
         self.invalidate(Some(sheet));
         self.push_undo(UndoEntry::Workbook(before));
         if let Some(c) = self.collab.as_mut() {
@@ -1966,7 +2004,9 @@ impl SheetEngine {
         let Some(e) = self.undo.pop() else {
             return Ok(false);
         };
+        let watches = self.watches_by_sheet();
         let inv = self.apply(e)?;
+        self.restore_watches(watches);
         self.redo.push(inv);
         Ok(true)
     }
@@ -1977,9 +2017,32 @@ impl SheetEngine {
         let Some(e) = self.redo.pop() else {
             return Ok(false);
         };
+        let watches = self.watches_by_sheet();
         let inv = self.apply(e)?;
+        self.restore_watches(watches);
         self.undo.push(inv);
         Ok(true)
+    }
+
+    /// The watched cells of each sheet (by name): the watch window is not part of
+    /// the undo history, so undo / redo of a whole-workbook step keeps them.
+    fn watches_by_sheet(&self) -> Vec<(String, Vec<bo_model::sheet::CellRef>)> {
+        self.wb.as_ref().map_or_else(Vec::new, |wb| {
+            wb.sheets
+                .iter()
+                .map(|ws| (ws.name.clone(), bo_sheet::errcheck::cell_watches(ws)))
+                .collect()
+        })
+    }
+
+    fn restore_watches(&mut self, watches: Vec<(String, Vec<bo_model::sheet::CellRef>)>) {
+        if let Some(wb) = self.wb.as_mut() {
+            for (name, cells) in watches {
+                if let Some(ws) = wb.sheets.iter_mut().find(|s| s.name == name) {
+                    bo_sheet::errcheck::set_cell_watches(ws, &cells);
+                }
+            }
+        }
     }
 
     /// Number of undo steps.

@@ -614,6 +614,64 @@ pub fn text_box_of(boxes: &[dl::NodeBox], node: usize) -> Option<dl::NodeBox> {
         .copied()
 }
 
+/// A shape of a diagram picked in its frame (a click on it selects it, as in the office suites:
+/// the current shape of Add Shape, Promote / Demote and the text pane): the node it belongs to,
+/// its text, and its box as shares (0..1) of the frame.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FrameNode {
+    /// Index of the node in the text outline.
+    pub node: usize,
+    /// The node's text.
+    pub text: String,
+    /// Left edge (share of the frame width).
+    pub x: f64,
+    /// Top edge (share of the frame height).
+    pub y: f64,
+    /// Width (share of the frame width).
+    pub w: f64,
+    /// Height (share of the frame height).
+    pub h: f64,
+}
+
+/// The node of a diagram (`data`, `layout_xml`, `drawing` parts laid out in `ext` EMU) at point
+/// `at` (shares 0..1 of the frame), or — with `node` — that node's text box.
+#[must_use]
+pub fn frame_node(
+    data: (&[u8], &str),
+    layout_xml: Option<&[u8]>,
+    drawing: Option<(&[u8], &str)>,
+    ext: (i64, i64),
+    at: Option<(f64, f64)>,
+    node: Option<usize>,
+) -> Option<FrameNode> {
+    let (ew, eh) = ext;
+    if ew <= 0 || eh <= 0 {
+        return None;
+    }
+    let boxes = node_boxes(data, layout_xml, drawing, ext);
+    #[allow(clippy::cast_possible_truncation)]
+    let hit = match (node, at) {
+        (Some(k), _) => text_box_of(&boxes, k)?,
+        (None, Some((fx, fy))) => node_at(
+            &boxes,
+            (fx * ew as f64).round() as i64,
+            (fy * eh as f64).round() as i64,
+        )?,
+        (None, None) => return None,
+    };
+    let (nodes, _) = dl::parse_data_model(data.0, data.1)?;
+    let text = dl::outline_of(&nodes).get(hit.node)?.0.clone();
+    let (bx, by, bw, bh) = hit.rect;
+    Some(FrameNode {
+        node: hit.node,
+        text,
+        x: bx as f64 / ew as f64,
+        y: by as f64 / eh as f64,
+        w: bw as f64 / ew as f64,
+        h: bh as f64 / eh as f64,
+    })
+}
+
 /// The shapes of a diagram that belong to a node: those of BlueOffice's own layout, or — for a
 /// drawing part of another application — its shapes matched to the nodes
 /// (`bo_pptx::diagram::diagram_build`).

@@ -108,6 +108,10 @@ pub struct MasterInfo {
     pub body: Option<Frame>,
     /// Level 1 size of the notes text style (§19.3.1.28 `notesStyle`), points.
     pub notes_size_pt: Option<f32>,
+    /// The notes text style itself (§19.3.1.28 `notesStyle`), notes master only.
+    pub notes_style: Option<bo_model::slide::ListStyle>,
+    /// Colour map of the master (§19.3.1.6 `clrMap`).
+    pub clr_map: Vec<(String, String)>,
 }
 
 impl MasterInfo {
@@ -280,6 +284,16 @@ fn master_info(root: &XmlElement) -> MasterInfo {
             }
         }
     }
+    // §19.3.1.6 clrMap.
+    info.clr_map = root
+        .elements()
+        .find(|e| e.local() == "clrMap")
+        .map(|e| e.attrs.clone())
+        .unwrap_or_default();
+    info.notes_style = root
+        .elements()
+        .find(|e| e.local() == "notesStyle")
+        .map(bo_drawingml::text::parse_list_style);
     // §19.3.1.28 notesStyle / §21.1.2.4.13 lvl1pPr / defRPr@sz.
     info.notes_size_pt = root
         .elements()

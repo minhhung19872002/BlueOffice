@@ -389,7 +389,14 @@ impl ListCounters {
         let entry = self.counters.entry(abs).or_insert([0; 9]);
         let il = usize::from(n.ilvl.min(8));
         if first_use && has_override {
-            *entry = [0; 9];
+            // §17.9.9 lvlOverride / §17.9.26 startOverride: only the overridden levels (and
+            // the levels below them) start again; the counters of the upper levels go on, so
+            // restarting at level 2 keeps "3." above "3.1".
+            for (l, _) in &num.start_overrides {
+                for v in entry.iter_mut().skip(usize::from((*l).min(8))) {
+                    *v = 0;
+                }
+            }
         }
         if entry[il] == 0 {
             // §17.9.26 startOverride, else the level's §17.9.25 start.
@@ -401,11 +408,20 @@ impl ListCounters {
         } else {
             entry[il] += 1;
         }
-        // Deeper levels restart (§17.9.10 lvlRestart default behaviour).
-        for v in entry.iter_mut().skip(il + 1) {
-            *v = 0;
+        // ECMA-376 Part 1, §17.9.10 lvlRestart: a deeper level k starts again when a level
+        // above the one-based level `val` is used (default: the level just above, i.e. any
+        // upper level); `0` never restarts.
+        for (k, v) in entry.iter_mut().enumerate().skip(il + 1) {
+            let restart_after = level_of(k as u8)
+                .and_then(|l| l.restart)
+                .map_or(k, usize::from);
+            if il < restart_after {
+                *v = 0;
+            }
         }
         let counters = *entry;
+        // §17.9.4 isLgl: every number of the level text shows as a decimal (legal style).
+        let legal = level.is_lgl;
         let mut label = level.text.clone();
         for (k, &count) in counters.iter().enumerate() {
             let pat = format!("%{}", k + 1);
@@ -416,10 +432,130 @@ impl ListCounters {
                 } else {
                     count
                 };
-                let fmt = lv.map_or(bo_model::NumFormat::Decimal, |l| l.format.clone());
+                let fmt = match lv {
+                    Some(l)
+                        if !legal
+                            || matches!(
+                                l.format,
+                                bo_model::NumFormat::Bullet | bo_model::NumFormat::None
+                            ) =>
+                    {
+                        l.format.clone()
+                    }
+                    _ => bo_model::NumFormat::Decimal,
+                };
                 label = label.replace(&pat, &bo_model::format_number(value, &fmt));
             }
         }
         Some((label, level.rpr.clone(), level.suffix.clone()))
+    }
+}
+
+#[cfg(test)]
+mod list_counter_tests {
+    use super::ListCounters;
+    use bo_model::{Document, Num, NumFormat, NumRef};
+
+    /// A decimal list with level texts `%1.`, `%1.%2.`, `%1.%2.%3.` and letter / roman
+    /// formats on levels 2 and 3.
+    fn doc() -> (Document, i32) {
+        let mut d = Document::default();
+        let id = d.numbering.add_simple_list(false);
+        let a = &mut d.numbering.abstracts[0];
+        a.levels[1].text = "%1.%2.".into();
+        a.levels[2].text = "%1.%2.%3.".into();
+        (d, id)
+    }
+
+    fn labels(d: &Document, seq: &[(i32, u8)]) -> Vec<String> {
+        let mut c = ListCounters::default();
+        seq.iter()
+            .map(|&(num_id, ilvl)| {
+                c.next(d, NumRef { num_id, ilvl })
+                    .map(|l| l.0)
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    /// §17.9.26 startOverride at level 2: the new list instance restarts level 2 only,
+    /// level 1 goes on (3. → 3.e. not 1.e.).
+    #[test]
+    fn restart_at_level_two_keeps_upper_counters() {
+        let (mut d, id) = doc();
+        d.numbering.nums.push(Num {
+            id: id + 1,
+            abstract_id: 0,
+            start_overrides: vec![(1, 5)],
+        });
+        let got = labels(
+            &d,
+            &[
+                (id, 0),
+                (id, 0),
+                (id, 0),
+                (id, 1),
+                (id + 1, 1),
+                (id + 1, 1),
+                (id + 1, 0),
+            ],
+        );
+        assert_eq!(got, ["1.", "2.", "3.", "3.a.", "3.e.", "3.f.", "4."]);
+    }
+
+    /// An override of level 1 still restarts the whole list.
+    #[test]
+    fn restart_at_level_one_restarts_everything() {
+        let (mut d, id) = doc();
+        d.numbering.nums.push(Num {
+            id: id + 1,
+            abstract_id: 0,
+            start_overrides: vec![(0, 1)],
+        });
+        let got = labels(&d, &[(id, 0), (id, 1), (id + 1, 0), (id + 1, 1)]);
+        assert_eq!(got, ["1.", "1.a.", "1.", "1.a."]);
+    }
+
+    /// §17.9.10 lvlRestart: level 3 restarting only after level 1 keeps counting across
+    /// level-2 items; `0` never restarts; the default restarts under each upper item.
+    #[test]
+    fn restart_after_level() {
+        let (mut d, id) = doc();
+        let seq = [
+            (id, 0),
+            (id, 1),
+            (id, 2),
+            (id, 2),
+            (id, 1),
+            (id, 2),
+            (id, 0),
+            (id, 1),
+            (id, 2),
+        ];
+        assert_eq!(
+            labels(&d, &seq),
+            ["1.", "1.a.", "1.a.i.", "1.a.ii.", "1.b.", "1.b.i.", "2.", "2.a.", "2.a.i."]
+        );
+        d.numbering.abstracts[0].levels[2].restart = Some(1);
+        assert_eq!(
+            labels(&d, &seq),
+            ["1.", "1.a.", "1.a.i.", "1.a.ii.", "1.b.", "1.b.iii.", "2.", "2.a.", "2.a.i."]
+        );
+        d.numbering.abstracts[0].levels[2].restart = Some(0);
+        assert_eq!(
+            labels(&d, &seq),
+            ["1.", "1.a.", "1.a.i.", "1.a.ii.", "1.b.", "1.b.iii.", "2.", "2.a.", "2.a.iv."]
+        );
+    }
+
+    /// §17.9.4 isLgl: the level's text shows every number as a decimal; other levels keep
+    /// their own formats.
+    #[test]
+    fn legal_style_numbers_are_decimal() {
+        let (mut d, id) = doc();
+        d.numbering.abstracts[0].levels[0].format = NumFormat::UpperRoman;
+        d.numbering.abstracts[0].levels[2].is_lgl = true;
+        let got = labels(&d, &[(id, 0), (id, 0), (id, 1), (id, 2), (id, 2)]);
+        assert_eq!(got, ["I.", "II.", "II.a.", "2.1.1.", "2.1.2."]);
     }
 }

@@ -35,8 +35,9 @@ import {
   Settings2,
   TriangleAlert,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { a1, type Range } from './grid';
+import { ConfirmDialog } from './homeControls';
 import styles from './SheetEditor.module.css';
 import css from './audit.module.css';
 
@@ -126,12 +127,15 @@ export function useAudit({
   host,
   sheet,
   revision,
+  loadSeq = 0,
   onDone,
   fail,
 }: {
   host: SheetHost | null | undefined;
   sheet: number;
   revision: number;
+  /** Changes when another workbook is loaded (its saved watches are read). */
+  loadSeq?: number;
   /** The workbook changed (refresh the grid). */
   onDone: () => void | Promise<void>;
   fail: (e: unknown) => void;
@@ -140,7 +144,7 @@ export function useAudit({
   const [arrows, setArrows] = useState<TraceArrow[]>([]);
   const [dialog, setDialog] = useState<AuditDialog | null>(null);
   const [watchOpen, setWatchOpen] = useState(false);
-  const [watches, setWatches] = useState<AuditCell[]>([]);
+  const [watches, setWatchState] = useState<AuditCell[]>([]);
   const [rules, setRules] = useState<ErrorRules>(DEFAULT_RULES);
   const [calc, setCalc] = useState<CalcState | null>(null);
   const seenCircular = useRef('');
@@ -226,22 +230,49 @@ export function useAudit({
 
   const removeArrows = useCallback(() => setTraces([]), []);
 
-  const addWatches = useCallback((s: number, r: Range) => {
-    setWatches((w) => {
-      const out = [...w];
-      let added = 0;
-      for (let row = r.r0; row <= r.r1 && added < MAX_WATCH_ADD; row++) {
-        for (let col = r.c0; col <= r.c1 && added < MAX_WATCH_ADD; col++) {
-          if (!out.some((x) => x.sheet === s && x.row === row && x.col === col)) {
-            out.push({ sheet: s, row, col });
-            added++;
+  // The watched cells are saved with the workbook (`cellWatches`): read on open,
+  // written back after each change made in the watch window.
+  useEffect(() => {
+    if (!host) return;
+    let cancelled = false;
+    void host
+      .exec<AuditCell[]>({ cmd: 'cellWatches' })
+      .then((w) => !cancelled && Array.isArray(w) && setWatchState(w))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, loadSeq]);
+  const persistWatches = useRef(false);
+  useEffect(() => {
+    if (!host || !persistWatches.current) return;
+    persistWatches.current = false;
+    void host.exec({ cmd: 'setCellWatches', cells: watches }).catch(() => {});
+  }, [host, watches]);
+  const setWatches = useCallback((next: SetStateAction<AuditCell[]>) => {
+    persistWatches.current = true;
+    setWatchState(next);
+  }, []);
+
+  const addWatches = useCallback(
+    (s: number, r: Range) => {
+      setWatches((w) => {
+        const out = [...w];
+        let added = 0;
+        for (let row = r.r0; row <= r.r1 && added < MAX_WATCH_ADD; row++) {
+          for (let col = r.c0; col <= r.c1 && added < MAX_WATCH_ADD; col++) {
+            if (!out.some((x) => x.sheet === s && x.row === row && x.col === col)) {
+              out.push({ sheet: s, row, col });
+              added++;
+            }
           }
         }
-      }
-      return out;
-    });
-    setWatchOpen(true);
-  }, []);
+        return out;
+      });
+      setWatchOpen(true);
+    },
+    [setWatches],
+  );
 
   return {
     traces,
@@ -890,6 +921,9 @@ export function CalcOptionsDialog({
   const [count, setCount] = useState('100');
   const [delta, setDelta] = useState('0.001');
   const [error, setError] = useState('');
+  // Turning precision as displayed on asks first, like the spreadsheet users know:
+  // stored numbers are rounded for good.
+  const [askPrecision, setAskPrecision] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void host
@@ -1014,7 +1048,10 @@ export function CalcOptionsDialog({
               type="checkbox"
               data-testid="calc-precision"
               checked={!opts.fullPrecision}
-              onChange={(e) => setOpts({ ...opts, fullPrecision: !e.target.checked })}
+              onChange={(e) => {
+                if (e.target.checked) setAskPrecision(true);
+                else setOpts({ ...opts, fullPrecision: true });
+              }}
             />
             {t('sheetAudit.opts.precision')}
           </label>
@@ -1025,6 +1062,18 @@ export function CalcOptionsDialog({
             <p className={styles.error} role="alert" data-testid="calc-error">
               {error}
             </p>
+          )}
+          {askPrecision && (
+            <ConfirmDialog
+              title={t('sheetAudit.opts.precisionConfirmTitle')}
+              message={t('sheetAudit.opts.precisionConfirm')}
+              testId="calc-precision-confirm"
+              onClose={() => setAskPrecision(false)}
+              onOk={() => {
+                setAskPrecision(false);
+                setOpts({ ...opts, fullPrecision: false });
+              }}
+            />
           )}
         </div>
       )}

@@ -38,6 +38,28 @@ export interface SheetSummary {
   protected: boolean;
   /** `tabColor` as `RRGGBB` (§18.3.1.93). */
   tabColor: string | null;
+  /** The row / column outline (absent when the sheet has none). */
+  outline?: SheetOutlineInfo;
+}
+
+/** One group of the outline bar (`bo_sheet::outline::OutlineGroup`). */
+export interface SheetOutlineGroup {
+  /** 1 = outermost. */
+  level: number;
+  first: number;
+  last: number;
+  /** Summary row / column (where the +/− button sits), `null` at the sheet edge. */
+  summary: number | null;
+  /** Every row / column of the detail is hidden. */
+  collapsed: boolean;
+}
+
+/** Row / column outline of a sheet (`bo_engine::OutlineInfo`). */
+export interface SheetOutlineInfo {
+  rowLevels: number;
+  colLevels: number;
+  rows: SheetOutlineGroup[];
+  cols: SheetOutlineGroup[];
 }
 
 /** A threaded comment thread anchored on a cell. */
@@ -837,6 +859,8 @@ export type SheetCommand =
     }
   | { cmd: 'showAllData'; sheet: number }
   | { cmd: 'region'; sheet: number; range: SheetRange }
+  /** Whether a cell of `range` outside `except` holds data (answer `boolean`): asked before writing over cells. */
+  | { cmd: 'occupied'; sheet: number; range: SheetRange; except?: SheetRange | null }
   /** Where Ctrl+arrow lands from a cell (answer `{ row, col }`). */
   | {
       cmd: 'dataEdge';
@@ -1101,7 +1125,7 @@ export type SheetCommand =
     } & PrintSetupExtra)
   | { cmd: 'pageBreak'; sheet: number; row?: number; col?: number; remove?: boolean }
   | { cmd: 'resetPageBreaks'; sheet: number }
-  | { cmd: 'printPreview'; sheet: number; page?: number }
+  | { cmd: 'printPreview'; sheet: number; page?: number; layout?: boolean }
   | { cmd: 'setSavePassword'; password?: string }
   /** Package variant of the next `.xlsx` saves → `{ ok, variant }` / `{ ok: false, error }`. */
   | { cmd: 'saveFormat'; ext: string }
@@ -1126,6 +1150,8 @@ export type SheetCommand =
    * the block around the cell are the sources) and fill its empty cells below the examples.
    */
   | { cmd: 'flashFill'; sheet: number; row: number; col: number }
+  /** Flash Fill suggestion while `text` is typed in a cell (read only) → `{ cells: [row, text][] }`. */
+  | { cmd: 'flashFillPreview'; sheet: number; row: number; col: number; text: string }
   /** What-if data table over `range` (headers included); input cells as A1 addresses. */
   | {
       cmd: 'dataTable';
@@ -1201,6 +1227,20 @@ export type SheetCommand =
     }
   /** First day the strip of a timeline shows (serial; absent: from the start). Not an undo step. */
   | { cmd: 'timelineScroll'; sheet: number; index: number; day?: number }
+  /**
+   * New Slicer Style / New Timeline Style: a custom style of the workbook with a format per
+   * element (absent: the default look); saved in the styles part. One undo step.
+   */
+  | {
+      cmd: 'createFrameStyle';
+      sheet: number;
+      name: string;
+      timeline?: boolean;
+      whole?: FrameElementFormat;
+      header?: FrameElementFormat;
+      selected?: FrameElementFormat;
+      unselected?: FrameElementFormat;
+    }
   /** The pivot tables a timeline filters. */
   | {
       cmd: 'timelineConnect';
@@ -1511,6 +1551,16 @@ export interface FrameColors {
   unselectedText?: string;
 }
 
+/** The format of one element of a new slicer or timeline style (colours `#RRGGBB`). */
+export interface FrameElementFormat {
+  fill?: string;
+  text?: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** A thin border all around in this colour. */
+  border?: string;
+}
+
 /** A pivot table a slicer or timeline may filter (every pivot table on its cache). */
 export interface FrameConnection {
   sheet: number;
@@ -1687,6 +1737,11 @@ export type SheetSmartArtCommand =
   | { cmd: 'deleteSmartArt'; sheet: number; index: number }
   /** Replace the diagram by a group of ordinary shapes in the same cells (one undo step). */
   | { cmd: 'smartArtToShapes'; sheet: number; index: number }
+  /**
+   * The shape of a diagram under a point (`x`, `y`: shares 0..1 of its frame), or node `node`'s
+   * text box: the result is a `SmartArtFrameNode` or `null`. A query.
+   */
+  | { cmd: 'smartArtNodeAt'; sheet: number; index: number; x?: number; y?: number; node?: number }
   /** Thumbnails of every layout of the library: the result is `{ previews }`. */
   | {
       cmd: 'smartArtPreviews';

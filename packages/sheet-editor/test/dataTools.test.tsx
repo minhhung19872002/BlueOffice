@@ -6,9 +6,12 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConsolidateDialog,
+  FixedWidthRuler,
   RemoveDuplicatesDialog,
   SubtotalDialog,
   TextToColumnsDialog,
+  formatBreaks,
+  guessBreaks,
   parseBreaks,
   parseCellAt,
 } from '../src/dataTools';
@@ -23,7 +26,9 @@ const HEADS = ['Khu vực', 'Tháng', 'Doanh thu'];
 
 function makeHost(exec: (cmd: SheetCommand) => Promise<unknown>) {
   return {
-    exec: vi.fn(async (cmd: SheetCommand) => (cmd.cmd === 'region' ? LIST : exec(cmd))),
+    exec: vi.fn(async (cmd: SheetCommand) =>
+      cmd.cmd === 'region' ? LIST : cmd.cmd === 'occupied' ? false : exec(cmd),
+    ),
     cell: vi.fn(async (_s: number, _r: number, c: number) => ({
       address: '',
       input: HEADS[c] ?? '',
@@ -49,6 +54,55 @@ describe('helpers', () => {
     expect(parseBreaks('4, 12;20')).toEqual([4, 12, 20]);
     expect(parseBreaks('4, x')).toBeNull();
     expect(parseBreaks('0')).toBeNull();
+    expect(formatBreaks([12, 4, 12])).toBe('4, 12');
+  });
+
+  it('guesses breaks where every line starts a field after spaces', () => {
+    // Columns of width 4 and 8: "An  Hà Nội  15" style fixed-width lines.
+    expect(guessBreaks(['An  Hà Nội  15', 'Bình Huế    7 ', 'Chi Đà Lạt  9 '])).toEqual([12]);
+    expect(guessBreaks(['ID  Name', '12  Lan ', '7   Mai '])).toEqual([4]);
+    expect(guessBreaks(['', '   '])).toEqual([]);
+  });
+});
+
+describe('FixedWidthRuler', () => {
+  // happy-dom lays nothing out: one character = 7 px, the text starts 6 px in.
+  function layout(el: HTMLElement) {
+    const inner = el.firstElementChild as HTMLElement;
+    const probe = inner.firstElementChild as HTMLElement;
+    inner.getBoundingClientRect = () => ({ left: 100 }) as DOMRect;
+    probe.getBoundingClientRect = () => ({ width: 70 }) as DOMRect;
+  }
+  const x = (ch: number) => 100 + 6 + ch * 7;
+
+  it('adds a break on click, moves it by dragging, removes it out of the text', () => {
+    const onChange = vi.fn();
+    const { rerender } = wrap(
+      <FixedWidthRuler lines={['0123456789ABCDEF']} breaks={[]} onChange={onChange} />,
+    );
+    const ruler = screen.getByTestId('split-ruler');
+    layout(ruler);
+    fireEvent.mouseDown(ruler, { clientX: x(4.2), button: 0, detail: 1 });
+    expect(onChange).toHaveBeenLastCalledWith([4]);
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <FixedWidthRuler lines={['0123456789ABCDEF']} breaks={[4, 9]} onChange={onChange} />
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId('split-break-4')).toBeTruthy();
+    // Grab the line at 9 and drop it at 12.
+    fireEvent.mouseDown(ruler, { clientX: x(9) + 2, button: 0, detail: 1 });
+    fireEvent.mouseMove(window, { clientX: x(12) });
+    expect(screen.getByTestId('split-break-12')).toBeTruthy();
+    fireEvent.mouseUp(window, { clientX: x(12) });
+    expect(onChange).toHaveBeenLastCalledWith([4, 12]);
+    // Dragged out of the text (left of the first character): removed.
+    fireEvent.mouseDown(ruler, { clientX: x(4), button: 0, detail: 1 });
+    fireEvent.mouseUp(window, { clientX: x(-3) });
+    expect(onChange).toHaveBeenLastCalledWith([9]);
+    // Double-click on a line removes it too.
+    fireEvent.mouseDown(ruler, { clientX: x(9), button: 0, detail: 2 });
+    expect(onChange).toHaveBeenLastCalledWith([4]);
   });
 });
 
@@ -67,6 +121,21 @@ describe('TextToColumnsDialog', () => {
         range={{ r0: 0, c0: 0, r1: 4, c1: 0 }}
       />,
     );
+    // Step 1 of 3: how the text is divided (separators by default), raw preview.
+    expect(screen.getByTestId('split-back').hasAttribute('disabled')).toBe(true);
+    expect((screen.getByTestId('split-delimited') as HTMLInputElement).checked).toBe(true);
+    await waitFor(() =>
+      expect(host.exec).toHaveBeenCalledWith({
+        cmd: 'textToColumns',
+        sheet: 0,
+        range: { r0: 0, c0: 0, r1: 4, c1: 0 },
+        split: { mode: 'delimited', delimiters: [], consecutive: false, qualifier: null },
+        preview: true,
+      }),
+    );
+    fireEvent.click(screen.getByTestId('split-next'));
+    // Step 2: Tab is ticked by default.
+    expect((screen.getByTestId('split-tab') as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByTestId('split-tab'));
     fireEvent.click(screen.getByTestId('split-comma'));
     await waitFor(() =>
@@ -79,8 +148,16 @@ describe('TextToColumnsDialog', () => {
       split: { mode: 'delimited', delimiters: [','], consecutive: false, qualifier: '"' },
       preview: true,
     });
-    fireEvent.change(screen.getByTestId('split-format-1'), { target: { value: 'skip' } });
-    fireEvent.change(screen.getByTestId('split-format-2'), { target: { value: 'dmy' } });
+    // Step 3: pick a column in the preview, then its format.
+    fireEvent.click(screen.getByTestId('split-next'));
+    expect(screen.getByTestId('split-next').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('split-col-0').textContent).toBe('Automatic');
+    fireEvent.click(screen.getByTestId('split-col-1'));
+    fireEvent.click(screen.getByTestId('split-fmt-skip'));
+    expect(screen.getByTestId('split-col-1').textContent).toBe('Leave out');
+    fireEvent.click(screen.getByTestId('split-col-2'));
+    fireEvent.click(screen.getByTestId('split-fmt-date'));
+    expect(screen.getByTestId('split-col-2').textContent).toBe('Date DMY');
     fireEvent.change(screen.getByTestId('split-dest'), { target: { value: 'Data!C2' } });
     fireEvent.click(screen.getByTestId('split-ok'));
     await waitFor(() => expect(c.onClose).toHaveBeenCalled());
@@ -95,6 +172,60 @@ describe('TextToColumnsDialog', () => {
     expect(c.onDone).toHaveBeenCalled();
   });
 
+  it('proposes fixed-width breaks and asks before replacing data', async () => {
+    const raw = ['An  12', 'Bo  7 '];
+    const host = makeHost(async () => null);
+    host.exec.mockImplementation(async (cmd: SheetCommand) => {
+      // B1:B2 hold data.
+      if (cmd.cmd === 'occupied') return true;
+      if (cmd.cmd === 'textToColumns' && cmd.preview)
+        return cmd.split.mode === 'fixed'
+          ? {
+              rows: [
+                ['An', '12'],
+                ['Bo', '7'],
+              ],
+              columns: 2,
+            }
+          : { rows: raw.map((r) => [r]), columns: 1 };
+      return { rows: 2, columns: 2 };
+    });
+    const c = common(host);
+    const range = { r0: 0, c0: 0, r1: 1, c1: 0 };
+    wrap(<TextToColumnsDialog {...c} sheets={['Sheet1']} range={range} />);
+    fireEvent.click(screen.getByTestId('split-fixed'));
+    await waitFor(() =>
+      expect(screen.getByTestId('split-preview').textContent).toContain('An  12'),
+    );
+    fireEvent.click(screen.getByTestId('split-next'));
+    // The text suggests a field at character 4.
+    expect((screen.getByTestId('split-breaks') as HTMLInputElement).value).toBe('4');
+    expect(screen.getByTestId('split-break-4')).toBeTruthy();
+    expect(screen.getByTestId('split-ruler').textContent).toContain('An  12');
+    fireEvent.click(screen.getByTestId('split-ok'));
+    // B1:B2 hold data: the wizard asks before writing over it.
+    await waitFor(() => expect(screen.getByTestId('replace-warning')).toBeTruthy());
+    expect(host.exec).toHaveBeenCalledWith({
+      cmd: 'occupied',
+      sheet: 0,
+      range: { r0: 0, c0: 0, r1: 1, c1: 1 },
+      except: range,
+    });
+    expect(host.exec).not.toHaveBeenCalledWith(
+      expect.objectContaining({ formats: expect.anything() }),
+    );
+    fireEvent.click(screen.getByTestId('replace-warning-ok'));
+    await waitFor(() => expect(c.onClose).toHaveBeenCalled());
+    expect(host.exec).toHaveBeenCalledWith({
+      cmd: 'textToColumns',
+      sheet: 0,
+      range,
+      split: { mode: 'fixed', breaks: [4] },
+      formats: ['general', 'general'],
+      dest: { sheet: 0, row: 0, col: 0 },
+    });
+  });
+
   it('checks fixed-width breaks and shows engine errors', async () => {
     const host = makeHost(async (cmd) => {
       if (cmd.cmd === 'textToColumns' && !cmd.preview) throw new Error('textToColumns: oneColumn');
@@ -103,7 +234,13 @@ describe('TextToColumnsDialog', () => {
     const c = common(host);
     wrap(<TextToColumnsDialog {...c} sheets={['Sheet1']} range={{ r0: 0, c0: 0, r1: 4, c1: 1 }} />);
     fireEvent.click(screen.getByTestId('split-fixed'));
+    fireEvent.click(screen.getByTestId('split-next'));
     fireEvent.change(screen.getByTestId('split-breaks'), { target: { value: '4, x' } });
+    // Next refuses bad positions as Finish does.
+    fireEvent.click(screen.getByTestId('split-next'));
+    expect(screen.getByTestId('split-error').textContent).toBe(
+      'Enter break positions as whole numbers, e.g. 4, 12.',
+    );
     fireEvent.click(screen.getByTestId('split-ok'));
     expect(screen.getByTestId('split-error').textContent).toBe(
       'Enter break positions as whole numbers, e.g. 4, 12.',

@@ -18,6 +18,7 @@ import {
   type SmartArtPreviewLoader,
   SmartArtLivePreview,
   SmartArtPaneToggle,
+  SmartArtSelection,
   SmartArtTextPane,
   registerSmartArtTools,
   smartArtDesignGroups,
@@ -2157,6 +2158,31 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
     }),
     [edit, smartNode, smartPane, run, ctrl, loadSmartArtPreviews, smartFrame, latestPreview],
   );
+  // A click on a shape inside a diagram selects that shape, as in the office suites: it becomes
+  // the current shape of Add Shape, Promote / Demote and the text pane, marked in the frame.
+  const smartClicked = useCallback(
+    (r: SlideEditResult, at: { x: number; y: number }) => {
+      const s = r.smartart;
+      if (!s || r.selection.length !== 1 || r.selection[0]?.id !== s.id) return;
+      void ctrl
+        .query({ cmd: 'smartArtNodeAt', id: s.id, x: at.x, y: at.y })
+        .then((n) => setSmartNode(n?.smartartNode?.node ?? null));
+    },
+    [ctrl],
+  );
+  const [smartNodeAt, setSmartNodeBox] = useState<SlideSmartArtNode | null>(null);
+  const smartNodeBox = smartId !== null && smartNode !== null ? smartNodeAt : null;
+  const smartItems = edit?.smartart?.items;
+  useEffect(() => {
+    if (smartId === null || smartNode === null) return;
+    let live = true;
+    void ctrl.query({ cmd: 'smartArtNodeAt', id: smartId, node: smartNode }).then((r) => {
+      if (live) setSmartNodeBox(r?.smartartNode ?? null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ctrl, smartId, smartNode, smartItems]);
   const openChart = useCallback(() => {
     const c = edit?.chart;
     if (c) setChartDialog({ mode: 'edit', initial: chartDraftOf(c) });
@@ -5861,6 +5887,7 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                     controller={ctrl}
                     editing={editing}
                     onStartEdit={startEdit}
+                    onClicked={smartClicked}
                     onExitEdit={exitEdit}
                     onTextShortcut={textShortcut}
                     onNextPlaceholder={() => void nextPlaceholder().catch(fail)}
@@ -5950,8 +5977,22 @@ function SlideEditorInner({ platform, theme: themeSetting = 'auto' }: BlueSlideE
                         width: smartFrame.w * sc,
                         height: smartFrame.h * sc,
                       };
+                      const nb =
+                        smartNodeBox && smartNodeBox.id === smartId
+                          ? {
+                              left: smartNodeBox.x * sc,
+                              top: smartNodeBox.y * sc,
+                              width: smartNodeBox.w * sc,
+                              height: smartNodeBox.h * sc,
+                            }
+                          : null;
                       return (
                         <>
+                          <SmartArtSelection
+                            frame={box}
+                            node={smartPreview ? null : nb}
+                            nodeIndex={smartNode}
+                          />
                           {smartPreview && <SmartArtLivePreview svg={smartPreview} style={box} />}
                           <SmartArtPaneToggle
                             open={smartPane}

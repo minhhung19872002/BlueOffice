@@ -159,6 +159,10 @@ export type AuditCommand =
   | { cmd: 'resetIgnoredErrors' }
   /** Watch-window rows → {@link WatchRow}[]. */
   | { cmd: 'watchValues'; cells: AuditCell[] }
+  /** Watched cells saved in the workbook (`cellWatches` of each sheet). */
+  | { cmd: 'cellWatches' }
+  /** Replace the saved watched cells (no undo step). */
+  | { cmd: 'setCellWatches'; cells: AuditCell[] }
   /** → {@link CalcState}. */
   | { cmd: 'calcOptions' }
   /** Change the settings; one undo step → {@link CalcState}. */

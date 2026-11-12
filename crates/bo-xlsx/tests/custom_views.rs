@@ -39,6 +39,7 @@ fn model() -> Workbook {
         filter: true,
         show_auto_filter: true,
         hidden_rows: true,
+        session_hidden_rows: Some(vec![(4, 5)]),
         view: Some("pageLayout".into()),
         top_left_cell: Some("B3".into()),
         pane: Some(Pane {
@@ -150,6 +151,49 @@ fn custom_view_extension_children_are_kept() {
     let back = read_xlsx(&bytes).unwrap();
     assert_eq!(back.sheets[0].custom_views[0].unknown.len(), 1);
     assert_eq!(back.sheets[0].custom_views[0].unknown[0].after, "extLst");
+}
+
+#[test]
+fn custom_view_hidden_rows_cols_and_print_area_travel_as_names() {
+    let mut wb = model();
+    wb.sheets[0].name = "Bán hàng, Q1".into();
+    let cv = &mut wb.sheets[0].custom_views[0];
+    cv.session_hidden_rows = Some(vec![(2, 4), (7, 7)]);
+    cv.session_hidden_cols = Some(vec![(2, 3)]);
+    cv.session_print_area = Some(Some("'Bán hàng, Q1'!$A$1:$D$20".into()));
+    let bytes = write_xlsx(&wb).unwrap();
+    let book = part(&bytes, "/xl/workbook.xml");
+    let plain = book.replace("&apos;", "'");
+    // Hidden sheet-scoped names keyed by the GUID (no braces, `_` for `-`).
+    assert!(
+        plain.contains(
+            "<definedName name=\"Z_11111111_2222_4333_8444_555555555555_.wvu.Rows\" \
+             localSheetId=\"0\" hidden=\"1\">'Bán hàng, Q1'!$3:$5,'Bán hàng, Q1'!$8:$8</definedName>"
+        ),
+        "{book}"
+    );
+    assert!(plain.contains("_.wvu.Cols\" localSheetId=\"0\" hidden=\"1\">'Bán hàng, Q1'!$C:$D<"));
+    assert!(plain
+        .contains("_.wvu.PrintArea\" localSheetId=\"0\" hidden=\"1\">'Bán hàng, Q1'!$A$1:$D$20<"));
+    let back = read_xlsx(&bytes).unwrap();
+    // Taken back into the view, not left as defined names.
+    assert!(back.defined_names.is_empty(), "{:?}", back.defined_names);
+    assert_eq!(back.sheets[0].custom_views, wb.sheets[0].custom_views);
+    let again = write_xlsx(&back).unwrap();
+    assert_eq!(part(&again, "/xl/workbook.xml"), book);
+    // A name of an unknown view stays a defined name.
+    let mut other = back.clone();
+    other.sheets[0].custom_views[0].guid = "{99999999-2222-4333-8444-555555555555}".into();
+    other.custom_views[0].guid = "{99999999-2222-4333-8444-555555555555}".into();
+    other.defined_names.push(bo_model::sheet::DefinedName {
+        name: "Z_11111111_2222_4333_8444_555555555555_.wvu.Rows".into(),
+        formula: "'Bán hàng, Q1'!$3:$3".into(),
+        local_sheet: Some(0),
+        hidden: true,
+        attrs: Vec::new(),
+    });
+    let back = read_xlsx(&write_xlsx(&other).unwrap()).unwrap();
+    assert_eq!(back.defined_names.len(), 1);
 }
 
 /// `BO_DUMP_CUSTOM_VIEWS=<file>` writes the sample for `bo-cli validate --openxml require`.

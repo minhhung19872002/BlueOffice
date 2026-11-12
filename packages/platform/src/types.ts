@@ -653,6 +653,10 @@ export interface ListLevelSpec {
   hanging: number;
   /** Paragraph style linked to the level (§17.9.23 pStyle), e.g. `Heading1`. */
   style?: string | null;
+  /** Restart after this (one-based) level (§17.9.10 lvlRestart); 0 = never, absent = the level above. */
+  restart?: number | null;
+  /** Legal-style numbering (§17.9.4 isLgl): every number shown as a decimal. */
+  legal?: boolean;
 }
 
 /** Set numbering value (mirrors `bo_edit::ListNumbering`). */
@@ -1104,6 +1108,11 @@ export type DocSmartArtCommand =
       rtl?: boolean;
     }
   | { cmd: 'smartArtInfo' }
+  /**
+   * The shape of the diagram at the selection under a point of a page (points), or node
+   * `node`'s text box: answers `{ smartArtNode }` (a query).
+   */
+  | { cmd: 'smartArtNodeAt'; page?: number; x?: number; y?: number; node?: number }
   /** Replace the diagram at the selection by a group of ordinary shapes (one undo step). */
   | { cmd: 'smartArtToShapes' }
   /** Thumbnails of every layout of the library: answers `{ previews }`. */
@@ -1130,6 +1139,18 @@ export interface DocSmartArtInfo {
   width: number;
   height: number;
   floating: boolean;
+  /** Where the frame is drawn (page, points from its top-left); null while not laid out. */
+  frame?: SelRect | null;
+}
+
+/** A shape of a diagram picked in its frame: its node, text and box (shares 0..1 of the frame). */
+export interface SmartArtFrameNode {
+  node: number;
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 /** How text wraps around a document chart (mirrors `bo_engine::doc_chart::WRAPS`). */
@@ -1195,6 +1216,8 @@ export interface EditResult {
   smartArt?: DocSmartArtInfo | null;
   /** Answer of `smartArtPreviews`: thumbnails of the layout library. */
   previews?: SmartArtPreview[];
+  /** Answer of `smartArtNodeAt`: the shape and its box on its page (points). */
+  smartArtNode?: (SelRect & { node: number; text: string }) | null;
   /** The chart at the selection after a chart command (`null`: none). */
   chart?: DocChartInfo | null;
   /** Chart Design gallery (`chartGallery`). */

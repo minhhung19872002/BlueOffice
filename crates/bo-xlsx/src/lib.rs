@@ -50,7 +50,7 @@ mod xmlpatch;
 
 pub use csv::{read_csv, write_csv, CsvOptions};
 pub use read::{read_xlsx, read_xlsx_with_limits, theme_colors};
-pub use styles::frame_styles;
+pub use styles::{add_frame_style, frame_styles};
 pub use write::write_xlsx;
 pub use xml::canonicalize_xml;
 pub use xml2003::{is_xml_spreadsheet, read_xml_spreadsheet};

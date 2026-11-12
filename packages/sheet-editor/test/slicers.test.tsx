@@ -14,9 +14,11 @@ import {
   TimelineFrame,
   chartFilterFields,
   frameStyleLabel,
+  nextFrameStyleName,
   nextSlicerChoice,
   periodAt,
   periodRange,
+  previewColors,
   selectionLabel,
   slicerFields,
   slicerRangeChoice,
@@ -217,6 +219,28 @@ describe('slicer and timeline helpers', () => {
     });
   });
 
+  it('names a new style after the ones in use and previews its colours', () => {
+    expect(nextFrameStyleName('slicer', [], t)).toBe('Slicer style 1');
+    expect(nextFrameStyleName('slicer', ['slicer style 1', 'Slicer style 2'], t)).toBe(
+      'Slicer style 3',
+    );
+    expect(nextFrameStyleName('timeline', ['Slicer style 1'], t)).toBe('Timeline style 1');
+    const base = slicer().colors!;
+    const c = previewColors(base, {
+      whole: { fill: '#F2F2F2', border: '#1F4E79', text: '#333333' },
+      header: { text: '#002060' },
+      unselected: { fill: '#FFF2CC' },
+    });
+    expect(c).toEqual({
+      ...base,
+      background: '#F2F2F2',
+      border: '#1F4E79',
+      headerText: '#002060',
+      unselected: '#FFF2CC',
+      unselectedText: '#333333',
+    });
+  });
+
   it('turns periods into a day range and a label', () => {
     const tl = timeline();
     expect(periodRange(tl, 3, 1)).toEqual({ start: 45323, end: 45412 });
@@ -404,6 +428,61 @@ describe('TimelineFrame', () => {
     // Then Shift click extends from where the drag started.
     fireEvent.click(period('04/2024'), { shiftKey: true });
     expect(onRange).toHaveBeenLastCalledWith(45292, 45412);
+  });
+
+  it('moves an end of the selection by dragging its handle', () => {
+    const onRange = vi.fn();
+    ui(
+      <TimelineFrame
+        {...frame()}
+        info={timeline()}
+        onRange={onRange}
+        onClear={vi.fn()}
+        onLevel={vi.fn()}
+      />,
+    );
+    const strip = screen.getByTestId('timeline-strip');
+    const period = (name: string) => within(strip).getByRole('button', { name });
+    // February … March chosen: the start handle on February, the end handle on March.
+    expect(within(period('02/2024')).getByTestId('timeline-edge-start')).toBeTruthy();
+    expect(within(period('03/2024')).getByTestId('timeline-edge-end')).toBeTruthy();
+    // The end handle dragged to April: February … April (the start stays).
+    fireEvent.mouseDown(screen.getByTestId('timeline-edge-end'), { button: 0 });
+    expect(screen.queryByTestId('timeline-edge-end')).toBeNull();
+    fireEvent.mouseEnter(period('04/2024'));
+    fireEvent.mouseUp(window);
+    expect(onRange).toHaveBeenLastCalledWith(45323, 45412);
+    // The start handle dragged to January: January … March.
+    fireEvent.mouseDown(screen.getByTestId('timeline-edge-start'), { button: 0 });
+    fireEvent.mouseEnter(period('01/2024'));
+    fireEvent.mouseUp(window);
+    expect(onRange).toHaveBeenLastCalledWith(45292, 45382);
+    expect(onRange).toHaveBeenCalledTimes(2);
+  });
+
+  it('has no selection handles without a filter or when it cannot change', () => {
+    const { rerender } = ui(
+      <TimelineFrame
+        {...frame()}
+        info={timeline({ filtered: false })}
+        onRange={vi.fn()}
+        onClear={vi.fn()}
+        onLevel={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('timeline-edge-start')).toBeNull();
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <TimelineFrame
+          {...frame({ editable: false })}
+          info={timeline()}
+          onRange={vi.fn()}
+          onClear={vi.fn()}
+          onLevel={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.queryByTestId('timeline-edge-end')).toBeNull();
   });
 
   it('hides the parts Timeline Tools › Show turns off', () => {
@@ -614,6 +693,99 @@ describe('FrameOptionsDialog', () => {
       pivots: undefined,
       show: { header: true, selectionLabel: true, timeLevel: false, scrollbar: false },
     });
+  });
+
+  it('creates a new slicer style with a format per element and offers it', async () => {
+    const onCreateStyle = vi.fn(async () => {});
+    const onApply = vi.fn(async () => {});
+    const s = slicer();
+    ui(
+      <FrameOptionsDialog
+        kind="slicer"
+        caption={s.caption}
+        columns={s.columns}
+        style={s.style ?? null}
+        connections={s.pivots ?? []}
+        customStyles={['Slicer style 1']}
+        colors={s.colors}
+        onCreateStyle={onCreateStyle}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('frame-style-new'));
+    const dlg = screen.getByTestId('frame-style-dialog');
+    // The first free default name.
+    expect((within(dlg).getByTestId('frame-style-name') as HTMLInputElement).value).toBe(
+      'Slicer style 2',
+    );
+    // Header: bold; selected items: a red fill and white text.
+    fireEvent.click(within(dlg).getByTestId('frame-style-element-header'));
+    fireEvent.click(within(dlg).getByTestId('frame-style-bold'));
+    fireEvent.click(within(dlg).getByTestId('frame-style-element-selected'));
+    expect((within(dlg).getByTestId('frame-style-bold') as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(within(dlg).getByTestId('frame-style-use-fill'));
+    fireEvent.change(within(dlg).getByTestId('frame-style-fill'), {
+      target: { value: '#c00000' },
+    });
+    fireEvent.click(within(dlg).getByTestId('frame-style-use-text'));
+    fireEvent.change(within(dlg).getByTestId('frame-style-text'), {
+      target: { value: '#ffffff' },
+    });
+    // The preview shows the chosen item in the new colours.
+    const preview = within(dlg).getByTestId('frame-style-preview');
+    expect(preview.style.getPropertyValue('--frame-on')).toBe('#C00000');
+    expect(preview.style.getPropertyValue('--frame-on-text')).toBe('#FFFFFF');
+    // A format put on and cleared again is not saved.
+    fireEvent.click(within(dlg).getByTestId('frame-style-element-whole'));
+    fireEvent.click(within(dlg).getByTestId('frame-style-use-border'));
+    fireEvent.click(within(dlg).getByTestId('frame-style-clear'));
+    fireEvent.click(within(dlg).getByTestId('frame-style-ok'));
+    await waitFor(() => expect(onCreateStyle).toHaveBeenCalledTimes(1));
+    expect(onCreateStyle).toHaveBeenCalledWith({
+      name: 'Slicer style 2',
+      formats: {
+        header: { bold: true },
+        selected: { fill: '#C00000', text: '#FFFFFF' },
+      },
+    });
+    await waitFor(() => expect(screen.queryByTestId('frame-style-dialog')).toBeNull());
+    // The new style is the choice; OK applies it.
+    const style = screen.getByTestId('frame-style') as HTMLSelectElement;
+    expect(style.value).toBe('Slicer style 2');
+    fireEvent.click(screen.getByTestId('frame-options-ok'));
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ style: 'Slicer style 2' }));
+  });
+
+  it('asks for a name and shows the engine message for a name in use', async () => {
+    const onCreateStyle = vi.fn(async () => {
+      throw new Error('style name in use');
+    });
+    ui(
+      <FrameOptionsDialog
+        kind="timeline"
+        caption="Date"
+        style={null}
+        connections={[]}
+        onCreateStyle={onCreateStyle}
+        onApply={vi.fn(async () => {})}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('frame-style-new'));
+    const dlg = screen.getByTestId('frame-style-dialog');
+    expect(within(dlg).getByText('Selected time block')).toBeTruthy();
+    fireEvent.change(within(dlg).getByTestId('frame-style-name'), { target: { value: '  ' } });
+    fireEvent.click(within(dlg).getByTestId('frame-style-ok'));
+    expect(within(dlg).getByRole('alert').textContent).toBe('Enter a style name.');
+    expect(onCreateStyle).not.toHaveBeenCalled();
+    fireEvent.change(within(dlg).getByTestId('frame-style-name'), { target: { value: 'Mine' } });
+    fireEvent.click(within(dlg).getByTestId('frame-style-ok'));
+    await waitFor(() =>
+      expect(within(dlg).getByRole('alert').textContent).toBe('style name in use'),
+    );
+    expect(screen.getByTestId('frame-style-dialog')).toBeTruthy();
   });
 
   it('has no columns and no connections for a table slicer or where they do not apply', async () => {

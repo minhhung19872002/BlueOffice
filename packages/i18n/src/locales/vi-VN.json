@@ -1781,6 +1781,12 @@
         "varp": "Phương sai (tổng thể)"
       },
       "split": {
+        "stepTitle": "Tách văn bản thành cột — bước {{step}}/3",
+        "back": "< Quay lại",
+        "next": "Tiếp >",
+        "finish": "Hoàn tất",
+        "dateKind": "Ngày",
+        "dateOrder": "Thứ tự ngày",
         "title": "Tách văn bản thành cột",
         "kind": "Cách tách",
         "delimited": "Theo ký tự phân cách",
@@ -1806,7 +1812,9 @@
         "errors": {
           "oneColumn": "Hãy chọn các ô trong một cột.",
           "tooLarge": "Kết quả vượt quá kích thước trang tính."
-        }
+        },
+        "ruler": "Đường ngắt trên văn bản",
+        "rulerHint": "Bấm vào văn bản để thêm đường ngắt, kéo một đường để dời, kéo ra khỏi văn bản hoặc bấm đúp để xoá."
       },
       "dedupe": {
         "title": "Xóa hàng trùng lặp",
@@ -2194,6 +2202,10 @@
     },
     "smartArt": {
       "delete": "Xoá sơ đồ thông minh"
+    },
+    "replaceWarn": {
+      "title": "Thay nội dung ô",
+      "message": "Các ô nơi dữ liệu được ghi vào không trống. Thay nội dung của chúng?"
     }
   },
   "recovery": {
@@ -2248,6 +2260,9 @@
     "orderHorizontal": "Theo hàng ngang, rồi xuống",
     "orderVertical": "Theo cột dọc, rồi sang",
     "frame": "Vẽ khung quanh mỗi trang chiếu",
+    "orientation": "Hướng giấy",
+    "portrait": "Dọc",
+    "landscape": "Ngang",
     "paper": "Khổ giấy",
     "paperA4": "A4 (210 × 297 mm)",
     "paperLetter": "Letter (8,5 × 11 in)",
@@ -4512,6 +4527,10 @@
     "hanging": "Thụt treo của số",
     "linkHeadings": "Liên kết cấp 1–9 với Đề mục 1–9",
     "apply": "Áp dụng cho các đoạn đang chọn",
+    "restartAfter": "Bắt đầu lại danh sách sau",
+    "restartDefault": "Cấp ngay trên",
+    "restartNever": "Không bao giờ",
+    "legal": "Đánh số kiểu pháp lý (mọi số dạng 1, 2, 3)",
     "preview": "Xem trước",
     "formats": {
       "decimal": "1, 2, 3",
@@ -5052,6 +5071,23 @@
       "models3d": "Mô hình 3D"
     }
   },
+  "sheetOutline": {
+    "row": {
+      "bar": "Dàn ý hàng",
+      "level": "Hiện mức hàng {{n}}",
+      "show": "Hiện chi tiết của hàng {{n}}",
+      "hide": "Ẩn chi tiết của hàng {{n}}"
+    },
+    "col": {
+      "bar": "Dàn ý cột",
+      "level": "Hiện mức cột {{n}}",
+      "show": "Hiện chi tiết của cột {{n}}",
+      "hide": "Ẩn chi tiết của cột {{n}}"
+    },
+    "showDetail": "Hiện chi tiết",
+    "hideDetail": "Ẩn chi tiết",
+    "symbols": "Ký hiệu dàn ý"
+  },
   "sheetAudit": {
     "tab": "Công thức",
     "groupAudit": "Kiểm tra công thức",
@@ -5143,7 +5179,9 @@
       "maxIterations": "Số lần lặp tối đa",
       "maxChange": "Dừng khi giá trị thay đổi ít hơn",
       "precision": "Tính theo độ chính xác hiển thị",
-      "precisionWarn": "Số được làm tròn theo số chữ số thập phân định dạng hiển thị trước khi dùng trong công thức.",
+      "precisionWarn": "Dữ liệu sẽ mất độ chính xác vĩnh viễn: số đã lưu được làm tròn theo số chữ số thập phân định dạng hiển thị (một bước hoàn tác).",
+      "precisionConfirmTitle": "Độ chính xác như hiển thị",
+      "precisionConfirm": "Số đã lưu sẽ được làm tròn theo số chữ số thập phân định dạng hiển thị. Không thể lấy lại các chữ số bị bỏ.",
       "invalid": "Nhập số lần lặp nguyên từ 1 đến {{max}} và mức thay đổi từ 0 trở lên."
     }
   },
@@ -5158,6 +5196,7 @@
     "groupTemp": "Dạng xem trang tính",
     "tempViews": "Dạng xem tạm…",
     "pageLabel": "Trang {{n}}",
+    "areaEdge": "Kéo để đổi vùng in",
     "breakManual": "Ngắt trang thủ công — kéo để di chuyển",
     "breakAuto": "Ngắt trang tự động — kéo để đặt ngắt trang thủ công",
     "breakPreview": "Vùng trang và ngắt trang",
@@ -5539,7 +5578,14 @@
     "clear": "Xóa",
     "clearGroup": "Xóa cả nhóm",
     "invalidRange": "Hãy nhập một vùng ô hợp lệ.",
-    "minMax": "Giá trị nhỏ nhất phải nhỏ hơn giá trị lớn nhất."
+    "minMax": "Giá trị nhỏ nhất phải nhỏ hơn giá trị lớn nhất.",
+    "groupData": "Dữ liệu",
+    "editData": "Sửa dữ liệu",
+    "editSingle": "Dữ liệu biểu đồ thu nhỏ này",
+    "switch": "Đổi hàng và cột",
+    "editDataTitle": "Sửa dữ liệu và vị trí nhóm biểu đồ thu nhỏ",
+    "editSingleTitle": "Sửa dữ liệu của biểu đồ thu nhỏ này",
+    "singleHint": "Một hàng hoặc một cột, ví dụ A2:D2 hoặc Sheet2!A2:D2"
   },
   "cite": {
     "style": "Kiểu",
@@ -5861,7 +5907,41 @@
     },
     "chartItems": "Các mục của {{name}}",
     "selectAll": "(Chọn tất cả)",
-    "keepOne": "Giữ lại ít nhất một mục."
+    "keepOne": "Giữ lại ít nhất một mục.",
+    "dragStart": "Kéo để đổi đầu khoảng chọn",
+    "dragEnd": "Kéo để đổi cuối khoảng chọn",
+    "newStyle": {
+      "button": "Kiểu mới…",
+      "slicerTitle": "Kiểu slicer mới",
+      "timelineTitle": "Kiểu timeline mới",
+      "name": "Tên",
+      "slicerName": "Kiểu slicer {{n}}",
+      "timelineName": "Kiểu timeline {{n}}",
+      "elements": "Thành phần",
+      "format": "Định dạng thành phần",
+      "fill": "Màu nền",
+      "text": "Màu chữ",
+      "border": "Màu viền",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "useFill": "Tô nền",
+      "useText": "Đặt màu chữ",
+      "useBorder": "Kẻ viền",
+      "clear": "Xoá định dạng",
+      "formatted": "đã định dạng",
+      "preview": "Xem trước",
+      "sample": "Mục {{n}}",
+      "nameNeeded": "Nhập tên kiểu.",
+      "element": {
+        "whole": "Toàn bộ slicer",
+        "header": "Tiêu đề",
+        "selected": "Mục được chọn có dữ liệu",
+        "unselected": "Mục không được chọn có dữ liệu",
+        "wholeTimeline": "Toàn bộ timeline",
+        "selectedTime": "Khối thời gian được chọn",
+        "unselectedTime": "Khối thời gian không được chọn"
+      }
+    }
   },
   "pictureTools": {
     "tab": "Định dạng ảnh",

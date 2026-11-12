@@ -38,6 +38,7 @@ pub mod picture_tools;
 pub mod proofing;
 pub mod refs;
 pub mod revisions;
+mod row_controls;
 pub mod section;
 pub mod shapes;
 pub mod sigline;
@@ -1236,6 +1237,13 @@ fn max_control_id(doc: &Document) -> i64 {
         .max()
         .unwrap_or(0)
         .max(0)
+        .max(
+            doc.sections
+                .iter()
+                .map(|s| row_controls::max_row_control_id(&s.blocks))
+                .max()
+                .unwrap_or(0),
+        )
 }
 
 // ------------------------------------------------------------------ session

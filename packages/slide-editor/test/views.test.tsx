@@ -213,6 +213,62 @@ describe('OutlineView', () => {
   });
 });
 
+describe('OutlineView undo', () => {
+  it('Ctrl+Z / Ctrl+Y in a line run the engine history after sending the typing', async () => {
+    const sent: SlideCommand[] = [];
+    let current = deck;
+    const runResult = vi.fn(async (c: SlideCommand) => {
+      sent.push(c);
+      if (c.cmd === 'undo') current = [{ ...deck[0]!, title: 'Đã hoàn tác' }, deck[1]!];
+      return { outline: current } as unknown as SlideEditResult;
+    });
+    render(wrap(<OutlineView runResult={runResult} revision={1} current={0} onSelect={vi.fn()} />));
+    const first = (await screen.findByTestId('outline-line-0')) as HTMLInputElement;
+    fireEvent.change(first, { target: { value: 'Mở đầu mới' } });
+    let ev: KeyboardEvent | undefined;
+    await act(async () => {
+      ev = new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      first.dispatchEvent(ev);
+    });
+    // The text box's own undo is not used.
+    expect(ev?.defaultPrevented).toBe(true);
+    const cmds = sent.map((c) => c.cmd);
+    // The typed text becomes a step first, then the engine undoes, then the outline is read again.
+    const apply = cmds.indexOf('applyOutline');
+    const undo = cmds.indexOf('undo');
+    expect(apply).toBeGreaterThanOrEqual(0);
+    expect(undo).toBeGreaterThan(apply);
+    expect(cmds.slice(undo + 1)).toContain('outline');
+    expect(((await screen.findByTestId('outline-line-0')) as HTMLInputElement).value).toBe(
+      'Đã hoàn tác',
+    );
+    // Ctrl+Y and Ctrl+Shift+Z redo.
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('outline-line-0'), { key: 'y', ctrlKey: true });
+    });
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('outline-line-0'), {
+        key: 'Z',
+        ctrlKey: true,
+        shiftKey: true,
+      });
+    });
+    expect(sent.filter((c) => c.cmd === 'redo')).toHaveLength(2);
+    // Nothing typed: Ctrl+Z only undoes.
+    const before = sent.filter((c) => c.cmd === 'applyOutline').length;
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('outline-line-0'), { key: 'z', ctrlKey: true });
+    });
+    expect(sent.filter((c) => c.cmd === 'applyOutline')).toHaveLength(before);
+    expect(sent.filter((c) => c.cmd === 'undo')).toHaveLength(2);
+  });
+});
+
 describe('NotesPageView', () => {
   const page: SlideNotesPage = {
     width: 540,
@@ -221,6 +277,16 @@ describe('NotesPageView', () => {
     body: { x: 54, y: 346.5, w: 432, h: 283.5 },
     text: 'Ghi chú',
     size: 12,
+    hf: [
+      {
+        kind: 'number',
+        rect: { x: 270, y: 684, w: 270, h: 36 },
+        text: '1',
+        align: 'right',
+        size: 12,
+        bottom: true,
+      },
+    ],
   };
 
   it('scales the page boxes', () => {
@@ -253,6 +319,13 @@ describe('NotesPageView', () => {
     expect(text.style.fontSize).toBe('6px');
     // The slide picture: 432 pt × 0.5.
     expect(screen.getByTestId('pic-0').textContent).toBe('216');
+    // The notes master's page number, in its box at the page scale.
+    const num = screen.getByTestId('notes-page-hf-number-1');
+    expect(num.textContent).toBe('1');
+    expect(num.style.top).toBe('342px');
+    expect(num.style.left).toBe('135px');
+    expect(num.style.textAlign).toBe('right');
+    expect(num.getAttribute('data-bottom')).toBe('true');
     expect(screen.getByTestId('notes-page-2').style.height).toBe('360px');
     fireEvent.change(text, { target: { value: 'Ghi chú mới' } });
     fireEvent.blur(text);

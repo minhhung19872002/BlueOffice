@@ -11,7 +11,7 @@ use crate::xml::{
     push_unknown, take, take_bool, take_u32,
 };
 use crate::Result;
-use bo_model::sheet::{CustomSheetView, CustomWorkbookView, PageSetup};
+use bo_model::sheet::{CustomSheetView, CustomWorkbookView, PageSetup, Workbook, Worksheet};
 use bo_opc::xml::XmlReader;
 use quick_xml::events::BytesStart;
 
@@ -243,4 +243,149 @@ pub(crate) fn write_custom_workbook_views(out: &mut String, views: &[CustomWorkb
         }
     }
     out.push_str("</customWorkbookViews>");
+}
+
+// ---------------------------------------------------------------------------
+// Hidden rows / columns and print area of a custom view
+// ---------------------------------------------------------------------------
+//
+// `customSheetView` only flags them (§18.3.1.25 `hiddenRows`, `hiddenColumns`,
+// `printArea`); the lists themselves travel as hidden sheet-scoped defined names
+// (§18.2.5 `definedName`) named after the view's GUID — `Z_<guid>_.wvu.Rows`,
+// `.wvu.Cols`, `.wvu.PrintArea`, the GUID without braces and with `_` for `-`
+// (the convention seen in files written by common spreadsheet applications).
+
+/// What a view name holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ViewName {
+    Rows,
+    Cols,
+    PrintArea,
+}
+
+/// The GUID part of a view name: no braces, `_` for `-`, upper case.
+fn guid_key(guid: &str) -> String {
+    guid.trim_matches(|c| c == '{' || c == '}')
+        .replace('-', "_")
+        .to_ascii_uppercase()
+}
+
+fn view_name(guid: &str, kind: ViewName) -> String {
+    let suffix = match kind {
+        ViewName::Rows => "Rows",
+        ViewName::Cols => "Cols",
+        ViewName::PrintArea => "PrintArea",
+    };
+    format!("Z_{}_.wvu.{suffix}", guid_key(guid))
+}
+
+/// Splits `Z_<guid>_.wvu.<kind>` into the GUID key and the kind.
+fn parse_view_name(name: &str) -> Option<(String, ViewName)> {
+    let (key, kind) = name.strip_prefix("Z_")?.rsplit_once("_.wvu.")?;
+    let kind = match kind {
+        "Rows" => ViewName::Rows,
+        "Cols" => ViewName::Cols,
+        "PrintArea" => ViewName::PrintArea,
+        _ => return None,
+    };
+    Some((key.to_ascii_uppercase(), kind))
+}
+
+/// `'Sheet'!$3:$5,'Sheet'!$8:$8` (rows) or `'Sheet'!$C:$D` (columns) of 0-based spans.
+fn spans_formula(sheet: &str, rows: bool, spans: &[(u32, u32)]) -> String {
+    let q = format!("'{}'", sheet.replace('\'', "''"));
+    let one = |i: u32| {
+        if rows {
+            format!("${}", u64::from(i) + 1)
+        } else {
+            format!("${}", bo_model::sheet::col_to_letters(i))
+        }
+    };
+    spans
+        .iter()
+        .map(|&(a, b)| format!("{q}!{}:{}", one(a), one(b)))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Parses whole-row / whole-column references like [`spans_formula`] writes (sheet
+/// prefixes and `$` ignored); `None` on anything else.
+fn parse_spans(f: &str, rows: bool) -> Option<Vec<(u32, u32)>> {
+    let one = |s: &str| -> Option<u32> {
+        let s = s.trim().trim_start_matches('$');
+        if rows {
+            s.parse::<u32>().ok().filter(|n| *n >= 1).map(|n| n - 1)
+        } else {
+            bo_model::sheet::letters_to_col(s)
+        }
+    };
+    // Quoted sheet names may hold commas: split outside quotes only.
+    let mut parts = Vec::new();
+    let (mut start, mut quote) = (0, false);
+    for (i, ch) in f.char_indices() {
+        match ch {
+            '\'' => quote = !quote,
+            ',' if !quote => {
+                parts.push(&f[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&f[start..]);
+    let mut out = Vec::new();
+    for p in parts {
+        let r = p.rsplit_once('!').map_or(p, |(_, r)| r);
+        let (a, b) = r.split_once(':').unwrap_or((r, r));
+        let (a, b) = (one(a)?, one(b)?);
+        out.push((a.min(b), a.max(b)));
+    }
+    Some(out)
+}
+
+/// Moves the `Z_<guid>_.wvu.*` names of `wb` into the custom sheet views they
+/// belong to; names that match no view (or do not parse) stay defined names.
+pub(crate) fn take_view_names(wb: &mut Workbook) {
+    let names = std::mem::take(&mut wb.defined_names);
+    for dn in names {
+        let found = parse_view_name(&dn.name).and_then(|(key, kind)| {
+            let ws = wb.sheets.get_mut(usize::try_from(dn.local_sheet?).ok()?)?;
+            let cv = ws
+                .custom_views
+                .iter_mut()
+                .find(|v| guid_key(&v.guid) == key)?;
+            match kind {
+                ViewName::Rows => cv.session_hidden_rows = Some(parse_spans(&dn.formula, true)?),
+                ViewName::Cols => cv.session_hidden_cols = Some(parse_spans(&dn.formula, false)?),
+                ViewName::PrintArea => cv.session_print_area = Some(Some(dn.formula.clone())),
+            }
+            Some(())
+        });
+        if found.is_none() {
+            wb.defined_names.push(dn);
+        }
+    }
+}
+
+/// The `Z_<guid>_.wvu.*` names to write for the custom views of `ws`: `(name, formula)`.
+pub(crate) fn view_names(ws: &Worksheet) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for v in &ws.custom_views {
+        if let Some(spans) = v.session_hidden_rows.as_ref().filter(|s| !s.is_empty()) {
+            out.push((
+                view_name(&v.guid, ViewName::Rows),
+                spans_formula(&ws.name, true, spans),
+            ));
+        }
+        if let Some(spans) = v.session_hidden_cols.as_ref().filter(|s| !s.is_empty()) {
+            out.push((
+                view_name(&v.guid, ViewName::Cols),
+                spans_formula(&ws.name, false, spans),
+            ));
+        }
+        if let Some(Some(pa)) = &v.session_print_area {
+            out.push((view_name(&v.guid, ViewName::PrintArea), pa.clone()));
+        }
+    }
+    out
 }

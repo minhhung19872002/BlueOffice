@@ -512,3 +512,17 @@ fn error_bars_round_trip() {
         c.plots[0].series[0].err_bars
     );
 }
+
+// source: §21.2.2.50 doughnutChart holeSize (ST_HoleSize, 1..=90 percent).
+#[test]
+fn doughnut_hole_size_round_trips() {
+    let mut c = chart(ChartKind::Doughnut);
+    c.plots[0].hole_size = Some(75);
+    let (xml, back) = cycle(&c);
+    has(&xml, &["<c:holeSize val=\"75\"/>"]);
+    assert_eq!(back.plots[0].hole_size, Some(75));
+    // Out-of-range values are brought into the type's range.
+    let odd = xml.replace("<c:holeSize val=\"75\"/>", "<c:holeSize val=\"95\"/>");
+    let back = parse_chart_space(odd.as_bytes(), "/xl/charts/chart1.xml").unwrap();
+    assert_eq!(back.plots[0].hole_size, Some(90));
+}

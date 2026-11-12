@@ -15,6 +15,7 @@ import {
   boundaryAt,
   CustomViewsDialog,
   PageBreakOverlay,
+  PageLayoutView,
   sheetViewTabGroups,
   TempViewsDialog,
 } from '../src/sheetViews';
@@ -84,6 +85,62 @@ function fakeHost(over: Partial<SheetHost> = {}) {
 }
 
 const view: SheetView = { sheet: 0, scrollX: 0, scrollY: 0, width: 400, height: 300 };
+
+describe('page layout view', () => {
+  it('draws the layout pages and puts the cell editor over the active cell', async () => {
+    // Every page counts as scrolled into view.
+    vi.stubGlobal('IntersectionObserver', undefined);
+    const exec = vi.fn(async (cmd: SheetCommand) => {
+      if (cmd.cmd === 'pageLayout')
+        return {
+          pages: [
+            {
+              width: 595,
+              height: 842,
+              margins: [50.4, 50.4, 54, 54, 21.6, 21.6],
+              cells: { c0: 0, c1: 9, r0: 0, r1: 35, scale: 1, x: 50.4, y: 54 },
+            },
+          ],
+        };
+      if (cmd.cmd === 'pageCellRect') return { x: 114.4, y: 94, w: 64, h: 20 };
+      if (cmd.cmd === 'pageHit') return { row: 2, col: 2 };
+      return { pages: 1, page: null };
+    });
+    const host = { exec } as unknown as SheetHost;
+    const onCellDouble = vi.fn();
+    const props = {
+      host,
+      sheet: 0,
+      revision: 1,
+      zoom: 1,
+      onCell: vi.fn(),
+      onCellDouble,
+      onHeaderFooter: vi.fn(),
+      active: { row: 2, col: 2 },
+      fail: vi.fn(),
+    };
+    const { rerender } = wrap(<PageLayoutView {...props} />);
+    await waitFor(() => expect(screen.getByTestId('page-layout-active-0')).toBeTruthy());
+    // The pages are drawn as the layout view shows them (full-page grid).
+    await waitFor(() =>
+      expect(exec).toHaveBeenCalledWith({ cmd: 'printPreview', sheet: 0, page: 0, layout: true }),
+    );
+    fireEvent.doubleClick(screen.getByTestId('page-layout-page-0'), { clientX: 10, clientY: 10 });
+    await waitFor(() => expect(onCellDouble).toHaveBeenCalledWith(2, 2));
+    // While the cell is edited, the editor replaces the outline over the cell.
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <PageLayoutView {...props} editor={() => <textarea data-testid="ed" />} />
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId('ed')).toBeTruthy();
+    expect(screen.queryByTestId('page-layout-active-0')).toBeNull();
+    const box = screen.getByTestId('page-layout-editor-0');
+    // 114.4 pt × 4/3 px per pt.
+    expect(parseFloat(box.style.left)).toBeCloseTo((114.4 * 4) / 3, 3);
+    vi.unstubAllGlobals();
+  });
+});
 
 describe('page break preview', () => {
   it('rounds a dragged break to the nearest row / column boundary', () => {
@@ -255,6 +312,7 @@ describe('temporary views and the ribbon', () => {
       'view.pageLayout',
       'view.customViews',
       'view.showFormulas',
+      'view.outlineSymbols',
       'view.tempViews',
     ]);
   });

@@ -38,6 +38,13 @@ pub struct ListLevelSpec {
     /// Paragraph style linked to the level (§17.9.23 pStyle), e.g. `Heading1`.
     #[serde(default)]
     pub style: Option<String>,
+    /// "Restart the list after level" (§17.9.10 lvlRestart, one-based; `0` = never,
+    /// `None` = after the level just above).
+    #[serde(default)]
+    pub restart: Option<u8>,
+    /// Legal-style numbering (§17.9.4 isLgl): all numbers of the level text as decimals.
+    #[serde(default)]
+    pub legal: bool,
 }
 
 fn one() -> i32 {
@@ -93,6 +100,8 @@ pub fn default_level(i: u8) -> ListLevelSpec {
         // Longer labels (`1.1.1.`) need a wider hanging indent.
         hanging: 360 + 144 * i32::from(i),
         style: None,
+        restart: None,
+        legal: false,
     }
 }
 
@@ -161,9 +170,12 @@ fn build_levels(specs: &[ListLevelSpec]) -> Result<Vec<Level>> {
                     ..ParaProps::default()
                 },
                 rpr: RunProps::default(),
-                restart: None,
+                // §17.9.10 lvlRestart: only a level above this one makes sense.
+                restart: spec.restart.map(|r| r.min(i)),
                 suffix: "tab".into(),
                 pstyle,
+                // §17.9.4 isLgl.
+                is_lgl: spec.legal,
             })
         })
         .collect()
@@ -419,6 +431,32 @@ mod tests {
         assert!(s.undo());
         assert_eq!(s.doc().numbering.abstracts.len(), 0);
         assert!(s.doc().style("Heading2").is_none());
+    }
+
+    /// §17.9.10 lvlRestart (clamped to a level above) and §17.9.4 isLgl reach the model.
+    #[test]
+    fn restart_after_level_and_legal_style() {
+        let mut s = Session::new(doc(&[("A", None)]));
+        let specs = vec![
+            default_level(0),
+            default_level(1),
+            ListLevelSpec {
+                restart: Some(1),
+                legal: true,
+                ..default_level(2)
+            },
+            ListLevelSpec {
+                restart: Some(9),
+                ..default_level(3)
+            },
+        ];
+        s.define_list(&specs, false).unwrap();
+        let abs = s.doc().numbering.abstracts.last().unwrap().clone();
+        assert_eq!(abs.levels[2].restart, Some(1));
+        assert!(abs.levels[2].is_lgl);
+        assert_eq!(abs.levels[3].restart, Some(3));
+        assert_eq!(abs.levels[1].restart, None);
+        assert!(!abs.levels[1].is_lgl);
     }
 
     #[test]

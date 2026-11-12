@@ -4,6 +4,8 @@
  * slide image box and the speaker notes, editable, in the notes box — both
  * boxes from the notes slide or the notes master (§19.3.1.26 notes,
  * §19.3.1.27 notesMaster). A notes edit is the undoable `setNotes` command.
+ * The header, date, footer and page number come from the notes master's
+ * placeholders shown by its `p:hf` flags (§19.3.1.25).
  */
 import { useTranslation } from '@blueoffice/i18n';
 import type { SlideCommand, SlideEditResult, SlideNotesPage } from '@blueoffice/platform';
@@ -86,6 +88,17 @@ export function NotesPageView({
             >
               {canvas(i, p.image.w * k)}
             </button>
+            {(p.hf ?? []).map((h) => (
+              <div
+                key={h.kind}
+                className={styles.notesPageHf}
+                data-testid={`notes-page-hf-${h.kind}-${i + 1}`}
+                data-bottom={h.bottom ? 'true' : undefined}
+                style={{ ...boxStyle(h.rect, k), fontSize: h.size * k, textAlign: h.align }}
+              >
+                {h.text}
+              </div>
+            ))}
             <textarea
               className={styles.notesPageText}
               data-testid={`notes-page-text-${i + 1}`}

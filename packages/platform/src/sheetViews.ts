@@ -12,6 +12,8 @@ export type SheetViewMode = 'normal' | 'pageBreakPreview' | 'pageLayout';
 export interface SheetViewState {
   view: SheetViewMode;
   showFormulas: boolean;
+  /** The outline bar is shown when the sheet has an outline (`showOutlineSymbols`). */
+  outlineSymbols?: boolean;
   /** Zoom percent of the current view type. */
   zoom: number;
   /** Zoom percent kept for each view type. */
@@ -91,8 +93,11 @@ export type SheetViewCommand =
       sheet: number;
       view?: SheetViewMode;
       showFormulas?: boolean;
+      outlineSymbols?: boolean;
       zoom?: number;
     }
+  /** Cell rectangle on a page of the page layout view (points) → `{ x, y, w, h }` | `null`. */
+  | { cmd: 'pageCellRect'; sheet: number; page: number; row: number; col: number }
   /** → {@link BreakPreview}. */
   | { cmd: 'pageBreakPreview'; sheet: number }
   /** Moves (or with no `from`, inserts) a break; one undo step → `{ scale: number | null }`. */

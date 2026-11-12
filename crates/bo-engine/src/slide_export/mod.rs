@@ -11,7 +11,7 @@
 
 pub mod handout;
 pub(crate) mod masters;
-mod package;
+pub mod package;
 pub mod svg;
 pub(crate) mod text;
 
@@ -75,6 +75,9 @@ pub struct HandoutOptions {
     pub frame: bool,
     /// Paper size.
     pub paper: Paper,
+    /// Page orientation: `Some(true)` landscape, `Some(false)` portrait,
+    /// `None` as the paper comes (the notes size keeps its own orientation).
+    pub landscape: Option<bool>,
     /// Header and footer.
     #[serde(flatten)]
     pub hf: HeaderFooter,
@@ -89,6 +92,7 @@ impl Default for HandoutOptions {
             order: Order::Horizontal,
             frame: true,
             paper: Paper::A4,
+            landscape: None,
             hf: HeaderFooter::default(),
             slides: None,
         }
@@ -158,6 +162,12 @@ impl Default for ImageOptions {
     }
 }
 
+/// Options of a presentation package (none yet; linked clips need the host,
+/// see [`Engine::export_package_with`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PackageOptions {}
+
 /// What to export (JSON: `{"kind":"handout","perPage":6,…}`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -169,7 +179,7 @@ pub enum SlideExport {
     /// Slide pictures.
     Image(ImageOptions),
     /// Zip of the deck, its media clips and embeddable fonts.
-    Package,
+    Package(PackageOptions),
     /// The open document or deck as PDF with PDF/A, tagged-PDF and bookmark
     /// choices (`{"kind":"pdf","pdfa":"2b","tagged":true,"bookmarks":true}`,
     /// CORE-FMT-002).
@@ -218,6 +228,69 @@ fn place_slide(out: &mut Vec<Command>, slide: &PageList, frame: &Frame) {
     out.push(Command::PopClip);
 }
 
+/// Split laid-out lines (`[top, bottom]`, text coordinates) into page slices
+/// `(from, to)`: the first page holds `first` points of text, every further
+/// page `more`. A slice ends after its last whole line; a line taller than a
+/// page still gets a page of its own.
+fn slices(lines: &[(f64, f64)], first: f32, more: f32) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    let mut from = 0.0;
+    while i < lines.len() {
+        let room = f64::from(if out.is_empty() { first } else { more });
+        // Continuation slices start at their first line, under a top inset.
+        let origin = if out.is_empty() { from } else { from - 3.6 };
+        let mut to = lines[i].1;
+        let mut j = i + 1;
+        while j < lines.len() && lines[j].1 - origin <= room {
+            to = lines[j].1;
+            j += 1;
+        }
+        out.push((from, to));
+        i = j;
+        if let Some(&(top, _)) = lines.get(i) {
+            from = top;
+        }
+    }
+    out
+}
+
+/// Draw text commands laid out from `(0, 0)` into `frame`, moved up by `shift`
+/// and clipped to `height` points: the page slice `from..=to` of the notes
+/// (text runs of other slices are left out, so each line is in the PDF once).
+fn place_text(
+    out: &mut Vec<Command>,
+    cmds: &[Command],
+    frame: &Frame,
+    shift: f64,
+    (from, to): (f64, f64),
+) {
+    let height = to - shift;
+    let h = (height as f32 + 0.5).min(frame.h.max(0.0) + 0.5);
+    out.push(Command::PushClip {
+        x: frame.x,
+        y: frame.y,
+        w: frame.w,
+        h,
+    });
+    out.push(Command::PushTransform {
+        m: [1.0, 0.0, 0.0, 1.0, frame.x, frame.y - shift as f32],
+    });
+    out.extend(
+        cmds.iter()
+            .filter(|c| match c {
+                Command::Glyphs { y, .. } => {
+                    let y = f64::from(*y);
+                    y >= from - 0.01 && y <= to + 0.01
+                }
+                _ => true,
+            })
+            .cloned(),
+    );
+    out.push(Command::PopTransform);
+    out.push(Command::PopClip);
+}
+
 impl Engine {
     fn deck(&self) -> Result<&bo_model::slide::Presentation> {
         self.pres.as_ref().ok_or(EngineError::NoDocument)
@@ -247,7 +320,11 @@ impl Engine {
     pub fn handout_pages(&mut self, o: &HandoutOptions) -> Result<DisplayList> {
         let (sw, sh) = self.slide_size_pt()?;
         let notes_size = self.notes_size_pt()?;
-        let (pw, ph) = o.paper.size(notes_size);
+        let (pw, ph) = match (o.paper.size(notes_size), o.landscape) {
+            ((w, h), Some(true)) => (w.max(h), w.min(h)),
+            ((w, h), Some(false)) => (w.min(h), w.max(h)),
+            (s, None) => s,
+        };
         let layout = handout::layout(o.per_page, pw, ph, sw / sh.max(1.0)).ok_or_else(|| {
             EngineError::BadCommand(format!(
                 "slides per page must be 1, 2, 3, 4, 6 or 9, not {}",
@@ -265,7 +342,7 @@ impl Engine {
         for (page_no, chunk) in list.chunks(k).enumerate() {
             let mut cmds = Vec::new();
             for (pos, &i) in chunk.iter().enumerate() {
-                let slot = handout::slot(pos, o.per_page, o.order);
+                let slot = handout::slot_on(pos, o.per_page, o.order, pw > ph);
                 let Some(frame) = layout.frames.get(slot) else {
                     continue;
                 };
@@ -343,25 +420,74 @@ impl Engine {
             let mut cmds = Vec::new();
             place_slide(&mut cmds, self.page(i)?, &frame);
             cmds.push(outline(&frame, 0.75));
-            let notes = self.slide_notes(i)?;
             let size = master
                 .as_ref()
                 .and_then(|m| m.notes_size_pt)
                 .unwrap_or(12.0);
-            text::wrap_into(&mut self.fonts, &mut cmds, &notes, &body_box, size);
-            self.header_footer(
-                &mut cmds,
-                master.as_ref(),
-                &o.hf,
-                (pw, ph),
-                notes_size,
-                i + 1,
-            );
-            pages.push(PageList {
-                width: pw,
-                height: ph,
-                commands: cmds,
-            });
+            let rich = {
+                let pres = self.pres.as_ref().ok_or(EngineError::NoDocument)?;
+                bo_pptx::notes_text(
+                    pres,
+                    i,
+                    master.as_ref().and_then(|m| m.notes_style.as_ref()),
+                    master.as_ref().map_or(&[][..], |m| m.clr_map.as_slice()),
+                    f64::from(body_box.w),
+                    &mut self.fonts,
+                )
+            };
+            // Further pages of long notes: the notes box grows to the top of
+            // the slide picture (our layout; ECMA-376 leaves printing open).
+            let top = body_box.y.min(img_box.y);
+            let more_box = Frame {
+                x: body_box.x,
+                y: top,
+                w: body_box.w,
+                h: body_box.y + body_box.h - top,
+            };
+            let parts = match &rich {
+                Some(t) => slices(&t.lines, body_box.h, more_box.h),
+                None => Vec::new(),
+            };
+            let mut page_cmds = vec![cmds];
+            match &rich {
+                Some(t) if !parts.is_empty() => {
+                    for (k, &(from, to)) in parts.iter().enumerate() {
+                        if k > 0 {
+                            page_cmds.push(Vec::new());
+                        }
+                        let b = if k == 0 { body_box } else { more_box };
+                        // A continuation slice starts at its first line's top,
+                        // put under the box's top inset.
+                        let shift = if k == 0 { 0.0 } else { from - 3.6 };
+                        if let Some(out) = page_cmds.last_mut() {
+                            place_text(out, &t.commands, &b, shift, (from, to));
+                        }
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    // No body placeholder with text: plain notes text, if any.
+                    let notes = self.slide_notes(i)?;
+                    if let Some(out) = page_cmds.first_mut() {
+                        text::wrap_into(&mut self.fonts, out, &notes, &body_box, size);
+                    }
+                }
+            }
+            for mut cmds in page_cmds {
+                self.header_footer(
+                    &mut cmds,
+                    master.as_ref(),
+                    &o.hf,
+                    (pw, ph),
+                    notes_size,
+                    i + 1,
+                );
+                pages.push(PageList {
+                    width: pw,
+                    height: ph,
+                    commands: cmds,
+                });
+            }
         }
         Ok(DisplayList { pages })
     }
@@ -441,9 +567,16 @@ impl Engine {
                 self.write_pdf_list(&list)
             }
             SlideExport::Image(o) => self.export_images(o),
-            SlideExport::Package => package::build(self),
+            SlideExport::Package(_) => package::build(self, &|_| None),
             SlideExport::Pdf(c) => self.export_pdf_with(c),
         }
+    }
+
+    /// The presentation package with linked clips that are local files copied
+    /// in: `read_link` is the host's file access (the engine never reads files;
+    /// network locations are never passed to it).
+    pub fn export_package_with(&self, read_link: package::LinkReader<'_>) -> Result<Vec<u8>> {
+        package::build(self, read_link)
     }
 
     /// JSON variant of [`Engine::export_slides`] (the WASM / Tauri bridge).

@@ -158,15 +158,15 @@ pub enum TableEdit {
 
 /// Where a body paragraph sits in its innermost table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CellAt {
+pub(crate) struct CellAt {
     /// Container path of the table block and its index there.
-    container: Vec<usize>,
-    index: usize,
-    row: usize,
-    cell: usize,
+    pub(crate) container: Vec<usize>,
+    pub(crate) index: usize,
+    pub(crate) row: usize,
+    pub(crate) cell: usize,
 }
 
-fn cell_at(doc: &Document, id: usize) -> Option<CellAt> {
+pub(crate) fn cell_at(doc: &Document, id: usize) -> Option<CellAt> {
     let paths = body_paragraphs(doc);
     let p = paths.get(id)?;
     if p.len() < 5 {
@@ -181,7 +181,7 @@ fn cell_at(doc: &Document, id: usize) -> Option<CellAt> {
     })
 }
 
-fn table_of<'d>(doc: &'d Document, at: &CellAt) -> Option<&'d Table> {
+pub(crate) fn table_of<'d>(doc: &'d Document, at: &CellAt) -> Option<&'d Table> {
     match blocks_at(doc, &at.container)?.get(at.index)? {
         Block::Table(t) => Some(t),
         _ => None,
@@ -726,6 +726,9 @@ impl Session {
                         ins: None,
                         del: None,
                         change: None,
+                        // §17.5.2.32 row-level controls stay on the rows they were on.
+                        controls: Vec::new(),
+                        controls_end: 0,
                         ..src.props.clone()
                     },
                     cells,
@@ -766,7 +769,7 @@ impl Session {
                             }
                         }
                     }
-                    t.rows.drain(r0..=r1);
+                    crate::row_controls::drain_rows_keep_controls(&mut t, r0, r1);
                     let r = r0.min(t.rows.len() - 1);
                     caret = Some((r, cell_covering(&t.rows[r], cur_start).unwrap_or(0)));
                 }

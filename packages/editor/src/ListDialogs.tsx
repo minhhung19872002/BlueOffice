@@ -101,7 +101,9 @@ export function levelLabel(levels: ListLevelSpec[], ilvl: number, counts: number
     const k = Number(d) - 1;
     const l = levels[k];
     if (!l) return '';
-    return formatNumber(counts[k] ?? l.start, l.format);
+    // §17.9.4 isLgl: every number of a legal-style level as a decimal.
+    const legal = lv.legal && l.format !== 'bullet' && l.format !== 'none';
+    return formatNumber(counts[k] ?? l.start, legal ? 'decimal' : l.format);
   });
 }
 
@@ -221,6 +223,37 @@ export function DefineListDialog({
               </option>
             ))}
           </select>
+        </label>
+        {sel > 0 && (
+          <label className={styles.field}>
+            <span>{t('listDialog.restartAfter')}</span>
+            {/* §17.9.10 lvlRestart: one-based level, 0 = never, absent = the level above. */}
+            <select
+              data-testid="list-restart"
+              value={lv.restart == null ? '' : String(lv.restart)}
+              onChange={(e) =>
+                patch({ restart: e.target.value === '' ? null : Number(e.target.value) })
+              }
+            >
+              <option value="">{t('listDialog.restartDefault')}</option>
+              {Array.from({ length: sel }, (_, k) => (
+                <option key={k} value={String(k + 1)}>
+                  {t('listDialog.levelSample', { n: k + 1 })}
+                </option>
+              ))}
+              <option value="0">{t('listDialog.restartNever')}</option>
+            </select>
+          </label>
+        )}
+        <label className={styles.field}>
+          {/* §17.9.4 isLgl. */}
+          <input
+            type="checkbox"
+            data-testid="list-legal"
+            checked={!!lv.legal}
+            onChange={(e) => patch({ legal: e.target.checked })}
+          />
+          {t('listDialog.legal')}
         </label>
         <label className={styles.field}>
           <span>{t('listDialog.indent')}</span>

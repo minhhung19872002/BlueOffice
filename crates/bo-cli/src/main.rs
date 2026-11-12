@@ -45,6 +45,7 @@ mod blocks;
 mod convert;
 mod corpus;
 mod doc_charts;
+mod doc_diagrams;
 mod edit_cmd;
 mod fidelity;
 mod macro_samples;
@@ -448,6 +449,9 @@ struct DeckExportArgs {
     /// Handouts / notes pages: US Letter paper instead of A4.
     #[arg(long)]
     letter: bool,
+    /// Handouts: landscape pages.
+    #[arg(long)]
+    landscape: bool,
     /// Slide decks, --to pdf: notes pages (slide and speaker notes).
     #[arg(long)]
     notes_pages: bool,
@@ -554,9 +558,11 @@ fn deck_export(
     engine: &mut Engine,
     to: &str,
     a: &DeckExportArgs,
+    folder: Option<&std::path::Path>,
 ) -> Result<Exported, Box<dyn std::error::Error>> {
     use bo_engine::slide_export::{
-        handout::Order, HandoutOptions, ImageFormat, ImageOptions, NotesOptions, Paper, SlideExport,
+        handout::Order, package, HandoutOptions, ImageFormat, ImageOptions, NotesOptions, Paper,
+        SlideExport,
     };
     let paper = if a.letter { Paper::Letter } else { Paper::A4 };
     let opts = match to {
@@ -573,6 +579,7 @@ fn deck_export(
                     Order::Horizontal
                 },
                 paper,
+                landscape: a.landscape.then_some(true),
                 ..HandoutOptions::default()
             }),
             None => return Ok(None),
@@ -587,7 +594,25 @@ fn deck_export(
             width: a.width,
             ..ImageOptions::default()
         }),
-        "zip" => SlideExport::Package,
+        // Linked clips that are local files are copied too (relative ones from
+        // the input's folder); the engine offers no network locations.
+        "zip" => {
+            let base = folder.unwrap_or_else(|| std::path::Path::new("."));
+            let read = |l: &package::LocalLink| {
+                let p = std::path::Path::new(&l.path);
+                let full = if l.relative {
+                    base.join(p)
+                } else {
+                    p.to_path_buf()
+                };
+                let meta = std::fs::metadata(&full).ok()?;
+                if !meta.is_file() || meta.len() > package::MAX_LINKED {
+                    return None;
+                }
+                std::fs::read(&full).ok()
+            };
+            return Ok(Some((engine.export_package_with(&read)?, "zip".into())));
+        }
         _ => return Ok(None),
     };
     let one = a.slide.is_some() || engine.slide_count() == 1;
@@ -1353,7 +1378,7 @@ fn run_convert(
         (Loaded::Pptx(b), "pdf" | "png" | "jpg" | "svg" | "zip") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.open_pptx(&b, &name)?;
-            match deck_export(&mut engine, to, deck)? {
+            match deck_export(&mut engine, to, deck, input.parent())? {
                 Some((data, ext)) => {
                     out_ext = ext;
                     data
@@ -1385,7 +1410,7 @@ fn run_convert(
         (Loaded::Deck(_), "pptx" | "pdf" | "png" | "jpg" | "svg" | "zip") => {
             let mut engine = Engine::with_bundled_fonts();
             engine.open(&bytes, &name)?;
-            match deck_export(&mut engine, to, deck)? {
+            match deck_export(&mut engine, to, deck, input.parent())? {
                 Some((data, ext)) => {
                     out_ext = ext;
                     data

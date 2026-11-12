@@ -239,14 +239,33 @@ pub fn show_links(pres: &Presentation, slide: usize, placed: &[Placed]) -> Vec<L
 // Thumbnails
 // ---------------------------------------------------------------------------
 
-/// PNG of slide `i` (the engine renderer, [`THUMB_PX`] wide).
-fn thumbnail(pres: &Presentation, i: usize, fonts: &mut bo_text::FontManager) -> Option<Vec<u8>> {
+/// PNG of slide `i` (the engine renderer, [`THUMB_PX`] wide). Without
+/// `show_bg` ([MS-PPTX] zoom properties `showBg="0"`) the destination's
+/// background is left out, so the zoom blends into the slide it sits on.
+fn thumbnail(
+    pres: &Presentation,
+    i: usize,
+    show_bg: bool,
+    fonts: &mut bo_text::FontManager,
+) -> Option<Vec<u8>> {
     let mut images = BTreeMap::new();
-    let page = bo_pptx::render_slide(pres, i, fonts, &mut images).ok()?;
+    let opts = bo_pptx::RenderOptions {
+        no_background: !show_bg,
+        ..bo_pptx::RenderOptions::default()
+    };
+    let page = bo_pptx::render_with(pres, i, fonts, &mut images, &opts).ok()?;
     if page.width <= 0.0 {
         return None;
     }
-    bo_raster::render_page_png_with(&page, fonts, THUMB_PX / page.width, &images).ok()
+    let scale = THUMB_PX / page.width;
+    if show_bg {
+        return bo_raster::render_page_png_with(&page, fonts, scale, &images).ok();
+    }
+    // A transparent canvas: the parent slide shows through.
+    bo_raster::render_layer(&page, fonts, scale, &images)
+        .ok()?
+        .encode_png()
+        .ok()
 }
 
 /// Add an image under a name derived from its bytes (hosts cache pictures by part name).
@@ -325,7 +344,7 @@ fn add_object_rels(
     let mut taken: Vec<String> = Vec::new();
     let mut rels: Vec<Rel> = Vec::new();
     for p in plan {
-        let png = thumbnail(tx.pres, p.preview, fonts).ok_or(EditError::Refused("render"))?;
+        let png = thumbnail(tx.pres, p.preview, true, fonts).ok_or(EditError::Refused("render"))?;
         let part = image_part(tx, png, "png", "image/png")?;
         let s = tx.pres.slides.get(slide).ok_or(OpError::NoSlide(slide))?;
         let image = new_rid(&s.info.rels, &taken);
@@ -879,7 +898,8 @@ fn refresh_object(
     let Some(preview) = preview_slide(tx.pres, &o.target) else {
         return Ok(());
     };
-    let png = thumbnail(tx.pres, preview, fonts).ok_or(EditError::Refused("render"))?;
+    let png =
+        thumbnail(tx.pres, preview, o.props.show_bg, fonts).ok_or(EditError::Refused("render"))?;
     let current = o
         .image_rid
         .as_deref()
@@ -1092,8 +1112,15 @@ impl crate::Engine {
                         cmd_insert_summary(tx, sel, slides, names, fonts)
                     });
                 }
-                ZoomCommand::ZoomOptions { .. } => {
-                    ed.mutate(pres, &mut out, |tx, sel| cmd_options(tx, sel, cmd));
+                ZoomCommand::ZoomOptions { show_bg, .. } => {
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        cmd_options(tx, sel, cmd)?;
+                        // The previews show the new background choice (custom pictures stay).
+                        if show_bg.is_some() {
+                            cmd_refresh(tx, sel, false, fonts)?;
+                        }
+                        Ok(())
+                    });
                 }
                 ZoomCommand::ZoomImage { data } => match b64_decode(data) {
                     Some(bytes) => ed.mutate(pres, &mut out, |tx, sel| cmd_image(tx, sel, bytes)),

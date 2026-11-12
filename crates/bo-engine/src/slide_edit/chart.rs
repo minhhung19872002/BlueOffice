@@ -191,6 +191,8 @@ fn plot_of(kind: &str, grouping: Option<String>) -> R<ChartPlot> {
         _ => false,
     });
     Ok(ChartPlot {
+        // A new doughnut's hole (§21.2.2.50 holeSize), as Insert › Chart gives it.
+        hole_size: (k == ChartKind::Doughnut).then_some(bo_sheet::chart::INSERT_HOLE_SIZE),
         kind: k,
         bar_dir: dir.map(str::to_owned),
         grouping,

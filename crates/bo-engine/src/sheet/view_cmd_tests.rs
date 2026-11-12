@@ -189,6 +189,64 @@ fn view_type_show_formulas_and_zoom() {
         f.geometry(0).unwrap().col_width(0)
     };
     assert!((w - 2.0 * plain).abs() < 1e-9);
+    // Dragging column B to 150 pt while formulas are shown keeps it 150 pt on screen
+    // and stores the normal width 75 pt (100 px): back in normal view it is 75 pt.
+    run(
+        &mut e,
+        json!({ "cmd": "resize", "sheet": 0, "rows": false, "first": 1, "last": 1, "size": 150.0 }),
+    );
+    assert!((e.geometry(0).unwrap().col_width(1) - 150.0).abs() < 0.5);
+    // The width dialog shows the normal width: (100 px − 5 px padding) / digit width.
+    let s = run(
+        &mut e,
+        json!({ "cmd": "sizeOf", "sheet": 0, "rows": false, "index": 1 }),
+    );
+    let mdw = e.geometry(0).unwrap().metrics.mdw_px;
+    let want = ((100.0 - 5.0) / mdw * 100.0_f64).round() / 100.0;
+    assert!(
+        (s["size"].as_f64().unwrap() - want).abs() < 1e-9,
+        "{s} {want}"
+    );
+    run(
+        &mut e,
+        json!({ "cmd": "setSheetView", "sheet": 0, "showFormulas": false }),
+    );
+    assert!((e.geometry(0).unwrap().col_width(1) - 75.0).abs() < 0.5);
+}
+
+#[test]
+fn page_cell_rect_inverts_page_hit() {
+    let mut e = hundred_rows();
+    // A4 portrait, default margins: A1 at the left / top margin (0.7 in, 0.75 in).
+    let r = run(
+        &mut e,
+        json!({ "cmd": "pageCellRect", "sheet": 0, "page": 0, "row": 0, "col": 0 }),
+    );
+    assert!((r["x"].as_f64().unwrap() - 50.4).abs() < 1e-6, "{r}");
+    assert!((r["y"].as_f64().unwrap() - 54.0).abs() < 1e-6, "{r}");
+    assert!((r["h"].as_f64().unwrap() - 20.0).abs() < 1e-6, "{r}");
+    // Row 38 (index 37) is the second row of page 2: 20 pt below its top margin.
+    let r = run(
+        &mut e,
+        json!({ "cmd": "pageCellRect", "sheet": 0, "page": 1, "row": 37, "col": 0 }),
+    );
+    assert!((r["y"].as_f64().unwrap() - 74.0).abs() < 1e-6, "{r}");
+    // The middle of that rectangle hits the same cell.
+    let (x, y) = (
+        r["x"].as_f64().unwrap() + r["w"].as_f64().unwrap() / 2.0,
+        r["y"].as_f64().unwrap() + 10.0,
+    );
+    let hit = run(
+        &mut e,
+        json!({ "cmd": "pageHit", "sheet": 0, "page": 1, "x": x, "y": y }),
+    );
+    assert_eq!(hit, json!({ "row": 37, "col": 0 }));
+    // Not on that page.
+    let none = run(
+        &mut e,
+        json!({ "cmd": "pageCellRect", "sheet": 0, "page": 0, "row": 37, "col": 0 }),
+    );
+    assert!(none.is_null());
 }
 
 #[test]
@@ -215,6 +273,65 @@ fn page_layout_and_hit_test() {
         json!({ "cmd": "pageHit", "sheet": 0, "page": 1, "x": 10.0, "y": 10.0 }),
     );
     assert_eq!(h, Value::Null);
+}
+
+#[test]
+fn page_layout_fills_the_page_with_cells() {
+    let mut e = hundred_rows();
+    let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));
+    let pages = r["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 3);
+    // The last page holds rows 73–100, then empty rows down to the bottom margin:
+    // (842 − 2 × 54) pt / 20 pt = 36 rows a page → rows 72..=107.
+    let c = &pages[2]["cells"];
+    assert_eq!((c["r0"].clone(), c["r1"].clone()), (json!(72), json!(107)));
+    // Across: as many columns as fit in 595 − 2 × 50.4 = 494.2 pt.
+    let g = e.geometry(0).unwrap().clone();
+    let (mut used, mut last) = (0.0, 0);
+    for col in 0..100 {
+        let w = g.col_width(col);
+        if used + w > 494.2 + 0.01 {
+            break;
+        }
+        used += w;
+        last = col;
+    }
+    assert!(last > 0);
+    assert_eq!(c["c1"], json!(last));
+    // Typing below the data on the last page: the hit lands on an empty row.
+    let (x, y) = (c["x"].as_f64().unwrap(), c["y"].as_f64().unwrap());
+    let h = run(
+        &mut e,
+        json!({ "cmd": "pageHit", "sheet": 0, "page": 2, "x": x + 5.0, "y": y + 30.0 * 20.0 + 1.0 }),
+    );
+    assert_eq!(h, json!({ "row": 102, "col": 0 }));
+    // An empty sheet: nothing to print, one page of empty cells in the layout view.
+    let mut e = engine();
+    let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));
+    assert_eq!(r["pages"].as_array().unwrap().len(), 1);
+    assert_eq!(r["pages"][0]["cells"]["r0"], json!(0));
+    assert!(r["pages"][0]["cells"]["r1"].as_u64().unwrap() > 20);
+    let p = run(&mut e, json!({ "cmd": "printPreview", "sheet": 0 }));
+    assert_eq!(p["pages"], json!(0));
+    let p = run(
+        &mut e,
+        json!({ "cmd": "printPreview", "sheet": 0, "layout": true }),
+    );
+    assert_eq!(p["pages"], json!(1));
+    // Data only in C3: the layout page still starts at A1.
+    e.set_input(0, 2, 2, "x").unwrap();
+    let r = run(&mut e, json!({ "cmd": "pageLayout", "sheet": 0 }));
+    let c = &r["pages"][0]["cells"];
+    assert_eq!((c["r0"].clone(), c["c0"].clone()), (json!(0), json!(0)));
+    e.undo().unwrap();
+    // The sheet's own gridlines are drawn on the layout page (printing them is off).
+    let lines = p["page"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["op"] == "line")
+        .count();
+    assert!(lines > 20, "gridlines on the layout page: {lines}");
 }
 
 #[test]
@@ -282,5 +399,9 @@ fn custom_views_save_apply_delete() {
     let back = bo_xlsx::read_xlsx(&bytes).unwrap();
     assert_eq!(back.custom_views[0].name, "V");
     assert_eq!(back.sheets[0].custom_views.len(), 1);
-    assert!(back.sheets[0].custom_views[0].session_hidden_rows.is_none());
+    // The exact hidden rows travel as `Z_<guid>_.wvu.Rows` (row 5 still hidden).
+    assert_eq!(
+        back.sheets[0].custom_views[0].session_hidden_rows,
+        Some(vec![(4, 4)])
+    );
 }

@@ -359,6 +359,41 @@ pub(crate) fn apply_display_precision(fw: &mut bo_formula::Workbook, wb: &Workbo
     }
 }
 
+/// Turning "precision as displayed" on changes the stored data for good: every
+/// number constant whose format shows a fixed number of decimals is replaced by
+/// its rounded value (formula results are rounded as they are calculated).
+/// Returns the cells changed.
+pub fn round_constants_to_display(wb: &mut Workbook) -> usize {
+    let locale = crate::numfmt::Locale::default();
+    let mut by_style: std::collections::HashMap<u32, Option<i32>> =
+        std::collections::HashMap::new();
+    let mut changed = 0;
+    let styles = &wb.styles;
+    for ws in &mut wb.sheets {
+        for cell in ws.cells.values_mut() {
+            if cell.formula.is_some() {
+                continue;
+            }
+            let bo_model::sheet::CellValue::Number(n) = cell.value else {
+                continue;
+            };
+            let d = *by_style.entry(cell.style).or_insert_with(|| {
+                styles.xf(cell.style).and_then(|xf| {
+                    display_decimals(&crate::numfmt::format_code(styles, xf.num_fmt_id, &locale))
+                })
+            });
+            if let Some(d) = d {
+                let r = bo_formula::round_decimals(n, d);
+                if r.to_bits() != n.to_bits() {
+                    cell.value = bo_model::sheet::CellValue::Number(r);
+                    changed += 1;
+                }
+            }
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

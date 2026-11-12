@@ -12,7 +12,8 @@
 //! see [`crate::calcopts`]) is honoured by [`LiveCalc::update`]: in manual mode
 //! an edited formula shows its own result but nothing else is recalculated until
 //! [`LiveCalc::calculate`]; in "automatic except tables" mode data tables wait
-//! for it. Rebuilds (opening, structural edits) always calculate.
+//! for it. Opening and full rebuilds calculate; a structural edit in manual mode
+//! ([`LiveCalc::reload`]) keeps the shown results until the next calculation.
 
 use crate::calcopts::{CalcMode, CalcSettings};
 use crate::formula::{
@@ -36,8 +37,8 @@ pub struct LiveCalc {
     /// Results calculated but not written into the model yet (other sheets
     /// after [`LiveCalc::calculate`] for one sheet).
     unwritten: Vec<CellId>,
-    /// Manual mode: the engine was reloaded after a structural edit without calculating,
-    /// so the next calculation is a full one.
+    /// Manual mode: the engine was reloaded after a structural edit without
+    /// calculating; the next calculation recalculates every formula.
     stale: bool,
 }
 
@@ -89,16 +90,17 @@ impl LiveCalc {
         crate::drop_in_background(self.engine.replace(fw));
         self.pending = false;
         self.tables_pending = false;
-        self.unwritten.clear();
         self.stale = false;
+        self.unwritten.clear();
     }
 
-    /// After rows / columns are inserted or deleted: like [`LiveCalc::rebuild`], except in
-    /// manual calculation mode (§18.2.2 `calcPr/@calcMode="manual"`), where nothing is
-    /// calculated: the moved cells keep the values they had, the engine is reloaded with
-    /// them as cached results and the next [`LiveCalc::calculate`] recalculates everything.
-    pub fn rebuild_structural(&mut self, wb: &mut Workbook) {
-        if self.engine.is_none() || CalcSettings::read(wb).mode != CalcMode::Manual {
+    /// After a structural edit (rows / columns inserted or deleted, sheets moved…):
+    /// [`LiveCalc::rebuild`], except in manual calculation mode (§18.2.2
+    /// `calcMode="manual"`), where the engine is reloaded with the results the
+    /// cells show and nothing is calculated — as typing does not calculate — until
+    /// the next calculation, which then recalculates every formula.
+    pub fn reload(&mut self, wb: &mut Workbook) {
+        if CalcSettings::read(wb).mode != CalcMode::Manual {
             self.rebuild(wb);
             return;
         }
@@ -106,8 +108,8 @@ impl LiveCalc {
         fw.set_web_provider(self.web.clone());
         crate::drop_in_background(self.engine.replace(fw));
         self.pending = true;
-        self.unwritten.clear();
         self.stale = true;
+        self.unwritten.clear();
     }
 
     /// Loads a workbook just read from a file, keeping the saved results of
@@ -138,7 +140,6 @@ impl LiveCalc {
         self.pending = false;
         self.tables_pending = false;
         self.unwritten.clear();
-        self.stale = false;
     }
 
     /// Pushes the current content of `cells` of sheet `sheet` into the live
@@ -318,34 +319,33 @@ impl LiveCalc {
 
     /// Calculates what is pending (manual mode, "automatic except tables"):
     /// cells edited since the last calculation, their dependents, volatile
-    /// functions and data tables. With `sheet` ("calculate sheet"), only that sheet's
-    /// formulas are calculated; the others stay out of date until the next calculation of
-    /// the workbook.
+    /// functions and data tables. With `sheet`, only that sheet's results are
+    /// shown; the others wait for the next calculation of the workbook.
     pub fn calculate(&mut self, wb: &mut Workbook, sheet: Option<usize>) {
-        if self.stale && sheet.is_none() {
-            self.rebuild(wb);
-            return;
-        }
-        let Some(fw) = self.engine.as_mut() else {
+        let Some(fw) = self.engine.as_mut().filter(|_| !self.stale) else {
             self.rebuild(wb);
             return;
         };
-        match sheet {
-            Some(s) if self.stale => {
-                // After a deferred reload nothing is known to be up to date.
-                fw.mark_all_formulas_of(s);
-                fw.recalculate_sheet(s);
-            }
-            Some(s) => fw.recalculate_sheet(s),
-            None => fw.recalculate(),
+        if let Some(only) = sheet {
+            // Calculate sheet: only that sheet's formulas are evaluated, reading the
+            // current values of the others, which stay pending (and so do data tables).
+            fw.recalculate_sheet(only);
+            let mut ids = std::mem::take(&mut self.unwritten);
+            ids.extend_from_slice(fw.last_recalculated());
+            ids.sort_unstable();
+            ids.dedup();
+            self.unwritten = write_ids(fw, wb, &ids, sheet);
+            self.pending = fw.has_pending_changes();
+            return;
         }
+        fw.recalculate();
         let mut ids = std::mem::take(&mut self.unwritten);
         ids.extend_from_slice(fw.last_recalculated());
         ids.sort_unstable();
         ids.dedup();
-        self.unwritten = write_ids(fw, wb, &ids, sheet);
+        self.unwritten = write_ids(fw, wb, &ids, None);
         crate::whatif::calculate_data_tables(fw, wb);
-        self.pending = fw.has_pending_changes() || self.stale;
+        self.pending = false;
         self.tables_pending = false;
     }
 
@@ -571,6 +571,73 @@ mod tests {
         live.calculate(&mut wb, None);
         assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(105.0));
         assert!(!live.needs_calculation());
+    }
+
+    #[test]
+    fn calculate_sheet_reads_other_sheets_as_they_are() {
+        // Sheet1: A1 = 1, B1 = Two!A1 * 2; Two: A1 = Sheet1!A1 + 100.
+        let mut wb = Workbook::new();
+        wb.sheets.push(bo_model::sheet::Worksheet::new("Two"));
+        wb.sheets[0].set_cell(0, 0, Cell::new(CellValue::Number(1.0)));
+        wb.sheets[0].set_cell(0, 1, Cell::default().with_formula("Two!A1*2"));
+        wb.sheets[1].set_cell(0, 0, Cell::default().with_formula("Sheet1!A1+100"));
+        crate::calcopts::CalcSettings {
+            mode: CalcMode::Manual,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(202.0));
+        wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().value = CellValue::Number(5.0);
+        live.update(&mut wb, 0, &[(0, 0)]);
+        // Shift+F9 on Sheet1: Two!A1 is not calculated, so B1 still reads 101 → 202.
+        live.calculate(&mut wb, Some(0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(202.0));
+        assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(101.0));
+        assert!(live.needs_calculation());
+        // Shift+F9 on Two: 5 + 100 = 105; Sheet1!B1 waits.
+        live.calculate(&mut wb, Some(1));
+        assert_eq!(num(&wb, 1, 0, 0), CellValue::Number(105.0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(202.0));
+        // Shift+F9 on Sheet1 again: B1 = 105 * 2.
+        live.calculate(&mut wb, Some(0));
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(210.0));
+        // F9 settles everything.
+        live.calculate(&mut wb, None);
+        assert_eq!(num(&wb, 0, 0, 1), CellValue::Number(210.0));
+        assert!(!live.needs_calculation());
+    }
+
+    #[test]
+    fn manual_mode_structural_edit_waits_for_calculate() {
+        let mut wb = Workbook::new();
+        wb.sheets[0].set_cell(0, 0, Cell::new(CellValue::Number(1.0)));
+        wb.sheets[0].set_cell(1, 0, Cell::new(CellValue::Number(2.0)));
+        wb.sheets[0].set_cell(2, 0, Cell::default().with_formula("SUM(A1:A2)"));
+        crate::calcopts::CalcSettings {
+            mode: CalcMode::Manual,
+            ..CalcSettings::default()
+        }
+        .write(&mut wb);
+        let mut live = LiveCalc::new();
+        live.rebuild(&mut wb);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(3.0));
+        // A1 changed behind the engine's back, then a structural edit: the sum
+        // keeps showing 3 until the workbook is calculated.
+        wb.sheets[0].cells.get_mut(&(0, 0)).unwrap().value = CellValue::Number(10.0);
+        live.reload(&mut wb);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(3.0));
+        assert!(live.needs_calculation());
+        // Calculating recalculates every formula: 10 + 2.
+        live.calculate(&mut wb, None);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(12.0));
+        assert!(!live.needs_calculation());
+        // Automatic mode: reload calculates at once.
+        crate::calcopts::CalcSettings::default().write(&mut wb);
+        wb.sheets[0].cells.get_mut(&(1, 0)).unwrap().value = CellValue::Number(5.0);
+        live.reload(&mut wb);
+        assert_eq!(num(&wb, 0, 2, 0), CellValue::Number(15.0));
     }
 
     #[test]

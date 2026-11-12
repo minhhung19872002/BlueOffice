@@ -19,8 +19,9 @@ import {
   type TextSplitPreview,
 } from '@blueoffice/platform';
 import { Dialog } from '@blueoffice/ui';
-import { useEffect, useState } from 'react';
+import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { colName, parseA1 } from './grid';
+import { ConfirmDialog } from './homeControls';
 import styles from './SheetEditor.module.css';
 import dt from './dataTools.module.css';
 
@@ -55,6 +56,142 @@ export function parseBreaks(text: string): number[] | null {
   const out = parts.map(Number);
   return out.every((n) => Number.isInteger(n) && n > 0) ? out : null;
 }
+
+/** `breaks` written back as the text box shows them (sorted, distinct). */
+export function formatBreaks(breaks: number[]): string {
+  return [...new Set(breaks)].sort((a, b) => a - b).join(', ');
+}
+
+/**
+ * Break positions guessed from fixed-width text, as the wizard proposes them on entering
+ * step 2: a field starts at `p` when, on every line long enough, the character before
+ * `p` is a space and the one at `p` is not.
+ */
+export function guessBreaks(lines: string[]): number[] {
+  const rows = lines.map((l) => [...l]).filter((l) => l.some((c) => c !== ' '));
+  if (rows.length === 0) return [];
+  const width = Math.max(...rows.map((r) => r.length));
+  const out: number[] = [];
+  for (let p = 1; p < width; p++) {
+    const long = rows.filter((r) => r.length > p);
+    if (long.length < rows.length) continue;
+    if (long.every((r) => r[p - 1] === ' ' && r[p] !== ' ')) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Fixed-width preview with its ruler: a click adds a break line, dragging moves one,
+ * dragging it out of the text or double-clicking removes it — the text box beside it is
+ * the keyboard alternative. Positions count characters from the start of the text.
+ */
+export function FixedWidthRuler({
+  lines,
+  breaks,
+  onChange,
+}: {
+  lines: string[];
+  breaks: number[];
+  onChange: (breaks: number[]) => void;
+}) {
+  const { t } = useTranslation();
+  const box = useRef<HTMLDivElement>(null);
+  const probe = useRef<HTMLSpanElement>(null);
+  const [drag, setDrag] = useState<{ from: number; at: number } | null>(null);
+  const width = Math.max(10, ...lines.map((l) => [...l].length));
+  const ticks = Math.ceil(width / 10) * 10;
+  // Character position under the pointer: the text is monospaced, one probe gives the
+  // width of a character.
+  const charWidth = () => (probe.current?.getBoundingClientRect().width ?? 0) / 10;
+  const exactAt = (clientX: number): number => {
+    const el = box.current;
+    const ch = charWidth();
+    if (!el || ch <= 0) return 0;
+    return (clientX - el.getBoundingClientRect().left - RULER_PAD) / ch;
+  };
+  const posAt = (clientX: number) => Math.round(exactAt(clientX));
+  const valid = (p: number) => p > 0 && p < width;
+  const shown = drag
+    ? [...breaks.filter((b) => b !== drag.from), ...(valid(drag.at) ? [drag.at] : [])]
+    : breaks;
+
+  const onDown = (e: ReactMouseEvent) => {
+    if (e.button !== 0) return;
+    const x = exactAt(e.clientX);
+    const p = Math.round(x);
+    // A break line is grabbed within a few pixels of it.
+    const hit = breaks.find((b) => Math.abs(b - x) * charWidth() <= GRAB_PX);
+    e.preventDefault();
+    if (hit === undefined) {
+      if (valid(p) && e.detail <= 1) onChange([...breaks, p].sort((a, b) => a - b));
+      return;
+    }
+    // The second press of a double-click on a line removes it.
+    if (e.detail >= 2) {
+      onChange(breaks.filter((b) => b !== hit));
+      return;
+    }
+    // Dragging a line: the listeners are attached now, so a quick release is not missed.
+    setDrag({ from: hit, at: hit });
+    const rest = breaks.filter((b) => b !== hit);
+    const move = (ev: MouseEvent) => setDrag({ from: hit, at: posAt(ev.clientX) });
+    const up = (ev: MouseEvent) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      const at = posAt(ev.clientX);
+      setDrag(null);
+      // Dropped outside the text: the line goes away; dropped where it was: no change.
+      if (at === hit) return;
+      onChange(valid(at) ? [...new Set([...rest, at])].sort((a, b) => a - b) : rest);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  return (
+    <div
+      className={dt.ruler}
+      data-testid="split-ruler"
+      // Scrolls with the keyboard too (the text box below sets the breaks without a mouse).
+      tabIndex={0}
+      role="region"
+      aria-label={t('sheetEditor.dataTools.split.ruler')}
+      onMouseDown={onDown}
+    >
+      <div ref={box} className={dt.rulerInner}>
+        <span ref={probe} className={dt.rulerProbe} aria-hidden>
+          0000000000
+        </span>
+        <div className={dt.rulerScale} aria-hidden style={{ width: `${ticks}ch` }}>
+          {Array.from({ length: ticks / 10 + 1 }, (_, i) => (
+            <span
+              key={i}
+              className={dt.rulerTick}
+              style={{ left: `calc(${RULER_PAD}px + ${i * 10}ch)` }}
+            >
+              {i * 10}
+            </span>
+          ))}
+        </div>
+        <pre className={dt.rulerText}>{lines.join('\n')}</pre>
+        {shown.map((b) => (
+          <span
+            key={b}
+            className={dt.breakLine}
+            data-testid={`split-break-${b}`}
+            style={{ left: `calc(${RULER_PAD}px + ${b}ch)` }}
+            aria-hidden
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Left padding of the ruler text, in pixels (CSS `.ruler` padding). */
+const RULER_PAD = 6;
+/** How near a break line a press grabs it, in pixels. */
+const GRAB_PX = 4;
 
 /** Engine error code after `prefix: ` (e.g. `subtotal: noData` → `noData`). */
 function errorCode(e: unknown, prefix: string): string | null {
@@ -93,6 +230,11 @@ function Footer({
 
 // ---------------------------------------------------------------- Text to Columns
 
+/**
+ * Text to Columns as the three-step wizard spreadsheet users know: 1 how the text is
+ * divided, 2 the separators (or break positions), 3 the format of each column and where
+ * the result goes. Back / Next move between the steps, Finish splits from any step.
+ */
 export function TextToColumnsDialog({
   host,
   sheet,
@@ -103,7 +245,8 @@ export function TextToColumnsDialog({
   fail,
 }: Common & { sheets: string[]; range: SheetRange }) {
   const { t } = useTranslation();
-  const tl = (k: string) => t(`sheetEditor.dataTools.split.${k}`);
+  const tl = (k: string, o?: Record<string, unknown>) => t(`sheetEditor.dataTools.split.${k}`, o);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [mode, setMode] = useState<'delimited' | 'fixed'>('delimited');
   const [delims, setDelims] = useState({ tab: true, semicolon: false, comma: false, space: false });
   const [other, setOther] = useState('');
@@ -111,9 +254,34 @@ export function TextToColumnsDialog({
   const [qualifier, setQualifier] = useState<'"' | "'" | ''>('"');
   const [breaks, setBreaks] = useState('');
   const [formats, setFormats] = useState<FormatChoice[]>([]);
+  const [selected, setSelected] = useState(0);
+  const [dateOrder, setDateOrder] = useState<DateOrder>('dmy');
   const [dest, setDest] = useState(`${colName(range.c0)}${range.r0 + 1}`);
   const [preview, setPreview] = useState<TextSplitPreview | null>(null);
   const [error, setError] = useState('');
+  // The text as it is (first rows), for the fixed-width ruler.
+  const [raw, setRaw] = useState<string[]>([]);
+  // Finish waiting for "replace the data there?".
+  const [confirm, setConfirm] = useState<(() => void) | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    host
+      .exec<TextSplitPreview>({
+        cmd: 'textToColumns',
+        sheet,
+        range,
+        split: { mode: 'delimited', delimiters: [], consecutive: false, qualifier: null },
+        preview: true,
+      })
+      .then((p) => {
+        if (!cancelled && p) setRaw(p.rows.map((r) => r[0] ?? ''));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [host, sheet, range]);
 
   const split = (): TextSplitMode | null => {
     if (mode === 'fixed') {
@@ -129,7 +297,11 @@ export function TextToColumnsDialog({
     if (o) d.push(o);
     return { mode: 'delimited', delimiters: d, consecutive, qualifier: qualifier || null };
   };
-  const spec = split();
+  // Step 1 previews the text as it is; the later steps the split.
+  const spec: TextSplitMode | null =
+    step === 1
+      ? { mode: 'delimited', delimiters: [], consecutive: false, qualifier: null }
+      : split();
   const key = JSON.stringify(spec);
 
   useEffect(() => {
@@ -158,8 +330,32 @@ export function TextToColumnsDialog({
 
   const columns = preview?.columns ?? 0;
   const formatOf = (i: number): FormatChoice => formats[i] ?? 'general';
+  const setFormat = (i: number, f: FormatChoice) =>
+    setFormats((list) => {
+      const out = Array.from({ length: Math.max(columns, i + 1) }, (_, j) => list[j] ?? 'general');
+      out[i] = f;
+      return out;
+    });
+  const isDate = (f: FormatChoice): f is DateOrder =>
+    f !== 'general' && f !== 'text' && f !== 'skip';
+  const formatName = (f: FormatChoice) =>
+    isDate(f) ? tl('date', { order: f.toUpperCase() }) : tl(f);
+  const current = formatOf(selected);
 
-  const ok = async () => {
+  const next = () => {
+    if (step === 2 && !split()) {
+      setError(tl('badBreaks'));
+      return;
+    }
+    setError('');
+    // Entering the break step with no breaks yet: propose the ones the text suggests.
+    if (step === 1 && mode === 'fixed' && breaks.trim() === '') {
+      setBreaks(formatBreaks(guessBreaks(raw)));
+    }
+    setStep((s) => (s === 1 ? 2 : 3));
+  };
+
+  const finish = async () => {
     const s = split();
     if (!s) {
       setError(tl('badBreaks'));
@@ -171,16 +367,47 @@ export function TextToColumnsDialog({
       return;
     }
     try {
-      await host.exec({
-        cmd: 'textToColumns',
-        sheet,
-        range,
-        split: s,
-        formats: Array.from({ length: columns }, (_, i) => toFormat(formatOf(i))),
-        dest: at,
-      });
-      await onDone();
-      onClose();
+      // The column count of the split as finished (step 1 previews the raw text).
+      const p =
+        step === 3 && preview
+          ? preview
+          : await host.exec<TextSplitPreview>({
+              cmd: 'textToColumns',
+              sheet,
+              range,
+              split: s,
+              preview: true,
+            });
+      const n = p?.columns ?? 0;
+      const formats = Array.from({ length: n }, (_, i) => toFormat(formatOf(i)));
+      const run = async () => {
+        try {
+          await host.exec({ cmd: 'textToColumns', sheet, range, split: s, formats, dest: at });
+          await onDone();
+          onClose();
+        } catch (e) {
+          const code = errorCode(e, 'textToColumns');
+          if (code) setError(tl(`errors.${code}`));
+          else fail(e);
+        }
+      };
+      // Cells the result lands on that hold data (other than the text being split): ask.
+      const kept = formats.filter((f) => f !== 'skip').length;
+      const busy =
+        kept > 0 &&
+        (await host.exec<boolean>({
+          cmd: 'occupied',
+          sheet: at.sheet,
+          range: {
+            r0: at.row,
+            c0: at.col,
+            r1: at.row + (range.r1 - range.r0),
+            c1: at.col + kept - 1,
+          },
+          except: at.sheet === sheet ? range : null,
+        }));
+      if (busy === true) setConfirm(() => () => void run());
+      else await run();
     } catch (e) {
       const code = errorCode(e, 'textToColumns');
       if (code) setError(tl(`errors.${code}`));
@@ -189,7 +416,7 @@ export function TextToColumnsDialog({
   };
 
   const check = (k: keyof typeof delims) => (
-    <label className={styles.check} key={k}>
+    <label className={`${styles.check} ${dt.option}`} key={k}>
       <input
         type="checkbox"
         data-testid={`split-${k}`}
@@ -200,40 +427,92 @@ export function TextToColumnsDialog({
     </label>
   );
 
+  const radio = (value: 'general' | 'text' | 'date' | 'skip') => (
+    <label className={`${styles.check} ${dt.option}`} key={value}>
+      <input
+        type="radio"
+        name="split-format"
+        data-testid={`split-fmt-${value}`}
+        checked={value === 'date' ? isDate(current) : current === value}
+        onChange={() => setFormat(selected, value === 'date' ? dateOrder : value)}
+      />{' '}
+      {value === 'date' ? tl('dateKind') : tl(value)}
+    </label>
+  );
+
+  const footer = (
+    <>
+      <button type="button" className={styles.btn} onClick={onClose}>
+        {t('sheetEditor.dlg.cancel')}
+      </button>
+      <button
+        type="button"
+        className={styles.btn}
+        data-testid="split-back"
+        disabled={step === 1}
+        onClick={() => {
+          setError('');
+          setStep((s) => (s === 3 ? 2 : 1));
+        }}
+      >
+        {tl('back')}
+      </button>
+      <button
+        type="button"
+        className={styles.btn}
+        data-testid="split-next"
+        disabled={step === 3}
+        onClick={next}
+      >
+        {tl('next')}
+      </button>
+      <button
+        type="button"
+        className={styles.btnPrimary}
+        data-testid="split-ok"
+        onClick={() => void finish()}
+      >
+        {tl('finish')}
+      </button>
+    </>
+  );
+
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={tl('title')}
-      width={560}
+      title={tl('stepTitle', { step })}
+      width={600}
       testId="split-dialog"
-      footer={<Footer onClose={onClose} onOk={() => void ok()} testId="split-ok" />}
+      footer={footer}
     >
-      <div className={styles.form}>
-        <fieldset>
-          <legend>{tl('kind')}</legend>
-          <label className={styles.check}>
-            <input
-              type="radio"
-              name="split-mode"
-              data-testid="split-delimited"
-              checked={mode === 'delimited'}
-              onChange={() => setMode('delimited')}
-            />{' '}
-            {tl('delimited')}
-          </label>
-          <label className={styles.check}>
-            <input
-              type="radio"
-              name="split-mode"
-              data-testid="split-fixed"
-              checked={mode === 'fixed'}
-              onChange={() => setMode('fixed')}
-            />{' '}
-            {tl('fixed')}
-          </label>
-        </fieldset>
-        {mode === 'delimited' ? (
+      <div className={styles.form} data-step={step}>
+        {step === 1 && (
+          <fieldset>
+            <legend>{tl('kind')}</legend>
+            <label className={`${styles.check} ${dt.option}`}>
+              <input
+                type="radio"
+                name="split-mode"
+                data-testid="split-delimited"
+                checked={mode === 'delimited'}
+                onChange={() => setMode('delimited')}
+              />{' '}
+              {tl('delimited')}
+            </label>
+            <label className={`${styles.check} ${dt.option}`}>
+              <input
+                type="radio"
+                name="split-mode"
+                data-testid="split-fixed"
+                checked={mode === 'fixed'}
+                onChange={() => setMode('fixed')}
+              />{' '}
+              {tl('fixed')}
+            </label>
+          </fieldset>
+        )}
+        {step === 2 && mode === 'delimited' && (
           <fieldset>
             <legend>{tl('delimiters')}</legend>
             {check('tab')}
@@ -249,7 +528,7 @@ export function TextToColumnsDialog({
                 onChange={(e) => setOther(e.target.value)}
               />
             </label>
-            <label className={styles.check}>
+            <label className={`${styles.check} ${dt.option}`}>
               <input
                 type="checkbox"
                 data-testid="split-consecutive"
@@ -271,71 +550,108 @@ export function TextToColumnsDialog({
               </select>
             </label>
           </fieldset>
-        ) : (
-          <label>
-            {tl('breaks')}
-            <input
-              data-testid="split-breaks"
-              placeholder="4, 12"
-              value={breaks}
-              onChange={(e) => {
-                setBreaks(e.target.value);
+        )}
+        {step === 2 && mode === 'fixed' && (
+          <>
+            <p className={styles.hint}>{tl('rulerHint')}</p>
+            <FixedWidthRuler
+              lines={raw}
+              breaks={parseBreaks(breaks) ?? []}
+              onChange={(b) => {
+                setBreaks(formatBreaks(b));
                 setError('');
               }}
             />
-          </label>
+            <label>
+              {tl('breaks')}
+              <input
+                data-testid="split-breaks"
+                placeholder="4, 12"
+                value={breaks}
+                onChange={(e) => {
+                  setBreaks(e.target.value);
+                  setError('');
+                }}
+              />
+            </label>
+          </>
         )}
-        <label>
-          {tl('dest')}
-          <input
-            data-testid="split-dest"
-            value={dest}
-            onChange={(e) => {
-              setDest(e.target.value);
-              setError('');
-            }}
-          />
-        </label>
+        {step === 3 && (
+          <>
+            <fieldset>
+              <legend>{tl('columnFormat')}</legend>
+              {radio('general')}
+              {radio('text')}
+              <div className={dt.toolbar}>
+                {radio('date')}
+                <select
+                  aria-label={tl('dateOrder')}
+                  data-testid="split-date-order"
+                  value={dateOrder}
+                  onChange={(e) => {
+                    const o = e.target.value as DateOrder;
+                    setDateOrder(o);
+                    if (isDate(current)) setFormat(selected, o);
+                  }}
+                >
+                  {DATE_ORDERS.map((o) => (
+                    <option key={o} value={o}>
+                      {o.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {radio('skip')}
+            </fieldset>
+            <label>
+              {tl('dest')}
+              <input
+                data-testid="split-dest"
+                value={dest}
+                onChange={(e) => {
+                  setDest(e.target.value);
+                  setError('');
+                }}
+              />
+            </label>
+          </>
+        )}
         {preview && columns > 0 && (
           <div className={dt.previewBox}>
             <table className={dt.preview} data-testid="split-preview">
-              <thead>
-                <tr>
-                  {Array.from({ length: columns }, (_, i) => (
-                    <th key={i}>
-                      <select
-                        aria-label={tl('columnFormat')}
-                        data-testid={`split-format-${i}`}
-                        value={formatOf(i)}
-                        onChange={(e) =>
-                          setFormats((f) => {
-                            const next = Array.from(
-                              { length: columns },
-                              (_, j) => f[j] ?? 'general',
-                            );
-                            next[i] = e.target.value as FormatChoice;
-                            return next;
-                          })
-                        }
-                      >
-                        <option value="general">{tl('general')}</option>
-                        <option value="text">{tl('text')}</option>
-                        {DATE_ORDERS.map((o) => (
-                          <option key={o} value={o}>
-                            {t('sheetEditor.dataTools.split.date', { order: o.toUpperCase() })}
-                          </option>
-                        ))}
-                        <option value="skip">{tl('skip')}</option>
-                      </select>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+              {step === 3 && (
+                <thead>
+                  <tr>
+                    {Array.from({ length: columns }, (_, i) => (
+                      <th key={i} className={i === selected ? dt.selectedCol : undefined}>
+                        <button
+                          type="button"
+                          className={dt.colHead}
+                          data-testid={`split-col-${i}`}
+                          aria-pressed={i === selected}
+                          onClick={() => setSelected(i)}
+                        >
+                          {formatName(formatOf(i))}
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
               <tbody>
                 {preview.rows.map((row, r) => (
                   <tr key={r}>
                     {Array.from({ length: columns }, (_, i) => (
-                      <td key={i} className={formatOf(i) === 'skip' ? dt.skipped : undefined}>
+                      <td
+                        key={i}
+                        className={
+                          step === 3 && formatOf(i) === 'skip'
+                            ? dt.skipped
+                            : step === 3 && i === selected
+                              ? dt.selectedCol
+                              : undefined
+                        }
+                      >
                         {row[i] ?? ''}
                       </td>
                     ))}
@@ -349,6 +665,19 @@ export function TextToColumnsDialog({
           <p role="alert" data-testid="split-error">
             {error}
           </p>
+        )}
+        {confirm && (
+          <ConfirmDialog
+            title={t('sheetEditor.replaceWarn.title')}
+            message={t('sheetEditor.replaceWarn.message')}
+            testId="replace-warning"
+            onClose={() => setConfirm(null)}
+            onOk={() => {
+              const run = confirm;
+              setConfirm(null);
+              run();
+            }}
+          />
         )}
       </div>
     </Dialog>

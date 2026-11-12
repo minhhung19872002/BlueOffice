@@ -225,6 +225,18 @@
   caret-color: #000;
 }
 
+/* A Flash Fill suggestion: grey text in the (empty) cells it would fill. */
+.flashHint {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0 3px;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+  color: #6b6b6b;
+  font-family: 'Liberation Sans', Arial, sans-serif;
+}
+
 /* The references of the formula being typed. */
 .refBox {
   position: absolute;
@@ -991,6 +1003,59 @@
   z-index: 4;
 }
 
+/* New Slicer / Timeline Style: the elements list beside the format of the picked one. */
+.frameStyleBody {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.frameStyleRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.frameStyleRow > label {
+  flex: 1;
+}
+
+.frameStyleMark {
+  color: var(--bo-muted, #5b6573);
+  font-size: 11px;
+}
+
+.frameStylePreview {
+  position: relative;
+  cursor: default;
+  z-index: auto;
+}
+
+.frameStylePreview .slicerHeader {
+  cursor: default;
+}
+
+/* The ends of a timeline's selection: drag one to move that end. */
+.timelineEdge {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 8px;
+  cursor: ew-resize;
+  background: var(--frame-on-text, #fff);
+  border: 1px solid var(--frame-on, var(--bo-sheet-accent, #0b7a6b));
+  border-radius: 2px;
+  opacity: 0.9;
+}
+
+.timelineEdgeStart {
+  left: -1px;
+}
+
+.timelineEdgeEnd {
+  right: -1px;
+}
+
 .frameConnections {
   display: flex;
   flex-direction: column;
@@ -1188,6 +1253,7 @@
 }
 
 .timelineStrip > button {
+  position: relative;
   flex: 0 0 auto;
 }
 

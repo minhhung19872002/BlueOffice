@@ -203,3 +203,47 @@ fn locked_tracking_needs_the_password() {
     assert_eq!(kinds(&r).len(), 0);
     assert_eq!(texts(&f)[1], "xHai");
 }
+
+/// Locked tracking holds in headers, footers and notes too: what is typed there is
+/// tracked, and while the header is open its changes cannot be accepted or rejected,
+/// nor tracking turned off.
+#[test]
+fn locked_tracking_covers_headers_and_notes() {
+    let mut e = three();
+    cmd(
+        &mut e,
+        r#"{"cmd":"protectDocument","edit":"trackedChanges","password":"pw"}"#,
+    );
+    cmd(
+        &mut e,
+        r#"{"cmd":"editHeaderFooter","page":0,"header":true}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu trang"}"#);
+    for c in [
+        r#"{"cmd":"acceptAllRevisions"}"#,
+        r#"{"cmd":"rejectAllRevisions"}"#,
+        r#"{"cmd":"setTrackChanges","on":false}"#,
+    ] {
+        let r = cmd(&mut e, c);
+        assert_eq!(r["error"], "review:locked", "{c}");
+    }
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"review"}"#);
+    let revs = r["review"]["revisions"].as_array().unwrap();
+    assert!(
+        revs.iter()
+            .any(|x| x["kind"] == "insert" && x["story"]["kind"] == "header"),
+        "{revs:?}"
+    );
+    // A footnote typed while locked is tracked as well; accepting it is refused.
+    caret(&mut e, 0);
+    cmd(&mut e, r#"{"cmd":"insertNote","text":"chú"}"#);
+    let r = cmd(&mut e, r#"{"cmd":"review"}"#);
+    let revs = r["review"]["revisions"].as_array().unwrap();
+    assert!(
+        revs.iter().any(|x| x["story"]["kind"] == "footnote"),
+        "{revs:?}"
+    );
+    let r = cmd(&mut e, r#"{"cmd":"rejectAllRevisions"}"#);
+    assert_eq!(r["error"], "review:locked");
+}

@@ -53,6 +53,7 @@ pub use comments::CommentInfo;
 pub use fields::RefTarget;
 pub use find::{find, FindOptions, Match};
 pub use lists::{ListLevelSpec, ListNumbering};
+pub use moves::MovePaste;
 pub use ops::{Op, Pos, Selection, Transaction};
 pub use refs::{CitationMark, IndexMark, NoteConversion};
 use revisions::Tracker;
@@ -1280,6 +1281,8 @@ pub struct Session {
     id_seed: Option<u16>,
     /// What fields read from outside the text (clock, properties, user, variables).
     field_env: fields::FieldEnv,
+    /// The last cut made while tracking (cut and paste is recorded as a move).
+    last_cut: Option<moves::CutRecord>,
 }
 
 /// Smallest id ≥ `candidate` that is ≡ `seed` (mod 65 536); `candidate` itself
@@ -1351,6 +1354,7 @@ impl Session {
                 vi: true,
                 ..fields::FieldEnv::default()
             },
+            last_cut: None,
         }
     }
 
@@ -4217,7 +4221,9 @@ impl Session {
     pub fn cut(&mut self) -> Result<Clip> {
         let c = self.copy();
         if !self.selection.is_collapsed() {
+            let before = self.cut_start();
             self.delete_backward()?;
+            self.cut_end(before, &c.internal);
         }
         Ok(c)
     }

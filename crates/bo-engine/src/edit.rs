@@ -75,6 +75,19 @@ pub enum Command {
         /// Vertical position in points from the page's top edge.
         y: f32,
     },
+    /// Drag and drop of the selected text to a point: moved there (`copy`: copied,
+    /// Ctrl held); while tracking a move is recorded as one (§17.13.5.22).
+    MoveSelectionTo {
+        /// 0-based page index.
+        page: usize,
+        /// Horizontal position in points from the page's left edge.
+        x: f32,
+        /// Vertical position in points from the page's top edge.
+        y: f32,
+        /// Copy instead of moving.
+        #[serde(default)]
+        copy: bool,
+    },
     /// Keyboard caret motion (arrows, Home/End, word / paragraph steps, …).
     Move {
         /// How the caret moves.
@@ -1063,9 +1076,13 @@ pub enum Command {
         /// Layout.
         #[serde(default)]
         mode: crate::views::ViewMode,
-        /// Window width in points (web layout; absent keeps the last one).
+        /// Window width in points (web layout; read mode: the column page width;
+        /// absent keeps the last one).
         #[serde(default)]
         width: Option<f32>,
+        /// Read mode: the column page height in points (absent keeps the last one).
+        #[serde(default)]
+        height: Option<f32>,
     },
     /// Show or hide formatting marks (¶ · → ↵) in the view's page display lists.
     ShowFormattingMarks {
@@ -1107,6 +1124,16 @@ pub enum Command {
         para: usize,
         /// New text of the paragraph (plain text).
         text: String,
+    },
+    /// Outline view: Enter in a line typed in place — set its text, then split the
+    /// paragraph at byte offset `at` of `text` (one undo step).
+    SplitOutlineText {
+        /// Body paragraph id.
+        para: usize,
+        /// New text of the paragraph (plain text).
+        text: String,
+        /// Byte offset in `text` where the paragraph splits.
+        at: usize,
     },
     /// Find results with context (`results`, `matches`, `highlights`).
     FindResults {
@@ -1511,7 +1538,23 @@ impl crate::Engine {
         if let Some(r) = self.math_command(&cmd)? {
             return Ok(r);
         }
+        if let Some(r) = self.multi_command(&cmd, now)? {
+            return Ok(r);
+        }
+        let multi = !self.multi_sel.is_empty();
+        let depth = self.session.as_ref().map(bo_edit::Session::history_len);
         let mut r = self.command_inner(cmd, now)?;
+        // Any other change of the selection or the document ends a multiple selection.
+        if multi {
+            let s = self.session.as_ref();
+            if s.map(bo_edit::Session::history_len) != depth
+                || s.map(bo_edit::Session::selection) != self.multi_sel.first().copied()
+            {
+                self.multi_sel.clear();
+            } else {
+                r.rects = self.multi_rects();
+            }
+        }
         if self.math.is_some() {
             self.math_decorate(&mut r);
         }
@@ -1890,6 +1933,7 @@ impl crate::Engine {
                     | Command::MoveOutline { .. }
                     | Command::MoveOutlineTo { .. }
                     | Command::SetOutlineText { .. }
+                    | Command::SplitOutlineText { .. }
                     | Command::FindResults { .. }
                     | Command::PageLayout
                     | Command::SetColumns { .. }
@@ -2056,6 +2100,12 @@ impl crate::Engine {
                             self.drag_origin = None;
                         }
                     }
+                    Command::MoveSelectionTo { page, x, y, copy } => {
+                        if let Some(p) = nav::hit_test(layout, page, x, y) {
+                            self.drag_origin = None;
+                            s.move_selection_to(p, copy)?;
+                        }
+                    }
                     Command::DragTo { page, x, y } => {
                         if let Some(p) = nav::hit_test(layout, page, x, y) {
                             let new = match self.drag_origin {
@@ -2159,10 +2209,24 @@ impl crate::Engine {
                         }
                     }
                     Command::FormatText { format } => {
+                        let depth = s.history_len();
                         s.format_text(&format)?;
+                        // §17.7.4.2 autoRedefine: the paragraph style takes the formatting.
+                        s.auto_redefine_after(depth, false)?;
                     }
                     Command::FormatParagraph { format } => {
+                        let depth = s.history_len();
                         s.format_paragraphs(&format)?;
+                        if !matches!(
+                            format,
+                            bo_edit::ParaFormat::Style { .. }
+                                | bo_edit::ParaFormat::Clear
+                                | bo_edit::ParaFormat::Reset
+                                | bo_edit::ParaFormat::Bullets
+                                | bo_edit::ParaFormat::Numbering
+                        ) {
+                            s.auto_redefine_after(depth, true)?;
+                        }
                     }
                     Command::ApplyStyle { id } => {
                         s.apply_style(&id)?;
@@ -2252,7 +2316,12 @@ impl crate::Engine {
                         text,
                         mode: Some(mode),
                     } => {
+                        // Pasting what was cut while tracking records a move (§17.13.5.22).
+                        let mv = s.move_paste_start(internal.as_deref());
                         s.paste_with(mode, internal.as_deref(), html.as_deref(), text.as_deref())?;
+                        if let Some(m) = mv {
+                            s.move_paste_finish(m)?;
+                        }
                     }
                     Command::Paste {
                         internal,
@@ -2260,12 +2329,16 @@ impl crate::Engine {
                         text,
                         mode: None,
                     } => {
+                        let mv = s.move_paste_start(internal.as_deref());
                         if let Some(j) = internal.filter(|j| !j.is_empty()) {
                             s.paste_internal(&j)?;
                         } else if let Some(h) = html.filter(|h| !h.is_empty()) {
                             s.paste_html(&h)?;
                         } else if let Some(t) = text {
                             s.paste_text(&t)?;
+                        }
+                        if let Some(m) = mv {
+                            s.move_paste_finish(m)?;
                         }
                     }
                     // Locked tracking (§17.15.1.29 w:edit="trackedChanges").
@@ -2703,6 +2776,65 @@ impl crate::Engine {
                 )
             })
             .collect()
+    }
+
+    /// Selection rectangles of every range of a multiple selection.
+    pub(crate) fn multi_rects(&self) -> Vec<nav::SelRect> {
+        let layout = self.layout.document();
+        self.multi_sel
+            .iter()
+            .flat_map(|x| nav::selection_rects(layout, *x))
+            .collect()
+    }
+
+    /// Formatting commands on a multiple selection: run on each range, one undo step
+    /// (`None`: not a multiple selection or not such a command).
+    fn multi_command(
+        &mut self,
+        cmd: &Command,
+        now: Option<i64>,
+    ) -> crate::Result<Option<EditResult>> {
+        if self.multi_sel.len() < 2
+            || !matches!(
+                cmd,
+                Command::FormatText { .. }
+                    | Command::FormatParagraph { .. }
+                    | Command::ApplyStyle { .. }
+            )
+        {
+            return Ok(None);
+        }
+        let ranges = self.multi_sel.clone();
+        let depth = self
+            .session
+            .as_ref()
+            .map_or(0, bo_edit::Session::history_len);
+        let mut last = None;
+        for x in &ranges {
+            if let Some(s) = self.session.as_mut() {
+                s.set_selection(*x);
+            }
+            let r = self.command_inner(cmd.clone(), now)?;
+            if r.error.is_some() {
+                last = Some(r);
+                break;
+            }
+            last = Some(r);
+        }
+        if let Some(s) = self.session.as_mut() {
+            s.merge_history_since(depth);
+            s.set_selection(ranges[0]);
+        }
+        // Formatting keeps paragraph ids and offsets: the ranges stay selected.
+        self.multi_sel = ranges;
+        let mut r = match last {
+            Some(r) => r,
+            None => self.query_result()?,
+        };
+        r.selection = self.multi_sel[0];
+        r.dirty = (0..self.layout.document().pages.len()).collect();
+        r.rects = self.multi_rects();
+        Ok(Some(r))
     }
 
     pub(crate) fn edit_result(

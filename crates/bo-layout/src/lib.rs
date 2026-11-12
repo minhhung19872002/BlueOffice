@@ -39,7 +39,7 @@ pub use charfx::{FxPaint, FxReflection, FxRgba, FxShadow, TextFx};
 pub use incremental::{measure_table, IncrementalLayout, UpdateKind};
 pub use markup::{
     balloon_height, page_markup, stack_balloons, Balloon, ChangeBar, Mark, MarkFilter, MarkKind,
-    MarkupStyle, PageMarkup, BALLOON_GAP, MAX_HIDDEN_REVIEWERS,
+    MarkStory, MarkupStyle, PageMarkup, BALLOON_GAP, MAX_HIDDEN_REVIEWERS,
 };
 pub use math::{layout_equation, EquationGeometry, EquationGlyphs, EquationRun, MathSlotBox};
 pub use page::{

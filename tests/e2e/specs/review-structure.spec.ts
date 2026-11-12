@@ -141,3 +141,76 @@ test('long footnote continues on the next page and can be edited there', async (
     })
     .toBeGreaterThan(0.7);
 });
+
+test.describe('tracked moves by cut and paste, drag and drop', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+
+  test('cut and paste while tracking is recorded as a move', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await newDocument(page);
+    await page.keyboard.insertText('Một hai ba');
+    await trackOn(page);
+    await pageN(page, 1).click({ position: { x: 300, y: 80 } });
+    // "Một " selected from the start of the line, cut, pasted at the end.
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Control+Shift+ArrowRight');
+    await page.keyboard.press('Control+x');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Một ');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Control+v');
+    await reviewPane(page);
+    await expect(page.getByTestId('revision').filter({ hasText: 'Chuyển đi' })).toHaveCount(1);
+    await expect(page.getByTestId('revision').filter({ hasText: 'Chuyển đến' })).toHaveCount(1);
+    await expect(page.getByTestId('revision').filter({ hasText: /^Xoá/ })).toHaveCount(0);
+    await cmd(page, 'review.rejectAll').click();
+    await expect(page.getByTestId('revision-count')).toHaveText('0 thay đổi');
+    await expect(page.getByTestId('doc-a11y-mirror')).toContainText('Một hai ba');
+    expect(errors).toEqual([]);
+  });
+
+  test('dragging selected text moves it (a tracked move while tracking)', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await newDocument(page);
+    await page.keyboard.insertText('alpha beta gamma');
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Control+Shift+ArrowRight');
+    const sel = pageN(page, 1).locator('.bo-sel').first();
+    await expect(sel).toBeVisible();
+    const from = (await sel.boundingBox())!;
+    await page.keyboard.press('End');
+    const end = await caretBox(page);
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Control+Shift+ArrowRight');
+    await expect(sel).toBeVisible();
+    // Press on the selection, drag to the end of the line, drop.
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 30, from.y + from.height / 2, { steps: 4 });
+    await page.mouse.move(end.x + 2, end.y + end.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await expect(page.getByTestId('doc-a11y-mirror')).toContainText('beta gammaalpha ');
+    // One undo puts it back.
+    await page.keyboard.press('Control+z');
+    await expect(page.getByTestId('doc-a11y-mirror')).toContainText('alpha beta gamma');
+    // While tracking: a move pair.
+    await trackOn(page);
+    await pageN(page, 1).click({ position: { x: 300, y: 80 } });
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Control+Shift+ArrowRight');
+    await expect(sel).toBeVisible();
+    const again = (await sel.boundingBox())!;
+    await page.mouse.move(again.x + again.width / 2, again.y + again.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(again.x + again.width / 2 + 30, again.y + again.height / 2, {
+      steps: 4,
+    });
+    await page.mouse.move(end.x + 2, end.y + end.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await reviewPane(page);
+    await expect(page.getByTestId('revision').filter({ hasText: 'Chuyển đi' })).toHaveCount(1);
+    await expect(page.getByTestId('revision').filter({ hasText: 'Chuyển đến' })).toHaveCount(1);
+    expect(errors).toEqual([]);
+  });
+});

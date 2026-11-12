@@ -939,6 +939,12 @@ pub(crate) fn layout_table(
         k
     };
     let markup = ctx.view == RevisionView::Markup;
+    // Markup filters (insertions/deletions off, hidden reviewers): those row and cell
+    // changes show as if accepted, like the text changes (§17.13.5).
+    let filter = ctx.marks;
+    let shown = move |m: &bo_model::RevMark| {
+        markup && !filter.hide_ins_del && !filter.hides(&m.info.author)
+    };
 
     let mut rows: Vec<RowBox> = Vec::with_capacity(nrows);
     let mut tall: Vec<(usize, usize, f32)> = Vec::new(); // (first row, span, needed height)
@@ -1085,8 +1091,10 @@ pub(crate) fn layout_table(
             }
             // §17.13.5.4 cellIns / §17.13.5.3 cellDel shown in markup.
             let revision = match (&cell.props.del, &cell.props.ins) {
-                (Some(m), _) if markup => Some((crate::style::author_color(&m.info.author), true)),
-                (None, Some(m)) if markup => {
+                (Some(m), _) if shown(m) => {
+                    Some((crate::style::author_color(&m.info.author), true))
+                }
+                (None, Some(m)) if shown(m) => {
                     Some((crate::style::author_color(&m.info.author), false))
                 }
                 _ => None,
@@ -1118,7 +1126,8 @@ pub(crate) fn layout_table(
         // Tracked rows (§17.13.5.19 ins / §17.13.5.12 del in trPr): hidden in the final
         // / original views (their paragraphs keep their ids), tinted in markup.
         let hidden = match ctx.view {
-            RevisionView::Markup => false,
+            // A deleted row of a filtered change shows as accepted: gone.
+            RevisionView::Markup => row.props.del.as_ref().is_some_and(|m| !shown(m)),
             RevisionView::Final => row.props.del.is_some(),
             RevisionView::Original => row.props.ins.is_some(),
         };
@@ -1132,8 +1141,10 @@ pub(crate) fn layout_table(
             h = 0.0;
         }
         let revision = match (&row.props.del, &row.props.ins) {
-            (Some(m), _) if markup => Some((crate::style::author_color(&m.info.author), true)),
-            (None, Some(m)) if markup => Some((crate::style::author_color(&m.info.author), false)),
+            (Some(m), _) if shown(m) => Some((crate::style::author_color(&m.info.author), true)),
+            (None, Some(m)) if shown(m) => {
+                Some((crate::style::author_color(&m.info.author), false))
+            }
             _ => None,
         };
         // Change bar: cell/row/table property changes, merges, grid changes, cells.

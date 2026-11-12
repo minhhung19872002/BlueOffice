@@ -642,10 +642,7 @@ impl Session {
             self.id_seed,
         );
         let mut new_map = map.clone();
-        new_map.insert(
-            id,
-            vec![Block::Paragraph(note_paragraph(&self.doc, endnote, text))],
-        );
+        let mut note = note_paragraph(&self.doc, endnote, text);
         let old_map = map.clone();
         let mark = mark_props(
             &self.doc,
@@ -656,6 +653,17 @@ impl Session {
             },
         );
         self.edit(|tx, sel| {
+            // While tracking, the new note's text is a tracked insertion like its
+            // reference (§17.13.5.18 ins in the footnotes / endnotes part).
+            if let Some(tr) = tx.track.as_mut() {
+                let m = tr.mark();
+                for r in &mut note.runs {
+                    if r.props.ins.is_none() {
+                        r.props.ins = Some(m.clone());
+                    }
+                }
+            }
+            new_map.insert(id, vec![Block::Paragraph(note)]);
             tx.push(Op::Notes {
                 endnote,
                 old: old_map,

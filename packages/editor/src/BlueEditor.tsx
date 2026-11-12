@@ -691,6 +691,8 @@ function EditorInner({
   const beforeRead = useRef<EditorState['viewMode']>('print');
   /** View layout last sent to the engine (`mode:width`). */
   const sentLayout = useRef('print:0');
+  /** Read mode: the column page last sent (points) and the caret's page in it. */
+  const readLayout = useRef<{ width: number; height: number; caretPage: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   // Task pane layout of BlueDoc, remembered per app (CORE-UI-006).
   const [paneLayout, setPaneLayout] = useTaskPaneLayout('doc', platform.preferences);
@@ -989,6 +991,15 @@ function EditorInner({
         if (activePane.current === 0) store.setState({ zoom });
       },
       onInput: handleInput,
+      // Drag and drop of the selected text (moved, or copied with Ctrl).
+      onTextDrop: (e) =>
+        void controller.current?.run({
+          cmd: 'moveSelectionTo',
+          page: e.page,
+          x: e.x,
+          y: e.y,
+          copy: e.copy,
+        }),
       onPointer: (e) => {
         controller.current?.pointer(e);
         if (e.type === 'down') setMini(null);
@@ -1027,6 +1038,14 @@ function EditorInner({
             selection: { anchor: r.start, focus: r.end },
           });
         }
+      },
+      // Reply typed in a comment's balloon (one undo step, as from the comments pane).
+      onMarkupReply: (id, text) => void controller.current?.run({ cmd: 'replyComment', id, text }),
+      markupReplyLabels: {
+        reply: i18nInstance.t('comments.reply'),
+        send: i18nInstance.t('comments.send'),
+        cancel: i18nInstance.t('comments.cancel'),
+        placeholder: i18nInstance.t('comments.replyPlaceholder'),
       },
       markupLabel: (kind, id) =>
         balloonLabel(
@@ -1261,7 +1280,9 @@ function EditorInner({
   useEffect(() => {
     const v = view.current;
     if (!v || !hasDocument || !state.engineReady) return;
-    const mode: ViewLayoutMode =
+    // Read mode sends its own column layout (`readReflow`).
+    if (state.viewMode === 'read') return;
+    const mode: Exclude<ViewLayoutMode, 'read'> =
       state.viewMode === 'web' ? 'web' : state.viewMode === 'draft' ? 'draft' : 'print';
     v.setPageMode(mode);
     splitView.current?.setPageMode(mode);
@@ -1315,6 +1336,15 @@ function EditorInner({
     [],
   );
 
+  /** Read mode: reflow the text into column pages; the caret's page in that layout. */
+  const readReflow = useCallback(async (width: number, height: number) => {
+    sentLayout.current = `read:${width}x${height}`;
+    const r = await controller.current?.run({ cmd: 'setViewLayout', mode: 'read', width, height });
+    const caretPage = r?.caret?.page ?? 0;
+    readLayout.current = { width, height, caretPage };
+    return r ? caretPage : null;
+  }, []);
+
   /** PDF of the printed pages (the web and draft views lay out other pages for the screen). */
   const printLayoutPdf = useCallback(
     async (choices?: PdfExport): Promise<Uint8Array> => {
@@ -1326,15 +1356,20 @@ function EditorInner({
         return e.exportSlides(choices);
       };
       const mode = store.getState().viewMode;
-      if (mode !== 'web' && mode !== 'draft') return pdf();
+      const read = mode === 'read' ? readLayout.current : null;
+      if (mode !== 'web' && mode !== 'draft' && !read) return pdf();
       await controller.current?.run({ cmd: 'setViewLayout', mode: 'print' });
       try {
         return await pdf();
       } finally {
         const width = Math.floor(view.current?.contentWidthPt() ?? 0);
-        sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
+        if (!read) sentLayout.current = `${mode}:${mode === 'web' ? width : 0}`;
         await controller.current?.run(
-          mode === 'web' ? { cmd: 'setViewLayout', mode, width } : { cmd: 'setViewLayout', mode },
+          read
+            ? { cmd: 'setViewLayout', mode: 'read', width: read.width, height: read.height }
+            : mode === 'web'
+              ? { cmd: 'setViewLayout', mode, width }
+              : { cmd: 'setViewLayout', mode: mode === 'draft' ? 'draft' : 'print' },
         );
       }
     },
@@ -4454,6 +4489,15 @@ function EditorInner({
                 onMore={() => void registry.execute('view.stylesPane', store.getState())}
               />,
             ),
+            // Style management (DOC-STYLE-001) next to the gallery.
+            s('view.newStyle', 'commands.view.newStyle', <FilePlus size={SMALL} />),
+            s('view.styleInspector', 'commands.view.styleInspector', <FileSearch size={SMALL} />),
+            s('view.revealFormatting', 'commands.view.revealFormatting', <Eye size={SMALL} />),
+            s(
+              'view.styleOrganizer',
+              'commands.view.styleOrganizer',
+              <ArrowLeftRight size={SMALL} />,
+            ),
           ],
         },
         // Editing, then Voice: the order of word processors' Home tab.
@@ -5895,11 +5939,22 @@ function EditorInner({
                 pages={state.doc.pages}
                 start={state.page}
                 renderPage={renderThumb}
+                reflow={readReflow}
                 onExit={(page) => {
                   const back = beforeRead.current;
-                  store.setState({ viewMode: back === 'read' ? 'print' : back });
-                  requestAnimationFrame(() => view.current?.scrollToPage(page));
-                  view.current?.focus();
+                  const read = readLayout.current;
+                  readLayout.current = null;
+                  // Pages turned: the caret goes to the top of the page read last, and
+                  // the print layout (sent when the view changes) scrolls to it.
+                  const moved =
+                    read && page !== read.caretPage
+                      ? controller.current?.run({ cmd: 'click', page, x: 30, y: 30 })
+                      : undefined;
+                  void Promise.resolve(moved).then(() => {
+                    store.setState({ viewMode: back === 'read' ? 'print' : back });
+                    if (!read) requestAnimationFrame(() => view.current?.scrollToPage(page));
+                    view.current?.focus();
+                  });
                 }}
               />
             )}

@@ -63,7 +63,28 @@ pub enum MarkKind {
     Comment,
 }
 
-/// A change or comment of the main text to show in the markup.
+/// Where a mark outside the main text is (§17.10 headers/footers, §17.11 notes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarkStory {
+    /// A footnote or endnote: `start` / `end` are (paragraph index inside the note,
+    /// byte offset).
+    Note {
+        /// Endnote (else footnote).
+        endnote: bool,
+        /// Note id.
+        id: i32,
+    },
+    /// A header (`header`) or footer shown on `pages` (0-based): the balloon points at
+    /// the header's first (the footer's last) line on each of them.
+    Region {
+        /// Header, else footer.
+        header: bool,
+        /// Pages showing it.
+        pages: Vec<u32>,
+    },
+}
+
+/// A change or comment to show in the markup (main text, or a story elsewhere).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mark {
     /// Revision or comment id.
@@ -84,6 +105,8 @@ pub struct Mark {
     pub done: bool,
     /// The mark gets a balloon (else only a change bar).
     pub balloon: bool,
+    /// Outside the main text: where (`None`: the body, positions are body paragraphs).
+    pub story: Option<MarkStory>,
 }
 
 /// How the markup of a page is drawn.
@@ -259,6 +282,50 @@ fn line_index<'a>(
     m
 }
 
+/// The (page, line) pairs a mark's balloons point at: one in the body or a note, one
+/// per page for a header or footer.
+fn anchors<'a>(
+    layout: &'a LayoutDocument,
+    index: &std::collections::HashMap<u32, Vec<(usize, &'a Line)>>,
+    m: &Mark,
+) -> Vec<(usize, &'a Line)> {
+    match &m.story {
+        None => index
+            .get(&m.start.0)
+            .and_then(|v| locate(v, m.start.1))
+            .into_iter()
+            .collect(),
+        Some(MarkStory::Note { endnote, id }) => {
+            let lines: Vec<(usize, &Line)> = layout
+                .pages
+                .iter()
+                .enumerate()
+                .flat_map(|(pi, p)| p.lines.iter().map(move |l| (pi, l)))
+                .filter(|(_, l)| {
+                    matches!(l.source, LineSource::Note { endnote: e, id: i, para }
+                        if e == *endnote && i == *id && para == m.start.0)
+                })
+                .collect();
+            locate(&lines, m.start.1).into_iter().collect()
+        }
+        Some(MarkStory::Region { header, pages }) => pages
+            .iter()
+            .filter_map(|&pi| {
+                let pi = pi as usize;
+                let page = layout.pages.get(pi)?;
+                let half = page.height / 2.0;
+                let mut it = page
+                    .lines
+                    .iter()
+                    .filter(|l| l.source == LineSource::Other)
+                    .filter(|l| (l.top < half) == *header);
+                let line = if *header { it.next() } else { it.last() }?;
+                Some((pi, line))
+            })
+            .collect(),
+    }
+}
+
 /// Page and line holding offset `o` among a paragraph's lines (its last line when
 /// the offset lies past them, e.g. hidden deleted text at its end).
 fn locate<'a>(lines: &[(usize, &'a Line)], o: u32) -> Option<(usize, &'a Line)> {
@@ -336,7 +403,12 @@ pub fn page_markup(
     marks: &[Mark],
     style: &MarkupStyle,
 ) -> Vec<PageMarkup> {
-    let ranges = Ranges::new(marks);
+    let body_marks: Vec<Mark> = marks
+        .iter()
+        .filter(|m| m.story.is_none())
+        .cloned()
+        .collect();
+    let ranges = Ranges::new(&body_marks);
     let mut out: Vec<PageMarkup> = layout
         .pages
         .iter()
@@ -357,32 +429,31 @@ pub fn page_markup(
             .collect();
         let index = line_index(layout, &paras);
         for m in marks.iter().filter(|m| m.balloon) {
-            let Some((pi, line)) = index.get(&m.start.0).and_then(|v| locate(v, m.start.1)) else {
-                continue;
-            };
-            let page_w = layout.pages[pi].width;
-            let (x, w, h) = if style.icons {
-                (page_w + 4.0, ICON, ICON)
-            } else {
-                let w = (style.area_width - 16.0).max(24.0);
-                (page_w + 10.0, w, balloon_height(&m.text, w))
-            };
-            out[pi].balloons.push(Balloon {
-                id: m.id,
-                kind: m.kind,
-                author: m.author.clone(),
-                date: m.date.clone(),
-                text: m.text.clone(),
-                done: m.done,
-                color: hex(crate::style::author_color(&m.author)),
-                x,
-                y: 0.0,
-                w,
-                h,
-                anchor_x: caret_x(line, m.start.1),
-                anchor_y: line.baseline + 2.0,
-                icon: style.icons,
-            });
+            for (pi, line) in anchors(layout, &index, m) {
+                let page_w = layout.pages[pi].width;
+                let (x, w, h) = if style.icons {
+                    (page_w + 4.0, ICON, ICON)
+                } else {
+                    let w = (style.area_width - 16.0).max(24.0);
+                    (page_w + 10.0, w, balloon_height(&m.text, w))
+                };
+                out[pi].balloons.push(Balloon {
+                    id: m.id,
+                    kind: m.kind,
+                    author: m.author.clone(),
+                    date: m.date.clone(),
+                    text: m.text.clone(),
+                    done: m.done,
+                    color: hex(crate::style::author_color(&m.author)),
+                    x,
+                    y: 0.0,
+                    w,
+                    h,
+                    anchor_x: caret_x(line, m.start.1),
+                    anchor_y: line.baseline + 2.0,
+                    icon: style.icons,
+                });
+            }
         }
     }
     for (pm, page) in out.iter_mut().zip(&layout.pages) {

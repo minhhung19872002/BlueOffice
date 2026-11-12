@@ -5,7 +5,7 @@
 //! Tracked changes: ECMA-376 Part 1, §17.13.5; comments: §17.13.4.
 
 use bo_edit::{CommentInfo, RevKind, RevisionItem};
-use bo_layout::{Mark, MarkFilter, MarkKind, MarkupStyle, RevisionView};
+use bo_layout::{Mark, MarkFilter, MarkKind, MarkStory, MarkupStyle, RevisionView};
 use bo_model::Color;
 use serde::{Deserialize, Serialize};
 
@@ -130,15 +130,21 @@ impl MarkupOptions {
         !self.hidden_reviewers.iter().any(|a| a == author)
     }
 
-    /// Changes and comments of the main text drawn in the markup (empty when the mode
-    /// draws none).
-    pub fn marks(&self, revisions: &[RevisionItem], comments: &[CommentInfo]) -> Vec<Mark> {
+    /// Changes and comments drawn in the markup (empty when the mode draws none).
+    /// Changes in headers and footers get balloons beside them on the pages
+    /// `region_pages` says show them; changes in notes beside their lines.
+    pub fn marks(
+        &self,
+        revisions: &[RevisionItem],
+        comments: &[CommentInfo],
+        region_pages: &dyn Fn(&bo_edit::StoryRef) -> Vec<u32>,
+    ) -> Vec<Mark> {
         if matches!(self.mode, MarkupMode::None | MarkupMode::Original) {
             return Vec::new();
         }
         let all = self.mode == MarkupMode::All;
         let mut out = Vec::new();
-        for r in revisions.iter().filter(|r| r.story.is_none()) {
+        for r in revisions {
             let kind = kind_of(r.kind);
             let on = match kind {
                 MarkKind::Format => self.formatting,
@@ -147,7 +153,27 @@ impl MarkupOptions {
             if !on || !self.shown(&r.author) {
                 continue;
             }
+            // Outside the main text: balloons only (all markup), never change bars.
+            let story = match &r.story {
+                None => None,
+                Some(_) if !all => continue,
+                Some(bo_edit::StoryRef::Footnote { id }) => Some(MarkStory::Note {
+                    endnote: false,
+                    id: *id,
+                }),
+                Some(bo_edit::StoryRef::Endnote { id }) => Some(MarkStory::Note {
+                    endnote: true,
+                    id: *id,
+                }),
+                Some(s) => Some(MarkStory::Region {
+                    header: matches!(s, bo_edit::StoryRef::Header { .. }),
+                    pages: region_pages(s),
+                }),
+            };
+            let balloon =
+                story.is_some() || (all && self.deletion_balloons && kind != MarkKind::Insert);
             out.push(Mark {
+                story,
                 id: r.id,
                 kind,
                 start: pos(r.start),
@@ -156,7 +182,7 @@ impl MarkupOptions {
                 date: r.date.clone(),
                 text: r.text.clone(),
                 done: false,
-                balloon: all && self.deletion_balloons && kind != MarkKind::Insert,
+                balloon,
             });
         }
         if self.comments {
@@ -182,6 +208,7 @@ impl MarkupOptions {
                     text,
                     done: c.done,
                     balloon: true,
+                    story: None,
                 });
             }
         }
@@ -278,7 +305,7 @@ mod tests {
         ] {
             o.mode = m;
             assert_eq!(o.layout_view(), v);
-            assert_eq!(o.marks(&[], &[]).len(), 0);
+            assert_eq!(o.marks(&[], &[], &|_| Vec::new()).len(), 0);
         }
         assert!(o.apply(MarkupUpdate {
             hidden_reviewers: Some(vec!["B".into(), "A".into(), "B".into()]),

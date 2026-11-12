@@ -376,6 +376,10 @@ pub struct Engine {
     /// An equation just refused for in-place editing and selected (start, document version):
     /// typing right after does not replace it (ADR-0015 addendum).
     math_refused: Option<(bo_edit::Pos, u64)>,
+    /// Several ranges selected at once ("select all N instances" of a style): the
+    /// session's selection is the first; formatting and styles apply to every range.
+    /// Empty: one range (the session's).
+    pub(crate) multi_sel: Vec<bo_edit::Selection>,
 }
 
 impl Engine {
@@ -681,7 +685,8 @@ impl Engine {
     fn refresh_markup(&mut self, dirty: &mut Vec<usize>) {
         let next = match &self.session {
             Some(s) => {
-                let marks = self.markup.marks(&s.revisions(), &s.comments());
+                let pages = |st: &bo_edit::StoryRef| self.story_pages(st);
+                let marks = self.markup.marks(&s.revisions(), &s.comments(), &pages);
                 if marks.is_empty() {
                     Vec::new()
                 } else {

@@ -157,6 +157,7 @@ fn mark(id: i32, kind: MarkKind, start: (u32, u32), end: (u32, u32), text: &str)
         text: text.into(),
         done: false,
         balloon: kind == MarkKind::Comment,
+        story: None,
     }
 }
 
@@ -242,4 +243,35 @@ fn balloons_on_one_line_are_stacked_without_overlap() {
     }
     // Comments never draw change bars.
     assert_eq!(icons[0].bars.len(), 0);
+}
+
+/// The markup filters apply to tracked table rows too: a row deleted by a hidden
+/// reviewer (or with insertions/deletions off) shows as accepted — gone — while the
+/// other reviewers' rows stay marked (§17.13.5.12 del in trPr).
+#[test]
+fn markup_filter_applies_to_tracked_rows() {
+    let mut t = bo_model::Table::simple(2, 1, bo_model::Twips(4000));
+    for (i, row) in t.rows.iter_mut().enumerate() {
+        row.cells[0].blocks = vec![Block::Paragraph(Paragraph::new(
+            ParaProps::default(),
+            vec![Run::text(format!("Hàng{i}"), RunProps::default())],
+        ))];
+    }
+    t.rows[1].props.del = Some(rev(7, "Bình"));
+    let mut d = tracked(0);
+    d.sections[0].blocks.push(Block::Table(t));
+    let text = |f: MarkFilter| lay(&d, RevisionView::Markup, f).page_text(0);
+    assert!(text(MarkFilter::default()).contains("Hàng1"));
+    let mut f = MarkFilter::default();
+    f.hide_reviewers(["Bình"]);
+    assert!(!text(f).contains("Hàng1"));
+    assert!(text(f).contains("Hàng0"));
+    let mut f = MarkFilter::default();
+    f.hide_reviewers(["An"]);
+    assert!(text(f).contains("Hàng1"));
+    let off = MarkFilter {
+        hide_ins_del: true,
+        ..MarkFilter::default()
+    };
+    assert!(!text(off).contains("Hàng1"));
 }

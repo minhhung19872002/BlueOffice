@@ -690,6 +690,8 @@ export type EditCommand =
   | { cmd: 'setSelection'; selection: Selection }
   | { cmd: 'click'; page: number; x: number; y: number; extend?: boolean; count?: number }
   | { cmd: 'dragTo'; page: number; x: number; y: number }
+  /** Drag and drop of the selected text (`copy`: Ctrl held); a tracked move while tracking. */
+  | { cmd: 'moveSelectionTo'; page: number; x: number; y: number; copy?: boolean }
   | { cmd: 'selectSentence'; page: number; x: number; y: number }
   | { cmd: 'deleteWordBackward' }
   | { cmd: 'deleteWordForward' }

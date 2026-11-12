@@ -633,3 +633,42 @@ fn tracked_equation_replacement_is_one_revision() {
     let kinds: Vec<_> = s.revisions().iter().map(|r| r.kind).collect();
     assert!(!kinds.contains(&RevKind::Equation), "{kinds:?}");
 }
+
+/// Tracked table, row, cell and page setup property changes list what changed
+/// (§17.13.5.34 tblPrChange, §17.13.5.37 trPrChange, §17.13.5.36 tcPrChange,
+/// §17.13.5.32 sectPrChange).
+#[test]
+fn tracked_property_changes_list_their_details() {
+    let mut s = Session::new(doc());
+    s.set_track_changes(true);
+    s.set_selection(Selection::caret(Pos::new(cell_para(&s, 0, 0), 0)));
+    s.edit_table(&TableEdit::Properties {
+        width_pct: Some(80),
+        width: None,
+        align: Some(Alignment::Center),
+    })
+    .unwrap();
+    s.edit_table(&TableEdit::HeaderRow { on: true }).unwrap();
+    s.edit_table(&TableEdit::Shading {
+        hex: Some("FFEE00".into()),
+    })
+    .unwrap();
+    run(&mut s, &Act::PageSetup(1));
+    let revs = s.revisions();
+    let detail = |k: RevKind| {
+        revs.iter()
+            .find(|r| r.kind == k)
+            .map(|r| r.detail.clone())
+            .unwrap_or_else(|| panic!("{k:?} missing: {revs:?}"))
+    };
+    let t = detail(RevKind::TableFormat);
+    assert!(t.contains(&"width") && t.contains(&"align"), "{t:?}");
+    assert_eq!(detail(RevKind::RowFormat), ["rowHeader"]);
+    assert!(detail(RevKind::CellFormat).contains(&"borders"));
+    let p = detail(RevKind::SectionFormat);
+    assert!(p.contains(&"margins") && p.contains(&"columns"), "{p:?}");
+    assert!(
+        p.contains(&"pageSize") && !p.contains(&"titlePage"),
+        "{p:?}"
+    );
+}

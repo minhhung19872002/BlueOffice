@@ -119,6 +119,28 @@ impl Engine {
         Some((si, v))
     }
 
+    /// Pages (0-based) showing the header or footer `st` (§17.10.5 headers linked to
+    /// the previous section show on its pages too); none for notes.
+    pub(crate) fn story_pages(&self, st: &bo_edit::StoryRef) -> Vec<u32> {
+        let (header, section, variant) = match *st {
+            bo_edit::StoryRef::Header { section, variant } => (true, section, variant),
+            bo_edit::StoryRef::Footer { section, variant } => (false, section, variant),
+            _ => return Vec::new(),
+        };
+        let (Some(layout), Some(s)) = (self.layout(), self.session.as_ref()) else {
+            return Vec::new();
+        };
+        let doc = s.doc();
+        (0..layout.pages.len())
+            .filter(|&pi| {
+                self.variant_of(pi).is_some_and(|(si, v)| {
+                    v == variant && bo_edit::section::hf_source(doc, si, header, v) == section
+                })
+            })
+            .filter_map(|pi| u32::try_from(pi).ok())
+            .collect()
+    }
+
     /// `Some(true)` = header area, `Some(false)` = footer area of page `pi` at `y`.
     pub(crate) fn hf_zone(&self, pi: usize, y: f32) -> Option<bool> {
         let layout = self.layout()?;

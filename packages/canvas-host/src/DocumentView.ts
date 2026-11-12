@@ -47,6 +47,11 @@ export interface DocumentViewOptions {
   onZoomChange?: (zoom: number) => void;
   onInput?: (e: ImeEvent) => void;
   onPointer?: (e: PagePointer) => void;
+  /**
+   * The selected text was dragged and dropped at a point (points relative to the page;
+   * `copy`: Ctrl held). Absent: a press inside the selection starts a new selection.
+   */
+  onTextDrop?: (e: { page: number; x: number; y: number; copy: boolean }) => void;
   /** Right click on a page (points relative to the page). */
   onContextMenu?: (e: {
     page: number;
@@ -61,6 +66,10 @@ export interface DocumentViewOptions {
   onViewport?: () => void;
   /** A review balloon was clicked (BlueDoc markup area). */
   onMarkupSelect?: (m: MarkupSelect) => void;
+  /** A reply typed in a comment's balloon (absent: balloons offer no reply box). */
+  onMarkupReply?: (id: number, text: string) => void;
+  /** Localised labels of the reply box in comment balloons. */
+  markupReplyLabels?: { reply: string; send: string; cancel: string; placeholder: string };
   /** Localised name of a change kind shown in its balloon. */
   markupLabel?: (kind: MarkKind, id: number) => string;
   /** Accessible name of the text input that receives typing (default "Document"). */
@@ -110,6 +119,14 @@ export class DocumentView {
   private readonly glyphs: GlyphStore;
   private readonly images: ImageStore;
   private dragging = false;
+  /** A press inside the selection: a text drag once the pointer moves (`active`). */
+  private textDrag: {
+    clientX: number;
+    clientY: number;
+    at: { page: number; x: number; y: number };
+    count: number;
+    active: boolean;
+  } | null = null;
   private caret: CaretRect | null = null;
   /** The caret element, reused by every `setSelection`. */
   private caretEl: HTMLDivElement | null = null;
@@ -152,9 +169,12 @@ export class DocumentView {
       | 'onZoomChange'
       | 'onInput'
       | 'onPointer'
+      | 'onTextDrop'
       | 'onViewport'
       | 'onContextMenu'
       | 'onMarkupSelect'
+      | 'onMarkupReply'
+      | 'markupReplyLabels'
       | 'markupLabel'
       | 'inputLabel'
       | 'pageLabel'
@@ -676,9 +696,29 @@ export class DocumentView {
     this.opts.onContextMenu({ ...p, clientX: e.clientX, clientY: e.clientY, target: e.target });
   };
 
+  /** Point `p` is on the selection's highlight. */
+  private inSelection(p: { page: number; x: number; y: number }): boolean {
+    return this.lastRects.some(
+      (r) => r.page === p.page && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h,
+    );
+  }
+
   private onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;
     const p = this.pointAt(e);
+    // A press on the selected text may start dragging it (drag and drop).
+    if (p && this.info && this.opts.onTextDrop && !e.shiftKey && this.inSelection(p)) {
+      e.preventDefault();
+      this.textDrag = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        at: p,
+        count: Math.min(3, e.detail || 1),
+        active: false,
+      };
+      this.ime.focus();
+      return;
+    }
     if (p && this.info) {
       e.preventDefault();
       this.dragging = true;
@@ -694,12 +734,49 @@ export class DocumentView {
   };
 
   private onMouseMove = (e: MouseEvent) => {
+    const td = this.textDrag;
+    if (td) {
+      if ((e.buttons & 1) === 0) return;
+      if (!td.active && Math.hypot(e.clientX - td.clientX, e.clientY - td.clientY) > 4) {
+        td.active = true;
+      }
+      if (td.active) this.scroller.style.cursor = e.ctrlKey || e.metaKey ? 'copy' : 'move';
+      return;
+    }
     if (!this.dragging || (e.buttons & 1) === 0) return;
     const p = this.pointAt(e);
     if (p) this.opts.onPointer?.({ type: 'drag', ...p, shift: true, count: 1 });
   };
 
   private onMouseUp = (e: MouseEvent) => {
+    const td = this.textDrag;
+    if (td) {
+      this.textDrag = null;
+      this.scroller.style.cursor = '';
+      const p = this.pointAt(e);
+      if (td.active) {
+        if (p) this.opts.onTextDrop?.({ ...p, copy: e.ctrlKey || e.metaKey });
+      } else {
+        // A click without a drag: an ordinary click there.
+        const at = p ?? td.at;
+        this.opts.onPointer?.({
+          type: 'down',
+          ...at,
+          shift: false,
+          count: td.count,
+          ctrl: e.ctrlKey,
+        });
+        this.opts.onPointer?.({
+          type: 'up',
+          ...at,
+          shift: false,
+          count: 1,
+          clientX: e.clientX,
+          clientY: e.clientY,
+        });
+      }
+      return;
+    }
     if (!this.dragging) return;
     this.dragging = false;
     const p = this.pointAt(e);
@@ -875,6 +952,8 @@ export class DocumentView {
         label: this.opts.markupLabel,
         open: this.openMarkup,
         onSelect: this.opts.onMarkupSelect,
+        onReply: this.opts.onMarkupReply,
+        replyLabels: this.opts.markupReplyLabels,
         onToggle: draw,
       });
     draw();

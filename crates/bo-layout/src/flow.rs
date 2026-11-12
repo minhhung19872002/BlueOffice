@@ -403,16 +403,22 @@ pub(crate) fn float_item(
 }
 
 /// Revision of the run holding floating picture `img` in `p`: (author colour,
-/// deleted).
-fn float_revision(p: &Paragraph, img: &bo_model::Image) -> Option<(Color, bool)> {
+/// deleted). Changes the markup filters show as accepted (insertions/deletions off,
+/// hidden reviewers) have none.
+fn float_revision(
+    p: &Paragraph,
+    img: &bo_model::Image,
+    marks: &crate::MarkFilter,
+) -> Option<(Color, bool)> {
     let r = p.runs.iter().find(|r| {
         r.content
             .iter()
             .any(|c| matches!(c, bo_model::RunContent::Image(i) if **i == *img))
     })?;
+    let shown = |m: &bo_model::RevMark| !marks.hide_ins_del && !marks.hides(&m.info.author);
     match (&r.props.del, &r.props.ins) {
-        (Some(d), _) => Some((crate::style::author_color(&d.info.author), true)),
-        (None, Some(i)) => Some((crate::style::author_color(&i.info.author), false)),
+        (Some(d), _) if shown(d) => Some((crate::style::author_color(&d.info.author), true)),
+        (None, Some(i)) if shown(i) => Some((crate::style::author_color(&i.info.author), false)),
         _ => None,
     }
 }
@@ -1223,7 +1229,7 @@ impl Flow {
             // §17.13.5.22 moveFrom / §17.13.5.25 moveTo) is framed in markup.
             if ctx.view == crate::RevisionView::Markup {
                 if let (Some(rev), Some(PageItem::Image { x, y, w, h, .. })) = (
-                    src.and_then(|p| float_revision(p, &img.img)),
+                    src.and_then(|p| float_revision(p, &img.img, &ctx.marks)),
                     items.iter().find(|i| matches!(i, PageItem::Image { .. })),
                 ) {
                     float_frame(*x, *y, *w, *h, rev, &mut float_items);

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
 import type { Balloon, PageMarkup } from '@blueoffice/platform';
-import { drawMarkup } from '../src/markup';
+import { drawMarkup, stackHeights } from '../src/markup';
 
 const balloon = (over: Partial<Balloon> = {}): Balloon => ({
   id: 3,
@@ -89,5 +89,65 @@ describe('drawMarkup', () => {
     layer.appendChild(document.createElement('span'));
     drawMarkup(layer, undefined, { k: 1, pageWidth: 595, pageHeight: 842, open: new Set() });
     expect(layer.childElementCount).toBe(0);
+  });
+});
+
+describe('balloons as drawn', () => {
+  it('stacks balloons by their drawn heights, pushed up at the page bottom', () => {
+    // Two balloons anchored close together: the second goes under the first's real height.
+    expect(
+      stackHeights(
+        [
+          { anchorY: 100, h: 40 },
+          { anchorY: 104, h: 20 },
+        ],
+        842,
+      ),
+    ).toEqual([92, 136]);
+    // Overflowing the page bottom: pushed up, never above the top.
+    const ys = stackHeights(
+      [
+        { anchorY: 820, h: 30 },
+        { anchorY: 830, h: 30 },
+      ],
+      842,
+    );
+    expect(ys[1]! + 30).toBeLessThanOrEqual(838);
+    expect(ys[0]! + 30 + 4).toBeLessThanOrEqual(ys[1]!);
+  });
+
+  it('replies to a comment from its balloon', () => {
+    const layer = document.createElement('div');
+    document.body.appendChild(layer);
+    const onReply = vi.fn();
+    const onSelect = vi.fn();
+    drawMarkup(layer, markup([balloon(), balloon({ id: 5, kind: 'insert', y: 130 })]), {
+      k: 1,
+      pageWidth: 595,
+      pageHeight: 842,
+      open: new Set(),
+      onSelect,
+      onReply,
+      replyLabels: { reply: 'Trả lời', send: 'Gửi', cancel: 'Huỷ', placeholder: 'Trả lời…' },
+    });
+    // Only comments get a reply box.
+    expect(layer.querySelectorAll('[data-testid="balloon-reply"]')).toHaveLength(1);
+    const text = layer.querySelector<HTMLTextAreaElement>('[data-testid="balloon-reply-text"]')!;
+    expect(text.parentElement!.hidden).toBe(true);
+    layer.querySelector<HTMLButtonElement>('[data-testid="balloon-reply"]')!.click();
+    expect(text.parentElement!.hidden).toBe(false);
+    // Clicks in the box do not select the comment.
+    expect(onSelect).not.toHaveBeenCalled();
+    text.value = '  Đồng ý ';
+    text.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+    );
+    expect(onReply).toHaveBeenCalledWith(3, 'Đồng ý');
+    expect(text.parentElement!.hidden).toBe(true);
+    // An empty reply is not sent.
+    layer.querySelector<HTMLButtonElement>('[data-testid="balloon-reply"]')!.click();
+    layer.querySelector<HTMLButtonElement>('[data-testid="balloon-reply-send"]')!.click();
+    expect(onReply).toHaveBeenCalledTimes(1);
+    layer.remove();
   });
 });

@@ -612,3 +612,330 @@ impl Session {
         })
     }
 }
+
+/// A cut made while tracking: what it put on the clipboard and the deletion
+/// revisions it recorded. Pasting that clipboard turns the pair into a move.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CutRecord {
+    /// Internal clipboard payload of the cut.
+    pub internal: String,
+    /// Revision ids of the tracked deletion made by the cut.
+    pub ids: HashSet<i32>,
+}
+
+/// A paste in progress that may complete a tracked move ([`Session::move_paste_start`]).
+#[derive(Debug, Clone)]
+pub struct MovePaste {
+    from: HashSet<i32>,
+    ins_before: HashSet<i32>,
+    depth: usize,
+}
+
+/// Ids of the tracked deletions (`del`) or insertions (`!del`) of the body that are not
+/// part of a move yet (runs and paragraph marks).
+fn rev_ids(doc: &Document, del: bool) -> HashSet<i32> {
+    let mut out = HashSet::new();
+    for path in body_paragraphs(doc) {
+        let Some(p) = bo_model::index::para_at(doc, &path) else {
+            continue;
+        };
+        let pick = |m: &Option<RevMark>| m.as_ref().filter(|m| !m.moved).map(|m| m.info.id);
+        for r in &p.runs {
+            let m = if del { &r.props.del } else { &r.props.ins };
+            out.extend(pick(m));
+        }
+        let m = if del {
+            &p.props.mark_del
+        } else {
+            &p.props.mark_ins
+        };
+        out.extend(pick(m));
+    }
+    out
+}
+
+/// The deletion (`del`) or insertion mark of a run.
+fn side_of(props: &bo_model::RunProps, del: bool) -> Option<&RevMark> {
+    if del {
+        props.del.as_ref()
+    } else {
+        props.ins.as_ref()
+    }
+}
+
+/// The deletion (`del`) or insertion mark of a paragraph mark.
+fn mark_of(p: &Paragraph, del: bool) -> Option<&RevMark> {
+    if del {
+        p.props.mark_del.as_ref()
+    } else {
+        p.props.mark_ins.as_ref()
+    }
+}
+
+/// `m` is one of `ids` and not part of a move yet.
+fn hit(m: Option<&RevMark>, ids: &HashSet<i32>) -> bool {
+    m.is_some_and(|m| !m.moved && ids.contains(&m.info.id))
+}
+
+impl Session {
+    /// Before a cut: the deletions already in the body (to tell the cut's own).
+    pub(crate) fn cut_start(&self) -> Option<HashSet<i32>> {
+        self.track.then(|| rev_ids(&self.doc, true))
+    }
+
+    /// After a cut while tracking: remember its deletion so that pasting the same
+    /// clipboard records a move (§17.13.5.22 moveFrom / §17.13.5.25 moveTo).
+    pub(crate) fn cut_end(&mut self, before: Option<HashSet<i32>>, internal: &str) {
+        self.last_cut = before.and_then(|before| {
+            let ids: HashSet<i32> = rev_ids(&self.doc, true)
+                .difference(&before)
+                .copied()
+                .collect();
+            (!ids.is_empty()).then(|| CutRecord {
+                internal: internal.to_owned(),
+                ids,
+            })
+        });
+    }
+
+    /// Before a paste of internal clipboard `internal`: when it is the last cut's and
+    /// tracking is on with the cut's deletion still in the text, the paste will be
+    /// recorded as the other half of a move ([`Session::move_paste_finish`]).
+    pub fn move_paste_start(&self, internal: Option<&str>) -> Option<MovePaste> {
+        let rec = self.last_cut.as_ref()?;
+        if !self.track || internal != Some(rec.internal.as_str()) {
+            return None;
+        }
+        let dels = rev_ids(&self.doc, true);
+        let from: HashSet<i32> = rec.ids.intersection(&dels).copied().collect();
+        (!from.is_empty()).then(|| MovePaste {
+            from,
+            ins_before: rev_ids(&self.doc, false),
+            depth: self.undo.len(),
+        })
+    }
+
+    /// After the paste: the cut's deletion becomes moveFrom and the pasted insertion
+    /// moveTo, tied by named range markers (§17.13.5.23–27); joined to the paste's undo
+    /// step. Returns whether a move was recorded.
+    pub fn move_paste_finish(&mut self, m: MovePaste) -> Result<bool> {
+        let to: HashSet<i32> = rev_ids(&self.doc, false)
+            .difference(&m.ins_before)
+            .copied()
+            .collect();
+        if to.is_empty() || self.undo.len() <= m.depth {
+            return Ok(false);
+        }
+        let from = m.from;
+        let names = move_groups(&self.doc);
+        let floor = names.max_marker_id();
+        self.edit(move |tx, sel| {
+            let Some(tr) = tx.track.as_mut() else {
+                return Ok(sel);
+            };
+            tr.next_id = tr.next_id.max(floor);
+            let mark = tr.mark();
+            let from_range = mark.info.id;
+            let to_range = tr.mark().info.id;
+            let mut name = format!("move{from_range}");
+            while names.by_name.contains_key(&name) {
+                name.push('_');
+            }
+            for (del, ids, range, start, end) in [
+                (
+                    true,
+                    &from,
+                    from_range,
+                    "moveFromRangeStart",
+                    "moveFromRangeEnd",
+                ),
+                (false, &to, to_range, "moveToRangeStart", "moveToRangeEnd"),
+            ] {
+                let side = |props: &bo_model::RunProps| side_of(props, del).cloned();
+                let pmark = |q: &Paragraph| mark_of(q, del).cloned();
+                // Paragraphs holding the half, in document order.
+                let n = body_paragraphs(tx.doc).len();
+                let mut touched = Vec::new();
+                for id in 0..n {
+                    let (_, p, atoms) = tx.atoms(id)?;
+                    if atoms
+                        .iter()
+                        .any(|(r, c)| para::atom_len(c) > 0 && hit(side(r).as_ref(), ids))
+                        || hit(pmark(&p).as_ref(), ids)
+                    {
+                        touched.push(id);
+                    }
+                }
+                let (Some(&first), Some(&last)) = (touched.first(), touched.last()) else {
+                    continue;
+                };
+                // The marks of the half's revisions say "moved".
+                let info = RevMark {
+                    moved: true,
+                    ..mark.clone()
+                };
+                for &id in &touched {
+                    let (path, p, atoms) = tx.atoms(id)?;
+                    let mut atoms: Vec<Atom> = atoms
+                        .into_iter()
+                        .map(|(mut r, c)| {
+                            let slot = if del { &mut r.del } else { &mut r.ins };
+                            if let Some(m) = slot.as_mut().filter(|m| hit(Some(m), ids)) {
+                                m.moved = true;
+                            }
+                            (r, c)
+                        })
+                        .collect();
+                    let is_mine = |a: &Atom| {
+                        para::atom_len(&a.1) > 0
+                            && side_of(&a.0, del)
+                                .is_some_and(|m| m.moved && ids.contains(&m.info.id))
+                    };
+                    if id == first {
+                        let at = atoms.iter().position(is_mine).unwrap_or(atoms.len());
+                        atoms.insert(
+                            at,
+                            (
+                                bo_model::RunProps::default(),
+                                range_start(start, range, &name, &info),
+                            ),
+                        );
+                    }
+                    if id == last {
+                        // After the last moved character; a moved paragraph mark is
+                        // covered by a range closed at the end of its paragraph.
+                        let at = if hit(pmark(&p).as_ref(), ids) {
+                            atoms.len()
+                        } else {
+                            atoms
+                                .iter()
+                                .rposition(is_mine)
+                                .map_or(atoms.len(), |i| i + 1)
+                        };
+                        atoms.insert(at, (bo_model::RunProps::default(), range_end(end, range)));
+                    }
+                    let mut q = para::with_atoms(&p, atoms);
+                    let pm = if del {
+                        &mut q.props.mark_del
+                    } else {
+                        &mut q.props.mark_ins
+                    };
+                    if let Some(m) = pm.as_mut().filter(|m| hit(Some(m), ids)) {
+                        m.moved = true;
+                    }
+                    tx.replace_para(&path, q)?;
+                }
+            }
+            Ok(sel)
+        })?;
+        self.merge_history_since(m.depth);
+        self.last_cut = None;
+        Ok(true)
+    }
+}
+
+/// Zero-width place holder of a drop point while the dragged text is removed.
+const DROP_MARK: &str = "<w:bookmarkStart w:id=\"-1\" w:name=\"_BlueOfficeDrop\"/>";
+
+impl Session {
+    /// Drag and drop of the selection to `target`: the text moves there (`copy`: a copy
+    /// goes there and the original stays), in one undo step; the dropped text is
+    /// selected. While tracking, a move is recorded as one (§17.13.5.22 moveFrom /
+    /// §17.13.5.25 moveTo), a copy as an insertion. A drop inside the selection does
+    /// nothing.
+    pub fn move_selection_to(&mut self, target: Pos, copy: bool) -> Result<Selection> {
+        let (a, b) = self.selection.ordered();
+        if self.selection.is_collapsed() || (a <= target && target <= b) {
+            return Ok(self.selection);
+        }
+        let clip = self.copy();
+        let depth = self.undo.len();
+        self.end_typing();
+        let res = self.drop_clip(target, copy, &clip.internal, (a, b));
+        self.merge_history_since(depth);
+        self.end_typing();
+        if res.is_err() && self.undo.len() > depth {
+            self.undo();
+            self.redo.clear();
+        }
+        res
+    }
+
+    fn drop_clip(
+        &mut self,
+        target: Pos,
+        copy: bool,
+        internal: &str,
+        (a, b): (Pos, Pos),
+    ) -> Result<Selection> {
+        let at = if copy {
+            target
+        } else {
+            // Mark the drop point (zero width: offsets do not move), remove the text,
+            // then find the point again.
+            self.edit(move |tx, sel| {
+                let (path, p, mut atoms) = tx.atoms(target.para)?;
+                let i = para::split_at(&mut atoms, target.offset);
+                atoms.insert(
+                    i,
+                    (
+                        bo_model::RunProps::default(),
+                        RunContent::Markup(Raw::new(DROP_MARK, 0)),
+                    ),
+                );
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                Ok(sel)
+            })?;
+            self.set_selection(Selection {
+                anchor: a,
+                focus: b,
+            });
+            let before = self.cut_start();
+            self.delete_backward()?;
+            self.cut_end(before, internal);
+            let found = (0..self.paragraph_count()).find_map(|id| {
+                let path = body_paragraphs(&self.doc).get(id)?.clone();
+                let p = bo_model::index::para_at(&self.doc, &path)?;
+                let atoms = para::flatten(p);
+                let mut off = 0;
+                for (_, c) in &atoms {
+                    if matches!(c, RunContent::Markup(r) if &*r.xml == DROP_MARK) {
+                        return Some(Pos::new(id, off));
+                    }
+                    off += para::atom_len(c);
+                }
+                None
+            });
+            let Some(at) = found else {
+                return Err(EditError::BadPosition);
+            };
+            self.edit(move |tx, sel| {
+                let (path, p, atoms) = tx.atoms(at.para)?;
+                let atoms = atoms
+                    .into_iter()
+                    .filter(|(_, c)| !matches!(c, RunContent::Markup(r) if &*r.xml == DROP_MARK))
+                    .collect();
+                tx.replace_para(&path, para::with_atoms(&p, atoms))?;
+                Ok(sel)
+            })?;
+            at
+        };
+        self.set_selection(Selection::caret(at));
+        let mv = if copy {
+            None
+        } else {
+            self.move_paste_start(Some(internal))
+        };
+        self.paste_internal(internal)?;
+        if let Some(m) = mv {
+            self.move_paste_finish(m)?;
+        }
+        let end = self.selection.focus;
+        let sel = Selection {
+            anchor: at,
+            focus: end,
+        };
+        self.set_selection(sel);
+        Ok(sel)
+    }
+}

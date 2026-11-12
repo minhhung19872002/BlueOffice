@@ -108,3 +108,41 @@ fn markup_options_filter_marks() {
     let r = cmd(&mut e, r#"{"cmd":"review"}"#);
     assert_eq!(r["review"]["revisions"].as_array().unwrap().len(), 2);
 }
+
+/// Changes in a header or a footnote get balloons too: beside the header's line on the
+/// page, beside the note's line at the page bottom (§17.10, §17.11; all markup only).
+#[test]
+fn header_and_footnote_changes_get_balloons() {
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    cmd(&mut e, r#"{"cmd":"setAuthor","name":"An"}"#);
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Thân"}"#);
+    cmd(&mut e, r#"{"cmd":"setTrackChanges","on":true}"#);
+    cmd(
+        &mut e,
+        r#"{"cmd":"editHeaderFooter","page":0,"header":true}"#,
+    );
+    cmd(&mut e, r#"{"cmd":"insertText","text":"Đầu trang mới"}"#);
+    cmd(&mut e, r#"{"cmd":"closeHeaderFooter"}"#);
+    cmd(&mut e, r#"{"cmd":"insertNote","text":"Ghi chú"}"#);
+    let p = page(&e);
+    let b = p["markup"]["balloons"].as_array().unwrap();
+    let header = b
+        .iter()
+        .find(|x| x["text"].as_str().unwrap_or("").contains("Đầu trang"))
+        .unwrap_or_else(|| panic!("{b:?}"));
+    let note = b
+        .iter()
+        .find(|x| x["text"].as_str().unwrap_or("").contains("Ghi chú"))
+        .unwrap_or_else(|| panic!("{b:?}"));
+    let h = p["height"].as_f64().unwrap();
+    assert!(header["anchorY"].as_f64().unwrap() < h / 4.0, "{header}");
+    assert!(note["anchorY"].as_f64().unwrap() > h / 2.0, "{note}");
+    // No markup or simple markup: no balloons for them.
+    cmd(&mut e, r#"{"cmd":"setMarkup","mode":"simple"}"#);
+    let p = page(&e);
+    let none = p["markup"]["balloons"]
+        .as_array()
+        .is_none_or(|b| b.iter().all(|x| x["kind"] == "comment"));
+    assert!(none, "{p}");
+}

@@ -11,7 +11,7 @@ use crate::Pos;
 use bo_model::index::body_paragraphs;
 use bo_model::{
     Block, Cell, CellProps, Document, ParaProps, Paragraph, RevMark, RevisionInfo, RunProps,
-    Section, Table, TableWidth,
+    Section, Table, TableProps, TableWidth,
 };
 use serde::Serialize;
 
@@ -309,6 +309,7 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
                 ch.info.clone(),
                 Pos::new(first, 0),
                 end,
+                section_detail(ch, s),
             ));
         }
     }
@@ -334,8 +335,8 @@ fn list_main(doc: &Document) -> Vec<RevisionItem> {
         RevKind::TableGrid => !any_ids.contains(&s.1.id),
         _ => true,
     });
-    for (k, info, s, e) in structural {
-        add(k, &info, s, e, "", &[]);
+    for (k, info, s, e, d) in structural {
+        add(k, &info, s, e, "", &d);
     }
     merge_move_halves(doc, &mut out);
     merge_equation_halves(doc, &mut out);
@@ -477,7 +478,7 @@ fn merge_move_halves(doc: &Document, out: &mut Vec<RevisionItem>) {
     *out = kept;
 }
 
-type Structural = (RevKind, RevisionInfo, Pos, Pos);
+type Structural = (RevKind, RevisionInfo, Pos, Pos, Vec<&'static str>);
 
 /// Table revisions of `blocks` in document order; `next` counts body paragraphs (ids as
 /// in `bo_model::index::body_paragraphs`), `last_len` is the length of the last one.
@@ -502,6 +503,11 @@ fn walk_structure(
                         walk_structure(&c.blocks, next, last_len, out);
                         let end = Pos::new(next.saturating_sub(1).max(c0), *last_len);
                         let p = &c.props;
+                        let detail = p
+                            .change
+                            .as_ref()
+                            .map(|ch| cell_detail(&ch.old, p))
+                            .unwrap_or_default();
                         let marks = [
                             (p.change.as_ref().map(|c| &c.info), RevKind::CellFormat),
                             (p.ins.as_ref().map(|m| &m.info), RevKind::CellInsert),
@@ -510,27 +516,43 @@ fn walk_structure(
                         ];
                         for (info, k) in marks {
                             if let Some(info) = info {
-                                out.push((k, info.clone(), Pos::new(c0, 0), end));
+                                let d = if k == RevKind::CellFormat {
+                                    detail.clone()
+                                } else {
+                                    Vec::new()
+                                };
+                                out.push((k, info.clone(), Pos::new(c0, 0), end, d));
                             }
                         }
                     }
                     let end = Pos::new(next.saturating_sub(1).max(r0), *last_len);
                     if let Some(m) = &row.props.ins {
-                        out.push((RevKind::RowInsert, m.info.clone(), Pos::new(r0, 0), end));
+                        let s = Pos::new(r0, 0);
+                        out.push((RevKind::RowInsert, m.info.clone(), s, end, Vec::new()));
                     }
                     if let Some(m) = &row.props.del {
-                        out.push((RevKind::RowDelete, m.info.clone(), Pos::new(r0, 0), end));
+                        let s = Pos::new(r0, 0);
+                        out.push((RevKind::RowDelete, m.info.clone(), s, end, Vec::new()));
                     }
                     if let Some(ch) = &row.props.change {
-                        out.push((RevKind::RowFormat, ch.info.clone(), Pos::new(r0, 0), end));
+                        let d = row_detail(ch, &row.props);
+                        out.push((RevKind::RowFormat, ch.info.clone(), Pos::new(r0, 0), end, d));
                     }
                 }
                 let end = Pos::new(next.saturating_sub(1).max(t0), *last_len);
                 if let Some(ch) = &t.props.change {
-                    out.push((RevKind::TableFormat, ch.info.clone(), Pos::new(t0, 0), end));
+                    let d = table_detail(&ch.old, &t.props);
+                    out.push((
+                        RevKind::TableFormat,
+                        ch.info.clone(),
+                        Pos::new(t0, 0),
+                        end,
+                        d,
+                    ));
                 }
                 if let Some(g) = &t.grid_change {
-                    out.push((RevKind::TableGrid, g.info.clone(), Pos::new(t0, 0), end));
+                    let d = vec!["width"];
+                    out.push((RevKind::TableGrid, g.info.clone(), Pos::new(t0, 0), end, d));
                 }
             }
             Block::Opaque(_) => {}
@@ -739,6 +761,102 @@ pub fn para_detail(old: &ParaProps, new: &ParaProps) -> Vec<&'static str> {
         }
     }
     v
+}
+
+/// Keys of the `checks` that hold; `other` when none does but `differ`.
+fn detail_keys(checks: &[(&'static str, bool)], differ: bool) -> Vec<&'static str> {
+    let v: Vec<&'static str> = checks.iter().filter(|c| c.1).map(|c| c.0).collect();
+    if v.is_empty() && differ {
+        vec!["other"]
+    } else {
+        v
+    }
+}
+
+/// Which table properties a §17.13.5.34 tblPrChange changed (keys the hosts translate).
+pub fn table_detail(old: &TableProps, new: &TableProps) -> Vec<&'static str> {
+    let (o, n) = (old, new);
+    let bare = |p: &TableProps| TableProps {
+        change: None,
+        ..p.clone()
+    };
+    detail_keys(
+        &[
+            ("style", o.style != n.style),
+            ("width", o.width != n.width),
+            ("align", o.align != n.align),
+            ("indent", o.indent != n.indent),
+            ("borders", o.borders != n.borders),
+            ("tableLayout", o.fixed_layout != n.fixed_layout),
+            ("cellMargins", o.cell_margin != n.cell_margin),
+            ("position", o.float != n.float),
+        ],
+        bare(o) != bare(n),
+    )
+}
+
+/// Which cell properties a §17.13.5.36 tcPrChange changed.
+pub fn cell_detail(old: &CellProps, new: &CellProps) -> Vec<&'static str> {
+    let (o, n) = (old, new);
+    let bare = |p: &CellProps| CellProps {
+        change: None,
+        ins: None,
+        del: None,
+        merge: None,
+        ..p.clone()
+    };
+    detail_keys(
+        &[
+            ("width", o.width != n.width),
+            (
+                "merge",
+                o.grid_span != n.grid_span || o.v_merge != n.v_merge,
+            ),
+            ("borders", o.borders != n.borders || o.shading != n.shading),
+            ("vAlign", o.v_align != n.v_align),
+            ("direction", o.text_direction != n.text_direction),
+        ],
+        bare(o) != bare(n),
+    )
+}
+
+/// Which row properties a §17.13.5.37 trPrChange changed.
+pub fn row_detail(old: &bo_model::RowPropsChange, new: &bo_model::RowProps) -> Vec<&'static str> {
+    detail_keys(
+        &[
+            ("rowHeader", old.header != new.header),
+            ("cantSplit", old.cant_split != new.cant_split),
+            ("rowHeight", old.height != new.height),
+        ],
+        false,
+    )
+}
+
+/// Which page setup properties a §17.13.5.32 sectPrChange changed.
+pub fn section_detail(old: &bo_model::SectionChange, s: &Section) -> Vec<&'static str> {
+    let (o, n) = (&old.page, &s.page);
+    detail_keys(
+        &[
+            ("pageSize", o.width != n.width || o.height != n.height),
+            (
+                "margins",
+                o.margin_top != n.margin_top
+                    || o.margin_bottom != n.margin_bottom
+                    || o.margin_left != n.margin_left
+                    || o.margin_right != n.margin_right
+                    || o.header != n.header
+                    || o.footer != n.footer,
+            ),
+            ("columns", old.columns != s.columns),
+            ("titlePage", old.title_page != s.title_page),
+            ("sectionBreak", old.break_type != s.break_type),
+            (
+                "pageNumbering",
+                old.page_number_start != s.page_number_start,
+            ),
+        ],
+        false,
+    )
 }
 
 /// Which revisions to resolve.

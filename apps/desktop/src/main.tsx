@@ -1,4 +1,3 @@
-import { BlueEditor } from '@blueoffice/editor';
 import {
   AccountChip,
   DriveClient,
@@ -39,10 +38,8 @@ import {
   type RecentFile,
 } from '@blueoffice/platform';
 import { createDesktopPlatform, isOidcCallback } from '@blueoffice/platform/desktop';
-import { BlueSheetEditor } from '@blueoffice/sheet-editor';
-import { BlueSlideEditor } from '@blueoffice/slide-editor';
 import { LocalStorageProvider } from '@blueoffice/storage-providers';
-import { StrictMode, type ReactNode } from 'react';
+import { lazy, StrictMode, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 // The desktop app is only a shell: same editor, DesktopPlatform (native engine + real disk).
@@ -62,6 +59,38 @@ const root = createRoot(document.getElementById('root')!);
 const SYNC_KEY = 'syncFolders';
 const UPDATE_CHECK_KEY = 'lastUpdateCheck';
 
+// Each app's editor is its own chunk, loaded when that app is shown: the window starts
+// with the shell's code only and a BlueDoc window never parses BlueSheet / BlueSlide
+// (docs/perf/RESULTS.md, step 4). The import starts at once for the app of this window.
+const editors = {
+  doc: () => import('@blueoffice/editor').then((m) => ({ default: m.BlueEditor })),
+  sheet: () => import('@blueoffice/sheet-editor').then((m) => ({ default: m.BlueSheetEditor })),
+  slide: () => import('@blueoffice/slide-editor').then((m) => ({ default: m.BlueSlideEditor })),
+};
+const BlueEditor = lazy(editors.doc);
+const BlueSheetEditor = lazy(editors.sheet);
+const BlueSlideEditor = lazy(editors.slide);
+void editors[shellApp]();
+
+/** Placeholder of the editor while its code loads: the frame of title bar, ribbon, page. */
+function EditorSkeleton() {
+  const bar = (height: number, background: string) => (
+    <div style={{ height, background, flex: 'none' }} />
+  );
+  return (
+    <div
+      aria-busy="true"
+      data-testid="editor-skeleton"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#e8ebf0' }}
+    >
+      {bar(32, '#f3f5f8')}
+      {bar(120, '#fbfcfd')}
+      <div style={{ flex: 1 }} />
+      {bar(24, '#f3f5f8')}
+    </div>
+  );
+}
+
 /** Platform whose editor opens `file` once (the OS open requests are routed by this shell). */
 function withFile(file: OpenedFile | null): Platform {
   const p = platform;
@@ -79,6 +108,10 @@ function withFile(file: OpenedFile | null): Platform {
 }
 
 function Editor({ app, platform }: { app: HostedApp; platform: Platform }) {
+  return <Suspense fallback={<EditorSkeleton />}>{editorOf(app, platform)}</Suspense>;
+}
+
+function editorOf(app: HostedApp, platform: Platform) {
   return app === 'sheet' ? (
     <BlueSheetEditor platform={platform} />
   ) : app === 'slide' ? (
@@ -191,7 +224,10 @@ function render(): void {
         />
       ) : view === 'editor' ? (
         editor
-      ) : null}
+      ) : (
+        // Until the settings are read and the launch file (if any) is known: the frame at once.
+        <EditorSkeleton />
+      )}
     </StrictMode>,
   );
 }
@@ -457,6 +493,8 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// The window frame first; settings, the launch file and the editor's code load meanwhile.
+render();
 void (async () => {
   await loadSettings();
   // Started for a file or a deep link: the editor appears when it is opened; else the Start screen.

@@ -1193,8 +1193,32 @@ pub(crate) fn row_band(
     force_bottom: bool,
 ) -> Band {
     let mut band = Band::empty(h);
+    let mut row_end = None;
     if let (Some(first), Some(last)) = (row.cells.first(), row.cells.last()) {
         let (rx0, rx1) = (table_x + first.x, table_x + last.x + last.w);
+        // The end-of-row mark's place: right of the row, as tall as the first line of
+        // its last cell.
+        let mt = last.margins[2];
+        let (top, lh, base) = last
+            .content
+            .iter()
+            .find_map(|(t, b)| {
+                b.lines
+                    .first()
+                    .map(|l| (mt + t + l.top, l.height, mt + t + l.baseline))
+            })
+            .unwrap_or((mt, h.min(14.0), mt + h.min(14.0) * 0.8));
+        row_end = Some(Line {
+            top,
+            height: lh,
+            baseline: base,
+            fragments: Vec::new(),
+            source: LineSource::RowEnd,
+            start: 0,
+            end: 0,
+            carets: vec![(0, rx1)].into(),
+            rotation: None,
+        });
         if let Some((color, deleted)) = row.revision {
             // Light tint of the author's colour behind the row; deleted rows struck out.
             let tint = |c: u8| (f32::from(c) * 0.2 + 255.0 * 0.8) as u8;
@@ -1303,6 +1327,8 @@ pub(crate) fn row_band(
             band.items.push(rule(b, x1, 0.0, x1, h));
         }
     }
+    // After the cells' lines (the first line of a row stays its first cell's).
+    band.lines.extend(row_end);
     band
 }
 

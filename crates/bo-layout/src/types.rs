@@ -262,6 +262,10 @@ pub enum LineSource {
     },
     /// Header/footer content and repeated table header rows (not editable in place).
     Other,
+    /// End of a table row (§17.4.79 tr): an empty line right of the row's last cell,
+    /// where the view draws the end-of-row mark with the formatting marks; its only
+    /// caret stop is at the row's right edge.
+    RowEnd,
 }
 
 impl LineSource {

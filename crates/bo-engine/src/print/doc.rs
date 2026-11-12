@@ -182,14 +182,25 @@ impl Engine {
                 width: None,
             })?;
         }
-        if unmark {
-            self.markup.mode = MarkupMode::None;
-            self.view = self.markup.layout_view();
+        // Hidden text shown with the formatting marks is not printed (§17.3.2.41 vanish).
+        let marks = self.show_marks;
+        if unmark || marks {
+            if unmark {
+                self.markup.mode = MarkupMode::None;
+                self.view = self.markup.layout_view();
+            }
+            self.show_marks = false;
             self.view_changed = true;
             self.relayout()?;
         }
         let pages = self.doc_pages_now(o);
+        if marks && !unmark {
+            self.show_marks = true;
+            self.view_changed = true;
+            self.relayout()?;
+        }
         if unmark {
+            self.show_marks = marks;
             self.markup = saved_markup;
             self.view = self.markup.layout_view();
             self.view_changed = true;

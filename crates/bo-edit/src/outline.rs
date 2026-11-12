@@ -26,6 +26,9 @@ pub struct OutlineEntry {
     pub level: Option<u8>,
     /// Displayed text (objects and control characters left out, shortened).
     pub text: String,
+    /// `text` is the paragraph's whole text (nothing left out or shortened): the
+    /// outline view edits it in place ([`Session::set_outline_text`]).
+    pub editable: bool,
     /// Section index.
     pub section: usize,
 }
@@ -94,14 +97,66 @@ impl Session {
             .filter(|(_, path)| path.len() == 2)
             .filter_map(|(id, path)| {
                 let p = para_at(doc, path)?;
+                let raw = bo_model::index::para_index_text(p);
+                let text = shown_text(&raw);
                 Some(OutlineEntry {
                     para: id,
                     level: outline_level(doc, p),
-                    text: shown_text(&bo_model::index::para_index_text(p)),
+                    editable: text == raw,
+                    text,
                     section: path[0],
                 })
             })
             .collect()
+    }
+
+    /// Outline view: the text of paragraph `para` typed in place becomes `text`. Only
+    /// the changed middle is replaced (the text before and after keeps its formatting),
+    /// in one undo step; the caret goes after the new text. The paragraph must hold
+    /// plain text only (see [`OutlineEntry::editable`]).
+    pub fn set_outline_text(&mut self, para: usize, text: &str) -> Result<Selection> {
+        let doc = self.doc();
+        top_level(doc, para)?;
+        let path = body_paragraphs(doc)
+            .get(para)
+            .cloned()
+            .ok_or(EditError::BadPath)?;
+        let raw = para_at(doc, &path)
+            .map(bo_model::index::para_index_text)
+            .ok_or(EditError::BadPath)?;
+        if shown_text(&raw) != raw || shown_text(text) != text {
+            return Err(EditError::Unsupported(
+                "outline: only plain text is edited in place".into(),
+            ));
+        }
+        // Common start and end (whole characters).
+        let pre: usize = raw
+            .chars()
+            .zip(text.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(a, _)| a.len_utf8())
+            .sum();
+        let suf: usize = raw[pre..]
+            .chars()
+            .rev()
+            .zip(text[pre..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(a, _)| a.len_utf8())
+            .sum();
+        let (from, to) = (pre, raw.len() - suf);
+        let middle = &text[pre..text.len() - suf];
+        if from == to && middle.is_empty() {
+            return Ok(self.selection);
+        }
+        self.set_selection(Selection {
+            anchor: Pos::new(para, from),
+            focus: Pos::new(para, to),
+        });
+        if middle.is_empty() {
+            self.delete_backward()
+        } else {
+            self.insert_text(middle)
+        }
     }
 
     /// Body paragraph ids of the family of `para` (first, last inclusive).
@@ -277,7 +332,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bo_model::{ParaProps, Paragraph, Run, RunProps, Section};
+    use bo_model::{ParaProps, Paragraph, Run, RunContent, RunProps, Section};
 
     fn p(text: &str, level: Option<u8>) -> Block {
         let props = ParaProps {
@@ -309,6 +364,71 @@ mod tests {
         (0..s.paragraph_count())
             .map(|i| s.para_text(i).unwrap_or_default())
             .collect()
+    }
+
+    /// The outline view types in a line: only the changed part is replaced (the bold
+    /// word before it keeps its formatting), one undo step per edit, the caret after
+    /// the new text; paragraphs with objects or breaks are not edited in place.
+    #[test]
+    fn typing_in_an_outline_line() {
+        let mut s = session();
+        // "A" → "Mở đầu" style edits on the heading, the run of "a" made bold first.
+        let bold = RunProps {
+            bold: Some(true),
+            ..RunProps::default()
+        };
+        if let Block::Paragraph(q) = &mut s.doc.sections[0].blocks[1] {
+            q.runs = vec![
+                Run::text("Đậm ", bold.clone()),
+                Run::text("thường", RunProps::default()),
+            ];
+        }
+        assert!(s.outline().iter().all(|e| e.editable));
+        let before = s.doc().clone();
+        let sel = s.set_outline_text(1, "Đậm chữ thường").unwrap();
+        assert_eq!(s.para_text(1).unwrap(), "Đậm chữ thường");
+        // Inserted after "Đậm " (7 bytes): the caret after "chữ " (6 more bytes).
+        assert_eq!(sel, Selection::caret(Pos::new(1, 13)));
+        let Block::Paragraph(q) = &s.doc().sections[0].blocks[1] else {
+            panic!()
+        };
+        assert_eq!(q.runs[0].props.bold, Some(true));
+        assert!(q
+            .runs
+            .iter()
+            .any(|r| r.plain_text() == "thường" && r.props.bold.is_none()));
+        // Deleting a part, then replacing the whole text.
+        s.set_outline_text(1, "Đậm thường").unwrap();
+        assert_eq!(s.para_text(1).unwrap(), "Đậm thường");
+        s.set_outline_text(0, "Phần một").unwrap();
+        assert_eq!(texts(&s)[0], "Phần một");
+        // The same text: nothing happens.
+        let n = s.doc().clone();
+        s.set_outline_text(0, "Phần một").unwrap();
+        assert_eq!(s.doc(), &n);
+        // Each edit is one undo step.
+        assert!(s.undo());
+        assert_eq!(s.para_text(1).unwrap(), "Đậm thường");
+        assert!(s.undo());
+        assert_eq!(s.para_text(1).unwrap(), "Đậm chữ thường");
+        assert!(s.undo());
+        assert_eq!(s.doc(), &before);
+        // A line break in the paragraph: shown, not edited in place.
+        if let Block::Paragraph(q) = &mut s.doc.sections[0].blocks[3] {
+            q.runs = vec![Run {
+                props: RunProps::default(),
+                content: vec![
+                    RunContent::Text("x".into()),
+                    RunContent::LineBreak,
+                    RunContent::Text("y".into()),
+                ],
+            }];
+        }
+        assert!(!s.outline()[3].editable);
+        assert!(matches!(
+            s.set_outline_text(3, "xy"),
+            Err(EditError::Unsupported(_))
+        ));
     }
 
     #[test]

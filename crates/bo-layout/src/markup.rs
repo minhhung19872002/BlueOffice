@@ -24,6 +24,9 @@ pub struct MarkFilter {
     /// Keys of reviewers whose changes are shown unmarked (`0` = free slot; set with
     /// [`MarkFilter::hide_reviewers`]).
     pub hidden: [u64; MAX_HIDDEN_REVIEWERS],
+    /// Formatting marks are shown: hidden text (§17.3.2.41 vanish) is laid out with a
+    /// dotted underline, as word processors show it (never set for printing).
+    pub show_hidden: bool,
 }
 
 /// Stable non-zero key of an author name.

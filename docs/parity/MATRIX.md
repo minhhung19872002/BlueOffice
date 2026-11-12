@@ -35,12 +35,12 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | Biểu đồ cx: (waterfall, treemap…) | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | corpus writer-chartex-*, slide-chartex-* | 🟡 | 7 loại đọc/vẽ ở mọi app; tạo trong BlueSheet; chưa regionMap |
 | Nhúng/liên kết workbook, OLE | Doc/Slide | ✅ | 🟡 | 🟡 | ✅ | 🟡 | ✅ | — | bo-docx ole, bo-engine ole | 🟡 | CORE-EMBED-001: ảnh preview, giữ nguyên byte, chèn/sửa lưới, cập nhật liên kết (desktop); chưa EMF/WMF, chưa mở bằng BlueSheet |
 | Shape preset/custom geometry | all | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 187 preset, snapshots | ✅ | |
-| Edit points / merge shapes | all | — | — | ⬜ | — | ⬜ | ⬜ | — | — | ⬜ | |
+| Edit points / merge shapes | all | — | ✅ | 🟡 | ✅ | ✅ | ✅ | — | shape_geometry.rs, freeform/boolean tests | 🟡 | CORE-SHAPE-001: BlueSlide sửa điểm, ghép 5 kiểu (cả trong group), connector bám điểm nối theo viền mới; thiếu UI Doc/Sheet, kết quả ghép là đa giác |
 | Hiệu ứng: shadow, glow | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | — | snapshots | 🟡 | PDF blur dạng ảnh mặt nạ |
 | Hiệu ứng: reflection, soft edge | all | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | — | shape_effects.rs | 🟡 | BlueSlide vẽ + sửa + xoay 3D (CORE-SHAPE-002); Doc/Sheet chưa |
 | 3D (scene3d/sp3d) | all | ✅ | ✅ | ⬜ | ✅ | ✅ | ✅ | — | corpus slide-shapes-3d, mesh3d::tests | 🟡 | khối thật: đùn, bevel trên/dưới, camera/phối cảnh, ánh sáng + material (phần mềm, ADR-0010 §5); chưa có UI chỉnh 3D |
 | WordArt / text warp | all | ✅ | 🟡 | 🟡 | ✅ | 🟡 | 🟡 | — | shape_effects.rs | 🟡 | 40 preset prstTxWarp, viền/tô chữ ở BlueSlide (CORE-SHAPE-002); Doc/Sheet chưa |
-| Ảnh: crop, xoay, alpha | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus images-* | 🟡 | thiếu chỉnh màu, xoá nền |
+| Ảnh: crop, xoay, alpha | all | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | corpus images-*, picture_tools.rs, doc-pictures.spec | 🟡 | CORE-PIC-001: chỉnh màu/cắt/nén/thay ảnh Doc+Slide; SVG + PNG dự phòng và chuyển thành hình ở Doc+Slide, nhấp chọn ảnh (Doc), nén cả ảnh đầu/chân trang; BlueSheet chưa có đối tượng ảnh |
 | Ink | all | 🟡 | ⬜ | ⬜ | ✅ | ⬜ | ⬜ | — | — | ⬜ | giữ nguyên |
 | Mô hình 3D | all | ✅ | 🟡 | 🟡 | ✅ | ✅ | ✅ | — | bo-model3d, slide_model3d.rs, slide-model3d.spec | 🟡 | glTF/GLB/OBJ/STL, am3d đọc/ghi, xoay/zoom + trình chiếu ở BlueSlide (CORE-3DMODEL-001); Doc chỉ hiện/giữ, Sheet chỉ giữ |
 | Cộng tác thời gian thực | all | — | ✅ | ✅ | — | ✅ | ✅ | ✅ | collab tests + E2E, collab_objects.rs | ✅ | đối tượng mới + hiện ai đang sửa đoạn/ô/slide (CORE-COLLAB-001, `docs/collab-coverage.md`); cùng một part/thiết lập: người ghi sau thắng |
@@ -70,7 +70,8 @@ lại là lỗi đã biết của validator (`tests/fidelity/known-issues.txt`: 
 | PDF/A, PDF có thẻ | all | — | — | ✅ | — | ✅ | ✅ | — | bo-pdf/tests/pdfa.rs, bo-engine/tests/pdf_export.rs | 🟡 | PDF/A-1b/2b/3b, cây cấu trúc, dấu trang từ đề mục/slide/sheet, hộp thoại Xuất PDF (CORE-FMT-002); chưa kiểm bằng veraPDF |
 | In nâng cao | all | — | 🟡 | — | — | 🟡 | 🟡 | — | E2E print | 🟡 | |
 | Ribbon: tab ngữ cảnh, ribbon đơn giản, thu gọn | all | — | ✅ | — | — | ✅ | ✅ | — | ribbonContext.test.tsx, ribbon-context.spec | ✅ | CORE-UI-001; ngữ cảnh phương trình/ink/đối tượng chưa phát hiện từ vùng chọn |
-| Ngăn tác vụ dock/float | all | — | ✅ | — | — | ✅ | ✅ | — | taskPanes.test.tsx, ui-task-panes.spec | 🟡 | CORE-UI-006: dock trái/phải, nổi, tab, đổi cỡ, nhớ bố cục, F6; ngăn Styles (Doc), Selection (Slide); ngăn sửa đổi chưa chuyển, chưa có Format Shape |
+| Ngăn tác vụ dock/float | all | — | ✅ | — | — | ✅ | ✅ | — | taskPanes.test.tsx, ui-task-panes.spec, sheet-pivot.spec | 🟡 | CORE-UI-006: dock trái/phải, nổi (chuột + bàn phím), tab, đổi cỡ, nhớ bố cục và ngăn đang mở, F6; Styles (Doc), Selection (Slide), danh sách trường PivotTable (Sheet); ngăn sửa đổi chưa chuyển, chưa có Format Shape, chưa kéo để dock |
+| Tìm lệnh, menu ngữ cảnh, thanh nổi | all | — | ✅ | — | — | ✅ | ✅ | — | contextMenu.test.tsx, spelling tests, command-ui.spec, thesaurus.spec | ✅ | CORE-UI-003: menu ngữ cảnh dùng chung (cả gợi ý chính tả 3 app, menu con bàn phím), thanh nổi Doc + Slide có ô phông/cỡ |
 
 ## BlueDoc
 

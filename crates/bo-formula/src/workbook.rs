@@ -1353,13 +1353,17 @@ impl Workbook {
     /// Areas the formula of a cell reads directly (defined names and table
     /// references resolved); whole-column / whole-row references are clipped
     /// to the used part of their sheet. Empty for constants. Dynamic references
-    /// (`INDIRECT`, `OFFSET`) are not known statically and are not listed.
+    /// (`INDIRECT`, `OFFSET`) are evaluated now, against the current values,
+    /// and listed after the static ones (what the reference points at when
+    /// the arrows are drawn).
     pub fn direct_precedents(&self, sheet: usize, row: u32, col: u32) -> Vec<Area> {
-        let Some(areas) = self.precedents.get(&CellId::new(sheet, row, col)) else {
+        let id = CellId::new(sheet, row, col);
+        let Some(areas) = self.precedents.get(&id) else {
             return Vec::new();
         };
+        let dynamic = self.dynamic_references(id);
         let mut out: Vec<Area> = Vec::new();
-        for a in areas {
+        for a in areas.iter().chain(dynamic.iter()) {
             let (rows, cols) = self.used_extent(a.sheet);
             let r2 = if a.r2 >= MAX_ROWS - 1 {
                 a.r2.min(rows.max(a.r1 + 1) - 1)
@@ -1379,12 +1383,56 @@ impl Workbook {
         out
     }
 
-    /// Formula cells reading a cell directly, sorted.
+    /// Formula cells reading a cell directly, sorted. Includes formulas whose
+    /// `INDIRECT` / `OFFSET` reference currently points at the cell.
     pub fn direct_dependents(&self, sheet: usize, row: u32, col: u32) -> Vec<CellId> {
         let mut out = Vec::new();
         self.for_each_reader(CellId::new(sheet, row, col), &mut |d| out.push(d));
+        // Only volatile formulas can hold a dynamic reference.
+        for &v in &self.volatile {
+            if out.contains(&v) {
+                continue;
+            }
+            if self
+                .dynamic_references(v)
+                .iter()
+                .any(|a| a.contains(sheet, row, col))
+            {
+                out.push(v);
+            }
+        }
         out.sort_unstable();
         out.dedup();
+        out
+    }
+
+    /// Areas the outermost `INDIRECT` / `OFFSET` calls of a formula refer to
+    /// now (errors and non-reference results are skipped). Nested dynamic
+    /// calls are covered by the outer call's result.
+    fn dynamic_references(&self, id: CellId) -> Vec<Area> {
+        let Some(f) = self
+            .sheets
+            .get(id.sheet)
+            .and_then(|s| s.cells.get(&(id.row, id.col)))
+            .and_then(|c| c.formula.as_ref())
+        else {
+            return Vec::new();
+        };
+        let mut calls: Vec<Expr> = Vec::new();
+        collect_dynamic_calls(&f.expr, &mut calls);
+        if calls.is_empty() {
+            return Vec::new();
+        }
+        let rng = AtomicU64::new(0x9E37_79B9_7F4A_7C15);
+        let mut out = Vec::new();
+        for call in calls {
+            let mut ctx = Ctx::new(self, id.sheet, id.row, id.col, &self.config, &rng);
+            match ctx.eval(&call) {
+                Value::Ref(a) => out.push(a),
+                Value::Refs(list) => out.extend(list.iter().copied()),
+                _ => {}
+            }
+        }
         out
     }
 
@@ -2406,4 +2454,22 @@ fn fit_array(v: Value, rows: u32, cols: u32) -> Value {
         v => vec![v.clone(); rows * cols],
     };
     Value::Array(Arc::new(Array::new(rows, cols, data)))
+}
+
+/// Outermost `INDIRECT` / `OFFSET` calls of an expression, in reading order.
+fn collect_dynamic_calls(e: &Expr, out: &mut Vec<Expr>) {
+    match e {
+        Expr::Call { name, .. } if name == "INDIRECT" || name == "OFFSET" => out.push(e.clone()),
+        Expr::Call { args, .. } => args.iter().for_each(|a| collect_dynamic_calls(a, out)),
+        Expr::Invoke { callee, args } => {
+            collect_dynamic_calls(callee, out);
+            args.iter().for_each(|a| collect_dynamic_calls(a, out));
+        }
+        Expr::Unary(_, a) => collect_dynamic_calls(a, out),
+        Expr::Binary(_, a, b) => {
+            collect_dynamic_calls(a, out);
+            collect_dynamic_calls(b, out);
+        }
+        _ => {}
+    }
 }

@@ -552,6 +552,37 @@ mod tests {
     }
 
     #[test]
+    fn trace_arrows_through_indirect() {
+        // B1 = INDIRECT(C1) where C1 holds "A1": arrows from C1 and from A1.
+        let mut e = engine(
+            &[(0, "A1", "4"), (0, "C1", "A1"), (0, "B1", "=INDIRECT(C1)+1")],
+            &["Sheet1"],
+        );
+        let p = run(
+            &mut e,
+            &json!({"cmd": "traceArrows", "sheet": 0, "row": 0, "col": 1}),
+        );
+        let froms: Vec<Value> = p["arrows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["from"].clone())
+            .collect();
+        assert_eq!(
+            froms,
+            vec![
+                json!({"sheet": 0, "r0": 0, "c0": 2, "r1": 0, "c1": 2}),
+                json!({"sheet": 0, "r0": 0, "c0": 0, "r1": 0, "c1": 0}),
+            ]
+        );
+        let d = run(
+            &mut e,
+            &json!({"cmd": "traceArrows", "sheet": 0, "row": 0, "col": 0, "dependents": true}),
+        );
+        assert_eq!(d["arrows"][0]["to"], json!({"sheet": 0, "row": 0, "col": 1}));
+    }
+
+    #[test]
     fn trace_arrows_by_level() {
         // A1 → B1 → C1 → Two!A1; C1 also reads D1:D2.
         let mut e = engine(

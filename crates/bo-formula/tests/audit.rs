@@ -233,3 +233,42 @@ fn recalculate_sheet_leaves_other_sheets_dirty() {
     wb.recalculate();
     assert!(!wb.has_pending_changes());
 }
+
+#[test]
+fn trace_arrows_follow_indirect_and_offset_at_trace_time() {
+    let mut wb = Workbook::with_sheets(&["Sheet1", "Sheet2"]);
+    for (a, v) in [("A1", "1"), ("A2", "2"), ("A3", "3"), ("D1", "A2")] {
+        wb.set_a1(0, a, v).unwrap();
+    }
+    wb.set_a1(1, "B2", "7").unwrap();
+    // B1 = SUM(OFFSET(A1,0,0,3,1)): static A1, dynamic A1:A3.
+    wb.set_a1(0, "B1", "=SUM(OFFSET(A1,0,0,3,1))").unwrap();
+    // C1 = INDIRECT(D1): static D1, dynamic A2 (from the text in D1).
+    wb.set_a1(0, "C1", "=INDIRECT(D1)*2").unwrap();
+    // E1 reads another sheet through text.
+    wb.set_a1(0, "E1", "=INDIRECT(\"Sheet2!B2\")").unwrap();
+    wb.recalculate();
+    assert_eq!(
+        wb.direct_precedents(0, 0, 1),
+        vec![Area::cell(0, 0, 0), Area::new(0, 0, 0, 2, 0)]
+    );
+    assert_eq!(
+        wb.direct_precedents(0, 0, 2),
+        vec![Area::cell(0, 0, 3), Area::cell(0, 1, 0)]
+    );
+    assert_eq!(wb.direct_precedents(0, 0, 4), vec![Area::cell(1, 1, 1)]);
+    // A2 is read by B1 (through OFFSET) and C1 (through INDIRECT).
+    assert_eq!(
+        wb.direct_dependents(0, 1, 0),
+        vec![CellId::new(0, 0, 1), CellId::new(0, 0, 2)]
+    );
+    assert_eq!(wb.direct_dependents(1, 1, 1), vec![CellId::new(0, 0, 4)]);
+    // The reference is re-evaluated: point D1 at A3 and the arrow moves.
+    wb.set_a1(0, "D1", "A3").unwrap();
+    wb.recalculate();
+    assert_eq!(
+        wb.direct_precedents(0, 0, 2),
+        vec![Area::cell(0, 0, 3), Area::cell(0, 2, 0)]
+    );
+    assert_eq!(wb.direct_dependents(0, 1, 0), vec![CellId::new(0, 0, 1)]);
+}

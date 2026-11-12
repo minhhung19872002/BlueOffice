@@ -67,8 +67,22 @@ pub struct Layout {
     pub lines: Vec<Vec<NoteLine>>,
 }
 
-/// Grid (columns, rows) of a handout with `per_page` slides.
+/// Grid (columns, rows) of a portrait handout page with `per_page` slides.
 pub fn grid(per_page: u8) -> Option<(usize, usize)> {
+    grid_on(per_page, false)
+}
+
+/// Grid (columns, rows) of a handout page with `per_page` slides; a landscape
+/// page puts two slides side by side and six in three columns (our layout:
+/// ECMA-376 only names the handout kinds, §19.7.8 `ST_PrintWhat`).
+pub fn grid_on(per_page: u8, landscape: bool) -> Option<(usize, usize)> {
+    if landscape {
+        match per_page {
+            2 => return Some((2, 1)),
+            6 => return Some((3, 2)),
+            _ => {}
+        }
+    }
     Some(match per_page {
         1 => (1, 1),
         2 => (1, 2),
@@ -98,7 +112,7 @@ pub fn fit(cell: &Frame, aspect: f32) -> Frame {
 
 /// Layout of a `pw` × `ph` page with `per_page` slides of aspect `aspect`.
 pub fn layout(per_page: u8, pw: f32, ph: f32, aspect: f32) -> Option<Layout> {
-    let (cols, rows) = grid(per_page)?;
+    let (cols, rows) = grid_on(per_page, pw > ph)?;
     let cw = pw - 2.0 * MARGIN_X;
     let ch = ph - 2.0 * MARGIN_Y;
     if cw <= 0.0 || ch <= 0.0 {
@@ -147,9 +161,14 @@ pub fn layout(per_page: u8, pw: f32, ph: f32, aspect: f32) -> Option<Layout> {
     })
 }
 
-/// Cell (row-major index) of the `i`-th slide of a page.
+/// Cell (row-major index) of the `i`-th slide of a portrait page.
 pub fn slot(i: usize, per_page: u8, order: Order) -> usize {
-    let Some((cols, rows)) = grid(per_page) else {
+    slot_on(i, per_page, order, false)
+}
+
+/// Cell (row-major index) of the `i`-th slide of a page.
+pub fn slot_on(i: usize, per_page: u8, order: Order, landscape: bool) -> usize {
+    let Some((cols, rows)) = grid_on(per_page, landscape) else {
         return i;
     };
     match order {
@@ -285,6 +304,25 @@ mod tests {
         // Nine (3 × 3): slide 4 (index 3) of a vertical page is row 0, column 1.
         assert_eq!(slot(3, 9, Order::Vertical), 1);
         assert!(layout(5, A4.0, A4.1, 1.0).is_none());
+    }
+
+    #[test]
+    fn landscape_pages() {
+        // A4 landscape 841.8898 × 595.2756: content 769.8898 × 487.2756.
+        // Six: 3 × 2 cells (769.8898 − 36) / 3 = 244.6299 × (487.2756 − 18) / 2 = 234.6378;
+        // 16:9 → 244.6299 × 137.6043, top = 54 + (234.6378 − 137.6043) / 2 = 102.5168.
+        let l = layout(6, A4.1, A4.0, 16.0 / 9.0).unwrap();
+        assert_eq!((l.cols, l.rows), (3, 2));
+        frame(&l.frames[0], 36.0, 102.5168, 244.6299, 137.6043);
+        frame(&l.frames[2], 36.0 + 2.0 * (244.6299 + 18.0), 102.5168, 244.6299, 137.6043);
+        // Two side by side: cells (769.8898 − 18) / 2 = 375.9449 × 487.2756, 4:3 width-limited
+        // → 375.9449 × 281.9587, top = 54 + (487.2756 − 281.9587) / 2 = 156.6585.
+        let l = layout(2, A4.1, A4.0, 4.0 / 3.0).unwrap();
+        assert_eq!((l.cols, l.rows), (2, 1));
+        frame(&l.frames[1], 36.0 + 375.9449 + 18.0, 156.6585, 375.9449, 281.9587);
+        // Vertical order on a 3 × 2 landscape page: down the first column, then across.
+        let v: Vec<usize> = (0..6).map(|i| slot_on(i, 6, Order::Vertical, true)).collect();
+        assert_eq!(v, [0, 3, 1, 4, 2, 5]);
     }
 
     #[test]

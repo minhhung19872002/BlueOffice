@@ -11,7 +11,7 @@ use bo_engine::slide_export::{
 use bo_engine::Engine;
 use bo_model::slide::RawPart;
 use bo_pptx::build::{build_pptx, DeckSpec, ParaSpec, ShapeSpec, SlideSpec};
-use bo_render::{Command, PageList};
+use bo_render::{Command, PageList, Rgba};
 use std::io::Read as _;
 
 /// 16:9 deck (960 × 540 pt) with `n` slides; slide 1 shows "Hello World".
@@ -263,23 +263,36 @@ fn notes_pages_place_slide_and_notes() {
     close(p[0][0], 0.45);
     close(p[0][1], 54.0);
     close(p[0][2], 90.0);
-    // Notes text in the body placeholder (y = 4 400 550 EMU = 346.5 pt), 12 pt.
-    let notes: Vec<(String, f32, f32)> = page
+    // Notes text, laid out like slide text (formatting kept), in the body
+    // placeholder's box: the transform puts its origin at (54, 346.5)
+    // (y = 4 400 550 EMU); 12 pt from the notes master's notesStyle.
+    let at = page
         .commands
         .iter()
-        .filter_map(|c| match c {
-            Command::Glyphs { text, y, size, .. }
-                if text.contains("speaker") || text.contains("paragraph") =>
-            {
-                Some((text.clone(), *y, *size))
+        .rposition(|c| matches!(c, Command::PushTransform { m } if m[0] == 1.0))
+        .unwrap();
+    let Command::PushTransform { m } = &page.commands[at] else {
+        unreachable!()
+    };
+    close(m[4], 54.0);
+    close(m[5], 346.5);
+    let mut lines: Vec<(f32, String)> = Vec::new();
+    for c in &page.commands[at..] {
+        if let Command::Glyphs { text, y, size, .. } = c {
+            close(*size, 12.0);
+            match lines.iter_mut().find(|l| (l.0 - *y).abs() < 0.01) {
+                Some(l) => l.1.push_str(text),
+                None => lines.push((*y, text.clone())),
             }
-            _ => None,
-        })
-        .collect();
-    assert_eq!(notes.len(), 2, "{notes:?}");
-    assert_eq!(notes[0].0, "First speaker note");
-    close(notes[0].1, 346.5 + 3.6 + 12.0);
-    close(notes[1].1 - notes[0].1, 14.4);
+        }
+    }
+    let texts_of: Vec<&str> = lines.iter().map(|l| l.1.as_str()).collect();
+    assert_eq!(texts_of, ["First speaker note", "Second paragraph"]);
+    // First baseline: one 12 pt line under the 3.6 pt top inset; the second
+    // paragraph a single-spaced 12 pt line lower.
+    assert!(lines[0].0 > 3.6 + 12.0 * 0.7 && lines[0].0 < 3.6 + 12.0 * 1.3, "{lines:?}");
+    let pitch = lines[1].0 - lines[0].0;
+    assert!(pitch > 12.0 && pitch < 16.0, "{lines:?}");
     // Slides without notes have no notes text; the PDF has one page per slide.
     assert!(texts(&list.pages[1]).iter().all(|t| !t.contains("speaker")));
     let pdf = e.export_slides(&SlideExport::Notes(o)).unwrap();
@@ -295,6 +308,245 @@ fn notes_pages_place_slide_and_notes() {
         p[0][2],
         90.0 * 841.8898 / 720.0 + (h - w * 9.0 / 16.0) / 2.0,
     );
+}
+
+/// Text runs of a page with their size, colour and baseline (local to any transform).
+fn runs(page: &PageList) -> Vec<(String, f32, Rgba, f32)> {
+    page.commands
+        .iter()
+        .filter_map(|c| match c {
+            Command::Glyphs {
+                text,
+                size,
+                color,
+                y,
+                ..
+            } => Some((text.clone(), *size, *color, *y)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Notes of slide 1 replaced by a bold red 20 pt run and `n` plain lines.
+fn rich_notes(e: &mut Engine, n: usize) {
+    use bo_model::slide::{Color, Fill, Paragraph, RunProps, ShapeNode, TextRun};
+    let pres = e.presentation_mut().unwrap();
+    let notes = pres.slides[0].notes.as_mut().unwrap();
+    let body = notes
+        .data
+        .shapes
+        .iter_mut()
+        .find_map(|n| match n {
+            ShapeNode::Shape(s)
+                if s.nv.placeholder.as_ref().and_then(|p| p.kind.as_deref()) == Some("body") =>
+            {
+                s.text.as_mut()
+            }
+            _ => None,
+        })
+        .unwrap();
+    let mut paras = vec![Paragraph {
+        runs: vec![
+            TextRun::Run {
+                props: RunProps {
+                    b: Some(true),
+                    sz: Some(2000),
+                    fill: Some(Fill::Solid(Color::srgb(0xFF_00_00))),
+                    ..RunProps::default()
+                },
+                text: "Bold red".into(),
+            },
+            TextRun::Run {
+                props: RunProps {
+                    i: Some(true),
+                    ..RunProps::default()
+                },
+                text: " then italic".into(),
+            },
+        ],
+        ..Paragraph::default()
+    }];
+    for k in 1..=n {
+        paras.push(Paragraph {
+            runs: vec![TextRun::Run {
+                props: RunProps::default(),
+                text: format!("Line {k}"),
+            }],
+            ..Paragraph::default()
+        });
+    }
+    body.paragraphs = paras;
+}
+
+#[test]
+fn notes_pages_keep_run_formatting() {
+    let mut e = deck(1);
+    rich_notes(&mut e, 0);
+    let o = NotesOptions {
+        paper: Paper::Notes,
+        ..NotesOptions::default()
+    };
+    let list = e.notes_pages(&o).unwrap();
+    assert_eq!(list.pages.len(), 1);
+    let r = runs(&list.pages[0]);
+    let bold = r.iter().find(|x| x.0.contains("Bold")).unwrap();
+    // The run's own 20 pt and red; the italic run takes the notes style's 12 pt, black (tx1).
+    close(bold.1, 20.0);
+    assert_eq!(bold.2, Rgba(255, 0, 0, 255));
+    let it = r.iter().find(|x| x.0.contains("italic")).unwrap();
+    close(it.1, 12.0);
+    assert_eq!(it.2, Rgba(0, 0, 0, 255));
+    // The notes are drawn into the body box (54, 346.5) of the notes master.
+    let m = list.pages[0]
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            Command::PushTransform { m } => Some(*m),
+            _ => None,
+        })
+        .last()
+        .unwrap();
+    close(m[4], 54.0);
+    close(m[5], 346.5);
+}
+
+#[test]
+fn long_notes_flow_onto_further_pages() {
+    let mut e = deck(2);
+    rich_notes(&mut e, 60);
+    let o = NotesOptions {
+        paper: Paper::Notes,
+        ..NotesOptions::default()
+    };
+    let list = e.notes_pages(&o).unwrap();
+    // 60 lines at 12 pt do not fit the 283.5 pt notes box: slide 1 takes more
+    // than one page, slide 2 one.
+    assert!(list.pages.len() >= 3, "{}", list.pages.len());
+    let slide1 = list.pages.len() - 1;
+    // Every line is drawn exactly once, in order, across slide 1's pages.
+    let mut seen = Vec::new();
+    for p in &list.pages[..slide1] {
+        // Runs may split at spaces: join them, then read "Line N" back.
+        let all: String = runs(p).into_iter().map(|r| r.0).collect();
+        for part in all.split("Line").skip(1) {
+            let n: String = part
+                .trim_start()
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            seen.push(n.parse::<usize>().unwrap_or_else(|_| panic!("{all}")));
+        }
+    }
+    assert_eq!(seen, (1..=60).collect::<Vec<_>>());
+    // Continuation pages show no slide picture, only notes: their text box
+    // starts at the slide image's top (90 pt) and every line stays above the
+    // body box's bottom (346.5 + 283.5 = 630 pt).
+    for p in &list.pages[1..slide1] {
+        assert!(placements(p).is_empty());
+        let clip = p
+            .commands
+            .iter()
+            .find_map(|c| match c {
+                Command::PushClip { y, h, .. } => Some((*y, *h)),
+                _ => None,
+            })
+            .unwrap();
+        close(clip.0, 90.0);
+        assert!(clip.0 + clip.1 <= 630.5 + 0.5, "{clip:?}");
+    }
+    // The first page: the slide, then lines clipped to the body box.
+    assert_eq!(placements(&list.pages[0]).len(), 1);
+    let pdf = e.export_slides(&SlideExport::Notes(o)).unwrap();
+    assert_eq!(pdf_pages(&pdf), list.pages.len());
+}
+
+#[test]
+fn landscape_handouts() {
+    let mut e = deck(6);
+    let o = HandoutOptions {
+        per_page: 6,
+        landscape: Some(true),
+        ..HandoutOptions::default()
+    };
+    let list = e.handout_pages(&o).unwrap();
+    assert_eq!(list.pages.len(), 1);
+    let page = &list.pages[0];
+    // A4 turned: 841.8898 × 595.2756 pt.
+    close(page.width, 841.8898);
+    close(page.height, 595.2756);
+    // Three columns of two rows (handout::tests::landscape_pages): slide 3 at the
+    // top right, x = 36 + 2 × (244.6299 + 18) = 561.2598; scale 244.6299 / 960.
+    let p = placements(page);
+    assert_eq!(p.len(), 6);
+    close(p[0][0], 244.6299 / 960.0);
+    close(p[2][1], 561.2598);
+    close(p[2][2], 102.5168);
+    close(p[3][1], 36.0);
+    let pdf = e
+        .export_slides_json(r#"{"kind":"handout","perPage":2,"landscape":true}"#)
+        .unwrap();
+    assert_eq!(pdf_pages(&pdf), 3);
+}
+
+#[test]
+fn package_copies_local_linked_clips_only() {
+    use bo_engine::slide_export::PackageOptions;
+    use bo_model::slide::Rel;
+    let dir = std::env::temp_dir().join(format!("bo-pkg-links-{}", std::process::id()));
+    let clips = dir.join("clips");
+    std::fs::create_dir_all(&clips).unwrap();
+    std::fs::write(clips.join("intro.mp4"), b"linked video").unwrap();
+    let abs = dir.join("narration.wav");
+    std::fs::write(&abs, b"linked audio").unwrap();
+    let mut e = deck(1);
+    let video = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video";
+    let audio = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio";
+    let rels = &mut e.presentation_mut().unwrap().slides[0].info.rels;
+    for (id, ty, target) in [
+        ("rIdL1", video, "clips/intro.mp4".to_owned()),
+        (
+            "rIdL2",
+            audio,
+            format!("file:///{}", abs.to_string_lossy().replace('\\', "/")),
+        ),
+        ("rIdL3", video, "https://example.com/remote.mp4".to_owned()),
+        ("rIdL4", video, "missing.mp4".to_owned()),
+    ] {
+        rels.push(Rel {
+            id: id.into(),
+            rel_type: ty.into(),
+            target,
+            external: true,
+        });
+    }
+    let zip = e
+        .export_slides(&SlideExport::Package(PackageOptions {
+            link_base: Some(dir.to_string_lossy().into_owned()),
+        }))
+        .unwrap();
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
+    let read = |z: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, n: &str| {
+        let mut v = Vec::new();
+        z.by_name(n).unwrap().read_to_end(&mut v).unwrap();
+        v
+    };
+    // The relative link keeps its place beside the deck; the absolute one goes to media/.
+    assert_eq!(read(&mut z, "clips/intro.mp4"), b"linked video");
+    assert_eq!(read(&mut z, "media/narration.wav"), b"linked audio");
+    let links = String::from_utf8(read(&mut z, "links.txt")).unwrap();
+    assert!(links.contains("https://example.com/remote.mp4"), "{links}");
+    assert!(links.contains("missing.mp4"), "{links}");
+    assert!(links.contains("-> media/narration.wav"), "{links}");
+    assert!(!links.contains("clips/intro.mp4"), "{links}");
+    // Without the deck's folder nothing is read.
+    let zip = e
+        .export_slides_json(r#"{"kind":"package"}"#)
+        .unwrap();
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
+    assert!(z.by_name("clips/intro.mp4").is_err());
+    let links = String::from_utf8(read(&mut z, "links.txt")).unwrap();
+    assert!(links.contains("clips/intro.mp4"), "{links}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn png_size(png: &[u8]) -> (u32, u32) {
@@ -372,7 +624,7 @@ fn presentation_package_contents() {
     let mut e = deck(2);
     e.slide_insert_picture(b"not really a video".to_vec(), "clip.mp4")
         .unwrap();
-    let zip = e.export_slides(&SlideExport::Package).unwrap();
+    let zip = e.export_slides(&SlideExport::Package(Default::default())).unwrap();
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
     let mut names: Vec<String> = z.file_names().map(|n| n.unwrap().into_owned()).collect();
     names.sort();

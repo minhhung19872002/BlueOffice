@@ -4,8 +4,11 @@
 //! the fonts the slides use whose licence allows redistribution — only the
 //! bundled SIL Open Font License 1.1 families, each with its licence text
 //! (OFL condition 2). Clips linked outside the package (`TargetMode="External"`,
-//! ECMA-376 Part 2, §9.3) cannot be read by the engine; their targets are
-//! listed in `links.txt`.
+//! ECMA-376 Part 2, §9.3) are copied too when the host names the deck's folder
+//! (`linkBase`, native builds only) and the link is a local file — a relative
+//! path keeps its place beside the deck so the link still resolves, an
+//! absolute one goes to `media/`; network locations (URLs, UNC shares,
+//! `file://host/…`) are never read. Links not copied are listed in `links.txt`.
 
 use crate::{Engine, EngineError, Result};
 use bo_render::Command;
@@ -72,8 +75,160 @@ fn font_file(family: &str, bold: bool, italic: bool) -> String {
     format!("{fam}-{style}.ttf")
 }
 
-/// Build the package of the open presentation.
-pub fn build(engine: &Engine) -> Result<Vec<u8>> {
+/// Largest linked clip copied into a package (bytes).
+const MAX_LINKED: u64 = 1 << 30;
+
+/// Where a linked clip's target points on this computer: a relative path, an
+/// absolute path or a `file:` URI without host (RFC 8089). `None` for anything
+/// on the network (other URI schemes, UNC shares, `file://host/…`).
+pub fn local_link(target: &str) -> Option<LocalLink> {
+    let t = target.trim();
+    if t.is_empty() || t.starts_with("\\\\") || t.starts_with("//") {
+        return None;
+    }
+    if let Some(rest) = strip_prefix_ci(t, "file:") {
+        // file:///C:/a/b.mp4, file:/C:/a.mp4, file:///home/a.mp4; a host is the network.
+        let rest = match rest.strip_prefix("//") {
+            Some(r) => {
+                let (host, tail) = r.split_at(r.find('/').unwrap_or(r.len()));
+                if !host.is_empty() && !host.eq_ignore_ascii_case("localhost") {
+                    return None;
+                }
+                tail
+            }
+            None => rest,
+        };
+        let decoded = percent_decode(rest)?;
+        if decoded.starts_with("\\\\") || decoded.starts_with("//") {
+            return None;
+        }
+        // `/C:/…` → `C:/…`.
+        let b = decoded.as_bytes();
+        let path = if b.len() > 2 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b':' {
+            decoded[1..].to_owned()
+        } else {
+            decoded
+        };
+        return Some(LocalLink {
+            path,
+            relative: false,
+        });
+    }
+    // Another scheme (http:, https:, ftp:, smb:…); a one-letter one is a drive.
+    if let Some(i) = t.find(':') {
+        let scheme = &t[..i];
+        if scheme.len() > 1
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+        {
+            return None;
+        }
+    }
+    let path = percent_decode(t).unwrap_or_else(|| t.to_owned());
+    let b = path.as_bytes();
+    let absolute = path.starts_with('/')
+        || path.starts_with('\\')
+        || (b.len() > 1 && b[0].is_ascii_alphabetic() && b[1] == b':');
+    Some(LocalLink {
+        path,
+        relative: !absolute,
+    })
+}
+
+/// A linked clip on this computer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalLink {
+    /// File path as written (either separator).
+    pub path: String,
+    /// Relative to the deck's folder.
+    pub relative: bool,
+}
+
+fn strip_prefix_ci<'a>(s: &'a str, p: &str) -> Option<&'a str> {
+    s.get(..p.len())
+        .filter(|h| h.eq_ignore_ascii_case(p))
+        .map(|_| &s[p.len()..])
+}
+
+/// RFC 3986 §2.1 percent-decoding (`None` on invalid UTF-8).
+fn percent_decode(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let hex = |c: u8| (c as char).to_digit(16);
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Name of a linked clip inside the package: a relative path without `..`
+/// keeps its place beside the deck, anything else goes to `media/<file name>`.
+fn link_entry(link: &LocalLink) -> String {
+    let norm = link.path.replace('\\', "/");
+    let parts: Vec<&str> = norm
+        .split('/')
+        .filter(|p| !p.is_empty() && *p != ".")
+        .collect();
+    if link.relative && !parts.is_empty() && !parts.contains(&"..") {
+        return parts.join("/");
+    }
+    format!("media/{}", parts.last().copied().unwrap_or("clip"))
+}
+
+/// Read a local linked clip relative to `base` (native builds only).
+#[cfg(not(target_arch = "wasm32"))]
+fn read_link(link: &LocalLink, base: &str) -> Option<Vec<u8>> {
+    let p = std::path::Path::new(&link.path);
+    let full = if link.relative {
+        std::path::Path::new(base).join(p)
+    } else {
+        p.to_path_buf()
+    };
+    let meta = std::fs::metadata(&full).ok()?;
+    if !meta.is_file() || meta.len() > MAX_LINKED {
+        return None;
+    }
+    std::fs::read(&full).ok()
+}
+
+/// No file system in the browser: linked clips stay links.
+#[cfg(target_arch = "wasm32")]
+fn read_link(_link: &LocalLink, _base: &str) -> Option<Vec<u8>> {
+    let _ = MAX_LINKED;
+    None
+}
+
+/// A free name for `name` among `taken` (lower case): `dir/2-file`, `dir/3-file`…
+fn free_name(name: &str, taken: &BTreeSet<String>) -> String {
+    if !taken.contains(&name.to_ascii_lowercase()) {
+        return name.to_owned();
+    }
+    let (dir, file) = name.rsplit_once('/').map_or(("", name), |(d, f)| (d, f));
+    (2..)
+        .map(|k| {
+            if dir.is_empty() {
+                format!("{k}-{file}")
+            } else {
+                format!("{dir}/{k}-{file}")
+            }
+        })
+        .find(|n| !taken.contains(&n.to_ascii_lowercase()))
+        .unwrap_or_default()
+}
+
+/// Build the package of the open presentation; `link_base` is the deck's
+/// folder, for linked clips.
+pub fn build(engine: &Engine, link_base: Option<&str>) -> Result<Vec<u8>> {
     let pres = engine.deck()?;
     let base = engine
         .name
@@ -104,8 +259,31 @@ pub fn build(engine: &Engine) -> Result<Vec<u8>> {
             }
         }
     }
-    if !links.is_empty() {
-        let list: String = links.iter().flat_map(|l| [l.as_str(), "\r\n"]).collect();
+    // Linked clips that are local files.
+    let mut left = Vec::new();
+    let mut taken: BTreeSet<String> = files.iter().map(|(n, _)| n.to_ascii_lowercase()).collect();
+    for target in links {
+        let link = local_link(&target);
+        let data = link
+            .as_ref()
+            .zip(link_base)
+            .and_then(|(l, base)| read_link(l, base));
+        match (link, data) {
+            (Some(link), Some(data)) => {
+                let want = link_entry(&link);
+                let name = free_name(&want, &taken);
+                taken.insert(name.to_ascii_lowercase());
+                // A relative link copied to its own place still resolves.
+                if !(link.relative && name == want) {
+                    left.push(format!("{target} -> {name}"));
+                }
+                files.push((name, data));
+            }
+            _ => left.push(target),
+        }
+    }
+    if !left.is_empty() {
+        let list: String = left.iter().flat_map(|l| [l.as_str(), "\r\n"]).collect();
         files.push(("links.txt".into(), list.into_bytes()));
     }
 
@@ -161,5 +339,50 @@ mod tests {
         assert!(!is_media_rel(
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
         ));
+    }
+
+    #[test]
+    fn local_links_only() {
+        let l = |t: &str| local_link(t);
+        assert_eq!(
+            l("clips/intro%20a.mp4"),
+            Some(LocalLink {
+                path: "clips/intro a.mp4".into(),
+                relative: true
+            })
+        );
+        assert_eq!(
+            l("file:///C:/Videos/a.mp4"),
+            Some(LocalLink {
+                path: "C:/Videos/a.mp4".into(),
+                relative: false
+            })
+        );
+        assert_eq!(l("C:\\Videos\\a.mp4").map(|x| x.relative), Some(false));
+        assert_eq!(
+            l("file://localhost/home/a.mp4").map(|x| x.path),
+            Some("/home/a.mp4".into())
+        );
+        for net in [
+            "https://example.com/a.mp4",
+            "http://x/a.mp4",
+            "ftp://x/a.mp4",
+            "\\\\server\\share\\a.mp4",
+            "//server/share/a.mp4",
+            "file://server/share/a.mp4",
+            "file:////server/share/a.mp4",
+            "smb://server/a.mp4",
+            "",
+        ] {
+            assert_eq!(l(net), None, "{net}");
+        }
+        let entry = |t: &str| link_entry(&local_link(t).unwrap());
+        assert_eq!(entry("clips/a.mp4"), "clips/a.mp4");
+        assert_eq!(entry("./a.mp4"), "a.mp4");
+        assert_eq!(entry("../other/a.mp4"), "media/a.mp4");
+        assert_eq!(entry("C:\\Videos\\b.wav"), "media/b.wav");
+        let taken: BTreeSet<String> = ["media/a.mp4".to_owned()].into();
+        assert_eq!(free_name("media/A.mp4", &taken), "media/2-A.mp4");
+        assert_eq!(free_name("b.mp4", &taken), "b.mp4");
     }
 }

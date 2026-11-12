@@ -27,6 +27,8 @@ export interface HandoutExport extends SlideHeaderFooter {
   /** Thin frame around each slide (default on). */
   frame?: boolean;
   paper?: SlidePaper;
+  /** `true` landscape pages, `false` portrait; omitted: as the paper comes. */
+  landscape?: boolean;
 }
 
 export interface NotesExport extends SlideHeaderFooter {
@@ -47,6 +49,11 @@ export interface ImageExport {
 
 export interface PackageExport {
   kind: 'package';
+  /**
+   * Folder of the deck on this computer (desktop): linked clips that are local
+   * files are copied into the package. Network locations are never read.
+   */
+  linkBase?: string;
 }
 
 /**

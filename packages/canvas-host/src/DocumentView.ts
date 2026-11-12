@@ -908,16 +908,19 @@ export class DocumentView {
       this.currentPage = first;
       this.opts.onPageChange?.(first);
     }
-    // Release canvases far from the viewport (memory).
+    // Release rendered surfaces and display lists far from the viewport. The engine can
+    // reconstruct an evicted list when the user scrolls back to that page.
     this.slots.forEach((s, i) => {
-      if ((i < from - 2 || i > to + 2) && s.canvas) {
-        // Release the backing store immediately; removing the DOM node alone leaves the
-        // multi-megabyte surface alive until the WebView's garbage collector runs.
-        s.canvas.width = 0;
-        s.canvas.height = 0;
-        s.canvas.remove();
-        s.canvas = null;
-        s.renderedAt = null;
+      if (i < from - 2 || i > to + 2) {
+        this.lists.delete(i);
+        if (s.canvas) {
+          // Release the backing store now, rather than waiting for WebView GC.
+          s.canvas.width = 0;
+          s.canvas.height = 0;
+          s.canvas.remove();
+          s.canvas = null;
+          s.renderedAt = null;
+        }
       }
     });
     const dpr = window.devicePixelRatio || 1;

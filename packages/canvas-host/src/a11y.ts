@@ -390,11 +390,11 @@ export class DocMirror {
     this.render(paras, focus);
     if (!focus) return;
     const text = this.texts.get(focus.p) ?? '';
-    if (edited && prev) {
+    if (edited) {
       // Typed or deleted text (a paragraph joined or split shows as a deletion / insertion).
       const baseline = this.editBase ?? old;
       this.editBase = null;
-      const ch = prev.p === focus.p ? textChange(baseline.get(focus.p) ?? '', text) : null;
+      const ch = prev?.p === focus.p ? textChange(baseline.get(focus.p) ?? '', text) : null;
       if (ch?.deleted && !ch.inserted) this.announce(this.labels.deleted(ch.deleted));
       else if (ch?.inserted) this.announce(ch.inserted);
       return;

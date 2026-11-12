@@ -181,3 +181,9 @@ thất bại ở web E2E, desktop Windows và fidelity. Desktop Windows dừng d
 ảnh chuẩn thiếu nhưng để lại mã thoát lỗi; đã sửa xử lý trường hợp thiếu artifact. Trên web,
 đã sửa và kiểm lại lỗi contrast BlueSheet và lỗi thông báo BlueDoc; những ca lỗi còn lại và
 hai sai lệch fidelity vẫn cần được xác minh. Chưa tuyên bố CI xanh.
+
+Các truy vấn nền `styleList`, `fontList`, `equationTemplates`, `notes` được xử lý trước
+nhánh chỉnh sửa story, tránh đóng đầu trang/chú thích. Hai kiểm thử lõi cho đầu trang và
+footnote đã qua; ba ca web từng lỗi cần chạy lại với WASM mới. Danh sách vẽ của trang xa
+vùng nhìn hiện được loại khỏi cache cùng canvas, có kiểm thử; chưa đo lại RAM nên chưa
+kết luận mức giảm hoặc đạt ngưỡng.

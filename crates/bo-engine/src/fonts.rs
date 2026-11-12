@@ -108,6 +108,47 @@ impl Engine {
         if let Some(r) = self.view_command(cmd)? {
             return Ok(Some(r));
         }
+        // Background lists must not close an active header, footer, or note editor.
+        if matches!(
+            cmd,
+            Command::Notes | Command::StyleList | Command::EquationTemplates | Command::FontList
+        ) {
+            return match cmd {
+                Command::Notes => {
+                    let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                    r.notes = self.session.as_ref().map(bo_edit::Session::notes);
+                    Ok(Some(r))
+                }
+                Command::StyleList => {
+                    let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                    r.styles = self
+                        .session
+                        .as_ref()
+                        .map(|s| crate::gallery::styles(s.doc()));
+                    Ok(Some(r))
+                }
+                Command::EquationTemplates => {
+                    let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                    r.templates = Some(
+                        crate::equation::TEMPLATES
+                            .iter()
+                            .map(|(id, linear)| crate::edit::EquationTemplate {
+                                id: (*id).to_owned(),
+                                linear: (*linear).to_owned(),
+                            })
+                            .collect(),
+                    );
+                    Ok(Some(r))
+                }
+                Command::FontList => {
+                    let fonts = self.font_choices();
+                    let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
+                    r.fonts = Some(fonts);
+                    Ok(Some(r))
+                }
+                _ => Ok(None),
+            };
+        }
         if self.hf.is_some() {
             if let Some(r) = self.story_command(cmd)? {
                 return Ok(Some(r));
@@ -179,38 +220,6 @@ impl Engine {
                         Some(format!("no note {id}")),
                     )?)),
                 }
-            }
-            Command::Notes => {
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
-                r.notes = self.session.as_ref().map(bo_edit::Session::notes);
-                Ok(Some(r))
-            }
-            Command::StyleList => {
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
-                r.styles = self
-                    .session
-                    .as_ref()
-                    .map(|s| crate::gallery::styles(s.doc()));
-                Ok(Some(r))
-            }
-            Command::EquationTemplates => {
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
-                r.templates = Some(
-                    crate::equation::TEMPLATES
-                        .iter()
-                        .map(|(id, linear)| crate::edit::EquationTemplate {
-                            id: (*id).to_owned(),
-                            linear: (*linear).to_owned(),
-                        })
-                        .collect(),
-                );
-                Ok(Some(r))
-            }
-            Command::FontList => {
-                let fonts = self.font_choices();
-                let mut r = self.edit_result(Vec::new(), (None, None, None), None)?;
-                r.fonts = Some(fonts);
-                Ok(Some(r))
             }
             _ => Ok(None),
         }

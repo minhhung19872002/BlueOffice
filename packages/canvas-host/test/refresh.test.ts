@@ -28,6 +28,7 @@ describe('DocumentView.refresh', () => {
     const internals = view as unknown as {
       slots: { el: HTMLElement; canvas: HTMLCanvasElement | null }[];
       scroller: HTMLElement;
+      lists: Map<number, Promise<unknown>>;
       update: () => Promise<void>;
     };
     internals.slots.forEach((slot, i) => {
@@ -41,10 +42,15 @@ describe('DocumentView.refresh', () => {
     canvas.height = 1000;
     internals.slots[0]!.el.appendChild(canvas);
     internals.slots[0]!.canvas = canvas;
+    const cached = new Promise<unknown>(() => {});
+    internals.lists.set(0, cached);
+    internals.lists.set(7, cached);
     void internals.update();
     expect(canvas.width).toBe(0);
     expect(canvas.height).toBe(0);
     expect(internals.slots[0]!.canvas).toBeNull();
+    expect(internals.lists.has(0)).toBe(false);
+    expect(internals.lists.has(7)).toBe(true);
     view.dispose();
   });
   it('re-arms the pixel-density watcher when moving between screens and removes it on dispose', () => {

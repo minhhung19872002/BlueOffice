@@ -52,6 +52,12 @@ fn header_editing_with_page_number_and_undo() {
     let r = cmd(&mut e, r#"{"cmd":"oleInfo","cells":true}"#);
     assert_eq!(r["story"]["kind"], "header");
     assert!(r.get("ole").is_none());
+    // Background UI queries must not close the active story before typing.
+    for query in ["styleList", "fontList", "equationTemplates", "notes"] {
+        cmd(&mut e, &format!(r#"{{"cmd":"{query}"}}"#));
+        let state = cmd(&mut e, r#"{"cmd":"state"}"#);
+        assert_eq!(state["story"]["kind"], "header", "query {query}");
+    }
     // Other side bridges (protection state, inspect, templates …) keep it open too.
     let r = cmd(&mut e, r#"{"cmd":"security"}"#);
     assert_eq!(r["story"]["kind"], "header");
@@ -190,6 +196,9 @@ fn footnote_edited_in_place_on_the_page() {
     let r = cmd(&mut e, r#"{"cmd":"insertNote","endnote":false,"text":""}"#);
     assert_eq!(r["story"]["kind"], "footnote");
     let id = r["story"]["note"].as_i64().unwrap() as i32;
+    cmd(&mut e, r#"{"cmd":"styleList"}"#);
+    let state = cmd(&mut e, r#"{"cmd":"state"}"#);
+    assert_eq!(state["story"]["kind"], "footnote");
     let caret_y = r["caret"]["y"].as_f64().unwrap();
     assert!(caret_y > 600.0, "caret in the footnote area: {caret_y}");
     cmd(&mut e, r#"{"cmd":"insertText","text":"Chú thích đậm"}"#);

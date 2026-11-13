@@ -80,6 +80,10 @@
 .panel {
   display: flex;
   align-items: stretch;
+  /* Opaque on its own compositor layer where the chrome is see-through (theme.css: Mica),
+     so the browser engine can use ClearType for the labels instead of grayscale. */
+  background: var(--bo-ribbon-panel-bg, transparent);
+  will-change: var(--bo-ribbon-panel-layer, auto);
   /* Large buttons + group label; follows the density tokens (--bo-ribbon-large-h). */
   min-height: calc(var(--bo-ribbon-large-h, 66px) + 18px);
   padding: 6px 8px 2px;
@@ -115,7 +119,8 @@
 .groupLabel {
   position: relative;
   text-align: center;
-  color: var(--bo-text-muted);
+  /* Near the body text colour: the muted tone read faded at 11 px next to desktop ribbons. */
+  color: color-mix(in srgb, var(--bo-text) 80%, var(--bo-text-muted));
   font-size: 11px;
   padding: 2px 0;
   white-space: nowrap;
@@ -253,12 +258,10 @@
   gap: 2px;
 }
 
-/* Labels hidden: the group label no longer widens the group. */
+/* Keep group names readable; the layout planner measures the resulting width. */
 .compactGroup .groupLabel {
-  width: 0;
+  width: max-content;
   min-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Labels hidden: large buttons become icon squares in two rows (more than two of them). */

@@ -87,10 +87,15 @@
   --bo-chrome-search-bg: color-mix(in srgb, var(--bo-surface) 70%, transparent);
   --bo-chrome-search-hover: var(--bo-surface);
   --bo-chrome-search-edge: var(--bo-border);
-  --bo-chrome-tab-active-bg: var(--bo-ribbon-bg);
+  /* The selected tab joins the opaque command panel below it. */
+  --bo-chrome-tab-active-bg: var(--bo-surface);
   --bo-chrome-mark: var(--bo-app-accent);
   --bo-chrome-mark-on: var(--bo-icon-on);
   --bo-ribbon-bg: color-mix(in srgb, var(--bo-surface) 72%, transparent);
+  /* Command panel stays opaque over Mica: WebView2/Chromium only draws ClearType text on an
+     opaque layer, and see-through panels fell back to softer grayscale labels. */
+  --bo-ribbon-panel-bg: var(--bo-surface);
+  --bo-ribbon-panel-layer: transform;
 }
 /* Only the chrome band (title bar + ribbon, `--bo-chrome-h` measured by the title bar) shows
    the backdrop, under a light tint of the page colour; the document area stays opaque. */

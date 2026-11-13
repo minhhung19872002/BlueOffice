@@ -109,10 +109,17 @@ try {
     () => execute('try { localStorage.getItem("bo.theme"); return true; } catch { return false; }'),
     'WebView origin',
   );
+  // Never clear storage in a regular user profile: the WebDriver build must confirm
+  // that its temporary test cache/profile override is active before navigating.
+  await waitFor(
+    () =>
+      execute('return window.__TAURI_INTERNALS__?.invoke?.("automation_cache_isolated") ?? false'),
+    'isolated WebDriver profile',
+  );
   for (const theme of opt('theme', 'light,dark').split(',')) {
     for (const app of opt('app', 'doc,sheet,slide').split(',')) {
       await execute(
-        'localStorage.setItem("bo.theme", arguments[0]); window.location.search = `?app=${arguments[1]}&start=1`;',
+        'localStorage.clear(); localStorage.setItem("bo.theme", arguments[0]); window.location.search = `?app=${arguments[1]}&start=1`;',
         [theme, app],
       );
       await waitFor(
@@ -212,13 +219,18 @@ try {
             selector: '[data-command="format.fontDialog"]',
             name: 'dialog-font-effects',
           },
-          { tab: 'Trang đầu', selector: '[data-testid="line-spacing"]', name: 'menu-line-spacing' },
-          { tab: 'Trang đầu', selector: '[data-command="edit.replace"]', name: 'dialog-replace' },
+          {
+            tab: 'Trang đầu',
+            opener: '[data-testid="ribbon-group-paragraph"]',
+            selector: '[data-testid="line-spacing"]',
+            name: 'menu-line-spacing',
+          },
+          { tab: 'Trang đầu', shortcut: 'h', name: 'dialog-replace' },
         ],
         sheet: [
           {
             tab: 'Trang đầu',
-            selector: '[data-command="format.cells"]',
+            shortcut: '1',
             name: 'dialog-format-cells',
           },
           { tab: 'Chèn', selector: '[data-command="insert.chart"]', name: 'dialog-chart' },
@@ -242,21 +254,52 @@ try {
           const tabId = tabElement?.['element-6066-11e4-a52e-4f735466cecf'];
           if (!tabId) throw new Error(`missing tab ${target.tab}`);
           await wd('POST', `/session/${session}/element/${tabId}/click`, {});
-          await waitFor(
-            () =>
-              execute(
-                'const e=document.querySelector(arguments[0]); return !!e && !e.disabled && e.getClientRects().length>0',
-                [target.selector],
-              ),
-            target.name,
-            5000,
-          );
-          const control = await execute('return document.querySelector(arguments[0])', [
-            target.selector,
-          ]);
-          const controlId = control?.['element-6066-11e4-a52e-4f735466cecf'];
-          if (!controlId) throw new Error(`missing control ${target.selector}`);
-          await wd('POST', `/session/${session}/element/${controlId}/click`, {});
+          if (target.shortcut) {
+            await execute(
+              `const e = arguments[0] === 'doc'
+              ? document.querySelector('[data-testid="ime-input"]')
+              : [...document.querySelectorAll('textarea')].find(x => /Ô đang nhập|Cell editor/.test(x.getAttribute('aria-label') ?? ''));
+              if (!e) throw new Error('editor input not found'); e.focus();`,
+              [app],
+            );
+            await wd('POST', `/session/${session}/actions`, {
+              actions: [
+                {
+                  type: 'key',
+                  id: 'keyboard',
+                  actions: [
+                    { type: 'keyDown', value: '\uE009' },
+                    { type: 'keyDown', value: target.shortcut },
+                    { type: 'keyUp', value: target.shortcut },
+                    { type: 'keyUp', value: '\uE009' },
+                  ],
+                },
+              ],
+            });
+          } else {
+            if (target.opener) {
+              const opener = await execute('return document.querySelector(arguments[0])', [
+                target.opener,
+              ]);
+              const openerId = opener?.['element-6066-11e4-a52e-4f735466cecf'];
+              if (openerId) await wd('POST', `/session/${session}/element/${openerId}/click`, {});
+            }
+            await waitFor(
+              () =>
+                execute(
+                  'const e=document.querySelector(arguments[0]); return !!e && !e.disabled && e.getClientRects().length>0',
+                  [target.selector],
+                ),
+              target.name,
+              5000,
+            );
+            const control = await execute('return document.querySelector(arguments[0])', [
+              target.selector,
+            ]);
+            const controlId = control?.['element-6066-11e4-a52e-4f735466cecf'];
+            if (!controlId) throw new Error(`missing control ${target.selector}`);
+            await wd('POST', `/session/${session}/element/${controlId}/click`, {});
+          }
           await waitFor(
             () =>
               execute(

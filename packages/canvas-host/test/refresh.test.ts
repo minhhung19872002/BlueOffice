@@ -102,11 +102,45 @@ describe('DocumentView.refresh', () => {
     const canvas = page.querySelector('canvas')!;
     expect(canvas.width).toBe(Math.round(Number.parseFloat(page.style.width) * dpr));
     expect(canvas.height).toBe(Math.round(Number.parseFloat(page.style.height) * dpr));
+    // Shown 1:1 on device pixels (no resampling of hinted text and hairlines).
+    expect(Number.parseFloat(canvas.style.width) * dpr).toBeCloseTo(canvas.width, 3);
+    expect(Number.parseFloat(canvas.style.height) * dpr).toBeCloseTo(canvas.height, 3);
     view.dispose();
     getContext.mockRestore();
     frame.mockRestore();
     deviceRatio.mockRestore();
   });
+  it('moves the canvas onto the device pixel grid of a fractional page position', async () => {
+    const deviceRatio = vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(1.25);
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ left: 100.3, top: 50.5, width: 0, height: 0 } as DOMRect);
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ putImageData() {} } as never);
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: async () => ({ width: 595, height: 842, commands: [] }),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+      getNativePageRaster: async () => ({ width: 2, height: 2, pixels: new Uint8Array(16) }),
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    await (view as unknown as { update: () => Promise<void> }).update();
+    const canvas = host.querySelector('canvas')!;
+    const left = 100.3 + Number.parseFloat(canvas.style.left);
+    const top = 50.5 + Number.parseFloat(canvas.style.top);
+    expect(left * 1.25).toBeCloseTo(Math.round(left * 1.25), 6);
+    expect(top * 1.25).toBeCloseTo(Math.round(top * 1.25), 6);
+    expect(Number.parseFloat(canvas.style.width)).toBeCloseTo(2 / 1.25, 6);
+    view.dispose();
+    getContext.mockRestore();
+    rect.mockRestore();
+    frame.mockRestore();
+    deviceRatio.mockRestore();
+  });
+
   it('releases the backing store of a page far outside the viewport', () => {
     const host = document.createElement('div');
     const view = new DocumentView(

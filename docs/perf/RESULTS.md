@@ -300,3 +300,19 @@ ngắt dòng và vị trí chữ trùng; độ lệch màu trung bình |R−B| c
 `cargo test -p bo-gpu-win text_modes -- --ignored`: hệ thống 10,81 · mức 0,35/contrast 2,0
 **3,88** với độ đậm cao hơn bản xám 11 % (đối chứng đậm hơn bản xám của BlueDoc ~15 %). Đã chọn
 mức 0,35/contrast 2,0 làm mặc định; chưa chụp lại ở DPI 100/125/200 %.
+
+#### Độ nét: bám lưới pixel, canvas 1:1, ribbon đục (2026-11-13)
+
+Người dùng thấy trang và ribbon "nhòe hơn" đối chứng (cùng Times New Roman thật: desktop nạp
+font hệ thống trước bản thay thế). Đo trên ảnh chụp 125 %: tỉ lệ cạnh ngang sắc (hàng kề nhau
+lệch > 200) trong vùng chữ trang: đối chứng **0,162**, BlueDoc **0** — chữ được khử răng cưa
+cả chiều dọc (`NATURAL_SYMMETRIC`) và canvas bị trình duyệt co giãn vì khung trang có kích thước
+lẻ; đường kẻ 1 px chia hai hàng xám (204 / 52). Sau khi đổi sang `DWRITE_RENDERING_MODE_NATURAL`
++ grid-fit, làm tròn baseline và đường kẻ/ô thẳng theo pixel thiết bị, và hiển thị canvas 1:1
+(`DocumentView.alignToDevicePixels`): **0,353**, đường kẻ một hàng đen, viền màu 6,46 (đối chứng 7,47).
+
+Ribbon trên Mica trong suốt 28 % nên Chromium vẽ chữ xám. Thân ribbon giờ đục trên lớp
+compositor riêng; nhãn nhóm dùng màu gần màu chữ chính. Nhãn nhóm: cạnh ngang sắc 0,077 → 0,319
+(đối chứng 0,372), điểm tối nhất 91 → 48 (đối chứng 38); tab có ClearType (độ lệch kênh 15 → 75,
+đối chứng 68). Ô chọn phông vẫn xám (control riêng của WebView). Chưa đo DPI 100/150/200 %.
+

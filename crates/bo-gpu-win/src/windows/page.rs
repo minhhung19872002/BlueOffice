@@ -30,9 +30,9 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory, IDWriteRenderingParams, DWRITE_FACTORY_TYPE_SHARED,
-    DWRITE_MEASURING_MODE_NATURAL, DWRITE_PIXEL_GEOMETRY_RGB,
-    DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+    DWriteCreateFactory, IDWriteFactory2, IDWriteRenderingParams, DWRITE_FACTORY_TYPE_SHARED,
+    DWRITE_GRID_FIT_MODE_ENABLED, DWRITE_MEASURING_MODE_NATURAL, DWRITE_PIXEL_GEOMETRY_RGB,
+    DWRITE_RENDERING_MODE_NATURAL,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows_numerics::{Matrix3x2, Vector2};
@@ -97,6 +97,67 @@ fn rotation_about(degrees: f32, cx: f32, cy: f32) -> Matrix3x2 {
         M22: c,
         M31: cx - c * cx + s * cy,
         M32: cy - s * cx - c * cy,
+    }
+}
+
+/// Device pixels per user unit along one axis and the device offset of user 0.
+#[derive(Clone, Copy)]
+struct Axis {
+    scale: f32,
+    offset: f32,
+}
+
+impl Axis {
+    fn x(m: &Matrix3x2, ppp: f32) -> Self {
+        Self {
+            scale: m.M11 * ppp,
+            offset: m.M31 * ppp,
+        }
+    }
+
+    fn y(m: &Matrix3x2, ppp: f32) -> Self {
+        Self {
+            scale: m.M22 * ppp,
+            offset: m.M32 * ppp,
+        }
+    }
+
+    /// `v` moved to the nearest device pixel boundary (at most half a pixel).
+    fn snap(self, v: f32) -> f32 {
+        if self.scale.abs() < 1e-6 {
+            return v;
+        }
+        let device = v * self.scale + self.offset;
+        v + (device.round() - device) / self.scale
+    }
+
+    /// Edges `a`..`b` snapped to pixel boundaries, at least one device pixel apart.
+    fn snap_span(self, a: f32, b: f32) -> (f32, f32) {
+        if self.scale.abs() < 1e-6 || (b - a).abs() < 1e-6 {
+            return (a, b);
+        }
+        let (sa, mut sb) = (self.snap(a), self.snap(b));
+        if (sb - sa).abs() < 0.5 / self.scale.abs() {
+            sb = sa + (b - a).signum() / self.scale;
+        }
+        (sa, sb)
+    }
+
+    /// A hairline centred at `c` of `width` user units: (centre, width) covering whole pixels.
+    fn snap_line(self, c: f32, width: f32) -> (f32, f32) {
+        let scale = self.scale.abs();
+        if scale < 1e-6 {
+            return (c, width);
+        }
+        let pixels = (width * scale).round().max(1.0);
+        let device = c * self.scale + self.offset;
+        // Odd widths centre on a pixel centre, even widths on a pixel boundary.
+        let centre = if pixels % 2.0 == 1.0 {
+            (device - 0.5).round() + 0.5
+        } else {
+            device.round()
+        };
+        (c + (centre - device) / self.scale, pixels / scale)
     }
 }
 
@@ -707,12 +768,21 @@ impl Device {
                             color: c,
                         } => {
                             let brush = self.solid(*c, alpha)?;
+                            let (mut left, mut right) = (*x, x + w);
+                            let (mut top, mut bottom) = (*y, y + h);
+                            if axis_aligned(&state.transform) {
+                                // Borders, rules and shading land on whole device pixels.
+                                (left, right) = Axis::x(&state.transform, pixels_per_point)
+                                    .snap_span(left, right);
+                                (top, bottom) = Axis::y(&state.transform, pixels_per_point)
+                                    .snap_span(top, bottom);
+                            }
                             self.context.FillRectangle(
                                 &D2D_RECT_F {
-                                    left: *x,
-                                    top: *y,
-                                    right: x + w,
-                                    bottom: y + h,
+                                    left,
+                                    top,
+                                    right,
+                                    bottom,
                                 },
                                 &brush,
                             );
@@ -736,21 +806,41 @@ impl Device {
                                 D2D1_CAP_STYLE_FLAT,
                                 D2D1_LINE_JOIN_MITER_OR_BEVEL,
                             )?;
-                            self.context.DrawLine(
+                            let (mut a, mut b, mut stroke) = (
                                 Vector2 { X: *x1, Y: *y1 },
                                 Vector2 { X: *x2, Y: *y2 },
-                                &brush,
                                 *width,
-                                &style,
                             );
+                            if axis_aligned(&state.transform) {
+                                let ax = Axis::x(&state.transform, pixels_per_point);
+                                let ay = Axis::y(&state.transform, pixels_per_point);
+                                if y1 == y2 {
+                                    // Horizontal rule: a crisp band of whole pixel rows.
+                                    let (y, w) = ay.snap_line(*y1, *width);
+                                    (a.Y, b.Y, stroke) = (y, y, w);
+                                    (a.X, b.X) = ax.snap_span(*x1, *x2);
+                                } else if x1 == x2 {
+                                    let (x, w) = ax.snap_line(*x1, *width);
+                                    (a.X, b.X, stroke) = (x, x, w);
+                                    (a.Y, b.Y) = ay.snap_span(*y1, *y2);
+                                }
+                            }
+                            self.context.DrawLine(a, b, &brush, stroke, &style);
                         }
                         Command::Glyphs { color: c, x, y, .. } => {
                             let Some(run) = runs.get(&index) else {
                                 continue;
                             };
                             let brush = self.solid(*c, alpha)?;
+                            // Baseline on a device pixel row, so vertical hinting keeps
+                            // horizontal strokes on single rows; x keeps the layout position.
+                            let baseline = if axis_aligned(&state.transform) {
+                                Axis::y(&state.transform, pixels_per_point).snap(*y)
+                            } else {
+                                *y
+                            };
                             self.context.DrawGlyphRun(
-                                Vector2 { X: *x, Y: *y },
+                                Vector2 { X: *x, Y: baseline },
                                 run.as_raw(),
                                 None,
                                 &brush,
@@ -906,40 +996,40 @@ impl Device {
         // SAFETY: the factory and rendering parameters are owned COM references; the context
         // keeps its own reference to the parameters it is given.
         unsafe {
-            match mode {
+            let (antialias, level) = match mode {
                 TextRendering::System => {
                     self.context
                         .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
                     self.context
                         .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
+                    return Ok(());
                 }
-                TextRendering::Grayscale => {
-                    self.context
-                        .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-                    self.context
-                        .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
-                }
+                TextRendering::Grayscale => (D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, (1.8, 1.0, 0.0)),
                 TextRendering::ClearType {
                     gamma,
                     contrast,
                     level,
-                } => {
-                    let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
-                        .map_err(|e| e.to_string())?;
-                    let params = factory
-                        .CreateCustomRenderingParams(
-                            gamma.clamp(1.0, 3.0),
-                            contrast.clamp(0.0, 4.0),
-                            level.clamp(0.0, 1.0),
-                            DWRITE_PIXEL_GEOMETRY_RGB,
-                            DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                        )
-                        .map_err(|e| e.to_string())?;
-                    self.context
-                        .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
-                    self.context.SetTextRenderingParams(&params);
-                }
-            }
+                } => (D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, (gamma, contrast, level)),
+            };
+            let (gamma, contrast, level) = level;
+            let factory: IDWriteFactory2 =
+                DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
+            // NATURAL: antialiasing along the line only, outlines grid-fitted vertically
+            // (baselines, x-height and horizontal strokes on whole rows, as desktop word
+            // processors draw body text); glyph x positions stay exactly the engine's.
+            let params = factory
+                .CreateCustomRenderingParams(
+                    gamma.clamp(1.0, 3.0),
+                    contrast.clamp(0.0, 4.0),
+                    contrast.clamp(0.0, 4.0),
+                    level.clamp(0.0, 1.0),
+                    DWRITE_PIXEL_GEOMETRY_RGB,
+                    DWRITE_RENDERING_MODE_NATURAL,
+                    DWRITE_GRID_FIT_MODE_ENABLED,
+                )
+                .map_err(|e| e.to_string())?;
+            self.context.SetTextAntialiasMode(antialias);
+            self.context.SetTextRenderingParams(&params);
         }
         Ok(())
     }

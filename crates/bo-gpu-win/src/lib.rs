@@ -544,4 +544,69 @@ mod tests {
             std::fs::write(format!("{out}/text-{name}.ppm"), ppm).unwrap();
         }
     }
+
+    #[test]
+    fn text_and_rules_snap_to_device_rows() {
+        use super::TextRendering;
+        use bo_render::{Command, Glyph, PageList, Rgba};
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        device.set_text_rendering(TextRendering::Grayscale);
+        let mut fonts = bo_text::FontManager::new();
+        let face =
+            fonts.add_font(include_bytes!("../../../assets/fonts/Tinos-Regular.ttf").to_vec())[0];
+        let scale = 13.0 / f32::from(fonts.info(face).units_per_em);
+        let mut pen = 0;
+        let glyphs: Vec<Glyph> = fonts
+            .shape(face, "Hxzlmnu")
+            .iter()
+            .map(|g| {
+                let glyph = Glyph(g.glyph_id, (pen + g.x_offset) as f32 * scale, 0.0, 0);
+                pen += g.x_advance;
+                glyph
+            })
+            .collect();
+        let page = PageList {
+            width: 80.0,
+            height: 32.0,
+            commands: vec![
+                // Baseline and rule both between device rows at 125 %.
+                Command::Glyphs {
+                    face: face.0,
+                    size: 13.0,
+                    x: 2.0,
+                    y: 17.3,
+                    color: Rgba(0, 0, 0, 255),
+                    text: String::new(),
+                    glyphs,
+                },
+                Command::Line {
+                    x1: 0.0,
+                    y1: 25.3,
+                    x2: 80.0,
+                    y2: 25.3,
+                    width: 0.75,
+                    color: Rgba(0, 0, 0, 255),
+                    dash: None,
+                },
+            ],
+        };
+        let image = device.render_page(&page, &fonts, 1.25, &|_| None).unwrap();
+        let width = image.width as usize;
+        let grey = |x: usize, y: usize| image.pixels[(y * width + x) * 4];
+        // The rule covers whole rows: one or more fully black rows, no partial grey row.
+        let column: Vec<u8> = (0..image.height as usize).map(|y| grey(40, y)).collect();
+        let rows = &column[28..];
+        assert!(rows.contains(&0), "{rows:?}");
+        assert!(rows.iter().all(|&v| v == 0 || v == 255), "{rows:?}");
+        // Vertical hinting: most row-to-row changes inside the text are hard edges.
+        let (mut hard, mut any) = (0, 0);
+        for y in 1..28 {
+            for x in 0..width {
+                let d = grey(x, y).abs_diff(grey(x, y - 1));
+                hard += usize::from(d > 200);
+                any += usize::from(d > 30);
+            }
+        }
+        assert!(hard * 4 > any, "hard {hard} of {any} vertical transitions");
+    }
 }

@@ -842,6 +842,25 @@ export class DocumentView {
     this.setZoom(this.zoomValue * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
   };
 
+  /**
+   * Show a page's backing store 1:1 on the device pixel grid. A page box is fractional at most
+   * zoom/DPI combinations; stretching the canvas over it made the browser resample the whole
+   * page, which blurred hinted text and one-pixel rules. The canvas keeps its exact pixel size
+   * and moves by less than one device pixel so its top-left corner lands on a pixel boundary.
+   */
+  private alignToDevicePixels(slot: { el: HTMLElement; canvas: HTMLCanvasElement | null }): void {
+    const canvas = slot.canvas;
+    if (!canvas || !canvas.width) return;
+    const dpr = window.devicePixelRatio || 1;
+    const box = slot.el.getBoundingClientRect();
+    const dx = (Math.round(box.left * dpr) - box.left * dpr) / dpr;
+    const dy = (Math.round(box.top * dpr) - box.top * dpr) / dpr;
+    const css =
+      `position:absolute;left:${dx}px;top:${dy}px;` +
+      `width:${canvas.width / dpr}px;height:${canvas.height / dpr}px;`;
+    if (canvas.style.cssText !== css) canvas.style.cssText = css;
+  }
+
   private layoutSlots(): void {
     if (!this.info) return;
     this.info.pages.forEach((p, i) => {
@@ -915,6 +934,11 @@ export class DocumentView {
     this.opts.onViewport?.();
     const [first, last] = this.visibleRange();
     this.a11y.setRange(first, last);
+    // Layout changes (window resize, sidebars) move pages by fractions of a pixel.
+    for (let i = Math.max(0, first); i <= last; i++) {
+      const slot = this.slots[i];
+      if (slot) this.alignToDevicePixels(slot);
+    }
     const from = Math.max(0, first - this.opts.overscan);
     const to = Math.min(this.slots.length - 1, last + this.opts.overscan);
     if (first !== this.currentPage) {
@@ -970,7 +994,6 @@ export class DocumentView {
           const canvas = slot.canvas ?? document.createElement('canvas');
           canvas.width = raster?.width ?? Math.round(list.width * scale);
           canvas.height = raster?.height ?? Math.round(list.height * scale);
-          canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
           const ctx = canvas.getContext('2d');
           if (!ctx) return;
           if (raster) {
@@ -992,6 +1015,7 @@ export class DocumentView {
             slot.el.insertBefore(canvas, slot.overlay);
             slot.canvas = canvas;
           }
+          this.alignToDevicePixels(slot);
           slot.renderedAt = key;
           slot.el.dataset.rendered = 'true';
         });

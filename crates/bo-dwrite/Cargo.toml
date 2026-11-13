@@ -1,0 +1,15 @@
+[package]
+name = "bo-dwrite"
+description = "Windows DirectWrite glyph masks for the BlueOffice native renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_DirectWrite"] }
+
+# Win32 COM calls are confined to the Windows implementation, as in bo-winchrome.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"

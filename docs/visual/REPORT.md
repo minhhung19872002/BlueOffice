@@ -139,3 +139,12 @@ nhóm có khoảng cách gọn hơn và các ô kiểu chữ rộng hơn để k
 deviceScaleFactor 1,375; ảnh có cả thay đổi nhãn nhóm đang có trong workspace. Kiểm tra
 DOM cho ba tên kiểu cho thấy không bị cắt tại kích thước này. Đây là ảnh web, chưa phải
 ảnh desktop Mica hay kiểm tra đầy đủ các tab/theme/DPI; cần chụp desktop và đối chiếu trước/sau.
+
+## DirectWrite: lớp mask dùng lại
+
+Đã thêm `bo-dwrite`, nhận ID/vị trí glyph do engine cung cấp, chọn face theo chỉ số trong
+font và tạo mask ClearType bằng DirectWrite. Ba kiểm thử Windows kiểm tra vị trí glyph,
+chuyển baseline ở 100/125/150/175/200% và đầu vào lỗi; clippy qua cục bộ. Đây là lớp
+thư viện, **chưa nối vào renderer của ứng dụng**: mask ba kênh cần được hòa trộn trên
+nền thực, xử lý clip/biến đổi và thứ tự lớp, cache, font tổng hợp, IME và DPI trước khi
+có thể đánh giá ảnh hay hiệu năng. Bản build xem trước chưa dùng lớp này.

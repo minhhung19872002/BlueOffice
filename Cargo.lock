@@ -644,6 +644,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-dwrite"
+version = "0.1.0"
+dependencies = [
+ "windows",
+]
+
+[[package]]
 name = "bo-edit"
 version = "0.1.0"
 dependencies = [

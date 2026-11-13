@@ -84,6 +84,8 @@ interface PageSlot {
   markupWidth: number;
   canvas: HTMLCanvasElement | null;
   renderedAt: string | null;
+  /** Native render shown by `canvas`, the base of the next incremental render. */
+  nativeId?: number | null;
 }
 
 /**
@@ -982,7 +984,22 @@ export class DocumentView {
           )
             return;
           const scale = PX_PER_PT * this.zoomValue * dpr;
-          const raster = await this.engine.getNativePageRaster?.(list, scale).catch(() => null);
+          // Formatting marks are painted over the image by this view, outside the native
+          // display list: with marks shown (now or before) the page is drawn in full.
+          const marks = list.marks?.length ?? 0;
+          const base =
+            slot.canvas && slot.nativeId != null && !marks && slot.el.dataset.marks === '0'
+              ? slot.nativeId
+              : undefined;
+          let raster = await this.engine.getNativePageRaster?.(list, scale, base).catch(() => null);
+          const fits = (r: NonNullable<typeof raster>) =>
+            !r.band ||
+            (r.band.width === r.width && r.band.height === r.height) ||
+            (slot.canvas?.width === r.width && slot.canvas.height === r.height);
+          if (raster && !fits(raster)) {
+            // The canvas no longer matches (resized meanwhile): ask for the whole page.
+            raster = await this.engine.getNativePageRaster?.(list, scale).catch(() => null);
+          }
           // A native render is asynchronous too: discard it if an edit, zoom or resize won.
           if (
             this.lists.get(i) !== request ||
@@ -992,23 +1009,37 @@ export class DocumentView {
           )
             return;
           const canvas = slot.canvas ?? document.createElement('canvas');
-          canvas.width = raster?.width ?? Math.round(list.width * scale);
-          canvas.height = raster?.height ?? Math.round(list.height * scale);
+          const band = raster?.band ?? {
+            left: 0,
+            top: 0,
+            width: raster?.width ?? 0,
+            height: raster?.height ?? 0,
+          };
+          const partial =
+            !!raster && (band.width !== raster.width || band.height !== raster.height);
+          // Assigning a size clears the canvas: keep it when only a band is replaced.
+          if (!partial) {
+            canvas.width = raster?.width ?? Math.round(list.width * scale);
+            canvas.height = raster?.height ?? Math.round(list.height * scale);
+          }
           const ctx = canvas.getContext('2d');
           if (!ctx) return;
           if (raster) {
-            // Direct2D output is already opaque RGBA: wrap it without copying.
-            const rgba = new Uint8ClampedArray(
-              raster.pixels.buffer as ArrayBuffer,
-              raster.pixels.byteOffset,
-              raster.pixels.byteLength,
-            );
-            ctx.putImageData(new ImageData(rgba, raster.width, raster.height), 0, 0);
+            if (band.width && band.height) {
+              // Direct2D output is already opaque RGBA: wrap it without copying.
+              const rgba = new Uint8ClampedArray(
+                raster.pixels.buffer as ArrayBuffer,
+                raster.pixels.byteOffset,
+                raster.pixels.byteLength,
+              );
+              ctx.putImageData(new ImageData(rgba, band.width, band.height), band.left, band.top);
+            }
           } else {
             renderPage(ctx, list, this.glyphs, scale, this.images);
           }
+          slot.nativeId = raster?.id ?? null;
           slot.el.dataset.renderer = raster ? 'direct2d' : 'canvas';
-          if (list.marks?.length) drawFormattingMarks(ctx, list.marks, scale);
+          if (marks) drawFormattingMarks(ctx, list.marks ?? [], scale);
           slot.el.dataset.marks = String(list.marks?.length ?? 0);
           this.paintMarkup(slot, list.width, list.height, list.markup);
           if (!slot.canvas) {

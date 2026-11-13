@@ -2887,10 +2887,17 @@ export interface SlideEditResult {
 
 // ---------------------------------------------------------------- services
 
-/** Native (Direct2D + DirectWrite) page image: opaque RGBA pixels, row-major. */
+/**
+ * Native (Direct2D + DirectWrite) page image: opaque RGBA pixels, row-major. `width` and
+ * `height` are the whole page; when `band` is set the pixels cover only that rectangle (the
+ * part that changed since the render `id` passed as `base`), an empty band meaning no change.
+ */
 export interface NativePageRaster {
   width: number;
   height: number;
+  /** Render id to pass as `base` next time this page is drawn over the same canvas. */
+  id?: number;
+  band?: { left: number; top: number; width: number; height: number };
   pixels: Uint8Array;
 }
 
@@ -2906,7 +2913,11 @@ export interface EngineHost {
   open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo>;
   getPage(index: number): Promise<PageDisplayList>;
   /** Optional experimental renderer; null means the caller should use its normal renderer. */
-  getNativePageRaster?(page: PageDisplayList, scale: number): Promise<NativePageRaster | null>;
+  getNativePageRaster?(
+    page: PageDisplayList,
+    scale: number,
+    base?: number,
+  ): Promise<NativePageRaster | null>;
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   exportPdf(): Promise<Uint8Array>;
   /** Start a blank document. */

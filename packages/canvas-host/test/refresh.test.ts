@@ -41,6 +41,48 @@ describe('DocumentView.refresh', () => {
     frame.mockRestore();
   });
 
+  it('replaces only the changed band of a natively rendered page', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const putImageData = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ putImageData } as never);
+    const bases: (number | undefined)[] = [];
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: async () => ({ width: 595, height: 842, commands: [] }),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+      getNativePageRaster: async (_page: unknown, _scale: number, base?: number) => {
+        bases.push(base);
+        return base === undefined
+          ? { width: 4, height: 4, id: 1, pixels: new Uint8Array(64) }
+          : {
+              width: 4,
+              height: 4,
+              id: 2,
+              band: { left: 0, top: 2, width: 4, height: 1 },
+              pixels: new Uint8Array(16).fill(9),
+            };
+      },
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    const update = () => (view as unknown as { update: () => Promise<void> }).update();
+    await update();
+    const canvas = host.querySelector('canvas')!;
+    expect([canvas.width, canvas.height]).toEqual([4, 4]);
+    view.refresh(info(1), [0]);
+    await update();
+    expect(bases.slice(0, 2)).toEqual([undefined, 1]);
+    // The band lands at its offset; the canvas keeps its size (and so its other pixels).
+    const [image, x, y] = putImageData.mock.calls[1]!;
+    expect([image.width, image.height, x, y]).toEqual([4, 1, 0, 2]);
+    expect([canvas.width, canvas.height]).toEqual([4, 4]);
+    view.dispose();
+    getContext.mockRestore();
+    frame.mockRestore();
+  });
+
   it('discards a native image when a newer page has already rendered', async () => {
     const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
     const putImageData = vi.fn();

@@ -98,19 +98,33 @@ export class NativeEngineHost implements EngineHost {
   async getNativePageRaster(
     page: PageDisplayList,
     scale: number,
+    base?: number,
   ): Promise<NativePageRaster | null> {
     this.gpuAvailable ??= this.call<boolean>('engine_gpu_available').catch(() => false);
     if (!(await this.gpuAvailable)) return null;
     try {
       const data = toBytes(
-        await this.call<ArrayBuffer>('engine_gpu_page', { json: JSON.stringify(page), scale }),
+        await this.call<ArrayBuffer>('engine_gpu_page', {
+          json: JSON.stringify(page),
+          scale,
+          base: base ?? null,
+        }),
       );
-      if (data.byteLength < 8) return null;
-      const header = new DataView(data.buffer, data.byteOffset, 8);
-      const width = header.getUint32(0, true);
-      const height = header.getUint32(4, true);
-      if (!width || !height || width * height * 4 !== data.byteLength - 8) return null;
-      return { width, height, pixels: data.subarray(8) };
+      // Header: id, page width, page height, band left, top, width, height (u32 LE).
+      if (data.byteLength < 28) return null;
+      const header = new DataView(data.buffer, data.byteOffset, 28);
+      const [id, width, height, left, top, bandWidth, bandHeight] = [0, 1, 2, 3, 4, 5, 6].map(
+        (i) => header.getUint32(i * 4, true),
+      ) as [number, number, number, number, number, number, number];
+      if (!width || !height || bandWidth * bandHeight * 4 !== data.byteLength - 28) return null;
+      if (left + bandWidth > width || top + bandHeight > height) return null;
+      return {
+        width,
+        height,
+        id,
+        band: { left, top, width: bandWidth, height: bandHeight },
+        pixels: data.subarray(28),
+      };
     } catch {
       // Unsupported display-list commands and GPU errors keep the normal renderer intact.
       return null;

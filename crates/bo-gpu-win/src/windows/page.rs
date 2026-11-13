@@ -9,21 +9,22 @@ use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F,
     D2D1_COMPOSITE_MODE_SOURCE_OVER, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED,
     D2D1_FIGURE_END_OPEN, D2D1_FILL_MODE_WINDING, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
-    D2D_RECT_F, D2D_SIZE_U,
+    D2D_RECT_F, D2D_RECT_U, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     CLSID_D2D1GaussianBlur, ID2D1Bitmap1, ID2D1Brush, ID2D1CommandList, ID2D1Geometry, ID2D1Image,
-    ID2D1PathGeometry1, ID2D1RenderTarget, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_NONE,
-    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE,
-    D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_SQUARE, D2D1_DASH_STYLE_CUSTOM,
-    D2D1_DASH_STYLE_SOLID, D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2,
-    D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
-    D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_OPTIONS1_NONE, D2D1_LAYER_PARAMETERS1,
-    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_LINE_JOIN, D2D1_LINE_JOIN_BEVEL,
-    D2D1_LINE_JOIN_MITER_OR_BEVEL, D2D1_LINE_JOIN_ROUND, D2D1_MAP_OPTIONS_READ,
-    D2D1_PROPERTY_TYPE_FLOAT, D2D1_QUADRATIC_BEZIER_SEGMENT, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
-    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
+    ID2D1PathGeometry1, ID2D1RenderTarget, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_ALIASED,
+    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+    D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_OPTIONS_TARGET,
+    D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE, D2D1_CAP_STYLE_FLAT,
+    D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_SQUARE, D2D1_DASH_STYLE_CUSTOM, D2D1_DASH_STYLE_SOLID,
+    D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2, D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION,
+    D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, D2D1_INTERPOLATION_MODE_LINEAR,
+    D2D1_LAYER_OPTIONS1_NONE, D2D1_LAYER_PARAMETERS1, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
+    D2D1_LINE_JOIN, D2D1_LINE_JOIN_BEVEL, D2D1_LINE_JOIN_MITER_OR_BEVEL, D2D1_LINE_JOIN_ROUND,
+    D2D1_MAP_OPTIONS_READ, D2D1_PROPERTY_TYPE_FLOAT, D2D1_QUADRATIC_BEZIER_SEGMENT,
+    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_STROKE_STYLE_PROPERTIES1,
+    D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
@@ -575,13 +576,26 @@ impl Device {
     /// opacity, pictures (`images` resolves an id to premultiplied RGBA, `None` draws the grey
     /// placeholder of the other backends) and blurred shadows. Malformed nesting or geometry
     /// is rejected before drawing so the caller can fall back for the whole page.
-    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
     pub fn render_page(
         &self,
         page: &PageList,
         fonts: &FontManager,
         pixels_per_point: f32,
         images: &dyn Fn(&str) -> Option<Bitmap>,
+    ) -> Result<PageImage, String> {
+        self.render_page_region(page, fonts, pixels_per_point, images, None)
+    }
+
+    /// [`Device::render_page`] limited to `region` (left, top, width, height in device pixels,
+    /// clamped to the page): only that band is drawn and read back, for incremental updates.
+    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
+    pub fn render_page_region(
+        &self,
+        page: &PageList,
+        fonts: &FontManager,
+        pixels_per_point: f32,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
+        region: Option<[u32; 4]>,
     ) -> Result<PageImage, String> {
         if !pixels_per_point.is_finite()
             || pixels_per_point <= 0.0
@@ -597,11 +611,32 @@ impl Device {
         if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
             return Err("page too large or empty".into());
         }
-        let bytes = (width as usize)
+        if (width as usize)
             .checked_mul(height as usize)
             .and_then(|n| n.checked_mul(4))
-            .filter(|n| *n <= 256 * 1024 * 1024)
-            .ok_or("page too large")?;
+            .is_none_or(|n| n > 256 * 1024 * 1024)
+        {
+            return Err("page too large".into());
+        }
+        let [left, top, band_w, band_h] = match region {
+            Some([x, y, w, h]) => {
+                let (x, y) = (x.min(width), y.min(height));
+                [x, y, w.min(width - x), h.min(height - y)]
+            }
+            None => [0, 0, width, height],
+        };
+        if band_w == 0 || band_h == 0 {
+            return Ok(PageImage {
+                width: 0,
+                height: 0,
+                left,
+                top,
+                page_width: width,
+                page_height: height,
+                pixels: Vec::new(),
+            });
+        }
+        let bytes = band_w as usize * band_h as usize * 4;
 
         // Pass 1: validate, prepare glyph runs, decode pictures and record blurred shapes.
         let mut faces = self.faces.try_borrow_mut().map_err(|_| "font cache busy")?;
@@ -714,6 +749,19 @@ impl Device {
             self.context.SetTransform(&IDENTITY);
             self.context
                 .Clear(Some(&color(Rgba(255, 255, 255, 255), 1.0)));
+            let banded = region.is_some();
+            if banded {
+                // Direct2D culls everything outside the band; coordinates are in DIPs (points).
+                self.context.PushAxisAlignedClip(
+                    &D2D_RECT_F {
+                        left: left as f32 / pixels_per_point,
+                        top: top as f32 / pixels_per_point,
+                        right: (left + band_w) as f32 / pixels_per_point,
+                        bottom: (top + band_h) as f32 / pixels_per_point,
+                    },
+                    D2D1_ANTIALIAS_MODE_ALIASED,
+                );
+            }
             let mut state = State::new();
             let drawn = (|| -> Result<(), String> {
                 for (index, command) in page.commands.iter().enumerate() {
@@ -941,6 +989,9 @@ impl Device {
                     Saved::Transform(_) | Saved::Opacity(_) => {}
                 }
             }
+            if banded {
+                self.context.PopAxisAlignedClip();
+            }
             let ended = self.context.EndDraw(None, None);
             self.context.SetTarget(None::<&ID2D1Image>);
             self.context.SetTransform(&IDENTITY);
@@ -956,21 +1007,38 @@ impl Device {
             };
             let staging = self
                 .context
-                .CreateBitmap(size, None, 0, &staging_props)
+                .CreateBitmap(
+                    D2D_SIZE_U {
+                        width: band_w,
+                        height: band_h,
+                    },
+                    None,
+                    0,
+                    &staging_props,
+                )
                 .map_err(|e| e.to_string())?;
             staging
-                .CopyFromBitmap(None, &target, None)
+                .CopyFromBitmap(
+                    None,
+                    &target,
+                    Some(&D2D_RECT_U {
+                        left,
+                        top,
+                        right: left + band_w,
+                        bottom: top + band_h,
+                    }),
+                )
                 .map_err(|e| e.to_string())?;
             let mapped = staging
                 .Map(D2D1_MAP_OPTIONS_READ)
                 .map_err(|e| e.to_string())?;
-            let row_bytes = width as usize * 4;
+            let row_bytes = band_w as usize * 4;
             if mapped.bits.is_null() || (mapped.pitch as usize) < row_bytes {
                 staging.Unmap().map_err(|e| e.to_string())?;
                 return Err("invalid mapped Direct2D surface".into());
             }
             let mut pixels = vec![0_u8; bytes];
-            for y in 0..height as usize {
+            for y in 0..band_h as usize {
                 let src = std::slice::from_raw_parts(
                     mapped.bits.add(y * mapped.pitch as usize),
                     row_bytes,
@@ -983,8 +1051,12 @@ impl Device {
             }
             staging.Unmap().map_err(|e| e.to_string())?;
             Ok(PageImage {
-                width,
-                height,
+                width: band_w,
+                height: band_h,
+                left,
+                top,
+                page_width: width,
+                page_height: height,
                 pixels,
             })
         }

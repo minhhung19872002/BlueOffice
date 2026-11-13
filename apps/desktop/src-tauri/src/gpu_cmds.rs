@@ -27,7 +27,11 @@ mod imp {
     }
 
     impl Pictures {
-        pub(super) fn get(&mut self, engine: &bo_engine::Engine, id: &str) -> Option<bo_gpu_win::Bitmap> {
+        pub(super) fn get(
+            &mut self,
+            engine: &bo_engine::Engine,
+            id: &str,
+        ) -> Option<bo_gpu_win::Bitmap> {
             let source = engine.media_resolved(id)?;
             let key = (id.to_owned(), source.len());
             if let Some(hit) = self.decoded.get(&key) {
@@ -51,20 +55,55 @@ mod imp {
         }
     }
 
+    /// Display lists the WebView currently shows, by render id, to diff the next render with.
+    #[derive(Default)]
+    pub(super) struct Shown {
+        next: u32,
+        lists: std::collections::VecDeque<(u32, f32, bo_render::PageList)>,
+    }
+
+    // Visible pages plus overscan; older ids repaint in full.
+    const SHOWN: usize = 16;
+
+    impl Shown {
+        pub(super) fn take(&mut self, id: u32, scale: f32) -> Option<bo_render::PageList> {
+            let at = self
+                .lists
+                .iter()
+                .position(|(i, s, _)| *i == id && (*s - scale).abs() < 1e-6)?;
+            self.lists.remove(at).map(|(_, _, list)| list)
+        }
+
+        pub(super) fn keep(&mut self, scale: f32, list: bo_render::PageList) -> u32 {
+            self.next = self.next.wrapping_add(1).max(1);
+            if self.lists.len() >= SHOWN {
+                self.lists.pop_front();
+            }
+            self.lists.push_back((self.next, scale, list));
+            self.next
+        }
+    }
+
     thread_local! {
         // Direct2D's single-threaded factory and device stay on their creating thread.
         pub(super) static GPU: RefCell<Option<bo_gpu_win::Device>> = const { RefCell::new(None) };
         pub(super) static PICTURES: RefCell<Pictures> = RefCell::new(Pictures::default());
+        pub(super) static SHOWN_LISTS: RefCell<Shown> = RefCell::new(Shown::default());
     }
 }
 
 /// Render one page display list (as shown by the editor) at `scale` pixels per point.
-/// Response: width and height (u32 little-endian) followed by opaque RGBA pixels.
+///
+/// `base` is the render id the WebView's canvas shows now: only the area that changed since
+/// that render is drawn and returned (typing repaints a few lines instead of the page).
+/// Response: seven u32 little-endian (`id`, page width, page height, band left, top, width,
+/// height) followed by the band's opaque RGBA pixels; an empty band means nothing changed.
 #[tauri::command]
 pub(crate) fn engine_gpu_page(
     state: State<'_, EngineState>,
     json: String,
     scale: f32,
+    base: Option<u32>,
 ) -> Result<Response, String> {
     #[cfg(all(windows, feature = "gpu-preview"))]
     {
@@ -81,14 +120,30 @@ pub(crate) fn engine_gpu_page(
                     *slot = Some(device);
                 }
                 let device = slot.as_ref().ok_or("Direct2D device unavailable")?;
+                let previous = base.and_then(|id| {
+                    imp::SHOWN_LISTS.with(|shown| shown.borrow_mut().take(id, scale))
+                });
+                // Only the changed band (padded) is drawn; no base or a state change: everything.
+                let region = previous
+                    .and_then(|old| bo_gpu_win::changed_region(&old, &page).device_band(scale));
                 let image = imp::PICTURES.with(|pictures| {
                     let pictures = RefCell::new(pictures.borrow_mut());
                     let resolve = |id: &str| pictures.borrow_mut().get(&engine, id);
-                    device.render_page(&page, engine.fonts(), scale, &resolve)
+                    device.render_page_region(&page, engine.fonts(), scale, &resolve, region)
                 })?;
-                let mut bytes = Vec::with_capacity(8 + image.pixels.len());
-                bytes.extend_from_slice(&image.width.to_le_bytes());
-                bytes.extend_from_slice(&image.height.to_le_bytes());
+                let id = imp::SHOWN_LISTS.with(|shown| shown.borrow_mut().keep(scale, page));
+                let mut bytes = Vec::with_capacity(28 + image.pixels.len());
+                for v in [
+                    id,
+                    image.page_width,
+                    image.page_height,
+                    image.left,
+                    image.top,
+                    image.width,
+                    image.height,
+                ] {
+                    bytes.extend_from_slice(&v.to_le_bytes());
+                }
                 bytes.extend_from_slice(&image.pixels);
                 Ok(Response::new(bytes))
             })
@@ -96,7 +151,7 @@ pub(crate) fn engine_gpu_page(
     }
     #[cfg(not(all(windows, feature = "gpu-preview")))]
     {
-        let _ = (state, json, scale);
+        let _ = (state, json, scale, base);
         Err("Direct2D renderer unavailable".into())
     }
 }

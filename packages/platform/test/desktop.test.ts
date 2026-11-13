@@ -9,18 +9,27 @@ describe('DesktopPlatform', () => {
       if (cmd === 'engine_gpu_available') return true;
       if (cmd === 'engine_gpu_page') {
         if (rejected) throw new Error('unsupported display command');
-        if (malformed) return new Uint8Array([1, 0, 0, 0, 1, 0, 0, 0]).buffer;
-        return new Uint8Array([1, 0, 0, 0, 1, 0, 0, 0, 3, 2, 1, 255]).buffer;
+        const header = (bw: number) => new Uint32Array([7, 2, 1, 1, 0, bw, 1]);
+        if (malformed) return new Uint8Array(header(2).buffer).buffer;
+        const out = new Uint8Array(32);
+        out.set(new Uint8Array(header(1).buffer));
+        out.set([3, 2, 1, 255], 28);
+        return out.buffer;
       }
       return null;
     }) as unknown as Invoke;
     const host = new NativeEngineHost(fake);
     const page = { width: 1, height: 1, commands: [] };
-    expect(await host.getNativePageRaster(page, 1)).toEqual({
-      width: 1,
+    expect(await host.getNativePageRaster(page, 1, 6)).toEqual({
+      width: 2,
       height: 1,
+      id: 7,
+      band: { left: 1, top: 0, width: 1, height: 1 },
       pixels: new Uint8Array([3, 2, 1, 255]),
     });
+    expect(
+      vi.mocked(fake).mock.calls.find(([cmd]) => cmd === 'engine_gpu_page')?.[1],
+    ).toMatchObject({ scale: 1, base: 6 });
     rejected = true;
     expect(await host.getNativePageRaster(page, 1)).toBeNull();
     rejected = false;

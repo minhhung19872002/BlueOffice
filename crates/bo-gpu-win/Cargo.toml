@@ -6,9 +6,11 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[dependencies]
+bo-render.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 bo-dwrite = { path = "../bo-dwrite" }
-bo-render.workspace = true
 bo-text.workspace = true
 windows-numerics = "0.3.1"
 windows = { version = "0.62.2", features = [
@@ -22,6 +24,9 @@ windows = { version = "0.62.2", features = [
   "Win32_Graphics_Dxgi_Common",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(windows)'.dev-dependencies]
+bo-engine = { path = "../bo-engine", features = ["bundled-fonts"] }
 
 [lints.rust]
 unsafe_code = "deny"

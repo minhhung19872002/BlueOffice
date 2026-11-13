@@ -744,6 +744,7 @@ name = "bo-gpu-win"
 version = "0.1.0"
 dependencies = [
  "bo-dwrite",
+ "bo-engine",
  "bo-render",
  "bo-text",
  "windows",

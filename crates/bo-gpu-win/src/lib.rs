@@ -59,13 +59,22 @@ pub fn system_cleartype() -> bool {
     }
 }
 
-/// An opaque, row-major RGBA image read back from an offscreen Direct2D surface.
+/// An opaque, row-major RGBA image read back from an offscreen Direct2D surface: the whole
+/// page, or the band of it that was asked for.
 #[derive(Debug)]
 pub struct PageImage {
-    /// Width in physical pixels.
+    /// Width of `pixels` in physical pixels (0 when nothing was drawn).
     pub width: u32,
-    /// Height in physical pixels.
+    /// Height of `pixels` in physical pixels.
     pub height: u32,
+    /// Left of the band on the page, in physical pixels.
+    pub left: u32,
+    /// Top of the band on the page, in physical pixels.
+    pub top: u32,
+    /// Whole page width in physical pixels.
+    pub page_width: u32,
+    /// Whole page height in physical pixels.
+    pub page_height: u32,
     /// Four RGBA bytes per pixel (opaque, so premultiplied and straight alpha agree).
     pub pixels: Vec<u8>,
 }
@@ -80,6 +89,9 @@ pub struct Bitmap {
     /// `width × height × 4` premultiplied RGBA bytes.
     pub pixels: Vec<u8>,
 }
+
+mod diff;
+pub use diff::{changed_region, Change};
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
@@ -608,5 +620,62 @@ mod tests {
             }
         }
         assert!(hard * 4 > any, "hard {hard} of {any} vertical transitions");
+    }
+
+    #[test]
+    fn a_region_matches_the_same_band_of_the_full_page() {
+        use bo_render::{Command, Glyph, PageList, Rgba};
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let mut fonts = bo_text::FontManager::new();
+        let face =
+            fonts.add_font(include_bytes!("../../../assets/fonts/Tinos-Regular.ttf").to_vec())[0];
+        let line = |y| Command::Glyphs {
+            face: face.0,
+            size: 12.0,
+            x: 4.0,
+            y,
+            color: Rgba(0, 0, 0, 255),
+            text: "AA".into(),
+            glyphs: vec![Glyph(36, 0.0, 0.0, 0), Glyph(36, 9.0, 0.0, 1)],
+        };
+        let page = PageList {
+            width: 40.0,
+            height: 60.0,
+            commands: vec![
+                Command::FillRect {
+                    x: 0.0,
+                    y: 25.0,
+                    w: 40.0,
+                    h: 10.0,
+                    color: Rgba(200, 220, 255, 255),
+                },
+                line(15.0),
+                line(32.0),
+                line(50.0),
+            ],
+        };
+        let full = device.render_page(&page, &fonts, 1.25, &|_| None).unwrap();
+        let band = device
+            .render_page_region(&page, &fonts, 1.25, &|_| None, Some([3, 30, 40, 20]))
+            .unwrap();
+        assert_eq!(
+            (band.left, band.top, band.width, band.height),
+            (3, 30, 40, 20)
+        );
+        assert_eq!(
+            (band.page_width, band.page_height),
+            (full.width, full.height)
+        );
+        for y in 0..20 {
+            let row = |img: &super::PageImage, x0: u32, y0: u32| {
+                let start = (((y0 + y) * img.width + x0) * 4) as usize;
+                img.pixels[start..start + 40 * 4].to_vec()
+            };
+            assert_eq!(row(&band, 0, 0), row(&full, 3, 30), "row {y}");
+        }
+        let empty = device
+            .render_page_region(&page, &fonts, 1.25, &|_| None, Some([0, 0, 0, 0]))
+            .unwrap();
+        assert!(empty.pixels.is_empty());
     }
 }

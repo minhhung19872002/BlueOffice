@@ -27,3 +27,18 @@ không phải dirty rectangle, không chứng minh texture scrolling, hinting/Cl
 khi đổi màn hình. Chưa có wgpu surface, DirectWrite/Core Text/FreeType renderer, đo 100/125/
 150/200% trên màn hình thực, hay chứng minh p95 dưới 16 ms. Các mục này phải được cài đặt và
 đo, không được suy ra từ việc canvas có kích thước theo DPR.
+
+## Hướng khảo sát bổ sung trên Windows
+
+Ngoài wgpu, cần đánh giá Direct2D trên surface DXGI cho đường vẽ Windows: Direct2D có
+`DrawGlyphRun` nhận glyph run của DirectWrite và có clip/layer; tài liệu Microsoft mô tả
+[cách hai API phối hợp](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
+và [khả năng dùng DXGI surface](https://learn.microsoft.com/en-us/windows/win32/direct2d/interoperability-overview).
+Không suy ra đã có GPU hoặc đã đạt chất lượng từ sự tồn tại của API: phải đo backend thực,
+phương án phần mềm dự phòng và hiệu năng. Phải thử thứ tự lớp và tương tác với WebView2;
+[tài liệu WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/overview-features-apis)
+phân biệt windowed hosting với composition hosting. Chưa quyết định đổi kiến trúc Tauri
+hay thay wgpu, vì chưa kiểm chứng được kết hợp surface với IME, truy cập và giao diện hiện có.
+Thư viện `bo-dwrite` hiện chỉ trả mask CPU; `DrawGlyphRun` cần font face và glyph run,
+nên còn phải thiết kế API và vòng đời tài nguyên tương ứng, không coi thư viện này là
+đường vẽ Direct2D/GPU đã kết nối.

@@ -279,8 +279,14 @@ export class DocumentView {
       const [first, last] = this.visibleRange();
       for (const i of dirty) if (i >= first && i <= last) void this.pageList(i).catch(() => {});
     }
-    if (dirty.length) this.a11y.invalidate();
-    this.schedule();
+    if (dirty.length) {
+      this.a11y.invalidate();
+      // Fetching/painting is asynchronous, but need not wait for an extra animation frame.
+      cancelAnimationFrame(this.frame);
+      void this.update().catch(() => {});
+    } else {
+      this.schedule();
+    }
   }
 
   /** Forget page `i`'s display list and drawing. */
@@ -934,11 +940,21 @@ export class DocumentView {
       Array.from({ length: to - from + 1 }, (_, k) => from + k).map(async (i) => {
         const slot = this.slots[i];
         if (!slot || slot.renderedAt === key) return;
-        const list = await this.pageList(i);
+        const request = this.pageList(i);
+        const list = await request;
+        if (this.lists.get(i) !== request || this.slots[i] !== slot) return;
         const glyphs = this.glyphs.ensure(list);
         void glyphs.catch(() => {});
         await this.images.withPage(list, async () => {
           await glyphs;
+          // A newer edit or another update may have replaced/painted this page meanwhile.
+          if (
+            this.lists.get(i) !== request ||
+            this.slots[i] !== slot ||
+            key !== `${this.zoomValue}@${window.devicePixelRatio || 1}` ||
+            slot.renderedAt === key
+          )
+            return;
           const scale = PX_PER_PT * this.zoomValue * dpr;
           const canvas = slot.canvas ?? document.createElement('canvas');
           canvas.width = Math.round(list.width * scale);

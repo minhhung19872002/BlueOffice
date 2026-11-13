@@ -206,3 +206,9 @@ Linux [lần 2](https://github.com/minhhung19872002/BlueOffice/actions/runs/4326
 
 Hai ảnh mới phản ánh nội dung mẫu hiện tại, không nới ngưỡng so sánh. Cần CI mới xác nhận
 toàn bộ corpus; chưa coi CI là xanh chỉ vì đã cập nhật baseline.
+
+`DocumentView.refresh` hiện bắt đầu cập nhật trang dirty ngay thay vì chờ animation frame;
+trước khi vẽ kiểm tra lại request trang, zoom và DPI để không vẽ kết quả cũ. Kiểm thử đơn vị
+bao gồm trường hợp kết quả đến ngược thứ tự; 6 ca web accessibility / render chrome đã qua.
+Bản release trước thay đổi này đang chạy lại E2E và thử RAM 10 phút; cần build, đo 10 lượt
+và thử RAM trên bản có thay đổi này trước khi đánh giá hiệu quả.

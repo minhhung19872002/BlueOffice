@@ -53,6 +53,72 @@ describe('DocumentView.refresh', () => {
     expect(internals.lists.has(7)).toBe(true);
     view.dispose();
   });
+  it('paints a changed page without waiting for an animation frame', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const context = { save() {}, restore() {}, setTransform() {}, fillRect() {}, fillStyle: '' };
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: async () => ({ width: 595, height: 842, commands: [] }),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+      command: async () => ({}),
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    view.refresh(info(1), [0]);
+    await vi.waitFor(() =>
+      expect(host.querySelector('.bo-page')?.getAttribute('data-rendered')).toBe('true'),
+    );
+    view.dispose();
+    frame.mockRestore();
+    getContext.mockRestore();
+  });
+  it('does not paint an outdated page when a later edit resolves first', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const colors: string[] = [];
+    const context = {
+      save() {},
+      restore() {},
+      setTransform() {},
+      fillRect() {},
+      set fillStyle(value: string) {
+        colors.push(value);
+      },
+    };
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const requests: ((page: unknown) => void)[] = [];
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: () => new Promise((resolve) => requests.push(resolve)),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+      command: async () => ({}),
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    view.refresh(info(1), [0]);
+    view.refresh(info(1), [0]);
+    expect(requests).toHaveLength(2);
+    const page = (color: number[]) => ({
+      width: 595,
+      height: 842,
+      commands: [{ op: 'fillRect', x: 0, y: 0, w: 2, h: 2, color }],
+    });
+    requests[1]!(page([255, 0, 0, 255]));
+    await vi.waitFor(() =>
+      expect(host.querySelector('.bo-page')?.getAttribute('data-rendered')).toBe('true'),
+    );
+    requests[0]!(page([0, 0, 255, 255]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(colors).toContain('rgba(255,0,0,1.000)');
+    expect(colors).not.toContain('rgba(0,0,255,1.000)');
+    view.dispose();
+    frame.mockRestore();
+    getContext.mockRestore();
+  });
   it('re-arms the pixel-density watcher when moving between screens and removes it on dispose', () => {
     const media: { query: string; listener?: EventListener; removed: boolean }[] = [];
     const match = vi.spyOn(window, 'matchMedia').mockImplementation((query) => {

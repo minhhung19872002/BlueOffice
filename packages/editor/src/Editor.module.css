@@ -362,7 +362,7 @@
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  color: var(--bo-brand);
+  color: var(--bo-text);
 }
 
 .colorBar {

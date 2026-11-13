@@ -10,6 +10,7 @@
 | Nội dung tài liệu | Đã có một mẫu BlueDoc light/dark ở 50/100/200/400% trên Windows 125%; còn thiếu các mẫu, ứng dụng và DPI khác. |
 | Đồ họa, hiệu ứng, màu | Chưa kiểm tra đầy đủ ICC, lọc ảnh, gradient, blur, 3D và DrawingML theo checklist. |
 | Giao diện | Fluent/theme đã có một phần; ribbon, menu, dialog và icon chưa chuyển đầy đủ. Nhiều dialog/menu và tooltip chưa có ảnh. |
+| Ribbon dark | [Ảnh trước](screens/ribbon-web-dark-1394.png) cho thấy icon màu chữ/tô sáng trong nhóm Phông chữ thiếu tương phản; [ảnh sau](screens/ribbon-web-dark-1394-after.png) dùng màu chữ theme và cho thấy icon rõ hơn. Cần kiểm tra desktop, các tab, DPI và chế độ tương phản cao. |
 | Nhãn ribbon | Ảnh mốc BlueDoc 125% cắt nhãn nhóm thành “Giọn...”; ảnh desktop sau hiển thị “Giọng nói”. Cần rà các tab, app, theme và DPI còn lại. |
 | So ảnh trước/sau | Một số ảnh tài liệu ở 100/200% vượt ngưỡng 0,1% với bản mới; bản mới có nhiều thay đổi cùng lúc nên chưa quy riêng nguyên nhân hoặc xác nhận toàn bộ khác biệt là mong muốn. |
 | Lớp phủ điều khiển nội dung | CI web thất bại hai lần khi lấy bounding box; trace cho thấy khung có mặt trước/sau và mã tạo lại lớp phủ khi lựa chọn đổi, phù hợp với khả năng node bị thay giữa hai bước. Test đã chờ lấy được khung và qua 3 lần trên Windows; chưa xác nhận lại CI Linux, còn cần kiểm tra nhấp nháy cho người dùng. |

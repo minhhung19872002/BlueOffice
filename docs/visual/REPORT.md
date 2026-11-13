@@ -130,3 +130,12 @@ báo suy giảm vượt ngưỡng, nhưng tải máy khác lần trước nên k
 Gõ vẫn chưa đạt mục tiêu. Kịch bản benchmark hiện có không bao phủ riêng đoạn dấu tổ hợp,
 zoom hoặc kéo chọn với tài liệu đồ họa nặng.
 E2E desktop trên bản sửa font qua **16/16**, gồm cộng tác và so trang với web.
+
+## Ribbon: rà ảnh web bước đầu
+
+Theo ảnh BlueDoc người dùng cung cấp, các icon lệnh thường dùng màu chữ trung tính,
+nhóm có khoảng cách gọn hơn và các ô kiểu chữ rộng hơn để không cắt “Bình thường”.
+[Ảnh sau](screens/ribbon-web-1394.png) chụp Chromium tại viewport 1394 CSS px,
+deviceScaleFactor 1,375; ảnh có cả thay đổi nhãn nhóm đang có trong workspace. Kiểm tra
+DOM cho ba tên kiểu cho thấy không bị cắt tại kích thước này. Đây là ảnh web, chưa phải
+ảnh desktop Mica hay kiểm tra đầy đủ các tab/theme/DPI; cần chụp desktop và đối chiếu trước/sau.

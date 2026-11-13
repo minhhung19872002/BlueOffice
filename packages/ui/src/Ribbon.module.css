@@ -97,7 +97,7 @@
   flex-direction: column;
   /* Intrinsic width: measured by the collapse planner, never squeezed into overlap. */
   flex-shrink: 0;
-  padding: 0 10px;
+  padding: 0 6px;
   border-right: 1px solid var(--bo-border);
 }
 
@@ -189,11 +189,11 @@
 
 .icon {
   display: flex;
-  color: var(--bo-app-accent-text);
+  color: var(--bo-text);
 }
 
-[data-theme='dark'] .icon {
-  color: var(--bo-accent);
+.button[aria-pressed='true'] .icon {
+  color: var(--bo-app-accent-text);
 }
 
 .tooltip {

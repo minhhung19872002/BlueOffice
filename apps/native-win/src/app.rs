@@ -1,0 +1,241 @@
+//! The application: document view, GPU page store and presentation (safe code only).
+use crate::win32::{self, Handler};
+use bo_engine::{Engine, SystemFontIndex};
+use bo_gpu_win::{Device, Frame, PageBitmap, TextRendering, WindowSurface};
+use bo_render::{PageList, Rgba};
+use bo_ui::{DocView, Input, PageStore, Painter};
+use std::collections::HashMap;
+use std::io::Write;
+use std::time::Instant;
+
+/// Open the file named on the command line (or a new document) and run the window.
+pub fn run() -> Result<(), String> {
+    let mut engine = Engine::with_bundled_fonts();
+    if std::env::var("BLUEOFFICE_SYSTEM_FONTS").as_deref() != Ok("0") {
+        let cache = std::env::var_os("LOCALAPPDATA").map(|d| {
+            std::path::PathBuf::from(d)
+                .join("BlueOffice")
+                .join("system-fonts.txt")
+        });
+        if let Some(dir) = cache.as_ref().and_then(|c| c.parent()) {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        engine.set_system_fonts(SystemFontIndex::scan_cached(
+            &SystemFontIndex::default_dirs(),
+            cache.as_deref(),
+        ));
+    }
+    let name = if let Some(path) = std::env::args_os().nth(1) {
+        {
+            let path = std::path::PathBuf::from(path);
+            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let name = path.file_name().map_or_else(
+                || "document.docx".into(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            engine.open(&bytes, &name).map_err(|e| e.to_string())?;
+            name
+        }
+    } else {
+        engine
+            .new_document("Tài liệu mới.docx")
+            .map_err(|e| e.to_string())?;
+        "Tài liệu mới.docx".into()
+    };
+    let view = DocView::new(engine)?;
+    let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .ok()
+    });
+    win32::run(
+        &format!("{name} — BlueDoc"),
+        Box::new(Shell {
+            view,
+            gpu: None,
+            perf,
+        }),
+    )
+}
+
+/// GPU page images, one bitmap per page index.
+struct Pages {
+    bitmaps: HashMap<usize, PageBitmap>,
+}
+
+struct Gpu {
+    device: Device,
+    surface: WindowSurface,
+    pages: Pages,
+}
+
+struct Store<'a> {
+    device: &'a Device,
+    pages: &'a mut Pages,
+}
+
+impl PageStore for Store<'_> {
+    fn update(
+        &mut self,
+        index: usize,
+        list: &PageList,
+        engine: &Engine,
+        scale: f32,
+        band: Option<[u32; 4]>,
+    ) -> Result<(), String> {
+        let (w, h) = (
+            (list.width * scale).ceil() as u32,
+            (list.height * scale).ceil() as u32,
+        );
+        let fits = self
+            .pages
+            .bitmaps
+            .get(&index)
+            .is_some_and(|b| (b.width, b.height) == (w, h));
+        // A band can only be drawn over an existing image of the same size.
+        let band = if fits { band } else { None };
+        if !fits {
+            let bitmap = self.device.create_page_bitmap(list, scale)?;
+            self.pages.bitmaps.insert(index, bitmap);
+        }
+        let bitmap = self.pages.bitmaps.get(&index).ok_or("page bitmap")?;
+        let pictures = |id: &str| {
+            let bytes = engine.media_resolved(id)?;
+            let (width, height, pixels) = bo_raster::decode_premultiplied(&bytes)?;
+            Some(bo_gpu_win::Bitmap {
+                width,
+                height,
+                pixels,
+            })
+        };
+        self.device
+            .draw_page(list, engine.fonts(), scale, &pictures, band, bitmap)
+    }
+
+    fn remove(&mut self, index: usize) {
+        self.pages.bitmaps.remove(&index);
+    }
+}
+
+struct WinPainter<'a, 'f> {
+    frame: &'a Frame<'f>,
+    pages: &'a HashMap<usize, PageBitmap>,
+}
+
+impl Painter for WinPainter<'_, '_> {
+    fn clear(&mut self, color: Rgba) {
+        self.frame.clear(color);
+    }
+    fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
+        self.frame.fill_rect(x, y, w, h, color);
+    }
+    fn page(&mut self, index: usize, x: i32, y: i32) {
+        if let Some(bitmap) = self.pages.get(&index) {
+            self.frame.draw_page(bitmap, x, y);
+        }
+    }
+}
+
+struct Shell {
+    view: DocView,
+    gpu: Option<Gpu>,
+    perf: Option<std::fs::File>,
+}
+
+impl Shell {
+    fn render(&mut self) -> Result<(), String> {
+        let Some(gpu) = self.gpu.as_mut() else {
+            return Ok(());
+        };
+        self.view.prepare(&mut Store {
+            device: &gpu.device,
+            pages: &mut gpu.pages,
+        })?;
+        let (view, pages) = (&self.view, &gpu.pages.bitmaps);
+        gpu.surface.frame(&gpu.device, |frame| {
+            view.paint(&mut WinPainter { frame, pages });
+        })
+    }
+}
+
+impl Handler for Shell {
+    fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
+        let device = Device::new()?;
+        // BLUEOFFICE_TEXT=system|light|gray compares text rendering without a rebuild.
+        device.set_text_rendering(match std::env::var("BLUEOFFICE_TEXT").as_deref() {
+            Ok("system") => TextRendering::System,
+            Ok("gray") => TextRendering::Grayscale,
+            _ => TextRendering::document_default(),
+        });
+        let surface = WindowSurface::new(&device, hwnd, width, height)?;
+        self.gpu = Some(Gpu {
+            device,
+            surface,
+            pages: Pages {
+                bitmaps: HashMap::new(),
+            },
+        });
+        self.view.handle(Input::Scale(scale));
+        self.view.handle(Input::Resize {
+            width: width as f32,
+            height: height as f32,
+        });
+        Ok(())
+    }
+
+    fn input(&mut self, input: Input, age_ms: u32) {
+        let kind = match &input {
+            Input::Text(_) => "text",
+            Input::Key(..) => "key",
+            Input::Wheel(_) => "wheel",
+            Input::Press { .. } => "press",
+            Input::Drag { .. } => "drag",
+            Input::Resize { .. } => "resize",
+            Input::Scale(_) => "scale",
+            Input::Blink => "blink",
+        };
+        let start = Instant::now();
+        if !self.view.handle(input) {
+            return;
+        }
+        let handled = start.elapsed();
+        if let Err(e) = self.render() {
+            eprintln!("render: {e}");
+        }
+        if let (Some(file), false) = (self.perf.as_mut(), kind == "blink") {
+            let total = start.elapsed();
+            let _ = writeln!(
+                file,
+                r#"{{"input":"{kind}","age_ms":{age_ms},"handle_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
+                handled.as_secs_f64() * 1e3,
+                total.saturating_sub(handled).as_secs_f64() * 1e3,
+                total.as_secs_f64() * 1e3 + f64::from(age_ms),
+            );
+        }
+    }
+
+    fn resized(&mut self, width: u32, height: u32) {
+        if let Some(gpu) = self.gpu.as_mut() {
+            if let Err(e) = gpu.surface.resize(&gpu.device, width, height) {
+                eprintln!("resize: {e}");
+            }
+        }
+        self.view.handle(Input::Resize {
+            width: width as f32,
+            height: height as f32,
+        });
+        let _ = self.render();
+    }
+
+    fn paint(&mut self) {
+        if let Err(e) = self.render() {
+            eprintln!("render: {e}");
+        }
+    }
+
+    fn caret(&self) -> Option<[f32; 4]> {
+        self.view.caret_rect()
+    }
+}

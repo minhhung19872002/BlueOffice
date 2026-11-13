@@ -316,3 +316,13 @@ compositor riêng; nhãn nhóm dùng màu gần màu chữ chính. Nhãn nhóm: 
 (đối chứng 0,372), điểm tối nhất 91 → 48 (đối chứng 38); tab có ClearType (độ lệch kênh 15 → 75,
 đối chứng 68). Ô chọn phông vẫn xám (control riêng của WebView). Chưa đo DPI 100/150/200 %.
 
+## Giao diện Rust tự vẽ — mốc N1 (ADR-0018, 2026-11-14)
+
+`bluedoc-native.exe` (release, `apps/native-win`), `phase1-sample.docx`, 125 %, Ryzen 7 7435HS:
+70 ký tự tiếng Việt gõ liên tục qua `SendInput`. Từ lúc cửa sổ nhận `WM_CHAR` tới khi
+`Present` trả về: xử lý lệnh **0,63 / 0,80 ms** (trung vị / p95), vẽ dải thay đổi + present
+**0,55 / 0,78 ms**, tổng **1,22 / 1,47 ms** (tối đa 5,0 ms). Bản Tauri cùng máy: phím→khung hình
+trung vị ~35 ms. Khung hình còn chờ tới nhịp quét kế tiếp (≤ 16,7 ms ở 60 Hz) như mọi ứng dụng;
+số đo chưa gồm phần này. `age_ms` (thời gian chờ trong hàng thông điệp) đo bằng `GetMessageTime`
+có độ phân giải 10–16 ms nên ghi 0; chưa đo bằng camera / PresentMon.
+

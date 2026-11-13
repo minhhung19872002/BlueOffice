@@ -1,3 +1,4 @@
+use super::surface::PageBitmap;
 use super::Device;
 use crate::{Bitmap, PageImage, TextRendering};
 use bo_render::{Command, PageList, Paint, PathSeg, Rgba, Stroke};
@@ -588,7 +589,6 @@ impl Device {
 
     /// [`Device::render_page`] limited to `region` (left, top, width, height in device pixels,
     /// clamped to the page): only that band is drawn and read back, for incremental updates.
-    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
     pub fn render_page_region(
         &self,
         page: &PageList,
@@ -596,6 +596,49 @@ impl Device {
         pixels_per_point: f32,
         images: &dyn Fn(&str) -> Option<Bitmap>,
         region: Option<[u32; 4]>,
+    ) -> Result<PageImage, String> {
+        self.render_impl(page, fonts, pixels_per_point, images, region, None)
+    }
+
+    /// Draw a page (or the `region` band of it) into a GPU-resident [`PageBitmap`] made by
+    /// [`Device::create_page_bitmap`] for the same page size and scale. Nothing is read back:
+    /// a window composes the bitmap directly, and later edits redraw only their band.
+    pub fn draw_page(
+        &self,
+        page: &PageList,
+        fonts: &FontManager,
+        pixels_per_point: f32,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
+        region: Option<[u32; 4]>,
+        into: &PageBitmap,
+    ) -> Result<(), String> {
+        let expected = (
+            (page.width * pixels_per_point).ceil() as u32,
+            (page.height * pixels_per_point).ceil() as u32,
+        );
+        if expected != (into.width, into.height) {
+            return Err("page bitmap size does not match the page".into());
+        }
+        self.render_impl(
+            page,
+            fonts,
+            pixels_per_point,
+            images,
+            region,
+            Some(&into.bitmap),
+        )
+        .map(|_| ())
+    }
+
+    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
+    fn render_impl(
+        &self,
+        page: &PageList,
+        fonts: &FontManager,
+        pixels_per_point: f32,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
+        region: Option<[u32; 4]>,
+        into: Option<&ID2D1Bitmap1>,
     ) -> Result<PageImage, String> {
         if !pixels_per_point.is_finite()
             || pixels_per_point <= 0.0
@@ -738,17 +781,18 @@ impl Device {
                 bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
                 ..Default::default()
             };
-            let target = self
-                .context
-                .CreateBitmap(size, None, 0, &props)
-                .map_err(|e| e.to_string())?;
+            let target = match into {
+                Some(bitmap) => bitmap.clone(),
+                None => self
+                    .context
+                    .CreateBitmap(size, None, 0, &props)
+                    .map_err(|e| e.to_string())?,
+            };
             self.context.SetTarget(&target);
             self.context.SetDpi(dpi, dpi);
             self.apply_text_rendering()?;
             self.context.BeginDraw();
             self.context.SetTransform(&IDENTITY);
-            self.context
-                .Clear(Some(&color(Rgba(255, 255, 255, 255), 1.0)));
             let banded = region.is_some();
             if banded {
                 // Direct2D culls everything outside the band; coordinates are in DIPs (points).
@@ -762,6 +806,9 @@ impl Device {
                     D2D1_ANTIALIAS_MODE_ALIASED,
                 );
             }
+            // Clear respects the axis-aligned band clip: a reused bitmap keeps its other pixels.
+            self.context
+                .Clear(Some(&color(Rgba(255, 255, 255, 255), 1.0)));
             let mut state = State::new();
             let drawn = (|| -> Result<(), String> {
                 for (index, command) in page.commands.iter().enumerate() {
@@ -998,6 +1045,17 @@ impl Device {
             self.context.SetDpi(96.0, 96.0);
             drawn?;
             ended.map_err(|e| e.to_string())?;
+            if into.is_some() {
+                return Ok(PageImage {
+                    width: band_w,
+                    height: band_h,
+                    left,
+                    top,
+                    page_width: width,
+                    page_height: height,
+                    pixels: Vec::new(),
+                });
+            }
             let staging_props = D2D1_BITMAP_PROPERTIES1 {
                 pixelFormat: pixel,
                 dpiX: dpi,

@@ -4,7 +4,7 @@
 //! only the differing middle commands of both lists can alter pixels. Their bounds are
 //! conservative (glyph boxes are generous em boxes, strokes include miters), and any state
 //! command (clip, transform, opacity) in the middle makes the whole page dirty.
-use bo_render::{Command, PageList, PathSeg};
+use crate::{Command, PageList, PathSeg};
 
 /// What changed between two renders of a page.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -218,7 +218,7 @@ pub fn changed_region(old: &PageList, new: &PageList) -> Change {
 #[cfg(test)]
 mod tests {
     use super::{changed_region, Change};
-    use bo_render::{Command, Glyph, PageList, Rgba};
+    use crate::{Command, Glyph, PageList, Rgba};
 
     fn run(y: f32, text: &str) -> Command {
         Command::Glyphs {

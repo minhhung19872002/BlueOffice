@@ -85,6 +85,12 @@ pnpm --filter @blueoffice/e2e install-browsers && pnpm test:e2e   # cần web đ
 pnpm --filter @blueoffice/e2e test:collab      # chỉ E2E cộng tác (tự dựng api + BlueDrive giả lập + proxy; COLLAB_PORT)
 node tests/e2e/collab/stack.mjs                # stack cộng tác để thử tay (COLLAB_STACK_VERBOSE=1)
 
+# Giao diện Rust tự vẽ (ADR-0018, docs/plan/native-ui.md) — đang thay React trên mọi nền tảng
+cargo run --release -p bo-native-win -- tests/corpus/doc/phase1-sample.docx   # bluedoc-native.exe (Windows): Win32 + Direct2D/DirectWrite, engine trong tiến trình
+# BLUEOFFICE_NATIVE_PERF=<file.jsonl> (thời gian mỗi input) · BLUEOFFICE_TEXT=system|light|gray (so cách vẽ chữ)
+cargo test -p bo-ui                            # DocView: bố cục trang, phím/chuột, vẽ lại theo dải (headless)
+cargo test -p bo-gpu-win --test incremental    # ghép dải thay đổi = vẽ lại cả trang (pixel)
+
 # Desktop
 pnpm desktop:dev                               # Tauri dev (port 1420)
 pnpm --filter @blueoffice/desktop tauri build --no-bundle   # BlueDoc → target/release/bluedoc.exe
@@ -121,6 +127,9 @@ bo-edit (op khả nghịch, undo, track changes, fields, mail merge) · bo-formu
 bo-query (Lấy & biến đổi dữ liệu: nguồn CSV/JSON/XML/sổ/thư mục/web + ngôn ngữ bước JSON; docs/spec-notes/sheet-queries.md) ◄─ bo-engine (lệnh `query*`)
 bo-segment (xoá nền ảnh: graph cut họ GrabCut, max-flow Boykov–Kolmogorov tự viết, GMM; trait `SegmentationProvider`) ◄─ bo-engine (`picture_bg`: lệnh `pictureBackgroundPreview`/`pictureRemoveBackground`, ô `cellImage*Background`)
 bo-engine (facade: Engine doc+slide, SheetEngine) ◄─ bo-wasm (web) · bo-cli · apps/desktop/src-tauri
+bo-ui (giao diện Rust tự vẽ, không phụ thuộc nền tảng: DocView, Input, trait PageStore/Painter; ADR-0018) ◄─ apps/native-win
+bo-dwrite (DirectWrite, FaceCache) ◄─ bo-gpu-win (Direct2D: vẽ display list, PageBitmap GPU, WindowSurface swap chain) ◄─ apps/native-win · apps/desktop (gpu-preview)
+bo-render::diff (changed_region: dải thay đổi giữa hai display list) — dùng chung mọi backend
 bo-winchrome (Win32: snap layouts trên nút phóng to tự vẽ, menu hệ thống, build Windows; ADR-0016) ◄─ apps/desktop/src-tauri
 bo-collab (Yrs: y-sync, awareness, undo cục bộ) ◄─ bo-wasm (WasmCollab)
 bo-script (BlueScript headless: QuickJS-ng/rquickjs + bundle API của packages/script, cầu engine đồng bộ) ◄─ bo-cli (`script run`)
@@ -186,3 +195,5 @@ cung cấp).
 - [0014](docs/adr/0014-web-addins.md) Add-in web: iframe sandbox + CSP, JSON-RPC qua postMessage, quyền kiểm từng lệnh, dùng lại API BlueScript, danh mục tổ chức trên server (mặc định tắt)
 - [0015](docs/adr/0015-math-caret-in-place-equation-editing.md) Sửa phương trình tại chỗ: con trỏ toán (vị trí phương trình + đường dẫn ô + offset) trong engine, sửa trên cây `bo_math::Node`, mỗi thay đổi một op thay đối tượng, hình học ô từ layout
 - [0016](docs/adr/0016-desktop-window-chrome.md) Khung cửa sổ desktop: Windows không khung hệ thống, thanh tiêu đề là caption (kéo, nhấp đúp, menu hệ thống, nút cửa sổ), snap layouts qua cửa sổ con `HTMAXBUTTON` (`bo-winchrome`, ngoại lệ `unsafe` duy nhất), Mica Windows 11 sau dải chrome, font giao diện hệ điều hành (`html[data-os]`)
+- [0017](docs/adr/0017-desktop-document-rendering.md) Vẽ tài liệu desktop bằng Direct2D/DirectWrite theo số đo (feature `gpu-preview` của Tauri, vẽ lại theo dải)
+- [0018](docs/adr/0018-native-ui-everywhere.md) Giao diện Rust tự vẽ thay React trên **mọi** nền tảng (`bo-ui` + backend Direct2D / canvas WASM / Core Text / FreeType); Windows trước, React vẫn phát hành tới khi đạt từng mốc

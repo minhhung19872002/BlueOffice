@@ -22,6 +22,8 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
 mod page;
+mod surface;
+pub use surface::{Frame, PageBitmap, WindowSurface};
 
 pub(crate) fn system_cleartype() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -56,7 +58,7 @@ pub(crate) fn system_cleartype() -> bool {
 /// A Direct2D context backed by a Direct3D device. It is not yet connected to a surface.
 pub struct Device {
     // Retain all parent COM objects for the lifetime of the context.
-    _d3d: ID3D11Device,
+    d3d: ID3D11Device,
     factory: ID2D1Factory1,
     _device: ID2D1Device,
     context: ID2D1DeviceContext,
@@ -288,7 +290,7 @@ impl Device {
                 .CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)
                 .map_err(|e| e.to_string())?;
             Ok(Self {
-                _d3d: d3d,
+                d3d,
                 factory,
                 _device: device,
                 context,

@@ -90,15 +90,14 @@ pub struct Bitmap {
     pub pixels: Vec<u8>,
 }
 
-mod diff;
-pub use diff::{changed_region, Change};
+pub use bo_render::{changed_region, Change};
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows;
 
 #[cfg(windows)]
-pub use windows::Device;
+pub use windows::{Device, Frame, PageBitmap, WindowSurface};
 
 #[cfg(all(test, windows))]
 mod tests {

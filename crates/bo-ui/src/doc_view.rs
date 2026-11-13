@@ -1,0 +1,540 @@
+//! Paginated document view: page layout, scrolling, caret and selection, keyboard and mouse
+//! editing, and incremental page repaints (only the band that changed is redrawn).
+use crate::{Input, Key, Mods, PageStore, Painter};
+use bo_engine::edit::Command;
+use bo_engine::nav::{CaretRect, Motion, SelRect};
+use bo_engine::{EditResult, Engine, PageSize};
+use bo_render::{changed_region, Change, PageList, Rgba};
+use std::collections::{HashMap, HashSet};
+
+/// Background behind the pages (`--bo-canvas-bg` of the light theme).
+pub const CANVAS_BG: Rgba = Rgba(0xe3, 0xe7, 0xee, 255);
+const PAGE_SHADOW: Rgba = Rgba(0xc3, 0xca, 0xd6, 255);
+const SELECTION: Rgba = Rgba(0x1f, 0x6f, 0xeb, 72);
+const CARET: Rgba = Rgba(0, 0, 0, 255);
+/// Gap between pages and around them, in logical pixels.
+const GAP: f32 = 16.0;
+/// Pages kept drawn beyond the visible ones (each way).
+const OVERSCAN: usize = 1;
+
+/// Where a page sits in the view (device pixels, top relative to the view after scrolling).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageSlot {
+    /// Page index.
+    pub index: usize,
+    /// Left edge.
+    pub x: i32,
+    /// Top edge.
+    pub y: i32,
+    /// Width.
+    pub width: i32,
+    /// Height.
+    pub height: i32,
+}
+
+/// The editing view of one document.
+pub struct DocView {
+    engine: Engine,
+    pages: Vec<PageSize>,
+    viewport: (f32, f32),
+    display_scale: f32,
+    zoom: f32,
+    scroll: f32,
+    caret: Option<CaretRect>,
+    rects: Vec<SelRect>,
+    caret_on: bool,
+    /// Display list each stored page image shows, with its scale (base of the next diff).
+    shown: HashMap<usize, (f32, PageList)>,
+    /// Pages the engine reported changed since their image was drawn.
+    stale: HashSet<usize>,
+    modified: bool,
+}
+
+impl DocView {
+    /// A view of the document already open in `engine`.
+    pub fn new(mut engine: Engine) -> Result<Self, String> {
+        let state = engine.command(Command::State).map_err(|e| e.to_string())?;
+        let mut view = Self {
+            engine,
+            pages: Vec::new(),
+            viewport: (800.0, 600.0),
+            display_scale: 1.0,
+            zoom: 1.0,
+            scroll: 0.0,
+            caret: None,
+            rects: Vec::new(),
+            caret_on: true,
+            shown: HashMap::new(),
+            stale: HashSet::new(),
+            modified: false,
+        };
+        view.apply(&state);
+        Ok(view)
+    }
+
+    /// The document engine.
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    /// The document changed since it was opened or saved.
+    pub fn modified(&self) -> bool {
+        self.modified
+    }
+
+    /// Device pixels per point.
+    pub fn scale(&self) -> f32 {
+        self.zoom * self.display_scale * 96.0 / 72.0
+    }
+
+    /// Caret rectangle in view device pixels, when it is laid out and visible.
+    pub fn caret_rect(&self) -> Option<[f32; 4]> {
+        let c = self.caret?;
+        let slot = self.slots().into_iter().find(|s| s.index == c.page)?;
+        let s = self.scale();
+        Some([
+            slot.x as f32 + c.x * s,
+            slot.y as f32 + c.y * s,
+            self.display_scale.round().max(1.0),
+            (c.h * s).max(1.0),
+        ])
+    }
+
+    fn gap(&self) -> f32 {
+        (GAP * self.display_scale).round()
+    }
+
+    fn page_px(&self, p: PageSize) -> (i32, i32) {
+        let s = self.scale();
+        ((p.width * s).ceil() as i32, (p.height * s).ceil() as i32)
+    }
+
+    /// Document y (device pixels from the top of the first gap) of each page's top.
+    fn page_tops(&self) -> Vec<f32> {
+        let gap = self.gap();
+        let mut y = gap;
+        self.pages
+            .iter()
+            .map(|p| {
+                let top = y;
+                y += self.page_px(*p).1 as f32 + gap;
+                top
+            })
+            .collect()
+    }
+
+    fn content_height(&self) -> f32 {
+        let gap = self.gap();
+        gap + self
+            .pages
+            .iter()
+            .map(|p| self.page_px(*p).1 as f32 + gap)
+            .sum::<f32>()
+    }
+
+    fn clamp_scroll(&mut self) {
+        let max = (self.content_height() - self.viewport.1).max(0.0);
+        self.scroll = self.scroll.clamp(0.0, max).round();
+    }
+
+    /// Every page with its position in the view (whole pixels, so images map 1:1).
+    pub fn slots(&self) -> Vec<PageSlot> {
+        let tops = self.page_tops();
+        self.pages
+            .iter()
+            .zip(tops)
+            .enumerate()
+            .map(|(index, (p, top))| {
+                let (width, height) = self.page_px(*p);
+                let x = ((self.viewport.0 - width as f32) / 2.0)
+                    .max(self.gap())
+                    .floor();
+                PageSlot {
+                    index,
+                    x: x as i32,
+                    y: (top - self.scroll).round() as i32,
+                    width,
+                    height,
+                }
+            })
+            .collect()
+    }
+
+    fn visible(&self) -> Vec<PageSlot> {
+        let h = self.viewport.1 as i32;
+        self.slots()
+            .into_iter()
+            .filter(|s| s.y + s.height > 0 && s.y < h)
+            .collect()
+    }
+
+    /// Handle an input event; `true` when the view needs a new frame.
+    pub fn handle(&mut self, input: Input) -> bool {
+        match input {
+            Input::Text(text) => {
+                let text: String = text
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\t')
+                    .collect();
+                !text.is_empty() && self.edit(Command::InsertText { text })
+            }
+            Input::Key(key, mods) => self.key(key, mods),
+            Input::Wheel(dy) => {
+                let before = self.scroll;
+                self.scroll += dy;
+                self.clamp_scroll();
+                self.scroll != before
+            }
+            Input::Press { x, y, count, shift } => match self.hit(x, y) {
+                Some((page, px, py)) => self.edit(Command::Click {
+                    page,
+                    x: px,
+                    y: py,
+                    extend: shift,
+                    count: count.max(1),
+                }),
+                None => false,
+            },
+            Input::Drag { x, y } => match self.hit(x, y) {
+                Some((page, px, py)) => self.run(Command::DragTo { page, x: px, y: py }, false),
+                None => false,
+            },
+            Input::Resize { width, height } => {
+                self.viewport = (width.max(1.0), height.max(1.0));
+                self.clamp_scroll();
+                true
+            }
+            Input::Scale(scale) => {
+                if scale.is_finite() && scale > 0.0 && scale != self.display_scale {
+                    self.display_scale = scale;
+                    self.clamp_scroll();
+                }
+                true
+            }
+            Input::Blink => {
+                self.caret_on = !self.caret_on;
+                self.caret.is_some() && self.rects.is_empty()
+            }
+        }
+    }
+
+    fn key(&mut self, key: Key, m: Mods) -> bool {
+        let motion = |plain, ctrl| if m.ctrl { ctrl } else { plain };
+        let cmd = match key {
+            Key::Left => Command::Move {
+                motion: motion(Motion::Left, Motion::WordLeft),
+                extend: m.shift,
+            },
+            Key::Right => Command::Move {
+                motion: motion(Motion::Right, Motion::WordRight),
+                extend: m.shift,
+            },
+            Key::Up => Command::Move {
+                motion: motion(Motion::Up, Motion::ParaUp),
+                extend: m.shift,
+            },
+            Key::Down => Command::Move {
+                motion: motion(Motion::Down, Motion::ParaDown),
+                extend: m.shift,
+            },
+            Key::Home => Command::Move {
+                motion: motion(Motion::LineStart, Motion::DocStart),
+                extend: m.shift,
+            },
+            Key::End => Command::Move {
+                motion: motion(Motion::LineEnd, Motion::DocEnd),
+                extend: m.shift,
+            },
+            Key::PageUp => Command::Move {
+                motion: Motion::PageUp,
+                extend: m.shift,
+            },
+            Key::PageDown => Command::Move {
+                motion: Motion::PageDown,
+                extend: m.shift,
+            },
+            Key::Backspace if m.ctrl => Command::DeleteWordBackward,
+            Key::Backspace => Command::DeleteBackward,
+            Key::Delete if m.ctrl => Command::DeleteWordForward,
+            Key::Delete => Command::DeleteForward,
+            Key::Enter => Command::SplitParagraph,
+            Key::Tab => Command::InsertText { text: "\t".into() },
+            Key::Letter('a') if m.ctrl => Command::SelectAll,
+            Key::Letter('z') if m.ctrl => Command::Undo,
+            Key::Letter('y') if m.ctrl => Command::Redo,
+            Key::Letter(_) => return false,
+        };
+        self.edit(cmd)
+    }
+
+    /// Run a command that moves the caret, then keep the caret in view.
+    fn edit(&mut self, cmd: Command) -> bool {
+        self.run(cmd, true)
+    }
+
+    fn run(&mut self, cmd: Command, reveal: bool) -> bool {
+        match self.engine.command(cmd) {
+            Ok(result) => {
+                self.apply(&result);
+                self.caret_on = true;
+                if reveal {
+                    self.reveal_caret();
+                }
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn apply(&mut self, r: &EditResult) {
+        if r.info.pages.len() != self.pages.len()
+            || r.info.pages.iter().zip(&self.pages).any(|(a, b)| a != b)
+        {
+            self.pages.clone_from(&r.info.pages);
+            self.clamp_scroll();
+        }
+        self.stale.extend(r.dirty.iter().copied());
+        self.caret = r.caret;
+        self.rects.clone_from(&r.rects);
+        self.modified = r.modified;
+    }
+
+    fn reveal_caret(&mut self) {
+        let Some(c) = self.caret else { return };
+        let Some(top) = self.page_tops().get(c.page).copied() else {
+            return;
+        };
+        let s = self.scale();
+        let (y0, y1) = (top + c.y * s, top + (c.y + c.h) * s);
+        let margin = self.gap();
+        if y0 - margin < self.scroll {
+            self.scroll = y0 - margin;
+        } else if y1 + margin > self.scroll + self.viewport.1 {
+            self.scroll = y1 + margin - self.viewport.1;
+        }
+        self.clamp_scroll();
+    }
+
+    /// Page and point (points from the page's top-left) under a view position.
+    fn hit(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
+        let s = self.scale();
+        let slots = self.slots();
+        // The page under the pointer, else the nearest one vertically (clicks in the gaps).
+        let slot = slots
+            .iter()
+            .find(|p| y >= p.y as f32 && y < (p.y + p.height) as f32)
+            .or_else(|| {
+                slots.iter().min_by_key(|p| {
+                    let (t, b) = (p.y as f32, (p.y + p.height) as f32);
+                    ((t - y).abs().min((b - y).abs())) as i64
+                })
+            })?;
+        let px = ((x - slot.x as f32) / s).clamp(0.0, slot.width as f32 / s);
+        let py = ((y - slot.y as f32) / s).clamp(0.0, slot.height as f32 / s);
+        Some((slot.index, px, py))
+    }
+
+    /// Bring the images of the visible pages up to date, drawing only what changed.
+    pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
+        let scale = self.scale();
+        let visible = self.visible();
+        let (Some(first), Some(last)) = (visible.first(), visible.last()) else {
+            return Ok(());
+        };
+        let keep = first.index.saturating_sub(OVERSCAN)..=last.index + OVERSCAN;
+        let far: Vec<usize> = self
+            .shown
+            .keys()
+            .copied()
+            .filter(|i| !keep.contains(i))
+            .collect();
+        for index in far {
+            store.remove(index);
+            self.shown.remove(&index);
+        }
+        for index in keep {
+            if index >= self.pages.len() {
+                break;
+            }
+            let list = self.engine.page(index).map_err(|e| e.to_string())?;
+            let band = match self.shown.get(&index) {
+                Some((s, _)) if *s != scale => None,
+                Some((_, old)) if self.stale.contains(&index) => match changed_region(old, list) {
+                    Change::None => {
+                        self.stale.remove(&index);
+                        continue;
+                    }
+                    change => change.device_band(scale),
+                },
+                Some(_) => continue,
+                None => None,
+            };
+            store.update(index, list, &self.engine, scale, band)?;
+            self.shown.insert(index, (scale, list.clone()));
+            self.stale.remove(&index);
+        }
+        Ok(())
+    }
+
+    /// Paint a frame: background, pages, selection and caret.
+    pub fn paint(&self, p: &mut dyn Painter) {
+        p.clear(CANVAS_BG);
+        let s = self.scale();
+        let visible = self.visible();
+        for slot in &visible {
+            let edge = self.display_scale.round().max(1.0);
+            p.fill_rect(
+                slot.x as f32 - edge,
+                slot.y as f32 - edge,
+                slot.width as f32 + 2.0 * edge,
+                slot.height as f32 + 2.0 * edge,
+                PAGE_SHADOW,
+            );
+            if self.shown.contains_key(&slot.index) {
+                p.page(slot.index, slot.x, slot.y);
+            }
+            for r in self.rects.iter().filter(|r| r.page == slot.index) {
+                p.fill_rect(
+                    slot.x as f32 + r.x * s,
+                    slot.y as f32 + r.y * s,
+                    r.w * s,
+                    r.h * s,
+                    SELECTION,
+                );
+            }
+        }
+        if self.caret_on && self.rects.is_empty() {
+            if let Some([x, y, w, h]) = self.caret_rect() {
+                p.fill_rect(x.round(), y.round(), w, h.round(), CARET);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Store {
+        full: Vec<usize>,
+        bands: Vec<(usize, [u32; 4])>,
+    }
+
+    impl PageStore for Store {
+        fn update(
+            &mut self,
+            index: usize,
+            _: &PageList,
+            _: &Engine,
+            _: f32,
+            band: Option<[u32; 4]>,
+        ) -> Result<(), String> {
+            match band {
+                Some(b) => self.bands.push((index, b)),
+                None => self.full.push(index),
+            }
+            Ok(())
+        }
+        fn remove(&mut self, _: usize) {}
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        pages: Vec<(usize, i32, i32)>,
+        rects: usize,
+    }
+
+    impl Painter for Recorder {
+        fn clear(&mut self, _: Rgba) {}
+        fn fill_rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: Rgba) {
+            self.rects += 1;
+        }
+        fn page(&mut self, index: usize, x: i32, y: i32) {
+            self.pages.push((index, x, y));
+        }
+    }
+
+    fn view() -> DocView {
+        let mut engine = Engine::with_bundled_fonts();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/corpus/doc/phase1-sample.docx"
+        );
+        engine
+            .open(&std::fs::read(path).unwrap(), "phase1-sample.docx")
+            .unwrap();
+        let mut v = DocView::new(engine).unwrap();
+        v.handle(Input::Scale(1.25));
+        v.handle(Input::Resize {
+            width: 1600.0,
+            height: 900.0,
+        });
+        v
+    }
+
+    #[test]
+    fn typing_redraws_a_band_and_keeps_pages_on_whole_pixels() {
+        let mut v = view();
+        let mut store = Store::default();
+        v.prepare(&mut store).unwrap();
+        assert_eq!(store.full, vec![0, 1], "visible page and the next");
+        assert!(v.handle(Input::Text("x".into())));
+        v.prepare(&mut store).unwrap();
+        assert_eq!(store.full, vec![0, 1], "no full redraw after typing");
+        assert_eq!(store.bands.len(), 1);
+        let (page, [_, _, w, h]) = store.bands[0];
+        assert_eq!(page, 0);
+        let slot = v.slots()[0];
+        assert!(u64::from(w) * u64::from(h) * 10 < (slot.width * slot.height) as u64);
+        let mut rec = Recorder::default();
+        v.paint(&mut rec);
+        assert_eq!(rec.pages[0], (0, slot.x, slot.y));
+        assert!(v.caret_rect().is_some());
+    }
+
+    #[test]
+    fn keys_wheel_and_clicks() {
+        let mut v = view();
+        let mut store = Store::default();
+        v.prepare(&mut store).unwrap();
+        assert!(v.handle(Input::Wheel(400.0)));
+        assert_eq!(v.slots()[0].y, (16.0f32 * 1.25).round() as i32 - 400);
+        // A click on the first visible page places the caret there.
+        let slot = v.visible()[0];
+        assert!(v.handle(Input::Press {
+            x: (slot.x + 300) as f32,
+            y: (slot.y.max(0) + 200) as f32,
+            count: 1,
+            shift: false,
+        }));
+        assert!(v.caret.is_some());
+        assert!(v.handle(Input::Key(
+            Key::Letter('a'),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            }
+        )));
+        assert!(!v.rects.is_empty(), "select all");
+        assert!(v.handle(Input::Key(Key::Right, Mods::default())));
+        assert_eq!(v.rects.len(), 0);
+        let before = v.engine.page(0).unwrap().clone();
+        v.handle(Input::Key(
+            Key::Letter('a'),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        ));
+        v.handle(Input::Text("z".into()));
+        v.handle(Input::Key(
+            Key::Letter('z'),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        ));
+        assert_eq!(v.engine.page(0).unwrap(), &before, "undo restores the page");
+    }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "bo-ui"
+description = "Platform-neutral self-drawn user interface of BlueOffice (ADR-0018): document view, widgets, input; drawn by platform backends."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bo-engine = { workspace = true }
+bo-render.workspace = true
+
+[dev-dependencies]
+bo-engine = { workspace = true, features = ["bundled-fonts"] }
+
+[lints]
+workspace = true

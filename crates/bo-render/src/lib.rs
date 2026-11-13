@@ -8,10 +8,12 @@
 //! device pixels (zoom × devicePixelRatio) happens in each backend.
 #![forbid(unsafe_code)]
 
+pub mod diff;
 pub mod image;
 pub mod metafile;
 mod textfx;
 
+pub use diff::{changed_region, Change};
 pub use image::{ImageSource, Media};
 
 use bo_layout::{Layer, LayoutDocument, Line, LineSource, Page, PageItem, PathCmd};

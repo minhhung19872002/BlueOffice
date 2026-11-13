@@ -28,7 +28,7 @@ cập nhật tại đây; số đo hiệu năng nằm trong [RESULTS.md](../perf
 | Viền và độ sắc ở 100/125/150/200% | Chưa xác nhận; hiện mới chụp 125%. Chưa có màn hình thứ hai để thử kéo qua DPI khác. |
 | Trang tài liệu | Đã sửa dải đen ở đầu trang: con trỏ có `position: static` và rộng bằng trang do CSS lớp phủ tạo động không được áp dụng trong desktop. Đưa toàn bộ CSS lớp phủ vào stylesheet đóng gói; [ảnh sau sửa](screens/fix-caret-125/doc-light-home.png) trên release Windows 125% không còn dải đen. Đã thêm kiểm thử kích thước/vị trí con trỏ vào desktop E2E. |
 | Khoảng cách và cắt chữ | Một số nhãn nhóm ribbon thu gọn như “Giọn…”; chưa hoàn thành rà tất cả tab và sửa. |
-| Dialog, menu, tooltip | Chưa có bộ ảnh/kiểm tra bao phủ. |
+| Dialog, menu, tooltip | Đã chụp 10 ảnh đại diện light/dark ở 125%: [manifest](screens/dialogs-125/manifest.json), ví dụ [BlueDoc](screens/dialogs-125/doc-light-dialog-font-effects.png), [BlueSheet](screens/dialogs-125/sheet-light-dialog-chart.png), [BlueSlide](screens/dialogs-125/slide-light-menu-table.png). Một số lệnh thu gọn chưa chụp được; tooltip và các dialog còn lại chưa được bao phủ. |
 | DirectWrite và renderer GPU native | Chưa triển khai; xem [ADR-0017](../adr/0017-desktop-document-rendering.md). |
 | Visual regression CI | Đã thêm lệnh chụp/so sánh tab và màn hình Tệp; chỉ so khi có artifact baseline CI cùng viewport/DPR. Lần đầu hoặc thiếu artifact chỉ báo cáo; dialog/menu/tooltip và DPI khác chưa được bao phủ. |
 
@@ -44,3 +44,8 @@ từ chối so sánh khi kích thước hoặc DPR khác. Không dùng ảnh mô
 - Ảnh sửa con trỏ được chụp với executable SHA-256
   `4629ac6dd15d4ae8dbe7ea93348b04522ec5860de9baeb0bf3f31aec1331ba5c`.
   Bộ ảnh này mới có BlueDoc light 125%; không thay thế bộ ảnh đủ màn hình và DPI.
+
+Script chụp có thêm các dialog/menu đại diện và báo cảnh báo khi không mở được điều khiển.
+Đã thử light/dark trên ba app; Giãn dòng và Thay thế của BlueDoc, Định dạng ô của
+BlueSheet chưa tìm thấy ở kích thước cửa sổ thử. Tên ảnh Font đã chụp là hộp thoại
+hiệu ứng/giãn cách ký tự, không đại diện toàn bộ hộp thoại phông chữ.

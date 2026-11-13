@@ -1,0 +1,128 @@
+{
+  "note": "Representative dialogs and menus; current machine, Windows 125%; incomplete coverage.",
+  "sets": [
+    {
+      "exeSha256": "20aadb6ae8087fd0fed57a0f0cc2172250962211b7417781b5355fc3423b4d70",
+      "windowsScalePercent": 125,
+      "captures": [
+        {
+          "file": "doc-light-dialog-font-effects.png",
+          "app": "doc",
+          "theme": "light",
+          "name": "dialog-font-effects",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        }
+      ],
+      "warnings": [
+        "doc/light/menu-line-spacing: Timed out waiting for menu-line-spacing; ",
+        "doc/light/dialog-replace: Timed out waiting for dialog-replace; ",
+        "Only representative dialogs and menus are covered; tooltip and alternate physical DPI are not yet covered."
+      ]
+    },
+    {
+      "exeSha256": "20aadb6ae8087fd0fed57a0f0cc2172250962211b7417781b5355fc3423b4d70",
+      "windowsScalePercent": 125,
+      "captures": [
+        {
+          "file": "sheet-light-dialog-chart.png",
+          "app": "sheet",
+          "theme": "light",
+          "name": "dialog-chart",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "sheet-light-dialog-text-to-columns.png",
+          "app": "sheet",
+          "theme": "light",
+          "name": "dialog-text-to-columns",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "slide-light-menu-table.png",
+          "app": "slide",
+          "theme": "light",
+          "name": "menu-table",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "slide-light-dialog-chart.png",
+          "app": "slide",
+          "theme": "light",
+          "name": "dialog-chart",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        }
+      ],
+      "warnings": [
+        "sheet/light/dialog-format-cells: Timed out waiting for dialog-format-cells; ",
+        "Only representative dialogs and menus are covered; tooltip and alternate physical DPI are not yet covered."
+      ]
+    },
+    {
+      "exeSha256": "20aadb6ae8087fd0fed57a0f0cc2172250962211b7417781b5355fc3423b4d70",
+      "windowsScalePercent": 125,
+      "captures": [
+        {
+          "file": "doc-dark-dialog-font-effects.png",
+          "app": "doc",
+          "theme": "dark",
+          "name": "dialog-font-effects",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "sheet-dark-dialog-chart.png",
+          "app": "sheet",
+          "theme": "dark",
+          "name": "dialog-chart",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "sheet-dark-dialog-text-to-columns.png",
+          "app": "sheet",
+          "theme": "dark",
+          "name": "dialog-text-to-columns",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "slide-dark-menu-table.png",
+          "app": "slide",
+          "theme": "dark",
+          "name": "menu-table",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        },
+        {
+          "file": "slide-dark-dialog-chart.png",
+          "app": "slide",
+          "theme": "dark",
+          "name": "dialog-chart",
+          "dpr": 1.375,
+          "height": 782,
+          "width": 1164
+        }
+      ],
+      "warnings": [
+        "doc/dark/menu-line-spacing: Timed out waiting for menu-line-spacing; ",
+        "doc/dark/dialog-replace: Timed out waiting for dialog-replace; ",
+        "sheet/dark/dialog-format-cells: Timed out waiting for dialog-format-cells; ",
+        "Only representative dialogs and menus are covered; tooltip and alternate physical DPI are not yet covered."
+      ]
+    }
+  ]
+}

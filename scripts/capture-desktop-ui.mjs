@@ -105,6 +105,10 @@ try {
     capabilities: { alwaysMatch: { browserName: 'wry', 'tauri:options': { application: exe } } },
   });
   session = created.sessionId;
+  await waitFor(
+    () => execute('try { localStorage.getItem("bo.theme"); return true; } catch { return false; }'),
+    'WebView origin',
+  );
   for (const theme of opt('theme', 'light,dark').split(',')) {
     for (const app of opt('app', 'doc,sheet,slide').split(',')) {
       await execute(
@@ -200,6 +204,86 @@ try {
         );
         await capture(`tab-${tab}`, app, theme);
       }
+      // Representative dialogs and menus, on the same real WebView and scale as the tabs.
+      const targets = {
+        doc: [
+          {
+            tab: 'Trang đầu',
+            selector: '[data-command="format.fontDialog"]',
+            name: 'dialog-font-effects',
+          },
+          { tab: 'Trang đầu', selector: '[data-testid="line-spacing"]', name: 'menu-line-spacing' },
+          { tab: 'Trang đầu', selector: '[data-command="edit.replace"]', name: 'dialog-replace' },
+        ],
+        sheet: [
+          {
+            tab: 'Trang đầu',
+            selector: '[data-command="format.cells"]',
+            name: 'dialog-format-cells',
+          },
+          { tab: 'Chèn', selector: '[data-command="insert.chart"]', name: 'dialog-chart' },
+          {
+            tab: 'Dữ liệu',
+            selector: '[data-command="data.textToColumns"]',
+            name: 'dialog-text-to-columns',
+          },
+        ],
+        slide: [
+          { tab: 'Chèn', selector: '[data-command="insert.table"]', name: 'menu-table' },
+          { tab: 'Chèn', selector: '[data-command="insert.chart"]', name: 'dialog-chart' },
+        ],
+      };
+      for (const target of targets[app] ?? []) {
+        try {
+          const tabElement = await execute(
+            'return [...document.querySelectorAll("[data-testid=ribbon] [role=tab]")].find(x=>x.textContent?.trim()===arguments[0]) ?? null;',
+            [target.tab],
+          );
+          const tabId = tabElement?.['element-6066-11e4-a52e-4f735466cecf'];
+          if (!tabId) throw new Error(`missing tab ${target.tab}`);
+          await wd('POST', `/session/${session}/element/${tabId}/click`, {});
+          await waitFor(
+            () =>
+              execute(
+                'const e=document.querySelector(arguments[0]); return !!e && !e.disabled && e.getClientRects().length>0',
+                [target.selector],
+              ),
+            target.name,
+            5000,
+          );
+          const control = await execute('return document.querySelector(arguments[0])', [
+            target.selector,
+          ]);
+          const controlId = control?.['element-6066-11e4-a52e-4f735466cecf'];
+          if (!controlId) throw new Error(`missing control ${target.selector}`);
+          await wd('POST', `/session/${session}/element/${controlId}/click`, {});
+          await waitFor(
+            () =>
+              execute(
+                'return [...document.querySelectorAll("[role=dialog], [role=menu]")].some(e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=="hidden")',
+              ),
+            `${target.name} surface`,
+            5000,
+          );
+          await capture(target.name, app, theme);
+        } catch (error) {
+          manifest.warnings.push(`${app}/${theme}/${target.name}: ${error.message}`);
+        } finally {
+          await wd('POST', `/session/${session}/actions`, {
+            actions: [
+              {
+                type: 'key',
+                id: 'keyboard',
+                actions: [
+                  { type: 'keyDown', value: '\uE00C' },
+                  { type: 'keyUp', value: '\uE00C' },
+                ],
+              },
+            ],
+          });
+          await sleep(150);
+        }
+      }
       const file = await execute(
         'const b=document.querySelector("[data-testid=file-tab]"); if(!b)return false; b.click(); return true',
       );
@@ -212,7 +296,8 @@ try {
       } else manifest.warnings.push(`${app}/${theme}: missing file tab`);
     }
   }
-  const gap = 'Dialogs, menus, tooltip and alternate physical DPI are not yet covered.';
+  const gap =
+    'Only representative dialogs and menus are covered; tooltip and alternate physical DPI are not yet covered.';
   manifest.warnings.push(gap);
   console.warn(`Capture coverage incomplete: ${gap}`);
 } finally {

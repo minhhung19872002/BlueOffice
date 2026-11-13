@@ -212,3 +212,9 @@ trước khi vẽ kiểm tra lại request trang, zoom và DPI để không vẽ
 bao gồm trường hợp kết quả đến ngược thứ tự; 6 ca web accessibility / render chrome đã qua.
 Bản release trước thay đổi này đang chạy lại E2E và thử RAM 10 phút; cần build, đo 10 lượt
 và thử RAM trên bản có thay đổi này trước khi đánh giá hiệu quả.
+
+CI dùng nhãn Rust `stable` trôi từ 1.99.1 sang 1.100, khiến Clippy phát hiện các cảnh báo
+`map_unwrap_or` / `needless_range_loop` trong `bo-formula`. Đã cố định toolchain CI ở
+1.99.1, cùng phiên bản đo và phiên bản từng qua các job Rust, để kết quả có thể tái lập.
+Việc xử lý cảnh báo để nâng CI lên Rust 1.100 vẫn còn; không coi thay đổi này là đã sửa
+khả năng tương thích với Clippy mới.

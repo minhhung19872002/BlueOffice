@@ -750,7 +750,12 @@ async function memorySoak() {
       if (now >= nextSample) {
         const mem = treeMemory(pid);
         if (!Number.isFinite(mem?.privateMB)) throw new Error('memory sample unavailable');
-        samples.push({ elapsedMs: now - started, privateMB: mem.privateMB });
+        samples.push({
+          elapsedMs: now - started,
+          privateMB: mem.privateMB,
+          appPrivateMB: mem.appPrivateMB,
+          webviewPrivateMB: mem.webviewPrivateMB,
+        });
         console.log(
           `soak ${(now - started) / 1000}s: ${mem.privateMB} MB, ${edits} edits, ${images} images`,
         );
@@ -760,7 +765,12 @@ async function memorySoak() {
     }
     const final = treeMemory(pid);
     if (!Number.isFinite(final?.privateMB)) throw new Error('final memory sample unavailable');
-    samples.push({ elapsedMs: Date.now() - started, privateMB: final.privateMB });
+    samples.push({
+      elapsedMs: Date.now() - started,
+      privateMB: final.privateMB,
+      appPrivateMB: final.appPrivateMB,
+      webviewPrivateMB: final.webviewPrivateMB,
+    });
     const tail = samples.slice(Math.floor(samples.length / 3));
     const elapsedMinutes = (tail.at(-1).elapsedMs - tail[0].elapsedMs) / 60000;
     const growthMB = tail.at(-1).privateMB - tail[0].privateMB;

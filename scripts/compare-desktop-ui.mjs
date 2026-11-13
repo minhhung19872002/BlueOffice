@@ -33,6 +33,9 @@ if (
 if (before.windowsScalePercent !== after.windowsScalePercent) {
   throw new Error('Desktop visual captures use different Windows scaling settings');
 }
+if (before.documentSha256 !== after.documentSha256) {
+  throw new Error('Desktop visual captures use different document contents');
+}
 const byName = new Map(after.captures.map((entry) => [entry.file, entry]));
 mkdirSync(output, { recursive: true });
 let failed = false;
@@ -41,6 +44,8 @@ for (const previous of before.captures) {
   if (
     !now ||
     previous.dpr !== now.dpr ||
+    previous.theme !== now.theme ||
+    previous.zoom !== now.zoom ||
     previous.width !== now.width ||
     previous.height !== now.height
   ) {

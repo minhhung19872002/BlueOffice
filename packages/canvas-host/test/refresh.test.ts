@@ -15,6 +15,42 @@ const info = (pages: number): Info =>
   }) as Info;
 
 describe('DocumentView.refresh', () => {
+  it('preserves fractional CSS page dimensions instead of rounding before rasterization', () => {
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {} as EngineHost);
+    view.setDocument(info(1));
+    const page = host.querySelector<HTMLElement>('.bo-page')!;
+    expect(Number.parseFloat(page.style.width)).toBeCloseTo((595 * 96) / 72, 6);
+    expect(Number.parseFloat(page.style.height)).toBeCloseTo((842 * 96) / 72, 6);
+    view.dispose();
+  });
+  it.each(
+    [1, 1.25, 1.5, 1.75, 2].flatMap((dpr) => [0.5, 1, 2, 4].map((zoom) => [dpr, zoom] as const)),
+  )('sizes the page backing store for DPR %s and zoom %s', async (dpr, zoom) => {
+    const deviceRatio = vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(dpr);
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const context = { save() {}, restore() {}, setTransform() {}, fillRect() {}, fillStyle: '' };
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: async () => ({ width: 595, height: 842, commands: [] }),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    view.setZoom(zoom);
+    await (view as unknown as { update: () => Promise<void> }).update();
+    const page = host.querySelector<HTMLElement>('.bo-page')!;
+    const canvas = page.querySelector('canvas')!;
+    expect(canvas.width).toBe(Math.round(Number.parseFloat(page.style.width) * dpr));
+    expect(canvas.height).toBe(Math.round(Number.parseFloat(page.style.height) * dpr));
+    view.dispose();
+    getContext.mockRestore();
+    frame.mockRestore();
+    deviceRatio.mockRestore();
+  });
   it('releases the backing store of a page far outside the viewport', () => {
     const host = document.createElement('div');
     const view = new DocumentView(

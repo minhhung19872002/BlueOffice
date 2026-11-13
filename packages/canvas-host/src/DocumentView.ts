@@ -847,8 +847,10 @@ export class DocumentView {
     this.info.pages.forEach((p, i) => {
       const slot = this.slots[i];
       if (!slot) return;
-      slot.el.style.width = `${Math.round(p.width * PX_PER_PT * this.zoomValue)}px`;
-      slot.el.style.height = `${Math.round(p.height * PX_PER_PT * this.zoomValue)}px`;
+      // Keep CSS dimensions fractional. Rounding here and again for the backing store can
+      // scale the rendered page by more than a physical pixel at fractional DPI/zoom.
+      slot.el.style.width = `${p.width * PX_PER_PT * this.zoomValue}px`;
+      slot.el.style.height = `${p.height * PX_PER_PT * this.zoomValue}px`;
       // The view's page grows by its markup area (the page itself keeps its size).
       slot.el.style.marginRight = `${Math.round(slot.markupWidth * PX_PER_PT * this.zoomValue)}px`;
     });

@@ -299,6 +299,34 @@ jobs:
           name: desktop-ui
           path: out/ui-screens/current
           if-no-files-found: ignore
+      # A separate, versioned document fixture exercises the page renderer at four zooms.
+      # This is one DPI on the runner; it does not stand in for the full visual matrix.
+      - name: Capture document visual regression screens
+        if: matrix.e2e
+        run: node scripts/capture-visual-document.mjs --out out/ui-document/current
+      - name: Download previous main document screens
+        if: matrix.e2e
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $runs = gh run list --workflow ci.yml --branch main --status success --limit 1 --json databaseId | ConvertFrom-Json
+          if ($runs.Count -gt 0) {
+            gh run download $runs[0].databaseId --name desktop-ui-document --dir out/ui-document/baseline
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning 'Previous document visual artifact unavailable; reporting without comparison.'
+              $global:LASTEXITCODE = 0
+            }
+          }
+      - name: Compare document visual regression screens
+        if: matrix.e2e
+        run: node scripts/compare-desktop-ui.mjs --baseline out/ui-document/baseline --current out/ui-document/current --out out/ui-document/diff
+      - uses: actions/upload-artifact@v4
+        if: matrix.e2e && always()
+        with:
+          name: desktop-ui-document
+          path: out/ui-document/current
+          if-no-files-found: ignore
       # Desktop speed (docs/perf/BASELINE.md): start-up, open a 100-page .docx, key → paint,
       # scrolling, RAM and React renders per keystroke, on the release (webdriver) build above.
       # Compare against the most recent successful main run on the same runner class.

@@ -1,0 +1,106 @@
+{
+  "exe": "D:\\Source\\BlueOffice\\out\\perf\\releases\\bluedoc-immediate.exe",
+  "exeSha256": "75e9508742bbb0f8fdaab4de7a2f8b7bc0d9e5dca759697d118820b222acda56",
+  "document": "D:\\Source\\BlueOffice\\tests\\corpus\\visual\\phase1-sample.docx",
+  "documentSha256": "d61aeb5989fa0fce9f7bc2e171752be6b91ef9a8eea4b5baa3e5c1231ab357fe",
+  "capturedAt": "2026-11-13T05:49:29.042Z",
+  "windowsScalePercent": 125,
+  "captures": [
+    {
+      "file": "doc-light-50.png",
+      "zoom": 50,
+      "canvasHeight": 772,
+      "canvasWidth": 546,
+      "cssHeight": 561,
+      "cssWidth": 397,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "light",
+      "width": 1164
+    },
+    {
+      "file": "doc-light-100.png",
+      "zoom": 100,
+      "canvasHeight": 1543,
+      "canvasWidth": 1091,
+      "cssHeight": 1123,
+      "cssWidth": 794,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "light",
+      "width": 1164
+    },
+    {
+      "file": "doc-light-200.png",
+      "zoom": 200,
+      "canvasHeight": 3087,
+      "canvasWidth": 2183,
+      "cssHeight": 2245,
+      "cssWidth": 1587,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "light",
+      "width": 1164
+    },
+    {
+      "file": "doc-light-400.png",
+      "zoom": 400,
+      "canvasHeight": 6174,
+      "canvasWidth": 4366,
+      "cssHeight": 4490,
+      "cssWidth": 3175,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "light",
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-50.png",
+      "zoom": 50,
+      "canvasHeight": 772,
+      "canvasWidth": 546,
+      "cssHeight": 561,
+      "cssWidth": 397,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "dark",
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-100.png",
+      "zoom": 100,
+      "canvasHeight": 1543,
+      "canvasWidth": 1091,
+      "cssHeight": 1123,
+      "cssWidth": 794,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "dark",
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-200.png",
+      "zoom": 200,
+      "canvasHeight": 3087,
+      "canvasWidth": 2183,
+      "cssHeight": 2245,
+      "cssWidth": 1587,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "dark",
+      "width": 1164
+    },
+    {
+      "file": "doc-dark-400.png",
+      "zoom": 400,
+      "canvasHeight": 6174,
+      "canvasWidth": 4366,
+      "cssHeight": 4490,
+      "cssWidth": 3175,
+      "dpr": 1.375,
+      "height": 782,
+      "theme": "dark",
+      "width": 1164
+    }
+  ]
+}

@@ -79,6 +79,21 @@ fn saved_omml(e: &Engine) -> String {
     s.selected_equation().unwrap().1
 }
 
+#[test]
+fn querying_fonts_and_styles_keeps_the_math_caret_in_the_equation() {
+    let mut e = engine("a/b");
+    let entered = run(&mut e, Command::MathEnter { end: true });
+    let before = path(&entered);
+    for query in [Command::StyleList, Command::FontList] {
+        let result = run(&mut e, query);
+        assert_eq!(path(&result), before);
+    }
+    typed(&mut e, "+z_1 ");
+    let in_subscript = mv(&mut e, MathMotion::Left);
+    assert!(!path(&in_subscript).0.is_empty());
+    assert_eq!(linear(&mut e), "a/b+z_1");
+}
+
 // source: reading order of the slots of §22.1.2 structures; UnicodeMath (UTN #28) for the input.
 #[test]
 fn arrows_enter_move_through_slots_and_leave() {

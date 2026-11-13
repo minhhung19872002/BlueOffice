@@ -217,6 +217,8 @@ impl crate::Engine {
             Command::State
             | Command::Equation
             | Command::EquationTemplates
+            | Command::StyleList
+            | Command::FontList
             | Command::HistoryLen
             | Command::Spelling { .. }
             | Command::Undo

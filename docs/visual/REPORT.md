@@ -152,5 +152,7 @@ có thể đánh giá ảnh hay hiệu năng. Bản build xem trước chưa dù
 
 Đã thêm `bo-gpu-win` khởi tạo Direct3D/Direct2D, ưu tiên hardware và dự phòng WARP.
 Chạy `cargo run -p bo-gpu-win --example probe` trên máy này trả `Hardware`; clippy qua.
-Chưa có kiểm thử vẽ, surface, kết nối WebView hay xử lý mất thiết bị, và app chưa dùng
-thư viện. Kết quả khởi tạo không chứng minh tài liệu đang được tăng tốc GPU.
+Một surface ngoài màn hình 16×16 đã được xóa nền, vẽ hình chữ nhật và đọc lại đúng pixel
+trên thiết bị đó; kiểm thử tự động qua. Chưa có surface của cửa sổ, kết nối WebView hay xử lý
+mất thiết bị, và app chưa dùng thư viện. Kết quả này không chứng minh tài liệu đang được
+tăng tốc GPU.

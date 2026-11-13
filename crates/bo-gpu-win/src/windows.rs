@@ -2,9 +2,14 @@ use crate::Driver;
 use std::{marker::PhantomData, rc::Rc};
 use windows::core::Interface;
 use windows::Win32::Foundation::HMODULE;
+use windows::Win32::Graphics::Direct2D::Common::{
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+};
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, ID2D1Device, ID2D1DeviceContext, ID2D1Factory1,
-    D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1CreateFactory, ID2D1Device, ID2D1DeviceContext, ID2D1Factory1, ID2D1Image,
+    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_TARGET,
+    D2D1_BITMAP_PROPERTIES1, D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1_MAP_OPTIONS_READ,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
@@ -12,6 +17,7 @@ use windows::Win32::Graphics::Direct3D::{
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
+use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
 /// A Direct2D context backed by a Direct3D device. It is not yet connected to a surface.
@@ -20,7 +26,7 @@ pub struct Device {
     _d3d: ID3D11Device,
     _factory: ID2D1Factory1,
     _device: ID2D1Device,
-    _context: ID2D1DeviceContext,
+    context: ID2D1DeviceContext,
     driver: Driver,
     // A single-threaded Direct2D factory and its resources must remain on their creating thread.
     _thread_bound: PhantomData<Rc<()>>,
@@ -36,6 +42,91 @@ impl Device {
     /// Returns the driver chosen during device creation.
     pub fn driver(&self) -> Driver {
         self.driver
+    }
+
+    /// Draw an opaque red rectangle on white offscreen and read two BGRA pixels for diagnostics.
+    ///
+    /// This verifies a small offscreen path only; it is not a document renderer or a window surface.
+    pub fn verify_offscreen(&self) -> Result<([u8; 4], [u8; 4]), String> {
+        // SAFETY: Direct2D owns both bitmaps. The mapped pointer is read only while mapped,
+        // with dimensions and row pitch checked before indexing, and is unmapped before return.
+        unsafe {
+            let size = D2D_SIZE_U {
+                width: 16,
+                height: 16,
+            };
+            let pixel = D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            };
+            let target_props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: 96.0,
+                dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                ..Default::default()
+            };
+            let target = self
+                .context
+                .CreateBitmap(size, None, 0, &target_props)
+                .map_err(|e| e.to_string())?;
+            let white = D2D1_COLOR_F {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            };
+            let red = D2D1_COLOR_F {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            };
+            let brush = self
+                .context
+                .CreateSolidColorBrush(&red, None)
+                .map_err(|e| e.to_string())?;
+            self.context.SetTarget(&target);
+            self.context.BeginDraw();
+            self.context.Clear(Some(&white));
+            self.context.FillRectangle(
+                &D2D_RECT_F {
+                    left: 4.0,
+                    top: 4.0,
+                    right: 12.0,
+                    bottom: 12.0,
+                },
+                &brush,
+            );
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            ended.map_err(|e| e.to_string())?;
+            let read_props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: 96.0,
+                dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                ..Default::default()
+            };
+            let read = self
+                .context
+                .CreateBitmap(size, None, 0, &read_props)
+                .map_err(|e| e.to_string())?;
+            read.CopyFromBitmap(None, &target, None)
+                .map_err(|e| e.to_string())?;
+            let mapped = read.Map(D2D1_MAP_OPTIONS_READ).map_err(|e| e.to_string())?;
+            if mapped.bits.is_null() || mapped.pitch < 64 {
+                read.Unmap().map_err(|e| e.to_string())?;
+                return Err("invalid mapped Direct2D surface".into());
+            }
+            let sample = |x: usize, y: usize| -> [u8; 4] {
+                let ptr = mapped.bits.add(y * mapped.pitch as usize + x * 4);
+                [*ptr, *ptr.add(1), *ptr.add(2), *ptr.add(3)]
+            };
+            let result = (sample(0, 0), sample(8, 8));
+            read.Unmap().map_err(|e| e.to_string())?;
+            Ok(result)
+        }
     }
 
     fn create(kind: D3D_DRIVER_TYPE, driver: Driver) -> Result<Self, String> {
@@ -67,7 +158,7 @@ impl Device {
                 _d3d: d3d,
                 _factory: factory,
                 _device: device,
-                _context: context,
+                context,
                 driver,
                 _thread_bound: PhantomData,
             })

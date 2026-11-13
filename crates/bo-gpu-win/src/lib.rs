@@ -18,3 +18,14 @@ mod windows;
 
 #[cfg(windows)]
 pub use windows::Device;
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn draws_and_reads_back_offscreen_pixels() {
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let (background, rectangle) = device.verify_offscreen().expect("offscreen render");
+        assert_eq!(background, [255, 255, 255, 255]);
+        assert_eq!(rectangle, [0, 0, 255, 255]);
+    }
+}

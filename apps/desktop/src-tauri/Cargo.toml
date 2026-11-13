@@ -22,6 +22,7 @@ base64 = "0.22"
 bo-winchrome = { path = "../../../crates/bo-winchrome" }
 serde.workspace = true
 serde_json.workspace = true
+stats_alloc = { version = "0.1.10", optional = true }
 tauri = { version = "2", features = [] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
@@ -39,6 +40,8 @@ updater = ["dep:tauri-plugin-updater"]
 # the API (WebView2 ignores them as environment variables in elevated processes); with
 # `--config tauri.webdriver.conf.json`. Never in shipped builds (src/automation.rs).
 webdriver = []
+# Diagnostic builds only; never enabled in the installer.
+heap-profile = ["webdriver", "dep:stats_alloc"]
 
 [lints]
 workspace = true

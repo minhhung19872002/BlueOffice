@@ -230,3 +230,32 @@ Một mẫu phân rã trong phiên: app và tiến trình phụ không thuộc W
 WebView2 khoảng 255 MB (bao gồm renderer và GPU); không suy ra nguyên nhân từ một mẫu.
 Trong lúc thử có một số kiểm tra ngắn chạy trên cùng máy, vì vậy tải nền không hoàn toàn tĩnh.
 Bản thử này chưa gồm thay đổi vẽ ngay; bản mới đang build và cần đo lại.
+
+### Đo 10 lượt sau sửa vẽ tức thời
+
+Bản release `updater,webdriver`, SHA-256
+`75e9508742bbb0f8fdaab4de7a2f8b7bc0d9e5dca759697d118820b222acda56`,
+10 lượt khởi động/mở và 10 phiên, 270 phím; CPU đầu/cuối 25% / 9% (lượt trước
+14% / 10%). Bản này đã qua desktop E2E 16/16, cả hai nhóm cộng tác.
+[Dữ liệu](baselines/round3-immediate-10runs-ryzen7-7435hs.json).
+
+| Chỉ số | Trước: trung vị / p95 | Sau: trung vị / p95 |
+|---|---:|---:|
+| Editor sẵn sàng | 948,5 / 1.009,9 ms | 969,6 / 1.015,1 ms |
+| Shell | 508,1 / 535,5 ms | 504 / 537,4 ms |
+| Mở 100 trang | 1.008,5 / 1.032,7 ms | 1.001,7 / 1.044,3 ms |
+| Phím tới khung hình (270 phím) | 33,8 / 46,5 ms | 34,9 / 44,4 ms |
+| Sau vẽ tới trình bày (270 phím) | 13 / 26,2 ms | 8 / 19,4 ms |
+| RAM sau mở | 300,8 / 303,2 MB | 294,2 / 296,9 MB |
+| RAM sau gõ/cuộn | 495,8 / 507,8 MB | 496,4 / 508,8 MB |
+| Cuộn, FPS theo phiên | 136,5 / 143,4 | 142,3 / 143,8 |
+
+Thời gian sau vẽ giảm trong phép đo, nhưng tổng độ trễ không đạt mục tiêu và tải máy khác
+nhau; không thể quy toàn bộ chênh lệch cho thay đổi. IPC lệnh sau có trung vị/p95
+12,8 / 16,2 ms; IPC trang 8 / 15,6 ms; dàn trang 0,6 / 0,8 ms; vẫn 3 IPC trung vị.
+Shell, gõ và RAM sau thao tác đều chưa đạt; không có local echo hay giao thức diff một IPC.
+
+Đã thêm feature thử nghiệm `heap-profile` dùng `stats_alloc` để đếm byte do allocator Rust
+quản lý, cùng tùy chọn `--rust-heap` trong bài thử. Đây là bộ đếm tổng, không phải phân tích
+stack từng allocation, và không dùng trong bản cài. Build này khác executable ở bảng trên;
+số của nó chỉ dùng chẩn đoán, không thay thế phép đo release không instrumentation.

@@ -32,6 +32,11 @@ use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEve
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 
+#[cfg(feature = "heap-profile")]
+#[global_allocator]
+static PROFILE_ALLOCATOR: &stats_alloc::StatsAlloc<std::alloc::System> =
+    &stats_alloc::INSTRUMENTED_SYSTEM;
+
 pub(crate) struct EngineState(pub(crate) LazyLock<Mutex<Engine>>);
 
 /// Fonts compiled into the engine, in face-id order (same as the web manifest).
@@ -555,6 +560,22 @@ fn automation_cache_isolated() -> bool {
         && std::env::var_os("BLUEOFFICE_E2E_CACHE_DIR").is_some_and(|v| !v.is_empty())
 }
 
+/// Rust allocator counters for diagnostic WebDriver builds only.
+#[tauri::command]
+fn automation_heap_stats() -> serde_json::Value {
+    #[cfg(feature = "heap-profile")]
+    {
+        let stats = PROFILE_ALLOCATOR.stats();
+        serde_json::json!({
+            "allocated": stats.bytes_allocated,
+            "deallocated": stats.bytes_deallocated,
+            "inUse": stats.bytes_allocated.saturating_sub(stats.bytes_deallocated),
+        })
+    }
+    #[cfg(not(feature = "heap-profile"))]
+    serde_json::Value::Null
+}
+
 #[tauri::command]
 async fn cache_get(app: tauri::AppHandle, key: String) -> Result<Response, String> {
     match std::fs::read(cache_path(&app, &key)?) {
@@ -848,6 +869,7 @@ fn main() {
             chrome_cmds::chrome_set_max_button,
             chrome_cmds::chrome_system_menu,
             automation_cache_isolated,
+            automation_heap_stats,
             engine_init,
             engine_open,
             engine_page,

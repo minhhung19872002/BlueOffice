@@ -15,6 +15,7 @@
 //     --soak-only              run the 10-minute edit/scroll/image/undo memory test
 //     --soak-ms <n>            soak duration (default 600000; shorter runs are diagnostics)
 //     --webview-snapshots      take CDP heap snapshots before/after the soak when available
+//     --rust-heap              sample instrumented Rust allocator (heap-profile build only)
 //     --fail-over <pct>        exit 1 when a metric is slower than the baseline by more (default 20)
 //     --warn-over <pct>        flag a metric slower by more (default 5)
 //
@@ -714,6 +715,13 @@ async function memorySoak() {
     const started = Date.now();
     let nextSample = started;
     let nextImage = started + 10000;
+    const rustHeap = async () => {
+      if (!flag('rust-heap')) return null;
+      const stats = await exec('return window.__TAURI_INTERNALS__.invoke("automation_heap_stats")');
+      if (!Number.isFinite(stats?.inUse))
+        throw new Error('requires a heap-profile WebDriver build');
+      return stats;
+    };
     while (Date.now() - started < duration) {
       await press('a');
       edits++;
@@ -755,6 +763,7 @@ async function memorySoak() {
           privateMB: mem.privateMB,
           appPrivateMB: mem.appPrivateMB,
           webviewPrivateMB: mem.webviewPrivateMB,
+          rustHeap: await rustHeap(),
         });
         console.log(
           `soak ${(now - started) / 1000}s: ${mem.privateMB} MB, ${edits} edits, ${images} images`,
@@ -770,6 +779,7 @@ async function memorySoak() {
       privateMB: final.privateMB,
       appPrivateMB: final.appPrivateMB,
       webviewPrivateMB: final.webviewPrivateMB,
+      rustHeap: await rustHeap(),
     });
     const tail = samples.slice(Math.floor(samples.length / 3));
     const elapsedMinutes = (tail.at(-1).elapsedMs - tail[0].elapsedMs) / 60000;

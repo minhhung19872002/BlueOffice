@@ -1,5 +1,5 @@
-use crate::Driver;
-use std::{marker::PhantomData, rc::Rc};
+use crate::{Driver, TextRendering};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 use windows::core::Interface;
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct2D::Common::{
@@ -23,6 +23,36 @@ use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
 mod page;
 
+pub(crate) fn system_cleartype() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETFONTSMOOTHING, SPI_GETFONTSMOOTHINGTYPE,
+        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+    // FE_FONTSMOOTHINGCLEARTYPE (WinUser.h).
+    const CLEARTYPE: u32 = 2;
+    let mut on = windows::core::BOOL(0);
+    let mut kind = 0_u32;
+    // SAFETY: both out pointers refer to live locals of the documented types.
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETFONTSMOOTHING,
+            0,
+            Some((&raw mut on).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+        .is_ok()
+            && on.as_bool()
+            && SystemParametersInfoW(
+                SPI_GETFONTSMOOTHINGTYPE,
+                0,
+                Some((&raw mut kind).cast()),
+                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+            )
+            .is_ok()
+            && kind == CLEARTYPE
+    }
+}
+
 /// A Direct2D context backed by a Direct3D device. It is not yet connected to a surface.
 pub struct Device {
     // Retain all parent COM objects for the lifetime of the context.
@@ -31,6 +61,9 @@ pub struct Device {
     _device: ID2D1Device,
     context: ID2D1DeviceContext,
     driver: Driver,
+    // DirectWrite faces reused across pages; independent of the Direct2D objects above.
+    faces: RefCell<bo_dwrite::FaceCache>,
+    text: RefCell<TextRendering>,
     // A single-threaded Direct2D factory and its resources must remain on their creating thread.
     _thread_bound: PhantomData<Rc<()>>,
 }
@@ -40,6 +73,16 @@ impl Device {
     pub fn new() -> Result<Self, String> {
         Self::create(D3D_DRIVER_TYPE_HARDWARE, Driver::Hardware)
             .or_else(|_| Self::create(D3D_DRIVER_TYPE_WARP, Driver::Software))
+    }
+
+    /// Choose how later pages antialias text.
+    pub fn set_text_rendering(&self, mode: TextRendering) {
+        *self.text.borrow_mut() = mode;
+    }
+
+    /// Number of DirectWrite font faces kept for later pages.
+    pub fn cached_faces(&self) -> usize {
+        self.faces.borrow().len()
     }
 
     /// Returns the driver chosen during device creation.
@@ -88,22 +131,19 @@ impl Device {
                 .context
                 .CreateSolidColorBrush(&black, None)
                 .map_err(|e| e.to_string())?;
+            let run = bo_dwrite::PreparedGlyphRun::new(font, 0, glyphs, 20.0)?;
             self.context.SetTarget(&target);
             self.context.BeginDraw();
             self.context.Clear(Some(&white));
-            let drawing = bo_dwrite::with_glyph_run(font, 0, glyphs, 20.0, |run| {
-                self.context.DrawGlyphRun(
-                    windows_numerics::Vector2 { X: 8.0, Y: 40.0 },
-                    run,
-                    None,
-                    &brush,
-                    DWRITE_MEASURING_MODE_NATURAL,
-                );
-                Ok(())
-            });
+            self.context.DrawGlyphRun(
+                windows_numerics::Vector2 { X: 8.0, Y: 40.0 },
+                run.as_raw(),
+                None,
+                &brush,
+                DWRITE_MEASURING_MODE_NATURAL,
+            );
             let ended = self.context.EndDraw(None, None);
             self.context.SetTarget(None::<&ID2D1Image>);
-            drawing?;
             ended.map_err(|e| e.to_string())?;
             let read_props = D2D1_BITMAP_PROPERTIES1 {
                 pixelFormat: pixel,
@@ -253,6 +293,8 @@ impl Device {
                 _device: device,
                 context,
                 driver,
+                faces: RefCell::new(bo_dwrite::FaceCache::new()?),
+                text: RefCell::new(TextRendering::System),
                 _thread_bound: PhantomData,
             })
         }

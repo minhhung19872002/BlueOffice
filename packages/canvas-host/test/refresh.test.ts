@@ -15,6 +15,62 @@ const info = (pages: number): Info =>
   }) as Info;
 
 describe('DocumentView.refresh', () => {
+  it('paints the native RGBA raster unchanged', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const putImageData = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ putImageData } as never);
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: async () => ({ width: 595, height: 842, commands: [] }),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+      getNativePageRaster: async () => ({
+        width: 1,
+        height: 1,
+        pixels: new Uint8Array([3, 2, 1, 255]),
+      }),
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    await (view as unknown as { update: () => Promise<void> }).update();
+    expect(host.querySelector('.bo-page')?.getAttribute('data-renderer')).toBe('direct2d');
+    expect([...putImageData.mock.calls[0]![0].data]).toEqual([3, 2, 1, 255]);
+    view.dispose();
+    getContext.mockRestore();
+    frame.mockRestore();
+  });
+
+  it('discards a native image when a newer page has already rendered', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const putImageData = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ putImageData } as never);
+    const pending: ((r: { width: number; height: number; pixels: Uint8Array }) => void)[] = [];
+    const host = document.createElement('div');
+    const view = new DocumentView(host, {
+      getPage: async () => ({ width: 595, height: 842, commands: [] }),
+      getGlyphOutlines: async () => [],
+      getMedia: async () => new Uint8Array(),
+      getNativePageRaster: () => new Promise((resolve) => pending.push(resolve)),
+    } as unknown as EngineHost);
+    view.setDocument(info(1));
+    const first = (view as unknown as { update: () => Promise<void> }).update();
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    view.refresh(info(1), [0]);
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    pending[1]!({ width: 1, height: 1, pixels: new Uint8Array([0, 255, 0, 255]) });
+    await vi.waitFor(() => expect(putImageData).toHaveBeenCalledTimes(1));
+    pending[0]!({ width: 1, height: 1, pixels: new Uint8Array([0, 0, 255, 255]) });
+    await first;
+    expect(putImageData).toHaveBeenCalledTimes(1);
+    expect([...putImageData.mock.calls[0]![0].data]).toEqual([0, 255, 0, 255]);
+    view.dispose();
+    getContext.mockRestore();
+    frame.mockRestore();
+  });
+
   it('preserves fractional CSS page dimensions instead of rounding before rasterization', () => {
     const host = document.createElement('div');
     const view = new DocumentView(host, {} as EngineHost);

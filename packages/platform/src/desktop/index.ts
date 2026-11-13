@@ -19,6 +19,7 @@ import type {
   GlyphOutline,
   HostFileLink,
   MessageBus,
+  NativePageRaster,
   OfflineCache,
   OpenedFile,
   PageDisplayList,
@@ -78,6 +79,7 @@ const toBytes = (v: ArrayBuffer | Uint8Array | number[]): Uint8Array =>
 export class NativeEngineHost implements EngineHost {
   readonly backend = 'native' as const;
   private ready: Promise<void> | undefined;
+  private gpuAvailable: Promise<boolean> | undefined;
   constructor(private readonly call: Invoke = invoke as Invoke) {}
   init(): Promise<void> {
     // Share the initialization across editors and sheet commands.
@@ -92,6 +94,27 @@ export class NativeEngineHost implements EngineHost {
   }
   async getPage(index: number): Promise<PageDisplayList> {
     return JSON.parse(await this.call<string>('engine_page', { index })) as PageDisplayList;
+  }
+  async getNativePageRaster(
+    page: PageDisplayList,
+    scale: number,
+  ): Promise<NativePageRaster | null> {
+    this.gpuAvailable ??= this.call<boolean>('engine_gpu_available').catch(() => false);
+    if (!(await this.gpuAvailable)) return null;
+    try {
+      const data = toBytes(
+        await this.call<ArrayBuffer>('engine_gpu_page', { json: JSON.stringify(page), scale }),
+      );
+      if (data.byteLength < 8) return null;
+      const header = new DataView(data.buffer, data.byteOffset, 8);
+      const width = header.getUint32(0, true);
+      const height = header.getUint32(4, true);
+      if (!width || !height || width * height * 4 !== data.byteLength - 8) return null;
+      return { width, height, pixels: data.subarray(8) };
+    } catch {
+      // Unsupported display-list commands and GPU errors keep the normal renderer intact.
+      return null;
+    }
   }
   async getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]> {
     return JSON.parse(

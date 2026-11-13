@@ -607,6 +607,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bo-engine",
+ "bo-gpu-win",
+ "bo-raster",
+ "bo-render",
  "bo-sign",
  "bo-winchrome",
  "rand 0.8.8",

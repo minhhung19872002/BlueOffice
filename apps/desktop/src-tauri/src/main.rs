@@ -11,6 +11,7 @@
 mod automation;
 mod chrome_cmds;
 mod collab_cmds;
+mod gpu_cmds;
 mod perf;
 mod print;
 mod query_cmds;
@@ -873,6 +874,8 @@ fn main() {
             engine_init,
             engine_open,
             engine_page,
+            gpu_cmds::engine_gpu_available,
+            gpu_cmds::engine_gpu_page,
             engine_glyph_outlines,
             engine_export_pdf,
             engine_new,

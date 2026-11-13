@@ -276,3 +276,27 @@ Shallow size của các node V8 snapshot là **32,71 / 36,61 MiB**; số node
 minh undo của WebView gây ra toàn bộ phần tăng: snapshot shallow không đo đầy đủ bộ nhớ
 native/GPU, và việc chụp snapshot có thể kích hoạt GC. Không suy số release chính thức từ
 bản instrumentation.
+
+### Thử RAM release cùng executable với bảng 10 lượt
+
+Bản không instrumentation SHA-256
+`75e9508742bbb0f8fdaab4de7a2f8b7bc0d9e5dca759697d118820b222acda56`: 602,5 giây,
+489 lần gõ và 52 chu kỳ ảnh/undo; đỉnh **460 MB**, phần cuối tăng **63,8 MB**, không đạt.
+Private working set app / WebView2 ở mẫu đầu: **121,2 / 187,3 MB**; mẫu cuối:
+**137,5 / 322,5 MB**. [Các mẫu](baselines/round3-immediate-soak-ryzen7-7435hs.json).
+Đây là cùng SHA với phép đo 10 lượt; binary được sao chép sang tên khác để giữ nguyên
+trong khi build bản instrumentation.
+
+### Direct2D + DirectWrite cho trang tài liệu (gpu-preview, 2026-11-13)
+
+Bản release `--features gpu-preview`, Ryzen 7 7435HS, `phase1-sample.docx`, zoom 110 %:
+`engine_gpu_page` lần đầu **169,6 ms** (gồm tạo thiết bị D3D11/Direct2D), các trang sau
+**6,0 / 6,2 / 7,9 ms** (vẽ + readback trong Rust, chưa tính IPC và `putImageData`). Chưa đo
+phím→khung hình hay cuộn với đường này; không suy ra đạt mục tiêu 16 ms.
+
+So ảnh chụp cùng đoạn văn với trình soạn thảo đối chứng trên cùng màn hình (quan sát black-box):
+ngắt dòng và vị trí chữ trùng; độ lệch màu trung bình |R−B| của vùng chữ: đối chứng **7,47**
+(có cả gạch đỏ chính tả), BlueDoc xám **0**, BlueDoc ClearType hệ thống **17,11**. Mẫu
+`cargo test -p bo-gpu-win text_modes -- --ignored`: hệ thống 10,81 · mức 0,35/contrast 2,0
+**3,88** với độ đậm cao hơn bản xám 11 % (đối chứng đậm hơn bản xám của BlueDoc ~15 %). Đã chọn
+mức 0,35/contrast 2,0 làm mặc định; chưa chụp lại ở DPI 100/125/200 %.

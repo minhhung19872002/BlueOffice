@@ -20,6 +20,7 @@ windows = { version = "0.62.2", features = [
   "Win32_Graphics_DirectWrite",
   "Win32_Graphics_Dxgi",
   "Win32_Graphics_Dxgi_Common",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [lints.rust]

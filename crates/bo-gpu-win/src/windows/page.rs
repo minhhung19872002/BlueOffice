@@ -1,28 +1,111 @@
 use super::Device;
-use crate::PageImage;
-use bo_render::{Command, PageList, Paint, PathSeg, Rgba};
+use crate::{Bitmap, PageImage, TextRendering};
+use bo_render::{Command, PageList, Paint, PathSeg, Rgba, Stroke};
 use bo_text::{FaceId, FontManager};
+use std::collections::HashMap;
+use std::mem::ManuallyDrop;
+use windows::core::Interface;
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
-    D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_FILL_MODE_WINDING, D2D1_PIXEL_FORMAT,
+    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F,
+    D2D1_COMPOSITE_MODE_SOURCE_OVER, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED,
+    D2D1_FIGURE_END_OPEN, D2D1_FILL_MODE_WINDING, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
     D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
-    ID2D1Brush, ID2D1Image, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_TARGET,
-    D2D1_BITMAP_PROPERTIES1, D2D1_MAP_OPTIONS_READ, D2D1_QUADRATIC_BEZIER_SEGMENT,
+    CLSID_D2D1GaussianBlur, ID2D1Bitmap1, ID2D1Brush, ID2D1CommandList, ID2D1Geometry, ID2D1Image,
+    ID2D1PathGeometry1, ID2D1RenderTarget, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_NONE,
+    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE,
+    D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_SQUARE, D2D1_DASH_STYLE_CUSTOM,
+    D2D1_DASH_STYLE_SOLID, D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2,
+    D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+    D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_OPTIONS1_NONE, D2D1_LAYER_PARAMETERS1,
+    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_LINE_JOIN, D2D1_LINE_JOIN_BEVEL,
+    D2D1_LINE_JOIN_MITER_OR_BEVEL, D2D1_LINE_JOIN_ROUND, D2D1_MAP_OPTIONS_READ,
+    D2D1_PROPERTY_TYPE_FLOAT, D2D1_QUADRATIC_BEZIER_SEGMENT, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
+    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
 };
-use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
+use windows::Win32::Graphics::Direct2D::{
+    D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
+    D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+};
+use windows::Win32::Graphics::DirectWrite::{
+    DWriteCreateFactory, IDWriteFactory, IDWriteRenderingParams, DWRITE_FACTORY_TYPE_SHARED,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_PIXEL_GEOMETRY_RGB,
+    DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
-use windows_numerics::Vector2;
+use windows_numerics::{Matrix3x2, Vector2};
 
-fn color(c: Rgba) -> D2D1_COLOR_F {
+const IDENTITY: Matrix3x2 = Matrix3x2 {
+    M11: 1.0,
+    M12: 0.0,
+    M21: 0.0,
+    M22: 1.0,
+    M31: 0.0,
+    M32: 0.0,
+};
+const INFINITE: D2D_RECT_F = D2D_RECT_F {
+    left: -f32::MAX,
+    top: -f32::MAX,
+    right: f32::MAX,
+    bottom: f32::MAX,
+};
+// Bounds that keep one malformed page from exhausting GPU or CPU memory.
+const MAX_FONT_BYTES: usize = 256 * 1024 * 1024;
+const MAX_IMAGE_BYTES: usize = 256 * 1024 * 1024;
+
+fn color(c: Rgba, alpha: f32) -> D2D1_COLOR_F {
     D2D1_COLOR_F {
         r: f32::from(c.0) / 255.0,
         g: f32::from(c.1) / 255.0,
         b: f32::from(c.2) / 255.0,
-        a: f32::from(c.3) / 255.0,
+        a: f32::from(c.3) / 255.0 * alpha,
     }
+}
+
+/// `local` applied first, then `outer` (Direct2D row-vector convention).
+fn concat(local: &Matrix3x2, outer: &Matrix3x2) -> Matrix3x2 {
+    Matrix3x2 {
+        M11: local.M11 * outer.M11 + local.M12 * outer.M21,
+        M12: local.M11 * outer.M12 + local.M12 * outer.M22,
+        M21: local.M21 * outer.M11 + local.M22 * outer.M21,
+        M22: local.M21 * outer.M12 + local.M22 * outer.M22,
+        M31: local.M31 * outer.M11 + local.M32 * outer.M21 + outer.M31,
+        M32: local.M31 * outer.M12 + local.M32 * outer.M22 + outer.M32,
+    }
+}
+
+fn matrix(m: &[f32; 6]) -> Matrix3x2 {
+    // bo-render: x' = a·x + c·y + e, y' = b·x + d·y + f.
+    Matrix3x2 {
+        M11: m[0],
+        M12: m[1],
+        M21: m[2],
+        M22: m[3],
+        M31: m[4],
+        M32: m[5],
+    }
+}
+
+fn rotation_about(degrees: f32, cx: f32, cy: f32) -> Matrix3x2 {
+    let (s, c) = degrees.to_radians().sin_cos();
+    Matrix3x2 {
+        M11: c,
+        M12: s,
+        M21: -s,
+        M22: c,
+        M31: cx - c * cx + s * cy,
+        M32: cy - s * cx - c * cy,
+    }
+}
+
+fn axis_aligned(m: &Matrix3x2) -> bool {
+    m.M12 == 0.0 && m.M21 == 0.0
+}
+
+fn scale_of(m: &Matrix3x2) -> f32 {
+    (m.M11 * m.M11 + m.M12 * m.M12).sqrt().max(1e-3)
 }
 
 fn valid_path(segs: &[PathSeg]) -> bool {
@@ -30,29 +113,414 @@ fn valid_path(segs: &[PathSeg]) -> bool {
     if segs.is_empty() {
         return false;
     }
+    let finite = |v: &[f32]| v.iter().all(|f| f.is_finite());
     for seg in segs {
-        match seg {
-            PathSeg::M(..) => open = true,
+        match *seg {
+            PathSeg::M(x, y) if finite(&[x, y]) => open = true,
             PathSeg::Z if open => open = false,
-            PathSeg::L(..) | PathSeg::Q(..) | PathSeg::C(..) if open => {}
+            PathSeg::L(x, y) if open && finite(&[x, y]) => {}
+            PathSeg::Q(a, b, c, d) if open && finite(&[a, b, c, d]) => {}
+            PathSeg::C(a, b, c, d, e, f) if open && finite(&[a, b, c, d, e, f]) => {}
             _ => return false,
         }
     }
     true
 }
 
+fn cap(name: &str) -> D2D1_CAP_STYLE {
+    match name {
+        "round" => D2D1_CAP_STYLE_ROUND,
+        "square" => D2D1_CAP_STYLE_SQUARE,
+        _ => D2D1_CAP_STYLE_FLAT,
+    }
+}
+
+fn join(name: &str) -> D2D1_LINE_JOIN {
+    match name {
+        "round" => D2D1_LINE_JOIN_ROUND,
+        "bevel" => D2D1_LINE_JOIN_BEVEL,
+        // Canvas and PDF miter joins fall back to bevel beyond the miter limit.
+        _ => D2D1_LINE_JOIN_MITER_OR_BEVEL,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Saved {
+    AxisClip,
+    LayerClip,
+    Transform(Matrix3x2),
+    Opacity(f32),
+}
+
+/// Walks the list once: checks nesting, the transform and opacity in force for each command.
+struct State {
+    stack: Vec<Saved>,
+    transform: Matrix3x2,
+    alpha: f32,
+}
+
+impl State {
+    fn new() -> Self {
+        Self {
+            stack: Vec::new(),
+            transform: IDENTITY,
+            alpha: 1.0,
+        }
+    }
+
+    /// Apply a state command; `Ok(false)` when `command` draws instead.
+    fn apply(&mut self, command: &Command) -> Result<bool, String> {
+        match command {
+            Command::PushClip { .. } => self.stack.push(if axis_aligned(&self.transform) {
+                Saved::AxisClip
+            } else {
+                Saved::LayerClip
+            }),
+            Command::PushClipPath { .. } => self.stack.push(Saved::LayerClip),
+            Command::PopClip => match self.stack.pop() {
+                Some(Saved::AxisClip | Saved::LayerClip) => {}
+                _ => return Err("unbalanced clip".into()),
+            },
+            Command::PushTransform { m } => {
+                if !m.iter().all(|v| v.is_finite()) {
+                    return Err("invalid transform".into());
+                }
+                self.stack.push(Saved::Transform(self.transform));
+                self.transform = concat(&matrix(m), &self.transform);
+            }
+            Command::PopTransform => match self.stack.pop() {
+                Some(Saved::Transform(t)) => self.transform = t,
+                _ => return Err("unbalanced transform".into()),
+            },
+            Command::PushOpacity { alpha } => {
+                self.stack.push(Saved::Opacity(self.alpha));
+                // Same as the canvas and tiny-skia backends: opacity multiplies each command.
+                self.alpha *= if alpha.is_finite() {
+                    alpha.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+            }
+            Command::PopOpacity => match self.stack.pop() {
+                Some(Saved::Opacity(a)) => self.alpha = a,
+                _ => return Err("unbalanced opacity".into()),
+            },
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+}
+
 impl Device {
-    /// Render a limited display list into an offscreen image using Direct2D and DirectWrite.
+    fn geometry(&self, segs: &[PathSeg]) -> Result<ID2D1PathGeometry1, String> {
+        // SAFETY: the factory owns the geometry; the sink is closed before the geometry is used.
+        unsafe {
+            let geometry = self
+                .factory
+                .CreatePathGeometry()
+                .map_err(|e| e.to_string())?;
+            let sink = geometry.Open().map_err(|e| e.to_string())?;
+            sink.SetFillMode(D2D1_FILL_MODE_WINDING);
+            let mut open = false;
+            for segment in segs {
+                match *segment {
+                    PathSeg::M(x, y) => {
+                        if open {
+                            sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                        }
+                        sink.BeginFigure(Vector2 { X: x, Y: y }, D2D1_FIGURE_BEGIN_FILLED);
+                        open = true;
+                    }
+                    PathSeg::L(x, y) => sink.AddLine(Vector2 { X: x, Y: y }),
+                    PathSeg::Q(x1, y1, x2, y2) => {
+                        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
+                            point1: Vector2 { X: x1, Y: y1 },
+                            point2: Vector2 { X: x2, Y: y2 },
+                        });
+                    }
+                    PathSeg::C(x1, y1, x2, y2, x3, y3) => sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                        point1: Vector2 { X: x1, Y: y1 },
+                        point2: Vector2 { X: x2, Y: y2 },
+                        point3: Vector2 { X: x3, Y: y3 },
+                    }),
+                    PathSeg::Z => {
+                        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                        open = false;
+                    }
+                }
+            }
+            if open {
+                sink.EndFigure(D2D1_FIGURE_END_OPEN);
+            }
+            sink.Close().map_err(|e| e.to_string())?;
+            Ok(geometry)
+        }
+    }
+
+    fn solid(&self, c: Rgba, alpha: f32) -> Result<ID2D1Brush, String> {
+        // SAFETY: the context owns the returned brush.
+        unsafe {
+            self.context
+                .CreateSolidColorBrush(&color(c, alpha), None)
+                .map_err(|e| e.to_string())?
+                .cast()
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    fn paint(&self, paint: &Paint, alpha: f32) -> Result<ID2D1Brush, String> {
+        let stops = |stops: &[bo_render::GradientStop]| -> Vec<D2D1_GRADIENT_STOP> {
+            stops
+                .iter()
+                .map(|s| D2D1_GRADIENT_STOP {
+                    position: if s.offset.is_finite() {
+                        s.offset.clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    },
+                    color: color(s.color, 1.0),
+                })
+                .collect()
+        };
+        let props = D2D1_BRUSH_PROPERTIES {
+            opacity: alpha,
+            transform: IDENTITY,
+        };
+        // SAFETY: the context owns the stop collection and brushes it creates.
+        unsafe {
+            match paint {
+                Paint::Solid { color: c } => self.solid(*c, alpha),
+                Paint::Linear {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    stops: s,
+                } => {
+                    if s.is_empty() {
+                        return self.solid(Rgba(0, 0, 0, 0), 0.0);
+                    }
+                    // ECMA-376 §20.1.8.33 gsLst; pad spread = clamp. Gamma 2.2 interpolates in
+                    // sRGB like the canvas and tiny-skia backends.
+                    // The ID2D1RenderTarget overload: gamma + extend mode only.
+                    let target: &ID2D1RenderTarget = &self.context;
+                    let collection = target
+                        .CreateGradientStopCollection(
+                            &stops(s),
+                            D2D1_GAMMA_2_2,
+                            D2D1_EXTEND_MODE_CLAMP,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    self.context
+                        .CreateLinearGradientBrush(
+                            &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                                startPoint: Vector2 { X: *x1, Y: *y1 },
+                                endPoint: Vector2 { X: *x2, Y: *y2 },
+                            },
+                            Some(&props),
+                            &collection,
+                        )
+                        .map_err(|e| e.to_string())?
+                        .cast()
+                        .map_err(|e| e.to_string())
+                }
+                Paint::Radial {
+                    cx,
+                    cy,
+                    r,
+                    stops: s,
+                } => {
+                    if s.is_empty() {
+                        return self.solid(Rgba(0, 0, 0, 0), 0.0);
+                    }
+                    // The ID2D1RenderTarget overload: gamma + extend mode only.
+                    let target: &ID2D1RenderTarget = &self.context;
+                    let collection = target
+                        .CreateGradientStopCollection(
+                            &stops(s),
+                            D2D1_GAMMA_2_2,
+                            D2D1_EXTEND_MODE_CLAMP,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    self.context
+                        .CreateRadialGradientBrush(
+                            &D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES {
+                                center: Vector2 { X: *cx, Y: *cy },
+                                gradientOriginOffset: Vector2 { X: 0.0, Y: 0.0 },
+                                radiusX: *r,
+                                radiusY: *r,
+                            },
+                            Some(&props),
+                            &collection,
+                        )
+                        .map_err(|e| e.to_string())?
+                        .cast()
+                        .map_err(|e| e.to_string())
+                }
+            }
+        }
+    }
+
+    fn stroke_style(
+        &self,
+        width: f32,
+        dash: &[f32],
+        cap_style: D2D1_CAP_STYLE,
+        line_join: D2D1_LINE_JOIN,
+    ) -> Result<ID2D1StrokeStyle, String> {
+        // Direct2D dash lengths are multiples of the stroke width; the display list uses points.
+        let mut dashes: Vec<f32> = dash
+            .iter()
+            .map(|d| if d.is_finite() { d.max(0.0) } else { 0.0 } / width)
+            .collect();
+        let usable = dashes.iter().any(|d| *d > 0.0);
+        if dashes.len() % 2 == 1 {
+            // Canvas repeats an odd dash list to make it even.
+            dashes.extend_from_within(..);
+        }
+        let props = D2D1_STROKE_STYLE_PROPERTIES1 {
+            startCap: cap_style,
+            endCap: cap_style,
+            dashCap: cap_style,
+            lineJoin: line_join,
+            miterLimit: 10.0,
+            dashStyle: if usable {
+                D2D1_DASH_STYLE_CUSTOM
+            } else {
+                D2D1_DASH_STYLE_SOLID
+            },
+            dashOffset: 0.0,
+            transformType: D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
+        };
+        // SAFETY: the factory copies the dash array during the call.
+        unsafe {
+            self.factory
+                .CreateStrokeStyle(&props, if usable { Some(&dashes) } else { None })
+                .map_err(|e| e.to_string())?
+                .cast()
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    fn stroke(&self, s: &Stroke) -> Result<ID2D1StrokeStyle, String> {
+        self.stroke_style(s.width, &s.dash, cap(&s.cap), join(&s.join))
+    }
+
+    #[allow(clippy::chunks_exact_to_as_chunks)] // `as_chunks` exceeds the workspace MSRV.
+    fn bitmap(&self, image: &Bitmap) -> Result<ID2D1Bitmap1, String> {
+        let len = (image.width as usize)
+            .checked_mul(image.height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or("image too large")?;
+        if image.width == 0 || image.height == 0 || image.pixels.len() != len {
+            return Err("invalid image".into());
+        }
+        // Premultiplied RGBA → BGRA, the format Direct2D bitmaps support everywhere.
+        let mut bgra = image.pixels.clone();
+        for px in bgra.chunks_exact_mut(4) {
+            px.swap(0, 2);
+        }
+        let props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
+            dpiX: 96.0,
+            dpiY: 96.0,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_NONE,
+            ..Default::default()
+        };
+        // SAFETY: `bgra` holds width × height × 4 bytes with the given pitch during the copy.
+        unsafe {
+            self.context
+                .CreateBitmap(
+                    D2D_SIZE_U {
+                        width: image.width,
+                        height: image.height,
+                    },
+                    Some(bgra.as_ptr().cast()),
+                    image.width * 4,
+                    &props,
+                )
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    /// Record a blurred, grown fill in device-independent page space (identity world transform).
+    fn blur_image(
+        &self,
+        segs: &[PathSeg],
+        c: Rgba,
+        (radius, spread): (f32, f32),
+        state: &State,
+    ) -> Result<ID2D1Image, String> {
+        let geometry = self.geometry(segs)?;
+        // SAFETY: the command list is recorded while the context targets it, outside the page's
+        // BeginDraw; the target is reset before returning. The effect holds its own input reference.
+        unsafe {
+            let transformed = self
+                .factory
+                .CreateTransformedGeometry(&geometry, &state.transform)
+                .map_err(|e| e.to_string())?;
+            let scale = scale_of(&state.transform);
+            let list: ID2D1CommandList = self
+                .context
+                .CreateCommandList()
+                .map_err(|e| e.to_string())?;
+            let brush = self.solid(c, state.alpha)?;
+            self.context.SetTarget(&list);
+            self.context.BeginDraw();
+            self.context.SetTransform(&IDENTITY);
+            self.context
+                .FillGeometry(&transformed, &brush, None::<&ID2D1Brush>);
+            if spread > 0.0 {
+                // DrawingML glow §20.1.8.32: the outline stroked 2 × spread wide, round joins.
+                let style =
+                    self.stroke_style(1.0, &[], D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND)?;
+                self.context
+                    .DrawGeometry(&transformed, &brush, spread * 2.0 * scale, &style);
+            }
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            ended.map_err(|e| e.to_string())?;
+            list.Close().map_err(|e| e.to_string())?;
+            let effect = self
+                .context
+                .CreateEffect(&CLSID_D2D1GaussianBlur)
+                .map_err(|e| e.to_string())?;
+            effect.SetInput(
+                0,
+                &list.cast::<ID2D1Image>().map_err(|e| e.to_string())?,
+                true,
+            );
+            // Canvas `blur(radius × scale / 2)` and tiny-skia's three box blurs use the
+            // same standard deviation: half the radius (§20.1.8.49 outerShdw@blurRad).
+            let sigma = (radius.max(0.0) * scale / 2.0).to_le_bytes();
+            effect
+                .SetValue(
+                    D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION.0 as u32,
+                    D2D1_PROPERTY_TYPE_FLOAT,
+                    &sigma,
+                )
+                .map_err(|e| e.to_string())?;
+            effect.GetOutput().map_err(|e| e.to_string())
+        }
+    }
+
+    /// Render a page display list into an offscreen image using Direct2D and DirectWrite.
     ///
-    /// Only solid rectangles, solid lines, solid-filled paths, rectangular clips and glyph runs
-    /// are supported. The function
-    /// rejects every other operation before drawing, so a caller can select a complete fallback
-    /// instead of silently dropping content. This is not yet the editor's window surface.
-    pub fn render_basic_page(
+    /// Every display command is drawn: rectangles, solid and dashed lines, filled and stroked
+    /// paths with solid or gradient paint, glyph runs, rectangular and path clips, transforms,
+    /// opacity, pictures (`images` resolves an id to premultiplied RGBA, `None` draws the grey
+    /// placeholder of the other backends) and blurred shadows. Malformed nesting or geometry
+    /// is rejected before drawing so the caller can fall back for the whole page.
+    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
+    pub fn render_page(
         &self,
         page: &PageList,
         fonts: &FontManager,
         pixels_per_point: f32,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
     ) -> Result<PageImage, String> {
         if !pixels_per_point.is_finite()
             || pixels_per_point <= 0.0
@@ -65,40 +533,106 @@ impl Device {
         }
         let width = (page.width * pixels_per_point).ceil() as u32;
         let height = (page.height * pixels_per_point).ceil() as u32;
-        let bytes = (width as usize)
-            .checked_mul(height as usize)
-            .and_then(|n| n.checked_mul(4))
-            .filter(|n| *n <= 64 * 1024 * 1024)
-            .ok_or("page too large")?;
         if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
             return Err("page too large or empty".into());
         }
-        let mut depth = 0_usize;
-        for command in &page.commands {
+        let bytes = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .filter(|n| *n <= 256 * 1024 * 1024)
+            .ok_or("page too large")?;
+
+        // Pass 1: validate, prepare glyph runs, decode pictures and record blurred shapes.
+        let mut faces = self.faces.try_borrow_mut().map_err(|_| "font cache busy")?;
+        let mut state = State::new();
+        let mut runs = HashMap::new();
+        let mut blurs = HashMap::new();
+        let mut bitmaps: HashMap<&str, Option<ID2D1Bitmap1>> = HashMap::new();
+        let mut image_bytes = 0_usize;
+        for (index, command) in page.commands.iter().enumerate() {
+            if state.apply(command)? {
+                continue;
+            }
             match command {
-                Command::FillRect { .. } | Command::Line { dash: None, .. } => {}
-                Command::Glyphs { face, .. } if (*face as usize) < fonts.len() => {}
-                Command::PushClip { .. } => depth += 1,
-                Command::PopClip if depth > 0 => depth -= 1,
-                Command::Path {
+                Command::Glyphs {
+                    face, size, glyphs, ..
+                } => {
+                    if (*face as usize) >= fonts.len() {
+                        return Err("unknown font face".into());
+                    }
+                    if glyphs.is_empty() {
+                        continue;
+                    }
+                    let (font, collection) = fonts.data(FaceId(*face));
+                    let positions: Vec<bo_dwrite::Glyph> = glyphs
+                        .iter()
+                        .map(|g| bo_dwrite::Glyph {
+                            id: g.0,
+                            x: g.1,
+                            y: g.2,
+                        })
+                        .collect();
+                    runs.insert(
+                        index,
+                        faces.run(*face, font, collection, &positions, *size)?,
+                    );
+                }
+                Command::Path { segs, .. } | Command::PushClipPath { segs }
+                    if !valid_path(segs) =>
+                {
+                    return Err("invalid path".into());
+                }
+                Command::BlurPath {
                     segs,
-                    fill: Some(Paint::Solid { .. }),
-                    stroke: None,
-                } if valid_path(segs) => {}
-                _ => return Err("unsupported display command or font face".into()),
+                    color: c,
+                    radius,
+                    spread,
+                } => {
+                    if !valid_path(segs) || !radius.is_finite() || !spread.is_finite() {
+                        return Err("invalid blurred path".into());
+                    }
+                    blurs.insert(
+                        index,
+                        self.blur_image(segs, *c, (*radius, *spread), &state)?,
+                    );
+                }
+                Command::Image { image, .. } if !bitmaps.contains_key(image.as_str()) => {
+                    let decoded = images(image);
+                    let bitmap = match decoded {
+                        Some(b) => {
+                            image_bytes = image_bytes.saturating_add(b.pixels.len());
+                            if image_bytes > MAX_IMAGE_BYTES {
+                                return Err("pictures too large".into());
+                            }
+                            self.bitmap(&b).ok()
+                        }
+                        None => None,
+                    };
+                    bitmaps.insert(image.as_str(), bitmap);
+                }
+                _ => {}
             }
         }
-        if depth != 0 {
-            return Err("unbalanced rectangular clips".into());
+        if !state.stack.is_empty() {
+            return Err("unbalanced clip, transform or opacity".into());
         }
-        // SAFETY: the Direct2D interfaces own the target and staging bitmaps. Glyph-run buffers
-        // are valid during each synchronous draw. The mapped staging bitmap is read within its
-        // documented dimensions and unmapped before return; the context target is always reset.
+        if faces.font_bytes() > MAX_FONT_BYTES {
+            // Drop cached copies of a very large font set rather than keep growing.
+            faces.clear();
+        }
+        drop(faces);
+
+        // SAFETY: the Direct2D interfaces own the target and staging bitmaps. Glyph runs, their
+        // buffers, bitmaps and blur images outlive EndDraw. Layers and clips pushed here are
+        // popped before EndDraw; the mapped staging bitmap is read within its dimensions and
+        // unmapped before return; the context target, transform and DPI are always reset.
         unsafe {
             let size = D2D_SIZE_U { width, height };
+            // The page is opaque: an alpha-ignoring target lets Direct2D draw ClearType text
+            // (premultiplied targets fall back to grayscale), following the system setting.
             let pixel = D2D1_PIXEL_FORMAT {
                 format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                alphaMode: D2D1_ALPHA_MODE_IGNORE,
             };
             let dpi = 96.0 * pixels_per_point;
             let props = D2D1_BITMAP_PROPERTIES1 {
@@ -114,16 +648,56 @@ impl Device {
                 .map_err(|e| e.to_string())?;
             self.context.SetTarget(&target);
             self.context.SetDpi(dpi, dpi);
+            self.apply_text_rendering()?;
             self.context.BeginDraw();
-            self.context.Clear(Some(&D2D1_COLOR_F {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            }));
-            let mut active_clips = 0_usize;
+            self.context.SetTransform(&IDENTITY);
+            self.context
+                .Clear(Some(&color(Rgba(255, 255, 255, 255), 1.0)));
+            let mut state = State::new();
             let drawn = (|| -> Result<(), String> {
-                for command in &page.commands {
+                for (index, command) in page.commands.iter().enumerate() {
+                    match command {
+                        Command::PushClip { x, y, w, h } => {
+                            let rect = D2D_RECT_F {
+                                left: *x,
+                                top: *y,
+                                right: x + w,
+                                bottom: y + h,
+                            };
+                            if axis_aligned(&state.transform) {
+                                self.context
+                                    .PushAxisAlignedClip(&rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                            } else {
+                                let geometry: ID2D1Geometry = self
+                                    .factory
+                                    .CreateRectangleGeometry(&rect)
+                                    .map_err(|e| e.to_string())?
+                                    .cast()
+                                    .map_err(|e| e.to_string())?;
+                                self.push_mask(geometry);
+                            }
+                        }
+                        Command::PushClipPath { segs } => {
+                            let geometry: ID2D1Geometry =
+                                self.geometry(segs)?.cast().map_err(|e| e.to_string())?;
+                            self.push_mask(geometry);
+                        }
+                        Command::PopClip => match state.stack.last() {
+                            Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),
+                            _ => self.context.PopLayer(),
+                        },
+                        _ => {}
+                    }
+                    if state.apply(command)? {
+                        if matches!(
+                            command,
+                            Command::PushTransform { .. } | Command::PopTransform
+                        ) {
+                            self.context.SetTransform(&state.transform);
+                        }
+                        continue;
+                    }
+                    let alpha = state.alpha;
                     match command {
                         Command::FillRect {
                             x,
@@ -132,10 +706,7 @@ impl Device {
                             h,
                             color: c,
                         } => {
-                            let brush = self
-                                .context
-                                .CreateSolidColorBrush(&color(*c), None)
-                                .map_err(|e| e.to_string())?;
+                            let brush = self.solid(*c, alpha)?;
                             self.context.FillRectangle(
                                 &D2D_RECT_F {
                                     left: *x,
@@ -153,137 +724,136 @@ impl Device {
                             y2,
                             width,
                             color: c,
-                            ..
+                            dash,
                         } => {
-                            let brush = self
-                                .context
-                                .CreateSolidColorBrush(&color(*c), None)
-                                .map_err(|e| e.to_string())?;
+                            if *width <= 0.0 || !width.is_finite() {
+                                continue;
+                            }
+                            let brush = self.solid(*c, alpha)?;
+                            let style = self.stroke_style(
+                                *width,
+                                dash.as_ref().map_or(&[][..], |d| &d[..]),
+                                D2D1_CAP_STYLE_FLAT,
+                                D2D1_LINE_JOIN_MITER_OR_BEVEL,
+                            )?;
                             self.context.DrawLine(
                                 Vector2 { X: *x1, Y: *y1 },
                                 Vector2 { X: *x2, Y: *y2 },
                                 &brush,
                                 *width,
-                                None::<&ID2D1StrokeStyle>,
+                                &style,
                             );
                         }
-                        Command::Glyphs {
-                            face,
-                            size,
+                        Command::Glyphs { color: c, x, y, .. } => {
+                            let Some(run) = runs.get(&index) else {
+                                continue;
+                            };
+                            let brush = self.solid(*c, alpha)?;
+                            self.context.DrawGlyphRun(
+                                Vector2 { X: *x, Y: *y },
+                                run.as_raw(),
+                                None,
+                                &brush,
+                                DWRITE_MEASURING_MODE_NATURAL,
+                            );
+                        }
+                        Command::Path { segs, fill, stroke } => {
+                            let geometry = self.geometry(segs)?;
+                            if let Some(fill) = fill {
+                                let brush = self.paint(fill, alpha)?;
+                                self.context
+                                    .FillGeometry(&geometry, &brush, None::<&ID2D1Brush>);
+                            }
+                            if let Some(s) = stroke.as_ref().filter(|s| s.width > 0.0) {
+                                let brush = self.solid(s.color, alpha)?;
+                                let style = self.stroke(s)?;
+                                self.context
+                                    .DrawGeometry(&geometry, &brush, s.width, &style);
+                            }
+                        }
+                        Command::BlurPath { .. } => {
+                            let Some(image) = blurs.get(&index) else {
+                                continue;
+                            };
+                            // The blur was recorded in page space: draw without the transform.
+                            self.context.SetTransform(&IDENTITY);
+                            self.context.DrawImage(
+                                image,
+                                None,
+                                None,
+                                D2D1_INTERPOLATION_MODE_LINEAR,
+                                D2D1_COMPOSITE_MODE_SOURCE_OVER,
+                            );
+                            self.context.SetTransform(&state.transform);
+                        }
+                        Command::Image {
                             x,
                             y,
-                            color: c,
-                            glyphs,
-                            ..
+                            w,
+                            h,
+                            image,
+                            crop,
+                            rotation,
                         } => {
-                            if glyphs.is_empty() {
-                                continue;
-                            }
-                            let brush = self
-                                .context
-                                .CreateSolidColorBrush(&color(*c), None)
-                                .map_err(|e| e.to_string())?;
-                            let (font, index) = fonts.data(FaceId(*face));
-                            let positions: Vec<bo_dwrite::Glyph> = glyphs
-                                .iter()
-                                .map(|g| bo_dwrite::Glyph {
-                                    id: g.0,
-                                    x: g.1,
-                                    y: g.2,
-                                })
-                                .collect();
-                            bo_dwrite::with_glyph_run(font, index, &positions, *size, |run| {
-                                self.context.DrawGlyphRun(
-                                    Vector2 { X: *x, Y: *y },
-                                    run,
-                                    None,
-                                    &brush,
-                                    DWRITE_MEASURING_MODE_NATURAL,
-                                );
-                                Ok(())
-                            })?;
-                        }
-                        Command::PushClip { x, y, w, h } => {
-                            self.context.PushAxisAlignedClip(
-                                &D2D_RECT_F {
-                                    left: *x,
-                                    top: *y,
-                                    right: x + w,
-                                    bottom: y + h,
-                                },
-                                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-                            );
-                            active_clips += 1;
-                        }
-                        Command::PopClip => {
-                            self.context.PopAxisAlignedClip();
-                            active_clips -= 1;
-                        }
-                        Command::Path {
-                            segs,
-                            fill: Some(Paint::Solid { color: c }),
-                            stroke: None,
-                        } => {
-                            let geometry = self
-                                .factory
-                                .CreatePathGeometry()
-                                .map_err(|e| e.to_string())?;
-                            let sink = geometry.Open().map_err(|e| e.to_string())?;
-                            sink.SetFillMode(D2D1_FILL_MODE_WINDING);
-                            let mut open = false;
-                            for segment in segs {
-                                match *segment {
-                                    PathSeg::M(x, y) => {
-                                        if open {
-                                            sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                                        }
-                                        sink.BeginFigure(
-                                            Vector2 { X: x, Y: y },
-                                            D2D1_FIGURE_BEGIN_FILLED,
-                                        );
-                                        open = true;
-                                    }
-                                    PathSeg::L(x, y) => sink.AddLine(Vector2 { X: x, Y: y }),
-                                    PathSeg::Q(x1, y1, x2, y2) => {
-                                        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
-                                            point1: Vector2 { X: x1, Y: y1 },
-                                            point2: Vector2 { X: x2, Y: y2 },
-                                        })
-                                    }
-                                    PathSeg::C(x1, y1, x2, y2, x3, y3) => {
-                                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
-                                            point1: Vector2 { X: x1, Y: y1 },
-                                            point2: Vector2 { X: x2, Y: y2 },
-                                            point3: Vector2 { X: x3, Y: y3 },
-                                        })
-                                    }
-                                    PathSeg::Z => {
-                                        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
-                                        open = false;
-                                    }
+                            let local = if *rotation == 0.0 || !rotation.is_finite() {
+                                state.transform
+                            } else {
+                                concat(
+                                    &rotation_about(*rotation, x + w / 2.0, y + h / 2.0),
+                                    &state.transform,
+                                )
+                            };
+                            self.context.SetTransform(&local);
+                            let dest = D2D_RECT_F {
+                                left: *x,
+                                top: *y,
+                                right: x + w,
+                                bottom: y + h,
+                            };
+                            match bitmaps.get(image.as_str()).and_then(Option::as_ref) {
+                                Some(bitmap) => {
+                                    let s = bitmap.GetPixelSize();
+                                    let (iw, ih) = (s.width as f32, s.height as f32);
+                                    let [l, t, r, b] = crop.unwrap_or([0.0; 4]);
+                                    // Same source rectangle as the canvas backend.
+                                    let source = D2D_RECT_F {
+                                        left: iw * l,
+                                        top: ih * t,
+                                        right: iw * l + iw * (1.0 - l - r).max(0.0001),
+                                        bottom: ih * t + ih * (1.0 - t - b).max(0.0001),
+                                    };
+                                    self.context.DrawBitmap(
+                                        bitmap,
+                                        Some(&dest),
+                                        alpha,
+                                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+                                        Some(&source),
+                                        None,
+                                    );
+                                }
+                                None => {
+                                    let brush = self.solid(Rgba(224, 224, 224, 255), alpha)?;
+                                    self.context.FillRectangle(&dest, &brush);
                                 }
                             }
-                            if open {
-                                sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                            }
-                            sink.Close().map_err(|e| e.to_string())?;
-                            let brush = self
-                                .context
-                                .CreateSolidColorBrush(&color(*c), None)
-                                .map_err(|e| e.to_string())?;
-                            self.context
-                                .FillGeometry(&geometry, &brush, None::<&ID2D1Brush>);
+                            self.context.SetTransform(&state.transform);
                         }
-                        _ => return Err("unsupported display command".into()),
+                        _ => {}
                     }
                 }
                 Ok(())
             })();
-            for _ in 0..active_clips {
-                self.context.PopAxisAlignedClip();
+            // Unwind whatever an early error left pushed, innermost first.
+            while let Some(saved) = state.stack.pop() {
+                match saved {
+                    Saved::AxisClip => self.context.PopAxisAlignedClip(),
+                    Saved::LayerClip => self.context.PopLayer(),
+                    Saved::Transform(_) | Saved::Opacity(_) => {}
+                }
             }
             let ended = self.context.EndDraw(None, None);
             self.context.SetTarget(None::<&ID2D1Image>);
+            self.context.SetTransform(&IDENTITY);
             self.context.SetDpi(96.0, 96.0);
             drawn?;
             ended.map_err(|e| e.to_string())?;
@@ -315,7 +885,11 @@ impl Device {
                     mapped.bits.add(y * mapped.pitch as usize),
                     row_bytes,
                 );
-                pixels[y * row_bytes..(y + 1) * row_bytes].copy_from_slice(src);
+                let dst = &mut pixels[y * row_bytes..(y + 1) * row_bytes];
+                // BGRA → RGBA; the target ignores alpha, so the page is written fully opaque.
+                for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                    d.copy_from_slice(&[s[2], s[1], s[0], 255]);
+                }
             }
             staging.Unmap().map_err(|e| e.to_string())?;
             Ok(PageImage {
@@ -323,6 +897,68 @@ impl Device {
                 height,
                 pixels,
             })
+        }
+    }
+
+    /// Set the text antialiasing mode and DirectWrite parameters for the chosen mode.
+    unsafe fn apply_text_rendering(&self) -> Result<(), String> {
+        let mode = *self.text.borrow();
+        // SAFETY: the factory and rendering parameters are owned COM references; the context
+        // keeps its own reference to the parameters it is given.
+        unsafe {
+            match mode {
+                TextRendering::System => {
+                    self.context
+                        .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
+                    self.context
+                        .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
+                }
+                TextRendering::Grayscale => {
+                    self.context
+                        .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+                    self.context
+                        .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
+                }
+                TextRendering::ClearType {
+                    gamma,
+                    contrast,
+                    level,
+                } => {
+                    let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
+                        .map_err(|e| e.to_string())?;
+                    let params = factory
+                        .CreateCustomRenderingParams(
+                            gamma.clamp(1.0, 3.0),
+                            contrast.clamp(0.0, 4.0),
+                            level.clamp(0.0, 1.0),
+                            DWRITE_PIXEL_GEOMETRY_RGB,
+                            DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    self.context
+                        .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+                    self.context.SetTextRenderingParams(&params);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Push a layer clipped to `geometry` (in the current world space).
+    unsafe fn push_mask(&self, geometry: ID2D1Geometry) {
+        let mut params = D2D1_LAYER_PARAMETERS1 {
+            contentBounds: INFINITE,
+            geometricMask: ManuallyDrop::new(Some(geometry)),
+            maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+            maskTransform: IDENTITY,
+            opacity: 1.0,
+            opacityBrush: ManuallyDrop::new(None),
+            layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+        };
+        // SAFETY: Direct2D adds its own reference to the mask; ours is released right after.
+        unsafe {
+            self.context.PushLayer(&params, None);
+            ManuallyDrop::drop(&mut params.geometricMask);
         }
     }
 }

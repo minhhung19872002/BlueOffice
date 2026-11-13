@@ -2887,6 +2887,13 @@ export interface SlideEditResult {
 
 // ---------------------------------------------------------------- services
 
+/** Native (Direct2D + DirectWrite) page image: opaque RGBA pixels, row-major. */
+export interface NativePageRaster {
+  width: number;
+  height: number;
+  pixels: Uint8Array;
+}
+
 /** The core engine. Same API whether it runs as WASM (web) or natively (desktop). */
 export interface EngineHost {
   readonly backend: 'wasm' | 'native';
@@ -2898,6 +2905,8 @@ export interface EngineHost {
    */
   open(bytes: Uint8Array, name: string, password?: string): Promise<DocInfo>;
   getPage(index: number): Promise<PageDisplayList>;
+  /** Optional experimental renderer; null means the caller should use its normal renderer. */
+  getNativePageRaster?(page: PageDisplayList, scale: number): Promise<NativePageRaster | null>;
   getGlyphOutlines(face: number, glyphs: number[]): Promise<GlyphOutline[]>;
   exportPdf(): Promise<Uint8Array>;
   /** Start a blank document. */

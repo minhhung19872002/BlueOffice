@@ -958,13 +958,33 @@ export class DocumentView {
           )
             return;
           const scale = PX_PER_PT * this.zoomValue * dpr;
+          const raster = await this.engine.getNativePageRaster?.(list, scale).catch(() => null);
+          // A native render is asynchronous too: discard it if an edit, zoom or resize won.
+          if (
+            this.lists.get(i) !== request ||
+            this.slots[i] !== slot ||
+            key !== `${this.zoomValue}@${window.devicePixelRatio || 1}` ||
+            slot.renderedAt === key
+          )
+            return;
           const canvas = slot.canvas ?? document.createElement('canvas');
-          canvas.width = Math.round(list.width * scale);
-          canvas.height = Math.round(list.height * scale);
+          canvas.width = raster?.width ?? Math.round(list.width * scale);
+          canvas.height = raster?.height ?? Math.round(list.height * scale);
           canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
           const ctx = canvas.getContext('2d');
           if (!ctx) return;
-          renderPage(ctx, list, this.glyphs, scale, this.images);
+          if (raster) {
+            // Direct2D output is already opaque RGBA: wrap it without copying.
+            const rgba = new Uint8ClampedArray(
+              raster.pixels.buffer as ArrayBuffer,
+              raster.pixels.byteOffset,
+              raster.pixels.byteLength,
+            );
+            ctx.putImageData(new ImageData(rgba, raster.width, raster.height), 0, 0);
+          } else {
+            renderPage(ctx, list, this.glyphs, scale, this.images);
+          }
+          slot.el.dataset.renderer = raster ? 'direct2d' : 'canvas';
           if (list.marks?.length) drawFormattingMarks(ctx, list.marks, scale);
           slot.el.dataset.marks = String(list.marks?.length ?? 0);
           this.paintMarkup(slot, list.width, list.height, list.markup);

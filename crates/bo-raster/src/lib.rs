@@ -590,6 +590,13 @@ fn pixmap_of(img: codecs::Rgba) -> Option<Pixmap> {
     Pixmap::from_vec(data, tiny_skia::IntSize::from_wh(img.width, img.height)?)
 }
 
+/// Decode a picture (PNG, JPEG, GIF, BMP, TIFF) to `(width, height, premultiplied RGBA)`
+/// for native renderers that upload pixels themselves (Direct2D on the desktop).
+pub fn decode_premultiplied(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let pm = decode_image(bytes)?;
+    Some((pm.width(), pm.height(), pm.take()))
+}
+
 /// Re-encode a GIF, BMP or TIFF picture as PNG (`None` for other or broken input),
 /// so that every display list backend can draw it.
 pub fn transcode_to_png(bytes: &[u8]) -> Option<Vec<u8>> {

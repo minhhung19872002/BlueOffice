@@ -1,7 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
-import { appForPath, createDesktopPlatform, type Invoke } from '../src/desktop';
+import { appForPath, createDesktopPlatform, NativeEngineHost, type Invoke } from '../src/desktop';
 
 describe('DesktopPlatform', () => {
+  it('decodes a native page and falls back when the renderer rejects a page', async () => {
+    let rejected = false;
+    let malformed = false;
+    const fake = vi.fn(async (cmd: string) => {
+      if (cmd === 'engine_gpu_available') return true;
+      if (cmd === 'engine_gpu_page') {
+        if (rejected) throw new Error('unsupported display command');
+        if (malformed) return new Uint8Array([1, 0, 0, 0, 1, 0, 0, 0]).buffer;
+        return new Uint8Array([1, 0, 0, 0, 1, 0, 0, 0, 3, 2, 1, 255]).buffer;
+      }
+      return null;
+    }) as unknown as Invoke;
+    const host = new NativeEngineHost(fake);
+    const page = { width: 1, height: 1, commands: [] };
+    expect(await host.getNativePageRaster(page, 1)).toEqual({
+      width: 1,
+      height: 1,
+      pixels: new Uint8Array([3, 2, 1, 255]),
+    });
+    rejected = true;
+    expect(await host.getNativePageRaster(page, 1)).toBeNull();
+    rejected = false;
+    malformed = true;
+    expect(await host.getNativePageRaster(page, 1)).toBeNull();
+    expect(
+      vi.mocked(fake).mock.calls.filter(([cmd]) => cmd === 'engine_gpu_available'),
+    ).toHaveLength(1);
+  });
+
   it('routes engine calls to Tauri commands with raw binary bodies', async () => {
     const calls: { cmd: string; args: unknown; options: unknown }[] = [];
     const fake = vi.fn(async (cmd: string, args?: unknown, options?: unknown) => {

@@ -15,6 +15,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
+bo-raster.workspace = true
+bo-render.workspace = true
 # Ký số: .p12/.pem, USB token (PKCS#11, desktop only), remote signing, RFC 3161.
 bo-sign = { path = "../../../crates/bo-sign", features = ["http", "pkcs11", "pkcs12"] }
 base64 = "0.22"
@@ -29,6 +31,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = { version = "2", optional = true }
 
+[target.'cfg(windows)'.dependencies]
+bo-gpu-win = { path = "../../../crates/bo-gpu-win", optional = true }
+
 [dev-dependencies]
 rand = "0.8"
 
@@ -42,6 +47,8 @@ updater = ["dep:tauri-plugin-updater"]
 webdriver = []
 # Diagnostic builds only; never enabled in the installer.
 heap-profile = ["webdriver", "dep:stats_alloc"]
+# Experimental offscreen Direct2D rendering; unsupported content uses the current renderer.
+gpu-preview = ["dep:bo-gpu-win"]
 
 [lints]
 workspace = true

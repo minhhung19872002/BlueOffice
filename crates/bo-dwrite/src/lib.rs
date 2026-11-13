@@ -35,19 +35,9 @@ pub struct Mask {
 #[allow(unsafe_code)]
 mod windows;
 
-/// Call `draw` with a DirectWrite glyph run backed by the provided font and engine positions.
-/// The run and its font face are valid only for the duration of the callback. This Windows-only
-/// adapter lets a native surface consume the same positioned glyphs as the layout engine.
+/// An owned, positioned glyph run and a font-face cache for native renderers.
 #[cfg(windows)]
-pub fn with_glyph_run<T>(
-    font: &[u8],
-    face_index: u32,
-    glyphs: &[Glyph],
-    size: f32,
-    draw: impl FnOnce(&::windows::Win32::Graphics::DirectWrite::DWRITE_GLYPH_RUN) -> Result<T, String>,
-) -> Result<T, String> {
-    windows::with_glyph_run(font, face_index, glyphs, size, draw)
-}
+pub use windows::{FaceCache, PreparedGlyphRun};
 
 /// Rasterize a positioned run with DirectWrite, preserving the engine's glyph positions.
 ///

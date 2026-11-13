@@ -1,6 +1,6 @@
 # ADR-0017: Hướng vẽ tài liệu desktop theo số đo
 
-- Trạng thái: Đề xuất, chưa triển khai renderer native · Ngày: 2026-11-12
+- Trạng thái: Đề xuất; renderer Direct2D ngoài màn hình đủ lệnh (feature `gpu-preview`), chưa có surface cửa sổ · Ngày: 2026-11-12, cập nhật 2026-11-13
 - Liên quan: ADR-0003 (font và phân trang), ADR-0016 (khung cửa sổ), `docs/perf/BASELINE.md`.
 
 ## Bối cảnh và quyết định tạm thời
@@ -39,6 +39,21 @@ phương án phần mềm dự phòng và hiệu năng. Phải thử thứ tự 
 [tài liệu WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/overview-features-apis)
 phân biệt windowed hosting với composition hosting. Chưa quyết định đổi kiến trúc Tauri
 hay thay wgpu, vì chưa kiểm chứng được kết hợp surface với IME, truy cập và giao diện hiện có.
-`bo-dwrite` đã cung cấp glyph run có vòng đời trong callback; kiểm thử Direct2D đã vẽ glyph
-đó vào surface ngoài màn hình. Chưa có cache font, surface của cửa sổ hay đường truyền từ
-display list của editor, nên đây chưa phải renderer Direct2D/GPU đã kết nối vào ứng dụng.
+`bo-dwrite` cung cấp glyph run sở hữu dữ liệu font và `FaceCache` (một factory/loader, mỗi
+font chỉ sao một lần). `bo-gpu-win::Device::render_page` vẽ **mọi** lệnh display list bằng
+Direct2D: hình chữ nhật, đường liền/nét đứt, path tô màu/gradient tuyến tính/xuyên tâm + viền
+(cap/join/dash), glyph run DirectWrite, clip chữ nhật (layer khi transform xoay), clip path,
+transform, opacity nhân vào từng lệnh như canvas/tiny-skia, ảnh (crop, xoay, placeholder xám)
+và bóng mờ (Gaussian blur, σ = radius/2 như hai backend kia). Lồng sai hoặc hình học không hợp lệ
+bị từ chối trước khi vẽ để WebView quay về canvas cho cả trang.
+
+Feature `gpu-preview` của desktop gọi đường này qua IPC (`engine_gpu_page`) rồi `putImageData`
+vào canvas của trang; đây vẫn là ảnh đọc ngược về CPU, **chưa** phải surface DirectComposition
+của cửa sổ, nên chưa bỏ được chi phí readback + IPC. Giao diện ribbon/hộp thoại vẫn là HTML do
+WebView2 (Chromium) vẽ — Chromium đã dùng GPU và DirectWrite cho chữ giao diện trên Windows.
+
+Chữ: target bỏ alpha (`D2D1_ALPHA_MODE_IGNORE`) để Direct2D dùng được ClearType. ClearType mặc
+định của hệ thống cho viền màu gấp khoảng 2,3 lần phép đo trên ảnh chụp trình soạn thảo đối
+chứng cùng màn hình, nên mặc định là `TextRendering::document_default()`: ClearType mức 0,35,
+gamma 1,8, contrast 2,0; xám khi người dùng tắt ClearType. Ảnh chỉ đúng khi canvas hiển thị
+1:1 pixel thiết bị.

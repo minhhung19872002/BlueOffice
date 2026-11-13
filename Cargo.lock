@@ -737,6 +737,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-gpu-win"
+version = "0.1.0"
+dependencies = [
+ "windows",
+]
+
+[[package]]
 name = "bo-hostile"
 version = "0.1.0"
 dependencies = [

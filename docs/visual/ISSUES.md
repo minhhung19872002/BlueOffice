@@ -2,7 +2,7 @@
 
 | Hạng mục | Trạng thái / bằng chứng |
 |---|---|
-| Renderer chữ và surface native | Có thư viện `bo-dwrite` tạo mask từ glyph được định vị; chưa nối vào renderer hay hòa trộn trên nền thực. Chưa triển khai surface GPU; [ADR-0017](../adr/0017-desktop-document-rendering.md) mô tả các ràng buộc cần kiểm chứng. |
+| Renderer chữ và surface native | `bo-dwrite` tạo mask từ glyph được định vị; `bo-gpu-win` tạo được thiết bị Direct2D phần cứng trên máy thử, có đường dự phòng WARP. Cả hai chưa nối vào renderer; chưa có surface, hòa trộn trên nền thực hoặc kiểm thử vẽ GPU. [ADR-0017](../adr/0017-desktop-document-rendering.md) mô tả các ràng buộc cần kiểm chứng. |
 | Font khi sửa ô bảng tính | `cellFontFor` chọn font đóng gói cho ô đang sửa; cần đối chiếu font thực của engine khi có font hệ thống để tránh thay đổi hình chữ lúc vào/ra chế độ sửa. |
 | Dấu kết hợp tiếng Việt | Ca `a` + dấu chấm dưới với Caladea từng tạo glyph thiếu; đã sửa fallback theo cụm, kiểm thử font và dàn trang qua. Ảnh hồi quy của một tài liệu hiện có gần như không đổi nhưng không chứa ca này. Mẫu DOCX độc lập và ảnh trước/sau còn thiếu; môi trường hiện không có LibreOffice để hoàn tất bước render kiểm tra tài liệu. Benchmark thông thường 10 lượt không báo suy giảm vượt ngưỡng, nhưng chưa đo riêng đoạn dấu tổ hợp. |
 | Font giao diện Linux | Token đã đổi sang font UI dự án; kiểm thử token qua, nhưng chưa rà ảnh Linux và dấu tiếng Việt thực tế. |

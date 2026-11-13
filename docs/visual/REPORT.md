@@ -149,3 +149,8 @@ clippy qua cục bộ. Đây là lớp
 thư viện, **chưa nối vào renderer của ứng dụng**: mask ba kênh cần được hòa trộn trên
 nền thực, xử lý clip/biến đổi và thứ tự lớp, cache, font tổng hợp, IME và DPI trước khi
 có thể đánh giá ảnh hay hiệu năng. Bản build xem trước chưa dùng lớp này.
+
+Đã thêm `bo-gpu-win` khởi tạo Direct3D/Direct2D, ưu tiên hardware và dự phòng WARP.
+Chạy `cargo run -p bo-gpu-win --example probe` trên máy này trả `Hardware`; clippy qua.
+Chưa có kiểm thử vẽ, surface, kết nối WebView hay xử lý mất thiết bị, và app chưa dùng
+thư viện. Kết quả khởi tạo không chứng minh tài liệu đang được tăng tốc GPU.

@@ -77,6 +77,8 @@ pub struct Ribbon {
     active: usize,
     scale: f32,
     width: f32,
+    /// Window y of the ribbon's top edge (below the title bar).
+    top: f32,
     placed: Vec<Placed>,
     hover: Option<RibbonHit>,
     pressed: Option<RibbonHit>,
@@ -156,6 +158,7 @@ impl Ribbon {
             active: 0,
             scale: 1.0,
             width: 0.0,
+            top: 0.0,
             placed: Vec::new(),
             hover: None,
             pressed: None,
@@ -177,9 +180,17 @@ impl Ribbon {
     }
 
     /// Lay the ribbon out for a window `width` device pixels wide at display `scale`.
-    pub fn layout(&mut self, text: &dyn TextMeasure, strings: &Strings, width: f32, scale: f32) {
+    pub fn layout(
+        &mut self,
+        text: &dyn TextMeasure,
+        strings: &Strings,
+        width: f32,
+        scale: f32,
+        top: f32,
+    ) {
         self.scale = scale;
         self.width = width;
+        self.top = top;
         self.placed.clear();
         let tab_style = TextStyle {
             size: self.px(13.0),
@@ -261,6 +272,26 @@ impl Ribbon {
             gx += self.px(6.0);
         }
         self.placed.extend(placed);
+        for p in &mut self.placed {
+            let r = match p {
+                Placed::File(r)
+                | Placed::Tab(_, r)
+                | Placed::Item(_, r)
+                | Placed::GroupLabel(_, r, _)
+                | Placed::Divider(r) => r,
+            };
+            r.y += top;
+        }
+    }
+
+    /// Window y just below the ribbon.
+    pub fn bottom(&self) -> f32 {
+        self.top + self.height()
+    }
+
+    /// Window y of the ribbon's top edge.
+    pub fn top(&self) -> f32 {
+        self.top
     }
 
     /// What is under a window position.
@@ -347,9 +378,9 @@ impl Ribbon {
         format: &FormatState,
     ) {
         let strip = self.strip_h();
-        p.fill_rect(0.0, 0.0, self.width, self.height(), t.surface);
+        p.fill_rect(0.0, self.top, self.width, self.height(), t.surface);
         // Line under the ribbon.
-        p.fill_rect(0.0, self.height() - 1.0, self.width, 1.0, t.border);
+        p.fill_rect(0.0, self.bottom() - 1.0, self.width, 1.0, t.border);
         let tab_style = TextStyle {
             size: self.px(13.0),
             bold: false,
@@ -398,7 +429,7 @@ impl Ribbon {
                         let h = self.px(3.0);
                         p.fill_rect(
                             r.x + self.px(10.0),
-                            strip - h,
+                            self.top + strip - h,
                             r.w - self.px(20.0),
                             h,
                             t.accent,

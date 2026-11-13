@@ -122,6 +122,17 @@ impl DocView {
         self.clamp_scroll();
     }
 
+    /// The document as `.docx` bytes.
+    pub fn save_docx(&self) -> Result<Vec<u8>, String> {
+        self.engine.save_docx().map_err(|e| e.to_string())
+    }
+
+    /// The document was written: it is no longer modified.
+    pub fn mark_saved(&mut self) {
+        self.engine.mark_saved();
+        self.modified = false;
+    }
+
     /// Run an engine command that changes the document or selection.
     pub fn run_command(&mut self, cmd: Command) -> bool {
         self.edit(cmd)
@@ -269,7 +280,11 @@ impl DocView {
                 self.clamp_scroll();
                 true
             }
-            Input::Move { .. } | Input::Release { .. } | Input::Tick => false,
+            Input::Move { .. }
+            | Input::Release { .. }
+            | Input::Tick
+            | Input::Maximized(_)
+            | Input::Leave => false,
             Input::Scale(scale) => {
                 if scale.is_finite() && scale > 0.0 && scale != self.display_scale {
                     self.display_scale = scale;

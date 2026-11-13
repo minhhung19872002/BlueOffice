@@ -1,15 +1,17 @@
 //! Win32 window, message loop and input translation (the crate's only `unsafe` code).
 // The generated bindings take references for pointer parameters.
 #![allow(clippy::borrow_as_ptr)]
-use bo_ui::{Input, Key, Mods};
+use bo_ui::{Input, Key, Mods, NcHit, Request};
 use std::cell::{Cell, RefCell};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::Graphics::Gdi::{ValidateRect, HBRUSH};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::HiDpi::{
-    GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    GetDpiForWindow, GetSystemMetricsForDpi, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::Input::Ime::{
     ImmGetContext, ImmReleaseContext, ImmSetCompositionWindow, CFS_POINT, COMPOSITIONFORM,
@@ -18,6 +20,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
     VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN,
     VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    TrackMouseEvent, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageTime, GetMessageW,
@@ -28,6 +33,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_DPICHANGED, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
     WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE,
     WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsZoomed, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTTOP,
+    HTTOPLEFT, HTTOPRIGHT, NCCALCSIZE_PARAMS, SM_CXPADDEDBORDER, SM_CXSIZEFRAME, SM_CYSIZEFRAME,
+    SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
+    WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
 };
 
 /// What the window reports to the application.
@@ -42,14 +53,24 @@ pub trait Handler {
     fn paint(&mut self);
     /// Caret rectangle (x, y, width, height in client pixels), for IME windows.
     fn caret(&self) -> Option<[f32; 4]>;
+    /// What a client position is for the window manager (title bar parts).
+    fn nc_hit(&self, x: f32, y: f32) -> NcHit;
+    /// Window operations asked for by the interface since the last call.
+    fn window_requests(&mut self) -> Vec<Request>;
 }
 
 thread_local! {
     static HANDLER: RefCell<Option<Box<dyn Handler>>> = RefCell::new(None);
+    /// Window button pressed in the non-client area (HTMINBUTTON / HTMAXBUTTON / HTCLOSE).
+    static NC_PRESSED: Cell<u32> = const { Cell::new(0) };
+    /// A WM_MOUSELEAVE / WM_NCMOUSELEAVE notification is requested.
+    static TRACKING: Cell<bool> = const { Cell::new(false) };
     static HIGH_SURROGATE: Cell<u16> = const { Cell::new(0) };
     static LAST_DOUBLE: Cell<(u32, i32, i32)> = const { Cell::new((0, 0, 0)) };
 }
 
+/// WM_MOUSELEAVE (WinUser.h); not exported by this module of the bindings.
+const WM_MOUSELEAVE: u32 = 0x02A3;
 const BLINK_TIMER: usize = 1;
 const TICK_TIMER: usize = 2;
 
@@ -155,9 +176,82 @@ fn place_ime(hwnd: HWND) {
     }
 }
 
-fn input(i: Input) {
+fn input(hwnd: HWND, i: Input) {
     let age = age();
     with_handler(|h| h.input(i, age));
+    let requests = with_handler(|h| h.window_requests()).unwrap_or_default();
+    for r in requests {
+        window_request(hwnd, r);
+    }
+}
+
+fn window_request(hwnd: HWND, r: Request) {
+    // SAFETY: plain window operations on this thread's window.
+    unsafe {
+        match r {
+            Request::Minimize => {
+                let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            }
+            Request::ToggleMaximize => {
+                let cmd = if IsZoomed(hwnd).as_bool() {
+                    SW_RESTORE
+                } else {
+                    SW_MAXIMIZE
+                };
+                let _ = ShowWindow(hwnd, cmd);
+            }
+            Request::Close => {
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            Request::Save => {}
+        }
+    }
+}
+
+/// Resize-frame thickness at the window's DPI (the part of the frame kept as non-client).
+fn frame(hwnd: HWND) -> (i32, i32) {
+    // SAFETY: plain metric queries.
+    unsafe {
+        let dpi = GetDpiForWindow(hwnd);
+        let pad = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        (
+            GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + pad,
+            GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + pad,
+        )
+    }
+}
+
+fn track_leave(hwnd: HWND, nonclient: bool) {
+    if TRACKING.with(Cell::get) {
+        return;
+    }
+    let mut flags = TME_LEAVE;
+    if nonclient {
+        flags |= TME_NONCLIENT;
+    }
+    let mut t = TRACKMOUSEEVENT {
+        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+        dwFlags: flags,
+        hwndTrack: hwnd,
+        dwHoverTime: 0,
+    };
+    // SAFETY: the struct is fully initialised and outlives the call.
+    if unsafe { TrackMouseEvent(&mut t) }.is_ok() {
+        TRACKING.with(|c| c.set(true));
+    }
+}
+
+fn client_point(hwnd: HWND, lparam: LPARAM) -> (f32, f32) {
+    let v = lparam.0 as u32;
+    let mut pt = POINT {
+        x: i32::from(v as u16 as i16),
+        y: i32::from((v >> 16) as u16 as i16),
+    };
+    // SAFETY: converts a screen point of this thread's window.
+    unsafe {
+        let _ = ScreenToClient(hwnd, &mut pt);
+    }
+    (pt.x as f32, pt.y as f32)
 }
 
 #[allow(clippy::too_many_lines)] // one arm per window message
@@ -179,7 +273,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 _ => String::from_utf16(&[unit]).ok(),
             };
             if let Some(text) = text {
-                input(Input::Text(text));
+                input(hwnd, Input::Text(text));
             }
             LRESULT(0)
         }
@@ -187,7 +281,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             let m = mods();
             match key(wparam.0 as u16, m) {
                 Some(k) => {
-                    input(Input::Key(k, m));
+                    input(hwnd, Input::Key(k, m));
                     LRESULT(0)
                 }
                 // SAFETY: default processing of this window's own message.
@@ -208,7 +302,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             // About one text line (20 logical px) per wheel line.
             let px = -delta / 120.0 * lines as f32 * 20.0 * scale(hwnd);
-            input(Input::Wheel(px));
+            input(hwnd, Input::Wheel(px));
             LRESULT(0)
         }
         WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
@@ -231,22 +325,26 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     1
                 }
             };
-            input(Input::Press {
-                x,
-                y,
-                count,
-                shift: mods().shift,
-            });
+            input(
+                hwnd,
+                Input::Press {
+                    x,
+                    y,
+                    count,
+                    shift: mods().shift,
+                },
+            );
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
             let (x, y) = point(lparam);
             // MK_LBUTTON
             if wparam.0 & 0x0001 != 0 {
-                input(Input::Drag { x, y });
+                input(hwnd, Input::Drag { x, y });
             } else {
-                input(Input::Move { x, y });
+                input(hwnd, Input::Move { x, y });
             }
+            track_leave(hwnd, false);
             LRESULT(0)
         }
         WM_LBUTTONUP => {
@@ -255,7 +353,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let _ = ReleaseCapture();
             }
             let (x, y) = point(lparam);
-            input(Input::Release { x, y });
+            input(hwnd, Input::Release { x, y });
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == BLINK_TIMER => {
@@ -272,6 +370,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if w > 0 && h > 0 {
                 with_handler(|hd| hd.resized(w, h));
             }
+            // SIZE_MAXIMIZED = 2
+            input(hwnd, Input::Maximized(wparam.0 == 2));
             LRESULT(0)
         }
         WM_DPICHANGED => {
@@ -289,7 +389,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
             }
-            input(Input::Scale(dpi / 96.0));
+            input(hwnd, Input::Scale(dpi / 96.0));
             LRESULT(0)
         }
         WM_IME_STARTCOMPOSITION | WM_IME_COMPOSITION => {
@@ -306,6 +406,85 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_ERASEBKGND => LRESULT(1),
+        WM_NCCALCSIZE if wparam.0 != 0 => {
+            // The client area covers the title bar (drawn by the interface); the resize frame
+            // stays non-client on the left, right and bottom, and off-screen when maximised.
+            let (fx, fy) = frame(hwnd);
+            // SAFETY: for WM_NCCALCSIZE with wParam TRUE, lParam points to NCCALCSIZE_PARAMS.
+            unsafe {
+                let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+                let r = &mut params.rgrc[0];
+                r.left += fx;
+                r.right -= fx;
+                r.bottom -= fy;
+                if IsZoomed(hwnd).as_bool() {
+                    r.top += fy;
+                }
+            }
+            LRESULT(0)
+        }
+        WM_NCHITTEST => {
+            // SAFETY: default processing of this window's own message.
+            let def = unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+            if def.0 != HTCLIENT as isize {
+                return def;
+            }
+            let (x, y) = client_point(hwnd, lparam);
+            let (fx, fy) = frame(hwnd);
+            // SAFETY: plain query of this window's state and size.
+            let (zoomed, width) = unsafe {
+                let mut r = RECT::default();
+                let _ = GetClientRect(hwnd, &mut r);
+                (IsZoomed(hwnd).as_bool(), r.right as f32)
+            };
+            if !zoomed && y < fy as f32 {
+                let code = if x < 2.0 * fx as f32 {
+                    HTTOPLEFT
+                } else if x > width - 2.0 * fx as f32 {
+                    HTTOPRIGHT
+                } else {
+                    HTTOP
+                };
+                return LRESULT(code as isize);
+            }
+            let code = match with_handler(|h| h.nc_hit(x, y)).unwrap_or(NcHit::Client) {
+                NcHit::Caption => HTCAPTION,
+                NcHit::Minimize => HTMINBUTTON,
+                // Windows 11 shows the snap layouts flyout over HTMAXBUTTON.
+                NcHit::Maximize => HTMAXBUTTON,
+                NcHit::Close => HTCLOSE,
+                NcHit::Client => HTCLIENT,
+            };
+            LRESULT(code as isize)
+        }
+        WM_NCMOUSEMOVE => {
+            let (x, y) = client_point(hwnd, lparam);
+            input(hwnd, Input::Move { x, y });
+            track_leave(hwnd, true);
+            // SAFETY: default processing of this window's own message.
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_MOUSELEAVE | WM_NCMOUSELEAVE => {
+            TRACKING.with(|c| c.set(false));
+            input(hwnd, Input::Leave);
+            LRESULT(0)
+        }
+        WM_NCLBUTTONDOWN if matches!(wparam.0 as u32, HTMINBUTTON | HTMAXBUTTON | HTCLOSE) => {
+            // The interface draws these buttons: no default caption-button tracking.
+            NC_PRESSED.with(|c| c.set(wparam.0 as u32));
+            LRESULT(0)
+        }
+        WM_NCLBUTTONUP if matches!(wparam.0 as u32, HTMINBUTTON | HTMAXBUTTON | HTCLOSE) => {
+            if NC_PRESSED.with(|c| c.replace(0)) == wparam.0 as u32 {
+                let r = match wparam.0 as u32 {
+                    HTMINBUTTON => Request::Minimize,
+                    HTMAXBUTTON => Request::ToggleMaximize,
+                    _ => Request::Close,
+                };
+                window_request(hwnd, r);
+            }
+            LRESULT(0)
+        }
         WM_DESTROY => {
             // SAFETY: ends this thread's message loop.
             unsafe { PostQuitMessage(0) };
@@ -353,6 +532,16 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
             None,
         )
         .map_err(|e| e.to_string())?;
+        // Recompute the frame now that WM_NCCALCSIZE removes the system caption.
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        );
         let _ = ShowWindow(hwnd, SW_SHOWMAXIMIZED);
         let mut rect = RECT::default();
         let _ = GetClientRect(hwnd, &mut rect);

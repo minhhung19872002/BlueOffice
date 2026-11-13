@@ -5,14 +5,31 @@ use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Ribbon, RibbonHit};
 use crate::strings::Strings;
 use crate::theme::Theme;
-use crate::{commands, Key};
+use crate::titlebar::{NcHit, TitleBar};
+use crate::{commands, Key, Mods};
 use crate::{Input, PageStore, Painter, TextMeasure, TextStyle};
 use bo_edit::CharFormat;
 use bo_engine::edit::Command;
 
+/// Something only the platform host can do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Request {
+    /// Write the document to its file.
+    Save,
+    /// Minimise the window.
+    Minimize,
+    /// Maximise or restore the window.
+    ToggleMaximize,
+    /// Close the window.
+    Close,
+}
+
 /// Window contents of BlueDoc.
 pub struct DocWindow {
     view: DocView,
+    title: TitleBar,
+    name: String,
+    requests: Vec<Request>,
     ribbon: Ribbon,
     theme: Theme,
     icons: Icons,
@@ -36,10 +53,13 @@ const SIZES: [f32; 16] = [
 const TOOLTIP_TICKS: u32 = 5;
 
 impl DocWindow {
-    /// Wrap a document view with BlueDoc's interface in `locale`.
-    pub fn new(view: DocView, locale: &str) -> Self {
+    /// Wrap the document `name` shown by `view` with BlueDoc's interface in `locale`.
+    pub fn new(view: DocView, locale: &str, name: &str) -> Self {
         Self {
             view,
+            title: TitleBar::new(),
+            name: name.to_owned(),
+            requests: Vec::new(),
             ribbon: Ribbon::new(),
             theme: Theme::light("doc"),
             icons: Icons::load(),
@@ -58,14 +78,35 @@ impl DocWindow {
         &self.view
     }
 
+    /// The document view, for the host's file operations.
+    pub fn view_mut(&mut self) -> &mut DocView {
+        &mut self.view
+    }
+
+    /// Requests for the host made since the last call.
+    pub fn take_requests(&mut self) -> Vec<Request> {
+        std::mem::take(&mut self.requests)
+    }
+
+    /// What a window position is for the window manager (caption, window buttons, client).
+    pub fn nc_hit(&self, x: f32, y: f32) -> NcHit {
+        if self.menu.is_some() {
+            return NcHit::Client;
+        }
+        self.title.hit(x, y)
+    }
+
     fn status_h(&self) -> f32 {
         (24.0 * self.scale).round()
     }
 
     fn relayout(&mut self, text: &dyn TextMeasure) {
+        self.title
+            .layout(text, &self.strings, &self.name, self.size.0, self.scale);
+        let top = self.title.height();
         self.ribbon
-            .layout(text, &self.strings, self.size.0, self.scale);
-        let top = self.ribbon.height();
+            .layout(text, &self.strings, self.size.0, self.scale, top);
+        let top = self.ribbon.bottom();
         let h = (self.size.1 - top - self.status_h()).max(1.0);
         self.view.set_frame(0.0, top, self.size.0, h);
     }
@@ -90,7 +131,12 @@ impl DocWindow {
             self.rest = 0;
             self.tooltip = None;
         }
-        let in_ribbon = |w: &Self, y: f32| y < w.ribbon.height();
+        let in_title = |w: &Self, y: f32| y < w.title.height();
+        let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
+        if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
+            self.requests.push(Request::Save);
+            return false;
+        }
         let redraw = match input {
             Input::Resize { width, height } => {
                 self.size = (width.max(1.0), height.max(1.0));
@@ -106,7 +152,19 @@ impl DocWindow {
                 true
             }
             Input::Tick => self.tick(text),
-            Input::Move { x, y } => self.ribbon.hover(x, y),
+            Input::Maximized(m) => self.title.set_maximized(m),
+            Input::Leave => {
+                let a = self.title.hover(-1.0, -1.0);
+                self.ribbon.clear_pointer() || a
+            }
+            Input::Move { x, y } => {
+                let a = self.title.hover(x, y);
+                self.ribbon.hover(x, y) || a
+            }
+            Input::Press { x, y, .. } if in_title(self, y) => {
+                self.doc_press = false;
+                self.title.press(x, y)
+            }
             Input::Press { x, y, .. } if in_ribbon(self, y) => {
                 self.doc_press = false;
                 self.ribbon.press(x, y)
@@ -119,6 +177,14 @@ impl DocWindow {
             Input::Drag { .. } if !self.doc_press => false,
             Input::Release { x, y } => {
                 self.doc_press = false;
+                let quick = match self.title.release(x, y) {
+                    Some("file.save") => {
+                        self.requests.push(Request::Save);
+                        true
+                    }
+                    Some(id) => self.view.run_action(id),
+                    None => false,
+                };
                 let (fired, changed) = self.ribbon.release(x, y);
                 let ran = match fired {
                     Some(RibbonHit::Command(id)) => self.view.run_action(id),
@@ -131,7 +197,7 @@ impl DocWindow {
                 if self.ribbon.needs_layout() {
                     self.relayout(text);
                 }
-                ran || changed || fired.is_some()
+                quick || ran || changed || fired.is_some()
             }
             Input::Wheel(_)
             | Input::Text(_)
@@ -269,6 +335,15 @@ impl DocWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
         self.view.paint(p);
+        self.title.paint(
+            p,
+            &self.theme,
+            &self.icons,
+            &self.strings,
+            &self.name,
+            self.view.modified(),
+            self.view.format(),
+        );
         self.ribbon.paint(
             p,
             &self.theme,
@@ -354,7 +429,7 @@ mod tests {
     fn ribbon_button_runs_its_command_and_undo_restores() {
         let mut engine = Engine::with_bundled_fonts();
         engine.new_document("a.docx").unwrap();
-        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN");
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN", "a.docx");
         w.handle(Input::Scale(1.25), &Fixed);
         w.handle(
             Input::Resize {
@@ -425,7 +500,7 @@ mod tests {
     fn size_menu_sets_the_size_and_escape_closes() {
         let mut engine = Engine::with_bundled_fonts();
         engine.new_document("a.docx").unwrap();
-        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN");
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN", "a.docx");
         w.handle(Input::Scale(1.0), &Fixed);
         w.handle(
             Input::Resize {

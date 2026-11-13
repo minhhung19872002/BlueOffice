@@ -98,4 +98,8 @@ pub enum Input {
     Blink,
     /// Interface timer, about every 100 ms (tooltip delays, animations).
     Tick,
+    /// The window was maximised or restored.
+    Maximized(bool),
+    /// The pointer left the window.
+    Leave,
 }

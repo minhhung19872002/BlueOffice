@@ -15,15 +15,17 @@ mod ribbon;
 mod shell;
 mod strings;
 mod theme;
+mod titlebar;
 
 pub use doc_view::{DocView, PageSlot, CANVAS_BG};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use popup::{Choice, Menu, MenuItem};
 pub use ribbon::{Ribbon, RibbonHit};
-pub use shell::DocWindow;
+pub use shell::{DocWindow, Request};
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};
+pub use titlebar::{NcHit, TitleBar};
 
 use bo_render::{PageList, PathSeg, Rgba};
 

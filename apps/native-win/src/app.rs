@@ -3,7 +3,9 @@ use crate::win32::{self, Handler};
 use bo_engine::{Engine, SystemFontIndex};
 use bo_gpu_win::{Device, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
-use bo_ui::{DocView, DocWindow, Input, PageStore, Painter, TextMeasure, TextStyle};
+use bo_ui::{
+    DocView, DocWindow, Input, NcHit, PageStore, Painter, Request, TextMeasure, TextStyle,
+};
 use std::collections::HashMap;
 use std::io::Write;
 use std::time::Instant;
@@ -25,6 +27,7 @@ pub fn run() -> Result<(), String> {
             cache.as_deref(),
         ));
     }
+    let mut file = None;
     let name = if let Some(path) = std::env::args_os().nth(1) {
         {
             let path = std::path::PathBuf::from(path);
@@ -34,6 +37,7 @@ pub fn run() -> Result<(), String> {
                 |n| n.to_string_lossy().into_owned(),
             );
             engine.open(&bytes, &name).map_err(|e| e.to_string())?;
+            file = Some(path);
             name
         }
     } else {
@@ -42,7 +46,7 @@ pub fn run() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         "Tài liệu mới.docx".into()
     };
-    let view = DocWindow::new(DocView::new(engine)?, "vi-VN");
+    let view = DocWindow::new(DocView::new(engine)?, "vi-VN", &name);
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -56,6 +60,8 @@ pub fn run() -> Result<(), String> {
             view,
             gpu: None,
             perf,
+            file,
+            pending: Vec::new(),
         }),
     )
 }
@@ -172,9 +178,35 @@ struct Shell {
     view: DocWindow,
     gpu: Option<Gpu>,
     perf: Option<std::fs::File>,
+    /// File the document was opened from (Save writes it back).
+    file: Option<std::path::PathBuf>,
+    /// Window operations for the window layer.
+    pending: Vec<Request>,
 }
 
 impl Shell {
+    /// Write the document to the file it came from (`.docx`); `true` when the state changed.
+    fn save(&mut self) -> bool {
+        let Some(path) = self.file.clone() else {
+            return false;
+        };
+        let written = self
+            .view
+            .view()
+            .save_docx()
+            .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
+        match written {
+            Ok(()) => {
+                self.view.view_mut().mark_saved();
+                true
+            }
+            Err(e) => {
+                eprintln!("save {}: {e}", path.display());
+                false
+            }
+        }
+    }
+
     fn render(&mut self) -> Result<(), String> {
         let Some(gpu) = self.gpu.as_mut() else {
             return Ok(());
@@ -232,10 +264,20 @@ impl Handler for Shell {
             Input::Move { .. } => "move",
             Input::Release { .. } => "release",
             Input::Tick => "tick",
+            Input::Maximized(_) => "maximized",
+            Input::Leave => "leave",
         };
         let start = Instant::now();
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
-        if !self.view.handle(input, &m) {
+        let mut redraw = self.view.handle(input, &m);
+        for r in self.view.take_requests() {
+            if r == Request::Save {
+                redraw |= self.save();
+            } else {
+                self.pending.push(r);
+            }
+        }
+        if !redraw {
             return;
         }
         let handled = start.elapsed();
@@ -282,5 +324,13 @@ impl Handler for Shell {
 
     fn caret(&self) -> Option<[f32; 4]> {
         self.view.caret_rect()
+    }
+
+    fn nc_hit(&self, x: f32, y: f32) -> NcHit {
+        self.view.nc_hit(x, y)
+    }
+
+    fn window_requests(&mut self) -> Vec<Request> {
+        std::mem::take(&mut self.pending)
     }
 }

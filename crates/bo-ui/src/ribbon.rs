@@ -43,8 +43,10 @@ pub enum RibbonHit {
     Tab(usize),
     /// A command button.
     Command(&'static str),
-    /// The font or size box.
-    Field,
+    /// The font family box.
+    FontBox,
+    /// The font size box.
+    SizeBox,
 }
 
 #[derive(Clone, Copy)]
@@ -267,9 +269,37 @@ impl Ribbon {
             Placed::File(r) if r.contains(x, y) => Some(RibbonHit::File),
             Placed::Tab(i, r) if r.contains(x, y) => Some(RibbonHit::Tab(*i)),
             Placed::Item(Item::Button(id), r) if r.contains(x, y) => Some(RibbonHit::Command(id)),
-            Placed::Item(_, r) if r.contains(x, y) => Some(RibbonHit::Field),
+            Placed::Item(Item::FontBox, r) if r.contains(x, y) => Some(RibbonHit::FontBox),
+            Placed::Item(Item::SizeBox, r) if r.contains(x, y) => Some(RibbonHit::SizeBox),
             _ => None,
         })
+    }
+
+    /// Rectangle (x, y, w, h) of a control.
+    pub fn rect_of(&self, hit: RibbonHit) -> Option<[f32; 4]> {
+        self.placed.iter().find_map(|p| {
+            let (h, r) = match p {
+                Placed::File(r) => (RibbonHit::File, r),
+                Placed::Tab(i, r) => (RibbonHit::Tab(*i), r),
+                Placed::Item(Item::Button(id), r) => (RibbonHit::Command(id), r),
+                Placed::Item(Item::FontBox, r) => (RibbonHit::FontBox, r),
+                Placed::Item(Item::SizeBox, r) => (RibbonHit::SizeBox, r),
+                _ => return None,
+            };
+            (h == hit).then_some([r.x, r.y, r.w, r.h])
+        })
+    }
+
+    /// The control under the pointer.
+    pub fn hovered(&self) -> Option<RibbonHit> {
+        self.hover
+    }
+
+    /// Forget hover and press (pointer left the ribbon or a menu took over).
+    pub fn clear_pointer(&mut self) -> bool {
+        let changed = self.hover.is_some() || self.pressed.is_some();
+        (self.hover, self.pressed) = (None, None);
+        changed
     }
 
     /// Pointer moved: `true` when the hovered control changed.

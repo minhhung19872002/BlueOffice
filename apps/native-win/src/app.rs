@@ -101,6 +101,9 @@ impl PageStore for Store<'_> {
             self.pages.bitmaps.insert(index, bitmap);
         }
         let bitmap = self.pages.bitmaps.get(&index).ok_or("page bitmap")?;
+        if std::env::var_os("BLUEOFFICE_NATIVE_DEBUG").is_some() {
+            eprintln!("update page {index} band {band:?} new {}", !fits);
+        }
         let pictures = |id: &str| {
             let bytes = engine.media_resolved(id)?;
             let (width, height, pixels) = bo_raster::decode_premultiplied(&bytes)?;
@@ -228,6 +231,7 @@ impl Handler for Shell {
             Input::Blink => "blink",
             Input::Move { .. } => "move",
             Input::Release { .. } => "release",
+            Input::Tick => "tick",
         };
         let start = Instant::now();
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
@@ -238,7 +242,10 @@ impl Handler for Shell {
         if let Err(e) = self.render() {
             eprintln!("render: {e}");
         }
-        if let (Some(file), false) = (self.perf.as_mut(), matches!(kind, "blink" | "move")) {
+        if let (Some(file), false) = (
+            self.perf.as_mut(),
+            matches!(kind, "blink" | "move" | "tick"),
+        ) {
             let total = start.elapsed();
             let _ = writeln!(
                 file,

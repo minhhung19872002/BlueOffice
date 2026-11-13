@@ -122,6 +122,20 @@ impl DocView {
         self.clamp_scroll();
     }
 
+    /// Run an engine command that changes the document or selection.
+    pub fn run_command(&mut self, cmd: Command) -> bool {
+        self.edit(cmd)
+    }
+
+    /// Fonts offered by the font box (document fonts, bundled and installed families).
+    pub fn font_list(&mut self) -> Vec<bo_engine::fonts::FontChoice> {
+        self.engine
+            .command(Command::FontList)
+            .ok()
+            .and_then(|r| r.fonts)
+            .unwrap_or_default()
+    }
+
     /// Run the engine command of interface command `id` (`format.bold`, …).
     pub fn run_action(&mut self, id: &str) -> bool {
         match crate::commands::command(id) {
@@ -255,7 +269,7 @@ impl DocView {
                 self.clamp_scroll();
                 true
             }
-            Input::Move { .. } | Input::Release { .. } => false,
+            Input::Move { .. } | Input::Release { .. } | Input::Tick => false,
             Input::Scale(scale) => {
                 if scale.is_finite() && scale > 0.0 && scale != self.display_scale {
                     self.display_scale = scale;
@@ -321,7 +335,7 @@ impl DocView {
             Key::Letter('l') if m.ctrl => return self.run_action("format.alignLeft"),
             Key::Letter('r') if m.ctrl => return self.run_action("format.alignRight"),
             Key::Letter('j') if m.ctrl => return self.run_action("format.justify"),
-            Key::Letter(_) => return false,
+            Key::Escape | Key::Letter(_) => return false,
         };
         self.edit(cmd)
     }

@@ -1,10 +1,14 @@
 //! The BlueDoc window: ribbon, document view and status bar, with input routing.
 use crate::doc_view::DocView;
 use crate::icons::Icons;
+use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Ribbon, RibbonHit};
 use crate::strings::Strings;
 use crate::theme::Theme;
+use crate::{commands, Key};
 use crate::{Input, PageStore, Painter, TextMeasure, TextStyle};
+use bo_edit::CharFormat;
+use bo_engine::edit::Command;
 
 /// Window contents of BlueDoc.
 pub struct DocWindow {
@@ -17,7 +21,19 @@ pub struct DocWindow {
     scale: f32,
     /// The pointer went down in the document (drags select text there).
     doc_press: bool,
+    /// Open drop-down list.
+    menu: Option<Menu>,
+    /// Ticks the pointer has rested on the hovered control, and the tooltip shown.
+    rest: u32,
+    tooltip: Option<(String, f32, [f32; 4])>,
 }
+
+/// Font sizes offered by the size box (points).
+const SIZES: [f32; 16] = [
+    8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 72.0,
+];
+/// Ticks (about 100 ms each) of rest before a tooltip shows.
+const TOOLTIP_TICKS: u32 = 5;
 
 impl DocWindow {
     /// Wrap a document view with BlueDoc's interface in `locale`.
@@ -31,6 +47,9 @@ impl DocWindow {
             size: (800.0, 600.0),
             scale: 1.0,
             doc_press: false,
+            menu: None,
+            rest: 0,
+            tooltip: None,
         }
     }
 
@@ -53,19 +72,40 @@ impl DocWindow {
 
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        // Pointer and keyboard input goes to an open menu first.
+        if self.menu.is_some() {
+            if let Some(redraw) = self.menu_input(&input) {
+                return redraw;
+            }
+        }
+        let tip_before = self.tooltip.is_some();
+        if matches!(
+            input,
+            Input::Move { .. }
+                | Input::Press { .. }
+                | Input::Wheel(_)
+                | Input::Key(..)
+                | Input::Text(_)
+        ) {
+            self.rest = 0;
+            self.tooltip = None;
+        }
         let in_ribbon = |w: &Self, y: f32| y < w.ribbon.height();
-        match input {
+        let redraw = match input {
             Input::Resize { width, height } => {
                 self.size = (width.max(1.0), height.max(1.0));
+                self.menu = None;
                 self.relayout(text);
                 true
             }
             Input::Scale(scale) => {
                 self.scale = scale;
+                self.menu = None;
                 self.view.handle(Input::Scale(scale));
                 self.relayout(text);
                 true
             }
+            Input::Tick => self.tick(text),
             Input::Move { x, y } => self.ribbon.hover(x, y),
             Input::Press { x, y, .. } if in_ribbon(self, y) => {
                 self.doc_press = false;
@@ -73,8 +113,8 @@ impl DocWindow {
             }
             Input::Press { .. } => {
                 self.doc_press = true;
-                let hovered = self.ribbon.hover(-1.0, -1.0);
-                self.view.handle(input) || hovered
+                let cleared = self.ribbon.clear_pointer();
+                self.view.handle(input) || cleared
             }
             Input::Drag { .. } if !self.doc_press => false,
             Input::Release { x, y } => {
@@ -82,6 +122,10 @@ impl DocWindow {
                 let (fired, changed) = self.ribbon.release(x, y);
                 let ran = match fired {
                     Some(RibbonHit::Command(id)) => self.view.run_action(id),
+                    Some(hit @ (RibbonHit::FontBox | RibbonHit::SizeBox)) => {
+                        self.open_menu(hit);
+                        true
+                    }
                     _ => false,
                 };
                 if self.ribbon.needs_layout() {
@@ -94,7 +138,126 @@ impl DocWindow {
             | Input::Key(..)
             | Input::Blink
             | Input::Drag { .. } => self.view.handle(input),
+        };
+        redraw || tip_before != self.tooltip.is_some()
+    }
+
+    /// Input while a menu is open; `None` lets the event through to the window.
+    fn menu_input(&mut self, input: &Input) -> Option<bool> {
+        let menu = self.menu.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => menu.hover(x, y),
+            Input::Press { x, y, .. } => {
+                if menu.contains(x, y) {
+                    menu.press(x, y);
+                } else {
+                    // A click outside closes the menu and is not passed on.
+                    self.menu = None;
+                    self.ribbon.clear_pointer();
+                }
+                true
+            }
+            Input::Release { x, y } => {
+                if let Some(choice) = menu.release(x, y) {
+                    self.menu = None;
+                    self.choose(choice);
+                }
+                true
+            }
+            Input::Wheel(dy) => menu.wheel(dy),
+            Input::Key(Key::Escape, _) => {
+                self.menu = None;
+                true
+            }
+            Input::Key(Key::Up, _) => {
+                menu.step(-1);
+                true
+            }
+            Input::Key(Key::Down, _) => {
+                menu.step(1);
+                true
+            }
+            Input::Key(Key::Enter, _) => {
+                let choice = menu.current();
+                self.menu = None;
+                if let Some(c) = choice {
+                    self.choose(c);
+                }
+                true
+            }
+            Input::Text(_) | Input::Key(..) => true,
+            _ => return None,
+        })
+    }
+
+    fn open_menu(&mut self, hit: RibbonHit) {
+        let Some(anchor) = self.ribbon.rect_of(hit) else {
+            return;
+        };
+        let f = self.view.format().clone();
+        let items: Vec<MenuItem> = if hit == RibbonHit::FontBox {
+            self.view
+                .font_list()
+                .into_iter()
+                .map(|c| MenuItem {
+                    checked: f.font.as_deref() == Some(c.name.as_str()),
+                    dim: !c.available && c.substitute.is_none(),
+                    label: c.name.clone(),
+                    choice: Choice::Font(c.name),
+                })
+                .collect()
+        } else {
+            SIZES
+                .iter()
+                .map(|pt| {
+                    let half = (pt * 2.0).round() as u32;
+                    MenuItem {
+                        label: if half & 1 == 0 {
+                            (half / 2).to_string()
+                        } else {
+                            format!("{},5", half / 2)
+                        },
+                        choice: Choice::Size(half),
+                        checked: f.size_half_points == Some(half),
+                        dim: false,
+                    }
+                })
+                .collect()
+        };
+        self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
+    }
+
+    fn choose(&mut self, choice: Choice) {
+        let format = match choice {
+            Choice::Font(name) => CharFormat::Font { name },
+            Choice::Size(half_points) => CharFormat::Size { half_points },
+        };
+        self.view.run_command(Command::FormatText { format });
+    }
+
+    fn tick(&mut self, text: &dyn TextMeasure) -> bool {
+        let Some(RibbonHit::Command(id)) = self.ribbon.hovered() else {
+            return false;
+        };
+        self.rest += 1;
+        if self.rest != TOOLTIP_TICKS || self.menu.is_some() {
+            return false;
         }
+        let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+            return false;
+        };
+        let name = self.strings.get(&format!("commands.{id}")).to_owned();
+        let label = match commands::shortcut(id) {
+            Some(keys) => format!("{name} ({keys})"),
+            None => name,
+        };
+        let style = TextStyle {
+            size: (12.0 * self.scale).round(),
+            bold: false,
+        };
+        let (w, _) = text.measure(&label, style);
+        self.tooltip = Some((label, w, anchor));
+        true
     }
 
     /// Update page images of the visible pages.
@@ -158,6 +321,11 @@ impl DocWindow {
             style,
             self.theme.text_muted,
         );
+        if let Some(menu) = &self.menu {
+            menu.paint(p, &self.theme);
+        } else if let Some((label, tw, anchor)) = &self.tooltip {
+            paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale);
+        }
     }
 
     /// Caret rectangle in window pixels (IME placement).
@@ -252,5 +420,63 @@ mod tests {
         );
         w.handle(Input::Release { x: 5.0, y: 600.0 }, &Fixed);
         assert!(!w.view().format().bold);
+    }
+    #[test]
+    fn size_menu_sets_the_size_and_escape_closes() {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.new_document("a.docx").unwrap();
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN");
+        w.handle(Input::Scale(1.0), &Fixed);
+        w.handle(
+            Input::Resize {
+                width: 1400.0,
+                height: 900.0,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Text("abc".into()), &Fixed);
+        w.handle(
+            Input::Key(
+                Key::Letter('a'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        let [x, y, bw, bh] = w.ribbon.rect_of(RibbonHit::SizeBox).expect("size box");
+        let (cx, cy) = (x + bw / 2.0, y + bh / 2.0);
+        w.handle(
+            Input::Press {
+                x: cx,
+                y: cy,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Release { x: cx, y: cy }, &Fixed);
+        assert!(w.menu.is_some(), "the size box opens its list");
+        w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+        assert!(w.menu.is_none(), "Escape closes it");
+        w.handle(
+            Input::Press {
+                x: cx,
+                y: cy,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Release { x: cx, y: cy }, &Fixed);
+        // Highlight "14" with the keyboard and choose it.
+        let menu = w.menu.as_mut().expect("open again");
+        let fourteen = SIZES.iter().position(|s| *s == 14.0).unwrap() as i32;
+        menu.step(-100);
+        menu.step(fourteen);
+        w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+        assert!(w.menu.is_none());
+        assert_eq!(w.view().format().size_half_points, Some(28));
     }
 }

@@ -16,8 +16,8 @@ use windows::Win32::UI::Input::Ime::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
-    VK_DELETE, VK_DOWN, VK_END, VK_HOME, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT,
-    VK_SHIFT, VK_TAB, VK_UP,
+    VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN,
+    VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageTime, GetMessageW,
@@ -51,6 +51,7 @@ thread_local! {
 }
 
 const BLINK_TIMER: usize = 1;
+const TICK_TIMER: usize = 2;
 
 /// Show an error and exit.
 pub fn fatal(message: &str) {
@@ -122,6 +123,7 @@ fn key(vk: u16, m: Mods) -> Option<Key> {
         VK_DELETE => Key::Delete,
         VK_RETURN => Key::Enter,
         VK_TAB => Key::Tab,
+        VK_ESCAPE => Key::Escape,
         // Ctrl+letter shortcuts; plain letters arrive as text (WM_CHAR).
         _ if m.ctrl && (0x41..=0x5A).contains(&vk) => {
             Key::Letter(char::from(vk as u8).to_ascii_lowercase())
@@ -260,6 +262,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             with_handler(|h| h.input(Input::Blink, 0));
             LRESULT(0)
         }
+        WM_TIMER if wparam.0 == TICK_TIMER => {
+            with_handler(|h| h.input(Input::Tick, 0));
+            LRESULT(0)
+        }
         WM_SIZE => {
             let v = lparam.0 as u32;
             let (w, h) = (v & 0xFFFF, v >> 16);
@@ -359,6 +365,7 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
         }
         with_handler(|hd| hd.paint());
         let _ = SetTimer(Some(hwnd), BLINK_TIMER, GetCaretBlinkTimeOr530(), None);
+        let _ = SetTimer(Some(hwnd), TICK_TIMER, 100, None);
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             let _ = TranslateMessage(&msg);

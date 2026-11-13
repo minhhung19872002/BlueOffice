@@ -30,6 +30,24 @@ pub fn command(id: &str) -> Option<Command> {
     }
 }
 
+/// Keyboard shortcut shown in the tooltip of command `id`.
+pub fn shortcut(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "edit.undo" => "Ctrl+Z",
+        "edit.redo" => "Ctrl+Y",
+        "format.bold" => "Ctrl+B",
+        "format.italic" => "Ctrl+I",
+        "format.underline" => "Ctrl+U",
+        "format.subscript" => "Ctrl+=",
+        "format.superscript" => "Ctrl+Shift++",
+        "format.alignLeft" => "Ctrl+L",
+        "format.alignCenter" => "Ctrl+E",
+        "format.alignRight" => "Ctrl+R",
+        "format.justify" => "Ctrl+J",
+        _ => return None,
+    })
+}
+
 /// Whether command `id` shows as switched on for the selection.
 pub fn toggled(id: &str, f: &FormatState) -> bool {
     match id {

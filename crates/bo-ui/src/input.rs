@@ -27,6 +27,8 @@ pub enum Key {
     Enter,
     /// Tab.
     Tab,
+    /// Escape.
+    Escape,
     /// A letter key with Ctrl (shortcuts: `'a'`, `'z'`, `'y'`, …), lower case.
     Letter(char),
 }
@@ -94,4 +96,6 @@ pub enum Input {
     Scale(f32),
     /// Caret blink timer.
     Blink,
+    /// Interface timer, about every 100 ms (tooltip delays, animations).
+    Tick,
 }

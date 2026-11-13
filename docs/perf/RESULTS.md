@@ -218,3 +218,15 @@ CI dùng nhãn Rust `stable` trôi từ 1.99.1 sang 1.100, khiến Clippy phát 
 1.99.1, cùng phiên bản đo và phiên bản từng qua các job Rust, để kết quả có thể tái lập.
 Việc xử lý cảnh báo để nâng CI lên Rust 1.100 vẫn còn; không coi thay đổi này là đã sửa
 khả năng tương thích với Clippy mới.
+
+### Thử lại RAM sau giới hạn cache, trước sửa vẽ tức thời
+
+Bản release SHA-256 `20aadb6ae8087fd0fed57a0f0cc2172250962211b7417781b5355fc3423b4d70`
+đã qua desktop E2E **16/16**, gồm cộng tác và kiểm tra con trỏ. Phép thử 602,4 giây:
+488 lần gõ, 52 chu kỳ ảnh/undo, đỉnh **464,5 MB**, phần cuối tăng **70 MB**; không đạt.
+Bản trước giới hạn cache đạt đỉnh 442,6 MB; hai phép thử đơn lẻ không chứng minh cache
+là nguyên nhân làm RAM tăng hay giảm. [Dữ liệu mẫu](baselines/round3-soak-ryzen7-7435hs.json).
+Một mẫu phân rã trong phiên: app và tiến trình phụ không thuộc WebView khoảng 126 MB,
+WebView2 khoảng 255 MB (bao gồm renderer và GPU); không suy ra nguyên nhân từ một mẫu.
+Trong lúc thử có một số kiểm tra ngắn chạy trên cùng máy, vì vậy tải nền không hoàn toàn tĩnh.
+Bản thử này chưa gồm thay đổi vẽ ngay; bản mới đang build và cần đo lại.

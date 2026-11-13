@@ -1,0 +1,236 @@
+{
+  "date": "2026-11-13T00:30:27.617Z",
+  "exe": "D:\\bo-targets\\perf\\release\\bluedoc.exe",
+  "exeSha256": "20aadb6ae8087fd0fed57a0f0cc2172250962211b7417781b5355fc3423b4d70",
+  "runs": 5,
+  "profile": "",
+  "machine": {
+    "cpu": "AMD Ryzen 7 7435HS",
+    "cores": 8,
+    "threads": 16,
+    "ramGB": 31.8,
+    "gpu": [
+      "NVIDIA GeForce RTX 2050 (32.0.15.6607)"
+    ],
+    "os": "Microsoft Windows 11 Home Single Language 10.0.26300 (build 26300)",
+    "scalePercent": 125,
+    "cpuLoadPercent": 11,
+    "webView2": "157.0.4341.46",
+    "nodeCpus": 16,
+    "totalMemGB": 32
+  },
+  "loadBefore": 12,
+  "loadAfter": 5,
+  "metrics": {
+    "start.editorReadyMs": null,
+    "start.shellVisibleMs": null,
+    "start.firstPaintMs": null,
+    "start.ribbonVisibleMs": null,
+    "start.processMainMs": null,
+    "start.pageLoadStartedMs": null,
+    "start.startScreenMs": null,
+    "open100.openToFirstPageMs": null,
+    "open100.launchToFirstPageMs": null,
+    "open100.engineOpenNativeMs": null,
+    "open100.engineOpenIpcMs": null,
+    "open100.readFileIpcMs": null,
+    "ram.oneDocPrivateMB": null,
+    "ram.oneDocWorkingSetMB": null,
+    "ram.appPrivateMB": null,
+    "ram.webviewPrivateMB": null,
+    "ram.smallDocPrivateMB": null
+  },
+  "raw": {
+    "start": [],
+    "startScreen": [],
+    "open": []
+  },
+  "webdriver": [],
+  "soak": {
+    "durationMs": 602385,
+    "edits": 488,
+    "images": 52,
+    "samples": [
+      {
+        "elapsedMs": 47,
+        "privateMB": 307.2
+      },
+      {
+        "elapsedMs": 30240,
+        "privateMB": 386.5
+      },
+      {
+        "elapsedMs": 61074,
+        "privateMB": 403.7
+      },
+      {
+        "elapsedMs": 91216,
+        "privateMB": 353.7
+      },
+      {
+        "elapsedMs": 121700,
+        "privateMB": 363.4
+      },
+      {
+        "elapsedMs": 152429,
+        "privateMB": 376.3
+      },
+      {
+        "elapsedMs": 183247,
+        "privateMB": 377.6
+      },
+      {
+        "elapsedMs": 214184,
+        "privateMB": 394.3
+      },
+      {
+        "elapsedMs": 244972,
+        "privateMB": 392.5
+      },
+      {
+        "elapsedMs": 275831,
+        "privateMB": 391.1
+      },
+      {
+        "elapsedMs": 306448,
+        "privateMB": 399
+      },
+      {
+        "elapsedMs": 337182,
+        "privateMB": 393.6
+      },
+      {
+        "elapsedMs": 367985,
+        "privateMB": 406
+      },
+      {
+        "elapsedMs": 398015,
+        "privateMB": 414.9
+      },
+      {
+        "elapsedMs": 428770,
+        "privateMB": 421
+      },
+      {
+        "elapsedMs": 460270,
+        "privateMB": 442.2
+      },
+      {
+        "elapsedMs": 490402,
+        "privateMB": 450.2
+      },
+      {
+        "elapsedMs": 521155,
+        "privateMB": 455.8
+      },
+      {
+        "elapsedMs": 552057,
+        "privateMB": 464.5
+      },
+      {
+        "elapsedMs": 582172,
+        "privateMB": 462
+      },
+      {
+        "elapsedMs": 602384,
+        "privateMB": 464.3
+      }
+    ],
+    "growthMB": 70,
+    "growing": true,
+    "peakPrivateMB": 464.5,
+    "snapshots": []
+  },
+  "distributions": {
+    "start.editorReadyMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.shellVisibleMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.firstPaintMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.ribbonVisibleMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.processMainMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.pageLoadStartedMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.startScreenMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.openToFirstPageMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.launchToFirstPageMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.engineOpenNativeMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.engineOpenIpcMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.readFileIpcMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.oneDocPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.oneDocWorkingSetMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.appPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.webviewPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.smallDocPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "type.keyToPaintAllKeysMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    }
+  }
+}

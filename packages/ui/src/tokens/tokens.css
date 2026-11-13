@@ -315,8 +315,8 @@
 }
 
 :root[data-os='linux'] {
-  --bo-font: system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif;
-  --bo-font-display: system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif;
+  --bo-font: 'Be Vietnam Pro', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
+  --bo-font-display: 'Be Vietnam Pro', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
 }
 
 :root {

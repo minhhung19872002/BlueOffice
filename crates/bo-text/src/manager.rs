@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Index of a face inside a [`FontManager`].
 #[derive(
@@ -342,26 +344,72 @@ impl FontManager {
             (i.bold, i.italic)
         };
         let primary_face = self.face(primary);
-        for (pos, c) in text.char_indices() {
-            let covered = c.is_control()
-                || is_mark(c)
-                || primary_face
-                    .as_ref()
-                    .is_some_and(|f| f.glyph_index(c).is_some());
-            let face = if covered {
-                // Combining marks stay with the preceding run's face.
-                if is_mark(c) {
-                    out.last().map_or(primary, |l| l.1)
-                } else {
+        // Most document text has no decomposed marks. Keep its ordinary scalar path
+        // instead of applying grapheme segmentation to every character.
+        if !text.chars().any(is_mark) {
+            for (pos, c) in text.char_indices() {
+                let face = if c.is_control()
+                    || primary_face
+                        .as_ref()
+                        .is_some_and(|f| f.glyph_index(c).is_some())
+                {
                     primary
+                } else {
+                    self.fallback_for(c, style).unwrap_or(primary)
+                };
+                append_item(&mut out, pos..pos + c.len_utf8(), face);
+            }
+            return out;
+        }
+        for (start, cluster) in text.grapheme_indices(true) {
+            // Choose one face for the whole combining sequence. The shaper can compose
+            // decomposed text, so a font covering its NFC form is sufficient too.
+            if cluster.chars().any(is_mark) {
+                let composed: String = cluster.nfc().collect();
+                let covers = |id| {
+                    self.face(id).is_some_and(|f| {
+                        [cluster, composed.as_str()].iter().any(|s| {
+                            s.chars()
+                                .all(|c| c.is_control() || f.glyph_index(c).is_some())
+                        })
+                    })
+                };
+                let face = if covers(primary) {
+                    Some(primary)
+                } else {
+                    self.faces
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| covers(FaceId(*i as u32)))
+                        .min_by_key(|(_, f)| {
+                            (f.info.italic != style.1) as u8 * 2 + (f.info.bold != style.0) as u8
+                        })
+                        .map(|(i, _)| FaceId(i as u32))
+                };
+                if let Some(face) = face {
+                    append_item(&mut out, start..start + cluster.len(), face);
+                    continue;
                 }
-            } else {
-                self.fallback_for(c, style).unwrap_or(primary)
-            };
-            let end = pos + c.len_utf8();
-            match out.last_mut() {
-                Some(last) if last.1 == face && last.0.end == pos => last.0.end = end,
-                _ => out.push((pos..end, face)),
+            }
+            for (offset, c) in cluster.char_indices() {
+                let pos = start + offset;
+                let covered = c.is_control()
+                    || is_mark(c)
+                    || primary_face
+                        .as_ref()
+                        .is_some_and(|f| f.glyph_index(c).is_some());
+                let face = if covered {
+                    // Combining marks stay with the preceding run's face.
+                    if is_mark(c) {
+                        out.last().map_or(primary, |l| l.1)
+                    } else {
+                        primary
+                    }
+                } else {
+                    self.fallback_for(c, style).unwrap_or(primary)
+                };
+                let end = pos + c.len_utf8();
+                append_item(&mut out, pos..end, face);
             }
         }
         out
@@ -453,6 +501,17 @@ impl FontManager {
         let upem = f32::from(self.info(id).units_per_em);
         let sum: i32 = self.shape(id, text).iter().map(|g| g.x_advance).sum();
         sum as f32 * size_pt / upem
+    }
+}
+
+fn append_item(
+    items: &mut Vec<(std::ops::Range<usize>, FaceId)>,
+    range: std::ops::Range<usize>,
+    face: FaceId,
+) {
+    match items.last_mut() {
+        Some(last) if last.1 == face && last.0.end == range.start => last.0.end = range.end,
+        _ => items.push((range, face)),
     }
 }
 

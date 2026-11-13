@@ -88,3 +88,45 @@ Trên cùng executable sau, 10 lượt khởi động/mở và 10 phiên gõ/cu�
 Phép so benchmark tự động không vượt ngưỡng cảnh báo của nó; gõ vẫn chưa đạt. Cuộn chỉ được
 đo trong kịch bản hiện có, chưa xác minh zoom/kéo chọn và mọi nội dung đồ họa.
 E2E desktop trên executable này qua **16/16**, gồm hai nhóm cộng tác và so ảnh trang với web.
+
+Token font UI của desktop Linux đã chuyển sang font dự án như web; kiểm thử token 28/28 qua.
+Chưa có ảnh Linux để đánh giá chữ và dấu tiếng Việt; thay đổi token này không nằm trong bản
+Windows đã đo/chụp ở trên.
+
+## Thử nghiệm chữ DirectWrite độc lập
+
+Trên Windows, [spike](../../tools/dwrite-spike/README.md) nạp byte Tinos vào bộ nhớ, dùng ID,
+advance và offset từ `bo-text` rồi nhận mặt nạ ClearType cho “Việt Nam” với DPR 1/1,25/1,5/
+1,75/2 truyền vào API. Ở DPR 1,25, dạng dựng
+sẵn và dạng dấu tổ hợp cho cùng kích thước 97 × 23, cùng 2.165 mẫu khác 0 và tổng alpha
+332.830. Các số tổng này không chứng minh hai ảnh giống pixel, dấu đặt đúng, độ nét hay hiệu
+năng hay độ nét trên màn hình vật lý. Spike chưa tích hợp vào ứng dụng hoặc surface GPU. Theo
+[tài liệu DirectWrite](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_3/nf-dwrite_3-idwriteinmemoryfontfileloader-createinmemoryfontfilereference),
+API có thể sao chép byte font khi không truyền owner; loader phải được giữ trong thời gian
+font được dùng. Những ràng buộc surface/IME/DPI của ADR-0017 vẫn còn nguyên.
+
+Kiểm tra từ spike cho thấy Caladea thiếu glyph “ạ” và dấu chấm dưới kết hợp. Ca đơn vị với
+chuỗi `a` + U+0323 đã tái hiện glyph thiếu trong nhánh chọn font cũ. Mã hiện chọn fallback
+cho cả cụm dấu khi có font phù hợp, giữ phạm vi byte của văn bản gốc; kiểm thử dấu đơn và
+dấu kép qua. Với trường hợp Caladea thiếu dấu, kiểm thử còn xác nhận dạng dựng sẵn và dạng
+tổ hợp chọn cùng font và cùng kết quả shaping. Thay đổi này chưa nằm trong bản Windows đã
+chụp/đo ở trên. Bộ [ảnh sau sửa font](screens/after-font-125/manifest.json) của bản SHA-256
+`e3326b55b2fdb86b4eb2a7472d1bfb6de5a5b7dea0c3b2fb17434d17da214235` khác tối đa 0,001%
+so với bộ sau sửa DPI trên cùng tài liệu. Tài liệu đó không chứa ca dấu tổ hợp đang sửa, nên
+phép so chỉ kiểm tra hồi quy trên mẫu hiện có. Bộ dàn trang đã qua.
+
+Trên cùng executable sau sửa font, 10 lượt khởi động/mở và 10 phiên gõ/cuộn (270 phím):
+[dữ liệu](baselines/font-ryzen7-7435hs.json). CPU đầu/cuối 16% / 3%; phép so tự động không
+báo suy giảm vượt ngưỡng, nhưng tải máy khác lần trước nên không quy chênh lệch cho sửa font.
+
+| Chỉ số | Trước sửa font | Sau sửa font | Mục tiêu |
+|---|---:|---:|---|
+| Khung hiện, trung vị | 445,5 ms | 428,7 ms | < 500 ms |
+| Editor sẵn sàng, trung vị | 902,8 ms | 870,1 ms | < 1.500 ms |
+| Phím tới khung hình, trung vị | 33,1 ms | 32,5 ms | < 16 ms |
+| Phím tới khung hình, p95 gộp | 44,5 ms | 44,1 ms | < 20 ms |
+| Cuộn | 142,1 FPS | 142,2 FPS | ≥ 60 FPS |
+
+Gõ vẫn chưa đạt mục tiêu. Kịch bản benchmark hiện có không bao phủ riêng đoạn dấu tổ hợp,
+zoom hoặc kéo chọn với tài liệu đồ họa nặng.
+E2E desktop trên bản sửa font qua **16/16**, gồm cộng tác và so trang với web.

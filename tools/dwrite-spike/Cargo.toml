@@ -1,0 +1,12 @@
+[package]
+name = "blueoffice-dwrite-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone experiment: not part of the shipping workspace or desktop binary.
+[workspace]
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_DirectWrite"] }
+bo-text = { path = "../../crates/bo-text" }

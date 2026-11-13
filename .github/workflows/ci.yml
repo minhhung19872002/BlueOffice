@@ -38,6 +38,12 @@ jobs:
       - name: Check diagnostic desktop allocator build
         if: runner.os == 'Windows'
         run: cargo clippy -p bo-desktop --features updater,webdriver,heap-profile -- -D warnings
+      - name: Check standalone DirectWrite experiment
+        if: runner.os == 'Windows'
+        run: |
+          cargo fmt --manifest-path tools/dwrite-spike/Cargo.toml -- --check
+          cargo clippy --manifest-path tools/dwrite-spike/Cargo.toml --locked -- -D warnings
+          cargo run --manifest-path tools/dwrite-spike/Cargo.toml --locked
       - run: cargo test --workspace --no-fail-fast
       - run: cargo clippy -p bo-wasm -p bo-collab -p bo-formula --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build -p bo-wasm --target wasm32-unknown-unknown --release

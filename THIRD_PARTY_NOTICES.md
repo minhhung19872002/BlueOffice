@@ -34,7 +34,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | unicode-linebreak | 0.1.5 | Apache-2.0 | Ngắt dòng UAX #14 |
 | unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | Thuật toán hai chiều UAX #9 (sắp xếp lại chữ RTL) |
 | unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | Chuẩn hoá NFC tiếng Việt |
-| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | Grapheme cluster (ngắt từ quá dài) |
+| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | Grapheme cluster (ngắt từ quá dài và chọn font cho cụm dấu) |
 | tiny-skia | 0.12.0 | BSD-3-Clause | Rasterize display list → PNG |
 | pdf-writer | 0.15.0 | MIT OR Apache-2.0 | Ghi PDF |
 | png | 0.18.1 | MIT OR Apache-2.0 | Giải mã ảnh PNG để nhúng PDF |
@@ -59,6 +59,7 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | tauri-plugin-single-instance | 2.5.5 | Apache-2.0 OR MIT | Chuyển file/deep link sang tiến trình đang chạy |
 | tauri-plugin-updater (feature `updater`) | 2.14.1 | Apache-2.0 OR MIT | Tự cập nhật bản desktop |
 | windows-sys (bo-winchrome, chỉ Windows) | 0.61.2 | MIT OR Apache-2.0 | Binding Win32 (microsoft/windows-rs): vùng bấm snap layouts trên nút phóng to, menu hệ thống của thanh tiêu đề tự vẽ (ADR-0016) |
+| windows (thử nghiệm DirectWrite, chỉ Windows) | 0.62.2 | MIT OR Apache-2.0 | Binding Win32 của microsoft/windows-rs, dùng trong `tools/dwrite-spike`; chưa được nối vào ứng dụng. |
 | windows-version (bo-winchrome, chỉ Windows) | 0.1.7 | MIT OR Apache-2.0 | Số build Windows: Mica chỉ từ Windows 11 (build 22000), Windows 10 dùng màu đặc (ADR-0016) |
 | window-vibrancy (qua tauri, `set_effects`) | 0.8.1 | Apache-2.0 OR MIT | Nền Mica sau thanh tiêu đề và ribbon trên Windows 11 (ADR-0016) |
 | rsa, sha2, x509-cert, cms, der, spki, const-oid (bo-sign) | 0.9.10, 0.10.9, 0.2.5, 0.2.3, 0.7.10, 0.7.3, 0.9.6 | Apache-2.0 OR MIT | Ký số PAdES / OOXML (RustCrypto) |

@@ -57,6 +57,34 @@ fn itemize_falls_back_for_missing_glyphs() {
 }
 
 #[test]
+fn vietnamese_combining_cluster_has_no_missing_glyphs_after_itemization() {
+    let mut fm = manager();
+    let caladea = fm.resolve("Caladea", false, false).unwrap();
+    for text in ["X a\u{0323} Y", "a\u{0302}\u{0323}"] {
+        let items = fm.itemize(caladea, text);
+        assert_eq!(items.first().unwrap().0.start, 0);
+        assert_eq!(items.last().unwrap().0.end, text.len());
+        assert!(items
+            .windows(2)
+            .all(|pair| pair[0].0.end == pair[1].0.start));
+        for (range, face) in items {
+            assert!(
+                fm.shape(face, &text[range]).iter().all(|g| g.glyph_id != 0),
+                "combining sequence must be covered by the chosen font"
+            );
+        }
+    }
+    let decomposed = "a\u{0323}";
+    let composed = "ạ";
+    let a = fm.itemize(caladea, decomposed);
+    let b = fm.itemize(caladea, composed);
+    assert_eq!(a.len(), 1);
+    assert_eq!(b.len(), 1);
+    assert_eq!(a[0].1, b[0].1);
+    assert_eq!(fm.shape(a[0].1, decomposed), fm.shape(b[0].1, composed));
+}
+
+#[test]
 fn outlines() {
     let mut fm = manager();
     let f = fm.resolve("Arial", false, false).unwrap();

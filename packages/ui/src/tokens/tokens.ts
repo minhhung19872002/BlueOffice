@@ -325,8 +325,8 @@ export const FONT_UI =
 /**
  * Desktop UI font stacks (ADR-0016): the desktop shell tags `<html data-os>` and the apps use
  * the system UI font — Segoe UI Variable (Text / Display optical sizes, Windows 11; Segoe UI on
- * Windows 10), San Francisco on macOS, the desktop's `system-ui` on Linux. None is bundled; Be
- * Vietnam Pro (bundled) and the generic family close every stack. The web keeps {@link FONT_UI}.
+ * Windows 10) and San Francisco on macOS. Linux and the web use the bundled BlueOffice UI font;
+ * system fonts and a generic family remain fallbacks.
  * Document text (canvas) fonts are unrelated (ADR-0003).
  */
 export const FONT_UI_OS = {
@@ -340,9 +340,8 @@ export const FONT_UI_OS = {
     display: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Be Vietnam Pro', sans-serif",
   },
   linux: {
-    text: "system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif",
-    display:
-      "system-ui, 'Cantarell', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Be Vietnam Pro', sans-serif",
+    text: FONT_UI,
+    display: FONT_UI,
   },
 } as const;
 

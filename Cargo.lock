@@ -986,6 +986,7 @@ dependencies = [
  "serde",
  "ttf-parser",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]

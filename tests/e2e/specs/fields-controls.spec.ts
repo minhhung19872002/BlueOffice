@@ -10,9 +10,18 @@ async function words(page: Page): Promise<number> {
 
 /** Click the middle of the frame of the content control around the caret. */
 async function clickInFrame(page: Page, dx = 0.5) {
-  const box = await page.getByTestId('control-frame').first().boundingBox();
-  if (!box) throw new Error('no control frame');
-  await page.mouse.click(box.x + box.width * dx, box.y + box.height / 2);
+  let box: Awaited<ReturnType<ReturnType<Page['getByTestId']>['boundingBox']>> = null;
+  // Selection updates may replace the overlay between locator resolution and the
+  // bounding-box read. Retry that read, rather than treating one detached node as absent.
+  await expect
+    .poll(async () => {
+      box = await page.getByTestId('control-frame').first().boundingBox();
+      return box !== null;
+    })
+    .toBe(true);
+  const rect = box as { x: number; y: number; width: number; height: number } | null;
+  if (!rect) throw new Error('no control frame');
+  await page.mouse.click(rect.x + rect.width * dx, rect.y + rect.height / 2);
 }
 
 test('Ctrl+F9, F11 / Shift+F11 and the questions of ASK / FILLIN fields on F9', async ({

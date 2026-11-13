@@ -217,11 +217,12 @@ describe('desktop window chrome (ADR-0016)', () => {
     expect(contrast(CAPTION_CLOSE.text, CAPTION_CLOSE.active)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('desktop UI fonts are the system fonts, closed by the bundled UI font', () => {
+  it('uses the platform UI fonts on Windows/macOS and the project font on Linux', () => {
     expect(FONT_UI_OS.windows.text.startsWith("'Segoe UI Variable Text'")).toBe(true);
     expect(FONT_UI_OS.windows.display.startsWith("'Segoe UI Variable Display'")).toBe(true);
     expect(FONT_UI_OS.macos.text.startsWith('-apple-system')).toBe(true);
-    expect(FONT_UI_OS.linux.text.startsWith('system-ui')).toBe(true);
+    expect(FONT_UI_OS.linux.text).toBe(FONT_UI);
+    expect(FONT_UI_OS.linux.display).toBe(FONT_UI);
     for (const f of Object.values(FONT_UI_OS)) {
       for (const stack of [f.text, f.display]) {
         expect(stack).toContain("'Be Vietnam Pro'");

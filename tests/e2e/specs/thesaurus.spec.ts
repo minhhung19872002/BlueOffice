@@ -42,6 +42,7 @@ test('replaces the word at the caret from the context menu submenu', async ({ pa
   await expect(sub.getByRole('menuitem').first()).toHaveText('Blessed', { timeout: 30_000 });
   await sub.getByRole('menuitem', { name: 'Blissful', exact: true }).click();
   await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText('Blissful');
   expect(fetched).toEqual(['/thesaurus/en/en.json.gz']);
 
   // The pane (Shift+F7) shows the word now at the caret.
@@ -52,6 +53,7 @@ test('replaces the word at the caret from the context menu submenu', async ({ pa
 
   // One undo step brings "Happy" back.
   await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('doc-a11y-mirror')).toContainText('Happy');
   await page.keyboard.press('Shift+F7');
   await expect(pane.getByTestId('thesaurus-search')).toHaveValue('Happy');
   expect(errors).toEqual([]);

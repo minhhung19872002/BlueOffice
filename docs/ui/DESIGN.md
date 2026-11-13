@@ -27,11 +27,11 @@ trên thanh tiêu đề, tab đang chọn, nút chính. Thang xám trung tính 1
 
 ## Chữ, khoảng cách, chuyển động
 
-- Font UI: Be Vietnam Pro / Inter (OFL), fallback font hệ thống. Desktop dùng font giao diện của hệ điều hành (`html[data-os]`,
-  `FONT_UI_OS` trong `tokens.ts`, không đóng gói): Windows `Segoe UI Variable Text` (tiêu đề hộp thoại / màn hình Tệp:
+- Font UI: Be Vietnam Pro / Inter (OFL), fallback font hệ thống. Desktop chọn theo hệ điều hành (`html[data-os]`,
+  `FONT_UI_OS` trong `tokens.ts`): Windows dùng font hệ thống `Segoe UI Variable Text` (tiêu đề hộp thoại / màn hình Tệp:
   `--bo-font-display` = `Segoe UI Variable Display`) → `Segoe UI Variable` → `Segoe UI` (Windows 10) → Be Vietnam Pro → `system-ui`
   → `sans-serif`; macOS `-apple-system` (San Francisco) → `BlinkMacSystemFont` → `Helvetica Neue` → Be Vietnam Pro → `sans-serif`;
-  Linux `system-ui` (font GTK) → Cantarell → Ubuntu → Noto Sans → DejaVu Sans → Be Vietnam Pro → `sans-serif`. Font chữ tài liệu
+  Linux dùng Be Vietnam Pro / Inter như web, sau đó fallback font hệ thống. Font chữ tài liệu
   (canvas) không đổi (ADR-0003). Cỡ: 11 / 12 / 13 / 14 / 16 / 20 / 24 / 32 px; nhãn ribbon 12px,
   tiêu đề hộp thoại 16–20px.
 - Lưới 4px; bo góc 4px (nút, ô nhập), 8px (hộp thoại, thẻ, popover); bóng 3 mức (menu, hộp thoại, cửa sổ nổi).

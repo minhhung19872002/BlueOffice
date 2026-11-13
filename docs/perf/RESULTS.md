@@ -259,3 +259,20 @@ Shell, gõ và RAM sau thao tác đều chưa đạt; không có local echo hay 
 quản lý, cùng tùy chọn `--rust-heap` trong bài thử. Đây là bộ đếm tổng, không phải phân tích
 stack từng allocation, và không dùng trong bản cài. Build này khác executable ở bảng trên;
 số của nó chỉ dùng chẩn đoán, không thay thế phép đo release không instrumentation.
+
+### Chẩn đoán heap 10 phút (có instrumentation)
+
+Bản `updater,webdriver,heap-profile`, SHA-256
+`e4ea97a3f390e8b67b381db112a8fde07fb2981c4fa4bf6ca77bcd0974549eca`;
+492 lần gõ, 52 chu kỳ ảnh/undo, đỉnh **463,4 MB**, phần cuối tăng **60,4 MB**.
+[Chuỗi mẫu](baselines/round3-heap-ryzen7-7435hs.json); hai WebView heap snapshot nằm
+cục bộ tại `out/perf/round3-heap/`, không đưa vào Git.
+
+Tại mẫu đầu / cuối: private working set app và tiến trình phụ **119,3 / 137,2 MB**;
+WebView2 **177,5 / 326,2 MB**; byte còn dùng qua allocator Rust **96,09 / 108,73 MiB**.
+Đây là các bộ đếm khác nhau, không cộng hoặc trừ chúng như những vùng nhớ độc lập.
+Shallow size của các node V8 snapshot là **32,71 / 36,61 MiB**; số node
+`blink::UndoStep` là **0 / 492**. Điều này cho thấy nơi cần điều tra thêm nhưng không chứng
+minh undo của WebView gây ra toàn bộ phần tăng: snapshot shallow không đo đầy đủ bộ nhớ
+native/GPU, và việc chụp snapshot có thể kích hoạt GC. Không suy số release chính thức từ
+bản instrumentation.

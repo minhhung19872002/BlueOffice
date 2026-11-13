@@ -1,0 +1,392 @@
+{
+  "date": "2026-11-13T01:19:48.243Z",
+  "exe": "D:\\bo-targets\\perf\\release\\bluedoc.exe",
+  "exeSha256": "e4ea97a3f390e8b67b381db112a8fde07fb2981c4fa4bf6ca77bcd0974549eca",
+  "runs": 5,
+  "profile": "",
+  "machine": {
+    "cpu": "AMD Ryzen 7 7435HS",
+    "cores": 8,
+    "threads": 16,
+    "ramGB": 31.8,
+    "gpu": [
+      "NVIDIA GeForce RTX 2050 (32.0.15.6607)"
+    ],
+    "os": "Microsoft Windows 11 Home Single Language 10.0.26300 (build 26300)",
+    "scalePercent": 125,
+    "cpuLoadPercent": 9,
+    "webView2": "157.0.4341.46",
+    "nodeCpus": 16,
+    "totalMemGB": 32
+  },
+  "loadBefore": 26,
+  "loadAfter": 8,
+  "metrics": {
+    "start.editorReadyMs": null,
+    "start.shellVisibleMs": null,
+    "start.firstPaintMs": null,
+    "start.ribbonVisibleMs": null,
+    "start.processMainMs": null,
+    "start.pageLoadStartedMs": null,
+    "start.startScreenMs": null,
+    "open100.openToFirstPageMs": null,
+    "open100.launchToFirstPageMs": null,
+    "open100.engineOpenNativeMs": null,
+    "open100.engineOpenIpcMs": null,
+    "open100.readFileIpcMs": null,
+    "ram.oneDocPrivateMB": null,
+    "ram.oneDocWorkingSetMB": null,
+    "ram.appPrivateMB": null,
+    "ram.webviewPrivateMB": null,
+    "ram.smallDocPrivateMB": null
+  },
+  "raw": {
+    "start": [],
+    "startScreen": [],
+    "open": []
+  },
+  "webdriver": [],
+  "soak": {
+    "durationMs": 604979,
+    "edits": 492,
+    "images": 52,
+    "samples": [
+      {
+        "elapsedMs": 26,
+        "privateMB": 296.8,
+        "appPrivateMB": 119.3,
+        "webviewPrivateMB": 177.5,
+        "rustHeap": {
+          "allocated": 1254346061,
+          "deallocated": 1153592624,
+          "inUse": 100753437
+        }
+      },
+      {
+        "elapsedMs": 30208,
+        "privateMB": 360.5,
+        "appPrivateMB": 123,
+        "webviewPrivateMB": 237.5,
+        "rustHeap": {
+          "allocated": 2436368123,
+          "deallocated": 2334868852,
+          "inUse": 101499271
+        }
+      },
+      {
+        "elapsedMs": 60960,
+        "privateMB": 371.1,
+        "appPrivateMB": 124.8,
+        "webviewPrivateMB": 246.2,
+        "rustHeap": {
+          "allocated": 3697922946,
+          "deallocated": 3596160200,
+          "inUse": 101762746
+        }
+      },
+      {
+        "elapsedMs": 91651,
+        "privateMB": 376.3,
+        "appPrivateMB": 125.2,
+        "webviewPrivateMB": 251.1,
+        "rustHeap": {
+          "allocated": 4962275942,
+          "deallocated": 4860208867,
+          "inUse": 102067075
+        }
+      },
+      {
+        "elapsedMs": 121805,
+        "privateMB": 383.4,
+        "appPrivateMB": 124.5,
+        "webviewPrivateMB": 259,
+        "rustHeap": {
+          "allocated": 6137939107,
+          "deallocated": 6035536923,
+          "inUse": 102402184
+        }
+      },
+      {
+        "elapsedMs": 152528,
+        "privateMB": 391.8,
+        "appPrivateMB": 125.7,
+        "webviewPrivateMB": 266.2,
+        "rustHeap": {
+          "allocated": 7402289665,
+          "deallocated": 7299497807,
+          "inUse": 102791858
+        }
+      },
+      {
+        "elapsedMs": 183290,
+        "privateMB": 397.1,
+        "appPrivateMB": 126.1,
+        "webviewPrivateMB": 271,
+        "rustHeap": {
+          "allocated": 8674838145,
+          "deallocated": 8571258465,
+          "inUse": 103579680
+        }
+      },
+      {
+        "elapsedMs": 213350,
+        "privateMB": 403,
+        "appPrivateMB": 127.6,
+        "webviewPrivateMB": 275.4,
+        "rustHeap": {
+          "allocated": 9869065571,
+          "deallocated": 9764983204,
+          "inUse": 104082367
+        }
+      },
+      {
+        "elapsedMs": 244021,
+        "privateMB": 404.8,
+        "appPrivateMB": 127.9,
+        "webviewPrivateMB": 276.8,
+        "rustHeap": {
+          "allocated": 11403471030,
+          "deallocated": 11298875693,
+          "inUse": 104595337
+        }
+      },
+      {
+        "elapsedMs": 275046,
+        "privateMB": 407.1,
+        "appPrivateMB": 128.2,
+        "webviewPrivateMB": 278.9,
+        "rustHeap": {
+          "allocated": 12940376167,
+          "deallocated": 12835220758,
+          "inUse": 105155409
+        }
+      },
+      {
+        "elapsedMs": 305053,
+        "privateMB": 404.4,
+        "appPrivateMB": 128.9,
+        "webviewPrivateMB": 275.5,
+        "rustHeap": {
+          "allocated": 14371440555,
+          "deallocated": 14265553365,
+          "inUse": 105887190
+        }
+      },
+      {
+        "elapsedMs": 335858,
+        "privateMB": 416.4,
+        "appPrivateMB": 129.9,
+        "webviewPrivateMB": 286.5,
+        "rustHeap": {
+          "allocated": 15884047793,
+          "deallocated": 15777518464,
+          "inUse": 106529329
+        }
+      },
+      {
+        "elapsedMs": 366585,
+        "privateMB": 416.6,
+        "appPrivateMB": 130.7,
+        "webviewPrivateMB": 285.9,
+        "rustHeap": {
+          "allocated": 17406099742,
+          "deallocated": 17298881608,
+          "inUse": 107218134
+        }
+      },
+      {
+        "elapsedMs": 397593,
+        "privateMB": 422.2,
+        "appPrivateMB": 131.3,
+        "webviewPrivateMB": 290.9,
+        "rustHeap": {
+          "allocated": 18889201040,
+          "deallocated": 18781255890,
+          "inUse": 107945150
+        }
+      },
+      {
+        "elapsedMs": 428239,
+        "privateMB": 420.6,
+        "appPrivateMB": 132.1,
+        "webviewPrivateMB": 288.5,
+        "rustHeap": {
+          "allocated": 20473512070,
+          "deallocated": 20364793246,
+          "inUse": 108718824
+        }
+      },
+      {
+        "elapsedMs": 459012,
+        "privateMB": 457.3,
+        "appPrivateMB": 163.6,
+        "webviewPrivateMB": 293.7,
+        "rustHeap": {
+          "allocated": 22027942580,
+          "deallocated": 21918404761,
+          "inUse": 109537819
+        }
+      },
+      {
+        "elapsedMs": 489999,
+        "privateMB": 457.3,
+        "appPrivateMB": 133.5,
+        "webviewPrivateMB": 323.8,
+        "rustHeap": {
+          "allocated": 23514215992,
+          "deallocated": 23403566938,
+          "inUse": 110649054
+        }
+      },
+      {
+        "elapsedMs": 520952,
+        "privateMB": 460.4,
+        "appPrivateMB": 134.4,
+        "webviewPrivateMB": 326,
+        "rustHeap": {
+          "allocated": 25064609267,
+          "deallocated": 24953062446,
+          "inUse": 111546821
+        }
+      },
+      {
+        "elapsedMs": 551557,
+        "privateMB": 457,
+        "appPrivateMB": 135.5,
+        "webviewPrivateMB": 321.5,
+        "rustHeap": {
+          "allocated": 26607006441,
+          "deallocated": 26494523321,
+          "inUse": 112483120
+        }
+      },
+      {
+        "elapsedMs": 582553,
+        "privateMB": 459.3,
+        "appPrivateMB": 136.2,
+        "webviewPrivateMB": 323.1,
+        "rustHeap": {
+          "allocated": 28093867093,
+          "deallocated": 27980394320,
+          "inUse": 113472773
+        }
+      },
+      {
+        "elapsedMs": 603389,
+        "privateMB": 463.4,
+        "appPrivateMB": 137.2,
+        "webviewPrivateMB": 326.2,
+        "rustHeap": {
+          "allocated": 28917523394,
+          "deallocated": 28803508830,
+          "inUse": 114014564
+        }
+      }
+    ],
+    "growthMB": 60.4,
+    "growing": true,
+    "peakPrivateMB": 463.4,
+    "snapshots": [
+      {
+        "file": "D:\\Source\\BlueOffice\\out\\perf\\round3-heap\\webview-before.heapsnapshot",
+        "bytes": 31182996
+      },
+      {
+        "file": "D:\\Source\\BlueOffice\\out\\perf\\round3-heap\\webview-after.heapsnapshot",
+        "bytes": 37043603
+      }
+    ]
+  },
+  "distributions": {
+    "start.editorReadyMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.shellVisibleMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.firstPaintMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.ribbonVisibleMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.processMainMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.pageLoadStartedMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "start.startScreenMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.openToFirstPageMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.launchToFirstPageMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.engineOpenNativeMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.engineOpenIpcMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "open100.readFileIpcMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.oneDocPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.oneDocWorkingSetMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.appPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.webviewPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "ram.smallDocPrivateMB": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    },
+    "type.keyToPaintAllKeysMs": {
+      "n": 0,
+      "median": null,
+      "p95": null
+    }
+  }
+}

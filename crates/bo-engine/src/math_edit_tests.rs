@@ -90,7 +90,7 @@ fn querying_fonts_and_styles_keeps_the_math_caret_in_the_equation() {
     }
     typed(&mut e, "+z_1 ");
     let in_subscript = mv(&mut e, MathMotion::Left);
-    assert!(!path(&in_subscript).0.is_empty());
+    assert_ne!(path(&in_subscript).0, Vec::<[usize; 2]>::new());
     assert_eq!(linear(&mut e), "a/b+z_1");
 }
 

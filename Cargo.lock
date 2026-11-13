@@ -1028,8 +1028,12 @@ dependencies = [
 name = "bo-ui"
 version = "0.1.0"
 dependencies = [
+ "bo-edit",
  "bo-engine",
+ "bo-model",
  "bo-render",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

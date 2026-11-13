@@ -62,6 +62,20 @@ pub enum Input {
         /// Shift held (extend the selection).
         shift: bool,
     },
+    /// Pointer moved with no button held (hover).
+    Move {
+        /// Pointer x.
+        x: f32,
+        /// Pointer y.
+        y: f32,
+    },
+    /// Mouse button released.
+    Release {
+        /// Pointer x.
+        x: f32,
+        /// Pointer y.
+        y: f32,
+    },
     /// Pointer moved with the button held.
     Drag {
         /// Pointer x.

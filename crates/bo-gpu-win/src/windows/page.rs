@@ -275,7 +275,7 @@ impl State {
 }
 
 impl Device {
-    fn geometry(&self, segs: &[PathSeg]) -> Result<ID2D1PathGeometry1, String> {
+    pub(super) fn geometry(&self, segs: &[PathSeg]) -> Result<ID2D1PathGeometry1, String> {
         // SAFETY: the factory owns the geometry; the sink is closed before the geometry is used.
         unsafe {
             let geometry = self
@@ -320,7 +320,7 @@ impl Device {
         }
     }
 
-    fn solid(&self, c: Rgba, alpha: f32) -> Result<ID2D1Brush, String> {
+    pub(super) fn solid(&self, c: Rgba, alpha: f32) -> Result<ID2D1Brush, String> {
         // SAFETY: the context owns the returned brush.
         unsafe {
             self.context
@@ -424,7 +424,7 @@ impl Device {
         }
     }
 
-    fn stroke_style(
+    pub(super) fn stroke_style(
         &self,
         width: f32,
         dash: &[f32],

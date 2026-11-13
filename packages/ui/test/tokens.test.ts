@@ -13,6 +13,7 @@ import {
   gray,
   MICA_BASE,
   renderTokensCss,
+  renderTokensJson,
   STATUS,
   THEMES,
   type ThemeName,
@@ -37,6 +38,13 @@ function contrast(a: string, b: string): number {
 const themes: ThemeName[] = ['light', 'dark', 'hc'];
 
 describe('design tokens', () => {
+  it('tokens.json (Rust interface) is generated from tokens.ts', () => {
+    const json = renderTokensJson();
+    const jsonPath = cssPath.replace(/tokens\.css$/, 'tokens.json');
+    if (process.env.BO_WRITE_TOKENS === '1') writeFileSync(jsonPath, json);
+    expect(readFileSync(jsonPath, 'utf8').replace(/\r\n/g, '\n')).toBe(json);
+  });
+
   it('tokens.css is generated from tokens.ts', () => {
     const css = renderTokensCss();
     if (process.env.BO_WRITE_TOKENS === '1') writeFileSync(cssPath, css);

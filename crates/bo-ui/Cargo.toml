@@ -9,6 +9,10 @@ publish = false
 [dependencies]
 bo-engine = { workspace = true }
 bo-render.workspace = true
+bo-edit.workspace = true
+bo-model.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
 
 [dev-dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }

@@ -2,8 +2,8 @@
 use crate::win32::{self, Handler};
 use bo_engine::{Engine, SystemFontIndex};
 use bo_gpu_win::{Device, Frame, PageBitmap, TextRendering, WindowSurface};
-use bo_render::{PageList, Rgba};
-use bo_ui::{DocView, Input, PageStore, Painter};
+use bo_render::{PageList, PathSeg, Rgba};
+use bo_ui::{DocView, DocWindow, Input, PageStore, Painter, TextMeasure, TextStyle};
 use std::collections::HashMap;
 use std::io::Write;
 use std::time::Instant;
@@ -42,7 +42,7 @@ pub fn run() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         "Tài liệu mới.docx".into()
     };
-    let view = DocView::new(engine)?;
+    let view = DocWindow::new(DocView::new(engine)?, "vi-VN");
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -136,10 +136,37 @@ impl Painter for WinPainter<'_, '_> {
             self.frame.draw_page(bitmap, x, y);
         }
     }
+    fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
+        self.frame.text(text, x, y, style.size, style.bold, color);
+    }
+    fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
+        self.frame.path(segs, fill, stroke);
+    }
+    fn push_clip(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.frame.push_clip(x, y, w, h);
+    }
+    fn pop_clip(&mut self) {
+        self.frame.pop_clip();
+    }
+}
+
+/// Interface text measured by DirectWrite (before a device exists: an estimate).
+struct Measure<'a>(Option<&'a Device>);
+
+impl TextMeasure for Measure<'_> {
+    fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+        match self.0 {
+            Some(d) => d.measure_text(text, style.size, style.bold),
+            None => (
+                text.chars().count() as f32 * style.size * 0.55,
+                style.size * 1.33,
+            ),
+        }
+    }
 }
 
 struct Shell {
-    view: DocView,
+    view: DocWindow,
     gpu: Option<Gpu>,
     perf: Option<std::fs::File>,
 }
@@ -177,11 +204,15 @@ impl Handler for Shell {
                 bitmaps: HashMap::new(),
             },
         });
-        self.view.handle(Input::Scale(scale));
-        self.view.handle(Input::Resize {
-            width: width as f32,
-            height: height as f32,
-        });
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        self.view.handle(Input::Scale(scale), &m);
+        self.view.handle(
+            Input::Resize {
+                width: width as f32,
+                height: height as f32,
+            },
+            &m,
+        );
         Ok(())
     }
 
@@ -195,16 +226,19 @@ impl Handler for Shell {
             Input::Resize { .. } => "resize",
             Input::Scale(_) => "scale",
             Input::Blink => "blink",
+            Input::Move { .. } => "move",
+            Input::Release { .. } => "release",
         };
         let start = Instant::now();
-        if !self.view.handle(input) {
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        if !self.view.handle(input, &m) {
             return;
         }
         let handled = start.elapsed();
         if let Err(e) = self.render() {
             eprintln!("render: {e}");
         }
-        if let (Some(file), false) = (self.perf.as_mut(), kind == "blink") {
+        if let (Some(file), false) = (self.perf.as_mut(), matches!(kind, "blink" | "move")) {
             let total = start.elapsed();
             let _ = writeln!(
                 file,
@@ -222,10 +256,14 @@ impl Handler for Shell {
                 eprintln!("resize: {e}");
             }
         }
-        self.view.handle(Input::Resize {
-            width: width as f32,
-            height: height as f32,
-        });
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        self.view.handle(
+            Input::Resize {
+                width: width as f32,
+                height: height as f32,
+            },
+            &m,
+        );
         let _ = self.render();
     }
 

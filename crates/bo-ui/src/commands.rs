@@ -1,0 +1,59 @@
+//! Command ids (the same ids as the React `CommandRegistry`, e.g. `format.bold`) mapped to
+//! engine commands, with their toggle and enabled state from the engine's format state.
+use bo_edit::{CharFormat, FormatState, ParaFormat};
+use bo_engine::edit::Command;
+use bo_model::Alignment;
+
+/// The engine command run by command `id`, if the native interface implements it.
+pub fn command(id: &str) -> Option<Command> {
+    let text = |format| Some(Command::FormatText { format });
+    let para = |format| Some(Command::FormatParagraph { format });
+    let align = |align| para(ParaFormat::Align { align });
+    match id {
+        "edit.undo" => Some(Command::Undo),
+        "edit.redo" => Some(Command::Redo),
+        "format.bold" => text(CharFormat::Bold),
+        "format.italic" => text(CharFormat::Italic),
+        "format.underline" => text(CharFormat::Underline),
+        "format.strike" => text(CharFormat::Strike),
+        "format.subscript" => text(CharFormat::Subscript),
+        "format.superscript" => text(CharFormat::Superscript),
+        "format.alignLeft" => align(Alignment::Left),
+        "format.alignCenter" => align(Alignment::Center),
+        "format.alignRight" => align(Alignment::Right),
+        "format.justify" => align(Alignment::Justify),
+        "format.bullets" => para(ParaFormat::Bullets),
+        "format.numbering" => para(ParaFormat::Numbering),
+        "format.indent" => para(ParaFormat::IncreaseIndent),
+        "format.outdent" => para(ParaFormat::DecreaseIndent),
+        _ => None,
+    }
+}
+
+/// Whether command `id` shows as switched on for the selection.
+pub fn toggled(id: &str, f: &FormatState) -> bool {
+    match id {
+        "format.bold" => f.bold,
+        "format.italic" => f.italic,
+        "format.underline" => f.underline,
+        "format.strike" => f.strike,
+        "format.subscript" => f.subscript,
+        "format.superscript" => f.superscript,
+        "format.alignLeft" => f.align == Alignment::Left,
+        "format.alignCenter" => f.align == Alignment::Center,
+        "format.alignRight" => f.align == Alignment::Right,
+        "format.justify" => f.align == Alignment::Justify,
+        "format.bullets" => f.bullets,
+        "format.numbering" => f.numbering,
+        _ => false,
+    }
+}
+
+/// Whether command `id` can run now.
+pub fn enabled(id: &str, f: &FormatState) -> bool {
+    match id {
+        "edit.undo" => f.can_undo,
+        "edit.redo" => f.can_redo,
+        _ => command(id).is_some(),
+    }
+}

@@ -426,6 +426,24 @@ function themeBlock(theme: ThemeName): string {
   return lines.join('\n');
 }
 
+/**
+ * Render `tokens.json`: the same tokens for the self-drawn Rust interface (`bo-ui`, ADR-0018),
+ * so both interfaces share one palette, accents, motion and densities.
+ */
+export function renderTokensJson(): string {
+  return `${JSON.stringify(
+    {
+      generated: 'tokens.ts (BO_WRITE_TOKENS=1 pnpm --filter @blueoffice/ui test)',
+      themes: THEMES,
+      accents: ACCENTS,
+      motion: MOTION,
+      density: DENSITY,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 /** Render `tokens.css` from the constants above. */
 export function renderTokensCss(): string {
   const scale = [

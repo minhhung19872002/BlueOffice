@@ -1,8 +1,9 @@
 //! Window presentation: a flip-model DXGI swap chain drawn by Direct2D, and GPU-resident page
 //! bitmaps composed into it 1:1 (ADR-0018). Coordinates of a [`Frame`] are device pixels.
 use super::Device;
-use bo_render::{PageList, Rgba};
+use bo_render::{PageList, PathSeg, Rgba};
 use windows::core::Interface;
+use windows::core::HSTRING;
 use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
@@ -10,6 +11,16 @@ use windows::Win32::Graphics::Direct2D::Common::{
 use windows::Win32::Graphics::Direct2D::{
     ID2D1Bitmap1, ID2D1Image, D2D1_ANTIALIAS_MODE_ALIASED, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
     D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+};
+use windows::Win32::Graphics::Direct2D::{
+    ID2D1Brush, D2D1_CAP_STYLE_ROUND, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_LINE_JOIN_ROUND,
+    D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
+};
+use windows::Win32::Graphics::DirectWrite::{
+    DWriteCreateFactory, IDWriteFactory, IDWriteRenderingParams, IDWriteTextFormat,
+    IDWriteTextLayout, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+    DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
@@ -87,6 +98,74 @@ impl Device {
             width,
             height,
         })
+    }
+}
+
+/// Interface font: the system Segoe UI, like the platform's own controls (ADR-0016 / 0018).
+const UI_FONT: &str = "Segoe UI";
+
+impl Device {
+    fn ui_format(&self, size: f32, bold: bool) -> Result<IDWriteTextFormat, String> {
+        let key = (size.to_bits(), bold);
+        if let Some(f) = self.ui_formats.borrow().get(&key) {
+            return Ok(f.clone());
+        }
+        // SAFETY: the shared factory and the format are owned COM references.
+        let format = unsafe {
+            let factory: IDWriteFactory =
+                DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
+            let format = factory
+                .CreateTextFormat(
+                    &HSTRING::from(UI_FONT),
+                    None,
+                    if bold {
+                        DWRITE_FONT_WEIGHT_SEMI_BOLD
+                    } else {
+                        DWRITE_FONT_WEIGHT_NORMAL
+                    },
+                    DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    size,
+                    &HSTRING::from("vi-VN"),
+                )
+                .map_err(|e| e.to_string())?;
+            format
+                .SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)
+                .map_err(|e| e.to_string())?;
+            format
+        };
+        self.ui_formats.borrow_mut().insert(key, format.clone());
+        Ok(format)
+    }
+
+    fn ui_layout(&self, text: &str, size: f32, bold: bool) -> Result<IDWriteTextLayout, String> {
+        let format = self.ui_format(size, bold)?;
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        // SAFETY: `wide` outlives the call (DirectWrite copies it); the layout is owned.
+        // GDI-compatible (classic) measuring keeps small interface text on whole pixels like
+        // the system's own controls, which is crisper than natural layout at 9–11 pt.
+        unsafe {
+            let factory: IDWriteFactory =
+                DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
+            factory
+                .CreateGdiCompatibleTextLayout(&wide, &format, 10_000.0, 1_000.0, 1.0, None, false)
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    /// Width and height in device pixels of interface text at `size` pixels.
+    pub fn measure_text(&self, text: &str, size: f32, bold: bool) -> (f32, f32) {
+        let Ok(layout) = self.ui_layout(text, size, bold) else {
+            return (0.0, size);
+        };
+        let mut m = DWRITE_TEXT_METRICS::default();
+        // SAFETY: the out pointer refers to a live metrics struct.
+        unsafe {
+            if layout.GetMetrics(&mut m).is_err() {
+                return (0.0, size);
+            }
+        }
+        (m.widthIncludingTrailingWhitespace, m.height)
     }
 }
 
@@ -206,6 +285,13 @@ impl WindowSurface {
             device.context.SetDpi(96.0, 96.0);
             device.context.BeginDraw();
             device.context.SetTransform(&IDENTITY);
+            // Interface text uses the system's ClearType settings; pages carry their own pixels.
+            device
+                .context
+                .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
+            device
+                .context
+                .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
             paint(&Frame { device });
             let ended = device.context.EndDraw(None, None);
             device.context.SetTarget(None::<&ID2D1Image>);
@@ -268,6 +354,59 @@ impl Frame<'_> {
     pub fn pop_clip(&self) {
         // SAFETY: paired with a previous `push_clip` in the same frame.
         unsafe { self.device.context.PopAxisAlignedClip() }
+    }
+
+    /// Draw interface text with its layout box's top-left corner at (`x`, `y`).
+    pub fn text(&self, text: &str, x: f32, y: f32, size: f32, bold: bool, c: Rgba) {
+        let Ok(layout) = self.device.ui_layout(text, size, bold) else {
+            return;
+        };
+        // SAFETY: the layout and brush are owned; drawing happens inside the frame.
+        unsafe {
+            if let Ok(brush) = self.device.context.CreateSolidColorBrush(&color(c), None) {
+                self.device.context.DrawTextLayout(
+                    windows_numerics::Vector2 {
+                        X: x.round(),
+                        Y: y.round(),
+                    },
+                    &layout,
+                    &brush,
+                    D2D1_DRAW_TEXT_OPTIONS_NONE,
+                );
+            }
+        }
+    }
+
+    /// Fill and / or stroke (round caps and joins) a path in device pixels.
+    pub fn path(&self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
+        let Ok(geometry) = self.device.geometry(segs) else {
+            return;
+        };
+        // SAFETY: geometry, brushes and stroke style are owned; drawing happens in the frame.
+        unsafe {
+            if let Some(c) = fill {
+                if let Ok(brush) = self.device.solid(c, 1.0) {
+                    self.device
+                        .context
+                        .FillGeometry(&geometry, &brush, None::<&ID2D1Brush>);
+                }
+            }
+            if let Some((c, width)) = stroke {
+                if let (Ok(brush), Ok(style)) = (
+                    self.device.solid(c, 1.0),
+                    self.device.stroke_style(
+                        width,
+                        &[],
+                        D2D1_CAP_STYLE_ROUND,
+                        D2D1_LINE_JOIN_ROUND,
+                    ),
+                ) {
+                    self.device
+                        .context
+                        .DrawGeometry(&geometry, &brush, width, &style);
+                }
+            }
+        }
     }
 
     /// Draw a page bitmap 1:1 with its top-left corner at device pixel (`x`, `y`).

@@ -1,6 +1,7 @@
 //! Paginated document view: page layout, scrolling, caret and selection, keyboard and mouse
 //! editing, and incremental page repaints (only the band that changed is redrawn).
 use crate::{Input, Key, Mods, PageStore, Painter};
+use bo_edit::FormatState;
 use bo_engine::edit::Command;
 use bo_engine::nav::{CaretRect, Motion, SelRect};
 use bo_engine::{EditResult, Engine, PageSize};
@@ -36,6 +37,8 @@ pub struct PageSlot {
 pub struct DocView {
     engine: Engine,
     pages: Vec<PageSize>,
+    /// Top-left of the view in the window (device pixels).
+    origin: (f32, f32),
     viewport: (f32, f32),
     display_scale: f32,
     zoom: f32,
@@ -48,6 +51,8 @@ pub struct DocView {
     /// Pages the engine reported changed since their image was drawn.
     stale: HashSet<usize>,
     modified: bool,
+    format: FormatState,
+    words: usize,
 }
 
 impl DocView {
@@ -57,6 +62,7 @@ impl DocView {
         let mut view = Self {
             engine,
             pages: Vec::new(),
+            origin: (0.0, 0.0),
             viewport: (800.0, 600.0),
             display_scale: 1.0,
             zoom: 1.0,
@@ -67,6 +73,8 @@ impl DocView {
             shown: HashMap::new(),
             stale: HashSet::new(),
             modified: false,
+            format: FormatState::default(),
+            words: 0,
         };
         view.apply(&state);
         Ok(view)
@@ -80,6 +88,46 @@ impl DocView {
     /// The document changed since it was opened or saved.
     pub fn modified(&self) -> bool {
         self.modified
+    }
+
+    /// Formatting at the selection (ribbon toggle state).
+    pub fn format(&self) -> &FormatState {
+        &self.format
+    }
+
+    /// Number of pages.
+    pub fn page_count(&self) -> usize {
+        self.pages.len()
+    }
+
+    /// Words in the main story.
+    pub fn word_count(&self) -> usize {
+        self.words
+    }
+
+    /// Index of the first page visible in the view.
+    pub fn current_page(&self) -> usize {
+        self.visible().first().map_or(0, |s| s.index)
+    }
+
+    /// Zoom factor (1 = 100 %).
+    pub fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    /// Place the view at `(x, y)` with size `(width, height)` in window device pixels.
+    pub fn set_frame(&mut self, x: f32, y: f32, width: f32, height: f32) {
+        self.origin = (x, y);
+        self.viewport = (width.max(1.0), height.max(1.0));
+        self.clamp_scroll();
+    }
+
+    /// Run the engine command of interface command `id` (`format.bold`, …).
+    pub fn run_action(&mut self, id: &str) -> bool {
+        match crate::commands::command(id) {
+            Some(cmd) => self.edit(cmd),
+            None => false,
+        }
     }
 
     /// Device pixels per point.
@@ -151,8 +199,8 @@ impl DocView {
                     .floor();
                 PageSlot {
                     index,
-                    x: x as i32,
-                    y: (top - self.scroll).round() as i32,
+                    x: (x + self.origin.0) as i32,
+                    y: (top - self.scroll + self.origin.1).round() as i32,
                     width,
                     height,
                 }
@@ -161,10 +209,13 @@ impl DocView {
     }
 
     fn visible(&self) -> Vec<PageSlot> {
-        let h = self.viewport.1 as i32;
+        let (top, bottom) = (
+            self.origin.1 as i32,
+            (self.origin.1 + self.viewport.1) as i32,
+        );
         self.slots()
             .into_iter()
-            .filter(|s| s.y + s.height > 0 && s.y < h)
+            .filter(|s| s.y + s.height > top && s.y < bottom)
             .collect()
     }
 
@@ -204,6 +255,7 @@ impl DocView {
                 self.clamp_scroll();
                 true
             }
+            Input::Move { .. } | Input::Release { .. } => false,
             Input::Scale(scale) => {
                 if scale.is_finite() && scale > 0.0 && scale != self.display_scale {
                     self.display_scale = scale;
@@ -262,6 +314,13 @@ impl DocView {
             Key::Letter('a') if m.ctrl => Command::SelectAll,
             Key::Letter('z') if m.ctrl => Command::Undo,
             Key::Letter('y') if m.ctrl => Command::Redo,
+            Key::Letter('b') if m.ctrl => return self.run_action("format.bold"),
+            Key::Letter('i') if m.ctrl => return self.run_action("format.italic"),
+            Key::Letter('u') if m.ctrl => return self.run_action("format.underline"),
+            Key::Letter('e') if m.ctrl => return self.run_action("format.alignCenter"),
+            Key::Letter('l') if m.ctrl => return self.run_action("format.alignLeft"),
+            Key::Letter('r') if m.ctrl => return self.run_action("format.alignRight"),
+            Key::Letter('j') if m.ctrl => return self.run_action("format.justify"),
             Key::Letter(_) => return false,
         };
         self.edit(cmd)
@@ -297,6 +356,8 @@ impl DocView {
         self.caret = r.caret;
         self.rects.clone_from(&r.rects);
         self.modified = r.modified;
+        self.format.clone_from(&r.format);
+        self.words = r.info.word_count;
     }
 
     fn reveal_caret(&mut self) {
@@ -378,7 +439,10 @@ impl DocView {
 
     /// Paint a frame: background, pages, selection and caret.
     pub fn paint(&self, p: &mut dyn Painter) {
-        p.clear(CANVAS_BG);
+        let (ox, oy) = self.origin;
+        let (vw, vh) = self.viewport;
+        p.push_clip(ox, oy, vw, vh);
+        p.fill_rect(ox, oy, vw, vh, CANVAS_BG);
         let s = self.scale();
         let visible = self.visible();
         for slot in &visible {
@@ -408,6 +472,7 @@ impl DocView {
                 p.fill_rect(x.round(), y.round(), w, h.round(), CARET);
             }
         }
+        p.pop_clip();
     }
 }
 
@@ -453,6 +518,10 @@ mod tests {
         fn page(&mut self, index: usize, x: i32, y: i32) {
             self.pages.push((index, x, y));
         }
+        fn text(&mut self, _: &str, _: f32, _: f32, _: crate::TextStyle, _: Rgba) {}
+        fn path(&mut self, _: &[bo_render::PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
+        fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+        fn pop_clip(&mut self) {}
     }
 
     fn view() -> DocView {

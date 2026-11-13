@@ -238,10 +238,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
+            let (x, y) = point(lparam);
             // MK_LBUTTON
             if wparam.0 & 0x0001 != 0 {
-                let (x, y) = point(lparam);
                 input(Input::Drag { x, y });
+            } else {
+                input(Input::Move { x, y });
             }
             LRESULT(0)
         }
@@ -250,6 +252,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             unsafe {
                 let _ = ReleaseCapture();
             }
+            let (x, y) = point(lparam);
+            input(Input::Release { x, y });
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == BLINK_TIMER => {

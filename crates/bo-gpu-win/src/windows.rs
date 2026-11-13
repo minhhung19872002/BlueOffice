@@ -66,6 +66,13 @@ pub struct Device {
     // DirectWrite faces reused across pages; independent of the Direct2D objects above.
     faces: RefCell<bo_dwrite::FaceCache>,
     text: RefCell<TextRendering>,
+    // Interface text formats (Segoe UI) by (size bits, bold), see surface.rs.
+    ui_formats: RefCell<
+        std::collections::HashMap<
+            (u32, bool),
+            windows::Win32::Graphics::DirectWrite::IDWriteTextFormat,
+        >,
+    >,
     // A single-threaded Direct2D factory and its resources must remain on their creating thread.
     _thread_bound: PhantomData<Rc<()>>,
 }
@@ -297,6 +304,7 @@ impl Device {
                 driver,
                 faces: RefCell::new(bo_dwrite::FaceCache::new()?),
                 text: RefCell::new(TextRendering::System),
+                ui_formats: RefCell::new(std::collections::HashMap::new()),
                 _thread_bound: PhantomData,
             })
         }

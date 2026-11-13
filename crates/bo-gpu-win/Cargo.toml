@@ -8,6 +8,8 @@ publish = false
 
 [target.'cfg(windows)'.dependencies]
 bo-dwrite = { path = "../bo-dwrite" }
+bo-render.workspace = true
+bo-text.workspace = true
 windows-numerics = "0.3.1"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",

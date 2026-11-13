@@ -741,6 +741,8 @@ name = "bo-gpu-win"
 version = "0.1.0"
 dependencies = [
  "bo-dwrite",
+ "bo-render",
+ "bo-text",
  "windows",
  "windows-numerics",
 ]

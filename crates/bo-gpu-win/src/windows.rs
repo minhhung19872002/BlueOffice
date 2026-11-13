@@ -21,6 +21,8 @@ use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
+mod page;
+
 /// A Direct2D context backed by a Direct3D device. It is not yet connected to a surface.
 pub struct Device {
     // Retain all parent COM objects for the lifetime of the context.

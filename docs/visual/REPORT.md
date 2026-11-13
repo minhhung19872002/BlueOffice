@@ -154,7 +154,9 @@ có thể đánh giá ảnh hay hiệu năng. Bản build xem trước chưa dù
 Chạy `cargo run -p bo-gpu-win --example probe` trên máy này trả `Hardware`; clippy qua.
 Một surface ngoài màn hình 16×16 đã được xóa nền, vẽ hình chữ nhật và đọc lại đúng pixel
 trên thiết bị đó; một kiểm thử khác truyền glyph run DirectWrite vào Direct2D và đọc được
-pixel chữ trên surface ngoài màn hình. Các kiểm thử Windows và clippy qua cục bộ. Chưa có
-surface của cửa sổ, kết nối WebView hay xử lý
+pixel chữ trên surface ngoài màn hình. `render_basic_page` đã xử lý display list gồm hình chữ
+nhật, đường thẳng liền và glyph, vẽ ở tỉ lệ tùy chọn; kiểm thử 125% kiểm tra pixel và xác nhận
+lệnh chưa hỗ trợ bị từ chối thay vì bỏ qua. Đây chưa có ảnh, path, clip, hiệu ứng hay cache font.
+Các kiểm thử Windows và clippy qua cục bộ. Chưa có surface của cửa sổ, kết nối WebView hay xử lý
 mất thiết bị, và app chưa dùng thư viện. Kết quả này không chứng minh tài liệu đang được
 tăng tốc GPU.

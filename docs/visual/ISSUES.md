@@ -2,7 +2,7 @@
 
 | Hạng mục | Trạng thái / bằng chứng |
 |---|---|
-| Renderer chữ và surface native | `bo-dwrite` tạo glyph run; `bo-gpu-win` vẽ display list cơ bản (hình chữ nhật, đường liền, clip chữ nhật, chữ) ngoài màn hình bằng Direct2D trên máy này. Lệnh khác bị từ chối; chưa có ảnh, path, clip đường cong, hiệu ứng, cache font hay kết nối vào editor. Chưa có surface cửa sổ, kiểm tra hòa trộn và hiệu năng tài liệu GPU. [ADR-0017](../adr/0017-desktop-document-rendering.md) mô tả các ràng buộc cần kiểm chứng. |
+| Renderer chữ và surface native | `bo-dwrite` tạo glyph run; `bo-gpu-win` vẽ display list cơ bản (hình chữ nhật, đường liền, path tô đặc, clip chữ nhật, chữ) ngoài màn hình bằng Direct2D trên máy này. Lệnh khác bị từ chối; chưa có ảnh, nét viền path, gradient, clip đường cong, hiệu ứng, cache font hay kết nối vào editor. Chưa có surface cửa sổ, kiểm tra hòa trộn và hiệu năng tài liệu GPU. [ADR-0017](../adr/0017-desktop-document-rendering.md) mô tả các ràng buộc cần kiểm chứng. |
 | Font khi sửa ô bảng tính | `cellFontFor` chọn font đóng gói cho ô đang sửa; cần đối chiếu font thực của engine khi có font hệ thống để tránh thay đổi hình chữ lúc vào/ra chế độ sửa. |
 | Dấu kết hợp tiếng Việt | Ca `a` + dấu chấm dưới với Caladea từng tạo glyph thiếu; đã sửa fallback theo cụm, kiểm thử font và dàn trang qua. Ảnh hồi quy của một tài liệu hiện có gần như không đổi nhưng không chứa ca này. Mẫu DOCX độc lập và ảnh trước/sau còn thiếu; môi trường hiện không có LibreOffice để hoàn tất bước render kiểm tra tài liệu. Benchmark thông thường 10 lượt không báo suy giảm vượt ngưỡng, nhưng chưa đo riêng đoạn dấu tổ hợp. |
 | Font giao diện Linux | Token đã đổi sang font UI dự án; kiểm thử token qua, nhưng chưa rà ảnh Linux và dấu tiếng Việt thực tế. |

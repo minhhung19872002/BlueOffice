@@ -1,14 +1,16 @@
 use super::Device;
 use crate::PageImage;
-use bo_render::{Command, PageList, Rgba};
+use bo_render::{Command, PageList, Paint, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
+    D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_FILL_MODE_WINDING, D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
-    ID2D1Image, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+    ID2D1Brush, ID2D1Image, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
     D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_TARGET,
-    D2D1_BITMAP_PROPERTIES1, D2D1_MAP_OPTIONS_READ,
+    D2D1_BITMAP_PROPERTIES1, D2D1_MAP_OPTIONS_READ, D2D1_QUADRATIC_BEZIER_SEGMENT,
 };
 use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -23,10 +25,27 @@ fn color(c: Rgba) -> D2D1_COLOR_F {
     }
 }
 
+fn valid_path(segs: &[PathSeg]) -> bool {
+    let mut open = false;
+    if segs.is_empty() {
+        return false;
+    }
+    for seg in segs {
+        match seg {
+            PathSeg::M(..) => open = true,
+            PathSeg::Z if open => open = false,
+            PathSeg::L(..) | PathSeg::Q(..) | PathSeg::C(..) if open => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 impl Device {
     /// Render a limited display list into an offscreen image using Direct2D and DirectWrite.
     ///
-    /// Only solid rectangles, solid lines, rectangular clips and glyph runs are supported. The function
+    /// Only solid rectangles, solid lines, solid-filled paths, rectangular clips and glyph runs
+    /// are supported. The function
     /// rejects every other operation before drawing, so a caller can select a complete fallback
     /// instead of silently dropping content. This is not yet the editor's window surface.
     pub fn render_basic_page(
@@ -61,6 +80,11 @@ impl Device {
                 Command::Glyphs { face, .. } if (*face as usize) < fonts.len() => {}
                 Command::PushClip { .. } => depth += 1,
                 Command::PopClip if depth > 0 => depth -= 1,
+                Command::Path {
+                    segs,
+                    fill: Some(Paint::Solid { .. }),
+                    stroke: None,
+                } if valid_path(segs) => {}
                 _ => return Err("unsupported display command or font face".into()),
             }
         }
@@ -194,6 +218,61 @@ impl Device {
                         Command::PopClip => {
                             self.context.PopAxisAlignedClip();
                             active_clips -= 1;
+                        }
+                        Command::Path {
+                            segs,
+                            fill: Some(Paint::Solid { color: c }),
+                            stroke: None,
+                        } => {
+                            let geometry = self
+                                .factory
+                                .CreatePathGeometry()
+                                .map_err(|e| e.to_string())?;
+                            let sink = geometry.Open().map_err(|e| e.to_string())?;
+                            sink.SetFillMode(D2D1_FILL_MODE_WINDING);
+                            let mut open = false;
+                            for segment in segs {
+                                match *segment {
+                                    PathSeg::M(x, y) => {
+                                        if open {
+                                            sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                                        }
+                                        sink.BeginFigure(
+                                            Vector2 { X: x, Y: y },
+                                            D2D1_FIGURE_BEGIN_FILLED,
+                                        );
+                                        open = true;
+                                    }
+                                    PathSeg::L(x, y) => sink.AddLine(Vector2 { X: x, Y: y }),
+                                    PathSeg::Q(x1, y1, x2, y2) => {
+                                        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
+                                            point1: Vector2 { X: x1, Y: y1 },
+                                            point2: Vector2 { X: x2, Y: y2 },
+                                        })
+                                    }
+                                    PathSeg::C(x1, y1, x2, y2, x3, y3) => {
+                                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                                            point1: Vector2 { X: x1, Y: y1 },
+                                            point2: Vector2 { X: x2, Y: y2 },
+                                            point3: Vector2 { X: x3, Y: y3 },
+                                        })
+                                    }
+                                    PathSeg::Z => {
+                                        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                                        open = false;
+                                    }
+                                }
+                            }
+                            if open {
+                                sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                            }
+                            sink.Close().map_err(|e| e.to_string())?;
+                            let brush = self
+                                .context
+                                .CreateSolidColorBrush(&color(*c), None)
+                                .map_err(|e| e.to_string())?;
+                            self.context
+                                .FillGeometry(&geometry, &brush, None::<&ID2D1Brush>);
                         }
                         _ => return Err("unsupported display command".into()),
                     }

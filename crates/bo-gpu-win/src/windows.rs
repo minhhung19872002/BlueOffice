@@ -27,7 +27,7 @@ mod page;
 pub struct Device {
     // Retain all parent COM objects for the lifetime of the context.
     _d3d: ID3D11Device,
-    _factory: ID2D1Factory1,
+    factory: ID2D1Factory1,
     _device: ID2D1Device,
     context: ID2D1DeviceContext,
     driver: Driver,
@@ -249,7 +249,7 @@ impl Device {
                 .map_err(|e| e.to_string())?;
             Ok(Self {
                 _d3d: d3d,
-                _factory: factory,
+                factory,
                 _device: device,
                 context,
                 driver,

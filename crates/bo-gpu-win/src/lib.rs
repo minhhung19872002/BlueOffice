@@ -131,4 +131,32 @@ mod tests {
         let offset = (5 * 16 + 5) * 4;
         assert_eq!(&image.pixels[offset..offset + 4], &[0, 0, 255, 255]);
     }
+
+    #[test]
+    fn draws_solid_curved_path() {
+        use bo_render::{Command, PageList, Paint, PathSeg, Rgba};
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let page = PageList {
+            width: 16.0,
+            height: 16.0,
+            commands: vec![Command::Path {
+                segs: vec![
+                    PathSeg::M(2.0, 2.0),
+                    PathSeg::Q(14.0, 2.0, 14.0, 8.0),
+                    PathSeg::C(14.0, 14.0, 2.0, 14.0, 2.0, 8.0),
+                    PathSeg::Z,
+                ],
+                fill: Some(Paint::Solid {
+                    color: Rgba(0, 0, 255, 255),
+                }),
+                stroke: None,
+            }],
+        };
+        let image = device
+            .render_basic_page(&page, &bo_text::FontManager::new(), 1.0)
+            .unwrap();
+        assert_eq!(&image.pixels[..4], &[255, 255, 255, 255]);
+        let offset = (8 * 16 + 8) * 4;
+        assert_eq!(&image.pixels[offset..offset + 4], &[255, 0, 0, 255]);
+    }
 }

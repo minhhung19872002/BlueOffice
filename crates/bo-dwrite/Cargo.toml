@@ -9,6 +9,9 @@ publish = false
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_DirectWrite"] }
 
+[dev-dependencies]
+bo-text.workspace = true
+
 # Win32 COM calls are confined to the Windows implementation, as in bo-winchrome.
 [lints.rust]
 unsafe_code = "deny"

@@ -106,4 +106,39 @@ mod tests {
         );
         assert_eq!(a.coverage, b.coverage);
     }
+
+    #[test]
+    fn vietnamese_composed_and_decomposed_text_match() {
+        let mut fonts = bo_text::FontManager::new();
+        let face = fonts.add_font(FONT.to_vec())[0];
+        let scale = 20.0 / f32::from(fonts.info(face).units_per_em);
+        let mut shape = |text: &str| {
+            let mut pen = 0;
+            fonts
+                .shape(face, text)
+                .iter()
+                .map(|g| {
+                    let glyph = Glyph {
+                        id: g.glyph_id,
+                        x: (pen + g.x_offset) as f32 * scale,
+                        y: -(g.y_offset as f32) * scale,
+                    };
+                    pen += g.x_advance;
+                    glyph
+                })
+                .collect::<Vec<_>>()
+        };
+        let composed = shape("Việt Nam");
+        let decomposed = shape("Vie\u{0323}\u{0302}t Nam");
+        assert!(composed.iter().chain(&decomposed).all(|g| g.id != 0));
+        for dpi in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            let a = rasterize(FONT, 0, &composed, 20.0, dpi, (0.0, 25.0)).unwrap();
+            let b = rasterize(FONT, 0, &decomposed, 20.0, dpi, (0.0, 25.0)).unwrap();
+            assert_eq!(
+                (a.left, a.top, a.right, a.bottom),
+                (b.left, b.top, b.right, b.bottom)
+            );
+            assert_eq!(a.coverage, b.coverage);
+        }
+    }
 }

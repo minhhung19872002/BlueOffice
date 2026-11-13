@@ -143,8 +143,9 @@ DOM cho ba tên kiểu cho thấy không bị cắt tại kích thước này. �
 ## DirectWrite: lớp mask dùng lại
 
 Đã thêm `bo-dwrite`, nhận ID/vị trí glyph do engine cung cấp, chọn face theo chỉ số trong
-font và tạo mask ClearType bằng DirectWrite. Ba kiểm thử Windows kiểm tra vị trí glyph,
-chuyển baseline ở 100/125/150/175/200% và đầu vào lỗi; clippy qua cục bộ. Đây là lớp
+font và tạo mask ClearType bằng DirectWrite. Bốn kiểm thử Windows kiểm tra vị trí glyph,
+chuyển baseline và mask chữ Việt dạng dựng sẵn/tổ hợp ở 100/125/150/175/200%, cùng đầu vào lỗi;
+clippy qua cục bộ. Đây là lớp
 thư viện, **chưa nối vào renderer của ứng dụng**: mask ba kênh cần được hòa trộn trên
 nền thực, xử lý clip/biến đổi và thứ tự lớp, cache, font tổng hợp, IME và DPI trước khi
 có thể đánh giá ảnh hay hiệu năng. Bản build xem trước chưa dùng lớp này.

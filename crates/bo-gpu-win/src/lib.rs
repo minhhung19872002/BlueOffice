@@ -99,4 +99,36 @@ mod tests {
         });
         assert!(device.render_basic_page(&page, &fonts, 1.0).is_err());
     }
+
+    #[test]
+    fn rectangular_clip_limits_drawing() {
+        use bo_render::{Command, PageList, Rgba};
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let page = PageList {
+            width: 16.0,
+            height: 16.0,
+            commands: vec![
+                Command::PushClip {
+                    x: 4.0,
+                    y: 4.0,
+                    w: 4.0,
+                    h: 4.0,
+                },
+                Command::FillRect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 16.0,
+                    h: 16.0,
+                    color: Rgba(255, 0, 0, 255),
+                },
+                Command::PopClip,
+            ],
+        };
+        let image = device
+            .render_basic_page(&page, &bo_text::FontManager::new(), 1.0)
+            .unwrap();
+        assert_eq!(&image.pixels[..4], &[255, 255, 255, 255]);
+        let offset = (5 * 16 + 5) * 4;
+        assert_eq!(&image.pixels[offset..offset + 4], &[0, 0, 255, 255]);
+    }
 }

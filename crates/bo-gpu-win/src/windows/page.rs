@@ -6,8 +6,9 @@ use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
-    ID2D1Image, ID2D1StrokeStyle, D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ,
-    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_MAP_OPTIONS_READ,
+    ID2D1Image, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_BITMAP_OPTIONS_TARGET,
+    D2D1_BITMAP_PROPERTIES1, D2D1_MAP_OPTIONS_READ,
 };
 use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -25,7 +26,7 @@ fn color(c: Rgba) -> D2D1_COLOR_F {
 impl Device {
     /// Render a limited display list into an offscreen image using Direct2D and DirectWrite.
     ///
-    /// Only solid rectangles, solid lines and positioned glyph runs are supported. The function
+    /// Only solid rectangles, solid lines, rectangular clips and glyph runs are supported. The function
     /// rejects every other operation before drawing, so a caller can select a complete fallback
     /// instead of silently dropping content. This is not yet the editor's window surface.
     pub fn render_basic_page(
@@ -53,12 +54,18 @@ impl Device {
         if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
             return Err("page too large or empty".into());
         }
+        let mut depth = 0_usize;
         for command in &page.commands {
             match command {
                 Command::FillRect { .. } | Command::Line { dash: None, .. } => {}
                 Command::Glyphs { face, .. } if (*face as usize) < fonts.len() => {}
+                Command::PushClip { .. } => depth += 1,
+                Command::PopClip if depth > 0 => depth -= 1,
                 _ => return Err("unsupported display command or font face".into()),
             }
+        }
+        if depth != 0 {
+            return Err("unbalanced rectangular clips".into());
         }
         // SAFETY: the Direct2D interfaces own the target and staging bitmaps. Glyph-run buffers
         // are valid during each synchronous draw. The mapped staging bitmap is read within its
@@ -90,6 +97,7 @@ impl Device {
                 b: 1.0,
                 a: 1.0,
             }));
+            let mut active_clips = 0_usize;
             let drawn = (|| -> Result<(), String> {
                 for command in &page.commands {
                     match command {
@@ -171,11 +179,30 @@ impl Device {
                                 Ok(())
                             })?;
                         }
+                        Command::PushClip { x, y, w, h } => {
+                            self.context.PushAxisAlignedClip(
+                                &D2D_RECT_F {
+                                    left: *x,
+                                    top: *y,
+                                    right: x + w,
+                                    bottom: y + h,
+                                },
+                                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                            );
+                            active_clips += 1;
+                        }
+                        Command::PopClip => {
+                            self.context.PopAxisAlignedClip();
+                            active_clips -= 1;
+                        }
                         _ => return Err("unsupported display command".into()),
                     }
                 }
                 Ok(())
             })();
+            for _ in 0..active_clips {
+                self.context.PopAxisAlignedClip();
+            }
             let ended = self.context.EndDraw(None, None);
             self.context.SetTarget(None::<&ID2D1Image>);
             self.context.SetDpi(96.0, 96.0);

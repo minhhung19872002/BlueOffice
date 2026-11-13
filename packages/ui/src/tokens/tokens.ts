@@ -324,14 +324,16 @@ export const FONT_UI =
   "'Be Vietnam Pro', 'Inter', 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif";
 /**
  * Desktop UI font stacks (ADR-0016): the desktop shell tags `<html data-os>` and the apps use
- * the system UI font — Segoe UI Variable (Text / Display optical sizes, Windows 11; Segoe UI on
- * Windows 10) and San Francisco on macOS. Linux and the web use the bundled BlueOffice UI font;
+ * the system UI font — on Windows the fully hinted static Segoe UI for interface text (the
+ * variable font carries little hinting and drew small ribbon labels visibly softer than desktop
+ * office ribbons; measured 2026-11-13) and Segoe UI Variable Display for large titles, and San
+ * Francisco on macOS. Linux and the web use the bundled BlueOffice UI font;
  * system fonts and a generic family remain fallbacks.
  * Document text (canvas) fonts are unrelated (ADR-0003).
  */
 export const FONT_UI_OS = {
   windows: {
-    text: "'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif",
+    text: "'Segoe UI', 'Segoe UI Variable Text', 'Be Vietnam Pro', system-ui, sans-serif",
     display:
       "'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif",
   },
@@ -368,8 +370,12 @@ export const SHADOWS = {
   /** Floating windows, drag images. */
   3: '0 16px 40px rgba(15, 23, 42, 0.24)',
 } as const;
-/** Motion durations (ms); all become 0 under prefers-reduced-motion. */
-export const MOTION = { fast: 120, normal: 160, slow: 200 } as const;
+/**
+ * Motion durations (ms); all become 0 under prefers-reduced-motion. Shortened from 120–200 ms
+ * (2026-11-13): menus and hover feedback felt slow next to desktop office suites, whose menus
+ * appear almost at once.
+ */
+export const MOTION = { fast: 80, normal: 100, slow: 140 } as const;
 /** Densities: ribbon/control heights (px). Touch keeps targets ≥ 40px. */
 export const DENSITY = {
   normal: { control: 28, ribbonLarge: 66 },

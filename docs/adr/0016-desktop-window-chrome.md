@@ -53,7 +53,8 @@ font giao diện của hệ điều hành. Ràng buộc: `#![forbid(unsafe_code)
    phạm vi `[data-app]` để tham chiếu màu nhấn đúng app), thay cho các giá trị `rgb(255 255 255 / x%)` rải trong CSS.
 5. **Font giao diện của hệ điều hành trên desktop.** Desktop gắn `<html data-os="windows|macos|linux">` (từ Rust
    `std::env::consts::OS`, qua `Platform`, không dò user agent); `tokens.css` sinh `:root[data-os=…]` đổi `--bo-font` và
-   `--bo-font-display`: Windows `Segoe UI Variable Text` / `Segoe UI Variable Display` (Windows 10: `Segoe UI`), macOS
+   `--bo-font-display`: Windows `Segoe UI` (chữ giao diện: bản tĩnh có hinting đầy đủ, nét nhãn ribbon nhỏ rõ hơn bản
+   variable — đo 2026-11-13) / `Segoe UI Variable Display` (tiêu đề lớn), macOS
    `-apple-system`, Linux `system-ui`; mỗi chuỗi kết thúc bằng Be Vietnam Pro (đóng gói) rồi `sans-serif`. Không đóng gói font
    hệ thống. Web giữ Be Vietnam Pro. Font chữ tài liệu (canvas, ADR-0003) không đổi.
 

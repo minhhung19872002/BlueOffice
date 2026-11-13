@@ -169,11 +169,11 @@ describe('high contrast and canvas chrome (CORE-UI-007)', () => {
 });
 
 describe('motion tokens', () => {
-  it('stay within 120–200 ms', async () => {
+  it('stay within 80–140 ms (brief, like desktop office menus)', async () => {
     const { MOTION } = await import('../src/tokens');
     for (const v of Object.values(MOTION)) {
-      expect(v).toBeGreaterThanOrEqual(120);
-      expect(v).toBeLessThanOrEqual(200);
+      expect(v).toBeGreaterThanOrEqual(80);
+      expect(v).toBeLessThanOrEqual(140);
     }
   });
 });
@@ -218,7 +218,8 @@ describe('desktop window chrome (ADR-0016)', () => {
   });
 
   it('uses the platform UI fonts on Windows/macOS and the project font on Linux', () => {
-    expect(FONT_UI_OS.windows.text.startsWith("'Segoe UI Variable Text'")).toBe(true);
+    // Hinted static Segoe UI keeps small interface text crisp (see FONT_UI_OS).
+    expect(FONT_UI_OS.windows.text.startsWith("'Segoe UI',")).toBe(true);
     expect(FONT_UI_OS.windows.display.startsWith("'Segoe UI Variable Display'")).toBe(true);
     expect(FONT_UI_OS.macos.text.startsWith('-apple-system')).toBe(true);
     expect(FONT_UI_OS.linux.text).toBe(FONT_UI);

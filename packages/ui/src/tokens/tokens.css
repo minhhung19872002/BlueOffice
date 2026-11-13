@@ -25,9 +25,9 @@
   --bo-shadow-1: 0 2px 6px rgba(15, 23, 42, 0.12);
   --bo-shadow-2: 0 8px 24px rgba(15, 23, 42, 0.18);
   --bo-shadow-3: 0 16px 40px rgba(15, 23, 42, 0.24);
-  --bo-duration-fast: 120ms;
-  --bo-duration-normal: 160ms;
-  --bo-duration-slow: 200ms;
+  --bo-duration-fast: 80ms;
+  --bo-duration-normal: 100ms;
+  --bo-duration-slow: 140ms;
   --bo-ease: cubic-bezier(0.2, 0, 0, 1);
   --bo-control-h: 28px;
   --bo-ribbon-large-h: 66px;
@@ -305,7 +305,7 @@
 }
 
 :root[data-os='windows'] {
-  --bo-font: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif;
+  --bo-font: 'Segoe UI', 'Segoe UI Variable Text', 'Be Vietnam Pro', system-ui, sans-serif;
   --bo-font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Be Vietnam Pro', system-ui, sans-serif;
 }
 

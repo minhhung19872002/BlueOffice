@@ -193,3 +193,16 @@ có theo dõi thay đổi đã qua 3/3. Cache ảnh giải mã của vùng tài 
 64 MiB / 256 mục sau khi vẽ; ảnh đang được các trang sử dụng được giữ đến khi vẽ xong,
 bitmap bị loại được đóng. Các app khác chưa dùng cơ chế giới hạn này. Test đơn vị kiểm tra
 không đóng ảnh đang được vẽ đồng thời; chưa có phép đo RAM sau thay đổi.
+
+### Hai baseline fidelity cũ
+
+Đã đối chiếu dữ liệu mẫu và lịch sử trước khi cập nhật đúng hai ảnh baseline từ artifact CI
+Linux [lần 2](https://github.com/minhhung19872002/BlueOffice/actions/runs/43265642208):
+
+- `doc-chart-2`: commit `a9dd751a` đổi `word/charts/chart4.xml` từ `holeSize=50` sang
+  `holeSize=75`, nhưng không cập nhật ảnh. Vùng khác biệt là vòng biểu đồ.
+- `slide-zoom-section`: commit `102ea928` tạo lại ảnh xem trước không có nền đích, theo
+  thay đổi `showBg` ở `c6665b3e`; ảnh baseline cũ vẫn chứa nền trắng che nội dung phía sau.
+
+Hai ảnh mới phản ánh nội dung mẫu hiện tại, không nới ngưỡng so sánh. Cần CI mới xác nhận
+toàn bộ corpus; chưa coi CI là xanh chỉ vì đã cập nhật baseline.

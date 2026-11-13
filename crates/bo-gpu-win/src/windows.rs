@@ -17,6 +17,7 @@ use windows::Win32::Graphics::Direct3D::{
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
+use windows::Win32::Graphics::DirectWrite::DWRITE_MEASURING_MODE_NATURAL;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
@@ -42,6 +43,96 @@ impl Device {
     /// Returns the driver chosen during device creation.
     pub fn driver(&self) -> Driver {
         self.driver
+    }
+
+    /// Draw a DirectWrite glyph run to a small offscreen surface and count non-white pixels.
+    /// This diagnostic does not draw a document or connect the surface to a window.
+    pub fn verify_text(&self, font: &[u8], glyphs: &[bo_dwrite::Glyph]) -> Result<usize, String> {
+        // SAFETY: COM objects own both bitmaps; the glyph-run callback holds its font and glyph
+        // arrays throughout DrawGlyphRun. Mapped memory is read only while mapped and unmapped.
+        unsafe {
+            let size = D2D_SIZE_U {
+                width: 64,
+                height: 64,
+            };
+            let pixel = D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            };
+            let props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: 96.0,
+                dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                ..Default::default()
+            };
+            let target = self
+                .context
+                .CreateBitmap(size, None, 0, &props)
+                .map_err(|e| e.to_string())?;
+            let white = D2D1_COLOR_F {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            };
+            let black = D2D1_COLOR_F {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            };
+            let brush = self
+                .context
+                .CreateSolidColorBrush(&black, None)
+                .map_err(|e| e.to_string())?;
+            self.context.SetTarget(&target);
+            self.context.BeginDraw();
+            self.context.Clear(Some(&white));
+            let drawing = bo_dwrite::with_glyph_run(font, 0, glyphs, 20.0, |run| {
+                self.context.DrawGlyphRun(
+                    windows_numerics::Vector2 { X: 8.0, Y: 40.0 },
+                    run,
+                    None,
+                    &brush,
+                    DWRITE_MEASURING_MODE_NATURAL,
+                );
+                Ok(())
+            });
+            let ended = self.context.EndDraw(None, None);
+            self.context.SetTarget(None::<&ID2D1Image>);
+            drawing?;
+            ended.map_err(|e| e.to_string())?;
+            let read_props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: 96.0,
+                dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                ..Default::default()
+            };
+            let read = self
+                .context
+                .CreateBitmap(size, None, 0, &read_props)
+                .map_err(|e| e.to_string())?;
+            read.CopyFromBitmap(None, &target, None)
+                .map_err(|e| e.to_string())?;
+            let mapped = read.Map(D2D1_MAP_OPTIONS_READ).map_err(|e| e.to_string())?;
+            if mapped.bits.is_null() || mapped.pitch < 256 {
+                read.Unmap().map_err(|e| e.to_string())?;
+                return Err("invalid mapped Direct2D surface".into());
+            }
+            let mut ink = 0;
+            for y in 0..64_usize {
+                for x in 0..64_usize {
+                    let ptr = mapped.bits.add(y * mapped.pitch as usize + x * 4);
+                    if *ptr != 255 || *ptr.add(1) != 255 || *ptr.add(2) != 255 {
+                        ink += 1;
+                    }
+                }
+            }
+            read.Unmap().map_err(|e| e.to_string())?;
+            Ok(ink)
+        }
     }
 
     /// Draw an opaque red rectangle on white offscreen and read two BGRA pixels for diagnostics.

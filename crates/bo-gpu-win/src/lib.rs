@@ -28,4 +28,16 @@ mod tests {
         assert_eq!(background, [255, 255, 255, 255]);
         assert_eq!(rectangle, [0, 0, 255, 255]);
     }
+
+    #[test]
+    fn draws_directwrite_glyph_to_direct2d_surface() {
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let font = include_bytes!("../../../assets/fonts/Tinos-Regular.ttf");
+        let glyphs = [bo_dwrite::Glyph {
+            id: 36,
+            x: 0.0,
+            y: 0.0,
+        }];
+        assert!(device.verify_text(font, &glyphs).expect("glyph draw") > 0);
+    }
 }

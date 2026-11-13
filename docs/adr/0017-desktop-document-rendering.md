@@ -39,6 +39,6 @@ phương án phần mềm dự phòng và hiệu năng. Phải thử thứ tự 
 [tài liệu WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/overview-features-apis)
 phân biệt windowed hosting với composition hosting. Chưa quyết định đổi kiến trúc Tauri
 hay thay wgpu, vì chưa kiểm chứng được kết hợp surface với IME, truy cập và giao diện hiện có.
-Thư viện `bo-dwrite` hiện chỉ trả mask CPU; `DrawGlyphRun` cần font face và glyph run,
-nên còn phải thiết kế API và vòng đời tài nguyên tương ứng, không coi thư viện này là
-đường vẽ Direct2D/GPU đã kết nối.
+`bo-dwrite` đã cung cấp glyph run có vòng đời trong callback; kiểm thử Direct2D đã vẽ glyph
+đó vào surface ngoài màn hình. Chưa có cache font, surface của cửa sổ hay đường truyền từ
+display list của editor, nên đây chưa phải renderer Direct2D/GPU đã kết nối vào ứng dụng.

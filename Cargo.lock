@@ -745,8 +745,10 @@ version = "0.1.0"
 dependencies = [
  "bo-dwrite",
  "bo-engine",
+ "bo-raster",
  "bo-render",
  "bo-text",
+ "bo-ui",
  "windows",
  "windows-numerics",
 ]

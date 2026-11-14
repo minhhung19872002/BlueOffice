@@ -44,7 +44,7 @@ pub fn style_name_key(name: &str) -> Option<&'static str> {
 
 /// The `'static` id of a ribbon command (menus anchor to the button that opened them).
 pub fn static_id(id: &str) -> &'static str {
-    const MENUS: [&str; 10] = [
+    const MENUS: [&str; 11] = [
         "layout.margins",
         "layout.orientation",
         "layout.size",
@@ -55,12 +55,13 @@ pub fn static_id(id: &str) -> &'static str {
         "design.pageColor",
         "design.watermark",
         "view.layout",
+        "format.lineSpacing",
     ];
     MENUS.iter().find(|m| **m == id).copied().unwrap_or("")
 }
 
 /// Commands the window handles itself (dialogs, view state, format painter, mail merge).
-pub const WINDOW: [&str; 18] = [
+pub const WINDOW: [&str; 20] = [
     "review.deleteComment",
     "edit.find",
     "edit.replace",
@@ -74,6 +75,8 @@ pub const WINDOW: [&str; 18] = [
     "view.zoomOut",
     "view.zoomReset",
     "format.painter",
+    "format.growStep",
+    "format.shrinkStep",
     "mailings.recipients",
     "mailings.preview",
     "mailings.previousRecord",

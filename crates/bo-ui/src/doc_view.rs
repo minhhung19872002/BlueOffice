@@ -64,6 +64,8 @@ pub struct DocView {
     now: f64,
     /// Display list each stored page image shows, with its scale (base of the next diff).
     shown: HashMap<usize, (f32, PageList)>,
+    /// Rendering parameters changed; repaint retained images without losing eviction bookkeeping.
+    repaint_all: bool,
     /// Pages the engine reported changed since their image was drawn.
     stale: HashSet<usize>,
     modified: bool,
@@ -94,6 +96,7 @@ impl DocView {
             glide: None,
             now: 0.0,
             shown: HashMap::new(),
+            repaint_all: false,
             stale: HashSet::new(),
             modified: false,
             track: false,
@@ -625,6 +628,11 @@ impl DocView {
         Some((slot.index, px, py))
     }
 
+    /// Forget cached page images after the host's text rendering parameters change.
+    pub fn invalidate_page_images(&mut self) {
+        self.repaint_all = true;
+    }
+
     /// Bring the images of the visible pages up to date, drawing only what changed.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
         let scale = self.scale();
@@ -648,22 +656,29 @@ impl DocView {
                 break;
             }
             let list = self.engine.page(index).map_err(|e| e.to_string())?;
-            let band = match self.shown.get(&index) {
-                Some((s, _)) if *s != scale => None,
-                Some((_, old)) if self.stale.contains(&index) => match changed_region(old, list) {
-                    Change::None => {
-                        self.stale.remove(&index);
-                        continue;
+            let band = if self.repaint_all {
+                None
+            } else {
+                match self.shown.get(&index) {
+                    Some((s, _)) if *s != scale => None,
+                    Some((_, old)) if self.stale.contains(&index) => {
+                        match changed_region(old, list) {
+                            Change::None => {
+                                self.stale.remove(&index);
+                                continue;
+                            }
+                            change => change.device_band(scale),
+                        }
                     }
-                    change => change.device_band(scale),
-                },
-                Some(_) => continue,
-                None => None,
+                    Some(_) => continue,
+                    None => None,
+                }
             };
             store.update(index, list, &self.engine, scale, band)?;
             self.shown.insert(index, (scale, list.clone()));
             self.stale.remove(&index);
         }
+        self.repaint_all = false;
         Ok(())
     }
 
@@ -741,6 +756,7 @@ mod tests {
     struct Store {
         full: Vec<usize>,
         bands: Vec<(usize, [u32; 4])>,
+        removed: Vec<usize>,
     }
 
     impl PageStore for Store {
@@ -758,7 +774,9 @@ mod tests {
             }
             Ok(())
         }
-        fn remove(&mut self, _: usize) {}
+        fn remove(&mut self, index: usize) {
+            self.removed.push(index);
+        }
     }
 
     #[derive(Default)]
@@ -817,6 +835,35 @@ mod tests {
         v.paint(&mut rec);
         assert_eq!(rec.pages[0], (0, slot.x, slot.y));
         assert!(v.caret_rect().is_some());
+    }
+
+    #[test]
+    fn changing_text_parameters_repaints_cached_pages_completely() {
+        let mut v = view();
+        let mut store = Store::default();
+        v.prepare(&mut store).unwrap();
+        assert_eq!(store.full, vec![0, 1]);
+        store.full.clear();
+        v.prepare(&mut store).unwrap();
+        assert_eq!(store.full, [] as [usize; 0]);
+        v.invalidate_page_images();
+        v.prepare(&mut store).unwrap();
+        assert_eq!(store.full, vec![0, 1]);
+        assert_eq!(store.bands, [] as [(usize, [u32; 4]); 0]);
+    }
+
+    #[test]
+    fn changing_text_parameters_preserves_eviction_of_old_pages() {
+        let mut v = view();
+        let mut store = Store::default();
+        v.prepare(&mut store).unwrap();
+        assert_eq!(store.full, vec![0, 1]);
+        v.invalidate_page_images();
+        v.handle(Input::Wheel(10_000.0));
+        v.prepare(&mut store).unwrap();
+        assert!(store.removed.contains(&0));
+        assert!(store.removed.contains(&1));
+        assert!(store.full.iter().any(|&page| page >= 3));
     }
 
     #[test]

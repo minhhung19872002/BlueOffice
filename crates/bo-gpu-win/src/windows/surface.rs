@@ -17,9 +17,10 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory, IDWriteRenderingParams, IDWriteTextFormat,
-    IDWriteTextLayout, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
-    DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_TEXT_METRICS,
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_ITALIC,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_RENDERING_MODE,
+    DWRITE_RENDERING_MODE_GDI_CLASSIC, DWRITE_RENDERING_MODE_NATURAL, DWRITE_TEXT_METRICS,
     DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
@@ -197,6 +198,48 @@ impl Device {
         }
     }
 
+    /// Text antialiasing for interface text: the system's gamma, contrast, ClearType level and
+    /// pixel geometry, rendered in GDI classic mode (stems and baselines on whole pixels, as
+    /// the platform's own controls draw 9–11 pt text). `BLUEOFFICE_UI_TEXT=natural|system`
+    /// selects DirectWrite's natural mode or the unmodified defaults for comparison.
+    pub(crate) fn apply_ui_text(&self) {
+        // SAFETY: called between BeginDraw and EndDraw; parameters are owned COM references.
+        unsafe {
+            self.context
+                .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
+            let mode: Option<DWRITE_RENDERING_MODE> =
+                match std::env::var("BLUEOFFICE_UI_TEXT").as_deref() {
+                    Ok("system") => None,
+                    Ok("natural") => Some(DWRITE_RENDERING_MODE_NATURAL),
+                    _ => Some(DWRITE_RENDERING_MODE_GDI_CLASSIC),
+                };
+            let params = mode.and_then(|mode| {
+                if let Some(p) = self.ui_params.borrow().as_ref() {
+                    return Some(p.clone());
+                }
+                let factory: IDWriteFactory =
+                    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).ok()?;
+                let base = factory.CreateRenderingParams().ok()?;
+                let geometry = self
+                    .pixel_geometry
+                    .get()
+                    .unwrap_or_else(|| base.GetPixelGeometry());
+                let p = factory
+                    .CreateCustomRenderingParams(
+                        base.GetGamma(),
+                        base.GetEnhancedContrast(),
+                        base.GetClearTypeLevel(),
+                        geometry,
+                        mode,
+                    )
+                    .ok()?;
+                *self.ui_params.borrow_mut() = Some(p.clone());
+                Some(p)
+            });
+            self.context.SetTextRenderingParams(params.as_ref());
+        }
+    }
+
     /// Width and height in device pixels of interface text at `size` pixels.
     pub fn measure_text(&self, text: &str, size: f32, bold: bool) -> (f32, f32) {
         self.measure_font(text, &FontSpec::ui(size, bold))
@@ -334,13 +377,9 @@ impl WindowSurface {
             device.context.SetDpi(96.0, 96.0);
             device.context.BeginDraw();
             device.context.SetTransform(&IDENTITY);
-            // Interface text uses the system's ClearType settings; pages carry their own pixels.
-            device
-                .context
-                .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
-            device
-                .context
-                .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
+            // Interface text: system ClearType settings, drawn like the platform's own controls;
+            // pages carry their own pixels.
+            device.apply_ui_text();
             paint(&Frame { device });
             let ended = device.context.EndDraw(None, None);
             device.context.SetTarget(None::<&ID2D1Image>);
@@ -481,6 +520,348 @@ impl Frame<'_> {
                 None,
                 None,
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod visual_tests {
+    use super::*;
+    use bo_ui::{
+        DocView, DocWindow, Font, Icons, Input, PageStore, Painter, Ribbon, Strings, TextMeasure,
+        TextStyle, Theme,
+    };
+    use std::collections::HashMap;
+    use windows::Win32::Graphics::Direct2D::{D2D1_BITMAP_OPTIONS_CPU_READ, D2D1_MAP_OPTIONS_READ};
+
+    struct Measure<'a>(&'a Device);
+    impl TextMeasure for Measure<'_> {
+        fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+            self.0.measure_text(text, style.size, style.bold)
+        }
+        fn measure_font(&self, text: &str, font: &Font<'_>) -> (f32, f32) {
+            self.0.measure_font(
+                text,
+                &FontSpec {
+                    family: font.family,
+                    size: font.size,
+                    weight: font.weight,
+                    italic: font.italic,
+                    underline: font.underline,
+                },
+            )
+        }
+    }
+    struct UiPainter<'a, 'b>(&'a Frame<'b>, Option<&'a HashMap<usize, PageBitmap>>);
+    impl Painter for UiPainter<'_, '_> {
+        fn clear(&mut self, c: Rgba) {
+            self.0.clear(c);
+        }
+        fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, c: Rgba) {
+            self.0.fill_rect(x, y, w, h, c);
+        }
+        fn page(&mut self, index: usize, x: i32, y: i32) {
+            if let Some(page) = self.1.and_then(|pages| pages.get(&index)) {
+                self.0.draw_page(page, x, y);
+            }
+        }
+        fn text(&mut self, s: &str, x: f32, y: f32, style: TextStyle, c: Rgba) {
+            self.0.text(s, x, y, style.size, style.bold, c);
+        }
+        fn text_font(&mut self, s: &str, x: f32, y: f32, f: &Font<'_>, c: Rgba) {
+            self.0.text_font(
+                s,
+                x,
+                y,
+                &FontSpec {
+                    family: f.family,
+                    size: f.size,
+                    weight: f.weight,
+                    italic: f.italic,
+                    underline: f.underline,
+                },
+                c,
+            );
+        }
+        fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
+            self.0.path(segs, fill, stroke);
+        }
+        fn push_clip(&mut self, x: f32, y: f32, w: f32, h: f32) {
+            self.0.push_clip(x, y, w, h);
+        }
+        fn pop_clip(&mut self) {
+            self.0.pop_clip();
+        }
+    }
+
+    struct UiPages<'a> {
+        device: &'a Device,
+        pages: HashMap<usize, PageBitmap>,
+    }
+    impl PageStore for UiPages<'_> {
+        fn update(
+            &mut self,
+            index: usize,
+            list: &PageList,
+            engine: &bo_engine::Engine,
+            scale: f32,
+            _: Option<[u32; 4]>,
+        ) -> Result<(), String> {
+            let page = self.device.create_page_bitmap(list, scale)?;
+            let pictures = |id: &str| {
+                let bytes = engine.media_resolved(id)?;
+                let (width, height, pixels) = bo_raster::decode_premultiplied(&bytes)?;
+                Some(crate::Bitmap {
+                    width,
+                    height,
+                    pixels,
+                })
+            };
+            self.device
+                .draw_page(list, engine.fonts(), scale, &pictures, None, &page)?;
+            self.pages.insert(index, page);
+            Ok(())
+        }
+        fn remove(&mut self, index: usize) {
+            self.pages.remove(&index);
+        }
+    }
+
+    /// Render a complete native window and document without a visible window.
+    #[test]
+    #[ignore = "writes an offscreen window image for visual review"]
+    fn window_offscreen() {
+        let device = Device::new().expect("Direct2D hardware or WARP");
+        device.set_text_rendering(crate::TextRendering::document_default());
+        let mut engine = bo_engine::Engine::with_bundled_fonts();
+        let font_cache = std::env::var_os("LOCALAPPDATA").map(|dir| {
+            std::path::PathBuf::from(dir)
+                .join("BlueOffice")
+                .join("system-fonts.txt")
+        });
+        engine.set_system_fonts(bo_engine::SystemFontIndex::scan_cached(
+            &bo_engine::SystemFontIndex::default_dirs(),
+            font_cache.as_deref(),
+        ));
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/corpus/doc/phase1-sample.docx"
+        );
+        engine
+            .open(&std::fs::read(path).unwrap(), "phase1-sample.docx")
+            .unwrap();
+        let mut window =
+            DocWindow::new(DocView::new(engine).unwrap(), "en-US", "phase1-sample.docx");
+        let measure = Measure(&device);
+        let context_test = std::env::var_os("BO_WINDOW_CONTEXT").is_some();
+        let (width, height, scale) = if context_test {
+            (800_u32, 600_u32, 1.0)
+        } else {
+            (1708, 1125, 1.25)
+        };
+        window.handle(Input::Scale(scale), &measure);
+        window.handle(
+            Input::Resize {
+                width: width as f32,
+                height: height as f32,
+            },
+            &measure,
+        );
+        let mut pages = UiPages {
+            device: &device,
+            pages: HashMap::new(),
+        };
+        window.prepare(&mut pages).unwrap();
+        if context_test {
+            window.handle(
+                Input::Context {
+                    x: width as f32 - 20.0,
+                    y: height as f32 - 60.0,
+                },
+                &measure,
+            );
+        }
+        let size = D2D_SIZE_U { width, height };
+        let pixel = D2D1_PIXEL_FORMAT {
+            format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            alphaMode: D2D1_ALPHA_MODE_IGNORE,
+        };
+        let target_props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: pixel,
+            dpiX: 96.0,
+            dpiY: 96.0,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+            ..Default::default()
+        };
+        let read_props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: pixel,
+            dpiX: 96.0,
+            dpiY: 96.0,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            ..Default::default()
+        };
+        // SAFETY: the bitmaps and context are owned and the mapped pixels are read before Unmap.
+        unsafe {
+            let target = device
+                .context
+                .CreateBitmap(size, None, 0, &target_props)
+                .unwrap();
+            device.context.SetTarget(&target);
+            device.context.SetDpi(96.0, 96.0);
+            device.context.BeginDraw();
+            device.context.SetTransform(&IDENTITY);
+            device.apply_ui_text();
+            let frame = Frame { device: &device };
+            window.paint(&mut UiPainter(&frame, Some(&pages.pages)));
+            device.context.EndDraw(None, None).unwrap();
+            device.context.SetTarget(None::<&ID2D1Image>);
+            let read = device
+                .context
+                .CreateBitmap(size, None, 0, &read_props)
+                .unwrap();
+            read.CopyFromBitmap(None, &target, None).unwrap();
+            let mapped = read.Map(D2D1_MAP_OPTIONS_READ).unwrap();
+            assert!(!mapped.bits.is_null() && mapped.pitch as usize >= width as usize * 4);
+            let mut ppm = format!("P6 {width} {height} 255\n").into_bytes();
+            for y in 0..height as usize {
+                let row = std::slice::from_raw_parts(
+                    mapped.bits.add(y * mapped.pitch as usize),
+                    width as usize * 4,
+                );
+                for bgra in row.as_chunks::<4>().0 {
+                    ppm.extend_from_slice(&[bgra[2], bgra[1], bgra[0]]);
+                }
+            }
+            read.Unmap().unwrap();
+            let output = std::env::var("BO_RIBBON_OUT").unwrap_or_else(|_| ".".into());
+            let name = if context_test {
+                "window-context"
+            } else {
+                "window-125"
+            };
+            std::fs::write(format!("{output}/{name}.ppm"), ppm).unwrap();
+        }
+    }
+
+    /// Diagnostic image of the same Direct2D/DirectWrite ribbon used by the Windows host.
+    #[test]
+    #[ignore = "writes offscreen ribbon images for visual review"]
+    fn ribbon_offscreen() {
+        let device = Device::new().expect("Direct2D hardware or WARP");
+        let mut engine = bo_engine::Engine::with_bundled_fonts();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/corpus/doc/phase1-sample.docx"
+        );
+        engine
+            .open(&std::fs::read(path).unwrap(), "sample.docx")
+            .unwrap();
+        let mut view = DocView::new(engine).unwrap();
+        let styles = view.styles();
+        let strings = Strings::load("vi-VN");
+        let icons = Icons::load();
+        let theme = Theme::light("doc");
+        let output = std::env::var("BO_RIBBON_OUT").unwrap_or_else(|_| ".".into());
+        let configs = [(720_u32, 1.0_f32, 0_usize), (1366, 1.0, 0)]
+            .into_iter()
+            .chain((0..8).map(|tab| (1708, 1.25, tab)));
+        for (width, scale, tab) in configs {
+            let mut ribbon = Ribbon::new();
+            ribbon.layout(&Measure(&device), &strings, width as f32, scale, 0.0);
+            if tab != 0 {
+                let [x, y, w, h] = ribbon.rect_of(bo_ui::RibbonHit::Tab(tab)).unwrap();
+                ribbon.press(x + w / 2.0, y + h / 2.0);
+                ribbon.release(x + w / 2.0, y + h / 2.0);
+                ribbon.layout(&Measure(&device), &strings, width as f32, scale, 0.0);
+            }
+            ribbon.measure_previews(&Measure(&device), &styles);
+            for style in styles.iter().take(5) {
+                let preview = &style.preview;
+                let size = (preview.size * scale * 96.0 / 72.0)
+                    .clamp((11.0 * scale).round(), (20.0 * scale).round());
+                let font = FontSpec {
+                    family: &preview.font,
+                    size,
+                    weight: if preview.bold { 700 } else { 400 },
+                    italic: preview.italic,
+                    underline: preview.underline,
+                };
+                let (text_width, _) = device.measure_font("AaĐđ", &font);
+                let available = (78.0 * scale).round() - (8.0 * scale).round();
+                assert!(
+                    text_width <= available,
+                    "style {} at {scale}: {text_width} > {available}",
+                    style.name
+                );
+            }
+            let height = ribbon.height() as u32;
+            let size = D2D_SIZE_U { width, height };
+            let pixel = D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_IGNORE,
+            };
+            let target_props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: 96.0,
+                dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                ..Default::default()
+            };
+            let read_props = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: pixel,
+                dpiX: 96.0,
+                dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                ..Default::default()
+            };
+            // SAFETY: both bitmaps and the context are owned; the mapping is read only until Unmap.
+            unsafe {
+                let target = device
+                    .context
+                    .CreateBitmap(size, None, 0, &target_props)
+                    .unwrap();
+                device.context.SetTarget(&target);
+                device.context.SetDpi(96.0, 96.0);
+                device.context.BeginDraw();
+                device.context.SetTransform(&IDENTITY);
+                device.apply_ui_text();
+                let frame = Frame { device: &device };
+                frame.clear(theme.surface);
+                ribbon.paint(
+                    &mut UiPainter(&frame, None),
+                    &theme,
+                    &icons,
+                    &strings,
+                    view.format(),
+                    &styles,
+                    &[],
+                );
+                device.context.EndDraw(None, None).unwrap();
+                device.context.SetTarget(None::<&ID2D1Image>);
+                let read = device
+                    .context
+                    .CreateBitmap(size, None, 0, &read_props)
+                    .unwrap();
+                read.CopyFromBitmap(None, &target, None).unwrap();
+                let mapped = read.Map(D2D1_MAP_OPTIONS_READ).unwrap();
+                assert!(!mapped.bits.is_null() && mapped.pitch as usize >= width as usize * 4);
+                let mut ppm = format!("P6 {width} {height} 255\n").into_bytes();
+                for y in 0..height as usize {
+                    let row = std::slice::from_raw_parts(
+                        mapped.bits.add(y * mapped.pitch as usize),
+                        width as usize * 4,
+                    );
+                    for bgra in row.as_chunks::<4>().0 {
+                        ppm.extend_from_slice(&[bgra[2], bgra[1], bgra[0]]);
+                    }
+                }
+                read.Unmap().unwrap();
+                std::fs::write(
+                    format!("{output}/ribbon-{width}-{scale}-tab-{tab}.ppm"),
+                    ppm,
+                )
+                .unwrap();
+            }
         }
     }
 }

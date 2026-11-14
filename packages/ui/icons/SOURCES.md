@@ -148,6 +148,7 @@ Icon và logo sản phẩm BlueOffice vẫn là tài sản riêng của dự án
 | `format.italic` | Lucide (ISC) `Italic` |
 | `format.justify` | Lucide (ISC) `TextAlignJustify` |
 | `format.line` | Lucide (ISC) `PenLine` |
+| `format.lineSpacing` | Lucide (ISC) `ListChevronsUpDown` |
 | `format.lockCell` | Lucide (ISC) `Lock` |
 | `format.mergeCenter` | Lucide (ISC) `TableCellsMerge` |
 | `format.mergeMenu` | Lucide (ISC) `ChevronDown` |

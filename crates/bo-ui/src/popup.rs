@@ -44,19 +44,37 @@ pub struct Menu {
 }
 
 impl Menu {
-    /// A list of `items` under the control at (`x`, `y`, `w`, `h`), at most to `max_bottom`.
-    pub fn open(items: Vec<MenuItem>, anchor: [f32; 4], max_bottom: f32, scale: f32) -> Self {
+    /// Open near the control at (`x`, `y`, `w`, `h`), within the window's viewport.
+    pub fn open(items: Vec<MenuItem>, anchor: [f32; 4], viewport: (f32, f32), scale: f32) -> Self {
         let [x, y, w, h] = anchor;
         let item_h = (26.0 * scale).round();
-        let top = y + h + (2.0 * scale).round();
+        let gap = (2.0 * scale).round();
+        let margin = (4.0 * scale)
+            .round()
+            .min(viewport.0.max(0.0) / 2.0)
+            .min(viewport.1.max(0.0) / 2.0);
+        let menu_width = w
+            .max((200.0 * scale).round())
+            .min((viewport.0 - 2.0 * margin).max(0.0));
+        let left = x.clamp(margin, (viewport.0 - margin - menu_width).max(margin));
+        let below_top = (y + h + gap).clamp(margin, (viewport.1 - margin).max(margin));
+        let above_bottom = (y - gap).clamp(margin, (viewport.1 - margin).max(margin));
+        let below = (viewport.1 - margin - below_top).max(0.0);
+        let above = (above_bottom - margin).max(0.0);
         let full = items.len() as f32 * item_h + (8.0 * scale).round();
-        let height = full.min((max_bottom - top - 8.0 * scale).max(item_h * 3.0));
+        let use_above = below < full && above > below;
+        let height = full.min(if use_above { above } else { below });
+        let top = if use_above {
+            above_bottom - height
+        } else {
+            below_top
+        };
         let current = items.iter().position(|i| i.checked);
         let mut m = Self {
             items,
-            x,
+            x: left,
             y: top,
-            w: w.max((200.0 * scale).round()),
+            w: menu_width,
             h: height.round(),
             item_h,
             scroll: 0.0,
@@ -245,4 +263,47 @@ pub fn paint_tooltip(
         style,
         t.text,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn items() -> Vec<MenuItem> {
+        (0..3)
+            .map(|i| MenuItem {
+                label: i.to_string(),
+                choice: Choice::Size(i),
+                checked: false,
+                dim: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn menus_stay_inside_window_and_remain_clickable() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let viewport = (480.0 * scale, 300.0 * scale);
+            for anchor in [
+                [
+                    viewport.0 - 30.0 * scale,
+                    50.0 * scale,
+                    28.0 * scale,
+                    28.0 * scale,
+                ],
+                [viewport.0 - 5.0 * scale, viewport.1 - 5.0 * scale, 1.0, 1.0],
+                [-40.0 * scale, 30.0 * scale, 10.0 * scale, 20.0 * scale],
+            ] {
+                let mut menu = Menu::open(items(), anchor, viewport, scale);
+                assert!(menu.x >= 0.0 && menu.x + menu.w <= viewport.0);
+                assert!(menu.y >= 0.0 && menu.y + menu.h <= viewport.1);
+                let (x, y) = (
+                    menu.x + menu.w / 2.0,
+                    menu.y + menu.pad() + menu.item_h / 2.0,
+                );
+                menu.press(x, y);
+                assert_eq!(menu.release(x, y), Some(Choice::Size(0)));
+            }
+        }
+    }
 }

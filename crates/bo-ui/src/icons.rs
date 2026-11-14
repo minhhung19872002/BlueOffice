@@ -96,16 +96,153 @@ impl Icons {
             return;
         };
         let k = size / self.grid;
-        // Keep the 1.5 / 24 stroke proportion, but never thinner than one device pixel.
-        let width = (self.stroke * k).max(1.0);
+        // Keep about the 1.5 / 24 stroke proportion, rounded down to whole device pixels (one
+        // pixel at 100–125 %, like toolbar icons drawn for those scales),
+        // and hint outlines onto the pixel grid like hand-tuned toolbar icons: odd widths
+        // centred on pixel centres, fills on pixel edges, so lines are solid instead of
+        // smeared across two half-covered rows.
+        let width = (self.stroke * k + 0.25).floor().max(1.0);
+        let (x, y) = (x.round(), y.round());
         for shape in shapes {
+            let offset = if shape.stroke.is_some() && width as i32 % 2 == 1 {
+                0.5
+            } else {
+                0.0
+            };
             let segs: Vec<PathSeg> = shape.segs.iter().map(|s| transform(*s, k, x, y)).collect();
             let base = if shape.accent { c.accent } else { c.ink };
+            // Stroked dots (a zero-length line with round caps, as in list bullets) would be a
+            // faint one-pixel smudge: draw them as solid squares on whole pixels instead.
+            let (segs, dots) = split_dots(&segs, shape.stroke.is_some() && !shape.fill);
+            let dot = (self.stroke * k * 1.3).round().max(2.0);
+            for (cx, cy) in dots {
+                let color = if shape.stroke == Some(true) {
+                    c.on
+                } else {
+                    base
+                };
+                p.fill_rect(
+                    (cx - dot / 2.0).round(),
+                    (cy - dot / 2.0).round(),
+                    dot,
+                    dot,
+                    color,
+                );
+            }
+            if segs.is_empty() {
+                continue;
+            }
+            let segs = hint(&segs, offset);
             let fill = shape.fill.then_some(base);
             let stroke = shape.stroke.map(|on| (if on { c.on } else { base }, width));
             p.path(&segs, fill, stroke);
         }
     }
+}
+
+/// Separate subpaths spanning less than one pixel (dots) when `stroked`, returning the
+/// other segments and the dots' centres.
+fn split_dots(segs: &[PathSeg], stroked: bool) -> (Vec<PathSeg>, Vec<(f32, f32)>) {
+    if !stroked {
+        return (segs.to_vec(), Vec::new());
+    }
+    let (mut rest, mut dots) = (Vec::with_capacity(segs.len()), Vec::new());
+    let mut start = 0;
+    while start < segs.len() {
+        let end = segs[start + 1..]
+            .iter()
+            .position(|s| matches!(s, PathSeg::M(..)))
+            .map_or(segs.len(), |i| start + 1 + i);
+        let sub = &segs[start..end];
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for s in sub {
+            if let PathSeg::M(x, y)
+            | PathSeg::L(x, y)
+            | PathSeg::Q(_, _, x, y)
+            | PathSeg::C(_, _, _, _, x, y) = *s
+            {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            }
+        }
+        if x1 - x0 < 1.0 && y1 - y0 < 1.0 && x0 <= x1 {
+            dots.push((f32::midpoint(x0, x1), f32::midpoint(y0, y1)));
+        } else {
+            rest.extend_from_slice(sub);
+        }
+        start = end;
+    }
+    (rest, dots)
+}
+
+/// Snap the on-curve points of `segs` to the pixel grid (shifted by `offset`), moving each
+/// control point with its neighbouring on-curve point so curves keep their shape. Subpaths
+/// smaller than three pixels (dots) are only moved, never collapsed.
+fn hint(segs: &[PathSeg], offset: f32) -> Vec<PathSeg> {
+    let snap = |v: f32| (v - offset).round() + offset;
+    let mut out = Vec::with_capacity(segs.len());
+    let mut start = 0;
+    while start < segs.len() {
+        let end = segs[start + 1..]
+            .iter()
+            .position(|s| matches!(s, PathSeg::M(..)))
+            .map_or(segs.len(), |i| start + 1 + i);
+        let sub = &segs[start..end];
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for s in sub {
+            if let PathSeg::M(x, y)
+            | PathSeg::L(x, y)
+            | PathSeg::Q(_, _, x, y)
+            | PathSeg::C(_, _, _, _, x, y) = *s
+            {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            }
+        }
+        if x1 - x0 < 3.0 && y1 - y0 < 3.0 {
+            // A dot: keep its shape, centre it on the grid.
+            let (cx, cy) = (f32::midpoint(x0, x1), f32::midpoint(y0, y1));
+            let (dx, dy) = (snap(cx) - cx, snap(cy) - cy);
+            out.extend(sub.iter().map(|s| shift(*s, dx, dy)));
+        } else {
+            let mut prev = (0.0, 0.0);
+            for s in sub {
+                out.push(match *s {
+                    PathSeg::M(x, y) => {
+                        prev = (snap(x) - x, snap(y) - y);
+                        PathSeg::M(snap(x), snap(y))
+                    }
+                    PathSeg::L(x, y) => {
+                        prev = (snap(x) - x, snap(y) - y);
+                        PathSeg::L(snap(x), snap(y))
+                    }
+                    PathSeg::Q(a, b, x, y) => {
+                        let d = (snap(x) - x, snap(y) - y);
+                        let q = PathSeg::Q(
+                            a + f32::midpoint(prev.0, d.0),
+                            b + f32::midpoint(prev.1, d.1),
+                            snap(x),
+                            snap(y),
+                        );
+                        prev = d;
+                        q
+                    }
+                    PathSeg::C(a, b, c, e, x, y) => {
+                        let d = (snap(x) - x, snap(y) - y);
+                        let q =
+                            PathSeg::C(a + prev.0, b + prev.1, c + d.0, e + d.1, snap(x), snap(y));
+                        prev = d;
+                        q
+                    }
+                    PathSeg::Z => PathSeg::Z,
+                });
+            }
+        }
+        start = end;
+    }
+    out
+}
+
+fn shift(s: PathSeg, dx: f32, dy: f32) -> PathSeg {
+    transform(s, 1.0, dx, dy)
 }
 
 fn transform(s: PathSeg, k: f32, dx: f32, dy: f32) -> PathSeg {

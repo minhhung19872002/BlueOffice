@@ -44,6 +44,8 @@ fn icon_of(id: &str) -> &str {
         "view.layout" => "view.normal",
         "view.onePage" => "view.reading",
         "view.pageWidth" => "view.fitWidth",
+        "view.formattingMarks" => "style.normal",
+        "view.zoomReset" => "edit.find",
         "mailings.recipients" => "mailings.selectRecipients",
         "mailings.finish" => "mailings.mergeDocument",
         "insert.link" => "insert.link",
@@ -54,7 +56,7 @@ fn icon_of(id: &str) -> &str {
 /// Preview tiles shown in the style gallery.
 const TILES: usize = 5;
 /// Gallery preview text (Vietnamese letters show diacritics of the style font).
-const PREVIEW: &str = "AaBbĐđ";
+const PREVIEWS: [&str; 3] = ["AaĐđ", "AĐ", "Đ"];
 
 struct Group {
     label: &'static str,
@@ -85,9 +87,17 @@ pub enum RibbonHit {
     Style(usize),
     /// The gallery's "more styles" button.
     StylesMore,
+    /// Reveal earlier ribbon groups.
+    ScrollLeft,
+    /// Reveal later ribbon groups.
+    ScrollRight,
+    /// Reveal earlier ribbon tabs.
+    TabScrollLeft,
+    /// Reveal later ribbon tabs.
+    TabScrollRight,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Rect {
     x: f32,
     y: f32,
@@ -98,6 +108,16 @@ struct Rect {
 impl Rect {
     fn contains(&self, x: f32, y: f32) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+
+    fn visible_in(&self, clip: Option<Rect>) -> bool {
+        clip.is_none_or(|clip| {
+            if self.w > clip.w {
+                self.x < clip.x + clip.w && self.x + self.w > clip.x
+            } else {
+                self.x >= clip.x - 0.01 && self.x + self.w <= clip.x + clip.w + 0.01
+            }
+        })
     }
 }
 
@@ -111,6 +131,8 @@ enum Placed {
     More(Rect),
     GroupLabel(&'static str, Rect, f32),
     Divider(Rect),
+    Scroll(bool, Rect),
+    TabScroll(bool, Rect),
 }
 
 /// The ribbon of BlueDoc.
@@ -121,11 +143,20 @@ pub struct Ribbon {
     width: f32,
     /// Window y of the ribbon's top edge (below the title bar).
     top: f32,
+    scroll: f32,
+    scroll_max: f32,
+    content_clip: Option<Rect>,
+    tab_scroll: f32,
+    tab_scroll_max: f32,
+    tab_clip: Option<Rect>,
     placed: Vec<Placed>,
     hover: Option<RibbonHit>,
     pressed: Option<RibbonHit>,
     /// Measured label widths of large and labeled buttons.
     label_w: std::cell::RefCell<std::collections::HashMap<&'static str, f32>>,
+    /// Measured (width, height) of each of [`GLYPH_BUTTONS`] at the current scale.
+    glyph_size: [(f32, f32); GLYPH_BUTTONS.len()],
+    previews: Vec<(&'static str, f32)>,
 }
 
 fn home() -> Tab {
@@ -150,7 +181,13 @@ fn home() -> Tab {
                 label: "ribbon.groups.font",
                 large: vec![],
                 rows: vec![
-                    vec![FontBox, SizeBox],
+                    vec![
+                        FontBox,
+                        SizeBox,
+                        B("format.growStep"),
+                        B("format.shrinkStep"),
+                        B("format.clear"),
+                    ],
                     vec![
                         B("format.bold"),
                         B("format.italic"),
@@ -176,6 +213,7 @@ fn home() -> Tab {
                         B("format.alignCenter"),
                         B("format.alignRight"),
                         B("format.justify"),
+                        B("format.lineSpacing"),
                     ],
                 ],
             },
@@ -331,8 +369,7 @@ fn review_tab() -> Tab {
                 large: vec![L("review.newComment")],
                 rows: vec![
                     vec![S("review.deleteComment")],
-                    vec![S("review.previousComment")],
-                    vec![S("review.nextComment")],
+                    vec![S("review.previousComment"), S("review.nextComment")],
                 ],
             },
             Group {
@@ -345,8 +382,7 @@ fn review_tab() -> Tab {
                 large: vec![L("review.acceptAll")],
                 rows: vec![
                     vec![S("review.rejectAll")],
-                    vec![S("review.previous")],
-                    vec![S("review.next")],
+                    vec![S("review.previous"), S("review.next")],
                 ],
             },
         ],
@@ -402,10 +438,18 @@ impl Ribbon {
             scale: 1.0,
             width: 0.0,
             top: 0.0,
+            scroll: 0.0,
+            scroll_max: 0.0,
+            content_clip: None,
+            tab_scroll: 0.0,
+            tab_scroll_max: 0.0,
+            tab_clip: None,
             placed: Vec::new(),
             hover: None,
             pressed: None,
             label_w: std::cell::RefCell::new(std::collections::HashMap::new()),
+            glyph_size: [(0.0, 0.0); GLYPH_BUTTONS.len()],
+            previews: Vec::new(),
         }
     }
 
@@ -432,10 +476,14 @@ impl Ribbon {
         scale: f32,
         top: f32,
     ) {
+        let size_changed = self.width != width || self.scale != scale;
         self.scale = scale;
         self.width = width;
         self.top = top;
         self.placed.clear();
+        for (i, (_, glyph)) in GLYPH_BUTTONS.iter().enumerate() {
+            self.glyph_size[i] = text.measure_font(glyph.text, &glyph.font(self.px(glyph.size)));
+        }
         let tab_style = TextStyle {
             size: self.px(13.0),
             bold: false,
@@ -453,6 +501,8 @@ impl Ribbon {
         };
         x += file.w + self.px(4.0);
         self.placed.push(Placed::File(file));
+        let tabs_start = x;
+        let mut tabs = Vec::new();
         for (i, t) in self.tabs.iter().enumerate() {
             let (w, _) = text.measure(strings.get(t.label), tab_style);
             let r = Rect {
@@ -462,107 +512,222 @@ impl Ribbon {
                 h: strip,
             };
             x += r.w;
-            self.placed.push(Placed::Tab(i, r));
+            tabs.push(Placed::Tab(i, r));
         }
+        self.tab_clip = None;
+        self.tab_scroll_max = 0.0;
+        if x > width {
+            let available = (width - tabs_start).max(0.0);
+            let arrow = self.px(28.0).min(available / 3.0);
+            let viewport = (available - 2.0 * arrow).max(0.0);
+            self.tab_scroll_max = ((x - tabs_start) - viewport).max(0.0);
+            self.tab_scroll = self.tab_scroll.clamp(0.0, self.tab_scroll_max);
+            if size_changed {
+                if let Some(Placed::Tab(_, active)) = tabs.get(self.active) {
+                    let left = active.x - tabs_start;
+                    let right = left + active.w;
+                    if left < self.tab_scroll {
+                        self.tab_scroll = left;
+                    } else if right > self.tab_scroll + viewport {
+                        self.tab_scroll = right - viewport;
+                    }
+                    self.tab_scroll = self.tab_scroll.clamp(0.0, self.tab_scroll_max);
+                }
+            }
+            self.tab_clip = Some(Rect {
+                x: tabs_start + arrow,
+                y: top,
+                w: viewport,
+                h: strip,
+            });
+            for p in &mut tabs {
+                if let Placed::Tab(_, r) = p {
+                    r.x += arrow - self.tab_scroll;
+                }
+            }
+            tabs.push(Placed::TabScroll(
+                false,
+                Rect {
+                    x: tabs_start,
+                    y: 0.0,
+                    w: arrow,
+                    h: strip,
+                },
+            ));
+            tabs.push(Placed::TabScroll(
+                true,
+                Rect {
+                    x: width - arrow,
+                    y: 0.0,
+                    w: arrow,
+                    h: strip,
+                },
+            ));
+        } else {
+            self.tab_scroll = 0.0;
+        }
+        self.placed.extend(tabs);
         // Groups of the active tab.
-        let top = strip + self.px(6.0);
+        let content_top = strip + self.px(6.0);
         let (btn, gap, row_gap) = (self.px(28.0), self.px(2.0), self.px(4.0));
         let label_h = self.px(18.0);
         let bottom = self.height() - self.px(4.0);
-        let mut gx = self.px(8.0);
-        let mut placed = Vec::new();
         let content_h = 2.0 * btn + row_gap;
-        for g in &self.tabs[self.active].groups {
-            let mut group_w: f32 = 0.0;
-            let mut lx = gx + self.px(4.0);
-            for item in &g.large {
-                if *item == Item::Gallery {
-                    {
-                        let (tw, more) = (self.px(78.0), self.px(20.0));
-                        for i in 0..TILES {
-                            let r = Rect {
-                                x: lx + i as f32 * (tw + gap),
-                                y: top,
-                                w: tw,
-                                h: content_h,
-                            };
-                            placed.push(Placed::Tile(i, r));
-                        }
-                        lx += TILES as f32 * (tw + gap);
-                        placed.push(Placed::More(Rect {
-                            x: lx,
-                            y: top,
-                            w: more,
-                            h: content_h,
-                        }));
-                        lx += more + gap;
-                    }
-                } else {
-                    {
-                        let id = match item {
-                            Item::Large(id) => *id,
-                            _ => "",
-                        };
-                        let lw = self.measure_label(text, strings, id);
-                        let w = self.px(52.0).max(lw + self.px(14.0));
-                        placed.push(Placed::Item(
-                            *item,
-                            Rect {
+        // The gallery is the first group to compact as the window narrows. Its
+        // menu remains available even when no preview tile fits.
+        let mut tile_count = TILES;
+        let (mut placed, content_width) = loop {
+            let mut gx = self.px(8.0);
+            let mut placed = Vec::new();
+            for g in &self.tabs[self.active].groups {
+                let mut group_w: f32 = 0.0;
+                let mut lx = gx + self.px(4.0);
+                for item in &g.large {
+                    if *item == Item::Gallery {
+                        {
+                            let (tw, more) = (self.px(78.0), self.px(20.0));
+                            for i in 0..tile_count {
+                                let r = Rect {
+                                    x: lx + i as f32 * (tw + gap),
+                                    y: content_top,
+                                    w: tw,
+                                    h: content_h,
+                                };
+                                placed.push(Placed::Tile(i, r));
+                            }
+                            lx += tile_count as f32 * (tw + gap);
+                            placed.push(Placed::More(Rect {
                                 x: lx,
-                                y: top,
-                                w,
+                                y: content_top,
+                                w: more,
                                 h: content_h,
-                            },
-                        ));
-                        lx += w + gap;
+                            }));
+                            lx += more + gap;
+                        }
+                    } else {
+                        {
+                            let id = match item {
+                                Item::Large(id) => *id,
+                                _ => "",
+                            };
+                            let lw = self.measure_label(text, strings, id);
+                            let w = self.px(52.0).max(lw + self.px(14.0));
+                            placed.push(Placed::Item(
+                                *item,
+                                Rect {
+                                    x: lx,
+                                    y: content_top,
+                                    w,
+                                    h: content_h,
+                                },
+                            ));
+                            lx += w + gap;
+                        }
                     }
                 }
-            }
-            group_w = group_w.max(lx - gap - gx + self.px(4.0));
-            for (r, row) in g.rows.iter().enumerate() {
-                let y = top + r as f32 * (btn + row_gap);
-                let mut x = lx;
-                for item in row {
-                    let w = match item {
-                        Item::FontBox => self.px(150.0),
-                        Item::SizeBox => self.px(52.0),
-                        Item::Labeled(id) => {
-                            btn + self.measure_label(text, strings, id) + self.px(8.0)
-                        }
-                        _ => btn,
-                    };
-                    placed.push(Placed::Item(*item, Rect { x, y, w, h: btn }));
-                    x += w + gap;
+                group_w = group_w.max(lx - gap - gx + self.px(4.0));
+                for (r, row) in g.rows.iter().enumerate() {
+                    let y = content_top + r as f32 * (btn + row_gap);
+                    let mut x = lx;
+                    for item in row {
+                        let w = match item {
+                            Item::FontBox => self.px(150.0),
+                            Item::SizeBox => self.px(52.0),
+                            Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
+                            Item::Labeled(id) => {
+                                btn + self.measure_label(text, strings, id) + self.px(8.0)
+                            }
+                            _ => btn,
+                        };
+                        placed.push(Placed::Item(*item, Rect { x, y, w, h: btn }));
+                        x += w + gap;
+                    }
+                    group_w = group_w.max(x - gap - gx + self.px(4.0));
                 }
-                group_w = group_w.max(x - gap - gx + self.px(4.0));
-            }
-            let label = strings.get(g.label);
-            let (lw, _) = text.measure(
-                label,
-                TextStyle {
-                    size: self.px(12.0),
-                    bold: false,
-                },
-            );
-            group_w = group_w.max(lw + self.px(16.0));
-            placed.push(Placed::GroupLabel(
-                g.label,
-                Rect {
+                let label = strings.get(g.label);
+                let (lw, _) = text.measure(
+                    label,
+                    TextStyle {
+                        size: self.px(12.0),
+                        bold: false,
+                    },
+                );
+                group_w = group_w.max(lw + self.px(16.0));
+                placed.push(Placed::GroupLabel(
+                    g.label,
+                    Rect {
+                        x: gx,
+                        y: bottom - label_h,
+                        w: group_w,
+                        h: label_h,
+                    },
+                    lw,
+                ));
+                gx += group_w;
+                placed.push(Placed::Divider(Rect {
                     x: gx,
-                    y: bottom - label_h,
-                    w: group_w,
-                    h: label_h,
+                    y: content_top,
+                    w: 1.0,
+                    h: bottom - content_top - self.px(2.0),
+                }));
+                gx += self.px(6.0);
+            }
+            if gx <= width
+                || tile_count == 0
+                || !self.tabs[self.active]
+                    .groups
+                    .iter()
+                    .any(|g| g.large.contains(&Item::Gallery))
+            {
+                break (placed, gx);
+            }
+            tile_count -= 1;
+        };
+        self.content_clip = None;
+        self.scroll_max = 0.0;
+        if content_width > width {
+            let arrow = self.px(28.0).min(width.max(0.0) / 3.0);
+            let viewport = (width - 2.0 * arrow).max(0.0);
+            self.scroll_max = (content_width - viewport).max(0.0);
+            self.scroll = self.scroll.clamp(0.0, self.scroll_max);
+            self.content_clip = Some(Rect {
+                x: arrow,
+                y: self.top + strip,
+                w: viewport,
+                h: self.height() - strip,
+            });
+            for p in &mut placed {
+                let (Placed::Item(_, r)
+                | Placed::Tile(_, r)
+                | Placed::More(r)
+                | Placed::GroupLabel(_, r, _)
+                | Placed::Divider(r)) = p
+                else {
+                    unreachable!("group layout only contains group elements")
+                };
+                r.x += arrow - self.scroll;
+            }
+            let h = self.height() - strip;
+            placed.push(Placed::Scroll(
+                false,
+                Rect {
+                    x: 0.0,
+                    y: strip,
+                    w: arrow,
+                    h,
                 },
-                lw,
             ));
-            gx += group_w;
-            placed.push(Placed::Divider(Rect {
-                x: gx,
-                y: top,
-                w: 1.0,
-                h: bottom - top - self.px(2.0),
-            }));
-            gx += self.px(6.0);
+            placed.push(Placed::Scroll(
+                true,
+                Rect {
+                    x: width - arrow,
+                    y: strip,
+                    w: arrow,
+                    h,
+                },
+            ));
+        } else {
+            self.scroll = 0.0;
         }
         self.placed.extend(placed);
         for p in &mut self.placed {
@@ -573,9 +738,11 @@ impl Ribbon {
                 | Placed::Tile(_, r)
                 | Placed::More(r)
                 | Placed::GroupLabel(_, r, _)
-                | Placed::Divider(r) => r,
+                | Placed::Divider(r)
+                | Placed::Scroll(_, r)
+                | Placed::TabScroll(_, r) => r,
             };
-            r.y += top;
+            r.y += self.top;
         }
     }
 
@@ -596,27 +763,91 @@ impl Ribbon {
         };
         let mut label = strings.get(&format!("commands.{id}")).to_owned();
         if crate::catalog::is_menu(id) {
-            label.push_str("  ");
+            label.push_str(" \u{25BE}");
         }
         let w = text.measure(&label, style).0;
         self.label_w.borrow_mut().insert(id, w);
         w
     }
 
+    /// Choose a sample that fits each visible style's actual font without clipping.
+    pub fn measure_previews(&mut self, text: &dyn TextMeasure, styles: &[StyleEntry]) {
+        let available = self.px(78.0) - self.px(8.0);
+        self.previews = styles
+            .iter()
+            .take(TILES)
+            .map(|style| {
+                let pv = &style.preview;
+                let mut font = Font {
+                    family: &pv.font,
+                    size: (pv.size * self.scale * 96.0 / 72.0).clamp(self.px(11.0), self.px(20.0)),
+                    weight: if pv.bold { 700 } else { 400 },
+                    italic: pv.italic,
+                    underline: pv.underline,
+                };
+                if let Some(sample) = PREVIEWS
+                    .iter()
+                    .copied()
+                    .find(|sample| text.measure_font(sample, &font).0 <= available)
+                {
+                    return (sample, font.size);
+                }
+                while font.size > 1.0 && text.measure_font(PREVIEWS[2], &font).0 > available {
+                    font.size = (font.size - 1.0).max(1.0);
+                }
+                (PREVIEWS[2], font.size)
+            })
+            .collect();
+    }
+
     /// What is under a window position.
     pub fn hit(&self, x: f32, y: f32) -> Option<RibbonHit> {
+        let content_visible = self.content_clip.is_none_or(|clip| clip.contains(x, y));
+        let tab_visible = self.tab_clip.is_none_or(|clip| clip.contains(x, y));
         self.placed.iter().find_map(|p| match p {
             Placed::File(r) if r.contains(x, y) => Some(RibbonHit::File),
-            Placed::Tab(i, r) if r.contains(x, y) => Some(RibbonHit::Tab(*i)),
+            Placed::Tab(i, r) if tab_visible && r.visible_in(self.tab_clip) && r.contains(x, y) => {
+                Some(RibbonHit::Tab(*i))
+            }
+            Placed::TabScroll(false, r) if self.tab_scroll > 0.0 && r.contains(x, y) => {
+                Some(RibbonHit::TabScrollLeft)
+            }
+            Placed::TabScroll(true, r)
+                if self.tab_scroll < self.tab_scroll_max && r.contains(x, y) =>
+            {
+                Some(RibbonHit::TabScrollRight)
+            }
             Placed::Item(Item::Button(id) | Item::Large(id) | Item::Labeled(id), r)
-                if r.contains(x, y) =>
+                if content_visible && r.visible_in(self.content_clip) && r.contains(x, y) =>
             {
                 Some(RibbonHit::Command(id))
             }
-            Placed::Tile(i, r) if r.contains(x, y) => Some(RibbonHit::Style(*i)),
-            Placed::More(r) if r.contains(x, y) => Some(RibbonHit::StylesMore),
-            Placed::Item(Item::FontBox, r) if r.contains(x, y) => Some(RibbonHit::FontBox),
-            Placed::Item(Item::SizeBox, r) if r.contains(x, y) => Some(RibbonHit::SizeBox),
+            Placed::Tile(i, r)
+                if content_visible && r.visible_in(self.content_clip) && r.contains(x, y) =>
+            {
+                Some(RibbonHit::Style(*i))
+            }
+            Placed::More(r)
+                if content_visible && r.visible_in(self.content_clip) && r.contains(x, y) =>
+            {
+                Some(RibbonHit::StylesMore)
+            }
+            Placed::Item(Item::FontBox, r)
+                if content_visible && r.visible_in(self.content_clip) && r.contains(x, y) =>
+            {
+                Some(RibbonHit::FontBox)
+            }
+            Placed::Item(Item::SizeBox, r)
+                if content_visible && r.visible_in(self.content_clip) && r.contains(x, y) =>
+            {
+                Some(RibbonHit::SizeBox)
+            }
+            Placed::Scroll(false, r) if self.scroll > 0.0 && r.contains(x, y) => {
+                Some(RibbonHit::ScrollLeft)
+            }
+            Placed::Scroll(true, r) if self.scroll < self.scroll_max && r.contains(x, y) => {
+                Some(RibbonHit::ScrollRight)
+            }
             _ => None,
         })
     }
@@ -634,6 +865,10 @@ impl Ribbon {
                 Placed::More(r) => (RibbonHit::StylesMore, r),
                 Placed::Item(Item::FontBox, r) => (RibbonHit::FontBox, r),
                 Placed::Item(Item::SizeBox, r) => (RibbonHit::SizeBox, r),
+                Placed::Scroll(false, r) => (RibbonHit::ScrollLeft, r),
+                Placed::Scroll(true, r) => (RibbonHit::ScrollRight, r),
+                Placed::TabScroll(false, r) => (RibbonHit::TabScrollLeft, r),
+                Placed::TabScroll(true, r) => (RibbonHit::TabScrollRight, r),
                 _ => return None,
             };
             (h == hit).then_some([r.x, r.y, r.w, r.h])
@@ -664,15 +899,84 @@ impl Ribbon {
         self.pressed.is_some()
     }
 
+    // Reveal the closest hidden control completely instead of stepping past a wide one.
+    fn content_scroll_step(&self, right: bool) -> f32 {
+        let Some(clip) = self.content_clip else {
+            return 0.0;
+        };
+        let mut closest = f32::INFINITY;
+        for item in &self.placed {
+            let (Placed::Item(_, rect) | Placed::Tile(_, rect) | Placed::More(rect)) = item else {
+                continue;
+            };
+            let left = clip.x;
+            let end = clip.x + clip.w;
+            let delta = if right {
+                if rect.w > clip.w {
+                    if rect.x >= end {
+                        rect.x - left
+                    } else {
+                        0.0
+                    }
+                } else {
+                    rect.x + rect.w - end
+                }
+            } else if rect.w > clip.w {
+                if rect.x + rect.w <= left {
+                    end - (rect.x + rect.w)
+                } else {
+                    0.0
+                }
+            } else {
+                left - rect.x
+            };
+            if delta > 0.01 {
+                closest = closest.min(delta);
+            }
+        }
+        if closest.is_finite() {
+            closest
+        } else if right {
+            self.scroll_max - self.scroll
+        } else {
+            self.scroll
+        }
+    }
+
     /// Button released: the control activated (pressed and released over the same one).
     /// Selecting a tab is handled here; `true` in the second value when a redraw is needed.
     pub fn release(&mut self, x: f32, y: f32) -> (Option<RibbonHit>, bool) {
         let was = self.pressed.take();
         let now = self.hit(x, y);
         let fired = was.filter(|w| Some(*w) == now);
-        if let Some(RibbonHit::Tab(i)) = fired {
-            self.active = i;
-            self.placed.clear(); // re-laid out by the window before the next frame
+        match fired {
+            Some(RibbonHit::Tab(i)) => {
+                self.active = i;
+                self.scroll = 0.0;
+                self.placed.clear();
+            }
+            Some(RibbonHit::ScrollLeft | RibbonHit::ScrollRight) => {
+                let step = self.content_scroll_step(fired == Some(RibbonHit::ScrollRight));
+                let direction = if fired == Some(RibbonHit::ScrollRight) {
+                    1.0
+                } else {
+                    -1.0
+                };
+                self.scroll = (self.scroll + direction * step).clamp(0.0, self.scroll_max);
+                self.placed.clear();
+            }
+            Some(RibbonHit::TabScrollLeft | RibbonHit::TabScrollRight) => {
+                let step = self.tab_clip.map_or(0.0, |r| r.w * 0.5).max(self.px(28.0));
+                let direction = if fired == Some(RibbonHit::TabScrollRight) {
+                    1.0
+                } else {
+                    -1.0
+                };
+                self.tab_scroll =
+                    (self.tab_scroll + direction * step).clamp(0.0, self.tab_scroll_max);
+                self.placed.clear();
+            }
+            _ => {}
         }
         (fired, was.is_some())
     }
@@ -724,7 +1028,44 @@ impl Ribbon {
         let radius_rect = |p: &mut dyn Painter, r: &Rect, c: Rgba| {
             p.fill_rect(r.x, r.y, r.w, r.h, c);
         };
+        let mut current_clip: Option<Rect> = None;
         for placed in &self.placed {
+            // Keep partly clipped controls out of view and hit testing; oversized controls
+            // remain clipped so they are still usable in an exceptionally narrow window.
+            let clipped_control = match placed {
+                Placed::Tab(_, r) => !r.visible_in(self.tab_clip),
+                Placed::Item(_, r) | Placed::Tile(_, r) | Placed::More(r) => {
+                    !r.visible_in(self.content_clip)
+                }
+                _ => false,
+            };
+            if clipped_control {
+                continue;
+            }
+            let is_group = matches!(
+                placed,
+                Placed::Item(..)
+                    | Placed::Tile(..)
+                    | Placed::More(..)
+                    | Placed::GroupLabel(..)
+                    | Placed::Divider(..)
+            );
+            let needed_clip = if is_group {
+                self.content_clip
+            } else if matches!(placed, Placed::Tab(..)) {
+                self.tab_clip
+            } else {
+                None
+            };
+            if needed_clip != current_clip {
+                if current_clip.is_some() {
+                    p.pop_clip();
+                }
+                if let Some(r) = needed_clip {
+                    p.push_clip(r.x, r.y, r.w, r.h);
+                }
+                current_clip = needed_clip;
+            }
             match placed {
                 Placed::File(r) => {
                     radius_rect(p, r, t.accent_strong);
@@ -769,10 +1110,79 @@ impl Ribbon {
                     }
                     let ink = if enabled { t.text } else { t.border };
                     let size = self.px(20.0);
+                    let is_menu = crate::catalog::is_menu(id);
+                    if let Some(g) = GLYPH_BUTTONS.iter().position(|(g, _)| g == id) {
+                        // Character formatting buttons show the letter itself, set in the
+                        // style it applies, as desktop word processors do.
+                        let glyph = &GLYPH_BUTTONS[g].1;
+                        let font = glyph.font(self.px(glyph.size));
+                        let (w, line) = self.glyph_size[g];
+                        let (gx, gy) = (
+                            (r.x + (r.w - w) / 2.0).round(),
+                            (r.y + (r.h - line) / 2.0).round(),
+                        );
+                        // With an index or a mark the letter and its decoration are centred
+                        // together.
+                        let small = Font {
+                            size: self.px(9.0),
+                            weight: 600,
+                            ..font
+                        };
+                        let shift = if glyph.decor == Decor::None || glyph.decor == Decor::Strike {
+                            0.0
+                        } else {
+                            -self.px(3.0)
+                        };
+                        let gx = gx + shift;
+                        p.text_font(glyph.text, gx, gy, &font, ink);
+                        let mark = if enabled { t.accent_text } else { ink };
+                        // Segoe UI: ascent ≈ 1.08 em, x-height ≈ 0.5 em, cap ≈ 0.7 em.
+                        match glyph.decor {
+                            Decor::None => {}
+                            Decor::Strike => {
+                                let y = (gy + line * 0.56).round();
+                                p.fill_rect(gx - 1.0, y, w + 2.0, self.scale.round().max(1.0), ink);
+                            }
+                            Decor::Sub | Decor::Sup => {
+                                let digit_y = if glyph.decor == Decor::Sup {
+                                    gy + 0.28 * font.size - 0.38 * small.size
+                                } else {
+                                    gy + 1.23 * font.size - 1.08 * small.size
+                                };
+                                p.text_font("2", gx + w, digit_y.round(), &small, mark);
+                            }
+                            Decor::Grow | Decor::Shrink => {
+                                let k = self.px(3.0);
+                                let (cx, top) =
+                                    ((gx + w + k).round(), (gy + 0.38 * font.size).round());
+                                let tri = if glyph.decor == Decor::Grow {
+                                    [
+                                        bo_render::PathSeg::M(cx - k, top + k),
+                                        bo_render::PathSeg::L(cx + k, top + k),
+                                        bo_render::PathSeg::L(cx, top),
+                                    ]
+                                } else {
+                                    [
+                                        bo_render::PathSeg::M(cx - k, top),
+                                        bo_render::PathSeg::L(cx + k, top),
+                                        bo_render::PathSeg::L(cx, top + k),
+                                    ]
+                                };
+                                let mut segs = tri.to_vec();
+                                segs.push(bo_render::PathSeg::Z);
+                                p.path(&segs, Some(mark), None);
+                            }
+                        }
+                        continue;
+                    }
                     icons.draw(
                         p,
-                        id,
-                        r.x + (r.w - size) / 2.0,
+                        icon_of(id),
+                        if is_menu {
+                            r.x + self.px(3.0)
+                        } else {
+                            r.x + (r.w - size) / 2.0
+                        },
                         r.y + (r.h - size) / 2.0,
                         size,
                         IconColors {
@@ -781,6 +1191,18 @@ impl Ribbon {
                             on: t.accent_on,
                         },
                     );
+                    if is_menu {
+                        let (cx, cy, k) = (r.x + r.w - self.px(6.0), r.y + r.h / 2.0, self.px(2.0));
+                        p.path(
+                            &[
+                                bo_render::PathSeg::M(cx - k, cy - k / 2.0),
+                                bo_render::PathSeg::L(cx, cy + k / 2.0),
+                                bo_render::PathSeg::L(cx + k, cy - k / 2.0),
+                            ],
+                            None,
+                            Some((ink, self.scale.max(1.0))),
+                        );
+                    }
                 }
                 Placed::Item(Item::Large(id), r) => {
                     let hit = RibbonHit::Command(id);
@@ -834,8 +1256,13 @@ impl Ribbon {
                     p.fill_rect(r.x + r.w - 1.0, r.y, 1.0, r.h, edge);
                     let pv = &st.preview;
                     // Preview size follows the style, kept inside the tile.
-                    let size =
+                    let default_size =
                         (pv.size * self.scale * 96.0 / 72.0).clamp(self.px(11.0), self.px(20.0));
+                    let (sample, size) = self
+                        .previews
+                        .get(*i)
+                        .copied()
+                        .unwrap_or((PREVIEWS[2], default_size));
                     let font = Font {
                         family: &pv.font,
                         size,
@@ -846,7 +1273,7 @@ impl Ribbon {
                     let ink =
                         crate::theme::parse_color(&format!("#{}", pv.color)).unwrap_or(t.text);
                     p.push_clip(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
-                    p.text_font(PREVIEW, r.x + self.px(6.0), r.y + self.px(6.0), &font, ink);
+                    p.text_font(sample, r.x + self.px(6.0), r.y + self.px(6.0), &font, ink);
                     let name = TextStyle {
                         size: self.px(11.0),
                         bold: false,
@@ -950,15 +1377,32 @@ impl Ribbon {
                         bold: false,
                     };
                     let line = style.size * 1.33;
-                    p.push_clip(inner.x, inner.y, inner.w - self.px(6.0), inner.h);
+                    let arrow = self.px(16.0);
+                    p.push_clip(inner.x, inner.y, inner.w - arrow, inner.h);
                     p.text(
                         &value,
                         inner.x + self.px(8.0),
-                        inner.y + (inner.h - line) / 2.0,
+                        (inner.y + (inner.h - line) / 2.0).round(),
                         style,
                         t.text,
                     );
                     p.pop_clip();
+                    // Drop-down arrow: a small solid triangle at the right edge.
+                    let (cx, cy, k) = (
+                        (inner.x + inner.w - arrow / 2.0).round(),
+                        (inner.y + inner.h / 2.0).round(),
+                        self.px(3.0),
+                    );
+                    p.path(
+                        &[
+                            bo_render::PathSeg::M(cx - k, cy - k / 2.0),
+                            bo_render::PathSeg::L(cx + k, cy - k / 2.0),
+                            bo_render::PathSeg::L(cx, cy + k / 2.0),
+                            bo_render::PathSeg::Z,
+                        ],
+                        Some(t.text_muted),
+                        None,
+                    );
                 }
                 Placed::GroupLabel(key, r, w) => {
                     let style = TextStyle {
@@ -977,18 +1421,524 @@ impl Ribbon {
                     );
                 }
                 Placed::Divider(r) => p.fill_rect(r.x, r.y, r.w, r.h, t.border),
+                Placed::Scroll(right, r) | Placed::TabScroll(right, r) => {
+                    let tabs = matches!(placed, Placed::TabScroll(..));
+                    let hit = match (tabs, right) {
+                        (true, true) => RibbonHit::TabScrollRight,
+                        (true, false) => RibbonHit::TabScrollLeft,
+                        (false, true) => RibbonHit::ScrollRight,
+                        (false, false) => RibbonHit::ScrollLeft,
+                    };
+                    if let Some(c) = tint(hit) {
+                        radius_rect(p, r, c);
+                    }
+                    let (offset, limit) = if tabs {
+                        (self.tab_scroll, self.tab_scroll_max)
+                    } else {
+                        (self.scroll, self.scroll_max)
+                    };
+                    let enabled = if *right { offset < limit } else { offset > 0.0 };
+                    let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                    let k = self.px(4.0);
+                    let d = if *right { 1.0 } else { -1.0 };
+                    p.path(
+                        &[
+                            bo_render::PathSeg::M(cx - d * k / 2.0, cy - k),
+                            bo_render::PathSeg::L(cx + d * k / 2.0, cy),
+                            bo_render::PathSeg::L(cx - d * k / 2.0, cy + k),
+                        ],
+                        None,
+                        Some((if enabled { t.text } else { t.border }, self.scale.max(1.0))),
+                    );
+                }
             }
+        }
+        if current_clip.is_some() {
+            p.pop_clip();
         }
     }
 }
+
+/// A ribbon button drawn as a letter in the formatting it applies.
+struct GlyphButton {
+    text: &'static str,
+    family: &'static str,
+    /// Size in interface pixels at 100 %.
+    size: f32,
+    weight: u16,
+    italic: bool,
+    underline: bool,
+    decor: Decor,
+}
+
+/// What is drawn with a [`GlyphButton`]'s letter.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Decor {
+    None,
+    /// A line through the middle.
+    Strike,
+    /// A small index digit below / above.
+    Sub,
+    Sup,
+    /// A small accent triangle pointing up / down at the top right.
+    Grow,
+    Shrink,
+}
+
+impl GlyphButton {
+    fn font(&self, size: f32) -> Font<'static> {
+        Font {
+            family: self.family,
+            size,
+            weight: self.weight,
+            italic: self.italic,
+            underline: self.underline,
+        }
+    }
+}
+
+const GLYPH_BUTTONS: [(&str, GlyphButton); 8] = [
+    (
+        "format.growStep",
+        GlyphButton {
+            text: "A",
+            family: "Segoe UI",
+            size: 18.0,
+            weight: 400,
+            italic: false,
+            underline: false,
+            decor: Decor::Grow,
+        },
+    ),
+    (
+        "format.shrinkStep",
+        GlyphButton {
+            text: "A",
+            family: "Segoe UI",
+            size: 15.0,
+            weight: 400,
+            italic: false,
+            underline: false,
+            decor: Decor::Shrink,
+        },
+    ),
+    (
+        "format.bold",
+        GlyphButton {
+            text: "B",
+            family: "Segoe UI",
+            size: 18.0,
+            weight: 700,
+            italic: false,
+            underline: false,
+            decor: Decor::None,
+        },
+    ),
+    (
+        "format.italic",
+        GlyphButton {
+            text: "I",
+            family: "Georgia",
+            size: 18.0,
+            weight: 400,
+            italic: true,
+            underline: false,
+            decor: Decor::None,
+        },
+    ),
+    (
+        "format.underline",
+        GlyphButton {
+            text: "U",
+            family: "Segoe UI",
+            size: 18.0,
+            weight: 400,
+            italic: false,
+            underline: true,
+            decor: Decor::None,
+        },
+    ),
+    (
+        "format.strike",
+        GlyphButton {
+            text: "abc",
+            family: "Segoe UI",
+            size: 13.0,
+            weight: 400,
+            italic: false,
+            underline: false,
+            decor: Decor::Strike,
+        },
+    ),
+    (
+        "format.subscript",
+        GlyphButton {
+            text: "x",
+            family: "Segoe UI",
+            size: 17.0,
+            weight: 600,
+            italic: false,
+            underline: false,
+            decor: Decor::Sub,
+        },
+    ),
+    (
+        "format.superscript",
+        GlyphButton {
+            text: "x",
+            family: "Segoe UI",
+            size: 17.0,
+            weight: 600,
+            italic: false,
+            underline: false,
+            decor: Decor::Sup,
+        },
+    ),
+];
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    struct Fixed;
+    impl TextMeasure for Fixed {
+        fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+            (
+                text.chars().count() as f32 * style.size * 0.55,
+                style.size * 1.33,
+            )
+        }
+    }
+
+    #[test]
+    fn gallery_previews_fit_wide_fonts_without_losing_vietnamese() {
+        struct Wide;
+        impl TextMeasure for Wide {
+            fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+                Fixed.measure(text, style)
+            }
+            fn measure_font(&self, text: &str, font: &Font<'_>) -> (f32, f32) {
+                let width = match font.family {
+                    "wide" => 25.0,
+                    "extra-wide" => 40.0,
+                    "oversize" => font.size * 5.0,
+                    _ => 5.0,
+                };
+                (text.chars().count() as f32 * width, font.size)
+            }
+        }
+        let make = |family: &str| StyleEntry {
+            id: family.into(),
+            name: family.into(),
+            kind: "paragraph",
+            quick: true,
+            preview: bo_engine::gallery::StylePreview {
+                font: family.into(),
+                size: 16.0,
+                bold: false,
+                italic: false,
+                underline: false,
+                color: "000000".into(),
+            },
+            ui_priority: None,
+            recommended: true,
+            in_use: true,
+            linked: None,
+            based_on: None,
+            is_default: false,
+        };
+        let styles = [
+            make("regular"),
+            make("wide"),
+            make("extra-wide"),
+            make("oversize"),
+        ];
+        let mut ribbon = Ribbon::new();
+        ribbon.layout(&Wide, &Strings::load("en-US"), 1400.0, 1.0, 0.0);
+        ribbon.measure_previews(&Wide, &styles);
+        assert_eq!(ribbon.previews[0].0, "AaĐđ");
+        assert_eq!(ribbon.previews[1].0, "AĐ");
+        assert_eq!(ribbon.previews[2].0, "Đ");
+        assert_eq!(ribbon.previews[3], ("Đ", 14.0));
+    }
+
+    #[test]
+    fn ribbon_controls_follow_the_ribbon_top_at_each_scale() {
+        let strings = Strings::load("vi-VN");
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let mut ribbon = Ribbon::new();
+            ribbon.layout(&Fixed, &strings, 3000.0, scale, 0.0);
+            let controls = [
+                RibbonHit::File,
+                RibbonHit::Tab(0),
+                RibbonHit::FontBox,
+                RibbonHit::Command("edit.paste"),
+                RibbonHit::StylesMore,
+            ];
+            let before: Vec<_> = controls
+                .iter()
+                .map(|&h| ribbon.rect_of(h).unwrap())
+                .collect();
+            let offset = 57.0 * scale;
+            ribbon.layout(&Fixed, &strings, 3000.0, scale, offset);
+            for (hit, original) in controls.iter().zip(before) {
+                let rect = ribbon.rect_of(*hit).unwrap();
+                assert_eq!(rect[1], original[1] + offset);
+                assert_eq!(
+                    ribbon.hit(rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0),
+                    Some(*hit)
+                );
+                assert!(rect[1] >= ribbon.top() && rect[1] + rect[3] <= ribbon.bottom());
+            }
+        }
+    }
+
+    #[test]
+    fn gallery_compacts_before_hiding_later_commands() {
+        for locale in ["vi-VN", "en-US"] {
+            let strings = Strings::load(locale);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let mut ribbon = Ribbon::new();
+                ribbon.layout(&Fixed, &strings, 4000.0, scale, 40.0);
+                let full_end = ribbon.rect_of(RibbonHit::Command("edit.replace")).unwrap();
+                let width = full_end[0] + full_end[2] + 8.0 * scale
+                    - 2.0 * (ribbon.px(78.0) + ribbon.px(2.0));
+                ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                let compact_end = ribbon.rect_of(RibbonHit::Command("edit.replace")).unwrap();
+                assert!(
+                    compact_end[0] + compact_end[2] <= width,
+                    "{locale} at {scale}"
+                );
+                assert!(ribbon.rect_of(RibbonHit::Style(TILES - 1)).is_none());
+                let more = ribbon.rect_of(RibbonHit::StylesMore).unwrap();
+                assert!(more[0] + more[2] <= width);
+                assert_eq!(
+                    ribbon.hit(more[0] + more[2] / 2.0, more[1] + more[3] / 2.0),
+                    Some(RibbonHit::StylesMore)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_ribbon_scrolls_to_last_command_and_back() {
+        for locale in ["vi-VN", "en-US"] {
+            let strings = Strings::load(locale);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let mut ribbon = Ribbon::new();
+                let width = 480.0 * scale;
+                ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                assert!(ribbon.scroll_max > 0.0);
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::ScrollRight).unwrap();
+                while ribbon.scroll < ribbon.scroll_max {
+                    assert!(ribbon.press(x + w / 2.0, y + h / 2.0));
+                    assert_eq!(
+                        ribbon.release(x + w / 2.0, y + h / 2.0).0,
+                        Some(RibbonHit::ScrollRight)
+                    );
+                    ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                }
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::Command("edit.replace")).unwrap();
+                assert_eq!(
+                    ribbon.hit(x + w / 2.0, y + h / 2.0),
+                    Some(RibbonHit::Command("edit.replace"))
+                );
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::ScrollLeft).unwrap();
+                while ribbon.scroll > 0.0 {
+                    assert!(ribbon.press(x + w / 2.0, y + h / 2.0));
+                    ribbon.release(x + w / 2.0, y + h / 2.0);
+                    ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                }
+                assert_eq!(ribbon.hit(x + w / 2.0, y + h / 2.0), None);
+                ribbon.layout(&Fixed, &strings, 4000.0, scale, 40.0);
+                assert!(ribbon.content_clip.is_none());
+                assert_eq!(ribbon.scroll, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_tabs_keep_their_last_command_reachable() {
+        let strings = Strings::load("vi-VN");
+        let mut ribbon = Ribbon::new();
+        for tab in 0..ribbon.tabs.len() {
+            let id = ribbon.tabs[tab]
+                .groups
+                .iter()
+                .rev()
+                .flat_map(|g| g.rows.iter().rev().flatten().chain(g.large.iter().rev()))
+                .find_map(|item| match item {
+                    Item::Button(id) | Item::Large(id) | Item::Labeled(id) => Some(*id),
+                    _ => None,
+                })
+                .unwrap();
+            ribbon.active = tab;
+            ribbon.scroll = 0.0;
+            ribbon.layout(&Fixed, &strings, 480.0, 1.0, 40.0);
+            for _ in 0..20 {
+                if ribbon.scroll >= ribbon.scroll_max {
+                    break;
+                }
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::ScrollRight).unwrap();
+                ribbon.press(x + w / 2.0, y + h / 2.0);
+                ribbon.release(x + w / 2.0, y + h / 2.0);
+                ribbon.layout(&Fixed, &strings, 480.0, 1.0, 40.0);
+            }
+            assert_eq!(ribbon.scroll, ribbon.scroll_max, "tab {tab}");
+            let [x, y, w, h] = ribbon.rect_of(RibbonHit::Command(id)).unwrap();
+            assert_eq!(
+                ribbon.hit(x + w / 2.0, y + h / 2.0),
+                Some(RibbonHit::Command(id)),
+                "tab {tab}: {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn scrolling_reveals_every_ribbon_command_in_full() {
+        for locale in ["vi-VN", "en-US"] {
+            let strings = Strings::load(locale);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                for logical_width in [320.0, 480.0] {
+                    let mut ribbon = Ribbon::new();
+                    for tab in 0..ribbon.tabs.len() {
+                        let ids: Vec<_> = ribbon.tabs[tab]
+                            .groups
+                            .iter()
+                            .flat_map(|group| group.large.iter().chain(group.rows.iter().flatten()))
+                            .filter_map(|item| match item {
+                                Item::Button(id) | Item::Large(id) | Item::Labeled(id) => Some(*id),
+                                _ => None,
+                            })
+                            .collect();
+                        ribbon.active = tab;
+                        ribbon.scroll = 0.0;
+                        ribbon.layout(&Fixed, &strings, logical_width * scale, scale, 40.0);
+                        let mut seen = std::collections::HashSet::new();
+                        for _ in 0..30 {
+                            for id in &ids {
+                                if let Some([x, y, w, h]) = ribbon.rect_of(RibbonHit::Command(id)) {
+                                    if ribbon.hit(x + w / 2.0, y + h / 2.0)
+                                        == Some(RibbonHit::Command(id))
+                                    {
+                                        seen.insert(*id);
+                                    }
+                                }
+                            }
+                            if ribbon.scroll >= ribbon.scroll_max {
+                                break;
+                            }
+                            let [x, y, w, h] = ribbon.rect_of(RibbonHit::ScrollRight).unwrap();
+                            ribbon.press(x + w / 2.0, y + h / 2.0);
+                            ribbon.release(x + w / 2.0, y + h / 2.0);
+                            ribbon.layout(&Fixed, &strings, logical_width * scale, scale, 40.0);
+                        }
+                        for id in ids {
+                            assert!(
+                                seen.contains(id),
+                                "{locale}, width {logical_width}, tab {tab}, scale {scale}: {id}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_tab_strip_reaches_and_selects_last_tab() {
+        for locale in ["vi-VN", "en-US"] {
+            let strings = Strings::load(locale);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let mut ribbon = Ribbon::new();
+                let width = 480.0 * scale;
+                ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                assert!(ribbon.tab_scroll_max > 0.0);
+                let file = ribbon.rect_of(RibbonHit::File).unwrap();
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::TabScrollRight).unwrap();
+                for _ in 0..20 {
+                    if ribbon.tab_scroll >= ribbon.tab_scroll_max {
+                        break;
+                    }
+                    assert!(ribbon.press(x + w / 2.0, y + h / 2.0));
+                    ribbon.release(x + w / 2.0, y + h / 2.0);
+                    ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                }
+                assert_eq!(ribbon.tab_scroll, ribbon.tab_scroll_max);
+                assert_eq!(ribbon.rect_of(RibbonHit::File), Some(file));
+                let last = ribbon.tabs.len() - 1;
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::Tab(last)).unwrap();
+                assert_eq!(
+                    ribbon.hit(x + w / 2.0, y + h / 2.0),
+                    Some(RibbonHit::Tab(last))
+                );
+                ribbon.press(x + w / 2.0, y + h / 2.0);
+                ribbon.release(x + w / 2.0, y + h / 2.0);
+                ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                assert_eq!(ribbon.active, last);
+                assert!(ribbon.tab_scroll > 0.0);
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::TabScrollLeft).unwrap();
+                for _ in 0..20 {
+                    if ribbon.tab_scroll == 0.0 {
+                        break;
+                    }
+                    ribbon.press(x + w / 2.0, y + h / 2.0);
+                    ribbon.release(x + w / 2.0, y + h / 2.0);
+                    ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                }
+                assert_eq!(ribbon.tab_scroll, 0.0);
+                ribbon.layout(&Fixed, &strings, 4000.0, scale, 40.0);
+                assert!(ribbon.tab_clip.is_none());
+                ribbon.layout(&Fixed, &strings, width, scale, 40.0);
+                let [x, y, w, h] = ribbon.rect_of(RibbonHit::Tab(last)).unwrap();
+                assert_eq!(
+                    ribbon.hit(x + w / 2.0, y + h / 2.0),
+                    Some(RibbonHit::Tab(last))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scrolling_reveals_every_tab_in_full() {
+        for locale in ["vi-VN", "en-US"] {
+            let strings = Strings::load(locale);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                for logical_width in [320.0, 480.0] {
+                    let mut ribbon = Ribbon::new();
+                    ribbon.layout(&Fixed, &strings, logical_width * scale, scale, 40.0);
+                    let mut seen = std::collections::HashSet::new();
+                    for _ in 0..30 {
+                        for tab in 0..ribbon.tabs.len() {
+                            if let Some([x, y, w, h]) = ribbon.rect_of(RibbonHit::Tab(tab)) {
+                                if ribbon.hit(x + w / 2.0, y + h / 2.0) == Some(RibbonHit::Tab(tab))
+                                {
+                                    seen.insert(tab);
+                                }
+                            }
+                        }
+                        if ribbon.tab_scroll >= ribbon.tab_scroll_max {
+                            break;
+                        }
+                        let [x, y, w, h] = ribbon.rect_of(RibbonHit::TabScrollRight).unwrap();
+                        ribbon.press(x + w / 2.0, y + h / 2.0);
+                        ribbon.release(x + w / 2.0, y + h / 2.0);
+                        ribbon.layout(&Fixed, &strings, logical_width * scale, scale, 40.0);
+                    }
+                    assert_eq!(
+                        seen.len(),
+                        ribbon.tabs.len(),
+                        "{locale}, width {logical_width}, scale {scale}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn every_ribbon_button_does_something() {
         let ribbon = Ribbon::new();
+        let icons = Icons::load();
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,
@@ -1010,8 +1960,42 @@ mod tests {
                 for item in g.large.iter().chain(g.rows.iter().flatten()) {
                     if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
                         assert!(commands::enabled(id, &format), "{id} has no action");
+                        assert!(icons.has(icon_of(id)), "{id} has no icon");
                         let key = format!("commands.{id}");
                         assert_ne!(strings.get(&key), key, "missing label {key}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn controls_do_not_overlap_group_labels_in_any_tab() {
+        for locale in ["vi-VN", "en-US"] {
+            let strings = Strings::load(locale);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let mut ribbon = Ribbon::new();
+                for tab in 0..ribbon.tabs.len() {
+                    ribbon.active = tab;
+                    ribbon.layout(&Fixed, &strings, 4000.0, scale, 50.0);
+                    let label_top = ribbon
+                        .placed
+                        .iter()
+                        .find_map(|p| match p {
+                            Placed::GroupLabel(_, rect, _) => Some(rect.y),
+                            _ => None,
+                        })
+                        .unwrap();
+                    for placed in &ribbon.placed {
+                        let (Placed::Item(_, rect) | Placed::Tile(_, rect) | Placed::More(rect)) =
+                            placed
+                        else {
+                            continue;
+                        };
+                        assert!(
+                            rect.y + rect.h <= label_top,
+                            "{locale}, tab {tab}, scale {scale}"
+                        );
                     }
                 }
             }

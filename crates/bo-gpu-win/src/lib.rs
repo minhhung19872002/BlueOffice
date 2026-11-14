@@ -28,19 +28,38 @@ pub enum TextRendering {
         /// Subpixel strength from 0 (grayscale) to 1 (full ClearType).
         level: f32,
     },
+    /// ClearType with explicit parameters, rendering mode and grid fitting.
+    Tuned {
+        /// Gamma, normally 1.8 to 2.2.
+        gamma: f32,
+        /// Extra contrast, 0 or more.
+        contrast: f32,
+        /// Subpixel strength from 0 (grayscale) to 1 (full ClearType).
+        level: f32,
+        /// Antialias vertically too (`NATURAL_SYMMETRIC`); else only along the line.
+        symmetric: bool,
+        /// Snap outlines to the pixel grid (font hinting).
+        grid_fit: bool,
+    },
 }
 
 impl TextRendering {
-    /// Light ClearType chosen by measurement against a desktop word processor showing the
-    /// same Times New Roman text at the same pixel size (`text_modes_tnr`, RESULTS.md): no
-    /// extra contrast (heavier stems read as blurred next to its thin ones) and about 40 % of
-    /// the subpixel colour. Grayscale when the user turned ClearType off.
+    /// Document text as desktop word processors draw it on this platform: grayscale
+    /// antialiasing with outlines grid-fitted vertically (no colour fringes; stems and
+    /// baselines on whole rows). Measured against a black-box capture of a desktop word
+    /// processor at 100 % zoom: same ink coverage, no chroma (docs/perf/RESULTS.md).
     pub fn document_default() -> Self {
+        Self::Grayscale
+    }
+
+    /// The earlier default: moderately contrasted ClearType with reduced colour fringes
+    /// (grayscale when the user has turned ClearType off).
+    pub fn light_cleartype() -> Self {
         if system_cleartype() {
             Self::ClearType {
                 gamma: 1.8,
-                contrast: 0.0,
-                level: 0.4,
+                contrast: 0.5,
+                level: 0.2,
             }
         } else {
             Self::Grayscale
@@ -453,16 +472,30 @@ mod tests {
                 glyphs: vec![Glyph(36, 0.0, 0.0, 0), Glyph(36, 12.0, 0.0, 1)],
             }],
         };
-        let image = device.render_page(&page, &fonts, 1.0, &|_| None).unwrap();
-        let fringe = image
-            .pixels
-            .chunks_exact(4)
-            .filter(|p| p[0].abs_diff(p[2]) > 12)
-            .count();
-        // ClearType depends on the machine's text settings; both modes must draw opaque ink.
-        eprintln!("subpixel-coloured pixels: {fringe}");
-        assert!(image.pixels.chunks_exact(4).all(|p| p[3] == 255));
-        assert!(image.pixels.chunks_exact(4).any(|p| p[1] < 100));
+        for mode in [
+            super::TextRendering::light_cleartype(),
+            super::TextRendering::document_default(),
+        ] {
+            device.set_text_rendering(mode);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let image = device.render_page(&page, &fonts, scale, &|_| None).unwrap();
+                // ClearType depends on machine settings; both modes must draw opaque ink.
+                assert!(image.pixels.chunks_exact(4).all(|p| p[3] == 255));
+                assert!(
+                    image.pixels.chunks_exact(4).any(|p| p[1] < 100),
+                    "{mode:?} at {scale}"
+                );
+                if mode == super::TextRendering::document_default() {
+                    assert!(
+                        image
+                            .pixels
+                            .chunks_exact(4)
+                            .all(|p| p[0] == p[1] && p[1] == p[2]),
+                        "grayscale at {scale}"
+                    );
+                }
+            }
+        }
     }
 
     /// Manual comparison aid: `cargo test -p bo-gpu-win text_modes -- --ignored --nocapture`.
@@ -693,8 +726,17 @@ mod tests {
         let device = super::Device::new().expect("Direct2D hardware or WARP");
         let mut fonts = bo_text::FontManager::new();
         let face = fonts.add_font(font)[0];
-        let px = 13.0 * 1.1 * 1.25 * 96.0 / 72.0;
-        let size = 13.0 * 1.1;
+        let factor = |key: &str, default: f32| {
+            std::env::var(key)
+                .ok()
+                .and_then(|s| s.parse::<f32>().ok())
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .unwrap_or(default)
+        };
+        let zoom = factor("BO_TEXT_MODES_ZOOM", 1.1);
+        let dpi = factor("BO_TEXT_MODES_DPI_SCALE", 1.25);
+        let px = 13.0 * zoom * dpi * 96.0 / 72.0;
+        let size = 13.0 * zoom;
         let scale = size / f32::from(fonts.info(face).units_per_em);
         let mut pen = 0;
         let glyphs: Vec<Glyph> = fonts
@@ -721,74 +763,43 @@ mod tests {
         };
         let ppp = px / size;
         let out = std::env::var("BO_TEXT_MODES_OUT").unwrap_or_else(|_| ".".into());
-        let modes = [
-            ("light", TextRendering::document_default()),
+        let mut modes: Vec<(String, TextRendering)> = vec![
+            ("default".into(), TextRendering::document_default()),
+            ("system".into(), TextRendering::System),
+            ("gray".into(), TextRendering::Grayscale),
             (
-                "full",
-                TextRendering::ClearType {
-                    gamma: 1.8,
-                    contrast: 0.5,
-                    level: 1.0,
-                },
-            ),
-            (
-                "full-c1",
-                TextRendering::ClearType {
-                    gamma: 2.2,
-                    contrast: 1.0,
-                    level: 1.0,
-                },
-            ),
-            (
-                "half",
-                TextRendering::ClearType {
-                    gamma: 1.8,
-                    contrast: 1.0,
-                    level: 0.6,
-                },
-            ),
-            ("gray", TextRendering::Grayscale),
-            (
-                "c0-l5",
+                "previous".into(),
                 TextRendering::ClearType {
                     gamma: 1.8,
                     contrast: 0.0,
-                    level: 0.5,
-                },
-            ),
-            (
-                "c0-l7",
-                TextRendering::ClearType {
-                    gamma: 1.8,
-                    contrast: 0.0,
-                    level: 0.7,
-                },
-            ),
-            (
-                "c0-l10",
-                TextRendering::ClearType {
-                    gamma: 1.8,
-                    contrast: 0.0,
-                    level: 1.0,
-                },
-            ),
-            (
-                "g22-c0-l6",
-                TextRendering::ClearType {
-                    gamma: 2.2,
-                    contrast: 0.0,
-                    level: 0.6,
-                },
-            ),
-            (
-                "c03-l6",
-                TextRendering::ClearType {
-                    gamma: 1.8,
-                    contrast: 0.3,
-                    level: 0.6,
+                    level: 0.4,
                 },
             ),
         ];
+        for symmetric in [false, true] {
+            for grid_fit in [true, false] {
+                for level in [0.0_f32, 0.1, 0.2, 0.3] {
+                    for contrast in [0.25_f32, 0.5, 1.0] {
+                        for gamma in [1.8_f32, 2.2] {
+                            modes.push((
+                                format!(
+                                    "s{}-g{}-l{level}-c{contrast}-gm{gamma}",
+                                    u8::from(symmetric),
+                                    u8::from(grid_fit)
+                                ),
+                                TextRendering::Tuned {
+                                    gamma,
+                                    contrast,
+                                    level,
+                                    symmetric,
+                                    grid_fit,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         for (name, mode) in modes {
             device.set_text_rendering(mode);
             let img = device.render_page(&page, &fonts, ppp, &|_| None).unwrap();

@@ -97,9 +97,48 @@ pub struct DocWindow {
 }
 
 /// Font sizes offered by the size box (points).
-const SIZES: [f32; 16] = [
-    8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 72.0,
+const SIZES: [f32; 18] = [
+    8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0,
+    48.0, 72.0,
 ];
+
+/// Next standard font size, in half-points, matching the shared editor's size steps.
+fn step_font_size(current: u32, grow: bool) -> u32 {
+    if grow {
+        if current >= 144 {
+            return (current / 20)
+                .saturating_add(1)
+                .saturating_mul(20)
+                .min(3276);
+        }
+        SIZES
+            .iter()
+            .map(|s| (s * 2.0) as u32)
+            .find(|&s| s > current)
+            .unwrap_or(144)
+    } else {
+        if current > 144 {
+            return current
+                .div_ceil(20)
+                .saturating_sub(1)
+                .saturating_mul(20)
+                .max(144);
+        }
+        if current <= 16 {
+            return current
+                .div_ceil(2)
+                .saturating_sub(1)
+                .saturating_mul(2)
+                .max(2);
+        }
+        SIZES
+            .iter()
+            .rev()
+            .map(|s| (s * 2.0) as u32)
+            .find(|&s| s < current)
+            .unwrap_or(16)
+    }
+}
 /// Ticks (about 100 ms each) of rest before a tooltip shows.
 const TOOLTIP_TICKS: u32 = 5;
 
@@ -334,6 +373,7 @@ impl DocWindow {
     }
 
     fn open_command_menu(&mut self, id: &str, anchor: [f32; 4]) {
+        let spacing = self.view.format().line_spacing;
         let items = catalog::menu(id)
             .into_iter()
             .map(|e| MenuItem {
@@ -343,11 +383,17 @@ impl DocWindow {
                     e.label.to_owned()
                 },
                 choice: Choice::Command(e.id.to_owned()),
-                checked: false,
+                checked: spacing.rule == bo_edit::LineRule::Auto
+                    && match e.id {
+                        "format.lineSpacing1" => spacing.value == 240,
+                        "format.lineSpacing15" => spacing.value == 360,
+                        "format.lineSpacing2" => spacing.value == 480,
+                        _ => false,
+                    },
                 dim: false,
             })
             .collect();
-        self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
     fn context_menu(&mut self, x: f32, y: f32) {
@@ -369,7 +415,7 @@ impl DocWindow {
         self.menu = Some(Menu::open(
             items,
             [x, y - 2.0, 1.0, 0.0],
-            self.size.1,
+            self.size,
             self.scale,
         ));
     }
@@ -476,6 +522,13 @@ impl DocWindow {
             "format.painter" => {
                 self.painter = self.view.run_command(Command::PickFormat);
                 true
+            }
+            "format.growStep" | "format.shrinkStep" => {
+                let current = self.view.format().size_half_points.unwrap_or(26);
+                let half_points = step_font_size(current, id == "format.growStep");
+                self.view.run_command(Command::FormatText {
+                    format: CharFormat::Size { half_points },
+                })
             }
             "mailings.recipients" => {
                 self.requests.push(Request::PickMergeData);
@@ -598,6 +651,7 @@ impl DocWindow {
         if self.styles.is_empty() {
             self.styles = self.view.styles();
         }
+        self.ribbon.measure_previews(text, &self.styles);
         // Status bar zoom controls, right to left: percentage, plus, slider, minus.
         let px = |v: f32| (v * self.scale).round();
         let (w, sh) = (self.size.0, self.status_h());
@@ -997,7 +1051,7 @@ impl DocWindow {
                 })
                 .collect()
         };
-        self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
     fn open_styles_menu(&mut self) {
@@ -1016,7 +1070,7 @@ impl DocWindow {
                 dim: false,
             })
             .collect();
-        self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
     fn choose(&mut self, choice: Choice) {
@@ -1068,6 +1122,11 @@ impl DocWindow {
     /// Advance animations to the host clock (ms); `true` while frames are still needed.
     pub fn advance(&mut self, now_ms: f64) -> bool {
         self.view.advance(now_ms)
+    }
+
+    /// Forget page images when the host changes how document text is rendered.
+    pub fn invalidate_page_images(&mut self) {
+        self.view.invalidate_page_images();
     }
 
     /// Update page images of the visible pages.
@@ -1216,6 +1275,132 @@ mod tests {
                 style.size * 1.33,
             )
         }
+    }
+
+    #[test]
+    fn font_size_steps_match_shared_editor_at_boundaries() {
+        assert_eq!(step_font_size(26, true), 28);
+        assert_eq!(step_font_size(28, false), 26);
+        assert_eq!(step_font_size(25, true), 26);
+        assert_eq!(step_font_size(25, false), 24);
+        assert_eq!(step_font_size(144, true), 160);
+        assert_eq!(step_font_size(160, false), 144);
+        assert_eq!(step_font_size(16, false), 14);
+        assert_eq!(step_font_size(2, false), 2);
+        assert_eq!(step_font_size(3276, true), 3276);
+    }
+
+    #[test]
+    fn font_ribbon_controls_change_and_clear_formatting() {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.new_document("a.docx").unwrap();
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "en-US", "a.docx");
+        w.handle(
+            Input::Resize {
+                width: 1800.0,
+                height: 900.0,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Text("abc".into()), &Fixed);
+        w.handle(
+            Input::Key(
+                Key::Letter('a'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        w.view.run_command(Command::FormatText {
+            format: CharFormat::Size { half_points: 26 },
+        });
+        let click = |window: &mut DocWindow, id| {
+            let [x, y, width, height] = window.ribbon.rect_of(RibbonHit::Command(id)).unwrap();
+            let (x, y) = (x + width / 2.0, y + height / 2.0);
+            window.handle(
+                Input::Press {
+                    x,
+                    y,
+                    count: 1,
+                    shift: false,
+                },
+                &Fixed,
+            );
+            window.handle(Input::Release { x, y }, &Fixed);
+        };
+        click(&mut w, "format.growStep");
+        assert_eq!(w.view.format().size_half_points, Some(28));
+        click(&mut w, "format.shrinkStep");
+        assert_eq!(w.view.format().size_half_points, Some(26));
+        click(&mut w, "format.bold");
+        assert!(w.view.format().bold);
+        click(&mut w, "format.clear");
+        assert!(!w.view.format().bold);
+    }
+
+    #[test]
+    fn line_spacing_menu_applies_and_undoes_paragraph_change() {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.new_document("a.docx").unwrap();
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN", "a.docx");
+        w.handle(
+            Input::Resize {
+                width: 1800.0,
+                height: 900.0,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Text("hello".into()), &Fixed);
+        let before = w.view.format().line_spacing;
+        let [x, y, width, height] = w
+            .ribbon
+            .rect_of(RibbonHit::Command("format.lineSpacing"))
+            .unwrap();
+        let center = (x + width / 2.0, y + height / 2.0);
+        w.handle(
+            Input::Press {
+                x: center.0,
+                y: center.1,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(
+            Input::Release {
+                x: center.0,
+                y: center.1,
+            },
+            &Fixed,
+        );
+        assert!(w.menu.is_some());
+        // Menu opens below the button: select the second entry (1.5 lines).
+        let (mx, my) = (x + 12.0, y + height + 2.0 + 4.0 + 26.0 + 13.0);
+        w.handle(
+            Input::Press {
+                x: mx,
+                y: my,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Release { x: mx, y: my }, &Fixed);
+        assert_eq!(w.view.format().line_spacing.rule, bo_edit::LineRule::Auto);
+        assert_eq!(w.view.format().line_spacing.value, 360);
+        w.handle(
+            Input::Key(
+                Key::Letter('z'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        assert_eq!(w.view.format().line_spacing, before);
     }
 
     #[test]

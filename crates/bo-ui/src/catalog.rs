@@ -51,6 +51,11 @@ const fn e(id: &'static str, label: &'static str) -> Entry {
 /// Entries of the menu button `id`.
 pub fn menu(id: &str) -> Vec<Entry> {
     match id {
+        "format.lineSpacing" => vec![
+            e("format.lineSpacing1", "commands.format.lineSpacing1"),
+            e("format.lineSpacing15", "commands.format.lineSpacing15"),
+            e("format.lineSpacing2", "commands.format.lineSpacing2"),
+        ],
         "layout.margins" => vec![
             e("layout.margins.normal", "Normal — 2.54 cm"),
             e("layout.margins.narrow", "Narrow — 1.27 cm"),
@@ -176,6 +181,15 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
         |t: f32, b: f32, l: f32, r: f32| page_setup(sec, None, Some([cm(t), cm(b), cm(l), cm(r)]));
     let size = |a: i32, b: i32| page_setup(sec, Some(keep_orientation(a, b)), None);
     match id {
+        "format.lineSpacing1" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::LineSpacing { value: 240 },
+        }),
+        "format.lineSpacing15" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::LineSpacing { value: 360 },
+        }),
+        "format.lineSpacing2" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::LineSpacing { value: 480 },
+        }),
         "layout.margins.normal" => margins(2.54, 2.54, 2.54, 2.54),
         "layout.margins.narrow" => margins(1.27, 1.27, 1.27, 1.27),
         "layout.margins.moderate" => margins(2.54, 2.54, 1.91, 1.91),
@@ -241,6 +255,7 @@ mod tests {
             "design.pageColor",
             "design.watermark",
             "view.layout",
+            "format.lineSpacing",
         ] {
             for entry in menu(id) {
                 assert!(command(entry.id, &page).is_some(), "{}", entry.id);

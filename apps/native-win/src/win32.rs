@@ -42,7 +42,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SW_SHOWMAXIMIZED, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY,
     WM_DPICHANGED, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
     WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT, WM_SIZE, WM_TIMER, WNDCLASSEXW,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
@@ -60,6 +61,8 @@ pub trait Handler {
     fn input(&mut self, input: Input, age_ms: u32);
     /// The client area changed size.
     fn resized(&mut self, width: u32, height: u32);
+    /// The window moved; update rendering settings for its current monitor.
+    fn moved(&mut self, hwnd: isize);
     /// The window must be redrawn.
     fn paint(&mut self);
     /// Caret rectangle (x, y, width, height in client pixels), for IME windows.
@@ -425,6 +428,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             with_handler(|h| h.input(Input::Tick, 0));
             LRESULT(0)
         }
+        WM_MOVE => {
+            with_handler(|h| h.moved(hwnd.0 as isize));
+            LRESULT(0)
+        }
         WM_SIZE => {
             let v = lparam.0 as u32;
             let (w, h) = (v & 0xFFFF, v >> 16);
@@ -451,6 +458,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 );
             }
             input(hwnd, Input::Scale(dpi / 96.0));
+            with_handler(|h| h.moved(hwnd.0 as isize));
             LRESULT(0)
         }
         WM_IME_STARTCOMPOSITION => {

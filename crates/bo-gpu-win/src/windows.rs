@@ -1,5 +1,9 @@
 use crate::{Driver, TextRendering};
-use std::{cell::RefCell, marker::PhantomData, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    marker::PhantomData,
+    rc::Rc,
+};
 use windows::core::Interface;
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct2D::Common::{
@@ -66,6 +70,8 @@ pub struct Device {
     // DirectWrite faces reused across pages; independent of the Direct2D objects above.
     faces: RefCell<bo_dwrite::FaceCache>,
     text: RefCell<TextRendering>,
+    monitor: Cell<isize>,
+    pixel_geometry: Cell<Option<windows::Win32::Graphics::DirectWrite::DWRITE_PIXEL_GEOMETRY>>,
     // Interface text formats by (family, size bits, weight, italic), see surface.rs.
     ui_formats: RefCell<
         std::collections::HashMap<
@@ -73,6 +79,8 @@ pub struct Device {
             windows::Win32::Graphics::DirectWrite::IDWriteTextFormat,
         >,
     >,
+    // Rendering parameters for interface text, see `Device::apply_ui_text`.
+    ui_params: RefCell<Option<windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams>>,
     // A single-threaded Direct2D factory and its resources must remain on their creating thread.
     _thread_bound: PhantomData<Rc<()>>,
 }
@@ -87,6 +95,39 @@ impl Device {
     /// Choose how later pages antialias text.
     pub fn set_text_rendering(&self, mode: TextRendering) {
         *self.text.borrow_mut() = mode;
+    }
+
+    /// Use the pixel geometry of the monitor containing `hwnd` for document text.
+    /// Returns true if the geometry changed and cached page images need repainting.
+    pub fn update_window_monitor(&self, hwnd: isize) -> Result<bool, String> {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::DirectWrite::{
+            DWriteCreateFactory, IDWriteFactory, DWRITE_FACTORY_TYPE_SHARED,
+        };
+        use windows::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
+        // SAFETY: these APIs inspect a window handle and return owned rendering parameters.
+        unsafe {
+            let monitor = MonitorFromWindow(HWND(hwnd as _), MONITOR_DEFAULTTONEAREST);
+            let id = monitor.0 as isize;
+            if id == 0 {
+                return Err("no monitor for window".into());
+            }
+            if self.monitor.get() == id {
+                return Ok(false);
+            }
+            let factory: IDWriteFactory =
+                DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
+            let geometry = factory
+                .CreateMonitorRenderingParams(monitor)
+                .map_err(|e| e.to_string())?
+                .GetPixelGeometry();
+            let changed = self.pixel_geometry.replace(Some(geometry)) != Some(geometry);
+            if changed {
+                *self.ui_params.borrow_mut() = None;
+            }
+            self.monitor.set(id);
+            Ok(changed)
+        }
     }
 
     /// Number of DirectWrite font faces kept for later pages.
@@ -304,7 +345,10 @@ impl Device {
                 driver,
                 faces: RefCell::new(bo_dwrite::FaceCache::new()?),
                 text: RefCell::new(TextRendering::System),
+                monitor: Cell::new(0),
+                pixel_geometry: Cell::new(None),
                 ui_formats: RefCell::new(std::collections::HashMap::new()),
+                ui_params: RefCell::new(None),
                 _thread_bound: PhantomData,
             })
         }

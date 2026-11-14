@@ -33,8 +33,8 @@ use windows::Win32::Graphics::Direct2D::{
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory2, IDWriteRenderingParams, DWRITE_FACTORY_TYPE_SHARED,
-    DWRITE_GRID_FIT_MODE_ENABLED, DWRITE_MEASURING_MODE_NATURAL, DWRITE_PIXEL_GEOMETRY_RGB,
-    DWRITE_RENDERING_MODE_NATURAL,
+    DWRITE_GRID_FIT_MODE_DISABLED, DWRITE_GRID_FIT_MODE_ENABLED, DWRITE_MEASURING_MODE_NATURAL,
+    DWRITE_RENDERING_MODE_NATURAL, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows_numerics::{Matrix3x2, Vector2};
@@ -1126,6 +1126,7 @@ impl Device {
         // SAFETY: the factory and rendering parameters are owned COM references; the context
         // keeps its own reference to the parameters it is given.
         unsafe {
+            let (mut symmetric, mut grid_fit) = (false, true);
             let (antialias, level) = match mode {
                 TextRendering::System => {
                     self.context
@@ -1140,10 +1141,28 @@ impl Device {
                     contrast,
                     level,
                 } => (D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, (gamma, contrast, level)),
+                TextRendering::Tuned {
+                    gamma,
+                    contrast,
+                    level,
+                    symmetric: s,
+                    grid_fit: g,
+                } => {
+                    (symmetric, grid_fit) = (s, g);
+                    (D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, (gamma, contrast, level))
+                }
             };
             let (gamma, contrast, level) = level;
             let factory: IDWriteFactory2 =
                 DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
+            // Offscreen callers use the primary monitor; window hosts can select their monitor.
+            let geometry = match self.pixel_geometry.get() {
+                Some(geometry) => geometry,
+                None => factory
+                    .CreateRenderingParams()
+                    .map_err(|e| e.to_string())?
+                    .GetPixelGeometry(),
+            };
             // NATURAL: antialiasing along the line only, outlines grid-fitted vertically
             // (baselines, x-height and horizontal strokes on whole rows, as desktop word
             // processors draw body text); glyph x positions stay exactly the engine's.
@@ -1153,9 +1172,17 @@ impl Device {
                     contrast.clamp(0.0, 4.0),
                     contrast.clamp(0.0, 4.0),
                     level.clamp(0.0, 1.0),
-                    DWRITE_PIXEL_GEOMETRY_RGB,
-                    DWRITE_RENDERING_MODE_NATURAL,
-                    DWRITE_GRID_FIT_MODE_ENABLED,
+                    geometry,
+                    if symmetric {
+                        DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC
+                    } else {
+                        DWRITE_RENDERING_MODE_NATURAL
+                    },
+                    if grid_fit {
+                        DWRITE_GRID_FIT_MODE_ENABLED
+                    } else {
+                        DWRITE_GRID_FIT_MODE_DISABLED
+                    },
                 )
                 .map_err(|e| e.to_string())?;
             self.context.SetTextAntialiasMode(antialias);

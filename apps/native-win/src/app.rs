@@ -372,10 +372,13 @@ struct PendingInput {
 impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
         let device = Device::new()?;
+        if let Err(e) = device.update_window_monitor(hwnd) {
+            eprintln!("monitor text settings: {e}");
+        }
         // BLUEOFFICE_TEXT=system|light|gray compares text rendering without a rebuild.
         device.set_text_rendering(match std::env::var("BLUEOFFICE_TEXT").as_deref() {
             Ok("system") => TextRendering::System,
-            Ok("gray") => TextRendering::Grayscale,
+            Ok("light") => TextRendering::light_cleartype(),
             _ => TextRendering::document_default(),
         });
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
@@ -454,6 +457,18 @@ impl Handler for Shell {
             &m,
         );
         let _ = self.render();
+    }
+
+    fn moved(&mut self, hwnd: isize) {
+        let Some(gpu) = self.gpu.as_mut() else { return };
+        match gpu.device.update_window_monitor(hwnd) {
+            Ok(true) => {
+                self.view.invalidate_page_images();
+                self.dirty = true;
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("monitor text settings: {e}"),
+        }
     }
 
     fn paint(&mut self) {

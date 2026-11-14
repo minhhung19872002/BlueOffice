@@ -360,9 +360,8 @@ impl Icons {
                     // Disabled: outlines only.
                     continue;
                 }
-                let tint = if shape.fixed.is_some() || SOLID.iter().any(|(n, _)| *n == name) {
-                    None
-                } else if !c.tinted {
+                let solid = shape.fixed.is_some() || SOLID.iter().any(|(n, _)| *n == name);
+                let tint = if solid || !c.tinted {
                     None
                 } else if listed {
                     tint_of(name, part)

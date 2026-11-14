@@ -146,3 +146,7 @@ Vòng 8: thân ribbon theo hình học bản đối chiếu — dải lệnh cao
 hai hàng như Font căn giữa dải, khoảng hàng 8 px), hàng nhãn nhóm theo chiều cao chữ đo được (giãn theo
 cỡ chữ hệ thống). Ở 125%/110%: thân ribbon 133 px so với 135 px của bản đối chiếu (trước 115 px). Ô
 kiểu trong gallery: chữ mẫu căn giữa phần trên, tên kiểu cỡ nhãn nhóm ở dòng dưới.
+Vòng 9: đo theo cột trên bản cuối — thân ribbon 135 px (gồm viền) so với 136 px của bản đối chiếu.
+Chụp lại 8 tab trên cả hai app: chữ và icon nét như nhau; khác biệt còn lại là số lệnh (bản đối chiếu
+có nhiều lệnh hơn ở Insert/Layout, bố cục ba hàng nút nhỏ có nhãn) và hình icon (thiết kế riêng,
+clean-room) — thuộc việc parity tính năng, không phải độ nét.

@@ -69,13 +69,14 @@ enum Tint {
     Warm,
 }
 
-// Bluestar's own secondary icon palette: ink outlines with one or two coloured parts, so
+// Bluestar's own secondary icon palette (saturation and lightness measured against a
+// desktop word processor's ribbon, docs/ui/REPORT.md round 19): ink outlines with one or two coloured parts, so
 // toolbar icons read at a glance without imitating any other product's artwork.
-pub const ICON_BLUE: Rgba = Rgba(0x1e, 0x6f, 0xd9, 255);
+pub const ICON_BLUE: Rgba = Rgba(0x2b, 0x6a, 0xb8, 255);
 const RED: Rgba = Rgba(0xd2, 0x3f, 0x31, 255);
 const GREEN: Rgba = Rgba(0x1e, 0x8e, 0x3e, 255);
-const SOFT: Rgba = Rgba(0xd6, 0xe6, 0xfb, 255);
-const WARM: Rgba = Rgba(0xf7, 0xd3, 0x8a, 255);
+const SOFT: Rgba = Rgba(0xb9, 0xd2, 0xee, 255);
+const WARM: Rgba = Rgba(0xec, 0xc6, 0x7e, 255);
 
 /// Native-ribbon drawings of paragraph icons (Bluestar's own design, on the 24-unit
 /// grid): four text lines instead of three, solid round bullets and solid arrowheads,
@@ -244,6 +245,26 @@ const SOLID: &[(&str, &[SolidPart])] = &[
             ("M7.5 11.5h3.5v1.2H7.5Z", Some(ICON_BLUE)),
             ("M13 11.5h3.5v1.2H13Z", Some(ICON_BLUE)),
             ("M18.5 11.5h3.5v1.2h-3.5Z", Some(ICON_BLUE)),
+        ],
+    ),
+    (
+        "insert.textBox",
+        &[
+            ("M3 4h18v16H3Z", Some(WHITE)),
+            ("M3 4h18v16H3Z", None),
+            ("M7.5 7.5h9v2.2h-9Z", Some(INK_FILL)),
+            ("M10.9 7.5h2.2v9.5h-2.2Z", Some(INK_FILL)),
+        ],
+    ),
+    (
+        "insert.rect",
+        &[
+            ("M3 3h12v12H3Z", Some(SOFT)),
+            ("M3 3h12v12H3Z", None),
+            (
+                "M10 15.5a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0Z",
+                Some(ICON_BLUE),
+            ),
         ],
     ),
     (

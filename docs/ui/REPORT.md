@@ -59,3 +59,28 @@ hình, script đặt lại lựa chọn trong profile WebDriver tạm để tr�
 không lọt sang ảnh sau. Ảnh BlueSlide dark đã được chụp lại sau khi phát hiện ngăn hiệu ứng
 còn mở từ phiên trước. Chưa thể kết luận checklist sạch: vẫn thiếu nhiều dialog/menu, tooltip, tài liệu chữ mẫu,
 các DPI khác và so sánh màn hình thứ hai.
+
+Một thay đổi tiếp theo cho nhãn nhóm ribbon đã qua kiểm tra web trên các tab của ba app ở
+độ rộng 720, 900, 1.164 và 1.366 CSS px; không còn nhãn nhóm bị cắt trong phép thử này.
+Đây là kiểm tra trình duyệt, chưa xác nhận ảnh desktop mới hay các DPI vật lý.
+
+Kiểm tra lại ngày 2026-11-14: build web và hai bài E2E Chromium cho nhãn ribbon và
+menu tùy chọn dán đều đạt. Kiểm thử đơn vị mô phỏng đổi chế độ dán bất đồng bộ và
+mở lại menu trong lúc chờ; E2E xác nhận luồng mở lại menu sau khi chọn chế độ.
+
+## Độ nét giao diện Rust tự vẽ so với trình soạn thảo desktop (2026-11-14)
+
+So sánh black-box `bluedoc-native.exe` với một trình soạn thảo văn bản desktop mở cùng
+`tests/corpus/doc/phase1-sample.docx`, cùng máy (Windows 125%, ClearType bật), zoom 100%,
+chụp cửa sổ 1500×1102 px vật lý rồi phóng 4× từng vùng.
+
+| Hạng mục | Trước | Sau |
+| --- | --- | --- |
+| Icon ribbon | nét 1,67 px trải trên hai hàng pixel → nhòe | nét làm tròn xuống số pixel nguyên, căn vào tâm/biên pixel; chấm vẽ thành ô vuông đặc |
+| B / I / U / abc / x₂ / x² / A▴ / A▾ | hình nét mảnh | chữ thật theo định dạng nó áp dụng, chỉ số và mũi tên màu nhấn |
+| Ô phông chữ / cỡ chữ | không có mũi tên | tam giác ▾ bên phải |
+| Chữ trong trang | ClearType giảm màu (độ phủ mực 0,115, có viền màu) | xám + khớp lưới dọc: độ phủ mực 0,120 so với 0,122 của bản đối chiếu, không viền màu |
+| Chữ giao diện | ClearType hệ thống | ClearType hệ thống, chế độ GDI classic (`BLUEOFFICE_UI_TEXT=natural\|system` để so) |
+
+`BLUEOFFICE_TEXT=light` giữ cách vẽ chữ trang cũ. Phép đo: tỉ lệ pixel tối/mờ và sắc độ
+trên vùng thân văn bản (bỏ gạch đỏ chính tả của bản đối chiếu).

@@ -75,6 +75,80 @@ const GREEN: Rgba = Rgba(0x1e, 0x8e, 0x3e, 255);
 const SOFT: Rgba = Rgba(0xd6, 0xe6, 0xfb, 255);
 const WARM: Rgba = Rgba(0xf7, 0xd3, 0x8a, 255);
 
+/// Native-ribbon drawings of paragraph icons (Bluestar's own design, on the 24-unit
+/// grid): four text lines instead of three, solid round bullets and solid arrowheads,
+/// so the small icons read as clearly as a desktop word processor's at 16–20 px.
+/// Each part is (path, filled).
+const OVERRIDES: &[(&str, &[(&str, bool)])] = &[
+    (
+        "format.alignLeft",
+        &[
+            ("M3 5H21", false),
+            ("M3 10H15", false),
+            ("M3 15H21", false),
+            ("M3 20H15", false),
+        ],
+    ),
+    (
+        "format.alignCenter",
+        &[
+            ("M3 5H21", false),
+            ("M7 10H17", false),
+            ("M3 15H21", false),
+            ("M7 20H17", false),
+        ],
+    ),
+    (
+        "format.alignRight",
+        &[
+            ("M3 5H21", false),
+            ("M9 10H21", false),
+            ("M3 15H21", false),
+            ("M9 20H21", false),
+        ],
+    ),
+    (
+        "format.justify",
+        &[
+            ("M3 5H21", false),
+            ("M3 10H21", false),
+            ("M3 15H21", false),
+            ("M3 20H21", false),
+        ],
+    ),
+    (
+        "format.bullets",
+        &[
+            ("M2.6 6a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0 -3.6 0Z", true),
+            ("M2.6 12a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0 -3.6 0Z", true),
+            ("M2.6 18a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0 -3.6 0Z", true),
+            ("M9 6H21", false),
+            ("M9 12H21", false),
+            ("M9 18H21", false),
+        ],
+    ),
+    (
+        "format.indent",
+        &[
+            ("M11 5H21", false),
+            ("M11 10H21", false),
+            ("M11 15H21", false),
+            ("M2.5 8L8 12L2.5 16Z", true),
+            ("M3 20H21", false),
+        ],
+    ),
+    (
+        "format.outdent",
+        &[
+            ("M11 5H21", false),
+            ("M11 10H21", false),
+            ("M11 15H21", false),
+            ("M8 8L2.5 12L8 16Z", true),
+            ("M3 20H21", false),
+        ],
+    ),
+];
+
 /// Coloured parts (by index in the icon's part list) of ribbon icons.
 const TINTS: &[(&str, &[(usize, Tint)])] = &[
     (
@@ -169,7 +243,7 @@ impl Icons {
             stroke: 1.5,
             icons: HashMap::new(),
         });
-        let shapes = file
+        let shapes: HashMap<String, Vec<Shape>> = file
             .icons
             .into_iter()
             .map(|(name, parts)| {
@@ -189,6 +263,19 @@ impl Icons {
                 (name, shapes)
             })
             .collect();
+        let mut shapes = shapes;
+        for (name, parts) in OVERRIDES {
+            let drawn = parts
+                .iter()
+                .map(|(d, fill)| Shape {
+                    segs: parse_path(d),
+                    fill: *fill,
+                    stroke: if *fill { None } else { Some(false) },
+                    accent: false,
+                })
+                .collect();
+            shapes.insert((*name).to_owned(), drawn);
+        }
         Self {
             grid: file.grid,
             stroke: file.stroke,

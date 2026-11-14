@@ -168,6 +168,38 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("design.watermark.DO NOT COPY", "DO NOT COPY"),
             e("design.watermark.none", "Remove watermark"),
         ],
+        "insert.shapes" => vec![
+            e("insert.shape.rect", "Rectangle"),
+            e("insert.shape.roundRect", "Rounded rectangle"),
+            e("insert.shape.ellipse", "Oval"),
+            e("insert.shape.triangle", "Triangle"),
+            e("insert.shape.rightArrow", "Right arrow"),
+            e("insert.shape.star5", "Star"),
+        ],
+        "insert.pageNumber" => vec![
+            e("insert.field.PAGE", "Page number"),
+            e("insert.field.NUMPAGES", "Number of pages"),
+        ],
+        "insert.dropCap" => vec![
+            e("insert.dropCap.none", "None"),
+            e("insert.dropCap.drop", "Dropped"),
+            e("insert.dropCap.margin", "In margin"),
+        ],
+        "layout.lineNumbers" => vec![
+            e("layout.lineNumbers.none", "None"),
+            e("layout.lineNumbers.continuous", "Continuous"),
+            e("layout.lineNumbers.newPage", "Restart each page"),
+            e("layout.lineNumbers.newSection", "Restart each section"),
+        ],
+        "layout.hyphenation" => vec![
+            e("layout.hyphenation.none", "None"),
+            e("layout.hyphenation.auto", "Automatic"),
+        ],
+        "references.insertCaption" => vec![
+            e("references.caption.Figure", "Figure"),
+            e("references.caption.Table", "Table"),
+            e("references.caption.Equation", "Equation"),
+        ],
         "view.layout" => vec![
             e("view.layout.print", "Print Layout"),
             e("view.layout.web", "Web Layout"),
@@ -290,6 +322,42 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
             .then(|| json!({ "text": text, "semitransparent": true, "diagonal": true }));
         return from_json(json!({ "cmd": "setWatermark", "watermark": watermark }));
     }
+    if let Some(preset) = id.strip_prefix("insert.shape.") {
+        // ECMA-376 Part 1, §20.1.10.56 ST_ShapeType preset, anchored at the caret.
+        return from_json(json!({
+            "cmd": "insertShape", "preset": preset, "width": 108.0, "height": 72.0,
+        }));
+    }
+    if let Some(instr) = id.strip_prefix("insert.field.") {
+        // §17.16.5.44 PAGE, §17.16.5.42 NUMPAGES.
+        return from_json(json!({ "cmd": "insertField", "instr": instr }));
+    }
+    if let Some(position) = id.strip_prefix("insert.dropCap.") {
+        // §17.3.1.11 framePr dropCap.
+        let drop_cap = (position != "none")
+            .then(|| json!({ "position": position, "lines": 3, "distance": 0 }));
+        return from_json(json!({ "cmd": "setDropCap", "dropCap": drop_cap }));
+    }
+    if let Some(restart) = id.strip_prefix("layout.lineNumbers.") {
+        // §17.6.8 lnNumType.
+        let numbering = (restart != "none")
+            .then(|| json!({ "countBy": 1, "start": 0, "distance": null, "restart": restart }));
+        return from_json(json!({
+            "cmd": "setLineNumbering", "numbering": numbering, "scope": "document",
+        }));
+    }
+    if let Some(mode) = id.strip_prefix("layout.hyphenation.") {
+        // §17.15.1.10 autoHyphenation.
+        return from_json(json!({
+            "cmd": "setHyphenation",
+            "hyphenation": {
+                "auto": mode == "auto", "zone": null, "consecutiveLimit": null, "noCaps": false,
+            },
+        }));
+    }
+    if let Some(label) = id.strip_prefix("references.caption.") {
+        return from_json(json!({ "cmd": "insertCaption", "label": label, "text": "" }));
+    }
     if let Some(n) = id.strip_prefix("layout.columns.") {
         let count: u16 = n.parse().ok()?;
         return from_json(json!({
@@ -348,6 +416,14 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
         "review.previousComment" => from_json(json!({ "cmd": "nextComment", "forward": false })),
         "review.nextComment" => from_json(json!({ "cmd": "nextComment", "forward": true })),
         "format.clear" => from_json(json!({ "cmd": "clearFormatting" })),
+        "insert.textBox" => from_json(json!({
+            "cmd": "insertShape", "textBox": true, "width": 144.0, "height": 72.0,
+        })),
+        // §17.16.5.16 DATE with a day/month/year picture (§17.16.4.1).
+        "insert.dateTime" => {
+            from_json(json!({ "cmd": "insertField", "instr": r#"DATE \@ "dd/MM/yyyy""# }))
+        }
+        "insert.signatureLine" => from_json(json!({ "cmd": "insertSignatureLine" })),
         _ => None,
     }
 }
@@ -389,6 +465,12 @@ mod tests {
             "format.sortParagraphs",
             "format.multilevel",
             "format.textEffects",
+            "insert.shapes",
+            "insert.pageNumber",
+            "insert.dropCap",
+            "layout.lineNumbers",
+            "layout.hyphenation",
+            "references.insertCaption",
         ] {
             for entry in menu(id) {
                 assert!(command(entry.id, &page).is_some(), "{}", entry.id);
@@ -407,6 +489,9 @@ mod tests {
             "review.nextComment",
             "insert.equation",
             "format.clear",
+            "insert.textBox",
+            "insert.dateTime",
+            "insert.signatureLine",
         ] {
             assert!(command(id, &page).is_some(), "{id}");
         }

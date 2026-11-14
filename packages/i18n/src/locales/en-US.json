@@ -116,7 +116,9 @@
       "automation": "Automation",
       "language": "Language",
       "window": "Window",
-      "buildingBlocks": "Building blocks"
+      "buildingBlocks": "Building blocks",
+      "illustrations": "Illustrations",
+      "text": "Text"
     },
     "comingLater": "Coming in a later release"
   },
@@ -315,7 +317,10 @@
       "autoText": "Insert the block named before the caret",
       "chartRecommended": "Recommended charts",
       "headerFooter": "Header and footer",
-      "picture": "Pictures"
+      "picture": "Pictures",
+      "shapes": "Shapes",
+      "textBox": "Text box",
+      "dateTime": "Date & Time"
     },
     "layout": {
       "margins": "Margins",

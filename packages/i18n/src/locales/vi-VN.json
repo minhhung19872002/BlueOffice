@@ -116,7 +116,9 @@
       "automation": "Tự động hóa",
       "language": "Ngôn ngữ",
       "window": "Cửa sổ",
-      "buildingBlocks": "Khối dựng sẵn"
+      "buildingBlocks": "Khối dựng sẵn",
+      "illustrations": "Minh họa",
+      "text": "Văn bản"
     },
     "comingLater": "Sẽ có ở phiên bản sau"
   },
@@ -315,7 +317,10 @@
       "autoText": "Chèn khối có tên vừa gõ trước con trỏ",
       "chartRecommended": "Biểu đồ đề xuất",
       "headerFooter": "Đầu trang và chân trang",
-      "picture": "Ảnh"
+      "picture": "Ảnh",
+      "shapes": "Hình",
+      "textBox": "Hộp văn bản",
+      "dateTime": "Ngày & giờ"
     },
     "layout": {
       "margins": "Lề",

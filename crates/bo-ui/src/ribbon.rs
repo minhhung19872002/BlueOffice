@@ -51,6 +51,11 @@ fn icon_of(id: &str) -> &str {
         "mailings.recipients" => "mailings.selectRecipients",
         "mailings.finish" => "mailings.mergeDocument",
         "insert.link" => "insert.link",
+        "insert.shapes" => "insert.rect",
+        "insert.dateTime" => "format.date",
+        "insert.dropCap" => "format.fontGrow",
+        "layout.lineNumbers" => "format.numbering",
+        "layout.hyphenation" => "format.wrap",
         other => other,
     }
 }
@@ -265,6 +270,11 @@ fn insert_tab() -> Tab {
                 rows: vec![],
             },
             Group {
+                label: "ribbon.groups.illustrations",
+                large: vec![L("insert.shapes")],
+                rows: vec![],
+            },
+            Group {
                 label: "ribbon.groups.links",
                 large: vec![L("insert.link")],
                 rows: vec![],
@@ -277,7 +287,16 @@ fn insert_tab() -> Tab {
             Group {
                 label: "ribbon.groups.headerFooter",
                 large: vec![L("insert.header"), L("insert.footer")],
-                rows: vec![],
+                rows: vec![vec![S("insert.pageNumber")]],
+            },
+            Group {
+                label: "ribbon.groups.text",
+                large: vec![L("insert.textBox")],
+                rows: vec![
+                    vec![S("insert.dropCap")],
+                    vec![S("insert.dateTime")],
+                    vec![S("insert.signatureLine")],
+                ],
             },
             Group {
                 label: "ribbon.groups.symbols",
@@ -314,7 +333,10 @@ fn layout_tab() -> Tab {
                 L("layout.size"),
                 L("layout.columns"),
             ],
-            rows: vec![vec![S("layout.breaks")]],
+            rows: vec![
+                vec![S("layout.breaks")],
+                vec![S("layout.lineNumbers"), S("layout.hyphenation")],
+            ],
         }],
     }
 }
@@ -334,6 +356,11 @@ fn references_tab() -> Tab {
                 label: "ribbon.groups.footnotes",
                 large: vec![L("insert.footnote")],
                 rows: vec![vec![S("insert.endnote")]],
+            },
+            Group {
+                label: "ribbon.groups.captions",
+                large: vec![L("references.insertCaption")],
+                rows: vec![],
             },
         ],
     }
@@ -659,8 +686,19 @@ impl Ribbon {
                     }
                 }
                 group_w = group_w.max(lx - gap - gx + self.px(4.0));
+                // Three rows fill the band (shorter buttons, as on the reference ribbon).
+                let three = g.rows.len() >= 3;
+                let row_h = if three {
+                    ((content_h - 2.0 * gap) / 3.0).floor()
+                } else {
+                    btn
+                };
                 for (r, row) in g.rows.iter().enumerate() {
-                    let y = rows_top + r as f32 * (btn + row_gap);
+                    let y = if three {
+                        content_top + r as f32 * (row_h + gap)
+                    } else {
+                        rows_top + r as f32 * (btn + row_gap)
+                    };
                     let mut x = lx;
                     for item in row {
                         let w = match item {
@@ -672,7 +710,7 @@ impl Ribbon {
                             }
                             _ => btn,
                         };
-                        placed.push(Placed::Item(*item, Rect { x, y, w, h: btn }));
+                        placed.push(Placed::Item(*item, Rect { x, y, w, h: row_h }));
                         x += w + gap;
                     }
                     group_w = group_w.max(x - gap - gx + self.px(4.0));
@@ -1452,10 +1490,12 @@ impl Ribbon {
                         size: self.px(12.0),
                         bold: false,
                     };
+                    // Measured line height (it includes the platform text size).
+                    let line = (self.label_row - self.px(4.0)).max(style.size * 1.33);
                     p.text(
                         &label,
                         r.x + self.px(28.0),
-                        r.y + (r.h - style.size * 1.33) / 2.0,
+                        (r.y + (r.h - line) / 2.0).round(),
                         style,
                         ink,
                     );

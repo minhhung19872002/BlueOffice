@@ -1370,7 +1370,7 @@ mod tests {
             &Fixed,
         );
         w.handle(Input::Text("Hello world".into()), &Fixed);
-        let sec = w.view.format().section.clone();
+        let sec = w.view.format().section;
         let run = |w: &mut DocWindow, id: &str| {
             let cmd = crate::catalog::command(id, &sec).expect(id);
             assert!(w.view.run_command(cmd), "{id} rejected by the engine");

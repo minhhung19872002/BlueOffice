@@ -127,6 +127,32 @@ const TINTS: &[(&str, &[(usize, Tint)])] = &[
     ("mailings.mergeDocument", &[(0, Tint::Soft)]),
 ];
 
+/// Index of the largest closed outline covering at least a third of the grid each way,
+/// or `usize::MAX` when there is none.
+fn main_closed(shapes: &[Shape], grid: f32) -> usize {
+    let mut best = (usize::MAX, 0.0_f32);
+    for (i, s) in shapes.iter().enumerate() {
+        if s.fill || s.stroke.is_none() || !s.segs.iter().any(|g| matches!(g, PathSeg::Z)) {
+            continue;
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for g in &s.segs {
+            if let PathSeg::M(x, y)
+            | PathSeg::L(x, y)
+            | PathSeg::Q(_, _, x, y)
+            | PathSeg::C(_, _, _, _, x, y) = *g
+            {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            }
+        }
+        let (w, h) = (x1 - x0, y1 - y0);
+        if w >= grid / 3.0 && h >= grid / 3.0 && w * h > best.1 {
+            best = (i, w * h);
+        }
+    }
+    best.0
+}
+
 fn tint_of(name: &str, part: usize) -> Option<Tint> {
     TINTS
         .iter()
@@ -189,7 +215,18 @@ impl Icons {
         let width = (self.stroke * k + 0.25).floor().max(1.0);
         let (x, y) = (x.round(), y.round());
         for (part, shape) in shapes.iter().enumerate() {
-            let tint = if c.tinted { tint_of(name, part) } else { None };
+            let listed = TINTS.iter().any(|(n, _)| *n == name);
+            let tint = if !c.tinted {
+                None
+            } else if listed {
+                tint_of(name, part)
+            } else if part == main_closed(shapes, self.grid) {
+                // Icons without hand-picked colours: the main closed outline (a page, a
+                // box, a bubble) gets the light fill, as toolbar icons are drawn solid.
+                Some(Tint::Soft)
+            } else {
+                None
+            };
             let offset = if shape.stroke.is_some() && width as i32 % 2 == 1 {
                 0.5
             } else {

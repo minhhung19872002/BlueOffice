@@ -210,6 +210,7 @@ fn home() -> Tab {
                     vec![
                         B("format.bullets"),
                         B("format.numbering"),
+                        B("format.multilevel"),
                         B("format.outdent"),
                         B("format.indent"),
                         B("format.sortParagraphs"),

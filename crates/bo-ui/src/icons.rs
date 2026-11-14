@@ -89,6 +89,7 @@ const TINTS: &[(&str, &[(usize, Tint)])] = &[
         "format.numbering",
         &[(3, Tint::Blue), (4, Tint::Blue), (5, Tint::Blue)],
     ),
+    ("format.multilevel", &[(3, Tint::Blue), (4, Tint::Blue)]),
     ("format.outdent", &[(3, Tint::Blue)]),
     ("format.indent", &[(3, Tint::Blue)]),
     ("format.lineSpacing", &[(3, Tint::Blue), (4, Tint::Blue)]),

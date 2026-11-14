@@ -351,6 +351,7 @@ export const LUCIDE_ICONS: Record<string, IconSpec> = {
   'format.noFill': lucide(Slash),
   'format.noHighlight': lucide(Eraser),
   'format.numberFormat': lucide(Hash),
+  'format.multilevel': lucide(ListTree),
   'format.numbering': lucide(ListOrdered),
   'format.orientation': lucide(RotateCcw),
   'format.outdent': lucide(ListIndentDecrease),

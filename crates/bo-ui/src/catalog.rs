@@ -71,6 +71,15 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("format.shading.E2EFDA", "Light green"),
             e("format.shading.FCE4D6", "Light orange"),
         ],
+        "format.multilevel" => vec![
+            e("format.multilevel.outline", "1.  1.1.  1.1.1."),
+            e("format.multilevel.mixed", "1)  a)  i)"),
+            e("format.multilevel.bullets", "•  ◦  ▪"),
+            e(
+                "format.multilevel.headings",
+                "1 Heading 1, 1.1 Heading 2, 1.1.1 Heading 3",
+            ),
+        ],
         "format.paraBorders" => vec![
             e("format.paraBorders.bottom", "Bottom border"),
             e("format.paraBorders.top", "Top border"),
@@ -182,6 +191,47 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
             rows: r.parse().ok()?,
             cols: c.parse().ok()?,
         });
+    }
+    if let Some(kind) = id.strip_prefix("format.multilevel.") {
+        // ECMA-376 Part 1, §17.9.1 abstractNum / §17.9.6 lvl; headings link §17.9.23 pStyle.
+        let level = |i: usize, format: &str, text: String, style: Option<String>| {
+            json!({
+                "format": format, "text": text,
+                "indent": 360 * (i + 1), "hanging": 360,
+                "style": style,
+            })
+        };
+        let levels: Vec<Value> = match kind {
+            "outline" => (0..9)
+                .map(|i| {
+                    let text = (1..=i + 1).fold(String::new(), |mut t, n| {
+                        t.push_str(&format!("%{n}."));
+                        t
+                    });
+                    level(i, "decimal", text, None)
+                })
+                .collect(),
+            "mixed" => (0..9)
+                .map(|i| {
+                    let format = ["decimal", "lowerLetter", "lowerRoman"][i % 3];
+                    level(i, format, format!("%{})", i + 1), None)
+                })
+                .collect(),
+            "bullets" => (0..9)
+                .map(|i| level(i, "bullet", ["•", "◦", "▪"][i % 3].into(), None))
+                .collect(),
+            "headings" => (0..3)
+                .map(|i| {
+                    let text = (1..=i + 1)
+                        .map(|n| format!("%{n}"))
+                        .collect::<Vec<_>>()
+                        .join(".");
+                    level(i, "decimal", text, Some(format!("Heading{}", i + 1)))
+                })
+                .collect(),
+            _ => return None,
+        };
+        return from_json(json!({ "cmd": "defineList", "levels": levels, "apply": true }));
     }
     if let Some(preset) = id.strip_prefix("format.paraBorders.") {
         // ECMA-376 Part 1, §17.3.1.24 pBdr.
@@ -309,6 +359,7 @@ mod tests {
             "format.shading",
             "format.paraBorders",
             "format.sortParagraphs",
+            "format.multilevel",
         ] {
             for entry in menu(id) {
                 assert!(command(entry.id, &page).is_some(), "{}", entry.id);

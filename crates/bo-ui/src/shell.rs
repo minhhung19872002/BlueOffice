@@ -1342,6 +1342,17 @@ mod tests {
         assert!(w.view.format().highlight.is_some());
         click(&mut w, "format.clear");
         assert!(!w.view.format().bold);
+        // Menu entries of the Paragraph group run through the engine.
+        let sec = bo_edit::SectionState::default();
+        for id in [
+            "format.multilevel.outline",
+            "format.paraBorders.all",
+            "format.sortParagraphs.asc",
+        ] {
+            let cmd = crate::catalog::command(id, &sec).expect(id);
+            w.view.run_command(cmd);
+        }
+        assert!(w.view.format().numbering);
     }
 
     #[test]

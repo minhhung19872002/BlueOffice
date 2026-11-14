@@ -12,6 +12,8 @@ pub enum Choice {
     Size(u32),
     /// Apply the paragraph style with this id.
     Style(String),
+    /// Run an interface command (`layout.margins.narrow`, `edit.copy`, …).
+    Command(String),
 }
 
 /// One menu row.

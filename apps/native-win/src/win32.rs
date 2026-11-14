@@ -3,7 +3,7 @@
 #![allow(clippy::borrow_as_ptr)]
 use bo_ui::{Input, Key, Mods, NcHit, Request};
 use std::cell::{Cell, RefCell};
-use windows::core::{w, PCWSTR};
+use windows::core::{w, Interface, PCWSTR};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ScreenToClient;
@@ -22,7 +22,9 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::Input::Ime::{
-    ImmGetContext, ImmReleaseContext, ImmSetCompositionWindow, CFS_POINT, COMPOSITIONFORM,
+    ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext, ImmSetCandidateWindow,
+    ImmSetCompositionWindow, CANDIDATEFORM, CFS_CANDIDATEPOS, CFS_POINT, COMPOSITIONFORM,
+    GCS_COMPSTR, GCS_RESULTSTR, IME_COMPOSITION_STRING,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
@@ -38,16 +40,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ShowWindow, SystemParametersInfoW, TranslateMessage, CS_DBLCLKS, CW_USEDEFAULT, IDC_IBEAM,
     MB_ICONERROR, MB_OK, MSG, SPI_GETWHEELSCROLLLINES, SWP_NOACTIVATE, SWP_NOZORDER,
     SW_SHOWMAXIMIZED, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
-    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE,
-    WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
+    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
     HTTOP, HTTOPLEFT, HTTOPRIGHT, NCCALCSIZE_PARAMS, PM_REMOVE, SM_CXPADDEDBORDER, SM_CXSIZEFRAME,
     SM_CYSIZEFRAME, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
     WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
-    WM_NCMOUSEMOVE, WM_QUIT,
+    WM_NCMOUSEMOVE, WM_QUIT, WM_RBUTTONUP,
 };
 
 /// What the window reports to the application.
@@ -185,7 +187,43 @@ fn place_ime(hwnd: HWND) {
             ..Default::default()
         };
         let _ = ImmSetCompositionWindow(ctx, &form);
+        // Candidate lists open just under the caret.
+        let cand = CANDIDATEFORM {
+            dwIndex: 0,
+            dwStyle: CFS_CANDIDATEPOS,
+            ptCurrentPos: POINT {
+                x: x as i32,
+                y: (y + h) as i32,
+            },
+            ..Default::default()
+        };
+        let _ = ImmSetCandidateWindow(ctx, &cand);
         let _ = ImmReleaseContext(hwnd, ctx);
+    }
+}
+
+/// The input method's composition (`GCS_COMPSTR`) or result (`GCS_RESULTSTR`) string.
+fn ime_string(hwnd: HWND, which: IME_COMPOSITION_STRING) -> Option<String> {
+    // SAFETY: the context belongs to `hwnd`; the buffer has the byte length the first call
+    // reported and is released with the context.
+    unsafe {
+        let ctx = ImmGetContext(hwnd);
+        if ctx.is_invalid() {
+            return None;
+        }
+        let bytes = ImmGetCompositionStringW(ctx, which, None, 0);
+        let mut out = None;
+        if bytes > 0 {
+            let mut buf = vec![0u16; bytes as usize / 2];
+            let got =
+                ImmGetCompositionStringW(ctx, which, Some(buf.as_mut_ptr().cast()), bytes as u32);
+            if got > 0 {
+                buf.truncate(got as usize / 2);
+                out = Some(String::from_utf16_lossy(&buf));
+            }
+        }
+        let _ = ImmReleaseContext(hwnd, ctx);
+        out
     }
 }
 
@@ -216,7 +254,7 @@ fn window_request(hwnd: HWND, r: &Request) {
             Request::Close => {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
-            Request::Save | Request::SetClipboard { .. } | Request::Paste => {}
+            _ => {}
         }
     }
 }
@@ -374,6 +412,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             input(hwnd, Input::Release { x, y });
             LRESULT(0)
         }
+        WM_RBUTTONUP => {
+            let (x, y) = point(lparam);
+            input(hwnd, Input::Context { x, y });
+            LRESULT(0)
+        }
         WM_TIMER if wparam.0 == BLINK_TIMER => {
             with_handler(|h| h.input(Input::Blink, 0));
             LRESULT(0)
@@ -410,10 +453,29 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             input(hwnd, Input::Scale(dpi / 96.0));
             LRESULT(0)
         }
-        WM_IME_STARTCOMPOSITION | WM_IME_COMPOSITION => {
+        WM_IME_STARTCOMPOSITION => {
+            // The composition is drawn inline: no default composition window.
             place_ime(hwnd);
-            // SAFETY: default IME processing turns the result into WM_CHAR messages.
-            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            LRESULT(0)
+        }
+        WM_IME_COMPOSITION => {
+            place_ime(hwnd);
+            let flags = lparam.0 as u32;
+            if flags & GCS_RESULTSTR.0 != 0 {
+                if let Some(text) = ime_string(hwnd, GCS_RESULTSTR) {
+                    input(hwnd, Input::Preedit(String::new()));
+                    input(hwnd, Input::Text(text));
+                }
+            }
+            if flags & GCS_COMPSTR.0 != 0 {
+                let comp = ime_string(hwnd, GCS_COMPSTR).unwrap_or_default();
+                input(hwnd, Input::Preedit(comp));
+            }
+            LRESULT(0)
+        }
+        WM_IME_ENDCOMPOSITION => {
+            input(hwnd, Input::Preedit(String::new()));
+            LRESULT(0)
         }
         WM_PAINT => {
             // SAFETY: validates this window's whole client area.
@@ -755,4 +817,87 @@ pub fn read_clipboard() -> (Option<String>, Option<String>, Option<String>) {
         let _ = CloseClipboard();
         (internal, html, text)
     }
+}
+
+// ---------------------------------------------------------------- file dialogs
+
+/// Show the system Open (`save` false) or Save As dialog with `filters` (name, pattern such as
+/// `*.docx`); the chosen path, if any.
+pub fn file_dialog(save: bool, filters: &[(&str, &str)], name: &str) -> Option<std::path::PathBuf> {
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, FileSaveDialog, IFileDialog, IFileOpenDialog, IFileSaveDialog,
+        SIGDN_FILESYSPATH,
+    };
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain([0]).collect() };
+    let names: Vec<Vec<u16>> = filters.iter().map(|f| wide(f.0)).collect();
+    let specs: Vec<Vec<u16>> = filters.iter().map(|f| wide(f.1)).collect();
+    let spec: Vec<COMDLG_FILTERSPEC> = names
+        .iter()
+        .zip(&specs)
+        .map(|(n, p)| COMDLG_FILTERSPEC {
+            pszName: PCWSTR(n.as_ptr()),
+            pszSpec: PCWSTR(p.as_ptr()),
+        })
+        .collect();
+    let file_name = wide(name);
+    // SAFETY: COM is initialised for this (UI) thread; every string outlives the dialog; the
+    // returned path string is freed with CoTaskMemFree after copying.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let dialog: IFileDialog = if save {
+            let d: IFileSaveDialog =
+                CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+            d.cast().ok()?
+        } else {
+            let d: IFileOpenDialog =
+                CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+            d.cast().ok()?
+        };
+        if !spec.is_empty() {
+            dialog.SetFileTypes(&spec).ok()?;
+        }
+        if save && !name.is_empty() {
+            let _ = dialog.SetFileName(PCWSTR(file_name.as_ptr()));
+            if let Some(ext) = filters.first().and_then(|f| f.1.strip_prefix("*.")) {
+                let e = wide(ext);
+                let _ = dialog.SetDefaultExtension(PCWSTR(e.as_ptr()));
+            }
+        }
+        dialog.Show(None).ok()?;
+        let item = dialog.GetResult().ok()?;
+        let path = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let out = path.to_string().ok();
+        CoTaskMemFree(Some(path.0 as *const _));
+        out.map(std::path::PathBuf::from)
+    }
+}
+
+/// Hand a file to its default application with `verb` (`open`, `print`).
+pub fn shell_open(path: &std::path::Path, verb: &str) -> bool {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let file: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    let verb_w: Vec<u16> = verb.encode_utf16().chain([0]).collect();
+    // SAFETY: both strings are NUL-terminated and outlive the call.
+    let r = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb_w.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    r.0 as isize > 32
 }

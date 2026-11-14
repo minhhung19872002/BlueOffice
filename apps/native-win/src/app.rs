@@ -240,6 +240,100 @@ impl Shell {
         }
     }
 
+    /// Carry out the interface's requests (files, clipboard, printing); `true` to redraw.
+    fn handle_requests(&mut self) -> bool {
+        let mut redraw = false;
+        for r in self.view.take_requests() {
+            match r {
+                Request::Save => redraw |= self.save(),
+                Request::SetClipboard {
+                    text,
+                    html,
+                    internal,
+                } => win32::set_clipboard(&text, &html, &internal),
+                Request::Paste => {
+                    let (internal, html, text) = win32::read_clipboard();
+                    redraw |= self.view.paste(internal, html, text);
+                }
+                Request::New => spawn_self(None),
+                Request::Open => {
+                    let filters = [
+                        (
+                            "Documents (*.docx;*.doc;*.odt;*.rtf;*.dotx;*.docm)",
+                            "*.docx;*.doc;*.odt;*.rtf;*.dotx;*.docm",
+                        ),
+                        ("All files", "*.*"),
+                    ];
+                    if let Some(path) = win32::file_dialog(false, &filters, "") {
+                        spawn_self(Some(&path));
+                    }
+                }
+                Request::SaveAs => {
+                    let name = self.file.as_ref().and_then(|p| p.file_name()).map_or_else(
+                        || "Document1.docx".to_owned(),
+                        |n| n.to_string_lossy().into_owned(),
+                    );
+                    if let Some(path) =
+                        win32::file_dialog(true, &[("Word document (*.docx)", "*.docx")], &name)
+                    {
+                        self.file = Some(path.clone());
+                        if self.save() {
+                            let shown = path
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                            self.view.set_name(&shown);
+                            redraw = true;
+                        }
+                    }
+                }
+                Request::ExportPdf => {
+                    let name = self.file.as_ref().and_then(|p| p.file_stem()).map_or_else(
+                        || "Document1.pdf".to_owned(),
+                        |n| format!("{}.pdf", n.to_string_lossy()),
+                    );
+                    if let Some(path) = win32::file_dialog(true, &[("PDF (*.pdf)", "*.pdf")], &name)
+                    {
+                        match self.view.view().export_pdf() {
+                            Ok(bytes) => {
+                                if let Err(e) = std::fs::write(&path, bytes) {
+                                    eprintln!("export {}: {e}", path.display());
+                                }
+                            }
+                            Err(e) => eprintln!("export: {e}"),
+                        }
+                    }
+                }
+                Request::Print => {
+                    // Printed through the PDF application's print verb (opened when it has none).
+                    if let Ok(bytes) = self.view.view().export_pdf() {
+                        let path = std::env::temp_dir()
+                            .join(format!("bluedoc-print-{}.pdf", std::process::id()));
+                        if std::fs::write(&path, bytes).is_ok()
+                            && !win32::shell_open(&path, "print")
+                        {
+                            win32::shell_open(&path, "open");
+                        }
+                    }
+                }
+                Request::PickMergeData => {
+                    let filters = [("Recipient lists (*.csv;*.xlsx)", "*.csv;*.xlsx")];
+                    if let Some(path) = win32::file_dialog(false, &filters, "") {
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            use base64::Engine as _;
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+                            let name = path
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                            redraw |= self.view.merge_data(&name, &b64);
+                        }
+                    }
+                }
+                other => self.pending.push(other),
+            }
+        }
+        redraw
+    }
+
     fn render(&mut self) -> Result<(), String> {
         let Some(gpu) = self.gpu.as_mut() else {
             return Ok(());
@@ -252,6 +346,17 @@ impl Shell {
         gpu.surface.frame(&gpu.device, |frame| {
             view.paint(&mut WinPainter { frame, pages });
         })
+    }
+}
+
+/// Start another BlueDoc window (with `file`, or a new document).
+fn spawn_self(file: Option<&std::path::Path>) {
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cmd = std::process::Command::new(exe);
+        if let Some(f) = file {
+            cmd.arg(f);
+        }
+        let _ = cmd.spawn();
     }
 }
 
@@ -309,25 +414,13 @@ impl Handler for Shell {
             Input::Maximized(_) => "maximized",
             Input::Leave => "leave",
             Input::Zoom(_) => "zoom",
+            Input::Context { .. } => "context",
+            Input::Preedit(_) => "preedit",
         };
         let start = Instant::now();
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
-        for r in self.view.take_requests() {
-            match r {
-                Request::Save => redraw |= self.save(),
-                Request::SetClipboard {
-                    text,
-                    html,
-                    internal,
-                } => win32::set_clipboard(&text, &html, &internal),
-                Request::Paste => {
-                    let (internal, html, text) = win32::read_clipboard();
-                    redraw |= self.view.paste(internal, html, text);
-                }
-                other => self.pending.push(other),
-            }
-        }
+        redraw |= self.handle_requests();
         if !redraw {
             return;
         }

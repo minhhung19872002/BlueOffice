@@ -104,4 +104,13 @@ pub enum Input {
     Leave,
     /// Ctrl + wheel: zoom in (positive) or out by this many wheel notches.
     Zoom(f32),
+    /// Text being composed by an input method, shown at the caret (empty: none).
+    Preedit(String),
+    /// Secondary (right) button released: context menu.
+    Context {
+        /// Pointer x.
+        x: f32,
+        /// Pointer y.
+        y: f32,
+    },
 }

@@ -309,7 +309,8 @@
       "blocksOrganizer": "Building Blocks Organizer…",
       "autoText": "Insert the block named before the caret",
       "chartRecommended": "Recommended charts",
-      "headerFooter": "Header and footer"
+      "headerFooter": "Header and footer",
+      "picture": "Pictures"
     },
     "layout": {
       "margins": "Margins",
@@ -319,7 +320,8 @@
       "pageSetup": "Page setup…",
       "lineNumbers": "Line numbers",
       "hyphenation": "Hyphenation",
-      "textDirection": "Page text direction"
+      "textDirection": "Page text direction",
+      "breaks": "Breaks"
     },
     "view": {
       "zoomIn": "Zoom in",
@@ -355,7 +357,10 @@
       "styleOrganizer": "Style Organizer",
       "newStyle": "New style",
       "gridlines": "Gridlines",
-      "guides": "Guides"
+      "guides": "Guides",
+      "layout": "Views",
+      "onePage": "One Page",
+      "pageWidth": "Page Width"
     },
     "review": {
       "readAloud": "Read aloud",
@@ -436,7 +441,8 @@
       "manageSources": "Manage sources",
       "citationStyle": "Citation style",
       "insertBibliography": "Bibliography",
-      "convertNotes": "Convert notes"
+      "convertNotes": "Convert notes",
+      "toc": "Table of Contents"
     },
     "mailings": {
       "selectRecipients": "Select recipients",
@@ -454,7 +460,8 @@
       "finish": "Finish & merge",
       "finishDocument": "Merge into one document…",
       "finishPdfs": "One PDF per recipient (zip)…",
-      "finishEmail": "Send as e-mails…"
+      "finishEmail": "Send as e-mails…",
+      "recipients": "Select Recipients"
     },
     "table": {
       "insertRowAbove": "Insert row above",
@@ -2937,7 +2944,7 @@
     },
     "smartart": {
       "pictures": "Nodes with a picture",
-      "pictureHint": "A node\u2019s picture shows in the layouts of the Picture group.",
+      "pictureHint": "A node’s picture shows in the layouts of the Picture group.",
       "nodeEditor": "Edit the node text",
       "button": "Smart diagram",
       "tab": "Smart diagram",

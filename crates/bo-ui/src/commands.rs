@@ -42,6 +42,45 @@ pub fn style_name_key(name: &str) -> Option<&'static str> {
     })
 }
 
+/// The `'static` id of a ribbon command (menus anchor to the button that opened them).
+pub fn static_id(id: &str) -> &'static str {
+    const MENUS: [&str; 10] = [
+        "layout.margins",
+        "layout.orientation",
+        "layout.size",
+        "layout.columns",
+        "layout.breaks",
+        "insert.table",
+        "insert.symbol",
+        "design.pageColor",
+        "design.watermark",
+        "view.layout",
+    ];
+    MENUS.iter().find(|m| **m == id).copied().unwrap_or("")
+}
+
+/// Commands the window handles itself (dialogs, view state, format painter, mail merge).
+pub const WINDOW: [&str; 18] = [
+    "review.deleteComment",
+    "edit.find",
+    "edit.replace",
+    "insert.link",
+    "review.newComment",
+    "review.wordCount",
+    "review.trackChanges",
+    "view.ruler",
+    "view.formattingMarks",
+    "view.zoomIn",
+    "view.zoomOut",
+    "view.zoomReset",
+    "format.painter",
+    "mailings.recipients",
+    "mailings.preview",
+    "mailings.previousRecord",
+    "mailings.nextRecord",
+    "mailings.finish",
+];
+
 /// Keyboard shortcut shown in the tooltip of command `id`.
 pub fn shortcut(id: &str) -> Option<&'static str> {
     Some(match id {
@@ -51,6 +90,10 @@ pub fn shortcut(id: &str) -> Option<&'static str> {
         "edit.copy" => "Ctrl+C",
         "edit.paste" => "Ctrl+V",
         "file.save" => "Ctrl+S",
+        "edit.find" => "Ctrl+F",
+        "edit.replace" => "Ctrl+H",
+        "insert.link" => "Ctrl+K",
+        "format.painter" => "Ctrl+Shift+C",
         "format.bold" => "Ctrl+B",
         "format.italic" => "Ctrl+I",
         "format.underline" => "Ctrl+U",
@@ -89,6 +132,11 @@ pub fn enabled(id: &str, f: &FormatState) -> bool {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
         "edit.copy" | "edit.cut" | "edit.paste" | "file.save" => true,
-        _ => command(id).is_some(),
+        _ => {
+            command(id).is_some()
+                || WINDOW.contains(&id)
+                || crate::catalog::is_menu(id)
+                || crate::catalog::command(id, &f.section).is_some()
+        }
     }
 }

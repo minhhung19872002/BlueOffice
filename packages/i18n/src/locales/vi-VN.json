@@ -309,7 +309,8 @@
       "blocksOrganizer": "Quản lý khối dựng sẵn…",
       "autoText": "Chèn khối có tên vừa gõ trước con trỏ",
       "chartRecommended": "Biểu đồ đề xuất",
-      "headerFooter": "Đầu trang và chân trang"
+      "headerFooter": "Đầu trang và chân trang",
+      "picture": "Ảnh"
     },
     "layout": {
       "margins": "Lề",
@@ -319,7 +320,8 @@
       "pageSetup": "Thiết lập trang…",
       "lineNumbers": "Số dòng",
       "hyphenation": "Ngắt từ tự động",
-      "textDirection": "Hướng chữ của trang"
+      "textDirection": "Hướng chữ của trang",
+      "breaks": "Ngắt"
     },
     "view": {
       "zoomIn": "Phóng to",
@@ -355,7 +357,10 @@
       "styleOrganizer": "Trình sắp xếp kiểu",
       "newStyle": "Kiểu mới",
       "gridlines": "Đường lưới",
-      "guides": "Đường gióng"
+      "guides": "Đường gióng",
+      "layout": "Chế độ xem",
+      "onePage": "Một trang",
+      "pageWidth": "Vừa chiều rộng trang"
     },
     "review": {
       "readAloud": "Đọc to",
@@ -436,7 +441,8 @@
       "manageSources": "Quản lý nguồn",
       "citationStyle": "Kiểu trích dẫn",
       "insertBibliography": "Tài liệu tham khảo",
-      "convertNotes": "Chuyển đổi chú thích"
+      "convertNotes": "Chuyển đổi chú thích",
+      "toc": "Mục lục"
     },
     "mailings": {
       "selectRecipients": "Chọn nguồn dữ liệu",
@@ -454,7 +460,8 @@
       "finish": "Hoàn tất trộn",
       "finishDocument": "Trộn thành một tài liệu…",
       "finishPdfs": "Mỗi người nhận một PDF (zip)…",
-      "finishEmail": "Gửi thành thư điện tử…"
+      "finishEmail": "Gửi thành thư điện tử…",
+      "recipients": "Chọn người nhận"
     },
     "table": {
       "insertRowAbove": "Chèn hàng phía trên",

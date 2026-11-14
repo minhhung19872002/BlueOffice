@@ -25,8 +25,30 @@ enum Item {
     SizeBox,
     /// Large button (icon over its label) running command `id`.
     Large(&'static str),
+    /// Small button with its label to the right of the icon.
+    Labeled(&'static str),
     /// Style gallery: preview tiles of the quick styles.
     Gallery,
+}
+
+/// Icon of a command whose own icon is missing from the shared set.
+fn icon_of(id: &str) -> &str {
+    match id {
+        "layout.breaks" => "insert.sectionBreak",
+        "references.toc" => "references.insertToc",
+        "review.rejectAll" => "review.reject",
+        "review.deleteComment" => "review.resolveComment",
+        "review.wordCount" => "review.checkDocument",
+        "design.pageColor" => "format.fillColor",
+        "design.watermark" => "layout.pageSetup",
+        "view.layout" => "view.normal",
+        "view.onePage" => "view.reading",
+        "view.pageWidth" => "view.fitWidth",
+        "mailings.recipients" => "mailings.selectRecipients",
+        "mailings.finish" => "mailings.mergeDocument",
+        "insert.link" => "insert.link",
+        other => other,
+    }
 }
 
 /// Preview tiles shown in the style gallery.
@@ -102,6 +124,8 @@ pub struct Ribbon {
     placed: Vec<Placed>,
     hover: Option<RibbonHit>,
     pressed: Option<RibbonHit>,
+    /// Measured label widths of large and labeled buttons.
+    label_w: std::cell::RefCell<std::collections::HashMap<&'static str, f32>>,
 }
 
 fn home() -> Tab {
@@ -117,7 +141,10 @@ fn home() -> Tab {
             Group {
                 label: "ribbon.groups.clipboard",
                 large: vec![Item::Large("edit.paste")],
-                rows: vec![vec![B("edit.cut")], vec![B("edit.copy")]],
+                rows: vec![
+                    vec![B("edit.cut"), B("edit.copy")],
+                    vec![B("format.painter")],
+                ],
             },
             Group {
                 label: "ribbon.groups.font",
@@ -157,14 +184,197 @@ fn home() -> Tab {
                 large: vec![Item::Gallery],
                 rows: vec![],
             },
+            Group {
+                label: "ribbon.groups.editing",
+                large: vec![],
+                rows: vec![
+                    vec![Item::Labeled("edit.find")],
+                    vec![Item::Labeled("edit.replace")],
+                ],
+            },
         ],
     }
 }
 
-fn tab(label: &'static str) -> Tab {
+fn insert_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
     Tab {
-        label,
-        groups: Vec::new(),
+        label: "ribbon.tabs.insert",
+        groups: vec![
+            Group {
+                label: "ribbon.groups.pages",
+                large: vec![L("insert.pageBreak")],
+                rows: vec![vec![S("layout.breaks")]],
+            },
+            Group {
+                label: "ribbon.groups.insertObjects",
+                large: vec![L("insert.table")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.links",
+                large: vec![L("insert.link")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.comments",
+                large: vec![L("review.newComment")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.headerFooter",
+                large: vec![L("insert.header"), L("insert.footer")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.symbols",
+                large: vec![L("insert.equation"), L("insert.symbol")],
+                rows: vec![],
+            },
+        ],
+    }
+}
+
+fn design_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "ribbon.tabs.design",
+        groups: vec![Group {
+            label: "ribbon.groups.pageBackground",
+            large: vec![L("design.watermark"), L("design.pageColor")],
+            rows: vec![],
+        }],
+    }
+}
+
+fn layout_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "ribbon.tabs.layout",
+        groups: vec![Group {
+            label: "ribbon.groups.pageSetup",
+            large: vec![
+                L("layout.margins"),
+                L("layout.orientation"),
+                L("layout.size"),
+                L("layout.columns"),
+            ],
+            rows: vec![vec![S("layout.breaks")]],
+        }],
+    }
+}
+
+fn references_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "ribbon.tabs.references",
+        groups: vec![
+            Group {
+                label: "ribbon.groups.toc",
+                large: vec![L("references.toc")],
+                rows: vec![vec![S("references.updateToc")]],
+            },
+            Group {
+                label: "ribbon.groups.footnotes",
+                large: vec![L("insert.footnote")],
+                rows: vec![vec![S("insert.endnote")]],
+            },
+        ],
+    }
+}
+
+fn mailings_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "ribbon.tabs.mailings",
+        groups: vec![
+            Group {
+                label: "ribbon.groups.mergeData",
+                large: vec![L("mailings.recipients")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.mergePreview",
+                large: vec![L("mailings.preview")],
+                rows: vec![
+                    vec![S("mailings.previousRecord")],
+                    vec![S("mailings.nextRecord")],
+                ],
+            },
+            Group {
+                label: "ribbon.groups.mergeFinish",
+                large: vec![L("mailings.finish")],
+                rows: vec![],
+            },
+        ],
+    }
+}
+
+fn review_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "ribbon.tabs.review",
+        groups: vec![
+            Group {
+                label: "ribbon.groups.proofing",
+                large: vec![L("review.wordCount")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.comments",
+                large: vec![L("review.newComment")],
+                rows: vec![
+                    vec![S("review.deleteComment")],
+                    vec![S("review.previousComment")],
+                    vec![S("review.nextComment")],
+                ],
+            },
+            Group {
+                label: "ribbon.groups.tracking",
+                large: vec![L("review.trackChanges")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.changes",
+                large: vec![L("review.acceptAll")],
+                rows: vec![
+                    vec![S("review.rejectAll")],
+                    vec![S("review.previous")],
+                    vec![S("review.next")],
+                ],
+            },
+        ],
+    }
+}
+
+fn view_tab() -> Tab {
+    #[allow(unused_imports)]
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "ribbon.tabs.view",
+        groups: vec![
+            Group {
+                label: "ribbon.groups.views",
+                large: vec![L("view.layout")],
+                rows: vec![],
+            },
+            Group {
+                label: "ribbon.groups.show",
+                large: vec![],
+                rows: vec![vec![S("view.ruler")], vec![S("view.formattingMarks")]],
+            },
+            Group {
+                label: "ribbon.groups.zoom",
+                large: vec![L("view.zoomReset")],
+                rows: vec![vec![S("view.zoomIn")], vec![S("view.zoomOut")]],
+            },
+        ],
     }
 }
 
@@ -180,13 +390,13 @@ impl Ribbon {
         Self {
             tabs: vec![
                 home(),
-                tab("ribbon.tabs.insert"),
-                tab("ribbon.tabs.design"),
-                tab("ribbon.tabs.layout"),
-                tab("ribbon.tabs.references"),
-                tab("ribbon.tabs.mailings"),
-                tab("ribbon.tabs.review"),
-                tab("ribbon.tabs.view"),
+                insert_tab(),
+                design_tab(),
+                layout_tab(),
+                references_tab(),
+                mailings_tab(),
+                review_tab(),
+                view_tab(),
             ],
             active: 0,
             scale: 1.0,
@@ -195,6 +405,7 @@ impl Ribbon {
             placed: Vec::new(),
             hover: None,
             pressed: None,
+            label_w: std::cell::RefCell::new(std::collections::HashMap::new()),
         }
     }
 
@@ -288,7 +499,12 @@ impl Ribbon {
                     }
                 } else {
                     {
-                        let w = self.px(52.0);
+                        let id = match item {
+                            Item::Large(id) => *id,
+                            _ => "",
+                        };
+                        let lw = self.measure_label(text, strings, id);
+                        let w = self.px(52.0).max(lw + self.px(14.0));
                         placed.push(Placed::Item(
                             *item,
                             Rect {
@@ -310,6 +526,9 @@ impl Ribbon {
                     let w = match item {
                         Item::FontBox => self.px(150.0),
                         Item::SizeBox => self.px(52.0),
+                        Item::Labeled(id) => {
+                            btn + self.measure_label(text, strings, id) + self.px(8.0)
+                        }
                         _ => btn,
                     };
                     placed.push(Placed::Item(*item, Rect { x, y, w, h: btn }));
@@ -370,12 +589,28 @@ impl Ribbon {
         self.top
     }
 
+    fn measure_label(&self, text: &dyn TextMeasure, strings: &Strings, id: &'static str) -> f32 {
+        let style = TextStyle {
+            size: self.px(12.0),
+            bold: false,
+        };
+        let mut label = strings.get(&format!("commands.{id}")).to_owned();
+        if crate::catalog::is_menu(id) {
+            label.push_str("  ");
+        }
+        let w = text.measure(&label, style).0;
+        self.label_w.borrow_mut().insert(id, w);
+        w
+    }
+
     /// What is under a window position.
     pub fn hit(&self, x: f32, y: f32) -> Option<RibbonHit> {
         self.placed.iter().find_map(|p| match p {
             Placed::File(r) if r.contains(x, y) => Some(RibbonHit::File),
             Placed::Tab(i, r) if r.contains(x, y) => Some(RibbonHit::Tab(*i)),
-            Placed::Item(Item::Button(id) | Item::Large(id), r) if r.contains(x, y) => {
+            Placed::Item(Item::Button(id) | Item::Large(id) | Item::Labeled(id), r)
+                if r.contains(x, y) =>
+            {
                 Some(RibbonHit::Command(id))
             }
             Placed::Tile(i, r) if r.contains(x, y) => Some(RibbonHit::Style(*i)),
@@ -392,7 +627,9 @@ impl Ribbon {
             let (h, r) = match p {
                 Placed::File(r) => (RibbonHit::File, r),
                 Placed::Tab(i, r) => (RibbonHit::Tab(*i), r),
-                Placed::Item(Item::Button(id) | Item::Large(id), r) => (RibbonHit::Command(id), r),
+                Placed::Item(Item::Button(id) | Item::Large(id) | Item::Labeled(id), r) => {
+                    (RibbonHit::Command(id), r)
+                }
                 Placed::Tile(i, r) => (RibbonHit::Style(*i), r),
                 Placed::More(r) => (RibbonHit::StylesMore, r),
                 Placed::Item(Item::FontBox, r) => (RibbonHit::FontBox, r),
@@ -451,6 +688,7 @@ impl Ribbon {
     }
 
     /// Paint the ribbon at the top of the window.
+    #[allow(clippy::too_many_arguments)]
     pub fn paint(
         &self,
         p: &mut dyn Painter,
@@ -459,6 +697,7 @@ impl Ribbon {
         strings: &Strings,
         format: &FormatState,
         styles: &[StyleEntry],
+        on_ids: &[&str],
     ) {
         let strip = self.strip_h();
         p.fill_rect(0.0, self.top, self.width, self.height(), t.surface);
@@ -520,7 +759,7 @@ impl Ribbon {
                     }
                 }
                 Placed::Item(Item::Button(id), r) => {
-                    let on = commands::toggled(id, format);
+                    let on = commands::toggled(id, format) || on_ids.contains(id);
                     let enabled = commands::enabled(id, format);
                     let hit = RibbonHit::Command(id);
                     if let Some(c) = tint(hit).filter(|_| enabled) {
@@ -547,11 +786,13 @@ impl Ribbon {
                     let hit = RibbonHit::Command(id);
                     if let Some(c) = tint(hit) {
                         radius_rect(p, r, c);
+                    } else if on_ids.contains(id) {
+                        radius_rect(p, r, t.active);
                     }
                     let size = self.px(32.0);
                     icons.draw(
                         p,
-                        id,
+                        icon_of(id),
                         r.x + (r.w - size) / 2.0,
                         r.y + self.px(4.0),
                         size,
@@ -561,12 +802,15 @@ impl Ribbon {
                             on: t.accent_on,
                         },
                     );
-                    let label = strings.get(&format!("commands.{id}")).to_owned();
+                    let mut label = strings.get(&format!("commands.{id}")).to_owned();
+                    if crate::catalog::is_menu(id) {
+                        label.push_str(" \u{25BE}");
+                    }
                     let style = TextStyle {
                         size: self.px(12.0),
                         bold: false,
                     };
-                    let w = label.chars().count() as f32 * style.size * 0.55;
+                    let w = self.label_w.borrow().get(id).copied().unwrap_or(0.0);
                     p.text(
                         &label,
                         (r.x + (r.w - w) / 2.0).round(),
@@ -634,6 +878,44 @@ impl Ribbon {
                         Some((t.text, self.scale.max(1.0))),
                     );
                 }
+                Placed::Item(Item::Labeled(id), r) => {
+                    let hit = RibbonHit::Command(id);
+                    let enabled = commands::enabled(id, format);
+                    if let Some(c) = tint(hit).filter(|_| enabled) {
+                        radius_rect(p, r, c);
+                    } else if on_ids.contains(id) || commands::toggled(id, format) {
+                        radius_rect(p, r, t.active);
+                    }
+                    let ink = if enabled { t.text } else { t.border };
+                    let size = self.px(18.0);
+                    icons.draw(
+                        p,
+                        icon_of(id),
+                        r.x + self.px(5.0),
+                        r.y + (r.h - size) / 2.0,
+                        size,
+                        IconColors {
+                            ink,
+                            accent: t.accent,
+                            on: t.accent_on,
+                        },
+                    );
+                    let mut label = strings.get(&format!("commands.{id}")).to_owned();
+                    if crate::catalog::is_menu(id) {
+                        label.push_str(" \u{25BE}");
+                    }
+                    let style = TextStyle {
+                        size: self.px(12.0),
+                        bold: false,
+                    };
+                    p.text(
+                        &label,
+                        r.x + self.px(28.0),
+                        r.y + (r.h - style.size * 1.33) / 2.0,
+                        style,
+                        ink,
+                    );
+                }
                 Placed::Item(Item::Gallery, _) => {}
                 Placed::Item(field, r) => {
                     let inner = Rect {
@@ -695,6 +977,43 @@ impl Ribbon {
                     );
                 }
                 Placed::Divider(r) => p.fill_rect(r.x, r.y, r.w, r.h, t.border),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_ribbon_button_does_something() {
+        let ribbon = Ribbon::new();
+        let format = FormatState {
+            section: bo_edit::SectionState {
+                width: 11906,
+                height: 16838,
+                margin_left: 1440,
+                margin_right: 1440,
+                columns: 1,
+                ..bo_edit::SectionState::default()
+            },
+            can_undo: true,
+            can_redo: true,
+            ..FormatState::default()
+        };
+        let strings = Strings::load("en-US");
+        for tab in &ribbon.tabs {
+            assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
+            for g in &tab.groups {
+                assert_ne!(strings.get(g.label), g.label, "missing label {}", g.label);
+                for item in g.large.iter().chain(g.rows.iter().flatten()) {
+                    if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
+                        assert!(commands::enabled(id, &format), "{id} has no action");
+                        let key = format!("commands.{id}");
+                        assert_ne!(strings.get(&key), key, "missing label {key}");
+                    }
+                }
             }
         }
     }

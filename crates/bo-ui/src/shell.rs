@@ -1,8 +1,12 @@
 //! The BlueDoc window: ribbon, document view and status bar, with input routing.
+use crate::backstage::{Backstage, FileAction};
+use crate::catalog;
+use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::doc_view::DocView;
 use crate::icons::Icons;
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Ribbon, RibbonHit};
+use crate::ruler::Ruler;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -10,6 +14,7 @@ use crate::{commands, Key, Mods};
 use crate::{Input, PageStore, Painter, TextMeasure, TextStyle};
 use bo_edit::CharFormat;
 use bo_engine::edit::Command;
+use serde_json::json;
 
 /// Something only the platform host can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +32,18 @@ pub enum Request {
     },
     /// Read the system clipboard and call [`DocWindow::paste`].
     Paste,
+    /// Let the user pick a mail-merge data file and call [`DocWindow::merge_data`].
+    PickMergeData,
+    /// New blank document (new window).
+    New,
+    /// Pick a file and open it (new window).
+    Open,
+    /// Pick a name and save the document there, then [`DocWindow::set_name`].
+    SaveAs,
+    /// Print the document.
+    Print,
+    /// Pick a name and export the document as PDF.
+    ExportPdf,
     /// Minimise the window.
     Minimize,
     /// Maximise or restore the window.
@@ -60,6 +77,23 @@ pub struct DocWindow {
     zoom_rects: [[f32; 4]; 4],
     /// The pointer is dragging the zoom slider.
     zoom_drag: bool,
+    dialog: Option<Dialog>,
+    ruler: Ruler,
+    show_ruler: bool,
+    ruler_drag: bool,
+    marks: bool,
+    /// Format painter armed: the next selection gets the picked formatting.
+    painter: bool,
+    /// Mail-merge preview record, when previewing.
+    merge_record: Option<usize>,
+    /// Find state: query, matches and the current one.
+    find: Option<(String, Vec<bo_edit::find::Match>, usize)>,
+    /// Layout must be redone at the next input (needs text measurement).
+    relayout_pending: bool,
+    /// Last pointer position of a drag in the document (auto-scroll ticks).
+    last_drag: Option<(f32, f32)>,
+    /// The File screen, when open.
+    backstage: Option<Backstage>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -90,7 +124,275 @@ impl DocWindow {
             styles: Vec::new(),
             zoom_rects: [[0.0; 4]; 4],
             zoom_drag: false,
+            dialog: None,
+            ruler: Ruler::default(),
+            show_ruler: true,
+            ruler_drag: false,
+            marks: false,
+            painter: false,
+            merge_record: None,
+            find: None,
+            relayout_pending: false,
+            last_drag: None,
+            backstage: None,
         }
+    }
+
+    /// The document now has this file name (after Save As).
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_owned();
+        self.relayout_pending = true;
+    }
+
+    fn file_action(&mut self, a: FileAction) -> bool {
+        if a != FileAction::Back {
+            let r = match a {
+                FileAction::New => Request::New,
+                FileAction::Open => Request::Open,
+                FileAction::Save => Request::Save,
+                FileAction::SaveAs => Request::SaveAs,
+                FileAction::Print => Request::Print,
+                FileAction::ExportPdf => Request::ExportPdf,
+                _ => Request::Close,
+            };
+            self.requests.push(r);
+        }
+        self.backstage = None;
+        true
+    }
+
+    /// Mail-merge data the host read (`name` with its extension, bytes in base64).
+    pub fn merge_data(&mut self, name: &str, base64: &str) -> bool {
+        catalog::from_json(json!({ "cmd": "mergeData", "name": name, "base64": base64 }))
+            .is_some_and(|c| self.view.run_command(c))
+    }
+
+    /// Text of `key`, or `fallback` when the locale has no such key.
+    fn t(&self, key: &str, fallback: &str) -> String {
+        let v = self.strings.get(key);
+        if v == key {
+            fallback.to_owned()
+        } else {
+            v.to_owned()
+        }
+    }
+
+    fn open_dialog(&mut self, kind: DialogKind) -> bool {
+        let sel = self.find.as_ref().map(|f| f.0.clone()).unwrap_or_default();
+        let ok = self.t("common.ok", "OK");
+        let cancel = self.t("common.cancel", "Cancel");
+        let (title, fields, buttons, message) = match kind {
+            DialogKind::Find => (
+                self.t("commands.edit.find", "Find"),
+                vec![(self.t("find.findWhat", "Find what"), sel)],
+                vec![
+                    (self.t("find.next", "Find Next"), DialogButton::FindNext),
+                    (cancel, DialogButton::Cancel),
+                ],
+                vec![],
+            ),
+            DialogKind::Replace => (
+                self.t("commands.edit.replace", "Replace"),
+                vec![
+                    (self.t("find.findWhat", "Find what"), sel),
+                    (self.t("find.replaceWith", "Replace with"), String::new()),
+                ],
+                vec![
+                    (self.t("find.next", "Find Next"), DialogButton::FindNext),
+                    (self.t("find.replace", "Replace"), DialogButton::Replace),
+                    (
+                        self.t("find.replaceAll", "Replace All"),
+                        DialogButton::ReplaceAll,
+                    ),
+                    (cancel, DialogButton::Cancel),
+                ],
+                vec![],
+            ),
+            DialogKind::Link => (
+                self.t("commands.insert.link", "Insert link"),
+                vec![
+                    (self.t("link.address", "Address"), "https://".into()),
+                    (self.t("link.display", "Text to display"), String::new()),
+                ],
+                vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                vec![],
+            ),
+            DialogKind::Comment => (
+                self.t("commands.review.newComment", "New comment"),
+                vec![(self.t("comments.text", "Comment"), String::new())],
+                vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                vec![],
+            ),
+            DialogKind::WordCount => (
+                self.t("commands.review.wordCount", "Word Count"),
+                vec![],
+                vec![(self.t("common.close", "Close"), DialogButton::Cancel)],
+                vec![
+                    format!(
+                        "{}: {}",
+                        self.t("wordCount.pages", "Pages"),
+                        self.view.page_count()
+                    ),
+                    format!(
+                        "{}: {}",
+                        self.t("wordCount.words", "Words"),
+                        self.view.word_count()
+                    ),
+                ],
+            ),
+        };
+        self.menu = None;
+        self.dialog = Some(Dialog::new(kind, title, fields, buttons, message));
+        self.relayout_pending = true;
+        true
+    }
+
+    fn dialog_button(&mut self, b: DialogButton) {
+        let Some(d) = self.dialog.as_ref() else {
+            return;
+        };
+        let kind = d.kind;
+        let values = d.values();
+        let v = |i: usize| values.get(i).cloned().unwrap_or_default();
+        match (kind, b) {
+            (_, DialogButton::Cancel) | (DialogKind::WordCount, _) => self.dialog = None,
+            (DialogKind::Link, _) => {
+                self.dialog = None;
+                self.view.run_command(Command::SetLink {
+                    target: v(0),
+                    display: v(1),
+                });
+            }
+            (DialogKind::Comment, _) => {
+                self.dialog = None;
+                if let Some(c) = catalog::from_json(json!({ "cmd": "addComment", "text": v(0) })) {
+                    self.view.run_command(c);
+                }
+            }
+            (_, DialogButton::FindNext | DialogButton::Ok) => self.find_next(&v(0)),
+            (_, DialogButton::Replace) => {
+                let (query, with) = (v(0), v(1));
+                if let Some((q, matches, i)) = self.find.clone().filter(|f| f.0 == query) {
+                    if let Some(m) = matches.get(i) {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "replace", "match": m, "with": with, "query": q,
+                        }));
+                        if let Some(c) = cmd {
+                            self.view.run_command(c);
+                        }
+                    }
+                    self.find = None;
+                }
+                self.find_next(&query);
+            }
+            (_, DialogButton::ReplaceAll) => {
+                let cmd =
+                    catalog::from_json(json!({ "cmd": "replaceAll", "query": v(0), "with": v(1) }));
+                let n = cmd
+                    .and_then(|c| self.view.exec(c))
+                    .and_then(|r| r.count)
+                    .unwrap_or(0);
+                self.find = None;
+                let msg = format!("{n} {}", self.t("find.replacements", "replacements made"));
+                if let Some(d) = self.dialog.as_mut() {
+                    d.set_message(vec![msg]);
+                }
+            }
+        }
+    }
+
+    fn find_next(&mut self, query: &str) {
+        if query.is_empty() {
+            return;
+        }
+        let fresh = self.find.as_ref().is_none_or(|f| f.0 != query);
+        if fresh {
+            let matches = catalog::from_json(json!({ "cmd": "find", "query": query }))
+                .and_then(|c| self.view.exec(c))
+                .and_then(|r| r.matches)
+                .unwrap_or_default();
+            self.find = Some((query.to_owned(), matches, usize::MAX));
+        }
+        let msg = match self.find.as_mut() {
+            Some((_, matches, i)) if !matches.is_empty() => {
+                *i = if *i == usize::MAX {
+                    0
+                } else {
+                    (*i + 1) % matches.len()
+                };
+                let (n, total, m) = (*i + 1, matches.len(), matches[*i]);
+                if let Some(c) = catalog::from_json(json!({ "cmd": "selectMatch", "match": m })) {
+                    self.view.run_command(c);
+                }
+                format!("{n} / {total}")
+            }
+            _ => self.t("find.none", "No matches"),
+        };
+        if let Some(d) = self.dialog.as_mut() {
+            d.set_message(vec![msg]);
+        }
+    }
+
+    fn open_command_menu(&mut self, id: &str, anchor: [f32; 4]) {
+        let items = catalog::menu(id)
+            .into_iter()
+            .map(|e| MenuItem {
+                label: if e.label.contains('.') && !e.label.contains(' ') {
+                    self.strings.get(e.label).to_owned()
+                } else {
+                    e.label.to_owned()
+                },
+                choice: Choice::Command(e.id.to_owned()),
+                checked: false,
+                dim: false,
+            })
+            .collect();
+        self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
+    }
+
+    fn context_menu(&mut self, x: f32, y: f32) {
+        let items = [
+            "edit.cut",
+            "edit.copy",
+            "edit.paste",
+            "insert.link",
+            "review.newComment",
+        ]
+        .iter()
+        .map(|id| MenuItem {
+            label: self.strings.get(&format!("commands.{id}")).to_owned(),
+            choice: Choice::Command((*id).to_owned()),
+            checked: false,
+            dim: false,
+        })
+        .collect();
+        self.menu = Some(Menu::open(
+            items,
+            [x, y - 2.0, 1.0, 0.0],
+            self.size.1,
+            self.scale,
+        ));
+    }
+
+    /// Ids drawn as switched on beyond the formatting state.
+    fn on_ids(&self) -> Vec<&'static str> {
+        let mut on = Vec::new();
+        if self.show_ruler {
+            on.push("view.ruler");
+        }
+        if self.marks {
+            on.push("view.formattingMarks");
+        }
+        if self.painter {
+            on.push("format.painter");
+        }
+        if self.view.track_changes() {
+            on.push("review.trackChanges");
+        }
+        if self.merge_record.is_some() {
+            on.push("mailings.preview");
+        }
+        on
     }
 
     /// Paste content the host read from the system clipboard.
@@ -123,15 +425,91 @@ impl DocWindow {
         }
     }
 
-    /// Run interface command `id` from the ribbon or the title bar.
+    /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        let merge = |w: &mut Self, record: Option<usize>| {
+            w.merge_record = record;
+            catalog::from_json(json!({ "cmd": "mergePreview", "record": record }))
+                .is_some_and(|c| w.view.run_command(c))
+        };
         match id {
             "file.save" => {
                 self.requests.push(Request::Save);
                 true
             }
             "edit.copy" | "edit.cut" | "edit.paste" => self.clipboard(id),
-            _ => self.view.run_action(id),
+            "edit.find" => self.open_dialog(DialogKind::Find),
+            "edit.replace" => self.open_dialog(DialogKind::Replace),
+            "insert.link" => self.open_dialog(DialogKind::Link),
+            "review.newComment" => self.open_dialog(DialogKind::Comment),
+            "review.wordCount" => self.open_dialog(DialogKind::WordCount),
+            "review.deleteComment" => match self.view.comment_at_caret() {
+                Some(id) => catalog::from_json(json!({ "cmd": "deleteComment", "id": id }))
+                    .is_some_and(|c| self.view.run_command(c)),
+                None => false,
+            },
+            "review.trackChanges" => {
+                let on = !self.view.track_changes();
+                self.view.run_command(Command::SetTrackChanges { on })
+            }
+            "view.ruler" => {
+                self.show_ruler = !self.show_ruler;
+                self.relayout_pending = true;
+                true
+            }
+            "view.formattingMarks" => {
+                self.marks = !self.marks;
+                let on = self.marks;
+                self.view.run_command(Command::ShowFormattingMarks { on });
+                true
+            }
+            "view.zoomIn" | "view.zoomOut" | "view.zoomReset" => {
+                let z = self.view.zoom();
+                let z = match id {
+                    "view.zoomIn" => ((z + 0.1) * 10.0).round() / 10.0,
+                    "view.zoomOut" => ((z - 0.1) * 10.0).round() / 10.0,
+                    _ => 1.0,
+                };
+                self.relayout_pending = true;
+                self.view.set_zoom(z)
+            }
+            "format.painter" => {
+                self.painter = self.view.run_command(Command::PickFormat);
+                true
+            }
+            "mailings.recipients" => {
+                self.requests.push(Request::PickMergeData);
+                false
+            }
+            "mailings.preview" => {
+                let record = if self.merge_record.is_some() {
+                    None
+                } else {
+                    Some(0)
+                };
+                merge(self, record)
+            }
+            "mailings.nextRecord" => {
+                let r = self.merge_record.map_or(0, |r| r + 1);
+                merge(self, Some(r))
+            }
+            "mailings.previousRecord" => {
+                let r = self.merge_record.map_or(0, |r| r.saturating_sub(1));
+                merge(self, Some(r))
+            }
+            "mailings.finish" => self.view.run_command(Command::MergeToDocument),
+            id if catalog::is_menu(id) => {
+                let anchor = self
+                    .ribbon
+                    .rect_of(RibbonHit::Command(commands::static_id(id)))
+                    .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+                self.open_command_menu(id, anchor);
+                true
+            }
+            _ => match catalog::command(id, &self.view.format().section) {
+                Some(cmd) => self.view.run_command(cmd),
+                None => self.view.run_action(id),
+            },
         }
     }
 
@@ -204,9 +582,19 @@ impl DocWindow {
         let top = self.title.height();
         self.ribbon
             .layout(text, &self.strings, self.size.0, self.scale, top);
-        let top = self.ribbon.bottom();
+        let mut top = self.ribbon.bottom();
+        if self.show_ruler {
+            top += Ruler::height(self.scale);
+        }
         let h = (self.size.1 - top - self.status_h()).max(1.0);
         self.view.set_frame(0.0, top, self.size.0, h);
+        self.layout_ruler();
+        if let Some(d) = self.dialog.as_mut() {
+            d.layout(text, self.size, self.scale);
+        }
+        if let Some(b) = self.backstage.as_mut() {
+            b.layout(self.title.height(), self.size, self.scale);
+        }
         if self.styles.is_empty() {
             self.styles = self.view.styles();
         }
@@ -221,6 +609,19 @@ impl DocWindow {
         self.zoom_rects = [minus, track, plus, pct];
     }
 
+    fn layout_ruler(&mut self) {
+        if let Some(page) = self.view.ruler_page() {
+            self.ruler.layout(
+                self.ribbon.bottom(),
+                self.size.0,
+                self.scale,
+                page,
+                self.view.scale(),
+                self.view.format(),
+            );
+        }
+    }
+
     fn zoom_hit(&self, x: f32, y: f32) -> Option<usize> {
         self.zoom_rects
             .iter()
@@ -229,6 +630,74 @@ impl DocWindow {
 
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        let redraw = self.route(input, text);
+        if self.relayout_pending {
+            self.relayout_pending = false;
+            self.relayout(text);
+        } else if self.show_ruler {
+            self.layout_ruler();
+        }
+        if let Some(d) = self.dialog.as_mut() {
+            d.layout(text, self.size, self.scale);
+        }
+        redraw
+    }
+
+    fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        // The File screen covers everything below the title bar.
+        if let Some(b) = self.backstage.as_mut() {
+            match input {
+                Input::Move { x, y } if y >= self.title.height() => return b.hover(x, y),
+                Input::Press { x, y, .. } if y >= self.title.height() => {
+                    return match b.press(x, y) {
+                        Some(a) => self.file_action(a),
+                        None => false,
+                    };
+                }
+                Input::Key(Key::Escape, _) => {
+                    self.backstage = None;
+                    return true;
+                }
+                Input::Text(_)
+                | Input::Key(..)
+                | Input::Wheel(_)
+                | Input::Context { .. }
+                | Input::Preedit(_) => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        // A dialog is modal: it takes keyboard and pointer input.
+        if let Some(d) = self.dialog.as_mut() {
+            match input {
+                Input::Text(ref s) => {
+                    d.text(s);
+                    return true;
+                }
+                Input::Key(k, m) => {
+                    if let Some(b) = d.key(k, m) {
+                        self.dialog_button(b);
+                    }
+                    return true;
+                }
+                Input::Move { x, y } => return d.hover(x, y),
+                Input::Press { x, y, .. } => {
+                    if let Some(b) = d.press(x, y) {
+                        self.dialog_button(b);
+                    }
+                    return true;
+                }
+                Input::Blink => return true,
+                Input::Wheel(_)
+                | Input::Drag { .. }
+                | Input::Release { .. }
+                | Input::Context { .. } => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
         // Pointer and keyboard input goes to an open menu first.
         if self.menu.is_some() {
             if let Some(redraw) = self.menu_input(&input) {
@@ -249,15 +718,81 @@ impl DocWindow {
         }
         let in_title = |w: &Self, y: f32| y < w.title.height();
         let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
-        if let Input::Key(Key::Letter(c @ ('s' | 'c' | 'x' | 'v')), Mods { ctrl: true, .. }) = input
+        if let Input::Key(
+            Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k')),
+            Mods {
+                ctrl: true, shift, ..
+            },
+        ) = input
         {
-            let id = match c {
-                's' => "file.save",
-                'c' => "edit.copy",
-                'x' => "edit.cut",
-                _ => "edit.paste",
+            let id = match (c, shift) {
+                ('s', _) => "file.save",
+                ('c', true) => "format.painter",
+                ('c', _) => "edit.copy",
+                ('x', _) => "edit.cut",
+                ('v', _) => "edit.paste",
+                ('f', _) => "edit.find",
+                ('h', _) => "edit.replace",
+                _ => "insert.link",
             };
             return self.action(id);
+        }
+        if let Input::Key(Key::Escape, _) = input {
+            if self.painter {
+                self.painter = false;
+                if let Some(c) = catalog::from_json(json!({ "cmd": "cancelFormat" })) {
+                    self.view.run_command(c);
+                }
+                return true;
+            }
+        }
+        if let Input::Context { x, y } = input {
+            if y >= self.view_top() && y < self.size.1 - self.status_h() {
+                self.context_menu(x, y);
+                return true;
+            }
+            return false;
+        }
+        // Ruler: drag indent markers.
+        if self.show_ruler {
+            match input {
+                Input::Press { x, y, .. } if self.ruler.contains_y(y) => {
+                    self.ruler_drag = self.ruler.press(x, y);
+                    return self.ruler_drag;
+                }
+                Input::Drag { x, .. } if self.ruler_drag => return self.ruler.drag(x),
+                Input::Release { .. } if self.ruler_drag => {
+                    self.ruler_drag = false;
+                    if let Some((left, right, first_line)) = self.ruler.release(self.view.format())
+                    {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "formatParagraph",
+                            "format": { "kind": "indents", "left": left, "right": right, "firstLine": first_line },
+                        }));
+                        if let Some(c) = cmd {
+                            self.view.run_command(c);
+                        }
+                    }
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        // Drag-selection auto-scroll continues while the pointer rests past the view.
+        if let Input::Tick = input {
+            if let (true, Some((x, y))) = (self.doc_press, self.last_drag) {
+                let top = self.view_top();
+                let bottom = self.size.1 - self.status_h();
+                if y < top || y > bottom {
+                    self.view.handle(Input::Drag { x, y });
+                    return true;
+                }
+            }
+        }
+        if let Input::Drag { x, y } = input {
+            if self.doc_press {
+                self.last_drag = Some((x, y));
+            }
         }
         if let Input::Zoom(steps) = input {
             let z = ((self.view.zoom() + 0.1 * steps) * 10.0).round() / 10.0;
@@ -303,7 +838,7 @@ impl DocWindow {
                 true
             }
             Input::Tick => self.tick(text),
-            Input::Zoom(_) => false,
+            Input::Zoom(_) | Input::Context { .. } => false,
             Input::Maximized(m) => self.title.set_maximized(m),
             Input::Leave => {
                 let a = self.title.hover(-1.0, -1.0);
@@ -328,13 +863,25 @@ impl DocWindow {
             }
             Input::Drag { .. } if !self.doc_press => false,
             Input::Release { x, y } => {
+                // The format painter applies to the selection just made in the document.
+                if self.doc_press && self.painter {
+                    self.painter = false;
+                    self.view.run_command(Command::ApplyFormat);
+                }
                 self.doc_press = false;
+                self.last_drag = None;
                 let quick = match self.title.release(x, y) {
                     Some(id) => self.action(id),
                     None => false,
                 };
                 let (fired, changed) = self.ribbon.release(x, y);
                 let ran = match fired {
+                    Some(RibbonHit::File) => {
+                        let mut b = Backstage::default();
+                        b.layout(self.title.height(), self.size, self.scale);
+                        self.backstage = Some(b);
+                        true
+                    }
                     Some(RibbonHit::Command(id)) => self.action(id),
                     Some(RibbonHit::Style(i)) => match self.styles.get(i) {
                         Some(st) => {
@@ -362,6 +909,7 @@ impl DocWindow {
             | Input::Text(_)
             | Input::Key(..)
             | Input::Blink
+            | Input::Preedit(_)
             | Input::Drag { .. } => self.view.handle(input),
         };
         redraw || tip_before != self.tooltip.is_some()
@@ -479,6 +1027,10 @@ impl DocWindow {
                 self.view.run_command(Command::ApplyStyle { id });
                 return;
             }
+            Choice::Command(id) => {
+                self.action(&id);
+                return;
+            }
         };
         self.view.run_command(Command::FormatText { format });
     }
@@ -543,7 +1095,11 @@ impl DocWindow {
             &self.strings,
             self.view.format(),
             &self.styles,
+            &self.on_ids(),
         );
+        if self.show_ruler {
+            self.ruler.paint(p, &self.theme);
+        }
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -615,6 +1171,29 @@ impl DocWindow {
         } else if let Some((label, tw, anchor)) = &self.tooltip {
             paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale);
         }
+        if let Some(b) = &self.backstage {
+            b.paint(
+                p,
+                &self.theme,
+                &self.strings,
+                &self.name,
+                self.view.page_count(),
+                self.view.word_count(),
+                self.view.modified(),
+            );
+        }
+        if let Some(d) = &self.dialog {
+            d.paint(p, &self.theme, self.size, true);
+        }
+    }
+
+    fn view_top(&self) -> f32 {
+        self.ribbon.bottom()
+            + if self.show_ruler {
+                Ruler::height(self.scale)
+            } else {
+                0.0
+            }
     }
 
     /// Caret rectangle in window pixels (IME placement).

@@ -67,6 +67,11 @@ pub struct DocView {
     /// Pages the engine reported changed since their image was drawn.
     stale: HashSet<usize>,
     modified: bool,
+    track: bool,
+    /// Input-method composition shown at the caret.
+    preedit: String,
+    comments: Vec<bo_edit::comments::CommentInfo>,
+    selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
 }
@@ -91,6 +96,10 @@ impl DocView {
             shown: HashMap::new(),
             stale: HashSet::new(),
             modified: false,
+            track: false,
+            preedit: String::new(),
+            comments: Vec::new(),
+            selection: None,
             format: FormatState::default(),
             words: 0,
         };
@@ -196,6 +205,11 @@ impl DocView {
             .collect()
     }
 
+    /// The document as PDF bytes.
+    pub fn export_pdf(&self) -> Result<Vec<u8>, String> {
+        self.engine.export_pdf().map_err(|e| e.to_string())
+    }
+
     /// The document as `.docx` bytes.
     pub fn save_docx(&self) -> Result<Vec<u8>, String> {
         self.engine.save_docx().map_err(|e| e.to_string())
@@ -205,6 +219,41 @@ impl DocView {
     pub fn mark_saved(&mut self) {
         self.engine.mark_saved();
         self.modified = false;
+    }
+
+    /// Id of the comment whose anchor holds the caret.
+    pub fn comment_at_caret(&self) -> Option<i32> {
+        let caret = self.selection?.focus;
+        self.comments
+            .iter()
+            .find(|c| matches!((c.start, c.end), (Some(s), Some(e)) if s <= caret && caret <= e))
+            .map(|c| c.id)
+    }
+
+    /// Track changes is on.
+    pub fn track_changes(&self) -> bool {
+        self.track
+    }
+
+    /// Run a command and return the engine's result (applied to the view).
+    pub fn exec(&mut self, cmd: Command) -> Option<EditResult> {
+        let r = self.engine.command(cmd).ok()?;
+        self.apply(&r);
+        self.caret_on = true;
+        self.reveal_caret();
+        Some(r)
+    }
+
+    /// Left edge and width (window pixels) of the page holding the caret, else the first
+    /// visible page; for the ruler.
+    pub fn ruler_page(&self) -> Option<(f32, f32)> {
+        let page = self.caret.map(|c| c.page);
+        let slots = self.visible();
+        let slot = slots
+            .iter()
+            .find(|s| Some(s.index) == page)
+            .or_else(|| slots.first())?;
+        Some((slot.x as f32, slot.width as f32))
     }
 
     /// Run an engine command that changes the document or selection.
@@ -386,10 +435,25 @@ impl DocView {
                 }),
                 None => false,
             },
-            Input::Drag { x, y } => match self.hit(x, y) {
-                Some((page, px, py)) => self.run(Command::DragTo { page, x: px, y: py }, false),
-                None => false,
-            },
+            Input::Drag { x, y } => {
+                // Past the top or bottom of the view, the drag scrolls the document.
+                let (top, bottom) = (self.origin.1, self.origin.1 + self.viewport.1);
+                let over = if y < top {
+                    y - top
+                } else if y > bottom {
+                    y - bottom
+                } else {
+                    0.0
+                };
+                if over != 0.0 {
+                    self.scroll += over * 0.5;
+                    self.clamp_scroll();
+                }
+                match self.hit(x, y.clamp(top, bottom - 1.0)) {
+                    Some((page, px, py)) => self.run(Command::DragTo { page, x: px, y: py }, false),
+                    None => false,
+                }
+            }
             Input::Resize { width, height } => {
                 self.viewport = (width.max(1.0), height.max(1.0));
                 self.clamp_scroll();
@@ -400,7 +464,13 @@ impl DocView {
             | Input::Tick
             | Input::Maximized(_)
             | Input::Leave
-            | Input::Zoom(_) => false,
+            | Input::Zoom(_)
+            | Input::Context { .. } => false,
+            Input::Preedit(text) => {
+                let changed = text != self.preedit;
+                self.preedit = text;
+                changed
+            }
             Input::Scale(scale) => {
                 if scale.is_finite() && scale > 0.0 && scale != self.display_scale {
                     self.display_scale = scale;
@@ -512,6 +582,11 @@ impl DocView {
         self.rects.clone_from(&r.rects);
         self.modified = r.modified;
         self.format.clone_from(&r.format);
+        if let Some(review) = &r.review {
+            self.track = review.track_changes;
+            self.comments.clone_from(&review.comments);
+        }
+        self.selection = Some(r.selection);
         self.words = r.info.word_count;
     }
 
@@ -621,6 +696,33 @@ impl DocView {
                     SELECTION,
                 );
             }
+        }
+        if !self.preedit.is_empty() {
+            if let Some([x, y, _, h]) = self.caret_rect() {
+                // Composition in the paragraph's font, underlined, over a paper patch.
+                let size = self
+                    .format
+                    .size_half_points
+                    .map_or(h * 0.75, |hp| hp as f32 / 2.0 * self.scale());
+                let font = crate::Font {
+                    family: self.format.font.as_deref().unwrap_or("Times New Roman"),
+                    size,
+                    weight: if self.format.bold { 700 } else { 400 },
+                    italic: self.format.italic,
+                    underline: true,
+                };
+                let w = self.preedit.chars().count() as f32 * size * 0.6;
+                p.fill_rect(x, y, w, h, Rgba(255, 255, 255, 255));
+                p.text_font(
+                    &self.preedit,
+                    x,
+                    y + (h - size * 1.2) / 2.0,
+                    &font,
+                    Rgba(0, 0, 0, 255),
+                );
+            }
+            p.pop_clip();
+            return;
         }
         if (self.caret_on || self.glide.is_some()) && self.rects.is_empty() {
             if let Some([x, y, w, h]) = self.caret_shown() {

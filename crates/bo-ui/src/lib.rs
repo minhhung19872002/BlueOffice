@@ -6,22 +6,29 @@
 //! straight to the in-process [`bo_engine::Engine`]; nothing is serialised.
 #![forbid(unsafe_code)]
 
+mod backstage;
+mod catalog;
 mod commands;
+mod dialog;
 mod doc_view;
 mod icons;
 mod input;
 mod popup;
 mod ribbon;
+mod ruler;
 mod shell;
 mod strings;
 mod theme;
 mod titlebar;
 
+pub use backstage::{Backstage, FileAction};
+pub use dialog::{Dialog, DialogButton, DialogKind};
 pub use doc_view::{DocView, PageSlot, CANVAS_BG};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use popup::{Choice, Menu, MenuItem};
 pub use ribbon::{Ribbon, RibbonHit};
+pub use ruler::Ruler;
 pub use shell::{DocWindow, Request};
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};

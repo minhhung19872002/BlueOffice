@@ -828,6 +828,7 @@ dependencies = [
 name = "bo-native-win"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bo-engine",
  "bo-gpu-win",
  "bo-raster",

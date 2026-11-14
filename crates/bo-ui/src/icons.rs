@@ -30,6 +30,8 @@ struct Shape {
     /// `None`: no stroke; `Some(true)`: the colour on an accent fill.
     stroke: Option<bool>,
     accent: bool,
+    /// Fixed colour of a native override part (fill or stroke), drawn only when tinted.
+    fixed: Option<Rgba>,
 }
 
 /// Parsed icons by command id.
@@ -149,14 +151,46 @@ const OVERRIDES: &[(&str, &[(&str, bool)])] = &[
     ),
 ];
 
-/// Coloured parts (by index in the icon's part list) of ribbon icons.
-const TINTS: &[(&str, &[(usize, Tint)])] = &[
+const WHITE: Rgba = Rgba(255, 255, 255, 255);
+
+/// A part of a coloured native drawing: path, fill colour (`None`: outline in ink).
+type SolidPart = (&'static str, Option<Rgba>);
+
+/// Native-ribbon drawings with solid coloured areas (Bluestar's own design): a warm
+/// clipboard holding a white page, a light blue page over a white one. Parts are drawn in
+/// order, fills before the outlines over them.
+const SOLID: &[(&str, &[SolidPart])] = &[
     (
         "edit.paste",
-        &[(4, Tint::Warm), (0, Tint::Blue), (2, Tint::Blue)],
+        &[
+            ("M5 4h14v18H5Z", Some(WARM)),
+            ("M5 4h14v18H5Z", None),
+            ("M9 2.5h6v3.5H9Z", Some(WHITE)),
+            ("M9 2.5h6v3.5H9Z", None),
+            ("M11 10h10v13H11Z", Some(WHITE)),
+            ("M11 10h10v13H11Z", None),
+            ("M13.5 14h5", None),
+            ("M13.5 17h5", None),
+            ("M13.5 20h3", None),
+        ],
     ),
+    (
+        "edit.copy",
+        &[
+            ("M4 3h11v13H4Z", Some(WHITE)),
+            ("M4 3h11v13H4Z", None),
+            ("M9 8h11v13H9Z", Some(SOFT)),
+            ("M9 8h11v13H9Z", None),
+            ("M11.5 12h6", None),
+            ("M11.5 15h6", None),
+            ("M11.5 18h4", None),
+        ],
+    ),
+];
+
+/// Coloured parts (by index in the icon's part list) of ribbon icons.
+const TINTS: &[(&str, &[(usize, Tint)])] = &[
     ("edit.cut", &[(0, Tint::Blue), (3, Tint::Blue)]),
-    ("edit.copy", &[(0, Tint::Soft)]),
     ("format.painter", &[(1, Tint::Warm)]),
     (
         "format.bullets",
@@ -258,6 +292,7 @@ impl Icons {
                             _ => Some(false),
                         },
                         accent: p.accent,
+                        fixed: None,
                     })
                     .collect();
                 (name, shapes)
@@ -272,6 +307,20 @@ impl Icons {
                     fill: *fill,
                     stroke: if *fill { None } else { Some(false) },
                     accent: false,
+                    fixed: None,
+                })
+                .collect();
+            shapes.insert((*name).to_owned(), drawn);
+        }
+        for (name, parts) in SOLID {
+            let drawn = parts
+                .iter()
+                .map(|(d, fill)| Shape {
+                    segs: parse_path(d),
+                    fill: fill.is_some(),
+                    stroke: if fill.is_some() { None } else { Some(false) },
+                    accent: false,
+                    fixed: *fill,
                 })
                 .collect();
             shapes.insert((*name).to_owned(), drawn);
@@ -305,8 +354,15 @@ impl Icons {
         // the lines drawn inside it.
         for pass in 0..2 {
             for (part, shape) in shapes.iter().enumerate() {
-                let listed = TINTS.iter().any(|(n, _)| *n == name);
-                let tint = if !c.tinted {
+                let listed =
+                    TINTS.iter().any(|(n, _)| *n == name) || SOLID.iter().any(|(n, _)| *n == name);
+                if shape.fixed.is_some() && !c.tinted {
+                    // Disabled: outlines only.
+                    continue;
+                }
+                let tint = if shape.fixed.is_some() || SOLID.iter().any(|(n, _)| *n == name) {
+                    None
+                } else if !c.tinted {
                     None
                 } else if listed {
                     tint_of(name, part)
@@ -324,7 +380,9 @@ impl Icons {
                 };
                 let segs: Vec<PathSeg> =
                     shape.segs.iter().map(|s| transform(*s, k, x, y)).collect();
-                let mut base = if shape.accent { c.accent } else { c.ink };
+                let mut base = shape
+                    .fixed
+                    .unwrap_or(if shape.accent { c.accent } else { c.ink });
                 let mut under = None;
                 match tint {
                     Some(Tint::Blue) => base = ICON_BLUE,

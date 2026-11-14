@@ -120,3 +120,17 @@ Hiệu ứng chữ so ở 200% cùng chữ và tham số: bóng và viền chữ
 bán kính, làm mờ nửa còn lại; màu halo 194,209,234 so với 194,208,233); phản chiếu lật quanh
 đường cơ sở như bản đối chiếu.
 
+Vòng 6: so cả 5 trang của `phase1-sample.docx` ở 100% (tỉ lệ pixel đậm trong pixel có mực,
+trên khung chữ; sắc độ 0 ở cả hai bên mọi trang):
+
+| Trang | Đối chiếu | BlueDoc |
+| --- | --- | --- |
+| 1 | 0,388 | 0,530 |
+| 2 | 0,386 | 0,597 |
+| 3 | 0,384 | 0,596 |
+| 4 | 0,630 | 0,617 |
+| 5 | 0,578 | 0,621 |
+
+Trang 4–5 đo trên khung chữ tự dò (cùng kích thước ở hai bên: 786×121 và 983×64 px).
+Icon chưa có màu chọn tay được tô nền nhạt cho khung chính (vẽ nền trước, nét sau).
+

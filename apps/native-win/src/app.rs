@@ -8,7 +8,28 @@ use bo_ui::{
 };
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
+
+/// Interface text size factor (the Windows text size setting), as `f32` bits.
+static TEXT_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+/// Read the Windows text size setting; `BLUEOFFICE_TEXT_SCALE` (e.g. `1.1`) overrides it.
+fn refresh_text_scale() {
+    let factor = std::env::var("BLUEOFFICE_TEXT_SCALE")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|f| (0.5..=3.0).contains(f))
+        .unwrap_or_else(win32::text_scale_factor);
+    TEXT_SCALE.store(factor.to_bits(), Ordering::Relaxed);
+}
+
+/// Interface text size in device pixels: the size the layout asks for, grown by the
+/// Windows text size setting as a desktop word processor does. Whole pixels, halves
+/// rounded down (15 px at 110 % is 16 px, 16 px is 18 px), which matched the reference.
+fn ui_size(size: f32) -> f32 {
+    (size * f32::from_bits(TEXT_SCALE.load(Ordering::Relaxed)) - 0.01).round()
+}
 
 /// Open the file named on the command line (or a new document) and run the window.
 pub fn run() -> Result<(), String> {
@@ -152,7 +173,8 @@ impl Painter for WinPainter<'_, '_> {
         }
     }
     fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
-        self.frame.text(text, x, y, style.size, style.bold, color);
+        self.frame
+            .text(text, x, y, ui_size(style.size), style.bold, color);
     }
     fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
         self.frame.text_font(text, x, y, &spec(font), color);
@@ -174,7 +196,7 @@ struct Measure<'a>(Option<&'a Device>);
 impl TextMeasure for Measure<'_> {
     fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
         match self.0 {
-            Some(d) => d.measure_text(text, style.size, style.bold),
+            Some(d) => d.measure_text(text, ui_size(style.size), style.bold),
             None => (
                 text.chars().count() as f32 * style.size * 0.55,
                 style.size * 1.33,
@@ -371,6 +393,7 @@ struct PendingInput {
 
 impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
+        refresh_text_scale();
         let device = Device::new()?;
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
@@ -440,6 +463,10 @@ impl Handler for Shell {
             p.handle += start.elapsed();
             p.count += 1;
         }
+    }
+
+    fn text_scale_changed(&mut self) {
+        refresh_text_scale();
     }
 
     fn resized(&mut self, width: u32, height: u32) {

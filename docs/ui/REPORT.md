@@ -134,3 +134,11 @@ trên khung chữ; sắc độ 0 ở cả hai bên mọi trang):
 Trang 4–5 đo trên khung chữ tự dò (cùng kích thước ở hai bên: 786×121 và 983×64 px).
 Icon chưa có màu chọn tay được tô nền nhạt cho khung chính (vẽ nền trước, nét sau).
 
+
+Vòng 7 (2026-11-15): máy đối chiếu đặt cỡ chữ Windows 110% (Settings › Accessibility › Text size,
+`HKCU\Software\Microsoft\Accessibility\TextScaleFactor`). Bản đối chiếu phóng chữ giao diện theo hệ số
+này, BlueDoc thì chưa → chữ ribbon nhỏ hơn ~10%. `bluedoc-native.exe` giờ đọc hệ số (cập nhật khi đổi
+cài đặt, `BLUEOFFICE_TEXT_SCALE=1.1` để thử) và nhân vào mọi cỡ chữ giao diện, nửa pixel làm tròn xuống.
+Đo lại ở 125%: độ rộng 7 nhãn tab trùng từng pixel (42/52/51/81/63/52/37), nhãn nhóm "Clipboard"
+66×16 px ở cả hai bên (trước: 64×14). Ghi chú: bản sao `out/desktop/bluedoc-native.exe` từ 14/11 sáng
+chưa có các vòng chỉnh nét trước — đã thay bằng bản mới.

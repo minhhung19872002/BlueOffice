@@ -16,6 +16,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
 };
+use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::HiDpi::{
     GetDpiForWindow, GetSystemMetricsForDpi, SetProcessDpiAwarenessContext,
@@ -42,8 +43,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SW_SHOWMAXIMIZED, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY,
     WM_DPICHANGED, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
     WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT, WM_SIZE, WM_TIMER, WNDCLASSEXW,
-    WS_OVERLAPPEDWINDOW,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER,
+    WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
@@ -65,6 +66,8 @@ pub trait Handler {
     fn moved(&mut self, hwnd: isize);
     /// The window must be redrawn.
     fn paint(&mut self);
+    /// The Windows text size setting may have changed.
+    fn text_scale_changed(&mut self);
     /// Caret rectangle (x, y, width, height in client pixels), for IME windows.
     fn caret(&self) -> Option<[f32; 4]>;
     /// What a client position is for the window manager (title bar parts).
@@ -136,6 +139,31 @@ fn scale(hwnd: HWND) -> f32 {
         1.0
     } else {
         dpi as f32 / 96.0
+    }
+}
+
+/// The Windows text size setting (Settings › Accessibility › Text size) as a factor,
+/// 1.0–2.25. Desktop word processors grow their interface text by it.
+pub fn text_scale_factor() -> f32 {
+    let mut value: u32 = 100;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    // SAFETY: the out pointers refer to a live DWORD and its size.
+    let ok = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Accessibility"),
+            w!("TextScaleFactor"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(std::ptr::from_mut(&mut value).cast()),
+            Some(&mut size),
+        )
+    }
+    .is_ok();
+    if ok {
+        (value.clamp(100, 225) as f32) / 100.0
+    } else {
+        1.0
     }
 }
 
@@ -441,6 +469,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // SIZE_MAXIMIZED = 2
             input(hwnd, Input::Maximized(wparam.0 == 2));
             LRESULT(0)
+        }
+        WM_SETTINGCHANGE => {
+            // The text size setting may have changed: lay the interface out again.
+            with_handler(|h| h.text_scale_changed());
+            input(hwnd, Input::Scale(scale(hwnd)));
+            // SAFETY: default processing of the message this procedure received.
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_DPICHANGED => {
             let dpi = (wparam.0 & 0xFFFF) as f32;

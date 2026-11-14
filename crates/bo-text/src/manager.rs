@@ -32,6 +32,10 @@ pub struct FaceInfo {
     pub underline_thickness: i16,
     /// Strikeout position relative to the baseline.
     pub strikeout_position: i16,
+    /// `OS/2` weight class (400 regular, 700 bold, 900 black).
+    pub weight: u16,
+    /// `OS/2` width class (5 normal, 3 condensed).
+    pub width: u16,
 }
 
 struct Face {
@@ -141,13 +145,19 @@ impl FontManager {
                 underline_thickness: underline
                     .map_or((face.units_per_em() / 20) as i16, |m| m.thickness),
                 strikeout_position: strike.map_or((face.units_per_em() / 4) as i16, |m| m.position),
+                weight: face.weight().to_number(),
+                width: face.width().to_number(),
                 family,
             };
             let id = FaceId(self.faces.len() as u32);
-            self.by_family
-                .entry(info.family.to_lowercase())
-                .or_default()
-                .push(id);
+            // Typographic family (id 16) and legacy family (id 1): "Arial Narrow" is
+            // found by that name and also groups under "Arial".
+            for name in family_names(face.names()) {
+                let ids = self.by_family.entry(name.to_lowercase()).or_default();
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
             self.faces.push(Face {
                 data: data.clone(),
                 index,
@@ -322,10 +332,16 @@ impl FontManager {
     }
 
     fn best_style(&self, ids: &[FaceId], bold: bool, italic: bool) -> FaceId {
+        // Italic, then bold, then the normal width (a family such as "Arial" also
+        // holds Narrow faces), then the weight nearest regular or bold (not Black).
+        let target = if bold { 700 } else { 400 };
         *ids.iter()
             .min_by_key(|id| {
                 let i = self.info(**id);
-                (i.italic != italic) as u8 * 2 + (i.bold != bold) as u8
+                u32::from(i.italic != italic) * 100_000
+                    + u32::from(i.bold != bold) * 10_000
+                    + u32::from(i.width != 5) * 1_000
+                    + u32::from(i.weight.abs_diff(target))
             })
             .expect("non-empty family")
     }
@@ -521,6 +537,27 @@ fn is_mark(c: char) -> bool {
 
 fn family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
     pick_family(face.names())
+}
+
+/// Typographic family (id 16) and legacy family (id 1), without duplicates — the names a
+/// document can use for the face (OpenType `name` table).
+pub(crate) fn family_names(names: ttf_parser::name::Names<'_>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for id in [
+        ttf_parser::name_id::TYPOGRAPHIC_FAMILY,
+        ttf_parser::name_id::FAMILY,
+    ] {
+        let name = names
+            .into_iter()
+            .filter(|n| n.name_id == id)
+            .find_map(|n| n.to_string());
+        if let Some(n) = name {
+            if !out.iter().any(|o| o.eq_ignore_ascii_case(&n)) {
+                out.push(n);
+            }
+        }
+    }
+    out
 }
 
 /// Typographic family (name id 16), else family (id 1) — OpenType `name` table.

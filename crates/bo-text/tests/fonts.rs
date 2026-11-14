@@ -163,3 +163,33 @@ fn system_fonts_load_lazily_after_bundled_faces() {
     assert_eq!(fm.info(x).family, "Tinos");
     assert_eq!(fm.len(), n);
 }
+
+/// Installed families with width and weight variants (Windows: Arial, Arial Narrow,
+/// Arial Black share the typographic family "Arial"): "Arial" is the normal-width face
+/// at regular or bold weight, "Arial Narrow" is found by its own name. Skipped where
+/// those files are not installed.
+#[test]
+fn installed_width_variants_do_not_replace_the_regular_face() {
+    use bo_text::SystemFontIndex;
+    let dir = std::path::PathBuf::from(r"C:\Windows\Fonts");
+    let needed = ["arial.ttf", "arialbd.ttf", "ARIALN.TTF", "ariblk.ttf"];
+    if !needed.iter().all(|f| dir.join(f).exists()) {
+        return;
+    }
+    let tmp = std::env::temp_dir().join(format!("bo-text-arial-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    for f in needed {
+        std::fs::copy(dir.join(f), tmp.join(f)).unwrap();
+    }
+    let mut fm = FontManager::new();
+    fm.set_system_fonts(SystemFontIndex::scan(std::slice::from_ref(&tmp)));
+    let regular = fm.resolve("Arial", false, false).unwrap();
+    assert_eq!((fm.info(regular).width, fm.info(regular).weight), (5, 400));
+    let bold = fm.resolve("Arial", true, false).unwrap();
+    assert_eq!((fm.info(bold).width, fm.info(bold).weight), (5, 700));
+    let narrow = fm.resolve("Arial Narrow", false, false).unwrap();
+    assert!(fm.info(narrow).width < 5, "Arial Narrow by its own name");
+    let black = fm.resolve("Arial Black", false, false).unwrap();
+    assert!(fm.info(black).weight >= 800, "Arial Black by its own name");
+    let _ = std::fs::remove_dir_all(&tmp);
+}

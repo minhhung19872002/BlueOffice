@@ -158,7 +158,8 @@ impl SystemFontIndex {
 }
 
 /// First line of the index cache (format version).
-const CACHE_HEADER: &str = "bo-system-fonts 1";
+// 2: faces listed under their legacy family (name id 1) as well, e.g. "Arial Narrow".
+const CACHE_HEADER: &str = "bo-system-fonts 2";
 
 /// `size:mtime` of a file (seconds since the epoch).
 fn stamp_of(p: &Path) -> Option<String> {
@@ -275,7 +276,7 @@ pub fn probe_file(path: &Path) -> Option<SystemFontFile> {
     };
     let mut families = Vec::new();
     for off in offsets {
-        if let Some(f) = probe_face(&mut r, off) {
+        for f in probe_face(&mut r, off).unwrap_or_default() {
             if !families.contains(&f) {
                 families.push(f);
             }
@@ -287,8 +288,8 @@ pub fn probe_file(path: &Path) -> Option<SystemFontFile> {
     })
 }
 
-/// Family of the face whose table directory starts at `off`.
-fn probe_face(r: &mut Ranges, off: u64) -> Option<String> {
+/// Families of the face whose table directory starts at `off`.
+fn probe_face(r: &mut Ranges, off: u64) -> Option<Vec<String>> {
     // Table directory: sfntVersion u32, numTables u16, searchRange…, then 16-byte records
     // (tag, checksum, offset, length).
     let dir = r.read(off, 12)?;
@@ -310,7 +311,7 @@ fn probe_face(r: &mut Ranges, off: u64) -> Option<String> {
     let name_len = name_len.min(MAX_NAME_TABLE);
     let table = r.read(name_off?, name_len)?;
     let names = ttf_parser::name::Table::parse(&table)?.names;
-    crate::manager::pick_family(names)
+    Some(crate::manager::family_names(names))
 }
 
 #[cfg(test)]

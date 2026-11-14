@@ -268,6 +268,41 @@ const SOLID: &[(&str, &[SolidPart])] = &[
         ],
     ),
     (
+        "references.insertToc",
+        &[
+            ("M4 2h16v20H4Z", Some(WHITE)),
+            ("M4 2h16v20H4Z", None),
+            ("M7 5.5h10v2.4H7Z", Some(ICON_BLUE)),
+            ("M7 11.5h8", None),
+            ("M9 15h8", None),
+            ("M9 18.5h6", None),
+        ],
+    ),
+    (
+        "insert.footnote",
+        &[
+            ("M4 2h16v20H4Z", Some(WHITE)),
+            ("M4 2h16v20H4Z", None),
+            ("M7 6h10", None),
+            ("M7 9.5h10", None),
+            ("M7 14h5", None),
+            ("M7 16.5h3v3H7Z", Some(ICON_BLUE)),
+            ("M12 18h5", None),
+        ],
+    ),
+    (
+        "insert.endnote",
+        &[
+            ("M4 2h16v20H4Z", Some(WHITE)),
+            ("M4 2h16v20H4Z", None),
+            ("M7 6h10", None),
+            ("M7 9.5h10", None),
+            ("M7 13h10", None),
+            ("M7 16.5h10v3H7Z", Some(SOFT)),
+            ("M7 16.5h3v3H7Z", Some(ICON_BLUE)),
+        ],
+    ),
+    (
         "layout.margins",
         &[
             ("M4 2h16v20H4Z", Some(SOFT)),

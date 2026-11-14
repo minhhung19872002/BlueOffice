@@ -150,3 +150,23 @@ Vòng 9: đo theo cột trên bản cuối — thân ribbon 135 px (gồm viền
 Chụp lại 8 tab trên cả hai app: chữ và icon nét như nhau; khác biệt còn lại là số lệnh (bản đối chiếu
 có nhiều lệnh hơn ở Insert/Layout, bố cục ba hàng nút nhỏ có nhãn) và hình icon (thiết kế riêng,
 clean-room) — thuộc việc parity tính năng, không phải độ nét.
+
+Vòng 10 (độ mịn chữ trang): ở zoom ≥ 140% chữ BlueDoc chỉ có 4 mức xám (0/59/119/182) — khi bảng
+`gasp` của font tắt hinting, chế độ NATURAL_SYMMETRIC qua API cũ chỉ lấy mẫu 3× theo chiều ngang nên mép
+cong thành bậc thang ("chưa mềm"). Bản đối chiếu có 16 mức (lấy mẫu 4×4). Chuyển sang
+`DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC` (IDWriteFactory3): 17 mức ở mọi zoom. Đo trên thân văn bản
+(cùng file, 125% DPI; mức xám / tỉ lệ pixel đậm / mép cứng dọc / mép cứng ngang):
+
+| Zoom | Đối chiếu | BlueDoc |
+| --- | --- | --- |
+| 100% | 18 / 0,557 / 0,226 / 0,126 | 19 / 0,563 / 0,227 / 0,115 |
+| 120% | 17 / 0,621 / 0,230 / 0,125 | 17 / 0,615 / 0,238 / 0,122 |
+| 140% | 16 / 0,651 / 0,234 / 0,125 | 18 / 0,653 / 0,243 / 0,119 (trước: 4 / 0,708) |
+| 160% | 16 / 0,686 / 0,222 / 0,113 | 29 / 0,697 / 0,223 / 0,110 |
+| 200% | 31 / 0,756 / 0,231 / 0,118 | 29 / 0,766 / 0,231 / 0,110 |
+
+`BO_GRAY_MODE=legacy` giữ cách cũ; `BLUEOFFICE_ZOOM=140` mở sẵn ở zoom đó để chụp so sánh.
+
+Ribbon: thêm Hình (6 hình dạng), Hộp văn bản, Số trang (trường PAGE/NUMPAGES), Chữ hoa đầu đoạn,
+Ngày & giờ (trường DATE), Dòng chữ ký (Insert); Số dòng, Gạch nối (Layout); Chèn chú thích (References).
+Nhóm ba hàng nút nhỏ xếp kín dải lệnh như bản đối chiếu; tab Insert vừa cửa sổ 1500 px không cần cuộn.

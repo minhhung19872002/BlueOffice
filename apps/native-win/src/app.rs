@@ -421,6 +421,13 @@ impl Handler for Shell {
             },
             &m,
         );
+        // BLUEOFFICE_ZOOM=140 opens at that zoom (10 % steps), for screenshot comparisons.
+        if let Some(z) = std::env::var("BLUEOFFICE_ZOOM")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+        {
+            self.view.handle(Input::Zoom((z - 100.0) / 10.0), &m);
+        }
         Ok(())
     }
 

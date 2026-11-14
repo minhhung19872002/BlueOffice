@@ -32,8 +32,10 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory2, IDWriteRenderingParams, DWRITE_FACTORY_TYPE_SHARED,
-    DWRITE_GRID_FIT_MODE_DISABLED, DWRITE_GRID_FIT_MODE_ENABLED, DWRITE_MEASURING_MODE_NATURAL,
+    DWriteCreateFactory, IDWriteFactory2, IDWriteFactory3, IDWriteRenderingParams,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_GRID_FIT_MODE_DISABLED, DWRITE_GRID_FIT_MODE_ENABLED,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC,
+    DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC_DOWNSAMPLED, DWRITE_RENDERING_MODE1_OUTLINE,
     DWRITE_RENDERING_MODE_NATURAL, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -1132,6 +1134,9 @@ impl Device {
         // keeps its own reference to the parameters it is given.
         unsafe {
             let (mut symmetric, mut grid_fit) = (false, true);
+            // Grayscale rendering mode (BO_GRAY_MODE compares: `legacy`, `sym nofit`, `down`
+            // supersampled, `outline`, `sym1`).
+            let mut mode1 = None;
             let (antialias, level) = match mode {
                 TextRendering::System => {
                     self.context
@@ -1147,9 +1152,22 @@ impl Device {
                         Some((g.parse().ok()?, c.parse().ok()?, 0.0))
                     });
                     symmetric = true;
+                    // Symmetric antialiasing through the newer rendering-mode API: 17 grey
+                    // levels at every zoom, like the reference capture (16) — the older API
+                    // drops to 4 levels (horizontal 3x oversampling) once the font's gasp
+                    // table turns hinting off, about 140 % zoom and up (docs/ui/REPORT.md).
+                    mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC);
                     if let Ok(v) = std::env::var("BO_GRAY_MODE") {
-                        symmetric = v.contains("sym");
+                        mode1 = None;
+                        symmetric = v.contains("sym") || v.contains("legacy");
                         grid_fit = !v.contains("nofit");
+                        if v.contains("down") {
+                            mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC_DOWNSAMPLED);
+                        } else if v.contains("outline") {
+                            mode1 = Some(DWRITE_RENDERING_MODE1_OUTLINE);
+                        } else if v.contains("sym1") {
+                            mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC);
+                        }
                     }
                     (
                         D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
@@ -1183,6 +1201,27 @@ impl Device {
                     .map_err(|e| e.to_string())?
                     .GetPixelGeometry(),
             };
+            if let Some(m) = mode1 {
+                let f3: IDWriteFactory3 = factory.cast().map_err(|e| e.to_string())?;
+                let params = f3
+                    .CreateCustomRenderingParams(
+                        gamma.clamp(1.0, 3.0),
+                        contrast.clamp(0.0, 4.0),
+                        contrast.clamp(0.0, 4.0),
+                        level.clamp(0.0, 1.0),
+                        geometry,
+                        m,
+                        if grid_fit {
+                            DWRITE_GRID_FIT_MODE_ENABLED
+                        } else {
+                            DWRITE_GRID_FIT_MODE_DISABLED
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
+                self.context.SetTextAntialiasMode(antialias);
+                self.context.SetTextRenderingParams(&params);
+                return Ok(());
+            }
             // NATURAL: antialiasing along the line only, outlines grid-fitted vertically
             // (baselines, x-height and horizontal strokes on whole rows, as desktop word
             // processors draw body text); glyph x positions stay exactly the engine's.

@@ -754,6 +754,40 @@ fn change_case_cycles_and_keeps_the_selection() {
 }
 
 #[test]
+fn sort_paragraphs_uses_vietnamese_order_and_undoes_in_one_step() {
+    let mut s = Session::new(doc(&["đào", "dừa", "cam", "ăn", "an", "z"]));
+    select(&mut s, (0, 0), (4, 2));
+    s.sort_paragraphs(false).unwrap();
+    // a < ă < â … d < đ; the last paragraph is outside the selection.
+    assert_eq!(texts(&s), ["an", "ăn", "cam", "dừa", "đào", "z"]);
+    select(&mut s, (0, 0), (4, 1));
+    s.sort_paragraphs(true).unwrap();
+    assert_eq!(texts(&s), ["đào", "dừa", "cam", "ăn", "an", "z"]);
+    assert!(s.undo());
+    assert_eq!(texts(&s), ["an", "ăn", "cam", "dừa", "đào", "z"]);
+}
+
+#[test]
+fn paragraph_borders_toggle_edges_and_box() {
+    let mut s = Session::new(doc(&["một", "hai"]));
+    select(&mut s, (0, 0), (1, 1));
+    let set = |s: &mut Session, preset| {
+        s.format_paragraphs(&ParaFormat::Borders { preset })
+            .unwrap();
+    };
+    set(&mut s, ParaBorderPreset::Bottom);
+    let b = s.para_props(1).borders.unwrap();
+    assert!(b.bottom.is_some() && b.top.is_none());
+    set(&mut s, ParaBorderPreset::Bottom);
+    assert_eq!(s.para_props(1).borders, None);
+    set(&mut s, ParaBorderPreset::All);
+    let b = s.para_props(0).borders.unwrap();
+    assert!(b.top.is_some() && b.left.is_some() && b.right.is_some() && b.inside_h.is_some());
+    set(&mut s, ParaBorderPreset::None);
+    assert_eq!(s.para_props(0).borders, None);
+}
+
+#[test]
 fn reset_paragraph_formatting_keeps_the_style() {
     let mut s = Session::new(doc(&["đoạn"]));
     caret(&mut s, 0, 0);

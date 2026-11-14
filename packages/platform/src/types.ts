@@ -477,6 +477,11 @@ export type ParaFormat =
     }
   | { kind: 'indents'; left: number; right: number; firstLine: number }
   | { kind: 'tabs'; tabs: TabSpec[] }
+  /** §17.3.1.24 pBdr: an edge toggles; outside / all replace; none removes. */
+  | {
+      kind: 'borders';
+      preset: 'none' | 'bottom' | 'top' | 'left' | 'right' | 'inside' | 'outside' | 'all';
+    }
   | { kind: 'shading'; hex: string | null }
   /** §17.3.1.35 suppressLineNumbers / §17.3.1.34 suppressAutoHyphens. */
   | { kind: 'suppressLineNumbers' | 'suppressAutoHyphens'; on: boolean }
@@ -698,6 +703,8 @@ export type EditCommand =
       cmd: 'changeCase';
       mode: 'sentence' | 'lower' | 'upper' | 'title' | 'toggle' | 'cycle';
     }
+  /** Sort the selected paragraphs by their text (Vietnamese dictionary order). */
+  | { cmd: 'sortParagraphs'; descending?: boolean }
   | { cmd: 'move'; motion: Motion; extend?: boolean }
   | { cmd: 'insertText'; text: string }
   | { cmd: 'formatText'; format: CharFormat }

@@ -198,6 +198,65 @@ fn case_char(ch: char, mode: CaseMode, word_start: bool, sentence_start: bool) -
     }
 }
 
+/// Border choices of [`ParaFormat::Borders`] (ECMA-376 Part 1, §17.3.1.24 pBdr).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ParaBorderPreset {
+    /// Remove every paragraph border.
+    None,
+    /// Toggle the bottom edge.
+    Bottom,
+    /// Toggle the top edge.
+    Top,
+    /// Toggle the left edge.
+    Left,
+    /// Toggle the right edge.
+    Right,
+    /// Toggle the line between paragraphs of the group (`w:between`).
+    Inside,
+    /// Box around the paragraphs.
+    Outside,
+    /// Box with lines between the paragraphs.
+    All,
+}
+
+impl ParaBorderPreset {
+    /// The paragraph's borders after applying the preset to `old` with line `line`.
+    pub fn apply(
+        self,
+        old: Option<&bo_model::Borders>,
+        line: &bo_model::Border,
+    ) -> Option<bo_model::Borders> {
+        let mut b = old.cloned().unwrap_or_default();
+        let toggle = |e: &mut Option<bo_model::Border>| {
+            *e = if e.is_some() {
+                None
+            } else {
+                Some(line.clone())
+            };
+        };
+        match self {
+            Self::None => return None,
+            Self::Bottom => toggle(&mut b.bottom),
+            Self::Top => toggle(&mut b.top),
+            Self::Left => toggle(&mut b.left),
+            Self::Right => toggle(&mut b.right),
+            Self::Inside => toggle(&mut b.inside_h),
+            Self::Outside | Self::All => {
+                b = bo_model::Borders {
+                    top: Some(line.clone()),
+                    left: Some(line.clone()),
+                    bottom: Some(line.clone()),
+                    right: Some(line.clone()),
+                    inside_h: (self == Self::All).then(|| line.clone()),
+                    inside_v: None,
+                };
+            }
+        }
+        (!b.is_empty()).then_some(b)
+    }
+}
+
 /// Paragraph formatting commands (ECMA-376 Part 1, §17.3.1 paragraph properties).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -281,6 +340,11 @@ pub enum ParaFormat {
     Tabs {
         /// Wanted tab stops.
         tabs: Vec<TabSpec>,
+    },
+    /// Paragraph borders (§17.3.1.24 pBdr): one edge toggles, a box or grid replaces them.
+    Borders {
+        /// Which borders.
+        preset: ParaBorderPreset,
     },
     /// Paragraph shading fill (§17.3.1.31 shd) or `None` to remove it.
     Shading {
@@ -3641,6 +3705,12 @@ impl Session {
                         let base = style_para_props(tx.doc, &p.props).tabs.unwrap_or_default();
                         pr.tabs = direct_tabs(&base, tabs);
                     }
+                    ParaFormat::Borders { preset } => {
+                        // Half-point single line, 1 pt from the text (Word's default box).
+                        let mut line = bo_model::Border::single(4);
+                        line.space = 1;
+                        pr.borders = preset.apply(pr.borders.as_ref(), &line);
+                    }
                     ParaFormat::Shading { hex } => {
                         pr.shading = hex.as_deref().and_then(Color::from_hex);
                     }
@@ -3682,6 +3752,45 @@ impl Session {
                 tx.replace_para(&path, q)?;
             }
             Ok(sel)
+        })
+    }
+
+    /// Sort the selected paragraphs by their text in Vietnamese dictionary order (`a ă â …
+    /// đ …`, then tones), ascending or descending; empty paragraphs sort first, ties keep
+    /// their order. Each paragraph keeps its own formatting. One undo step.
+    pub fn sort_paragraphs(&mut self, descending: bool) -> Result<Selection> {
+        let (a, b) = self.selection.ordered();
+        if b.para <= a.para {
+            return Ok(self.selection);
+        }
+        let ids: Vec<usize> = (a.para..=b.para).collect();
+        self.edit(move |tx, _| {
+            let mut paras = Vec::with_capacity(ids.len());
+            let mut paths = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let (path, p, _) = tx.atoms(*id)?;
+                paths.push(path);
+                paras.push(p);
+            }
+            let mut keyed: Vec<(String, Paragraph)> = paras
+                .into_iter()
+                .map(|p| (p.plain_text().trim().to_owned(), p))
+                .collect();
+            keyed.sort_by(|(x, _), (y, _)| {
+                let o = collate::vi_cmp(x, y);
+                if descending {
+                    o.reverse()
+                } else {
+                    o
+                }
+            });
+            for (path, (_, p)) in paths.iter().zip(keyed) {
+                tx.replace_para(path, p)?;
+            }
+            Ok(Selection {
+                anchor: Pos::new(a.para, 0),
+                focus: Pos::new(a.para, 0),
+            })
         })
     }
 

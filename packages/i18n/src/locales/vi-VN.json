@@ -260,6 +260,8 @@
       "resetPara": "Xoá định dạng đoạn",
       "changeCase": "Đổi chữ hoa / thường",
       "shading": "Tô nền",
+      "paraBorders": "Viền đoạn văn",
+      "sortParagraphs": "Sắp xếp",
       "case": {
         "sentence": "Viết hoa đầu câu",
         "lower": "chữ thường",

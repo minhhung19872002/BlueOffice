@@ -260,6 +260,8 @@
       "resetPara": "Remove paragraph formatting",
       "changeCase": "Change case",
       "shading": "Shading",
+      "paraBorders": "Borders",
+      "sortParagraphs": "Sort",
       "case": {
         "sentence": "Sentence case",
         "lower": "lowercase",

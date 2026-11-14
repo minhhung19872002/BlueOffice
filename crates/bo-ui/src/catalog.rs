@@ -71,6 +71,20 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("format.shading.E2EFDA", "Light green"),
             e("format.shading.FCE4D6", "Light orange"),
         ],
+        "format.paraBorders" => vec![
+            e("format.paraBorders.bottom", "Bottom border"),
+            e("format.paraBorders.top", "Top border"),
+            e("format.paraBorders.left", "Left border"),
+            e("format.paraBorders.right", "Right border"),
+            e("format.paraBorders.inside", "Inside border"),
+            e("format.paraBorders.outside", "Outside borders"),
+            e("format.paraBorders.all", "All borders"),
+            e("format.paraBorders.none", "No border"),
+        ],
+        "format.sortParagraphs" => vec![
+            e("format.sortParagraphs.asc", "Sort A to Z"),
+            e("format.sortParagraphs.desc", "Sort Z to A"),
+        ],
         "layout.margins" => vec![
             e("layout.margins.normal", "Normal — 2.54 cm"),
             e("layout.margins.narrow", "Narrow — 1.27 cm"),
@@ -168,6 +182,16 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
             rows: r.parse().ok()?,
             cols: c.parse().ok()?,
         });
+    }
+    if let Some(preset) = id.strip_prefix("format.paraBorders.") {
+        // ECMA-376 Part 1, §17.3.1.24 pBdr.
+        return from_json(json!({
+            "cmd": "formatParagraph",
+            "format": { "kind": "borders", "preset": preset },
+        }));
+    }
+    if let Some(order) = id.strip_prefix("format.sortParagraphs.") {
+        return from_json(json!({ "cmd": "sortParagraphs", "descending": order == "desc" }));
     }
     if let Some(mode) = id.strip_prefix("format.changeCase.") {
         return from_json(json!({ "cmd": "changeCase", "mode": mode }));
@@ -283,6 +307,8 @@ mod tests {
             "format.lineSpacing",
             "format.changeCase",
             "format.shading",
+            "format.paraBorders",
+            "format.sortParagraphs",
         ] {
             for entry in menu(id) {
                 assert!(command(entry.id, &page).is_some(), "{}", entry.id);

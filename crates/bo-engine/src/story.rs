@@ -536,6 +536,9 @@ pub(crate) fn sub_command(
         Command::ChangeCase { mode } => {
             s.change_case(*mode)?;
         }
+        Command::SortParagraphs { descending } => {
+            s.sort_paragraphs(*descending)?;
+        }
         Command::SelectSentence { page, x, y } => {
             if let Some(p) = nav::hit_test(layout, hit_page.unwrap_or(*page), *x, *y - dy) {
                 s.set_selection(s.sentence_at(p));

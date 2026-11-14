@@ -112,6 +112,12 @@ pub enum Command {
         /// How the letters change.
         mode: bo_edit::CaseMode,
     },
+    /// Sort the selected paragraphs by their text (Vietnamese dictionary order).
+    SortParagraphs {
+        /// Z → A instead of A → Z.
+        #[serde(default)]
+        descending: bool,
+    },
     /// Ctrl+click: select the sentence at a point (with the spaces after it).
     SelectSentence {
         /// 0-based page index.
@@ -2149,6 +2155,9 @@ impl crate::Engine {
                     }
                     Command::ChangeCase { mode } => {
                         s.change_case(mode)?;
+                    }
+                    Command::SortParagraphs { descending } => {
+                        s.sort_paragraphs(descending)?;
                     }
                     Command::SplitParagraph => {
                         let n = s.paragraph_count();

@@ -214,60 +214,72 @@ impl Icons {
         // smeared across two half-covered rows.
         let width = (self.stroke * k + 0.25).floor().max(1.0);
         let (x, y) = (x.round(), y.round());
-        for (part, shape) in shapes.iter().enumerate() {
-            let listed = TINTS.iter().any(|(n, _)| *n == name);
-            let tint = if !c.tinted {
-                None
-            } else if listed {
-                tint_of(name, part)
-            } else if part == main_closed(shapes, self.grid) {
-                // Icons without hand-picked colours: the main closed outline (a page, a
-                // box, a bubble) gets the light fill, as toolbar icons are drawn solid.
-                Some(Tint::Soft)
-            } else {
-                None
-            };
-            let offset = if shape.stroke.is_some() && width as i32 % 2 == 1 {
-                0.5
-            } else {
-                0.0
-            };
-            let segs: Vec<PathSeg> = shape.segs.iter().map(|s| transform(*s, k, x, y)).collect();
-            let mut base = if shape.accent { c.accent } else { c.ink };
-            let mut under = None;
-            match tint {
-                Some(Tint::Blue) => base = ICON_BLUE,
-                Some(Tint::Red) => base = RED,
-                Some(Tint::Green) => base = GREEN,
-                Some(Tint::Soft) => under = Some(SOFT),
-                Some(Tint::Warm) => under = Some(WARM),
-                None => {}
-            }
-            // Stroked dots (a zero-length line with round caps, as in list bullets) would be a
-            // faint one-pixel smudge: draw them as solid squares on whole pixels instead.
-            let (segs, dots) = split_dots(&segs, shape.stroke.is_some() && !shape.fill);
-            let dot = (self.stroke * k * 1.3).round().max(2.0);
-            for (cx, cy) in dots {
-                let color = if shape.stroke == Some(true) {
-                    c.on
+        // Two passes: light fills first, then every outline, so a filled box never hides
+        // the lines drawn inside it.
+        for pass in 0..2 {
+            for (part, shape) in shapes.iter().enumerate() {
+                let listed = TINTS.iter().any(|(n, _)| *n == name);
+                let tint = if !c.tinted {
+                    None
+                } else if listed {
+                    tint_of(name, part)
+                } else if part == main_closed(shapes, self.grid) {
+                    // Icons without hand-picked colours: the main closed outline (a page, a
+                    // box, a bubble) gets the light fill, as toolbar icons are drawn solid.
+                    Some(Tint::Soft)
                 } else {
-                    base
+                    None
                 };
-                p.fill_rect(
-                    (cx - dot / 2.0).round(),
-                    (cy - dot / 2.0).round(),
-                    dot,
-                    dot,
-                    color,
-                );
+                let offset = if shape.stroke.is_some() && width as i32 % 2 == 1 {
+                    0.5
+                } else {
+                    0.0
+                };
+                let segs: Vec<PathSeg> =
+                    shape.segs.iter().map(|s| transform(*s, k, x, y)).collect();
+                let mut base = if shape.accent { c.accent } else { c.ink };
+                let mut under = None;
+                match tint {
+                    Some(Tint::Blue) => base = ICON_BLUE,
+                    Some(Tint::Red) => base = RED,
+                    Some(Tint::Green) => base = GREEN,
+                    Some(Tint::Soft) => under = Some(SOFT),
+                    Some(Tint::Warm) => under = Some(WARM),
+                    None => {}
+                }
+                if pass == 0 {
+                    if let (Some(u), false) = (under, shape.fill) {
+                        let segs = hint(&segs, offset);
+                        p.path(&segs, Some(u), None);
+                    }
+                    continue;
+                }
+                // Stroked dots (a zero-length line with round caps, as in list bullets) would be a
+                // faint one-pixel smudge: draw them as solid squares on whole pixels instead.
+                let (segs, dots) = split_dots(&segs, shape.stroke.is_some() && !shape.fill);
+                let dot = (self.stroke * k * 1.3).round().max(2.0);
+                for (cx, cy) in dots {
+                    let color = if shape.stroke == Some(true) {
+                        c.on
+                    } else {
+                        base
+                    };
+                    p.fill_rect(
+                        (cx - dot / 2.0).round(),
+                        (cy - dot / 2.0).round(),
+                        dot,
+                        dot,
+                        color,
+                    );
+                }
+                if segs.is_empty() {
+                    continue;
+                }
+                let segs = hint(&segs, offset);
+                let fill = shape.fill.then_some(base);
+                let stroke = shape.stroke.map(|on| (if on { c.on } else { base }, width));
+                p.path(&segs, fill, stroke);
             }
-            if segs.is_empty() {
-                continue;
-            }
-            let segs = hint(&segs, offset);
-            let fill = shape.fill.then_some(base).or(under);
-            let stroke = shape.stroke.map(|on| (if on { c.on } else { base }, width));
-            p.path(&segs, fill, stroke);
         }
     }
 }

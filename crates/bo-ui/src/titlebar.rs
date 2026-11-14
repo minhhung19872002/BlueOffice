@@ -217,6 +217,7 @@ impl TitleBar {
             ink: t.text,
             accent: t.accent,
             on: t.accent_on,
+            tinted: false,
         };
         let mark = self.px(20.0);
         icons.draw(

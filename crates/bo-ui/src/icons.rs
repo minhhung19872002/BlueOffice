@@ -48,6 +48,70 @@ pub struct IconColors {
     pub accent: Rgba,
     /// Strokes drawn on an accent fill.
     pub on: Rgba,
+    /// Draw the secondary colours of [`TINTS`] (enabled ribbon commands).
+    pub tinted: bool,
+}
+
+/// How one part of an icon is coloured when [`IconColors::tinted`].
+#[derive(Clone, Copy)]
+enum Tint {
+    /// Stroke in the action blue.
+    Blue,
+    /// Stroke in red (removing).
+    Red,
+    /// A light blue fill under the ink stroke.
+    Soft,
+    /// A warm fill under the ink stroke.
+    Warm,
+}
+
+// Bluestar's own secondary icon palette: ink outlines with one or two coloured parts, so
+// toolbar icons read at a glance without imitating any other product's artwork.
+pub const ICON_BLUE: Rgba = Rgba(0x1e, 0x6f, 0xd9, 255);
+const RED: Rgba = Rgba(0xd2, 0x3f, 0x31, 255);
+const SOFT: Rgba = Rgba(0xd6, 0xe6, 0xfb, 255);
+const WARM: Rgba = Rgba(0xf7, 0xd3, 0x8a, 255);
+
+/// Coloured parts (by index in the icon's part list) of ribbon icons.
+const TINTS: &[(&str, &[(usize, Tint)])] = &[
+    (
+        "edit.paste",
+        &[(4, Tint::Warm), (0, Tint::Blue), (2, Tint::Blue)],
+    ),
+    ("edit.cut", &[(0, Tint::Blue), (3, Tint::Blue)]),
+    ("edit.copy", &[(0, Tint::Soft)]),
+    ("format.painter", &[(1, Tint::Warm)]),
+    (
+        "format.bullets",
+        &[(0, Tint::Blue), (1, Tint::Blue), (2, Tint::Blue)],
+    ),
+    (
+        "format.numbering",
+        &[(3, Tint::Blue), (4, Tint::Blue), (5, Tint::Blue)],
+    ),
+    ("format.outdent", &[(3, Tint::Blue)]),
+    ("format.indent", &[(3, Tint::Blue)]),
+    ("format.lineSpacing", &[(3, Tint::Blue), (4, Tint::Blue)]),
+    ("format.clear", &[(3, Tint::Red), (4, Tint::Red)]),
+    ("edit.undo", &[(0, Tint::Blue), (1, Tint::Blue)]),
+    ("edit.redo", &[(0, Tint::Blue), (1, Tint::Blue)]),
+    ("edit.find", &[(1, Tint::Soft)]),
+    ("insert.table", &[(1, Tint::Soft)]),
+    ("insert.link", &[(2, Tint::Blue)]),
+    (
+        "review.newComment",
+        &[(0, Tint::Soft), (1, Tint::Blue), (2, Tint::Blue)],
+    ),
+    ("insert.header", &[(0, Tint::Soft)]),
+    ("insert.footer", &[(0, Tint::Soft)]),
+];
+
+fn tint_of(name: &str, part: usize) -> Option<Tint> {
+    TINTS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .and_then(|(_, parts)| parts.iter().find(|(i, _)| *i == part))
+        .map(|(_, t)| *t)
 }
 
 impl Icons {
@@ -103,14 +167,23 @@ impl Icons {
         // smeared across two half-covered rows.
         let width = (self.stroke * k + 0.25).floor().max(1.0);
         let (x, y) = (x.round(), y.round());
-        for shape in shapes {
+        for (part, shape) in shapes.iter().enumerate() {
+            let tint = if c.tinted { tint_of(name, part) } else { None };
             let offset = if shape.stroke.is_some() && width as i32 % 2 == 1 {
                 0.5
             } else {
                 0.0
             };
             let segs: Vec<PathSeg> = shape.segs.iter().map(|s| transform(*s, k, x, y)).collect();
-            let base = if shape.accent { c.accent } else { c.ink };
+            let mut base = if shape.accent { c.accent } else { c.ink };
+            let mut under = None;
+            match tint {
+                Some(Tint::Blue) => base = ICON_BLUE,
+                Some(Tint::Red) => base = RED,
+                Some(Tint::Soft) => under = Some(SOFT),
+                Some(Tint::Warm) => under = Some(WARM),
+                None => {}
+            }
             // Stroked dots (a zero-length line with round caps, as in list bullets) would be a
             // faint one-pixel smudge: draw them as solid squares on whole pixels instead.
             let (segs, dots) = split_dots(&segs, shape.stroke.is_some() && !shape.fill);
@@ -133,7 +206,7 @@ impl Icons {
                 continue;
             }
             let segs = hint(&segs, offset);
-            let fill = shape.fill.then_some(base);
+            let fill = shape.fill.then_some(base).or(under);
             let stroke = shape.stroke.map(|on| (if on { c.on } else { base }, width));
             p.path(&segs, fill, stroke);
         }

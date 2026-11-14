@@ -195,6 +195,8 @@ fn home() -> Tab {
                         B("format.strike"),
                         B("format.subscript"),
                         B("format.superscript"),
+                        B("format.highlight"),
+                        B("format.color"),
                     ],
                 ],
             },
@@ -207,6 +209,7 @@ fn home() -> Tab {
                         B("format.numbering"),
                         B("format.outdent"),
                         B("format.indent"),
+                        B("view.formattingMarks"),
                     ],
                     vec![
                         B("format.alignLeft"),
@@ -1128,17 +1131,29 @@ impl Ribbon {
                             weight: 600,
                             ..font
                         };
-                        let shift = if glyph.decor == Decor::None || glyph.decor == Decor::Strike {
-                            0.0
-                        } else {
-                            -self.px(3.0)
-                        };
+                        let shift =
+                            if matches!(glyph.decor, Decor::None | Decor::Strike | Decor::Bar(_)) {
+                                0.0
+                            } else {
+                                -self.px(3.0)
+                            };
                         let gx = gx + shift;
                         p.text_font(glyph.text, gx, gy, &font, ink);
-                        let mark = if enabled { t.accent_text } else { ink };
+                        let mark = if enabled {
+                            crate::icons::ICON_BLUE
+                        } else {
+                            ink
+                        };
                         // Segoe UI: ascent ≈ 1.08 em, x-height ≈ 0.5 em, cap ≈ 0.7 em.
                         match glyph.decor {
                             Decor::None => {}
+                            Decor::Bar(color) => {
+                                let bar = self.px(4.0);
+                                let y = (r.y + r.h - bar - self.px(3.0)).round();
+                                let bw = self.px(16.0);
+                                let c = if enabled { color } else { ink };
+                                p.fill_rect((r.x + (r.w - bw) / 2.0).round(), y, bw, bar, c);
+                            }
                             Decor::Strike => {
                                 let y = (gy + line * 0.56).round();
                                 p.fill_rect(gx - 1.0, y, w + 2.0, self.scale.round().max(1.0), ink);
@@ -1175,6 +1190,35 @@ impl Ribbon {
                         }
                         continue;
                     }
+                    if *id == "format.highlight" {
+                        let small = self.px(16.0);
+                        icons.draw(
+                            p,
+                            icon_of(id),
+                            (r.x + (r.w - small) / 2.0).round(),
+                            (r.y + self.px(4.0)).round(),
+                            small,
+                            IconColors {
+                                ink,
+                                accent: t.accent,
+                                on: t.accent_on,
+                                tinted: enabled,
+                            },
+                        );
+                        let (bar, bw) = (self.px(4.0), self.px(16.0));
+                        p.fill_rect(
+                            (r.x + (r.w - bw) / 2.0).round(),
+                            (r.y + r.h - bar - self.px(3.0)).round(),
+                            bw,
+                            bar,
+                            if enabled {
+                                Rgba(0xff, 0xff, 0, 255)
+                            } else {
+                                ink
+                            },
+                        );
+                        continue;
+                    }
                     icons.draw(
                         p,
                         icon_of(id),
@@ -1189,6 +1233,7 @@ impl Ribbon {
                             ink,
                             accent: t.accent,
                             on: t.accent_on,
+                            tinted: enabled,
                         },
                     );
                     if is_menu {
@@ -1222,6 +1267,7 @@ impl Ribbon {
                             ink: t.text,
                             accent: t.accent,
                             on: t.accent_on,
+                            tinted: true,
                         },
                     );
                     let mut label = strings.get(&format!("commands.{id}")).to_owned();
@@ -1325,6 +1371,7 @@ impl Ribbon {
                             ink,
                             accent: t.accent,
                             on: t.accent_on,
+                            tinted: enabled,
                         },
                     );
                     let mut label = strings.get(&format!("commands.{id}")).to_owned();
@@ -1472,7 +1519,7 @@ struct GlyphButton {
 }
 
 /// What is drawn with a [`GlyphButton`]'s letter.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 enum Decor {
     None,
     /// A line through the middle.
@@ -1483,6 +1530,8 @@ enum Decor {
     /// A small accent triangle pointing up / down at the top right.
     Grow,
     Shrink,
+    /// A colour bar under the letter (the colour the button applies).
+    Bar(Rgba),
 }
 
 impl GlyphButton {
@@ -1497,7 +1546,7 @@ impl GlyphButton {
     }
 }
 
-const GLYPH_BUTTONS: [(&str, GlyphButton); 8] = [
+const GLYPH_BUTTONS: [(&str, GlyphButton); 10] = [
     (
         "format.growStep",
         GlyphButton {
@@ -1592,6 +1641,30 @@ const GLYPH_BUTTONS: [(&str, GlyphButton); 8] = [
             italic: false,
             underline: false,
             decor: Decor::Sup,
+        },
+    ),
+    (
+        "format.color",
+        GlyphButton {
+            text: "A",
+            family: "Segoe UI",
+            size: 17.0,
+            weight: 400,
+            italic: false,
+            underline: false,
+            decor: Decor::Bar(Rgba(0xff, 0, 0, 255)),
+        },
+    ),
+    (
+        "view.formattingMarks",
+        GlyphButton {
+            text: "\u{b6}",
+            family: "Segoe UI",
+            size: 17.0,
+            weight: 400,
+            italic: false,
+            underline: false,
+            decor: Decor::None,
         },
     ),
 ];

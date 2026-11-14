@@ -1336,6 +1336,10 @@ mod tests {
         assert_eq!(w.view.format().size_half_points, Some(26));
         click(&mut w, "format.bold");
         assert!(w.view.format().bold);
+        click(&mut w, "format.color");
+        assert_eq!(w.view.format().color.as_deref(), Some("FF0000"));
+        click(&mut w, "format.highlight");
+        assert!(w.view.format().highlight.is_some());
         click(&mut w, "format.clear");
         assert!(!w.view.format().bold);
     }

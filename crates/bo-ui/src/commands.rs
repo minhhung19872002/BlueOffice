@@ -26,6 +26,13 @@ pub fn command(id: &str) -> Option<Command> {
         "format.numbering" => para(ParaFormat::Numbering),
         "format.indent" => para(ParaFormat::IncreaseIndent),
         "format.outdent" => para(ParaFormat::DecreaseIndent),
+        // Split buttons apply their default colour (red text, yellow highlight).
+        "format.color" => text(CharFormat::Color {
+            hex: Some("FF0000".into()),
+        }),
+        "format.highlight" => text(CharFormat::Highlight {
+            hex: Some("FFFF00".into()),
+        }),
         _ => None,
     }
 }

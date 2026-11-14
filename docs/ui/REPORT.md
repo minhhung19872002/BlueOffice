@@ -94,3 +94,9 @@ Vòng 3: thêm vào engine và ribbon viền đoạn văn (§17.3.1.24 pBdr, men
 và sắp xếp đoạn văn (thứ tự từ điển tiếng Việt, A→Z / Z→A, một bước hoàn tác); nhóm
 Clipboard / Font / Paragraph của ribbon có đủ bộ điều khiển như bản đối chiếu. Icon vẫn là
 thiết kế riêng (quy tắc clean-room: không chép icon của hãng khác).
+
+Vòng 4: thêm danh sách đa cấp (4 mẫu, `defineList`) và hiệu ứng chữ (viền chữ, bóng, phát
+sáng, phản chiếu); đã render bốn hiệu ứng trên trang qua `BO_WINDOW_COMMANDS`. So thêm trang 2
+(`BO_WINDOW_WHEEL=1500`, cùng nội dung, zoom 100%): độ phủ mực 0,1051 so với 0,1073 của bản
+đối chiếu, sắc độ 0 ở cả hai, tỉ lệ pixel đậm 0,649 so với 0,604. Tám tab ribbon render ở 125%
+và tab Home ở 100% đều khớp lưới pixel.

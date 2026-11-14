@@ -681,6 +681,13 @@ mod visual_tests {
             },
             &measure,
         );
+        // BO_WINDOW_WHEEL=-3000 scrolls the document (wheel delta units) before rendering.
+        if let Some(dy) = std::env::var("BO_WINDOW_WHEEL")
+            .ok()
+            .and_then(|d| d.parse().ok())
+        {
+            window.handle(Input::Wheel(dy), &measure);
+        }
         let mut pages = UiPages {
             device: &device,
             pages: HashMap::new(),

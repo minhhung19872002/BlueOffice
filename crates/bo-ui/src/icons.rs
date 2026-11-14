@@ -303,6 +303,66 @@ const SOLID: &[(&str, &[SolidPart])] = &[
         ],
     ),
     (
+        "mailings.selectRecipients",
+        &[
+            ("M3 3h18v18H3Z", Some(WHITE)),
+            ("M3 3h18v5H3Z", Some(SOFT)),
+            ("M3 3h18v18H3Z", None),
+            ("M3 8h18", None),
+            ("M6 11.5h2.5v2.5H6Z", Some(ICON_BLUE)),
+            ("M11 12.75h7", None),
+            ("M6 16h2.5v2.5H6Z", Some(ICON_BLUE)),
+            ("M11 17.25h7", None),
+        ],
+    ),
+    (
+        "mailings.mergeDocument",
+        &[
+            ("M4 3h11v13H4Z", Some(WHITE)),
+            ("M4 3h11v13H4Z", None),
+            ("M9 8h11v13H9Z", Some(SOFT)),
+            ("M9 8h11v13H9Z", None),
+            ("M11.5 11h6v2.2h-6Z", Some(ICON_BLUE)),
+            ("M11.5 16h6", None),
+            ("M11.5 18.5h4", None),
+        ],
+    ),
+    (
+        "review.checkDocument",
+        &[
+            ("M5 4h14v18H5Z", Some(WARM)),
+            ("M5 4h14v18H5Z", None),
+            ("M9 2.5h6v3.5H9Z", Some(WHITE)),
+            ("M9 2.5h6v3.5H9Z", None),
+            (
+                "M7.5 13.5l1.8-1.8l2.2 2.2l4.7-4.7l1.8 1.8l-6.5 6.5Z",
+                Some(GREEN),
+            ),
+        ],
+    ),
+    (
+        "review.trackChanges",
+        &[
+            ("M4 2h13v20H4Z", Some(WHITE)),
+            ("M4 2h13v20H4Z", None),
+            ("M7 6h7", None),
+            ("M7 9.5h7", None),
+            ("M7 13h4", None),
+            ("M12 19.5l8-8l2.2 2.2l-8 8H12Z", Some(ICON_BLUE)),
+        ],
+    ),
+    (
+        "view.normal",
+        &[
+            ("M3 4h18v16H3Z", Some(WHITE)),
+            ("M3 4h18v4H3Z", Some(SOFT)),
+            ("M3 4h18v16H3Z", None),
+            ("M3 8h18", None),
+            ("M7 12h10", None),
+            ("M7 15h10", None),
+        ],
+    ),
+    (
         "layout.margins",
         &[
             ("M4 2h16v20H4Z", Some(SOFT)),
@@ -365,19 +425,14 @@ const TINTS: &[(&str, &[(usize, Tint)])] = &[
     ),
     ("review.reject", &[(1, Tint::Red), (2, Tint::Red)]),
     ("review.acceptAll", &[(0, Tint::Green), (1, Tint::Green)]),
-    ("review.checkDocument", &[(2, Tint::Green)]),
     ("review.resolveComment", &[(1, Tint::Green)]),
-    ("review.trackChanges", &[(0, Tint::Blue)]),
-    ("view.normal", &[(0, Tint::Soft)]),
     (
         "view.zoomIn",
         &[(0, Tint::Soft), (2, Tint::Blue), (3, Tint::Blue)],
     ),
     ("view.zoomOut", &[(0, Tint::Soft), (2, Tint::Blue)]),
     ("view.ruler", &[(0, Tint::Warm)]),
-    ("mailings.selectRecipients", &[(0, Tint::Soft)]),
     ("mailings.preview", &[(1, Tint::Blue)]),
-    ("mailings.mergeDocument", &[(0, Tint::Soft)]),
 ];
 
 /// Index of the largest closed outline covering at least a third of the grid each way,

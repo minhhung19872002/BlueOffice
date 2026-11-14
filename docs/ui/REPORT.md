@@ -100,3 +100,23 @@ sáng, phản chiếu); đã render bốn hiệu ứng trên trang qua `BO_WINDO
 (`BO_WINDOW_WHEEL=1500`, cùng nội dung, zoom 100%): độ phủ mực 0,1051 so với 0,1073 của bản
 đối chiếu, sắc độ 0 ở cả hai, tỉ lệ pixel đậm 0,649 so với 0,604. Tám tab ribbon render ở 125%
 và tab Home ở 100% đều khớp lưới pixel.
+
+Vòng 5: so từng tab ribbon với bản đối chiếu (8 tab chụp bằng KeyTips, cùng máy, 125%). Tỉ lệ
+pixel đậm trong các pixel có mực (càng cao càng sắc; chỉ số thiên về icon nét đậm, icon
+nhiều màu của bản đối chiếu cho giá trị thấp hơn):
+
+| Tab | Đối chiếu | BlueDoc |
+| --- | --- | --- |
+| Home | 0,214 | 0,376 |
+| Insert | 0,244 | 0,538 |
+| Design | 0,238 | 0,546 |
+| Layout | 0,231 | 0,622 |
+| References | 0,347 | 0,505 |
+| Mailings | 0,123 | 0,497 |
+| Review | 0,325 | 0,480 |
+| View | 0,185 | 0,468 |
+
+Hiệu ứng chữ so ở 200% cùng chữ và tham số: bóng và viền chữ khớp; phát sáng chỉnh lại (nở nửa
+bán kính, làm mờ nửa còn lại; màu halo 194,209,234 so với 194,208,233); phản chiếu lật quanh
+đường cơ sở như bản đối chiếu.
+

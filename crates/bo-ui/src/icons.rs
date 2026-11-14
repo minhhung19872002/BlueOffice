@@ -152,6 +152,8 @@ const OVERRIDES: &[(&str, &[(&str, bool)])] = &[
 ];
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
+/// Dark grey of solid icon parts (a magnifier handle).
+const INK_FILL: Rgba = Rgba(0x3b, 0x44, 0x52, 255);
 
 /// A part of a coloured native drawing: path, fill colour (`None`: outline in ink).
 type SolidPart = (&'static str, Option<Rgba>);
@@ -186,6 +188,97 @@ const SOLID: &[(&str, &[SolidPart])] = &[
             ("M11.5 18h4", None),
         ],
     ),
+    (
+        "edit.find",
+        &[
+            ("M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0Z", Some(SOFT)),
+            ("M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0Z", None),
+            ("M15 15l6 6", None),
+            ("M15.6 14.2l1.4-1.4l6 6l-1.4 1.4Z", Some(INK_FILL)),
+        ],
+    ),
+    (
+        "insert.table",
+        &[
+            ("M3 4h18v16H3Z", Some(WHITE)),
+            ("M3 4h18v5H3Z", Some(SOFT)),
+            ("M3 4h18v16H3Z", None),
+            ("M3 9h18", None),
+            ("M3 14.5h18", None),
+            ("M9 4v16", None),
+            ("M15 4v16", None),
+        ],
+    ),
+    (
+        "insert.header",
+        &[
+            ("M5 2h14v20H5Z", Some(WHITE)),
+            ("M5 2h14v6H5Z", Some(SOFT)),
+            ("M5 2h14v20H5Z", None),
+            ("M5 8h14", None),
+            ("M8 12h8", None),
+            ("M8 15h8", None),
+            ("M8 18h5", None),
+        ],
+    ),
+    (
+        "insert.footer",
+        &[
+            ("M5 2h14v20H5Z", Some(WHITE)),
+            ("M5 16h14v6H5Z", Some(SOFT)),
+            ("M5 2h14v20H5Z", None),
+            ("M5 16h14", None),
+            ("M8 6h8", None),
+            ("M8 9h8", None),
+            ("M8 12h5", None),
+        ],
+    ),
+    (
+        "insert.pageBreak",
+        &[
+            ("M5 2h14v7H5Z", Some(WHITE)),
+            ("M5 2h14v7H5Z", None),
+            ("M5 15h14v7H5Z", Some(WHITE)),
+            ("M5 15h14v7H5Z", None),
+            ("M2 11.5h3.5v1.2H2Z", Some(ICON_BLUE)),
+            ("M7.5 11.5h3.5v1.2H7.5Z", Some(ICON_BLUE)),
+            ("M13 11.5h3.5v1.2H13Z", Some(ICON_BLUE)),
+            ("M18.5 11.5h3.5v1.2h-3.5Z", Some(ICON_BLUE)),
+        ],
+    ),
+    (
+        "layout.margins",
+        &[
+            ("M4 2h16v20H4Z", Some(SOFT)),
+            ("M7.5 5.5h9v13h-9Z", Some(WHITE)),
+            ("M4 2h16v20H4Z", None),
+            ("M7.5 5.5h9v13h-9Z", None),
+        ],
+    ),
+    (
+        "layout.orientation",
+        &[
+            ("M3 2h10v14H3Z", Some(WHITE)),
+            ("M3 2h10v14H3Z", None),
+            ("M8 11h13v10H8Z", Some(SOFT)),
+            ("M8 11h13v10H8Z", None),
+        ],
+    ),
+    (
+        "layout.columns",
+        &[
+            ("M3 3h18v18H3Z", Some(WHITE)),
+            ("M3 3h18v18H3Z", None),
+            ("M6 7h5", None),
+            ("M6 10h5", None),
+            ("M6 13h5", None),
+            ("M6 16h5", None),
+            ("M13 7h5", None),
+            ("M13 10h5", None),
+            ("M13 13h5", None),
+            ("M13 16h5", None),
+        ],
+    ),
 ];
 
 /// Coloured parts (by index in the icon's part list) of ribbon icons.
@@ -209,15 +302,11 @@ const TINTS: &[(&str, &[(usize, Tint)])] = &[
     ("data.sortAsc", &[(0, Tint::Blue), (1, Tint::Blue)]),
     ("edit.undo", &[(0, Tint::Blue), (1, Tint::Blue)]),
     ("edit.redo", &[(0, Tint::Blue), (1, Tint::Blue)]),
-    ("edit.find", &[(1, Tint::Soft)]),
-    ("insert.table", &[(1, Tint::Soft)]),
     ("insert.link", &[(2, Tint::Blue)]),
     (
         "review.newComment",
         &[(0, Tint::Soft), (1, Tint::Blue), (2, Tint::Blue)],
     ),
-    ("insert.header", &[(0, Tint::Soft)]),
-    ("insert.footer", &[(0, Tint::Soft)]),
     ("review.reject", &[(1, Tint::Red), (2, Tint::Red)]),
     ("review.acceptAll", &[(0, Tint::Green), (1, Tint::Green)]),
     ("review.checkDocument", &[(2, Tint::Green)]),

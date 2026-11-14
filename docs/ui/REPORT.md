@@ -178,3 +178,4 @@ Vòng 14: dò lưới gamma/contrast (7 bộ) và chế độ khử răng cưa (
 Thêm `BO_GRAY_MODE=gdinat|gdiclassic` (căn nét kiểu GDI): sai số 0,413 / 0,426, chỉ 9–13 mức xám — xa bản đối chiếu hơn chế độ mặc định (0,147).
 Vòng 16: icon nhóm Paragraph của ribbon native vẽ lại theo thiết kế riêng (bảng `OVERRIDES` trong `icons.rs`, bộ JSON dùng chung với React không đổi): căn lề 4 dòng thay 3, chấm đầu dòng tròn đặc, mũi tên thụt lề tam giác đặc — đọc rõ ở 16–20 px như bản đối chiếu, không dùng hình của hãng khác.
 Vòng 17: Dán và Sao chép vẽ lại có mảng màu đặc (bảng `SOLID` trong `icons.rs`, thiết kế riêng): bảng kẹp vàng ấm giữ trang trắng có dòng chữ; trang xanh nhạt chồng trang trắng. Khi nút bị vô hiệu chỉ vẽ nét.
+Vòng 18: thêm hình vẽ có mảng màu (thiết kế riêng) cho Tìm, Bảng, Đầu trang, Chân trang, Ngắt trang, Lề, Hướng giấy, Cột; đã chụp tab Home / Insert / Layout trên bản build.

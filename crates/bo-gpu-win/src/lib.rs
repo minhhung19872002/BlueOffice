@@ -31,15 +31,16 @@ pub enum TextRendering {
 }
 
 impl TextRendering {
-    /// Light ClearType chosen by measurement against screenshots of a desktop word processor
-    /// on the same monitor (`docs/perf/RESULTS.md`): about a third of the default subpixel
-    /// colour and slightly heavier stems. Grayscale when the user turned ClearType off.
+    /// Light ClearType chosen by measurement against a desktop word processor showing the
+    /// same Times New Roman text at the same pixel size (`text_modes_tnr`, RESULTS.md): no
+    /// extra contrast (heavier stems read as blurred next to its thin ones) and about 40 % of
+    /// the subpixel colour. Grayscale when the user turned ClearType off.
     pub fn document_default() -> Self {
         if system_cleartype() {
             Self::ClearType {
                 gamma: 1.8,
-                contrast: 2.0,
-                level: 0.35,
+                contrast: 0.0,
+                level: 0.4,
             }
         } else {
             Self::Grayscale
@@ -676,5 +677,126 @@ mod tests {
             .render_page_region(&page, &fonts, 1.25, &|_| None, Some([0, 0, 0, 0]))
             .unwrap();
         assert!(empty.pixels.is_empty());
+    }
+
+    /// Manual comparison with a desktop word processor screenshot: Times New Roman at the
+    /// pixel size it showed (`cargo test -p bo-gpu-win text_modes_tnr -- --ignored`).
+    #[test]
+    #[ignore = "writes sample images for visual review"]
+    #[allow(clippy::chunks_exact_to_as_chunks)] // `as_chunks` exceeds the workspace MSRV.
+    fn text_modes_tnr() {
+        use super::TextRendering;
+        use bo_render::{Command, Glyph, PageList, Rgba};
+        let Ok(font) = std::fs::read(r"C:\Windows\Fonts\times.ttf") else {
+            return;
+        };
+        let device = super::Device::new().expect("Direct2D hardware or WARP");
+        let mut fonts = bo_text::FontManager::new();
+        let face = fonts.add_font(font)[0];
+        let px = 13.0 * 1.1 * 1.25 * 96.0 / 72.0;
+        let size = 13.0 * 1.1;
+        let scale = size / f32::from(fonts.info(face).units_per_em);
+        let mut pen = 0;
+        let glyphs: Vec<Glyph> = fonts
+            .shape(face, "thị tiếng Việt có dấu, căn lề đều hai bên")
+            .iter()
+            .map(|g| {
+                let glyph = Glyph(g.glyph_id, (pen + g.x_offset) as f32 * scale, 0.0, 0);
+                pen += g.x_advance;
+                glyph
+            })
+            .collect();
+        let page = PageList {
+            width: 400.0,
+            height: 34.0,
+            commands: vec![Command::Glyphs {
+                face: face.0,
+                size,
+                x: 2.0,
+                y: 20.0,
+                color: Rgba(0, 0, 0, 255),
+                text: String::new(),
+                glyphs,
+            }],
+        };
+        let ppp = px / size;
+        let out = std::env::var("BO_TEXT_MODES_OUT").unwrap_or_else(|_| ".".into());
+        let modes = [
+            ("light", TextRendering::document_default()),
+            (
+                "full",
+                TextRendering::ClearType {
+                    gamma: 1.8,
+                    contrast: 0.5,
+                    level: 1.0,
+                },
+            ),
+            (
+                "full-c1",
+                TextRendering::ClearType {
+                    gamma: 2.2,
+                    contrast: 1.0,
+                    level: 1.0,
+                },
+            ),
+            (
+                "half",
+                TextRendering::ClearType {
+                    gamma: 1.8,
+                    contrast: 1.0,
+                    level: 0.6,
+                },
+            ),
+            ("gray", TextRendering::Grayscale),
+            (
+                "c0-l5",
+                TextRendering::ClearType {
+                    gamma: 1.8,
+                    contrast: 0.0,
+                    level: 0.5,
+                },
+            ),
+            (
+                "c0-l7",
+                TextRendering::ClearType {
+                    gamma: 1.8,
+                    contrast: 0.0,
+                    level: 0.7,
+                },
+            ),
+            (
+                "c0-l10",
+                TextRendering::ClearType {
+                    gamma: 1.8,
+                    contrast: 0.0,
+                    level: 1.0,
+                },
+            ),
+            (
+                "g22-c0-l6",
+                TextRendering::ClearType {
+                    gamma: 2.2,
+                    contrast: 0.0,
+                    level: 0.6,
+                },
+            ),
+            (
+                "c03-l6",
+                TextRendering::ClearType {
+                    gamma: 1.8,
+                    contrast: 0.3,
+                    level: 0.6,
+                },
+            ),
+        ];
+        for (name, mode) in modes {
+            device.set_text_rendering(mode);
+            let img = device.render_page(&page, &fonts, ppp, &|_| None).unwrap();
+            let mut ppm = format!("P6 {} {} 255\n", img.width, img.height).into_bytes();
+            for p in img.pixels.chunks_exact(4) {
+                ppm.extend_from_slice(&p[..3]);
+            }
+            std::fs::write(format!("{out}/tnr-{name}.ppm"), ppm).unwrap();
+        }
     }
 }

@@ -43,10 +43,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    IsZoomed, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTTOP,
-    HTTOPLEFT, HTTOPRIGHT, NCCALCSIZE_PARAMS, SM_CXPADDEDBORDER, SM_CXSIZEFRAME, SM_CYSIZEFRAME,
-    SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
-    WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
+    IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
+    HTTOP, HTTOPLEFT, HTTOPRIGHT, NCCALCSIZE_PARAMS, PM_REMOVE, SM_CXPADDEDBORDER, SM_CXSIZEFRAME,
+    SM_CYSIZEFRAME, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+    WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
+    WM_NCMOUSEMOVE, WM_QUIT,
 };
 
 /// What the window reports to the application.
@@ -65,6 +66,10 @@ pub trait Handler {
     fn nc_hit(&self, x: f32, y: f32) -> NcHit;
     /// Window operations asked for by the interface since the last call.
     fn window_requests(&mut self) -> Vec<Request>;
+    /// Input changed the view, or an animation runs: a frame should be drawn.
+    fn wants_frame(&self) -> bool;
+    /// Draw and present one frame (waits for the swap chain, so it paces to the display).
+    fn frame(&mut self);
 }
 
 thread_local! {
@@ -568,13 +573,29 @@ pub fn run(title: &str, handler: Box<dyn Handler>) -> Result<(), String> {
         with_handler(|hd| hd.paint());
         let _ = SetTimer(Some(hwnd), BLINK_TIMER, GetCaretBlinkTimeOr530(), None);
         let _ = SetTimer(Some(hwnd), TICK_TIMER, 100, None);
+        // Handle every queued message first, then draw one frame: a burst of input (an input
+        // method replacing a letter, key repeat) shows only its final state, once per refresh.
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        loop {
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                if msg.message == WM_QUIT {
+                    return Ok(());
+                }
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            if with_handler(|h| h.wants_frame()).unwrap_or(false) {
+                with_handler(|h| h.frame());
+                continue;
+            }
+            // Idle: sleep until the next message.
+            if !GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                return Ok(());
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     }
-    Ok(())
 }
 
 #[allow(non_snake_case)]

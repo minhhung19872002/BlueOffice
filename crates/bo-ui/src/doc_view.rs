@@ -15,6 +15,19 @@ const SELECTION: Rgba = Rgba(0x1f, 0x6f, 0xeb, 72);
 const CARET: Rgba = Rgba(0, 0, 0, 255);
 /// Gap between pages and around them, in logical pixels.
 const GAP: f32 = 16.0;
+/// Duration of the caret glide to its new position after typing or arrow keys (ms).
+const GLIDE_MS: f64 = 70.0;
+/// Farther caret moves (device pixels) jump instead of gliding.
+const GLIDE_MAX: f32 = 400.0;
+
+/// Caret glide from a window position towards the caret's laid-out position.
+#[derive(Debug, Clone, Copy)]
+struct Glide {
+    from: [f32; 4],
+    /// Start time; set by the first [`DocView::advance`] after the move.
+    start: Option<f64>,
+}
+
 /// Pages kept drawn beyond the visible ones (each way).
 const OVERSCAN: usize = 1;
 
@@ -46,6 +59,9 @@ pub struct DocView {
     caret: Option<CaretRect>,
     rects: Vec<SelRect>,
     caret_on: bool,
+    glide: Option<Glide>,
+    /// Host clock of the frame being drawn (ms).
+    now: f64,
     /// Display list each stored page image shows, with its scale (base of the next diff).
     shown: HashMap<usize, (f32, PageList)>,
     /// Pages the engine reported changed since their image was drawn.
@@ -70,6 +86,8 @@ impl DocView {
             caret: None,
             rects: Vec::new(),
             caret_on: true,
+            glide: None,
+            now: 0.0,
             shown: HashMap::new(),
             stale: HashSet::new(),
             modified: false,
@@ -117,6 +135,7 @@ impl DocView {
 
     /// Place the view at `(x, y)` with size `(width, height)` in window device pixels.
     pub fn set_frame(&mut self, x: f32, y: f32, width: f32, height: f32) {
+        self.glide = None;
         self.origin = (x, y);
         self.viewport = (width.max(1.0), height.max(1.0));
         self.clamp_scroll();
@@ -129,6 +148,7 @@ impl DocView {
             return false;
         }
         let ratio = zoom / self.zoom;
+        self.glide = None;
         self.zoom = zoom;
         self.scroll *= ratio;
         self.clamp_scroll();
@@ -212,6 +232,46 @@ impl DocView {
     /// Device pixels per point.
     pub fn scale(&self) -> f32 {
         self.zoom * self.display_scale * 96.0 / 72.0
+    }
+
+    /// Advance animations to the host clock `now_ms`; `true` while one is still running
+    /// (the host keeps drawing frames until it returns `false`).
+    pub fn advance(&mut self, now_ms: f64) -> bool {
+        self.now = now_ms;
+        let Some(g) = self.glide.as_mut() else {
+            return false;
+        };
+        let start = *g.start.get_or_insert(now_ms);
+        if now_ms - start >= GLIDE_MS {
+            self.glide = None;
+            return false;
+        }
+        true
+    }
+
+    /// Whether an animation is running.
+    pub fn animating(&self) -> bool {
+        self.glide.is_some()
+    }
+
+    /// Caret rectangle as drawn now (part way along a glide).
+    fn caret_shown(&self) -> Option<[f32; 4]> {
+        let to = self.caret_rect()?;
+        let Some(g) = self.glide else {
+            return Some(to);
+        };
+        let t = g
+            .start
+            .map_or(0.0, |s| ((self.now - s) / GLIDE_MS).clamp(0.0, 1.0)) as f32;
+        // Ease-out cubic: fast start, gentle arrival.
+        let e = 1.0 - (1.0 - t).powi(3);
+        let lerp = |a: f32, b: f32| a + (b - a) * e;
+        Some([
+            lerp(g.from[0], to[0]),
+            lerp(g.from[1], to[1]),
+            to[2],
+            lerp(g.from[3], to[3]),
+        ])
     }
 
     /// Caret rectangle in view device pixels, when it is laid out and visible.
@@ -310,6 +370,7 @@ impl DocView {
             }
             Input::Key(key, mods) => self.key(key, mods),
             Input::Wheel(dy) => {
+                self.glide = None;
                 let before = self.scroll;
                 self.scroll += dy;
                 self.clamp_scroll();
@@ -437,7 +498,17 @@ impl DocView {
             self.clamp_scroll();
         }
         self.stale.extend(r.dirty.iter().copied());
+        // Glide the caret from where it is shown now, like desktop word processors do while
+        // typing; long moves (another line far away, other page) jump.
+        let shown = self.caret_shown();
         self.caret = r.caret;
+        self.glide = match (shown, self.caret_rect()) {
+            (Some(from), Some(to)) if from != to => {
+                let d = (from[0] - to[0]).hypot(from[1] - to[1]);
+                (d <= GLIDE_MAX * self.display_scale).then_some(Glide { from, start: None })
+            }
+            _ => None,
+        };
         self.rects.clone_from(&r.rects);
         self.modified = r.modified;
         self.format.clone_from(&r.format);
@@ -551,8 +622,8 @@ impl DocView {
                 );
             }
         }
-        if self.caret_on && self.rects.is_empty() {
-            if let Some([x, y, w, h]) = self.caret_rect() {
+        if (self.caret_on || self.glide.is_some()) && self.rects.is_empty() {
+            if let Some([x, y, w, h]) = self.caret_shown() {
                 p.fill_rect(x.round(), y.round(), w, h.round(), CARET);
             }
         }
@@ -689,5 +760,33 @@ mod tests {
             },
         ));
         assert_eq!(v.engine.page(0).unwrap(), &before, "undo restores the page");
+    }
+
+    #[test]
+    fn caret_glides_to_its_new_place_then_stops() {
+        let mut v = view();
+        v.advance(0.0);
+        let before = v.caret_shown().unwrap();
+        v.handle(Input::Text("x".into()));
+        assert!(v.animating());
+        assert!(v.advance(1000.0), "the glide starts at the next frame");
+        assert_eq!(
+            v.caret_shown().unwrap(),
+            before,
+            "first frame: where it was"
+        );
+        assert!(v.advance(1035.0));
+        let mid = v.caret_shown().unwrap();
+        let end = v.caret_rect().unwrap();
+        assert!(
+            mid[0] > before[0] && mid[0] < end[0],
+            "{before:?} {mid:?} {end:?}"
+        );
+        assert!(!v.advance(1100.0), "done after the glide");
+        assert_eq!(v.caret_shown().unwrap(), end);
+        // Scrolling cancels a glide.
+        v.handle(Input::Text("y".into()));
+        v.handle(Input::Wheel(50.0));
+        assert!(!v.animating());
     }
 }

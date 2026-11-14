@@ -42,11 +42,14 @@ pub fn run() -> Result<(), String> {
         }
     } else {
         engine
-            .new_document("Tài liệu mới.docx")
+            .new_document("Document1.docx")
             .map_err(|e| e.to_string())?;
-        "Tài liệu mới.docx".into()
+        "Document1.docx".into()
     };
-    let view = DocWindow::new(DocView::new(engine)?, "vi-VN", &name);
+    // Interface language: English by default (owner's choice, 2026-11-14); BLUEOFFICE_LOCALE
+    // selects another locale of packages/i18n (e.g. vi-VN).
+    let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
+    let view = DocWindow::new(DocView::new(engine)?, &locale, &name);
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -62,6 +65,9 @@ pub fn run() -> Result<(), String> {
             perf,
             file,
             pending: Vec::new(),
+            dirty: true,
+            pending_input: None,
+            clock: Instant::now(),
         }),
     )
 }
@@ -204,6 +210,11 @@ struct Shell {
     file: Option<std::path::PathBuf>,
     /// Window operations for the window layer.
     pending: Vec<Request>,
+    /// A frame is needed (drawn when the message queue is empty).
+    dirty: bool,
+    pending_input: Option<PendingInput>,
+    /// Clock of animations.
+    clock: Instant,
 }
 
 impl Shell {
@@ -242,6 +253,15 @@ impl Shell {
             view.paint(&mut WinPainter { frame, pages });
         })
     }
+}
+
+/// Inputs handled since the last frame, for the performance log.
+struct PendingInput {
+    first: Instant,
+    kind: &'static str,
+    age_ms: u32,
+    handle: std::time::Duration,
+    count: u32,
 }
 
 impl Handler for Shell {
@@ -311,22 +331,18 @@ impl Handler for Shell {
         if !redraw {
             return;
         }
-        let handled = start.elapsed();
-        if let Err(e) = self.render() {
-            eprintln!("render: {e}");
-        }
-        if let (Some(file), false) = (
-            self.perf.as_mut(),
-            matches!(kind, "blink" | "move" | "tick"),
-        ) {
-            let total = start.elapsed();
-            let _ = writeln!(
-                file,
-                r#"{{"input":"{kind}","age_ms":{age_ms},"handle_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
-                handled.as_secs_f64() * 1e3,
-                total.saturating_sub(handled).as_secs_f64() * 1e3,
-                total.as_secs_f64() * 1e3 + f64::from(age_ms),
-            );
+        // The frame is drawn once the message queue is empty (win32::run).
+        self.dirty = true;
+        if !matches!(kind, "blink" | "move" | "tick") {
+            let p = self.pending_input.get_or_insert(PendingInput {
+                first: start,
+                kind,
+                age_ms,
+                handle: std::time::Duration::ZERO,
+                count: 0,
+            });
+            p.handle += start.elapsed();
+            p.count += 1;
         }
     }
 
@@ -363,5 +379,31 @@ impl Handler for Shell {
 
     fn window_requests(&mut self) -> Vec<Request> {
         std::mem::take(&mut self.pending)
+    }
+
+    fn wants_frame(&self) -> bool {
+        self.dirty || self.view.animating()
+    }
+
+    fn frame(&mut self) {
+        self.dirty = false;
+        let now = self.clock.elapsed().as_secs_f64() * 1e3;
+        self.view.advance(now);
+        if let Err(e) = self.render() {
+            eprintln!("render: {e}");
+        }
+        if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
+            let total = p.first.elapsed();
+            let _ = writeln!(
+                file,
+                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
+                p.kind,
+                p.count,
+                p.age_ms,
+                p.handle.as_secs_f64() * 1e3,
+                total.saturating_sub(p.handle).as_secs_f64() * 1e3,
+                total.as_secs_f64() * 1e3 + f64::from(p.age_ms),
+            );
+        }
     }
 }

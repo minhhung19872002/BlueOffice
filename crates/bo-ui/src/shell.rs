@@ -508,6 +508,16 @@ impl DocWindow {
         true
     }
 
+    /// Whether an animation needs more frames.
+    pub fn animating(&self) -> bool {
+        self.view.animating()
+    }
+
+    /// Advance animations to the host clock (ms); `true` while frames are still needed.
+    pub fn advance(&mut self, now_ms: f64) -> bool {
+        self.view.advance(now_ms)
+    }
+
     /// Update page images of the visible pages.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
         self.view.prepare(store)

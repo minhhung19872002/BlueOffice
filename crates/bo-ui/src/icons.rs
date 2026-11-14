@@ -59,6 +59,8 @@ enum Tint {
     Blue,
     /// Stroke in red (removing).
     Red,
+    /// Stroke in green (accepting, checking).
+    Green,
     /// A light blue fill under the ink stroke.
     Soft,
     /// A warm fill under the ink stroke.
@@ -69,6 +71,7 @@ enum Tint {
 // toolbar icons read at a glance without imitating any other product's artwork.
 pub const ICON_BLUE: Rgba = Rgba(0x1e, 0x6f, 0xd9, 255);
 const RED: Rgba = Rgba(0xd2, 0x3f, 0x31, 255);
+const GREEN: Rgba = Rgba(0x1e, 0x8e, 0x3e, 255);
 const SOFT: Rgba = Rgba(0xd6, 0xe6, 0xfb, 255);
 const WARM: Rgba = Rgba(0xf7, 0xd3, 0x8a, 255);
 
@@ -107,6 +110,21 @@ const TINTS: &[(&str, &[(usize, Tint)])] = &[
     ),
     ("insert.header", &[(0, Tint::Soft)]),
     ("insert.footer", &[(0, Tint::Soft)]),
+    ("review.reject", &[(1, Tint::Red), (2, Tint::Red)]),
+    ("review.acceptAll", &[(0, Tint::Green), (1, Tint::Green)]),
+    ("review.checkDocument", &[(2, Tint::Green)]),
+    ("review.resolveComment", &[(1, Tint::Green)]),
+    ("review.trackChanges", &[(0, Tint::Blue)]),
+    ("view.normal", &[(0, Tint::Soft)]),
+    (
+        "view.zoomIn",
+        &[(0, Tint::Soft), (2, Tint::Blue), (3, Tint::Blue)],
+    ),
+    ("view.zoomOut", &[(0, Tint::Soft), (2, Tint::Blue)]),
+    ("view.ruler", &[(0, Tint::Warm)]),
+    ("mailings.selectRecipients", &[(0, Tint::Soft)]),
+    ("mailings.preview", &[(1, Tint::Blue)]),
+    ("mailings.mergeDocument", &[(0, Tint::Soft)]),
 ];
 
 fn tint_of(name: &str, part: usize) -> Option<Tint> {
@@ -183,6 +201,7 @@ impl Icons {
             match tint {
                 Some(Tint::Blue) => base = ICON_BLUE,
                 Some(Tint::Red) => base = RED,
+                Some(Tint::Green) => base = GREEN,
                 Some(Tint::Soft) => under = Some(SOFT),
                 Some(Tint::Warm) => under = Some(WARM),
                 None => {}

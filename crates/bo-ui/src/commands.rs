@@ -51,7 +51,8 @@ pub fn style_name_key(name: &str) -> Option<&'static str> {
 
 /// The `'static` id of a ribbon command (menus anchor to the button that opened them).
 pub fn static_id(id: &str) -> &'static str {
-    const MENUS: [&str; 16] = [
+    const MENUS: [&str; 17] = [
+        "format.textEffects",
         "format.multilevel",
         "format.changeCase",
         "format.shading",

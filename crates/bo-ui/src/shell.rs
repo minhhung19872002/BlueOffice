@@ -1348,6 +1348,8 @@ mod tests {
             "format.multilevel.outline",
             "format.paraBorders.all",
             "format.sortParagraphs.asc",
+            "format.textEffects.glow",
+            "format.textEffects.none",
         ] {
             let cmd = crate::catalog::command(id, &sec).expect(id);
             w.view.run_command(cmd);

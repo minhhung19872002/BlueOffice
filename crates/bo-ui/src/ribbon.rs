@@ -198,6 +198,7 @@ fn home() -> Tab {
                         B("format.strike"),
                         B("format.subscript"),
                         B("format.superscript"),
+                        B("format.textEffects"),
                         B("format.highlight"),
                         B("format.color"),
                     ],
@@ -1134,8 +1135,9 @@ impl Ribbon {
                         let glyph = &GLYPH_BUTTONS[g].1;
                         let font = glyph.font(self.px(glyph.size));
                         let (w, line) = self.glyph_size[g];
+                        let room = if is_menu { r.w - self.px(10.0) } else { r.w };
                         let (gx, gy) = (
-                            (r.x + (r.w - w) / 2.0).round(),
+                            (r.x + (room - w) / 2.0).round(),
                             (r.y + (r.h - line) / 2.0).round(),
                         );
                         // With an index or a mark the letter and its decoration are centred
@@ -1145,22 +1147,52 @@ impl Ribbon {
                             weight: 600,
                             ..font
                         };
-                        let shift =
-                            if matches!(glyph.decor, Decor::None | Decor::Strike | Decor::Bar(_)) {
-                                0.0
-                            } else {
-                                -self.px(3.0)
-                            };
+                        let shift = if matches!(
+                            glyph.decor,
+                            Decor::None | Decor::Strike | Decor::Bar(_) | Decor::Effects
+                        ) {
+                            0.0
+                        } else {
+                            -self.px(3.0)
+                        };
                         let gx = gx + shift;
-                        p.text_font(glyph.text, gx, gy, &font, ink);
+                        if glyph.decor == Decor::Effects && enabled {
+                            // Outline: the letter in blue one pixel around, white inside.
+                            let d = self.scale.round().max(1.0);
+                            for (dx, dy) in [(-d, 0.0), (d, 0.0), (0.0, -d), (0.0, d)] {
+                                p.text_font(
+                                    glyph.text,
+                                    gx + dx,
+                                    gy + dy,
+                                    &font,
+                                    crate::icons::ICON_BLUE,
+                                );
+                            }
+                            p.text_font(glyph.text, gx, gy, &font, Rgba(255, 255, 255, 255));
+                        } else {
+                            p.text_font(glyph.text, gx, gy, &font, ink);
+                        }
                         let mark = if enabled {
                             crate::icons::ICON_BLUE
                         } else {
                             ink
                         };
                         // Segoe UI: ascent ≈ 1.08 em, x-height ≈ 0.5 em, cap ≈ 0.7 em.
+                        if is_menu {
+                            let (cx, cy, k) =
+                                (r.x + r.w - self.px(6.0), r.y + r.h / 2.0, self.px(2.0));
+                            p.path(
+                                &[
+                                    bo_render::PathSeg::M(cx - k, cy - k / 2.0),
+                                    bo_render::PathSeg::L(cx, cy + k / 2.0),
+                                    bo_render::PathSeg::L(cx + k, cy - k / 2.0),
+                                ],
+                                None,
+                                Some((ink, self.scale.max(1.0))),
+                            );
+                        }
                         match glyph.decor {
-                            Decor::None => {}
+                            Decor::None | Decor::Effects => {}
                             Decor::Bar(color) => {
                                 let bar = self.px(4.0);
                                 let y = (r.y + r.h - bar - self.px(3.0)).round();
@@ -1549,6 +1581,8 @@ enum Decor {
     Shrink,
     /// A colour bar under the letter (the colour the button applies).
     Bar(Rgba),
+    /// The letter outlined in blue (text effects).
+    Effects,
 }
 
 impl GlyphButton {
@@ -1563,7 +1597,7 @@ impl GlyphButton {
     }
 }
 
-const GLYPH_BUTTONS: [(&str, GlyphButton); 10] = [
+const GLYPH_BUTTONS: [(&str, GlyphButton); 11] = [
     (
         "format.growStep",
         GlyphButton {
@@ -1682,6 +1716,18 @@ const GLYPH_BUTTONS: [(&str, GlyphButton); 10] = [
             italic: false,
             underline: false,
             decor: Decor::None,
+        },
+    ),
+    (
+        "format.textEffects",
+        GlyphButton {
+            text: "A",
+            family: "Segoe UI",
+            size: 18.0,
+            weight: 700,
+            italic: false,
+            underline: false,
+            decor: Decor::Effects,
         },
     ),
 ];
@@ -2050,7 +2096,8 @@ mod tests {
                 for item in g.large.iter().chain(g.rows.iter().flatten()) {
                     if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
                         assert!(commands::enabled(id, &format), "{id} has no action");
-                        assert!(icons.has(icon_of(id)), "{id} has no icon");
+                        let glyph = GLYPH_BUTTONS.iter().any(|(g, _)| g == id);
+                        assert!(glyph || icons.has(icon_of(id)), "{id} has no icon");
                         let key = format!("commands.{id}");
                         assert_ne!(strings.get(&key), key, "missing label {key}");
                     }

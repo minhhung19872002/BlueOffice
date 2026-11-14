@@ -71,6 +71,13 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("format.shading.E2EFDA", "Light green"),
             e("format.shading.FCE4D6", "Light orange"),
         ],
+        "format.textEffects" => vec![
+            e("format.textEffects.outline", "Outline"),
+            e("format.textEffects.shadow", "Shadow"),
+            e("format.textEffects.glow", "Glow"),
+            e("format.textEffects.reflection", "Reflection"),
+            e("format.textEffects.none", "No effects"),
+        ],
         "format.multilevel" => vec![
             e("format.multilevel.outline", "1.  1.1.  1.1.1."),
             e("format.multilevel.mixed", "1)  a)  i)"),
@@ -191,6 +198,27 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
             rows: r.parse().ok()?,
             cols: c.parse().ok()?,
         });
+    }
+    if let Some(effect) = id.strip_prefix("format.textEffects.") {
+        // Text effects (w14 textOutline, shadow, glow, reflection; [MS-DOCX] 2.6).
+        let patch = match effect {
+            "outline" => json!({ "textOutline": { "color": "4472C4", "width": 0.75 } }),
+            "shadow" => json!({ "softShadow": {
+                "color": "000000", "blur": 4.0, "distance": 3.0, "angle": 45.0, "transparency": 60,
+            } }),
+            "glow" => json!({ "glow": { "color": "4472C4", "radius": 5.0, "transparency": 60 } }),
+            "reflection" => json!({ "reflection": {
+                "size": 50, "transparency": 50, "distance": 0.0,
+            } }),
+            "none" => json!({
+                "textOutline": null, "softShadow": null, "glow": null, "reflection": null,
+            }),
+            _ => return None,
+        };
+        return from_json(json!({
+            "cmd": "formatText",
+            "format": { "kind": "advanced", "patch": patch },
+        }));
     }
     if let Some(kind) = id.strip_prefix("format.multilevel.") {
         // ECMA-376 Part 1, §17.9.1 abstractNum / §17.9.6 lvl; headings link §17.9.23 pStyle.
@@ -360,6 +388,7 @@ mod tests {
             "format.paraBorders",
             "format.sortParagraphs",
             "format.multilevel",
+            "format.textEffects",
         ] {
             for entry in menu(id) {
                 assert!(command(entry.id, &page).is_some(), "{}", entry.id);

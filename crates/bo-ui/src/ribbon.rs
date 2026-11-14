@@ -159,6 +159,9 @@ pub struct Ribbon {
     /// Measured (width, height) of each of [`GLYPH_BUTTONS`] at the current scale.
     glyph_size: [(f32, f32); GLYPH_BUTTONS.len()],
     previews: Vec<(&'static str, f32)>,
+    /// Height of the group label row, from the measured label text (it grows with the
+    /// platform's interface text size, as the reference ribbon does).
+    label_row: f32,
 }
 
 fn home() -> Tab {
@@ -461,6 +464,7 @@ impl Ribbon {
             label_w: std::cell::RefCell::new(std::collections::HashMap::new()),
             glyph_size: [(0.0, 0.0); GLYPH_BUTTONS.len()],
             previews: Vec::new(),
+            label_row: 0.0,
         }
     }
 
@@ -473,9 +477,20 @@ impl Ribbon {
         self.px(36.0)
     }
 
+    /// Height of the band holding the group commands (three small-button rows high, as
+    /// on the reference ribbon; two-row groups are centred in it).
+    fn band_h(&self) -> f32 {
+        self.px(80.0)
+    }
+
+    /// Height of the group label row.
+    fn label_h(&self) -> f32 {
+        self.px(18.0).max(self.label_row)
+    }
+
     /// Height of the whole ribbon in device pixels.
     pub fn height(&self) -> f32 {
-        self.strip_h() + self.px(92.0)
+        self.strip_h() + self.px(4.0) + self.band_h() + self.label_h() + self.px(4.0)
     }
 
     /// Lay the ribbon out for a window `width` device pixels wide at display `scale`.
@@ -579,11 +594,18 @@ impl Ribbon {
         }
         self.placed.extend(tabs);
         // Groups of the active tab.
-        let content_top = strip + self.px(6.0);
-        let (btn, gap, row_gap) = (self.px(28.0), self.px(2.0), self.px(4.0));
-        let label_h = self.px(18.0);
+        let label_style = TextStyle {
+            size: self.px(12.0),
+            bold: false,
+        };
+        self.label_row = (text.measure("Ag", label_style).1 + self.px(4.0)).ceil();
+        let content_top = strip + self.px(4.0);
+        let (btn, gap, row_gap) = (self.px(28.0), self.px(2.0), self.px(8.0));
+        let label_h = self.label_h();
         let bottom = self.height() - self.px(4.0);
-        let content_h = 2.0 * btn + row_gap;
+        let content_h = self.band_h();
+        // Two rows of small buttons, centred in the band.
+        let rows_top = content_top + ((content_h - (2.0 * btn + row_gap)) / 2.0).floor();
         // The gallery is the first group to compact as the window narrows. Its
         // menu remains available even when no preview tile fits.
         let mut tile_count = TILES;
@@ -638,7 +660,7 @@ impl Ribbon {
                 }
                 group_w = group_w.max(lx - gap - gx + self.px(4.0));
                 for (r, row) in g.rows.iter().enumerate() {
-                    let y = content_top + r as f32 * (btn + row_gap);
+                    let y = rows_top + r as f32 * (btn + row_gap);
                     let mut x = lx;
                     for item in row {
                         let w = match item {
@@ -1368,20 +1390,19 @@ impl Ribbon {
                     let ink =
                         crate::theme::parse_color(&format!("#{}", pv.color)).unwrap_or(t.text);
                     p.push_clip(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
-                    p.text_font(sample, r.x + self.px(6.0), r.y + self.px(6.0), &font, ink);
+                    // Style name on the bottom line (label-sized, as on the reference
+                    // gallery), the sample centred in the space above it.
+                    let name_y = (r.y + r.h - self.label_h() - self.px(2.0)).round();
+                    let sample_h = size * 1.25;
+                    let sample_y = (r.y + (name_y - r.y - sample_h) / 2.0).round();
+                    p.text_font(sample, r.x + self.px(6.0), sample_y, &font, ink);
                     let name = TextStyle {
-                        size: self.px(11.0),
+                        size: self.px(12.0),
                         bold: false,
                     };
                     let shown = commands::style_name_key(&st.name)
                         .map_or(st.name.as_str(), |k| strings.get(k));
-                    p.text(
-                        shown,
-                        r.x + self.px(6.0),
-                        r.y + r.h - self.px(20.0),
-                        name,
-                        t.text_muted,
-                    );
+                    p.text(shown, r.x + self.px(6.0), name_y, name, t.text_muted);
                     p.pop_clip();
                 }
                 Placed::More(r) => {

@@ -142,3 +142,7 @@ cài đặt, `BLUEOFFICE_TEXT_SCALE=1.1` để thử) và nhân vào mọi cỡ 
 Đo lại ở 125%: độ rộng 7 nhãn tab trùng từng pixel (42/52/51/81/63/52/37), nhãn nhóm "Clipboard"
 66×16 px ở cả hai bên (trước: 64×14). Ghi chú: bản sao `out/desktop/bluedoc-native.exe` từ 14/11 sáng
 chưa có các vòng chỉnh nét trước — đã thay bằng bản mới.
+Vòng 8: thân ribbon theo hình học bản đối chiếu — dải lệnh cao 80 px logic (ba hàng nút nhỏ; nhóm
+hai hàng như Font căn giữa dải, khoảng hàng 8 px), hàng nhãn nhóm theo chiều cao chữ đo được (giãn theo
+cỡ chữ hệ thống). Ở 125%/110%: thân ribbon 133 px so với 135 px của bản đối chiếu (trước 115 px). Ô
+kiểu trong gallery: chữ mẫu căn giữa phần trên, tên kiểu cỡ nhãn nhóm ở dòng dưới.

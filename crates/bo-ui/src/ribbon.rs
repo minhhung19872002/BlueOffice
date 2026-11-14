@@ -39,7 +39,7 @@ fn icon_of(id: &str) -> &str {
         "review.rejectAll" => "review.reject",
         "review.deleteComment" => "review.resolveComment",
         "review.wordCount" => "review.checkDocument",
-        "design.pageColor" => "format.fillColor",
+        "design.pageColor" | "format.shading" => "format.fillColor",
         "design.watermark" => "layout.pageSetup",
         "view.layout" => "view.normal",
         "view.onePage" => "view.reading",
@@ -186,6 +186,7 @@ fn home() -> Tab {
                         SizeBox,
                         B("format.growStep"),
                         B("format.shrinkStep"),
+                        B("format.changeCase"),
                         B("format.clear"),
                     ],
                     vec![
@@ -217,6 +218,7 @@ fn home() -> Tab {
                         B("format.alignRight"),
                         B("format.justify"),
                         B("format.lineSpacing"),
+                        B("format.shading"),
                     ],
                 ],
             },
@@ -1007,7 +1009,14 @@ impl Ribbon {
         on_ids: &[&str],
     ) {
         let strip = self.strip_h();
-        p.fill_rect(0.0, self.top, self.width, self.height(), t.surface);
+        p.fill_rect(0.0, self.top, self.width, strip, t.surface);
+        p.fill_rect(
+            0.0,
+            self.top + strip,
+            self.width,
+            self.height() - strip,
+            t.ribbon,
+        );
         // Line under the ribbon.
         p.fill_rect(0.0, self.bottom() - 1.0, self.width, 1.0, t.border);
         let tab_style = TextStyle {
@@ -1294,7 +1303,10 @@ impl Ribbon {
                     if let Some(c) = tint(RibbonHit::Style(*i)) {
                         radius_rect(p, r, c);
                     }
-                    // Tile frame: accent when it is the style at the selection.
+                    // Tile on a white card; frame accent when it is the style at the selection.
+                    if tint(RibbonHit::Style(*i)).is_none() {
+                        p.fill_rect(r.x, r.y, r.w, r.h, t.surface);
+                    }
                     let edge = if current { t.accent } else { t.border };
                     p.fill_rect(r.x, r.y, r.w, 1.0, edge);
                     p.fill_rect(r.x, r.y + r.h - 1.0, r.w, 1.0, edge);

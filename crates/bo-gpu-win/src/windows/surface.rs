@@ -650,8 +650,15 @@ mod visual_tests {
         engine
             .open(&std::fs::read(path).unwrap(), "phase1-sample.docx")
             .unwrap();
-        let mut window =
-            DocWindow::new(DocView::new(engine).unwrap(), "en-US", "phase1-sample.docx");
+        let mut view = DocView::new(engine).unwrap();
+        // BO_WINDOW_ZOOM=1.5 renders the document at another zoom.
+        if let Some(z) = std::env::var("BO_WINDOW_ZOOM")
+            .ok()
+            .and_then(|z| z.parse().ok())
+        {
+            view.set_zoom(z);
+        }
+        let mut window = DocWindow::new(view, "en-US", "phase1-sample.docx");
         let measure = Measure(&device);
         let context_test = std::env::var_os("BO_WINDOW_CONTEXT").is_some();
         let (width, height, scale) = if context_test {

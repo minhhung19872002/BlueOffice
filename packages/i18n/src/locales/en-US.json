@@ -246,6 +246,7 @@
       "styleHeading3": "Heading 3",
       "growStep": "Increase font size",
       "shrinkStep": "Decrease font size",
+      "lineSpacing": "Line spacing",
       "lineSpacing1": "Single line spacing",
       "lineSpacing15": "1.5 line spacing",
       "lineSpacing2": "Double line spacing",
@@ -258,6 +259,7 @@
       "clearChar": "Remove character formatting",
       "resetPara": "Remove paragraph formatting",
       "changeCase": "Change case",
+      "shading": "Shading",
       "case": {
         "sentence": "Sentence case",
         "lower": "lowercase",

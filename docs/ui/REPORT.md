@@ -84,3 +84,10 @@ chụp cửa sổ 1500×1102 px vật lý rồi phóng 4× từng vùng.
 
 `BLUEOFFICE_TEXT=light` giữ cách vẽ chữ trang cũ. Phép đo: tỉ lệ pixel tối/mờ và sắc độ
 trên vùng thân văn bản (bỏ gạch đỏ chính tả của bản đối chiếu).
+
+Vòng 2 (cùng ngày): thân ribbon nền xám trung tính `#f3f3f3` (ô nhập và ô kiểu trắng),
+icon có màu nhấn theo bảng màu riêng (không mô phỏng icon của hãng khác), thêm Aa (đổi chữ
+hoa/thường, menu), Tô nền đoạn (menu màu, §17.3.1.31 shd), Màu chữ, Tô sáng và ¶.
+Đối chiếu thêm ở zoom 150%: độ phủ mực thân văn bản 0,1109 so với 0,1102 của bản đối
+chiếu, tỉ lệ pixel đậm cao hơn (nét sắc hơn); ribbon ở DPI 100% và 125% đều khớp lưới pixel.
+Chưa có trong engine nên chưa có nút: viền đoạn văn, sắp xếp đoạn văn.

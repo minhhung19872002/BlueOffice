@@ -93,6 +93,7 @@ const TINTS: &[(&str, &[(usize, Tint)])] = &[
     ("format.indent", &[(3, Tint::Blue)]),
     ("format.lineSpacing", &[(3, Tint::Blue), (4, Tint::Blue)]),
     ("format.clear", &[(3, Tint::Red), (4, Tint::Red)]),
+    ("format.fillColor", &[(2, Tint::Blue)]),
     ("edit.undo", &[(0, Tint::Blue), (1, Tint::Blue)]),
     ("edit.redo", &[(0, Tint::Blue), (1, Tint::Blue)]),
     ("edit.find", &[(1, Tint::Soft)]),

@@ -56,6 +56,21 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("format.lineSpacing15", "commands.format.lineSpacing15"),
             e("format.lineSpacing2", "commands.format.lineSpacing2"),
         ],
+        "format.changeCase" => vec![
+            e("format.changeCase.sentence", "Sentence case"),
+            e("format.changeCase.lower", "lowercase"),
+            e("format.changeCase.upper", "UPPERCASE"),
+            e("format.changeCase.title", "Capitalize Each Word"),
+            e("format.changeCase.toggle", "tOGGLE cASE"),
+        ],
+        "format.shading" => vec![
+            e("format.shading.none", "No color"),
+            e("format.shading.FFFF00", "Yellow"),
+            e("format.shading.D9D9D9", "Light gray"),
+            e("format.shading.DDEBF7", "Light blue"),
+            e("format.shading.E2EFDA", "Light green"),
+            e("format.shading.FCE4D6", "Light orange"),
+        ],
         "layout.margins" => vec![
             e("layout.margins.normal", "Normal — 2.54 cm"),
             e("layout.margins.narrow", "Narrow — 1.27 cm"),
@@ -152,6 +167,16 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
         return Some(Command::InsertTable {
             rows: r.parse().ok()?,
             cols: c.parse().ok()?,
+        });
+    }
+    if let Some(mode) = id.strip_prefix("format.changeCase.") {
+        return from_json(json!({ "cmd": "changeCase", "mode": mode }));
+    }
+    if let Some(color) = id.strip_prefix("format.shading.") {
+        // ECMA-376 Part 1, §17.3.1.31 shd (paragraph shading fill).
+        let hex = (color != "none").then(|| color.to_owned());
+        return Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::Shading { hex },
         });
     }
     if let Some(color) = id.strip_prefix("design.pageColor.") {
@@ -256,6 +281,8 @@ mod tests {
             "design.watermark",
             "view.layout",
             "format.lineSpacing",
+            "format.changeCase",
+            "format.shading",
         ] {
             for entry in menu(id) {
                 assert!(command(entry.id, &page).is_some(), "{}", entry.id);

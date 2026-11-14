@@ -246,6 +246,7 @@
       "styleHeading3": "Đề mục 3",
       "growStep": "Tăng cỡ chữ",
       "shrinkStep": "Giảm cỡ chữ",
+      "lineSpacing": "Giãn dòng",
       "lineSpacing1": "Giãn dòng đơn",
       "lineSpacing15": "Giãn dòng 1,5",
       "lineSpacing2": "Giãn dòng đôi",
@@ -258,6 +259,7 @@
       "clearChar": "Xoá định dạng ký tự",
       "resetPara": "Xoá định dạng đoạn",
       "changeCase": "Đổi chữ hoa / thường",
+      "shading": "Tô nền",
       "case": {
         "sentence": "Viết hoa đầu câu",
         "lower": "chữ thường",

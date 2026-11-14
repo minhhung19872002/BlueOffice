@@ -40,6 +40,8 @@ pub fn parse_color(s: &str) -> Option<Rgba> {
     ))
 }
 
+const RIBBON_LIGHT: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
+
 /// Interface colours of one theme and one app accent.
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -47,6 +49,9 @@ pub struct Theme {
     pub bg: Rgba,
     /// Ribbon and panel surface.
     pub surface: Rgba,
+    /// Body of the ribbon under the tab strip: a neutral light gray so white fields and
+    /// galleries stand out, as on desktop office ribbons.
+    pub ribbon: Rgba,
     /// Lines between groups and around controls.
     pub border: Rgba,
     /// Body text.
@@ -86,6 +91,7 @@ impl Theme {
         Some(Self {
             bg: get("bg")?,
             surface: get("surface")?,
+            ribbon: get("ribbon").unwrap_or(RIBBON_LIGHT),
             border: get("border")?,
             text: get("text")?,
             text_muted: get("text-muted")?,
@@ -104,6 +110,7 @@ impl Theme {
         Self {
             bg: Rgba(0xee, 0xf1, 0xf5, 255),
             surface: Rgba(255, 255, 255, 255),
+            ribbon: RIBBON_LIGHT,
             border: Rgba(0xd3, 0xd9, 0xe2, 255),
             text: Rgba(0x1b, 0x24, 0x30, 255),
             text_muted: Rgba(0x4f, 0x5a, 0x6a, 255),

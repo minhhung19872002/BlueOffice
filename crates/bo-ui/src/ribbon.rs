@@ -1809,6 +1809,24 @@ mod tests {
     }
 
     #[test]
+    fn every_menu_button_anchors_its_menu() {
+        // A menu opens under its button only when the id resolves to a static id;
+        // otherwise it would open in the window's top-left corner.
+        let ribbon = Ribbon::new();
+        for tab in &ribbon.tabs {
+            for g in &tab.groups {
+                for item in g.large.iter().chain(g.rows.iter().flatten()) {
+                    if let Item::Button(id) | Item::Large(id) | Item::Labeled(id) = item {
+                        if crate::catalog::is_menu(id) {
+                            assert_eq!(crate::commands::static_id(id), *id, "{id}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn gallery_previews_fit_wide_fonts_without_losing_vietnamese() {
         struct Wide;
         impl TextMeasure for Wide {

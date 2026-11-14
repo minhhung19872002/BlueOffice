@@ -170,3 +170,5 @@ cong thành bậc thang ("chưa mềm"). Bản đối chiếu có 16 mức (lấ
 Ribbon: thêm Hình (6 hình dạng), Hộp văn bản, Số trang (trường PAGE/NUMPAGES), Chữ hoa đầu đoạn,
 Ngày & giờ (trường DATE), Dòng chữ ký (Insert); Số dòng, Gạch nối (Layout); Chèn chú thích (References).
 Nhóm ba hàng nút nhỏ xếp kín dải lệnh như bản đối chiếu; tab Insert vừa cửa sổ 1500 px không cần cuộn.
+
+Vòng 11: đo trên toàn bộ trang nhìn thấy (100/140/200%): số mức xám, tỉ lệ pixel đậm và mép cứng chênh bản đối chiếu ≤ 0,01. Chụp màn hình thật cả 6 menu mới: phát hiện và sửa lỗi menu mở ở góc trái trên cửa sổ (`static_id` thiếu id mới; thêm test mọi nút menu trên ribbon đều neo được menu). Đã áp dụng thử từ menu: chữ hoa đầu đoạn, hình oval.

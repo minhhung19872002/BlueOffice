@@ -143,10 +143,11 @@ pub(crate) fn behind(
     fonts: &FontManager,
     out: &mut Vec<Command>,
 ) {
-    // [MS-DOCX] w14:reflection: the glyphs mirrored under the descent, fading out.
+    // [MS-DOCX] w14:reflection: the glyphs mirrored about the baseline (descenders overlap
+    // their own reflection, as a desktop word processor draws it), fading out.
     if let Some(r) = &fx.reflection {
         let (asc, desc) = extent(f, fonts);
-        let m = f.y + desc + r.dist / 2.0;
+        let m = f.y + r.dist / 2.0;
         let segs = glyph_segs(f, fonts, 0.0, 0.0, Some(m));
         let len = (asc + desc) * r.end_pos.max(0.01);
         let at = |a: f32| Rgba(color.0, color.1, color.2, (a.clamp(0.0, 1.0) * 255.0) as u8);
@@ -171,12 +172,14 @@ pub(crate) fn behind(
             stroke: None,
         });
     }
-    // [MS-DOCX] w14:glow: the outline grown by half the radius and blurred by it.
+    // [MS-DOCX] w14:glow: the outline grown by half the radius, then softened over the
+    // other half, so the halo ends about one radius from the glyph (black-box comparison
+    // with a desktop word processor at 200 %: same extent and colour).
     if let Some((rad, p)) = fx.glow {
         out.push(Command::BlurPath {
             segs: glyph_segs(f, fonts, 0.0, 0.0, None),
             color: rgba(p),
-            radius: rad,
+            radius: rad / 2.0,
             spread: rad / 2.0,
         });
     }

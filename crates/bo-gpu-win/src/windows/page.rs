@@ -35,6 +35,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory2, IDWriteFactory3, IDWriteRenderingParams,
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_GRID_FIT_MODE_DISABLED, DWRITE_GRID_FIT_MODE_ENABLED,
     DWRITE_MEASURING_MODE_NATURAL, DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC,
+    DWRITE_RENDERING_MODE1_GDI_CLASSIC, DWRITE_RENDERING_MODE1_GDI_NATURAL,
     DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC_DOWNSAMPLED, DWRITE_RENDERING_MODE1_OUTLINE,
     DWRITE_RENDERING_MODE_NATURAL, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
 };
@@ -1165,6 +1166,10 @@ impl Device {
                             mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC_DOWNSAMPLED);
                         } else if v.contains("outline") {
                             mode1 = Some(DWRITE_RENDERING_MODE1_OUTLINE);
+                        } else if v.contains("gdinat") {
+                            mode1 = Some(DWRITE_RENDERING_MODE1_GDI_NATURAL);
+                        } else if v.contains("gdiclassic") {
+                            mode1 = Some(DWRITE_RENDERING_MODE1_GDI_CLASSIC);
                         } else if v.contains("sym1") {
                             mode1 = Some(DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC);
                         }

@@ -658,6 +658,13 @@ mod visual_tests {
         {
             view.set_zoom(z);
         }
+        // BO_WINDOW_COMMANDS='[{"cmd":"selectAll"}, …]' edits the document before rendering.
+        if let Ok(json) = std::env::var("BO_WINDOW_COMMANDS") {
+            let cmds: Vec<bo_engine::edit::Command> = serde_json::from_str(&json).unwrap();
+            for cmd in cmds {
+                assert!(view.run_command(cmd), "command failed");
+            }
+        }
         let mut window = DocWindow::new(view, "en-US", "phase1-sample.docx");
         let measure = Measure(&device);
         let context_test = std::env::var_os("BO_WINDOW_CONTEXT").is_some();

@@ -749,6 +749,7 @@ dependencies = [
  "bo-render",
  "bo-text",
  "bo-ui",
+ "serde_json",
  "windows",
  "windows-numerics",
 ]

@@ -31,6 +31,7 @@ windows = { version = "0.62.2", features = [
 bo-engine = { path = "../bo-engine", features = ["bundled-fonts"] }
 bo-ui = { path = "../bo-ui" }
 bo-raster.workspace = true
+serde_json.workspace = true
 
 [lints.rust]
 unsafe_code = "deny"

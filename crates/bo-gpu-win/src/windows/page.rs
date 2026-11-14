@@ -39,6 +39,11 @@ use windows::Win32::Graphics::DirectWrite::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows_numerics::{Matrix3x2, Vector2};
 
+/// Gamma, enhanced contrast and ClearType level of grayscale document text, with
+/// antialiasing in both directions: matched to a black-box capture of a desktop word
+/// processor (same share of dark and half-covered pixels on body text, docs/ui/REPORT.md).
+const GRAY_PARAMS: (f32, f32, f32) = (1.5, 1.0, 0.0);
+
 const IDENTITY: Matrix3x2 = Matrix3x2 {
     M11: 1.0,
     M12: 0.0,
@@ -1135,7 +1140,22 @@ impl Device {
                         .SetTextRenderingParams(None::<&IDWriteRenderingParams>);
                     return Ok(());
                 }
-                TextRendering::Grayscale => (D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, (1.8, 1.0, 0.0)),
+                TextRendering::Grayscale => {
+                    // BO_GRAY_PARAMS="gamma,contrast" tunes grayscale text for comparisons.
+                    let tuned = std::env::var("BO_GRAY_PARAMS").ok().and_then(|v| {
+                        let (g, c) = v.split_once(',')?;
+                        Some((g.parse().ok()?, c.parse().ok()?, 0.0))
+                    });
+                    symmetric = true;
+                    if let Ok(v) = std::env::var("BO_GRAY_MODE") {
+                        symmetric = v.contains("sym");
+                        grid_fit = !v.contains("nofit");
+                    }
+                    (
+                        D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+                        tuned.unwrap_or(GRAY_PARAMS),
+                    )
+                }
                 TextRendering::ClearType {
                     gamma,
                     contrast,

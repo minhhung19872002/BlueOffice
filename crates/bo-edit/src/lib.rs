@@ -1332,6 +1332,8 @@ pub struct Session {
     author: String,
     /// `ST_DateTime` stamped on new revisions and comments.
     clock: Option<String>,
+    /// Local date and time of the same instant, for DATE / TIME fields.
+    local_clock: Option<String>,
     /// Blocks changed since the last [`Session::take_changes`].
     changes: BlockChanges,
     /// Formatting picked by the Format Painter.
@@ -1407,6 +1409,7 @@ impl Session {
             track,
             author: DEFAULT_AUTHOR.to_owned(),
             clock: None,
+            local_clock: None,
             changes: BlockChanges::everything(),
             painter: None,
             id_floor: 0,
@@ -1523,6 +1526,16 @@ impl Session {
     /// Date stamped on new revisions and comments (`ST_DateTime`, e.g. `2026-11-08T09:30:00Z`).
     pub fn set_clock(&mut self, date: Option<String>) {
         self.clock = date;
+    }
+
+    /// Local date and time for DATE / TIME fields (the revision clock when unset).
+    pub fn set_local_clock(&mut self, date: Option<String>) {
+        self.local_clock = date;
+    }
+
+    /// Local date and time for DATE / TIME fields, if set.
+    pub fn local_clock(&self) -> Option<&str> {
+        self.local_clock.as_deref()
     }
 
     /// Date stamped on new revisions and comments, if set.
@@ -1651,8 +1664,9 @@ impl Session {
         let mut env = self.field_env.clone();
         if env.now.is_none() {
             env.now = self
-                .clock
+                .local_clock
                 .as_deref()
+                .or(self.clock.as_deref())
                 .and_then(bo_model::field::DateTime::parse_iso);
         }
         if env.user_name.is_empty() {

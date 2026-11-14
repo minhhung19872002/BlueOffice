@@ -265,6 +265,9 @@ pub struct Engine {
     fonts: FontManager,
     /// Clock fixed by the host (`set_clock_ms`), used instead of the system clock.
     clock_fixed: Option<i64>,
+    /// Host's local time minus UTC in minutes (`set_utc_offset_minutes`): DATE / TIME
+    /// fields show local time, revisions stay dated in UTC.
+    utc_offset_min: Option<i32>,
     /// Sheets of the last print preview (CORE-PRINT-001).
     print_cache: print::PreviewCache,
     cache: LayoutCache,

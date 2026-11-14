@@ -436,6 +436,7 @@ pub(crate) fn sync_tracking(sub: &mut Session, main: &Session) {
     }
     sub.set_author(main.author());
     sub.set_clock(main.clock().map(str::to_owned));
+    sub.set_local_clock(main.local_clock().map(str::to_owned));
     sub.set_revision_floor(bo_edit::revisions::max_id(main.doc()));
 }
 

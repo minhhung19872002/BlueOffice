@@ -34,6 +34,8 @@ fn ui_size(size: f32) -> f32 {
 /// Open the file named on the command line (or a new document) and run the window.
 pub fn run() -> Result<(), String> {
     let mut engine = Engine::with_bundled_fonts();
+    // DATE / TIME fields show the local time, as desktop word processors do.
+    engine.set_utc_offset_minutes(win32::utc_offset_minutes());
     if std::env::var("BLUEOFFICE_SYSTEM_FONTS").as_deref() != Ok("0") {
         let cache = std::env::var_os("LOCALAPPDATA").map(|d| {
             std::path::PathBuf::from(d)

@@ -1487,9 +1487,22 @@ impl crate::Engine {
         self.apply_clock_ms(ms);
     }
 
+    /// Host's local time minus UTC in minutes, for DATE and TIME fields (§17.16.5.16,
+    /// §17.16.5.68 show the local date and time; revision dates stay UTC).
+    pub fn set_utc_offset_minutes(&mut self, minutes: i32) {
+        self.utc_offset_min = Some(minutes);
+        if let Some(ms) = self.clock_fixed.or_else(crate::review::system_ms) {
+            self.apply_clock_ms(ms);
+        }
+    }
+
     fn apply_clock_ms(&mut self, ms: i64) {
+        let local = self
+            .utc_offset_min
+            .map(|m| crate::review::iso_date(ms + i64::from(m) * 60_000));
         if let Some(s) = self.session.as_mut() {
             s.set_clock(Some(crate::review::iso_date(ms)));
+            s.set_local_clock(local);
         }
     }
 

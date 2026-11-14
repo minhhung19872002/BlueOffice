@@ -17,7 +17,7 @@ use windows::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
 };
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
-use windows::Win32::System::SystemInformation::GetTickCount;
+use windows::Win32::System::SystemInformation::{GetLocalTime, GetSystemTime, GetTickCount};
 use windows::Win32::UI::HiDpi::{
     GetDpiForWindow, GetSystemMetricsForDpi, SetProcessDpiAwarenessContext,
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -140,6 +140,27 @@ fn scale(hwnd: HWND) -> f32 {
     } else {
         dpi as f32 / 96.0
     }
+}
+
+/// Local time minus UTC in minutes (time zone and daylight saving now in effect).
+pub fn utc_offset_minutes() -> i32 {
+    // SAFETY: both calls only fill the returned structures.
+    let (utc, local) = unsafe { (GetSystemTime(), GetLocalTime()) };
+    // Days since 1970 of a civil date (proleptic Gregorian).
+    let days = |y: i64, m: i64, d: i64| {
+        let y = if m <= 2 { y - 1 } else { y };
+        let era = y.div_euclid(400);
+        let yoe = y - era * 400;
+        let mp = (m + 9) % 12;
+        let doy = (153 * mp + 2) / 5 + d - 1;
+        era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
+    };
+    let minutes = |t: &windows::Win32::Foundation::SYSTEMTIME| {
+        days(i64::from(t.wYear), i64::from(t.wMonth), i64::from(t.wDay)) * 1440
+            + i64::from(t.wHour) * 60
+            + i64::from(t.wMinute)
+    };
+    (minutes(&local) - minutes(&utc)) as i32
 }
 
 /// The Windows text size setting (Settings › Accessibility › Text size) as a factor,

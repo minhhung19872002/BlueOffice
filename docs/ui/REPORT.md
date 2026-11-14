@@ -172,3 +172,4 @@ Ngày & giờ (trường DATE), Dòng chữ ký (Insert); Số dòng, Gạch n�
 Nhóm ba hàng nút nhỏ xếp kín dải lệnh như bản đối chiếu; tab Insert vừa cửa sổ 1500 px không cần cuộn.
 
 Vòng 11: đo trên toàn bộ trang nhìn thấy (100/140/200%): số mức xám, tỉ lệ pixel đậm và mép cứng chênh bản đối chiếu ≤ 0,01. Chụp màn hình thật cả 6 menu mới: phát hiện và sửa lỗi menu mở ở góc trái trên cửa sổ (`static_id` thiếu id mới; thêm test mọi nút menu trên ribbon đều neo được menu). Đã áp dụng thử từ menu: chữ hoa đầu đoạn, hình oval.
+Vòng 12: bấm thử trên giao diện cả 6 lệnh còn lại (Số trang, Ngày & giờ, Số dòng, Gạch nối, Chú thích, Dòng chữ ký) — chạy đúng. Phát hiện trường DATE hiện ngày UTC (14/11 lúc 5 giờ sáng 15/11 giờ Việt Nam); engine nhận độ lệch múi giờ từ host (`set_utc_offset_minutes`), DATE/TIME hiện giờ địa phương như bản đối chiếu, ngày của revision vẫn UTC.

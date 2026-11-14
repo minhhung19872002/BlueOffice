@@ -846,3 +846,20 @@ fn system_fonts_in_font_picker_and_layout() {
     );
     assert_eq!(e.fonts().info(bo_text::FaceId(0)).family, "Tinos");
 }
+
+#[test]
+fn date_field_shows_the_host_local_date() {
+    // §17.16.5.16 DATE: the local date. 2026-11-14T22:00Z is already 15 November at UTC+7;
+    // revision dates stay UTC.
+    let mut e = Engine::with_bundled_fonts();
+    e.new_document("a.docx").unwrap();
+    e.set_clock_ms(1_794_693_600_000);
+    e.set_utc_offset_minutes(7 * 60);
+    cmd(
+        &mut e,
+        r#"{"cmd":"insertField","instr":"DATE \\@ \"dd/MM/yyyy\""}"#,
+    );
+    let page = e.page_json(0).unwrap();
+    assert!(page.contains("15/11/2026"), "local date missing");
+    assert!(!page.contains("14/11/2026"));
+}

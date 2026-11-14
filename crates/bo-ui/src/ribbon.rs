@@ -335,7 +335,8 @@ fn layout_tab() -> Tab {
             ],
             rows: vec![
                 vec![S("layout.breaks")],
-                vec![S("layout.lineNumbers"), S("layout.hyphenation")],
+                vec![S("layout.lineNumbers")],
+                vec![S("layout.hyphenation")],
             ],
         }],
     }

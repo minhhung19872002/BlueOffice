@@ -1358,6 +1358,64 @@ mod tests {
     }
 
     #[test]
+    fn insert_layout_and_reference_commands_reach_the_saved_document() {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.new_document("a.docx").unwrap();
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "en-US", "a.docx");
+        w.handle(
+            Input::Resize {
+                width: 1800.0,
+                height: 900.0,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Text("Hello world".into()), &Fixed);
+        let sec = w.view.format().section.clone();
+        let run = |w: &mut DocWindow, id: &str| {
+            let cmd = crate::catalog::command(id, &sec).expect(id);
+            assert!(w.view.run_command(cmd), "{id} rejected by the engine");
+        };
+        for id in [
+            "insert.field.PAGE",
+            "insert.field.NUMPAGES",
+            "insert.dateTime",
+            "insert.dropCap.drop",
+            "layout.lineNumbers.continuous",
+            "layout.hyphenation.auto",
+            "references.caption.Figure",
+            "insert.signatureLine",
+            "insert.shape.ellipse",
+        ] {
+            run(&mut w, id);
+        }
+        let bytes = w.view.save_docx().unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut read = |name: &str| {
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut zip.by_name(name).unwrap(), &mut s).unwrap();
+            s
+        };
+        let doc = read("word/document.xml");
+        // §17.16.5.44 PAGE, §17.16.5.42 NUMPAGES, §17.16.5.16 DATE.
+        for instr in ["PAGE", "NUMPAGES", "DATE"] {
+            assert!(doc.contains(instr), "{instr} field missing");
+        }
+        assert!(doc.contains("w:dropCap=\"drop\""), "framePr dropCap");
+        assert!(doc.contains("w:lnNumType"), "line numbering");
+        assert!(doc.contains("Figure"), "caption");
+        assert!(doc.contains("prstGeom prst=\"ellipse\""), "ellipse shape");
+        assert!(read("word/settings.xml").contains("w:autoHyphenation"));
+        // A text box: shape holding txbxContent.
+        run(&mut w, "insert.textBox");
+        let bytes = w.view.save_docx().unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut doc = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut doc)
+            .unwrap();
+        assert!(doc.contains("txbxContent"), "text box");
+    }
+
+    #[test]
     fn line_spacing_menu_applies_and_undoes_paragraph_change() {
         let mut engine = Engine::with_bundled_fonts();
         engine.new_document("a.docx").unwrap();

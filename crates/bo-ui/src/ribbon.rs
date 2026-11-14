@@ -3,8 +3,9 @@
 use crate::icons::{IconColors, Icons};
 use crate::strings::Strings;
 use crate::theme::Theme;
-use crate::{commands, Painter, TextMeasure, TextStyle};
+use crate::{commands, Font, Painter, TextMeasure, TextStyle};
 use bo_edit::FormatState;
+use bo_engine::gallery::StyleEntry;
 use bo_render::Rgba;
 
 /// `a` × `k` + `b` × (1 − `k`), channel by channel.
@@ -22,10 +23,21 @@ enum Item {
     FontBox,
     /// Font size box.
     SizeBox,
+    /// Large button (icon over its label) running command `id`.
+    Large(&'static str),
+    /// Style gallery: preview tiles of the quick styles.
+    Gallery,
 }
+
+/// Preview tiles shown in the style gallery.
+const TILES: usize = 5;
+/// Gallery preview text (Vietnamese letters show diacritics of the style font).
+const PREVIEW: &str = "AaBbĐđ";
 
 struct Group {
     label: &'static str,
+    /// Controls spanning the group's full height, before the rows.
+    large: Vec<Item>,
     rows: Vec<Vec<Item>>,
 }
 
@@ -47,6 +59,10 @@ pub enum RibbonHit {
     FontBox,
     /// The font size box.
     SizeBox,
+    /// Style tile `n` of the gallery (index into the style list).
+    Style(usize),
+    /// The gallery's "more styles" button.
+    StylesMore,
 }
 
 #[derive(Clone, Copy)]
@@ -67,6 +83,10 @@ enum Placed {
     File(Rect),
     Tab(usize, Rect),
     Item(Item, Rect),
+    /// Gallery tile with its style index.
+    Tile(usize, Rect),
+    /// The gallery's "more" button.
+    More(Rect),
     GroupLabel(&'static str, Rect, f32),
     Divider(Rect),
 }
@@ -91,10 +111,17 @@ fn home() -> Tab {
         groups: vec![
             Group {
                 label: "ribbon.groups.history",
+                large: vec![],
                 rows: vec![vec![B("edit.undo")], vec![B("edit.redo")]],
             },
             Group {
+                label: "ribbon.groups.clipboard",
+                large: vec![Item::Large("edit.paste")],
+                rows: vec![vec![B("edit.cut")], vec![B("edit.copy")]],
+            },
+            Group {
                 label: "ribbon.groups.font",
+                large: vec![],
                 rows: vec![
                     vec![FontBox, SizeBox],
                     vec![
@@ -109,6 +136,7 @@ fn home() -> Tab {
             },
             Group {
                 label: "ribbon.groups.paragraph",
+                large: vec![],
                 rows: vec![
                     vec![
                         B("format.bullets"),
@@ -123,6 +151,11 @@ fn home() -> Tab {
                         B("format.justify"),
                     ],
                 ],
+            },
+            Group {
+                label: "ribbon.groups.styles",
+                large: vec![Item::Gallery],
+                rows: vec![],
             },
         ],
     }
@@ -227,16 +260,57 @@ impl Ribbon {
         let bottom = self.height() - self.px(4.0);
         let mut gx = self.px(8.0);
         let mut placed = Vec::new();
+        let content_h = 2.0 * btn + row_gap;
         for g in &self.tabs[self.active].groups {
             let mut group_w: f32 = 0.0;
+            let mut lx = gx + self.px(4.0);
+            for item in &g.large {
+                if *item == Item::Gallery {
+                    {
+                        let (tw, more) = (self.px(78.0), self.px(20.0));
+                        for i in 0..TILES {
+                            let r = Rect {
+                                x: lx + i as f32 * (tw + gap),
+                                y: top,
+                                w: tw,
+                                h: content_h,
+                            };
+                            placed.push(Placed::Tile(i, r));
+                        }
+                        lx += TILES as f32 * (tw + gap);
+                        placed.push(Placed::More(Rect {
+                            x: lx,
+                            y: top,
+                            w: more,
+                            h: content_h,
+                        }));
+                        lx += more + gap;
+                    }
+                } else {
+                    {
+                        let w = self.px(52.0);
+                        placed.push(Placed::Item(
+                            *item,
+                            Rect {
+                                x: lx,
+                                y: top,
+                                w,
+                                h: content_h,
+                            },
+                        ));
+                        lx += w + gap;
+                    }
+                }
+            }
+            group_w = group_w.max(lx - gap - gx + self.px(4.0));
             for (r, row) in g.rows.iter().enumerate() {
                 let y = top + r as f32 * (btn + row_gap);
-                let mut x = gx + self.px(4.0);
+                let mut x = lx;
                 for item in row {
                     let w = match item {
-                        Item::Button(_) => btn,
                         Item::FontBox => self.px(150.0),
                         Item::SizeBox => self.px(52.0),
+                        _ => btn,
                     };
                     placed.push(Placed::Item(*item, Rect { x, y, w, h: btn }));
                     x += w + gap;
@@ -277,6 +351,8 @@ impl Ribbon {
                 Placed::File(r)
                 | Placed::Tab(_, r)
                 | Placed::Item(_, r)
+                | Placed::Tile(_, r)
+                | Placed::More(r)
                 | Placed::GroupLabel(_, r, _)
                 | Placed::Divider(r) => r,
             };
@@ -299,7 +375,11 @@ impl Ribbon {
         self.placed.iter().find_map(|p| match p {
             Placed::File(r) if r.contains(x, y) => Some(RibbonHit::File),
             Placed::Tab(i, r) if r.contains(x, y) => Some(RibbonHit::Tab(*i)),
-            Placed::Item(Item::Button(id), r) if r.contains(x, y) => Some(RibbonHit::Command(id)),
+            Placed::Item(Item::Button(id) | Item::Large(id), r) if r.contains(x, y) => {
+                Some(RibbonHit::Command(id))
+            }
+            Placed::Tile(i, r) if r.contains(x, y) => Some(RibbonHit::Style(*i)),
+            Placed::More(r) if r.contains(x, y) => Some(RibbonHit::StylesMore),
             Placed::Item(Item::FontBox, r) if r.contains(x, y) => Some(RibbonHit::FontBox),
             Placed::Item(Item::SizeBox, r) if r.contains(x, y) => Some(RibbonHit::SizeBox),
             _ => None,
@@ -312,7 +392,9 @@ impl Ribbon {
             let (h, r) = match p {
                 Placed::File(r) => (RibbonHit::File, r),
                 Placed::Tab(i, r) => (RibbonHit::Tab(*i), r),
-                Placed::Item(Item::Button(id), r) => (RibbonHit::Command(id), r),
+                Placed::Item(Item::Button(id) | Item::Large(id), r) => (RibbonHit::Command(id), r),
+                Placed::Tile(i, r) => (RibbonHit::Style(*i), r),
+                Placed::More(r) => (RibbonHit::StylesMore, r),
                 Placed::Item(Item::FontBox, r) => (RibbonHit::FontBox, r),
                 Placed::Item(Item::SizeBox, r) => (RibbonHit::SizeBox, r),
                 _ => return None,
@@ -376,6 +458,7 @@ impl Ribbon {
         icons: &Icons,
         strings: &Strings,
         format: &FormatState,
+        styles: &[StyleEntry],
     ) {
         let strip = self.strip_h();
         p.fill_rect(0.0, self.top, self.width, self.height(), t.surface);
@@ -460,6 +543,98 @@ impl Ribbon {
                         },
                     );
                 }
+                Placed::Item(Item::Large(id), r) => {
+                    let hit = RibbonHit::Command(id);
+                    if let Some(c) = tint(hit) {
+                        radius_rect(p, r, c);
+                    }
+                    let size = self.px(32.0);
+                    icons.draw(
+                        p,
+                        id,
+                        r.x + (r.w - size) / 2.0,
+                        r.y + self.px(4.0),
+                        size,
+                        IconColors {
+                            ink: t.text,
+                            accent: t.accent,
+                            on: t.accent_on,
+                        },
+                    );
+                    let label = strings.get(&format!("commands.{id}")).to_owned();
+                    let style = TextStyle {
+                        size: self.px(12.0),
+                        bold: false,
+                    };
+                    let w = label.chars().count() as f32 * style.size * 0.55;
+                    p.text(
+                        &label,
+                        (r.x + (r.w - w) / 2.0).round(),
+                        r.y + self.px(40.0),
+                        style,
+                        t.text,
+                    );
+                }
+                Placed::Tile(i, r) => {
+                    let Some(st) = styles.get(*i) else { continue };
+                    let current = format.style.as_deref() == Some(st.id.as_str())
+                        || (format.style.is_none() && st.id == "Normal");
+                    if let Some(c) = tint(RibbonHit::Style(*i)) {
+                        radius_rect(p, r, c);
+                    }
+                    // Tile frame: accent when it is the style at the selection.
+                    let edge = if current { t.accent } else { t.border };
+                    p.fill_rect(r.x, r.y, r.w, 1.0, edge);
+                    p.fill_rect(r.x, r.y + r.h - 1.0, r.w, 1.0, edge);
+                    p.fill_rect(r.x, r.y, 1.0, r.h, edge);
+                    p.fill_rect(r.x + r.w - 1.0, r.y, 1.0, r.h, edge);
+                    let pv = &st.preview;
+                    // Preview size follows the style, kept inside the tile.
+                    let size =
+                        (pv.size * self.scale * 96.0 / 72.0).clamp(self.px(11.0), self.px(20.0));
+                    let font = Font {
+                        family: &pv.font,
+                        size,
+                        weight: if pv.bold { 700 } else { 400 },
+                        italic: pv.italic,
+                        underline: pv.underline,
+                    };
+                    let ink =
+                        crate::theme::parse_color(&format!("#{}", pv.color)).unwrap_or(t.text);
+                    p.push_clip(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
+                    p.text_font(PREVIEW, r.x + self.px(6.0), r.y + self.px(6.0), &font, ink);
+                    let name = TextStyle {
+                        size: self.px(11.0),
+                        bold: false,
+                    };
+                    let shown = commands::style_name_key(&st.name)
+                        .map_or(st.name.as_str(), |k| strings.get(k));
+                    p.text(
+                        shown,
+                        r.x + self.px(6.0),
+                        r.y + r.h - self.px(20.0),
+                        name,
+                        t.text_muted,
+                    );
+                    p.pop_clip();
+                }
+                Placed::More(r) => {
+                    if let Some(c) = tint(RibbonHit::StylesMore) {
+                        radius_rect(p, r, c);
+                    }
+                    let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                    let k = self.px(4.0);
+                    p.path(
+                        &[
+                            bo_render::PathSeg::M(cx - k, cy - k / 2.0),
+                            bo_render::PathSeg::L(cx, cy + k / 2.0),
+                            bo_render::PathSeg::L(cx + k, cy - k / 2.0),
+                        ],
+                        None,
+                        Some((t.text, self.scale.max(1.0))),
+                    );
+                }
+                Placed::Item(Item::Gallery, _) => {}
                 Placed::Item(field, r) => {
                     let inner = Rect {
                         x: r.x,

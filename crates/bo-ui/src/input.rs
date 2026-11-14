@@ -102,4 +102,6 @@ pub enum Input {
     Maximized(bool),
     /// The pointer left the window.
     Leave,
+    /// Ctrl + wheel: zoom in (positive) or out by this many wheel notches.
+    Zoom(f32),
 }

@@ -19,8 +19,8 @@ use windows::Win32::Graphics::Direct2D::{
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteRenderingParams, IDWriteTextFormat,
     IDWriteTextLayout, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-    DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
+    DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_TEXT_METRICS,
+    DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
@@ -104,11 +104,40 @@ impl Device {
 /// Interface font: the system Segoe UI, like the platform's own controls (ADR-0016 / 0018).
 const UI_FONT: &str = "Segoe UI";
 
+/// A font for interface text: family, size in device pixels, weight (400 regular, 600
+/// semibold, 700 bold), italic and underline.
+#[derive(Debug, Clone, Copy)]
+pub struct FontSpec<'a> {
+    /// Family name (system font collection).
+    pub family: &'a str,
+    /// Size in device pixels.
+    pub size: f32,
+    /// OpenType weight.
+    pub weight: u16,
+    /// Italic.
+    pub italic: bool,
+    /// Underlined.
+    pub underline: bool,
+}
+
+impl FontSpec<'_> {
+    /// The interface font (Segoe UI), semibold when `bold`.
+    pub fn ui(size: f32, bold: bool) -> FontSpec<'static> {
+        FontSpec {
+            family: UI_FONT,
+            size,
+            weight: if bold { 600 } else { 400 },
+            italic: false,
+            underline: false,
+        }
+    }
+}
+
 impl Device {
-    fn ui_format(&self, size: f32, bold: bool) -> Result<IDWriteTextFormat, String> {
-        let key = (size.to_bits(), bold);
-        if let Some(f) = self.ui_formats.borrow().get(&key) {
-            return Ok(f.clone());
+    fn ui_format(&self, f: &FontSpec<'_>) -> Result<IDWriteTextFormat, String> {
+        let key = (f.family.to_owned(), f.size.to_bits(), f.weight, f.italic);
+        if let Some(format) = self.ui_formats.borrow().get(&key) {
+            return Ok(format.clone());
         }
         // SAFETY: the shared factory and the format are owned COM references.
         let format = unsafe {
@@ -116,16 +145,16 @@ impl Device {
                 DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
             let format = factory
                 .CreateTextFormat(
-                    &HSTRING::from(UI_FONT),
+                    &HSTRING::from(f.family),
                     None,
-                    if bold {
-                        DWRITE_FONT_WEIGHT_SEMI_BOLD
+                    DWRITE_FONT_WEIGHT(i32::from(f.weight)),
+                    if f.italic {
+                        DWRITE_FONT_STYLE_ITALIC
                     } else {
-                        DWRITE_FONT_WEIGHT_NORMAL
+                        DWRITE_FONT_STYLE_NORMAL
                     },
-                    DWRITE_FONT_STYLE_NORMAL,
                     DWRITE_FONT_STRETCH_NORMAL,
-                    size,
+                    f.size.max(1.0),
                     &HSTRING::from("vi-VN"),
                 )
                 .map_err(|e| e.to_string())?;
@@ -134,12 +163,17 @@ impl Device {
                 .map_err(|e| e.to_string())?;
             format
         };
-        self.ui_formats.borrow_mut().insert(key, format.clone());
+        // Bound the cache: previews of many families must not grow it without limit.
+        let mut cache = self.ui_formats.borrow_mut();
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache.insert(key, format.clone());
         Ok(format)
     }
 
-    fn ui_layout(&self, text: &str, size: f32, bold: bool) -> Result<IDWriteTextLayout, String> {
-        let format = self.ui_format(size, bold)?;
+    fn ui_layout(&self, text: &str, f: &FontSpec<'_>) -> Result<IDWriteTextLayout, String> {
+        let format = self.ui_format(f)?;
         let wide: Vec<u16> = text.encode_utf16().collect();
         // SAFETY: `wide` outlives the call (DirectWrite copies it); the layout is owned.
         // GDI-compatible (classic) measuring keeps small interface text on whole pixels like
@@ -147,22 +181,37 @@ impl Device {
         unsafe {
             let factory: IDWriteFactory =
                 DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| e.to_string())?;
-            factory
+            let layout = factory
                 .CreateGdiCompatibleTextLayout(&wide, &format, 10_000.0, 1_000.0, 1.0, None, false)
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string())?;
+            if f.underline {
+                let _ = layout.SetUnderline(
+                    true,
+                    DWRITE_TEXT_RANGE {
+                        startPosition: 0,
+                        length: wide.len() as u32,
+                    },
+                );
+            }
+            Ok(layout)
         }
     }
 
     /// Width and height in device pixels of interface text at `size` pixels.
     pub fn measure_text(&self, text: &str, size: f32, bold: bool) -> (f32, f32) {
-        let Ok(layout) = self.ui_layout(text, size, bold) else {
-            return (0.0, size);
+        self.measure_font(text, &FontSpec::ui(size, bold))
+    }
+
+    /// Width and height in device pixels of `text` in font `f`.
+    pub fn measure_font(&self, text: &str, f: &FontSpec<'_>) -> (f32, f32) {
+        let Ok(layout) = self.ui_layout(text, f) else {
+            return (0.0, f.size);
         };
         let mut m = DWRITE_TEXT_METRICS::default();
         // SAFETY: the out pointer refers to a live metrics struct.
         unsafe {
             if layout.GetMetrics(&mut m).is_err() {
-                return (0.0, size);
+                return (0.0, f.size);
             }
         }
         (m.widthIncludingTrailingWhitespace, m.height)
@@ -358,7 +407,12 @@ impl Frame<'_> {
 
     /// Draw interface text with its layout box's top-left corner at (`x`, `y`).
     pub fn text(&self, text: &str, x: f32, y: f32, size: f32, bold: bool, c: Rgba) {
-        let Ok(layout) = self.device.ui_layout(text, size, bold) else {
+        self.text_font(text, x, y, &FontSpec::ui(size, bold), c);
+    }
+
+    /// Draw text in font `f` with its layout box's top-left corner at (`x`, `y`).
+    pub fn text_font(&self, text: &str, x: f32, y: f32, f: &FontSpec<'_>, c: Rgba) {
+        let Ok(layout) = self.device.ui_layout(text, f) else {
             return;
         };
         // SAFETY: the layout and brush are owned; drawing happens inside the frame.

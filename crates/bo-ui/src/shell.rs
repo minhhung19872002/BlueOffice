@@ -12,10 +12,21 @@ use bo_edit::CharFormat;
 use bo_engine::edit::Command;
 
 /// Something only the platform host can do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     /// Write the document to its file.
     Save,
+    /// Put these forms on the system clipboard.
+    SetClipboard {
+        /// Plain text.
+        text: String,
+        /// HTML fragment.
+        html: String,
+        /// BlueOffice internal form (lossless within the suite).
+        internal: String,
+    },
+    /// Read the system clipboard and call [`DocWindow::paste`].
+    Paste,
     /// Minimise the window.
     Minimize,
     /// Maximise or restore the window.
@@ -43,6 +54,12 @@ pub struct DocWindow {
     /// Ticks the pointer has rested on the hovered control, and the tooltip shown.
     rest: u32,
     tooltip: Option<(String, f32, [f32; 4])>,
+    /// Quick styles of the gallery.
+    styles: Vec<bo_engine::gallery::StyleEntry>,
+    /// Status bar zoom controls: minus, slider track, plus, percentage.
+    zoom_rects: [[f32; 4]; 4],
+    /// The pointer is dragging the zoom slider.
+    zoom_drag: bool,
 }
 
 /// Font sizes offered by the size box (points).
@@ -70,7 +87,88 @@ impl DocWindow {
             menu: None,
             rest: 0,
             tooltip: None,
+            styles: Vec::new(),
+            zoom_rects: [[0.0; 4]; 4],
+            zoom_drag: false,
         }
+    }
+
+    /// Paste content the host read from the system clipboard.
+    pub fn paste(
+        &mut self,
+        internal: Option<String>,
+        html: Option<String>,
+        text: Option<String>,
+    ) -> bool {
+        self.view.paste(internal, html, text)
+    }
+
+    fn clipboard(&mut self, id: &str) -> bool {
+        match id {
+            "edit.copy" | "edit.cut" => {
+                let cut = id == "edit.cut";
+                if let Some(c) = self.view.copy(cut) {
+                    self.requests.push(Request::SetClipboard {
+                        text: c.text,
+                        html: c.html,
+                        internal: c.internal,
+                    });
+                }
+                cut
+            }
+            _ => {
+                self.requests.push(Request::Paste);
+                false
+            }
+        }
+    }
+
+    /// Run interface command `id` from the ribbon or the title bar.
+    fn action(&mut self, id: &str) -> bool {
+        match id {
+            "file.save" => {
+                self.requests.push(Request::Save);
+                true
+            }
+            "edit.copy" | "edit.cut" | "edit.paste" => self.clipboard(id),
+            _ => self.view.run_action(id),
+        }
+    }
+
+    fn zoom_to(&mut self, zoom: f32, text: &dyn TextMeasure) -> bool {
+        let changed = self.view.set_zoom(zoom);
+        if changed {
+            self.relayout(text);
+        }
+        changed
+    }
+
+    /// Zoom of a slider position: the left half covers 10–100 %, the right half 100–500 %.
+    fn slider_zoom(&self, x: f32) -> f32 {
+        let [sx, _, sw, _] = self.zoom_rects[1];
+        let t = ((x - sx) / sw).clamp(0.0, 1.0);
+        let z = if t < 0.5 {
+            0.1 + t / 0.5 * 0.9
+        } else {
+            1.0 + (t - 0.5) / 0.5 * 4.0
+        };
+        // Snap to 100 % near the middle, else to whole percents.
+        if (z - 1.0).abs() < 0.04 {
+            1.0
+        } else {
+            (z * 100.0).round() / 100.0
+        }
+    }
+
+    fn slider_pos(&self) -> f32 {
+        let [sx, _, sw, _] = self.zoom_rects[1];
+        let z = self.view.zoom();
+        let t = if z <= 1.0 {
+            (z - 0.1) / 0.9 * 0.5
+        } else {
+            0.5 + (z - 1.0) / 4.0 * 0.5
+        };
+        sx + t.clamp(0.0, 1.0) * sw
     }
 
     /// The document view.
@@ -109,6 +207,24 @@ impl DocWindow {
         let top = self.ribbon.bottom();
         let h = (self.size.1 - top - self.status_h()).max(1.0);
         self.view.set_frame(0.0, top, self.size.0, h);
+        if self.styles.is_empty() {
+            self.styles = self.view.styles();
+        }
+        // Status bar zoom controls, right to left: percentage, plus, slider, minus.
+        let px = |v: f32| (v * self.scale).round();
+        let (w, sh) = (self.size.0, self.status_h());
+        let y = self.size.1 - sh;
+        let pct = [w - px(56.0), y, px(48.0), sh];
+        let plus = [pct[0] - px(24.0), y, px(22.0), sh];
+        let track = [plus[0] - px(108.0), y, px(104.0), sh];
+        let minus = [track[0] - px(24.0), y, px(22.0), sh];
+        self.zoom_rects = [minus, track, plus, pct];
+    }
+
+    fn zoom_hit(&self, x: f32, y: f32) -> Option<usize> {
+        self.zoom_rects
+            .iter()
+            .position(|[rx, ry, rw, rh]| x >= *rx && x < rx + rw && y >= *ry && y < ry + rh)
     }
 
     /// Handle an input event; `true` when a new frame is needed.
@@ -133,9 +249,44 @@ impl DocWindow {
         }
         let in_title = |w: &Self, y: f32| y < w.title.height();
         let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
-        if let Input::Key(Key::Letter('s'), Mods { ctrl: true, .. }) = input {
-            self.requests.push(Request::Save);
-            return false;
+        if let Input::Key(Key::Letter(c @ ('s' | 'c' | 'x' | 'v')), Mods { ctrl: true, .. }) = input
+        {
+            let id = match c {
+                's' => "file.save",
+                'c' => "edit.copy",
+                'x' => "edit.cut",
+                _ => "edit.paste",
+            };
+            return self.action(id);
+        }
+        if let Input::Zoom(steps) = input {
+            let z = ((self.view.zoom() + 0.1 * steps) * 10.0).round() / 10.0;
+            return self.zoom_to(z, text);
+        }
+        let status_top = self.size.1 - self.status_h();
+        match input {
+            Input::Press { x, y, .. } if y >= status_top => {
+                return match self.zoom_hit(x, y) {
+                    Some(0) => self.zoom_to(((self.view.zoom() - 0.1) * 10.0).round() / 10.0, text),
+                    Some(1) => {
+                        self.zoom_drag = true;
+                        let z = self.slider_zoom(x);
+                        self.zoom_to(z, text)
+                    }
+                    Some(2) => self.zoom_to(((self.view.zoom() + 0.1) * 10.0).round() / 10.0, text),
+                    Some(_) => self.zoom_to(1.0, text),
+                    None => false,
+                };
+            }
+            Input::Drag { x, .. } if self.zoom_drag => {
+                let z = self.slider_zoom(x);
+                return self.zoom_to(z, text);
+            }
+            Input::Release { .. } if self.zoom_drag => {
+                self.zoom_drag = false;
+                return false;
+            }
+            _ => {}
         }
         let redraw = match input {
             Input::Resize { width, height } => {
@@ -152,6 +303,7 @@ impl DocWindow {
                 true
             }
             Input::Tick => self.tick(text),
+            Input::Zoom(_) => false,
             Input::Maximized(m) => self.title.set_maximized(m),
             Input::Leave => {
                 let a = self.title.hover(-1.0, -1.0);
@@ -178,16 +330,23 @@ impl DocWindow {
             Input::Release { x, y } => {
                 self.doc_press = false;
                 let quick = match self.title.release(x, y) {
-                    Some("file.save") => {
-                        self.requests.push(Request::Save);
-                        true
-                    }
-                    Some(id) => self.view.run_action(id),
+                    Some(id) => self.action(id),
                     None => false,
                 };
                 let (fired, changed) = self.ribbon.release(x, y);
                 let ran = match fired {
-                    Some(RibbonHit::Command(id)) => self.view.run_action(id),
+                    Some(RibbonHit::Command(id)) => self.action(id),
+                    Some(RibbonHit::Style(i)) => match self.styles.get(i) {
+                        Some(st) => {
+                            let id = st.id.clone();
+                            self.view.run_command(Command::ApplyStyle { id })
+                        }
+                        None => false,
+                    },
+                    Some(RibbonHit::StylesMore) => {
+                        self.open_styles_menu();
+                        true
+                    }
                     Some(hit @ (RibbonHit::FontBox | RibbonHit::SizeBox)) => {
                         self.open_menu(hit);
                         true
@@ -293,10 +452,33 @@ impl DocWindow {
         self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
     }
 
+    fn open_styles_menu(&mut self) {
+        let Some(anchor) = self.ribbon.rect_of(RibbonHit::StylesMore) else {
+            return;
+        };
+        let current = self.view.format().style.clone();
+        let items = self
+            .styles
+            .iter()
+            .map(|st| MenuItem {
+                label: commands::style_name_key(&st.name)
+                    .map_or_else(|| st.name.clone(), |k| self.strings.get(k).to_owned()),
+                choice: Choice::Style(st.id.clone()),
+                checked: current.as_deref() == Some(st.id.as_str()),
+                dim: false,
+            })
+            .collect();
+        self.menu = Some(Menu::open(items, anchor, self.size.1, self.scale));
+    }
+
     fn choose(&mut self, choice: Choice) {
         let format = match choice {
             Choice::Font(name) => CharFormat::Font { name },
             Choice::Size(half_points) => CharFormat::Size { half_points },
+            Choice::Style(id) => {
+                self.view.run_command(Command::ApplyStyle { id });
+                return;
+            }
         };
         self.view.run_command(Command::FormatText { format });
     }
@@ -350,6 +532,7 @@ impl DocWindow {
             &self.icons,
             &self.strings,
             self.view.format(),
+            &self.styles,
         );
         // Status bar.
         let (w, h) = self.size;
@@ -389,13 +572,34 @@ impl DocWindow {
                 &((self.view.zoom() * 100.0).round() as i32).to_string(),
             )],
         );
-        p.text(
-            &zoom,
-            w - (60.0 * self.scale).round(),
-            ty,
-            style,
-            self.theme.text_muted,
+        let [minus, track, plus, pct] = self.zoom_rects;
+        let ink = self.theme.text_muted;
+        let k = (4.0 * self.scale).round();
+        let line = self.scale.max(1.0).round();
+        let (mx, my) = (minus[0] + minus[2] / 2.0, minus[1] + minus[3] / 2.0);
+        p.fill_rect((mx - k).round(), my.round(), 2.0 * k, line, ink);
+        let (px_, py) = (plus[0] + plus[2] / 2.0, plus[1] + plus[3] / 2.0);
+        p.fill_rect((px_ - k).round(), py.round(), 2.0 * k, line, ink);
+        p.fill_rect(px_.round(), (py - k).round(), line, 2.0 * k, ink);
+        let ty2 = (track[1] + track[3] / 2.0).round();
+        p.fill_rect(track[0], ty2, track[2], line, self.theme.border);
+        // 100 % tick in the middle, the thumb at the current zoom.
+        p.fill_rect(
+            (track[0] + track[2] / 2.0).round(),
+            ty2 - k,
+            line,
+            2.0 * k + line,
+            self.theme.border,
         );
+        let thumb = self.slider_pos();
+        p.fill_rect(
+            (thumb - k / 2.0).round(),
+            ty2 - k - line,
+            k,
+            2.0 * k + 3.0 * line,
+            self.theme.text,
+        );
+        p.text(&zoom, pct[0] + (6.0 * self.scale).round(), ty, style, ink);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -553,5 +757,71 @@ mod tests {
         w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
         assert!(w.menu.is_none());
         assert_eq!(w.view().format().size_half_points, Some(28));
+    }
+
+    #[test]
+    fn zoom_and_clipboard_requests() {
+        let mut engine = Engine::with_bundled_fonts();
+        engine.new_document("a.docx").unwrap();
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "vi-VN", "a.docx");
+        w.handle(Input::Scale(1.0), &Fixed);
+        w.handle(
+            Input::Resize {
+                width: 1400.0,
+                height: 900.0,
+            },
+            &Fixed,
+        );
+        assert!(w.handle(Input::Zoom(2.0), &Fixed));
+        assert!((w.view().zoom() - 1.2).abs() < 1e-4);
+        // The percentage resets to 100 %.
+        let [x, y, pw, ph] = w.zoom_rects[3];
+        w.handle(
+            Input::Press {
+                x: x + pw / 2.0,
+                y: y + ph / 2.0,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        assert!((w.view().zoom() - 1.0).abs() < 1e-4);
+        w.handle(Input::Text("xin chào".into()), &Fixed);
+        w.handle(
+            Input::Key(
+                Key::Letter('a'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        w.handle(
+            Input::Key(
+                Key::Letter('c'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        let reqs = w.take_requests();
+        assert!(
+            matches!(&reqs[..], [Request::SetClipboard { text, html, .. }] if text == "xin chào" && !html.is_empty()),
+            "{reqs:?}"
+        );
+        w.handle(
+            Input::Key(
+                Key::Letter('v'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        assert_eq!(w.take_requests(), vec![Request::Paste]);
     }
 }

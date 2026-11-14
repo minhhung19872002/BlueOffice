@@ -1,10 +1,10 @@
 //! The application: document view, GPU page store and presentation (safe code only).
 use crate::win32::{self, Handler};
 use bo_engine::{Engine, SystemFontIndex};
-use bo_gpu_win::{Device, Frame, PageBitmap, TextRendering, WindowSurface};
+use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    DocView, DocWindow, Input, NcHit, PageStore, Painter, Request, TextMeasure, TextStyle,
+    DocView, DocWindow, Font, Input, NcHit, PageStore, Painter, Request, TextMeasure, TextStyle,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -148,6 +148,9 @@ impl Painter for WinPainter<'_, '_> {
     fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
         self.frame.text(text, x, y, style.size, style.bold, color);
     }
+    fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
+        self.frame.text_font(text, x, y, &spec(font), color);
+    }
     fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
         self.frame.path(segs, fill, stroke);
     }
@@ -171,6 +174,25 @@ impl TextMeasure for Measure<'_> {
                 style.size * 1.33,
             ),
         }
+    }
+    fn measure_font(&self, text: &str, font: &Font<'_>) -> (f32, f32) {
+        match self.0 {
+            Some(d) => d.measure_font(text, &spec(font)),
+            None => (
+                text.chars().count() as f32 * font.size * 0.55,
+                font.size * 1.33,
+            ),
+        }
+    }
+}
+
+fn spec<'a>(f: &Font<'a>) -> FontSpec<'a> {
+    FontSpec {
+        family: f.family,
+        size: f.size,
+        weight: f.weight,
+        italic: f.italic,
+        underline: f.underline,
     }
 }
 
@@ -266,15 +288,24 @@ impl Handler for Shell {
             Input::Tick => "tick",
             Input::Maximized(_) => "maximized",
             Input::Leave => "leave",
+            Input::Zoom(_) => "zoom",
         };
         let start = Instant::now();
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         for r in self.view.take_requests() {
-            if r == Request::Save {
-                redraw |= self.save();
-            } else {
-                self.pending.push(r);
+            match r {
+                Request::Save => redraw |= self.save(),
+                Request::SetClipboard {
+                    text,
+                    html,
+                    internal,
+                } => win32::set_clipboard(&text, &html, &internal),
+                Request::Paste => {
+                    let (internal, html, text) = win32::read_clipboard();
+                    redraw |= self.view.paste(internal, html, text);
+                }
+                other => self.pending.push(other),
             }
         }
         if !redraw {

@@ -10,6 +10,8 @@ pub enum Choice {
     Font(String),
     /// Set the font size in half-points.
     Size(u32),
+    /// Apply the paragraph style with this id.
+    Style(String),
 }
 
 /// One menu row.

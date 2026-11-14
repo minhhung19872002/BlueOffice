@@ -23,7 +23,7 @@ use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
 mod page;
 mod surface;
-pub use surface::{Frame, PageBitmap, WindowSurface};
+pub use surface::{FontSpec, Frame, PageBitmap, WindowSurface};
 
 pub(crate) fn system_cleartype() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -66,10 +66,10 @@ pub struct Device {
     // DirectWrite faces reused across pages; independent of the Direct2D objects above.
     faces: RefCell<bo_dwrite::FaceCache>,
     text: RefCell<TextRendering>,
-    // Interface text formats (Segoe UI) by (size bits, bold), see surface.rs.
+    // Interface text formats by (family, size bits, weight, italic), see surface.rs.
     ui_formats: RefCell<
         std::collections::HashMap<
-            (u32, bool),
+            (String, u32, u16, bool),
             windows::Win32::Graphics::DirectWrite::IDWriteTextFormat,
         >,
     >,

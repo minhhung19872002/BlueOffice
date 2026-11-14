@@ -97,7 +97,7 @@ pub use bo_render::{changed_region, Change};
 mod windows;
 
 #[cfg(windows)]
-pub use windows::{Device, Frame, PageBitmap, WindowSurface};
+pub use windows::{Device, FontSpec, Frame, PageBitmap, WindowSurface};
 
 #[cfg(all(test, windows))]
 mod tests {

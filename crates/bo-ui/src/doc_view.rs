@@ -122,6 +122,60 @@ impl DocView {
         self.clamp_scroll();
     }
 
+    /// Set the zoom factor (0.1 to 5), keeping the top of the view on the same content.
+    pub fn set_zoom(&mut self, zoom: f32) -> bool {
+        let zoom = zoom.clamp(0.1, 5.0);
+        if (zoom - self.zoom).abs() < 1e-4 {
+            return false;
+        }
+        let ratio = zoom / self.zoom;
+        self.zoom = zoom;
+        self.scroll *= ratio;
+        self.clamp_scroll();
+        true
+    }
+
+    /// Copy (or cut) the selection; the clipboard forms for the host.
+    pub fn copy(&mut self, cut: bool) -> Option<bo_engine::edit::ClipOut> {
+        let result = self
+            .engine
+            .command(if cut { Command::Cut } else { Command::Copy })
+            .ok()?;
+        if cut {
+            self.apply(&result);
+            self.caret_on = true;
+        }
+        result.clip
+    }
+
+    /// Paste clipboard content (internal form, else HTML, else text).
+    pub fn paste(
+        &mut self,
+        internal: Option<String>,
+        html: Option<String>,
+        text: Option<String>,
+    ) -> bool {
+        self.edit(Command::Paste {
+            internal,
+            html,
+            text,
+            mode: None,
+        })
+    }
+
+    /// Quick styles for the gallery, in gallery order.
+    pub fn styles(&mut self) -> Vec<bo_engine::gallery::StyleEntry> {
+        let list = self
+            .engine
+            .command(Command::StyleList)
+            .ok()
+            .and_then(|r| r.styles)
+            .unwrap_or_default();
+        list.into_iter()
+            .filter(|s| s.kind == "paragraph" && s.quick && s.recommended)
+            .collect()
+    }
+
     /// The document as `.docx` bytes.
     pub fn save_docx(&self) -> Result<Vec<u8>, String> {
         self.engine.save_docx().map_err(|e| e.to_string())
@@ -284,7 +338,8 @@ impl DocView {
             | Input::Release { .. }
             | Input::Tick
             | Input::Maximized(_)
-            | Input::Leave => false,
+            | Input::Leave
+            | Input::Zoom(_) => false,
             Input::Scale(scale) => {
                 if scale.is_finite() && scale > 0.0 && scale != self.display_scale {
                     self.display_scale = scale;

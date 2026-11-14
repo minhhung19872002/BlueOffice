@@ -57,10 +57,39 @@ pub struct TextStyle {
     pub bold: bool,
 }
 
+/// A font for previews (style gallery, font list): family, size in device pixels, weight
+/// (400 regular, 700 bold), italic and underline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Font<'a> {
+    /// Family name.
+    pub family: &'a str,
+    /// Size in device pixels.
+    pub size: f32,
+    /// OpenType weight.
+    pub weight: u16,
+    /// Italic.
+    pub italic: bool,
+    /// Underlined.
+    pub underline: bool,
+}
+
+impl Font<'_> {
+    fn as_style(&self) -> TextStyle {
+        TextStyle {
+            size: self.size,
+            bold: self.weight >= 600,
+        }
+    }
+}
+
 /// Text measurement by the platform's text engine (DirectWrite, canvas `measureText`, …).
 pub trait TextMeasure {
     /// Width and height in device pixels of `text` in `style`.
     fn measure(&self, text: &str, style: TextStyle) -> (f32, f32);
+    /// Width and height of `text` in `font` (backends without font choice use the UI font).
+    fn measure_font(&self, text: &str, font: &Font<'_>) -> (f32, f32) {
+        self.measure(text, font.as_style())
+    }
 }
 
 /// Drawing of one frame, in device pixels.
@@ -73,6 +102,10 @@ pub trait Painter {
     fn page(&mut self, index: usize, x: i32, y: i32);
     /// Draw text with its layout box's top-left corner at (`x`, `y`).
     fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba);
+    /// Draw text in `font` (backends without font choice use the UI font).
+    fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
+        self.text(text, x, y, font.as_style(), color);
+    }
     /// Fill and / or stroke (round caps and joins) a path.
     fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>);
     /// Restrict drawing to a rectangle until [`Painter::pop_clip`].

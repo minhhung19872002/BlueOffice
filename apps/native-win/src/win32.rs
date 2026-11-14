@@ -4,10 +4,18 @@
 use bo_ui::{Input, Key, Mods, NcHit, Request};
 use std::cell::{Cell, RefCell};
 use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::Graphics::Gdi::{ValidateRect, HBRUSH};
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW, SetClipboardData,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Memory::{
+    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::HiDpi::{
     GetDpiForWindow, GetSystemMetricsForDpi, SetProcessDpiAwarenessContext,
@@ -181,11 +189,11 @@ fn input(hwnd: HWND, i: Input) {
     with_handler(|h| h.input(i, age));
     let requests = with_handler(|h| h.window_requests()).unwrap_or_default();
     for r in requests {
-        window_request(hwnd, r);
+        window_request(hwnd, &r);
     }
 }
 
-fn window_request(hwnd: HWND, r: Request) {
+fn window_request(hwnd: HWND, r: &Request) {
     // SAFETY: plain window operations on this thread's window.
     unsafe {
         match r {
@@ -203,7 +211,7 @@ fn window_request(hwnd: HWND, r: Request) {
             Request::Close => {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
-            Request::Save => {}
+            Request::Save | Request::SetClipboard { .. } | Request::Paste => {}
         }
     }
 }
@@ -299,6 +307,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     Some((&raw mut lines).cast()),
                     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
                 );
+            }
+            if mods().ctrl {
+                // Ctrl + wheel zooms, one 10 % step per notch.
+                input(hwnd, Input::Zoom(delta / 120.0));
+                return LRESULT(0);
             }
             // About one text line (20 logical px) per wheel line.
             let px = -delta / 120.0 * lines as f32 * 20.0 * scale(hwnd);
@@ -481,7 +494,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     HTMAXBUTTON => Request::ToggleMaximize,
                     _ => Request::Close,
                 };
-                window_request(hwnd, r);
+                window_request(hwnd, &r);
             }
             LRESULT(0)
         }
@@ -572,5 +585,153 @@ fn GetCaretBlinkTimeOr530() -> u32 {
         530
     } else {
         t
+    }
+}
+
+// ---------------------------------------------------------------- clipboard
+
+/// CF_UNICODETEXT (WinUser.h).
+const CF_UNICODETEXT: u32 = 13;
+
+fn format_id(name: &str) -> u32 {
+    let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+    // SAFETY: NUL-terminated string that outlives the call.
+    unsafe { RegisterClipboardFormatW(PCWSTR(wide.as_ptr())) }
+}
+
+/// Copy `bytes` into a movable global block and hand it to the clipboard as `format`.
+fn put(format: u32, bytes: &[u8]) {
+    // SAFETY: the block is allocated with the needed size, written while locked, and its
+    // ownership passes to the clipboard on success (freed here only on failure).
+    unsafe {
+        let Ok(block) = GlobalAlloc(GMEM_MOVEABLE, bytes.len()) else {
+            return;
+        };
+        let ptr = GlobalLock(block).cast::<u8>();
+        if ptr.is_null() {
+            let _ = GlobalFree(Some(block));
+            return;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+        let _ = GlobalUnlock(block);
+        if SetClipboardData(format, Some(HANDLE(block.0))).is_err() {
+            let _ = GlobalFree(Some(block));
+        }
+    }
+}
+
+/// Read clipboard data of `format` as bytes (the block's full size).
+fn get(format: u32) -> Option<Vec<u8>> {
+    // SAFETY: the handle belongs to the open clipboard; it is read only while locked and
+    // within the size reported for the block.
+    unsafe {
+        if IsClipboardFormatAvailable(format).is_err() {
+            return None;
+        }
+        let handle = GetClipboardData(format).ok()?;
+        let block = HGLOBAL(handle.0);
+        let size = GlobalSize(block);
+        let ptr = GlobalLock(block).cast::<u8>();
+        if ptr.is_null() {
+            return None;
+        }
+        let out = std::slice::from_raw_parts(ptr, size).to_vec();
+        let _ = GlobalUnlock(block);
+        Some(out)
+    }
+}
+
+/// CF_HTML ("HTML Format") wrapper with its byte offsets.
+fn cf_html(fragment: &str) -> String {
+    const HEADER: &str =
+        "Version:0.9\r\nStartHTML:{0}\r\nEndHTML:{1}\r\nStartFragment:{2}\r\nEndFragment:{3}\r\n";
+    let pre = "<html><body><!--StartFragment-->";
+    let post = "<!--EndFragment--></body></html>";
+    let header_len = HEADER
+        .replace("{0}", "0000000000")
+        .replace("{1}", "0000000000")
+        .replace("{2}", "0000000000")
+        .replace("{3}", "0000000000")
+        .len();
+    let start_html = header_len;
+    let start_frag = start_html + pre.len();
+    let end_frag = start_frag + fragment.len();
+    let end_html = end_frag + post.len();
+    let n = |v: usize| format!("{v:010}");
+    HEADER
+        .replace("{0}", &n(start_html))
+        .replace("{1}", &n(end_html))
+        .replace("{2}", &n(start_frag))
+        .replace("{3}", &n(end_frag))
+        + pre
+        + fragment
+        + post
+}
+
+fn html_fragment(cf: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(cf);
+    let field = |name: &str| -> Option<usize> {
+        let at = text.find(name)? + name.len();
+        text[at..].lines().next()?.trim().parse().ok()
+    };
+    let (start, end) = (field("StartFragment:")?, field("EndFragment:")?);
+    let bytes = cf.get(start..end)?;
+    Some(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// Put text, HTML and the internal form on the clipboard.
+pub fn set_clipboard(text: &str, html: &str, internal: &str) {
+    // SAFETY: the clipboard is opened for this thread and closed before returning.
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return;
+        }
+        let _ = EmptyClipboard();
+        let wide: Vec<u8> = text
+            .encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        put(CF_UNICODETEXT, &wide);
+        if !html.is_empty() {
+            let mut h = cf_html(html).into_bytes();
+            h.push(0);
+            put(format_id("HTML Format"), &h);
+        }
+        if !internal.is_empty() {
+            let mut i = internal.as_bytes().to_vec();
+            i.push(0);
+            put(format_id("BlueOffice.Internal"), &i);
+        }
+        let _ = CloseClipboard();
+    }
+}
+
+/// The clipboard's internal form, HTML fragment and text, as far as they are present.
+#[allow(clippy::chunks_exact_to_as_chunks)] // `as_chunks` exceeds the workspace MSRV.
+pub fn read_clipboard() -> (Option<String>, Option<String>, Option<String>) {
+    let trim = |mut v: Vec<u8>| {
+        while v.last() == Some(&0) {
+            v.pop();
+        }
+        String::from_utf8_lossy(&v).into_owned()
+    };
+    // SAFETY: the clipboard is opened for this thread and closed before returning.
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return (None, None, None);
+        }
+        let internal = get(format_id("BlueOffice.Internal")).map(trim);
+        let html = get(format_id("HTML Format")).and_then(|b| html_fragment(&b));
+        let text = get(CF_UNICODETEXT).map(|b| {
+            let units: Vec<u16> = b
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|u| *u != 0)
+                .collect();
+            String::from_utf16_lossy(&units)
+        });
+        let _ = CloseClipboard();
+        (internal, html, text)
     }
 }

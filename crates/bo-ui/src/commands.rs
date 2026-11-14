@@ -30,11 +30,27 @@ pub fn command(id: &str) -> Option<Command> {
     }
 }
 
+/// Interface name key of a built-in style (the document stores English names).
+pub fn style_name_key(name: &str) -> Option<&'static str> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "normal" => "commands.format.styleNormal",
+        "title" => "commands.format.styleTitle",
+        "heading 1" => "commands.format.styleHeading1",
+        "heading 2" => "commands.format.styleHeading2",
+        "heading 3" => "commands.format.styleHeading3",
+        _ => return None,
+    })
+}
+
 /// Keyboard shortcut shown in the tooltip of command `id`.
 pub fn shortcut(id: &str) -> Option<&'static str> {
     Some(match id {
         "edit.undo" => "Ctrl+Z",
         "edit.redo" => "Ctrl+Y",
+        "edit.cut" => "Ctrl+X",
+        "edit.copy" => "Ctrl+C",
+        "edit.paste" => "Ctrl+V",
+        "file.save" => "Ctrl+S",
         "format.bold" => "Ctrl+B",
         "format.italic" => "Ctrl+I",
         "format.underline" => "Ctrl+U",
@@ -72,6 +88,7 @@ pub fn enabled(id: &str, f: &FormatState) -> bool {
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
+        "edit.copy" | "edit.cut" | "edit.paste" | "file.save" => true,
         _ => command(id).is_some(),
     }
 }

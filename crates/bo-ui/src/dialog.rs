@@ -282,7 +282,7 @@ impl Dialog {
             );
         }
         p.fill_rect(f.x, f.y, f.w, f.h, t.border);
-        p.fill_rect(f.x + 1.0, f.y + 1.0, f.w - 2.0, f.h - 2.0, t.surface);
+        p.fill_rect(f.x + 1.0, f.y + 1.0, f.w - 2.0, f.h - 2.0, CTL_FACE);
         let style = self.style();
         let line = style.size * 1.33;
         p.text(
@@ -296,20 +296,17 @@ impl Dialog {
             t.text,
         );
         for (i, (field, r)) in self.fields.iter().zip(&self.field_rects).enumerate() {
-            p.text(&field.label, r.x, r.y - self.px(20.0), style, t.text_muted);
+            p.text(&field.label, r.x, r.y - self.px(20.0), style, t.text);
             let focused = i == self.focus;
+            // Standard Windows edit box: grey frame, blue when focused.
             p.fill_rect(
                 r.x,
                 r.y,
                 r.w,
                 r.h,
-                if focused { t.accent } else { t.border },
+                if focused { CTL_FOCUS } else { EDIT_EDGE },
             );
             p.fill_rect(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0, t.surface);
-            if focused {
-                // Accent underline, like the platform's text boxes.
-                p.fill_rect(r.x, r.y + r.h - self.px(2.0), r.w, self.px(2.0), t.accent);
-            }
             let tx = r.x + self.px(8.0);
             p.push_clip(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
             let value: String = field.value.iter().collect();
@@ -340,17 +337,19 @@ impl Dialog {
             my += self.px(20.0);
         }
         for (i, (label, _, r)) in self.buttons.iter().enumerate() {
+            // Standard Windows push buttons, as in a desktop word processor's dialogs:
+            // grey face and frame, the default button framed in blue, light blue on hover.
             let primary = i == 0;
-            let (bg, fg) = if primary {
-                (t.accent_strong, t.accent_on)
+            let hover = self.hover == Some(i);
+            let edge = if primary || hover {
+                CTL_FOCUS
             } else {
-                (t.surface, t.text)
+                BUTTON_EDGE
             };
-            p.fill_rect(r.x, r.y, r.w, r.h, if primary { bg } else { t.border });
-            p.fill_rect(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0, bg);
-            if self.hover == Some(i) {
-                p.fill_rect(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0, t.hover);
-            }
+            let face = if hover { BUTTON_HOVER } else { BUTTON_FACE };
+            let fg = t.text;
+            p.fill_rect(r.x, r.y, r.w, r.h, edge);
+            p.fill_rect(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0, face);
             p.text(
                 label,
                 r.x + self.px(12.0),
@@ -361,6 +360,15 @@ impl Dialog {
         }
     }
 }
+
+/// Dialog face, edit box frame, push button face / frame / hover and the focus blue of
+/// standard Windows controls (measured on a desktop word processor's dialogs).
+const CTL_FACE: Rgba = Rgba(0xf0, 0xf0, 0xf0, 255);
+const EDIT_EDGE: Rgba = Rgba(0x7a, 0x7a, 0x7a, 255);
+const BUTTON_FACE: Rgba = Rgba(0xe1, 0xe1, 0xe1, 255);
+const BUTTON_EDGE: Rgba = Rgba(0xad, 0xad, 0xad, 255);
+const BUTTON_HOVER: Rgba = Rgba(0xe5, 0xf1, 0xfb, 255);
+const CTL_FOCUS: Rgba = Rgba(0x00, 0x78, 0xd7, 255);
 
 #[cfg(test)]
 mod tests {

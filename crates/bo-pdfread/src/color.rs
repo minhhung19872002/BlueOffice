@@ -102,9 +102,26 @@ impl ColorSpace {
                             Object::Name(n) => (1, n == b"None"),
                             _ => (1, false),
                         };
-                        let alt =
-                            Self::parse(doc, a.get(2)?, named, depth + 1).unwrap_or(Self::Gray);
                         let func = a.get(3).and_then(|f| Function::parse(doc, f, 0));
+                        // An alternate space that cannot be read paints nothing (measured on
+                        // the reference reader).
+                        let Some(alt) =
+                            a.get(2).and_then(|o| Self::parse(doc, o, named, depth + 1))
+                        else {
+                            return Some(Self::Tint {
+                                inputs,
+                                alt: Arc::new(Self::Gray),
+                                func,
+                                none: true,
+                            });
+                        };
+                        // §8.6.6.4: the tint transform maps the tints to the alternate space's
+                        // components. A missing function or one with another number of outputs
+                        // makes the space unusable: `parse` fails and `cs` keeps the previous
+                        // space, as the reference does.
+                        if !none && func.as_ref()?.outputs()? != alt.components() {
+                            return None;
+                        }
                         Some(Self::Tint {
                             inputs,
                             alt: Arc::new(alt),
@@ -142,6 +159,16 @@ impl ColorSpace {
             Self::Tint { inputs, .. } => vec![1.0; *inputs],
             Self::Lab => vec![0.0, 0.0, 0.0],
             other => vec![0.0; other.components()],
+        }
+    }
+
+    /// Whether colours of this space are inks (CMYK, Separation, DeviceN): overprinting
+    /// applies to them (§8.7.4.5).
+    pub(crate) fn is_subtractive(&self) -> bool {
+        match self {
+            Self::Cmyk | Self::Tint { .. } => true,
+            Self::Indexed { base, .. } => base.is_subtractive(),
+            _ => false,
         }
     }
 

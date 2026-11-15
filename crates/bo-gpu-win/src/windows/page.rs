@@ -40,6 +40,9 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_STROKE_TRANSFORM_TYPE_NORMAL,
 };
 use windows::Win32::Graphics::Direct2D::{
+    D2D1_PRIMITIVE_BLEND_COPY, D2D1_PRIMITIVE_BLEND_SOURCE_OVER,
+};
+use windows::Win32::Graphics::Direct2D::{
     D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, D2D1_TEXT_ANTIALIAS_MODE_DEFAULT,
     D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
@@ -1117,7 +1120,7 @@ impl Device {
         prep: &mut Prep<'p>,
     ) -> Result<(), String> {
         for (index, command) in commands.iter().enumerate() {
-            if let Command::PushGroup { blend, mask } = command {
+            if let Command::PushGroup { blend, mask, .. } = command {
                 if blend.is_some() || mask.is_some() {
                     let end = group_end(commands, index).ok_or("unbalanced group")?;
                     if let Some(m) = mask {
@@ -1317,6 +1320,23 @@ impl Device {
         }
     }
 
+    /// Push a layer without mask or opacity (a knockout group draws into it).
+    unsafe fn push_plain_layer(&self) {
+        // SAFETY: the parameters hold no COM reference.
+        unsafe {
+            let params = D2D1_LAYER_PARAMETERS1 {
+                contentBounds: INFINITE,
+                geometricMask: ManuallyDrop::new(None),
+                maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                maskTransform: IDENTITY,
+                opacity: 1.0,
+                opacityBrush: ManuallyDrop::new(None),
+                layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+            };
+            self.context.PushLayer(&params, None);
+        }
+    }
+
     /// Push a layer whose opacity comes from `mask` (page space; the world transform is
     /// identity during the call).
     unsafe fn push_opacity_mask(&self, mask: &ID2D1Image, page: (f32, f32)) -> Result<(), String> {
@@ -1497,6 +1517,10 @@ impl Device {
         unsafe {
             let base = state.stack.len();
             let mut clip_items: Vec<ClipItem> = Vec::new();
+            // Stack depths of the open knockout groups (ISO 32000-1 §11.4.6.2): inside one,
+            // each object replaces what the group painted before (primitive blend Copy in a
+            // layer of its own), then the layer composites over the backdrop.
+            let mut knockouts: Vec<usize> = Vec::new();
             let drawn = (|| -> Result<(), String> {
                 let mut index = 0;
                 while index < commands.len() {
@@ -1550,8 +1574,16 @@ impl Device {
                                 _ => self.context.PopLayer(),
                             }
                         }
-                        Command::PushGroup { .. } => {
+                        Command::PushGroup { knockout, .. } => {
                             state.apply(command)?;
+                            if *knockout {
+                                self.push_plain_layer();
+                                if let Some(last) = state.stack.last_mut() {
+                                    *last = Saved::Group(true);
+                                }
+                                knockouts.push(state.stack.len());
+                                self.context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+                            }
                             let Some(g) = prep.groups.get(&key(command)) else {
                                 continue;
                             };
@@ -1607,7 +1639,15 @@ impl Device {
                         }
                         Command::PopGroup => {
                             if matches!(state.stack.last(), Some(Saved::Group(true))) {
+                                self.context
+                                    .SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
                                 self.context.PopLayer();
+                                if knockouts.last() == Some(&state.stack.len()) {
+                                    knockouts.pop();
+                                }
+                                if !knockouts.is_empty() {
+                                    self.context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+                                }
                             }
                         }
                         _ => {}
@@ -1827,6 +1867,10 @@ impl Device {
                 Ok(())
             })();
             // Unwind whatever an early error left pushed, innermost first.
+            if !knockouts.is_empty() {
+                self.context
+                    .SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+            }
             while state.stack.len() > base {
                 match state.stack.pop() {
                     Some(Saved::AxisClip) => self.context.PopAxisAlignedClip(),

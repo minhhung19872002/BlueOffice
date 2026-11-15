@@ -179,6 +179,10 @@ pub enum Command {
         /// Soft mask, in the coordinate space of this command.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mask: Option<Box<SoftMask>>,
+        /// Knockout group (§11.4.6.2, `/K true`): each object inside replaces what earlier
+        /// objects of the group painted instead of compositing over them.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        knockout: bool,
     },
     /// End the group started by the matching `PushGroup`.
     PopGroup,

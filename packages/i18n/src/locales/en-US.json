@@ -7537,7 +7537,22 @@
     "import": "Import",
     "export": "Export",
     "replace": "Replace Text",
-    "insert": "Insert Text"
+    "insert": "Insert Text",
+    "summaryTitle": "Summary of Comments on {{file}}",
+    "summaryPage": "Page {{n}}",
+    "summaryNumber": "Number",
+    "summaryAuthor": "Author",
+    "summarySubject": "Subject",
+    "summaryDate": "Date",
+    "exportFdf": "Export to FDF",
+    "exportXfdf": "Export to XFDF",
+    "imported": "{{n}} comments imported",
+    "commentFiles": "Comment files (FDF, XFDF)",
+    "allFiles": "All files",
+    "fileClick": "Click on the page where the file goes",
+    "keep": "Keep Tool Selected",
+    "options": "Comment options",
+    "list": "Comment list"
   },
   "pdfForm": {
     "reset": "Reset Form",
@@ -7558,9 +7573,39 @@
     "changedAfter": "signature valid, the document was changed after signing",
     "invalid": "Signature cannot be verified"
   },
+  "pdfFill": {
+    "tab": "Fill & Sign",
+    "text": "Add Text",
+    "check": "Check Mark",
+    "cross": "Cross Mark",
+    "dot": "Dot",
+    "line": "Line",
+    "signature": "Signature",
+    "close": "Close Fill & Sign",
+    "place": "Click on the page to place it"
+  },
+  "pdfSign": {
+    "place": "Place Signature…",
+    "certificate": "Digital ID (.p12, .pfx)",
+    "password": "Password",
+    "reason": "Reason",
+    "location": "Location",
+    "tsa": "Time-stamp server (URL, optional)",
+    "image": "Signature picture (file path, optional)",
+    "drag": "Drag a box on the page for the signature",
+    "signed": "The signed copy opened in a new tab",
+    "signedBy": "Digitally signed by",
+    "date": "Date",
+    "server": "Time-stamp server (URL)",
+    "stamped": "The time-stamped copy opened in a new tab",
+    "select": "Click a signature on the page to validate it"
+  },
   "pdfHome": {
     "snapshot": "SnapShot",
-    "copied": "The selected area was copied to the clipboard"
+    "copied": "The selected area was copied to the clipboard",
+    "clipboard": "Clipboard",
+    "pageFitOption": "Page Fit Option",
+    "selectAll": "Select All"
   },
   "pdfReader": {
     "tabs": {

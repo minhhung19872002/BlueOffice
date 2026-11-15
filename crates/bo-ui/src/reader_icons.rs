@@ -20,9 +20,17 @@ pub(crate) enum Part {
     F(&'static str),
     /// Filled in the accent.
     FA(&'static str),
+    /// Stroked in the text-markup colour (the reference's marks are yellow-orange), grey when
+    /// the icon is drawn disabled.
+    Y(&'static str),
 }
 
-use Part::{A, F, FA, S};
+use Part::{A, F, FA, S, Y};
+
+/// Colour of text-markup marks in the toolbar (measured on the reference: 249, 177, 10).
+const MARK: Rgba = Rgba(249, 177, 10, 255);
+/// Ink of a disabled icon.
+const DISABLED: Rgba = Rgba(175, 175, 176, 255);
 
 fn shape(name: &str) -> &'static [Part] {
     match name {
@@ -61,12 +69,12 @@ fn shape(name: &str) -> &'static [Part] {
         "rotateRight" => &[S("M5 9h12v12H5z"), A("M21 11a8 8 0 0 0-8-8h-3 M12.5 0.5L10 3l2.5 2.5")],
         "typewriter" => &[S("M3 4h11 M8.5 4v16 M6 20h5"), A("M18 4v16 M16 4h4 M16 20h4")],
         "highlight" => &[
-            S("M14.5 3.5l5 5-8 8H6.5v-5z M12 6l5 5"),
-            A("M4 21h16"),
+            S("M16.5 2.5l5 5-9.5 9.5-5-5z M7 12l-2 4 3 3 4-2"),
+            Y("M2.5 21.5h19 M4.5 17.5l1.5 1.5"),
         ],
-        "underline" => &[S("M6 4h12 M12 4v12"), A("M5 20h14")],
-        "strikeout" => &[S("M6 4h12 M12 4v16"), A("M5 12h14")],
-        "squiggly" => &[S("M6 4h12 M12 4v12"), A("M4 20l2-2 2 2 2-2 2 2 2-2 2 2 2-2 2 2")],
+        "underline" => &[S("M3 3.5h18 M3 3.5v1.5 M21 3.5v1.5 M12 3.5v14 M9.5 17.5h5"), Y("M3 21h18")],
+        "strikeout" => &[S("M3 3h18 M3 3v1.5 M21 3v1.5 M12 3v18 M9.5 21h5"), Y("M3 11.5h18")],
+        "squiggly" => &[S("M3 3.5h18 M3 3.5v1.5 M21 3.5v1.5 M12 3.5v14 M9.5 17.5h5"), Y("M2 21l2.5-1.5 2.5 1.5 2.5-1.5 2.5 1.5 2.5-1.5 2.5 1.5 2.5-1.5 2.5 1.5")],
         "note" => &[
             S("M3 4h18v13H11l-5 4.5V17H3z"),
             A("M7 8.5h10 M7 12.5h7"),
@@ -114,10 +122,20 @@ fn shape(name: &str) -> &'static [Part] {
         "textViewer" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 10h8 M8 13h8 M8 16h5")],
         "read" => &[S("M3.5 9h4l5-4.5v15l-5-4.5h-4z"), A("M15.5 9a4 4 0 0 1 0 6 M18 6.5a7.5 7.5 0 0 1 0 11")],
         "split" => &[S("M3.5 3.5h17v17h-17z"), A("M12 3.5v17 M3.5 12h17")],
-        "replaceText" => &[S("M6 4h12 M12 4v12"), A("M4 12h16 M16 18l2 2 4-4")],
-        "insertText" => &[S("M6 4h12 M12 4v12"), A("M8 21l4-5 4 5")],
+        "replaceText" => &[S("M2.5 3h16 M2.5 3v1.5 M18.5 3v1.5 M10.5 3v18 M8 21h5"), Y("M2.5 11.5h16 M15.5 22l3-4 3 4")],
+        "insertText" => &[S("M2.5 3h16 M2.5 3v1.5 M18.5 3v1.5 M10.5 3v18 M8 21h5"), Y("M15.5 22l3-4 3 4")],
+        // Fill & Sign marks (round 5).
+        "check" => &[S("M4 12.5l5 5L20 6.5")],
+        "cross" => &[S("M5.5 5.5l13 13 M18.5 5.5l-13 13")],
+        "dot" => &[F("M12 8.5a3.5 3.5 0 1 0 .01 0z")],
+        // Comment exchange rows and the small icon column (round 5).
+        "importComments" => &[S("M7 4h14v11h-8l-4 3.5V15H7v-1.5 M7 7V4"), A("M2 10h8.5 M7.5 7l3 3-3 3")],
+        "exportComments" => &[S("M8 4h13v11h-8l-4 3.5V15H8v-1.5 M8 7V4"), A("M12 10H2.5 M5.5 7l-3 3 3 3")],
+        "commentList" => &[S("M3.5 3.5h17v12H11l-4.5 4v-4h-3z"), S("M13 7.5h5v5h-5z")],
+        "commentOptions" => &[S("M3.5 3.5h17v9 M3.5 3.5v12h3v4l4-4h2"), A("M17.5 14.5a2.5 2.5 0 1 0 .01 0z M17.5 11.5v1 M17.5 19.5v1 M14 17h1 M20 17h1")],
+        "pin" => &[S("M9 3h6l-1 6 3.5 3.5h-11L10 9z M12 12.5v8.5")],
         "searchHighlight" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M11 9.5a3 3 0 1 0 .01 0z M13.2 14.7l3 3")],
-        "summarize" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 10l1.5 1.5L12 9 M8 15l1.5 1.5L12 14 M13.5 11h3 M13.5 16h3")],
+        "summarize" => &[S("M5 2.5h10l4 4v8 M5 2.5v19h7.5 M15 2.5v4h4"), A("M13.5 18.5l3 3 5.5-5.5")],
         "eraser" => &[S("M9 20.5L3 14.5 13.5 4l7 7-9.5 9.5z M20.5 20.5H9"), A("M8 9.5l6.5 6.5")],
         "areaHighlight" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 9h8v7H8z")],
         "customStamp" => &[S("M9.5 3.5h5l-1 8h-3z M4 12.5h16v4H4z"), A("M17 17.5a3 3 0 1 0 .01 0z M17 19v2 M16 20h2")],
@@ -212,6 +230,7 @@ pub(crate) fn draw_weight(
             A(d) => (*d, false, c.accent),
             F(d) => (*d, true, c.ink),
             FA(d) => (*d, true, c.accent),
+            Y(d) => (*d, false, if c.ink == DISABLED { DISABLED } else { MARK }),
         };
         let segs: Vec<PathSeg> = crate::icons::parse_path(d)
             .into_iter()
@@ -370,6 +389,17 @@ mod tests {
             "resetForm",
             "formFields",
             "organize",
+            "check",
+            "cross",
+            "dot",
+            "importComments",
+            "exportComments",
+            "commentList",
+            "commentOptions",
+            "pin",
+            "squiggly",
+            "replaceText",
+            "insertText",
             "hand",
             "select",
             "snapshot",

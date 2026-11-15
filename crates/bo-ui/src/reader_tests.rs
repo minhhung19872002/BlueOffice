@@ -863,3 +863,77 @@ fn search_and_highlight_marks_every_match() {
         .collect();
     assert_eq!(pages, vec![0, 1]);
 }
+
+#[test]
+fn round5_fill_sign_comment_rows_and_exchange() {
+    let mut w = window(2);
+    // A document without a form or a signature: Reset Form and Validate grey, the rest on.
+    assert_eq!(w.tabs5_enabled("form.reset"), Some(false));
+    assert_eq!(w.tabs5_enabled("prot.validate"), Some(false));
+    assert_eq!(w.tabs5_enabled("prot.sign"), None);
+    assert!(!ReaderWindow::tabs4_disabled("comment.summarize"));
+    assert!(!ReaderWindow::tabs4_disabled("prot.fillSign"));
+    // Comment tab: Summarize / Import / Export as one column of three rows, then the icons.
+    w.set_ribbon_tab(1, &Fixed);
+    let s = w.control_rect("comment.summarize").expect("summarize");
+    let i = w.control_rect("comment.import").expect("import");
+    let e = w.control_rect("menu.commentExport").expect("export");
+    assert_eq!((s[0], i[0]), (e[0], e[0]));
+    assert!(s[1] < i[1] && i[1] < e[1]);
+    assert!((i[1] - s[1] - 29.0).abs() < 0.6, "{s:?} {i:?}");
+    let l = w.control_rect("panel.comments").expect("list");
+    assert!(l[0] > s[0] + s[2] && (l[1] - s[1]).abs() < 0.5);
+    // Fill & Sign: a contextual tab; marks become comments.
+    w.run_command("prot.fillSign", &Fixed);
+    assert!(w.control_rect("fill.check").is_some());
+    w.run_command("fill.check", &Fixed);
+    let r = w.view().expect("view").page_rect(0).expect("page");
+    let (x, y) = (r[0] + 200.0, r[1] + 300.0);
+    press(&mut w, x, y, 1);
+    w.handle(Input::Release { x, y }, &Fixed);
+    w.run_command("fill.cross", &Fixed);
+    press(&mut w, x + 60.0, y, 1);
+    w.handle(Input::Release { x: x + 60.0, y }, &Fixed);
+    let kinds: Vec<_> = w
+        .view()
+        .expect("view")
+        .doc()
+        .annotations()
+        .iter()
+        .map(|a| a.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            bo_pdfread::AnnotKind::Ink,
+            bo_pdfread::AnnotKind::Line,
+            bo_pdfread::AnnotKind::Line
+        ]
+    );
+    w.run_command("fill.close", &Fixed);
+    assert!(w.control_rect("fill.check").is_none());
+    // Summary opens as a document, export offers a file, import adds the comments back.
+    w.take_requests();
+    w.run_command("comment.summarize", &Fixed);
+    w.run_command("comment.exportXfdf", &Fixed);
+    let req = w.take_requests();
+    assert!(
+        matches!(&req[0], ReaderRequest::OpenDocument { name, .. } if name == "test_summary.pdf")
+    );
+    let ReaderRequest::SaveBytes { name, bytes } = &req[1] else {
+        panic!("{req:?}");
+    };
+    assert_eq!(name, "test.xfdf");
+    let mut w2 = window(2);
+    assert!(w2.file_picked5("comments", std::path::Path::new("a.xfdf"), bytes));
+    assert_eq!(w2.view().expect("view").doc().annotations().len(), 3);
+    // File: a click on the page asks for the file, which is attached there.
+    w2.run_command("comment.file", &Fixed);
+    press(&mut w2, x, y, 1);
+    assert!(matches!(
+        w2.take_requests().first(),
+        Some(ReaderRequest::PickFile { purpose, .. }) if purpose == "attach"
+    ));
+    assert!(w2.file_picked5("attach", std::path::Path::new("notes.txt"), b"hello"));
+    assert_eq!(w2.view().expect("view").doc().annotations().len(), 4);
+}

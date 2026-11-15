@@ -135,8 +135,10 @@ impl PdfWindow for ReaderWindow {
     fn set_print_paper(&mut self, name: &str, paper: Option<crate::Paper>) {
         ReaderWindow::set_print_paper(self, name, paper);
     }
-    fn file_picked(&mut self, purpose: &str, _path: &Path, bytes: &[u8]) {
-        ReaderWindow::file_picked4(self, purpose, bytes);
+    fn file_picked(&mut self, purpose: &str, path: &Path, bytes: &[u8]) {
+        if !ReaderWindow::file_picked4(self, purpose, bytes) {
+            ReaderWindow::file_picked5(self, purpose, path, bytes);
+        }
     }
     fn text(&self, key: &str, args: &[(&str, &str)]) -> String {
         ReaderWindow::strings_fmt(self, key, args)

@@ -103,18 +103,7 @@ impl ReaderWindow {
 
     /// Commands that a reader does not offer (drawn disabled).
     pub(crate) fn tabs4_disabled(id: &str) -> bool {
-        matches!(
-            id,
-            "form.import"
-                | "form.export"
-                | "prot.fillSign"
-                | "prot.sign"
-                | "prot.timestamp"
-                | "comment.file"
-                | "comment.summarize"
-                | "comment.import"
-                | "comment.export"
-        )
+        matches!(id, "form.import" | "form.export")
     }
 
     /// After a text markup was made: Replace Text asks for the replacement.

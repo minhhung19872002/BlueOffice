@@ -259,6 +259,9 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
         if self.extra.print.is_none() {
+            if let Some(r) = self.route_tabs5(input, m) {
+                return Some(r);
+            }
             if let Some(r) = self.route_tabs4(input, m) {
                 return Some(r);
             }
@@ -515,6 +518,7 @@ impl ReaderWindow {
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
         if self.command_viewx(cmd, m)
             || self.command_view4(cmd, m)
+            || self.command_tabs5(cmd, m)
             || self.command_tabs4(cmd, m)
             || self.field_choice(cmd)
             || self.command_draw(cmd, m)
@@ -687,6 +691,7 @@ impl ReaderWindow {
         }
         self.paint_draw(p);
         self.paint_tabs4(p);
+        self.paint_tabs5(p);
     }
 
     /// Dialogs of the additions, over everything else.
@@ -699,6 +704,7 @@ impl ReaderWindow {
         }
         self.paint_draw_dialog(p);
         self.paint_tabs4_dialog(p);
+        self.paint_tabs5_dialog(p);
     }
 }
 

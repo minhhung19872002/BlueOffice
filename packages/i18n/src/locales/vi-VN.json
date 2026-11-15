@@ -7537,7 +7537,22 @@
     "import": "Nhập",
     "export": "Xuất",
     "replace": "Thay chữ",
-    "insert": "Chèn chữ"
+    "insert": "Chèn chữ",
+    "summaryTitle": "Tóm tắt chú thích của {{file}}",
+    "summaryPage": "Trang {{n}}",
+    "summaryNumber": "Số",
+    "summaryAuthor": "Tác giả",
+    "summarySubject": "Chủ đề",
+    "summaryDate": "Ngày",
+    "exportFdf": "Xuất ra FDF",
+    "exportXfdf": "Xuất ra XFDF",
+    "imported": "Đã nhập {{n}} chú thích",
+    "commentFiles": "Tệp chú thích (FDF, XFDF)",
+    "allFiles": "Mọi tệp",
+    "fileClick": "Nhấp trên trang nơi đặt tệp",
+    "keep": "Giữ công cụ đã chọn",
+    "options": "Tuỳ chọn chú thích",
+    "list": "Danh sách chú thích"
   },
   "pdfForm": {
     "reset": "Đặt lại biểu mẫu",
@@ -7558,9 +7573,39 @@
     "changedAfter": "chữ ký hợp lệ, tài liệu đã đổi sau khi ký",
     "invalid": "Không kiểm tra được chữ ký"
   },
+  "pdfFill": {
+    "tab": "Điền & Ký",
+    "text": "Thêm chữ",
+    "check": "Dấu tích",
+    "cross": "Dấu chéo",
+    "dot": "Dấu chấm",
+    "line": "Gạch",
+    "signature": "Chữ ký",
+    "close": "Đóng Điền & Ký",
+    "place": "Nhấp trên trang để đặt"
+  },
+  "pdfSign": {
+    "place": "Đặt chữ ký…",
+    "certificate": "Chứng thư số (.p12, .pfx)",
+    "password": "Mật khẩu",
+    "reason": "Lý do",
+    "location": "Nơi ký",
+    "tsa": "Máy chủ dấu thời gian (URL, tuỳ chọn)",
+    "image": "Ảnh chữ ký (đường dẫn tệp, tuỳ chọn)",
+    "drag": "Kéo một khung trên trang để đặt chữ ký",
+    "signed": "Bản đã ký mở trong tab mới",
+    "signedBy": "Ký số bởi",
+    "date": "Ngày",
+    "server": "Máy chủ dấu thời gian (URL)",
+    "stamped": "Bản có dấu thời gian mở trong tab mới",
+    "select": "Nhấp vào một chữ ký trên trang để kiểm tra"
+  },
   "pdfHome": {
     "snapshot": "Chụp vùng",
-    "copied": "Đã chép vùng chọn vào bộ nhớ tạm"
+    "copied": "Đã chép vùng chọn vào bộ nhớ tạm",
+    "clipboard": "Bảng tạm",
+    "pageFitOption": "Tuỳ chọn vừa trang",
+    "selectAll": "Chọn tất cả"
   },
   "pdfReader": {
     "tabs": {

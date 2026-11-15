@@ -7600,12 +7600,63 @@
     "stamped": "The time-stamped copy opened in a new tab",
     "select": "Click a signature on the page to validate it"
   },
+  "pdfLink": {
+    "title": "Security Warning",
+    "ask": "The document is trying to connect to:",
+    "allow": "Allow",
+    "block": "Block"
+  },
+  "pdfBookmark": {
+    "search": "Search...",
+    "expandAll": "Expand All",
+    "collapseAll": "Collapse All"
+  },
+  "pdfProps": {
+    "menu": "Properties",
+    "dialog": "Document Properties",
+    "description": "Description",
+    "security": "Security",
+    "fonts": "Fonts",
+    "file": "File",
+    "title": "Title",
+    "author": "Author",
+    "subject": "Subject",
+    "keywords": "Keywords",
+    "created": "Created",
+    "modified": "Modified",
+    "creator": "Application",
+    "producer": "PDF Producer",
+    "version": "PDF Version",
+    "location": "Location",
+    "size": "File Size",
+    "pageSize": "Page Size",
+    "pages": "Number of Pages",
+    "tagged": "Tagged PDF",
+    "fastWeb": "Fast Web View",
+    "yes": "Yes",
+    "no": "No",
+    "method": "Security Method",
+    "noSecurity": "No Security",
+    "printing": "Printing",
+    "changing": "Changing the Document",
+    "copying": "Content Copying",
+    "commenting": "Commenting",
+    "filling": "Filling of form fields",
+    "assembly": "Document Assembly",
+    "noFonts": "No fonts are used.",
+    "fontType": "Type",
+    "encoding": "Encoding",
+    "embedded": "Embedded",
+    "notEmbedded": "Not embedded"
+  },
   "pdfHome": {
     "snapshot": "SnapShot",
     "copied": "The selected area was copied to the clipboard",
     "clipboard": "Clipboard",
     "pageFitOption": "Page Fit Option",
-    "selectAll": "Select All"
+    "selectAll": "Select All",
+    "cut": "Cut",
+    "paste": "Paste"
   },
   "pdfReader": {
     "tabs": {

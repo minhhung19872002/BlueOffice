@@ -51,13 +51,14 @@ pub enum Fit {
     Width,
 }
 
-/// Zoom steps of the zoom-in / zoom-out commands (fractions of 100 %).
-pub const ZOOM_STEPS: [f32; 17] = [
-    0.0833, 0.125, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0,
-    16.0,
+/// Zoom steps of the zoom-in / zoom-out commands and Ctrl + wheel (fractions of 100 %): the
+/// reference reader's preset list (measured, round 5).
+pub const ZOOM_STEPS: [f32; 18] = [
+    0.01, 0.0833, 0.125, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0, 6.0, 8.0, 16.0,
+    32.0, 64.0,
 ];
-const MIN_ZOOM: f32 = 0.0833;
-const MAX_ZOOM: f32 = 16.0;
+const MIN_ZOOM: f32 = 0.01;
+const MAX_ZOOM: f32 = 64.0;
 
 /// A rendered page kept for drawing, selection and search.
 struct Rendered {

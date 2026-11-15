@@ -937,3 +937,49 @@ fn round5_fill_sign_comment_rows_and_exchange() {
     assert!(w2.file_picked5("attach", std::path::Path::new("notes.txt"), b"hello"));
     assert_eq!(w2.view().expect("view").doc().annotations().len(), 4);
 }
+
+#[test]
+fn round5_zoom_presets_wheel_and_link_warning() {
+    let mut w = window(3);
+    // Ctrl + wheel walks the reference's presets.
+    w.run_command("zoom.set.100", &Fixed);
+    w.handle(Input::Zoom(1.0), &Fixed);
+    assert!((w.view().expect("view").zoom() - 1.25).abs() < 1e-4);
+    w.handle(Input::Zoom(-2.0), &Fixed);
+    assert!((w.view().expect("view").zoom() - 0.75).abs() < 1e-4);
+    w.run_command("zoom.set.6400", &Fixed);
+    assert!((w.view().expect("view").zoom() - 64.0).abs() < 1e-3);
+    // No /PageMode: no bookmarks panel at first.
+    assert_eq!(w.panel(), None);
+    // A web link asks first; Allow opens it.
+    let mut w = window(1);
+    w.confirm_url("https://example.com/".into(), &Fixed);
+    assert_eq!(w.take_requests().len(), 0);
+    key(&mut w, Key::Enter, false, false);
+    assert!(matches!(
+        w.take_requests().first(),
+        Some(ReaderRequest::OpenUrl(u)) if u == "https://example.com/"
+    ));
+}
+
+#[test]
+fn round5_properties_dialog() {
+    let mut w = window(2);
+    w.run_command("file.properties", &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(p.texts.iter().any(|t| t == "Document Properties"));
+    assert!(p.texts.iter().any(|t| t == "test.pdf"));
+    assert!(p.texts.iter().any(|t| t == "1.7"));
+    // Fonts tab lists Helvetica, not embedded.
+    key(&mut w, Key::Tab, false, false);
+    key(&mut w, Key::Tab, false, false);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(p.texts.iter().any(|t| t == "Helvetica"), "{:?}", p.texts);
+    assert!(p.texts.iter().any(|t| t.contains("Not embedded")));
+    key(&mut w, Key::Escape, false, false);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(!p.texts.iter().any(|t| t == "Document Properties"));
+}

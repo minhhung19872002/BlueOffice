@@ -7600,12 +7600,63 @@
     "stamped": "Bản có dấu thời gian mở trong tab mới",
     "select": "Nhấp vào một chữ ký trên trang để kiểm tra"
   },
+  "pdfLink": {
+    "title": "Cảnh báo bảo mật",
+    "ask": "Tài liệu đang cố kết nối tới:",
+    "allow": "Cho phép",
+    "block": "Chặn"
+  },
+  "pdfBookmark": {
+    "search": "Tìm...",
+    "expandAll": "Mở rộng tất cả",
+    "collapseAll": "Thu gọn tất cả"
+  },
+  "pdfProps": {
+    "menu": "Thuộc tính",
+    "dialog": "Thuộc tính tài liệu",
+    "description": "Mô tả",
+    "security": "Bảo mật",
+    "fonts": "Phông chữ",
+    "file": "Tệp",
+    "title": "Tiêu đề",
+    "author": "Tác giả",
+    "subject": "Chủ đề",
+    "keywords": "Từ khoá",
+    "created": "Ngày tạo",
+    "modified": "Ngày sửa",
+    "creator": "Ứng dụng tạo",
+    "producer": "Trình tạo PDF",
+    "version": "Phiên bản PDF",
+    "location": "Vị trí",
+    "size": "Kích thước tệp",
+    "pageSize": "Khổ trang",
+    "pages": "Số trang",
+    "tagged": "PDF có thẻ",
+    "fastWeb": "Xem nhanh trên web",
+    "yes": "Có",
+    "no": "Không",
+    "method": "Phương thức bảo mật",
+    "noSecurity": "Không bảo mật",
+    "printing": "In",
+    "changing": "Sửa tài liệu",
+    "copying": "Sao chép nội dung",
+    "commenting": "Chú thích",
+    "filling": "Điền trường biểu mẫu",
+    "assembly": "Sắp xếp trang",
+    "noFonts": "Không dùng phông chữ nào.",
+    "fontType": "Loại",
+    "encoding": "Bảng mã",
+    "embedded": "Đã nhúng",
+    "notEmbedded": "Không nhúng"
+  },
   "pdfHome": {
     "snapshot": "Chụp vùng",
     "copied": "Đã chép vùng chọn vào bộ nhớ tạm",
     "clipboard": "Bảng tạm",
     "pageFitOption": "Tuỳ chọn vừa trang",
-    "selectAll": "Chọn tất cả"
+    "selectAll": "Chọn tất cả",
+    "cut": "Cắt",
+    "paste": "Dán"
   },
   "pdfReader": {
     "tabs": {

@@ -16,6 +16,22 @@ use std::cell::Cell;
 /// Index of the Fill & Sign contextual tab (after Help).
 pub(crate) const FILL_TAB: usize = 6;
 
+/// Paths of the outline items marked open (`/Count` > 0), to start expanded.
+pub(crate) fn open_items(
+    items: &[bo_pdfread::OutlineItem],
+    path: &mut Vec<usize>,
+    out: &mut std::collections::HashSet<Vec<usize>>,
+) {
+    for (i, it) in items.iter().enumerate() {
+        path.push(i);
+        if it.open && !it.children.is_empty() {
+            out.insert(path.clone());
+            open_items(&it.children, path, out);
+        }
+        path.pop();
+    }
+}
+
 /// Icons of the text-markup grid (drawn larger).
 pub(crate) fn markup_icon(name: &str) -> bool {
     matches!(
@@ -44,8 +60,10 @@ pub(crate) struct Pending {
 }
 
 /// What an open dialog of the additions asks.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Ask {
+    /// The document opens a web address: allow it?
+    Url(String),
     /// Text for Fill & Sign at a page point.
     FillText(usize, [f32; 2]),
     /// Password, reason, location, time-stamp server, picture for signing.
@@ -78,6 +96,16 @@ pub(crate) struct Tabs5 {
     sign_drag: Option<(usize, [f32; 2], [f32; 2])>,
     /// The signature field selected on the page (page, rect, name).
     pub(crate) sig_selected: Option<(usize, [f32; 4], String)>,
+    /// File › Properties.
+    pub(crate) props: Option<super::props5::Props>,
+    /// Bookmarks panel: search text, its box has the keyboard, text size step, tool boxes,
+    /// the tool under the pointer, the search box.
+    pub(crate) bm_search: String,
+    pub(crate) bm_focus: bool,
+    pub(crate) bm_font: f32,
+    pub(crate) bm_tools: Vec<(&'static str, [f32; 4])>,
+    pub(crate) bm_hover: Option<&'static str>,
+    pub(crate) bm_search_box: [f32; 4],
     /// Whether the document has form fields / signatures, for the bytes and edit count it
     /// was worked out for.
     facts: Cell<Option<(DocKey, bool)>>,
@@ -220,11 +248,32 @@ impl ReaderWindow {
             }
             "fill.close" => self.close_fill(m),
             "menu.clipboard" => {
+                // The reference's Clipboard menu: Cut and Paste grey in a reader, Copy grey
+                // without a selection.
+                let selected = self.view().is_some_and(|v| v.selection().is_some());
                 let items = [
-                    ("edit.copy", "pdfReader.copy"),
-                    ("edit.selectAll", "pdfHome.selectAll"),
-                ];
-                self.menu_here(&items, "menu.clipboard");
+                    ("edit.cut", "pdfHome.cut", false),
+                    ("edit.copy", "pdfReader.copy", selected),
+                    ("edit.paste", "pdfHome.paste", false),
+                    ("edit.selectAll", "pdfHome.selectAll", true),
+                ]
+                .iter()
+                .map(|(cmd, key, on)| MenuItem {
+                    label: self.t(key),
+                    choice: Choice::Command(if *on {
+                        (*cmd).to_owned()
+                    } else {
+                        String::new()
+                    }),
+                    checked: false,
+                    dim: !on,
+                })
+                .collect();
+                let r = self.control_rect("menu.clipboard").unwrap_or([0.0; 4]);
+                self.menu = Some((
+                    Menu::open(items, r, self.size, self.scale),
+                    "menu.clipboard",
+                ));
             }
             "edit.selectAll" => {
                 let ctrl = crate::Mods {
@@ -274,6 +323,8 @@ impl ReaderWindow {
                 self.menu_here(&items, "menu.commentOptions");
             }
             "comment.exportFdf" | "comment.exportXfdf" => self.export_comments(cmd),
+            c if c.starts_with("bm.") => return self.bookmark_command(c),
+            "file.properties" => self.open_properties(),
             "prot.sign" => {
                 let items = [("sign.place", "pdfSign.place")];
                 self.menu_here(&items, "prot.sign");
@@ -487,9 +538,26 @@ impl ReaderWindow {
         }
     }
 
+    /// A link to a web address: ask before opening it, like the reference's security warning.
+    pub(crate) fn confirm_url(&mut self, url: String, m: &dyn TextMeasure) {
+        let mut d = Dialog::new(
+            DialogKind::Comment,
+            self.t("pdfLink.title"),
+            Vec::new(),
+            vec![
+                (self.t("pdfLink.allow"), DialogButton::Ok),
+                (self.t("pdfLink.block"), DialogButton::Cancel),
+            ],
+            vec![self.t("pdfLink.ask"), url.clone()],
+        );
+        d.layout(m, self.size, self.scale);
+        self.tabs5.dialog = Some((d, Ask::Url(url)));
+    }
+
     fn answer(&mut self, what: Ask, values: &[String]) {
         let get = |i: usize| values.get(i).cloned().unwrap_or_default();
         match what {
+            Ask::Url(u) => self.requests.push(ReaderRequest::OpenUrl(u)),
             Ask::FillText(page, p) => {
                 let text = get(0);
                 if text.trim().is_empty() {
@@ -652,6 +720,14 @@ impl ReaderWindow {
     /// Input of the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_tabs5(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if let Some(r) = self.route_props(input) {
+            return Some(r);
+        }
+        if self.tabs5.dialog.is_none() {
+            if let Some(r) = self.route_bookmarks(input, m) {
+                return Some(r);
+            }
+        }
         if let Some((d, _)) = self.tabs5.dialog.as_mut() {
             let done = match input {
                 Input::Text(s) => {
@@ -816,7 +892,8 @@ impl ReaderWindow {
     }
 
     /// The additions' dialog, over everything else.
-    pub(crate) fn paint_tabs5_dialog(&self, p: &mut dyn Painter) {
+    pub(crate) fn paint_tabs5_dialog(&mut self, p: &mut dyn Painter) {
+        self.paint_doc_props(p);
         if let Some((d, _)) = &self.tabs5.dialog {
             d.paint(p, &self.theme, self.size, true);
         }

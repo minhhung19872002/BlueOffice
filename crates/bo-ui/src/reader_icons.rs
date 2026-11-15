@@ -121,6 +121,11 @@ fn shape(name: &str) -> &'static [Part] {
         "split" => &[S("M3.5 3.5h17v17h-17z"), A("M12 3.5v17 M3.5 12h17")],
         "replaceText" => &[S("M4 17L9.5 3 15 17 M6.3 13h6.4"), Y("M2.5 8.5h14 M14.5 21h7 M19 18.5l2.5 2.5-2.5 2.5")],
         "insertText" => &[S("M4 17L9.5 3 15 17 M6.3 13h6.4"), Y("M18.5 15.5v7 M15 19h7")],
+        // Bookmarks panel tools (round 5).
+        "bmOptions" => &[S("M3.5 4.5h17v15h-17z M7 9h10 M7 12.5h10 M7 16h6")],
+        "bmFind" => &[S("M4.5 3h9v16l-4.5-3.5L4.5 19z"), A("M16.5 12a3 3 0 1 0 .01 0z M18.7 14.2l2.8 2.8")],
+        "textLarger" => &[S("M2.5 19L7.5 5l5 14 M4.5 14.5h6"), A("M18 5v6 M15 8h6")],
+        "textSmaller" => &[S("M2.5 19L7.5 5l5 14 M4.5 14.5h6"), A("M15 8h6")],
         // Fill & Sign marks (round 5).
         "check" => &[S("M4 12.5l5 5L20 6.5")],
         "cross" => &[S("M5.5 5.5l13 13 M18.5 5.5l-13 13")],

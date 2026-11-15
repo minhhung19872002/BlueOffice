@@ -45,6 +45,7 @@ mod sfnt;
 mod sigappear;
 mod text;
 mod type1;
+mod viewer;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
@@ -64,6 +65,7 @@ pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, Text
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
+pub use viewer::{DocInfo, FontInfo};
 
 use bo_render::{PageList, Rgba};
 use bo_text::FontManager;

@@ -695,7 +695,7 @@ impl ReaderWindow {
     }
 
     /// Dialogs of the additions, over everything else.
-    pub(crate) fn paint_extra_dialogs(&self, p: &mut dyn Painter) {
+    pub(crate) fn paint_extra_dialogs(&mut self, p: &mut dyn Painter) {
         if let Some(d) = &self.extra.print {
             d.paint(p, &self.theme, &self.strings, self.size, true);
         }

@@ -37,6 +37,12 @@ mod tabs4;
 #[path = "reader_tabs5_win.rs"]
 mod tabs5;
 
+#[path = "reader_bookmarks5_win.rs"]
+mod bm5;
+
+#[path = "reader_props5_win.rs"]
+mod props5;
+
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
 const EDGE: Rgba = Rgba(199, 204, 217, 255);
@@ -636,8 +642,11 @@ impl ReaderWindow {
     /// Open `doc` named `name` in a new tab and show it.
     pub fn open(&mut self, doc: PdfDocument, name: &str, path: Option<std::path::PathBuf>) {
         let outline = doc.outline();
-        let panel = (!outline.is_empty()).then_some(Panel::Bookmarks);
-        let expanded = HashSet::new();
+        // The reference shows bookmarks when the document asks (/PageMode /UseOutlines).
+        let panel = (!outline.is_empty() && doc.page_mode().as_deref() == Some("UseOutlines"))
+            .then_some(Panel::Bookmarks);
+        let mut expanded = HashSet::new();
+        tabs5::open_items(&outline, &mut Vec::new(), &mut expanded);
         let view = ReaderView::new(doc);
         self.tabs.push(DocTab {
             view,
@@ -1407,8 +1416,11 @@ impl ReaderWindow {
             }
             Input::Zoom(n) => {
                 if let Some(t) = self.tabs.get_mut(self.active) {
-                    let z = t.view.zoom() * 1.1_f32.powf(n);
-                    t.view.set_zoom(z);
+                    // One preset per notch (the reference's Ctrl + wheel).
+                    let steps = n.abs().round().max(1.0) as usize;
+                    for _ in 0..steps {
+                        t.view.step_zoom(if n > 0.0 { 1 } else { -1 });
+                    }
                     return true;
                 }
                 false
@@ -1565,7 +1577,7 @@ impl ReaderWindow {
                 if matches!(self.tool, Tool::Hand | Tool::Select) {
                     match target {
                         LinkTarget::Page { index, top } => t.view.go_to(index, top),
-                        LinkTarget::Uri(u) => self.requests.push(ReaderRequest::OpenUrl(u)),
+                        LinkTarget::Uri(u) => self.confirm_url(u, m),
                     }
                     return true;
                 }
@@ -1897,7 +1909,8 @@ impl ReaderWindow {
             }
             return false;
         };
-        let line = 40.0 * self.scale;
+        // 125 %: 54 px per arrow press (measured on the reference).
+        let line = 43.2 * self.scale;
         let page_h = t.view.frame()[3] * 0.9;
         match (k, mods.ctrl) {
             (Key::Down, false) => t.view.scroll_by(0.0, line),
@@ -2038,6 +2051,7 @@ impl ReaderWindow {
         }
         let mut items = vec![
             ("file.open", "pdfReader.open"),
+            ("file.properties", "pdfProps.menu"),
             ("file.save", "pdfReader.save"),
             ("file.saveAs", "pdfReader.saveAs"),
             ("file.print", "pdfReader.print"),
@@ -2051,27 +2065,33 @@ impl ReaderWindow {
 
     fn open_zoom_menu(&mut self, r: [f32; 4]) {
         let z = self.view().map_or(1.0, ReaderView::zoom);
-        let mut items: Vec<MenuItem> = [
-            ("zoom.width", "pdfReader.fitWidth"),
-            ("zoom.page", "pdfReader.fitPage"),
-            ("zoom.actual", "pdfReader.actualSize"),
-        ]
-        .iter()
-        .map(|(c, k)| MenuItem {
-            label: self.t(k),
-            choice: Choice::Command((*c).to_owned()),
-            checked: false,
-            dim: false,
-        })
-        .collect();
-        for p in [10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 800, 1600] {
+        let mut items: Vec<MenuItem> = Vec::new();
+        for p in [
+            "6400", "3200", "1600", "800", "600", "400", "200", "150", "125", "100", "75", "66.67",
+            "50", "33.33", "25", "12.5", "8.33", "1",
+        ] {
+            let v: f32 = p.parse().unwrap_or(100.0);
             items.push(MenuItem {
                 label: format!("{p}%"),
                 choice: Choice::Command(format!("zoom.set.{p}")),
-                checked: (z * 100.0 - p as f32).abs() < 0.5,
+                checked: (z * 100.0 - v).abs() < 0.05,
                 dim: false,
             });
         }
+        items.extend(
+            [
+                ("zoom.actual", "pdfReader.actualSize"),
+                ("zoom.page", "pdfReader.fitPage"),
+                ("zoom.width", "pdfReader.fitWidth"),
+            ]
+            .iter()
+            .map(|(c, k)| MenuItem {
+                label: self.t(k),
+                choice: Choice::Command((*c).to_owned()),
+                checked: false,
+                dim: false,
+            }),
+        );
         self.menu = Some((Menu::open(items, r, self.size, self.scale), "zoom"));
     }
 
@@ -2261,7 +2281,8 @@ impl ReaderWindow {
         }
         if let Some(t) = self.tabs.get_mut(self.active) {
             if !self.show_start {
-                t.view.scroll_by(0.0, dy);
+                // The reference scrolls 16 logical px per wheel line (the host sends 20).
+                t.view.scroll_by(0.0, dy * 0.8);
                 return true;
             }
         }
@@ -2953,78 +2974,18 @@ impl ReaderWindow {
         };
         let ts = self.style(16.0, false);
         p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
-        let list_top = r[1] + self.px(40.0);
+        let list_top = r[1]
+            + if panel == Panel::Bookmarks {
+                self.paint_bookmark_tools(p, r)
+            } else {
+                self.px(40.0)
+            };
         p.push_clip(r[0], list_top, r[2], r[3] - (list_top - r[1]));
         let body = self.style(14.0, false);
-        let row_h = self.px(19.2);
         let scroll = self.tabs.get(self.active).map_or(0.0, |t| t.panel_scroll);
         let mut y = list_top + self.px(4.0) - scroll;
         match panel {
-            Panel::Bookmarks => {
-                let Some(t) = self.tabs.get(self.active) else {
-                    p.pop_clip();
-                    return;
-                };
-                let outline = t.outline.clone();
-                let expanded = t.expanded.clone();
-                let mut rows = Vec::new();
-                flatten_outline(&outline, &expanded, &mut Vec::new(), 0, &mut rows);
-                if rows.is_empty() {
-                    p.text(
-                        &self.t("pdfReader.noBookmarks"),
-                        r[0] + self.px(8.8),
-                        y,
-                        body,
-                        MUTED,
-                    );
-                }
-                for (path, item, depth, has_kids, open) in rows {
-                    if y > r[1] + r[3] {
-                        break;
-                    }
-                    let x = r[0] + self.px(8.0) + depth as f32 * self.px(14.4);
-                    if y + row_h > list_top {
-                        if has_kids {
-                            let b = self.px(7.2);
-                            let bx = x;
-                            let by = (y + (row_h - b) / 2.0).round();
-                            p.fill_rect(bx, by, b + 1.0, b + 1.0, Rgba(140, 140, 140, 255));
-                            p.fill_rect(bx + 1.0, by + 1.0, b - 1.0, b - 1.0, WHITE);
-                            p.fill_rect(bx + 2.0, by + b / 2.0, b - 3.0, 1.0, TEXT);
-                            if !open {
-                                p.fill_rect(bx + b / 2.0, by + 2.0, 1.0, b - 3.0, TEXT);
-                            }
-                        }
-                        let ix = x + self.px(12.8);
-                        reader_icons::draw(
-                            p,
-                            "bookmark",
-                            ix,
-                            y + ((row_h - self.px(14.4)) / 2.0).round(),
-                            self.px(14.4),
-                            Ink {
-                                ink: TEXT,
-                                accent: TEXT,
-                            },
-                        );
-                        p.text(
-                            &item.title,
-                            ix + self.px(16.0),
-                            y + ((row_h - body.size * 1.33) / 2.0).round(),
-                            body,
-                            TEXT,
-                        );
-                    }
-                    let toggle = has_kids.then_some((x, x + self.px(7.2)));
-                    self.panel_rows.push((
-                        y,
-                        row_h,
-                        PanelRow::Outline(path, item.target.clone(), toggle),
-                    ));
-                    y += row_h;
-                }
-                // Toggle rows only cover the box: keep them first but narrow by x in hit test.
-            }
+            Panel::Bookmarks => self.paint_bookmarks(p, r, list_top, y),
             Panel::Pages => {
                 let Some(t) = self.tabs.get(self.active) else {
                     p.pop_clip();

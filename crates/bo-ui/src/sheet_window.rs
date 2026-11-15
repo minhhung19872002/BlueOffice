@@ -31,8 +31,9 @@ const STATUS_BG: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
 const STATUS_EDGE: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
 const STATUS_TEXT: Rgba = Rgba(0x26, 0x26, 0x26, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
-/// Corner mark of a cell with a comment.
-const COMMENT_MARK: Rgba = Rgba(0x77, 0x19, 0xaa, 255);
+/// Corner mark of a cell with a comment: a red right triangle with 7 px legs inside the cell's
+/// top-right corner (measured).
+const COMMENT_MARK: Rgba = Rgba(0xff, 0x00, 0x00, 255);
 
 /// Fonts offered by the font box.
 const FONTS: [&str; 12] = [
@@ -1335,9 +1336,9 @@ impl SheetWindow {
             };
             p.path(
                 &[
-                    PathSeg::M(right - s, t),
-                    PathSeg::L(right, t),
-                    PathSeg::L(right, t + s),
+                    PathSeg::M(right - s, t + 1.0),
+                    PathSeg::L(right, t + 1.0),
+                    PathSeg::L(right, t + 1.0 + s),
                     PathSeg::Z,
                 ],
                 Some(COMMENT_MARK),

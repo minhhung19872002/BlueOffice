@@ -459,13 +459,14 @@ impl Handler for Shell {
             _ => TextRendering::System,
         });
         let mut surface = WindowSurface::new(&device, hwnd, width, height)?;
-        // Frames go to the compositor as soon as they are drawn (BLUEOFFICE_SHEET_SYNC=1
-        // waits for the next vertical blank as BlueDoc does).
+        // BLUEOFFICE_SHEET_SYNC=0 hands frames to the compositor without waiting for the
+        // vertical blank (the same on-screen latency here, and window captures with
+        // PrintWindow can then read a frame still being drawn), 1 (default) as BlueDoc.
         surface.set_sync_interval(
             std::env::var("BLUEOFFICE_SHEET_SYNC")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(0),
+                .unwrap_or(1),
         );
         self.gpu = Some(Gpu {
             device,

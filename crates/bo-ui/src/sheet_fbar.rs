@@ -150,27 +150,24 @@ impl SheetWindow {
 
     /// Name box drop-down arrow, splitter dots, the marks' box and the expand chevron.
     pub(super) fn paint_fbar_parts(&self, p: &mut dyn Painter) {
-        let lw = self.scale.max(1.0).round();
-        // Name box arrow: a 7 × 4 px triangle centred 12 px left of the box's right edge.
+        // Name box arrow: a 7 × 4 px triangle 15 px left of the box's right edge, 13 px below
+        // its top (measured).
         let n = self.name_rect;
-        let (cx, cy) = (
-            (n[0] + n[2] - self.px(9.6)).round(),
-            (n[1] + n[3] / 2.0).round(),
-        );
-        let k = self.px(2.8);
+        let (ax, ay) = (n[0] + n[2] - self.px(12.0), n[1] + self.px(10.4));
+        let k = self.px(5.6);
         p.path(
             &[
-                PathSeg::M(cx - k, cy - k / 2.0),
-                PathSeg::L(cx + k + lw, cy - k / 2.0),
-                PathSeg::L(cx + lw / 2.0, cy + k / 2.0 + lw / 2.0),
+                PathSeg::M(ax, ay),
+                PathSeg::L(ax + k, ay),
+                PathSeg::L(ax + k / 2.0, ay + k / 2.0),
                 PathSeg::Z,
             ],
             Some(NAME_ARROW),
             None,
         );
-        // Splitter: three 3 px dots 5 px apart, 18 px right of the name box.
+        // Splitter: three 3 px dots 5 px apart, 17 px right of the name box.
         let d = self.px(2.4);
-        let sx = n[0] + n[2] + self.px(14.4);
+        let sx = n[0] + n[2] + self.px(13.6);
         for i in 0..3 {
             p.fill_rect(
                 sx,
@@ -180,20 +177,32 @@ impl SheetWindow {
                 SPLIT_DOT,
             );
         }
-        // Expand chevron (down when collapsed, up when expanded), 9 × 6 px, two-pixel strokes.
-        let [ex, ey, ew, eh] = self.expand_rect();
-        let (cx, cy) = ((ex + ew / 2.0).round(), (ey + eh / 2.0).round());
-        let (hw, hh) = (self.px(3.6), self.px(2.4));
-        let dir = if self.fbar_lines > 1 { -1.0 } else { 1.0 };
-        p.path(
-            &[
-                PathSeg::M(cx - hw, cy - dir * hh),
-                PathSeg::L(cx, cy + dir * hh),
-                PathSeg::L(cx + hw, cy - dir * hh),
-            ],
-            None,
-            Some((CHEVRON, 2.0 * lw)),
-        );
+        // Expand chevron (down when collapsed, up when expanded): a thick 9 × 6 px V, 15 px
+        // left of the content box's right edge and 12 px below its top (measured).
+        let f = self.fx_rect;
+        let (x0, y0) = (f[0] + f[2] - self.px(12.0), f[1] + self.px(9.6));
+        let (w, h, t) = (self.px(7.2), self.px(4.8), self.px(2.4));
+        let pts: [(f32, f32); 6] = [
+            (0.0, 0.0),
+            (t, 0.0),
+            (w / 2.0, t / 2.0),
+            (w - t, 0.0),
+            (w, 0.0),
+            (w / 2.0, h),
+        ];
+        let up = self.fbar_lines > 1;
+        let at = |(dx, dy): (f32, f32)| (x0 + dx, if up { y0 + h - dy - 1.0 } else { y0 + dy });
+        let mut segs = Vec::with_capacity(7);
+        for (i, pt) in pts.iter().enumerate() {
+            let (x, y) = at(*pt);
+            segs.push(if i == 0 {
+                PathSeg::M(x, y)
+            } else {
+                PathSeg::L(x, y)
+            });
+        }
+        segs.push(PathSeg::Z);
+        p.path(&segs, Some(CHEVRON), None);
         // Typing in the name box: its text all selected or with a caret at the end.
         if let Some(e) = &self.name_edit {
             let style = self.ui_style();

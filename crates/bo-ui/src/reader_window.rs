@@ -2332,7 +2332,15 @@ impl ReaderWindow {
             let r = c.r;
             match c.kind {
                 Kind::Big(icon, label, dropdown) => {
-                    if on || down || hot {
+                    // A command this window does not offer: grey, no hover.
+                    let off = !self.enabled(c.id);
+                    let (ink, label_ink) = if off {
+                        let g = Rgba(175, 175, 176, 255);
+                        (Ink { ink: g, accent: g }, g)
+                    } else {
+                        (ink, TEXT)
+                    };
+                    if !off && (on || down || hot) {
                         let fill = if on || down {
                             self.look.pressed
                         } else {
@@ -2372,14 +2380,14 @@ impl ReaderWindow {
                             0.0
                         };
                         let lx = r[0] + ((r[2] - lw - extra) / 2.0).round();
-                        p.text(l, lx, ly, label_style, TEXT);
+                        p.text(l, lx, ly, label_style, label_ink);
                         if dropdown && k == n - 1 && n > 1 {
                             tri(
                                 p,
                                 lx + lw + self.px(2.0),
                                 ly + lh * 0.45,
                                 self.px(3.2),
-                                TEXT,
+                                label_ink,
                             );
                         }
                         ly += lh;

@@ -2498,6 +2498,13 @@ impl SheetView {
             .unwrap_or_else(|| s.chars().count() as f32 * font.size * 0.52)
     }
 
+    /// Window box of a visible cell: left and top gridline, right and bottom gridline.
+    pub(crate) fn cell_box(&self, r: u32, c: u32) -> Option<[f32; 4]> {
+        let row = self.rows.iter().find(|s| s.index == r)?;
+        let col = self.cols.iter().find(|s| s.index == c)?;
+        Some([col.start - 1.0, row.start - 1.0, col.line, row.line])
+    }
+
     /// Placed rows: index, first pixel, closing gridline (tests).
     #[cfg(test)]
     pub(crate) fn rows_for_test(&self) -> Vec<(u32, f32, f32)> {

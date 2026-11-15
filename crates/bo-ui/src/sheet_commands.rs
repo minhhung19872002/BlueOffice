@@ -18,6 +18,30 @@ pub(super) enum SheetDialog {
     GoTo,
     InsertFunction,
     FormatCells,
+    /// New comment on the active cell (Review tab).
+    Comment,
+    /// Protect / unprotect the sheet (Review tab).
+    Protect,
+    /// Text to Columns wizard at step 0 or 1 (Data tab).
+    TextToColumns(u8),
+}
+
+/// Page of each Format Cells field: number code; horizontal, vertical, indent, orientation;
+/// font, size, colour; border preset, line style; fill; then the check boxes wrap, shrink,
+/// merge (alignment), bold, italic, underline, strike (font), locked, hidden (protection).
+const FORMAT_CELLS_PAGES: [usize; 20] =
+    [0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 1, 1, 1, 2, 2, 2, 2, 5, 5];
+
+/// Format parts read from the active cell's style record.
+#[derive(Debug, Default)]
+struct XfExtra {
+    indent: u32,
+    rotation: u32,
+    shrink: bool,
+    locked: bool,
+    hidden: bool,
+    /// Solid fill colour `RRGGBB` (empty: none).
+    fill: String,
 }
 
 fn parse_num(s: &str) -> Option<f64> {
@@ -230,7 +254,6 @@ impl SheetWindow {
     pub(super) fn open_sheet_dialog(&mut self, kind: SheetDialog) -> bool {
         let ok = self.t("common.ok", "OK");
         let cancel = self.t("common.cancel", "Cancel");
-        let f = self.view.format().clone();
         let (dk, title, fields, buttons) = match kind {
             SheetDialog::Find => (
                 DialogKind::Find,
@@ -290,51 +313,20 @@ impl SheetWindow {
                 )],
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
             ),
+            SheetDialog::Comment | SheetDialog::Protect | SheetDialog::TextToColumns(_) => {
+                return self.open_review_dialog(kind);
+            }
             SheetDialog::FormatCells => (
                 DialogKind::Paragraph,
                 self.t("sheetMenu.cells.formatCells", "Format cells")
                     .replace('…', ""),
-                vec![
-                    (
-                        self.t("sheetMenu.dialog.numberCode", "Number format"),
-                        if f.num_fmt.is_empty() {
-                            "General".to_owned()
-                        } else {
-                            f.num_fmt.clone()
-                        },
-                    ),
-                    (self.t("sheetMenu.dialog.font", "Font"), f.font.clone()),
-                    (
-                        self.t("sheetMenu.dialog.size", "Size (pt)"),
-                        format!("{}", f.size),
-                    ),
-                    (
-                        self.t("sheetMenu.dialog.fontColor", "Font colour (RRGGBB)"),
-                        f.color.clone(),
-                    ),
-                    (
-                        self.t("sheetMenu.dialog.fill", "Fill colour (RRGGBB)"),
-                        String::new(),
-                    ),
-                    (
-                        self.t(
-                            "sheetMenu.dialog.hAlign",
-                            "Horizontal (left, center, right)",
-                        ),
-                        f.h_align.clone(),
-                    ),
-                ],
+                self.format_cells_fields(),
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
             ),
         };
         let mut d = Dialog::new(dk, title, fields, buttons, Vec::new());
         if kind == SheetDialog::FormatCells {
-            d = d.with_checks(vec![
-                (self.t("sheetMenu.dialog.bold", "Bold"), f.bold),
-                (self.t("sheetMenu.dialog.italic", "Italic"), f.italic),
-                (self.t("sheetMenu.dialog.wrap", "Wrap text"), f.wrap),
-                (self.t("sheetMenu.dialog.border", "Border around"), false),
-            ]);
+            d = self.format_cells_pages(d);
         }
         self.dialog = Some((kind, d));
         true
@@ -399,58 +391,254 @@ impl SheetWindow {
                 self.apply_format_cells(&values);
                 true
             }
-            _ => false,
+            _ => self.review_dialog_button(kind, b, &values),
         }
+    }
+
+    /// Text fields of the tabbed Format Cells dialog (Number, Alignment, Font, Border, Fill;
+    /// the check boxes follow in [`Self::format_cells_pages`]).
+    fn format_cells_fields(&self) -> Vec<(String, String)> {
+        let f = self.view.format().clone();
+        let x = self.xf_extra();
+        vec![
+            (
+                self.t("sheetMenu.dialog.numberCode", "Number format code"),
+                if f.num_fmt.is_empty() {
+                    "General".to_owned()
+                } else {
+                    f.num_fmt.clone()
+                },
+            ),
+            (
+                self.t("sheetMenu.fcHorizontal", "Horizontal"),
+                if f.h_align.is_empty() {
+                    "general".to_owned()
+                } else {
+                    f.h_align.clone()
+                },
+            ),
+            (
+                self.t("sheetMenu.fcVertical", "Vertical"),
+                if f.v_align.is_empty() {
+                    "bottom".to_owned()
+                } else {
+                    f.v_align.clone()
+                },
+            ),
+            (self.t("sheetMenu.fcIndent", "Indent"), x.indent.to_string()),
+            (
+                self.t("sheetMenu.fcRotation", "Orientation"),
+                x.rotation.to_string(),
+            ),
+            (self.t("sheetMenu.dialog.font", "Font"), f.font.clone()),
+            (
+                self.t("sheetMenu.dialog.size", "Size (pt)"),
+                format!("{}", f.size),
+            ),
+            (
+                self.t("sheetMenu.dialog.fontColor", "Font colour (RRGGBB)"),
+                f.color.clone(),
+            ),
+            (self.t("sheetMenu.fcBorderPreset", "Presets"), String::new()),
+            (
+                self.t("sheetMenu.fcBorderStyle", "Line style"),
+                "thin".to_owned(),
+            ),
+            (self.t("sheetMenu.fcFillColor", "Background colour"), x.fill),
+        ]
+    }
+
+    /// Check boxes and pages of the Format Cells dialog.
+    fn format_cells_pages(&self, d: Dialog) -> Dialog {
+        let f = self.view.format().clone();
+        let x = self.xf_extra();
+        let d = d.with_checks(vec![
+            (self.t("sheetMenu.dialog.wrap", "Wrap text"), f.wrap),
+            (self.t("sheetMenu.fcShrink", "Shrink to fit"), x.shrink),
+            (self.t("sheetMenu.fcMerge", "Merge cells"), self.merged()),
+            (self.t("sheetMenu.dialog.bold", "Bold"), f.bold),
+            (self.t("sheetMenu.dialog.italic", "Italic"), f.italic),
+            (self.t("sheetMenu.fcUnderline", "Underline"), f.underline),
+            (self.t("sheetMenu.fcStrike", "Strikethrough"), f.strike),
+            (self.t("sheetMenu.fcLocked", "Locked"), x.locked),
+            (self.t("sheetMenu.fcHidden", "Hidden"), x.hidden),
+        ]);
+        let tabs = [
+            ("sheetMenu.fcTabNumber", "Number"),
+            ("sheetMenu.fcTabAlignment", "Alignment"),
+            ("sheetMenu.fcTabFont", "Font"),
+            ("sheetMenu.fcTabBorder", "Border"),
+            ("sheetMenu.fcTabFill", "Fill"),
+            ("sheetMenu.fcTabProtection", "Protection"),
+        ]
+        .iter()
+        .map(|(k, fb)| self.t(k, fb))
+        .collect();
+        d.with_tabs(tabs, &FORMAT_CELLS_PAGES)
+    }
+
+    /// Whether the selection touches merged cells.
+    fn merged(&self) -> bool {
+        let (r0, c0, r1, c1) = self.view.range_bounds();
+        self.view.engine().workbook().is_some_and(|w| {
+            w.sheets.get(self.view.sheet()).is_some_and(|ws| {
+                ws.merges.iter().any(|m| {
+                    m.first.row <= r1 && m.last.row >= r0 && m.first.col <= c1 && m.last.col >= c0
+                })
+            })
+        })
+    }
+
+    /// Cell format parts the view's summary does not carry (active cell).
+    fn xf_extra(&self) -> XfExtra {
+        let (r, c) = self.view.active();
+        let mut out = XfExtra {
+            locked: true,
+            ..XfExtra::default()
+        };
+        let Some(w) = self.view.engine().workbook() else {
+            return out;
+        };
+        let style = w
+            .sheets
+            .get(self.view.sheet())
+            .and_then(|ws| ws.cell(r, c))
+            .map_or(0, |cell| cell.style);
+        if let Some(xf) = w.styles.xf(style) {
+            if let Some(a) = &xf.alignment {
+                out.indent = a.indent.unwrap_or(0);
+                out.rotation = a.text_rotation.unwrap_or(0);
+                out.shrink = a.shrink_to_fit;
+            }
+            if let Some(p) = &xf.protection {
+                out.locked = p.locked.unwrap_or(true);
+                out.hidden = p.hidden.unwrap_or(false);
+            }
+            out.fill = w
+                .styles
+                .fills
+                .get(xf.fill_id as usize)
+                .and_then(|f| match f {
+                    bo_model::sheet::Fill::Pattern(p) if p.pattern.as_deref() == Some("solid") => {
+                        p.fg.as_ref()
+                            .and_then(|c| c.rgb.as_ref())
+                            .map(|rgb| rgb[rgb.len().saturating_sub(6)..].to_ascii_uppercase())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+        }
+        out
     }
 
     fn apply_format_cells(&mut self, values: &[String]) {
         let v = |i: usize| values.get(i).cloned().unwrap_or_default();
+        let on = |i: usize| v(i) == "1";
         let f = self.view.format().clone();
+        let x = self.xf_extra();
         let mut patch = serde_json::Map::new();
         let code = v(0).trim().to_owned();
         if !code.is_empty() && code != f.num_fmt && !(f.num_fmt.is_empty() && code == "General") {
             patch.insert("numFmt".into(), json!(code));
         }
-        let font = v(1).trim().to_owned();
+        let ha = v(1).trim().to_ascii_lowercase();
+        let ha = if ha == "general" { String::new() } else { ha };
+        if ha != f.h_align && matches!(ha.as_str(), "" | "left" | "center" | "right" | "justify") {
+            patch.insert("hAlign".into(), json!(ha));
+        }
+        let va = v(2).trim().to_ascii_lowercase();
+        if va != f.v_align
+            && !(va == "bottom" && f.v_align.is_empty())
+            && matches!(va.as_str(), "top" | "center" | "bottom")
+        {
+            patch.insert("vAlign".into(), json!(va));
+        }
+        if let Some(n) = v(3).trim().parse::<u32>().ok().filter(|n| *n <= 250) {
+            if n != x.indent {
+                patch.insert("indent".into(), json!(n));
+            }
+        }
+        if let Some(n) = v(4)
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|n| *n <= 180 || *n == 255)
+        {
+            if n != x.rotation {
+                patch.insert("rotation".into(), json!(n));
+            }
+        }
+        let font = v(5).trim().to_owned();
         if !font.is_empty() && font != f.font {
             patch.insert("fontName".into(), json!(font));
         }
-        if let Some(pt) = parse_num(&v(2)).filter(|p| (1.0..=409.0).contains(p)) {
+        if let Some(pt) = parse_num(&v(6)).filter(|p| (1.0..=409.0).contains(p)) {
             if (pt - f.size).abs() > 1e-6 {
                 patch.insert("fontSize".into(), json!(pt));
             }
         }
-        if let Some(h) = hex6(&v(3)) {
+        if let Some(h) = hex6(&v(7)) {
             if h != f.color {
                 patch.insert("fontColor".into(), json!(h));
             }
         }
-        if let Some(h) = hex6(&v(4)) {
-            patch.insert("fillColor".into(), json!(h));
-        }
-        let ha = v(5).trim().to_ascii_lowercase();
-        if ha != f.h_align && matches!(ha.as_str(), "" | "left" | "center" | "right" | "justify") {
-            patch.insert("hAlign".into(), json!(ha));
-        }
-        for (i, key, on) in [
-            (6, "bold", f.bold),
-            (7, "italic", f.italic),
-            (8, "wrap", f.wrap),
-        ] {
-            let want = v(i) == "1";
-            if want != on {
-                patch.insert(key.into(), json!(want));
+        let fill = v(10).trim().to_ascii_lowercase();
+        if fill == "none" && !x.fill.is_empty() {
+            patch.insert("fillColor".into(), json!(""));
+        } else if let Some(h) = hex6(&fill) {
+            if h != x.fill {
+                patch.insert("fillColor".into(), json!(h));
             }
         }
+        for (i, key, was) in [
+            (11, "wrap", f.wrap),
+            (12, "shrink", x.shrink),
+            (14, "bold", f.bold),
+            (15, "italic", f.italic),
+            (17, "strike", f.strike),
+            (18, "locked", x.locked),
+            (19, "formulaHidden", x.hidden),
+        ] {
+            if on(i) != was {
+                patch.insert(key.into(), json!(on(i)));
+            }
+        }
+        if on(16) != f.underline {
+            patch.insert(
+                "underline".into(),
+                json!(if on(16) { "single" } else { "none" }),
+            );
+        }
         let range = self.view.rng();
+        let sheet = self.view.sheet();
         let mut cmds = Vec::new();
         if !patch.is_empty() {
-            cmds.push(json!({ "cmd": "format", "sheet": self.view.sheet(), "range": range, "patch": patch }));
+            cmds.push(json!({ "cmd": "format", "sheet": sheet, "range": range, "patch": patch }));
         }
-        if v(9) == "1" {
+        if on(13) != self.merged() {
+            cmds.push(if on(13) {
+                json!({ "cmd": "merge", "sheet": sheet, "range": range, "center": false })
+            } else {
+                json!({ "cmd": "unmerge", "sheet": sheet, "range": range })
+            });
+        }
+        let preset = v(8).trim().to_ascii_lowercase();
+        if matches!(
+            preset.as_str(),
+            "none" | "outline" | "all" | "inside" | "top" | "bottom" | "left" | "right"
+        ) {
+            let style = v(9).trim().to_ascii_lowercase();
+            let style = if matches!(
+                style.as_str(),
+                "thin" | "medium" | "thick" | "dashed" | "dotted" | "double"
+            ) {
+                style
+            } else {
+                "thin".to_owned()
+            };
             cmds.push(json!({
-                "cmd": "borders", "sheet": self.view.sheet(), "range": range,
-                "spec": { "preset": "outside", "style": "thin" },
+                "cmd": "borders", "sheet": sheet, "range": range,
+                "spec": { "preset": preset, "style": style },
             }));
         }
         if !cmds.is_empty() {
@@ -643,15 +831,9 @@ impl SheetWindow {
                 self.view
                     .run(json!({ "cmd": "createTable", "range": region }))
             }
-            ("sheet", "calcNow" | "calcSheet") => {
-                self.recalculate();
-                true
-            }
+            ("sheet", "calcNow" | "calcSheet") => self.calculate(arg == "calcSheet"),
 
-            ("sheet", "textToColumns") => self.view.run(json!({
-                "cmd": "textToColumns", "range": range,
-                "split": { "mode": "delimited", "delimiters": [",", ";", "\t"] },
-            })),
+            ("sheet", "textToColumns") => self.open_sheet_dialog(SheetDialog::TextToColumns(0)),
             ("sheet", "removeDuplicates") => {
                 let region = self.region();
                 let header = self
@@ -683,7 +865,7 @@ impl SheetWindow {
             }
             ("sheet", "zoom100") => self.zoom_to(1.0, text),
             ("sheet", "zoomSelection") => self.zoom_selection(text),
-            _ => return None,
+            _ => return self.more_action(kind, arg, text),
         })
     }
 
@@ -830,13 +1012,5 @@ impl SheetWindow {
             Menu::open(items, [x, y - 2.0, 1.0, 0.0], self.size, self.scale)
                 .with_decor(icons, separators),
         );
-    }
-
-    /// Recalculate every formula (Calculate Now, back to automatic calculation).
-    pub(super) fn recalculate(&mut self) {
-        if self.view.engine_mut().recalculate().is_ok() {
-            self.view.invalidate();
-            self.view.reload();
-        }
     }
 }

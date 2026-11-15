@@ -714,3 +714,174 @@ fn home_tab_is_wide_or_compact_with_the_window_as_on_the_reference() {
     let sort = rect(&w, "sheet.sortFilter");
     assert_eq!(sort[3], sum[3]);
 }
+
+#[test]
+fn format_cells_dialog_has_pages_like_the_reference() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    let page = |w: &SheetWindow| w.dialog.as_ref().map(|(_, d)| d.page());
+    assert_eq!(page(&w), Some(0));
+    let key = |w: &mut SheetWindow, k: Key, ctrl: bool, shift: bool| {
+        w.handle(
+            Input::Key(
+                k,
+                Mods {
+                    shift,
+                    ctrl,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+    };
+    let retype = |w: &mut SheetWindow, s: &str| {
+        for _ in 0..12 {
+            w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+        }
+        type_in(w, s);
+    };
+    // Alignment page: horizontal, vertical, indent, orientation, then wrap / shrink / merge.
+    key(&mut w, Key::Tab, true, false);
+    assert_eq!(page(&w), Some(1));
+    retype(&mut w, "center");
+    key(&mut w, Key::Tab, false, false);
+    retype(&mut w, "top");
+    key(&mut w, Key::Tab, false, false);
+    key(&mut w, Key::Tab, false, false);
+    retype(&mut w, "45");
+    // Font page: Tab reaches its check boxes (bold, italic, underline) after the text boxes.
+    key(&mut w, Key::Tab, true, false);
+    assert_eq!(page(&w), Some(2));
+    for _ in 0..5 {
+        key(&mut w, Key::Tab, false, false);
+    }
+    type_in(&mut w, " ");
+    // Protection page (Ctrl+Shift+Tab goes back round): clear Locked.
+    key(&mut w, Key::Tab, true, true);
+    key(&mut w, Key::Tab, true, true);
+    key(&mut w, Key::Tab, true, true);
+    assert_eq!(page(&w), Some(5));
+    type_in(&mut w, " ");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    let f = w.view().format().clone();
+    assert_eq!((f.h_align.as_str(), f.v_align.as_str()), ("center", "top"));
+    assert!(f.underline, "underline from the Font page");
+    let wb = w.view().engine().workbook().expect("workbook");
+    let xf = wb
+        .styles
+        .xf(wb.sheets[0].cell(0, 0).expect("cell").style)
+        .expect("xf");
+    assert_eq!(
+        xf.alignment.as_ref().and_then(|a| a.text_rotation),
+        Some(45)
+    );
+    assert_eq!(xf.protection.as_ref().and_then(|p| p.locked), Some(false));
+}
+
+#[test]
+fn page_layout_tab_sets_up_printing() {
+    let mut w = window();
+    assert!(w.action("orient.landscape", &Fixed));
+    assert!(w.action("margins.narrow", &Fixed));
+    assert!(w.action("paper.8", &Fixed));
+    w.view_mut().select((0, 0), (4, 2), (0, 0));
+    assert!(w.action("printArea.set", &Fixed));
+    assert!(w.action("fitw.1", &Fixed));
+    let s = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageSetup" }))
+        .expect("page setup");
+    assert_eq!(s["orientation"], "landscape");
+    assert_eq!(s["paperSize"], 8);
+    assert_eq!(s["margins"][0], 0.25);
+    assert_eq!(s["fit"][0], 1);
+    assert!(s["printArea"]
+        .as_str()
+        .is_some_and(|a| a.contains("$A$1:$C$5")));
+    assert!(w.action("sheet.printGridlines", &Fixed));
+    let s = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageSetup" }))
+        .expect("page setup");
+    assert_eq!(s["gridLines"], true);
+}
+
+#[test]
+fn review_tab_comments_and_sheet_protection() {
+    let mut w = window();
+    w.view_mut().select((2, 1), (2, 1), (2, 1));
+    assert!(w.action("sheet.newComment", &Fixed));
+    type_in(&mut w, "Check this");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.commented_cells(), vec![(2, 1)]);
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("sheet.nextComment", &Fixed));
+    assert_eq!(w.view().active(), (2, 1));
+    assert_eq!(w.status, "Check this");
+    assert!(w.action("sheet.deleteComment", &Fixed));
+    assert_eq!(w.commented_cells(), Vec::new());
+    // Protect, then a locked cell refuses typing; Unprotect with the same button.
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.view_mut().select((5, 5), (5, 5), (5, 5));
+    type_in(&mut w, "1");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        input(&w, 5, 5),
+        "",
+        "locked cells of a protected sheet keep their value"
+    );
+    assert!(w.status.contains("protected"), "{}", w.status);
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    put(&mut w, &[(5, 5, "1")]);
+    assert_eq!(input(&w, 5, 5), "1");
+}
+
+#[test]
+fn manual_calculation_waits_for_f9() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "1"), (0, 1, "=A1+1")]);
+    assert!(w.action("calc.manual", &Fixed));
+    put(&mut w, &[(0, 0, "10")]);
+    assert_eq!(shown(&w, 0, 1), "2", "not recalculated in manual mode");
+    assert!(w.calc_state.1, "the status bar says Calculate");
+    w.handle(Input::Key(Key::F(9), Mods::default()), &Fixed);
+    assert_eq!(shown(&w, 0, 1), "11");
+    assert!(!w.calc_state.1);
+    assert!(w.action("calc.auto", &Fixed));
+    put(&mut w, &[(0, 0, "20")]);
+    assert_eq!(shown(&w, 0, 1), "21");
+}
+
+#[test]
+fn text_to_columns_wizard_previews_then_splits() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "a;b;c"), (1, 0, "d;e")]);
+    w.view_mut().select((0, 0), (1, 0), (0, 0));
+    assert!(w.action("sheet.textToColumns", &Fixed));
+    // Step 1: delimiters field (second), type a semicolon list.
+    w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
+    for _ in 0..12 {
+        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+    }
+    type_in(&mut w, "semicolon");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(matches!(
+        w.dialog.as_ref().map(|d| d.0),
+        Some(commands_impl::SheetDialog::TextToColumns(1))
+    ));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    assert_eq!(
+        (
+            input(&w, 0, 0),
+            input(&w, 0, 1),
+            input(&w, 0, 2),
+            input(&w, 1, 1)
+        ),
+        ("a".into(), "b".into(), "c".into(), "e".into())
+    );
+}

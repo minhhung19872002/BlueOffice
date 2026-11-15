@@ -13,6 +13,8 @@ use commands_impl::SheetDialog;
 mod commands_impl;
 #[path = "sheet_fbar.rs"]
 mod fbar_impl;
+#[path = "sheet_review.rs"]
+mod review_impl;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -29,6 +31,8 @@ const STATUS_BG: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
 const STATUS_EDGE: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
 const STATUS_TEXT: Rgba = Rgba(0x26, 0x26, 0x26, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
+/// Corner mark of a cell with a comment.
+const COMMENT_MARK: Rgba = Rgba(0x77, 0x19, 0xaa, 255);
 
 /// Fonts offered by the font box.
 const FONTS: [&str; 12] = [
@@ -218,6 +222,10 @@ pub struct SheetWindow {
     name_edit: Option<fbar_impl::NameEdit>,
     /// Measured widths of name box text being typed.
     name_widths: Vec<(String, f32)>,
+    /// Calculation: manual mode, and formulas waiting for F9 (the status bar says Calculate).
+    calc_state: (bool, bool),
+    /// Settings of the Text to Columns wizard's first step.
+    ttc_values: Vec<String>,
 }
 
 impl SheetWindow {
@@ -269,8 +277,11 @@ impl SheetWindow {
             fbar_lines: 1,
             name_edit: None,
             name_widths: Vec::new(),
+            calc_state: (false, false),
+            ttc_values: Vec::new(),
         };
         w.load_functions();
+        w.refresh_calc_state();
         w
     }
 
@@ -982,6 +993,9 @@ impl SheetWindow {
             self.status = e;
         }
         self.measure_name(text);
+        if self.calc_state.0 && redraw {
+            self.refresh_calc_state();
+        }
         redraw
     }
 
@@ -1080,6 +1094,10 @@ impl SheetWindow {
             }
             if k == Key::Escape && self.painter.take().is_some() {
                 return true;
+            }
+            // F9 calculates the workbook, Shift+F9 the sheet (manual calculation).
+            if k == Key::F(9) && !self.view.editing() {
+                return self.calculate(m.shift);
             }
         }
         if let Input::Context { x, y } = input {
@@ -1305,6 +1323,27 @@ impl SheetWindow {
     /// needs no clear (one pass less over the window's pixels).
     pub fn paint_base(&self, p: &mut dyn Painter) {
         self.view.paint(p);
+        self.paint_comment_marks(p);
+    }
+
+    /// Cells with a comment carry a mark in their top-right corner.
+    fn paint_comment_marks(&self, p: &mut dyn Painter) {
+        let s = self.px(5.6);
+        for (r, c) in self.commented_cells() {
+            let Some([_, t, right, _]) = self.view.cell_box(r, c) else {
+                continue;
+            };
+            p.path(
+                &[
+                    PathSeg::M(right - s, t),
+                    PathSeg::L(right, t),
+                    PathSeg::L(right, t + s),
+                    PathSeg::Z,
+                ],
+                Some(COMMENT_MARK),
+                None,
+            );
+        }
     }
 
     /// Title bar, ribbon and number format box: everything above the formula bar.
@@ -1688,6 +1727,13 @@ impl SheetWindow {
             }
         } else if !self.status.is_empty() {
             self.status.clone()
+        } else if self.calc_state.1 {
+            // Manual calculation with formulas waiting (F9), as the reference shows it.
+            format!(
+                "{}      {}",
+                self.t("sheetEditor.ready", "Ready"),
+                self.t("sheetMenu.calculate", "Calculate")
+            )
         } else {
             self.t("sheetEditor.ready", "Ready")
         };

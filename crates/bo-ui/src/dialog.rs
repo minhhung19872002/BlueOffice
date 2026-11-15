@@ -47,6 +47,8 @@ struct Field {
     scroll_x: f32,
     /// A check box instead of a text box (its state).
     check: Option<bool>,
+    /// Page of a tabbed dialog the field is on.
+    tab: usize,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -77,6 +79,10 @@ pub struct Dialog {
     field_rects: Vec<R>,
     hover: Option<usize>,
     scale: f32,
+    /// Tab strip of a tabbed dialog (labels and rectangles); empty: one page.
+    tabs: Vec<(String, R)>,
+    /// The page shown.
+    tab: usize,
 }
 
 impl Dialog {
@@ -102,6 +108,7 @@ impl Dialog {
                         caret_x: 0.0,
                         scroll_x: 0.0,
                         check: None,
+                        tab: 0,
                     }
                 })
                 .collect(),
@@ -115,7 +122,42 @@ impl Dialog {
             field_rects: Vec::new(),
             hover: None,
             scale: 1.0,
+            tabs: Vec::new(),
+            tab: 0,
         }
+    }
+
+    /// Make a tabbed dialog: `labels` of the pages and the page of each field (in order;
+    /// fields beyond the list stay on the last page).
+    #[must_use]
+    pub fn with_tabs(mut self, labels: Vec<String>, pages: &[usize]) -> Self {
+        let last = labels.len().saturating_sub(1);
+        for (i, f) in self.fields.iter_mut().enumerate() {
+            f.tab = pages.get(i).copied().unwrap_or(last).min(last);
+        }
+        self.tabs = labels.into_iter().map(|l| (l, R::default())).collect();
+        self.tab = 0;
+        self.focus = self.fields.iter().position(|f| f.tab == 0).unwrap_or(0);
+        self
+    }
+
+    /// The page shown (tabbed dialogs).
+    pub fn page(&self) -> usize {
+        self.tab
+    }
+
+    /// Show page `i` (tabbed dialogs), focusing its first field.
+    pub fn set_page(&mut self, i: usize) {
+        if i < self.tabs.len() {
+            self.tab = i;
+            if let Some(f) = self.fields.iter().position(|f| f.tab == i) {
+                self.focus = f;
+            }
+        }
+    }
+
+    fn shown(&self, f: &Field) -> bool {
+        f.tab == self.tab
     }
 
     /// Add check boxes (label, checked) after the text fields.
@@ -129,6 +171,7 @@ impl Dialog {
                 caret_x: 0.0,
                 scroll_x: 0.0,
                 check: Some(on),
+                tab: 0,
             });
         }
         self
@@ -177,13 +220,23 @@ impl Dialog {
         let field_h = self.px(28.0);
         let check_h = self.px(26.0);
         let mut h = self.px(52.0);
+        let pages = self.tabs.len().max(1);
+        let mut page_h = vec![0.0_f32; pages];
         for f in &self.fields {
-            h += if f.check.is_some() {
+            page_h[f.tab.min(pages - 1)] += if f.check.is_some() {
                 check_h
             } else {
                 self.px(22.0) + field_h + self.px(8.0)
             };
         }
+        h += page_h.iter().copied().fold(0.0, f32::max);
+        // Tab strip: 28 px tabs under the title.
+        let strip = if self.tabs.is_empty() {
+            0.0
+        } else {
+            self.px(36.0)
+        };
+        h += strip;
         h += self.preview_h()
             + if self.preview_h() > 0.0 {
                 self.px(10.0)
@@ -198,9 +251,26 @@ impl Dialog {
             w,
             h,
         };
-        let mut y = self.frame.y + self.px(48.0);
+        let mut tx = self.frame.x + self.px(16.0);
+        let tab_style = self.style();
+        for (label, r) in &mut self.tabs {
+            let tw = m.measure(label, tab_style).0 + (20.0 * scale).round();
+            *r = R {
+                x: tx,
+                y: self.frame.y + (44.0 * scale).round(),
+                w: tw,
+                h: (28.0 * scale).round(),
+            };
+            tx += tw;
+        }
+        let mut y = self.frame.y + self.px(48.0) + strip;
         self.field_rects.clear();
+        let tab = self.tab;
         for f in &self.fields {
+            if self.tabs.len() > 1 && f.tab != tab {
+                self.field_rects.push(R::default());
+                continue;
+            }
             if f.check.is_some() {
                 // Check box row: the whole row toggles.
                 self.field_rects.push(R {
@@ -291,13 +361,32 @@ impl Dialog {
                 _ => {}
             }
         }
+        let pages = self.tabs.len();
         match key {
-            Key::Tab if n > 0 => {
-                self.focus = if m.shift {
-                    (self.focus + n - 1) % n
+            Key::Tab | Key::PageDown | Key::PageUp if m.ctrl && pages > 1 => {
+                let back = m.shift || key == Key::PageUp;
+                let i = if back {
+                    (self.tab + pages - 1) % pages
                 } else {
-                    (self.focus + 1) % n
+                    (self.tab + 1) % pages
                 };
+                self.set_page(i);
+                None
+            }
+            Key::Tab if n > 0 => {
+                // Next field on the shown page.
+                let mut i = self.focus;
+                for _ in 0..n {
+                    i = if m.shift {
+                        (i + n - 1) % n
+                    } else {
+                        (i + 1) % n
+                    };
+                    if self.fields.get(i).is_some_and(|f| self.shown(f)) {
+                        break;
+                    }
+                }
+                self.focus = i;
                 None
             }
             Key::Enter => self.buttons.first().map(|b| b.1),
@@ -319,6 +408,10 @@ impl Dialog {
 
     /// Click: focuses a field (caret at the end) or returns a button action.
     pub fn press(&mut self, x: f32, y: f32) -> Option<DialogButton> {
+        if let Some(i) = self.tabs.iter().position(|(_, r)| r.contains(x, y)) {
+            self.set_page(i);
+            return None;
+        }
         if let Some(i) = self.field_rects.iter().position(|r| r.contains(x, y)) {
             self.focus = i;
             if let Some(f) = self.fields.get_mut(i) {
@@ -363,7 +456,35 @@ impl Dialog {
             },
             t.text,
         );
+        if !self.tabs.is_empty() {
+            // Tab strip: the shown page's tab joins the page (white, framed on three sides),
+            // the others sit on the dialog face; a line under the strip.
+            let line_y = self.tabs[0].1.y + self.tabs[0].1.h - 1.0;
+            p.fill_rect(
+                f.x + self.px(16.0),
+                line_y,
+                f.w - self.px(32.0),
+                1.0,
+                EDIT_EDGE,
+            );
+            for (i, (label, r)) in self.tabs.iter().enumerate() {
+                if i == self.tab {
+                    p.fill_rect(r.x, r.y, r.w, r.h, EDIT_EDGE);
+                    p.fill_rect(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h, t.surface);
+                }
+                p.text(
+                    label,
+                    r.x + self.px(10.0),
+                    r.y + (r.h - line) / 2.0,
+                    style,
+                    t.text,
+                );
+            }
+        }
         for (i, (field, r)) in self.fields.iter().zip(&self.field_rects).enumerate() {
+            if self.tabs.len() > 1 && !self.shown(field) {
+                continue;
+            }
             if let Some(on) = field.check {
                 // Standard check box: white box with a grey frame (blue when focused) and a
                 // dark tick, the label to its right.
@@ -431,7 +552,8 @@ impl Dialog {
         }
         let mut my = self
             .field_rects
-            .last()
+            .iter()
+            .rfind(|r| r.w > 0.0)
             .map_or(f.y + self.px(52.0), |r| r.y + r.h + self.px(10.0));
         if self.preview_h() > 0.0 {
             // Font preview: sample text in the chosen family, size and style, in a white box.

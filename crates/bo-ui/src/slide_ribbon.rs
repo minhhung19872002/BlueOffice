@@ -172,6 +172,8 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.penWeight"
             | "sl.penColor"
             | "sl.picQuick"
+            | "pm.orientation"
+            | "pm.perPage"
     )
 }
 

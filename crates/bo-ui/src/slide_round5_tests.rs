@@ -383,3 +383,45 @@ fn draw_borders_pen_and_borders_menu() {
         .expect("inner top border");
     assert_eq!(ln.w, Some(38_100));
 }
+
+fn view_tab(w: &mut SlideWindow) {
+    let i = w.base_tabs - 1;
+    let [x, y, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(i)).expect("view tab");
+    click(w, x + tw / 2.0, y + th / 2.0);
+}
+
+#[test]
+fn grayscale_ruler_and_page_masters() {
+    let mut w = window();
+    view_tab(&mut w);
+    click_command(&mut w, "view.grayscale");
+    assert_eq!(
+        w.view().color_mode(),
+        crate::slide_view::colormode::ColorMode::Grayscale
+    );
+    click_command(&mut w, "view.blackWhite");
+    click_command(&mut w, "view.color");
+    assert_eq!(
+        w.view().color_mode(),
+        crate::slide_view::colormode::ColorMode::Color
+    );
+    click_command(&mut w, "view.ruler");
+    assert!(w.ruler);
+    let mut p = Count::default();
+    w.paint(&mut p);
+    // Handout Master: its tab first, the view has one page; Close brings the deck back.
+    let n = w.view().slide_count();
+    click_command(&mut w, "view.handoutMaster");
+    assert!(w.page_master.is_some());
+    assert_eq!(w.ribbon.active_tab(), 0);
+    assert!(w.command_rect("pm.perPage").is_some());
+    click_command(&mut w, "pm.header");
+    assert!(!w.pm_flags[0]);
+    click_command(&mut w, "view.closePageMaster");
+    assert!(w.page_master.is_none());
+    assert_eq!(w.view().slide_count(), n);
+    click_command(&mut w, "view.notesMaster");
+    assert!(w.command_rect("pm.slideImage").is_some());
+    click_command(&mut w, "view.closePageMaster");
+    assert_eq!(w.view().slide_count(), n);
+}

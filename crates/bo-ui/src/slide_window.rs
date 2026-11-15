@@ -256,6 +256,11 @@ pub struct SlideWindow {
     bg_mode: Option<pic::BgMode>,
     /// Draw Borders pen of Table Design.
     pen: fmt::Pen,
+    /// Notes / Handout Master view open, and its placeholder check boxes.
+    page_master: Option<bo_engine::slide_edit::page_master::PageKind>,
+    pm_flags: [bool; 6],
+    /// View > Ruler.
+    ruler: bool,
 }
 
 #[path = "slide_controls.rs"]
@@ -273,6 +278,9 @@ mod selpane;
 #[path = "slide_picture.rs"]
 mod pic;
 
+#[path = "slide_views5.rs"]
+mod views5;
+
 #[path = "slide_showtab.rs"]
 mod showtab;
 
@@ -286,6 +294,9 @@ impl SlideWindow {
         let mut tabs = base_tabs();
         if self.master_view {
             tabs.insert(0, viewtab::master_tab());
+        }
+        if let Some(t) = self.page_master_tab() {
+            tabs.insert(0, t);
         }
         tabs
     }
@@ -388,6 +399,7 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || fmt::COMMANDS.contains(&id)
         || pic::COMMANDS.contains(&id)
         || pic::BG_COMMANDS.contains(&id)
+        || views5::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -400,6 +412,7 @@ impl SlideWindow {
         viewtab::install_strings(&mut strings);
         fmt::install_strings(&mut strings);
         pic::install_strings(&mut strings);
+        views5::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
@@ -407,6 +420,7 @@ impl SlideWindow {
         viewtab::install_icons(&mut icons);
         fmt::install_icons(&mut icons);
         pic::install_icons(&mut icons);
+        views5::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -485,6 +499,9 @@ impl SlideWindow {
             gallery: None,
             bg_mode: None,
             pen: fmt::Pen::default(),
+            page_master: None,
+            pm_flags: [true; 6],
+            ruler: false,
         }
     }
 
@@ -1818,7 +1835,7 @@ impl SlideWindow {
             }
             "side" => self.choose_format(v),
             "cshow" => return self.choose_show(kind, v),
-            "zoom" => return self.choose_view(kind, v),
+            "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
         })
     }

@@ -49,21 +49,22 @@ pub(super) fn view_tab() -> Tab {
                 ],
                 rows: vec![],
             },
-            Group {
-                label: "slideNative.masterViews",
-                large: vec![L("view.slideMaster")],
-                rows: vec![],
-            },
+            super::views5::master_views_group(),
             Group {
                 label: "ribbon.groups.show",
                 large: vec![L("view.notes")],
-                rows: vec![vec![S("view.gridlines")], vec![S("view.guides")]],
+                rows: vec![
+                    vec![S("view.ruler")],
+                    vec![S("view.gridlines")],
+                    vec![S("view.guides")],
+                ],
             },
             Group {
                 label: "ribbon.groups.zoom",
                 large: vec![L("view.zoom"), L("view.fitSlide")],
                 rows: vec![],
             },
+            super::views5::color_group(),
         ],
     }
 }
@@ -144,6 +145,9 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
 impl SlideWindow {
     /// Run a View tab command; `None` when `id` is not one.
     pub(super) fn view_action(&mut self, id: &str) -> Option<bool> {
+        if let Some(r) = self.views5_action(id) {
+            return Some(r);
+        }
         Some(match id {
             "view.outline" | "view.notesPage" => {
                 let want = if id == "view.outline" {
@@ -223,6 +227,9 @@ impl SlideWindow {
 
     /// Menu choices of the tab.
     pub(super) fn choose_view(&mut self, kind: &str, v: &str) -> Option<bool> {
+        if kind == "pm" {
+            return Some(self.choose_pm(v));
+        }
         (kind == "zoom").then(|| {
             if v == "fit" {
                 self.view.set_zoom(None)
@@ -243,6 +250,7 @@ impl SlideWindow {
         if self.master_view {
             on.push("view.slideMaster");
         }
+        self.views5_toggled(on);
     }
 
     /// A press in the outline pane goes to that slide.
@@ -282,6 +290,9 @@ impl SlideWindow {
         }
         if self.pane != Pane::NotesPage && (self.gridlines || self.guides) {
             self.paint_grid(p);
+        }
+        if self.pane == Pane::Normal {
+            self.paint_ruler(p);
         }
     }
 
@@ -464,6 +475,7 @@ impl SlideWindow {
 
     /// Check boxes of Gridlines and Guides over their slots' icon place.
     pub(super) fn paint_view_checks(&self, p: &mut dyn Painter) {
+        self.paint_views5_checks(p);
         for (id, on) in [
             ("view.gridlines", self.gridlines),
             ("view.guides", self.guides),

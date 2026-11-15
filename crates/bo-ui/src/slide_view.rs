@@ -246,8 +246,13 @@ fn word_at(s: &str, u: usize) -> (usize, usize) {
     (off(a), off(b))
 }
 
+#[path = "slide_colormode.rs"]
+pub mod colormode;
+
 /// The editing area of one presentation.
 pub struct SlideView {
+    /// Colour, Grayscale or Black and White (View tab).
+    color_mode: colormode::ColorMode,
     /// The selection's frame and handles are not drawn (Remove Background).
     hide_handles: bool,
     /// Prompts of empty title, subtitle and body placeholders (interface language).
@@ -316,6 +321,7 @@ impl SlideView {
     /// A view of the presentation already open in `engine`.
     pub fn new(engine: Engine) -> Result<Self, String> {
         let mut view = Self {
+            color_mode: colormode::ColorMode::Color,
             hide_handles: false,
             prompts: [
                 "Click to add title".into(),
@@ -850,9 +856,52 @@ impl SlideView {
         }
     }
 
+    /// Draw slides in colour, grayscale or black and white (every image is drawn again).
+    pub fn set_color_mode(&mut self, mode: colormode::ColorMode) -> bool {
+        if mode == self.color_mode {
+            return false;
+        }
+        self.color_mode = mode;
+        self.invalidate_page_images();
+        true
+    }
+
+    /// The colour mode of the editing area.
+    pub fn color_mode(&self) -> colormode::ColorMode {
+        self.color_mode
+    }
+
     /// Hide the selection's frame and handles (Remove Background draws its own frame).
     pub fn set_hide_handles(&mut self, hide: bool) {
         self.hide_handles = hide;
+    }
+
+    /// Run a notes / handout master view command (the view replaces the slide list).
+    pub fn run_page_master(
+        &mut self,
+        cmd: bo_engine::slide_edit::page_master::PageMasterCommand,
+    ) -> bool {
+        match self.engine.slide_page_master_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.stale.extend(self.shown.keys().copied());
+                self.full.extend(self.shown.keys().copied());
+                self.apply(r);
+                self.refresh_ids();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Run an outline / section command.
+    pub fn run_view(&mut self, cmd: bo_engine::slide_edit::views::ViewCommand) -> bool {
+        match self.engine.slide_view_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Run a shape properties / table style command (Selection Pane, Alt Text, Table Design).
@@ -2003,7 +2052,14 @@ impl SlideView {
                 None => None,
             }
         };
-        store.update(key, list, &self.engine, scale, band)?;
+        // The editing area and thumbnails show the View tab's colour mode (slide shows
+        // stay in colour).
+        if self.color_mode != colormode::ColorMode::Color && key < SHOW_KEY {
+            let shown = colormode::recolor(list, self.color_mode);
+            store.update(key, &shown, &self.engine, scale, band)?;
+        } else {
+            store.update(key, list, &self.engine, scale, band)?;
+        }
         self.shown.insert(key, (scale, list.clone()));
         self.stale.remove(&key);
         self.full.remove(&key);

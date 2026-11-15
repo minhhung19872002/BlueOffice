@@ -37,6 +37,11 @@ const TABS: [&str; 9] = [
 /// Index of the Organize tab in [`TABS`].
 pub(crate) const TAB_ORGANIZE: usize = 3;
 
+/// Ribbon items of tab `tab` (an index into the tabs after File).
+pub(crate) fn ribbon_items(tab: usize) -> Vec<(&'static str, Kind)> {
+    ribbon(tab)
+}
+
 #[allow(clippy::too_many_lines)]
 fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     use Kind::{Big, Sep, Small};
@@ -241,7 +246,7 @@ fn profile() -> Profile {
             ("file.merge", "pdfEditor.combine"),
             ("file.save", "pdfReader.save"),
             ("file.saveAs", "pdfReader.saveAs"),
-            ("file.saveOptimized", "pdfEditor.saveOptimized"),
+            ("file.optimize", "pdfEditor.optimize"),
             ("file.print", "pdfReader.print"),
             ("file.close", "pdfReader.close"),
         ],
@@ -267,7 +272,7 @@ const LOOK: Look = Look {
     body_h: 73.6,
     icon: 28.8,
     icon_y: 4.8,
-    label: 17.0,
+    label: 15.5,
     label_y: 36.0,
     quick_x: 54.8,
     quick_step: 28.0,
@@ -293,6 +298,13 @@ const LOOK: Look = Look {
     status_box_top: Some(3.2),
     // The reference's toolbar icons are drawn with 1 px lines at 36 px.
     icon_stroke: 0.66,
+    // Reference at 125 % with 110 % text: labels 9 % narrower than BlueReader's, buttons the
+    // label plus 18 px, at least 49 px, side by side; 1 px before a separator, 8 px after
+    // (Edit tab: Hand 14–65, Edit Text 131–179, separators at 123 and 470).
+    big_pad: 13.1,
+    big_min: 35.6,
+    big_gap: 0.0,
+    sep_space: (0.8, 5.8),
 };
 
 /// Editor tool that takes the document area's pointer input.
@@ -346,6 +358,8 @@ pub struct EditorWindow {
     pub(crate) dialog2: Option<(Dialog, crate::editor_actions::Ask2)>,
     /// Field whose option menu is open.
     pub(crate) pending_field: Option<bo_pdfread::FormField>,
+    /// Edit tab box tools, spelling, bookmarks, command search (`editor_tools`).
+    pub(crate) tools: crate::editor_tools::ToolsState,
 }
 
 fn editor_theme() -> Theme {
@@ -379,6 +393,7 @@ impl EditorWindow {
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
             pending_field: None,
+            tools: crate::editor_tools::ToolsState::default(),
         }
     }
 
@@ -495,6 +510,7 @@ impl EditorWindow {
         if cmd.starts_with("tool.") {
             self.comment.tool = None;
             self.design.tool = None;
+            self.tools.tool = None;
         }
         self.r.run_command(cmd, m);
         self.drain(m);
@@ -590,9 +606,17 @@ impl EditorWindow {
         }
         let mut redraw = false;
         let mut used = false;
-        if !self.r.modal_open() {
-            if let Input::Key(k, mods) = input {
-                used = self.key(k, mods, m);
+        let reader_tool = self.r.current_tool();
+        // The command search box keeps the keyboard while its results list is open.
+        if self.tools.search_on && matches!(input, Input::Text(_) | Input::Key(..)) {
+            used = self.search_input(&input);
+        }
+        if !used && !self.r.modal_open() {
+            used = self.search_input(&input);
+            if !used {
+                if let Input::Key(k, mods) = input {
+                    used = self.key(k, mods, m);
+                }
             }
             if !used && self.organize_on() {
                 used = self.org_input(&input, m);
@@ -605,6 +629,9 @@ impl EditorWindow {
             }
             if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.design_input(&input);
+            }
+            if !used && self.tools.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.tools_input(&input);
             }
             if !used && self.sig.pending.is_some() && self.r.showing_doc() {
                 used = self.sign_input(&input);
@@ -628,8 +655,18 @@ impl EditorWindow {
             redraw = true;
         } else {
             redraw |= self.r.handle(input, m);
+            // A reader tool chosen on the ribbon (highlight, note, select…) turns the
+            // editor's tools off.
+            let now = self.r.current_tool();
+            if now != reader_tool && now != Tool::Hand {
+                self.set_tool(None);
+                self.comment.tool = None;
+                self.design.tool = None;
+                self.tools.tool = None;
+            }
         }
         redraw |= self.drain(m);
+        redraw |= self.reflow_check();
         self.sync();
         self.sync_signatures();
         if redraw && self.edit.typing.is_some() {
@@ -742,6 +779,8 @@ impl EditorWindow {
             return;
         }
         if self.action(cmd, m)
+            || self.search_command(cmd)
+            || self.tools_command(cmd)
             || self.format_command(cmd)
             || self.sign_command(cmd)
             || self.comment_command(cmd)
@@ -782,6 +821,8 @@ impl EditorWindow {
                 self.edit.reset(self.r.view_mut());
                 self.tool = None;
                 self.comment.tool = None;
+                self.design.tool = None;
+                self.tools.tool = None;
             }
             "org.insertMenu" => {
                 let items = [
@@ -915,6 +956,7 @@ impl EditorWindow {
         self.edit.reset(self.r.view_mut());
         self.comment.tool = None;
         self.design.tool = None;
+        self.tools.tool = None;
         self.tool = if self.tool == Some(t) { None } else { Some(t) };
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
@@ -1014,7 +1056,9 @@ impl EditorWindow {
         d.layout(m, size, scale);
         if let Some(b) = done {
             if let Some((d, what)) = self.dialog2.take() {
-                if b == DialogButton::Ok {
+                if let crate::editor_actions::Ask2::Tools(t) = what {
+                    self.tools_answer(t, b, &d.values());
+                } else if b == DialogButton::Ok {
                     self.answer2(what, &d.values());
                 }
             }
@@ -1131,6 +1175,9 @@ impl EditorWindow {
         }
         if purpose == "certificate" {
             self.certificate_picked(bytes);
+            return;
+        }
+        if self.tools_file_picked(purpose, &name, bytes) {
             return;
         }
         if purpose == "attach" {
@@ -1332,10 +1379,31 @@ impl EditorWindow {
                 F::Combo => "fd.combo",
                 F::List => "fd.list",
                 F::Button => "fd.button",
+                F::Signature => "fd.signature",
+                F::Image => "fd.image",
+                F::Barcode => "fd.barcode",
             });
         }
-        self.r.tool_hidden =
-            self.tool.is_some() || self.comment.tool.is_some() || self.design.tool.is_some();
+        if let Some(t) = self.tools.tool {
+            use crate::editor_tools::BoxTool as B;
+            self.r.on.insert(match t {
+                B::Link => "ed.link",
+                B::CrossRef => "ed.crossRef",
+                B::Article => "ed.articleBox",
+                B::ImageAnnot => "ed.imageAnnot",
+                B::Media => "ed.media",
+                B::Model3d => "ed.add3d",
+                B::Shape(_) => "ed.addShapes",
+                B::Join => "ed.linkJoin",
+            });
+        }
+        if self.tools.reflow {
+            self.r.on.insert("ed.reflow");
+        }
+        self.r.tool_hidden = self.tool.is_some()
+            || self.comment.tool.is_some()
+            || self.design.tool.is_some()
+            || self.tools.tool.is_some();
         let area = self.r.doc_area();
         let (w, _) = self.r.window_size();
         self.org.frame = [area[0], area[1], (w - 1.0 - area[0]).max(1.0), area[3]];
@@ -1452,6 +1520,7 @@ impl EditorWindow {
         self.paint_sign(p);
         self.paint_comment(p);
         self.paint_design(p);
+        self.paint_tools(p, &Estimate);
         self.paint_format(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);

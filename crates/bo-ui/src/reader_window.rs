@@ -226,6 +226,12 @@ pub(crate) struct Look {
     pub status_box_top: Option<f32>,
     /// Stroke width of ribbon icons in icon grid units (24 to the icon).
     pub icon_stroke: f32,
+    /// Large buttons: label padding, smallest width, gap after each; space before and after
+    /// a group separator (logical pixels).
+    pub big_pad: f32,
+    pub big_min: f32,
+    pub big_gap: f32,
+    pub sep_space: (f32, f32),
 }
 
 impl Look {
@@ -266,6 +272,10 @@ impl Look {
         status_box_h: 19.2,
         status_box_top: None,
         icon_stroke: 1.5,
+        big_pad: 13.6,
+        big_min: 41.6,
+        big_gap: 1.6,
+        sep_space: (4.8, 6.4),
     };
 }
 
@@ -379,6 +389,9 @@ pub struct ReaderWindow {
     pub(crate) doc_hidden: bool,
     /// A panel of a window built on this one (its icon follows the comments icon).
     pub(crate) extra_panel: Option<ExtraPanel>,
+    /// Outline entry last clicked in the Bookmarks panel (path of child indices; BlueEditor
+    /// edits it).
+    pub(crate) selected_outline: Option<Vec<usize>>,
     /// Width (logical pixels) of a pane at the right of the document drawn by a window built
     /// on this one (BlueEditor's Format panel); 0 for none.
     right_pane: f32,
@@ -457,6 +470,7 @@ impl ReaderWindow {
             tool_hidden: false,
             doc_hidden: false,
             extra_panel: None,
+            selected_outline: None,
             right_pane: 0.0,
             look: Look::READER,
             extra: extra::Extra::default(),
@@ -577,6 +591,11 @@ impl ReaderWindow {
         self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
     }
 
+    /// Close an open drop-down menu.
+    pub(crate) fn close_menu(&mut self) {
+        self.menu = None;
+    }
+
     /// A menu or dialog of this window is open.
     pub(crate) fn modal_open(&self) -> bool {
         self.menu.is_some() || self.dialog.is_some()
@@ -622,6 +641,11 @@ impl ReaderWindow {
     /// Recent files (for the host to remember).
     pub fn recent(&self) -> &[std::path::PathBuf] {
         &self.recent
+    }
+
+    /// The tool in use.
+    pub(crate) fn current_tool(&self) -> Tool {
+        self.tool
     }
 
     /// Choose the pointer tool.
@@ -933,13 +957,15 @@ impl ReaderWindow {
                     } else {
                         self.measure(m, &text, label_style)
                     };
-                    let bw = (lw + self.px(13.6)).max(self.px(41.6)).round();
+                    let bw = (lw + self.px(self.look.big_pad))
+                        .max(self.px(self.look.big_min))
+                        .round();
                     self.controls.push(Control {
                         id,
                         kind,
                         r: [x, by, bw, bh],
                     });
-                    x += bw + self.px(1.6);
+                    x += bw + self.px(self.look.big_gap);
                 }
                 Kind::Small(_) => {
                     // A 2 × 2 grid of small buttons.
@@ -963,13 +989,13 @@ impl ReaderWindow {
                         x += self.px(28.0 * cols + 6.0 * (cols - 1.0) + 4.0);
                         small_col = 0;
                     }
-                    x += self.px(4.8);
+                    x += self.px(self.look.sep_space.0);
                     self.controls.push(Control {
                         id,
                         kind,
                         r: [x, by + self.px(2.4), 1.0, bh - self.px(4.8)],
                     });
-                    x += self.px(6.4);
+                    x += self.px(self.look.sep_space.1);
                 }
                 _ => {}
             }
@@ -2087,6 +2113,27 @@ impl ReaderWindow {
         let _ = m;
     }
 
+    /// Show panel `p` (kept open when it already is).
+    pub(crate) fn show_panel(&mut self, p: Panel) {
+        if self
+            .tabs
+            .get(self.active)
+            .is_some_and(|t| t.panel != Some(p))
+        {
+            self.toggle_panel(p);
+        }
+    }
+
+    /// Queue a request (a window built on this one runs `Command`s on its next drain).
+    pub(crate) fn push_request(&mut self, r: ReaderRequest) {
+        self.requests.push(r);
+    }
+
+    /// Text selected in the active document.
+    pub(crate) fn selected_text(&self) -> Option<String> {
+        self.tabs.get(self.active)?.view.selected_text()
+    }
+
     /// Show navigation panel `p`, or hide it when it is shown.
     pub fn toggle_panel(&mut self, p: Panel) {
         if let Some(t) = self.tabs.get_mut(self.active) {
@@ -2112,8 +2159,11 @@ impl ReaderWindow {
                     if !t.expanded.remove(&path) {
                         t.expanded.insert(path);
                     }
-                } else if let Some(LinkTarget::Page { index, top }) = target {
-                    t.view.go_to(index, top);
+                } else {
+                    self.selected_outline = Some(path);
+                    if let Some(LinkTarget::Page { index, top }) = target {
+                        t.view.go_to(index, top);
+                    }
                 }
             }
             PanelRow::Page(i) => t.view.go_to(i, None),
@@ -2796,6 +2846,9 @@ impl ReaderWindow {
                     }
                     let x = r[0] + self.px(8.0) + depth as f32 * self.px(14.4);
                     if y + row_h > list_top {
+                        if self.selected_outline.as_ref() == Some(&path) {
+                            p.fill_rect(r[0], y, r[2], row_h, self.look.pressed);
+                        }
                         if has_kids {
                             let b = self.px(7.2);
                             let bx = x;
@@ -3258,7 +3311,7 @@ fn elide(s: &str, w: f32, max: f32, size: f32) -> String {
     out
 }
 
-fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> Vec<PathSeg> {
+pub(crate) fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> Vec<PathSeg> {
     let r = r.min(w / 2.0).min(h / 2.0);
     vec![
         PathSeg::M(x + r, y),

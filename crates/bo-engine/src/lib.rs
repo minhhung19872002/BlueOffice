@@ -1538,3 +1538,16 @@ impl bo_render::ImageSource for DocImages<'_> {
             .or_else(|| self.2.image(id))
     }
 }
+
+/// The bundled English spelling dictionary (`.aff`, `.dic`) of native builds.
+#[must_use]
+pub fn bundled_dictionary() -> Option<(&'static [u8], &'static [u8])> {
+    #[cfg(feature = "bundled-fonts")]
+    {
+        Some((bundled::EN_US_AFF, bundled::EN_US_DIC))
+    }
+    #[cfg(not(feature = "bundled-fonts"))]
+    {
+        None
+    }
+}

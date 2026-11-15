@@ -22,6 +22,10 @@ path = "src/sheet_main.rs"
 name = "bluereader-native"
 path = "src/reader_main.rs"
 
+[[bin]]
+name = "blueeditor-native"
+path = "src/editor_main.rs"
+
 [dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 bo-render.workspace = true

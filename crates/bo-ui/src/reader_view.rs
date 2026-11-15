@@ -624,6 +624,32 @@ impl ReaderView {
         None
     }
 
+    /// A rectangle of page `i` in the document's page points (left, top, right, bottom) as a
+    /// window rectangle (x, y, w, h), with the view's rotation.
+    pub fn doc_rect_to_window(&self, i: usize, r: [f32; 4]) -> Option<[f32; 4]> {
+        let pr = self.page_rect(i)?;
+        let shown = rotate_rect(r, self.rotation, self.unrotated(i));
+        let s = self.px_per_pt();
+        Some([
+            pr[0] + shown[0] * s,
+            pr[1] + shown[1] * s,
+            (shown[2] - shown[0]) * s,
+            (shown[3] - shown[1]) * s,
+        ])
+    }
+
+    /// The page under a window point and the point in the document's page points.
+    pub fn window_to_doc(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
+        let (i, px, py) = self.page_at(x, y)?;
+        let r = self.unrotate_rect(i, [px, py, px, py]);
+        Some((i, r[0], r[1]))
+    }
+
+    /// Window pixels per document point.
+    pub fn scale(&self) -> f32 {
+        self.px_per_pt()
+    }
+
     fn render_opts(&self) -> RenderOptions {
         RenderOptions {
             text_as_paths: false,
@@ -988,6 +1014,24 @@ impl ReaderView {
             (w, h)
         };
         rotate_rect(r, back, shown)
+    }
+
+    /// The document's pages changed (inserted, deleted, moved, rotated, content edited, undo):
+    /// forget every rendered page and lay out again.
+    pub fn document_changed(&mut self) {
+        let n = self.doc.page_count();
+        self.cache.clear();
+        self.lru.clear();
+        self.drawn.clear();
+        let g = self.generation.iter().copied().max().unwrap_or(0) + 1;
+        self.generation = vec![g; n];
+        self.selection = None;
+        self.hits.clear();
+        self.current_hit = None;
+        self.single_page = self.single_page.min(n.saturating_sub(1));
+        self.update_sizes();
+        self.relayout();
+        self.clamp_scroll();
     }
 
     /// Whether the document was changed.

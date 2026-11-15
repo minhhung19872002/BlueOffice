@@ -110,8 +110,9 @@ pub(crate) fn incremental(
     doc: &Document,
     ids: &[ObjectId],
 ) -> Result<Vec<u8>, String> {
-    if doc.is_encrypted() {
-        return Err("encrypted documents cannot be updated".into());
+    let state = doc.encryption_state.as_ref();
+    if doc.is_encrypted() && state.is_none() {
+        return Err("the document is protected by a password".into());
     }
     let prev = last_startxref(original).ok_or("no startxref in the original file")?;
     let mut out = original.to_vec();
@@ -122,11 +123,20 @@ pub(crate) fn incremental(
     ids.sort_unstable();
     ids.dedup();
     let mut offsets = Vec::with_capacity(ids.len());
+    // Objects created and then undone no longer exist and are not written.
+    ids.retain(|id| doc.objects.contains_key(id));
     for id in &ids {
         let o = doc.get_object(*id).map_err(|e| e.to_string())?;
         offsets.push((*id, out.len()));
         out.extend_from_slice(format!("{} {} obj\n", id.0, id.1).as_bytes());
-        object(&mut out, o);
+        if let Some(state) = state {
+            // Strings and streams of an encrypted file are encrypted per object (§7.6.2).
+            let mut o = o.clone();
+            lopdf::encryption::encrypt_object(state, *id, &mut o).map_err(|e| e.to_string())?;
+            object(&mut out, &o);
+        } else {
+            object(&mut out, o);
+        }
         out.extend_from_slice(b"\nendobj\n");
     }
     let size = doc.max_id.max(ids.iter().map(|i| i.0).max().unwrap_or(0)) + 1;
@@ -138,7 +148,7 @@ pub(crate) fn incremental(
     let mut trailer = Dictionary::new();
     trailer.set("Size", i64::from(size) + i64::from(xref_stream));
     trailer.set("Prev", prev as i64);
-    for k in [&b"Root"[..], b"Info", b"ID"] {
+    for k in [&b"Root"[..], b"Info", b"ID", b"Encrypt"] {
         if let Ok(v) = doc.trailer.get(k) {
             trailer.set(k.to_vec(), v.clone());
         }

@@ -11,8 +11,17 @@ mod catalog;
 mod commands;
 mod dialog;
 mod doc_view;
+mod editor_actions;
+#[cfg(test)]
+mod editor_actions_tests;
+mod editor_edit;
+mod editor_organize;
+#[cfg(test)]
+mod editor_tests;
+mod editor_window;
 mod icons;
 mod input;
+mod pdf_window;
 mod popup;
 mod reader_icons;
 #[cfg(test)]
@@ -37,8 +46,10 @@ mod titlebar;
 pub use backstage::{Backstage, FileAction};
 pub use dialog::{Dialog, DialogButton, DialogKind};
 pub use doc_view::{DocView, PageSlot, CANVAS_BG};
+pub use editor_window::{EditTool, EditorWindow};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
+pub use pdf_window::PdfWindow;
 pub use popup::{Choice, Menu, MenuItem};
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};

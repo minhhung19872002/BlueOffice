@@ -195,6 +195,34 @@ pub fn text_scale_factor() -> f32 {
     }
 }
 
+/// A value of the user's region settings (`HKCU\Control Panel\International`), such as
+/// `sShortDate` (`M/d/yyyy`) or `sDecimal`.
+#[allow(dead_code)] // BlueSheet only (each window is its own binary)
+pub fn region_value(name: &str) -> Option<String> {
+    let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut buf = [0_u16; 128];
+    let mut size = std::mem::size_of_val(&buf) as u32;
+    // SAFETY: the value name is NUL-terminated and outlives the call; the out pointers
+    // refer to a live buffer and its size in bytes.
+    let ok = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Control Panel\\International"),
+            windows::core::PCWSTR(wide.as_ptr()),
+            windows::Win32::System::Registry::RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    }
+    .is_ok();
+    if !ok {
+        return None;
+    }
+    let len = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..len])).filter(|s| !s.is_empty())
+}
+
 fn point(lparam: LPARAM) -> (f32, f32) {
     let v = lparam.0 as u32;
     (

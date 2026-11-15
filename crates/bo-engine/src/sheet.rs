@@ -1138,6 +1138,40 @@ impl SheetEngine {
         };
     }
 
+    /// Short date and long time of the user's region as Windows patterns (`M/d/yyyy`,
+    /// `h:mm:ss tt`): the built-in date formats (§18.8.30 `numFmtId` 14, 22, …) and typed
+    /// dates follow them, as a desktop spreadsheet shows dates by the system's region
+    /// settings. Native hosts pass the system's values; the web keeps the locale's own.
+    pub fn set_region_dates(&mut self, short_date: Option<&str>, long_time: Option<&str>) {
+        // The locale keeps static patterns: each distinct region pattern is interned once
+        // for the life of the process.
+        fn intern(code: String) -> &'static str {
+            use std::sync::{Mutex, OnceLock};
+            static SEEN: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+            let seen = SEEN.get_or_init(|| Mutex::new(Vec::new()));
+            let Ok(mut list) = seen.lock() else {
+                return "m/d/yyyy";
+            };
+            if let Some(s) = list.iter().find(|s| **s == code) {
+                return s;
+            }
+            let s: &'static str = Box::leak(code.into_boxed_str());
+            list.push(s);
+            s
+        }
+        let code = |p: Option<&str>| {
+            p.map(bo_sheet::numfmt::format_code_from_windows)
+                .filter(|c| !c.is_empty())
+                .map(intern)
+        };
+        if let Some(d) = code(short_date) {
+            self.locale.short_date = d;
+        }
+        if let Some(t) = code(long_time) {
+            self.locale.long_time = t;
+        }
+    }
+
     /// Opens `.xlsx` / `.xlsm` / `.xlsb` / `.xls` / `.ods` / `.csv` bytes
     /// (legacy and ODF files are converted; saving writes `.xlsx`).
     pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<WorkbookInfo> {

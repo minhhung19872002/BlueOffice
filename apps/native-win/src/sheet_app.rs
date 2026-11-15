@@ -37,6 +37,16 @@ pub fn run() -> Result<(), String> {
     // BlueSheet editions; BLUEOFFICE_SHEET_LOCALE=en-US selects a decimal point.
     let numbers = std::env::var("BLUEOFFICE_SHEET_LOCALE").unwrap_or_else(|_| "vi-VN".into());
     engine.set_locale(&numbers);
+    // Dates as the Windows region shows them (BLUEOFFICE_SHEET_LOCALE keeps the locale's own).
+    if std::env::var_os("BLUEOFFICE_SHEET_LOCALE").is_none() {
+        engine.set_region_dates(
+            win32::region_value("sShortDate").as_deref(),
+            win32::region_value("sTimeFormat").as_deref(),
+        );
+    }
+    // Formulas are calculated when a file opens, as the reference spreadsheet does with
+    // files another application saved (BLUEOFFICE_SHEET_RECALC=0 keeps the saved results).
+    engine.set_recalc_on_open(std::env::var("BLUEOFFICE_SHEET_RECALC").as_deref() != Ok("0"));
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);

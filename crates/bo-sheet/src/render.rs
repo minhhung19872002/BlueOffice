@@ -25,7 +25,7 @@ use bo_model::sheet::{
     BorderEdge, Cell, CellRange, CellRef, CellValue, CellXf, Fill, Font, SheetView, ThemeColors,
     Workbook, Worksheet,
 };
-use bo_render::{Command, Glyph, PageList, Rgba};
+use bo_render::{Command, Glyph, GradientStop, PageList, Paint, PathSeg, Rgba};
 use bo_text::{FaceId, FontManager};
 
 /// Rendering options.
@@ -450,22 +450,26 @@ impl Renderer<'_> {
                 self.fill_rect(rect, color);
             }
             if let Some(bar) = f.bar {
-                let pad = 2.0 * PT_PER_PX;
+                // Inset 1.5 px at the top / left and 2 px at the right / bottom (the bar
+                // lines up with a desktop spreadsheet's at 125 %).
+                let (lead, trail) = (1.5 * PT_PER_PX, 2.0 * PT_PER_PX);
                 let inner = Rect {
-                    x: rect.x + pad,
-                    y: rect.y + pad,
-                    w: (rect.w - 2.0 * pad).max(0.0),
-                    h: (rect.h - 2.0 * pad).max(0.0),
+                    x: rect.x + lead,
+                    y: rect.y + lead,
+                    w: (rect.w - lead - trail).max(0.0),
+                    h: (rect.h - lead - trail).max(0.0),
                 };
                 self.out.extend(crate::cf_draw::data_bar(&bar, inner));
             }
             if let Some(icon) = &f.icon {
-                let s = (rect.h - 4.0).clamp(4.0, 12.0);
+                // A 12 pt square two pixels in from the cell's left edge, centred
+                // vertically (16 px at 100 %, as a desktop spreadsheet draws them).
+                let s = (rect.h - 2.0 * PT_PER_PX).clamp(4.0, 12.0);
                 let cmds = crate::icons::icon(
                     &icon.set,
                     icon.index,
                     icon.count,
-                    rect.x + 2.0,
+                    rect.x + 2.0 * PT_PER_PX,
                     rect.y + (rect.h - s) / 2.0,
                     s,
                 );
@@ -999,25 +1003,186 @@ impl Renderer<'_> {
         let Some(fill) = self.wb.styles.fills.get(xf.fill_id as usize) else {
             return;
         };
-        // §18.8.32 patternFill: a solid pattern paints fgColor; other patterns are
-        // approximated by their foreground colour. §18.8.24 gradientFill: first stop.
-        let color = match fill {
-            Fill::Pattern(pf) => match pf.pattern.as_deref() {
-                None | Some("none" | "gray125") => None,
-                _ => pf
+        match fill {
+            Fill::Pattern(pf) => {
+                // §18.8.32 patternFill: a solid pattern paints fgColor.
+                let pattern = match pf.pattern.as_deref() {
+                    None | Some("none" | "gray125") => return,
+                    Some(p) => p,
+                };
+                let fg = pf
                     .fg
                     .as_ref()
                     .and_then(|c| resolve_color(c, self.theme))
-                    .or(Some(Rgba(0, 0, 0, 255))),
-            },
-            Fill::Gradient(g) => g
-                .stops
-                .first()
-                .and_then(|(_, c)| resolve_color(c, self.theme)),
-        };
-        if let Some(c) = color {
-            self.fill_rect(rect, c);
+                    .unwrap_or(Rgba(0, 0, 0, 255));
+                if pattern == "solid" {
+                    self.fill_rect(rect, fg);
+                    return;
+                }
+                let bg = pf
+                    .bg
+                    .as_ref()
+                    .and_then(|c| resolve_color(c, self.theme))
+                    .unwrap_or(Rgba(255, 255, 255, 255));
+                self.pattern_fill(pattern, fg, bg, rect);
+            }
+            Fill::Gradient(g) => self.gradient_fill(g, rect),
         }
+    }
+
+    /// §18.18.55 ST_PatternType drawn as a desktop spreadsheet shows it on screen: the
+    /// dotted and checked patterns (greys, dark grid, trellises) as their density (the mix
+    /// of foreground and background), the stripes and the light grid as one-pixel (light)
+    /// or two-pixel (dark) lines every four pixels over the background.
+    fn pattern_fill(&mut self, pattern: &str, fg: Rgba, bg: Rgba, rect: Rect) {
+        let mix = |k: f64| {
+            let m = |a: u8, b: u8| (f64::from(a) * k + f64::from(b) * (1.0 - k)).round() as u8;
+            Rgba(m(fg.0, bg.0), m(fg.1, bg.1), m(fg.2, bg.2), 255)
+        };
+        let density = match pattern {
+            "darkGray" | "darkTrellis" => Some(0.75),
+            "mediumGray" | "darkGrid" => Some(0.5),
+            "lightTrellis" => Some(0.375),
+            "lightGray" => Some(0.25),
+            "gray0625" => Some(0.0625),
+            _ => None,
+        };
+        if let Some(k) = density {
+            self.fill_rect(rect, mix(k));
+            return;
+        }
+        self.fill_rect(rect, bg);
+        let step = 4.0 * PT_PER_PX;
+        let w = if pattern.starts_with("dark") {
+            2.0
+        } else {
+            1.0
+        } * PT_PER_PX;
+        let kind = pattern
+            .trim_start_matches("dark")
+            .trim_start_matches("light");
+        self.out.push(Command::PushClip {
+            x: rect.x as f32,
+            y: rect.y as f32,
+            w: rect.w as f32,
+            h: rect.h as f32,
+        });
+        // Lines on one grid for the whole page, so neighbouring cells join up.
+        let first = |v: f64| (v / step).floor() * step;
+        let horizontal = matches!(kind, "Horizontal" | "Grid");
+        let vertical = matches!(kind, "Vertical" | "Grid");
+        if horizontal {
+            let mut y = first(rect.y);
+            while y < rect.y + rect.h {
+                self.fill_rect(
+                    Rect {
+                        x: rect.x,
+                        y,
+                        w: rect.w,
+                        h: w,
+                    },
+                    fg,
+                );
+                y += step;
+            }
+        }
+        if vertical {
+            let mut x = first(rect.x);
+            while x < rect.x + rect.w {
+                self.fill_rect(
+                    Rect {
+                        x,
+                        y: rect.y,
+                        w,
+                        h: rect.h,
+                    },
+                    fg,
+                );
+                x += step;
+            }
+        }
+        let down = matches!(kind, "Down" | "Trellis");
+        let up = matches!(kind, "Up" | "Trellis");
+        if down || up {
+            // Diagonals at 45°, `step` apart horizontally, covering the cell.
+            let span = rect.h;
+            let mut x = first(rect.x - span) - step;
+            while x < rect.x + rect.w + span {
+                if down {
+                    self.line(x, rect.y, x + span, rect.y + span, w, fg);
+                }
+                if up {
+                    self.line(x, rect.y + span, x + span, rect.y, w, fg);
+                }
+                x += step;
+            }
+        }
+        self.out.push(Command::PopClip);
+    }
+
+    /// §18.8.24 gradientFill: a linear gradient at `degree` (clockwise from left → right)
+    /// or a path gradient from the inner rectangle `left`/`right`/`top`/`bottom` out to
+    /// the edges (drawn as a radial gradient around that rectangle's centre).
+    fn gradient_fill(&mut self, g: &bo_model::sheet::GradientFill, rect: Rect) {
+        let stops: Vec<GradientStop> = g
+            .stops
+            .iter()
+            .filter_map(|(pos, c)| {
+                resolve_color(c, self.theme).map(|color| GradientStop {
+                    offset: pos.clamp(0.0, 1.0) as f32,
+                    color,
+                })
+            })
+            .collect();
+        match stops.as_slice() {
+            [] => return,
+            [one] => {
+                self.fill_rect(rect, one.color);
+                return;
+            }
+            _ => {}
+        }
+        let (x0, y0, x1, y1) = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+        let paint = if g.kind.as_deref() == Some("path") {
+            let fx = |a: Option<f64>, b: Option<f64>| {
+                (a.unwrap_or(0.0) + b.unwrap_or(0.0)).clamp(0.0, 2.0) / 2.0
+            };
+            let cx = x0 + rect.w * fx(g.left, g.right);
+            let cy = y0 + rect.h * fx(g.top, g.bottom);
+            let r = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
+                .iter()
+                .map(|(x, y)| ((x - cx).powi(2) + (y - cy).powi(2)).sqrt())
+                .fold(0.0_f64, f64::max);
+            Paint::Radial {
+                cx: cx as f32,
+                cy: cy as f32,
+                r: r.max(0.01) as f32,
+                stops,
+            }
+        } else {
+            let (sin, cos) = g.degree.unwrap_or(0.0).to_radians().sin_cos();
+            let (cx, cy) = (x0 + rect.w / 2.0, y0 + rect.h / 2.0);
+            let half = f64::midpoint(rect.w * cos.abs(), rect.h * sin.abs());
+            Paint::Linear {
+                x1: (cx - cos * half) as f32,
+                y1: (cy - sin * half) as f32,
+                x2: (cx + cos * half) as f32,
+                y2: (cy + sin * half) as f32,
+                stops,
+            }
+        };
+        let (x0, y0, x1, y1) = (x0 as f32, y0 as f32, x1 as f32, y1 as f32);
+        self.out.push(Command::Path {
+            segs: vec![
+                PathSeg::M(x0, y0),
+                PathSeg::L(x1, y0),
+                PathSeg::L(x1, y1),
+                PathSeg::L(x0, y1),
+                PathSeg::Z,
+            ],
+            fill: Some(paint),
+            stroke: None,
+        });
     }
 
     fn edge(&mut self, e: &BorderEdge, x1: f64, y1: f64, x2: f64, y2: f64, vertical: bool) {
@@ -1958,6 +2123,73 @@ mod tests {
             &mut FontManager::new(),
         );
         assert_eq!(empty.commands.len(), 0);
+    }
+
+    #[test]
+    fn pattern_and_gradient_fills_are_drawn() {
+        let mut wb = workbook();
+        let c = |h: &str| Some(bo_model::sheet::SheetColor::rgb(h));
+        let stripes = wb
+            .styles
+            .add_fill(Fill::Pattern(bo_model::sheet::PatternFill {
+                pattern: Some("darkHorizontal".into()),
+                fg: c("0000FF"),
+                bg: c("FFFF00"),
+            }));
+        let grey = wb
+            .styles
+            .add_fill(Fill::Pattern(bo_model::sheet::PatternFill {
+                pattern: Some("lightGray".into()),
+                fg: c("000000"),
+                bg: c("FFFFFF"),
+            }));
+        let gradient = wb
+            .styles
+            .add_fill(Fill::Gradient(bo_model::sheet::GradientFill {
+                degree: Some(90.0),
+                stops: vec![
+                    (0.0, bo_model::sheet::SheetColor::rgb("FF0000")),
+                    (1.0, bo_model::sheet::SheetColor::rgb("00FF00")),
+                ],
+                ..Default::default()
+            }));
+        for (col, fill) in [(10, stripes), (11, grey), (12, gradient)] {
+            let xf = wb.styles.add_xf(CellXf {
+                fill_id: fill,
+                ..CellXf::default()
+            });
+            wb.sheets[0].cells.insert(
+                (0, col),
+                Cell {
+                    value: CellValue::Number(1.0),
+                    style: xf,
+                    ..Cell::default()
+                },
+            );
+        }
+        let geom = SheetGeometry::with_metrics(&wb.sheets[0], SheetMetrics::default());
+        let vp = Viewport::new(1200.0, 200.0);
+        let page = render_viewport(&wb, 0, &geom, &vp, &RenderOptions::default(), &mut fonts());
+        let rects = |r: u8, g: u8, b: u8| {
+            page.commands
+                .iter()
+                .filter(|c| matches!(c, Command::FillRect { color, .. } if *color == Rgba(r, g, b, 255)))
+                .count()
+        };
+        // Stripes: the yellow background, then blue lines every four pixels.
+        assert_eq!(rects(255, 255, 0), 1);
+        assert!(rects(0, 0, 255) >= 3, "stripes");
+        // 25 % grey: a quarter of black over white.
+        assert_eq!(rects(191, 191, 191), 1);
+        // The gradient runs from top (red) to bottom (green).
+        let linear = page.commands.iter().find_map(|c| match c {
+            Command::Path {
+                fill: Some(Paint::Linear { y1, y2, stops, .. }),
+                ..
+            } => Some((*y1 < *y2, stops.len())),
+            _ => None,
+        });
+        assert_eq!(linear, Some((true, 2)));
     }
 
     #[test]

@@ -719,22 +719,11 @@ impl ReaderWindow {
             ]),
             1 => v.extend([
                 ("sep1", Sep),
-                (
-                    "tool.highlight",
-                    Big("highlight", "pdfReader.highlight", false),
-                ),
-                (
-                    "tool.underline",
-                    Big("underline", "pdfReader.underline", false),
-                ),
-                (
-                    "tool.strikeout",
-                    Big("strikeout", "pdfReader.strikeout", false),
-                ),
-                (
-                    "tool.squiggly",
-                    Big("squiggly", "pdfReader.squiggly", false),
-                ),
+                // Text markup as a grid of small buttons, like the reference's Comment tab.
+                ("tool.highlight", Small("highlight")),
+                ("tool.underline", Small("underline")),
+                ("tool.strikeout", Small("strikeout")),
+                ("tool.squiggly", Small("squiggly")),
                 ("sep2", Sep),
                 ("tool.note", Big("note", "pdfReader.note", false)),
                 ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
@@ -750,6 +739,9 @@ impl ReaderWindow {
                 ),
             ]),
             2 => v.extend([
+                ("sep0", Sep),
+                // Read Mode first after the pointer tools, like the reference's View tab.
+                ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
                 ("sep1", Sep),
                 ("view.single", Small("single")),
                 ("view.continuous", Small("continuous")),
@@ -773,7 +765,6 @@ impl ReaderWindow {
                     "view.fullscreen",
                     Big("fullscreen", "pdfReader.fullScreen", false),
                 ),
-                ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
             ]),
             _ => {
                 v.clear();

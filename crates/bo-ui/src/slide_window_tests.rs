@@ -118,11 +118,11 @@ fn tab(w: &mut SlideWindow, i: usize) {
 }
 
 #[test]
-fn ribbon_is_eight_pixels_taller_than_bluedocs() {
+fn ribbon_is_one_pixel_taller_than_bluedocs() {
     let w = window();
     let mut doc = Ribbon::new();
     doc.layout(&Fixed, &w.strings, 1481.0, 1.25, 0.0);
-    assert_eq!(w.ribbon.height() - doc.height(), 8.0);
+    assert_eq!(w.ribbon.height() - doc.height(), 1.0);
 }
 
 #[test]

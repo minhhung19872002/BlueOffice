@@ -240,6 +240,8 @@ pub struct SlideWindow {
     clip_seq: u32,
     /// Comments pane on the right of the editing area.
     comments: CommentsPane,
+    /// Measured widths of the gallery tiles' names.
+    gallery_w: Vec<(&'static str, f32)>,
     ribbon: Ribbon,
     theme: Theme,
     icons: Icons,
@@ -282,9 +284,10 @@ enum MenuKind {
     AnimMore,
 }
 
-/// Extra height of BlueSlide's command band (logical px): the reference presentation app's
-/// ribbon is 8 device pixels taller than the word processor's at 125 %.
-const RIBBON_EXTRA: f32 = 6.4;
+/// Extra height of BlueSlide's command band (logical px): measured 2026-11-15 at 125 %, the
+/// reference presentation app's ribbon body (y 99-235) is 1 device pixel taller than
+/// BlueDoc's (the 8 px of round 1 came from another state of the reference window).
+const RIBBON_EXTRA: f32 = 0.8;
 
 /// Durations offered for a transition (ms).
 const DURATIONS: [u32; 8] = [250, 500, 750, 1000, 1500, 2000, 3000, 5000];
@@ -332,6 +335,7 @@ impl SlideWindow {
             clip_token: None,
             clip_seq: 0,
             comments: CommentsPane::default(),
+            gallery_w: Vec::new(),
             ribbon: Ribbon::with_tabs(vec![
                 home(),
                 insert_tab(),
@@ -417,8 +421,8 @@ impl SlideWindow {
     }
 
     fn status_h(&self) -> f32 {
-        // Reference: line 34 device pixels above the client bottom at 125 %.
-        (27.2 * self.scale).round()
+        // Reference: line 33 device pixels above the client bottom at 125 % (re-measured).
+        (26.4 * self.scale).round()
     }
 
     fn t(&self, key: &str, fallback: &str) -> String {
@@ -485,6 +489,17 @@ impl SlideWindow {
             notes, minus, track, plus, pct, fit, views[0], views[1], views[2], views[3],
         ];
         self.text_size = (12.0 * self.scale).round();
+        let style = self.status_style();
+        self.gallery_w = sr::TRANSITIONS
+            .iter()
+            .map(|(c, _)| *c)
+            .chain(sr::EFFECTS.iter().map(|(c, _)| *c))
+            .map(|id| {
+                let key = format!("commands.{id}");
+                let label = self.strings.get(&key);
+                (id, text.measure(label, style).0)
+            })
+            .collect();
         self.view.measure_notes(text, self.text_size);
     }
 
@@ -1435,6 +1450,7 @@ impl SlideWindow {
                 &on,
             );
             self.paint_theme_tiles(p);
+            self.paint_galleries(p, &on);
         }
         self.comments.paint(p);
         self.paint_status(p);
@@ -1483,6 +1499,119 @@ impl SlideWindow {
             }
         }
         on
+    }
+
+    /// The transition and effect galleries drawn as the reference draws them: one white box
+    /// with a light frame (y 106-197 at 125 %), 48 px pictures over the names, the current
+    /// tile framed dark grey on light grey, and the "more" column at the right edge.
+    fn paint_galleries(&self, p: &mut dyn Painter, on: &[&'static str]) {
+        let lists: [(Vec<&'static str>, &'static str); 2] = [
+            (
+                sr::TRANSITIONS
+                    .iter()
+                    .take(sr::GALLERY_TILES)
+                    .map(|(c, _)| *c)
+                    .collect(),
+                "transition.more",
+            ),
+            (
+                sr::EFFECTS
+                    .iter()
+                    .take(sr::GALLERY_TILES)
+                    .map(|(c, _)| *c)
+                    .collect(),
+                "anim.more",
+            ),
+        ];
+        let px = |v: f32| (v * self.scale).round();
+        let rgb = |v: u8| bo_render::Rgba(v, v, v, 255);
+        let hovered = self.ribbon.hovered();
+        for (tiles, more) in lists {
+            let Some(first) = self.ribbon.rect_of(RibbonHit::Command(tiles[0])) else {
+                continue;
+            };
+            let Some(m) = self.ribbon.rect_of(RibbonHit::Command(more)) else {
+                continue;
+            };
+            let top = first[1] + px(2.4);
+            let h = px(73.6);
+            let right = m[0] + px(27.2);
+            p.fill_rect(first[0] - 1.0, top, right - first[0] + 1.0, h, rgb(0xd2));
+            p.fill_rect(
+                first[0],
+                top + 1.0,
+                right - first[0] - 1.0,
+                h - 2.0,
+                rgb(0xff),
+            );
+            for id in &tiles {
+                let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+                    continue;
+                };
+                let (x, w) = (r[0], r[2]);
+                if on.contains(id) {
+                    p.fill_rect(x, top + 1.0, w, h - 2.0, rgb(0x88));
+                    p.fill_rect(x + 1.0, top + 2.0, w - 2.0, h - 4.0, rgb(0xd2));
+                } else if hovered == Some(RibbonHit::Command(id)) {
+                    p.fill_rect(x, top + 1.0, w, h - 2.0, rgb(0xe6));
+                }
+                let size = px(38.4);
+                self.icons.draw(
+                    p,
+                    id,
+                    (x + (w - size) / 2.0).round(),
+                    top + px(4.0),
+                    size,
+                    IconColors {
+                        ink: self.theme.text,
+                        accent: self.theme.accent,
+                        on: self.theme.accent_on,
+                        tinted: true,
+                    },
+                );
+                let key = format!("commands.{id}");
+                let label = self.strings.get(&key);
+                let style = self.status_style();
+                let tw = self
+                    .gallery_w
+                    .iter()
+                    .find(|(g, _)| g == id)
+                    .map_or(0.0, |(_, w)| *w);
+                p.text(
+                    label,
+                    (x + (w - tw) / 2.0).round(),
+                    top + px(46.4),
+                    style,
+                    self.theme.text,
+                );
+            }
+            // "More" column: its own frame with the arrow in the middle.
+            let mx = m[0];
+            let mw = right - mx;
+            p.fill_rect(mx, top, 1.0, h, rgb(0xd2));
+            if hovered == Some(RibbonHit::Command(more)) {
+                p.fill_rect(mx + 1.0, top + 1.0, mw - 2.0, h - 2.0, rgb(0xe6));
+            }
+            let (cx, cy) = (mx + mw / 2.0, top + h / 2.0);
+            let k = px(3.2);
+            p.fill_rect(
+                (cx - k).round(),
+                (cy - k - px(2.4)).round(),
+                2.0 * k,
+                1.0,
+                self.theme.text,
+            );
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy - k / 2.0),
+                    PathSeg::L(cx + k, cy - k / 2.0),
+                    PathSeg::L(cx, cy + k / 2.0),
+                    PathSeg::Z,
+                ],
+                Some(self.theme.text),
+                None,
+            );
+        }
     }
 
     /// Theme previews over the Design tab's theme buttons.

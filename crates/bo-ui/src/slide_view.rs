@@ -551,7 +551,8 @@ impl SlideView {
     /// Height of the notes pane (reference: 36 logical px), its splitter excluded.
     fn notes_h(&self) -> f32 {
         if self.show_notes {
-            self.px(36.0)
+            // Reference: splitter 47 px above the status bar line at 125 %.
+            self.px(36.8)
         } else {
             0.0
         }

@@ -6,9 +6,12 @@ use crate::{Key, Painter, TextMeasure, TextStyle};
 use bo_engine::slide_edit::comments::ThreadOut;
 use bo_render::Rgba;
 
-const PANE_BG: Rgba = Rgba(0xfa, 0xfa, 0xfa, 255);
+// Measured on the reference at 125 %: pane 342 px wide on the canvas grey behind a 191
+// splitter, cards 14 px in, light grey (240) with a 210 frame.
+const PANE_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
+const SPLIT: Rgba = Rgba(0xbf, 0xbf, 0xbf, 255);
 const EDGE: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
-const CARD: Rgba = Rgba(0xff, 0xff, 0xff, 255);
+const CARD: Rgba = Rgba(0xf0, 0xf0, 0xf0, 255);
 const DIM: Rgba = Rgba(0x60, 0x60, 0x60, 255);
 const LINK: Rgba = Rgba(0x1f, 0x5f, 0xa8, 255);
 
@@ -85,7 +88,7 @@ impl Painter for Recorder {
 impl CommentsPane {
     /// Width of the pane (device pixels).
     pub fn width(scale: f32) -> f32 {
-        (272.0 * scale).round()
+        (273.6 * scale).round()
     }
 
     /// Place the pane.
@@ -187,8 +190,8 @@ impl CommentsPane {
         let [x, y, w, h] = self.rect;
         let mut hits = Vec::new();
         p.fill_rect(x, y, w, h, PANE_BG);
-        p.fill_rect(x, y, 1.0, h, EDGE);
-        let pad = self.px(12.0);
+        p.fill_rect(x, y, 1.0, h, SPLIT);
+        let pad = self.px(11.2);
         let title = TextStyle {
             size: self.px(16.0),
             bold: false,
@@ -264,6 +267,14 @@ impl CommentsPane {
                 break;
             }
             let top = cy;
+            // Card height first (author line, wrapped text, links), for its background.
+            let mut card_h = self.px(8.0) + line + self.px(8.0);
+            for (i, c) in t.comments.iter().enumerate() {
+                let indent = if i == 0 { 0.0 } else { self.px(16.0) };
+                let rows = wrap(&c.text, inner - indent, text, body).len() as f32;
+                card_h += (1.0 + rows) * line + self.px(4.0);
+            }
+            p.fill_rect(x + pad, top, w - 2.0 * pad, card_h, CARD);
             let mut ty = cy + self.px(8.0);
             for (i, c) in t.comments.iter().enumerate() {
                 let indent = if i == 0 { 0.0 } else { self.px(16.0) };

@@ -70,15 +70,18 @@ fn click_slide(v: &mut SlideView, x: f64, y: f64) {
 
 #[test]
 fn layout_matches_the_reference_at_125_percent() {
-    let v = open("slide-text-bullets.pptx");
-    assert_eq!(v.canvas_rect(), [235.0, 0.0, 1227.0, 769.0]);
+    let mut v = open("slide-text-bullets.pptx");
+    // Re-measured 2026-11-15: the reference's editing area runs from y 236 (below the
+    // ribbon) to the status bar line at 1060 of a 1500 x 1102 capture: 824 px.
+    v.set_frame(0.0, 0.0, 1481.0, 824.0);
+    assert_eq!(v.canvas_rect(), [235.0, 0.0, 1227.0, 777.0]);
     assert!((v.fit_zoom() - 0.75).abs() < 1e-6, "{}", v.fit_zoom());
-    // Slide image at (258, 290) of the reference window, whose area starts at (9, 244).
-    assert_eq!(v.slide_origin(), (249.0, 46.0));
+    // Slide image at (258, 286) of the reference window, whose area starts at (9, 236).
+    assert_eq!(v.slide_origin(), (249.0, 50.0));
     let t = v.thumb_rect(0);
     assert_eq!([t[0], t[2], t[3]], [49.0, 156.0, 88.0]);
     assert_eq!(v.thumb_rect(1)[1] - t[1], 115.0, "thumbnail pitch");
-    assert_eq!(v.notes_rect().map(|r| r[3]), Some(45.0));
+    assert_eq!(v.notes_rect().map(|r| r[3]), Some(46.0));
 }
 
 #[test]

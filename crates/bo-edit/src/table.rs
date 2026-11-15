@@ -163,6 +163,18 @@ pub enum TableEdit {
         #[serde(default)]
         options: tools::LookOptions,
     },
+    /// Height of the selected rows in twips (§17.4.81 trHeight, at least); `None`:
+    /// automatic.
+    RowHeight {
+        /// New height.
+        #[serde(default)]
+        twips: Option<i32>,
+    },
+    /// Width of the selected grid columns in twips (§17.4.48 gridCol).
+    ColumnWidth {
+        /// New width.
+        twips: i32,
+    },
     /// Select the caret's cell, column, row or the whole table.
     Select {
         /// `cell`, `column`, `row` or `table`.
@@ -621,6 +633,11 @@ impl Session {
             wrap: t.props.float.is_some(),
             fixed_layout: t.props.fixed_layout,
             v_align: cell.props.v_align,
+            row_height: row.props.height.map_or(0, |(h, _)| h.0),
+            col_width: {
+                let g = starts(row).get(at.cell).copied().unwrap_or(0);
+                t.grid.iter().skip(g).take(span(cell)).map(|w| w.0).sum()
+            },
             cell_h_align: bo_model::index::para_by_id(&self.doc, a.para)
                 .and_then(|p| p.props.align)
                 .unwrap_or_default(),
@@ -1092,6 +1109,8 @@ impl Session {
                 vertical,
                 horizontal,
             } => tools::set_cell_align(&mut t, (r0, r1), (g0, g1), *vertical, *horizontal),
+            TableEdit::RowHeight { twips } => tools::set_row_height(&mut t, r0, r1, *twips),
+            TableEdit::ColumnWidth { twips } => tools::set_column_width(&mut t, g0, g1, *twips),
             TableEdit::Look { preset, options } => {
                 if !tools::apply_look(&mut t, preset, *options) {
                     return Err(EditError::Unsupported(format!("table look {preset}")));

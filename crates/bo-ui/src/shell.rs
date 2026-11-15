@@ -138,6 +138,15 @@ pub struct DocWindow {
     status_cache: (String, String, f32),
     /// Quick table look and style options of the Table Design tab.
     table_look: crate::doc_table::TableLook,
+    /// Read Mode: zoom and ruler to restore when it ends.
+    read_mode: Option<(f32, bool)>,
+    /// Read Mode fits two pages to the window at the next layout.
+    read_fit: bool,
+    /// A Cell Size box being typed in, and the width of its text (caret position).
+    cell_spin: Option<crate::spin_box::SpinEdit>,
+    cell_spin_w: f32,
+    /// The box's value is selected: the first character typed replaces it.
+    cell_spin_fresh: bool,
     /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
     spell_pane: Option<SpellPane>,
     /// Insert › Table size picker, when open.
@@ -173,9 +182,9 @@ fn parse_num(s: &str) -> Option<f64> {
 
 /// Status bar view buttons: view layout and its icon (Bluestar's own drawings).
 const VIEW_MODES: [(&str, &str); 3] = [
+    ("read", "view.reading"),
     ("print", "layout.margins"),
     ("web", "view.normal"),
-    ("draft", "format.justify"),
 ];
 
 fn step_font_size(current: u32, grow: bool) -> u32 {
@@ -274,6 +283,11 @@ impl DocWindow {
             status_x: [0.0; 3],
             status_cache: (String::new(), String::new(), 0.0),
             table_look: crate::doc_table::TableLook::default(),
+            read_mode: None,
+            read_fit: false,
+            cell_spin: None,
+            cell_spin_w: 0.0,
+            cell_spin_fresh: false,
             spell_pane: None,
             table_grid: None,
             painter_lock: false,
@@ -1277,6 +1291,7 @@ impl DocWindow {
         on.push(match self.view_mode {
             "web" => "view.webLayout",
             "draft" => "view.draft",
+            "read" => "view.readMode",
             _ => "view.printLayout",
         });
         if self.painter {
@@ -1340,10 +1355,17 @@ impl DocWindow {
             return self.view.run_command(Command::FormatParagraph { format });
         }
         if let Some(mode) = id.strip_prefix("view.layout.") {
-            self.view_mode = VIEW_MODES
-                .iter()
-                .find(|(m, _)| *m == mode)
-                .map_or("print", |(m, _)| m);
+            if mode == "read" {
+                return self.enter_read_mode();
+            }
+            if self.read_mode.is_some() {
+                self.leave_read_mode();
+            }
+            self.view_mode = match mode {
+                "web" => "web",
+                "draft" => "draft",
+                _ => "print",
+            };
         }
         let merge = |w: &mut Self, record: Option<usize>| {
             w.merge_record = record;
@@ -1362,6 +1384,7 @@ impl DocWindow {
             "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
             "edit.goTo" => self.open_dialog(DialogKind::GoTo),
             "view.printLayout" => self.action("view.layout.print"),
+            "view.readMode" => self.action("view.layout.read"),
             "view.webLayout" => self.action("view.layout.web"),
             "view.draft" => self.action("view.layout.draft"),
             "view.onePage" | "view.pageWidth" => {
@@ -1455,6 +1478,31 @@ impl DocWindow {
                     .unwrap_or([0.0, 0.0, 1.0, 1.0]);
                 self.open_command_menu(id, anchor);
                 true
+            }
+            id if crate::doc_table::SPINS.contains(&id) => {
+                let sid = if id == crate::doc_table::SPINS[0] {
+                    crate::doc_table::SPINS[0]
+                } else {
+                    crate::doc_table::SPINS[1]
+                };
+                let Some(r) = self.ribbon.rect_of(RibbonHit::Command(sid)) else {
+                    return false;
+                };
+                match crate::doc_table::spin_press(
+                    sid,
+                    r,
+                    self.view.format(),
+                    self.scale,
+                    self.pointer,
+                ) {
+                    Ok(Some(cmd)) => self.view.run_command(cmd),
+                    Ok(None) => false,
+                    Err(edit) => {
+                        self.cell_spin = Some(edit);
+                        self.cell_spin_fresh = true;
+                        true
+                    }
+                }
             }
             id if id.starts_with("table.look.") || id.starts_with("table.opt.") => {
                 match self.table_look.command(id) {
@@ -1624,7 +1672,7 @@ impl DocWindow {
         let top = self.title.height();
         self.ribbon
             .layout(text, &self.strings, self.size.0, self.scale, top);
-        let mut top = self.ribbon.bottom();
+        let mut top = self.chrome_bottom();
         if self.show_ruler {
             top += Ruler::height(self.scale);
         }
@@ -1639,8 +1687,14 @@ impl DocWindow {
             (right - self.sb_w() - vr - left).max(1.0),
             h,
         );
+        // Read Mode: two whole pages in the window.
+        if self.read_fit {
+            self.read_fit = false;
+            let z = self.view.fit_zoom(true);
+            self.view.set_zoom(z);
+        }
         let (sp_top, sp_bottom, sp_right, scale) = (
-            self.ribbon.bottom(),
+            self.chrome_bottom(),
             self.size.1 - self.status_h(),
             self.size.0,
             self.scale,
@@ -1648,7 +1702,7 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.layout(sp_right, sp_top, sp_bottom, scale);
         }
-        let (nav_top, nav_bottom) = (self.ribbon.bottom(), self.size.1 - self.status_h());
+        let (nav_top, nav_bottom) = (self.chrome_bottom(), self.size.1 - self.status_h());
         if let Some(nav) = self.nav.as_mut() {
             nav.layout(nav_top, nav_bottom, self.scale);
         }
@@ -1684,6 +1738,45 @@ impl DocWindow {
         for (i, r) in self.view_rects.iter_mut().enumerate() {
             let x = right - (3 - i) as f32 * (bw + gap);
             *r = [x, y + 1.0, bw, sh - 1.0];
+        }
+    }
+
+    /// Bottom of the title bar and ribbon (the title bar alone in Read Mode).
+    fn chrome_bottom(&self) -> f32 {
+        if self.read_mode.is_some() {
+            self.title.height()
+        } else {
+            self.ribbon.bottom()
+        }
+    }
+
+    /// Read Mode as on the reference: no ribbon or rulers, two pages side by side
+    /// fitted to the window; Esc or another view button ends it.
+    fn enter_read_mode(&mut self) -> bool {
+        if self.read_mode.is_some() {
+            return false;
+        }
+        // Pages as printed (Web Layout and Draft have none).
+        if self.view_mode != "print" {
+            self.action("view.layout.print");
+        }
+        self.read_mode = Some((self.view.zoom(), self.show_ruler));
+        self.view_mode = "read";
+        self.show_ruler = false;
+        self.menu = None;
+        self.view.set_columns(2);
+        self.read_fit = true;
+        self.relayout_pending = true;
+        true
+    }
+
+    fn leave_read_mode(&mut self) {
+        if let Some((zoom, ruler)) = self.read_mode.take() {
+            self.view.set_columns(1);
+            self.view.set_zoom(zoom);
+            self.show_ruler = ruler;
+            self.view_mode = "print";
+            self.relayout_pending = true;
         }
     }
 
@@ -1723,7 +1816,71 @@ impl DocWindow {
         if let Some(sp) = self.spell_pane.as_mut() {
             sp.measure(text);
         }
+        if let Some(e) = &self.cell_spin {
+            let style = TextStyle {
+                size: (12.0 * self.scale).round(),
+                bold: false,
+            };
+            self.cell_spin_w = text.measure(&e.text, style).0;
+        }
         redraw
+    }
+
+    /// Keys and text for a Cell Size box being typed in; `None` lets the input through.
+    fn cell_spin_input(&mut self, input: &Input) -> Option<bool> {
+        let edit = self.cell_spin.as_mut()?;
+        match input {
+            Input::Text(s) => {
+                if std::mem::take(&mut self.cell_spin_fresh) {
+                    edit.text.clear();
+                }
+                edit.type_text(s);
+                Some(true)
+            }
+            Input::Key(k, _) => {
+                self.cell_spin_fresh = false;
+                let action = edit.key(*k);
+                let (id, typed) = (edit.id, edit.text.clone());
+                match action {
+                    crate::spin_box::SpinKey::Commit => {
+                        self.cell_spin = None;
+                        if let Some(c) = crate::doc_table::parse_cm(&typed)
+                            .and_then(|tw| crate::doc_table::spin_command(id, tw))
+                        {
+                            self.view.run_command(c);
+                        }
+                    }
+                    crate::spin_box::SpinKey::Cancel => self.cell_spin = None,
+                    crate::spin_box::SpinKey::Up | crate::spin_box::SpinKey::Down => {
+                        let up = action == crate::spin_box::SpinKey::Up;
+                        if let Some(c) = crate::doc_table::spin_step(id, &typed, up) {
+                            self.view.run_command(c);
+                            let v = crate::doc_table::spin_value(id, self.view.format());
+                            if let Some(e) = self.cell_spin.as_mut() {
+                                e.text = crate::doc_table::fmt_cm(v)
+                                    .trim_end_matches(" cm")
+                                    .to_owned();
+                            }
+                        }
+                    }
+                    crate::spin_box::SpinKey::Edited | crate::spin_box::SpinKey::Ignored => {}
+                }
+                Some(true)
+            }
+            // Clicking elsewhere leaves the box (the typed value is kept, as on the
+            // reference) and the click goes on.
+            Input::Press { .. } => {
+                let (id, typed) = (edit.id, edit.text.clone());
+                self.cell_spin = None;
+                if let Some(c) = crate::doc_table::parse_cm(&typed)
+                    .and_then(|tw| crate::doc_table::spin_command(id, tw))
+                {
+                    self.view.run_command(c);
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
@@ -1750,6 +1907,12 @@ impl DocWindow {
                 }
                 _ => {}
             }
+        }
+        if let Input::Press { x, y, .. } = input {
+            self.pointer = (x, y);
+        }
+        if let Some(redraw) = self.cell_spin_input(&input) {
+            return redraw;
         }
         // A dialog is modal: it takes keyboard and pointer input.
         if let Some(d) = self.dialog.as_mut() {
@@ -1816,10 +1979,11 @@ impl DocWindow {
             }
             // While typing rests, the rest of the document a few milliseconds per tick
             // (the status bar's proofing icon covers the whole document).
-            Input::Tick if self.view.sweeping() => {
-                if self.view.spell_sweep(std::time::Duration::from_millis(3)) {
-                    return true;
-                }
+            Input::Tick
+                if self.view.sweeping()
+                    && self.view.spell_sweep(std::time::Duration::from_millis(3)) =>
+            {
+                return true;
             }
             _ => {}
         }
@@ -1869,7 +2033,9 @@ impl DocWindow {
             self.tooltip = None;
         }
         let in_title = |w: &Self, y: f32| y < w.title.height();
-        let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
+        let in_ribbon = |w: &Self, y: f32| {
+            w.read_mode.is_none() && y >= w.ribbon.top() && y < w.ribbon.bottom()
+        };
         if let Input::Key(
             Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k' | 'g')),
             Mods {
@@ -1891,6 +2057,10 @@ impl DocWindow {
             return self.action(id);
         }
         if let Input::Key(Key::Escape, _) = input {
+            if self.read_mode.is_some() {
+                self.leave_read_mode();
+                return true;
+            }
             if self.story_options().is_some() && !self.painter {
                 return self.view.run_command(Command::CloseHeaderFooter);
             }
@@ -2334,9 +2504,9 @@ impl DocWindow {
         self.paint_story_frame(p);
         // Title bar and ribbon: one cached layer, redrawn only when what it shows changes
         // (typing changes the document, not the ribbon).
-        let chrome_h = self.ribbon.bottom();
+        let chrome_h = self.chrome_bottom();
         let on = self.on_ids();
-        self.layered(p, 0, [0.0, 0.0, self.size.0, chrome_h], &mut |p| {
+        Self::layered(p, 0, [0.0, 0.0, self.size.0, chrome_h], &mut |p| {
             p.fill_rect(0.0, 0.0, self.size.0, chrome_h, self.theme.bg);
             self.title.paint(
                 p,
@@ -2347,15 +2517,17 @@ impl DocWindow {
                 self.view.modified(),
                 self.view.format(),
             );
-            self.ribbon.paint(
-                p,
-                &self.theme,
-                &self.icons,
-                &self.strings,
-                self.view.format(),
-                &self.styles,
-                &on,
-            );
+            if self.read_mode.is_none() {
+                self.ribbon.paint(
+                    p,
+                    &self.theme,
+                    &self.icons,
+                    &self.strings,
+                    self.view.format(),
+                    &self.styles,
+                    &on,
+                );
+            }
             if let Some((first, odd_even, _)) = self.story_options() {
                 crate::doc_table::paint_checks(
                     p,
@@ -2370,6 +2542,16 @@ impl DocWindow {
                 );
             }
             if self.context.table {
+                let caret = self.cell_spin_w;
+                crate::doc_table::paint_spins(
+                    p,
+                    &self.ribbon,
+                    self.view.format(),
+                    self.cell_spin.as_ref(),
+                    &self.theme,
+                    &|_| caret,
+                    self.scale,
+                );
                 crate::doc_table::paint(
                     p,
                     &self.ribbon,
@@ -2452,7 +2634,7 @@ impl DocWindow {
                 None,
             );
         }
-        self.layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
+        Self::layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
         if let Some(grid) = &self.table_grid {
             let label = |c: usize, r: usize| {
                 self.strings.fmt(
@@ -2497,7 +2679,6 @@ impl DocWindow {
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
     /// keeps its image and draws it again while the drawing it records hashes the same.
     fn layered(
-        &self,
         p: &mut dyn Painter,
         id: usize,
         rect: [f32; 4],
@@ -2708,7 +2889,7 @@ impl DocWindow {
     }
 
     fn view_top(&self) -> f32 {
-        self.ribbon.bottom()
+        self.chrome_bottom()
             + if self.show_ruler {
                 Ruler::height(self.scale)
             } else {

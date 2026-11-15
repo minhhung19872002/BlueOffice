@@ -11,7 +11,7 @@ use crate::{Painter, TextStyle};
 use bo_edit::table_tools::LookOptions;
 use bo_edit::FormatState;
 use bo_engine::edit::Command;
-use bo_render::Rgba;
+use bo_render::{PathSeg, Rgba};
 use serde_json::json;
 
 /// Gallery tiles: command id and engine preset, in gallery order (six fit the window as
@@ -94,6 +94,152 @@ pub(crate) const ALIGN: [(&str, &str, &str, &str); 9] = [
     ),
 ];
 
+/// Cell Size number boxes: row height, column width (centimetres).
+pub(crate) const SPINS: [&str; 2] = ["table.rowHeight", "table.colWidth"];
+
+/// One step of the Cell Size arrows: 0.1 cm in twips.
+const SPIN_STEP: i32 = 57;
+
+/// Twips as the boxes show them: centimetres, two decimals, decimal comma, unit.
+pub(crate) fn fmt_cm(twips: i32) -> String {
+    let cm = format!("{:.2}", f64::from(twips) * 2.54 / 1440.0).replace('.', ",");
+    format!("{cm} cm")
+}
+
+/// Centimetres typed in a box (decimal comma or point, unit optional) as twips.
+pub(crate) fn parse_cm(text: &str) -> Option<i32> {
+    let t = text.trim().trim_end_matches("cm").trim().replace(',', ".");
+    let v: f64 = t.parse().ok()?;
+    (v.is_finite() && (0.0..56.0).contains(&v)).then(|| (v * 1440.0 / 2.54).round() as i32)
+}
+
+/// The value box of Cell Size item `r` (right of its icon).
+pub(crate) fn spin_rect(r: [f32; 4], scale: f32) -> [f32; 4] {
+    let px = |v: f32| (v * scale).round();
+    let h = px(24.0).min(r[3]);
+    [
+        r[0] + px(22.0),
+        (r[1] + (r[3] - h) / 2.0).round(),
+        r[2] - px(24.0),
+        h,
+    ]
+}
+
+/// Current value (twips) of Cell Size box `id`.
+pub(crate) fn spin_value(id: &str, f: &FormatState) -> i32 {
+    let Some(t) = f.table.as_ref() else { return 0 };
+    if id == SPINS[0] {
+        t.row_height
+    } else {
+        t.col_width
+    }
+}
+
+/// The engine command setting Cell Size box `id` to `twips` (0 row height: automatic).
+pub(crate) fn spin_command(id: &str, twips: i32) -> Option<Command> {
+    let edit = if id == SPINS[0] {
+        json!({ "kind": "rowHeight", "twips": (twips > 0).then_some(twips) })
+    } else {
+        json!({ "kind": "columnWidth", "twips": twips.max(144) })
+    };
+    crate::catalog::from_json(json!({ "cmd": "tableEdit", "edit": edit }))
+}
+
+/// A press on Cell Size box `id` at (`x`, `y`): an arrow steps the value (`Some`
+/// command), the field starts typing (`Err` with the text to edit).
+pub(crate) fn spin_press(
+    id: &'static str,
+    r: [f32; 4],
+    f: &FormatState,
+    scale: f32,
+    (x, y): (f32, f32),
+) -> Result<Option<Command>, crate::spin_box::SpinEdit> {
+    let v = spin_value(id, f);
+    match crate::spin_box::spin_hit(spin_rect(r, scale), scale, x, y) {
+        Some(crate::spin_box::SpinHit::Up) => Ok(spin_command(id, v + SPIN_STEP)),
+        Some(crate::spin_box::SpinHit::Down) => Ok(spin_command(id, (v - SPIN_STEP).max(0))),
+        _ => Err(crate::spin_box::SpinEdit {
+            id,
+            text: fmt_cm(v).trim_end_matches(" cm").to_owned(),
+        }),
+    }
+}
+
+/// Step a value being typed (Up / Down keys).
+pub(crate) fn spin_step(id: &str, text: &str, up: bool) -> Option<Command> {
+    let v = parse_cm(text)?;
+    spin_command(id, if up { v + SPIN_STEP } else { (v - SPIN_STEP).max(0) })
+}
+
+/// Draw the Cell Size boxes over their placeholders: a small icon, then the value (or
+/// the text being typed with a caret).
+pub(crate) fn paint_spins(
+    p: &mut dyn Painter,
+    ribbon: &Ribbon,
+    f: &FormatState,
+    edit: Option<&crate::spin_box::SpinEdit>,
+    t: &Theme,
+    text: &dyn Fn(&str) -> f32,
+    scale: f32,
+) {
+    let px = |v: f32| (v * scale).round();
+    for (i, id) in SPINS.iter().enumerate() {
+        let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
+            continue;
+        };
+        p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
+        // Icon: a two-headed arrow beside a bar (vertical for height, horizontal for width).
+        let (cx, cy, k) = (r[0] + px(9.0), r[1] + r[3] / 2.0, px(6.0));
+        let ink = Rgba(0x66, 0x69, 0x6e, 255);
+        let segs = if i == 0 {
+            vec![
+                PathSeg::M(cx, cy - k),
+                PathSeg::L(cx, cy + k),
+                PathSeg::M(cx - 2.5 * scale, cy - k + 2.5 * scale),
+                PathSeg::L(cx, cy - k),
+                PathSeg::L(cx + 2.5 * scale, cy - k + 2.5 * scale),
+                PathSeg::M(cx - 2.5 * scale, cy + k - 2.5 * scale),
+                PathSeg::L(cx, cy + k),
+                PathSeg::L(cx + 2.5 * scale, cy + k - 2.5 * scale),
+            ]
+        } else {
+            vec![
+                PathSeg::M(cx - k, cy),
+                PathSeg::L(cx + k, cy),
+                PathSeg::M(cx - k + 2.5 * scale, cy - 2.5 * scale),
+                PathSeg::L(cx - k, cy),
+                PathSeg::L(cx - k + 2.5 * scale, cy + 2.5 * scale),
+                PathSeg::M(cx + k - 2.5 * scale, cy - 2.5 * scale),
+                PathSeg::L(cx + k, cy),
+                PathSeg::L(cx + k - 2.5 * scale, cy + 2.5 * scale),
+            ]
+        };
+        p.path(&segs, None, Some((ink, scale.max(1.0))));
+        let editing = edit.filter(|e| e.id == *id);
+        let shown = match editing {
+            Some(e) => e.text.clone(),
+            None => fmt_cm(spin_value(id, f)),
+        };
+        let style = TextStyle {
+            size: px(12.0),
+            bold: false,
+        };
+        crate::spin_box::paint_spin(
+            p,
+            spin_rect(r, scale),
+            scale,
+            &crate::spin_box::BoxLook {
+                text: &shown,
+                style,
+                ink: t.text,
+                enabled: f.table.is_some(),
+                caret: editing.map(|e| text(&e.text)),
+                hover: None,
+            },
+        );
+    }
+}
+
 /// Header & Footer options drawn as check boxes.
 pub(crate) const HF_CHECKS: [&str; 2] = ["hf.differentFirst", "hf.differentOddEven"];
 
@@ -112,6 +258,10 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
     // "Different Odd & Even Pages").
     if HF_CHECKS.contains(&id) {
         return Some(180.0);
+    }
+    // Cell Size boxes: icon and a number box (reference: 140 px at 125 %).
+    if SPINS.contains(&id) {
+        return Some(112.0);
     }
     match OPTIONS.iter().position(|(o, _)| *o == id)? {
         i if i % 2 == 0 => Some(110.0),
@@ -192,10 +342,9 @@ impl TableLook {
 pub(crate) fn command(id: &str) -> Option<Command> {
     let edit = if let Some((_, v, h, _)) = ALIGN.iter().find(|a| a.0 == id) {
         json!({ "kind": "cellAlign", "vertical": v, "horizontal": h })
-    } else if let Some(part) = id.strip_prefix("table.select.") {
-        json!({ "kind": "select", "part": part })
     } else {
-        return None;
+        let part = id.strip_prefix("table.select.")?;
+        json!({ "kind": "select", "part": part })
     };
     crate::catalog::from_json(json!({ "cmd": "tableEdit", "edit": edit }))
 }
@@ -238,6 +387,9 @@ pub(crate) fn install_strings(s: &mut Strings) {
         )
         .chain([
             ("table.select", "docTable.select"),
+            ("view.readMode", "docTable.readMode"),
+            ("table.rowHeight", "docTable.rowHeight"),
+            ("table.colWidth", "docTable.colWidth"),
             // Title Case labels as on the reference's Table Layout tab.
             ("table.insertRowAbove", "docTable.insertRowAbove"),
             ("table.insertRowBelow", "docTable.insertRowBelow"),

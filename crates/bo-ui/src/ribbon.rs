@@ -477,7 +477,12 @@ fn view_tab() -> Tab {
             // 100 % with One Page and Page Width.
             Group {
                 label: "ribbon.groups.views",
-                large: vec![L("view.printLayout"), L("view.webLayout"), L("view.draft")],
+                large: vec![
+                    L("view.readMode"),
+                    L("view.printLayout"),
+                    L("view.webLayout"),
+                    L("view.draft"),
+                ],
                 rows: vec![],
             },
             Group {

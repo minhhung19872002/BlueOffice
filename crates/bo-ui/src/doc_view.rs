@@ -116,6 +116,8 @@ pub struct DocView {
     spell: Vec<bo_engine::spell::SpellMark>,
     /// Pages the marks were checked on (those in view and one either side).
     spell_pages: Vec<usize>,
+    /// Pages side by side in a row (2 in Read Mode).
+    columns: usize,
     /// The rest of the document checked in the background, a few pages at a time.
     sweep: Sweep,
     /// How tracked changes and comments are shown.
@@ -154,6 +156,7 @@ impl DocView {
             spell: Vec::new(),
             spell_pages: Vec::new(),
             sweep: Sweep::default(),
+            columns: 1,
             markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
@@ -338,7 +341,9 @@ impl DocView {
         };
         let per_zoom = self.display_scale * 96.0 / 72.0;
         let gap = 2.0 * self.gap();
-        let across = (self.viewport.0 - gap).max(1.0) / (page.width * per_zoom);
+        // Pages side by side share the width.
+        let cols = self.columns.max(1) as f32;
+        let across = (self.viewport.0 - gap * cols).max(1.0) / (page.width * per_zoom * cols);
         let z = if whole_page {
             across.min((self.viewport.1 - gap).max(1.0) / (page.height * per_zoom))
         } else {
@@ -735,26 +740,54 @@ impl DocView {
         ((p.width * s).ceil() as i32, (p.height * s).ceil() as i32)
     }
 
+    /// Show `n` pages side by side in each row (Read Mode shows two); `true` when it
+    /// changed.
+    pub fn set_columns(&mut self, n: usize) -> bool {
+        let n = n.max(1);
+        if n == self.columns {
+            return false;
+        }
+        self.columns = n;
+        self.glide = None;
+        self.clamp_scroll();
+        true
+    }
+
+    /// Pages side by side in a row.
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+
+    /// Height of each row of pages (the tallest page of the row).
+    fn row_heights(&self) -> Vec<i32> {
+        self.pages
+            .chunks(self.columns.max(1))
+            .map(|row| row.iter().map(|p| self.page_px(*p).1).max().unwrap_or(0))
+            .collect()
+    }
+
     /// Document y (device pixels from the top of the first gap) of each page's top.
     fn page_tops(&self) -> Vec<f32> {
         let gap = self.gap();
+        let cols = self.columns.max(1);
         let mut y = gap;
-        self.pages
-            .iter()
-            .map(|p| {
-                let top = y;
-                y += self.page_px(*p).1 as f32 + gap;
-                top
-            })
-            .collect()
+        let mut tops = Vec::with_capacity(self.pages.len());
+        for h in self.row_heights() {
+            for _ in 0..cols {
+                tops.push(y);
+            }
+            y += h as f32 + gap;
+        }
+        tops.truncate(self.pages.len());
+        tops
     }
 
     fn content_height(&self) -> f32 {
         let gap = self.gap();
         gap + self
-            .pages
+            .row_heights()
             .iter()
-            .map(|p| self.page_px(*p).1 as f32 + gap)
+            .map(|h| *h as f32 + gap)
             .sum::<f32>()
     }
 
@@ -780,15 +813,24 @@ impl DocView {
     /// Every page with its position in the view (whole pixels, so images map 1:1).
     pub fn slots(&self) -> Vec<PageSlot> {
         let tops = self.page_tops();
+        let cols = self.columns.max(1);
+        let gap = self.gap();
         self.pages
             .iter()
             .zip(tops)
             .enumerate()
             .map(|(index, (p, top))| {
                 let (width, height) = self.page_px(*p);
-                let x = ((self.viewport.0 - width as f32) / 2.0)
-                    .max(self.gap())
-                    .floor();
+                // The row is centred; pages follow each other with a gap between them.
+                let first = index - index % cols;
+                let row = &self.pages[first..(first + cols).min(self.pages.len())];
+                let row_w: f32 = row.iter().map(|q| self.page_px(*q).0 as f32).sum::<f32>()
+                    + gap * (row.len() as f32 - 1.0);
+                let before: f32 = self.pages[first..index]
+                    .iter()
+                    .map(|q| self.page_px(*q).0 as f32 + gap)
+                    .sum();
+                let x = (((self.viewport.0 - row_w) / 2.0).max(gap) + before).floor();
                 PageSlot {
                     index,
                     x: (x + self.origin.0) as i32,

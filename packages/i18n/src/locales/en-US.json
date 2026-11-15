@@ -8984,6 +8984,10 @@
     }
   },
   "docTable": {
+    "readMode": "Read Mode",
+    "rowHeight": "Table Row Height",
+    "colWidth": "Table Column Width",
+    "cm": "cm",
     "insertRowAbove": "Insert Row Above",
     "insertRowBelow": "Insert Row Below",
     "insertColumnLeft": "Insert Column Left",

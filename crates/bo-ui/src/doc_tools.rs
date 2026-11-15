@@ -133,12 +133,15 @@ fn table_layout_tab() -> Tab {
                 large: vec![],
                 rows: vec![vec![S("table.mergeCells")], vec![S("table.splitCell")]],
             },
+            // Height / width boxes with the distribute buttons beside them, AutoFit under
+            // them, as on the reference.
             Group {
                 label: "ribbon.groups.cellSize",
-                large: vec![L("table.autoFit")],
+                large: vec![],
                 rows: vec![
-                    vec![S("table.distributeRows")],
-                    vec![S("table.distributeColumns")],
+                    vec![S("table.rowHeight"), B("table.distributeRows")],
+                    vec![S("table.colWidth"), B("table.distributeColumns")],
+                    vec![S("table.autoFit")],
                 ],
             },
             // Nine alignment buttons in three rows, then Text Direction (reference order).
@@ -540,6 +543,7 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("review.rejectMenu", "review.reject"),
         ("review.markupMode", "review.viewMarkup"),
         ("view.printLayout", "layout.margins"),
+        ("view.readMode", "view.reading"),
         ("view.webLayout", "view.normal"),
         ("view.draft", "format.justify"),
         ("review.showMarkup", "review.comments"),

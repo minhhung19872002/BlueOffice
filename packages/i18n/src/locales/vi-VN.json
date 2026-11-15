@@ -8984,6 +8984,10 @@
     }
   },
   "docTable": {
+    "readMode": "Chế độ đọc",
+    "rowHeight": "Chiều cao hàng",
+    "colWidth": "Chiều rộng cột",
+    "cm": "cm",
     "insertRowAbove": "Chèn hàng phía trên",
     "insertRowBelow": "Chèn hàng phía dưới",
     "insertColumnLeft": "Chèn cột bên trái",

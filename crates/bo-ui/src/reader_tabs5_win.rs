@@ -272,7 +272,14 @@ impl ReaderWindow {
                 })
                 .collect();
                 let r = self.control_rect("menu.clipboard").unwrap_or([0.0; 4]);
-                self.menu = Some((self.reader_menu(items, r), "menu.clipboard"));
+                let menu = self
+                    .reader_menu(items, r)
+                    .with_decor(
+                        vec![Some("cut"), Some("copy"), Some("paste"), Some("selectAll")],
+                        Vec::new(),
+                    )
+                    .with_icon_fn(crate::reader_icons::menu_icon);
+                self.menu = Some((menu, "menu.clipboard"));
             }
             "edit.selectAll" => {
                 let ctrl = crate::Mods {

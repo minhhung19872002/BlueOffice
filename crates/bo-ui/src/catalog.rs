@@ -51,10 +51,17 @@ const fn e(id: &'static str, label: &'static str) -> Entry {
 /// Entries of the menu button `id`.
 pub fn menu(id: &str) -> Vec<Entry> {
     match id {
+        // Line spacing multiples and the space before / after toggles, as in a desktop
+        // word processor's line spacing menu (§17.3.1.33 spacing).
         "format.lineSpacing" => vec![
-            e("format.lineSpacing1", "commands.format.lineSpacing1"),
-            e("format.lineSpacing15", "commands.format.lineSpacing15"),
-            e("format.lineSpacing2", "commands.format.lineSpacing2"),
+            e("format.lineSpacing1", "1.0"),
+            e("format.lineSpacing115", "1.15"),
+            e("format.lineSpacing15", "1.5"),
+            e("format.lineSpacing2", "2.0"),
+            e("format.lineSpacing25", "2.5"),
+            e("format.lineSpacing3", "3.0"),
+            e("format.spaceBefore.toggle", "Add Space Before Paragraph"),
+            e("format.spaceAfter.toggle", "Add Space After Paragraph"),
         ],
         "format.changeCase" => vec![
             e("format.changeCase.sentence", "Sentence case"),
@@ -384,6 +391,22 @@ pub fn command(id: &str, sec: &SectionState) -> Option<Command> {
         }),
         "format.lineSpacing2" => Some(Command::FormatParagraph {
             format: bo_edit::ParaFormat::LineSpacing { value: 480 },
+        }),
+        "format.lineSpacing115" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::LineSpacing { value: 276 },
+        }),
+        "format.lineSpacing25" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::LineSpacing { value: 600 },
+        }),
+        "format.lineSpacing3" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::LineSpacing { value: 720 },
+        }),
+        // Toggles resolved by the window from the paragraph's spacing; 12 pt when added.
+        "format.spaceBefore.toggle" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::SpaceBefore { twips: 240 },
+        }),
+        "format.spaceAfter.toggle" => Some(Command::FormatParagraph {
+            format: bo_edit::ParaFormat::SpaceAfter { twips: 240 },
         }),
         "layout.margins.normal" => margins(2.54, 2.54, 2.54, 2.54),
         "layout.margins.narrow" => margins(1.27, 1.27, 1.27, 1.27),

@@ -388,20 +388,37 @@ impl DocWindow {
 
     fn open_command_menu(&mut self, id: &str, anchor: [f32; 4]) {
         let spacing = self.view.format().line_spacing;
+        let (before, after) = (
+            self.view.format().space_before,
+            self.view.format().space_after,
+        );
         let items = catalog::menu(id)
             .into_iter()
             .map(|e| MenuItem {
-                label: if e.label.contains('.') && !e.label.contains(' ') {
-                    self.strings.get(e.label).to_owned()
-                } else {
-                    e.label.to_owned()
+                label: match e.id {
+                    "format.spaceBefore.toggle" if before > 0 => {
+                        "Remove Space Before Paragraph".to_owned()
+                    }
+                    "format.spaceAfter.toggle" if after > 0 => {
+                        "Remove Space After Paragraph".to_owned()
+                    }
+                    _ if e.label.contains('.')
+                        && !e.label.contains(' ')
+                        && e.label.chars().any(char::is_alphabetic) =>
+                    {
+                        self.strings.get(e.label).to_owned()
+                    }
+                    _ => e.label.to_owned(),
                 },
                 choice: Choice::Command(e.id.to_owned()),
                 checked: spacing.rule == bo_edit::LineRule::Auto
                     && match e.id {
                         "format.lineSpacing1" => spacing.value == 240,
+                        "format.lineSpacing115" => spacing.value == 276,
                         "format.lineSpacing15" => spacing.value == 360,
                         "format.lineSpacing2" => spacing.value == 480,
+                        "format.lineSpacing25" => spacing.value == 600,
+                        "format.lineSpacing3" => spacing.value == 720,
                         _ => false,
                     },
                 dim: false,
@@ -487,6 +504,21 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        // Space before / after toggles: remove when the paragraph has some, else 12 pt.
+        let toggle = match id {
+            "format.spaceBefore.toggle" => Some((true, self.view.format().space_before)),
+            "format.spaceAfter.toggle" => Some((false, self.view.format().space_after)),
+            _ => None,
+        };
+        if let Some((before, current)) = toggle {
+            let twips = if current > 0 { 0 } else { 240 };
+            let format = if before {
+                bo_edit::ParaFormat::SpaceBefore { twips }
+            } else {
+                bo_edit::ParaFormat::SpaceAfter { twips }
+            };
+            return self.view.run_command(Command::FormatParagraph { format });
+        }
         if let Some(mode) = id.strip_prefix("view.layout.") {
             self.view_mode = VIEW_MODES
                 .iter()
@@ -1509,8 +1541,8 @@ mod tests {
             &Fixed,
         );
         assert!(w.menu.is_some());
-        // Menu opens below the button: select the second entry (1.5 lines).
-        let (mx, my) = (x + 12.0, y + height + 2.0 + 4.0 + 26.0 + 13.0);
+        // Menu opens below the button: select the third entry (1.0, 1.15, 1.5).
+        let (mx, my) = (x + 12.0, y + height + 2.0 + 4.0 + 2.0 * 26.0 + 13.0);
         w.handle(
             Input::Press {
                 x: mx,

@@ -195,3 +195,4 @@ Vòng 31: viền trang 198,198,198 (trước 195,202,214 ánh xanh) và vùng ch
 Vòng 32: nút đang bật trên ribbon (B, căn giữa, thước…) nền 198 + viền 1 px 128, góc vuông như bản đối chiếu (trước nền 216 không viền); đo lại trên app: trùng.
 Vòng 33: gallery kiểu chữ thành một khung trắng chung viền 210 (trước mỗi ô một thẻ riêng), ô đang chọn viền ngoài 136 + dải trong 210 (trước viền màu nhấn), nút mở rộng cùng khung sau vạch ngăn — như bản đối chiếu.
 Vòng 34: viền ô phông / cỡ chữ 148 (trước 211,217,226 gần như không thấy) và vạch ngăn nhóm ribbon 128 (trước 211,217,226) như bản đối chiếu; đo lại trên app: vạch ngăn 128.
+Vòng 35: menu — mục đang chọn nền 198 + viền 128 + dấu tích (trước thanh màu nhấn), menu giãn dòng đủ 1.0 / 1.15 / 1.5 / 2.0 / 2.5 / 3.0 và thêm/bỏ khoảng trước/sau đoạn (12 pt) như bản đối chiếu; menu rộng theo nhãn dài nhất.

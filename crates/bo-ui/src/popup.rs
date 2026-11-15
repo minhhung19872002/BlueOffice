@@ -1,7 +1,7 @@
 //! Drop-down menus (font and size lists) and tooltips, drawn over the window.
 use crate::theme::Theme;
 use crate::{Painter, TextStyle};
-use bo_render::Rgba;
+use bo_render::{PathSeg, Rgba};
 
 /// What choosing a menu item does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,8 +53,17 @@ impl Menu {
             .round()
             .min(viewport.0.max(0.0) / 2.0)
             .min(viewport.1.max(0.0) / 2.0);
+        // Wide enough for the longest label (an estimate of 7.5 px per character at 13 px
+        // plus the check column and padding; the interface text may be scaled up).
+        let longest = items
+            .iter()
+            .map(|i| i.label.chars().count())
+            .max()
+            .unwrap_or(0) as f32;
+        let label_w = (longest * 7.5 * 1.15 + 40.0) * scale;
         let menu_width = w
             .max((200.0 * scale).round())
+            .max(label_w.round())
             .min((viewport.0 - 2.0 * margin).max(0.0));
         let left = x.clamp(margin, (viewport.0 - margin - menu_width).max(margin));
         let below_top = (y + h + gap).clamp(margin, (viewport.1 - margin).max(margin));
@@ -207,19 +216,34 @@ impl Menu {
                 );
             }
             if item.checked {
-                // Accent bar on the left marks the current value.
+                // The current value: grey fill, darker frame and a check mark, as a desktop
+                // word processor marks it (198 / 128).
+                let (x0, w0) = (self.x + self.pad(), self.w - 2.0 * self.pad());
+                let (yy, hh) = (y.round(), self.item_h.round());
+                p.fill_rect(x0, yy, w0, hh, Rgba(0x80, 0x80, 0x80, 255));
                 p.fill_rect(
-                    self.x + self.pad(),
-                    y + (5.0 * s).round(),
-                    (3.0 * s).round(),
-                    self.item_h - (10.0 * s).round(),
-                    t.accent,
+                    x0 + 1.0,
+                    yy + 1.0,
+                    w0 - 2.0,
+                    hh - 2.0,
+                    Rgba(0xc6, 0xc6, 0xc6, 255),
+                );
+                let k = (4.0 * s).round();
+                let (cx, cy) = (x0 + (10.0 * s).round(), yy + hh / 2.0);
+                p.path(
+                    &[
+                        PathSeg::M(cx - k, cy),
+                        PathSeg::L(cx - k / 3.0, cy + k * 0.7),
+                        PathSeg::L(cx + k * 1.2, cy - k),
+                    ],
+                    None,
+                    Some((Rgba(0x1e, 0x6e, 0x3e, 255), (1.6 * s).max(1.5))),
                 );
             }
             let color = if item.dim { t.text_muted } else { t.text };
             p.text(
                 &item.label,
-                self.x + (16.0 * s).round(),
+                self.x + (24.0 * s).round(),
                 y + (self.item_h - line) / 2.0,
                 style,
                 color,

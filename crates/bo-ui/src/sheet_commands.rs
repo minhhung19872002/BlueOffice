@@ -733,6 +733,9 @@ impl SheetWindow {
                 return Some(true);
             }
         }
+        if let Some(r) = self.audit_action(id, text) {
+            return Some(r);
+        }
         let (kind, arg) = id.split_once('.').unwrap_or((id, ""));
         let range = self.view.rng();
         Some(match (kind, arg) {
@@ -824,7 +827,7 @@ impl SheetWindow {
                 true
             }
             ("sheet", "addSheet") => self.view.add_sheet(),
-            ("sheet", "formatCellsDialog") => self.open_sheet_dialog(SheetDialog::FormatCells),
+            ("sheet", "formatCellsDialog") => self.open_format_cells(0),
             ("sheet", "insertFunction") => self.open_sheet_dialog(SheetDialog::InsertFunction),
             ("sheet", "table") => {
                 let region = self.region();

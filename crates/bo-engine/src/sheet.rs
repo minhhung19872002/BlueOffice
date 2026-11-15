@@ -1129,6 +1129,11 @@ impl SheetEngine {
         self.live.set_web_provider(provider);
     }
 
+    /// Number locale (separators, month names) values are shown with.
+    pub fn number_locale(&self) -> &Locale {
+        &self.locale
+    }
+
     /// Locale for input parsing and display (`vi-VN` default).
     pub fn set_locale(&mut self, tag: &str) {
         self.locale = if tag.eq_ignore_ascii_case("en-US") {

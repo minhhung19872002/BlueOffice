@@ -9,10 +9,20 @@ use crate::sheet_ribbon;
 use crate::sheet_view::{GridStore, SheetView, SEL_GREEN};
 use commands_impl::SheetDialog;
 
+#[path = "sheet_audit.rs"]
+mod audit_impl;
 #[path = "sheet_commands.rs"]
 mod commands_impl;
+#[path = "sheet_comments.rs"]
+mod comments_impl;
+#[path = "sheet_dataforms.rs"]
+mod dataforms_impl;
 #[path = "sheet_fbar.rs"]
 mod fbar_impl;
+#[path = "sheet_fcells.rs"]
+mod fcells_impl;
+#[path = "sheet_form.rs"]
+mod form_impl;
 #[path = "sheet_review.rs"]
 mod review_impl;
 use crate::strings::Strings;
@@ -227,6 +237,26 @@ pub struct SheetWindow {
     calc_state: (bool, bool),
     /// Settings of the Text to Columns wizard's first step.
     ttc_values: Vec<String>,
+    /// Open self-drawn form (Format Cells, Sort, …), what it is for, and the pointer
+    /// position (wheel input scrolls the list under it).
+    form: Option<form_impl::Form>,
+    form_kind: form_impl::FormKind,
+    form_ptr: (f32, f32),
+    /// Format Cells state beyond its controls (border edges, orientation, fill).
+    fc: fcells_impl::FcState,
+    /// Sort dialog: the range sorted and the number of levels shown.
+    sort_range: Option<serde_json::Value>,
+    sort_levels: usize,
+    /// Name Manager rows (name, refers to).
+    name_rows: Vec<(String, String)>,
+    /// Formula auditing arrows, the traced cell and its precedent / dependent levels.
+    arrows: Vec<audit_impl::Arrow>,
+    trace_cell: Option<(u32, u32)>,
+    trace_levels: (u32, u32),
+    /// Comment cards: the hovered comment cell, Show All Comments, and the laid-out cards.
+    hover_comment: Option<(u32, u32)>,
+    show_all_comments: bool,
+    cards: Vec<comments_impl::Card>,
 }
 
 impl SheetWindow {
@@ -280,6 +310,19 @@ impl SheetWindow {
             name_widths: Vec::new(),
             calc_state: (false, false),
             ttc_values: Vec::new(),
+            form: None,
+            form_kind: form_impl::FormKind::default(),
+            form_ptr: (0.0, 0.0),
+            fc: fcells_impl::FcState::default(),
+            sort_range: None,
+            sort_levels: 1,
+            name_rows: Vec::new(),
+            arrows: Vec::new(),
+            trace_cell: None,
+            trace_levels: (0, 0),
+            hover_comment: None,
+            show_all_comments: false,
+            cards: Vec::new(),
         };
         w.load_functions();
         w.refresh_calc_state();
@@ -607,16 +650,55 @@ impl SheetWindow {
         if self.painter.is_some() {
             on.push("format.painter");
         }
-        if self.view.gridlines() {
-            on.push("sheet.gridlines");
+        if self.view.show_formulas() {
+            on.push("sheet.showFormulas");
         }
-        if self.view.headings() {
-            on.push("sheet.headings");
-        }
-        if self.show_fbar {
-            on.push("sheet.formulaBar");
+        if self.show_all_comments {
+            on.push("sheet.showComments");
         }
         on
+    }
+
+    /// Show / print options drawn as check boxes over their icons, as the reference's View
+    /// tab (Show group) and Page Layout tab (Sheet Options) show them: (id, checked).
+    fn check_items(&self) -> [(&'static str, bool); 5] {
+        let setup = self
+            .view
+            .engine()
+            .workbook()
+            .and_then(|w| w.sheets.get(self.view.sheet()))
+            .map(|ws| (ws.page_setup.print_grid_lines, ws.page_setup.print_headings))
+            .unwrap_or_default();
+        [
+            ("sheet.gridlines", self.view.gridlines()),
+            ("sheet.headings", self.view.headings()),
+            ("sheet.formulaBar", self.show_fbar),
+            ("sheet.printGridlines", setup.0),
+            ("sheet.printHeadings", setup.1),
+        ]
+    }
+
+    /// Check boxes over the icons of [`Self::check_items`] (13 px box, dark frame, tick).
+    fn paint_check_items(&self, p: &mut dyn Painter) {
+        for (id, on) in self.check_items() {
+            let Some([x, y, _, h]) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+                continue;
+            };
+            // Cover the icon (18 px at x + 5) with the ribbon face, then the box.
+            let size = self.px(18.0);
+            let ix = x + self.px(5.0);
+            let iy = y + (h - size) / 2.0;
+            p.fill_rect(
+                ix - 1.0,
+                iy - 1.0,
+                size + 2.0,
+                size + 2.0,
+                self.theme.ribbon,
+            );
+            let b = self.px(13.0);
+            let (bx, by) = ((ix + (size - b) / 2.0).round(), (y + (h - b) / 2.0).round());
+            form_impl::paint_check(p, [bx, by, b, b], on, true, false, self.scale);
+        }
     }
 
     fn patch(&mut self, patch: serde_json::Value) -> bool {
@@ -981,7 +1063,15 @@ impl SheetWindow {
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let sheets = self.view.sheet_names().len();
-        let redraw = self.route(input, text);
+        let moved = match input {
+            Input::Move { x, y } if self.form.is_none() && self.menu.is_none() => Some((x, y)),
+            _ => None,
+        };
+        let mut redraw = self.route(input, text);
+        if let Some((x, y)) = moved {
+            redraw |= self.hover_comments(x, y);
+        }
+        self.layout_cards(text);
         if self.view.sheet_names().len() != sheets {
             self.layout_tabs(text);
         }
@@ -990,6 +1080,7 @@ impl SheetWindow {
         if let Some((_, d)) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
         }
+        self.layout_form(text);
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
@@ -1006,6 +1097,11 @@ impl SheetWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        if self.form.is_some() {
+            if let Some(r) = self.form_input(&input, text) {
+                return r;
+            }
+        }
         // A dialog is modal: it takes keyboard and pointer input.
         if let Some((_, d)) = self.dialog.as_mut() {
             match input {
@@ -1370,11 +1466,14 @@ impl SheetWindow {
             &self.on_ids(),
         );
         self.paint_number_box(p);
+        self.paint_check_items(p);
     }
 
     /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs
     /// (over the top band).
     pub fn paint_overlay(&self, p: &mut dyn Painter) {
+        self.paint_arrows(p);
+        self.paint_cards(p);
         if self.show_fbar {
             self.paint_formula_bar(p);
         }
@@ -1388,6 +1487,70 @@ impl SheetWindow {
         }
         if let Some((_, d)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
+        }
+        if let Some(f) = &self.form {
+            f.paint(p, self.size, true, &mut |id, r, p| {
+                self.paint_form_canvas(f, id, r, p);
+            });
+        }
+    }
+
+    /// Window point of the open form's OK button (tests).
+    #[cfg(test)]
+    fn fc_ok_point(&self) -> (f32, f32) {
+        let f = self.form.as_ref().expect("form");
+        let r = f.get("ok").expect("ok").rect;
+        let d = f.dev([r[0] + 10.0, r[1] + 10.0, 0.0, 0.0]);
+        (d[0], d[1])
+    }
+
+    /// Lay out the open form and measure the texts its owner draws.
+    fn layout_form(&mut self, text: &dyn TextMeasure) {
+        let strings = match (self.form.is_some(), self.form_kind) {
+            (true, form_impl::FormKind::FormatCells) => self.fc_strings(),
+            (true, _) => Vec::new(),
+            _ => return,
+        };
+        if let Some(f) = self.form.as_mut() {
+            f.layout(text, self.size, self.scale);
+            f.measure(text, &strings);
+        }
+    }
+
+    /// Input for the open form: `Some(redraw)` when the form took it.
+    fn form_input(&mut self, input: &Input, text: &dyn TextMeasure) -> Option<bool> {
+        let f = self.form.as_mut()?;
+        let ev = match input {
+            Input::Text(s) => f.type_text(s),
+            Input::Key(k, m) => f.key(*k, *m),
+            Input::Move { x, y } => {
+                self.form_ptr = (*x, *y);
+                return Some(f.hover(*x, *y));
+            }
+            Input::Press { x, y, count, .. } => {
+                self.form_ptr = (*x, *y);
+                f.press(*x, *y, *count)
+            }
+            Input::Wheel(d) => {
+                let (x, y) = self.form_ptr;
+                return Some(f.wheel(x, y, *d));
+            }
+            Input::Blink => return Some(true),
+            Input::Drag { .. }
+            | Input::Release { .. }
+            | Input::Context { .. }
+            | Input::Preedit(_) => return Some(false),
+            _ => return None,
+        };
+        Some(match self.form_kind {
+            form_impl::FormKind::FormatCells => self.fc_event(&ev),
+            kind => self.form_event(kind, &ev, text),
+        })
+    }
+
+    fn paint_form_canvas(&self, f: &form_impl::Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
+        if self.form_kind == form_impl::FormKind::FormatCells {
+            self.fc_paint_canvas(f, id, r, p);
         }
     }
 

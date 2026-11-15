@@ -1247,13 +1247,28 @@ impl SlideWindow {
         let size = self.px(24.0);
         let k = self.view.scale();
         let mut corner = 0;
+        let placed = self
+            .view
+            .engine()
+            .presentation()
+            .map(|p| bo_engine::slide_edit::geom::place_slide(p, self.view.current()));
+        // Top-right corner of an anchored shape (points).
+        let shape_corner = |id: u32| {
+            let p = bo_engine::slide_edit::geom::find(placed.as_deref()?, id)?;
+            let b = p.b.bounds();
+            Some((b.x + b.w, b.y))
+        };
         st.comments
             .iter()
             .map(|t| {
-                // At the comment's anchor point when the file has one (p188:pos), else
-                // along the slide's top-left corner.
+                // At the comment's anchor point when the file has one (p188:pos), at the
+                // top-right corner of the shape it is anchored to, else along the slide's
+                // top-left corner.
+                let at_shape = t.shape.and_then(shape_corner);
                 let (x, y) = if let Some((px, py)) = t.pos {
                     (ox + px as f32 * k, oy + py as f32 * k)
+                } else if let Some((sx, sy)) = at_shape {
+                    (ox + sx as f32 * k + self.px(4.0), oy + sy as f32 * k)
                 } else {
                     corner += 1;
                     (

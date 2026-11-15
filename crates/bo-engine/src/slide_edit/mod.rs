@@ -5241,7 +5241,12 @@ impl Engine {
                             parent.as_deref(),
                             &mentions,
                             task.clone(),
-                        )
+                        )?;
+                        // A new thread on one selected shape is anchored to it.
+                        match (parent.as_deref(), &sel.ids[..]) {
+                            (None, [id]) => comments::anchor_last(tx, sel.slide, *id),
+                            _ => Ok(()),
+                        }
                     });
                 }
                 SlideCommand::ResolveComment { id, done } => {

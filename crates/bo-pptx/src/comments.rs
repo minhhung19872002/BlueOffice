@@ -62,6 +62,97 @@ pub struct ModernComment {
     /// `p188:pos` ([MS-PPTX] 2.3.x CT_Comment, a:CT_Point2D): where the comment marker sits
     /// on the slide, EMU.
     pub pos: Option<(i64, i64)>,
+    /// Shape the thread is anchored to ([MS-PPTX] `ac:deMkLst` / `ac:spMk@id`).
+    pub shape: Option<u32>,
+    /// The `ac:deMkLst` moniker list as read (written back verbatim).
+    pub anchor_raw: Option<String>,
+}
+
+/// `ac` namespace of drawing element monikers ([MS-PPTX] 2013 drawing command).
+pub const NS_AC: &str = "http://schemas.microsoft.com/office/drawing/2013/main/command";
+
+/// Relationship slide → legacy comments part (ECMA-376 Part 1, §13.3.? comments).
+pub const REL_LEGACY_COMMENTS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+/// Relationship presentation → legacy comment authors part (§19.4.3 cmAuthorLst).
+pub const REL_LEGACY_AUTHORS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors";
+
+/// A legacy comment (ECMA-376 Part 1, §19.4.1 cm), read only.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LegacyComment {
+    /// `authorId` → [`LegacyAuthor::id`].
+    pub author_id: u32,
+    /// `dt` (xsd:dateTime).
+    pub dt: String,
+    /// `idx`: number of the comment for its author.
+    pub idx: u32,
+    /// §19.4.7 pos: x, y in 1/8 point (master units of 576 per inch).
+    pub pos: Option<(i64, i64)>,
+    /// §19.4.8 text.
+    pub text: String,
+}
+
+/// A legacy comment author (§19.4.2 cmAuthor).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LegacyAuthor {
+    /// `id`.
+    pub id: u32,
+    /// `name`.
+    pub name: String,
+    /// `initials`.
+    pub initials: String,
+}
+
+/// Comments of a legacy comments part (§19.4.4 cmLst), in file order.
+pub fn read_legacy_comments(data: &[u8], part: &str) -> Vec<LegacyComment> {
+    let Ok(root) = bo_drawingml::dom::parse(data, part) else {
+        return Vec::new();
+    };
+    if root.local() != "cmLst" {
+        return Vec::new();
+    }
+    let num = |e: &XmlElement, k: &str| e.attr(k).and_then(|v| v.trim().parse::<u32>().ok());
+    let int = |e: &XmlElement, k: &str| e.attr(k).and_then(|v| v.trim().parse::<i64>().ok());
+    kids(&root, "cm")
+        .map(|cm| LegacyComment {
+            author_id: num(cm, "authorId").unwrap_or(0),
+            dt: cm.attr("dt").unwrap_or_default().to_owned(),
+            idx: num(cm, "idx").unwrap_or(0),
+            pos: kids(cm, "pos")
+                .next()
+                .and_then(|p| Some((int(p, "x")?, int(p, "y")?))),
+            text: kids(cm, "text")
+                .next()
+                .map(XmlElement::text)
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// Authors of a legacy comment authors part (§19.4.3 cmAuthorLst).
+pub fn read_legacy_authors(data: &[u8], part: &str) -> Vec<LegacyAuthor> {
+    let Ok(root) = bo_drawingml::dom::parse(data, part) else {
+        return Vec::new();
+    };
+    kids(&root, "cmAuthor")
+        .map(|a| LegacyAuthor {
+            id: a
+                .attr("id")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0),
+            name: a.attr("name").unwrap_or_default().to_owned(),
+            initials: a.attr("initials").unwrap_or_default().to_owned(),
+        })
+        .collect()
+}
+
+/// The shape id named by a moniker list (`ac:spMk@id`, at any depth).
+fn moniker_shape(el: &XmlElement) -> Option<u32> {
+    if el.local() == "spMk" {
+        return el.attr("id").and_then(|v| v.parse().ok());
+    }
+    el.elements().find_map(moniker_shape)
 }
 
 /// `p188:author`.
@@ -191,6 +282,8 @@ pub fn read_comments(data: &[u8], part: &str) -> Vec<ModernComment> {
             pos: kids(cm, "pos")
                 .next()
                 .and_then(|p| Some((p.attr("x")?.parse().ok()?, p.attr("y")?.parse().ok()?))),
+            shape: kids(cm, "deMkLst").next().and_then(moniker_shape),
+            anchor_raw: kids(cm, "deMkLst").next().map(xml_of),
         })
         .collect()
 }
@@ -310,10 +403,25 @@ pub fn comments_xml_ns(
         if c.resolved {
             out.push_str(" status=\"resolved\"");
         }
-        let _ = write!(
-            out,
-            "><pc:sldMkLst xmlns:pc=\"{NS_PC}\"><pc:docMk/><pc:sldMk cId=\"{creation_id}\" sldId=\"{sld_id}\"/></pc:sldMkLst>"
-        );
+        // A thread on a shape names it in a drawing element moniker list, else the slide.
+        match (&c.anchor_raw, c.shape) {
+            (Some(raw), _) => {
+                out.push('>');
+                out.push_str(raw);
+            }
+            (None, Some(id)) => {
+                let _ = write!(
+                    out,
+                    "><ac:deMkLst xmlns:ac=\"{NS_AC}\"><pc:docMk xmlns:pc=\"{NS_PC}\"/><pc:sldMk xmlns:pc=\"{NS_PC}\" cId=\"{creation_id}\" sldId=\"{sld_id}\"/><ac:spMk id=\"{id}\"/></ac:deMkLst>"
+                );
+            }
+            (None, None) => {
+                let _ = write!(
+                    out,
+                    "><pc:sldMkLst xmlns:pc=\"{NS_PC}\"><pc:docMk/><pc:sldMk cId=\"{creation_id}\" sldId=\"{sld_id}\"/></pc:sldMkLst>"
+                );
+            }
+        }
         if let Some((x, y)) = c.pos {
             let _ = write!(out, "<p188:pos x=\"{x}\" y=\"{y}\"/>");
         }
@@ -366,6 +474,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shape_anchor_is_written_and_read() {
+        let c = vec![ModernComment {
+            first: ModernReply {
+                id: "{C1}".into(),
+                author_id: "{A1}".into(),
+                created: "2026-11-16T10:00:00.000".into(),
+                text: "On the logo".into(),
+                ..ModernReply::default()
+            },
+            shape: Some(7),
+            ..ModernComment::default()
+        }];
+        let xml = comments_xml(&c, 256, 0);
+        assert!(xml.contains("<ac:spMk id=\"7\"/>"), "{xml}");
+        let back = read_comments(xml.as_bytes(), "/ppt/comments/c.xml");
+        assert_eq!(back[0].shape, Some(7));
+        // Read back, the moniker list is written verbatim.
+        let again = comments_xml(&back, 256, 0);
+        assert_eq!(
+            read_comments(again.as_bytes(), "/c.xml")[0].anchor_raw,
+            back[0].anchor_raw
+        );
+    }
+
+    #[test]
+    fn legacy_comments_and_authors_read() {
+        let cm = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cm authorId="1" dt="2010-05-01T10:00:00.000" idx="1"><p:pos x="10" y="20"/><p:text>Kiểm tra số liệu</p:text></p:cm></p:cmLst>"#;
+        let au = r#"<p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cmAuthor id="1" name="Trần Bình" initials="TB" lastIdx="1" clrIdx="0"/></p:cmAuthorLst>"#;
+        let c = read_legacy_comments(cm.as_bytes(), "/ppt/comments/comment1.xml");
+        assert_eq!(c.len(), 1);
+        assert_eq!((c[0].author_id, c[0].idx, c[0].pos), (1, 1, Some((10, 20))));
+        assert_eq!(c[0].text, "Kiểm tra số liệu");
+        let a = read_legacy_authors(au.as_bytes(), "/ppt/commentAuthors.xml");
+        assert_eq!(a[0].name, "Trần Bình");
+    }
+
+    #[test]
     fn comment_and_author_parts_round_trip() {
         let r = |id: &str, text: &str| ModernReply {
             id: id.into(),
@@ -379,6 +525,8 @@ mod tests {
             resolved: true,
             replies: vec![r("{R1}", "Đã sửa")],
             pos: Some((1_524_000, 762_000)),
+            shape: None,
+            anchor_raw: None,
         }];
         let xml = comments_xml(&c, 256, 0);
         let mut back = read_comments(xml.as_bytes(), "/ppt/comments/modernComment_100_0.xml");

@@ -1360,3 +1360,67 @@ fn print_titles_help_tab_and_option_check_boxes() {
         .iter()
         .any(|(id, on)| *id == "sheet.gridlines" && *on));
 }
+
+#[test]
+fn filter_drop_down_checks_values_and_reports_records_found() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Region"),
+            (1, 0, "An"),
+            (1, 1, "North"),
+            (2, 0, "Binh"),
+            (2, 1, "South"),
+            (3, 0, "Chi"),
+            (3, 1, "North"),
+        ],
+    );
+    assert!(w.action("sheet.filter", &Fixed));
+    assert_eq!(w.auto_filter(), Some([0, 0, 3, 1]));
+    // The button sits at the right end of the header cell.
+    let b = w.view().cell_box(0, 1).expect("header");
+    let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
+    assert_eq!(w.filter_button_at(at.0, at.1), Some(1));
+    assert_eq!(w.filter_button_at(b[0] + 4.0, at.1), None);
+    press(&mut w, at, 1);
+    let f = w.filter.as_ref().expect("drop-down open");
+    assert_eq!(f.header, "Region");
+    assert_eq!(f.kind, filter_impl::ColumnKind::Text);
+    let texts: Vec<&str> = f.lines.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(texts, ["North", "South"]);
+    // Untick South (list row 2 after Select All) and press OK.
+    w.filter.as_mut().expect("open").toggle(2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.filter.is_none());
+    assert_eq!(w.status, "2 of 3 records found");
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(2, 2)]);
+    // Clear Filter From "Region" shows every row again.
+    press(&mut w, at, 1);
+    assert!(w.filter.as_ref().is_some_and(|f| f.active));
+    assert!(w.filter_item(3));
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows.len(), 0);
+    // Number Filters > Greater Than opens the Custom AutoFilter form.
+    put(&mut w, &[(1, 1, "5"), (2, 1, "7"), (3, 1, "9")]);
+    press(&mut w, at, 1);
+    assert_eq!(
+        w.filter.as_ref().map(|f| f.kind),
+        Some(filter_impl::ColumnKind::Number)
+    );
+    assert!(w.filter_item(5));
+    assert!(w.menu.is_some(), "submenu");
+    w.menu = None;
+    assert!(w.filter_choice("op.2"));
+    let f = w.form.as_mut().expect("custom filter");
+    assert_eq!(f.sel("op1"), Some(2));
+    f.set_text("v1", "6");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.status, "2 of 3 records found");
+    // A press in the grid clears the message.
+    let at = cell_xy(&w, 5, 3);
+    press(&mut w, at, 1);
+    assert_eq!(w.status, "");
+}

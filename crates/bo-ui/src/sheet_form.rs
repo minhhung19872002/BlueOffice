@@ -58,6 +58,10 @@ pub(super) enum FormKind {
     PrintTitles,
     /// Help tab: about BlueSheet and its keyboard shortcuts.
     Help,
+    /// Custom AutoFilter (filter drop-down submenu).
+    CustomFilter,
+    /// Top 10 AutoFilter.
+    Top10,
 }
 
 /// What a control is.

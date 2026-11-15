@@ -21,6 +21,8 @@ mod dataforms_impl;
 mod fbar_impl;
 #[path = "sheet_fcells.rs"]
 mod fcells_impl;
+#[path = "sheet_filter.rs"]
+mod filter_impl;
 #[path = "sheet_form.rs"]
 mod form_impl;
 #[path = "sheet_review.rs"]
@@ -257,6 +259,12 @@ pub struct SheetWindow {
     hover_comment: Option<(u32, u32)>,
     show_all_comments: bool,
     cards: Vec<comments_impl::Card>,
+    /// Open AutoFilter drop-down, its texts, the column of its Custom AutoFilter / Top 10
+    /// form, and whether the status bar shows its "x of y records found".
+    filter: Option<filter_impl::FilterDrop>,
+    filter_labels: filter_impl::Labels,
+    filter_col: u32,
+    filter_status: bool,
 }
 
 impl SheetWindow {
@@ -323,6 +331,10 @@ impl SheetWindow {
             hover_comment: None,
             show_all_comments: false,
             cards: Vec::new(),
+            filter: None,
+            filter_labels: filter_impl::Labels::default(),
+            filter_col: 0,
+            filter_status: false,
         };
         w.load_functions();
         w.refresh_calc_state();
@@ -983,6 +995,7 @@ impl SheetWindow {
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
             Choice::Command(id) => match id.strip_prefix("goto.") {
                 Some(name) => self.go_to(name),
+                None if id.starts_with("filterop.") => self.filter_choice(&id["filterop.".len()..]),
                 None => self.action(&id, text),
             },
             Choice::Style(_) => false,
@@ -1133,6 +1146,11 @@ impl SheetWindow {
         }
         if self.menu.is_some() {
             if let Some(r) = self.menu_input(&input, text) {
+                return r;
+            }
+        }
+        if self.filter.is_some() {
+            if let Some(r) = self.filter_input(&input, text) {
                 return r;
             }
         }
@@ -1337,7 +1355,17 @@ impl SheetWindow {
                 }
                 self.ribbon.press(x, y)
             }
+            Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
+                let col = self.filter_button_at(x, y).unwrap_or_default();
+                if self.view.editing() {
+                    self.view.commit();
+                }
+                self.open_filter(col)
+            }
             Input::Press { .. } => {
+                if std::mem::take(&mut self.filter_status) {
+                    self.status.clear();
+                }
                 self.grid_press = true;
                 self.ribbon.clear_pointer();
                 self.view.handle(input, text)
@@ -1480,6 +1508,7 @@ impl SheetWindow {
         self.paint_tabs(p);
         self.paint_scrollbars(p);
         self.paint_status(p);
+        self.paint_filter(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {

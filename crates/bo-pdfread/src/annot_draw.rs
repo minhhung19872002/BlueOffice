@@ -1125,6 +1125,18 @@ mod tests {
             .render(0, crate::RenderOptions::default())
             .expect("render");
         assert!(page.list.commands.len() > 20);
+        // Typewriter / callout text in Helvetica, the stamp in Helvetica-Bold: two faces
+        // (direct font dictionaries of the appearance resources are told apart).
+        let faces: std::collections::HashSet<u32> = page
+            .list
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                bo_render::Command::Glyphs { face, .. } => Some(*face),
+                _ => None,
+            })
+            .collect();
+        assert!(faces.len() >= 2, "{faces:?}");
         // Save and read back.
         let bytes = doc.save().expect("save");
         let again = PdfDocument::open(bytes, crate::standard_fonts()).expect("reopen");

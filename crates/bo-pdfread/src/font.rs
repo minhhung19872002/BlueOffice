@@ -933,8 +933,9 @@ fn cid_widths(doc: &Document, w: &[Object], out: &mut HashMap<u32, f32>) {
 #[derive(Default)]
 pub(crate) struct FontCache {
     by_id: HashMap<ObjectId, Rc<Font>>,
-    /// Inline font dictionaries (not indirect objects) by their address in the document.
-    inline: HashMap<usize, Rc<Font>>,
+    /// Direct font dictionaries by their content (a dictionary's address is not stable:
+    /// resources resolved into temporaries reuse addresses).
+    inline: HashMap<String, Rc<Font>>,
 }
 
 impl FontCache {
@@ -956,7 +957,7 @@ impl FontCache {
                 Some(f)
             }
             Object::Dictionary(d) => {
-                let key = std::ptr::from_ref(d) as usize;
+                let key = format!("{d:?}");
                 if let Some(f) = self.inline.get(&key) {
                     return Some(f.clone());
                 }

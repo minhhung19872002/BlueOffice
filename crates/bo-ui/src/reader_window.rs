@@ -178,6 +178,19 @@ pub(crate) struct Look {
     pub hover: Rgba,
     /// Document tab strip background.
     pub strip_bg: Rgba,
+    /// Ribbon labels of several words always take two lines.
+    pub wrap_words: bool,
+    /// Placeholder of the search box (string key).
+    pub search_hint: &'static str,
+    /// Panel collapse strip fill, and whether lines frame it.
+    pub strip: Rgba,
+    pub strip_lines: bool,
+    /// Border of the status bar's page and zoom boxes.
+    pub box_edge: Rgba,
+    /// Status bar text size (125 % px).
+    pub status_font: f32,
+    /// Space between the tab row and the ribbon buttons.
+    pub body_gap: f32,
 }
 
 impl Look {
@@ -208,6 +221,13 @@ impl Look {
         pressed: PRESSED,
         hover: HOVER,
         strip_bg: CANVAS,
+        wrap_words: false,
+        search_hint: "pdfReader.searchPlaceholder",
+        strip: STRIP,
+        strip_lines: false,
+        box_edge: Rgba(175, 175, 176, 255),
+        status_font: 12.5,
+        body_gap: 0.8,
     };
 }
 
@@ -822,7 +842,7 @@ impl ReaderWindow {
                 };
         }
         // Ribbon body: buttons 91 px high from y 104.
-        let by = ty + tab_h + self.px(0.8);
+        let by = ty + tab_h + self.px(self.look.body_gap);
         let bh = self.px(self.look.body_h);
         let label_style = self.style(self.look.label, false);
         let mut x = self.px(11.2);
@@ -837,7 +857,7 @@ impl ReaderWindow {
                     let text = self.t(label);
                     let words: Vec<&str> = text.split(' ').collect();
                     // Two-line labels wrap at the last space.
-                    let lw = if words.len() > 1 && text.len() > 9 {
+                    let lw = if words.len() > 1 && (text.len() > 9 || self.look.wrap_words) {
                         let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
                         let wa = self.measure(m, a, label_style);
                         let wb = self.measure(m, b, label_style);
@@ -2071,17 +2091,12 @@ impl ReaderWindow {
             mark,
             ink,
         );
-        p.fill_rect(self.px(46.4), self.px(20.0), 1.0, self.px(16.0), title_edge);
+        let sep_y = ((th - self.px(16.0)) / 2.0).round();
+        p.fill_rect(self.px(46.4), sep_y, 1.0, self.px(16.0), title_edge);
         let title = self.title();
         let tstyle = self.style(14.0, true);
         let qe = self.px(self.look.quick_x) + 5.0 * self.px(self.look.quick_step);
-        p.fill_rect(
-            qe + self.px(6.4),
-            self.px(20.0),
-            1.0,
-            self.px(16.0),
-            title_edge,
-        );
+        p.fill_rect(qe + self.px(6.4), sep_y, 1.0, self.px(16.0), title_edge);
         let mut tx = qe + self.px(19.2);
         let mut max_tx = self.search[0] - self.px(12.0);
         if self.look.title_center {
@@ -2128,7 +2143,7 @@ impl ReaderWindow {
         );
         let sst = self.style(13.0, false);
         let (stext, scol) = if self.search_text.is_empty() && !self.search_focus {
-            (self.t("pdfReader.searchPlaceholder"), MUTED)
+            (self.t(self.look.search_hint), MUTED)
         } else {
             (self.search_text.clone(), TEXT)
         };
@@ -2138,7 +2153,9 @@ impl ReaderWindow {
             let cx = s[0] + self.px(33.6) + self.width_of(&self.search_text, sst) + 1.0;
             p.fill_rect(cx.round(), sty, 1.0, sst.size * 1.33, TEXT);
         }
-        p.fill_rect(0.0, th, w, 1.0, self.look.edge);
+        if band.is_none() {
+            p.fill_rect(0.0, th, w, 1.0, self.look.edge);
+        }
         // Ribbon tabs.
         let tab_style = self.style(17.0, true);
         let labels = self.tab_label_keys();
@@ -2196,12 +2213,13 @@ impl ReaderWindow {
                         ink,
                     );
                     let text = self.t(label);
-                    let lines: Vec<String> = if text.contains(' ') && text.len() > 9 {
-                        let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
-                        vec![a.to_owned(), b.to_owned()]
-                    } else {
-                        vec![text]
-                    };
+                    let lines: Vec<String> =
+                        if text.contains(' ') && (text.len() > 9 || self.look.wrap_words) {
+                            let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
+                            vec![a.to_owned(), b.to_owned()]
+                        } else {
+                            vec![text]
+                        };
                     let lh = (label_style.size * 1.33 * 0.93).round();
                     let mut ly = r[1] + self.px(self.look.label_y);
                     let n = lines.len();
@@ -2315,7 +2333,11 @@ impl ReaderWindow {
         } else {
             self.paint_panel(p);
             let sr = self.strip_rect;
-            p.fill_rect(sr[0], sr[1], sr[2], sr[3], STRIP);
+            p.fill_rect(sr[0], sr[1], sr[2], sr[3], self.look.strip);
+            if self.look.strip_lines {
+                p.fill_rect(sr[0], sr[1], 1.0, sr[3], self.look.edge);
+                p.fill_rect(sr[0] + sr[2] - 1.0, sr[1], 1.0, sr[3], self.look.edge);
+            }
             let open = self.panel_open().is_some();
             let ay = sr[1] + sr[3] / 2.0;
             let ax = sr[0] + sr[2] / 2.0;
@@ -2841,7 +2863,7 @@ impl ReaderWindow {
             sb + 1.0,
             Rgba(145, 151, 168, 255),
         );
-        p.fill_rect(b[0], b[1], b[2] - 1.0, sb, STRIP);
+        p.fill_rect(b[0], b[1], b[2] - 1.0, sb, self.look.strip);
         let (ty, th) = self.thumb();
         let tw = 3.0_f32.max((2.4 * self.scale).round());
         p.fill_rect((b[0] + (b[2] - tw) / 2.0).round(), ty, tw, th, THUMB);
@@ -2852,10 +2874,10 @@ impl ReaderWindow {
         let (w, h) = self.size;
         let sh = self.status_h();
         let _ = w;
-        let st = self.style(12.5, false);
+        let st = self.style(self.look.status_font, false);
         // Page box.
         let b = self.page_box;
-        p.fill_rect(b[0], b[1], b[2], b[3], Rgba(175, 175, 176, 255));
+        p.fill_rect(b[0], b[1], b[2], b[3], self.look.box_edge);
         p.fill_rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0, WHITE);
         let label = self.view().map_or_else(String::new, |v| {
             let n = v.page_count();
@@ -2878,7 +2900,7 @@ impl ReaderWindow {
         );
         // Zoom box and slider.
         let z = self.zoom_box;
-        p.fill_rect(z[0], z[1], z[2], z[3], Rgba(175, 175, 176, 255));
+        p.fill_rect(z[0], z[1], z[2], z[3], self.look.box_edge);
         p.fill_rect(z[0] + 1.0, z[1] + 1.0, z[2] - 2.0, z[3] - 2.0, WHITE);
         let zt = self
             .view()

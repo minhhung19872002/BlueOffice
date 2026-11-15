@@ -50,7 +50,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
             ("sep1", Sep),
             ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
-            ("menu.fit", Big("fit", "pdfReader.pageFit", true)),
+            ("menu.fit", Big("fit", "pdfEditor.pageFitOption", true)),
             ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
             ("sep2", Sep),
             ("ed.editText", Big("editText", "pdfEditor.editText", false)),
@@ -260,7 +260,7 @@ const LOOK: Look = Look {
     ribbon_bottom: 144.0,
     doc_tabs_h: 35.2,
     status_h: 35.2,
-    tab_h: 28.8,
+    tab_h: 25.6,
     tab_gap_first: 24.0,
     tab_gap: 25.6,
     underline_up: 4.8,
@@ -268,7 +268,7 @@ const LOOK: Look = Look {
     icon: 28.8,
     icon_y: 4.8,
     label: 17.0,
-    label_y: 37.6,
+    label_y: 36.0,
     quick_x: 54.8,
     quick_step: 28.0,
     title_center: true,
@@ -281,6 +281,13 @@ const LOOK: Look = Look {
     pressed: Rgba(226, 226, 226, 255),
     hover: Rgba(236, 236, 236, 255),
     strip_bg: Rgba(255, 255, 255, 255),
+    wrap_words: true,
+    search_hint: "pdfEditor.find",
+    strip: Rgba(226, 226, 226, 255),
+    strip_lines: true,
+    box_edge: Rgba(224, 224, 224, 255),
+    status_font: 17.0,
+    body_gap: 4.0,
 };
 
 /// Editor tool that takes the document area's pointer input.
@@ -319,6 +326,12 @@ pub struct EditorWindow {
     edit: crate::editor_edit::Editing,
     /// Caret shown (blink phase).
     caret_on: bool,
+    /// Forms, comments, redaction and signing state.
+    pub(crate) x: crate::editor_actions::Extras,
+    /// Dialog of `editor_actions`.
+    pub(crate) dialog2: Option<(Dialog, crate::editor_actions::Ask2)>,
+    /// Field whose option menu is open.
+    pub(crate) pending_field: Option<bo_pdfread::FormField>,
 }
 
 fn editor_theme() -> Theme {
@@ -344,12 +357,16 @@ impl EditorWindow {
             pointer: (0.0, 0.0),
             edit: crate::editor_edit::Editing::default(),
             caret_on: true,
+            x: crate::editor_actions::Extras::default(),
+            dialog2: None,
+            pending_field: None,
         }
     }
 
     /// Open `doc` named `name` in a new tab.
     pub fn open(&mut self, doc: PdfDocument, name: &str, path: Option<std::path::PathBuf>) {
         self.edit.reset(self.r.view_mut());
+        self.x = crate::editor_actions::Extras::default();
         self.r.open(doc, name, path);
         self.org = Organize::default();
         self.sync();
@@ -418,7 +435,7 @@ impl EditorWindow {
 
     /// Window manager hit test.
     pub fn nc_hit(&self, x: f32, y: f32) -> NcHit {
-        if self.dialog.is_some() {
+        if self.dialog.is_some() || self.dialog2.is_some() {
             return NcHit::Client;
         }
         self.r.nc_hit(x, y)
@@ -461,8 +478,70 @@ impl EditorWindow {
         self.sync();
     }
 
-    fn t(&self, key: &str) -> String {
+    pub(crate) fn t(&self, key: &str) -> String {
         self.r.strings().get(key).to_owned()
+    }
+
+    /// File name of the active document without its extension.
+    pub(crate) fn doc_stem(&self) -> String {
+        self.doc_name()
+    }
+
+    pub(crate) fn push(&mut self, r: ReaderRequest) {
+        self.requests.push(r);
+    }
+
+    pub(crate) fn window_size(&self) -> (f32, f32) {
+        self.r.window_size()
+    }
+
+    pub(crate) fn ui_scale(&self) -> f32 {
+        self.r.ui_scale()
+    }
+
+    pub(crate) fn doc_area(&self) -> [f32; 4] {
+        self.r.doc_area()
+    }
+
+    pub(crate) fn showing_doc(&self) -> bool {
+        self.r.showing_doc()
+    }
+
+    pub(crate) fn accent(&self) -> Rgba {
+        self.r.theme().accent
+    }
+
+    /// Choose the editing tool (`None`: the reader's hand / select tools).
+    pub(crate) fn set_tool(&mut self, t: Option<EditTool>) {
+        self.edit.reset(self.r.view_mut());
+        self.tool = t;
+    }
+
+    /// Run `f` on the active document as an edit.
+    pub(crate) fn doc_edit<T>(
+        &mut self,
+        f: impl FnOnce(&mut PdfDocument) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let v = self.r.view_mut().ok_or("no document")?;
+        f(v.doc_mut())
+    }
+
+    /// Run `f` on the active document (no edit).
+    pub(crate) fn with_doc<T>(
+        &mut self,
+        f: impl FnOnce(&mut PdfDocument) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.doc_edit(f)
+    }
+
+    /// The document changed: redraw it.
+    pub(crate) fn after_doc_edit(&mut self) {
+        self.after_edit();
+    }
+
+    /// Open a menu of `items` under window rectangle `r`.
+    pub(crate) fn menu_items(&mut self, items: Vec<MenuItem>, r: [f32; 4]) {
+        self.r.menu_at(items, r, "field");
     }
 
     fn doc_name(&self) -> String {
@@ -477,7 +556,7 @@ impl EditorWindow {
         if let Input::Move { x, y } | Input::Drag { x, y } = input {
             self.pointer = (x, y);
         }
-        if self.dialog.is_some() {
+        if self.dialog.is_some() || self.dialog2.is_some() {
             return self.dialog_input(&input, m);
         }
         if let Input::Blink = input {
@@ -496,7 +575,18 @@ impl EditorWindow {
                 used = self.org_input(&input, m);
             }
             if !used && self.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
-                used = self.edit_input(&input, m);
+                used = if self.tool == Some(EditTool::Redact) {
+                    self.redact_input(&input)
+                } else {
+                    self.edit_input(&input, m)
+                };
+            }
+            if !used && self.tool.is_none() && self.r.showing_doc() && !self.organize_on() {
+                if let Input::Press { x, y, count, .. } = input {
+                    if inside(self.r.doc_area(), x, y) {
+                        used = self.press_field_or_comment(x, y, count, m);
+                    }
+                }
             }
         }
         if used {
@@ -522,6 +612,9 @@ impl EditorWindow {
         }
         if k == Key::Delete && !self.edit.selected.is_empty() && self.tool.is_some() {
             self.command("ed.delete", m);
+            return true;
+        }
+        if k == Key::Delete && self.tool.is_none() && self.delete_comment() {
             return true;
         }
         match (k, mods.ctrl, mods.shift) {
@@ -600,6 +693,16 @@ impl EditorWindow {
 
     #[allow(clippy::too_many_lines)]
     fn command(&mut self, cmd: &str, m: &dyn TextMeasure) {
+        if let Some(i) = cmd
+            .strip_prefix("field.choose.")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            self.choose_option(i);
+            return;
+        }
+        if self.action(cmd, m) {
+            return;
+        }
         match cmd {
             "edit.undo" => self.undo(true),
             "ed.delete" => {
@@ -743,6 +846,7 @@ impl EditorWindow {
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
         }
+        self.x.marking = None;
     }
 
     fn menu(&mut self, items: &[(&str, &str)], id: &'static str) {
@@ -777,6 +881,9 @@ impl EditorWindow {
     }
 
     fn dialog_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
+        if self.dialog.is_none() {
+            return self.dialog2_input(input, m);
+        }
         let Some((d, _)) = self.dialog.as_mut() else {
             return false;
         };
@@ -806,6 +913,36 @@ impl EditorWindow {
             if let Some((d, what)) = self.dialog.take() {
                 if b == DialogButton::Ok {
                     self.answer(&what, &d.values());
+                }
+            }
+        }
+        true
+    }
+
+    fn dialog2_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
+        let size = self.r.window_size();
+        let scale = self.r.ui_scale();
+        let Some((d, _)) = self.dialog2.as_mut() else {
+            return false;
+        };
+        let done = match input {
+            Input::Text(s) => {
+                d.text(s);
+                None
+            }
+            Input::Key(k, mods) => d.key(*k, *mods),
+            Input::Press { x, y, .. } => d.press(*x, *y),
+            Input::Move { x, y } => {
+                d.hover(*x, *y);
+                None
+            }
+            _ => None,
+        };
+        d.layout(m, size, scale);
+        if let Some(b) = done {
+            if let Some((d, what)) = self.dialog2.take() {
+                if b == DialogButton::Ok {
+                    self.answer2(what, &d.values());
                 }
             }
         }
@@ -882,6 +1019,10 @@ impl EditorWindow {
     /// Pages rendered as PNG for `purpose` (`images`: one file per page).
     pub fn pages_rendered(&mut self, purpose: &str, pngs: Vec<Vec<u8>>) {
         let stem = self.doc_name();
+        if purpose == "slides" {
+            self.slides_rendered(pngs);
+            return;
+        }
         if purpose == "images" {
             let files = pngs
                 .into_iter()
@@ -904,6 +1045,14 @@ impl EditorWindow {
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         if purpose == "addImage" || purpose == "replaceImage" {
             self.picture_picked(purpose, bytes);
+            return;
+        }
+        if purpose == "certificate" {
+            self.certificate_picked(bytes);
+            return;
+        }
+        if purpose == "create" {
+            self.create_picked(path, bytes);
             return;
         }
         if bo_pdfread::PdfDocument::needs_password(bytes) {
@@ -1191,7 +1340,11 @@ impl EditorWindow {
                 }
             }
         }
+        self.paint_extras(p);
         if let Some((d, _)) = &self.dialog {
+            d.paint(p, self.r.theme(), self.r.window_size(), true);
+        }
+        if let Some((d, _)) = &self.dialog2 {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
     }

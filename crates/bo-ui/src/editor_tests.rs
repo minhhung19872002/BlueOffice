@@ -473,6 +473,16 @@ fn add_text_and_image() {
     );
 }
 
+/// A 2 × 2 PNG.
+pub(crate) fn png2x2() -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut e = png_encoder(&mut out);
+        e.write_image_data(&[9; 16]).expect("png");
+    }
+    out
+}
+
 fn png_encoder(out: &mut Vec<u8>) -> png::Writer<&mut Vec<u8>> {
     let mut e = png::Encoder::new(out, 2, 2);
     e.set_color(png::ColorType::Rgba);

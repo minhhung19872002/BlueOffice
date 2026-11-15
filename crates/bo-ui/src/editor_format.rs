@@ -61,7 +61,10 @@ pub(crate) fn edit_tab_items() -> Vec<(&'static str, crate::reader_window::Kind)
     use crate::reader_window::Kind::{Big, Sep};
     vec![
         ("sep1", Sep),
-        ("ed.editText", Big("editText", "pdfEditor.editText", false)),
+        (
+            "ed.editText",
+            Big("edEditText", "pdfEditor.editText", false),
+        ),
         (
             "ed.editObject",
             Big("editObject", "pdfEditor.editObject", true),

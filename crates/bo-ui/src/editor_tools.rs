@@ -294,6 +294,23 @@ impl EditorWindow {
                 self.set_status(&s);
             }
             "ed.spell" => self.start_spelling(),
+            "ed.clipboard" => {
+                let items = [
+                    ("edit.copy", "pdfReader.copy"),
+                    ("ed.selectAll", "pdfEditor.selectAll"),
+                ];
+                self.menu(&items, "ed.clipboard");
+            }
+            "ed.selectAll" => {
+                let ctrl = crate::Mods {
+                    ctrl: true,
+                    ..crate::Mods::default()
+                };
+                self.r.handle(
+                    Input::Key(Key::Letter('a'), ctrl),
+                    &crate::editor_window::Estimate,
+                );
+            }
             "org.crop" => {
                 let fields = vec![
                     (self.t("pdfEditor.cropLeft"), "0".into()),

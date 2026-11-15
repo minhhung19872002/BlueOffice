@@ -69,6 +69,12 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "cropPages" => &[S("M6 2v16h16 M2 6h16v16"), A("M9 9h6v6H9z")],
         "summary" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 11h8 M8 14h8 M8 17h5")],
         "whiteout" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 12h8v5H8z")],
+        // Home tab: grey drawings with the accent on one detail, as the reference's.
+        "edEditText" => &[S("M3 4.5h18v15H3z M7.5 8.5h9 M12 8.5v8 M10 16.5h4"), A("M1.5 3h3v3h-3z M19.5 3h3v3h-3z M1.5 18h3v3h-3z M19.5 18h3v3h-3z")],
+        "edRotatePages" => &[S("M5 6.5h10l4 4v11H5z M15 6.5v4h4"), A("M8 4a6 6 0 0 1 9-1.5 M17.5 0.5v2.5H15")],
+        "edInsertPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M2 14h9 M8.5 11.5L11 14l-2.5 2.5")],
+        "scanner" => &[S("M3 13h18v6H3z M5 13l2-9h10l2 9 M6 16h8")],
+        "ocr" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4 M8 12h8 M8 15h8 M8 18h5")],
         // File page.
         "clock" => &[S("M12 3a9 9 0 1 0 .01 0z"), A("M12 7v5l3.5 2")],
         "computer" => &[S("M3 4h18v12H3z M9 20h6 M12 16v4")],

@@ -7690,7 +7690,12 @@
     "cropAll": "All",
     "summarize": "Summarize Comments",
     "summaryPage": "Page",
-    "whiteout": "Whiteout"
+    "whiteout": "Whiteout",
+    "snapshot": "SnapShot",
+    "clipboard": "Clipboard",
+    "fromScanner": "From Scanner",
+    "quickRecognition": "Quick Recognition",
+    "selectAll": "Select All"
   },
   "taskPane": {
     "dockLeft": "Dock left",

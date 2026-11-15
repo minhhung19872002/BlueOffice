@@ -7690,7 +7690,12 @@
     "cropAll": "Tất cả",
     "summarize": "Tóm tắt ghi chú",
     "summaryPage": "Trang",
-    "whiteout": "Tô trắng"
+    "whiteout": "Tô trắng",
+    "snapshot": "Chụp vùng",
+    "clipboard": "Bộ nhớ tạm",
+    "fromScanner": "Từ máy quét",
+    "quickRecognition": "Nhận dạng nhanh",
+    "selectAll": "Chọn tất cả"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

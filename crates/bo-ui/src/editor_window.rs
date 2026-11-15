@@ -51,18 +51,28 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     ];
     let mut v: Vec<(&'static str, Kind)> = common.to_vec();
     match tab {
+        // The reference's Home tab; SnapShot, From Scanner and Quick Recognition are shown
+        // disabled (not ours yet) so the groups keep their places.
         0 => v.extend([
-            ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
+            ("ed.snapshot", Big("snapshot", "pdfEditor.snapshot", false)),
+            (
+                "ed.clipboard",
+                Big("clipboard", "pdfEditor.clipboard", true),
+            ),
             ("ed.bookmark", Big("bookmark", "pdfEditor.bookmark", false)),
             ("sep1", Sep),
             ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
             ("menu.fit", Big("fit", "pdfEditor.pageFitOption", true)),
+            ("view.reflow", Big("reflow", "pdfView.reflow", false)),
             ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
             ("sep2", Sep),
-            ("ed.editText", Big("editText", "pdfEditor.editText", false)),
+            (
+                "ed.editText",
+                Big("edEditText", "pdfEditor.editText", false),
+            ),
             (
                 "ed.editObject",
-                Big("editObject", "pdfEditor.editObject", false),
+                Big("editObject", "pdfEditor.editObject", true),
             ),
             ("sep3", Sep),
             (
@@ -76,13 +86,16 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep4", Sep),
             (
                 "org.rotateMenu",
-                Big("rotateRight", "pdfEditor.rotatePages", true),
+                Big("edRotatePages", "pdfEditor.rotatePages", true),
             ),
             (
                 "org.insertMenu",
-                Big("insertPage", "pdfEditor.insert", true),
+                Big("edInsertPage", "pdfEditor.insert", true),
             ),
             ("sep5", Sep),
+            ("ed.scanner", Big("scanner", "pdfEditor.fromScanner", true)),
+            ("ed.ocr", Big("ocr", "pdfEditor.quickRecognition", false)),
+            ("sep6", Sep),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         ]),
         1 => v.extend([
@@ -1399,6 +1412,9 @@ impl EditorWindow {
         }
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
+        }
+        for id in ["ed.snapshot", "ed.scanner", "ed.ocr"] {
+            self.r.enabled_override.insert(id, false);
         }
         for id in crate::editor_format::EDIT_TAB_LATER
             .iter()

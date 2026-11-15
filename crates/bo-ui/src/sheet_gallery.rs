@@ -218,7 +218,6 @@ impl Gallery {
             size: (12.0 * self.k).round(),
             bold: false,
         };
-        let line = style.size * 1.33;
         // Section captions: bold grey text on a grey band (measured 34 px, #EBEBEB, text
         // 12 px from the edge).
         let caption = TextStyle {
@@ -267,11 +266,16 @@ impl Gallery {
                 ry + self.d(self.foot / 2.0),
                 self.k,
             );
+            // Menu lines a little larger than the gallery's other text (measured).
+            let big = TextStyle {
+                size: (13.0 * self.k).round(),
+                bold: false,
+            };
             p.text(
                 label,
                 x + self.d(36.0),
-                (ry + (self.d(self.foot) - line) / 2.0).round(),
-                style,
+                (ry + (self.d(self.foot) - big.size * 1.33) / 2.0).round(),
+                big,
                 INK,
             );
         }
@@ -498,15 +502,18 @@ impl SheetWindow {
         // workbook's own (custom) styles from its stylesheet.
         let mut wb = bo_model::sheet::Workbook::new();
         let k = self.scale;
-        let fit = |name: &str, size: f32, bold: bool| -> String {
-            // The reference ends names too long for a tile with "…" (Explanatory T…);
-            // the style font is measured with the UI font's widths, 0.9 for Calibri.
+        let fit = |name: &str, size: f32, bold: bool, italic: bool, family: &str| -> String {
+            // The reference ends names too long for a tile with "…" (Explanatory T…),
+            // measured in the style's own font.
             let room = 122.4 * k - 14.0;
-            let st = TextStyle {
+            let font = crate::Font {
+                family,
                 size: (size * 4.0 / 3.0 * k * 1.2).round(),
-                bold,
+                weight: if bold { 700 } else { 400 },
+                italic,
+                underline: false,
             };
-            let w = |s: &str| text.measure(s, st).0 * 0.9;
+            let w = |s: &str| text.measure_font(s, &font).0;
             if w(name) <= room {
                 return name.to_owned();
             }
@@ -548,8 +555,9 @@ impl SheetWindow {
                     })
                 };
                 let size = font.size.unwrap_or(11.0) as f32;
+                let family = font.name.clone().unwrap_or_else(|| "Calibri".into());
                 Tile::Cell {
-                    name: fit(name, size, font.bold),
+                    name: fit(name, size, font.bold, font.italic, &family),
                     fill,
                     color: font
                         .color
@@ -560,7 +568,7 @@ impl SheetWindow {
                     bold: font.bold,
                     italic: font.italic,
                     size,
-                    family: font.name.clone().unwrap_or_else(|| "Calibri".into()),
+                    family,
                     edges: [edge(&b.top), edge(&b.right), edge(&b.bottom), edge(&b.left)],
                 }
             };

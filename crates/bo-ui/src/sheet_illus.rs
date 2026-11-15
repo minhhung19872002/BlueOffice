@@ -56,7 +56,11 @@ impl SheetWindow {
     }
 
     fn open_picker(&mut self, kind: PickKind, anchor: &'static str) -> bool {
-        let Some(r) = self.ribbon.rect_of(RibbonHit::Command(anchor)) else {
+        // Under its own button, or under Illustrations when the group is folded.
+        let Some(r) = self.ribbon.rect_of(RibbonHit::Command(anchor)).or_else(|| {
+            self.ribbon
+                .rect_of(RibbonHit::Command("sheet.illustrations"))
+        }) else {
             return false;
         };
         let labels: Vec<String> = match kind {

@@ -15,27 +15,45 @@ const GREY: Rgba = Rgba(0x8a, 0x8a, 0x8a, 255);
 const RED: Rgba = Rgba(0xc0, 0x39, 0x2b, 255);
 const GOLD: Rgba = Rgba(0xf2, 0xb7, 0x00, 255);
 
-/// Labels of the native ribbon that follow the reference's wording (`sheetNative.*`), set
-/// over the shared `commands.sheet.*` labels of the web editor.
-const NATIVE_LABELS: [&str; 6] = [
-    "textToColumns",
-    "fnMath",
-    "fnDateTime",
-    "fnLookup",
-    "fnMore",
-    "removeDuplicates",
+/// Labels of the native ribbon that follow the reference's wording: `sheetNative.<name>` over
+/// the shared key (`commands.sheet.<name>` when the target has no dot), so the web editor's
+/// labels stay as they are.
+const NATIVE_LABELS: [(&str, &str); 18] = [
+    ("textToColumns", "textToColumns"),
+    ("fnMath", "fnMath"),
+    ("fnDateTime", "fnDateTime"),
+    ("fnLookup", "fnLookup"),
+    ("fnMore", "fnMore"),
+    ("removeDuplicates", "removeDuplicates"),
+    ("autoSumF", "autoSumF"),
+    ("calcOptions", "calcOptions"),
+    ("freezePanes", "freezePanes"),
+    ("zoomSelection", "zoomSelection"),
+    ("formulaBar", "formulaBar"),
+    ("tracePrecedents", "tracePrecedents"),
+    ("traceDependents", "traceDependents"),
+    ("removeArrows", "removeArrows"),
+    ("groupSortFilter", "sheetEditor.groupSortFilter"),
+    ("groupDataTools", "sheetEditor.groupDataTools"),
+    ("groupFunctions", "sheetMenu.groupFunctions"),
+    ("groupAuditing", "sheetMenu.groupAuditing"),
 ];
 
 /// Use the native labels for this window's ribbon.
 pub(super) fn install_labels(s: &mut crate::strings::Strings) {
-    for k in NATIVE_LABELS {
-        let v = s.get(&format!("sheetNative.{k}")).to_owned();
-        if !v.is_empty() && !v.starts_with("sheetNative.") {
-            s.set(&format!("commands.sheet.{k}"), &v);
+    for (name, target) in NATIVE_LABELS {
+        let v = s.get(&format!("sheetNative.{name}")).to_owned();
+        if v.is_empty() || v.starts_with("sheetNative.") {
+            continue;
         }
+        let key = if target.contains('.') {
+            target.to_owned()
+        } else {
+            format!("commands.sheet.{target}")
+        };
+        s.set(&key, &v);
     }
 }
-
 /// Own drawings for the round-6 Data / Formulas / View buttons (24-unit grid).
 pub(super) fn add_icons(icons: &mut Icons) {
     let table = |extra: &[(&'static str, Option<Rgba>)]| {

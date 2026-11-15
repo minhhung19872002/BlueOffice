@@ -1760,6 +1760,16 @@ impl SheetView {
             Key::Up | Key::Down | Key::Left | Key::Right if typed && !mods.ctrl && pointing => {
                 Some(self.point_key(k, mods, m))
             }
+            // F4 cycles the reference at the caret: $A$1 → A$1 → $A1 → A1 (the reference's
+            // order); the caret goes after it.
+            Key::F(4) if e.text.starts_with('=') => {
+                if let Some((text, caret)) = cycle_reference(&e.text, e.caret) {
+                    e.text = text;
+                    e.caret = caret;
+                    self.measure_edit(m);
+                }
+                Some(true)
+            }
             Key::Enter if mods.alt => {
                 e.text.insert(e.caret, '\n');
                 e.caret += 1;
@@ -2755,4 +2765,58 @@ impl SheetView {
             self.label_widths.clear();
         }
     }
+}
+
+/// The next absolute / relative form of the cell reference (or range) touching byte `caret` of
+/// formula `text`, and the caret after it: `$A$1` → `A$1` → `$A1` → `A1` → `$A$1`.
+pub fn cycle_reference(text: &str, caret: usize) -> Option<(String, usize)> {
+    let b = text.as_bytes();
+    let part = |c: u8| c.is_ascii_alphanumeric() || c == b'$' || c == b':';
+    let mut s = caret.min(b.len());
+    while s > 0 && part(b[s - 1]) {
+        s -= 1;
+    }
+    let mut e = caret.min(b.len());
+    while e < b.len() && part(b[e]) {
+        e += 1;
+    }
+    let token = text.get(s..e)?;
+    // Each cell of a range: optional $, letters, optional $, digits.
+    let parse = |cell: &str| -> Option<(bool, String, bool, String)> {
+        let mut rest = cell;
+        let abs_c = rest.starts_with('$');
+        rest = rest.trim_start_matches('$');
+        let letters: String = rest.chars().take_while(char::is_ascii_alphabetic).collect();
+        rest = &rest[letters.len()..];
+        let abs_r = rest.starts_with('$');
+        rest = rest.trim_start_matches('$');
+        let ok = !letters.is_empty()
+            && letters.len() <= 3
+            && !rest.is_empty()
+            && rest.chars().all(|c| c.is_ascii_digit());
+        ok.then(|| (abs_c, letters, abs_r, rest.to_owned()))
+    };
+    let cells: Vec<_> = token.split(':').map(parse).collect::<Option<Vec<_>>>()?;
+    let (ac, _, ar, _) = cells.first()?.clone();
+    // Next state from the first cell's state.
+    let (nc, nr) = match (ac, ar) {
+        (true, true) => (false, true),
+        (false, true) => (true, false),
+        (true, false) => (false, false),
+        (false, false) => (true, true),
+    };
+    let out: Vec<String> = cells
+        .iter()
+        .map(|(_, l, _, d)| {
+            format!(
+                "{}{l}{}{d}",
+                if nc { "$" } else { "" },
+                if nr { "$" } else { "" }
+            )
+        })
+        .collect();
+    let new = out.join(":");
+    let mut text = text.to_owned();
+    text.replace_range(s..e, &new);
+    Some((text, s + new.len()))
 }

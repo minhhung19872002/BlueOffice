@@ -353,6 +353,16 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             .iter()
             .map(|s| e(&format!("shape.{s}"), &format!("sheetShape.{s}")))
             .collect(),
+        "sheet.illustrations" => vec![
+            e("sheet.pictures", "commands.sheet.pictures"),
+            e("sheet.shapes", "commands.sheet.shapes"),
+            e("sheet.icons", "commands.sheet.icons"),
+            e("smartart.list", "commands.sheet.smartArt"),
+        ],
+        "sheet.symbols" => vec![
+            e("equation.eqNew", "commands.sheet.equation"),
+            e("sheet.symbol", "commands.sheet.symbol"),
+        ],
         "sheet.fnRecent" => [
             "SUM",
             "AVERAGE",
@@ -458,6 +468,9 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("calc.auto", "sheetMenu.calcAuto"),
             e("calc.manual", "sheetMenu.calcManual"),
         ],
+        _ if id.starts_with("sheet.chart") && !crate::sheet_window::chart_menu(id).is_empty() => {
+            crate::sheet_window::chart_menu(id)
+        }
         "sheet.freezePanes" => vec![
             e("freeze.panes", "sheetMenu.freeze.panes"),
             e("freeze.row", "sheetMenu.freeze.row"),
@@ -744,6 +757,31 @@ fn insert() -> Tab {
     }
 }
 
+/// Insert tab of a compact window (the reference at 1500 px): Illustrations and Symbols fold
+/// into menus, Slicer / Timeline become small buttons.
+fn insert_compact() -> Tab {
+    use Item::{Labeled as S, Large as L};
+    let mut t = insert();
+    for g in &mut t.groups {
+        match g.label {
+            "sheetInsert.groupIllustrations" => {
+                g.large = vec![L("sheet.illustrations")];
+                g.rows = Vec::new();
+            }
+            "sheetInsert.groupFilters" => {
+                g.large = Vec::new();
+                g.rows = vec![vec![S("sheet.slicer")], vec![S("sheet.timeline")]];
+            }
+            "sheetInsert.groupSymbols" => {
+                g.large = vec![L("sheet.symbols")];
+                g.rows = Vec::new();
+            }
+            _ => {}
+        }
+    }
+    t
+}
+
 fn formulas() -> Tab {
     use Item::{Button as B, Labeled as S, Large as L};
     // As the reference at 1500 px (round 6): Insert Function and AutoSum, then the
@@ -962,7 +1000,7 @@ fn view() -> Tab {
 pub(crate) fn tabs() -> Vec<Tab> {
     vec![
         home(),
-        insert(),
+        insert_compact(),
         page_layout(),
         formulas(),
         data(),
@@ -988,6 +1026,7 @@ fn help() -> Tab {
 pub(crate) fn tabs_wide() -> Vec<Tab> {
     let mut t = tabs();
     t[0] = home_wide();
+    t[1] = insert();
     t
 }
 

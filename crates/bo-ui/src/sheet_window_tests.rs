@@ -1703,6 +1703,169 @@ fn insert_icons_shapes_smartart_equation_and_timeline() {
 }
 
 #[test]
+fn charts_select_move_resize_and_design() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Q"),
+            (0, 1, "Sales"),
+            (1, 0, "Q1"),
+            (1, 1, "5"),
+            (2, 0, "Q2"),
+            (2, 1, "7"),
+        ],
+    );
+    w.relayout(&Fixed);
+    assert!(w.action("chart.column", &Fixed));
+    // The new chart is selected and Chart Design is shown.
+    assert_eq!(w.chart_sel, Some(0));
+    assert_eq!(w.ribbon.active_label(), "sheetChart.tabDesign");
+    // The chart tab is laid out after the input (its buttons have places), not left blank.
+    w.handle(Input::Move { x: 1.0, y: 1.0 }, &Fixed);
+    assert!(w
+        .ribbon
+        .rect_of(RibbonHit::Command("sheet.chartQuickLayout"))
+        .is_some());
+    let charts = |w: &mut SheetWindow| w.view.query(json!({ "cmd": "charts" })).expect("charts");
+    let from = charts(&mut w)[0]["from"].clone();
+    // Drag its body two rows down.
+    let f = [
+        from[0].as_u64().unwrap() as u32,
+        from[1].as_u64().unwrap() as u32,
+    ];
+    let r = w.view.cell_rect(f[0] + 1, f[1] + 1).expect("cell");
+    let b = w.view.cell_rect(f[0] + 3, f[1] + 1).expect("cell");
+    press(&mut w, (r[0] + 3.0, r[1] + 3.0), 1);
+    w.handle(
+        Input::Drag {
+            x: b[0] + 3.0,
+            y: b[1] + 3.0,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Release {
+            x: b[0] + 3.0,
+            y: b[1] + 3.0,
+        },
+        &Fixed,
+    );
+    assert_eq!(
+        charts(&mut w)[0]["from"][0].as_u64(),
+        Some(u64::from(f[0]) + 2)
+    );
+    // Design commands reach the chart.
+    assert!(w.action("chartEl.title", &Fixed));
+    assert_eq!(charts(&mut w)[0]["title"], "Chart Title");
+    assert!(w.action("chartEl.legendBottom", &Fixed));
+    assert_eq!(charts(&mut w)[0]["legend"], "b");
+    assert!(w.action("chartType.line", &Fixed));
+    assert_eq!(charts(&mut w)[0]["kind"], "line");
+    let layout = format!("chartLayout.{}", bo_sheet::chart_style::LAYOUTS[1]);
+    assert!(w.action(&layout, &Fixed));
+    assert!(w.status.is_empty(), "{}", w.status);
+    assert_ne!(sheet_ribbon::menu("sheet.chartColors", &[]), vec![]);
+    // Pressing a cell deselects; Delete on a selected chart removes it.
+    let far = w.view.cell_rect(0, 0).expect("a1");
+    press(&mut w, (far[0] + 2.0, far[1] + 2.0), 1);
+    w.handle(
+        Input::Release {
+            x: far[0] + 2.0,
+            y: far[1] + 2.0,
+        },
+        &Fixed,
+    );
+    assert_eq!(w.chart_sel, None);
+    w.set_chart_selection(Some(0), false);
+    w.handle(Input::Key(Key::Delete, Mods::default()), &Fixed);
+    assert_eq!(charts(&mut w).as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn keyboard_shortcuts_as_the_reference() {
+    use crate::sheet_view::cycle_reference;
+    // F4 cycles $A$1 → A$1 → $A1 → A1 → $A$1, ranges as a whole.
+    assert_eq!(cycle_reference("=A1+2", 2), Some(("=$A$1+2".into(), 5)));
+    assert_eq!(cycle_reference("=$A$1", 5), Some(("=A$1".into(), 4)));
+    assert_eq!(cycle_reference("=A$1", 4), Some(("=$A1".into(), 4)));
+    assert_eq!(cycle_reference("=$A1", 4), Some(("=A1".into(), 3)));
+    assert_eq!(
+        cycle_reference("=SUM(B2:C3)", 9),
+        Some(("=SUM($B$2:$C$3)".into(), 14))
+    );
+    assert_eq!(cycle_reference("=SUM(", 5), None);
+    let mut w = window();
+    put(&mut w, &[(0, 0, "1"), (1, 0, "2"), (0, 1, "x")]);
+    let ctrl = |c: char| {
+        Input::Key(
+            Key::Letter(c),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+        )
+    };
+    // F2 then F4 in the editor.
+    w.view_mut().select((5, 0), (5, 0), (5, 0));
+    type_text_in(&mut w, "=A1");
+    w.handle(Input::Key(Key::F(4), Mods::default()), &Fixed);
+    assert_eq!(w.view().formula_text(), "=$A$1");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    // Ctrl+D fills the top cell down the selection, Ctrl+R the left cell right.
+    w.view_mut().select((0, 0), (2, 0), (0, 0));
+    w.handle(ctrl('d'), &Fixed);
+    assert_eq!(
+        w.view
+            .engine()
+            .cell(0, 2, 0)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
+        Some("1")
+    );
+    w.view_mut().select((0, 1), (0, 2), (0, 1));
+    w.handle(ctrl('r'), &Fixed);
+    assert_eq!(
+        w.view
+            .engine()
+            .cell(0, 0, 2)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
+        Some("x")
+    );
+    // Ctrl+1 opens Format Cells.
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    w.handle(ctrl('1'), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::FormatCells);
+    w.form = None;
+    // Ctrl+; types today's date into the editor.
+    w.view_mut().select((7, 0), (7, 0), (7, 0));
+    w.handle(ctrl(';'), &Fixed);
+    assert!(w.view().editing());
+    assert_eq!(w.view().formula_text().matches('/').count(), 2);
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    // Alt+= puts AutoSum under a column of numbers.
+    w.view_mut().select((3, 0), (3, 0), (3, 0));
+    w.handle(
+        Input::Key(
+            Key::Letter('='),
+            Mods {
+                alt: true,
+                ..Mods::default()
+            },
+        ),
+        &Fixed,
+    );
+    assert!(
+        w.view().formula_text().starts_with("=SUM("),
+        "{}",
+        w.view().formula_text()
+    );
+}
+
+#[test]
 fn data_formulas_and_view_tabs_round_6() {
     let mut w = window();
     put(
@@ -1743,7 +1906,12 @@ fn data_formulas_and_view_tabs_round_6() {
     assert!(w.picked_file(b"City,Count\nHue,3\nVinh,4\n", "cities.csv"));
     assert_eq!(w.view.sheet_names().len(), 2);
     assert_eq!(
-        w.view.engine().cell(1, 1, 0).map(|c| c.display).ok().as_deref(),
+        w.view
+            .engine()
+            .cell(1, 1, 0)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
         Some("Hue")
     );
     assert!(w.action("sheet.refreshAllNow", &Fixed));
@@ -1770,7 +1938,12 @@ fn data_formulas_and_view_tabs_round_6() {
     w.form.as_mut().expect("cons").set_text("ref", "$A$1:$B$4");
     w.data_form_event(&form_impl::Event::Ok, &Fixed);
     assert_eq!(
-        w.view.engine().cell(0, 1, 4).map(|c| c.display).ok().as_deref(),
+        w.view
+            .engine()
+            .cell(0, 1, 4)
+            .map(|c| c.display)
+            .ok()
+            .as_deref(),
         Some("12"),
         "{}",
         w.status

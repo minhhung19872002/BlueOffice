@@ -44,7 +44,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY, WM_DPICHANGED,
     WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
     WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT,
-    WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_TIMER, WNDCLASSEXW,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
@@ -232,7 +233,32 @@ fn point(lparam: LPARAM) -> (f32, f32) {
     )
 }
 
+/// The spreadsheet's extra keys (opt-in, BlueSheet only): Alt+Enter and Alt+= (sent by
+/// Windows as system keys), Ctrl+; and Ctrl+Shift+; (date / time), Ctrl+` (formulas).
+static SHEET_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn on [`SHEET_KEYS`] for this process.
+#[allow(dead_code)] // BlueSheet only.
+pub fn enable_sheet_keys() {
+    SHEET_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A system key (Alt held) that the spreadsheet handles itself.
+fn sheet_sys_key(vk: u16) -> Option<Key> {
+    if !SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    match vk {
+        0x0D => Some(Key::Enter),
+        0xBB => Some(Key::Letter('=')),
+        _ => None,
+    }
+}
+
 fn key(vk: u16, m: Mods) -> Option<Key> {
+    if m.ctrl && vk == 0xBA && SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        return Some(Key::Letter(';'));
+    }
     let k = VIRTUAL_KEY(vk);
     Some(match k {
         VK_LEFT => Key::Left,
@@ -482,6 +508,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if let Some(text) = text {
                 input(hwnd, Input::Text(text));
             }
+            LRESULT(0)
+        }
+        WM_SYSKEYDOWN if sheet_sys_key(wparam.0 as u16).is_some() => {
+            if let Some(k) = sheet_sys_key(wparam.0 as u16) {
+                input(hwnd, Input::Key(k, mods()));
+            }
+            LRESULT(0)
+        }
+        WM_SYSCHAR
+            if SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed)
+                && matches!(wparam.0, 0x0D | 0x3D) =>
+        {
             LRESULT(0)
         }
         WM_KEYDOWN => {

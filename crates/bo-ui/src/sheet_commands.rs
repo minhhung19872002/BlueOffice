@@ -731,6 +731,9 @@ impl SheetWindow {
         if matches!(id, "sheet.cellStyles" | "sheet.formatTable") {
             return Some(self.open_gallery(id == "sheet.cellStyles", text));
         }
+        if let Some(r) = self.chart_action(id) {
+            return Some(r);
+        }
         if let Some(r) = self.illus_action(id) {
             return Some(r);
         }
@@ -833,8 +836,14 @@ impl SheetWindow {
             }
             ("chart", kind) => {
                 let region = self.region();
-                self.view
-                    .run(json!({ "cmd": "insertChart", "range": region, "kind": kind }))
+                let made = self
+                    .view
+                    .run(json!({ "cmd": "insertChart", "range": region, "kind": kind }));
+                if made {
+                    // As the reference: the new chart is selected with Chart Design shown.
+                    self.select_new_chart();
+                }
+                made
             }
             ("freeze", which) => self.freeze(which),
             ("fn", name) => {

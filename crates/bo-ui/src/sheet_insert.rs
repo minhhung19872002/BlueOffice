@@ -78,6 +78,8 @@ pub(crate) fn add_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("sheet.symbol", "insert.symbol");
+    icons.alias("sheet.symbols", "insert.symbol");
+    icons.alias("sheet.illustrations", "insert.rect");
     // Icons: a person and a star; SmartArt: three linked boxes; Screenshot: a frame with a
     // camera corner; 3D Models: a cube; Timeline: a ruler of dated slots; Equation: a pi
     // sign (own drawings).

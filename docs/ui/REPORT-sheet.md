@@ -498,3 +498,73 @@ DirectComposition — chưa làm trong vòng này; p95 ở 1500×1000 đã sát 
 - Kiểu số (Comma, Currency, Percent) trong thư viện Cell Styles; ô thư viện chưa vẽ khung bốn cạnh (Calculation,
   Output, Check Cell) và chữ đậm tiêu đề nhóm; Format as Table mới có 21 kiểu (đối chứng 60: Light 21, Medium 28,
   Dark 11) và ô nhỏ hơn (61 × 46 so với 77 × 56 px).
+
+## Vòng 6 — thư viện kiểu ô, Insert, Data / Formulas / View, biểu đồ, phím tắt
+
+Nhánh `worktree-agent-a42d4a0783243dd39` (từ `work/desktop-performance` 296728d7). Ảnh so sánh (đối chứng trên,
+BlueSheet dưới) trong `show/sheet-07…` của thư mục scratch phiên.
+
+### Vòng 20 — thư viện Cell Styles đo lại
+
+Đo trên `xcs-1.png` (đối chứng, 125 %):
+
+| Hạng mục | Đối chứng | BlueSheet vòng 5 | Vòng 6 |
+|---|---|---|---|
+| Ô kiểu | 153 × 34 px, cách 161 × 42 px, cách mép 5 px | 153 × 36, cách 8 px | như đối chứng |
+| Dải tiêu đề nhóm | 34 px, #EBEBEB, chữ đậm xám cách mép 12 px | 30 px #F0F0F0 | như đối chứng |
+| Viền hộp | #949494 | #C6C6C6 | #949494 |
+| Calculation / Input / Output / Note / Check Cell | khung 4 cạnh (Check Cell: kép #3F3F3F) | chỉ gạch dưới | khung 4 cạnh, kép = 2 nét 1 px cách 2 px |
+| Heading 1 / 2 / 3 | nét dưới 3 px #4472C4 / 3 px #A2B8E1 / 2 px #8EA9DB | 2 px cùng màu | như đối chứng (engine: thick / thick / medium) |
+| Good / Bad / Neutral | #C6EFCE / #FFC7CE / #FFEB9C | màu riêng | như đối chứng (chữ 006100 / 9C0006 / 9C5700) |
+| Title | Calibri Light 18 pt thường, #44546A | đậm | phông tiêu đề của theme (scheme major) |
+| Chữ trong ô | phông của kiểu, cao 'l' 16 px (≈ 1,2 × cỡ trên lưới) | phông giao diện | phông của kiểu × 1,2; tên dài kết thúc "…" |
+| Nhóm Number Format, New Cell Style…, Merge Styles… | có | thiếu | có (lệnh engine `newCellStyle`, `mergeStyles`) |
+
+Kiểu số (Comma 43, Comma [0] 41, Currency 44, Currency [0] 42, Percent 9) chỉ đổi định dạng số, giữ phần còn lại của ô
+như đối chứng. New Cell Style… mở hộp Style đo trên đối chứng (404 × 459 px; OK / Cancel ở (146, 411) / (274, 411)),
+mô tả "Style includes" lấy từ ô hiện hành; nhóm Custom hiện các kiểu riêng của sổ. Merge Styles… chọn một sổ
+`.xlsx` (đối chứng liệt kê các sổ đang mở; BlueSheet mỗi sổ một tiến trình).
+
+### Vòng 21 — Insert: Illustrations, Filters, Symbols
+
+- Illustrations như đối chứng: Pictures lớn, hai cột nút nhỏ Shapes / Icons / 3D Models và SmartArt / Screenshot.
+  Shapes và Icons mở thư viện hình (bộ chọn của BlueSlide, thư viện biểu tượng tự vẽ `packages/ui/src/iconLibrary`);
+  biểu tượng chèn dưới dạng PNG vẽ từ SVG (engine `insertDrawing` nhận SVG). SmartArt: menu 7 họ bố cục
+  (`insertSmartArt`). 3D Models, Screenshot mờ (chưa có).
+- Filters: Slicer, Timeline (bảng tổng hợp có trường ngày; không có thì thanh trạng thái nhắc như đối chứng).
+- Symbols: Equation ▾ (Area of Circle, Binomial Theorem, Pythagorean Theorem, Quadratic Formula, Insert New Equation —
+  hộp chữ dạng tuyến tính vì bảng tính của engine chưa có vùng toán) và Symbol.
+
+### Vòng 22 — Formulas, Data, View theo đối chứng ở 1500 px
+
+Đối chứng chụp bằng nhấp gửi vào thẻ ribbon (`xtabs.ps1`, `xt6-1..3c.png`).
+
+- Formulas: Insert Function, AutoSum, rồi ba cột nút nhỏ (Recently Used / Financial / Logical, Text / Date & Time /
+  Lookup & Reference, Math & Trig / More Functions); Defined Names gộp một menu; Formula Auditing + Watch Window (mờ);
+  Calculation Options + hai nút biểu tượng.
+- Data: Get & Transform Data (Get Data ▾, From Text/CSV qua `bo-query`: `querySource` → `queryInspect` → `querySave`
+  lên trang mới, From Table/Range); Queries & Connections (Refresh All, danh sách truy vấn); Sort & Filter (Clear);
+  Data Tools (Flash Fill, Consolidate, Remove Duplicates, Data Validation); Forecast (What-If ▾: Goal Seek, Data Table);
+  Outline ▾ (Group, Ungroup, Subtotal, Show / Hide Detail, Auto Outline, Clear Outline).
+- View: Workbook Views (Normal, Page Break Preview / Page Layout mờ, Custom Views: hiện / thêm / xoá qua
+  `customViews`), Show (Ruler mờ), Zoom (hộp Zoom 200 / 100 / 75 / 50 / 25 %, vừa vùng chọn, tuỳ chỉnh), Window
+  (Freeze Panes; New Window, Split, Arrange, Hide / Unhide, Switch Windows mờ), Macros (mờ).
+- Nhãn riêng của giao diện native theo đối chứng (`sheetNative.*`: Text to Columns, Math & Trig, …) không đổi nhãn
+  của trình sửa web.
+
+### Vòng 23 — biểu đồ trên lưới
+
+Nhấp chọn biểu đồ (khung xám #A6A6A6, 8 tay nắm tròn trắng viền #848484), kéo thân để dời, kéo tay nắm để đổi cỡ
+(theo ô, `moveChart`; khung xanh xem trước khi kéo), Delete xoá, Esc bỏ chọn. Chèn biểu đồ thì biểu đồ mới được chọn và
+thẻ ngữ cảnh Chart Design hiện như đối chứng. Chart Design: Add Chart Element ▾ (tiêu đề, tiêu đề trục, nhãn dữ liệu,
+bảng dữ liệu, chú giải), Quick Layout ▾, Change Colors ▾, Chart Styles ▾ (`chartDesign`), Change Chart Type ▾
+(`editChart`); Switch Row/Column, Select Data, Move Chart mờ. Format: Reset to Match Style, Shape Fill / Outline của
+vùng biểu đồ, Delete Chart.
+
+### Vòng 24 — phím tắt
+
+So với hành vi của đối chứng: F4 khi sửa công thức đổi tham chiếu ở con trỏ $A$1 → A$1 → $A1 → A1 (cả vùng A1:B2);
+Ctrl+D / Ctrl+R điền xuống / sang phải; Ctrl+1 mở Format Cells; Ctrl+; ngày hôm nay, Ctrl+Shift+; giờ (giờ địa
+phương); Alt+= AutoSum; Alt+Enter xuống dòng trong ô (trước đây Windows gửi Alt+phím dạng phím hệ thống nên không tới
+BlueSheet; nay chỉ BlueSheet bật `win32::enable_sheet_keys`, BlueDoc không đổi). Ctrl+mũi tên, Ctrl+Shift+mũi tên, F2,
+Tab / Enter trong vùng chọn đã có từ vòng trước (test `keyboard_shortcuts_as_the_reference`).

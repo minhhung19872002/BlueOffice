@@ -337,8 +337,14 @@ fn item_commands_opaque(item: &PageItem, out: &mut Vec<Command>) {
                 });
             };
             match style.as_str() {
-                // Double lines: two strokes with a gap equal to the stroke width.
-                "double" | "thinThickSmallGap" | "thickThinSmallGap" => {
+                // Double line (§17.18.2 ST_Border `double`): two strokes of the border
+                // width with a gap of the same width, as desktop word processors draw it —
+                // thinner strokes merged into one line on screen.
+                "double" => {
+                    line(-*width, *width);
+                    line(*width, *width);
+                }
+                "thinThickSmallGap" | "thickThinSmallGap" => {
                     let w = (width / 3.0).max(0.25);
                     line(-w, w);
                     line(w, w);
@@ -798,6 +804,42 @@ mod tests {
         page.decor.borders_behind = false;
         let c = build_page_list(&page, &fm).commands;
         assert!(matches!(c.last(), Some(Command::Line { .. })));
+    }
+
+    /// §17.18.2 `double`: two strokes of the border width, one width apart (a ½ pt
+    /// border is 1.5 pt overall), so both stay visible on screen.
+    #[test]
+    fn double_border_strokes_keep_the_border_width() {
+        let page = Page {
+            width: 100.0,
+            height: 200.0,
+            lines: Vec::new(),
+            items: Vec::new(),
+            number: 1,
+            section: 0,
+            decor: bo_layout::PageDecor {
+                background: None,
+                borders: vec![PageItem::Rule {
+                    x1: 0.0,
+                    y1: 50.0,
+                    x2: 80.0,
+                    y2: 50.0,
+                    width: 0.5,
+                    color: bo_model::Color::BLACK,
+                    style: "double".into(),
+                }],
+                borders_behind: true,
+            },
+        };
+        let lines: Vec<(f32, f32)> = build_page_list(&page, &FontManager::new())
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Line { y1, width, .. } => Some((*y1, *width)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines, vec![(49.5, 0.5), (50.5, 0.5)]);
     }
 
     #[test]

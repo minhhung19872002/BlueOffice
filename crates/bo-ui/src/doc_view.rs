@@ -49,6 +49,28 @@ pub struct PageSlot {
     pub height: i32,
 }
 
+/// Wavy line colours of spelling (red) and grammar (blue) issues.
+const SPELL_RED: Rgba = Rgba(0xe8, 0x11, 0x23, 255);
+const SPELL_GRAMMAR: Rgba = Rgba(0x2b, 0x57, 0xd8, 255);
+
+/// A wavy line `w` long starting at (`x`, `y`): 2 px high, 4 px period at 100 % display scale.
+fn wavy(p: &mut dyn Painter, x: f32, y: f32, w: f32, scale: f32, color: Rgba) {
+    if w <= 0.0 {
+        return;
+    }
+    let step = (2.0 * scale).max(1.0);
+    let amp = (1.0 * scale).max(1.0);
+    let mut segs = vec![bo_render::PathSeg::M(x, y)];
+    let mut dx = 0.0;
+    let mut up = true;
+    while dx < w {
+        dx = (dx + step).min(w);
+        segs.push(bo_render::PathSeg::L(x + dx, if up { y - amp } else { y }));
+        up = !up;
+    }
+    p.path(&segs, None, Some((color, scale.max(1.0))));
+}
+
 /// The editing view of one document.
 pub struct DocView {
     engine: Engine,
@@ -83,6 +105,8 @@ pub struct DocView {
     story: Option<bo_engine::story::StoryState>,
     /// Search results highlighted on the pages (navigation pane).
     highlights: Vec<SelRect>,
+    /// Misspelt words and grammar issues under a wavy line (check as you type).
+    spell: Vec<bo_engine::spell::SpellMark>,
 }
 
 impl DocView {
@@ -114,6 +138,7 @@ impl DocView {
             words: 0,
             story: None,
             highlights: Vec::new(),
+            spell: Vec::new(),
         };
         view.apply(&state);
         Ok(view)
@@ -355,6 +380,71 @@ impl DocView {
                 r.results.unwrap_or_default()
             }
             Err(_) => Vec::new(),
+        }
+    }
+
+    /// Check spelling and grammar of the whole document again (the engine caches checked
+    /// paragraphs); `true` when the wavy lines changed.
+    pub fn refresh_spelling(&mut self) -> bool {
+        let marks = self
+            .engine
+            .command(Command::Spelling { pages: None })
+            .ok()
+            .and_then(|r| r.spelling)
+            .unwrap_or_default();
+        let changed = marks != self.spell;
+        self.spell = marks;
+        changed
+    }
+
+    /// Wavy-line marks of the last spelling check.
+    pub fn spell_marks(&self) -> &[bo_engine::spell::SpellMark] {
+        &self.spell
+    }
+
+    /// Number of spelling and grammar issues found by the last check.
+    pub fn proofing_issues(&self) -> usize {
+        self.spell.len()
+    }
+
+    /// The misspelt word or grammar issue at window point (`x`, `y`), with suggestions.
+    pub fn spell_at(&mut self, x: f32, y: f32) -> Option<bo_engine::spell::SpellInfo> {
+        let (page, px, py) = self.hit(x, y)?;
+        self.engine
+            .command(Command::SpellAt { page, x: px, y: py })
+            .ok()
+            .and_then(|r| r.spell)
+    }
+
+    /// Replace bytes `start..end` of body paragraph `para` by `text` (one undo step).
+    pub fn replace_range(&mut self, para: usize, start: usize, end: usize, text: &str) -> bool {
+        let sel = bo_edit::Selection {
+            anchor: bo_edit::Pos {
+                para,
+                offset: start,
+            },
+            focus: bo_edit::Pos { para, offset: end },
+        };
+        self.edit(Command::SetSelection { selection: sel })
+            && self.edit(Command::InsertText {
+                text: text.to_owned(),
+            })
+    }
+
+    /// Run a spelling command that ignores or adds a word, then refresh the wavy lines.
+    pub fn spell_word(&mut self, add: bool, word: &str) -> bool {
+        let word = word.to_owned();
+        let cmd = if add {
+            Command::SpellAddWord { word }
+        } else {
+            Command::SpellIgnore { word }
+        };
+        match self.engine.command(cmd) {
+            Ok(r) => {
+                self.spell = r.spelling.unwrap_or_default();
+                true
+            }
+            Err(_) => false,
         }
     }
 
@@ -871,6 +961,19 @@ impl DocView {
             );
             if self.shown.contains_key(&slot.index) {
                 p.page(slot.index, slot.x, slot.y);
+            }
+            // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
+            // word processor checks as you type.
+            for m in self.spell.iter().filter(|m| m.page == slot.index) {
+                let color = if m.grammar { SPELL_GRAMMAR } else { SPELL_RED };
+                wavy(
+                    p,
+                    slot.x as f32 + m.x * s,
+                    (slot.y as f32 + m.y * s + 1.5 * self.display_scale).round(),
+                    m.w * s,
+                    self.display_scale,
+                    color,
+                );
             }
             // Search results (navigation pane) in a translucent highlighter yellow.
             for r in self.highlights.iter().filter(|r| r.page == slot.index) {

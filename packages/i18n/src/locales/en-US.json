@@ -65,6 +65,16 @@
       "tableLayout": "Table Layout",
       "pictureFormat": "Picture Format"
     },
+    "docTools": {
+      "autoFit": "AutoFit",
+      "textDirection": "Text Direction",
+      "shading": "Shading",
+      "borders": "Borders",
+      "delete": "Delete",
+      "crop": "Crop",
+      "mergeCells": "Merge Cells",
+      "splitCells": "Split Cells"
+    },
     "groups": {
       "links": "Links",
       "ai": "BlueAI",
@@ -3976,8 +3986,7 @@
     "gotoHeader": "Go to Header",
     "gotoFooter": "Go to Footer",
     "options": "Options",
-    "navigation": "Navigation",
-    "tableStyleOptions": "Table Style Options"
+    "navigation": "Navigation"
   },
   "notes": {
     "title": "Notes",

@@ -119,6 +119,13 @@ pub struct DocWindow {
     nav_dirty: bool,
     /// Last pointer position (wheel over the pane).
     pointer: (f32, f32),
+    /// The document changed since spelling was last checked, and the idle ticks since.
+    spell_pending: bool,
+    spell_idle: u32,
+    /// The misspelt word the context menu offers corrections for.
+    spell_menu: Option<bo_engine::spell::SpellInfo>,
+    /// Measured widths of the "Header" / "Footer" tags shown while one is edited.
+    tag_w: [f32; 2],
 }
 
 /// Font sizes offered by the size box (points).
@@ -236,7 +243,35 @@ impl DocWindow {
             nav: None,
             nav_dirty: false,
             pointer: (0.0, 0.0),
+            spell_pending: true,
+            spell_idle: 0,
+            spell_menu: None,
+            tag_w: [0.0; 2],
         }
+    }
+
+    /// Style of the "Header" / "Footer" tags (the reference's are small: 60×21 px at 125 %).
+    fn tag_style(&self) -> TextStyle {
+        TextStyle {
+            size: (10.0 * self.scale).round(),
+            bold: false,
+        }
+    }
+
+    /// Commands of the spelling part of the context menu.
+    fn spell_action(&mut self, id: &str) -> Option<bool> {
+        let info = self.spell_menu.take()?;
+        self.spell_pending = true;
+        Some(match id {
+            "spell.ignoreAll" => self.view.spell_word(false, &info.word),
+            "spell.addToDictionary" => self.view.spell_word(true, &info.word),
+            _ => {
+                let i: usize = id.strip_prefix("spell.use.")?.parse().ok()?;
+                let word = info.suggestions.get(i)?;
+                self.view
+                    .replace_range(info.para, info.start, info.end, word)
+            }
+        })
     }
 
     /// Width taken by the navigation pane on the left (0 when hidden).
@@ -415,11 +450,16 @@ impl DocWindow {
     }
 
     /// Run interface command `id` (ribbon, menu entry or shortcut id) as if chosen, then
-    /// bring the ribbon up to date; text typed as `text:…` is inserted at the caret.
+    /// bring the ribbon up to date; `text:…` types text at the caret, `tab:…` shows a ribbon
+    /// tab (`tab:tableLayout`).
     pub fn run_interface_command(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
-        let done = match id.strip_prefix("text:") {
-            Some(t) => self.view.handle(Input::Text(t.to_owned())),
-            None => self.action(id),
+        let done = if let Some(t) = id.strip_prefix("text:") {
+            self.view.handle(Input::Text(t.to_owned()))
+        } else if let Some(label) = id.strip_prefix("tab:") {
+            self.sync_context();
+            self.ribbon.select_tab(&format!("ribbon.tabs.{label}"))
+        } else {
+            self.action(id)
         };
         self.refresh(text);
         done
@@ -863,10 +903,55 @@ impl DocWindow {
                 dim: !selected && matches!(*id, "edit.cut" | "edit.copy"),
             })
             .collect();
-        let icons = ids.iter().map(|(_, icon)| Some(*icon)).collect();
+        let mut icons: Vec<Option<&'static str>> =
+            ids.iter().map(|(_, icon)| Some(*icon)).collect();
+        let mut items: Vec<MenuItem> = items;
+        let mut separators = vec![3];
+        // Over a misspelt word: its corrections first, then ignore / add, as on the
+        // reference's context menu.
+        self.spell_menu = self.view.spell_at(x, y);
+        if let Some(info) = &self.spell_menu {
+            let mut top: Vec<MenuItem> = info
+                .suggestions
+                .iter()
+                .take(5)
+                .enumerate()
+                .map(|(i, s)| MenuItem {
+                    label: s.clone(),
+                    choice: Choice::Command(format!("spell.use.{i}")),
+                    checked: false,
+                    dim: false,
+                })
+                .collect();
+            if top.is_empty() {
+                top.push(MenuItem {
+                    label: self.strings.get("spell.noSuggestions").to_owned(),
+                    choice: Choice::Command("spell.none".into()),
+                    checked: false,
+                    dim: true,
+                });
+            }
+            if info.rule.is_none() {
+                for key in ["spell.ignoreAll", "spell.addToDictionary"] {
+                    top.push(MenuItem {
+                        label: self.strings.get(key).to_owned(),
+                        choice: Choice::Command(key.to_owned()),
+                        checked: false,
+                        dim: false,
+                    });
+                }
+            }
+            let n = top.len();
+            separators = vec![n, n + 3];
+            let mut tops: Vec<Option<&'static str>> = vec![None; n];
+            tops.append(&mut icons);
+            icons = tops;
+            top.append(&mut items);
+            items = top;
+        }
         self.menu = Some(
             Menu::open(items, [x, y - 2.0, 1.0, 0.0], self.size, self.scale)
-                .with_decor(icons, vec![3]),
+                .with_decor(icons, separators),
         );
     }
 
@@ -1037,6 +1122,7 @@ impl DocWindow {
                 self.requests.push(Request::PickPicture);
                 false
             }
+            id if id.starts_with("spell.") => self.spell_action(id).unwrap_or(false),
             id if catalog::is_menu(id) => {
                 let anchor = self
                     .ribbon
@@ -1231,6 +1317,11 @@ impl DocWindow {
         if self.styles.is_empty() {
             self.styles = self.view.styles();
         }
+        let tag = self.tag_style();
+        self.tag_w = [
+            text.measure(&self.t("hf.header", "Header"), tag).0,
+            text.measure(&self.t("hf.footer", "Footer"), tag).0,
+        ];
         self.ribbon.measure_previews(text, &self.styles);
         // Status bar zoom controls, right to left: percentage, plus, slider, minus.
         let px = |v: f32| (v * self.scale).round();
@@ -1349,6 +1440,23 @@ impl DocWindow {
         }
         if let Input::Move { x, y } | Input::Drag { x, y } = input {
             self.pointer = (x, y);
+        }
+        // Spelling is checked again once typing rests for 400 ms (4 ticks).
+        match input {
+            Input::Text(_) | Input::Key(..) | Input::Release { .. } => {
+                self.spell_pending = true;
+                self.spell_idle = 0;
+            }
+            Input::Tick if self.spell_pending => {
+                self.spell_idle += 1;
+                if self.spell_idle >= 4 {
+                    self.spell_pending = false;
+                    if self.view.refresh_spelling() {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
         }
         if self.nav.is_some() {
             if matches!(
@@ -1949,6 +2057,56 @@ impl DocWindow {
             style,
             self.theme.text,
         );
+        // Proofing state: a book with a cross while issues remain, with a tick when none
+        // (own drawing, at the reference's place between word count and language).
+        {
+            let u = self.scale;
+            let (bx, by) = (
+                (x0 + 190.0 * u).round(),
+                (y + (sh - 14.0 * u) / 2.0).round(),
+            );
+            let lw = u.max(1.0);
+            let ink = self.theme.text;
+            p.path(
+                &[
+                    PathSeg::M(bx, by + 1.0 * u),
+                    PathSeg::L(bx + 6.0 * u, by),
+                    PathSeg::L(bx + 12.0 * u, by + 1.0 * u),
+                    PathSeg::L(bx + 12.0 * u, by + 12.0 * u),
+                    PathSeg::L(bx + 6.0 * u, by + 11.0 * u),
+                    PathSeg::L(bx, by + 12.0 * u),
+                    PathSeg::Z,
+                    PathSeg::M(bx + 6.0 * u, by),
+                    PathSeg::L(bx + 6.0 * u, by + 11.0 * u),
+                ],
+                Some(self.theme.surface),
+                Some((ink, lw)),
+            );
+            let (mx, my) = (bx + 11.0 * u, by + 10.0 * u);
+            if self.view.proofing_issues() > 0 {
+                let k = 3.0 * u;
+                p.path(
+                    &[
+                        PathSeg::M(mx - k, my - k),
+                        PathSeg::L(mx + k, my + k),
+                        PathSeg::M(mx + k, my - k),
+                        PathSeg::L(mx - k, my + k),
+                    ],
+                    None,
+                    Some((Rgba(0xc4, 0x2b, 0x1c, 255), 1.5 * lw)),
+                );
+            } else {
+                p.path(
+                    &[
+                        PathSeg::M(mx - 3.0 * u, my),
+                        PathSeg::L(mx - 1.0 * u, my + 2.0 * u),
+                        PathSeg::L(mx + 3.5 * u, my - 3.0 * u),
+                    ],
+                    None,
+                    Some((Rgba(0x10, 0x7c, 0x10, 255), 1.5 * lw)),
+                );
+            }
+        }
         // Proofing language at the caret, as a desktop word processor's status bar shows it.
         if let Some(lang) = self.view.format().lang.as_deref() {
             let key = format!("spell.lang.{lang}");
@@ -2029,10 +2187,7 @@ impl DocWindow {
         let sec = &self.view.format().section;
         let s = self.view.scale();
         let line = Rgba(119, 119, 119, 255);
-        let style = TextStyle {
-            size: (11.0 * self.scale).round(),
-            bold: false,
-        };
+        let style = self.tag_style();
         let (header, footer) = (self.t("hf.header", "Header"), self.t("hf.footer", "Footer"));
         let dash = (3.0 * self.scale).round().max(1.0);
         for slot in self.view.slots() {
@@ -2051,10 +2206,13 @@ impl DocWindow {
                 }
             }
             // Tags at the left edge: under the header line, over the footer line.
-            let pad = (5.0 * self.scale).round();
+            let pad = (6.0 * self.scale).round();
             let tag_h = (style.size * 1.33 + 2.0 * self.scale).round();
-            for (label, y) in [(&header, top + 1.0), (&footer, bottom - tag_h)] {
-                let tw = (label.chars().count() as f32 * style.size * 0.5).round() + 2.0 * pad;
+            for (i, (label, y)) in [(&header, top + 1.0), (&footer, bottom - tag_h)]
+                .into_iter()
+                .enumerate()
+            {
+                let tw = self.tag_w[i].ceil() + 2.0 * pad;
                 let tx = x + (6.0 * self.scale).round();
                 p.fill_rect(tx, y, tw, tag_h, line);
                 p.fill_rect(

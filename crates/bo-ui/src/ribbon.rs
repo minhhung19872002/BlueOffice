@@ -587,6 +587,19 @@ impl Ribbon {
         }
     }
 
+    /// Make the tab labelled `label` (i18n key) active; `false` when there is none.
+    pub(crate) fn select_tab(&mut self, label: &str) -> bool {
+        match self.tabs.iter().position(|t| t.label == label) {
+            Some(i) => {
+                self.active = i;
+                self.scroll = 0.0;
+                self.placed.clear();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Number of permanent tabs (contextual tabs follow them).
     #[cfg(test)]
     pub(crate) fn fixed_tab_count(&self) -> usize {

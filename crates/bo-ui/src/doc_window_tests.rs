@@ -314,3 +314,34 @@ fn navigation_pane_lists_headings_and_searches() {
     click(&mut w, "view.navigationPane");
     assert!(w.nav.is_none());
 }
+
+#[test]
+fn misspelt_words_get_a_wavy_line_and_corrections_in_the_context_menu() {
+    let mut w = window();
+    w.handle(Input::Text("The houze is big".into()), &Fixed);
+    for _ in 0..4 {
+        w.handle(Input::Tick, &Fixed);
+    }
+    assert_eq!(w.view.proofing_issues(), 1, "{:?}", w.view.spell_marks());
+    let m = w.view.spell_marks()[0].clone();
+    let slot = w.view.slots()[m.page];
+    let s = w.view.scale();
+    let (x, y) = (
+        slot.x as f32 + (m.x + m.w / 2.0) * s,
+        slot.y as f32 + (m.y - 4.0) * s,
+    );
+    w.handle(Input::Context { x, y }, &Fixed);
+    let menu = w.menu.as_ref().expect("context menu");
+    let first = menu.items()[0].label.clone();
+    assert_ne!(first, "");
+    // The first correction replaces the word.
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.view.run_command(Command::SelectAll);
+    let text = w.view.copy(false).map(|c| c.text).unwrap_or_default();
+    assert!(text.contains(&first), "{text}");
+    for _ in 0..4 {
+        w.handle(Input::Tick, &Fixed);
+    }
+    assert_eq!(w.view.proofing_issues(), 0);
+}

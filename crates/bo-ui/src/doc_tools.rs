@@ -68,15 +68,10 @@ pub(crate) fn tabs(c: Context) -> Vec<Tab> {
 }
 
 fn table_design_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
+    use Item::Large as L;
     Tab {
         label: TABLE_DESIGN,
         groups: vec![
-            Group {
-                label: "hf.tableStyleOptions",
-                large: vec![],
-                rows: vec![vec![S("table.headerRow")]],
-            },
             Group {
                 label: "ribbon.groups.tableStyle",
                 large: vec![L("table.shadingMenu")],
@@ -378,10 +373,13 @@ pub(crate) fn install_strings(s: &mut Strings) {
         }
     };
     for (id, key) in [
-        ("table.shadingMenu", "commands.table.shading"),
-        ("table.borders", "commands.format.paraBorders"),
-        ("table.delete", "commands.sheet.deleteCells"),
-        ("table.autoFit", "commands.table.autoFitContents"),
+        ("table.shadingMenu", "ribbon.docTools.shading"),
+        ("table.borders", "ribbon.docTools.borders"),
+        ("table.delete", "ribbon.docTools.delete"),
+        ("table.autoFit", "ribbon.docTools.autoFit"),
+        ("table.textDirection", "ribbon.docTools.textDirection"),
+        ("table.mergeCells", "ribbon.docTools.mergeCells"),
+        ("table.splitCell", "ribbon.docTools.splitCells"),
         ("hf.close", "hf.close"),
         ("hf.gotoHeader", "hf.gotoHeader"),
         ("hf.gotoFooter", "hf.gotoFooter"),
@@ -389,7 +387,7 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("hf.differentFirst", "hf.differentFirst"),
         ("hf.differentOddEven", "hf.differentOddEven"),
         ("picture.reset", "pictureTools.reset"),
-        ("picture.crop", "pictureTools.crop"),
+        ("picture.crop", "ribbon.docTools.crop"),
         ("picture.fill", "pictureTools.fill"),
         ("picture.fit", "pictureTools.fit"),
     ] {

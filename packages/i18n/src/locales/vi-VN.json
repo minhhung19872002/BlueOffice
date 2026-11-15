@@ -65,6 +65,16 @@
       "tableLayout": "Bố cục bảng",
       "pictureFormat": "Định dạng ảnh"
     },
+    "docTools": {
+      "autoFit": "Tự khớp",
+      "textDirection": "Hướng chữ",
+      "shading": "Tô nền",
+      "borders": "Viền",
+      "delete": "Xoá",
+      "crop": "Cắt",
+      "mergeCells": "Gộp ô",
+      "splitCells": "Tách ô"
+    },
     "groups": {
       "links": "Liên kết",
       "ai": "BlueAI",
@@ -3976,8 +3986,7 @@
     "gotoHeader": "Tới đầu trang",
     "gotoFooter": "Tới chân trang",
     "options": "Tuỳ chọn",
-    "navigation": "Điều hướng",
-    "tableStyleOptions": "Tuỳ chọn kiểu bảng"
+    "navigation": "Điều hướng"
   },
   "notes": {
     "title": "Chú thích",

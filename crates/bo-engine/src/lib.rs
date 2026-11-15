@@ -1244,6 +1244,22 @@ impl Engine {
             .or_else(|| self.pres.as_ref().and_then(|p| p.part_data(name)))
     }
 
+    /// Keep a picture the interface draws through the backends (a preview such as the
+    /// background removal's), under an id starting with `/ui/`; it is not part of the
+    /// document and is never saved.
+    pub fn set_ui_image(&mut self, id: &str, bytes: Vec<u8>) {
+        if id.starts_with("/ui/") {
+            self.images.insert(id.to_owned(), bytes);
+        }
+    }
+
+    /// Forget a picture kept by [`Engine::set_ui_image`].
+    pub fn remove_ui_image(&mut self, id: &str) {
+        if id.starts_with("/ui/") {
+            self.images.remove(id);
+        }
+    }
+
     /// Bytes of a media part or of a derived picture id (`media#fx:…`: the picture
     /// with its colour adjustments applied, PNG; CORE-PIC-001).
     pub fn media_resolved(&self, name: &str) -> Option<std::borrow::Cow<'_, [u8]>> {

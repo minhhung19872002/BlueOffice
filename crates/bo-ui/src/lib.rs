@@ -82,7 +82,9 @@ pub use popup::{Choice, Menu, MenuItem};
 pub use reader_impose::{
     plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
 };
-pub use reader_print::{parse_pages, PrintAction, PrintDialog, PrintScaling, PrintSettings};
+pub use reader_print::{
+    parse_pages, Orientation, Paper, PrintAction, PrintDialog, PrintScaling, PrintSettings,
+};
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
@@ -91,7 +93,7 @@ pub use sheet_view::{CellFormat, GridMove, GridRing, GridStore, SheetView, Stats
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
-pub use slide_window::{InsertFile, SlideWindow};
+pub use slide_window::{InsertFile, SlideWindow, WindowRequest};
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};
 pub use titlebar::{NcHit, TitleBar};

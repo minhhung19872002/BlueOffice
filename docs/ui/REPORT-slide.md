@@ -315,3 +315,47 @@ x 1160–1259; Reorder Animation, Move Earlier/Later). Đường chia nhóm: tha
 
 Vòng 12b (`slide-07/08/09`): Insert thêm Photo Album, 3D Models, SmartArt, Links, Text Styles; dấu thả xuống của nút lớn một từ xuống dòng riêng như tham chiếu (hết chồng nhãn "Variants ▾ Colors" ở Design); ô phông 211 px (tham chiếu 213), ô cỡ 67 px.
 
+
+## Vòng 13 — thư viện, Picture Format, chế độ xem, bình luận, phần (`slide-10…17`, 1500 × 1102, 125 %)
+
+- Table Design: 6 ô tuỳ chọn kiểu bảng (`a:tblPr` firstRow / lastRow / firstCol / lastCol / bandRow /
+  bandCol, lệnh engine `setTableFlags`), thư viện 5 kiểu dựng sẵn vẽ như bảng nhỏ (5 × 5, hàng đầu màu
+  nhấn, kẻ dòng mảnh, viền màu nhạt, ô đang dùng có khung xám + nền trắng như tham chiếu) + cột "thêm";
+  Shading / Borders / Effects; nhóm Text Styles; Draw Borders (ô kiểu bút / độ dày vẽ chính nét, Pen
+  Color, Draw Table kéo ra bảng, Eraser gộp ô với ô bên phải; lệnh `setTableBorders`).
+- Shape Format: cột "thêm" của thư viện kiểu, nhóm Text Styles (kiểu chữ nhanh, tô / viền chữ, biến
+  dạng §20.1.10.76), Accessibility (Alt Text), Arrange có Selection Pane, Align / Group / Rotate dạng
+  biểu tượng như tham chiếu.
+- Selection Pane (nền 230, nút khung 148, hàng chọn 198 khung 128 — đo trên tham chiếu): hình từ
+  trước ra sau, con mắt ẩn / hiện (`cNvPr@hidden`), Show All / Hide All (một bước hoàn tác), lên /
+  xuống thứ tự (cả hình ẩn), nhấp đúp đổi tên. Alt Text: ô mô tả, "Mark as decorative"
+  ([MS-ODRAWXML] `adec:decorative`). Lệnh engine mới: `slide_edit::shape_props` (có kiểm thử khứ hồi).
+- Picture Format: Remove Background (tab Background Removal, xem trước graph-cut tô vùng bỏ đi đè lên
+  ảnh, khung đứt nét không tay nắm, nét đánh dấu giữ / bỏ, Keep / Discard), Corrections / Color /
+  Transparency là thư viện ảnh xem trước thật của ảnh đang chọn (backend vẽ id ảnh dẫn xuất
+  `media#fx:`), Compress Pictures (hộp thoại + kết quả), Change Picture, Reset, Quick Styles (khung,
+  mép mờ, phản chiếu, phối cảnh). Artistic Effects của tham chiếu không làm (engine không có).
+- View: chế độ đang dùng hiện nhấn; Show (Ruler / Gridlines / Guides rồi Notes); Color / Grayscale /
+  Black and White (danh sách hiển thị đổi màu cho vùng soạn và hình thu nhỏ, trình chiếu vẫn màu);
+  Handout Master / Notes Master (tab riêng: hướng, số trang mỗi tờ, chỗ dành sẵn, Close); Ruler (inch
+  tính từ tâm trang); Window (New Window cùng tệp, Arrange All, Cascade, Switch Windows).
+- Bình luận: đọc bình luận cũ (§19.4 `p:cmLst`, `p:cmAuthorLst`) — chỉ xem, phần giữ nguyên từng byte;
+  luồng neo vào hình (`ac:deMkLst` / `ac:spMk`) đọc / ghi, bình luận mới trên một hình đang chọn được
+  neo vào hình đó, dấu bình luận ở góc trên phải của hình.
+- Home > Slides như tham chiếu (New Slide lớn; Layout, Reset, Section nhỏ); menu Section (thêm, đổi
+  tên, xoá, xoá hết, thu gọn / mở rộng hết); tiêu đề phần trong ngăn hình thu nhỏ (mũi tên, tên, số
+  trang khi thu gọn; nhấp để thu gọn, nhấp đúp đổi tên).
+- Sao hoạt hình tô chuyển màu (sáng trên, tối dưới, viền đậm hơn); mặt thẻ chuyển trang chuyển màu.
+
+| Tốc độ (bản release, `deck-300.pptx` từ `bo-cli sample-big-deck`, 42 MB, 300 trang) | BlueSlide |
+|---|---|
+| Mở tệp trong engine | 280 ms |
+| Từ khởi động tiến trình đến khung đầu | 756 ms (tham chiếu mở cùng tệp qua COM: 784 ms, chưa tính khởi động) |
+| Cuộn ngăn hình thu nhỏ (60 nấc bánh xe) | trung vị 2,7 ms, p95 3,7 ms mỗi nấc |
+| Gõ phím trong tiêu đề, trước sửa | trung vị 23,2 ms (chuẩn bị ảnh 18,8 ms: vẽ lại cả hình thu nhỏ của trang) |
+| Gõ phím, sau sửa (hình thu nhỏ vẽ khi rảnh) | trung vị 11,8 ms (p95 13,3; chuẩn bị 8,3 ms); khung đầu 655 ms |
+
+Còn lại (sau vòng 13): Presenter View trên cửa sổ thứ hai / màn hình phụ và ô Monitor (host chỉ có một
+cửa sổ mỗi tiến trình); thư viện Corrections / Color của tham chiếu không mở được bằng COM nên chỉ so
+nút; khung trang phát (handout) chưa vẽ ô trang chiếu trong chế độ Handout Master; Eraser chỉ gộp với
+ô bên phải.

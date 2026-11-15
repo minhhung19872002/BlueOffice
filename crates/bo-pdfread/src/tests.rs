@@ -366,6 +366,7 @@ fn blend_modes_and_soft_masks_become_groups() {
             Command::PushGroup {
                 blend: Some(_),
                 mask: None,
+                ..
             } => "blend",
             Command::PushGroup { mask: Some(_), .. } => "mask",
             Command::PopGroup => "end",

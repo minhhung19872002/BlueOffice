@@ -62,7 +62,8 @@ fn ribbon_new_slide_layout_menu_and_delete() {
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
     // The chosen layout goes to the current slide (no new slide), as on the reference.
     assert_eq!(w.view().slide_count(), n + 1, "layout changed in place");
-    click_command(&mut w, "slide.delete");
+    // Delete Slide is not on the reference's Home tab at this width: the command still runs.
+    assert!(w.run_action("slide.delete"));
     assert_eq!(w.view().slide_count(), n);
     // Undo from the title bar's quick access button runs through the window.
     assert!(w.run_action("edit.undo"));

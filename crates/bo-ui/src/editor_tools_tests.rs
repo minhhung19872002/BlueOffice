@@ -471,3 +471,21 @@ fn whiteout_crop_and_comment_summary() {
         assert!(w.r.control_rect(id).is_some(), "{id}");
     }
 }
+
+#[test]
+fn revert_and_preferences() {
+    let mut w = window(2);
+    w.run("org.rotateRight", &Fixed);
+    assert!(w.view().expect("v").doc().modified());
+    w.revert();
+    assert!(!w.view().expect("v").doc().modified());
+    w.ask_preferences();
+    answer(&mut w, &["Kiểm thử", "Fit Width", "Single", "in"]);
+    assert_eq!(w.prefs.author, "Kiểm thử");
+    assert_eq!(w.prefs.units, "in");
+    assert_eq!(w.view().expect("v").layout(), crate::Layout::Single);
+    w.run("cm.rect", &Fixed);
+    drag(&mut w, 0, [300.0, 300.0, 400.0, 350.0]);
+    let a = w.view().expect("v").doc().annotations();
+    assert_eq!(a.last().map(|a| a.author.as_str()), Some("Kiểm thử"));
+}

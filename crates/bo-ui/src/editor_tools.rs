@@ -49,6 +49,8 @@ pub(crate) enum ToolAsk {
     Optimize,
     /// Crop pages: margins in millimetres and which pages.
     Crop,
+    /// The Preferences dialog.
+    Preferences,
 }
 
 /// A misspelt word found by Check Spelling.
@@ -312,11 +314,13 @@ impl EditorWindow {
                 );
             }
             "org.crop" => {
+                let u = self.prefs.units.clone();
+                let lab = |w: &Self, k: &str| w.t(k).replace("mm", &u);
                 let fields = vec![
-                    (self.t("pdfEditor.cropLeft"), "0".into()),
-                    (self.t("pdfEditor.cropTop"), "0".into()),
-                    (self.t("pdfEditor.cropRight"), "0".into()),
-                    (self.t("pdfEditor.cropBottom"), "0".into()),
+                    (lab(self, "pdfEditor.cropLeft"), "0".into()),
+                    (lab(self, "pdfEditor.cropTop"), "0".into()),
+                    (lab(self, "pdfEditor.cropRight"), "0".into()),
+                    (lab(self, "pdfEditor.cropBottom"), "0".into()),
                     (
                         self.t("pdfEditor.cropPagesField"),
                         self.t("pdfEditor.cropAll"),
@@ -863,6 +867,13 @@ impl EditorWindow {
                 self.optimize(ppi, q);
             }
             ToolAsk::Crop => {
+                // Points per unit of the preferences.
+                let per = match self.prefs.units.as_str() {
+                    "cm" => 72.0 / 2.54,
+                    "in" => 72.0,
+                    "pt" => 1.0,
+                    _ => 72.0 / 25.4,
+                };
                 let mm = |i: usize| {
                     get(i)
                         .trim()
@@ -870,8 +881,7 @@ impl EditorWindow {
                         .parse::<f32>()
                         .unwrap_or(0.0)
                         .max(0.0)
-                        * 72.0
-                        / 25.4
+                        * per
                 };
                 let all = self.t("pdfEditor.cropAll");
                 let which = get(4);
@@ -892,6 +902,7 @@ impl EditorWindow {
                     Err(e) => self.set_status(&e),
                 }
             }
+            ToolAsk::Preferences => self.set_preferences(v),
             ToolAsk::Spell => {}
         }
     }

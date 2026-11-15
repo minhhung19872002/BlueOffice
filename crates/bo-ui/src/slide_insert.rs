@@ -29,6 +29,8 @@ pub enum InsertFile {
     Video,
     /// An audio clip.
     Audio,
+    /// A picture replacing the selected one (Change Picture).
+    ChangePicture,
 }
 
 /// Dialogs of these tabs.
@@ -42,6 +44,10 @@ pub(super) enum SlideDialog {
     Link,
     /// Slide Show tab dialogs.
     Show(super::showtab::ShowDialog),
+    /// Compress Pictures.
+    Compress,
+    /// Add Section (`None`) or Rename Section.
+    Section(Option<usize>),
 }
 
 /// Which contextual tabs the selection shows.
@@ -290,97 +296,12 @@ pub(super) fn insert_tab() -> Tab {
     }
 }
 
-fn arrange_group() -> Group {
-    use Item::Labeled as S;
-    Group {
-        label: "slideNative.arrange",
-        large: vec![],
-        rows: vec![
-            vec![S("sl.forward"), S("sl.align")],
-            vec![S("sl.backward"), S("sl.group")],
-            vec![S("sl.rotate")],
-        ],
-    }
-}
-
-fn size_group(crop: bool) -> Group {
+pub(super) fn size_group(crop: bool) -> Group {
     use Item::{Labeled as S, Large as L};
     Group {
         label: "slideNative.size",
         large: if crop { vec![L("sl.crop")] } else { vec![] },
         rows: vec![vec![S("sl.height")], vec![S("sl.width")]],
-    }
-}
-
-/// Shape Format (a shape, text box or group selected).
-pub(super) fn shape_format_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: "slideNative.shapeFormat",
-        groups: vec![
-            Group {
-                label: "slideNative.insertShapes",
-                large: vec![L("sl.shapes"), L("sl.textBox")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.shapeStyles",
-                large: STYLE_TILES
-                    .iter()
-                    .map(|(id, _, _)| L(id))
-                    .chain([L("sl.quickStyles")])
-                    .collect(),
-                rows: vec![
-                    vec![S("sl.fill")],
-                    vec![S("sl.outline")],
-                    vec![S("sl.effects")],
-                ],
-            },
-            arrange_group(),
-            size_group(false),
-        ],
-    }
-}
-
-/// Picture Format (a picture selected).
-pub(super) fn picture_format_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: "slideNative.pictureFormat",
-        groups: vec![
-            Group {
-                label: "slideNative.adjust",
-                large: vec![L("sl.resetPicture")],
-                rows: vec![],
-            },
-            Group {
-                label: "slideNative.pictureStyles",
-                large: vec![],
-                rows: vec![vec![S("sl.picBorder")], vec![S("sl.effects")]],
-            },
-            arrange_group(),
-            size_group(true),
-        ],
-    }
-}
-
-/// Table Design (a table selected).
-pub(super) fn table_design_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
-    Tab {
-        label: "slideNative.tableDesign",
-        groups: vec![
-            Group {
-                label: "slideNative.tableStyleOptions",
-                large: vec![],
-                rows: vec![vec![S("sl.headerRow")], vec![S("sl.bandedRows")]],
-            },
-            Group {
-                label: "slideNative.tableStyles",
-                large: vec![L("sl.shading")],
-                rows: vec![],
-            },
-        ],
     }
 }
 
@@ -403,7 +324,7 @@ pub(super) fn table_layout_tab() -> Tab {
                 large: vec![],
                 rows: vec![vec![S("sl.merge")], vec![S("sl.split")]],
             },
-            arrange_group(),
+            super::fmt::arrange_group(),
         ],
     }
 }
@@ -412,9 +333,9 @@ pub(super) fn table_layout_tab() -> Tab {
 pub(super) fn context_tabs(c: Context) -> Vec<Tab> {
     match c {
         Context::None => vec![],
-        Context::Shape => vec![shape_format_tab()],
-        Context::Picture => vec![picture_format_tab()],
-        Context::Table => vec![table_design_tab(), table_layout_tab()],
+        Context::Shape => vec![super::fmt::shape_format_tab()],
+        Context::Picture => vec![super::pic::picture_format_tab()],
+        Context::Table => vec![super::fmt::table_design_tab(), table_layout_tab()],
     }
 }
 
@@ -616,6 +537,10 @@ impl SlideWindow {
     /// Show the selection's contextual tabs (after the fixed ones, as on the reference);
     /// `true` when the ribbon changed.
     pub(super) fn sync_context(&mut self) -> bool {
+        // The Background Removal tab stays until the mode ends.
+        if self.bg_mode.is_some() {
+            return false;
+        }
         let c = self.selection_context();
         if c == self.context {
             if std::mem::take(&mut self.activate_context) && c != Context::None {
@@ -721,7 +646,7 @@ impl SlideWindow {
         v
     }
 
-    fn label(&self, key: &str) -> String {
+    pub(super) fn label(&self, key: &str) -> String {
         self.strings.get(&format!("slideNative.{key}")).to_owned()
     }
 
@@ -848,6 +773,9 @@ impl SlideWindow {
             }
             "color" => {
                 let color = (!value.is_empty()).then(|| value.to_owned());
+                if let Some(r) = self.pick_text_color(anchor, color.clone()) {
+                    return r;
+                }
                 match anchor {
                     "sl.outline" | "sl.picBorder" => {
                         self.view.run(SlideCommand::SetLine { color, width: None })
@@ -984,6 +912,7 @@ impl SlideWindow {
                     (self.label("find"), "ins:find".into()),
                     (self.label("replace"), "ins:replace".into()),
                     (self.label("selectAll"), "ins:selectAll".into()),
+                    (self.label("selectionPane"), "side:selPane".into()),
                 ],
                 "sl.editing",
             ),
@@ -1023,6 +952,7 @@ impl SlideWindow {
                     ("alignBottom", "aln:bottom"),
                     ("rotateRight", "rot:90"),
                     ("rotateLeft", "rot:-90"),
+                    ("selectionPane", "side:selPane"),
                 ]
                 .iter()
                 .map(|(k, c)| (self.label(k), (*c).to_owned()))
@@ -1170,7 +1100,7 @@ impl SlideWindow {
     }
 
     /// Open a plain list menu of (label, command) under ribbon command `anchor`.
-    fn open_list(&mut self, items: Vec<(String, String)>, anchor: &'static str) {
+    pub(super) fn open_list(&mut self, items: Vec<(String, String)>, anchor: &'static str) {
         let Some(r) = self.ribbon.rect_of(RibbonHit::Command(anchor)) else {
             return;
         };
@@ -1480,6 +1410,14 @@ impl SlideWindow {
                 self.open_show_dialog(k);
                 return;
             }
+            SlideDialog::Compress => {
+                self.open_compress();
+                return;
+            }
+            SlideDialog::Section(i) => {
+                self.open_section_dialog(i);
+                return;
+            }
             SlideDialog::HeaderFooter => {
                 let info = {
                     self.view.run(SlideCommand::HeaderFooterInfo);
@@ -1627,6 +1565,8 @@ impl SlideWindow {
         let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
         match kind {
             SlideDialog::Show(_) => {}
+            SlideDialog::Compress => self.compress_button(b, values),
+            SlideDialog::Section(i) => self.section_button(i, b, values),
             SlideDialog::Link => {
                 let url = values.first().cloned().unwrap_or_default();
                 if !url.trim().is_empty() {
@@ -2037,16 +1977,7 @@ impl SlideWindow {
             );
         }
         self.paint_style_tiles(p);
-        if let Some((first, band)) = self.table_flags() {
-            for (id, on) in [("sl.headerRow", first), ("sl.bandedRows", band)] {
-                let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
-                    continue;
-                };
-                let b = self.px(14.4);
-                let (x, y) = (r[0] + self.px(4.0), (r[1] + (r[3] - b) / 2.0).round());
-                sb::paint_check(p, [x, y, b, b], on, true, self.theme.text);
-            }
-        }
+
         if let Some((pick, _)) = &self.picker {
             pick.paint(p, &self.theme, &self.library);
         }

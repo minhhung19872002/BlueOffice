@@ -18,7 +18,8 @@ const CHOSEN: Rgba = Rgba(0xD9, 0xD9, 0xD9, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 
 /// Entries of the left column: command, label key; `None` is a rule.
-const ITEMS: [Option<(&str, &str)>; 11] = [
+/// The reference's order; its Action Wizard, Batch Print, Index, Share and Skins are not ours.
+const ITEMS: [Option<(&str, &str)>; 12] = [
     Some(("bs.properties", "pdfEditor.bsProperties")),
     Some(("bs.create", "pdfEditor.bsCreate")),
     Some(("bs.open", "pdfReader.open")),
@@ -27,9 +28,10 @@ const ITEMS: [Option<(&str, &str)>; 11] = [
     Some(("file.optimize", "pdfEditor.bsOptimizer")),
     Some(("bs.export", "pdfEditor.bsExport")),
     Some(("file.print", "pdfReader.print")),
+    Some(("bs.revert", "pdfEditor.bsRevert")),
     Some(("file.close", "pdfReader.close")),
     None,
-    Some(("bs.back", "pdfEditor.bsBack")),
+    Some(("bs.preferences", "pdfEditor.bsPreferences")),
 ];
 
 /// The backstage: shown, chosen page, hit boxes of the last paint.
@@ -109,6 +111,14 @@ impl EditorWindow {
                 };
             }
             "bs.back" => self.close_backstage(),
+            "bs.revert" => {
+                self.close_backstage();
+                self.revert();
+            }
+            "bs.preferences" => {
+                self.close_backstage();
+                self.ask_preferences();
+            }
             _ => {
                 if let Some(path) = cmd.strip_prefix("bs.recent.") {
                     self.close_backstage();
@@ -152,8 +162,8 @@ impl EditorWindow {
                 continue;
             };
             // Save is grey until the document changes, as in the reference.
-            let enabled = (doc && (cmd != "file.save" || modified))
-                || matches!(cmd, "bs.create" | "bs.open" | "bs.back");
+            let enabled = (doc && (!matches!(cmd, "file.save" | "bs.revert") || modified))
+                || matches!(cmd, "bs.create" | "bs.open" | "bs.preferences");
             let r = [px(10.4), y, cw - px(22.4), px(31.2)];
             let chosen = cmd == self.bs.page;
             if chosen {
@@ -317,6 +327,92 @@ impl EditorWindow {
             }
         }
         self.bs.hits = hits;
+    }
+
+    /// Revert: drop every change since the document was opened or saved.
+    pub(crate) fn revert(&mut self) {
+        if let Some(v) = self.r.view_mut() {
+            self.edit.finish_typing(Some(v));
+        }
+        match self.doc_edit(bo_pdfread::PdfDocument::revert) {
+            Ok(()) => self.after_doc_edit(),
+            Err(e) => self.set_status(&e),
+        }
+    }
+
+    /// The Preferences dialog: comment author, zoom and page display of opened documents,
+    /// units of measurement.
+    pub(crate) fn ask_preferences(&mut self) {
+        let p = &self.prefs;
+        let fields = vec![
+            (self.t("pdfEditor.prefAuthor"), p.author.clone()),
+            (self.t("pdfEditor.prefZoom"), p.zoom.clone()),
+            (self.t("pdfEditor.prefLayout"), p.layout.clone()),
+            (self.t("pdfEditor.prefUnits"), p.units.clone()),
+        ];
+        let mut d = crate::dialog::Dialog::new(
+            crate::dialog::DialogKind::Comment,
+            self.t("pdfEditor.bsPreferences"),
+            fields,
+            vec![
+                (self.t("pdfReader.ok"), crate::dialog::DialogButton::Ok),
+                (
+                    self.t("pdfReader.cancel"),
+                    crate::dialog::DialogButton::Cancel,
+                ),
+            ],
+            Vec::new(),
+        );
+        d.layout(
+            &crate::editor_window::Estimate,
+            self.window_size(),
+            self.ui_scale(),
+        );
+        self.dialog2 = Some((
+            d,
+            crate::editor_actions::Ask2::Tools(crate::editor_tools::ToolAsk::Preferences),
+        ));
+    }
+
+    /// Preferences typed in the dialog: kept and applied to the open document.
+    pub(crate) fn set_preferences(&mut self, v: &[String]) {
+        let get = |i: usize| v.get(i).map(|s| s.trim().to_owned()).unwrap_or_default();
+        let author = get(0);
+        if !author.is_empty() {
+            self.prefs.author = author;
+        }
+        self.prefs.zoom = get(1);
+        self.prefs.layout = get(2);
+        let units = get(3).to_lowercase();
+        self.prefs.units = if matches!(units.as_str(), "mm" | "cm" | "in" | "pt") {
+            units
+        } else {
+            "mm".into()
+        };
+        self.apply_view_prefs();
+    }
+
+    /// Zoom and page display of the preferences on the active document.
+    pub(crate) fn apply_view_prefs(&mut self) {
+        let zoom = self.prefs.zoom.to_lowercase();
+        let layout = self.prefs.layout.to_lowercase();
+        let Some(v) = self.r.view_mut() else { return };
+        if zoom.contains("width") || zoom.contains("rộng") {
+            v.set_fit(crate::Fit::Width);
+        } else if zoom.contains("page") || zoom.contains("trang") {
+            v.set_fit(crate::Fit::Page);
+        } else if let Ok(z) = zoom.trim_end_matches('%').trim().parse::<f32>() {
+            v.set_zoom((z / 100.0).clamp(0.1, 64.0));
+        }
+        let l = match layout.as_str() {
+            s if s.starts_with("single") || s.starts_with("một") => Some(crate::Layout::Single),
+            s if s.starts_with("facing") || s.starts_with("hai") => Some(crate::Layout::Facing),
+            s if s.starts_with("cont") || s.starts_with("liên") => Some(crate::Layout::Continuous),
+            _ => None,
+        };
+        if let Some(l) = l {
+            v.set_layout(l);
+        }
     }
 
     /// Label and value rows of the Properties page.

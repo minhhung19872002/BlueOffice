@@ -142,3 +142,55 @@ image, xem trước tờ nhiều trang vẽ ô thay vì ảnh trang.
 Còn lại: Text Viewer, Read (đọc to), chia đôi cửa sổ (Split), Eraser / Area Highlight / Custom Stamp của tab
 Comment, chữ vẽ bằng viền (Tr 1/2) trong Night Mode vẫn giữ màu, AutoScroll nhịp 100 ms (giật hơn bản đối chiếu),
 knockout group, overprint, mở 1 202 trang ≤ 210 ms đo trên máy rảnh.
+
+## Vòng 4 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `reader_view4_win.rs` (Text Viewer, chia khung, đọc to, AutoScroll mượt),
+`reader_tabs4_win.rs` (tab Form / Protect, Eraser, Area Highlight, Custom Stamp, Search & Highlight, SnapShot,
+sắp xếp / lọc danh sách chú thích), `bo-pdfread/src/{cmyk,annot_image,color_tests}.rs`; host:
+`reader_speech.rs` (SAPI), `reader_clip.rs` (ảnh lên clipboard). Ảnh so sánh: `scratchpad/show/reader-10…16-*.png`.
+
+**Vẽ trang.** Tệp thử 16 trường hợp Separation / DeviceN hỏng mở trong bản đối chiếu (`reader-10`): hàm
+PostScript trả ít kết quả hơn số thành phần → mọi thành phần 0 (trắng với CMYK, đen với RGB), trả nhiều hơn →
+lấy n giá trị trên cùng; thiếu hàm / số đầu ra khác không gian thay thế → `cs` bị bỏ qua (giữ không gian trước);
+không gian thay thế không đọc được → không vẽ. misc.pdf: ô xanh nhạt nay trắng như bản đối chiếu. Khớp 15/16 ô
+(lệch: toán tử lạ `foo` trong hàm PostScript). CMYK → RGB: bảng 5⁴ = 625 ô đo trên cửa sổ bản đối chiếu, nội suy
+tứ tuyến (cyan 0,173,238; magenta 236,2,141; K 36,32,33): lệch 0 tại cả 625 ô (trước: công thức 1−c, cyan
+0,255,255). Knockout group (`/K true`): Direct2D primitive blend Copy trong một layer — vùng chồng chỉ còn đối
+tượng sau như bản đối chiếu (`reader-11`). Overprint: bản đối chiếu không mô phỏng trên màn hình (đo), ta cũng
+không; khi in có "Simulate Overprinting" (mực nhân nhau). Night Mode: chữ vẽ viền (Tr 1/2) nay xám như chữ khác
+(màu chữ ghi đè trong trình thông dịch).
+
+**In** (`reader-12`, `reader-13`, đo ô điều khiển của hộp thoại bản đối chiếu qua danh sách cửa sổ con ở 125 %):
+Properties (hộp thoại driver máy in, giữ DEVMODE theo máy in), Print as image (150 dpi), Tile Large Pages (Page
+Zoom, Overlap inch, Cut Marks, Labels — kiểm bằng kế hoạch: trang 17 × 22 inch → 3 × 3 tờ), Orientation (Auto /
+Portrait / Landscape, đặt vào DEVMODE), Print What (Document / and markups / and stamps / Form fields only /
+Annotations only; khi in chỉ chú thích có cờ Print), Output (Simulate Overprinting), Choose paper source by PDF
+page size, danh sách thả xuống thật thay cho bấm vòng. Collate tắt khi 1 bản, Reverse tắt khi All pages như bản
+đối chiếu. Xem trước: giấy thật của máy in (Microsoft Print to PDF 8.5 × 11 inch), ảnh trang thật cho mọi kiểu
+(n-up, booklet, tile), Zoom (A4 lên Letter: 94,06 % — bản đối chiếu 93,73 %), thanh trượt. Advanced, Page
+Setting, Summarize Comments, Bleed Marks: hiện mờ.
+
+**View** (`reader-14`, `reader-15`): Text Viewer — chữ cả tài liệu thành dòng chữ thường giữ cột (đơn vị cột 0,8
+bề rộng chữ, dòng trống khi khoảng cách dòng > 1,25 lần), trang giấy trắng viền xám như bản đối chiếu. Chia khung
+dọc / ngang / kiểu bảng tính: mỗi khung một vị trí cuộn, cùng zoom, ảnh trang dùng chung; bánh xe / nhấp chuyển
+khung (bản đối chiếu chỉ hiện ô kéo chia ở đầu thanh cuộn, ta chia đôi ngay). Read: đọc trang / đọc từ trang
+hiện tại, tạm dừng, dừng, chậm / nhanh qua giọng đọc Windows (SAPI, chỉ tạo khi bấm). AutoScroll: đo bản đối chiếu
+2,7 px/giây ở 125 % (11 px sau 4 giây); ta cuộn theo thời gian mỗi khung hình (7 mức, ↑/↓ đổi).
+
+**Comment / Home / Form / Protect** (`reader-16`): lưới đánh dấu chữ 3 × 2 (thêm Replace Text: gạch xoá rồi hỏi chữ
+thay; Insert Text: ghi chú), File (mờ), Eraser (xoá nét bút chì dưới con trỏ), Area Highlight, Search & Highlight
+(tô sáng mọi kết quả), Custom Stamp từ ảnh JPEG / PNG (Stamp có appearance ảnh), Summarize / Import / Export (mờ);
+danh sách chú thích sắp theo trang / tác giả / ngày / loại và lọc theo loại. Home: SnapShot (vùng kéo chép vào
+clipboard dạng ảnh, 2× màn hình 100 %), Reflow, Fill & Sign (mờ). Form: điền trường chữ (hộp nhập), ô chọn, nút
+radio, danh sách bằng công cụ Hand; Reset Form; Form to sheet (CSV); Tool Settings › Highlight Fields. Protect:
+Validate kiểm chữ ký chỉ đọc bằng `bo-sign` (`verify_pdf`); Sign / Time Stamp / Fill & Sign mờ (thuộc BlueEditor).
+
+**Mở tệp.** Sổ tay 1 202 trang (bản release, máy có 5 tiến trình `rustc` của agent khác): mở 259 / 281 / 299 ms,
+trang đầu 270–311 ms, dựng display list trung vị 1,1 ms, vẽ GPU trung vị 1,9 ms. Chưa đo được trên máy rảnh;
+phần lớn là `lopdf::Document::load_mem` (vòng 3: 204–209 ms).
+
+Còn lại: mở ≤ 210 ms trên máy rảnh (cần nạp đối tượng lười thay vì `load_mem`), trang Bắt đầu chưa so (bản đối
+chiếu hiện tệp gần đây của chủ máy — không chụp), Advanced / Page Setting / Summarize Comments / Import / Export /
+đính kèm File, Insert Text thật (chú thích Caret), chia khung kéo được, đọc to theo từng câu có tô sáng, toán tử
+lạ trong hàm PostScript.

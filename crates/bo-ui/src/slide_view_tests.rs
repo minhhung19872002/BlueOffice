@@ -114,6 +114,9 @@ fn typing_in_a_placeholder_redraws_bands_only() {
     assert!(store.full.is_empty(), "no full redraw: {:?}", store.full);
     let id = v.ids[0];
     assert!(store.bands.iter().any(|(k, _)| *k == id));
+    // The thumbnail follows when idle (prefetch), off the keystroke's path.
+    assert!(!store.bands.iter().any(|(k, _)| *k == THUMB_KEY + id));
+    assert!(v.prefetch(&mut store).unwrap());
     assert!(store.bands.iter().any(|(k, _)| *k == THUMB_KEY + id));
     // Backspace takes the letter away again.
     assert!(v.handle(key(Key::Backspace)));

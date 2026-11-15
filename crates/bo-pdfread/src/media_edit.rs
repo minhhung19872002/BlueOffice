@@ -372,6 +372,18 @@ impl PdfDocument {
         r
     }
 
+    /// Revert: read the document again from the bytes it was opened or last saved with
+    /// (every change and the undo history are dropped; the font manager is kept).
+    pub fn revert(&mut self) -> Result<(), String> {
+        if self.doc.encryption_state.is_some() {
+            return Err("an encrypted document is reverted by opening it again".into());
+        }
+        let bytes = self.bytes.as_ref().clone();
+        let fonts = std::mem::take(&mut self.fonts);
+        *self = PdfDocument::open(bytes, fonts)?;
+        Ok(())
+    }
+
     /// A file specification with `bytes` embedded (§7.11.4).
     fn embedded_file(&mut self, name: &str, bytes: &[u8]) -> Dictionary {
         let mut ef_stream = Dictionary::new();
@@ -467,6 +479,25 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn revert_drops_every_change() {
+        let mut d = doc();
+        d.add_shape(
+            0,
+            ShapeKind::Rectangle,
+            [10.0, 10.0, 50.0, 50.0],
+            Some([0, 0, 0]),
+            None,
+            1.0,
+        )
+        .expect("shape");
+        d.rotate_pages(&[0], 1).expect("rotate");
+        assert!(d.modified());
+        d.revert().expect("reverts");
+        assert!(!d.modified() && !d.can_undo());
+        assert_eq!(d.page_info(0).expect("p").rotate, 0);
     }
 
     #[test]

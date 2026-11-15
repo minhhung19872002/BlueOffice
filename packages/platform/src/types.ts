@@ -106,7 +106,7 @@ export type DisplayCommand =
    * Transparency group (PDF pages, ISO 32000-1 §11.3.5 / §11.6.5): what follows up to the
    * matching `popGroup` is composited with `blend` and, when set, through `mask`.
    */
-  | { op: 'pushGroup'; blend?: BlendMode; mask?: SoftMask }
+  | { op: 'pushGroup'; blend?: BlendMode; mask?: SoftMask; knockout?: boolean }
   | { op: 'popGroup' };
 
 /** Blend modes of `bo_render::BlendMode` (ISO 32000-1 §11.3.5, Tables 136–137). */

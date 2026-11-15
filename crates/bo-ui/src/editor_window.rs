@@ -51,10 +51,10 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     ];
     let mut v: Vec<(&'static str, Kind)> = common.to_vec();
     match tab {
-        // The reference's Home tab; SnapShot, From Scanner and Quick Recognition are shown
-        // disabled (not ours yet) so the groups keep their places.
+        // The reference's Home tab (SnapShot is BlueReader's); From Scanner and Quick
+        // Recognition are shown disabled so the groups keep their places.
         0 => v.extend([
-            ("ed.snapshot", Big("snapshot", "pdfEditor.snapshot", false)),
+            ("home.snapshot", Big("snapshot", "pdfHome.snapshot", false)),
             (
                 "ed.clipboard",
                 Big("clipboard", "pdfEditor.clipboard", true),
@@ -399,6 +399,29 @@ pub struct EditorWindow {
     pub(crate) tools: crate::editor_tools::ToolsState,
     /// The File page.
     pub(crate) bs: crate::editor_backstage::Backstage,
+    /// File › Preferences.
+    pub(crate) prefs: Prefs,
+}
+
+/// Preferences (File › Preferences): comment author, zoom and page display of opened
+/// documents (empty: as the document asks), units of measurement.
+#[derive(Debug, Clone)]
+pub(crate) struct Prefs {
+    pub author: String,
+    pub zoom: String,
+    pub layout: String,
+    pub units: String,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Self {
+            author: std::env::var("USERNAME").unwrap_or_else(|_| "BlueEditor".into()),
+            zoom: String::new(),
+            layout: String::new(),
+            units: "mm".into(),
+        }
+    }
 }
 
 fn editor_theme() -> Theme {
@@ -435,6 +458,7 @@ impl EditorWindow {
             pending_field: None,
             tools: crate::editor_tools::ToolsState::default(),
             bs: crate::editor_backstage::Backstage::default(),
+            prefs: Prefs::default(),
         }
     }
 
@@ -443,6 +467,7 @@ impl EditorWindow {
         self.edit.reset(self.r.view_mut());
         self.x = crate::editor_actions::Extras::default();
         self.r.open(doc, name, path);
+        self.apply_view_prefs();
         self.org = Organize::default();
         self.sync();
     }
@@ -1416,7 +1441,7 @@ impl EditorWindow {
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
         }
-        for id in ["ed.snapshot", "ed.scanner", "ed.ocr"] {
+        for id in ["ed.scanner", "ed.ocr"] {
             self.r.enabled_override.insert(id, false);
         }
         for id in crate::editor_format::EDIT_TAB_LATER

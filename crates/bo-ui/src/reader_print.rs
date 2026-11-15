@@ -5,6 +5,7 @@
 //! host lists the printers and prints the [`PrintSettings`] the dialog returns.
 use crate::theme::Theme;
 use crate::{Key, Mods, Painter, Strings, TextMeasure, TextStyle};
+use bo_pdfread::PrintWhat;
 use bo_render::{PathSeg, Rgba};
 
 pub use crate::reader_impose::{BookletSides, Duplex, PageOrder, PrintLayout, PrintScaling};
@@ -34,6 +35,48 @@ pub struct PrintSettings {
     pub duplex: Duplex,
     /// Print only this part of the page (page points x y w h): the current view.
     pub view: Option<[f32; 4]>,
+    /// Paper orientation.
+    pub orientation: Orientation,
+    /// Parts of the pages printed.
+    pub what: PrintWhat,
+    /// Pages printed as lower-resolution images (150 dpi).
+    pub as_image: bool,
+    /// Overprinting simulated (inks multiply).
+    pub overprint: bool,
+    /// Paper chosen by the PDF page size (the first page printed).
+    pub paper_by_page: bool,
+}
+
+/// Paper orientation (the reference's Orientation box).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    /// Portrait or landscape after the first page printed.
+    Auto,
+    /// Portrait.
+    Portrait,
+    /// Landscape.
+    Landscape,
+}
+
+/// A printer's paper: size and printable area (x y w h), in points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Paper {
+    /// Width and height.
+    pub size: (f32, f32),
+    /// Printable area.
+    pub area: [f32; 4],
+}
+
+impl Paper {
+    /// The same paper turned landscape (or back).
+    #[must_use]
+    pub fn turned(self) -> Self {
+        let [x, y, w, h] = self.area;
+        Self {
+            size: (self.size.1, self.size.0),
+            area: [y, (self.size.0 - x - w).max(0.0), h, w],
+        }
+    }
 }
 
 /// Answer of a click or key.
@@ -43,6 +86,8 @@ pub enum PrintAction {
     Print(PrintSettings),
     /// Closed without printing.
     Cancel,
+    /// Show the printer driver's settings of this printer (the host keeps what is chosen).
+    Properties(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,7 +101,27 @@ enum Range {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Part {
     Printer,
-    PrinterItem(usize),
+    /// Item of the open drop-down list.
+    Item(usize),
+    Properties,
+    Advanced,
+    AsImage,
+    Bleed,
+    Orientation,
+    What,
+    Summarize,
+    Overprint,
+    PageSetting,
+    TileZoom,
+    TileZoomUp,
+    TileZoomDown,
+    Overlap,
+    OverlapUp,
+    OverlapDown,
+    CutMarks,
+    Labels,
+    Slider,
+    PaperByPage,
     Copies,
     CopiesUp,
     CopiesDown,
@@ -89,6 +154,7 @@ enum Part {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Handling {
     Scale,
+    Tile,
     Multiple,
     Booklet,
 }
@@ -99,10 +165,44 @@ enum Field {
     Copies,
     Pages,
     Scale,
+    TileZoom,
+    Overlap,
 }
 
 /// Pages per sheet offered, in order.
 const PER_SHEET: [u8; 5] = [2, 4, 6, 9, 16];
+/// Print What choices in the reference's order.
+const WHAT: [PrintWhat; 5] = [
+    PrintWhat::Document,
+    PrintWhat::DocumentAndMarkups,
+    PrintWhat::DocumentAndStamps,
+    PrintWhat::FormFields,
+    PrintWhat::Annotations,
+];
+/// Page orders offered.
+const ORDERS: [PageOrder; 4] = [
+    PageOrder::Horizontal,
+    PageOrder::HorizontalReversed,
+    PageOrder::Vertical,
+    PageOrder::VerticalReversed,
+];
+/// Booklet subsets offered.
+const SIDES: [BookletSides; 3] = [BookletSides::Both, BookletSides::Front, BookletSides::Back];
+
+/// A page placed on the preview's sheet.
+struct Shown {
+    page: usize,
+    /// Part of the page (points).
+    src: [f32; 4],
+    /// Where it is drawn (device pixels, after turning).
+    dest: [f32; 4],
+    /// Printed size over page size.
+    zoom: f32,
+    turn: bool,
+    border: bool,
+    cut_marks: bool,
+    tile: Option<(u16, u16)>,
+}
 
 /// Parse a page list such as `1-3, 5, 8-` (1-based) into page indices within `count`.
 pub fn parse_pages(s: &str, count: usize) -> Vec<usize> {
@@ -168,16 +268,29 @@ pub struct PrintDialog {
     focus: Field,
     count: usize,
     current: usize,
-    /// Index into the pages to print of the page shown in the preview.
+    /// Index into the sheets of the sheet shown in the preview.
     preview_at: usize,
-    list_open: bool,
+    /// The combo box whose list is open.
+    drop: Option<Part>,
+    orientation: Orientation,
+    what: PrintWhat,
+    as_image: bool,
+    overprint: bool,
+    tile_zoom: Vec<char>,
+    overlap: Vec<char>,
+    cut_marks: bool,
+    labels: bool,
+    paper_by_page: bool,
+    /// Size of every page (points).
+    sizes: Vec<(f32, f32)>,
+    /// Paper of each printer, when the host knows it.
+    papers: Vec<Option<Paper>>,
+    /// Page images of the sheet shown (one per item), from the host.
+    preview_keys: Vec<Option<usize>>,
     scale: f32,
     frame: [f32; 4],
     parts: Vec<(Part, [f32; 4])>,
     hover: Option<Part>,
-    preview_size: (f32, f32),
-    preview_key: Option<usize>,
-    preview_scale: f32,
     preview_rect: [f32; 4],
     /// Window size and display scale of the last layout.
     window: ((f32, f32), f32),
@@ -232,39 +345,278 @@ impl PrintDialog {
             count: count.max(1),
             current: current.min(count.saturating_sub(1)),
             preview_at: 0,
-            list_open: false,
+            drop: None,
+            orientation: Orientation::Portrait,
+            what: PrintWhat::DocumentAndMarkups,
+            as_image: false,
+            overprint: false,
+            tile_zoom: vec!['1', '0', '0'],
+            overlap: "0.005".chars().collect(),
+            cut_marks: false,
+            labels: false,
+            paper_by_page: false,
+            sizes: Vec::new(),
+            papers: Vec::new(),
+            preview_keys: Vec::new(),
             scale: 1.0,
             frame: [0.0; 4],
             parts: Vec::new(),
             hover: None,
-            preview_size: (612.0, 792.0),
-            preview_key: None,
-            preview_scale: 0.0,
             preview_rect: [0.0; 4],
             window: ((1500.0, 1000.0), 1.0),
         }
     }
 
-    /// The page shown in the preview.
-    pub fn preview_page(&self) -> usize {
-        let pages = self.pages();
-        pages
-            .get(self.preview_at.min(pages.len().saturating_sub(1)))
+    /// Sizes of the document's pages (points), for the preview's sheets.
+    pub fn set_page_sizes(&mut self, sizes: Vec<(f32, f32)>) {
+        self.sizes = sizes;
+    }
+
+    /// Paper of each printer, in the order of the printers (`None` when unknown).
+    pub fn set_papers(&mut self, papers: Vec<Option<Paper>>) {
+        self.papers = papers;
+    }
+
+    /// Paper of printer `name` after its driver settings changed.
+    pub fn set_paper(&mut self, name: &str, paper: Option<Paper>) {
+        if let Some(i) = self.printers.iter().position(|p| p == name) {
+            if self.papers.len() <= i {
+                self.papers.resize(i + 1, None);
+            }
+            self.papers[i] = paper;
+        }
+    }
+
+    /// The chosen printer.
+    pub fn printer(&self) -> Option<&str> {
+        self.printers.get(self.printer).map(String::as_str)
+    }
+
+    /// Page images the preview shows: (page, device pixels per point), one per page placed on
+    /// the sheet shown; the host answers with [`PrintDialog::set_preview_keys`].
+    pub fn preview_requests(&self) -> Vec<(usize, f32)> {
+        self.shown()
+            .iter()
+            .map(|it| {
+                let across = if it.turn { it.dest[3] } else { it.dest[2] };
+                let (pw, ph) = self.size_of(it.page);
+                let scale = across / it.src[2].max(1.0);
+                // A tile of a page at a large zoom: the whole page image stays reasonable.
+                (it.page, scale.min(3000.0 / pw.max(ph).max(1.0)))
+            })
+            .collect()
+    }
+
+    /// Stored page images (keys) for [`PrintDialog::preview_requests`], in its order.
+    pub fn set_preview_keys(&mut self, keys: Vec<Option<usize>>) {
+        self.preview_keys = keys;
+    }
+
+    fn size_of(&self, i: usize) -> (f32, f32) {
+        self.sizes.get(i).copied().unwrap_or((612.0, 792.0))
+    }
+
+    /// The chosen printer's paper in the chosen orientation (US Letter with ¼ inch margins
+    /// when the printer's is unknown).
+    fn paper(&self) -> Paper {
+        let base = self
+            .papers
+            .get(self.printer)
             .copied()
-            .unwrap_or(0)
+            .flatten()
+            .unwrap_or(Paper {
+                size: (612.0, 792.0),
+                area: [18.0, 18.0, 576.0, 756.0],
+            });
+        let portrait = base.size.0 <= base.size.1;
+        let landscape = match self.orientation {
+            Orientation::Portrait => false,
+            Orientation::Landscape => true,
+            Orientation::Auto => self.pages().first().is_some_and(|&i| {
+                let (w, h) = self.size_of(i);
+                w > h
+            }),
+        };
+        if landscape == portrait {
+            base.turned()
+        } else {
+            base
+        }
     }
 
-    /// The preview box (device pixels): the host draws the preview page to fit it.
-    pub fn preview_box(&self) -> [f32; 4] {
-        self.preview_rect
+    /// The sheets printed (one copy).
+    fn sheets(&self) -> Vec<crate::reader_impose::Sheet> {
+        let paper = self.paper();
+        let view = match self.range {
+            Range::View => self.view.map(|v| v.1),
+            _ => None,
+        };
+        let o = crate::reader_impose::PlanOptions {
+            scaling: self.scaling,
+            auto_rotate: self.rotate && self.handling != Handling::Tile,
+            auto_center: self.center,
+            layout: self.print_layout(),
+            copies: 1,
+            collate: true,
+        };
+        crate::reader_impose::plan(
+            &self.pages(),
+            &|i| self.size_of(i),
+            view,
+            (paper.area[2], paper.area[3]),
+            &o,
+        )
     }
 
-    /// Show page image `key` drawn at `scale` device pixels per point, of a page of `size`
-    /// points.
-    pub fn set_preview(&mut self, key: Option<usize>, size: (f32, f32), scale: f32) {
-        self.preview_key = key;
-        self.preview_size = size;
-        self.preview_scale = scale;
+    fn sheet_count(&self) -> usize {
+        self.sheets().len().max(1)
+    }
+
+    /// The preview's paper (device pixels) and its pixels per point.
+    fn paper_rect(&self) -> ([f32; 4], f32) {
+        let paper = self.paper();
+        let pv = self.preview_rect;
+        let k = (pv[2] / paper.size.0.max(1.0)).min(pv[3] / paper.size.1.max(1.0));
+        let (w, h) = ((paper.size.0 * k).round(), (paper.size.1 * k).round());
+        (
+            [
+                (pv[0] + (pv[2] - w) / 2.0).round(),
+                (pv[1] + (pv[3] - h) / 2.0).round(),
+                w,
+                h,
+            ],
+            k,
+        )
+    }
+
+    /// Pages on the sheet shown, placed on the preview's paper.
+    fn shown(&self) -> Vec<Shown> {
+        let sheets = self.sheets();
+        let Some(sheet) = sheets.get(self.preview_at.min(sheets.len().saturating_sub(1))) else {
+            return Vec::new();
+        };
+        let paper = self.paper();
+        let (pr, k) = self.paper_rect();
+        sheet
+            .items
+            .iter()
+            .map(|pl| {
+                let (pw, ph) = self.size_of(pl.page);
+                let d = pl.dest;
+                Shown {
+                    page: pl.page,
+                    src: pl.clip.unwrap_or([0.0, 0.0, pw, ph]),
+                    dest: [
+                        pr[0] + (paper.area[0] + d[0]) * k,
+                        pr[1] + (paper.area[1] + d[1]) * k,
+                        d[2] * k,
+                        d[3] * k,
+                    ],
+                    zoom: if pl.turn { d[3] } else { d[2] } / pl.clip.map_or(pw, |c| c[2]).max(1.0),
+                    turn: pl.turn,
+                    border: pl.border,
+                    cut_marks: pl.cut_marks,
+                    tile: pl.tile,
+                }
+            })
+            .collect()
+    }
+
+    /// Items of a drop-down list.
+    fn item_count(&self, part: Part) -> usize {
+        match part {
+            Part::Printer => self.printers.len(),
+            Part::Subset | Part::Orientation | Part::BookletSubset => 3,
+            Part::What | Part::PerSheet => 5,
+            Part::Order => 4,
+            Part::Binding => 2,
+            _ => 0,
+        }
+    }
+
+    /// The chosen item of a drop-down list.
+    fn item_now(&self, part: Part) -> usize {
+        match part {
+            Part::Printer => self.printer,
+            Part::Subset => usize::from(self.subset),
+            Part::Orientation => self.orientation as usize,
+            Part::What => WHAT.iter().position(|w| *w == self.what).unwrap_or(1),
+            Part::PerSheet => PER_SHEET
+                .iter()
+                .position(|n| *n == self.per_sheet)
+                .unwrap_or(0),
+            Part::Order => ORDERS.iter().position(|o| *o == self.order).unwrap_or(0),
+            Part::BookletSubset => SIDES
+                .iter()
+                .position(|o| *o == self.booklet_sides)
+                .unwrap_or(0),
+            Part::Binding => usize::from(self.right_binding),
+            _ => 0,
+        }
+    }
+
+    /// Label of item `i` of a drop-down list.
+    fn item_label(&self, part: Part, i: usize, s: &Strings) -> String {
+        let key = |keys: &[&str]| s.get(keys.get(i).copied().unwrap_or("")).to_owned();
+        match part {
+            Part::Printer => self.printers.get(i).cloned().unwrap_or_default(),
+            Part::Subset => key(&[
+                "pdfPrint.subsetAll",
+                "pdfPrint.subsetOdd",
+                "pdfPrint.subsetEven",
+            ]),
+            Part::Orientation => key(&[
+                "pdfPrint.orientAuto",
+                "pdfPrint.orientPortrait",
+                "pdfPrint.orientLandscape",
+            ]),
+            Part::What => key(&[
+                "pdfPrint.whatDoc",
+                "pdfPrint.whatMarkups",
+                "pdfPrint.whatStamps",
+                "pdfPrint.whatForms",
+                "pdfPrint.whatAnnots",
+            ]),
+            Part::PerSheet => PER_SHEET
+                .get(i)
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            Part::Order => key(&[
+                "pdfPrint.orderH",
+                "pdfPrint.orderHR",
+                "pdfPrint.orderV",
+                "pdfPrint.orderVR",
+            ]),
+            Part::BookletSubset => key(&[
+                "pdfPrint.bothSides",
+                "pdfPrint.frontOnly",
+                "pdfPrint.backOnly",
+            ]),
+            Part::Binding => key(&["pdfPrint.left", "pdfPrint.right"]),
+            _ => String::new(),
+        }
+    }
+
+    /// Item `i` of the drop-down list of `part` chosen.
+    fn choose(&mut self, part: Part, i: usize) {
+        match part {
+            Part::Printer if i < self.printers.len() => self.printer = i,
+            Part::Subset => self.subset = i.min(2) as u8,
+            Part::Orientation => {
+                self.orientation = [
+                    Orientation::Auto,
+                    Orientation::Portrait,
+                    Orientation::Landscape,
+                ][i.min(2)];
+            }
+            Part::What => self.what = WHAT[i.min(4)],
+            Part::PerSheet => self.per_sheet = PER_SHEET[i.min(4)],
+            Part::Order => self.order = ORDERS[i.min(3)],
+            Part::BookletSubset => self.booklet_sides = SIDES[i.min(2)],
+            Part::Binding => self.right_binding = i == 1,
+            _ => {}
+        }
+        self.preview_at = 0;
     }
 
     /// Pages to print, in order.
@@ -284,7 +636,7 @@ impl PrintDialog {
             2 => v.retain(|p| p % 2 == 1),
             _ => {}
         }
-        if self.reverse {
+        if self.reverse && self.range != Range::All {
             v.reverse();
         }
         v
@@ -314,6 +666,11 @@ impl PrintDialog {
                 Range::View => self.view.map(|v| v.1),
                 _ => None,
             },
+            orientation: self.orientation,
+            what: self.what,
+            as_image: self.as_image,
+            overprint: self.overprint,
+            paper_by_page: self.paper_by_page,
         })
     }
 
@@ -330,6 +687,16 @@ impl PrintDialog {
                 sides: self.booklet_sides,
                 right_binding: self.right_binding,
             },
+            Handling::Tile => {
+                let zoom: String = self.tile_zoom.iter().collect();
+                let overlap: String = self.overlap.iter().collect();
+                PrintLayout::Tile {
+                    zoom: zoom.parse::<u16>().unwrap_or(100).clamp(1, 1000),
+                    overlap: overlap.parse::<f32>().unwrap_or(0.0).clamp(0.0, 10.0) * 72.0,
+                    cut_marks: self.cut_marks,
+                    labels: self.labels,
+                }
+            }
         }
     }
 
@@ -392,14 +759,26 @@ impl PrintDialog {
         let r = |x: f32, y: f32, w: f32, h: f32| at(x * s, y * s, w * s, h * s);
         self.parts.push((Part::Close, r(1192.0, 0.0, 36.0, 26.0)));
         self.parts.push((Part::Printer, r(92.0, 44.0, 293.0, 26.0)));
-        if self.list_open {
-            for i in 0..self.printers.len() {
-                self.parts.push((
-                    Part::PrinterItem(i),
-                    r(92.0, 70.0 + i as f32 * 24.0, 293.0, 24.0),
-                ));
-            }
-        }
+        // Measured on the reference at 125 %: Properties / Advanced 125 × 30 px from x 506 /
+        // 656, Print as image and Bleed Marks at x 561 / 726, the Orientation, Print What and
+        // Output groups at x 599, Page Setting at the bottom left.
+        self.parts
+            .push((Part::Properties, r(404.8, 44.0, 100.0, 24.0)));
+        self.parts
+            .push((Part::Advanced, r(524.8, 44.0, 100.0, 24.0)));
+        self.parts
+            .push((Part::AsImage, r(448.8, 84.0, 120.0, 20.0)));
+        self.parts.push((Part::Bleed, r(580.8, 84.0, 100.0, 20.0)));
+        self.parts
+            .push((Part::Orientation, r(492.8, 404.0, 293.6, 26.4)));
+        self.parts.push((Part::What, r(492.8, 492.0, 293.6, 26.4)));
+        self.parts
+            .push((Part::Summarize, r(492.8, 532.0, 168.0, 28.0)));
+        self.parts
+            .push((Part::Overprint, r(492.8, 612.0, 256.0, 20.0)));
+        self.parts
+            .push((Part::PageSetting, r(16.8, 657.6, 100.0, 28.0)));
+        self.parts.push((Part::Slider, r(916.8, 612.0, 48.0, 24.0)));
         self.parts.push((Part::Copies, r(92.0, 80.0, 70.0, 26.0)));
         self.parts
             .push((Part::CopiesUp, r(162.0, 80.0, 14.0, 13.0)));
@@ -430,14 +809,19 @@ impl PrintDialog {
             .push((Part::Flip(true), r(511.0, 173.0, 240.0, 20.0)));
         self.parts
             .push((Part::Flip(false), r(511.0, 201.0, 240.0, 20.0)));
-        for (k, h) in [Handling::Scale, Handling::Multiple, Handling::Booklet]
-            .into_iter()
-            .enumerate()
+        for (k, h) in [
+            Handling::Scale,
+            Handling::Tile,
+            Handling::Multiple,
+            Handling::Booklet,
+        ]
+        .into_iter()
+        .enumerate()
         {
-            // The reference's second tab (tile large pages) is not offered: its place stays.
-            let slot = if k == 0 { 0.0 } else { k as f32 + 1.0 };
-            self.parts
-                .push((Part::Handling(h), r(21.6 + slot * 112.0, 404.8, 98.4, 40.8)));
+            self.parts.push((
+                Part::Handling(h),
+                r(21.6 + k as f32 * 112.0, 404.8, 98.4, 40.8),
+            ));
         }
         match self.handling {
             Handling::Scale => {
@@ -452,6 +836,9 @@ impl PrintDialog {
                 }
                 self.parts
                     .push((Part::ScaleText, r(160.0, 551.0, 60.0, 26.0)));
+                // Reference: (59, 880) px at 125 % in the dialog at (23, 150).
+                self.parts
+                    .push((Part::PaperByPage, r(28.8, 584.0, 360.0, 20.0)));
             }
             Handling::Multiple => {
                 self.parts
@@ -465,6 +852,24 @@ impl PrintDialog {
                 self.parts
                     .push((Part::Binding, r(160.0, 498.0, 120.0, 26.0)));
             }
+            Handling::Tile => {
+                // Reference: Page Zoom / Overlap boxes 124 × 34 px at x 209, spinners after.
+                self.parts
+                    .push((Part::TileZoom, r(167.2, 466.4, 99.2, 27.2)));
+                self.parts
+                    .push((Part::TileZoomUp, r(266.4, 466.4, 15.2, 13.6)));
+                self.parts
+                    .push((Part::TileZoomDown, r(266.4, 480.0, 15.2, 13.6)));
+                self.parts
+                    .push((Part::Overlap, r(167.2, 502.4, 99.2, 27.2)));
+                self.parts
+                    .push((Part::OverlapUp, r(266.4, 502.4, 15.2, 13.6)));
+                self.parts
+                    .push((Part::OverlapDown, r(266.4, 516.0, 15.2, 13.6)));
+                self.parts
+                    .push((Part::CutMarks, r(28.8, 544.0, 200.0, 20.0)));
+                self.parts.push((Part::Labels, r(28.8, 582.4, 200.0, 20.0)));
+            }
         }
         self.parts
             .push((Part::Rotate, r(492.0, 232.0, 200.0, 20.0)));
@@ -477,7 +882,16 @@ impl PrintDialog {
         self.parts.push((Part::Ok, r(994.0, 657.0, 95.0, 28.0)));
         self.parts
             .push((Part::Cancel, r(1110.0, 657.0, 95.0, 28.0)));
-        self.preview_rect = r(836.0, 102.0, 342.0, 486.0);
+        self.preview_rect = r(818.0, 101.0, 377.0, 487.0);
+        // The open drop-down list under its box.
+        if let Some(d) = self.drop {
+            let b = self.rect(d);
+            let ih = (24.0 * s).round();
+            for i in 0..self.item_count(d) {
+                self.parts
+                    .push((Part::Item(i), [b[0], b[1] + b[3] + i as f32 * ih, b[2], ih]));
+            }
+        }
     }
 
     fn rect(&self, part: Part) -> [f32; 4] {
@@ -489,18 +903,18 @@ impl PrintDialog {
 
     fn part_at(&self, x: f32, y: f32) -> Option<Part> {
         let inside = |r: &[f32; 4]| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
-        if self.list_open {
+        if self.drop.is_some() {
             if let Some((p, _)) = self
                 .parts
                 .iter()
-                .find(|(p, r)| matches!(p, Part::PrinterItem(_)) && inside(r))
+                .find(|(p, r)| matches!(p, Part::Item(_)) && inside(r))
             {
                 return Some(*p);
             }
         }
         self.parts
             .iter()
-            .find(|(p, r)| !matches!(p, Part::PrinterItem(_)) && inside(r))
+            .find(|(p, r)| !matches!(p, Part::Item(_)) && inside(r))
             .map(|(p, _)| *p)
     }
 
@@ -523,15 +937,63 @@ impl PrintDialog {
     /// A click.
     pub fn press(&mut self, x: f32, y: f32) -> Option<PrintAction> {
         let part = self.part_at(x, y);
-        if self.list_open && !matches!(part, Some(Part::PrinterItem(_) | Part::Printer)) {
-            self.list_open = false;
-            return None;
+        if let Some(open) = self.drop.take() {
+            if let Some(Part::Item(i)) = part {
+                self.choose(open, i);
+            }
+            return self.relayout_after(None);
         }
         match part? {
-            Part::Printer => self.list_open = !self.list_open,
-            Part::PrinterItem(i) => {
-                self.printer = i;
-                self.list_open = false;
+            p @ (Part::Printer
+            | Part::Subset
+            | Part::Orientation
+            | Part::What
+            | Part::PerSheet
+            | Part::Order
+            | Part::BookletSubset
+            | Part::Binding) => {
+                self.drop = Some(p);
+                return self.relayout_after(None);
+            }
+            Part::Properties => {
+                return self
+                    .printers
+                    .get(self.printer)
+                    .map(|p| PrintAction::Properties(p.clone()));
+            }
+            // Not offered (drawn disabled).
+            Part::Item(_) | Part::Advanced | Part::Bleed | Part::Summarize | Part::PageSetting => {}
+            Part::AsImage => self.as_image = !self.as_image,
+            Part::Overprint => self.overprint = !self.overprint,
+            Part::CutMarks => self.cut_marks = !self.cut_marks,
+            Part::PaperByPage => self.paper_by_page = !self.paper_by_page,
+            Part::Labels => self.labels = !self.labels,
+            Part::TileZoom => self.focus = Field::TileZoom,
+            Part::Overlap => self.focus = Field::Overlap,
+            p @ (Part::TileZoomUp | Part::TileZoomDown) => {
+                let v: String = self.tile_zoom.iter().collect();
+                let v = v.parse::<i32>().unwrap_or(100);
+                let v = if p == Part::TileZoomUp { v + 1 } else { v - 1 };
+                self.tile_zoom = v.clamp(1, 1000).to_string().chars().collect();
+                self.preview_at = 0;
+            }
+            p @ (Part::OverlapUp | Part::OverlapDown) => {
+                let v: String = self.overlap.iter().collect();
+                let v = v.parse::<f32>().unwrap_or(0.0);
+                let v = if p == Part::OverlapUp {
+                    v + 0.1
+                } else {
+                    v - 0.1
+                };
+                self.overlap = format!("{:.3}", v.clamp(0.0, 10.0)).chars().collect();
+                self.preview_at = 0;
+            }
+            Part::Slider => {
+                let r = self.rect(Part::Slider);
+                let n = self.sheet_count();
+                let t = ((x - r[0]) / r[2].max(1.0)).clamp(0.0, 1.0);
+                self.preview_at =
+                    ((t * n.saturating_sub(1) as f32).round() as usize).min(n.saturating_sub(1));
             }
             Part::Copies => self.focus = Field::Copies,
             Part::CopiesUp => {
@@ -542,6 +1004,8 @@ impl PrintDialog {
                 self.copies = self.copies.saturating_sub(1).max(1);
                 self.sync_copies();
             }
+            // One copy: nothing to collate (disabled like the reference's).
+            Part::Collate if self.copies <= 1 => {}
             Part::Collate => self.collate = !self.collate,
             Part::Gray => self.gray = !self.gray,
             Part::Range(Range::View) if self.view.is_none() => {}
@@ -556,10 +1020,7 @@ impl PrintDialog {
                 self.range = Range::Pages;
                 self.focus = Field::Pages;
             }
-            Part::Subset => {
-                self.subset = (self.subset + 1) % 3;
-                self.preview_at = 0;
-            }
+            Part::Reverse if self.range == Range::All => {}
             Part::Reverse => self.reverse = !self.reverse,
             Part::Scaling(PrintScaling::Custom(_)) | Part::ScaleText => {
                 self.focus = Field::Scale;
@@ -585,37 +1046,12 @@ impl PrintDialog {
                 self.preview_at = 0;
                 return self.relayout_after(None);
             }
-            Part::PerSheet => {
-                let i = PER_SHEET
-                    .iter()
-                    .position(|n| *n == self.per_sheet)
-                    .unwrap_or(0);
-                self.per_sheet = PER_SHEET[(i + 1) % PER_SHEET.len()];
-                self.preview_at = 0;
-            }
-            Part::Order => {
-                self.order = match self.order {
-                    PageOrder::Horizontal => PageOrder::HorizontalReversed,
-                    PageOrder::HorizontalReversed => PageOrder::Vertical,
-                    PageOrder::Vertical => PageOrder::VerticalReversed,
-                    PageOrder::VerticalReversed => PageOrder::Horizontal,
-                };
-            }
             Part::Border => self.border = !self.border,
-            Part::BookletSubset => {
-                self.booklet_sides = match self.booklet_sides {
-                    BookletSides::Both => BookletSides::Front,
-                    BookletSides::Front => BookletSides::Back,
-                    BookletSides::Back => BookletSides::Both,
-                };
-                self.preview_at = 0;
-            }
-            Part::Binding => self.right_binding = !self.right_binding,
             Part::Rotate => self.rotate = !self.rotate,
             Part::Center => self.center = !self.center,
             Part::PrevPage => self.preview_at = self.preview_at.saturating_sub(1),
             Part::NextPage => {
-                let n = self.pages().len();
+                let n = self.sheet_count();
                 self.preview_at = (self.preview_at + 1).min(n.saturating_sub(1));
             }
             Part::Ok => return self.settings().map(PrintAction::Print),
@@ -626,7 +1062,17 @@ impl PrintDialog {
 
     /// Typed text: page list, custom scale or copies.
     pub fn text(&mut self, s: &str) {
-        if self.focus == Field::Scale {
+        if self.focus == Field::TileZoom {
+            self.tile_zoom
+                .extend(s.chars().filter(char::is_ascii_digit));
+            self.tile_zoom.truncate(4);
+            self.preview_at = 0;
+        } else if self.focus == Field::Overlap {
+            self.overlap
+                .extend(s.chars().filter(|c| c.is_ascii_digit() || *c == '.'));
+            self.overlap.truncate(6);
+            self.preview_at = 0;
+        } else if self.focus == Field::Scale {
             self.scale_text
                 .extend(s.chars().filter(char::is_ascii_digit));
             self.scale_text.truncate(4);
@@ -652,14 +1098,17 @@ impl PrintDialog {
         match key {
             Key::Enter => return self.settings().map(PrintAction::Print),
             Key::Escape => {
-                if self.list_open {
-                    self.list_open = false;
-                    return None;
+                if self.drop.take().is_some() {
+                    return self.relayout_after(None);
                 }
                 return Some(PrintAction::Cancel);
             }
             Key::Backspace => {
-                if self.focus == Field::Scale {
+                if self.focus == Field::TileZoom {
+                    self.tile_zoom.pop();
+                } else if self.focus == Field::Overlap {
+                    self.overlap.pop();
+                } else if self.focus == Field::Scale {
                     self.scale_text.pop();
                     self.sync_scale();
                 } else if self.focus == Field::Pages {
@@ -679,14 +1128,14 @@ impl PrintDialog {
                 self.sync_copies();
             }
             Key::PageDown => {
-                let n = self.pages().len();
+                let n = self.sheet_count();
                 self.preview_at = (self.preview_at + 1).min(n.saturating_sub(1));
             }
             Key::PageUp => self.preview_at = self.preview_at.saturating_sub(1),
             Key::Tab => {
                 self.focus = match self.focus {
                     Field::Copies => Field::Pages,
-                    Field::Pages | Field::Scale => Field::Copies,
+                    Field::Pages | Field::Scale | Field::TileZoom | Field::Overlap => Field::Copies,
                 };
             }
             _ => {}
@@ -884,7 +1333,16 @@ impl PrintDialog {
             .printers
             .get(self.printer)
             .map_or_else(|| s.get("pdfPrint.noPrinter").to_owned(), Clone::clone);
-        self.combo(p, pr, &name, self.list_open);
+        self.combo(p, pr, &name, self.drop == Some(Part::Printer));
+        self.button(p, Part::Properties, s.get("pdfPrint.properties"), false);
+        self.button_off(p, Part::Advanced, s.get("pdfPrint.advanced"));
+        self.check(
+            p,
+            self.rect(Part::AsImage),
+            self.as_image,
+            s.get("pdfPrint.asImage"),
+        );
+        self.check_off(p, self.rect(Part::Bleed), s.get("pdfPrint.bleed"));
         let cp = self.rect(Part::Copies);
         self.text_in(
             p,
@@ -911,12 +1369,16 @@ impl PrintDialog {
                 Some((TEXT, self.scale.max(1.0))),
             );
         }
-        self.check(
-            p,
-            self.rect(Part::Collate),
-            self.collate,
-            s.get("pdfPrint.collate"),
-        );
+        if self.copies > 1 {
+            self.check(
+                p,
+                self.rect(Part::Collate),
+                self.collate,
+                s.get("pdfPrint.collate"),
+            );
+        } else {
+            self.check_off(p, self.rect(Part::Collate), s.get("pdfPrint.collate"));
+        }
         self.check(
             p,
             self.rect(Part::Gray),
@@ -990,13 +1452,17 @@ impl PrintDialog {
             "pdfPrint.subsetOdd",
             "pdfPrint.subsetEven",
         ][usize::from(self.subset.min(2))];
-        self.combo(p, sb, s.get(subset), false);
-        self.check(
-            p,
-            self.rect(Part::Reverse),
-            self.reverse,
-            s.get("pdfPrint.reverse"),
-        );
+        self.combo(p, sb, s.get(subset), self.drop == Some(Part::Subset));
+        if self.range == Range::All {
+            self.check_off(p, self.rect(Part::Reverse), s.get("pdfPrint.reverse"));
+        } else {
+            self.check(
+                p,
+                self.rect(Part::Reverse),
+                self.reverse,
+                s.get("pdfPrint.reverse"),
+            );
+        }
         // Print Handling.
         self.group(p, s.get("pdfPrint.handling"), [17.0, 386.0, 449.0, 258.0]);
         self.paint_handling(p, s, caret);
@@ -1016,78 +1482,198 @@ impl PrintDialog {
                 self.radio_off(p, r, s.get(key));
             }
         }
-        self.check(
-            p,
-            self.rect(Part::Rotate),
-            self.rotate,
-            s.get("pdfPrint.autoRotate"),
-        );
+        if self.handling == Handling::Tile {
+            self.check_off(p, self.rect(Part::Rotate), s.get("pdfPrint.autoRotate"));
+        } else {
+            self.check(
+                p,
+                self.rect(Part::Rotate),
+                self.rotate,
+                s.get("pdfPrint.autoRotate"),
+            );
+        }
         self.check(
             p,
             self.rect(Part::Center),
             self.center,
             s.get("pdfPrint.autoCenter"),
         );
-        // Preview.
-        self.group(p, s.get("pdfPrint.preview"), [809.0, 36.0, 396.0, 562.0]);
-        let pv = self.preview_rect;
-        let (w_pt, h_pt) = self.preview_size;
+        // Orientation, Print What, Output (reference: groups at x 599 under the duplex group).
+        self.group(
+            p,
+            s.get("pdfPrint.orientation"),
+            [479.2, 377.6, 316.0, 74.4],
+        );
+        let orient = self.item_label(Part::Orientation, self.item_now(Part::Orientation), s);
+        self.combo(
+            p,
+            self.rect(Part::Orientation),
+            &orient,
+            self.drop == Some(Part::Orientation),
+        );
+        self.group(p, s.get("pdfPrint.what"), [479.2, 464.0, 316.0, 108.0]);
+        let what = self.item_label(Part::What, self.item_now(Part::What), s);
+        self.combo(
+            p,
+            self.rect(Part::What),
+            &what,
+            self.drop == Some(Part::What),
+        );
+        self.button_off(p, Part::Summarize, s.get("pdfPrint.summarize"));
+        self.group(p, s.get("pdfPrint.output"), [479.2, 580.0, 316.0, 68.0]);
+        self.check(
+            p,
+            self.rect(Part::Overprint),
+            self.overprint,
+            s.get("pdfPrint.overprint"),
+        );
+        self.button_off(p, Part::PageSetting, s.get("pdfPrint.pageSetting"));
+        self.paint_preview(p, s);
+        // Buttons.
+        self.button(p, Part::Ok, s.get("pdfPrint.ok"), true);
+        self.button(p, Part::Cancel, s.get("pdfPrint.cancel"), false);
+        // The open drop-down list on top.
+        if let Some(d) = self.drop {
+            let items: Vec<(usize, [f32; 4])> = self
+                .parts
+                .iter()
+                .filter_map(|(p, r)| match p {
+                    Part::Item(i) => Some((*i, *r)),
+                    _ => None,
+                })
+                .collect();
+            if let (Some(first), Some(last)) = (items.first(), items.last()) {
+                let (x, y) = (first.1[0], first.1[1]);
+                let h = last.1[1] + last.1[3] - y;
+                p.fill_rect(x, y, first.1[2], h, FIELD);
+                p.fill_rect(x + 1.0, y, first.1[2] - 2.0, h - 1.0, WHITE);
+            }
+            let now = self.item_now(d);
+            for (i, r) in items {
+                if self.hover == Some(Part::Item(i)) || i == now {
+                    p.fill_rect(r[0] + 1.0, r[1], r[2] - 2.0, r[3] - 1.0, ITEM_HOVER);
+                }
+                self.text_in(p, &self.item_label(d, i, s), r, self.px(4.8), TEXT);
+            }
+        }
+    }
+}
+
+impl PrintDialog {
+    /// The Preview group: zoom, document and paper sizes, the sheet shown with its pages,
+    /// the page buttons, slider and "Page n of m".
+    #[allow(clippy::too_many_lines)]
+    fn paint_preview(&self, p: &mut dyn Painter, s: &Strings) {
+        let sc = self.scale;
+        let f = self.frame;
+        let at = |x: f32, y: f32| (f[0] + (x * sc).round(), f[1] + (y * sc).round());
+        // Reference: group (1011, 35)–(1508, 813) px at 125 %, a rule above the page buttons.
+        self.group(p, s.get("pdfPrint.preview"), [808.8, 28.0, 397.6, 622.4]);
+        let (lx, ly) = at(808.8, 598.4);
+        p.fill_rect(lx, ly, (397.6 * sc).round(), 1.0, GROUP);
+        let shown = self.shown();
+        let paper = self.paper();
+        let first = self.pages().first().copied().unwrap_or(0);
+        let (dw, dh) = self.size_of(first);
+        let inch = |v: f32| format!("{:.1}", v / 72.0);
+        let (x, y) = at(816.8, 53.6);
+        self.label(p, s.get("pdfPrint.zoom"), x, y, TEXT);
+        if let Some(z) = shown.first().map(|it| it.zoom) {
+            let (x, y) = at(894.4, 53.6);
+            self.label(p, &format!("{:.2}%", z * 100.0), x, y, TEXT);
+        }
+        let (x, y) = at(816.8, 76.0);
+        self.label(p, &format!("{}:", s.get("pdfPrint.document")), x, y, TEXT);
+        let (x, y) = at(891.2, 76.0);
+        self.label(p, &format!("{} x {} inch", inch(dw), inch(dh)), x, y, TEXT);
+        let (x, y) = at(1000.8, 76.0);
+        self.label(p, s.get("pdfPrint.paper"), x, y, TEXT);
+        let (x, y) = at(1060.8, 76.0);
         self.label(
             p,
-            &format!(
-                "{}:  {:.1} x {:.1} inch",
-                s.get("pdfPrint.document"),
-                w_pt / 72.0,
-                h_pt / 72.0
-            ),
-            pv[0] - self.px(18.0),
-            pv[1] - self.px(28.0),
+            &format!("{} x {} inch", inch(paper.size.0), inch(paper.size.1)),
+            x,
+            y,
             TEXT,
         );
-        let k = if self.preview_key.is_some() && self.preview_scale > 0.0 {
-            self.preview_scale
-        } else {
-            (pv[2] / w_pt).min(pv[3] / h_pt)
-        };
-        let (pw, ph) = ((w_pt * k).round(), (h_pt * k).round());
-        let (x0, y0) = (
-            (pv[0] + (pv[2] - pw) / 2.0).round(),
-            (pv[1] + (pv[3] - ph) / 2.0).round(),
+        // The paper: a dark frame like the reference's.
+        let (pr, _) = self.paper_rect();
+        let fw = sc.max(1.0).round();
+        p.fill_rect(
+            pr[0] - fw,
+            pr[1] - fw,
+            pr[2] + 2.0 * fw,
+            pr[3] + 2.0 * fw,
+            PAGE_FRAME,
         );
-        let fw = self.scale.max(1.0).round() + 1.0;
-        p.fill_rect(x0 - fw, y0 - fw, pw + 2.0 * fw, ph + 2.0 * fw, PAGE_FRAME);
-        p.fill_rect(x0, y0, pw, ph, WHITE);
-        let sheets = self.preview_sheets();
-        if let Some(sheets) = &sheets {
-            // Several pages per sheet / booklet: where each page goes on the sheet shown.
-            let sheet = sheets.get(self.preview_at.min(sheets.len().saturating_sub(1)));
-            for pl in sheet.map(|s| s.items.as_slice()).unwrap_or_default() {
-                let d = pl.dest;
-                let r = [x0 + d[0] * k, y0 + d[1] * k, d[2] * k, d[3] * k];
-                p.fill_rect(r[0], r[1], r[2], r[3], GROUP);
-                p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, CAPTION);
-                let label = (pl.page + 1).to_string();
-                let st = self.style();
-                let tw = label.chars().count() as f32 * st.size * 0.5;
-                self.label(
-                    p,
-                    &label,
-                    (r[0] + (r[2] - tw) / 2.0).round(),
-                    (r[1] + r[3] / 2.0 - st.size * 0.66).round(),
-                    TEXT,
-                );
+        p.fill_rect(pr[0], pr[1], pr[2], pr[3], WHITE);
+        p.push_clip(pr[0], pr[1], pr[2], pr[3]);
+        let requests = self.preview_requests();
+        for (n, it) in shown.iter().enumerate() {
+            let d = it.dest;
+            let key = self.preview_keys.get(n).copied().flatten();
+            if let (Some(key), Some(&(_, k))) = (key, requests.get(n)) {
+                let src = [it.src[0] * k, it.src[1] * k, it.src[2] * k, it.src[3] * k];
+                if it.turn {
+                    let (cx, cy) = (d[0] + d[2] / 2.0, d[1] + d[3] / 2.0);
+                    let upright = [cx - d[3] / 2.0, cy - d[2] / 2.0, d[3], d[2]];
+                    p.page_part_rotated(key, src, upright, 1.0, 90.0);
+                } else {
+                    p.page_part(key, src, d, 1.0);
+                }
+            } else {
+                p.fill_rect(d[0], d[1], d[2], d[3], GROUP);
+                p.fill_rect(d[0] + 1.0, d[1] + 1.0, d[2] - 2.0, d[3] - 2.0, CAPTION);
             }
-        } else if let Some(key) = self.preview_key {
-            p.page(key, x0 as i32, y0 as i32);
+            if it.border {
+                for r in [
+                    [d[0], d[1], d[2], 1.0],
+                    [d[0], d[1] + d[3] - 1.0, d[2], 1.0],
+                    [d[0], d[1], 1.0, d[3]],
+                    [d[0] + d[2] - 1.0, d[1], 1.0, d[3]],
+                ] {
+                    p.fill_rect(r[0], r[1], r[2], r[3], TEXT);
+                }
+            }
+            if it.cut_marks {
+                let m = self.px(6.0);
+                for (cx, cy, sx, sy) in [
+                    (d[0], d[1], 1.0, 1.0),
+                    (d[0] + d[2], d[1], -1.0, 1.0),
+                    (d[0], d[1] + d[3], 1.0, -1.0),
+                    (d[0] + d[2], d[1] + d[3], -1.0, -1.0),
+                ] {
+                    p.path(
+                        &[
+                            PathSeg::M(cx + sx * m, cy),
+                            PathSeg::L(cx, cy),
+                            PathSeg::L(cx, cy + sy * m),
+                        ],
+                        None,
+                        Some((TEXT, 1.0)),
+                    );
+                }
+            }
+            if let Some((row, col)) = it.tile {
+                let label = s
+                    .get("pdfPrint.tileLabel")
+                    .replace("{{page}}", &(it.page + 1).to_string())
+                    .replace("{{row}}", &row.to_string())
+                    .replace("{{col}}", &col.to_string());
+                let st = TextStyle {
+                    size: self.px(8.0),
+                    bold: false,
+                };
+                p.text(&label, d[0] + 2.0, d[1] + 1.0, st, TEXT);
+            }
         }
-        let n = sheets
-            .as_ref()
-            .map_or_else(|| self.pages().len(), Vec::len)
-            .max(1);
-        let at = self.preview_at.min(n - 1) + 1;
+        p.pop_clip();
+        // Page buttons, slider and position.
+        let n = self.sheet_count();
+        let at_n = self.preview_at.min(n - 1) + 1;
         for (part, left) in [(Part::PrevPage, true), (Part::NextPage, false)] {
             let r = self.rect(part);
-            let enabled = if left { at > 1 } else { at < n };
+            let enabled = if left { at_n > 1 } else { at_n < n };
             p.fill_rect(r[0], r[1], r[2], r[3], BUTTON_EDGE);
             p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, BUTTON);
             let (mx, my, k) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, self.px(3.2));
@@ -1099,17 +1685,34 @@ impl PrintDialog {
                     PathSeg::L(mx + dx, my + k),
                 ],
                 None,
-                Some((if enabled { TEXT } else { GREY_TEXT }, self.scale.max(1.0))),
+                Some((if enabled { TEXT } else { GREY_TEXT }, sc.max(1.0))),
             );
         }
+        // Slider (reference: a 12 × 25 px blue thumb on a grey track 60 px long).
+        let r = self.rect(Part::Slider);
+        let cy = (r[1] + r[3] / 2.0).round();
+        p.fill_rect(r[0], cy - 1.0, r[2], 2.0, Rgba(204, 204, 204, 255));
+        let tw = self.px(9.6);
+        let t = if n > 1 {
+            (at_n - 1) as f32 / (n - 1) as f32
+        } else {
+            0.0
+        };
+        p.fill_rect(
+            (r[0] + t * (r[2] - tw)).round(),
+            r[1] + self.px(2.0),
+            tw,
+            r[3] - self.px(4.0),
+            FOCUS,
+        );
         let nr = self.rect(Part::NextPage);
         let page_of = s
-            .get(if sheets.is_some() {
-                "pdfPrint.sheetOf"
-            } else {
+            .get(if self.handling == Handling::Scale {
                 "pdfPrint.pageOf"
+            } else {
+                "pdfPrint.sheetOf"
             })
-            .replace("{{n}}", &at.to_string())
+            .replace("{{n}}", &at_n.to_string())
             .replace("{{total}}", &n.to_string());
         self.text_in(
             p,
@@ -1118,58 +1721,49 @@ impl PrintDialog {
             self.px(48.0),
             TEXT,
         );
-        // Buttons.
-        self.button(p, Part::Ok, s.get("pdfPrint.ok"), true);
-        self.button(p, Part::Cancel, s.get("pdfPrint.cancel"), false);
-        // The open printer list on top.
-        if self.list_open {
-            let items: Vec<(usize, [f32; 4])> = self
-                .parts
-                .iter()
-                .filter_map(|(p, r)| match p {
-                    Part::PrinterItem(i) => Some((*i, *r)),
-                    _ => None,
-                })
-                .collect();
-            if let (Some(first), Some(last)) = (items.first(), items.last()) {
-                let (x, y) = (first.1[0], first.1[1]);
-                let h = last.1[1] + last.1[3] - y;
-                p.fill_rect(x, y, first.1[2], h, FIELD);
-                p.fill_rect(x + 1.0, y, first.1[2] - 2.0, h - 1.0, WHITE);
-            }
-            for (i, r) in items {
-                if self.hover == Some(Part::PrinterItem(i)) || i == self.printer {
-                    p.fill_rect(r[0] + 1.0, r[1], r[2] - 2.0, r[3] - 1.0, ITEM_HOVER);
-                }
-                self.text_in(p, &self.printers[i], r, self.px(4.8), TEXT);
-            }
-        }
     }
-}
 
-impl PrintDialog {
-    /// Sheets of the preview when several pages go on one sheet (the preview page's size
-    /// stands for the paper and for every page).
-    fn preview_sheets(&self) -> Option<Vec<crate::reader_impose::Sheet>> {
-        if self.handling == Handling::Scale {
-            return None;
-        }
-        let size = self.preview_size;
-        let o = crate::reader_impose::PlanOptions {
-            scaling: self.scaling,
-            auto_rotate: self.rotate,
-            auto_center: self.center,
-            layout: self.print_layout(),
-            copies: 1,
-            collate: true,
-        };
-        Some(crate::reader_impose::plan(
-            &self.pages(),
-            &|_| size,
+    /// A button that is not offered: grey label.
+    fn button_off(&self, p: &mut dyn Painter, part: Part, text: &str) {
+        let r = self.rect(part);
+        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xe0, 0xe0, 0xe0, 255));
+        p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, BUTTON);
+        let st = self.style();
+        let tw = text.chars().count() as f32 * st.size * 0.5;
+        self.text_in(p, text, r, ((r[2] - tw) / 2.0).round(), GREY_TEXT);
+    }
+
+    /// A check box that is not offered: grey box and label.
+    fn check_off(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
+        let b = self.px(12.8);
+        let (bx, by) = (r[0] + 1.0, (r[1] + (r[3] - b) / 2.0).round());
+        p.fill_rect(bx, by, b, b, GROUP);
+        p.fill_rect(
+            bx + 1.0,
+            by + 1.0,
+            b - 2.0,
+            b - 2.0,
+            Rgba(249, 249, 249, 255),
+        );
+        self.text_in(p, label, r, b + self.px(6.4), GREY_TEXT);
+    }
+
+    /// Up / down arrows of a number box.
+    fn spinner(&self, p: &mut dyn Painter, part: Part, up: bool) {
+        let r = self.rect(part);
+        p.fill_rect(r[0], r[1], r[2], r[3], FIELD);
+        p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, BUTTON);
+        let (mx, my, k) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0, self.px(2.4));
+        let dy = if up { -k / 2.0 } else { k / 2.0 };
+        p.path(
+            &[
+                PathSeg::M(mx - k, my - dy),
+                PathSeg::L(mx, my + dy),
+                PathSeg::L(mx + k, my - dy),
+            ],
             None,
-            size,
-            &o,
-        ))
+            Some((TEXT, self.scale.max(1.0))),
+        );
     }
 
     fn radio_off(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
@@ -1229,6 +1823,7 @@ impl PrintDialog {
     fn paint_handling(&self, p: &mut dyn Painter, s: &Strings, caret: bool) {
         for (h, key) in [
             (Handling::Scale, "pdfPrint.tabScale"),
+            (Handling::Tile, "pdfPrint.tabTile"),
             (Handling::Multiple, "pdfPrint.tabMultiple"),
             (Handling::Booklet, "pdfPrint.tabBooklet"),
         ] {
@@ -1269,6 +1864,12 @@ impl PrintDialog {
                 let text: String = self.scale_text.iter().collect();
                 self.field(p, r, custom && self.focus == Field::Scale, &text, caret);
                 self.text_in(p, "%", [r[0] + r[2], r[1], 0.0, r[3]], self.px(6.4), TEXT);
+                self.check(
+                    p,
+                    self.rect(Part::PaperByPage),
+                    self.paper_by_page,
+                    s.get("pdfPrint.paperByPage"),
+                );
             }
             Handling::Multiple => {
                 caption(p, Part::PerSheet, "pdfPrint.perSheet");
@@ -1276,7 +1877,7 @@ impl PrintDialog {
                     p,
                     self.rect(Part::PerSheet),
                     &self.per_sheet.to_string(),
-                    false,
+                    self.drop == Some(Part::PerSheet),
                 );
                 caption(p, Part::Order, "pdfPrint.order");
                 let order = match self.order {
@@ -1285,7 +1886,12 @@ impl PrintDialog {
                     PageOrder::Vertical => "pdfPrint.orderV",
                     PageOrder::VerticalReversed => "pdfPrint.orderVR",
                 };
-                self.combo(p, self.rect(Part::Order), s.get(order), false);
+                self.combo(
+                    p,
+                    self.rect(Part::Order),
+                    s.get(order),
+                    self.drop == Some(Part::Order),
+                );
                 self.check(
                     p,
                     self.rect(Part::Border),
@@ -1300,14 +1906,65 @@ impl PrintDialog {
                     BookletSides::Front => "pdfPrint.frontOnly",
                     BookletSides::Back => "pdfPrint.backOnly",
                 };
-                self.combo(p, self.rect(Part::BookletSubset), s.get(sides), false);
+                self.combo(
+                    p,
+                    self.rect(Part::BookletSubset),
+                    s.get(sides),
+                    self.drop == Some(Part::BookletSubset),
+                );
                 caption(p, Part::Binding, "pdfPrint.binding");
                 let binding = if self.right_binding {
                     "pdfPrint.right"
                 } else {
                     "pdfPrint.left"
                 };
-                self.combo(p, self.rect(Part::Binding), s.get(binding), false);
+                self.combo(
+                    p,
+                    self.rect(Part::Binding),
+                    s.get(binding),
+                    self.drop == Some(Part::Binding),
+                );
+            }
+            Handling::Tile => {
+                caption(p, Part::TileZoom, "pdfPrint.tileZoom");
+                let r = self.rect(Part::TileZoom);
+                let zoom: String = self.tile_zoom.iter().collect();
+                self.field(p, r, self.focus == Field::TileZoom, &zoom, caret);
+                self.spinner(p, Part::TileZoomUp, true);
+                self.spinner(p, Part::TileZoomDown, false);
+                let up = self.rect(Part::TileZoomUp);
+                self.text_in(
+                    p,
+                    "%",
+                    [up[0] + up[2], r[1], 0.0, r[3]],
+                    self.px(12.8),
+                    TEXT,
+                );
+                caption(p, Part::Overlap, "pdfPrint.overlap");
+                let r = self.rect(Part::Overlap);
+                let overlap: String = self.overlap.iter().collect();
+                self.field(p, r, self.focus == Field::Overlap, &overlap, caret);
+                self.spinner(p, Part::OverlapUp, true);
+                self.spinner(p, Part::OverlapDown, false);
+                self.text_in(
+                    p,
+                    s.get("pdfPrint.inch"),
+                    [up[0] + up[2], r[1], 0.0, r[3]],
+                    self.px(12.8),
+                    TEXT,
+                );
+                self.check(
+                    p,
+                    self.rect(Part::CutMarks),
+                    self.cut_marks,
+                    s.get("pdfPrint.cutMarks"),
+                );
+                self.check(
+                    p,
+                    self.rect(Part::Labels),
+                    self.labels,
+                    s.get("pdfPrint.labels"),
+                );
             }
         }
     }
@@ -1375,7 +2032,9 @@ mod tests {
         click(&mut d, Part::Range(Range::All));
         click(&mut d, Part::Handling(Handling::Multiple));
         click(&mut d, Part::PerSheet);
+        click(&mut d, Part::Item(1));
         click(&mut d, Part::Order);
+        click(&mut d, Part::Item(1));
         click(&mut d, Part::Border);
         assert_eq!(
             d.settings().unwrap().layout,
@@ -1385,10 +2044,11 @@ mod tests {
                 border: true,
             }
         );
-        assert_eq!(d.preview_sheets().map(|s| s.len()), Some(3));
+        assert_eq!(d.sheet_count(), 3);
         // Booklet: both sides, short edge; right binding.
         click(&mut d, Part::Handling(Handling::Booklet));
         click(&mut d, Part::Binding);
+        click(&mut d, Part::Item(1));
         let s = d.settings().unwrap();
         assert_eq!(
             s.layout,
@@ -1399,7 +2059,63 @@ mod tests {
         );
         assert_eq!(s.duplex, Duplex::ShortEdge);
         // 12 pages: 3 sheets, 6 sides.
-        assert_eq!(d.preview_sheets().map(|s| s.len()), Some(6));
+        assert_eq!(d.sheet_count(), 6);
+    }
+
+    #[test]
+    fn tile_orientation_print_what_and_preview() {
+        let mut d = PrintDialog::new(vec!["A".into(), "B".into()], None, 2, 0);
+        d.set_page_sizes(vec![(1224.0, 1584.0), (612.0, 792.0)]);
+        d.set_papers(vec![
+            Some(Paper {
+                size: (612.0, 792.0),
+                area: [18.0, 18.0, 576.0, 756.0],
+            }),
+            None,
+        ]);
+        d.layout(&Fixed, (1600.0, 1000.0), 1.25);
+        let click = |d: &mut PrintDialog, part| {
+            let (x, y) = centre(d, part);
+            d.press(x, y)
+        };
+        // Fit to the printable area: 576 / 612 of the page.
+        let req = d.preview_requests();
+        assert_eq!(req.len(), 1);
+        assert!((d.shown()[0].zoom - 576.0 / 1224.0).abs() < 1e-3);
+        // Tile Large Pages at 100 %: the 17 × 22 inch page on 3 × 3 sheets, the letter page
+        // (larger than the printable area) on 2 × 2.
+        click(&mut d, Part::Handling(Handling::Tile));
+        click(&mut d, Part::Labels);
+        assert_eq!(d.sheet_count(), 13);
+        assert_eq!(d.shown()[0].tile, Some((1, 1)));
+        // Landscape, Annotations only, overprint, as image.
+        click(&mut d, Part::Orientation);
+        click(&mut d, Part::Item(2));
+        assert_eq!(d.paper().size, (792.0, 612.0));
+        click(&mut d, Part::What);
+        click(&mut d, Part::Item(4));
+        click(&mut d, Part::Overprint);
+        click(&mut d, Part::AsImage);
+        let s = d.settings().unwrap();
+        assert_eq!(s.orientation, Orientation::Landscape);
+        assert_eq!(s.what, PrintWhat::Annotations);
+        assert!(s.overprint && s.as_image);
+        assert!(matches!(
+            s.layout,
+            PrintLayout::Tile {
+                zoom: 100,
+                labels: true,
+                ..
+            }
+        ));
+        // Properties asks the host for the chosen printer's driver settings.
+        assert_eq!(
+            click(&mut d, Part::Properties),
+            Some(PrintAction::Properties("A".into()))
+        );
+        // Keys of the preview images come back from the host.
+        d.set_preview_keys(vec![Some(7)]);
+        assert_eq!(d.preview_keys, vec![Some(7)]);
     }
 
     #[test]
@@ -1416,7 +2132,7 @@ mod tests {
         let (x, y) = centre(&d, Part::Printer);
         assert_eq!(d.press(x, y), None);
         d.layout(&Fixed, (1600.0, 1000.0), 1.25);
-        let (x, y) = centre(&d, Part::PrinterItem(0));
+        let (x, y) = centre(&d, Part::Item(0));
         d.press(x, y);
         let (x, y) = centre(&d, Part::Range(Range::Current));
         d.press(x, y);
@@ -1430,6 +2146,8 @@ mod tests {
         assert_eq!(d.pages(), vec![0, 1, 2, 8]);
         // Odd pages only, reversed.
         let (x, y) = centre(&d, Part::Subset);
+        d.press(x, y);
+        let (x, y) = centre(&d, Part::Item(1));
         d.press(x, y);
         let (x, y) = centre(&d, Part::Reverse);
         d.press(x, y);
@@ -1455,6 +2173,11 @@ mod tests {
                 layout: PrintLayout::Size,
                 duplex: Duplex::Off,
                 view: None,
+                orientation: Orientation::Portrait,
+                what: PrintWhat::DocumentAndMarkups,
+                as_image: false,
+                overprint: false,
+                paper_by_page: false,
             }))
         );
         assert_eq!(

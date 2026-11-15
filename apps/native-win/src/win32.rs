@@ -1122,3 +1122,87 @@ pub fn set_title(hwnd: isize, title: &str) {
         let _ = SetWindowTextW(HWND(hwnd as *mut _), PCWSTR(text.as_ptr()));
     }
 }
+
+/// Visible top-level windows whose title ends with `suffix` (BlueSlide's other windows):
+/// handle and title, in z-order.
+#[allow(dead_code)] // BlueSlide only.
+pub fn app_windows(suffix: &str) -> Vec<(isize, String)> {
+    use windows::core::BOOL;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsWindowVisible};
+    unsafe extern "system" fn each(h: HWND, data: LPARAM) -> BOOL {
+        // SAFETY: `data` is the address of the vector below, alive during EnumWindows.
+        let out = unsafe { &mut *(data.0 as *mut Vec<(isize, String)>) };
+        let mut buf = [0u16; 512];
+        // SAFETY: the buffer is valid for its length.
+        let n = unsafe { GetWindowTextW(h, &mut buf) };
+        // SAFETY: plain query on a window handle from the enumeration.
+        if n > 0 && unsafe { IsWindowVisible(h) }.as_bool() {
+            out.push((h.0 as isize, String::from_utf16_lossy(&buf[..n as usize])));
+        }
+        BOOL(1)
+    }
+    let mut all: Vec<(isize, String)> = Vec::new();
+    // SAFETY: the callback only writes to `all`, which outlives the call.
+    unsafe {
+        let _ = EnumWindows(Some(each), LPARAM(std::ptr::from_mut(&mut all) as isize));
+    }
+    all.retain(|(_, t)| t.ends_with(suffix));
+    all
+}
+
+/// Tile (`cascade` false: side by side) or cascade windows over the primary work area.
+#[allow(dead_code)] // BlueSlide only.
+pub fn arrange_windows(windows: &[isize], cascade: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::SPI_GETWORKAREA;
+    if windows.is_empty() {
+        return;
+    }
+    let mut area = RECT::default();
+    // SAFETY: SPI_GETWORKAREA writes one RECT.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some(std::ptr::from_mut::<RECT>(&mut area).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    let (aw, ah) = (area.right - area.left, area.bottom - area.top);
+    let count = windows.len() as i32;
+    for (i, &hw) in windows.iter().enumerate() {
+        let i = i as i32;
+        let (x, y, cx, cy) = if cascade {
+            let step = 32;
+            (
+                area.left + i * step,
+                area.top + i * step,
+                aw * 3 / 4,
+                ah * 3 / 4,
+            )
+        } else {
+            (area.left + i * aw / count, area.top, aw / count, ah)
+        };
+        // SAFETY: plain window call on handles from `app_windows`.
+        unsafe {
+            let hwnd = HWND(hw as *mut _);
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetWindowPos(hwnd, None, x, y, cx, cy, SWP_NOZORDER);
+        }
+    }
+}
+
+/// Bring a window to the front.
+#[allow(dead_code)] // BlueSlide only.
+pub fn activate_window(hwnd: isize) {
+    use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+    // SAFETY: plain window call.
+    unsafe {
+        let hwnd = HWND(hwnd as *mut _);
+        if IsZoomed(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+        } else {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(hwnd);
+    }
+}

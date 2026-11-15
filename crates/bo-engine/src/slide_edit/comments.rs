@@ -10,8 +10,9 @@ use super::{refuse, R};
 use bo_model::mention::{valid_mentions, CommentTask, Mention};
 use bo_model::slide::{Presentation, Rel};
 use bo_pptx::comments::{
-    authors_xml, comments_xml_ns, read_authors, read_comments, root_namespaces, CommentAuthor,
-    ModernComment, ModernReply, CT_AUTHORS, CT_COMMENTS, REL_AUTHORS, REL_COMMENTS,
+    authors_xml, comments_xml_ns, read_authors, read_comments, read_legacy_authors,
+    read_legacy_comments, root_namespaces, CommentAuthor, ModernComment, ModernReply, CT_AUTHORS,
+    CT_COMMENTS, REL_AUTHORS, REL_COMMENTS, REL_LEGACY_AUTHORS, REL_LEGACY_COMMENTS,
 };
 use serde::Serialize;
 
@@ -48,6 +49,80 @@ pub struct ThreadOut {
     /// Where its marker sits on the slide (points), when the file says (`p188:pos`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pos: Option<(f64, f64)>,
+    /// Shape the thread is anchored to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shape: Option<u32>,
+    /// A legacy comment (ECMA-376 §19.4 `p:cm`): shown, kept verbatim, not edited.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub legacy: bool,
+}
+
+fn legacy_part(pres: &Presentation, slide: usize) -> Option<String> {
+    let s = pres.slides.get(slide)?;
+    let base = if s.info.part_name.is_empty() {
+        format!("/ppt/slides/slide{}.xml", slide + 1)
+    } else {
+        s.info.part_name.clone()
+    };
+    s.info
+        .rels
+        .iter()
+        .find(|r| r.rel_type == REL_LEGACY_COMMENTS && !r.external)
+        .map(|r| bo_opc::resolve_target(&base, &r.target))
+}
+
+/// Legacy comments of `slide` as read-only threads (ids `legacy-<author>-<idx>`).
+fn legacy_out(pres: &Presentation, slide: usize) -> Vec<ThreadOut> {
+    let Some(list) = legacy_part(pres, slide)
+        .and_then(|p| pres.part_data(&p).map(|d| read_legacy_comments(d, &p)))
+    else {
+        return Vec::new();
+    };
+    let people = pres
+        .info
+        .rels
+        .iter()
+        .find(|r| r.rel_type == REL_LEGACY_AUTHORS && !r.external)
+        .map(|r| bo_opc::resolve_target("/ppt/presentation.xml", &r.target))
+        .and_then(|p| pres.part_data(&p).map(|d| read_legacy_authors(d, &p)))
+        .unwrap_or_default();
+    list.into_iter()
+        .map(|c| {
+            let author = people
+                .iter()
+                .find(|a| a.id == c.author_id)
+                .map(|a| a.name.clone())
+                .unwrap_or_default();
+            let id = format!("legacy-{}-{}", c.author_id, c.idx);
+            ThreadOut {
+                id: id.clone(),
+                done: false,
+                comments: vec![CommentOut {
+                    id,
+                    author,
+                    date: c.dt,
+                    text: c.text,
+                    mentions: Vec::new(),
+                    task: None,
+                }],
+                // §19.4.7 pos: master units, 576 per inch (8 per point).
+                pos: c.pos.map(|(x, y)| (x as f64 / 8.0, y as f64 / 8.0)),
+                shape: None,
+                legacy: true,
+            }
+        })
+        .collect()
+}
+
+/// Anchor the last thread of `slide` to shape `shape` (a new comment on a selected shape).
+pub fn anchor_last(tx: &mut Tx<'_>, slide: usize, shape: u32) -> R<()> {
+    let mut list = threads(tx.pres, slide);
+    let Some(last) = list.last_mut() else {
+        return Ok(());
+    };
+    last.shape = Some(shape);
+    last.anchor_raw = None;
+    store(tx, slide, &list)
 }
 
 const AUTHORS_PART: &str = "/ppt/authors.xml";
@@ -89,8 +164,9 @@ fn authors(pres: &Presentation) -> Vec<CommentAuthor> {
 /// Threads of `slide` for the UI.
 pub fn comments_out(pres: &Presentation, slide: usize) -> Vec<ThreadOut> {
     let list = threads(pres, slide);
+    let legacy = legacy_out(pres, slide);
     if list.is_empty() {
-        return Vec::new();
+        return legacy;
     }
     let people = authors(pres);
     let name = |id: &str| {
@@ -119,7 +195,10 @@ pub fn comments_out(pres: &Presentation, slide: usize) -> Vec<ThreadOut> {
             pos: c
                 .pos
                 .map(|(x, y)| (x as f64 / 12_700.0, y as f64 / 12_700.0)),
+            shape: c.shape,
+            legacy: false,
         })
+        .chain(legacy)
         .collect()
 }
 
@@ -296,6 +375,8 @@ pub fn cmd_add_with(
             resolved: false,
             replies: Vec::new(),
             pos: None,
+            shape: None,
+            anchor_raw: None,
         }),
     }
     store(tx, slide, &list)
@@ -323,4 +404,108 @@ pub fn cmd_delete(tx: &mut Tx<'_>, slide: usize, id: &str) -> R<()> {
         return refuse("noComment");
     }
     store(tx, slide, &list)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::slide_edit::SlideCommand;
+    use crate::Engine;
+    use bo_model::slide::RawPart;
+
+    const LEGACY: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cm authorId="1" dt="2010-05-01T10:00:00.000" idx="1"><p:pos x="800" y="400"/><p:text>Check the figures</p:text></p:cm></p:cmLst>"#;
+    const AUTHORS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cmAuthor id="1" name="Tran Binh" initials="TB" lastIdx="1" clrIdx="0"/></p:cmAuthorLst>"#;
+
+    fn deck() -> Engine {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/slide/slide-edit-arrange.pptx");
+        let mut e = Engine::new();
+        e.open_pptx(&std::fs::read(p).expect("corpus"), "d.pptx")
+            .expect("open");
+        e
+    }
+
+    fn rel(id: &str, ty: &str, target: &str) -> Rel {
+        Rel {
+            id: id.into(),
+            rel_type: ty.into(),
+            target: target.into(),
+            external: false,
+        }
+    }
+
+    #[test]
+    fn legacy_comments_show_and_round_trip() {
+        let mut e = deck();
+        {
+            let pres = e.pres.as_mut().expect("deck");
+            pres.parts.push(RawPart {
+                name: "/ppt/comments/comment1.xml".into(),
+                content_type: Some(
+                    "application/vnd.openxmlformats-officedocument.presentationml.comments+xml"
+                        .into(),
+                ),
+                data: LEGACY.as_bytes().to_vec(),
+            });
+            pres.parts.push(RawPart {
+                name: "/ppt/commentAuthors.xml".into(),
+                content_type: Some(
+                    "application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml"
+                        .into(),
+                ),
+                data: AUTHORS.as_bytes().to_vec(),
+            });
+            pres.slides[0].info.rels.push(rel(
+                "rId90",
+                REL_LEGACY_COMMENTS,
+                "../comments/comment1.xml",
+            ));
+            pres.info
+                .rels
+                .push(rel("rId91", REL_LEGACY_AUTHORS, "commentAuthors.xml"));
+        }
+        let check = |e: &Engine| {
+            let t = comments_out(e.presentation().expect("deck"), 0);
+            assert_eq!(t.len(), 1);
+            assert!(t[0].legacy);
+            assert_eq!(t[0].comments[0].author, "Tran Binh");
+            assert_eq!(t[0].comments[0].text, "Check the figures");
+            assert_eq!(t[0].pos, Some((100.0, 50.0)));
+        };
+        check(&e);
+        let bytes = e.save_pptx().expect("save");
+        let mut back = Engine::new();
+        back.open_pptx(&bytes, "b.pptx").expect("reopen");
+        check(&back);
+        let pres = back.presentation().expect("deck");
+        assert_eq!(
+            pres.part_data("/ppt/comments/comment1.xml"),
+            Some(LEGACY.as_bytes()),
+            "legacy part kept byte for byte"
+        );
+        // A new comment on one selected shape is anchored to it; legacy threads stay.
+        let id = pres.slides[0]
+            .data
+            .shapes
+            .iter()
+            .find_map(|n| n.nv().map(|nv| nv.id))
+            .expect("a shape");
+        back.slide_command(SlideCommand::Select { ids: vec![id] })
+            .expect("select");
+        back.slide_command(SlideCommand::AddComment {
+            text: "On this shape".into(),
+            author: "An".into(),
+            date: None,
+            parent: None,
+            mentions: Vec::new(),
+            task: None,
+        })
+        .expect("add");
+        let t = comments_out(back.presentation().expect("deck"), 0);
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[0].shape, Some(id));
+        assert!(t[1].legacy);
+    }
 }

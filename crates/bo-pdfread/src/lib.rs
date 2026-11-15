@@ -16,7 +16,9 @@
 mod annot;
 mod annot_draw;
 mod annot_edit;
+mod annot_image;
 mod cmap;
+mod cmyk;
 mod codecs;
 mod color;
 mod convert;
@@ -68,7 +70,7 @@ pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBl
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
 
-use bo_render::PageList;
+use bo_render::{PageList, Rgba};
 use bo_text::FontManager;
 use interp::{mul, Interp, Shared, M};
 use lopdf::{Dictionary, Document, Object, ObjectId};
@@ -92,6 +94,54 @@ impl Default for RenderOptions {
             text_as_paths: false,
             min_line: 0.5,
             annotations: true,
+        }
+    }
+}
+
+/// Drawing choices beyond [`RenderOptions`] (a separate type so that its literals stay valid).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RenderExtra {
+    /// Colour of every shown text, filled or stroked (alpha kept): BlueReader's Night Mode
+    /// greys all text, outlined text included.
+    pub text_color: Option<Rgba>,
+    /// Simulate overprinting (§8.7.4.5, ExtGState `/OP` `/op`): an overprinting CMYK or spot
+    /// colour multiplies with what is below instead of knocking it out.
+    pub overprint: bool,
+    /// Drawn for printing: annotations print only with their Print flag (§12.5.3 Table 165)
+    /// and `print_what` chooses the parts of the page.
+    pub printing: bool,
+    /// Parts of the page drawn (the print dialog's Print What).
+    pub print_what: PrintWhat,
+}
+
+/// Parts of a page printed (the reference reader's Print What choices).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PrintWhat {
+    /// Page content and every annotation.
+    #[default]
+    DocumentAndMarkups,
+    /// Page content and form fields, no comments.
+    Document,
+    /// Page content, form fields and stamps.
+    DocumentAndStamps,
+    /// Form fields only.
+    FormFields,
+    /// Annotations only (no page content).
+    Annotations,
+}
+
+impl PrintWhat {
+    /// Whether the page's content stream is drawn.
+    fn content(self) -> bool {
+        !matches!(self, Self::FormFields | Self::Annotations)
+    }
+
+    /// Whether an annotation of `subtype` is drawn.
+    fn annotation(self, subtype: &[u8]) -> bool {
+        match self {
+            Self::DocumentAndMarkups | Self::Annotations => true,
+            Self::Document | Self::FormFields => subtype == b"Widget",
+            Self::DocumentAndStamps => matches!(subtype, b"Widget" | b"Stamp"),
         }
     }
 }
@@ -533,6 +583,16 @@ impl PdfDocument {
 
     /// Render page `index` into a display list.
     pub fn render(&mut self, index: usize, opts: RenderOptions) -> Result<Page, String> {
+        self.render_extra(index, opts, RenderExtra::default())
+    }
+
+    /// [`Self::render`] with BlueReader's extra choices (Night Mode text, overprint).
+    pub fn render_extra(
+        &mut self,
+        index: usize,
+        opts: RenderOptions,
+        extra: RenderExtra,
+    ) -> Result<Page, String> {
         let info = self.pages.get(index).ok_or("no such page")?.clone();
         let base = page_matrix(info.crop, info.rotate);
         let doc = &self.doc;
@@ -554,7 +614,11 @@ impl PdfDocument {
             (info.width, info.height),
             format!("p{index}"),
         );
-        it.run(&content);
+        it.text_color = extra.text_color;
+        it.overprint = extra.overprint;
+        if extra.print_what.content() {
+            it.run(&content);
+        }
         it.finish();
         let mut links = Vec::new();
         if let Some(annots) = page
@@ -578,7 +642,16 @@ impl PdfDocument {
                         });
                     }
                 }
-                if opts.annotations {
+                // §12.5.3: printing draws only annotations with the Print flag (bit 3).
+                let print_flag = d
+                    .get(b"F")
+                    .ok()
+                    .and_then(|o| o.as_i64().ok())
+                    .is_some_and(|f| f & 4 != 0);
+                if opts.annotations
+                    && extra.print_what.annotation(subtype)
+                    && (!extra.printing || print_flag)
+                {
                     draw_annotation(&mut it, doc, d, rect);
                 }
             }
@@ -1027,6 +1100,8 @@ fn hidden_groups(doc: &Document) -> HashSet<ObjectId> {
     out
 }
 
+#[cfg(test)]
+mod color_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]

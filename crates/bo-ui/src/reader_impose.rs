@@ -45,7 +45,7 @@ pub enum BookletSides {
 }
 
 /// How pages are put on sheets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PrintLayout {
     /// One page per sheet, sized by the scaling.
     Size,
@@ -64,6 +64,17 @@ pub enum PrintLayout {
         sides: BookletSides,
         /// Bound on the right (right-to-left reading).
         right_binding: bool,
+    },
+    /// Large pages split over several sheets (the reference's Tile Large Pages).
+    Tile {
+        /// Page zoom in percent.
+        zoom: u16,
+        /// Overlap of neighbouring tiles (points).
+        overlap: f32,
+        /// Corner marks where the tile's edges are cut.
+        cut_marks: bool,
+        /// A label with the page and the tile's row and column.
+        labels: bool,
     },
 }
 
@@ -91,6 +102,10 @@ pub struct Placement {
     pub turn: bool,
     /// A thin frame is drawn around it.
     pub border: bool,
+    /// Tile of a tiled page: (row, column), 1-based, for its label.
+    pub tile: Option<(u16, u16)>,
+    /// Cut marks at the corners of `dest`.
+    pub cut_marks: bool,
 }
 
 /// One printed side of paper.
@@ -181,6 +196,15 @@ pub fn plan(
             sides,
             right_binding,
         } => booklet(pages, &size, area, sides, right_binding),
+        PrintLayout::Tile {
+            zoom,
+            overlap,
+            cut_marks,
+            labels,
+        } => pages
+            .iter()
+            .flat_map(|&i| tiles(i, size(i), view, area, zoom, overlap, cut_marks, labels, o))
+            .collect(),
     };
     let n = o.copies.clamp(1, 999) as usize;
     if n > 1 {
@@ -228,6 +252,8 @@ fn one_page(
         dest: [x, y, dw, dh],
         turn,
         border: false,
+        tile: None,
+        cut_marks: false,
     }
 }
 
@@ -282,12 +308,74 @@ fn multiple(
                         dest: if turned { turn_rect(d, area) } else { d },
                         turn: turned,
                         border,
+                        tile: None,
+                        cut_marks: false,
                     }
                 })
                 .collect();
             Sheet { items }
         })
         .collect()
+}
+
+/// Number of tiles of `len` points on paper `paper` long with `overlap`.
+fn tile_count(len: f32, paper: f32, overlap: f32) -> usize {
+    if len <= paper + 0.01 {
+        return 1;
+    }
+    let step = (paper - overlap).max(paper * 0.1);
+    ((len - overlap) / step).ceil().max(1.0) as usize
+}
+
+/// The tiles of page `i` at `zoom` percent: one sheet per tile, row by row; each prints its
+/// part of the page at the top-left of the printable area (centred when the page fits).
+#[allow(clippy::too_many_arguments)]
+fn tiles(
+    i: usize,
+    (w, h): (f32, f32),
+    view: Option<[f32; 4]>,
+    area: (f32, f32),
+    zoom: u16,
+    overlap: f32,
+    cut_marks: bool,
+    labels: bool,
+    o: &PlanOptions,
+) -> Vec<Sheet> {
+    let k = f32::from(zoom.clamp(1, 1000)) / 100.0;
+    let (sw, sh) = (w * k, h * k);
+    let overlap = overlap.clamp(0.0, area.0.min(area.1) / 2.0);
+    let (cols, rows) = (
+        tile_count(sw, area.0, overlap),
+        tile_count(sh, area.1, overlap),
+    );
+    let (ox, oy) = view.map_or((0.0, 0.0), |v| (v[0], v[1]));
+    let mut out = Vec::with_capacity(cols * rows);
+    for r in 0..rows {
+        for c in 0..cols {
+            // Part of the scaled page on this tile.
+            let x0 = c as f32 * (area.0 - overlap);
+            let y0 = r as f32 * (area.1 - overlap);
+            let tw = (sw - x0).min(area.0);
+            let th = (sh - y0).min(area.1);
+            let (dx, dy) = if o.auto_center && cols == 1 && rows == 1 {
+                ((area.0 - tw) / 2.0, (area.1 - th) / 2.0)
+            } else {
+                (0.0, 0.0)
+            };
+            out.push(Sheet {
+                items: vec![Placement {
+                    page: i,
+                    clip: Some([ox + x0 / k, oy + y0 / k, tw / k, th / k]),
+                    dest: [dx, dy, tw, th],
+                    turn: false,
+                    border: false,
+                    tile: labels.then_some((r as u16 + 1, c as u16 + 1)),
+                    cut_marks,
+                }],
+            });
+        }
+    }
+    out
 }
 
 fn booklet(
@@ -324,6 +412,8 @@ fn booklet(
                 dest: if portrait { turn_rect(d, area) } else { d },
                 turn: portrait,
                 border: false,
+                tile: None,
+                cut_marks: false,
             });
         }
         Sheet { items }
@@ -483,6 +573,42 @@ mod tests {
             front[1].items.iter().map(|p| p.page).collect::<Vec<_>>(),
             vec![2, 5]
         );
+    }
+
+    #[test]
+    fn tile_large_pages() {
+        // A 2 × 2 letter page at 100 % on letter paper with a 36 pt overlap: 3 × 3 tiles.
+        let size = |_| (1224.0, 1584.0);
+        let o = opts(PrintLayout::Tile {
+            zoom: 100,
+            overlap: 36.0,
+            cut_marks: true,
+            labels: true,
+        });
+        let s = plan(&[0], &size, None, LETTER, &o);
+        assert_eq!(s.len(), 9);
+        let first = s[0].items[0];
+        assert_eq!(first.tile, Some((1, 1)));
+        assert!(first.cut_marks);
+        assert!(near(first.clip.expect("clip"), [0.0, 0.0, 612.0, 792.0]));
+        // The second tile starts one paper width minus the overlap to the right.
+        assert!(near(
+            s[1].items[0].clip.expect("clip"),
+            [576.0, 0.0, 612.0, 792.0]
+        ));
+        // The last column holds what is left.
+        assert!((s[2].items[0].clip.expect("clip")[2] - (1224.0 - 1152.0)).abs() < 0.01);
+        // At 50 % the page fits on one sheet, centred.
+        let o = opts(PrintLayout::Tile {
+            zoom: 50,
+            overlap: 36.0,
+            cut_marks: false,
+            labels: false,
+        });
+        let s = plan(&[0], &size, None, LETTER, &o);
+        assert_eq!(s.len(), 1);
+        assert!(near(s[0].items[0].dest, [0.0, 0.0, 612.0, 792.0]));
+        assert_eq!(s[0].items[0].tile, None);
     }
 
     #[test]

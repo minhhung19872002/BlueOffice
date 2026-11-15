@@ -402,6 +402,7 @@ mod tests {
             Command::PushGroup {
                 blend: Some(BlendMode::Multiply),
                 mask: None,
+                knockout: false,
             },
             rect(0.0, 32.0, Rgba(255, 128, 0, 255)),
             Command::PopGroup,
@@ -423,6 +424,7 @@ mod tests {
                     backdrop: Rgba(0, 0, 0, 255),
                     commands: vec![rect(0.0, 16.0, Rgba(255, 255, 255, 255))],
                 })),
+                knockout: false,
             },
             rect(0.0, 32.0, Rgba(0, 0, 255, 255)),
             Command::PopGroup,
@@ -443,6 +445,7 @@ mod tests {
             Command::PushGroup {
                 blend: Some(BlendMode::Multiply),
                 mask: None,
+                knockout: false,
             },
             rect(0.0, 32.0, Rgba(255, 128, 0, 255)),
             Command::PopGroup,
@@ -454,6 +457,36 @@ mod tests {
             "{inside:?}"
         );
         assert_eq!(px(&image, 28, 28), [128, 128, 128, 255]);
+    }
+
+    #[test]
+    fn knockout_group_objects_replace_each_other() {
+        use bo_render::{Command, Rgba};
+        let half = |x: f32, color: Rgba| Command::FillRect {
+            x,
+            y: 0.0,
+            w: 20.0,
+            h: 32.0,
+            color,
+        };
+        let group = |knockout: bool| {
+            render(vec![
+                Command::PushGroup {
+                    blend: None,
+                    mask: None,
+                    knockout,
+                },
+                half(0.0, Rgba(255, 0, 0, 128)),
+                half(12.0, Rgba(0, 0, 255, 128)),
+                Command::PopGroup,
+            ])
+        };
+        // Overlap (x 12–20): blue alone at 50 % over white, not blue over red.
+        let k = px(&group(true), 16, 16);
+        assert!(k[0] >= 125 && k[0] <= 130 && k[2] == 255, "{k:?}");
+        let n = px(&group(false), 16, 16);
+        // Normal group: blue over red over white.
+        assert!(n[1] < 100, "{n:?}");
     }
 
     #[test]

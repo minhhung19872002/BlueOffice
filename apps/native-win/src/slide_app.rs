@@ -329,7 +329,7 @@ impl Shell {
     /// Let the user pick a picture, video or audio file and insert it on the slide.
     fn insert_file(&mut self, kind: InsertFile) -> bool {
         let filters: &[(&str, &str)] = match kind {
-            InsertFile::Picture => &[
+            InsertFile::Picture | InsertFile::AlbumPicture => &[
                 (
                     "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.svg)",
                     "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.svg",
@@ -341,6 +341,10 @@ impl Shell {
                     "Video (*.mp4;*.m4v;*.mov;*.wmv;*.avi)",
                     "*.mp4;*.m4v;*.mov;*.wmv;*.avi",
                 ),
+                ("All files", "*.*"),
+            ],
+            InsertFile::Model3d => &[
+                ("3-D models (*.glb;*.gltf)", "*.glb;*.gltf"),
                 ("All files", "*.*"),
             ],
             InsertFile::Audio => &[
@@ -355,7 +359,9 @@ impl Shell {
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         match std::fs::read(&path) {
-            Ok(bytes) => self.view.insert_file(bytes, &name),
+            Ok(bytes) => self
+                .view
+                .insert_file_as(bytes, &name, kind == InsertFile::AlbumPicture),
             Err(e) => {
                 eprintln!("{}: {e}", path.display());
                 false

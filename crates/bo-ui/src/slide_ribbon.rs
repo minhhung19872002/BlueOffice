@@ -155,6 +155,9 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "design.layout"
             | "design.slideSize"
             | "show.custom"
+            | "sl.smartart"
+            | "sl.links"
+            | "sl.textStyles"
     )
 }
 
@@ -442,7 +445,7 @@ pub(crate) fn install_strings(s: &mut Strings) {
     for (id, key) in [
         ("design.slideSize", "slideNative.slideSize"),
         ("design.background", "slideNative.backgroundStyles"),
-        ("design.colors", "slideEditor.smartart.colors"),
+        ("design.colors", "slideNative.colors"),
         ("design.fonts", "slideNative.fonts"),
         ("design.variants", "slideEditor.design.groupVariants"),
         ("design.effects", "slideNative.themeEffects"),

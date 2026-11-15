@@ -836,6 +836,17 @@ impl SlideView {
         }
     }
 
+    /// Run a hyperlink / action command on the selection.
+    pub fn run_action_cmd(&mut self, cmd: bo_engine::slide_edit::action::ActionCommand) -> bool {
+        match self.engine.slide_action_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Insert a picture, video or audio file on the current slide.
     pub fn insert_media(&mut self, bytes: Vec<u8>, name: &str) -> bool {
         match self.engine.slide_insert_picture(bytes, name) {

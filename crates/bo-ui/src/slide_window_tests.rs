@@ -893,3 +893,19 @@ fn lasso_selects_the_shapes_it_surrounds() {
     assert!(n > 0);
     assert_eq!(w.view().selection().len(), n);
 }
+
+#[test]
+fn insert_smartart_text_styles_links_and_menu_marks() {
+    let mut w = window();
+    assert_eq!(w.choose_insert("smart", "process"), Some(true));
+    assert_eq!(w.view().selection().len(), 1);
+    assert_eq!(w.choose_insert("tstyle", "1"), Some(true));
+    let sel = w.view().selection()[0].clone();
+    assert_eq!(sel.text.as_deref(), Some("Your text here"));
+    assert_eq!(w.choose_insert("lnk", "next"), Some(true));
+    // One-word menu labels keep the mark on a second line, as on the reference.
+    let [x, y, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(1)).expect("tab");
+    click(&mut w, x + tw / 2.0, y + th / 2.0);
+    let lines = w.ribbon.large_lines_of("sl.table");
+    assert_eq!(lines.as_ref().map(|l| l[1].0.as_str()), Some("\u{25BE}"));
+}

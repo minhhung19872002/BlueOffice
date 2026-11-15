@@ -413,6 +413,9 @@ impl SlideWindow {
                 .with_large_widths(large_widths)
                 .with_row_widths(row_widths)
                 .with_two_line_labels()
+                .with_mark_on_own_line()
+                // Reference at 125 %: font box 213 px, size box 67.
+                .with_box_widths(170.4, 53.6)
                 .with_enabled(slide_enabled),
             theme: Theme::light("slide"),
             icons,

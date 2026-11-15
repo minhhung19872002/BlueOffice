@@ -21,6 +21,10 @@ use bo_render::Rgba;
 pub enum InsertFile {
     /// A picture (PNG, JPEG, SVG, …).
     Picture,
+    /// A picture for a new slide (Photo Album).
+    AlbumPicture,
+    /// A 3-D model (glTF).
+    Model3d,
     /// A video.
     Video,
     /// An audio clip.
@@ -34,6 +38,8 @@ pub(super) enum SlideDialog {
     Find,
     Replace,
     SlideSize,
+    /// Insert a hyperlink on the selection.
+    Link,
     /// Slide Show tab dialogs.
     Show(super::showtab::ShowDialog),
 }
@@ -49,7 +55,12 @@ pub(super) enum Context {
 }
 
 /// Commands of these tabs (always enabled unless [`needs_selection`]).
-pub const COMMANDS: [&str; 44] = [
+pub const COMMANDS: [&str; 49] = [
+    "sl.photoAlbum",
+    "sl.model3d",
+    "sl.smartart",
+    "sl.links",
+    "sl.textStyles",
     "sl.qs0",
     "sl.qs1",
     "sl.qs2",
@@ -101,6 +112,16 @@ pub const COMMANDS: [&str; 44] = [
 pub const STYLE_TILES: [(&str, usize, usize); 3] =
     [("sl.qs0", 5, 0), ("sl.qs1", 6, 1), ("sl.qs2", 0, 1)];
 
+/// WordArt-free text styles of Insert > Text Styles: label key, fill, outline (theme accent
+/// index, 6 = dark 1, 7 = light 1; `None` = none).
+pub const TEXT_STYLES: [(&str, Option<usize>, Option<usize>); 5] = [
+    ("tsDark", Some(6), None),
+    ("tsAccent1", Some(0), None),
+    ("tsAccent2", Some(1), None),
+    ("tsOutlined", Some(7), Some(0)),
+    ("tsOutline", None, Some(6)),
+];
+
 /// Width (logical px) of the style tiles (reference pitch 83 px at 125 %).
 pub fn large_width(id: &str) -> Option<f32> {
     STYLE_TILES.iter().any(|(t, _, _)| *t == id).then_some(64.4)
@@ -126,7 +147,12 @@ pub fn needs_selection(id: &str) -> bool {
 }
 
 /// Label key of each command (`slideNative.*`).
-pub const LABELS: [(&str, &str); 41] = [
+pub const LABELS: [(&str, &str); 46] = [
+    ("sl.photoAlbum", "photoAlbum"),
+    ("sl.model3d", "model3d"),
+    ("sl.smartart", "smartart"),
+    ("sl.links", "links"),
+    ("sl.textStyles", "textStyles"),
     ("sl.table", "table"),
     ("sl.pictures", "pictures"),
     ("sl.shapes", "shapes"),
@@ -223,12 +249,22 @@ pub(super) fn insert_tab() -> Tab {
             Group {
                 label: "slideNative.images",
                 large: vec![L("sl.pictures")],
-                rows: vec![],
+                // Photo Album: each picture on a new slide.
+                rows: vec![vec![S("sl.photoAlbum")]],
             },
             Group {
                 label: "slideNative.illustrations",
                 large: vec![L("sl.shapes"), L("sl.icons")],
-                rows: vec![vec![S("sl.chart")]],
+                rows: vec![
+                    vec![S("sl.model3d")],
+                    vec![S("sl.smartart")],
+                    vec![S("sl.chart")],
+                ],
+            },
+            Group {
+                label: "slideNative.links",
+                large: vec![L("sl.links")],
+                rows: vec![],
             },
             Group {
                 label: "ribbon.groups.comments",
@@ -237,7 +273,7 @@ pub(super) fn insert_tab() -> Tab {
             },
             Group {
                 label: "slideNative.text",
-                large: vec![L("sl.textBox"), L("sl.headerFooter")],
+                large: vec![L("sl.textBox"), L("sl.headerFooter"), L("sl.textStyles")],
                 rows: vec![vec![B("sl.dateTime")], vec![B("sl.slideNumber")]],
             },
             Group {
@@ -389,6 +425,9 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         ("sl.pictures", "insert.picture"),
         ("sl.icons", "insert.icon"),
         ("sl.chart", "insert.chart"),
+        ("sl.photoAlbum", "insert.photoAlbum"),
+        ("sl.smartart", "insert.smartart"),
+        ("sl.links", "insert.link"),
         ("sl.comment", "review.newComment"),
         ("sl.textBox", "insert.textBox"),
         ("sl.headerFooter", "insert.header"),
@@ -470,6 +509,22 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
     );
     icons.add_solid("sl.crop", &[("M6 2v16h16", None), ("M2 6h16v16", None)]);
     icons.alias("sl.height", "sl.crop");
+    // 3-D Models: a cube; Text Styles: an outlined letter A (own drawings).
+    icons.add_solid(
+        "sl.model3d",
+        &[
+            ("M12 3l8 4.5v9l-8 4.5l-8-4.5v-9Z", Some(pale)),
+            ("M12 3l8 4.5v9l-8 4.5l-8-4.5v-9Z", None),
+            ("M4 7.5l8 4.5l8-4.5M12 12v9", None),
+        ],
+    );
+    icons.add_solid(
+        "sl.textStyles",
+        &[(
+            "M10 3h4l7 18h-4l-1.6-4.5h-6.8l-1.6 4.5h-4ZM9.8 13h4.4l-2.2-6Z",
+            Some(blue),
+        )],
+    );
     icons.alias("sl.width", "sl.crop");
 }
 
@@ -840,6 +895,60 @@ impl SlideWindow {
                 self.file_request = Some(InsertFile::Picture);
                 true
             }
+            "sl.photoAlbum" => {
+                self.file_request = Some(InsertFile::AlbumPicture);
+                true
+            }
+            "sl.model3d" => {
+                self.file_request = Some(InsertFile::Model3d);
+                true
+            }
+            "sl.smartart" => menu(
+                self,
+                [
+                    "list",
+                    "process",
+                    "cycle",
+                    "hierarchy",
+                    "relationship",
+                    "matrix",
+                    "pyramid",
+                ]
+                .iter()
+                .map(|k| {
+                    (
+                        self.strings
+                            .get(&format!("slideNative.smartart_{k}"))
+                            .to_owned(),
+                        format!("smart:{k}"),
+                    )
+                })
+                .collect(),
+                "sl.smartart",
+            ),
+            "sl.links" => menu(
+                self,
+                [
+                    ("link", "lnk:url"),
+                    ("actionNext", "lnk:next"),
+                    ("actionPrev", "lnk:prev"),
+                    ("actionFirst", "lnk:first"),
+                    ("actionLast", "lnk:last"),
+                ]
+                .iter()
+                .map(|(k, c)| (self.label(k), (*c).to_owned()))
+                .collect(),
+                "sl.links",
+            ),
+            "sl.textStyles" => menu(
+                self,
+                TEXT_STYLES
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (k, ..))| (self.label(k), format!("tstyle:{i}")))
+                    .collect(),
+                "sl.textStyles",
+            ),
             "sl.media" => menu(
                 self,
                 vec![
@@ -1083,6 +1192,44 @@ impl SlideWindow {
         use bo_engine::picture_tools::PictureCommand as P;
         use bo_engine::slide_edit::effects::EffectOp;
         Some(match kind {
+            "smart" => {
+                self.activate_context = true;
+                let items: Vec<bo_engine::slide_edit::smartart::SmartItem> = (0..3)
+                    .map(|_| bo_engine::slide_edit::smartart::SmartItem {
+                        text: self.label("smartText"),
+                        ..Default::default()
+                    })
+                    .collect();
+                self.view.run(SlideCommand::InsertSmartArt {
+                    layout: v.to_owned(),
+                    items,
+                    colors: None,
+                    style: None,
+                    rect: None,
+                })
+            }
+            "lnk" => {
+                use bo_engine::slide_edit::present::LinkAction;
+                let target = match v {
+                    "next" => LinkAction::Next,
+                    "prev" => LinkAction::Prev,
+                    "first" => LinkAction::First,
+                    "last" => LinkAction::Last,
+                    _ => {
+                        self.open_dialog(SlideDialog::Link);
+                        return Some(true);
+                    }
+                };
+                self.set_link(target)
+            }
+            "tstyle" => {
+                let Some((_, fill, outline)) =
+                    v.parse::<usize>().ok().and_then(|i| TEXT_STYLES.get(i))
+                else {
+                    return Some(false);
+                };
+                self.insert_text_style(*fill, *outline)
+            }
             "ins" => match v {
                 "video" => {
                     self.file_request = Some(InsertFile::Video);
@@ -1363,6 +1510,16 @@ impl SlideWindow {
                     (self.label("hfNotTitle"), not_title),
                 ])
             }
+            SlideDialog::Link => Dialog::new(
+                DialogKind::Link,
+                self.label("linkTitle"),
+                vec![(self.label("linkAddress"), "https://".into())],
+                vec![
+                    (self.label("ok"), DialogButton::Ok),
+                    (self.label("cancel"), DialogButton::Cancel),
+                ],
+                Vec::new(),
+            ),
             SlideDialog::SlideSize => {
                 let (cx, cy) = self
                     .view
@@ -1470,6 +1627,15 @@ impl SlideWindow {
         let on = |i: usize| values.get(i).is_some_and(|v| v == "1");
         match kind {
             SlideDialog::Show(_) => {}
+            SlideDialog::Link => {
+                let url = values.first().cloned().unwrap_or_default();
+                if !url.trim().is_empty() {
+                    self.set_link(bo_engine::slide_edit::present::LinkAction::Url {
+                        url: url.trim().to_owned(),
+                    });
+                }
+                self.dialog = None;
+            }
             SlideDialog::SlideSize => {
                 let emu = |i: usize| {
                     let v: f64 = values.get(i)?.replace(',', ".").trim().parse().ok()?;
@@ -1694,6 +1860,49 @@ impl SlideWindow {
         self.view.run(SlideCommand::PasteFormat)
     }
 
+    /// A hyperlink / action on the selection (text range or shapes).
+    fn set_link(&mut self, target: bo_engine::slide_edit::present::LinkAction) -> bool {
+        use bo_engine::slide_edit::action::{ActionCommand, ActionSpec, Scope, SoundSpec, Trigger};
+        self.view.run_action_cmd(ActionCommand::ActionSet {
+            on: Trigger::Click,
+            spec: ActionSpec {
+                target,
+                tooltip: None,
+                highlight: false,
+                sound: SoundSpec::default(),
+            },
+            scope: Scope::Auto,
+        })
+    }
+
+    /// A text box in large letters with a text style (fill and outline in theme colours).
+    fn insert_text_style(&mut self, fill: Option<usize>, outline: Option<usize>) -> bool {
+        use bo_engine::slide_edit::effects::EffectOp;
+        use bo_engine::slide_edit::text::TextFormat;
+        let colors = self.theme_colors();
+        let hex = |i: usize| colors.get(i).map(|c| pk::hex(*c));
+        self.activate_context = true;
+        if !self.view.run(SlideCommand::InsertTextBox {
+            text: self.label("tsText"),
+            rect: None,
+        }) {
+            return false;
+        }
+        self.view.format_text(TextFormat::Size { points: 54.0 });
+        if let Some(c) = fill.and_then(hex) {
+            self.view.format_text(TextFormat::Color { hex: Some(c) });
+        }
+        if let Some(c) = outline.and_then(hex) {
+            self.view.run(SlideCommand::ShapeEffects {
+                op: EffectOp::TextOutline {
+                    color: Some(c),
+                    width: Some(1.0),
+                },
+            });
+        }
+        true
+    }
+
     /// Hide or show the current slide's background graphics.
     fn toggle_bg_graphics(&mut self) -> bool {
         let hide = !self.bg_pane.hide_graphics;
@@ -1768,6 +1977,14 @@ impl SlideWindow {
 
     /// Insert a picked picture, video or audio file on the current slide.
     pub fn insert_file(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        self.insert_file_as(bytes, name, false)
+    }
+
+    /// Insert a picked file; `album`: on a new slide after the current one (Photo Album).
+    pub fn insert_file_as(&mut self, bytes: Vec<u8>, name: &str, album: bool) -> bool {
+        if album {
+            self.view.new_slide(None);
+        }
         let svg = name.to_ascii_lowercase().ends_with(".svg");
         self.activate_context = true;
         let done = if svg {

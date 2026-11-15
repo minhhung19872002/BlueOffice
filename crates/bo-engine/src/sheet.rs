@@ -500,6 +500,8 @@ pub struct SheetEngine {
     pub(crate) name: String,
     /// Screen scale of the geometry ([`SheetEngine::set_display_scale`]).
     display_ppp: Option<f64>,
+    /// Calculate every formula when a file is opened ([`SheetEngine::set_recalc_on_open`]).
+    recalc_on_open: bool,
     wb: Option<Workbook>,
     geometry: Vec<Option<SheetGeometry>>,
     locale: Locale,
@@ -1041,6 +1043,7 @@ impl SheetEngine {
             fonts: FontManager::new(),
             name: String::new(),
             display_ppp: None,
+            recalc_on_open: false,
             wb: None,
             geometry: Vec::new(),
             locale: Locale::VI_VN,
@@ -1133,6 +1136,40 @@ impl SheetEngine {
         } else {
             Locale::VI_VN
         };
+    }
+
+    /// Short date and long time of the user's region as Windows patterns (`M/d/yyyy`,
+    /// `h:mm:ss tt`): the built-in date formats (§18.8.30 `numFmtId` 14, 22, …) and typed
+    /// dates follow them, as a desktop spreadsheet shows dates by the system's region
+    /// settings. Native hosts pass the system's values; the web keeps the locale's own.
+    pub fn set_region_dates(&mut self, short_date: Option<&str>, long_time: Option<&str>) {
+        // The locale keeps static patterns: each distinct region pattern is interned once
+        // for the life of the process.
+        fn intern(code: String) -> &'static str {
+            use std::sync::{Mutex, OnceLock};
+            static SEEN: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+            let seen = SEEN.get_or_init(|| Mutex::new(Vec::new()));
+            let Ok(mut list) = seen.lock() else {
+                return "m/d/yyyy";
+            };
+            if let Some(s) = list.iter().find(|s| **s == code) {
+                return s;
+            }
+            let s: &'static str = Box::leak(code.into_boxed_str());
+            list.push(s);
+            s
+        }
+        let code = |p: Option<&str>| {
+            p.map(bo_sheet::numfmt::format_code_from_windows)
+                .filter(|c| !c.is_empty())
+                .map(intern)
+        };
+        if let Some(d) = code(short_date) {
+            self.locale.short_date = d;
+        }
+        if let Some(t) = code(long_time) {
+            self.locale.long_time = t;
+        }
     }
 
     /// Opens `.xlsx` / `.xlsm` / `.xlsb` / `.xls` / `.ods` / `.csv` bytes
@@ -1237,11 +1274,28 @@ impl SheetEngine {
     /// results are kept unless the file asks for a full calculation on load
     /// (ECMA-376 Part 1, §18.2.2 `calcPr/@fullCalcOnLoad`).
     fn load_opened(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
-        if full_calc_on_load(&wb) {
+        if self.recalc_on_open || full_calc_on_load(&wb) {
             return self.load(wb, name);
         }
         self.live.rebuild_from_file(&mut wb);
         self.install(wb, name)
+    }
+
+    /// Calculate every formula of files opened from now on, whatever their saved results
+    /// (a desktop spreadsheet recalculates a file saved by another application when it
+    /// opens it). Off by default: saved results are kept unless the file asks for a full
+    /// calculation (§18.2.2 `calcPr/@fullCalcOnLoad`).
+    pub fn set_recalc_on_open(&mut self, on: bool) {
+        self.recalc_on_open = on;
+    }
+
+    /// Calculate every formula of the open workbook again (Calculate Now). Not an undo
+    /// step: only formula results change.
+    pub fn recalculate(&mut self) -> Result<()> {
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        self.live.rebuild(wb);
+        self.invalidate(None);
+        Ok(())
     }
 
     /// New empty workbook with one sheet.

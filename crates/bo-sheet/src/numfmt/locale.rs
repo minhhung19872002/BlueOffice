@@ -146,3 +146,60 @@ impl Default for Locale {
         Locale::VI_VN
     }
 }
+
+/// Number format code (§18.8.31) for a Windows date / time pattern of the user's region
+/// (`M/d/yyyy`, `dd-MMM-yy`, `h:mm:ss tt`, `HH:mm`): month `M` becomes `m`, 24-hour `H`
+/// becomes `h`, `tt` / `t` becomes `AM/PM`, quoted text stays quoted, era `g` is dropped.
+#[must_use]
+pub fn format_code_from_windows(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut chars = pattern.chars().peekable();
+    let mut ampm = false;
+    while let Some(c) = chars.next() {
+        match c {
+            'M' => out.push('m'),
+            'H' => out.push('h'),
+            'd' | 'y' | 'h' | 'm' | 's' | '/' | '-' | '.' | ':' | ' ' | ',' => out.push(c),
+            't' => {
+                while chars.peek() == Some(&'t') {
+                    chars.next();
+                }
+                if !ampm {
+                    out.push_str("AM/PM");
+                    ampm = true;
+                }
+            }
+            'g' => {}
+            '\'' => {
+                out.push('"');
+                for n in chars.by_ref() {
+                    if n == '\'' {
+                        break;
+                    }
+                    out.push(n);
+                }
+                out.push('"');
+            }
+            other => {
+                out.push('\\');
+                out.push(other);
+            }
+        }
+    }
+    out.trim().to_owned()
+}
+
+#[cfg(test)]
+mod windows_pattern_tests {
+    use super::format_code_from_windows as f;
+
+    #[test]
+    fn windows_patterns_become_format_codes() {
+        assert_eq!(f("M/d/yyyy"), "m/d/yyyy");
+        assert_eq!(f("dd/MM/yyyy"), "dd/mm/yyyy");
+        assert_eq!(f("dd-MMM-yy"), "dd-mmm-yy");
+        assert_eq!(f("h:mm:ss tt"), "h:mm:ss AM/PM");
+        assert_eq!(f("HH:mm"), "hh:mm");
+        assert_eq!(f("'Ngày' d"), "\"Ngày\" d");
+    }
+}

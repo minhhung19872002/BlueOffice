@@ -519,3 +519,17 @@ fn bluesheet_paths_use_full_text_engine() {
         bo_formula::Value::Text("Tháng Ba".into())
     );
 }
+
+#[test]
+fn iso_date_cells_show_through_their_format() {
+    // §18.3.1.4 t="d": the ISO text stands for a serial (2024-03-05 = 45356).
+    let v = CellValue::Date("2024-03-05T00:00:00".into());
+    let f = |code: &str| NumberFormat::parse(code).format(&v, &en()).text;
+    assert_eq!(f("dd/mm/yyyy"), "05/03/2024");
+    assert_eq!(f("General"), "45356");
+    let odd = CellValue::Date("not a date".into());
+    assert_eq!(
+        NumberFormat::parse("General").format(&odd, &en()).text,
+        "not a date"
+    );
+}

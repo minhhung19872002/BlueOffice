@@ -102,6 +102,45 @@ impl Device {
             height,
         })
     }
+
+    /// Copy rectangles of `from` into `to` on the GPU: each `(src, dst)` copies the
+    /// `src` rectangle (left, top, width, height in device pixels) of `from` with its top-left
+    /// corner at `dst` in `to`. Rectangles are clamped to both bitmaps. Scrolling a grid image
+    /// moves the still-visible part this way and redraws only the newly exposed band.
+    pub fn copy_page_rects(
+        &self,
+        from: &PageBitmap,
+        to: &PageBitmap,
+        rects: &[([u32; 4], [u32; 2])],
+    ) -> Result<(), String> {
+        use windows::Win32::Graphics::Direct2D::Common::{D2D_POINT_2U, D2D_RECT_U};
+        for &([x, y, w, h], [dx, dy]) in rects {
+            let w = w
+                .min(from.width.saturating_sub(x))
+                .min(to.width.saturating_sub(dx));
+            let h = h
+                .min(from.height.saturating_sub(y))
+                .min(to.height.saturating_sub(dy));
+            if w == 0 || h == 0 {
+                continue;
+            }
+            let src = D2D_RECT_U {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            };
+            let at = D2D_POINT_2U { x: dx, y: dy };
+            // SAFETY: both bitmaps belong to this device's context; the rectangles are
+            // clamped to them and the pointers live for the call.
+            unsafe {
+                to.bitmap
+                    .CopyFromBitmap(Some(&raw const at), &from.bitmap, Some(&raw const src))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Device {

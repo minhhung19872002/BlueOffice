@@ -1,10 +1,16 @@
 //! The BlueSheet window (ADR-0018, plan N6): title bar, ribbon with a Home tab, formula bar,
 //! grid, sheet tabs and status bar, with input routing. Sizes and colours follow black-box
 //! measurements of a desktop spreadsheet at 125 % display scale (docs/ui/REPORT-sheet.md).
+use crate::dialog::Dialog;
 use crate::icons::{IconColors, Icons};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
-use crate::ribbon::{Group, Item, Ribbon, RibbonHit, Tab};
+use crate::ribbon::{Ribbon, RibbonHit};
+use crate::sheet_ribbon;
 use crate::sheet_view::{GridStore, SheetView, SEL_GREEN};
+use commands_impl::SheetDialog;
+
+#[path = "sheet_commands.rs"]
+mod commands_impl;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -45,81 +51,6 @@ const SIZES: [f64; 16] = [
 
 const ACCOUNTING: &str = "_-* #,##0 [$₫-42A]_-;-* #,##0 [$₫-42A]_-;_-* \"-\" [$₫-42A]_-;_-@_-";
 const COMMA_STYLE: &str = "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-";
-
-fn home_tab() -> Tab {
-    use Item::{Button as B, FontBox, Labeled as S, Large as L, SizeBox};
-    Tab {
-        label: "ribbon.tabs.home",
-        groups: vec![
-            Group {
-                label: "ribbon.groups.clipboard",
-                large: vec![L("edit.paste")],
-                rows: vec![
-                    vec![B("edit.cut")],
-                    vec![B("edit.copy")],
-                    vec![B("format.painter")],
-                ],
-            },
-            Group {
-                label: "sheetEditor.groupFont",
-                large: vec![],
-                rows: vec![
-                    vec![
-                        FontBox,
-                        SizeBox,
-                        B("format.growStep"),
-                        B("format.shrinkStep"),
-                    ],
-                    vec![
-                        B("format.bold"),
-                        B("format.italic"),
-                        B("format.underline"),
-                        B("format.borders"),
-                        B("format.fillColor"),
-                        B("format.color"),
-                    ],
-                ],
-            },
-            Group {
-                label: "sheetEditor.groupAlignment",
-                large: vec![],
-                rows: vec![
-                    vec![
-                        B("format.alignTop"),
-                        B("format.alignMiddle"),
-                        B("format.alignBottom"),
-                        B("format.wrap"),
-                    ],
-                    vec![
-                        B("format.alignLeft"),
-                        B("format.alignCenter"),
-                        B("format.alignRight"),
-                        B("format.outdent"),
-                        B("format.indent"),
-                        B("format.mergeCenter"),
-                    ],
-                ],
-            },
-            Group {
-                label: "sheetEditor.groupNumber",
-                large: vec![],
-                rows: vec![
-                    vec![B("format.currency"), B("format.percent"), B("format.comma")],
-                    vec![B("format.decimalInc"), B("format.decimalDec")],
-                ],
-            },
-            Group {
-                label: "sheetEditor.groupCells",
-                large: vec![],
-                rows: vec![
-                    vec![S("cells.insertRow")],
-                    vec![S("cells.deleteRow")],
-                    vec![S("cells.autofitCol")],
-                ],
-            },
-        ],
-    }
-}
 
 /// Commands of the BlueSheet window.
 const COMMANDS: [&str; 34] = [
@@ -163,7 +94,7 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
-        _ => COMMANDS.contains(&id),
+        _ => COMMANDS.contains(&id) || id.starts_with("sheet."),
     }
 }
 
@@ -271,12 +202,18 @@ pub struct SheetWindow {
     /// Pointer cursor wanted by the grid (`SheetView::cursor_at`).
     cursor: u8,
     status: String,
+    /// The engine's worksheet function names.
+    functions: Vec<String>,
+    /// Open dialog and what it is for.
+    dialog: Option<(SheetDialog, Dialog)>,
+    /// Formula bar shown (View tab).
+    show_fbar: bool,
 }
 
 impl SheetWindow {
     /// Wrap workbook `name` shown by `view` with BlueSheet's interface in `locale`.
     pub fn new(view: SheetView, locale: &str, name: &str) -> Self {
-        Self {
+        let mut w = Self {
             view,
             title: {
                 let mut t = TitleBar::new();
@@ -285,7 +222,7 @@ impl SheetWindow {
             },
             name: name.to_owned(),
             requests: Vec::new(),
-            ribbon: Ribbon::with_tabs(vec![home_tab()]).with_enabled(sheet_enabled),
+            ribbon: Ribbon::with_tabs(sheet_ribbon::tabs()).with_enabled(sheet_enabled),
             theme: Theme::light("sheet"),
             icons: Icons::load(),
             strings: Strings::load(locale),
@@ -309,7 +246,12 @@ impl SheetWindow {
             painter: None,
             cursor: 0,
             status: String::new(),
-        }
+            functions: Vec::new(),
+            dialog: None,
+            show_fbar: true,
+        };
+        w.load_functions();
+        w
     }
 
     /// The grid view (saving).
@@ -360,7 +302,11 @@ impl SheetWindow {
 
     /// Formula bar band height (54 px at 125 %, boxes 30 px high, 12 px above and below).
     fn fbar_h(&self) -> f32 {
-        self.px(43.2)
+        if self.show_fbar {
+            self.px(43.2)
+        } else {
+            0.0
+        }
     }
 
     /// Sheet tab strip (31 px at 125 %) and status bar (32 px) heights.
@@ -604,6 +550,15 @@ impl SheetWindow {
         if self.painter.is_some() {
             on.push("format.painter");
         }
+        if self.view.gridlines() {
+            on.push("sheet.gridlines");
+        }
+        if self.view.headings() {
+            on.push("sheet.headings");
+        }
+        if self.show_fbar {
+            on.push("sheet.formulaBar");
+        }
         on
     }
 
@@ -614,7 +569,10 @@ impl SheetWindow {
     }
 
     /// Run window command `id`; `true` when the window changed.
-    fn action(&mut self, id: &str) -> bool {
+    fn action(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
+        if let Some(done) = self.sheet_action(id, text) {
+            return done;
+        }
         let f = self.view.format().clone();
         match id {
             "edit.undo" => self.view.undo(),
@@ -880,16 +838,16 @@ impl SheetWindow {
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
 
-    fn choose(&mut self, c: Choice) -> bool {
+    fn choose(&mut self, c: Choice, text: &dyn TextMeasure) -> bool {
         match c {
             Choice::Font(name) => self.patch(json!({ "fontName": name })),
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
-            Choice::Command(id) => self.action(&id),
+            Choice::Command(id) => self.action(&id, text),
             Choice::Style(_) => false,
         }
     }
 
-    fn menu_input(&mut self, input: &Input) -> Option<bool> {
+    fn menu_input(&mut self, input: &Input, text: &dyn TextMeasure) -> Option<bool> {
         let menu = self.menu.as_mut()?;
         Some(match *input {
             Input::Move { x, y } | Input::Drag { x, y } => menu.hover(x, y),
@@ -905,7 +863,7 @@ impl SheetWindow {
             Input::Release { x, y } => {
                 if let Some(choice) = menu.release(x, y) {
                     self.menu = None;
-                    self.choose(choice);
+                    self.choose(choice, text);
                 }
                 true
             }
@@ -926,7 +884,7 @@ impl SheetWindow {
                 let choice = menu.current();
                 self.menu = None;
                 if let Some(c) = choice {
-                    self.choose(c);
+                    self.choose(c, text);
                 }
                 true
             }
@@ -969,6 +927,9 @@ impl SheetWindow {
         }
         self.update_bars();
         self.view.measure_labels(text);
+        if let Some((_, d)) = self.dialog.as_mut() {
+            d.layout(text, self.size, self.scale);
+        }
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
@@ -981,8 +942,37 @@ impl SheetWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        // A dialog is modal: it takes keyboard and pointer input.
+        if let Some((_, d)) = self.dialog.as_mut() {
+            match input {
+                Input::Text(ref s) => {
+                    d.text(s);
+                    return true;
+                }
+                Input::Key(k, m) => {
+                    if let Some(b) = d.key(k, m) {
+                        self.sheet_dialog_button(b, text);
+                    }
+                    return true;
+                }
+                Input::Move { x, y } => return d.hover(x, y),
+                Input::Press { x, y, .. } => {
+                    if let Some(b) = d.press(x, y) {
+                        self.sheet_dialog_button(b, text);
+                    }
+                    return true;
+                }
+                Input::Blink => return true,
+                Input::Wheel(_)
+                | Input::Drag { .. }
+                | Input::Release { .. }
+                | Input::Context { .. }
+                | Input::Preedit(_) => return false,
+                _ => {}
+            }
+        }
         if self.menu.is_some() {
-            if let Some(r) = self.menu_input(&input) {
+            if let Some(r) = self.menu_input(&input, text) {
                 return r;
             }
         }
@@ -1023,7 +1013,7 @@ impl SheetWindow {
                 if self.view.editing() && id.starts_with("format.") {
                     self.view.commit();
                 }
-                self.action(id);
+                self.action(id, text);
                 return true;
             }
             if m.ctrl && matches!(k, Key::PageUp | Key::PageDown) {
@@ -1039,6 +1029,13 @@ impl SheetWindow {
             if k == Key::Escape && self.painter.take().is_some() {
                 return true;
             }
+        }
+        if let Input::Context { x, y } = input {
+            if self.view.context_at(x, y).is_some() {
+                self.context_menu(x, y);
+                return true;
+            }
+            return false;
         }
         if let Input::Zoom(steps) = input {
             let z = ((self.view.zoom() + 0.1 * steps) * 10.0).round() / 10.0;
@@ -1188,7 +1185,7 @@ impl SheetWindow {
                 }
                 self.grid_press = false;
                 let quick = match self.title.release(x, y) {
-                    Some(id) => self.action(id),
+                    Some(id) => self.action(id, text),
                     None => false,
                 };
                 let (fired, pressed) = self.ribbon.release(x, y);
@@ -1197,7 +1194,7 @@ impl SheetWindow {
                         self.open_file_menu();
                         true
                     }
-                    Some(RibbonHit::Command(id)) => self.action(id),
+                    Some(RibbonHit::Command(id)) => self.action(id, text),
                     Some(hit @ (RibbonHit::FontBox | RibbonHit::SizeBox)) => {
                         self.open_menu(hit);
                         true
@@ -1256,7 +1253,10 @@ impl SheetWindow {
             &[],
             &self.on_ids(),
         );
-        self.paint_formula_bar(p);
+        self.paint_number_box(p);
+        if self.show_fbar {
+            self.paint_formula_bar(p);
+        }
         self.paint_tabs(p);
         self.paint_scrollbars(p);
         self.paint_status(p);
@@ -1265,6 +1265,55 @@ impl SheetWindow {
         } else if let Some((label, tw, anchor)) = &self.tooltip {
             paint_tooltip(p, &self.theme, label, *tw, *anchor, self.size.0, self.scale);
         }
+        if let Some((_, d)) = &self.dialog {
+            d.paint(p, &self.theme, self.size, true);
+        }
+    }
+
+    /// The number format box of the Home tab: the active cell's format category in a
+    /// white box with a drop-down arrow, drawn over its ribbon placeholder.
+    fn paint_number_box(&self, p: &mut dyn Painter) {
+        let Some([x, y, w, h]) = self
+            .ribbon
+            .rect_of(RibbonHit::Command("sheet.numberFormat"))
+        else {
+            return;
+        };
+        let (y, h) = (y + self.px(1.0), h - self.px(2.0));
+        p.fill_rect(x, y, w, h, Rgba(0x94, 0x94, 0x94, 255));
+        p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, self.theme.surface);
+        let label = self
+            .strings
+            .get(sheet_ribbon::number_category(&self.view.format().num_fmt));
+        let style = TextStyle {
+            size: self.px(12.0),
+            bold: false,
+        };
+        let arrow = self.px(16.0);
+        p.push_clip(x, y, w - arrow, h);
+        p.text(
+            label,
+            x + self.px(5.0),
+            (y + (h - style.size * 1.33) / 2.0).round(),
+            style,
+            self.theme.text,
+        );
+        p.pop_clip();
+        let (cx, cy, k) = (
+            (x + w - arrow / 2.0).round(),
+            (y + h / 2.0).round(),
+            self.px(3.0),
+        );
+        p.path(
+            &[
+                PathSeg::M(cx - k, cy - k / 2.0),
+                PathSeg::L(cx + k, cy - k / 2.0),
+                PathSeg::L(cx, cy + k / 2.0),
+                PathSeg::Z,
+            ],
+            Some(self.theme.text_muted),
+            None,
+        );
     }
 
     fn ui_style(&self) -> TextStyle {
@@ -1649,6 +1698,10 @@ impl SheetView {
 }
 
 #[cfg(test)]
+#[path = "sheet_window_tests.rs"]
+mod more_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::sheet_view::GridStore;
@@ -1839,9 +1892,10 @@ mod tests {
         );
         let st = w.view().stats();
         assert_eq!((st.sum, st.count, st.average), (6.0, 3, Some(2.0)));
-        assert!(w.action("format.bold"));
+        assert!(w.action("format.bold", &Fixed));
         assert!(w.view().format().bold, "bold applied to the active cell");
-        assert!(w.action("edit.undo"));
+        assert!(w.action("edit.undo", &Fixed));
+
         assert!(!w.view().format().bold);
         // + adds a sheet and shows it.
         let [x, y, ww, hh] = w.add_rect;

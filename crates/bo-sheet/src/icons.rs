@@ -16,6 +16,8 @@ const DARK: Rgba = Rgba(0x3A, 0x3F, 0x47, 255);
 const LIGHT: Rgba = Rgba(0xD9, 0xDD, 0xE2, 255);
 const BLUE: Rgba = Rgba(0x2E, 0x6D, 0xB4, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
+/// Ring and filled share of the quarter discs (#505050, measured on a desktop spreadsheet).
+const QUARTER_INK: Rgba = Rgba(0x50, 0x50, 0x50, 255);
 
 /// Every icon set name BlueSheet draws (§18.18.42 and the x14 additions).
 pub const ICON_SETS: [&str; 20] = [
@@ -265,13 +267,16 @@ pub fn icon(set: &str, index: usize, count: usize, x: f64, y: f64, s: f64) -> Ve
             ));
         }
     } else if set.contains("Quarters") {
-        out.push(fill(circle(cx, cy, r * 0.9), LIGHT));
+        // A white disc ringed in dark grey, filled clockwise from twelve o'clock by
+        // the icon's share (empty → full), as the quarters read on a desktop spreadsheet.
+        let w = s * 0.05;
+        let rr = r - w / 2.0;
+        out.push(fill(circle(cx, cy, rr), WHITE));
         let frac = index as f64 / (n - 1) as f64;
         if frac >= 1.0 {
-            out.push(fill(circle(cx, cy, r * 0.9), GRAY));
+            out.push(fill(circle(cx, cy, rr), QUARTER_INK));
         } else if frac > 0.0 {
             let a = std::f64::consts::TAU * frac;
-            let rr = r * 0.9;
             let mut segs = vec![
                 PathSeg::M(cx as f32, cy as f32),
                 PathSeg::L(cx as f32, (cy - rr) as f32),
@@ -285,8 +290,19 @@ pub fn icon(set: &str, index: usize, count: usize, x: f64, y: f64, s: f64) -> Ve
                 ));
             }
             segs.push(PathSeg::Z);
-            out.push(fill(segs, GRAY));
+            out.push(fill(segs, QUARTER_INK));
         }
+        out.push(Command::Path {
+            segs: circle(cx, cy, rr),
+            fill: None,
+            stroke: Some(Stroke {
+                width: w as f32,
+                color: QUARTER_INK,
+                dash: vec![],
+                cap: "butt".into(),
+                join: "round".into(),
+            }),
+        });
     } else if set.contains("Stars") {
         out.push(fill(star(cx, cy, r * 0.95), LIGHT));
         match index {

@@ -96,3 +96,99 @@ p95 29,0 ms (đối chứng 58,1 / 65,6 ms, cùng phương pháp); nội bộ: x
 - Thanh công thức: hộp tên có mũi tên thả, sửa nhiều dòng; tham chiếu ô bằng chuột khi gõ công thức.
 - Kéo tay nắm điền (fill handle), nhấp đúp mép cột để AutoFit, menu chuột phải, hộp thoại Format Cells.
 - Engine: tính lại công thức khi tệp có giá trị lưu cũ như đối chứng, tô mẫu / chuyển sắc, ô `t="d"`.
+
+## Vòng 2 (N6 tiếp) — tab, menu, tương tác lưới, engine
+
+Nhánh `worktree-agent-a868e14eb3e9a35fe` (từ `work/desktop-performance` 046f18b5). Ảnh chụp và số đo trong
+thư mục scratch của phiên (`sheet2/`): `fills-x/b.png`, `cf1-x/b.png`, `ribbon-cmp.png`, `numfmt.png`, `ctx.png`, `point.png`.
+
+### Vòng 5 — cuộn bằng cách dời ảnh lưới
+
+`GridStore::scroll` + `Device::copy_page_rects` (bo-gpu-win, thêm mới): khi chỉ cuộn đúng số nguyên điểm ảnh theo
+một hướng, phần còn thấy của ảnh lưới được chép sang bitmap thứ hai trên GPU (`CopyFromBitmap`), chỉ dải hàng/cột mới
+lộ ra được vẽ (`draw_page` theo dải); hàng/cột cố định giữ nguyên, dải 4 px quanh đường cố định vẽ lại. Kiểm bằng
+rasterizer CPU (`bo-raster`): ghép ảnh sau 12 lần cuộn khác ảnh vẽ cả trang < 1/20 000 điểm ảnh (mép glyph nằm ở nửa
+điểm ảnh), cả khi có cố định hàng/cột (`sheet_window_tests.rs`). `BLUEOFFICE_SHEET_BLIT=0` tắt để so.
+
+Nhấp bánh xe trên `big10k.xlsx` (10 000 hàng), 40 nấc `WM_MOUSEWHEEL` gửi vào cửa sổ:
+
+| Cách đo | Đối chứng trung vị / p95 | BlueSheet trước (vòng 1) | BlueSheet sau |
+|---|---|---|---|
+| `PrintWindow` 1500×1102 (như vòng 1) | 34,0 / 41,2 (vòng 1) | 30,5 / 80,7 | 28,2–28,8 / 55,6–82,6 |
+| `PrintWindow` 900×700 (mỗi lần chụp ~15 ms) | 27,9 / 29,2 · 27,8 / 28,6 | 22,0 / 49,9 · 45,9 / 51,1 | 24,8 / 50,6 · 43,1 / 53,3 |
+| Lấy mẫu màn hình đã ghép (BitBlt vùng 500×120, ~7 ms/mẫu) | — (không đưa được cửa sổ đối chứng mở qua COM lên trên) | 15,1 / 19,7 · 15,0 / 17,5 | 15,2 / 21,1 · 15,1 / 17,2 |
+| Nội bộ (`BLUEOFFICE_NATIVE_PERF`): vẽ lưới CPU / phím→present | — | — | 3,1–3,5 ms / 6,6–7,3 ms (trung vị) |
+
+Đọc số: trên màn hình thật BlueSheet đổi hình sau ~1 khung (15 ms trung vị, p95 ≤ 21 ms). `PrintWindow` phạt cửa sổ
+swap chain flip: ảnh mới chỉ thấy được sau khi DWM ghép, nên kết quả hai mức (~22 ms hoặc ~46 ms = một lần chụp nữa);
+đối chứng vẽ GDI nên lần chụp đầu đã thấy (28 ms). Dời ảnh không đổi thời gian CPU (3,1 ms với/không — phần lớn là dựng
+display list và chuẩn bị glyph), chỉ bớt việc vẽ GPU; ở bảng trên với/không dời ảnh cho cùng số trong sai số đo.
+Host: khi hệ thống đòi vẽ (chụp, lộ cửa sổ) và đang có khung chờ, khung đó được vẽ một lần (trước đây vẽ hai lần,
+present hai lần) và được ghi log; `grid_ms` cộng cả thời gian vẽ lưới trong các lần vẽ đó.
+
+### Vòng 6 — ribbon: Home đầy đủ và các tab Insert, Formulas, Data, View
+
+`sheet_ribbon.rs` (tab, nhóm, menu) + `sheet_commands.rs` (lệnh). So `ribbon-cmp.png` (trên: đối chứng, dưới: BlueSheet):
+
+| Nhóm | Đối chứng | BlueSheet |
+|---|---|---|
+| Number | hộp “General” 120 px + mũi tên; hàng $ % ,; hàng tăng/giảm số lẻ | hộp vẽ đè lên chỗ của mục có nhãn (152 px), danh sách General…Text + “Other number formats…”, dấu chọn ở loại hiện hành; 3 hàng như đối chứng |
+| Styles | 3 hàng có nhãn + ▾ | 3 hàng có nhãn + ▾: quy tắc định dạng có điều kiện (trên/dưới trung bình, trùng, top/bottom 10, thanh dữ liệu, thang màu, bộ biểu tượng, xoá quy tắc), kiểu bảng, kiểu ô (`NAMED_STYLES`) |
+| Cells | Insert ▾ / Delete ▾ / Format ▾ | như đối chứng (chèn/xoá hàng, cột, trang tính; AutoFit, ẩn/hiện, Format Cells…) |
+| Editing | hai cột nút biểu tượng có ▾ (Σ, ↓, tẩy / sắp xếp, tìm) | như đối chứng: AutoSum (Sum/Average/Count/Max/Min, theo lệnh `autoSum` của engine), Fill (xuống/phải/lên/trái, chuỗi), Clear (tất cả/định dạng/nội dung), Sort & Filter, Find & Select (Find, Replace, Go To) |
+
+Tab khác: Insert (bảng, biểu đồ cột/thanh, đường/vùng, tròn/vành khuyên), Formulas (chèn hàm, AutoSum, thư viện hàm theo
+nhóm — chỉ hàm engine có, tính ngay), Data (A→Z, Z→A, lọc, tách văn bản theo , ; tab, loại trùng), View (đường lưới,
+tiêu đề, thanh công thức, 100 %, thu phóng theo vùng chọn, cố định ô/hàng đầu/cột đầu/bỏ). Biểu tượng mới là hình vẽ
+riêng (Σ, fx, máy tính, tách cột, tiêu đề, thanh công thức) hoặc biểu tượng sẵn có cùng nghĩa.
+Khác còn lại: thứ tự tab chưa có Draw / Page Layout / Review / Help; nút “Calculation Options” (thủ công) chưa có vì
+engine luôn tính lại; Text to Columns không có trình hướng dẫn.
+
+### Vòng 7 — tương tác lưới
+
+| Hạng mục | Kết quả (test headless trong `sheet_window_tests.rs`) |
+|---|---|
+| Kéo tay nắm điền | khung xám theo hướng kéo xa nhất, thả = `autofill` (1, 2 → … 5) |
+| Nhấp đúp mép tiêu đề cột/hàng | `autofit` cột/hàng đó |
+| Menu chuột phải | ô / cả hàng / cả cột: cắt, chép, dán · chèn, xoá, xoá nội dung · sắp xếp hoặc AutoFit/ẩn/hiện · Format Cells… (`ctx.png`) |
+| Hộp thoại | Find (chọn ô khớp tiếp theo), Replace (Replace all), Go To (tham chiếu/tên qua `resolve`), Insert Function, Format Cells cơ bản (mã định dạng số, phông, cỡ, màu chữ, màu tô, căn ngang, đậm, nghiêng, xuống dòng, viền quanh) — dùng `Dialog` sẵn có |
+| Trỏ ô khi gõ công thức | sau `=`, toán tử, `(`, `,`: nhấp chèn tham chiếu, kéo mở rộng thành vùng; khung màu cho từng tham chiếu (`point.png`: `=SUM(H4:H5)+D1`, khung xanh/cam) |
+
+Màu khung tham chiếu chưa đo được trên đối chứng (gửi F2 bằng `PostMessage` không mở chế độ sửa khi cửa sổ không có
+focus); bảng màu hiện là của BlueSheet.
+
+### Vòng 8 — engine (thấy trên màn hình), `fills.xlsx` tự sinh + `cf-1.xlsx`
+
+| Hạng mục | Đối chứng | BlueSheet trước | BlueSheet sau |
+|---|---|---|---|
+| Công thức có giá trị lưu cũ (`=SUM(H4:H5)` lưu 1) | tính lại khi mở: 1234,5 | 1 | 1234,5 (`set_recalc_on_open`, chỉ bản native; web giữ quy tắc `fullCalcOnLoad`) |
+| Ô `t="d"` kiểu General | số sê-ri 45356 | chuỗi ISO | 45356; có định dạng ngày → ngày |
+| Ngày định dạng dựng sẵn 14 | theo vùng Windows: 3/5/2024 | 05/03/2024 | 3/5/2024 (`set_region_dates` đọc `sShortDate`/`sTimeFormat`) |
+| Tô mẫu (16 kiểu) | ảnh mẫu 4 px theo điểm ảnh | màu tiền cảnh đặc | xám/caro = mật độ trộn màu; sọc/lưới nhạt = đường 1–2 px mỗi 4 px trên nền |
+| Tô chuyển sắc | tuyến tính theo độ, “path” toả từ tâm | điểm dừng đầu | tuyến tính / toả tròn như đối chứng |
+| Bộ biểu tượng 5 phần tư | đĩa trắng viền #505050, phần tô #505050, 20 px, cách mép ô 2 px | đĩa xám không viền 16 px | như đối chứng (x 366–384 so với 365–384: ±1 px do khử răng cưa) |
+| Thanh dữ liệu | x 284–343, y 1–20 (hàng 24 px) | x 285–343, y 2–21 | x 284–343, y 1–20 (khớp từng điểm ảnh) |
+| Cột có độ rộng lưu (16 ký tự) | 144 px | 140 px (112 px × 1,25) | 144 px (`for_display` dùng độ rộng chữ số ở tỉ lệ màn hình, 9 px; 100 % và in/web không đổi) |
+
+Độ dài thanh dữ liệu đã khớp từ trước (sai khác ghi ở phiên chính là do so khác hàng). Thay đổi trong `bo-sheet`
+(tô mẫu, chuyển sắc, biểu tượng, `t="d"`) áp dụng cả bản web.
+
+Còn khác: vạch mẫu chéo vẽ bằng đường khử răng cưa thay vì điểm ảnh; “dark grid” / “trellis” là màu trộn thay vì ô caro.
+
+### Bản phát hành cuối vòng 2 (LTO, `out/desktop/bluesheet-native.exe`, `big10k.xlsx`, 30 lần mỗi phép)
+
+| Thao tác | Đối chứng trung vị / p95 | BlueSheet trung vị / p95 |
+|---|---|---|
+| Gõ chữ vào ô, `PrintWindow` 900×700 | 42,1 / 62,5 ms | 26,7 / 49,0 ms |
+| Nấc bánh xe, `PrintWindow` 900×700 | 27,9 / 33,6 ms | 23,5 / 42,0 ms |
+| Nấc bánh xe, lấy mẫu màn hình | — | 15,4 / 21,7 ms |
+
+## Còn lại (sau vòng 2)
+
+- Đo độ trễ bánh xe của đối chứng trên màn hình thật (cửa sổ mở qua COM không lên trên được khi không có focus);
+  `PrintWindow` không công bằng với swap chain flip.
+- Màu khung tham chiếu khi sửa công thức chưa đo trên đối chứng; chế độ “Point” bằng phím mũi tên chưa có.
+- Hộp định dạng số rộng 152 px (đối chứng 120 px) vì chiếm chỗ một mục có nhãn của ribbon dùng chung.
+- Tab Draw / Page Layout / Review / Help; tính toán thủ công; trình hướng dẫn tách cột; hộp thoại Format Cells có thẻ
+  (Number / Alignment / Font / Border / Fill) như đối chứng — hiện là một hộp thoại trường văn bản.
+- Thanh công thức: hộp tên có mũi tên thả, sửa nhiều dòng.

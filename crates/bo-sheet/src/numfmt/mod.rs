@@ -31,7 +31,7 @@ pub use input::{
     parse_typed_date, parse_typed_date_in_year, parse_typed_number, TypedDate, TypedFormat,
     TypedNumber,
 };
-pub use locale::Locale;
+pub use locale::{format_code_from_windows, Locale};
 
 use calendar::Calendar;
 
@@ -717,7 +717,20 @@ impl NumberFormat {
                 .to_owned(),
             ),
             CellValue::Error(e) => Formatted::plain(e.as_str().to_owned()),
-            CellValue::Date(d) => Formatted::plain(d.clone()),
+            // §18.3.1.4 `t="d"`: an ISO 8601 date / time shown as the serial it stands
+            // for, through the cell's number format (as a desktop spreadsheet converts it
+            // when opening the file).
+            CellValue::Date(d) => {
+                let system = if opts.date1904 {
+                    bo_formula::DateSystem::Date1904
+                } else {
+                    bo_formula::DateSystem::Date1900
+                };
+                match bo_formula::date::parse_datetime_text(&d.replacen('T', " ", 1), system) {
+                    Some(n) => self.format_number(n, opts),
+                    None => Formatted::plain(d.clone()),
+                }
+            }
         }
     }
 

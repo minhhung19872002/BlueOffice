@@ -288,7 +288,8 @@ impl SheetGeometry {
     /// Geometry as a desktop spreadsheet shows the sheet at `ppp` device pixels per point:
     /// rows whose height was not set by hand are as tall as the default font's line in whole
     /// pixels plus 2 px at that scale (Calibri 11: 20 px at 96 dpi, 24 px = 14.4 pt at 120 dpi,
-    /// measured black-box), other heights are rounded to whole pixels. Columns are unchanged.
+    /// measured black-box), other heights are rounded to whole pixels. Columns with a stored width
+    /// use the digit width at that scale in whole pixels; default columns are unchanged.
     ///
     /// Rows without a stored height grow to their content as the reference fits them on
     /// opening: wrapped text over the column width, vertical (stacked) and rotated text,
@@ -317,6 +318,46 @@ impl SheetGeometry {
                 ) * size
                     / upem
             });
+        // Columns with a stored width count characters of the digit width at this scale in
+        // whole pixels (§18.3.1.13 with the screen's MDW): Calibri 11 has 9 px digits at
+        // 120 dpi, so a 16-character column is 144 px as measured on the reference, not
+        // 112 px × 1.25 = 140 px. Columns at the default width keep their size.
+        let digit_pt = fonts
+            .resolve(name, false, false)
+            .map_or(size * 5.25 / 11.0, |face| {
+                (0..10)
+                    .map(|d| f64::from(fonts.measure(face, &d.to_string(), size as f32)))
+                    .fold(0.0, f64::max)
+            });
+        let mdw = (digit_pt * ppp).round().max(1.0);
+        if (mdw - g.metrics.mdw_px * PT_PER_PX * ppp).abs() > 1e-6 {
+            let widen = if ws
+                .views
+                .first()
+                .is_some_and(bo_model::sheet::SheetView::show_formulas)
+            {
+                SHOW_FORMULAS_WIDTH
+            } else {
+                1.0
+            };
+            let cols = ws
+                .cols
+                .iter()
+                .filter(|c| c.hidden || c.width.is_some())
+                .map(|c| {
+                    let size = match c.width {
+                        _ if c.hidden => 0.0,
+                        Some(w) => {
+                            let px = (((256.0 * w + (128.0 / mdw).trunc()) / 256.0) * mdw).trunc();
+                            px.max(0.0) / ppp * widen
+                        }
+                        None => g.cols.default,
+                    };
+                    (c.min, c.max, size)
+                })
+                .collect();
+            g.cols = Axis::new(g.cols.default, MAX_COLS, cols);
+        }
         let auto = ((line * ppp).round() + 2.0) / ppp;
         let file_default = ws.format.default_row_height;
         let default = match file_default {

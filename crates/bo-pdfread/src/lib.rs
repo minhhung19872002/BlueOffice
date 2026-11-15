@@ -16,6 +16,8 @@
 mod annot;
 mod cmap;
 mod color;
+mod crypt;
+mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
@@ -31,6 +33,7 @@ mod type1;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
+pub use edit::SaveOptions;
 pub use image::Image;
 pub use text::TextLayer;
 
@@ -154,6 +157,8 @@ pub struct PdfDocument {
     changed: Vec<ObjectId>,
     /// The document has `/PageLabels`.
     labelled: bool,
+    /// Undo / redo and page tree edits (BlueEditor).
+    edit: edit::EditState,
 }
 
 fn resolve<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
@@ -385,66 +390,41 @@ impl PdfDocument {
     /// Open a PDF from its bytes. `fonts` holds the faces that stand in for fonts that are not
     /// embedded (see [`standard_fonts`]); embedded fonts are added to it as pages render.
     pub fn open(bytes: Vec<u8>, fonts: FontManager) -> Result<Self, String> {
+        Self::open_with_password(bytes, fonts, "")
+    }
+
+    /// Whether `bytes` are a PDF that needs a password to open.
+    pub fn needs_password(bytes: &[u8]) -> bool {
+        let start = bytes.windows(5).take(1024).position(|w| w == b"%PDF-");
+        start
+            .and_then(|s| Document::load_mem(&bytes[s..]).ok())
+            .is_some_and(|d| d.is_encrypted() && d.encryption_state.is_none())
+    }
+
+    /// Open a PDF encrypted with a user or owner `password` (the standard security handler,
+    /// ISO 32000-1 §7.6.3–7.6.4; an empty password opens unprotected files). The document keeps
+    /// its security handler: it is encrypted again with the same key when saved.
+    pub fn open_with_password(
+        bytes: Vec<u8>,
+        fonts: FontManager,
+        password: &str,
+    ) -> Result<Self, String> {
         let start = bytes
             .windows(5)
             .take(1024)
             .position(|w| w == b"%PDF-")
             .ok_or("not a PDF file")?;
-        let doc = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
-        if doc.is_encrypted() && doc.trailer.get(b"Encrypt").is_ok() && doc.objects.len() < 2 {
-            return Err("the document is protected by a password".into());
+        let mut doc = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
+        if doc.is_encrypted() && doc.encryption_state.is_none() {
+            if password.is_empty() {
+                return Err("the document is protected by a password".into());
+            }
+            doc = crypt::load(&bytes[start..], password)?;
         }
-        let ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
-        if ids.is_empty() {
+        let (pages, labelled) = scan_pages(&doc);
+        if pages.is_empty() {
             return Err("the document has no pages".into());
         }
-        let labels = page_labels(&doc, ids.len());
-        let labelled = doc.catalog().is_ok_and(|c| c.has(b"PageLabels"));
-        let pages = ids
-            .iter()
-            .enumerate()
-            .map(|(i, &id)| {
-                let d = doc.get_dictionary(id).ok();
-                let media = d
-                    .and_then(|d| rect_of(&doc, inherited(&doc, d, b"MediaBox")))
-                    .unwrap_or([0.0, 0.0, 612.0, 792.0]);
-                let crop = d
-                    .and_then(|d| rect_of(&doc, inherited(&doc, d, b"CropBox")))
-                    .map_or(media, |c| {
-                        // The crop box is clipped to the media box.
-                        let r = [
-                            c[0].max(media[0]),
-                            c[1].max(media[1]),
-                            c[2].min(media[2]),
-                            c[3].min(media[3]),
-                        ];
-                        if r[2] - r[0] >= 1.0 && r[3] - r[1] >= 1.0 {
-                            r
-                        } else {
-                            media
-                        }
-                    });
-                let rotate = d
-                    .and_then(|d| inherited(&doc, d, b"Rotate"))
-                    .and_then(|o| o.as_i64().ok())
-                    .unwrap_or(0)
-                    .rem_euclid(360);
-                let rotate = (rotate / 90 * 90) as u16;
-                let (w, h) = (crop[2] - crop[0], crop[3] - crop[1]);
-                let (width, height) = if rotate % 180 == 90 { (h, w) } else { (w, h) };
-                PageInfo {
-                    width: width.min(14_400.0),
-                    height: height.min(14_400.0),
-                    rotate,
-                    label: labels
-                        .get(i)
-                        .cloned()
-                        .unwrap_or_else(|| (i + 1).to_string()),
-                    id,
-                    crop,
-                }
-            })
-            .collect();
         let hidden = hidden_groups(&doc);
         Ok(Self {
             doc,
@@ -456,6 +436,7 @@ impl PdfDocument {
             hidden,
             changed: Vec::new(),
             labelled,
+            edit: edit::EditState::default(),
         })
     }
 
@@ -578,6 +559,60 @@ impl PdfDocument {
     fn page_index(pages: &[PageInfo], id: ObjectId) -> Option<usize> {
         pages.iter().position(|p| p.id == id)
     }
+}
+
+/// Sizes, rotations and labels of every page in page tree order, and whether the document
+/// has `/PageLabels` (§7.7.3, §12.4.2).
+pub(crate) fn scan_pages(doc: &Document) -> (Vec<PageInfo>, bool) {
+    let ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    let labels = page_labels(doc, ids.len());
+    let labelled = doc.catalog().is_ok_and(|c| c.has(b"PageLabels"));
+    let pages = ids
+        .iter()
+        .enumerate()
+        .map(|(i, &id)| {
+            let d = doc.get_dictionary(id).ok();
+            let media = d
+                .and_then(|d| rect_of(doc, inherited(doc, d, b"MediaBox")))
+                .unwrap_or([0.0, 0.0, 612.0, 792.0]);
+            let crop = d
+                .and_then(|d| rect_of(doc, inherited(doc, d, b"CropBox")))
+                .map_or(media, |c| {
+                    // The crop box is clipped to the media box.
+                    let r = [
+                        c[0].max(media[0]),
+                        c[1].max(media[1]),
+                        c[2].min(media[2]),
+                        c[3].min(media[3]),
+                    ];
+                    if r[2] - r[0] >= 1.0 && r[3] - r[1] >= 1.0 {
+                        r
+                    } else {
+                        media
+                    }
+                });
+            let rotate = d
+                .and_then(|d| inherited(doc, d, b"Rotate"))
+                .and_then(|o| o.as_i64().ok())
+                .unwrap_or(0)
+                .rem_euclid(360);
+            let rotate = (rotate / 90 * 90) as u16;
+            let (w, h) = (crop[2] - crop[0], crop[3] - crop[1]);
+            let (width, height) = if rotate % 180 == 90 { (h, w) } else { (w, h) };
+            PageInfo {
+                width: width.min(14_400.0),
+                height: height.min(14_400.0),
+                rotate,
+                label: labels
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| (i + 1).to_string()),
+                id,
+                crop,
+            }
+        })
+        .collect();
+    (pages, labelled)
 }
 
 fn page_content(doc: &Document, page: &Dictionary) -> Vec<u8> {
@@ -931,5 +966,7 @@ fn hidden_groups(doc: &Document) -> HashSet<ObjectId> {
     out
 }
 
+#[cfg(test)]
+mod edit_tests;
 #[cfg(test)]
 mod tests;

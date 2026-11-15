@@ -343,7 +343,7 @@ impl PdfDocument {
 
     /// Add a comment; it shows at once and is written by [`PdfDocument::save`].
     pub fn add_annotation(&mut self, a: &NewAnnot) -> Result<(), String> {
-        if self.doc.is_encrypted() {
+        if self.doc.is_encrypted() && self.doc.encryption_state.is_none() {
             return Err("comments cannot be added to an encrypted document".into());
         }
         let info = self.pages.get(a.page).ok_or("no such page")?.clone();
@@ -453,9 +453,8 @@ impl PdfDocument {
         ap_dict.set("Subtype", Object::Name(b"Form".to_vec()));
         ap_dict.set("BBox", nums(&rect));
         ap_dict.set("Resources", res);
-        let ap_id = self
-            .doc
-            .add_object(Object::Stream(Stream::new(ap_dict, content.into_bytes())));
+        self.begin("comment");
+        let ap_id = self.add(Object::Stream(Stream::new(ap_dict, content.into_bytes())));
         let mut ap = Dictionary::new();
         ap.set("N", Object::Reference(ap_id));
         let mut d = Dictionary::new();
@@ -488,9 +487,7 @@ impl PdfDocument {
             }
             _ => {}
         }
-        let annot_id = self.doc.add_object(Object::Dictionary(d));
-        self.changed.push(ap_id);
-        self.changed.push(annot_id);
+        let annot_id = self.add(Object::Dictionary(d));
         // Link it from the page's /Annots.
         let page = self
             .doc
@@ -498,11 +495,12 @@ impl PdfDocument {
             .map_err(|e| e.to_string())?;
         if let Ok(Object::Reference(arr)) = page.get(b"Annots") {
             let arr = *arr;
+            self.touch(arr);
             if let Ok(Object::Array(v)) = self.doc.get_object_mut(arr) {
                 v.push(Object::Reference(annot_id));
-                self.changed.push(arr);
             }
         } else {
+            self.touch(info.id);
             let page = self
                 .doc
                 .get_dictionary_mut(info.id)
@@ -511,25 +509,29 @@ impl PdfDocument {
                 Ok(Object::Array(v)) => v.push(Object::Reference(annot_id)),
                 _ => page.set("Annots", vec![Object::Reference(annot_id)]),
             }
-            self.changed.push(info.id);
         }
+        self.commit();
         Ok(())
     }
 
     /// Whether comments were added since opening or the last save.
     pub fn modified(&self) -> bool {
-        !self.changed.is_empty()
+        !self.changed.is_empty() || self.edit.edits > 0
     }
 
     /// The document with the changes appended as an incremental update; afterwards the
     /// document is unmodified and the returned bytes are its new original.
+    /// Page tree edits rewrite the whole file instead ([`PdfDocument::save_full`]); comments,
+    /// form values and content edits keep earlier revisions (and signatures over them) intact.
     pub fn save(&mut self) -> Result<Vec<u8>, String> {
+        if self.edit.structural {
+            return self.save_full(crate::SaveOptions::default());
+        }
         if self.changed.is_empty() {
             return Ok(self.bytes.to_vec());
         }
         let out = crate::write::incremental(&self.bytes, &self.doc, &self.changed)?;
-        self.bytes = std::sync::Arc::new(out.clone());
-        self.changed.clear();
+        self.saved(out.clone());
         Ok(out)
     }
 }

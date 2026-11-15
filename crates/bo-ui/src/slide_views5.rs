@@ -12,7 +12,11 @@ use bo_engine::slide_edit::page_master::{PageKind, PageMasterCommand};
 use bo_render::Rgba;
 
 /// Commands of this round's View tab additions.
-pub const COMMANDS: [&str; 15] = [
+pub const COMMANDS: [&str; 19] = [
+    "win.new",
+    "win.switch",
+    "win.arrange",
+    "win.cascade",
     "view.handoutMaster",
     "view.notesMaster",
     "view.closePageMaster",
@@ -54,14 +58,43 @@ pub(super) fn master_views_group() -> Group {
     }
 }
 
-/// Color/Grayscale group.
+/// Color/Grayscale group: three rows, the mode in use highlighted.
 pub(super) fn color_group() -> Group {
-    use Item::{Labeled as S, Large as L};
+    use Item::Labeled as S;
     Group {
         label: "slideNative.colorGrayscale",
-        large: vec![L("view.color")],
-        rows: vec![vec![S("view.grayscale")], vec![S("view.blackWhite")]],
+        large: vec![],
+        rows: vec![
+            vec![S("view.color")],
+            vec![S("view.grayscale")],
+            vec![S("view.blackWhite")],
+        ],
     }
+}
+
+/// Window group: New Window, Arrange All, Cascade, Switch Windows.
+pub(super) fn window_group() -> Group {
+    use Item::{Labeled as S, Large as L};
+    Group {
+        label: "slideNative.window",
+        large: vec![L("win.new"), L("win.switch")],
+        rows: vec![vec![S("win.arrange")], vec![S("win.cascade")]],
+    }
+}
+
+/// A window operation the host carries out (View > Window).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowRequest {
+    /// Another window on the same presentation.
+    NewWindow,
+    /// Tile the BlueSlide windows side by side.
+    Arrange,
+    /// Cascade them.
+    Cascade,
+    /// List them: the host answers with [`SlideWindow::show_windows`].
+    List,
+    /// Bring window `n` of the last list to the front.
+    Activate(usize),
 }
 
 /// The Handout Master / Notes Master contextual tab.
@@ -126,6 +159,10 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         ("pm.number", "phNumber"),
         ("pm.slideImage", "phSlideImage"),
         ("pm.body", "phBody"),
+        ("win.new", "newWindow"),
+        ("win.switch", "switchWindows"),
+        ("win.arrange", "arrangeAll"),
+        ("win.cascade", "cascade"),
     ] {
         let v = s.get(&format!("slideNative.{key}")).to_owned();
         s.set(&format!("commands.{id}"), &v);
@@ -156,6 +193,48 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         ],
     );
     icons.alias("view.closePageMaster", "view.closeMaster");
+    // Window group: a new window, tiled / cascaded windows, a stack to switch (own drawings).
+    let frame = |x: f32, y: f32, w: f32, h: f32| format!("M{x} {y}h{w}v{h}h-{w}Z");
+    let a = frame(3.0, 5.0, 14.0, 12.0);
+    let b = frame(7.0, 9.0, 14.0, 12.0);
+    icons.add_solid(
+        "win.new",
+        &[
+            (a.as_str(), Some(white)),
+            (a.as_str(), None),
+            (b.as_str(), Some(white)),
+            (b.as_str(), None),
+            ("M7 9h14v2h-14Z", Some(blue)),
+        ],
+    );
+    icons.add_solid(
+        "win.arrange",
+        &[
+            ("M2 4h9v16h-9ZM13 4h9v16h-9Z", Some(white)),
+            ("M2 4h9v16h-9ZM13 4h9v16h-9Z", None),
+            ("M2 4h9v2h-9ZM13 4h9v2h-9Z", Some(blue)),
+        ],
+    );
+    icons.add_solid(
+        "win.cascade",
+        &[
+            (
+                "M2 2h12v10h-12ZM6 6h12v10h-12ZM10 10h12v10h-12Z",
+                Some(white),
+            ),
+            ("M2 2h12v10h-12ZM6 6h12v10h-12ZM10 10h12v10h-12Z", None),
+        ],
+    );
+    icons.add_solid(
+        "win.switch",
+        &[
+            ("M4 3h14v11h-14Z", Some(white)),
+            ("M4 3h14v11h-14Z", None),
+            ("M7 8h14v11h-14Z", Some(white)),
+            ("M7 8h14v11h-14Z", None),
+            ("M7 8h14v2h-14Z", Some(blue)),
+        ],
+    );
     // Color: three coloured squares; Grayscale / Black and White: grey and black ones.
     icons.add_solid(
         "view.color",
@@ -264,6 +343,10 @@ impl SlideWindow {
                 }
                 done
             }
+            "win.new" => self.window_req(WindowRequest::NewWindow),
+            "win.arrange" => self.window_req(WindowRequest::Arrange),
+            "win.cascade" => self.window_req(WindowRequest::Cascade),
+            "win.switch" => self.window_req(WindowRequest::List),
             "view.ruler" => {
                 self.ruler = !self.ruler;
                 true
@@ -317,8 +400,41 @@ impl SlideWindow {
         self.menu = Some(Menu::open(items, r, self.size, self.scale));
     }
 
+    fn window_req(&mut self, r: WindowRequest) -> bool {
+        self.window_request = Some(r);
+        true
+    }
+
+    /// A window operation for the host (taken once).
+    pub fn take_window_request(&mut self) -> Option<WindowRequest> {
+        self.window_request.take()
+    }
+
+    /// The host's answer to [`WindowRequest::List`]: the open windows' titles (this one
+    /// `current`) shown as Switch Windows' menu.
+    pub fn show_windows(&mut self, titles: &[String], current: usize) {
+        let Some(r) = self.ribbon.rect_of(RibbonHit::Command("win.switch")) else {
+            return;
+        };
+        let items = titles
+            .iter()
+            .enumerate()
+            .map(|(i, t)| MenuItem {
+                label: format!("{} {}", i + 1, t),
+                choice: Choice::Command(format!("pm:w{i}")),
+                checked: i == current,
+                dim: false,
+            })
+            .collect();
+        self.menu_kind = super::MenuKind::Duration;
+        self.menu = Some(Menu::open(items, r, self.size, self.scale));
+    }
+
     /// Menu choices of the master tabs (`pm:…`).
     pub(super) fn choose_pm(&mut self, v: &str) -> bool {
+        if let Some(n) = v.strip_prefix('w').and_then(|n| n.parse().ok()) {
+            return self.window_req(WindowRequest::Activate(n));
+        }
         if let Some(n) = v.strip_prefix('n').and_then(|n| n.parse().ok()) {
             return self
                 .view

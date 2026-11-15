@@ -7,7 +7,7 @@ use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurfa
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
     Font, Input, InsertFile, NcHit, PageStore, Painter, Request, SlideView, SlideWindow,
-    TextMeasure, TextStyle,
+    TextMeasure, TextStyle, WindowRequest,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -34,6 +34,7 @@ fn ui_size(size: f32) -> f32 {
 
 /// Open the presentation named on the command line (or a new one) and run the window.
 pub fn run() -> Result<(), String> {
+    let started = Instant::now();
     let mut engine = Engine::with_bundled_fonts();
     engine.set_utc_offset_minutes(win32::utc_offset_minutes());
     if std::env::var("BLUEOFFICE_SYSTEM_FONTS").as_deref() != Ok("0") {
@@ -51,6 +52,7 @@ pub fn run() -> Result<(), String> {
         ));
     }
     let mut file = None;
+    let mut open_ms = 0.0;
     let name = if let Some(path) = std::env::args_os().nth(1) {
         let path = std::path::PathBuf::from(path);
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -58,7 +60,9 @@ pub fn run() -> Result<(), String> {
             || "presentation.pptx".into(),
             |n| n.to_string_lossy().into_owned(),
         );
+        let t = Instant::now();
         engine.open(&bytes, &name).map_err(|e| e.to_string())?;
+        open_ms = t.elapsed().as_secs_f64() * 1e3;
         if engine.slide_count() == 0 {
             return Err(format!("{name}: not a presentation"));
         }
@@ -95,6 +99,8 @@ pub fn run() -> Result<(), String> {
             last_frame: [std::time::Duration::ZERO; 3],
             epoch: Instant::now(),
             anim_frame: None,
+            startup: Some((started, open_ms)),
+            hwnd: 0,
         }),
     )
 }
@@ -283,6 +289,10 @@ struct Shell {
     last_frame: [std::time::Duration; 3],
     /// Clock origin of slide show animations.
     epoch: Instant,
+    /// This window.
+    hwnd: isize,
+    /// Process start and the engine's open time, logged with the first frame.
+    startup: Option<(Instant, f64)>,
     /// Previous animation frame (frame pacing in the performance log).
     anim_frame: Option<Instant>,
 }
@@ -372,6 +382,9 @@ impl Shell {
         if let Some(kind) = self.view.take_file_request() {
             redraw |= self.insert_file(kind);
         }
+        if let Some(w) = self.view.take_window_request() {
+            redraw |= self.window_request(w);
+        }
         for r in self.view.take_requests() {
             match r {
                 Request::Save => {
@@ -440,6 +453,34 @@ impl Shell {
         redraw
     }
 
+    /// View > Window: another window, arrange, cascade, switch among BlueSlide windows.
+    fn window_request(&mut self, w: WindowRequest) -> bool {
+        let list = win32::app_windows(" — BlueSlide");
+        let handles: Vec<isize> = list.iter().map(|(h, _)| *h).collect();
+        match w {
+            WindowRequest::NewWindow => {
+                spawn_self(self.file.as_deref());
+                false
+            }
+            WindowRequest::Arrange | WindowRequest::Cascade => {
+                win32::arrange_windows(&handles, w == WindowRequest::Cascade);
+                false
+            }
+            WindowRequest::List => {
+                let titles: Vec<String> = list.iter().map(|(_, t)| t.clone()).collect();
+                let cur = handles.iter().position(|h| *h == self.hwnd).unwrap_or(0);
+                self.view.show_windows(&titles, cur);
+                true
+            }
+            WindowRequest::Activate(n) => {
+                if let Some(h) = handles.get(n) {
+                    win32::activate_window(*h);
+                }
+                false
+            }
+        }
+    }
+
     fn render(&mut self) -> Result<(), String> {
         let Some(gpu) = self.gpu.as_mut() else {
             return Ok(());
@@ -477,6 +518,7 @@ fn spawn_self(file: Option<&std::path::Path>) {
 
 impl Handler for Shell {
     fn created(&mut self, hwnd: isize, width: u32, height: u32, scale: f32) -> Result<(), String> {
+        self.hwnd = hwnd;
         refresh_text_scale();
         let device = Device::new()?;
         if let Err(e) = device.update_window_monitor(hwnd) {
@@ -635,6 +677,15 @@ impl Handler for Shell {
         self.dirty = false;
         if let Err(e) = self.render() {
             eprintln!("render: {e}");
+        }
+        if let (Some(file), Some((t0, open_ms))) = (self.perf.as_mut(), self.startup.take()) {
+            let _ = writeln!(
+                file,
+                r#"{{"first_frame_ms":{:.1},"open_ms":{:.1},"slides":{}}}"#,
+                t0.elapsed().as_secs_f64() * 1e3,
+                open_ms,
+                self.view.view().slide_count(),
+            );
         }
         if let (Some(file), Some(p)) = (self.perf.as_mut(), self.pending_input.take()) {
             let total = p.first.elapsed();

@@ -452,3 +452,47 @@ fn home_slides_group_and_sections() {
     let mut p = Count::default();
     w.paint(&mut p);
 }
+
+#[test]
+fn draw_table_eraser_and_window_group() {
+    let mut w = table_window();
+    click_command(&mut w, "sl.drawTable");
+    assert!(matches!(w.table_tool, tabletools::TableTool::Draw(_)));
+    let c = w.view().canvas_rect();
+    let (x0, y0) = (c[0] + 40.0, c[1] + 40.0);
+    let n = w.selection_rows().len();
+    press(&mut w, x0, y0, 1);
+    w.handle(
+        Input::Drag {
+            x: x0 + 200.0,
+            y: y0 + 80.0,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Release {
+            x: x0 + 200.0,
+            y: y0 + 80.0,
+        },
+        &Fixed,
+    );
+    assert_eq!(w.selection_rows().len(), n + 1, "a drawn table");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert_eq!(w.table_tool, tabletools::TableTool::Off);
+    // View > Window asks the host.
+    view_tab(&mut w);
+    assert!(w.toggled().contains(&"view.normal"));
+    click_command(&mut w, "win.new");
+    assert_eq!(w.take_window_request(), Some(WindowRequest::NewWindow));
+    click_command(&mut w, "win.switch");
+    assert_eq!(w.take_window_request(), Some(WindowRequest::List));
+    w.show_windows(&["a — BlueSlide".into(), "b — BlueSlide".into()], 0);
+    assert!(w.menu.is_some());
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(matches!(
+        w.take_window_request(),
+        Some(WindowRequest::Activate(_))
+    ));
+}

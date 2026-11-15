@@ -2951,7 +2951,13 @@
     "expandAll": "Mở rộng tất cả",
     "untitledSection": "Phần chưa đặt tên",
     "sectionName": "Tên phần:",
-    "defaultSection": "Phần mặc định"
+    "defaultSection": "Phần mặc định",
+    "window": "Cửa sổ",
+    "newWindow": "Cửa sổ mới",
+    "switchWindows": "Chuyển cửa sổ",
+    "arrangeAll": "Sắp xếp tất cả",
+    "cascade": "Xếp tầng",
+    "drawTable": "Vẽ bảng"
   },
   "slideEditor": {
     "open": "Mở",

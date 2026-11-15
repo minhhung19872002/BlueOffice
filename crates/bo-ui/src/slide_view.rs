@@ -2134,8 +2134,14 @@ impl SlideView {
             self.touch(id);
         }
         let ts = self.thumb_scale();
+        // While typing, the current slide's thumbnail is brought up to date when idle
+        // (`prefetch`), off the keystroke's path: it costs as much as the slide itself.
+        let typing = self.text_edit().is_some();
         for i in self.visible_thumbs() {
             let key = THUMB_KEY + self.ids[i];
+            if typing && i == cur && self.shown.contains_key(&key) {
+                continue;
+            }
             self.ensure(store, key, i, ts)?;
         }
         self.evict(store, 0, MAIN_CACHE);
@@ -2274,6 +2280,15 @@ impl SlideView {
         }
         let scale = self.scale();
         let cur = self.current;
+        // The current slide's thumbnail left behind while typing.
+        if let Some(&id) = self.ids.get(cur) {
+            let key = THUMB_KEY + id;
+            let ts = self.thumb_scale();
+            if self.needs(key, ts) && !self.sorter {
+                self.ensure(store, key, cur, ts)?;
+                return Ok(true);
+            }
+        }
         for j in [cur + 1, cur.wrapping_sub(1), cur + 2] {
             if let Some(&id) = self.ids.get(j) {
                 if self.needs(id, scale) {

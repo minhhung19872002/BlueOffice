@@ -30,7 +30,9 @@ pub const TABLE_FLAGS: [(&str, &str); 6] = [
 ];
 
 /// Commands of these tabs.
-pub const COMMANDS: [&str; 23] = [
+pub const COMMANDS: [&str; 25] = [
+    "sl.drawTable",
+    "sl.eraser",
     "sl.tblBorders",
     "sl.tblEffects",
     "sl.penStyle",
@@ -57,7 +59,9 @@ pub const COMMANDS: [&str; 23] = [
 ];
 
 /// Label keys (`slideNative.*`).
-const LABELS: [(&str, &str); 16] = [
+const LABELS: [(&str, &str); 18] = [
+    ("sl.drawTable", "drawTable"),
+    ("sl.eraser", "eraser"),
     ("sl.tblBorders", "borders"),
     ("sl.tblEffects", "effects"),
     ("sl.penStyle", "penStyle"),
@@ -180,7 +184,7 @@ pub(super) fn table_design_tab() -> Tab {
             text_styles_group(),
             Group {
                 label: "slideNative.drawBorders",
-                large: vec![],
+                large: vec![L("sl.drawTable"), L("sl.eraser")],
                 rows: vec![
                     vec![S("sl.penStyle")],
                     vec![S("sl.penWeight")],
@@ -266,6 +270,19 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
     icons.alias("sl.textQuick", "sl.textStyles");
     icons.alias("sl.picQuick", "sl.quickStyles");
     icons.alias("sl.tblEffects", "sl.effects");
+    // Draw Table: a pencil over a grid; Eraser: the Draw tab's eraser.
+    icons.add_solid(
+        "sl.drawTable",
+        &[
+            ("M2 5h16v14h-16Z", Some(Rgba(255, 255, 255, 255))),
+            ("M2 5h16v14h-16ZM2 12h16M10 5v14", None),
+            (
+                "M19 2l3 3l-10 10l-4 1l1-4Z",
+                Some(Rgba(0x44, 0x80, 0xc0, 255)),
+            ),
+        ],
+    );
+    icons.alias("sl.eraser", "draw.eraser");
     icons.add_solid(
         "sl.tblBorders",
         &[
@@ -373,11 +390,17 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         "sl.textEffects",
         "sl.tblBorders",
         "sl.tblEffects",
+        "sl.penStyle",
+        "sl.penWeight",
     ] {
         let v = s.get(&format!("commands.{id}")).to_owned();
         if !v.is_empty() {
             s.set(&format!("commands.tip.{id}"), &v);
         }
+    }
+    // The pen boxes show the line itself (the name is the tooltip).
+    for id in ["sl.penStyle", "sl.penWeight"] {
+        s.set(&format!("commands.{id}"), "");
     }
 }
 
@@ -999,6 +1022,15 @@ impl SlideWindow {
                     band[3] - 2.0,
                     grey(0xd2),
                 );
+                // A white mat inside the grey frame, as the reference's chosen tile.
+                let m = self.px(4.0);
+                p.fill_rect(
+                    band[0] + m,
+                    band[1] + m,
+                    band[2] - 2.0 * m,
+                    band[3] - 2.0 * m,
+                    grey(0xff),
+                );
             } else if hovered == Some(RibbonHit::Command(id)) {
                 p.fill_rect(band[0], band[1], band[2], band[3], grey(0xe6));
             }
@@ -1033,9 +1065,10 @@ fn tint(c: Rgba, t: f32) -> Rgba {
     Rgba(l(c.0), l(c.1), l(c.2), 255)
 }
 
-/// A small table in a built-in style (own drawing in the reference's manner): a header band
-/// in the accent, white body rows (banded ones lightly tinted) ruled by thin accent lines,
-/// a short dash for each cell's text.
+/// A small table in a built-in style (own drawing in the reference's manner): five rows of
+/// five cells inside a thin accent border, the header row in the accent with white text
+/// dashes, banded rows lightly tinted, cells parted by light rules, a dark dash of "text"
+/// filling most of each cell.
 fn paint_table_tile(
     p: &mut dyn Painter,
     r: [f32; 4],
@@ -1045,16 +1078,16 @@ fn paint_table_tile(
 ) {
     let [x, y, w, h] = r;
     let rows: usize = 5;
-    let cols: usize = 4;
+    let cols: usize = 5;
     let rh = (h / rows as f32).floor();
     let cw = (w / cols as f32).floor();
-    let tw = cw * cols as f32;
-    let band = tint(accent, 0.18);
-    let rule = tint(accent, 0.55);
-    let dash = Rgba(0x59, 0x59, 0x59, 255);
+    let (tw, th) = (cw * cols as f32, rh * rows as f32);
+    let band = tint(accent, 0.15);
+    let rule = tint(accent, 0.45);
+    let ink = Rgba(0x10, 0x10, 0x10, 255);
     let white = Rgba(255, 255, 255, 255);
-    let k = scale.max(1.0).round();
-    p.fill_rect(x, y, tw, rh * rows as f32, white);
+    let k = (scale * 0.8).round().max(1.0);
+    p.fill_rect(x, y, tw, th, white);
     for rr in 0..rows {
         let header = rr == 0 && f.first_row;
         let total = rr == rows - 1 && f.last_row;
@@ -1069,19 +1102,32 @@ fn paint_table_tile(
             let cx = x + cc as f32 * cw;
             let emph = (cc == 0 && f.first_col) || (cc == cols - 1 && f.last_col);
             if emph && !(header || total) {
-                p.fill_rect(cx, ry, cw, rh, tint(accent, 0.45));
+                p.fill_rect(cx, ry, cw, rh, tint(accent, 0.35));
             }
-            let ink = if header || total { white } else { dash };
-            let dw = (cw * 0.55).round();
+            let dash = if header || total { white } else { ink };
             p.fill_rect(
-                (cx + (cw - dw) / 2.0).round(),
+                cx + k + 1.0,
                 (ry + rh / 2.0).round(),
-                dw,
-                k,
-                ink,
+                cw - 2.0 * k - 2.0,
+                (2.0 * k).min(rh / 3.0).round().max(1.0),
+                dash,
             );
+            if cc > 0 {
+                let c = if header || total { white } else { rule };
+                p.fill_rect(cx, ry, 1.0, rh, c);
+            }
         }
-        // A thin rule under each row in the accent.
-        p.fill_rect(x, ry + rh - k, tw, k, if header { accent } else { rule });
+        if rr > 0 {
+            p.fill_rect(x, ry, tw, 1.0, rule);
+        }
+    }
+    // Thin border in the accent's tint.
+    for (bx, by, bw, bh) in [
+        (x, y, tw, 1.0),
+        (x, y + th - 1.0, tw, 1.0),
+        (x, y, 1.0, th),
+        (x + tw - 1.0, y, 1.0, th),
+    ] {
+        p.fill_rect(bx, by, bw, bh, rule);
     }
 }

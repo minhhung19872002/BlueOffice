@@ -2951,7 +2951,13 @@
     "expandAll": "Expand All",
     "untitledSection": "Untitled Section",
     "sectionName": "Section name:",
-    "defaultSection": "Default Section"
+    "defaultSection": "Default Section",
+    "window": "Window",
+    "newWindow": "New Window",
+    "switchWindows": "Switch Windows",
+    "arrangeAll": "Arrange All",
+    "cascade": "Cascade",
+    "drawTable": "Draw Table"
   },
   "slideEditor": {
     "open": "Open",

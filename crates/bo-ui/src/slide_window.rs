@@ -253,6 +253,10 @@ pub struct SlideWindow {
     pm_flags: [bool; 6],
     /// View > Ruler.
     ruler: bool,
+    /// A window operation for the host (View > Window).
+    window_request: Option<WindowRequest>,
+    /// Draw Table / Eraser in use.
+    table_tool: tabletools::TableTool,
 }
 
 #[path = "slide_controls.rs"]
@@ -276,12 +280,16 @@ mod views5;
 #[path = "slide_sections.rs"]
 mod sections;
 
+#[path = "slide_tabletools.rs"]
+mod tabletools;
+
 #[path = "slide_showtab.rs"]
 mod showtab;
 
 #[path = "slide_viewtab.rs"]
 mod viewtab;
 pub use ins::InsertFile;
+pub use views5::WindowRequest;
 
 impl SlideWindow {
     /// The fixed tabs now shown: Slide Master's tab first while the master is edited.
@@ -321,7 +329,9 @@ fn large_widths(id: &str) -> Option<f32> {
 
 /// Fixed widths of row slots drawn over by the window (timing and size boxes).
 fn row_widths(id: &str) -> Option<f32> {
-    sr::row_width(id).or_else(|| ins::row_width(id))
+    sr::row_width(id)
+        .or_else(|| ins::row_width(id))
+        .or_else(|| tabletools::row_width(id))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -454,7 +464,13 @@ impl SlideWindow {
                 .with_mark_on_own_line()
                 // Reference at 125 %: font box 213 px, size box 67.
                 .with_box_widths(170.4, 53.6)
-                .with_enabled(slide_enabled),
+                .with_enabled(slide_enabled)
+                .with_trailing(|id| {
+                    matches!(
+                        id,
+                        "view.notes" | "win.switch" | "sl.drawTable" | "sl.eraser"
+                    )
+                }),
             theme: Theme::light("slide"),
             icons,
             strings,
@@ -500,6 +516,8 @@ impl SlideWindow {
             page_master: None,
             pm_flags: [true; 6],
             ruler: false,
+            window_request: None,
+            table_tool: tabletools::TableTool::Off,
         }
     }
 
@@ -790,6 +808,9 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.table_tool_action(id) {
+            return r;
+        }
         if let Some(r) = self.sections_action(id) {
             return r;
         }
@@ -2062,6 +2083,9 @@ impl SlideWindow {
         if let Some(r) = self.controls_key(&input, text) {
             return r;
         }
+        if let Some(r) = self.table_tool_input(&input) {
+            return r;
+        }
         if let Some(r) = self.removal_input(&input) {
             return r;
         }
@@ -2247,6 +2271,7 @@ impl SlideWindow {
             self.paint_controls(p);
             self.paint_insert(p);
             self.paint_table_design(p);
+            self.paint_table_tools(p);
             self.paint_show_checks(p);
             self.paint_view_checks(p);
         }
@@ -2293,6 +2318,7 @@ impl SlideWindow {
         }
         self.view_toggled(&mut on);
         self.picture_toggled(&mut on);
+        self.table_tool_toggled(&mut on);
         // The Draw tool in use (Select when none).
         let tool = sr::DRAW_TOOLS
             .iter()
@@ -2407,20 +2433,26 @@ impl SlideWindow {
                         true,
                     );
                 } else {
-                    // Without a selection the reference greys every star.
+                    // Shaded stars in the class colour; without a selection the reference
+                    // greys every star.
+                    let effect = sr::EFFECTS
+                        .iter()
+                        .find(|(c, _)| c == id)
+                        .and_then(|(_, e)| *e);
+                    let base = match effect {
+                        None => bo_render::Rgba(0xa6, 0xa6, 0xa6, 255),
+                        Some((_, "emph")) => bo_render::Rgba(0xe8, 0xb3, 0x1e, 255),
+                        Some((_, "exit")) => bo_render::Rgba(0xd2, 0x4a, 0x3c, 255),
+                        _ => bo_render::Rgba(0x68, 0xa4, 0x90, 255),
+                    };
                     let size = px(38.4);
-                    self.icons.draw(
+                    sr::paint_star(
                         p,
-                        if enabled { id } else { "anim.none" },
-                        (x + (w - size) / 2.0).round(),
-                        top + px(4.0),
-                        size,
-                        IconColors {
-                            ink: self.theme.text,
-                            accent: self.theme.accent,
-                            on: self.theme.accent_on,
-                            tinted: true,
-                        },
+                        (x + w / 2.0).round(),
+                        top + px(4.0) + size / 2.0,
+                        size * 0.42,
+                        base,
+                        enabled,
                     );
                 }
                 let key = format!("commands.{id}");

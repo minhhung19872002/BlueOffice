@@ -50,6 +50,7 @@ pub(super) fn view_tab() -> Tab {
                 rows: vec![],
             },
             super::views5::master_views_group(),
+            // Check boxes first, then Notes, as the reference.
             Group {
                 label: "ribbon.groups.show",
                 large: vec![L("view.notes")],
@@ -65,6 +66,7 @@ pub(super) fn view_tab() -> Tab {
                 rows: vec![],
             },
             super::views5::color_group(),
+            super::views5::window_group(),
         ],
     }
 }
@@ -242,10 +244,16 @@ impl SlideWindow {
 
     /// Commands shown as on (the current view, gridlines, guides).
     pub(super) fn view_toggled(&self, on: &mut Vec<&'static str>) {
+        use crate::slide_view::ViewMode;
         match self.pane {
             Pane::Outline => on.push("view.outline"),
             Pane::NotesPage => on.push("view.notesPage"),
-            Pane::Normal => {}
+            // The current view shows pressed, as the reference.
+            Pane::Normal => on.push(match self.view.mode() {
+                ViewMode::Sorter => "view.sorter",
+                ViewMode::Reading => "view.reading",
+                ViewMode::Normal => "view.normal",
+            }),
         }
         if self.master_view {
             on.push("view.slideMaster");

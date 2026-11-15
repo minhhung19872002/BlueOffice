@@ -51,6 +51,15 @@ const SLOTS: [(&str, Kind, Option<&str>); 12] = [
     ("transition.after", Kind::CheckSpin, None),
 ];
 
+/// Key of a slot's label: column headings have their own (the ribbon draws none for them).
+fn label_key(id: &str) -> String {
+    match id {
+        "transition.advance" => "slideNative.advanceSlide".to_owned(),
+        "anim.reorder" => "slideNative.reorder".to_owned(),
+        _ => format!("commands.{id}"),
+    }
+}
+
 /// State of the drawn controls.
 #[derive(Debug, Default)]
 pub(super) struct Controls {
@@ -103,7 +112,7 @@ impl SlideWindow {
         self.controls.label_w = SLOTS
             .iter()
             .map(|(id, _, _)| {
-                let key = format!("commands.{id}");
+                let key = label_key(id);
                 let label = self.strings.get(&key);
                 (*id, text.measure(label, style).0)
             })
@@ -534,7 +543,7 @@ impl SlideWindow {
             if let (Some(i), Some(name)) = (parts.icon, icon) {
                 self.icons.draw(p, name, i[0], i[1], i[2], colors);
             }
-            let key = format!("commands.{id}");
+            let key = label_key(id);
             let label = self.strings.get(&key);
             let enabled = !id.starts_with("anim.") || id == "anim.reorder" || fx.is_some();
             let ink = if enabled { ink } else { DIM };

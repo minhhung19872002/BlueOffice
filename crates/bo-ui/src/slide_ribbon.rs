@@ -352,6 +352,10 @@ pub(crate) fn install_strings(s: &mut Strings) {
         );
         s.set(&format!("commands.{id}"), "");
     }
+    // Column headings are drawn by the window: no label of the ribbon's own under them.
+    for id in ["transition.advance", "anim.reorder"] {
+        s.set(&format!("commands.{id}"), "");
+    }
     for (id, key) in [
         ("design.slideSize", "slideEditor.design.slideSize"),
         ("design.background", "slideNative.formatBackground"),
@@ -367,10 +371,8 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("anim.start", "slideNative.start"),
         ("anim.duration", "slideNative.duration"),
         ("anim.delay", "slideNative.delay"),
-        ("anim.reorder", "slideNative.reorder"),
         ("anim.earlier", "slideNative.moveEarlier"),
         ("anim.later", "slideNative.moveLater"),
-        ("transition.advance", "slideNative.advanceSlide"),
         ("transition.onClick", "slideNative.onMouseClick"),
         ("transition.after", "slideNative.after"),
         ("anim.pane", "slideNative.animationPane"),

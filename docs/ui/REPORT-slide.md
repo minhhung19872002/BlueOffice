@@ -177,3 +177,87 @@ chưa có hiệu ứng.
 - Dán trang chiếu sang cửa sổ BlueSlide khác (bảng tạm chỉ mang chữ + ảnh giữa hai tiến trình).
 - Bình luận: chưa có dấu bình luận trên trang, chưa trả lời theo luồng trong ngăn.
 - Animation Pane chỉ là lệnh; tab Draw chưa làm.
+
+## Vòng 11 — tab Transitions / Animations đo lại (`b7-*.png` so với `pp-Transitions.png`, `ppsel-Animations.png`)
+
+Chữ trong các ô điều khiển của tham chiếu (tên ô thư viện, Sound/Duration/After, Start…)
+lớn hơn nhãn nhóm khoảng 8 % (cao chữ hoa 13–14 px so với 11): `control_style` 13 logical.
+
+| Phần (thiết bị, 125 %) | Tham chiếu | BlueSlide vòng 9 | BlueSlide giờ |
+|---|---|---|---|
+| Đường chia sau Preview | x 92 | 102 | 94 → 92 (Preview 48,8 logical) |
+| Hộp thư viện / ô đầu | x 104 / 106 | 114 / 115 | 104 / 106 |
+| Bước ô thư viện | 124 | 127 | 124 (ô 121 + khe 3) |
+| Ô đang chọn | y 110–193, khung 136, nền 210 | y 107–196 | y 110–193 |
+| Hình ô (thẻ trang chiếu) | 50 × 45 tại y 117, viền 151/196, nền (201,217,234) | hình phẳng 48 px | 50 × 45 tại y 117, cùng màu viền/nền, mũi tên xám 114 viền trắng, dải màu đậm dần (hình vẽ riêng) |
+| Cột "thêm" | x 851–886, khung 128 trên nền 243 | khung 210 | x 851–886, khung 128 |
+| Effect Options | trong nhóm thư viện, 2 dòng, mờ khi không có biến thể | nhóm riêng, 1 dòng | như tham chiếu; đường chia sau nhóm 985 → 990 |
+| Sound (hộp thả) | x 1088–1229, y 104–135 | không có | x 1086–1227, y 104–135 |
+| Duration (ô số) | x 1113–1212, y 138–169, "02.00" | nút menu | x 1112–1211, y 138–169, bước 0,25 s, gõ được |
+| Đường giữa hai cột | x 1235, màu 210 | — | x 1236 |
+| On Mouse Click / After | ô đánh dấu 18 px tại x 1245; After x 1322–1421 | — | x 1246; After x 1321–1420 |
+| Chữ "Sound:" / "Advance Slide" | rộng 54 / 111, đỉnh y 113 | — | 49 / 109, y 112 |
+| Tên ô "None" | rộng 41, đỉnh y 170 | 35, y 173 | 40, y 168 → 170 |
+
+Animations (có hình được chọn): 4 ô sao như tham chiếu, sao màu xanh lục ngả lam (104,164,144)
+khi có lựa chọn, xám khi không; nhóm Advanced Animation (Add Animation 2 dòng, Animation Pane,
+Trigger, Animation Painter); nhóm Timing hai cột (Start thả xuống x 1126, Duration/Delay ô số
+x 1160–1259; Reorder Animation, Move Earlier/Later). Đường chia nhóm: tham chiếu 92 / 737 / 1040 /
+1438, BlueSlide 92 / 740 / 1029 → (Add Animation rộng thêm 12 px) / 1430.
+
+## Vòng 11 — trình chiếu
+
+- Xoay (spin, §19.5.5 animRot và khoá `r`/`style.rotation`): `Painter::page_part_rotated` (Direct2D
+  `SetTransform` quanh tâm hình), mặc định vẽ không xoay ở backend khác.
+- Bộ lọc §19.5.3 ngoài lau: blinds, checkerboard, randombar, dissolve, barn, box, circle, diamond,
+  plus, strips, wedge, wheel, slide — `slide_reveal::Reveal` trả về các hình chữ nhật (phân số của
+  hộp hình) cần vẽ ở tiến độ q; hình tròn/thoi/chữ thập/nan quạt quét lưới 96 × 96 gộp theo hàng
+  (≤ 96 lệnh vẽ mỗi khung), dissolve 48 × 27 ô theo thứ tự xáo trộn cố định.
+- Chuyển trang cùng họ (blinds, checker, comb, randomBar, circle, diamond, plus, wedge, wheel,
+  strips, dissolve; random/vortex/shred/… như dissolve), flash (qua trắng), newsflash (xoay 2 vòng
+  + phóng), reveal, các hiệu ứng 3D (flip, cube, gallery, …) phát dạng lật phẳng.
+- Theo đoạn (`LayerOut::parts`) và theo từ / chữ (§19.5 iterate, `LayerOut::text`): mỗi lớp giữ 2
+  ảnh (thân + mọi mảnh gộp một ảnh), mỗi mảnh vẽ qua hộp của nó với thời điểm riêng
+  (`start + i × text_step_ms`, đảo khi `backwards`).
+- Morph ([MS-PPTX] p159:morph): 6 ảnh (nền cũ/mới, cặp hình cũ/mới, hình chỉ có ở trang cũ/mới);
+  cặp hình dời, co giãn, xoay từ hộp cũ sang hộp mới, đường viền đổi điểm theo điểm
+  (`MorphOutline`), nền và hình lẻ mờ dần.
+
+- Lỗi tìm ra khi chạy thật (không lộ ra ở kiểm thử headless): `Frame::draw_page_part` đưa phần
+  nguồn theo điểm ảnh thiết bị cho `DrawBitmap`, trong khi ảnh trang / lớp được tạo ở DPI
+  96 × px/pt nên Direct2D hiểu là DIP — mọi lần vẽ một phần (chữ theo từ, lau, phóng, theo đoạn,
+  morph) lấy sai vùng (trước đây chỉ vẽ cả lớp nên trông đúng). Sửa: `source_rect` đổi sang DIP
+  theo `GetSize()` của ảnh.
+- Nhịp khung (`BLUEOFFICE_NATIVE_PERF`, Reading view, `fx-slow.pptx`: tệp do ứng dụng tham
+  chiếu tạo qua COM — blinds, bay vào, bay vào theo từ — làm chậm 10 lần, trang 2 Morph 8 s;
+  màn hình 144 Hz): 3368 khung, trung vị 6,95 ms, p95 7,23 ms, lớn nhất 32,6 ms, 1 khung > 25 ms
+  (dựng ảnh lớp / Morph của trang mới) — bám nhịp màn hình. Phím sang bước: 0,86 ms (trung vị).
+  Ảnh chụp giữa hiệu ứng: `fs-blinds.png` (6 dải), `fs-fly.png`, `fs-words.png`, `fs-morph.png`
+  (tiêu đề dời, thu hẹp, xoay 15°).
+
+## Vòng 11 — ngăn, bình luận, bảng tạm, Draw
+
+- Animation Pane: danh sách hiệu ứng (số lần bấm, sao màu theo loại, tên hình, thanh thời gian),
+  chọn (chọn luôn hình), lên/xuống (MoveAnimation), Play From / Play All, Delete xoá.
+- Bình luận: dấu (bong bóng) trên góc trang cho mỗi luồng, bấm mở ngăn ở luồng đó (khung màu nhấn);
+  ô "Reply..." dưới mỗi luồng (trả lời theo luồng); tab Review: New, Delete, Previous, Next,
+  Show Comments.
+- Bảng tạm giữa hai cửa sổ BlueSlide (hai tiến trình): dạng nội bộ mang token + mô tả (trang /
+  hình) + tệp trình chiếu base64; cửa sổ kia mở tệp trong engine tạm, chép lại rồi chuyển bảng tạm
+  sang (`Engine::copy_from_deck`), dán ra đúng trang / hình với ảnh, bố cục, chủ đề.
+- Tab Draw (giữa Insert và Design như tham chiếu): Tools (Eraser, Select), Pens (đen, đỏ, bút đánh
+  dấu); nét vẽ trực tiếp trên trang, lưu bằng lệnh ink của engine (mỗi nét một bước hoàn tác).
+- Slide Show: Hide Slide; View: Normal / Slide Sorter / Reading View; Insert: Comment, Text.
+
+## Còn lại (sau vòng 11)
+
+- Sao hoạt hình và hình ô chuyển trang còn phẳng hơn tham chiếu (tham chiếu tô chuyển màu trong
+  hình sao); hình Morph / Fade của ta là hình vẽ riêng.
+- Home / Insert / Slide Show / View còn thiếu nhiều nhóm của tham chiếu (Tables, Images,
+  Illustrations, Links, Symbols, Media; Rehearse / Record; Master Views; Color/Grayscale; Window).
+- Design: tham chiếu có 6 thẻ chủ đề + thư viện Variants; ta 5 thẻ + Colours / Fonts.
+- Dấu bình luận đặt ở góc trang (engine chưa đọc vị trí neo của bình luận hiện đại).
+- Draw: chưa có thước, lasso, chuyển nét thành hình / chữ / toán (engine đã có lệnh).
+- Dán chéo cửa sổ mang cả tệp trình chiếu (base64) trên bảng tạm: tệp lớn chép chậm hơn.
+- Trigger / Animation Painter chưa mờ khi không có hiệu ứng (luật bật/tắt nút của ribbon không
+  thấy trạng thái trang chiếu).

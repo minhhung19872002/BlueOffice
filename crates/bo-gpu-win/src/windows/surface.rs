@@ -37,6 +37,25 @@ use windows::Win32::Graphics::Dxgi::{
 use windows::Win32::System::Threading::WaitForSingleObjectEx;
 use windows_numerics::Matrix3x2;
 
+/// A part of a page bitmap given in its device pixels as the rectangle `DrawBitmap` takes:
+/// in the bitmap's DIPs (page and layer bitmaps are made at 96 × pixels per point DPI, so a
+/// part in pixels would pick a region `pixels per point` times too far and too large).
+fn source_rect(page: &PageBitmap, src: [f32; 4]) -> D2D_RECT_F {
+    // SAFETY: a plain getter on a live bitmap.
+    let size = unsafe { page.bitmap.GetSize() };
+    let k = if page.width > 0 && size.width > 0.0 {
+        size.width / page.width as f32
+    } else {
+        1.0
+    };
+    D2D_RECT_F {
+        left: src[0] * k,
+        top: src[1] * k,
+        right: (src[0] + src[2]) * k,
+        bottom: (src[1] + src[3]) * k,
+    }
+}
+
 const IDENTITY: Matrix3x2 = Matrix3x2 {
     M11: 1.0,
     M12: 0.0,
@@ -651,12 +670,7 @@ impl Frame<'_> {
             right: dest[0] + dest[2],
             bottom: dest[1] + dest[3],
         };
-        let s = D2D_RECT_F {
-            left: src[0],
-            top: src[1],
-            right: src[0] + src[2],
-            bottom: src[1] + src[3],
-        };
+        let s = source_rect(page, src);
         let same = (src[2] - dest[2]).abs() < 0.01 && (src[3] - dest[3]).abs() < 0.01;
         let mode = if same && dest[0].fract() == 0.0 && dest[1].fract() == 0.0 {
             D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR
@@ -710,12 +724,7 @@ impl Frame<'_> {
             right: dest[0] + dest[2],
             bottom: dest[1] + dest[3],
         };
-        let sr = D2D_RECT_F {
-            left: src[0],
-            top: src[1],
-            right: src[0] + src[2],
-            bottom: src[1] + src[3],
-        };
+        let sr = source_rect(page, src);
         // SAFETY: the bitmap belongs to the same device; drawing happens inside the frame, and
         // the transform is put back to identity (what every other draw of the frame expects).
         unsafe {

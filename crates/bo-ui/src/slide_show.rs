@@ -892,7 +892,7 @@ pub fn paint_morph(
         }
         // The drawing of each end shown through its bounds, moved and scaled to now.
         for (end, off, opacity) in [
-            (pair.from, k::FROM_PAIRS, 1.0f32),
+            (pair.from, k::FROM_PAIRS, 1.0 - ef),
             (pair.to, k::TO_PAIRS, ef),
         ] {
             if !has(base + off) || opacity <= 0.0 {

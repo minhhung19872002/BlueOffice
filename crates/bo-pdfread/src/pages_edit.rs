@@ -425,7 +425,7 @@ impl PdfDocument {
             .and_then(|c| c.get(b"AcroForm").ok())
             .cloned();
         let keep = |a: &mut Vec<Object>| {
-            a.retain(|o| o.as_reference().map_or(true, |r| !gone.contains(&r)))
+            a.retain(|o| o.as_reference().map_or(true, |r| !gone.contains(&r)));
         };
         match fields {
             Some(Object::Reference(f)) => {

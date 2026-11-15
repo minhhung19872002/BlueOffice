@@ -24,11 +24,15 @@ pub(crate) enum More2Ask {
 }
 
 /// Grey commands of these tabs with their tooltip.
-pub(crate) const NOT_OFFERED2: [(&str, &str); 4] = [
+pub(crate) const NOT_OFFERED2: [(&str, &str); 8] = [
     ("view.transitions", "pdfEditor.tipTransitions"),
     ("form.pageTemplates", "pdfEditor.tipTemplates"),
     ("form.xfa", "pdfEditor.tipXfa"),
     ("prot.batchEncrypt", "pdfEditor.tipBatch"),
+    ("conv.form", "pdfEditor.tipForm"),
+    ("conv.portfolio", "pdfEditor.tipPortfolio"),
+    ("conv.preflight", "pdfEditor.tipPreflight"),
+    ("cm.calculator", "pdfEditor.tipCalculator"),
 ];
 
 const DATA_FILTERS: &str = "*.xfdf;*.fdf;*.csv";

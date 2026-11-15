@@ -76,6 +76,7 @@ pub(crate) fn form_tab_items() -> Vec<(&'static str, Kind)> {
             "form.settings",
             Big("viewSetting", "pdfEditor.toolSettings", true),
         ),
+        ("sep7", Sep),
     ]
 }
 

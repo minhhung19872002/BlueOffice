@@ -55,15 +55,15 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "fieldDate" => &[S("M3.5 5h17v15h-17z M3.5 9.5h17 M8 3v4 M16 3v4"), A("M7 13h2 M11 13h2 M15 13h2 M7 16.5h2 M11 16.5h2")],
         "fieldText" => &[S("M2.5 7h19v10h-19z"), A("M6 9.5v5 M5 9.5h2 M5 14.5h2")],
         "fieldCombo" => &[S("M2.5 7h19v10h-19z M16 7v10"), A("M17.5 11l1.5 1.5 1.5-1.5")],
-        "fieldList" => &[S("M3 3.5h18v17H3z M6 8h12 M6 12h12 M6 16h12"), FA("M3 10h18v4H3z")],
+        "fieldList" => &[S("M3 3.5h18v17H3z M6 8h12 M6 16h12"), A("M6 12h12")],
         "fieldBarcode" => &[S("M4 5v14 M7 5v14 M9 5v14 M13 5v14 M15 5v14 M19 5v14 M20.5 5v14")],
         "fieldImage" => &[S("M3 4.5h18v15H3z M5 17l4.5-5 3 3 2.5-2.5 4 4.5"), A("M9 8.5a1.5 1.5 0 1 0 .01 0z")],
         "fieldSignature" => &[S("M3 18h18"), A("M5 15c2-5 4-7.5 5-6.5s-2 5.5 0 6.5 3-3.5 4.5-3.5 1 2 3.5 2")],
         // Organize tab: page design.
-        "headerFooter" => &[S("M5 2.5h14v19H5z"), FA("M7.5 5h9v2.5h-9z M7.5 16.5h9V19h-9z")],
+        "headerFooter" => &[S("M5 2.5h14v19H5z M8 10.5h8 M8 13.5h8"), A("M8 6h8 M8 18h8")],
         "watermark" => &[S("M5 2.5h14v19H5z"), A("M8 17l8-10 M9.5 8.5l1.5-1.5 M13 17l1.5-1.5")],
-        "background" => &[S("M5 2.5h14v19H5z"), FA("M7 5h10v14H7z")],
-        "bates" => &[S("M5 2.5h14v19H5z"), A("M8 17h8 M9 13.5l1-6 M13 13.5l1-6 M8 9.5h7 M7.5 12h7")],
+        "background" => &[S("M5 2.5h14v19H5z"), A("M8 19l8-8 M8 14l8-8")],
+        "bates" => &[S("M5 2.5h14v19H5z M8 6h8 M8 9h8"), A("M12 14l-.5 5 M15 14l-.5 5 M10.5 15.5h5.5 M10 17.5h5.5")],
         // Protect tab.
         "signPanel" => &[S("M4 3.5h11l4 4v13H4z M15 3.5v4h4"), A("M7 13.5c1.5-3 3-4.5 3.5-3.5s-1.5 4 0 4.5 2-2 3-2 .5 1.5 2.5 1.5 M7 17.5h10")],
         "cropPages" => &[S("M6 2v16h16 M2 6h16v16"), A("M9 9h6v6H9z")],
@@ -83,7 +83,7 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "interleave" => &[S("M3 3h7v8H3z M14 13h7v8h-7z"), A("M3 14h7v7H3z M14 3h7v7h-7z")],
         "rearrange" => &[S("M3 4h7v16H3z M14 4h7v16h-7z"), A("M6.5 8v8 M17.5 8v8")],
         "resizePages" => &[S("M5 2.5h14v19H5z"), A("M8 8h3 M8 8v3 M16 16h-3 M16 16v-3 M8 8l8 8")],
-        "pageNumbers" => &[S("M5 2.5h14v19H5z"), A("M9 15.5l1-7 M13 15.5l1-7 M8.5 10.5h7 M8 13.5h7")],
+        "pageNumbers" => &[S("M5 2.5h14v19H5z M8 6h8 M8 9h8 M8 12h5"), A("M11 16.5l1.5-1.5v4.5")],
         // Convert tab, round 4.
         "fromClipboard" => &[S("M5 4h14v18H5z M9 2.5h6v3H9z"), A("M8.5 16l2.5-3 2 2 2.5-3 M8 18.5h8")],
         "fromWeb" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 10a4 4 0 1 0 .01 0z M8 14h8 M12 10c1.5 1.5 1.5 6.5 0 8")],

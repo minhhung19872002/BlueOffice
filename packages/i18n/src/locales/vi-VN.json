@@ -8002,7 +8002,15 @@
     "imported": "Đã nhập: {comments} ghi chú, {fields} giá trị trường",
     "compareTitle": "So sánh",
     "compareChanges": "Khác biệt",
-    "compareSame": "Nội dung chữ giống nhau."
+    "compareSame": "Nội dung chữ giống nhau.",
+    "formFromFile": "Biểu mẫu",
+    "portfolio": "Danh mục PDF",
+    "preflight": "Kiểm tra trước in",
+    "calculator": "Máy tính kế toán",
+    "tipForm": "Chưa hỗ trợ tạo biểu mẫu từ tệp quét.",
+    "tipPortfolio": "Chưa hỗ trợ danh mục PDF.",
+    "tipPreflight": "Chưa hỗ trợ kiểm tra trước in.",
+    "tipCalculator": "Chưa hỗ trợ máy tính."
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

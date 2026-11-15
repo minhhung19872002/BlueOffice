@@ -97,6 +97,8 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("ed.ocr", Big("ocr", "pdfEditor.quickRecognition", false)),
             ("sep6", Sep),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
+            // The reference closes the last group with a separator too.
+            ("sep7", Sep),
         ]),
         // The reference's Convert tab; From Web Page and text recognition stay grey.
         1 => v.extend([
@@ -111,6 +113,11 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 Big("fromClipboard", "pdfEditor.fromClipboard", false),
             ),
             ("conv.web", Big("fromWeb", "pdfEditor.fromWebPage", false)),
+            ("conv.form", Big("formPdf", "pdfEditor.formFromFile", true)),
+            (
+                "conv.portfolio",
+                Big("portfolio", "pdfEditor.portfolio", true),
+            ),
             ("conv.combine", Big("combine", "pdfEditor.combine", false)),
             ("conv.blank", Big("blankPage", "pdfEditor.blank", false)),
             (
@@ -143,6 +150,12 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "conv.suspect",
                 Big("suspect", "pdfEditor.suspectResults", true),
             ),
+            ("sep5", Sep),
+            (
+                "conv.preflight",
+                Big("validate", "pdfEditor.preflight", false),
+            ),
+            ("sep6", Sep),
         ]),
         2 => v.extend(crate::editor_format::edit_tab_items()),
         // The reference's Organize tab: row buttons in two columns of three.
@@ -210,6 +223,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "org.pageNumbers",
                 Big("pageNumbers", "pdfEditor.pageNumbers", false),
             ),
+            ("sep5", Sep),
         ]),
         // The reference's Comment tab: text markup as a 3 × 2 grid, row buttons for the
         // drawing tools, stamps and comment data.
@@ -246,6 +260,10 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep6", Sep),
             ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+            (
+                "cm.calculator",
+                Big("calculator", "pdfEditor.calculator", false),
+            ),
             ("sep7", Sep),
             ("cm.stamp", Row("stamp", "pdfEditor.stamp", true)),
             (
@@ -261,6 +279,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "panel.comments",
                 Big("comments", "pdfReader.commentList", false),
             ),
+            ("sep10", Sep),
         ]),
         // The reference editor's View tab: Read Mode, Reflow, Reverse View, Night Mode, Text
         // Viewer | Rotate View, Toggle Ruler | page display | AutoScroll | Page Transitions |
@@ -308,6 +327,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "menu.viewSetting",
                 Big("viewSetting", "pdfView.viewSetting", true),
             ),
+            ("sep9", Sep),
         ]),
         6 => v.extend(crate::editor_design::form_tab_items()),
         // The reference's Protect tab (Sensitivity labels and Batch Encrypt are not offered).
@@ -356,6 +376,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "prot.sigPanel",
                 Big("signPanel", "pdfEditor.signaturePanel", false),
             ),
+            ("sep6", Sep),
         ]),
         _ => {
             v.clear();

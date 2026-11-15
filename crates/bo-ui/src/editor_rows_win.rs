@@ -1,9 +1,9 @@
 //! Row buttons of the ribbon (a child of `reader_window`, used by BlueEditor's Organize and
 //! Comment tabs): a small icon with its label on the right, three to a column, as the
 //! reference editor shows Move / Duplicate / Replace. Sizes measured at 125 % with 110 % text
-//! (`docs/ui/REPORT-editor.md`, round 4): rows 29 px apart from 15 px below the ribbon body's
-//! top, 22 px icons 4 px from the column's left, labels 26 px from it, a column ends 11 px
-//! after its widest label.
+//! (`docs/ui/REPORT-editor.md`, round 4): rows 29 px apart, the first icon 12 px below the
+//! ribbon body's top, 20 px icons 5 px from the column's left, labels 32 px from it, a column
+//! ends 8 px after its widest label.
 use super::{reader_icons, rounded, tri, Control, Kind, ReaderWindow, TEXT};
 use crate::reader_icons::Ink;
 use crate::{Painter, TextMeasure};
@@ -12,11 +12,11 @@ use bo_render::Rgba;
 /// Row pitch, first row's top below the body's top, icon size and offset, label offset and
 /// the space after the widest label (logical pixels).
 const ROW_H: f32 = 23.2;
-const ROW_TOP: f32 = 2.4;
-const ICON: f32 = 17.6;
-const ICON_X: f32 = 3.2;
-const LABEL_X: f32 = 20.8;
-const AFTER: f32 = 8.8;
+const ROW_TOP: f32 = 6.4;
+const ICON: f32 = 16.0;
+const ICON_X: f32 = 4.0;
+const LABEL_X: f32 = 25.6;
+const AFTER: f32 = 4.8;
 /// Drop-down arrow space after a label.
 const ARROW: f32 = 11.2;
 

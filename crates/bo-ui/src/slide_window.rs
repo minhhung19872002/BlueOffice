@@ -1533,9 +1533,17 @@ impl SlideWindow {
             let Some(m) = self.ribbon.rect_of(RibbonHit::Command(more)) else {
                 continue;
             };
-            let top = first[1] + px(2.4);
+            let top = first[1] + px(1.6);
             let h = px(73.6);
             let right = m[0] + px(27.2);
+            // Cover what the ribbon drew for these buttons (toggled / hover fills).
+            p.fill_rect(
+                first[0] - 1.0,
+                first[1],
+                right - first[0] + 2.0,
+                first[3],
+                rgb(0xf3),
+            );
             p.fill_rect(first[0] - 1.0, top, right - first[0] + 1.0, h, rgb(0xd2));
             p.fill_rect(
                 first[0],
@@ -1617,6 +1625,36 @@ impl SlideWindow {
     /// Theme previews over the Design tab's theme buttons.
     fn paint_theme_tiles(&self, p: &mut dyn Painter) {
         let design = self.view.state().and_then(|s| s.design.as_ref());
+        let rect = |id: &'static str| self.ribbon.rect_of(RibbonHit::Command(id));
+        let (Some(first), Some(last)) = (rect(sr::THEMES[0].0), rect(sr::THEMES[4].0)) else {
+            return;
+        };
+        // One white gallery box with a light frame, as the transition gallery (y 106-197).
+        let px = |v: f32| (v * self.scale).round();
+        let top = first[1] + px(1.6);
+        let right = last[0] + last[2];
+        let grey = |v: u8| bo_render::Rgba(v, v, v, 255);
+        p.fill_rect(
+            first[0] - 1.0,
+            first[1],
+            right - first[0] + 2.0,
+            first[3],
+            grey(0xf3),
+        );
+        p.fill_rect(
+            first[0] - 1.0,
+            top,
+            right - first[0] + 2.0,
+            px(73.6),
+            grey(0xd2),
+        );
+        p.fill_rect(
+            first[0],
+            top + 1.0,
+            right - first[0],
+            px(73.6) - 2.0,
+            grey(0xff),
+        );
         for (id, theme) in sr::THEMES {
             let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
                 continue;
@@ -1642,7 +1680,7 @@ impl SlideWindow {
                 .find(|f| f.id == def.fonts)
                 .map_or("Calibri Light", |f| f.major);
             let current = design.is_some_and(|d| d.theme.as_deref() == Some(def.name));
-            sr::paint_theme_tile(p, r, self.scale, heading, &colors, current);
+            sr::paint_theme_tile(p, r, top, self.scale, heading, &colors, current);
         }
     }
 

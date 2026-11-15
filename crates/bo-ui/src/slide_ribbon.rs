@@ -99,7 +99,8 @@ pub fn is_menu(id: &str) -> bool {
 /// 130 device px, transition and effect tiles 124.
 pub fn large_width(id: &str) -> Option<f32> {
     if THEMES.iter().any(|(c, _)| *c == id) {
-        Some(104.0)
+        // Reference pitch 140 px with the ribbon's 2 px gap.
+        Some(110.4)
     } else if TRANSITIONS.iter().any(|(c, _)| *c == id) || EFFECTS.iter().any(|(c, _)| *c == id) {
         Some(99.2)
     } else {
@@ -386,56 +387,65 @@ pub(crate) fn install_icons(icons: &mut Icons) {
             ("M12 12h8v8h-8Z", Some(Rgba(0xe8, 0x8a, 0x2e, 255))),
         ],
     );
-    icons.alias("design.fonts", "format.fontSettings");
+    icons.alias("design.fonts", "format.fontDialog");
     icons.alias("design.slideSize", "layout.size");
     icons.alias("design.background", "format.fillColor");
     icons.alias("review.comments", "review.pane");
     icons.alias("anim.pane", "view.animationPane");
 }
 
-/// A theme tile of the Design tab over its ribbon button `r`: white card, "Aa" in the
-/// theme's heading font, a row of its accent colours (as the reference's theme gallery).
+/// A theme tile of the Design tab in its gallery slot `r` (full band height): measured on
+/// the reference at 125 %, a 130 x 74 px card framed dark grey (100) 9 px below the gallery
+/// box's top, "Aa" in the theme's heading font, a row of its accents 57 px down; the current
+/// theme sits on a light grey (210) band framed in 136.
 pub(crate) fn paint_theme_tile(
     p: &mut dyn Painter,
     r: [f32; 4],
+    box_top: f32,
     scale: f32,
     heading: &str,
     colors: &[Rgba],
     current: bool,
 ) {
     let px = |v: f32| (v * scale).round();
-    let [x, y, w, h] = r;
-    let (cx, cy, cw, ch) = (x + px(4.0), y + px(6.0), w - px(8.0), h - px(14.0));
-    // Frame: the current theme gets the reference's dark double frame.
-    let edge = if current {
-        Rgba(0x88, 0x88, 0x88, 255)
-    } else {
-        Rgba(0xd2, 0xd2, 0xd2, 255)
-    };
-    p.fill_rect(cx - 1.0, cy - 1.0, cw + 2.0, ch + 2.0, edge);
-    p.fill_rect(cx, cy, cw, ch, Rgba(255, 255, 255, 255));
+    let x = r[0];
     if current {
-        p.fill_rect(cx, cy, cw, ch, Rgba(0xd2, 0xd2, 0xd2, 255));
         p.fill_rect(
-            cx + px(2.0),
-            cy + px(2.0),
-            cw - px(4.0),
-            ch - px(4.0),
-            Rgba(255, 255, 255, 255),
+            x,
+            box_top + px(3.2),
+            px(111.2),
+            px(66.4),
+            Rgba(0x88, 0x8a, 0x86, 255),
+        );
+        p.fill_rect(
+            x + 1.0,
+            box_top + px(3.2) + 1.0,
+            px(111.2) - 2.0,
+            px(66.4) - 2.0,
+            Rgba(0xd2, 0xd0, 0xce, 255),
         );
     }
+    let (cx, cy, cw, ch) = (x + px(4.0), box_top + px(7.2), px(104.0), px(59.2));
+    p.fill_rect(cx, cy, cw, ch, Rgba(0x64, 0x64, 0x64, 255));
+    p.fill_rect(
+        cx + 1.0,
+        cy + 1.0,
+        cw - 2.0,
+        ch - 2.0,
+        Rgba(255, 255, 255, 255),
+    );
     let font = crate::Font {
         family: heading,
-        size: px(21.0),
+        size: px(22.4),
         weight: 400,
         italic: false,
         underline: false,
     };
-    p.text_font("Aa", cx + px(8.0), cy + px(4.0), &font, Rgba(0, 0, 0, 255));
-    let bw = px(10.0);
-    let gap = px(2.0);
-    let by = cy + ch - px(14.0);
+    p.text_font("Aa", cx + px(9.6), cy + px(4.0), &font, Rgba(0, 0, 0, 255));
+    let bw = px(8.8);
+    let gap = px(1.6);
+    let by = cy + px(45.6);
     for (i, c) in colors.iter().take(6).enumerate() {
-        p.fill_rect(cx + px(8.0) + i as f32 * (bw + gap), by, bw, px(5.0), *c);
+        p.fill_rect(cx + px(7.2) + i as f32 * (bw + gap), by, bw, px(6.4), *c);
     }
 }

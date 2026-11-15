@@ -60,7 +60,10 @@
       "references": "Tham chiếu",
       "mailings": "Gửi thư",
       "review": "Xem lại",
-      "table": "Bảng"
+      "table": "Bảng",
+      "tableDesign": "Thiết kế bảng",
+      "tableLayout": "Bố cục bảng",
+      "pictureFormat": "Định dạng ảnh"
     },
     "groups": {
       "links": "Liên kết",
@@ -3969,7 +3972,12 @@
     "pageNumber": "Chèn số trang",
     "pageCount": "Chèn tổng số trang",
     "close": "Đóng đầu/chân trang",
-    "linkToPrevious": "Liên kết với phần trước"
+    "linkToPrevious": "Liên kết với phần trước",
+    "gotoHeader": "Tới đầu trang",
+    "gotoFooter": "Tới chân trang",
+    "options": "Tuỳ chọn",
+    "navigation": "Điều hướng",
+    "tableStyleOptions": "Tuỳ chọn kiểu bảng"
   },
   "notes": {
     "title": "Chú thích",

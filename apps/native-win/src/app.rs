@@ -267,6 +267,28 @@ impl Shell {
         }
     }
 
+    /// Let the user pick a picture file and insert it at the selection.
+    fn pick_picture(&mut self) -> bool {
+        let filters = [(
+            "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.svg)",
+            "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.svg",
+        )];
+        // BLUEOFFICE_PICTURE (a path) skips the dialog, for scripted comparisons.
+        let path = std::env::var_os("BLUEOFFICE_PICTURE")
+            .map(std::path::PathBuf::from)
+            .or_else(|| win32::file_dialog(false, &filters, ""));
+        let Some(path) = path else {
+            return false;
+        };
+        let Ok(bytes) = std::fs::read(&path) else {
+            return false;
+        };
+        let name = path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        self.view.insert_picture(bytes, &name)
+    }
+
     /// Carry out the interface's requests (files, clipboard, printing); `true` to redraw.
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
@@ -355,6 +377,7 @@ impl Shell {
                         }
                     }
                 }
+                Request::PickPicture => redraw |= self.pick_picture(),
                 other => self.pending.push(other),
             }
         }
@@ -442,6 +465,16 @@ impl Handler for Shell {
         {
             self.view.handle(Input::Zoom((z - 100.0) / 10.0), &m);
         }
+        // BLUEOFFICE_ACTIONS="insert.table.3x3;table.insertRowBelow" runs interface commands
+        // at start, for screenshot comparisons without sending input to the desktop.
+        if let Ok(ids) = std::env::var("BLUEOFFICE_ACTIONS") {
+            for id in ids.split(';').filter(|s| !s.is_empty()) {
+                self.view.run_interface_command(id, &m);
+            }
+            self.handle_requests();
+            let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+            self.view.refresh(&m);
+        }
         Ok(())
     }
 
@@ -468,6 +501,8 @@ impl Handler for Shell {
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         let mut redraw = self.view.handle(input, &m);
         redraw |= self.handle_requests();
+        let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+        redraw |= self.view.refresh(&m);
         if !redraw {
             return;
         }

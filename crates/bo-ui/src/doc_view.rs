@@ -79,6 +79,10 @@ pub struct DocView {
     selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
+    /// Header, footer or note being edited (contextual Header & Footer tab).
+    story: Option<bo_engine::story::StoryState>,
+    /// Search results highlighted on the pages (navigation pane).
+    highlights: Vec<SelRect>,
 }
 
 impl DocView {
@@ -108,6 +112,8 @@ impl DocView {
             selection: None,
             format: FormatState::default(),
             words: 0,
+            story: None,
+            highlights: Vec::new(),
         };
         view.apply(&state);
         Ok(view)
@@ -272,6 +278,126 @@ impl DocView {
             .find(|s| Some(s.index) == page)
             .or_else(|| slots.first())?;
         Some((slot.y as f32, slot.height as f32))
+    }
+
+    /// The header, footer or note being edited, if any.
+    pub fn story(&self) -> Option<&bo_engine::story::StoryState> {
+        self.story.as_ref()
+    }
+
+    /// Run a picture tools command (`{"cmd": "picture…"}`) on the selected picture.
+    pub fn picture_command(&mut self, v: &serde_json::Value) -> bool {
+        let Some(cmd) = bo_engine::picture_tools::PictureCommand::parse(v) else {
+            return false;
+        };
+        match self.engine.doc_picture_command(cmd) {
+            Ok(r) => {
+                self.apply(&r);
+                self.caret_on = true;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Insert a picture file (`name` with its extension) at the selection.
+    pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        match self.engine.insert_image(bytes, name) {
+            Ok(r) => {
+                let ok = r.error.is_none();
+                self.apply(&r);
+                self.caret_on = true;
+                self.reveal_caret();
+                ok
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Page and whether a window position is in its header (`true`) or footer (`false`)
+    /// area: above the top margin or below the bottom margin of the caret's section.
+    pub fn hf_zone(&self, x: f32, y: f32) -> Option<(usize, bool)> {
+        let slots = self.slots();
+        slots
+            .iter()
+            .find(|p| y >= p.y as f32 && y < (p.y + p.height) as f32)?;
+        let (page, _, py) = self.hit(x, y)?;
+        let height = self.pages.get(page)?.height;
+        let sec = &self.format.section;
+        if py < sec.margin_top as f32 / 20.0 {
+            Some((page, true))
+        } else if py > height - sec.margin_bottom as f32 / 20.0 {
+            Some((page, false))
+        } else {
+            None
+        }
+    }
+
+    /// Headings of the document (outline levels set), with their pages.
+    pub fn outline(&mut self) -> Vec<bo_engine::views::OutlineItem> {
+        self.engine
+            .command(Command::Outline)
+            .ok()
+            .and_then(|r| r.outline)
+            .unwrap_or_default()
+    }
+
+    /// Search the document for `query`: results with their context; the matches are
+    /// highlighted on the pages until [`DocView::clear_highlights`].
+    pub fn find_results(&mut self, query: &str) -> Vec<bo_engine::views::FindResult> {
+        let cmd = Command::FindResults {
+            query: query.to_owned(),
+            options: bo_edit::find::FindOptions::default(),
+        };
+        match self.engine.command(cmd) {
+            Ok(r) => {
+                self.highlights = r.highlights.clone().unwrap_or_default();
+                r.results.unwrap_or_default()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Remove the search highlights.
+    pub fn clear_highlights(&mut self) -> bool {
+        let had = !self.highlights.is_empty();
+        self.highlights.clear();
+        had
+    }
+
+    /// Put the caret at the start of body paragraph `para` and show it near the top.
+    pub fn goto_para(&mut self, para: usize) -> bool {
+        let at = bo_edit::Pos { para, offset: 0 };
+        let ok = self.edit(Command::SetSelection {
+            selection: bo_edit::Selection {
+                anchor: at,
+                focus: at,
+            },
+        });
+        if let Some(c) = self.caret {
+            if let Some(top) = self.page_tops().get(c.page).copied() {
+                self.scroll = top + c.y * self.scale() - self.gap();
+                self.clamp_scroll();
+            }
+        }
+        ok
+    }
+
+    /// Scroll so page `index` starts at the top of the view.
+    pub fn show_page(&mut self, index: usize) -> bool {
+        match self.page_tops().get(index).copied() {
+            Some(top) => {
+                self.scroll = top - self.gap();
+                self.clamp_scroll();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Body paragraph of the caret (the selection's focus).
+    pub fn caret_para(&self) -> Option<usize> {
+        self.selection.map(|s| s.focus.para)
     }
 
     /// Whether some text is selected (not just a caret).
@@ -634,6 +760,7 @@ impl DocView {
         }
         self.selection = Some(r.selection);
         self.words = r.info.word_count;
+        self.story.clone_from(&r.story);
     }
 
     fn reveal_caret(&mut self) {
@@ -744,6 +871,16 @@ impl DocView {
             );
             if self.shown.contains_key(&slot.index) {
                 p.page(slot.index, slot.x, slot.y);
+            }
+            // Search results (navigation pane) in a translucent highlighter yellow.
+            for r in self.highlights.iter().filter(|r| r.page == slot.index) {
+                p.fill_rect(
+                    slot.x as f32 + r.x * s,
+                    slot.y as f32 + r.y * s,
+                    r.w * s,
+                    r.h * s,
+                    Rgba(255, 238, 0, 110),
+                );
             }
             for r in self.rects.iter().filter(|r| r.page == slot.index) {
                 p.fill_rect(

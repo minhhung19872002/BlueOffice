@@ -32,7 +32,7 @@ pub(crate) enum Item {
 }
 
 /// Icon of a command whose own icon is missing from the shared set.
-fn icon_of(id: &str) -> &str {
+pub(crate) fn icon_of(id: &str) -> &str {
     match id {
         "layout.breaks" => "insert.sectionBreak",
         "references.toc" => "references.insertToc",
@@ -186,6 +186,11 @@ pub struct Ribbon {
     large_w: fn(&str) -> Option<f32>,
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
+    /// Number of permanent tabs; tabs after them are contextual (table, header/footer,
+    /// picture tools), shown while the selection needs them.
+    fixed_tabs: usize,
+    /// Tab active before a contextual tab took over, restored when it goes away.
+    before_context: usize,
 }
 
 fn home() -> Tab {
@@ -290,7 +295,7 @@ fn insert_tab() -> Tab {
             },
             Group {
                 label: "ribbon.groups.illustrations",
-                large: vec![L("insert.shapes")],
+                large: vec![L("insert.picture"), L("insert.shapes")],
                 rows: vec![],
             },
             Group {
@@ -464,7 +469,11 @@ fn view_tab() -> Tab {
             Group {
                 label: "ribbon.groups.show",
                 large: vec![],
-                rows: vec![vec![S("view.ruler")], vec![S("view.formattingMarks")]],
+                rows: vec![
+                    vec![S("view.ruler")],
+                    vec![S("view.formattingMarks")],
+                    vec![S("view.navigationPane")],
+                ],
             },
             Group {
                 label: "ribbon.groups.zoom",
@@ -500,6 +509,8 @@ impl Ribbon {
     /// is active.
     pub(crate) fn with_tabs(tabs: Vec<Tab>) -> Self {
         Self {
+            fixed_tabs: tabs.len(),
+            before_context: 0,
             tabs,
             active: 0,
             scale: 1.0,
@@ -544,6 +555,63 @@ impl Ribbon {
 
     fn px(&self, v: f32) -> f32 {
         (v * self.scale).round()
+    }
+
+    /// Replace the contextual tabs (shown after the permanent ones, as on a desktop word
+    /// processor) by `tabs`; `activate` selects the first of them. When the active tab
+    /// was contextual and is gone, the tab used before it comes back.
+    pub(crate) fn set_contextual(&mut self, tabs: Vec<Tab>, activate: bool) {
+        let was_contextual = self.active >= self.fixed_tabs;
+        if !was_contextual {
+            self.before_context = self.active;
+        }
+        let old: Vec<&'static str> = self.tabs[self.fixed_tabs..]
+            .iter()
+            .map(|t| t.label)
+            .collect();
+        let active_label = self.tabs.get(self.active).map(|t| t.label);
+        self.tabs.truncate(self.fixed_tabs);
+        let new: Vec<&'static str> = tabs.iter().map(|t| t.label).collect();
+        self.tabs.extend(tabs);
+        if activate && self.tabs.len() > self.fixed_tabs {
+            self.active = self.fixed_tabs;
+        } else if was_contextual {
+            // Keep the same contextual tab when it is still there.
+            self.active = active_label
+                .and_then(|l| new.iter().position(|n| *n == l))
+                .map_or(self.before_context, |i| self.fixed_tabs + i);
+        }
+        if old != new || activate {
+            self.scroll = 0.0;
+            self.placed.clear();
+        }
+    }
+
+    /// Number of permanent tabs (contextual tabs follow them).
+    #[cfg(test)]
+    pub(crate) fn fixed_tab_count(&self) -> usize {
+        self.fixed_tabs
+    }
+
+    /// Index of the tab labelled `label` (i18n key).
+    #[cfg(test)]
+    pub(crate) fn tab_index(&self, label: &str) -> Option<usize> {
+        self.tabs.iter().position(|t| t.label == label)
+    }
+
+    /// Labels (i18n keys) of the contextual tabs shown now.
+    #[cfg(test)]
+    pub(crate) fn contextual_labels(&self) -> Vec<&'static str> {
+        self.tabs[self.fixed_tabs..]
+            .iter()
+            .map(|t| t.label)
+            .collect()
+    }
+
+    /// Label (i18n key) of the active tab.
+    #[cfg(test)]
+    pub(crate) fn active_label(&self) -> &'static str {
+        self.tabs.get(self.active).map_or("", |t| t.label)
     }
 
     /// Height of the tab strip.
@@ -1233,6 +1301,12 @@ impl Ribbon {
                     );
                 }
                 Placed::Tab(i, r) => {
+                    let contextual = *i >= self.fixed_tabs;
+                    if contextual {
+                        // Contextual tabs sit on a tinted band (the reference darkens its
+                        // tab strip by about a fifth behind them) with accent labels.
+                        radius_rect(p, r, mix(t.accent, t.surface, 0.12));
+                    }
                     if let Some(c) = tint(RibbonHit::Tab(*i)) {
                         radius_rect(p, r, c);
                     }
@@ -1241,7 +1315,11 @@ impl Ribbon {
                         bold: active,
                         ..tab_style
                     };
-                    let color = if active { t.accent_text } else { t.text };
+                    let color = if active || contextual {
+                        t.accent_text
+                    } else {
+                        t.text
+                    };
                     center_text(p, strings.get(self.tabs[*i].label), r, style, color);
                     if active {
                         let h = self.px(3.0);
@@ -2246,7 +2324,8 @@ mod tests {
     #[test]
     fn every_ribbon_button_does_something() {
         let ribbon = Ribbon::new();
-        let icons = Icons::load();
+        let mut icons = Icons::load();
+        crate::doc_tools::install_icons(&mut icons);
         let format = FormatState {
             section: bo_edit::SectionState {
                 width: 11906,

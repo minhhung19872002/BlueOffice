@@ -2,8 +2,10 @@
 use crate::backstage::{Backstage, FileAction};
 use crate::catalog;
 use crate::dialog::{Dialog, DialogButton, DialogKind};
+use crate::doc_tools::{self, Context, Tool};
 use crate::doc_view::DocView;
 use crate::icons::Icons;
+use crate::nav_pane::{Heading, NavAction, NavPane, NavTab};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Ribbon, RibbonHit};
 use crate::ruler::Ruler;
@@ -53,6 +55,8 @@ pub enum Request {
     Close,
     /// Cover the whole screen without window frame (slide show), or go back.
     FullScreen(bool),
+    /// Let the user pick picture files and call [`DocWindow::insert_picture`] for each.
+    PickPicture,
 }
 
 /// Window contents of BlueDoc.
@@ -104,6 +108,17 @@ pub struct DocWindow {
     last_drag: Option<(f32, f32)>,
     /// The File screen, when open.
     backstage: Option<Backstage>,
+    /// What the contextual tabs shown are for (table, header/footer, picture).
+    context: Context,
+    /// The next contextual tab that appears becomes active (after inserting a table or a
+    /// picture, as the reference does).
+    activate_context: bool,
+    /// Navigation pane (View › Navigation Pane, Ctrl+F), when shown.
+    nav: Option<NavPane>,
+    /// The document changed since the pane's headings were read.
+    nav_dirty: bool,
+    /// Last pointer position (wheel over the pane).
+    pointer: (f32, f32),
 }
 
 /// Font sizes offered by the size box (points).
@@ -180,6 +195,10 @@ const TOOLTIP_TICKS: u32 = 5;
 impl DocWindow {
     /// Wrap the document `name` shown by `view` with BlueDoc's interface in `locale`.
     pub fn new(view: DocView, locale: &str, name: &str) -> Self {
+        let mut strings = Strings::load(locale);
+        doc_tools::install_strings(&mut strings);
+        let mut icons = Icons::load();
+        doc_tools::install_icons(&mut icons);
         Self {
             view,
             title: TitleBar::new(),
@@ -187,8 +206,8 @@ impl DocWindow {
             requests: Vec::new(),
             ribbon: Ribbon::new(),
             theme: Theme::light("doc"),
-            icons: Icons::load(),
-            strings: Strings::load(locale),
+            icons,
+            strings,
             size: (800.0, 600.0),
             scale: 1.0,
             doc_press: false,
@@ -212,6 +231,225 @@ impl DocWindow {
             relayout_pending: false,
             last_drag: None,
             backstage: None,
+            context: Context::default(),
+            activate_context: false,
+            nav: None,
+            nav_dirty: false,
+            pointer: (0.0, 0.0),
+        }
+    }
+
+    /// Width taken by the navigation pane on the left (0 when hidden).
+    fn nav_w(&self) -> f32 {
+        if self.nav.is_some() {
+            NavPane::width(self.scale)
+        } else {
+            0.0
+        }
+    }
+
+    /// Show or hide the navigation pane; `search` puts the keyboard in its search box.
+    fn toggle_nav(&mut self, show: bool, search: bool) -> bool {
+        if show {
+            let mut pane = self.nav.take().unwrap_or_else(NavPane::new);
+            pane.focus = search;
+            self.nav = Some(pane);
+            self.refresh_nav();
+        } else {
+            self.nav = None;
+            self.view.clear_highlights();
+        }
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Read the headings (and page count) again; mark the heading holding the caret.
+    fn refresh_nav(&mut self) {
+        self.nav_dirty = false;
+        if self.nav.is_none() {
+            return;
+        }
+        let items = self.view.outline();
+        let pages = self.view.page_count();
+        let caret = self.view.caret_para();
+        let current_page = self.view.current_page();
+        if let Some(nav) = self.nav.as_mut() {
+            nav.headings = items
+                .into_iter()
+                .filter_map(|i| {
+                    i.entry.level.map(|level| Heading {
+                        para: i.entry.para,
+                        level,
+                        text: i.entry.text,
+                        page: i.page,
+                    })
+                })
+                .collect();
+            nav.pages = pages;
+            match nav.tab {
+                NavTab::Headings => {
+                    nav.current =
+                        caret.and_then(|c| nav.headings.iter().rposition(|h| h.para <= c));
+                }
+                NavTab::Pages => nav.current = Some(current_page),
+                NavTab::Results => {}
+            }
+        }
+    }
+
+    /// Carry out what the pane asked for.
+    fn nav_action(&mut self, a: NavAction) -> bool {
+        match a {
+            NavAction::Close => self.toggle_nav(false, false),
+            NavAction::Heading(para) => self.view.goto_para(para),
+            NavAction::Page(i) => self.view.show_page(i),
+            NavAction::Result(i) => {
+                let query = self
+                    .nav
+                    .as_ref()
+                    .map(|n| n.query.clone())
+                    .unwrap_or_default();
+                let fresh = self.find.as_ref().is_none_or(|f| f.0 != query);
+                if fresh {
+                    let matches = catalog::from_json(json!({ "cmd": "find", "query": query }))
+                        .and_then(|c| self.view.exec(c))
+                        .and_then(|r| r.matches)
+                        .unwrap_or_default();
+                    self.find = Some((query, matches, usize::MAX));
+                }
+                let m = self.find.as_ref().and_then(|f| f.1.get(i).copied());
+                if let Some(f) = self.find.as_mut() {
+                    f.2 = i;
+                }
+                match m
+                    .and_then(|m| catalog::from_json(json!({ "cmd": "selectMatch", "match": m })))
+                {
+                    Some(c) => self.view.run_command(c),
+                    None => true,
+                }
+            }
+            NavAction::Search => {
+                let query = self
+                    .nav
+                    .as_ref()
+                    .map(|n| n.query.clone())
+                    .unwrap_or_default();
+                let results = if query.is_empty() {
+                    self.view.clear_highlights();
+                    Vec::new()
+                } else {
+                    self.view.find_results(&query)
+                };
+                self.find = None;
+                let first = !results.is_empty();
+                if let Some(nav) = self.nav.as_mut() {
+                    nav.results = results
+                        .into_iter()
+                        .map(|r| (r.before, r.text, r.after))
+                        .collect();
+                    nav.searched = !query.is_empty();
+                    nav.show(NavTab::Results);
+                    nav.current = None;
+                }
+                // The reference moves to the first match as it searches.
+                if first {
+                    self.nav_action(NavAction::Result(0));
+                    if let Some(nav) = self.nav.as_mut() {
+                        nav.current = Some(0);
+                    }
+                }
+                true
+            }
+            NavAction::Redraw => true,
+        }
+    }
+
+    /// Input for the navigation pane; `None` lets it through to the window.
+    fn nav_input(&mut self, input: &Input) -> Option<bool> {
+        let nav = self.nav.as_mut()?;
+        match *input {
+            Input::Move { x, y } if nav.contains(x, y) => Some(nav.hover(x, y)),
+            Input::Move { .. } => {
+                nav.hover(-1.0, -1.0);
+                None
+            }
+            Input::Press { x, y, .. } if nav.contains(x, y) => {
+                let a = nav.press(x, y, &self.strings);
+                Some(self.nav_action(a))
+            }
+            Input::Press { .. } => {
+                nav.focus = false;
+                None
+            }
+            Input::Wheel(dy) if nav.contains(self.pointer.0, self.pointer.1) => Some(nav.wheel(dy)),
+            Input::Text(ref s) if nav.focus => {
+                nav.text(s);
+                Some(true)
+            }
+            Input::Key(k, m) if nav.focus && !m.ctrl => {
+                let a = nav.key(k);
+                Some(self.nav_action(a))
+            }
+            _ => None,
+        }
+    }
+
+    /// Insert a picture file the host read (`name` with its extension).
+    pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        self.activate_context = true;
+        let ok = self.view.insert_picture(bytes, name);
+        self.sync_context();
+        ok
+    }
+
+    /// Bring the ribbon up to date after host calls such as [`DocWindow::insert_picture`]
+    /// (contextual tabs, layout); `true` when it changed.
+    pub fn refresh(&mut self, text: &dyn TextMeasure) -> bool {
+        self.sync_context();
+        let pending = self.relayout_pending;
+        if pending {
+            self.relayout_pending = false;
+            self.relayout(text);
+        }
+        pending
+    }
+
+    /// Run interface command `id` (ribbon, menu entry or shortcut id) as if chosen, then
+    /// bring the ribbon up to date; text typed as `text:…` is inserted at the caret.
+    pub fn run_interface_command(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
+        let done = match id.strip_prefix("text:") {
+            Some(t) => self.view.handle(Input::Text(t.to_owned())),
+            None => self.action(id),
+        };
+        self.refresh(text);
+        done
+    }
+
+    /// Header/footer options of the open header or footer: (different first page,
+    /// different odd and even pages, linked to the previous section).
+    fn story_options(&self) -> Option<(bool, bool, bool)> {
+        self.view
+            .story()
+            .filter(|s| s.kind == "header" || s.kind == "footer")
+            .map(|s| (s.title_page, s.even_and_odd, s.linked))
+    }
+
+    /// Show the contextual tabs the selection needs (table, header/footer, picture).
+    fn sync_context(&mut self) {
+        let c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
+        if c == self.context && !self.activate_context {
+            return;
+        }
+        // Opening a header or footer, inserting a table or a picture brings its tab
+        // forward; moving the caret into an existing table only shows the tabs.
+        let story_opened = c.story.is_some() && self.context.story.is_none();
+        let new_object = (c.table && !self.context.table) || (c.picture && !self.context.picture);
+        let activate = story_opened || (self.activate_context && new_object);
+        self.activate_context = false;
+        if c != self.context || activate {
+            self.context = c;
+            self.ribbon.set_contextual(doc_tools::tabs(c), activate);
+            self.relayout_pending = true;
         }
     }
 
@@ -641,6 +879,9 @@ impl DocWindow {
         if self.marks {
             on.push("view.formattingMarks");
         }
+        if self.nav.is_some() {
+            on.push("view.navigationPane");
+        }
         if self.painter {
             on.push("format.painter");
         }
@@ -650,6 +891,7 @@ impl DocWindow {
         if self.merge_record.is_some() {
             on.push("mailings.preview");
         }
+        on.extend(doc_tools::on_ids(self.view.format(), self.story_options()));
         on
     }
 
@@ -717,7 +959,12 @@ impl DocWindow {
                 true
             }
             "edit.copy" | "edit.cut" | "edit.paste" => self.clipboard(id),
-            "edit.find" => self.open_dialog(DialogKind::Find),
+            // Find searches from the navigation pane, as on the reference.
+            "edit.find" => self.toggle_nav(true, true),
+            "view.navigationPane" => {
+                let show = self.nav.is_none();
+                self.toggle_nav(show, false)
+            }
             "edit.replace" => self.open_dialog(DialogKind::Replace),
             "insert.link" => self.open_dialog(DialogKind::Link),
             "format.fontSettings" => self.open_dialog(DialogKind::Font),
@@ -786,6 +1033,10 @@ impl DocWindow {
                 merge(self, Some(r))
             }
             "mailings.finish" => self.view.run_command(Command::MergeToDocument),
+            "insert.picture" => {
+                self.requests.push(Request::PickPicture);
+                false
+            }
             id if catalog::is_menu(id) => {
                 let anchor = self
                     .ribbon
@@ -794,10 +1045,23 @@ impl DocWindow {
                 self.open_command_menu(id, anchor);
                 true
             }
-            _ => match catalog::command(id, &self.view.format().section) {
-                Some(cmd) => self.view.run_command(cmd),
-                None => self.view.run_action(id),
-            },
+            _ => {
+                let page = self.view.current_page();
+                let story = self.story_options();
+                if let Some(tool) = doc_tools::command(id, self.view.format(), story, page) {
+                    return match tool {
+                        Tool::Edit(cmd) => self.view.run_command(cmd),
+                        Tool::Picture(v) => self.view.picture_command(&v),
+                    };
+                }
+                if id.starts_with("insert.table.") {
+                    self.activate_context = true;
+                }
+                match catalog::command(id, &self.view.format().section) {
+                    Some(cmd) => self.view.run_command(cmd),
+                    None => self.view.run_action(id),
+                }
+            }
         }
     }
 
@@ -946,8 +1210,17 @@ impl DocWindow {
         let h = (self.size.1 - top - self.status_h()).max(1.0);
         // The vertical scroll bar takes the right edge, the vertical ruler the left one.
         let vr = self.vr_w();
-        self.view
-            .set_frame(vr, top, (self.size.0 - self.sb_w() - vr).max(1.0), h);
+        let left = self.nav_w();
+        self.view.set_frame(
+            left + vr,
+            top,
+            (self.size.0 - self.sb_w() - vr - left).max(1.0),
+            h,
+        );
+        let (nav_top, nav_bottom) = (self.ribbon.bottom(), self.size.1 - self.status_h());
+        if let Some(nav) = self.nav.as_mut() {
+            nav.layout(nav_top, nav_bottom, self.scale);
+        }
         self.layout_ruler();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
@@ -1000,6 +1273,7 @@ impl DocWindow {
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let redraw = self.route(input, text);
+        self.sync_context();
         if self.relayout_pending {
             self.relayout_pending = false;
             self.relayout(text);
@@ -1073,6 +1347,26 @@ impl DocWindow {
                 return redraw;
             }
         }
+        if let Input::Move { x, y } | Input::Drag { x, y } = input {
+            self.pointer = (x, y);
+        }
+        if self.nav.is_some() {
+            if matches!(
+                input,
+                Input::Text(_) | Input::Key(..) | Input::Release { .. }
+            ) {
+                self.nav_dirty = true;
+            }
+            if let Input::Tick = input {
+                if self.nav_dirty {
+                    self.refresh_nav();
+                    return true;
+                }
+            }
+            if let Some(redraw) = self.nav_input(&input) {
+                return redraw;
+            }
+        }
         let tip_before = self.tooltip.is_some();
         if matches!(
             input,
@@ -1107,6 +1401,9 @@ impl DocWindow {
             return self.action(id);
         }
         if let Input::Key(Key::Escape, _) = input {
+            if self.story_options().is_some() && !self.painter {
+                return self.view.run_command(Command::CloseHeaderFooter);
+            }
             if self.painter {
                 self.painter = false;
                 if let Some(c) = catalog::from_json(json!({ "cmd": "cancelFormat" })) {
@@ -1251,9 +1548,22 @@ impl DocWindow {
                 self.doc_press = false;
                 self.ribbon.press(x, y)
             }
-            Input::Press { .. } => {
+            Input::Press { x, y, count, .. } => {
                 self.doc_press = true;
                 let cleared = self.ribbon.clear_pointer();
+                // A double click in the top or bottom margin opens that page's header or
+                // footer, as on a desktop word processor.
+                if count == 2 && self.view.story().is_none() {
+                    if let Some((page, header)) = self.view.hf_zone(x, y) {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "editHeaderFooter", "page": page, "header": header,
+                        }));
+                        if let Some(c) = cmd {
+                            self.doc_press = false;
+                            return self.view.run_command(c) || cleared;
+                        }
+                    }
+                }
                 self.view.handle(input) || cleared
             }
             Input::Drag { .. } if !self.doc_press => false,
@@ -1502,6 +1812,7 @@ impl DocWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
         self.view.paint(p);
+        self.paint_story_frame(p);
         self.title.paint(
             p,
             &self.theme,
@@ -1528,13 +1839,16 @@ impl DocWindow {
                 crate::ruler::paint_vertical(
                     p,
                     &self.theme,
-                    (0.0, self.vr_w(), top, bottom),
+                    (self.nav_w(), self.vr_w(), top, bottom),
                     page,
                     &self.view.format().section,
                     self.view.scale() / 20.0,
                     self.scale,
                 );
             }
+        }
+        if let Some(nav) = &self.nav {
+            nav.paint(p, &self.theme, &self.strings);
         }
         // Status bar.
         let (w, h) = self.size;
@@ -1702,6 +2016,62 @@ impl DocWindow {
         }
         if let Some(d) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
+        }
+    }
+
+    /// While a header or footer is edited: the body text faded, a dashed line under the
+    /// header and over the footer with a "Header" / "Footer" tag, as measured on a desktop
+    /// word processor (text 0 → 128, line 119 in 3 px dashes, tag 225 with text 68).
+    fn paint_story_frame(&self, p: &mut dyn Painter) {
+        if self.story_options().is_none() {
+            return;
+        }
+        let sec = &self.view.format().section;
+        let s = self.view.scale();
+        let line = Rgba(119, 119, 119, 255);
+        let style = TextStyle {
+            size: (11.0 * self.scale).round(),
+            bold: false,
+        };
+        let (header, footer) = (self.t("hf.header", "Header"), self.t("hf.footer", "Footer"));
+        let dash = (3.0 * self.scale).round().max(1.0);
+        for slot in self.view.slots() {
+            let (x, w) = (slot.x as f32, slot.width as f32);
+            let top = (slot.y as f32 + sec.margin_top as f32 / 20.0 * s).round();
+            let bottom =
+                (slot.y as f32 + slot.height as f32 - sec.margin_bottom as f32 / 20.0 * s).round();
+            if bottom > top {
+                p.fill_rect(x, top, w, bottom - top, Rgba(255, 255, 255, 128));
+            }
+            for y in [top, bottom] {
+                let mut dx = 0.0;
+                while dx < w {
+                    p.fill_rect(x + dx, y, dash.min(w - dx), 1.0, line);
+                    dx += 2.0 * dash;
+                }
+            }
+            // Tags at the left edge: under the header line, over the footer line.
+            let pad = (5.0 * self.scale).round();
+            let tag_h = (style.size * 1.33 + 2.0 * self.scale).round();
+            for (label, y) in [(&header, top + 1.0), (&footer, bottom - tag_h)] {
+                let tw = (label.chars().count() as f32 * style.size * 0.5).round() + 2.0 * pad;
+                let tx = x + (6.0 * self.scale).round();
+                p.fill_rect(tx, y, tw, tag_h, line);
+                p.fill_rect(
+                    tx + 1.0,
+                    y + 1.0,
+                    tw - 2.0,
+                    tag_h - 2.0,
+                    Rgba(225, 225, 225, 255),
+                );
+                p.text(
+                    label,
+                    tx + pad,
+                    y + (tag_h - style.size * 1.33) / 2.0,
+                    style,
+                    Rgba(68, 68, 68, 255),
+                );
+            }
         }
     }
 
@@ -2184,3 +2554,7 @@ mod tests {
         assert_eq!(w.take_requests(), vec![Request::Paste]);
     }
 }
+
+#[cfg(test)]
+#[path = "doc_window_tests.rs"]
+mod doc_window_tests;

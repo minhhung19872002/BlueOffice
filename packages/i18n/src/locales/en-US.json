@@ -60,7 +60,10 @@
       "references": "References",
       "mailings": "Mailings",
       "review": "Review",
-      "table": "Table"
+      "table": "Table",
+      "tableDesign": "Table Design",
+      "tableLayout": "Table Layout",
+      "pictureFormat": "Picture Format"
     },
     "groups": {
       "links": "Links",
@@ -3969,7 +3972,12 @@
     "pageNumber": "Insert page number",
     "pageCount": "Insert page count",
     "close": "Close header/footer",
-    "linkToPrevious": "Link to previous"
+    "linkToPrevious": "Link to previous",
+    "gotoHeader": "Go to Header",
+    "gotoFooter": "Go to Footer",
+    "options": "Options",
+    "navigation": "Navigation",
+    "tableStyleOptions": "Table Style Options"
   },
   "notes": {
     "title": "Notes",

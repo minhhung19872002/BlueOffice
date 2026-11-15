@@ -914,6 +914,16 @@ fn click_form(w: &mut SheetWindow, id: &str, dx: f32, dy: f32) {
 }
 
 #[test]
+fn format_cells_general_description_starts_right_of_the_category_list() {
+    let mut w = window();
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    let f = w.form.as_ref().expect("form");
+    let cat = f.get("cat").expect("cat").rect;
+    let desc = f.get("desc").expect("desc").rect;
+    assert!(desc[0] >= cat[0] + cat[2], "{desc:?} over {cat:?}");
+}
+
+#[test]
 fn format_cells_dialog_has_pages_like_the_reference() {
     let mut w = window();
     put(&mut w, &[(0, 0, "1234,5")]);

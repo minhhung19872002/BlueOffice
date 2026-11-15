@@ -1204,8 +1204,11 @@ impl SheetWindow {
         }
         // The description sits under the sample when the page has no other controls
         // (General, Text), else at the bottom (reference).
+        // Under the sample it starts right of the category list, not over it.
         if let Some(c) = f.get_mut("desc") {
-            c.rect[1] = if matches!(cat, 0 | 9) { 168.0 } else { 480.0 };
+            let beside = matches!(cat, 0 | 9);
+            c.rect[0] = if beside { 225.0 } else { 32.0 };
+            c.rect[1] = if beside { 168.0 } else { 480.0 };
         }
         if let Some(Kind::Note(s)) = f.get_mut("desc").map(|c| &mut c.kind) {
             s.clone_from(&descs[cat]);

@@ -60,6 +60,10 @@ fn icon_of(id: &str) -> &str {
     }
 }
 
+/// Fill and frame of ribbon commands that are on.
+const TOGGLED_FILL: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
+const TOGGLED_EDGE: Rgba = Rgba(0x80, 0x80, 0x80, 255);
+
 /// Preview tiles shown in the style gallery.
 const TILES: usize = 5;
 /// Gallery preview text (Vietnamese letters show diacritics of the style font).
@@ -1107,6 +1111,13 @@ impl Ribbon {
         let radius_rect = |p: &mut dyn Painter, r: &Rect, c: Rgba| {
             p.fill_rect(r.x, r.y, r.w, r.h, c);
         };
+        // A command that is on (bold, centred, ruler shown…): grey fill with a darker
+        // one-pixel frame, as measured on a desktop word processor's ribbon (198 / 128).
+        let toggled_rect = |p: &mut dyn Painter, r: &Rect| {
+            let (x, y, w, h) = (r.x.round(), r.y.round(), r.w.round(), r.h.round());
+            p.fill_rect(x, y, w, h, TOGGLED_EDGE);
+            p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, TOGGLED_FILL);
+        };
         let mut current_clip: Option<Rect> = None;
         for placed in &self.placed {
             // Keep partly clipped controls out of view and hit testing; oversized controls
@@ -1185,7 +1196,7 @@ impl Ribbon {
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
                     } else if on {
-                        radius_rect(p, r, t.active);
+                        toggled_rect(p, r);
                     }
                     let ink = if enabled { t.text } else { t.border };
                     let size = self.px(20.0);
@@ -1361,7 +1372,7 @@ impl Ribbon {
                     if let Some(c) = tint(hit) {
                         radius_rect(p, r, c);
                     } else if on_ids.contains(id) {
-                        radius_rect(p, r, t.active);
+                        toggled_rect(p, r);
                     }
                     let size = self.px(32.0);
                     icons.draw(
@@ -1466,7 +1477,7 @@ impl Ribbon {
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
                     } else if on_ids.contains(id) || commands::toggled(id, format) {
-                        radius_rect(p, r, t.active);
+                        toggled_rect(p, r);
                     }
                     let ink = if enabled { t.text } else { t.border };
                     let size = self.px(18.0);

@@ -220,6 +220,10 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep3", Sep),
             ("prot.sign", Big("sign", "pdfEditor.signCertify", false)),
+            (
+                "prot.sigPanel",
+                Big("signPanel", "pdfEditor.signaturePanel", false),
+            ),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         ]),
         crate::editor_format::TAB_FORMAT => return crate::editor_format::format_items(),
@@ -327,6 +331,8 @@ pub struct EditorWindow {
     pub(crate) edit: crate::editor_edit::Editing,
     /// Ribbon tab shown before the Format tab appeared.
     pub(crate) format_before: Option<usize>,
+    /// Signature placement and the Signatures panel.
+    pub(crate) sig: crate::editor_sign::SignState,
     /// Caret shown (blink phase).
     caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -360,6 +366,7 @@ impl EditorWindow {
             pointer: (0.0, 0.0),
             edit: crate::editor_edit::Editing::default(),
             format_before: None,
+            sig: crate::editor_sign::SignState::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -578,6 +585,9 @@ impl EditorWindow {
             if !used && self.organize_on() {
                 used = self.org_input(&input, m);
             }
+            if !used && self.sig.pending.is_some() && self.r.showing_doc() {
+                used = self.sign_input(&input);
+            }
             if !used && self.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = if self.tool == Some(EditTool::Redact) {
                     self.redact_input(&input)
@@ -601,6 +611,7 @@ impl EditorWindow {
         redraw |= self.drain(m);
         self.sync();
         self.sync_format(m);
+        self.sync_signatures();
         if redraw && self.edit.typing.is_some() {
             if let Some(s) = self.format_status() {
                 self.r.set_status(&s);
@@ -710,7 +721,7 @@ impl EditorWindow {
             self.choose_option(i);
             return;
         }
-        if self.action(cmd, m) || self.format_command(cmd) {
+        if self.action(cmd, m) || self.format_command(cmd) || self.sign_command(cmd) {
             return;
         }
         match cmd {
@@ -1351,6 +1362,7 @@ impl EditorWindow {
             }
         }
         self.paint_extras(p);
+        self.paint_sign(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }

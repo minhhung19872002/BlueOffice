@@ -21,6 +21,7 @@ mod editor_format;
 mod editor_format_tests;
 mod editor_icons;
 mod editor_organize;
+mod editor_sign;
 #[cfg(test)]
 mod editor_tests;
 mod editor_window;

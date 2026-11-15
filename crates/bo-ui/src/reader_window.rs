@@ -60,6 +60,23 @@ pub enum Panel {
     Pages,
     /// Comment list.
     Comments,
+    /// A panel of a window built on this one ([`ExtraPanel`], BlueEditor's signatures).
+    Extra,
+}
+
+/// A navigation panel supplied by a window built on this one: its column icon and rows.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct ExtraPanel {
+    /// Command of its navigation column icon.
+    pub nav_id: &'static str,
+    /// Icon name.
+    pub icon: &'static str,
+    /// Panel title.
+    pub title: String,
+    /// Text shown when there are no rows.
+    pub empty: String,
+    /// Rows: status colour, title, detail line, command run when clicked.
+    pub rows: Vec<(Rgba, String, String, String)>,
 }
 
 /// What the window asks of the host.
@@ -339,6 +356,8 @@ pub struct ReaderWindow {
     pub(crate) tool_hidden: bool,
     /// The document area is drawn by a window built on this one (page grid).
     pub(crate) doc_hidden: bool,
+    /// A panel of a window built on this one (its icon follows the comments icon).
+    pub(crate) extra_panel: Option<ExtraPanel>,
     /// Sizes and greys.
     look: Look,
 }
@@ -349,6 +368,8 @@ enum PanelRow {
     Outline(Vec<usize>, Option<LinkTarget>, Option<(f32, f32)>),
     Page(usize),
     Comment(usize, [f32; 4]),
+    /// A row of the extra panel: its command.
+    Extra(String),
 }
 
 const COLOR_HIGHLIGHT: [u8; 3] = [255, 230, 0];
@@ -405,6 +426,7 @@ impl ReaderWindow {
             enabled_override: std::collections::HashMap::new(),
             tool_hidden: false,
             doc_hidden: false,
+            extra_panel: None,
             look: Look::READER,
         }
     }
@@ -909,11 +931,14 @@ impl ReaderWindow {
         let nav_x = self.px(7.2);
         let nav_w = self.px(40.0);
         self.nav_rect = [nav_x, top, nav_w, h - sh - top];
-        let icons = [
+        let mut icons = vec![
             ("nav.bookmarks", Panel::Bookmarks),
             ("nav.pages", Panel::Pages),
             ("nav.comments", Panel::Comments),
         ];
+        if let Some(e) = &self.extra_panel {
+            icons.push((e.nav_id, Panel::Extra));
+        }
         let is = self.px(32.0);
         for (k, (id, panel)) in icons.into_iter().enumerate() {
             let cy = top + self.px(36.0) + k as f32 * self.px(44.0);
@@ -1931,6 +1956,9 @@ impl ReaderWindow {
             "nav.bookmarks" | "panel.bookmarks" => self.toggle_panel(Panel::Bookmarks),
             "nav.pages" | "panel.pages" => self.toggle_panel(Panel::Pages),
             "nav.comments" | "panel.comments" => self.toggle_panel(Panel::Comments),
+            c if self.extra_panel.as_ref().is_some_and(|e| e.nav_id == c) => {
+                self.toggle_panel(Panel::Extra);
+            }
             "view.fullscreen" => {
                 self.requests
                     .push(ReaderRequest::Window(Request::ToggleMaximize));
@@ -2005,6 +2033,7 @@ impl ReaderWindow {
             PanelRow::Comment(page, rect) => {
                 t.view.go_to(page, Some((rect[1] - 40.0).max(0.0)));
             }
+            PanelRow::Extra(cmd) => self.requests.push(ReaderRequest::Command(cmd)),
         }
         true
     }
@@ -2258,6 +2287,7 @@ impl ReaderWindow {
                         Kind::Nav(Panel::Bookmarks) => "bookmark",
                         Kind::Nav(Panel::Pages) => "pages",
                         Kind::Nav(Panel::Comments) => "comments",
+                        Kind::Nav(Panel::Extra) => self.extra_panel.as_ref().map_or("", |e| e.icon),
                         Kind::Small(i) | Kind::Quick(i) => i,
                         _ => "",
                     };
@@ -2416,7 +2446,8 @@ impl ReaderWindow {
             ("nav.bookmarks" | "panel.bookmarks", Some(Panel::Bookmarks))
                 | ("nav.pages" | "panel.pages", Some(Panel::Pages))
                 | ("nav.comments" | "panel.comments", Some(Panel::Comments))
-        )
+        ) || (self.panel_open() == Some(Panel::Extra)
+            && self.extra_panel.as_ref().is_some_and(|e| e.nav_id == id))
     }
 
     fn enabled(&self, id: &str) -> bool {
@@ -2622,18 +2653,16 @@ impl ReaderWindow {
             return;
         };
         let title = match panel {
-            Panel::Bookmarks => "pdfReader.bookmarks",
-            Panel::Pages => "pdfReader.pages",
-            Panel::Comments => "pdfReader.comments",
+            Panel::Bookmarks => self.t("pdfReader.bookmarks"),
+            Panel::Pages => self.t("pdfReader.pages"),
+            Panel::Comments => self.t("pdfReader.comments"),
+            Panel::Extra => self
+                .extra_panel
+                .as_ref()
+                .map_or_else(String::new, |e| e.title.clone()),
         };
         let ts = self.style(16.0, false);
-        p.text(
-            &self.t(title),
-            r[0] + self.px(8.8),
-            r[1] + self.px(10.4),
-            ts,
-            TEXT,
-        );
+        p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
         let list_top = r[1] + self.px(40.0);
         p.push_clip(r[0], list_top, r[2], r[3] - (list_top - r[1]));
         let body = self.style(14.0, false);
@@ -2802,6 +2831,42 @@ impl ReaderWindow {
                     );
                     p.text(&shown, r[0] + self.px(17.6), y + self.px(16.0), body, TEXT);
                     rows.push((y, self.px(38.0), PanelRow::Comment(a.page, a.rect)));
+                    y += self.px(44.0);
+                }
+                self.panel_rows = rows;
+            }
+            Panel::Extra => {
+                let extra = self.extra_panel.clone().unwrap_or_default();
+                if extra.rows.is_empty() {
+                    p.text(&extra.empty, r[0] + self.px(8.8), y, body, MUTED);
+                }
+                let small = self.style(12.5, false);
+                let mut rows = Vec::new();
+                for (color, title, detail, cmd) in extra.rows {
+                    // Status mark: a filled circle in the row's colour.
+                    let d = self.px(12.0);
+                    let (cx, cy) = (r[0] + self.px(8.8), y + self.px(3.0));
+                    let k = 0.5523 * d / 2.0;
+                    let (mx, my, rr) = (cx + d / 2.0, cy + d / 2.0, d / 2.0);
+                    p.path(
+                        &[
+                            PathSeg::M(mx + rr, my),
+                            PathSeg::C(mx + rr, my + k, mx + k, my + rr, mx, my + rr),
+                            PathSeg::C(mx - k, my + rr, mx - rr, my + k, mx - rr, my),
+                            PathSeg::C(mx - rr, my - k, mx - k, my - rr, mx, my - rr),
+                            PathSeg::C(mx + k, my - rr, mx + rr, my - k, mx + rr, my),
+                            PathSeg::Z,
+                        ],
+                        Some(color),
+                        None,
+                    );
+                    let tx = r[0] + self.px(26.0);
+                    let w = r[2] - self.px(34.0);
+                    let shown = elide(&title, self.width_of(&title, body), w, body.size);
+                    p.text(&shown, tx, y, body, TEXT);
+                    let shown = elide(&detail, self.width_of(&detail, small), w, small.size);
+                    p.text(&shown, tx, y + self.px(18.0), small, MUTED);
+                    rows.push((y, self.px(38.0), PanelRow::Extra(cmd)));
                     y += self.px(44.0);
                 }
                 self.panel_rows = rows;

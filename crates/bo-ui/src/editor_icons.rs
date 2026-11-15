@@ -16,6 +16,8 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "alignRight" => &[S("M3 5h18 M9 9h12 M3 13h18 M9 17h12"), A("M13 21h8")],
         "alignJustify" => &[S("M3 5h18 M3 9h18 M3 13h18 M3 17h18"), A("M3 21h10")],
         "done" => &[A("M4 12.5l5 5L20 6.5")],
+        // Protect tab.
+        "signPanel" => &[S("M4 3.5h11l4 4v13H4z M15 3.5v4h4"), A("M7 13.5c1.5-3 3-4.5 3.5-3.5s-1.5 4 0 4.5 2-2 3-2 .5 1.5 2.5 1.5 M7 17.5h10")],
         _ => &[S("M5 5h14v14H5z")],
     }
 }
@@ -35,6 +37,7 @@ mod tests {
             "alignRight",
             "alignJustify",
             "done",
+            "signPanel",
         ] {
             let parts = super::shape(name);
             assert!(!parts.is_empty(), "{name}");

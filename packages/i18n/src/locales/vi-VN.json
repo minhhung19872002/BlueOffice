@@ -7150,7 +7150,23 @@
       "blue": "Xanh dương",
       "purple": "Tím",
       "white": "Trắng"
-    }
+    },
+    "placeSignature": "Kéo một khung trên trang tại chỗ đặt chữ ký (Esc để hủy)",
+    "signedBy": "Ký số bởi",
+    "signDate": "Ngày",
+    "tsaUrl": "Địa chỉ máy chủ dấu thời gian (không bắt buộc)",
+    "signImage": "Tệp hình chữ ký (không bắt buộc)",
+    "signatures": "Chữ ký",
+    "noSignatures": "Tài liệu này chưa được ký",
+    "signature": "Chữ ký",
+    "signer": "Người ký",
+    "sigValid": "Hợp lệ: tài liệu không thay đổi từ khi ký",
+    "sigChanged": "Tài liệu đã bị thay đổi sau khi ký",
+    "sigInvalid": "Chữ ký không hợp lệ",
+    "timestamp": "Dấu thời gian",
+    "noTimestamp": "Không có dấu thời gian: thời điểm ký lấy từ máy người ký",
+    "identityUnknown": "Danh tính người ký chưa được đối chiếu với danh sách chứng thư tin cậy",
+    "signaturePanel": "Bảng chữ ký"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

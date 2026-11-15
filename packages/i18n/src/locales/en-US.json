@@ -7150,7 +7150,23 @@
       "blue": "Blue",
       "purple": "Purple",
       "white": "White"
-    }
+    },
+    "placeSignature": "Drag a box on the page where the signature goes (Esc cancels)",
+    "signedBy": "Digitally signed by",
+    "signDate": "Date",
+    "tsaUrl": "Time-stamp server URL (optional)",
+    "signImage": "Signature picture file (optional)",
+    "signatures": "Signatures",
+    "noSignatures": "This document is not signed",
+    "signature": "Signature",
+    "signer": "Signed by",
+    "sigValid": "Valid: the document has not changed since it was signed",
+    "sigChanged": "The document changed after it was signed",
+    "sigInvalid": "The signature is not valid",
+    "timestamp": "Time-stamp",
+    "noTimestamp": "No time-stamp: the signing time comes from the signer's computer",
+    "identityUnknown": "Signer identity not checked against a trusted certificate list",
+    "signaturePanel": "Signature Panel"
   },
   "taskPane": {
     "dockLeft": "Dock left",

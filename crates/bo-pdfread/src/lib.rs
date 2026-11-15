@@ -32,6 +32,7 @@ mod lexer;
 mod objects;
 mod paragraph;
 mod sfnt;
+mod sigappear;
 mod text;
 mod type1;
 mod write;
@@ -42,6 +43,7 @@ pub use forms::{FieldKind, FormField};
 pub use image::Image;
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
+pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
 
 use bo_render::PageList;

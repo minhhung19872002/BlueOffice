@@ -29,12 +29,12 @@ pub(crate) fn face_for(base: &str) -> usize {
 }
 
 #[cfg(feature = "bundled-fonts")]
-fn face_data(face: usize) -> Option<&'static [u8]> {
+pub(crate) fn face_data(face: usize) -> Option<&'static [u8]> {
     crate::bundled::FONTS.get(face).copied()
 }
 
 #[cfg(not(feature = "bundled-fonts"))]
-fn face_data(_face: usize) -> Option<&'static [u8]> {
+pub(crate) fn face_data(_face: usize) -> Option<&'static [u8]> {
     None
 }
 

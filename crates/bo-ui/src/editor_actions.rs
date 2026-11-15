@@ -17,6 +17,8 @@ pub(crate) enum Ask2 {
     FieldText(FormField),
     Comment(Annot),
     Sign,
+    /// A message with only OK.
+    Info,
 }
 
 /// A redaction mark being dragged: page, start and current point (page points).
@@ -443,43 +445,13 @@ impl EditorWindow {
                 self.x.selected_comment = None;
             }
             Ask2::Sign => {
-                let reason = values.get(1).cloned().unwrap_or_default();
-                let location = values.get(2).cloned().unwrap_or_default();
                 let Some(cert) = self.x.certificate.take() else {
                     return;
                 };
-                let r = bo_sign::SoftwareSigner::from_pkcs12(&cert, &first)
-                    .map_err(|e| e.to_string())
-                    .and_then(|s| self.sign_with(&s, &reason, &location));
-                if let Err(e) = r {
-                    self.set_status(&e);
-                }
+                self.sign_answer(&cert, values);
             }
+            Ask2::Info => {}
         }
-    }
-
-    /// Sign the active document (as saved now) and ask where to write the signed copy.
-    pub(crate) fn sign_with(
-        &mut self,
-        signer: &dyn bo_sign::Signer,
-        reason: &str,
-        location: &str,
-    ) -> Result<(), String> {
-        let name = format!("{}-signed.pdf", self.doc_stem());
-        let bytes = self.with_doc(PdfDocument::save)?;
-        let opts = bo_sign::pdf::SignOptions {
-            name: std::env::var("USERNAME").ok(),
-            reason: (!reason.is_empty()).then(|| reason.to_owned()),
-            location: (!location.is_empty()).then(|| location.to_owned()),
-            ..bo_sign::pdf::SignOptions::default()
-        };
-        let signed = bo_sign::pdf::sign_pdf(&bytes, signer, &opts).map_err(|e| e.to_string())?;
-        self.set_status(&self.t("pdfEditor.signed"));
-        self.push(ReaderRequest::SaveBytes {
-            name,
-            bytes: signed,
-        });
-        Ok(())
     }
 
     /// A certificate file was picked: ask its password and the signature's reason.
@@ -492,6 +464,8 @@ impl EditorWindow {
                 (self.t("pdfEditor.certPassword"), String::new()),
                 (self.t("pdfEditor.signReason"), String::new()),
                 (self.t("pdfEditor.signLocation"), String::new()),
+                (self.t("pdfEditor.tsaUrl"), String::new()),
+                (self.t("pdfEditor.signImage"), String::new()),
             ],
             vec![
                 (self.t("pdfReader.ok"), DialogButton::Ok),

@@ -1,0 +1,2053 @@
+//! BlueSlide's editing area (N6): the slide thumbnails pane, the current slide on the grey
+//! canvas and the notes pane, with shape selection, text editing in shapes and the slide show.
+//!
+//! Slides are drawn from the engine's display lists into page images through the same
+//! [`PageStore`] path as BlueDoc's pages (crisp text, only the changed band redrawn after an
+//! edit). Images are keyed by the slide's stable id (`p:sldId@id`), so inserting, deleting or
+//! moving slides keeps every other image; switching slides shows a kept image at once.
+//! Geometry measured on the reference presentation app at 125 % (docs/ui/REPORT-slide.md).
+use crate::{Input, Key, Mods, PageStore, Painter, TextStyle};
+use bo_engine::slide_edit::geom::{BoxR, Handle, HandleKind};
+use bo_engine::slide_edit::rich::TextEditOut;
+use bo_engine::slide_edit::text::{Align, FormatState, TextFormat};
+use bo_engine::slide_edit::{Preview, ShapeInfo, SlideCommand, SlideEditResult, Transform};
+use bo_engine::Engine;
+use bo_render::{changed_region, Change, PageList, PathSeg, Rgba};
+use std::collections::{HashMap, HashSet};
+
+/// Grey behind the slide and the thumbnails (reference: 230).
+pub const SLIDE_CANVAS: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
+/// One-pixel frame around the slide on the canvas (reference: 198).
+const SLIDE_EDGE: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
+/// Frame of a thumbnail that is not selected (reference: 200, 198, 196).
+const THUMB_EDGE: Rgba = Rgba(0xc8, 0xc6, 0xc4, 255);
+/// Slide numbers beside the thumbnails (reference: 72).
+const THUMB_NUMBER: Rgba = Rgba(0x48, 0x48, 0x48, 255);
+/// Lines between the panes (reference: 191).
+const SPLITTER: Rgba = Rgba(0xbf, 0xbf, 0xbf, 255);
+/// Selection frame and handle outline of shapes.
+const FRAME: Rgba = Rgba(0x8a, 0x8a, 0x8a, 255);
+const HANDLE_FILL: Rgba = Rgba(255, 255, 255, 255);
+/// Text selection inside a shape: neutral grey over the text.
+const TEXT_SELECTION: Rgba = Rgba(0, 0, 0, 57);
+/// Dashed outline of empty placeholders.
+const PLACEHOLDER_EDGE: Rgba = Rgba(0x9a, 0x9a, 0x9a, 255);
+/// Smart guides while moving shapes.
+const GUIDE: Rgba = Rgba(0xd2, 0x4a, 0x26, 255);
+const CARET: Rgba = Rgba(0, 0, 0, 255);
+const NOTES_HINT: Rgba = Rgba(0x5f, 0x5f, 0x5f, 255);
+const BLACK: Rgba = Rgba(0, 0, 0, 255);
+/// BlueSlide accent (tokens.json `slide` accent): selected thumbnail frame and number.
+pub const ACCENT: Rgba = Rgba(0xc2, 0x41, 0x0c, 255);
+const ACCENT_TEXT: Rgba = Rgba(0xc2, 0x41, 0x0c, 255);
+
+/// Image keys: main slide images use the slide id, thumbnails and show images an offset.
+const THUMB_KEY: usize = 1 << 40;
+const SHOW_KEY: usize = 2 << 40;
+/// Main slide images kept besides the current one (neighbours, recently visited).
+const MAIN_CACHE: usize = 12;
+/// Slide-show images kept.
+const SHOW_CACHE: usize = 4;
+/// Keyboard nudge of a selected shape (points): one step of the default grid; Ctrl: fine.
+const NUDGE: f64 = 6.0;
+const NUDGE_FINE: f64 = 1.0;
+/// Pointer travel (device pixels) before a press on a shape becomes a move.
+const DRAG_SLOP: f32 = 3.0;
+
+/// Which part of the editing area has the keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    /// The slide thumbnails.
+    Thumbs,
+    /// The slide being edited.
+    Canvas,
+    /// The speaker notes.
+    Notes,
+}
+
+/// A pointer gesture on the slide.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Drag {
+    /// Pressed on a selected shape: moves it once the pointer travels.
+    Move { from: (f32, f32), moved: bool },
+    /// Dragging a resize or the rotation handle.
+    Handle { kind: HandleKind, from: (f32, f32) },
+    /// Extending the text selection.
+    Text,
+    /// Pressed on the thumbnails (no drag action yet).
+    Thumbs,
+}
+
+/// The running slide show.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Show {
+    index: usize,
+    /// Past the last slide: the black end screen.
+    ended: bool,
+}
+
+/// Device-pixel rectangle `[x, y, w, h]`.
+type R = [f32; 4];
+
+fn inside(r: R, x: f32, y: f32) -> bool {
+    x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]
+}
+
+/// Byte index of UTF-16 offset `u` in `s` (clamped to the end).
+fn byte_at(s: &str, u: usize) -> usize {
+    let mut n = 0;
+    for (i, c) in s.char_indices() {
+        if n >= u {
+            return i;
+        }
+        n += c.len_utf16();
+    }
+    s.len()
+}
+
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// UTF-16 offset of the previous / next character boundary from `u`.
+fn step_char(s: &str, u: usize, forward: bool) -> usize {
+    let b = byte_at(s, u);
+    let c = if forward {
+        s[b..].chars().next()
+    } else {
+        s[..b].chars().next_back()
+    };
+    match c {
+        Some(c) if forward => u + c.len_utf16(),
+        Some(c) => u - c.len_utf16(),
+        None => u,
+    }
+}
+
+/// UTF-16 offset of the previous / next word start from `u` (Ctrl + arrows).
+fn step_word(s: &str, u: usize, forward: bool) -> usize {
+    let b = byte_at(s, u);
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    if forward {
+        let rest = &s[b..];
+        let mut it = rest.char_indices().peekable();
+        // Skip the current word, then the spaces after it.
+        while let Some((_, c)) = it.peek().copied() {
+            if !word(c) {
+                break;
+            }
+            it.next();
+        }
+        while let Some((_, c)) = it.peek().copied() {
+            if word(c) || c == '\n' {
+                break;
+            }
+            it.next();
+        }
+        let off = it.peek().map_or(rest.len(), |(i, _)| *i);
+        u + utf16_len(&rest[..off])
+    } else {
+        let before = &s[..b];
+        let chars: Vec<char> = before.chars().collect();
+        let mut i = chars.len();
+        while i > 0 && !word(chars[i - 1]) {
+            i -= 1;
+        }
+        while i > 0 && word(chars[i - 1]) {
+            i -= 1;
+        }
+        chars[..i].iter().map(|c| c.len_utf16()).sum()
+    }
+}
+
+/// UTF-16 range of the word around offset `u` (double click).
+fn word_at(s: &str, u: usize) -> (usize, usize) {
+    let chars: Vec<char> = s.chars().collect();
+    let mut idx = 0;
+    let mut n = 0;
+    while idx < chars.len() && n < u {
+        n += chars[idx].len_utf16();
+        idx += 1;
+    }
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let (mut a, mut b) = (idx, idx);
+    while a > 0 && word(chars[a - 1]) {
+        a -= 1;
+    }
+    while b < chars.len() && word(chars[b]) {
+        b += 1;
+    }
+    // A word takes its trailing spaces, as desktop presentation apps select it.
+    while b < chars.len() && chars[b] == ' ' {
+        b += 1;
+    }
+    let off = |k: usize| chars[..k].iter().map(|c| c.len_utf16()).sum();
+    (off(a), off(b))
+}
+
+/// The editing area of one presentation.
+pub struct SlideView {
+    engine: Engine,
+    /// Stable id of each slide, in order.
+    ids: Vec<usize>,
+    /// Slide size in points.
+    slide_size: (f32, f32),
+    current: usize,
+    origin: (f32, f32),
+    size: (f32, f32),
+    display_scale: f32,
+    /// Zoom factor; `None` fits the slide in the canvas.
+    zoom: Option<f32>,
+    /// Scroll of the canvas when the zoomed slide is taller than it (device pixels).
+    canvas_scroll: f32,
+    thumb_scroll: f32,
+    show_notes: bool,
+    focus: Focus,
+    state: Option<SlideEditResult>,
+    /// Display list each stored image shows, with its scale.
+    shown: HashMap<usize, (f32, PageList)>,
+    /// Images whose slide changed since they were drawn.
+    stale: HashSet<usize>,
+    /// Images to redraw whole (text rendering changed).
+    full: HashSet<usize>,
+    /// Main images in the order they were last shown (most recent last).
+    recent: Vec<usize>,
+    caret_on: bool,
+    drag: Option<Drag>,
+    preview: Option<Preview>,
+    show: Option<Show>,
+    /// Notes caret (UTF-16 offset into the notes text) while the notes pane has the keyboard.
+    notes_caret: usize,
+    /// The window's full size (device pixels): the slide show covers it.
+    window: (f32, f32),
+    /// Interface texts: empty notes hint, end of the slide show.
+    labels: (String, String),
+    /// Advance of the notes text before the caret on its line (device pixels).
+    notes_caret_x: f32,
+}
+
+impl SlideView {
+    /// A view of the presentation already open in `engine`.
+    pub fn new(engine: Engine) -> Result<Self, String> {
+        let mut view = Self {
+            engine,
+            ids: Vec::new(),
+            slide_size: (960.0, 540.0),
+            current: 0,
+            origin: (0.0, 0.0),
+            size: (800.0, 600.0),
+            display_scale: 1.0,
+            zoom: None,
+            canvas_scroll: 0.0,
+            thumb_scroll: 0.0,
+            show_notes: true,
+            focus: Focus::Canvas,
+            state: None,
+            shown: HashMap::new(),
+            stale: HashSet::new(),
+            full: HashSet::new(),
+            recent: Vec::new(),
+            caret_on: true,
+            drag: None,
+            preview: None,
+            show: None,
+            notes_caret: 0,
+            window: (800.0, 600.0),
+            labels: ("Click to add notes".into(), "End of slide show".into()),
+            notes_caret_x: 0.0,
+        };
+        if view.engine.slide_count() == 0 {
+            return Err("no slides".into());
+        }
+        view.run(SlideCommand::State);
+        view.refresh_ids();
+        Ok(view)
+    }
+
+    /// The presentation engine.
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    /// Mutable engine access (host file operations).
+    pub fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+
+    /// Number of slides.
+    pub fn slide_count(&self) -> usize {
+        self.ids.len()
+    }
+
+    /// Index of the current slide.
+    pub fn current(&self) -> usize {
+        self.current
+    }
+
+    /// Which pane has the keyboard.
+    pub fn focus(&self) -> Focus {
+        self.focus
+    }
+
+    /// The presentation changed since it was opened or saved.
+    pub fn modified(&self) -> bool {
+        self.state.as_ref().is_some_and(|s| s.modified)
+    }
+
+    /// Formatting of the selection (ribbon state).
+    pub fn format(&self) -> FormatState {
+        self.state
+            .as_ref()
+            .map(|s| s.format.clone())
+            .unwrap_or_default()
+    }
+
+    /// Undo / redo are available.
+    pub fn history(&self) -> (bool, bool) {
+        self.state
+            .as_ref()
+            .map_or((false, false), |s| (s.can_undo, s.can_redo))
+    }
+
+    /// Selected shapes of the current slide.
+    pub fn selection(&self) -> &[ShapeInfo] {
+        self.state.as_ref().map_or(&[], |s| s.selection.as_slice())
+    }
+
+    /// Text being edited inside a shape.
+    pub fn text_edit(&self) -> Option<&TextEditOut> {
+        self.state.as_ref().and_then(|s| s.text_edit.as_ref())
+    }
+
+    /// Speaker notes of the current slide.
+    pub fn notes(&self) -> &str {
+        self.state.as_ref().map_or("", |s| s.notes.as_str())
+    }
+
+    /// Whether the notes pane is shown.
+    pub fn notes_shown(&self) -> bool {
+        self.show_notes
+    }
+
+    /// Show or hide the notes pane.
+    pub fn set_notes_shown(&mut self, on: bool) {
+        self.show_notes = on;
+        if !on && self.focus == Focus::Notes {
+            self.focus = Focus::Canvas;
+        }
+        self.clamp_canvas_scroll();
+    }
+
+    /// Slide layouts of the deck (index, name).
+    pub fn layouts(&self) -> Vec<(usize, String)> {
+        self.state.as_ref().map_or_else(Vec::new, |s| {
+            s.layouts
+                .iter()
+                .map(|l| (l.index, l.name.clone()))
+                .collect()
+        })
+    }
+
+    /// The slide show is running.
+    pub fn showing(&self) -> bool {
+        self.show.is_some()
+    }
+
+    /// The presentation as `.pptx` bytes.
+    pub fn save_pptx(&self) -> Result<Vec<u8>, String> {
+        self.engine.save_pptx().map_err(|e| e.to_string())
+    }
+
+    /// The presentation was written: no longer modified.
+    pub fn mark_saved(&mut self) {
+        self.engine.mark_saved();
+        self.run(SlideCommand::State);
+    }
+
+    /// Interface texts in the window's language: the empty notes hint and the end screen of
+    /// the slide show.
+    pub fn set_labels(&mut self, notes_hint: &str, show_end: &str) {
+        self.labels = (notes_hint.to_owned(), show_end.to_owned());
+    }
+
+    /// Size of the notes text (device pixels) for a UI text size.
+    pub fn notes_size(text_size: f32) -> f32 {
+        (text_size * 1.25).round()
+    }
+
+    /// Measure the notes caret position with the platform's text engine.
+    pub fn measure_notes(&mut self, text: &dyn crate::TextMeasure, text_size: f32) {
+        let notes = self.notes();
+        let before = &notes[..byte_at(notes, self.notes_caret)];
+        let col = before.rsplit('\n').next().unwrap_or("");
+        let style = TextStyle {
+            size: Self::notes_size(text_size),
+            bold: false,
+        };
+        self.notes_caret_x = text.measure(col, style).0;
+    }
+
+    /// Forget cached images after the host's text rendering changed.
+    pub fn invalidate_page_images(&mut self) {
+        self.full.extend(self.shown.keys().copied());
+    }
+
+    /// Place the area at `(x, y)` with `width` × `height` device pixels.
+    pub fn set_frame(&mut self, x: f32, y: f32, width: f32, height: f32) {
+        self.origin = (x, y);
+        self.size = (width.max(1.0), height.max(1.0));
+        self.clamp_canvas_scroll();
+        self.clamp_thumb_scroll();
+    }
+
+    /// Full window size (the slide show covers the window).
+    pub fn set_window(&mut self, width: f32, height: f32) {
+        self.window = (width.max(1.0), height.max(1.0));
+    }
+
+    /// Display scale (device pixels per logical pixel).
+    pub fn set_display_scale(&mut self, scale: f32) {
+        if scale.is_finite() && scale > 0.0 {
+            self.display_scale = scale;
+            self.clamp_thumb_scroll();
+            self.clamp_canvas_scroll();
+        }
+    }
+
+    fn px(&self, v: f32) -> f32 {
+        (v * self.display_scale).round()
+    }
+
+    // ------------------------------------------------------------------ geometry
+
+    /// Width of the thumbnails pane (reference: 187 logical px), its splitter excluded.
+    fn thumbs_w(&self) -> f32 {
+        self.px(187.0).min((self.size.0 * 0.4).max(0.0))
+    }
+
+    /// Height of the notes pane (reference: 36 logical px), its splitter excluded.
+    fn notes_h(&self) -> f32 {
+        if self.show_notes {
+            self.px(36.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Width of the canvas scroll bar.
+    fn sb_w(&self) -> f32 {
+        self.px(15.0)
+    }
+
+    /// The canvas: right of the thumbnails, above the notes, left of the scroll bar.
+    pub fn canvas_rect(&self) -> R {
+        let x = self.origin.0 + self.thumbs_w() + 1.0;
+        let y = self.origin.1;
+        let w = (self.origin.0 + self.size.0 - self.sb_w() - x).max(1.0);
+        let notes = if self.show_notes {
+            self.notes_h() + 1.0
+        } else {
+            0.0
+        };
+        let h = (self.size.1 - notes).max(1.0);
+        [x, y, w, h]
+    }
+
+    /// The notes pane rectangle (below its splitter line).
+    pub fn notes_rect(&self) -> Option<R> {
+        if !self.show_notes {
+            return None;
+        }
+        let c = self.canvas_rect();
+        let x = c[0];
+        let y = c[1] + c[3] + 1.0;
+        Some([x, y, self.origin.0 + self.size.0 - x, self.notes_h()])
+    }
+
+    fn thumbs_rect(&self) -> R {
+        [self.origin.0, self.origin.1, self.thumbs_w(), self.size.1]
+    }
+
+    /// Device pixels per point at 100 %.
+    fn base_scale(&self) -> f32 {
+        self.display_scale * 96.0 / 72.0
+    }
+
+    /// The zoom that fits the slide in the canvas, in whole percent (the reference floors it).
+    pub fn fit_zoom(&self) -> f32 {
+        let [_, _, w, h] = self.canvas_rect();
+        let m = 2.0 * self.px(8.0);
+        let base = self.base_scale();
+        let z = ((w - m) / (self.slide_size.0 * base)).min((h - m) / (self.slide_size.1 * base));
+        ((z * 100.0).floor() / 100.0).max(0.1)
+    }
+
+    /// Zoom factor in use (1 = 100 %).
+    pub fn zoom(&self) -> f32 {
+        self.zoom.unwrap_or_else(|| self.fit_zoom())
+    }
+
+    /// The slide fits the canvas (no fixed zoom).
+    pub fn fits(&self) -> bool {
+        self.zoom.is_none()
+    }
+
+    /// Set a fixed zoom (`None`: fit to the window).
+    pub fn set_zoom(&mut self, zoom: Option<f32>) -> bool {
+        let zoom = zoom.map(|z| (z.clamp(0.1, 4.0) * 100.0).round() / 100.0);
+        let changed = zoom != self.zoom;
+        self.zoom = zoom;
+        self.clamp_canvas_scroll();
+        changed
+    }
+
+    /// Device pixels per point of the slide on the canvas.
+    pub fn scale(&self) -> f32 {
+        self.zoom() * self.base_scale()
+    }
+
+    /// The slide's image size in device pixels.
+    fn slide_px(&self, scale: f32) -> (f32, f32) {
+        (
+            (self.slide_size.0 * scale).ceil(),
+            (self.slide_size.1 * scale).ceil(),
+        )
+    }
+
+    /// Top-left of the slide on the canvas (whole pixels so images map 1:1).
+    pub fn slide_origin(&self) -> (f32, f32) {
+        let [cx, cy, cw, ch] = self.canvas_rect();
+        let (w, h) = self.slide_px(self.scale());
+        let x = if w + 2.0 * self.px(8.0) <= cw {
+            cx + ((cw - w) / 2.0).round()
+        } else {
+            cx + self.px(8.0)
+        };
+        // Centred, one pixel higher like the reference; a taller slide scrolls.
+        let y = if h + 2.0 * self.px(8.0) <= ch {
+            cy + ((ch - h) / 2.0).floor() - 1.0
+        } else {
+            cy + self.px(8.0) - self.canvas_scroll
+        };
+        (x.round(), y.round())
+    }
+
+    fn clamp_canvas_scroll(&mut self) {
+        let ch = self.canvas_rect()[3];
+        let (_, h) = self.slide_px(self.scale());
+        let max = (h + 2.0 * self.px(8.0) - ch).max(0.0);
+        self.canvas_scroll = self.canvas_scroll.clamp(0.0, max).round();
+    }
+
+    /// Slide point of a window position.
+    fn to_slide(&self, x: f32, y: f32) -> (f64, f64) {
+        let (ox, oy) = self.slide_origin();
+        let s = self.scale();
+        (f64::from((x - ox) / s), f64::from((y - oy) / s))
+    }
+
+    /// Window position of a slide point.
+    fn to_px(&self, x: f64, y: f64) -> (f32, f32) {
+        let (ox, oy) = self.slide_origin();
+        let s = self.scale();
+        (ox + x as f32 * s, oy + y as f32 * s)
+    }
+
+    /// Width of a thumbnail image (reference: 125 logical px in a 187 px pane).
+    fn thumb_w(&self) -> f32 {
+        (self.thumbs_w() - self.px(39.0) - self.px(23.0)).max(self.px(24.0))
+    }
+
+    fn thumb_scale(&self) -> f32 {
+        self.thumb_w() / self.slide_size.0
+    }
+
+    /// Vertical distance from one thumbnail's top to the next (reference: 88 + 27 px).
+    fn thumb_pitch(&self) -> f32 {
+        self.slide_px(self.thumb_scale()).1 + self.px(21.6)
+    }
+
+    /// Image rectangle of thumbnail `i` (window pixels).
+    pub fn thumb_rect(&self, i: usize) -> R {
+        let (w, h) = self.slide_px(self.thumb_scale());
+        let x = self.origin.0 + self.px(39.0);
+        let y = self.origin.1 + self.px(20.0) + i as f32 * self.thumb_pitch() - self.thumb_scroll;
+        [x, y.round(), w, h]
+    }
+
+    fn thumbs_content_h(&self) -> f32 {
+        self.px(20.0) + self.ids.len() as f32 * self.thumb_pitch()
+    }
+
+    fn clamp_thumb_scroll(&mut self) {
+        let max = (self.thumbs_content_h() - self.size.1).max(0.0);
+        self.thumb_scroll = self.thumb_scroll.clamp(0.0, max).round();
+    }
+
+    fn visible_thumbs(&self) -> std::ops::Range<usize> {
+        let pitch = self.thumb_pitch().max(1.0);
+        let top = self.thumb_scroll - self.px(20.0);
+        let first = (top / pitch).floor().max(0.0) as usize;
+        let last = ((top + self.size.1) / pitch).ceil().max(0.0) as usize + 1;
+        first.min(self.ids.len())..last.min(self.ids.len())
+    }
+
+    /// Keep thumbnail `i` inside the pane.
+    fn reveal_thumb(&mut self, i: usize) {
+        let [_, y, _, h] = self.thumb_rect(i);
+        let (top, bottom) = (self.origin.1, self.origin.1 + self.size.1);
+        let pad = self.px(12.0);
+        if y - pad < top {
+            self.thumb_scroll -= top - (y - pad);
+        } else if y + h + pad > bottom {
+            self.thumb_scroll += y + h + pad - bottom;
+        }
+        self.clamp_thumb_scroll();
+    }
+
+    // ------------------------------------------------------------------ engine
+
+    fn refresh_ids(&mut self) {
+        let pres = self.engine.presentation();
+        let ids: Vec<usize> = pres
+            .map(|p| p.slides.iter().map(|s| s.slide_id as usize).collect())
+            .unwrap_or_default();
+        let unique: HashSet<usize> = ids.iter().copied().collect();
+        // Without unique ids (a damaged file), images fall back to slide positions.
+        self.ids = if unique.len() == ids.len() {
+            ids
+        } else {
+            (0..ids.len()).map(|i| (1 << 32) + i).collect()
+        };
+        if let Ok(list) = self.engine.slide(0) {
+            self.slide_size = (list.width.max(1.0), list.height.max(1.0));
+        }
+    }
+
+    /// Run a slide command and apply its result; `true` when it ran.
+    pub fn run(&mut self, cmd: SlideCommand) -> bool {
+        match self.engine.slide_command(cmd) {
+            Ok(r) => {
+                self.apply(r);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn apply(&mut self, r: SlideEditResult) {
+        if r.slides_changed || r.info.page_count != self.ids.len() {
+            self.refresh_ids();
+            // Slide numbers and links may have changed anywhere: compare every kept image.
+            self.stale.extend(self.shown.keys().copied());
+            self.clamp_thumb_scroll();
+        }
+        for &i in &r.dirty {
+            if let Some(&id) = self.ids.get(i) {
+                self.stale.extend([id, THUMB_KEY + id, SHOW_KEY + id]);
+            }
+        }
+        let moved = r.slide != self.current;
+        self.current = r.slide.min(self.ids.len().saturating_sub(1));
+        if moved {
+            self.canvas_scroll = 0.0;
+            self.notes_caret = utf16_len(&r.notes);
+            let cur = self.current;
+            self.reveal_thumb(cur);
+        }
+        self.notes_caret = self.notes_caret.min(utf16_len(&r.notes));
+        self.caret_on = true;
+        self.state = Some(r);
+    }
+
+    /// Go to slide `i` (clamped).
+    pub fn go_to(&mut self, i: usize) -> bool {
+        let i = i.min(self.ids.len().saturating_sub(1));
+        if i == self.current && self.text_edit().is_none() && self.selection().is_empty() {
+            return false;
+        }
+        self.run(SlideCommand::GoTo { slide: i })
+    }
+
+    /// New slide after the current one (`layout`: the deck's layout index, else like the
+    /// current slide).
+    pub fn new_slide(&mut self, layout: Option<usize>) -> bool {
+        let ok = self.run(SlideCommand::AddSlide {
+            after: Some(self.current),
+            layout,
+        });
+        self.focus = Focus::Thumbs;
+        ok
+    }
+
+    /// Delete the current slide (never the last remaining one).
+    pub fn delete_slide(&mut self) -> bool {
+        if self.ids.len() <= 1 {
+            return false;
+        }
+        self.run(SlideCommand::DeleteSlide { index: None })
+    }
+
+    /// Duplicate the current slide.
+    pub fn duplicate_slide(&mut self) -> bool {
+        self.run(SlideCommand::DuplicateSlide { index: None })
+    }
+
+    /// Apply a text format to the selection (text being edited, else the selected shapes).
+    pub fn format_text(&mut self, format: TextFormat) -> bool {
+        self.run(SlideCommand::FormatText {
+            format,
+            range: None,
+        })
+    }
+
+    /// Run interface command `id` (`format.bold`, `slide.new`, …); `true` when handled.
+    pub fn action(&mut self, id: &str) -> bool {
+        let toggle = None;
+        let align = |a| TextFormat::Align { align: a };
+        let format = match id {
+            "format.bold" => Some(TextFormat::Bold { value: toggle }),
+            "format.italic" => Some(TextFormat::Italic { value: toggle }),
+            "format.underline" => Some(TextFormat::Underline { value: toggle }),
+            "format.strike" => Some(TextFormat::Strike { value: toggle }),
+            "format.growStep" => Some(TextFormat::SizeBy { points: 2.0 }),
+            "format.shrinkStep" => Some(TextFormat::SizeBy { points: -2.0 }),
+            "format.alignLeft" => Some(align(Align::Left)),
+            "format.alignCenter" => Some(align(Align::Center)),
+            "format.alignRight" => Some(align(Align::Right)),
+            "format.justify" => Some(align(Align::Justify)),
+            "format.bullets" => Some(TextFormat::Bullets { value: toggle }),
+            "format.numbering" => Some(TextFormat::Numbering { value: toggle }),
+            "format.indent" => Some(TextFormat::Level { delta: 1 }),
+            "format.outdent" => Some(TextFormat::Level { delta: -1 }),
+            "format.color" => Some(TextFormat::Color {
+                hex: Some("FF0000".into()),
+            }),
+            "format.highlight" => Some(TextFormat::Highlight {
+                hex: Some("FFFF00".into()),
+            }),
+            _ => None,
+        };
+        if let Some(f) = format {
+            return self.format_text(f);
+        }
+        match id {
+            "edit.undo" => self.run(SlideCommand::Undo),
+            "edit.redo" => self.run(SlideCommand::Redo),
+            "slide.new" => self.new_slide(None),
+            "slide.delete" => self.delete_slide(),
+            "slide.duplicate" => self.duplicate_slide(),
+            "edit.selectAll" => self.run(SlideCommand::SelectAll),
+            "edit.delete" => self.run(SlideCommand::Delete),
+            "arrange.front" | "arrange.back" | "arrange.forward" | "arrange.backward" => {
+                let order = match id {
+                    "arrange.front" => bo_engine::slide_edit::ZOrder::Front,
+                    "arrange.back" => bo_engine::slide_edit::ZOrder::Back,
+                    "arrange.forward" => bo_engine::slide_edit::ZOrder::Forward,
+                    _ => bo_engine::slide_edit::ZOrder::Backward,
+                };
+                self.run(SlideCommand::ZOrder { to: order })
+            }
+            "arrange.group" => self.run(SlideCommand::Group),
+            "arrange.ungroup" => self.run(SlideCommand::Ungroup),
+            "insert.textBox" | "insert.rect" | "insert.ellipse" | "insert.triangle"
+            | "insert.arrow" => self.insert_shape(id),
+            "show.fromStart" => self.start_show(0),
+            "show.fromCurrent" => self.start_show(self.current),
+            _ => false,
+        }
+    }
+
+    /// Insert a shape (or a text box) in the middle of the slide and select it.
+    fn insert_shape(&mut self, id: &str) -> bool {
+        if id == "insert.textBox" {
+            return self.run(SlideCommand::InsertTextBox {
+                text: String::new(),
+                rect: None,
+            }) && self.enter_text(false);
+        }
+        let preset = match id {
+            "insert.ellipse" => "ellipse",
+            "insert.triangle" => "triangle",
+            "insert.arrow" => "rightArrow",
+            _ => "rect",
+        };
+        self.run(SlideCommand::InsertShape {
+            preset: preset.into(),
+            rect: None,
+        })
+    }
+
+    // ------------------------------------------------------------------ text editing
+
+    /// Start editing the text of the single selected shape; `all` selects its text.
+    fn enter_text(&mut self, all: bool) -> bool {
+        let Some(s) = self.selection().first().filter(|s| s.editable_text) else {
+            return false;
+        };
+        let id = s.id;
+        let len = s.text.as_deref().map_or(0, utf16_len);
+        self.run(SlideCommand::TextSelect {
+            id: Some(id),
+            start: if all { 0 } else { len },
+            end: len,
+            cell: None,
+        })
+    }
+
+    /// Replace the text selection with `insert` (one merged undo step per typing run).
+    fn type_text(&mut self, insert: &str) -> bool {
+        let Some(te) = self.text_edit() else {
+            return false;
+        };
+        let (a, b) = (te.start.min(te.end), te.start.max(te.end));
+        let (ba, bb) = (byte_at(&te.text, a), byte_at(&te.text, b));
+        let mut text = String::with_capacity(te.text.len() + insert.len());
+        text.push_str(&te.text[..ba]);
+        text.push_str(insert);
+        text.push_str(&te.text[bb..]);
+        let caret = a + utf16_len(insert);
+        let id = te.id;
+        self.set_text(id, text, caret, caret)
+    }
+
+    fn set_text(&mut self, id: u32, text: String, start: usize, end: usize) -> bool {
+        self.run(SlideCommand::SetText {
+            id: Some(id),
+            text,
+            merge: true,
+            sel: Some([start, end]),
+            cell: None,
+        })
+    }
+
+    /// Delete backwards (or forwards) from the caret, or the selected text.
+    fn delete_text(&mut self, forward: bool, word: bool) -> bool {
+        let Some(te) = self.text_edit() else {
+            return false;
+        };
+        let (mut a, mut b) = (te.start.min(te.end), te.start.max(te.end));
+        if a == b {
+            let to = match (forward, word) {
+                (f, true) => step_word(&te.text, a, f),
+                (f, false) => step_char(&te.text, a, f),
+            };
+            if forward {
+                b = to;
+            } else {
+                a = to;
+            }
+        }
+        if a == b {
+            return false;
+        }
+        let (ba, bb) = (byte_at(&te.text, a), byte_at(&te.text, b));
+        let mut text = te.text.clone();
+        text.replace_range(ba..bb, "");
+        let id = te.id;
+        self.set_text(id, text, a, a)
+    }
+
+    fn select_text(&mut self, start: usize, end: usize) -> bool {
+        let Some(id) = self.text_edit().map(|t| t.id) else {
+            return false;
+        };
+        self.run(SlideCommand::TextSelect {
+            id: Some(id),
+            start,
+            end,
+            cell: None,
+        })
+    }
+
+    /// Caret line `[x1, y1, x2, y2]` (slide points) of the text being edited.
+    fn caret_line(&self) -> Option<[f64; 4]> {
+        self.text_edit().and_then(|t| t.caret)
+    }
+
+    fn text_key(&mut self, key: Key, m: Mods) -> bool {
+        let Some(te) = self.text_edit().cloned() else {
+            return false;
+        };
+        let len = utf16_len(&te.text);
+        let collapse = |forward: bool| {
+            if forward {
+                te.start.max(te.end)
+            } else {
+                te.start.min(te.end)
+            }
+        };
+        match key {
+            Key::Left | Key::Right => {
+                let forward = key == Key::Right;
+                let to = if !m.shift && te.start != te.end && !m.ctrl {
+                    collapse(forward)
+                } else if m.ctrl {
+                    step_word(&te.text, te.end, forward)
+                } else {
+                    step_char(&te.text, te.end, forward)
+                };
+                let start = if m.shift { te.start } else { to };
+                self.select_text(start, to)
+            }
+            Key::Up | Key::Down => {
+                let Some([x1, y1, _, y2]) = self.caret_line() else {
+                    return false;
+                };
+                let h = (y2 - y1).abs().max(1.0);
+                let y = if key == Key::Up {
+                    y1.min(y2) - h * 0.5
+                } else {
+                    y1.max(y2) + h * 0.5
+                };
+                self.run(SlideCommand::TextHit {
+                    x: x1,
+                    y,
+                    extend: m.shift,
+                })
+            }
+            Key::Home | Key::End if m.ctrl => {
+                let to = if key == Key::Home { 0 } else { len };
+                let start = if m.shift { te.start } else { to };
+                self.select_text(start, to)
+            }
+            Key::Home | Key::End => {
+                let Some([_, y1, _, y2]) = self.caret_line() else {
+                    return false;
+                };
+                let b = te.rect;
+                let x = if key == Key::Home {
+                    b.cx - b.w / 2.0 + 0.5
+                } else {
+                    b.cx + b.w / 2.0 - 0.5
+                };
+                self.run(SlideCommand::TextHit {
+                    x,
+                    y: f64::midpoint(y1, y2),
+                    extend: m.shift,
+                })
+            }
+            Key::Backspace => self.delete_text(false, m.ctrl),
+            Key::Delete => self.delete_text(true, m.ctrl),
+            // Shift+Enter: line break inside the paragraph (§21.1.2.2.1 br).
+            Key::Enter if m.shift => self.type_text("\u{b}"),
+            Key::Enter => self.type_text("\n"),
+            Key::Tab => self.format_text(TextFormat::Level {
+                delta: if m.shift { -1 } else { 1 },
+            }),
+            Key::Escape => self.run(SlideCommand::TextExit),
+            Key::Letter('a') if m.ctrl => self.select_text(0, len),
+            _ => false,
+        }
+    }
+
+    // ------------------------------------------------------------------ keyboard
+
+    fn key(&mut self, key: Key, m: Mods) -> bool {
+        // Shortcuts that act the same everywhere.
+        if m.ctrl {
+            match key {
+                Key::Letter('z') => return self.run(SlideCommand::Undo),
+                Key::Letter('y') => return self.run(SlideCommand::Redo),
+                Key::Letter('m') => return self.new_slide(None),
+                Key::Letter(c @ ('b' | 'i' | 'u' | 'e' | 'l' | 'r' | 'j'))
+                    if self.focus != Focus::Notes =>
+                {
+                    let id = match c {
+                        'b' => "format.bold",
+                        'i' => "format.italic",
+                        'u' => "format.underline",
+                        'e' => "format.alignCenter",
+                        'l' => "format.alignLeft",
+                        'r' => "format.alignRight",
+                        _ => "format.justify",
+                    };
+                    return self.action(id);
+                }
+                _ => {}
+            }
+        }
+        if let Key::F(5) = key {
+            let from = if m.shift { self.current } else { 0 };
+            return self.start_show(from);
+        }
+        match self.focus {
+            Focus::Notes => self.notes_key(key, m),
+            Focus::Thumbs => self.thumbs_key(key, m),
+            Focus::Canvas if self.text_edit().is_some() => self.text_key(key, m),
+            Focus::Canvas => self.canvas_key(key, m),
+        }
+    }
+
+    fn thumbs_key(&mut self, key: Key, m: Mods) -> bool {
+        let n = self.ids.len();
+        match key {
+            Key::Up | Key::Left | Key::PageUp => self.go_to(self.current.saturating_sub(1)),
+            Key::Down | Key::Right | Key::PageDown => self.go_to(self.current + 1),
+            Key::Home => self.go_to(0),
+            Key::End => self.go_to(n.saturating_sub(1)),
+            Key::Delete | Key::Backspace => self.delete_slide(),
+            Key::Enter => self.new_slide(None),
+            Key::Letter('d') if m.ctrl => self.duplicate_slide(),
+            _ => false,
+        }
+    }
+
+    fn canvas_key(&mut self, key: Key, m: Mods) -> bool {
+        let selected = !self.selection().is_empty();
+        let nudge = if m.ctrl { NUDGE_FINE } else { NUDGE };
+        let mv = |dx: f64, dy: f64| SlideCommand::Transform {
+            transform: Transform::Move { dx, dy },
+            snap: false,
+            tolerance: 4.0,
+            preview: false,
+        };
+        match key {
+            Key::Left if selected => self.run(mv(-nudge, 0.0)),
+            Key::Right if selected => self.run(mv(nudge, 0.0)),
+            Key::Up if selected => self.run(mv(0.0, -nudge)),
+            Key::Down if selected => self.run(mv(0.0, nudge)),
+            Key::Up | Key::Left | Key::PageUp => self.go_to(self.current.saturating_sub(1)),
+            Key::Down | Key::Right | Key::PageDown => self.go_to(self.current + 1),
+            Key::Home if !selected => self.go_to(0),
+            Key::End if !selected => self.go_to(self.ids.len().saturating_sub(1)),
+            Key::Delete | Key::Backspace if selected => self.run(SlideCommand::Delete),
+            Key::Escape if selected => self.run(SlideCommand::Select { ids: vec![] }),
+            Key::Tab => self.run(SlideCommand::SelectNext { back: m.shift }),
+            Key::Enter if selected => self.enter_text(true),
+            Key::F(2) if selected => self.enter_text(false),
+            Key::Letter('a') if m.ctrl => self.run(SlideCommand::SelectAll),
+            Key::Letter('d') if m.ctrl && selected => self.run(SlideCommand::Duplicate),
+            _ => false,
+        }
+    }
+
+    fn notes_key(&mut self, key: Key, m: Mods) -> bool {
+        let text = self.notes().to_owned();
+        let len = utf16_len(&text);
+        let caret = self.notes_caret.min(len);
+        match key {
+            Key::Left => {
+                self.notes_caret = step_char(&text, caret, false);
+                true
+            }
+            Key::Right => {
+                self.notes_caret = step_char(&text, caret, true);
+                true
+            }
+            Key::Home => {
+                self.notes_caret = 0;
+                true
+            }
+            Key::End => {
+                self.notes_caret = len;
+                true
+            }
+            Key::Backspace | Key::Delete => {
+                let to = if m.ctrl {
+                    step_word(&text, caret, key == Key::Delete)
+                } else {
+                    step_char(&text, caret, key == Key::Delete)
+                };
+                let (a, b) = (caret.min(to), caret.max(to));
+                if a == b {
+                    return false;
+                }
+                let mut t = text;
+                t.replace_range(byte_at(&t, a)..byte_at(&t, b), "");
+                self.notes_caret = a;
+                self.run(SlideCommand::SetNotes {
+                    slide: None,
+                    text: t,
+                })
+            }
+            Key::Enter => self.notes_insert("\n"),
+            Key::Escape => {
+                self.focus = Focus::Canvas;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn notes_insert(&mut self, s: &str) -> bool {
+        let mut t = self.notes().to_owned();
+        let caret = self.notes_caret.min(utf16_len(&t));
+        t.insert_str(byte_at(&t, caret), s);
+        self.notes_caret = caret + utf16_len(s);
+        self.run(SlideCommand::SetNotes {
+            slide: None,
+            text: t,
+        })
+    }
+
+    // ------------------------------------------------------------------ pointer
+
+    /// The handle of the selection under a window position.
+    fn handle_at(&self, x: f32, y: f32) -> Option<Handle> {
+        if self.text_edit().is_some() {
+            return None;
+        }
+        let r = self.px(6.0);
+        self.state.as_ref()?.handles.iter().copied().find(|h| {
+            let (hx, hy) = self.to_px(h.x, h.y);
+            (hx - x).abs() <= r && (hy - y).abs() <= r
+        })
+    }
+
+    fn in_box(b: &BoxR, x: f64, y: f64, pad: f64) -> bool {
+        let (lx, ly) = b.to_local(x, y);
+        lx.abs() <= b.w / 2.0 + pad && ly.abs() <= b.h / 2.0 + pad
+    }
+
+    fn press_canvas(&mut self, x: f32, y: f32, count: u8, shift: bool) -> bool {
+        self.focus = Focus::Canvas;
+        let (sx, sy) = self.to_slide(x, y);
+        if let Some(h) = self.handle_at(x, y) {
+            self.drag = Some(Drag::Handle {
+                kind: h.kind,
+                from: (x, y),
+            });
+            return true;
+        }
+        // Inside the text being edited: place the caret (Shift extends; double click
+        // selects the word).
+        if let Some(te) = self.text_edit().cloned() {
+            if Self::in_box(&te.rect, sx, sy, 2.0) {
+                let ok = self.run(SlideCommand::TextHit {
+                    x: sx,
+                    y: sy,
+                    extend: shift,
+                });
+                if count >= 3 {
+                    let len = self.text_edit().map_or(0, |t| utf16_len(&t.text));
+                    return self.select_text(0, len);
+                }
+                if count == 2 {
+                    if let Some(t) = self.text_edit().cloned() {
+                        let (a, b) = word_at(&t.text, t.end);
+                        return self.select_text(a, b);
+                    }
+                }
+                self.drag = Some(Drag::Text);
+                return ok;
+            }
+        }
+        let before: Vec<u32> = self.selection().iter().map(|s| s.id).collect();
+        self.run(SlideCommand::Click {
+            x: sx,
+            y: sy,
+            extend: shift,
+            deep: false,
+        });
+        let hit = self
+            .state
+            .as_ref()
+            .and_then(|s| {
+                s.selection
+                    .iter()
+                    .find(|i| Self::in_box(&i.rect, sx, sy, 3.0))
+            })
+            .cloned();
+        let Some(hit) = hit else {
+            return true;
+        };
+        // Text placeholders and text boxes take the caret at once; other shapes on a second
+        // click (or a double click), as the reference does.
+        let text_box = hit.placeholder.is_some() || hit.name.starts_with("TextBox");
+        if !shift
+            && hit.editable_text
+            && (text_box || count >= 2 || before == [hit.id])
+            && Self::in_box(&hit.rect, sx, sy, -2.0)
+        {
+            self.run(SlideCommand::TextSelect {
+                id: Some(hit.id),
+                start: 0,
+                end: 0,
+                cell: None,
+            });
+            self.run(SlideCommand::TextHit {
+                x: sx,
+                y: sy,
+                extend: false,
+            });
+            if count == 2 {
+                if let Some(t) = self.text_edit().cloned() {
+                    let (a, b) = word_at(&t.text, t.end);
+                    self.select_text(a, b);
+                }
+            }
+            self.drag = Some(Drag::Text);
+            return true;
+        }
+        self.drag = Some(Drag::Move {
+            from: (x, y),
+            moved: false,
+        });
+        true
+    }
+
+    fn transform_of(&self, x: f32, y: f32, shift: bool) -> Option<Transform> {
+        let s = f64::from(self.scale());
+        match self.drag? {
+            Drag::Move { from, .. } => Some(Transform::Move {
+                dx: f64::from(x - from.0) / s,
+                dy: f64::from(y - from.1) / s,
+            }),
+            Drag::Handle {
+                kind: HandleKind::Rot,
+                ..
+            } => {
+                let (px, py) = self.to_slide(x, y);
+                Some(Transform::Rotate {
+                    x: px,
+                    y: py,
+                    step: shift,
+                })
+            }
+            Drag::Handle { kind, from } => Some(Transform::Resize {
+                handle: kind,
+                dx: f64::from(x - from.0) / s,
+                dy: f64::from(y - from.1) / s,
+                keep_aspect: shift,
+            }),
+            Drag::Text | Drag::Thumbs => None,
+        }
+    }
+
+    fn drag_to(&mut self, x: f32, y: f32) -> bool {
+        match self.drag {
+            Some(Drag::Text) => {
+                let (sx, sy) = self.to_slide(x, y);
+                self.run(SlideCommand::TextHit {
+                    x: sx,
+                    y: sy,
+                    extend: true,
+                })
+            }
+            Some(Drag::Move { from, moved }) => {
+                if !moved && (x - from.0).hypot(y - from.1) < DRAG_SLOP * self.display_scale {
+                    return false;
+                }
+                self.drag = Some(Drag::Move { from, moved: true });
+                self.preview_transform(x, y)
+            }
+            Some(Drag::Handle { .. }) => self.preview_transform(x, y),
+            Some(Drag::Thumbs) | None => false,
+        }
+    }
+
+    fn preview_transform(&mut self, x: f32, y: f32) -> bool {
+        let Some(t) = self.transform_of(x, y, false) else {
+            return false;
+        };
+        let r = self.engine.slide_command(SlideCommand::Transform {
+            transform: t,
+            snap: true,
+            tolerance: 4.0,
+            preview: true,
+        });
+        self.preview = r.ok().and_then(|r| r.preview);
+        true
+    }
+
+    fn release(&mut self, x: f32, y: f32) -> bool {
+        let drag = self.drag.take();
+        self.preview = None;
+        let commit = matches!(
+            drag,
+            Some(Drag::Move { moved: true, .. } | Drag::Handle { .. })
+        );
+        if !commit {
+            return drag.is_some();
+        }
+        match self.transform_of_drag(drag, x, y) {
+            Some(t) => self.run(SlideCommand::Transform {
+                transform: t,
+                snap: true,
+                tolerance: 4.0,
+                preview: false,
+            }),
+            None => true,
+        }
+    }
+
+    fn transform_of_drag(&mut self, drag: Option<Drag>, x: f32, y: f32) -> Option<Transform> {
+        let saved = std::mem::replace(&mut self.drag, drag);
+        let t = self.transform_of(x, y, false);
+        self.drag = saved;
+        t
+    }
+
+    /// Which thumbnail is at a window position.
+    fn thumb_at(&self, x: f32, y: f32) -> Option<usize> {
+        if !inside(self.thumbs_rect(), x, y) {
+            return None;
+        }
+        self.visible_thumbs().find(|&i| {
+            let [tx, ty, tw, th] = self.thumb_rect(i);
+            let pad = self.px(8.0);
+            inside(
+                [tx - 3.0 * pad, ty - pad, tw + 4.0 * pad, th + 2.0 * pad],
+                x,
+                y,
+            )
+        })
+    }
+
+    /// Handle an input event inside the area; `true` when a new frame is needed.
+    pub fn handle(&mut self, input: Input) -> bool {
+        if self.show.is_some() {
+            return self.show_input(&input);
+        }
+        match input {
+            Input::Text(text) => {
+                let text: String = text.chars().filter(|c| !c.is_control()).collect();
+                if text.is_empty() {
+                    return false;
+                }
+                match self.focus {
+                    Focus::Notes => self.notes_insert(&text),
+                    Focus::Thumbs => false,
+                    Focus::Canvas => {
+                        // Typing over a selected shape replaces its text.
+                        if self.text_edit().is_none() && !self.enter_text(true) {
+                            return false;
+                        }
+                        self.type_text(&text)
+                    }
+                }
+            }
+            Input::Key(k, m) => self.key(k, m),
+            Input::Wheel(dy) => self.wheel(dy),
+            Input::Press { x, y, count, shift } => {
+                if let Some(i) = self.thumb_at(x, y) {
+                    self.focus = Focus::Thumbs;
+                    self.drag = Some(Drag::Thumbs);
+                    self.go_to(i);
+                    return true;
+                }
+                if inside(self.thumbs_rect(), x, y) {
+                    self.focus = Focus::Thumbs;
+                    return true;
+                }
+                if self.notes_rect().is_some_and(|r| inside(r, x, y)) {
+                    if self.text_edit().is_some() {
+                        self.run(SlideCommand::TextExit);
+                    }
+                    self.focus = Focus::Notes;
+                    self.notes_caret = utf16_len(self.notes());
+                    return true;
+                }
+                if inside(self.canvas_rect(), x, y) {
+                    return self.press_canvas(x, y, count, shift);
+                }
+                false
+            }
+            Input::Drag { x, y } => self.drag_to(x, y),
+            Input::Release { x, y } => self.release(x, y),
+            Input::Blink => {
+                self.caret_on = !self.caret_on;
+                let collapsed = self.text_edit().is_some_and(|t| t.start == t.end);
+                collapsed || self.focus == Focus::Notes
+            }
+            Input::Scale(s) => {
+                self.set_display_scale(s);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn wheel(&mut self, dy: f32) -> bool {
+        // Over the thumbnails the pane scrolls; on the canvas a fitted slide steps to the
+        // previous / next slide like the reference, a zoomed one scrolls.
+        if self.drag == Some(Drag::Thumbs) || self.focus == Focus::Thumbs {
+            let before = self.thumb_scroll;
+            self.thumb_scroll += dy;
+            self.clamp_thumb_scroll();
+            return before != self.thumb_scroll;
+        }
+        let before = self.canvas_scroll;
+        self.canvas_scroll += dy;
+        self.clamp_canvas_scroll();
+        if before != self.canvas_scroll {
+            return true;
+        }
+        if dy > 0.0 {
+            self.go_to(self.current + 1)
+        } else {
+            self.go_to(self.current.saturating_sub(1))
+        }
+    }
+
+    /// Scroll the thumbnails pane (wheel over it).
+    pub fn scroll_thumbs(&mut self, dy: f32) -> bool {
+        let before = self.thumb_scroll;
+        self.thumb_scroll += dy;
+        self.clamp_thumb_scroll();
+        before != self.thumb_scroll
+    }
+
+    /// Whether a window position is over the thumbnails pane.
+    pub fn over_thumbs(&self, x: f32, y: f32) -> bool {
+        inside(self.thumbs_rect(), x, y)
+    }
+
+    // ------------------------------------------------------------------ slide show
+
+    /// Start the slide show at slide `from`.
+    pub fn start_show(&mut self, from: usize) -> bool {
+        if self.text_edit().is_some() {
+            self.run(SlideCommand::TextExit);
+        }
+        self.show = Some(Show {
+            index: from.min(self.ids.len().saturating_sub(1)),
+            ended: false,
+        });
+        self.drag = None;
+        true
+    }
+
+    /// Leave the slide show (the slide shown last becomes current).
+    pub fn end_show(&mut self) -> bool {
+        let Some(s) = self.show.take() else {
+            return false;
+        };
+        if !s.ended {
+            self.go_to(s.index);
+        }
+        true
+    }
+
+    fn show_step(&mut self, forward: bool) -> bool {
+        let n = self.ids.len();
+        let Some(s) = self.show.as_mut() else {
+            return false;
+        };
+        if forward {
+            if s.ended {
+                return self.end_show();
+            }
+            if s.index + 1 < n {
+                s.index += 1;
+            } else {
+                s.ended = true;
+            }
+        } else if s.ended {
+            s.ended = false;
+        } else if s.index > 0 {
+            s.index -= 1;
+        } else {
+            return false;
+        }
+        true
+    }
+
+    fn show_input(&mut self, input: &Input) -> bool {
+        match *input {
+            Input::Press { .. } | Input::Text(_) if matches!(input, Input::Press { .. }) => {
+                self.show_step(true)
+            }
+            Input::Text(ref t) if t == " " || t == "n" => self.show_step(true),
+            Input::Text(ref t) if t == "p" => self.show_step(false),
+            Input::Key(k, _) => match k {
+                Key::Escape => self.end_show(),
+                Key::Right | Key::Down | Key::PageDown | Key::Enter => self.show_step(true),
+                Key::Left | Key::Up | Key::PageUp | Key::Backspace => self.show_step(false),
+                Key::Home => {
+                    if let Some(s) = self.show.as_mut() {
+                        *s = Show {
+                            index: 0,
+                            ended: false,
+                        };
+                    }
+                    true
+                }
+                Key::End => {
+                    let last = self.ids.len().saturating_sub(1);
+                    if let Some(s) = self.show.as_mut() {
+                        *s = Show {
+                            index: last,
+                            ended: false,
+                        };
+                    }
+                    true
+                }
+                _ => false,
+            },
+            Input::Wheel(dy) => self.show_step(dy > 0.0),
+            Input::Context { .. } => self.show_step(false),
+            _ => false,
+        }
+    }
+
+    /// Slide index shown by the slide show (`None` on the end screen).
+    pub fn show_slide(&self) -> Option<usize> {
+        self.show.filter(|s| !s.ended).map(|s| s.index)
+    }
+
+    fn show_scale(&self) -> f32 {
+        (self.window.0 / self.slide_size.0).min(self.window.1 / self.slide_size.1)
+    }
+
+    // ------------------------------------------------------------------ images
+
+    /// Bring one image up to date; `true` when something was drawn.
+    fn ensure(
+        &mut self,
+        store: &mut dyn PageStore,
+        key: usize,
+        slide: usize,
+        scale: f32,
+    ) -> Result<bool, String> {
+        let list = self.engine.slide(slide).map_err(|e| e.to_string())?;
+        let band = if self.full.contains(&key) {
+            None
+        } else {
+            match self.shown.get(&key) {
+                Some((s, _)) if (*s - scale).abs() > f32::EPSILON => None,
+                Some((_, old)) if self.stale.contains(&key) => match changed_region(old, list) {
+                    Change::None => {
+                        self.stale.remove(&key);
+                        return Ok(false);
+                    }
+                    change => change.device_band(scale),
+                },
+                Some(_) => return Ok(false),
+                None => None,
+            }
+        };
+        store.update(key, list, &self.engine, scale, band)?;
+        self.shown.insert(key, (scale, list.clone()));
+        self.stale.remove(&key);
+        self.full.remove(&key);
+        Ok(true)
+    }
+
+    fn forget(&mut self, store: &mut dyn PageStore, key: usize) {
+        store.remove(key);
+        self.shown.remove(&key);
+        self.stale.remove(&key);
+        self.full.remove(&key);
+        self.recent.retain(|k| *k != key);
+    }
+
+    /// Bring the images shown in the next frame up to date (current slide, visible
+    /// thumbnails; the show slide while presenting).
+    pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
+        // Images of slides that no longer exist.
+        let live: HashSet<usize> = self.ids.iter().copied().collect();
+        let dead: Vec<usize> = self
+            .shown
+            .keys()
+            .copied()
+            .filter(|k| !live.contains(&(k & (THUMB_KEY - 1))))
+            .collect();
+        for k in dead {
+            self.forget(store, k);
+        }
+        if let Some(i) = self.show_slide() {
+            let scale = self.show_scale();
+            let key = SHOW_KEY + self.ids[i];
+            self.ensure(store, key, i, scale)?;
+            self.touch(key);
+            self.evict(store, SHOW_KEY, SHOW_CACHE);
+            return Ok(());
+        }
+        if self.show.is_some() {
+            return Ok(());
+        }
+        let cur = self.current;
+        if let Some(&id) = self.ids.get(cur) {
+            let scale = self.scale();
+            self.ensure(store, id, cur, scale)?;
+            self.touch(id);
+        }
+        let ts = self.thumb_scale();
+        for i in self.visible_thumbs() {
+            let key = THUMB_KEY + self.ids[i];
+            self.ensure(store, key, i, ts)?;
+        }
+        self.evict(store, 0, MAIN_CACHE);
+        Ok(())
+    }
+
+    fn touch(&mut self, key: usize) {
+        self.recent.retain(|k| *k != key);
+        self.recent.push(key);
+    }
+
+    /// Keep at most `cap` images of a kind (main slides or show slides), least recent out.
+    fn evict(&mut self, store: &mut dyn PageStore, kind: usize, cap: usize) {
+        let of_kind = |k: &usize| (k & !(THUMB_KEY - 1)) == kind;
+        let mut kept: Vec<usize> = self.recent.iter().copied().filter(of_kind).collect();
+        while kept.len() > cap {
+            let k = kept.remove(0);
+            self.forget(store, k);
+        }
+        // Main images at an older zoom are of no use any more.
+        if kind == 0 {
+            let scale = self.scale();
+            let old: Vec<usize> = self
+                .shown
+                .iter()
+                .filter(|(k, (s, _))| of_kind(k) && (*s - scale).abs() > f32::EPSILON)
+                .map(|(k, _)| *k)
+                .collect();
+            for k in old {
+                self.forget(store, k);
+            }
+        }
+    }
+
+    /// Draw one image ahead of need (the neighbouring slides, thumbnails just off screen);
+    /// `true` while more such work remains. Hosts call it when idle.
+    pub fn prefetch(&mut self, store: &mut dyn PageStore) -> Result<bool, String> {
+        if let Some(i) = self.show_slide() {
+            let scale = self.show_scale();
+            for j in [i + 1, i.wrapping_sub(1)] {
+                if let Some(&id) = self.ids.get(j) {
+                    let key = SHOW_KEY + id;
+                    if self.needs(key, scale) {
+                        self.ensure(store, key, j, scale)?;
+                        self.touch(key);
+                        return Ok(true);
+                    }
+                }
+            }
+            return Ok(false);
+        }
+        if self.show.is_some() {
+            return Ok(false);
+        }
+        let scale = self.scale();
+        let cur = self.current;
+        for j in [cur + 1, cur.wrapping_sub(1), cur + 2] {
+            if let Some(&id) = self.ids.get(j) {
+                if self.needs(id, scale) {
+                    self.ensure(store, id, j, scale)?;
+                    // Behind the current slide in the recency order.
+                    self.recent.retain(|k| *k != id);
+                    self.recent.insert(self.recent.len().saturating_sub(1), id);
+                    return Ok(true);
+                }
+            }
+        }
+        let ts = self.thumb_scale();
+        let vis = self.visible_thumbs();
+        let more = vis.end..(vis.end + 4).min(self.ids.len());
+        let less = vis.start.saturating_sub(2)..vis.start;
+        for j in more.chain(less) {
+            let key = THUMB_KEY + self.ids[j];
+            if self.needs(key, ts) {
+                self.ensure(store, key, j, ts)?;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn needs(&self, key: usize, scale: f32) -> bool {
+        match self.shown.get(&key) {
+            Some((s, _)) => {
+                (*s - scale).abs() > f32::EPSILON
+                    || self.stale.contains(&key)
+                    || self.full.contains(&key)
+            }
+            None => true,
+        }
+    }
+
+    // ------------------------------------------------------------------ painting
+
+    /// Caret rectangle in window pixels (input method placement).
+    pub fn caret_rect(&self) -> Option<[f32; 4]> {
+        let [x1, y1, x2, y2] = self.caret_line()?;
+        let (ax, ay) = self.to_px(x1, y1);
+        let (bx, by) = self.to_px(x2, y2);
+        Some([ax.min(bx), ay.min(by), 1.0, (by - ay).abs().max(1.0)])
+    }
+
+    fn poly(&self, b: &BoxR) -> Vec<PathSeg> {
+        let c = b.corners();
+        let p: Vec<(f32, f32)> = c.iter().map(|[x, y]| self.to_px(*x, *y)).collect();
+        vec![
+            PathSeg::M(p[0].0, p[0].1),
+            PathSeg::L(p[1].0, p[1].1),
+            PathSeg::L(p[2].0, p[2].1),
+            PathSeg::L(p[3].0, p[3].1),
+            PathSeg::Z,
+        ]
+    }
+
+    /// Dashed outline of an axis-aligned or rotated box.
+    fn dashed(&self, p: &mut dyn Painter, b: &BoxR, color: Rgba) {
+        let c = b.corners();
+        let pts: Vec<(f32, f32)> = c.iter().map(|[x, y]| self.to_px(*x, *y)).collect();
+        let (dash, gap) = (self.px(3.0).max(2.0), self.px(2.0).max(1.0));
+        let w = self.display_scale.round().max(1.0);
+        for k in 0..4 {
+            let (a, z) = (pts[k], pts[(k + 1) % 4]);
+            let len = (z.0 - a.0).hypot(z.1 - a.1);
+            if len < 1.0 {
+                continue;
+            }
+            let (ux, uy) = ((z.0 - a.0) / len, (z.1 - a.1) / len);
+            let mut t = 0.0;
+            while t < len {
+                let e = (t + dash).min(len);
+                if ux.abs() < 1e-3 || uy.abs() < 1e-3 {
+                    let (x0, y0) = (a.0 + ux * t, a.1 + uy * t);
+                    let (x1, y1) = (a.0 + ux * e, a.1 + uy * e);
+                    p.fill_rect(
+                        x0.min(x1).round(),
+                        y0.min(y1).round(),
+                        (x1 - x0).abs().max(w),
+                        (y1 - y0).abs().max(w),
+                        color,
+                    );
+                } else {
+                    p.path(
+                        &[
+                            PathSeg::M(a.0 + ux * t, a.1 + uy * t),
+                            PathSeg::L(a.0 + ux * e, a.1 + uy * e),
+                        ],
+                        None,
+                        Some((color, w)),
+                    );
+                }
+                t += dash + gap;
+            }
+        }
+    }
+
+    fn paint_handles(&self, p: &mut dyn Painter, b: &BoxR, handles: &[Handle]) {
+        let w = self.display_scale.round().max(1.0);
+        p.path(&self.poly(b), None, Some((FRAME, w)));
+        let r = self.px(4.5);
+        for h in handles {
+            let (x, y) = self.to_px(h.x, h.y);
+            if h.kind == HandleKind::Rot {
+                // Rotation handle: an open circle with an arrow head (own drawing).
+                let k = self.px(6.0);
+                let segs = arc(x, y, k, 0.6, 5.6);
+                p.path(&segs, None, Some((FRAME, w * 1.5)));
+                let (ex, ey) = (x + k * 5.6f32.cos(), y + k * 5.6f32.sin());
+                p.path(
+                    &[
+                        PathSeg::M(ex - self.px(2.5), ey - self.px(2.0)),
+                        PathSeg::L(ex, ey),
+                        PathSeg::L(ex + self.px(2.5), ey - self.px(1.0)),
+                    ],
+                    None,
+                    Some((FRAME, w * 1.5)),
+                );
+                continue;
+            }
+            let segs = arc(x, y, r, 0.0, std::f32::consts::TAU);
+            p.path(&segs, Some(HANDLE_FILL), Some((FRAME, w)));
+        }
+    }
+
+    /// Paint the editing area (or the slide show over the whole window).
+    pub fn paint(&self, p: &mut dyn Painter, text_size: f32) {
+        if self.show.is_some() {
+            self.paint_show(p, text_size);
+            return;
+        }
+        let (ox, oy) = self.origin;
+        let (w, h) = self.size;
+        p.push_clip(ox, oy, w, h);
+        p.fill_rect(ox, oy, w, h, SLIDE_CANVAS);
+        self.paint_thumbs(p, text_size);
+        // Pane splitters.
+        let tw = self.thumbs_w();
+        p.fill_rect(ox + tw, oy, 1.0, h, SPLITTER);
+        let canvas = self.canvas_rect();
+        p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
+        self.paint_slide(p);
+        p.pop_clip();
+        if let Some(n) = self.notes_rect() {
+            p.fill_rect(n[0], n[1] - 1.0, w - (n[0] - ox), 1.0, SPLITTER);
+            self.paint_notes(p, n, text_size);
+        }
+        self.paint_scrollbar(p);
+        p.pop_clip();
+    }
+
+    fn paint_thumbs(&self, p: &mut dyn Painter, text_size: f32) {
+        let r = self.thumbs_rect();
+        p.push_clip(r[0], r[1], r[2], r[3]);
+        let style = TextStyle {
+            size: text_size,
+            bold: false,
+        };
+        let one = self.display_scale.round().max(1.0);
+        let frame = self.px(2.4).max(2.0);
+        for i in self.visible_thumbs() {
+            let [x, y, tw, th] = self.thumb_rect(i);
+            let key = THUMB_KEY + self.ids[i];
+            let selected = i == self.current;
+            if selected {
+                // Accent frame three pixels wide, one pixel off the image (reference).
+                let o = one + frame;
+                p.fill_rect(x - o, y - o, tw + 2.0 * o, th + 2.0 * o, ACCENT);
+                p.fill_rect(
+                    x - one,
+                    y - one,
+                    tw + 2.0 * one,
+                    th + 2.0 * one,
+                    SLIDE_CANVAS,
+                );
+            } else {
+                p.fill_rect(x - one, y - one, tw + 2.0 * one, th + 2.0 * one, THUMB_EDGE);
+            }
+            if self.shown.contains_key(&key) {
+                p.page(key, x as i32, y as i32);
+            } else {
+                p.fill_rect(x, y, tw, th, HANDLE_FILL);
+            }
+            let n = (i + 1).to_string();
+            let color = if selected { ACCENT_TEXT } else { THUMB_NUMBER };
+            let nx = x - self.px(17.0) - text_size * 0.55 * (n.len() as f32 - 1.0);
+            p.text(&n, nx.round(), y - self.px(1.0), style, color);
+        }
+        p.pop_clip();
+    }
+
+    fn paint_slide(&self, p: &mut dyn Painter) {
+        let (x, y) = self.slide_origin();
+        let (w, h) = self.slide_px(self.scale());
+        let one = 1.0;
+        p.fill_rect(x - one, y - one, w + 2.0 * one, h + 2.0 * one, SLIDE_EDGE);
+        match self.ids.get(self.current) {
+            Some(id) if self.shown.contains_key(id) => p.page(*id, x as i32, y as i32),
+            _ => p.fill_rect(x, y, w, h, HANDLE_FILL),
+        }
+        let Some(st) = self.state.as_ref() else {
+            return;
+        };
+        let editing = st.text_edit.as_ref();
+        // Empty placeholders: dashed outline.
+        for b in &st.placeholders {
+            self.dashed(p, b, PLACEHOLDER_EDGE);
+        }
+        if let Some(pv) = &self.preview {
+            for b in &pv.boxes {
+                self.dashed(p, b, FRAME);
+            }
+            let wline = self.display_scale.round().max(1.0);
+            for g in &pv.guides {
+                let (a, z) = match g.axis {
+                    bo_engine::slide_edit::guides::GuideAxis::V => {
+                        (self.to_px(g.pos, g.from), self.to_px(g.pos, g.to))
+                    }
+                    bo_engine::slide_edit::guides::GuideAxis::H => {
+                        (self.to_px(g.from, g.pos), self.to_px(g.to, g.pos))
+                    }
+                };
+                p.path(
+                    &[PathSeg::M(a.0, a.1), PathSeg::L(z.0, z.1)],
+                    None,
+                    Some((GUIDE, wline)),
+                );
+            }
+        }
+        if let Some(te) = editing {
+            for r in &te.rects {
+                p.path(&self.poly(r), Some(TEXT_SELECTION), None);
+            }
+            // The edited shape keeps its frame (dashed while typing, like the reference's
+            // text frame) and the caret blinks.
+            self.dashed(p, &te.rect, FRAME);
+            if self.caret_on && te.start == te.end && self.focus == Focus::Canvas {
+                if let Some([x1, y1, x2, y2]) = te.caret {
+                    let (ax, ay) = self.to_px(x1, y1);
+                    let (bx, by) = self.to_px(x2, y2);
+                    let cw = self.display_scale.round().max(1.0);
+                    if (ax - bx).abs() < 0.5 {
+                        p.fill_rect(ax.round(), ay.min(by).round(), cw, (by - ay).abs(), CARET);
+                    } else {
+                        p.path(
+                            &[PathSeg::M(ax, ay), PathSeg::L(bx, by)],
+                            None,
+                            Some((CARET, cw)),
+                        );
+                    }
+                }
+            }
+        } else if self.preview.is_none() {
+            for s in &st.selection {
+                if st.selection.len() > 1 {
+                    let w = self.display_scale.round().max(1.0);
+                    p.path(&self.poly(&s.rect), None, Some((FRAME, w)));
+                }
+            }
+            if let Some(b) = st.bounds {
+                self.paint_handles(p, &b, &st.handles);
+            }
+        }
+    }
+
+    fn paint_notes(&self, p: &mut dyn Painter, r: R, text_size: f32) {
+        let notes = self.notes();
+        let (x, _) = self.slide_origin();
+        let tx = x.max(r[0] + self.px(8.0));
+        let size = Self::notes_size(text_size);
+        let style = TextStyle { size, bold: false };
+        let line = size * 1.33;
+        let ty = r[1] + self.px(6.0);
+        p.push_clip(r[0], r[1], r[2], r[3]);
+        if notes.is_empty() && self.focus != Focus::Notes {
+            p.text(&self.labels.0, tx, ty, style, NOTES_HINT);
+        } else {
+            for (i, l) in notes.split('\n').enumerate() {
+                p.text(l, tx, ty + i as f32 * line, style, BLACK);
+            }
+            if self.focus == Focus::Notes && self.caret_on {
+                // Caret after the text before it on its line (measured by the window).
+                let before = &notes[..byte_at(notes, self.notes_caret)];
+                let row = before.matches('\n').count();
+                let cx = tx + self.notes_caret_x;
+                p.fill_rect(
+                    cx.round(),
+                    (ty + row as f32 * line).round(),
+                    self.display_scale.round().max(1.0),
+                    line.round(),
+                    CARET,
+                );
+            }
+        }
+        p.pop_clip();
+    }
+
+    /// Canvas scroll bar: slide position in the deck, and previous / next slide buttons.
+    fn paint_scrollbar(&self, p: &mut dyn Painter) {
+        let c = self.canvas_rect();
+        let w = self.sb_w();
+        let x = c[0] + c[2];
+        let (top, h) = (c[1] + self.px(2.0), c[3] - self.px(2.0));
+        p.fill_rect(x, c[1], w, c[3], Rgba(0xf3, 0xf3, 0xf3, 255));
+        let edge = Rgba(0x94, 0x94, 0x94, 255);
+        let arrow = Rgba(0x26, 0x26, 0x26, 255);
+        let boxed = |p: &mut dyn Painter, r: R| {
+            p.fill_rect(r[0], r[1], r[2], r[3], edge);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, HANDLE_FILL);
+        };
+        let up = [x, top, w, w];
+        // Previous / next slide buttons at the bottom, under the down arrow.
+        let pn = self.px(16.0);
+        let down = [x, top + h - 2.0 * pn - self.px(4.0) - w, w, w];
+        boxed(p, up);
+        boxed(p, down);
+        let n = self.ids.len().max(1) as f32;
+        let track = (down[1] - (up[1] + w)).max(0.0);
+        let th = (track / n).max(self.px(12.0)).min(track);
+        let ty = up[1] + w + (track - th) * (self.current as f32 / (n - 1.0).max(1.0));
+        if th > 2.0 {
+            boxed(p, [x, ty.round(), w, th.round()]);
+        }
+        let k = self.px(3.0);
+        let tri = |p: &mut dyn Painter, cx: f32, cy: f32, dir: f32| {
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy + dir * k / 2.0),
+                    PathSeg::L(cx + k, cy + dir * k / 2.0),
+                    PathSeg::L(cx, cy - dir * (k / 2.0 + 1.0)),
+                    PathSeg::Z,
+                ],
+                Some(arrow),
+                None,
+            );
+        };
+        tri(p, up[0] + w / 2.0, up[1] + w / 2.0, 1.0);
+        tri(p, down[0] + w / 2.0, down[1] + w / 2.0, -1.0);
+        let grey = Rgba(0x66, 0x66, 0x66, 255);
+        for (i, dir) in [(0.0, 1.0), (1.0, -1.0)] {
+            let cy = down[1] + w + self.px(4.0) + i * pn + pn / 2.0;
+            let cx = x + w / 2.0;
+            for off in [-k * 0.8, k * 0.8] {
+                p.path(
+                    &[
+                        PathSeg::M(cx - k, cy + off + dir * k / 2.0),
+                        PathSeg::L(cx, cy + off - dir * k / 2.0),
+                        PathSeg::L(cx + k, cy + off + dir * k / 2.0),
+                    ],
+                    None,
+                    Some((grey, self.display_scale.max(1.0))),
+                );
+            }
+        }
+    }
+
+    /// Previous / next slide buttons of the canvas scroll bar: -1, +1 or 0 (none).
+    pub fn scrollbar_hit(&self, x: f32, y: f32) -> i32 {
+        let c = self.canvas_rect();
+        let w = self.sb_w();
+        let sx = c[0] + c[2];
+        if x < sx || x >= sx + w || y < c[1] || y >= c[1] + c[3] {
+            return 0;
+        }
+        let (top, h) = (c[1] + self.px(2.0), c[3] - self.px(2.0));
+        let pn = self.px(16.0);
+        let prev_y = top + h - 2.0 * pn;
+        let down = y >= prev_y - self.px(4.0) - w && y < prev_y - self.px(4.0);
+        if (y >= prev_y && y < prev_y + pn) || y < top + w {
+            -1
+        } else {
+            i32::from(y >= prev_y + pn || down)
+        }
+    }
+
+    fn paint_show(&self, p: &mut dyn Painter, text_size: f32) {
+        let (ww, wh) = self.window;
+        p.fill_rect(0.0, 0.0, ww, wh, BLACK);
+        if let Some(i) = self.show_slide() {
+            let scale = self.show_scale();
+            let (w, h) = self.slide_px(scale);
+            let x = ((ww - w) / 2.0).floor();
+            let y = ((wh - h) / 2.0).floor();
+            let key = SHOW_KEY + self.ids[i];
+            if self.shown.contains_key(&key) {
+                p.page(key, x as i32, y as i32);
+            }
+        } else {
+            let style = TextStyle {
+                size: text_size,
+                bold: false,
+            };
+            p.text(
+                &self.labels.1,
+                self.px(16.0),
+                self.px(12.0),
+                style,
+                Rgba(0xff, 0xff, 0xff, 255),
+            );
+        }
+    }
+}
+
+/// An arc of radius `r` around (`cx`, `cy`) from angle `a0` to `a1` (radians) as line
+/// segments (closed when it is a full turn).
+fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> Vec<PathSeg> {
+    let n = 24;
+    let mut segs = Vec::with_capacity(n + 2);
+    for i in 0..=n {
+        let a = a0 + (a1 - a0) * i as f32 / n as f32;
+        let (x, y) = (cx + r * a.cos(), cy + r * a.sin());
+        segs.push(if i == 0 {
+            PathSeg::M(x, y)
+        } else {
+            PathSeg::L(x, y)
+        });
+    }
+    if (a1 - a0 - std::f32::consts::TAU).abs() < 1e-3 {
+        segs.push(PathSeg::Z);
+    }
+    segs
+}
+
+#[cfg(test)]
+#[path = "slide_view_tests.rs"]
+mod tests;

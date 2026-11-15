@@ -159,6 +159,7 @@ pub fn enabled(id: &str, f: &FormatState) -> bool {
         _ => {
             command(id).is_some()
                 || WINDOW.contains(&id)
+                || crate::slide_window::COMMANDS.contains(&id)
                 || crate::catalog::is_menu(id)
                 || crate::catalog::command(id, &f.section).is_some()
         }

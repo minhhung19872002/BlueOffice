@@ -568,7 +568,7 @@ impl DocView {
             Key::Letter('l') if m.ctrl => return self.run_action("format.alignLeft"),
             Key::Letter('r') if m.ctrl => return self.run_action("format.alignRight"),
             Key::Letter('j') if m.ctrl => return self.run_action("format.justify"),
-            Key::Escape | Key::Letter(_) => return false,
+            Key::Escape | Key::Letter(_) | Key::F(_) => return false,
         };
         self.edit(cmd)
     }

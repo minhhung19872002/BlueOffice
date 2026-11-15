@@ -73,7 +73,8 @@
       "delete": "Xoá",
       "crop": "Cắt",
       "mergeCells": "Gộp ô",
-      "splitCells": "Tách ô"
+      "splitCells": "Tách ô",
+      "spelling": "Chính tả & ngữ pháp"
     },
     "groups": {
       "links": "Liên kết",

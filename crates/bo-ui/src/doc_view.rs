@@ -107,6 +107,8 @@ pub struct DocView {
     highlights: Vec<SelRect>,
     /// Misspelt words and grammar issues under a wavy line (check as you type).
     spell: Vec<bo_engine::spell::SpellMark>,
+    /// How tracked changes and comments are shown.
+    markup: bo_engine::markup::MarkupOptions,
 }
 
 impl DocView {
@@ -139,6 +141,7 @@ impl DocView {
             story: None,
             highlights: Vec::new(),
             spell: Vec::new(),
+            markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
         Ok(view)
@@ -303,6 +306,11 @@ impl DocView {
             .find(|s| Some(s.index) == page)
             .or_else(|| slots.first())?;
         Some((slot.y as f32, slot.height as f32))
+    }
+
+    /// How tracked changes and comments are shown (Review › markup).
+    pub fn markup(&self) -> &bo_engine::markup::MarkupOptions {
+        &self.markup
     }
 
     /// The header, footer or note being edited, if any.
@@ -874,6 +882,7 @@ impl DocView {
         if let Some(review) = &r.review {
             self.track = review.track_changes;
             self.comments.clone_from(&review.comments);
+            self.markup.clone_from(&review.markup);
         }
         self.selection = Some(r.selection);
         self.words = r.info.word_count;

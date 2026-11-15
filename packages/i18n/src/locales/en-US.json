@@ -73,7 +73,8 @@
       "delete": "Delete",
       "crop": "Crop",
       "mergeCells": "Merge Cells",
-      "splitCells": "Split Cells"
+      "splitCells": "Split Cells",
+      "spelling": "Spelling & Grammar"
     },
     "groups": {
       "links": "Links",

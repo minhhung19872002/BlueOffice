@@ -997,16 +997,17 @@ impl DocWindow {
                     _ => e.label.to_owned(),
                 },
                 choice: Choice::Command(e.id.to_owned()),
-                checked: spacing.rule == bo_edit::LineRule::Auto
-                    && match e.id {
-                        "format.lineSpacing1" => spacing.value == 240,
-                        "format.lineSpacing115" => spacing.value == 276,
-                        "format.lineSpacing15" => spacing.value == 360,
-                        "format.lineSpacing2" => spacing.value == 480,
-                        "format.lineSpacing25" => spacing.value == 600,
-                        "format.lineSpacing3" => spacing.value == 720,
-                        _ => false,
-                    },
+                checked: doc_tools::checked(e.id, self.view.markup())
+                    || spacing.rule == bo_edit::LineRule::Auto
+                        && match e.id {
+                            "format.lineSpacing1" => spacing.value == 240,
+                            "format.lineSpacing115" => spacing.value == 276,
+                            "format.lineSpacing15" => spacing.value == 360,
+                            "format.lineSpacing2" => spacing.value == 480,
+                            "format.lineSpacing25" => spacing.value == 600,
+                            "format.lineSpacing3" => spacing.value == 720,
+                            _ => false,
+                        },
                 dim: false,
             })
             .collect();
@@ -1265,7 +1266,9 @@ impl DocWindow {
             _ => {
                 let page = self.view.current_page();
                 let story = self.story_options();
-                if let Some(tool) = doc_tools::command(id, self.view.format(), story, page) {
+                let markup = self.view.markup().clone();
+                if let Some(tool) = doc_tools::command(id, self.view.format(), story, page, &markup)
+                {
                     return match tool {
                         Tool::Edit(cmd) => self.view.run_command(cmd),
                         Tool::Picture(v) => self.view.picture_command(&v),

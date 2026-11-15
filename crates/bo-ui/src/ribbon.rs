@@ -427,29 +427,29 @@ fn review_tab() -> Tab {
         groups: vec![
             Group {
                 label: "ribbon.groups.proofing",
-                large: vec![L("review.spellingDialog"), L("review.wordCount")],
-                rows: vec![],
+                large: vec![L("review.spellingDialog")],
+                rows: vec![vec![S("review.wordCount")]],
             },
             Group {
                 label: "ribbon.groups.comments",
                 large: vec![L("review.newComment")],
                 rows: vec![
                     vec![S("review.deleteComment")],
-                    vec![S("review.previousComment"), S("review.nextComment")],
+                    vec![S("review.previousComment")],
+                    vec![S("review.nextComment")],
                 ],
             },
+            // Markup: how changes appear and which marks show, as the reference's
+            // Markup group (Simple / All / No Markup / Original).
             Group {
                 label: "ribbon.groups.tracking",
                 large: vec![L("review.trackChanges")],
-                rows: vec![],
+                rows: vec![vec![S("review.markupMode")], vec![S("review.showMarkup")]],
             },
             Group {
                 label: "ribbon.groups.changes",
-                large: vec![L("review.acceptAll")],
-                rows: vec![
-                    vec![S("review.rejectAll")],
-                    vec![S("review.previous"), S("review.next")],
-                ],
+                large: vec![L("review.acceptMenu"), L("review.rejectMenu")],
+                rows: vec![vec![S("review.previous")], vec![S("review.next")]],
             },
         ],
     }
@@ -2352,7 +2352,8 @@ mod tests {
             can_redo: true,
             ..FormatState::default()
         };
-        let strings = Strings::load("en-US");
+        let mut strings = Strings::load("en-US");
+        crate::doc_tools::install_strings(&mut strings);
         for tab in &ribbon.tabs {
             assert!(!tab.groups.is_empty(), "{} is empty", tab.label);
             for g in &tab.groups {

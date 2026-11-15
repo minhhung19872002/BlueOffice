@@ -71,7 +71,11 @@ fn show_tab(w: &mut DocWindow, label: &str) {
 
 /// Choose entry `entry` of the open menu with the keyboard.
 fn choose(w: &mut DocWindow, entry: usize) {
-    for _ in 0..=entry {
+    // From the top (a menu opens on its current entry), then down to `entry`.
+    for _ in 0..12 {
+        w.handle(Input::Key(Key::Up, Mods::default()), &Fixed);
+    }
+    for _ in 0..entry {
         w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
     }
     w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
@@ -241,13 +245,27 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 assert!(w.icons.has(crate::ribbon::icon_of(id)), "icon of {id}");
                 assert!(
                     catalog::is_menu(id)
-                        || doc_tools::command(id, &format, story, 0).is_some()
+                        || doc_tools::command(
+                            id,
+                            &format,
+                            story,
+                            0,
+                            &bo_engine::markup::MarkupOptions::default()
+                        )
+                        .is_some()
                         || catalog::command(id, &format.section).is_some(),
                     "{id} does nothing"
                 );
                 for e in catalog::menu(id) {
                     assert!(
-                        doc_tools::command(e.id, &format, story, 0).is_some()
+                        doc_tools::command(
+                            e.id,
+                            &format,
+                            story,
+                            0,
+                            &bo_engine::markup::MarkupOptions::default()
+                        )
+                        .is_some()
                             || catalog::command(e.id, &format.section).is_some(),
                         "{} does nothing",
                         e.id
@@ -376,4 +394,30 @@ fn f7_opens_the_proofing_pane_and_walks_the_issues() {
     assert!(w.spell_pane.as_ref().unwrap().current().is_none());
     w.spell_pane_action(SpellAction::Close);
     assert!(w.spell_pane.is_none());
+}
+
+#[test]
+fn review_markup_and_accept_menus() {
+    use bo_engine::markup::MarkupMode;
+    let mut w = window();
+    show_tab(&mut w, "ribbon.tabs.review");
+    click(&mut w, "review.trackChanges");
+    assert!(w.view.track_changes());
+    w.handle(Input::Text("tracked".into()), &Fixed);
+    click(&mut w, "review.markupMode");
+    // The current mode (all markup) is ticked; choose Simple.
+    assert!(w.menu.as_ref().unwrap().items()[1].checked);
+    choose(&mut w, 0);
+    assert_eq!(w.view.markup().mode, MarkupMode::Simple);
+    click(&mut w, "review.showMarkup");
+    choose(&mut w, 0);
+    assert!(!w.view.markup().comments);
+    // Accept all: the insertion is no longer a revision, so rejecting all keeps it.
+    click(&mut w, "review.acceptMenu");
+    choose(&mut w, 1);
+    click(&mut w, "review.rejectMenu");
+    choose(&mut w, 1);
+    w.view.run_command(Command::SelectAll);
+    let text = w.view.copy(false).map(|c| c.text).unwrap_or_default();
+    assert!(text.contains("tracked"), "{text}");
 }

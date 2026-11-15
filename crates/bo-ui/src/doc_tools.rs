@@ -8,6 +8,7 @@ use crate::ribbon::{Group, Item, Tab};
 use crate::strings::Strings;
 use bo_edit::FormatState;
 use bo_engine::edit::Command;
+use bo_engine::markup::MarkupOptions;
 use serde_json::{json, Value};
 
 /// Tab label keys of the contextual tabs.
@@ -17,7 +18,11 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 5] = [
+const MENUS: [&str; 9] = [
+    "review.markupMode",
+    "review.showMarkup",
+    "review.acceptMenu",
+    "review.rejectMenu",
     "table.shadingMenu",
     "table.borders",
     "table.delete",
@@ -215,6 +220,31 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("table.autoFitWindow", "commands.table.autoFitWindow"),
             e("table.autoFitFixed", "commands.table.autoFitFixed"),
         ],
+        // Review display (CORE markup modes) and marks shown.
+        "review.markupMode" => vec![
+            e("review.markup.simple", "commands.review.markupSimple"),
+            e("review.markup.all", "commands.review.markupAll"),
+            e("review.markup.none", "commands.review.markupNone"),
+            e("review.markup.original", "commands.review.markupOriginal"),
+        ],
+        "review.showMarkup" => vec![
+            e("review.markup.comments", "commands.review.markupComments"),
+            e("review.markup.insDel", "commands.review.markupInsDel"),
+            e(
+                "review.markup.formatting",
+                "commands.review.markupFormatting",
+            ),
+            e("review.markup.balloons", "commands.review.markupBalloons"),
+        ],
+        // §17.13.5 revisions: the one at the selection, or all of them.
+        "review.acceptMenu" => vec![
+            e("review.accept", "commands.review.accept"),
+            e("review.acceptAll", "commands.review.acceptAll"),
+        ],
+        "review.rejectMenu" => vec![
+            e("review.reject", "commands.review.reject"),
+            e("review.rejectAll", "commands.review.rejectAll"),
+        ],
         // §20.1.8.55 srcRect / §20.1.9.18 prstGeom.
         "picture.crop" => vec![
             e("picture.cropAspect.1:1", "1:1"),
@@ -255,6 +285,7 @@ pub(crate) fn command(
     f: &FormatState,
     story: Option<(bool, bool, bool)>,
     page: usize,
+    markup: &MarkupOptions,
 ) -> Option<Tool> {
     if let Some(hex) = id.strip_prefix("table.shade.") {
         let hex = (hex != "none").then(|| hex.to_owned());
@@ -271,7 +302,27 @@ pub(crate) fn command(
         ));
     }
     let edit = |v: Value| crate::catalog::from_json(v).map(Tool::Edit);
+    if let Some(mode) = id.strip_prefix("review.markup.") {
+        let v = match mode {
+            "simple" | "all" | "none" | "original" => json!({ "cmd": "setMarkup", "mode": mode }),
+            _ => {
+                let key = match mode {
+                    "insDel" => "insertionsDeletions",
+                    "formatting" => "formatting",
+                    "comments" => "comments",
+                    "balloons" => "deletionBalloons",
+                    _ => return None,
+                };
+                let mut v = json!({ "cmd": "setMarkup" });
+                v[key] = json!(!markup_flag(markup, key));
+                v
+            }
+        };
+        return edit(v);
+    }
     match id {
+        "review.accept" => edit(json!({ "cmd": "acceptRevision" })),
+        "review.reject" => edit(json!({ "cmd": "rejectRevision" })),
         "table.insertRowAbove" => table(&json!({ "kind": "insertRow", "below": false })),
         "table.insertRowBelow" => table(&json!({ "kind": "insertRow", "below": true })),
         "table.insertColumnLeft" => table(&json!({ "kind": "insertColumn", "right": false })),
@@ -332,6 +383,32 @@ pub(crate) fn command(
     }
 }
 
+/// A markup option by its JSON name.
+fn markup_flag(m: &MarkupOptions, key: &str) -> bool {
+    match key {
+        "insertionsDeletions" => m.insertions_deletions,
+        "formatting" => m.formatting,
+        "comments" => m.comments,
+        _ => m.deletion_balloons,
+    }
+}
+
+/// Menu entries shown ticked: the markup mode and the marks shown.
+pub(crate) fn checked(id: &str, m: &MarkupOptions) -> bool {
+    use bo_engine::markup::MarkupMode;
+    match id {
+        "review.markup.simple" => m.mode == MarkupMode::Simple,
+        "review.markup.all" => m.mode == MarkupMode::All,
+        "review.markup.none" => m.mode == MarkupMode::None,
+        "review.markup.original" => m.mode == MarkupMode::Original,
+        "review.markup.insDel" => m.insertions_deletions,
+        "review.markup.formatting" => m.formatting,
+        "review.markup.comments" => m.comments,
+        "review.markup.balloons" => m.deletion_balloons,
+        _ => false,
+    }
+}
+
 /// Whether contextual command `id` can run (`None`: not a contextual command).
 pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
     let in_table = f.table.is_some();
@@ -339,7 +416,9 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
         "table.mergeCells" => f.table.as_ref().is_some_and(|t| t.multi_cell),
         _ if id.starts_with("table.") => in_table,
         _ if id.starts_with("picture.") => f.picture.is_some() || f.picture_tools,
-        _ if id.starts_with("hf.") => true,
+        _ if id.starts_with("hf.") || id.starts_with("review.markup") => true,
+        "review.showMarkup" | "review.acceptMenu" | "review.rejectMenu" | "review.accept"
+        | "review.reject" => true,
         _ => return None,
     })
 }
@@ -387,6 +466,9 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("hf.differentFirst", "hf.differentFirst"),
         ("hf.differentOddEven", "hf.differentOddEven"),
         ("picture.reset", "pictureTools.reset"),
+        ("review.spellingDialog", "ribbon.docTools.spelling"),
+        ("review.acceptMenu", "commands.review.accept"),
+        ("review.rejectMenu", "commands.review.reject"),
         ("picture.crop", "ribbon.docTools.crop"),
         ("picture.fill", "pictureTools.fill"),
         ("picture.fit", "pictureTools.fit"),
@@ -412,6 +494,10 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("hf.differentFirst", "insert.pageNumber"),
         ("hf.differentOddEven", "insert.pageNumber"),
         ("picture.reset", "edit.undo"),
+        ("review.acceptMenu", "review.accept"),
+        ("review.rejectMenu", "review.reject"),
+        ("review.markupMode", "review.viewMarkup"),
+        ("review.showMarkup", "review.comments"),
         ("picture.crop", "picture.position"),
         ("picture.fill", "view.fitWidth"),
         ("picture.fit", "view.fitWidth"),

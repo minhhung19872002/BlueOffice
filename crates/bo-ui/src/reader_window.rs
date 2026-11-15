@@ -3646,3 +3646,28 @@ fn win_glyph(p: &mut dyn Painter, k: NcHit, b: [f32; 4], scale: f32, maximized: 
     };
     p.path(&segs, None, Some((c, w)));
 }
+
+/// Other open documents for BlueEditor's page grid (dragging pages onto another tab).
+impl ReaderWindow {
+    /// Document tab under a window point (from the last paint).
+    pub(crate) fn doc_tab_at(&self, x: f32, y: f32) -> Option<usize> {
+        self.doc_tab_rects
+            .iter()
+            .position(|(r, _)| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3])
+    }
+
+    /// Index of the active document tab.
+    pub(crate) fn active_tab(&self) -> usize {
+        self.active
+    }
+
+    /// The view of document tab `i`.
+    pub(crate) fn tab_view_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
+        self.tabs.get_mut(i).map(|t| &mut t.view)
+    }
+
+    /// Name of document tab `i`.
+    pub(crate) fn tab_name(&self, i: usize) -> Option<&str> {
+        self.tabs.get(i).map(|t| t.name.as_str())
+    }
+}

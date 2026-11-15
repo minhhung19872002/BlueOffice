@@ -8248,7 +8248,8 @@
     "objFlipAcross": "Lật ngang",
     "objFlipDown": "Lật dọc",
     "objSelectAll": "Chọn tất cả",
-    "objDelete": "Xoá"
+    "objDelete": "Xoá",
+    "pagesCopied": "trang đã sao chép"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

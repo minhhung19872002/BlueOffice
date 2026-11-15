@@ -520,6 +520,8 @@ pub struct EditorWindow {
     pub(crate) bs: crate::editor_backstage::Backstage,
     /// File › Preferences.
     pub(crate) prefs: Prefs,
+    /// Pages copied or cut in the page grid (a PDF of them), for Ctrl+V in any open document.
+    pub(crate) page_clip: Option<Vec<u8>>,
 }
 
 /// Preferences (File › Preferences): comment author, zoom and page display of opened
@@ -578,6 +580,7 @@ impl EditorWindow {
             tools: crate::editor_tools::ToolsState::default(),
             bs: crate::editor_backstage::Backstage::default(),
             prefs: Prefs::default(),
+            page_clip: None,
         }
     }
 
@@ -1683,8 +1686,22 @@ impl EditorWindow {
         let sizes: Vec<(f32, f32)> = (0..n).map(|i| v.page_size(i)).collect();
         self.org.layout(&sizes);
         match *input {
+            Input::Press { x, y, .. } if self.org.slider_press(x, y) => true,
+            Input::Drag { x, .. } if self.org.sliding => {
+                self.org.slide_to(x);
+                true
+            }
+            Input::Release { .. } if self.org.sliding => {
+                self.org.sliding = false;
+                true
+            }
+            Input::Zoom(n) if inside(self.org.frame, self.pointer.0, self.pointer.1) => {
+                let z = self.org.zoom() * 1.1_f32.powf(n);
+                self.org.set_zoom(z);
+                true
+            }
             Input::Press { x, y, count, shift } if inside(self.org.frame, x, y) => {
-                if let Some(i) = self.org.press(x, y, shift) {
+                if let Some(i) = self.org.press(x, y, shift, self.edit.mods.ctrl) {
                     if count >= 2 {
                         // Open the page in the document view.
                         self.open_page(i, m);
@@ -1694,6 +1711,18 @@ impl EditorWindow {
             }
             Input::Drag { x, y } if self.org.dragging() => {
                 self.org.drag_to(x, y);
+                true
+            }
+            Input::Release { x, y } if self.org.dragging() && self.org.drag_moved() && {
+                let t = self.r.doc_tab_at(x, y);
+                t.is_some() && t != Some(self.r.active_tab())
+            } =>
+            {
+                // Dropped on another document's tab: copy the pages to its end.
+                self.org.cancel_drag();
+                if let Some(t) = self.r.doc_tab_at(x, y) {
+                    self.copy_pages_to_tab(t);
+                }
                 true
             }
             Input::Release { x, y } if self.org.dragging() => {
@@ -1730,6 +1759,9 @@ impl EditorWindow {
         match (k, mods.ctrl) {
             (Key::Delete, _) => self.command("org.delete", m),
             (Key::Letter('a'), true) => self.org.select_range(0, n.saturating_sub(1)),
+            (Key::Letter('c'), true) => self.copy_pages(false),
+            (Key::Letter('x'), true) => self.copy_pages(true),
+            (Key::Letter('v'), true) => self.paste_pages(),
             (Key::Left | Key::Up | Key::Right | Key::Down | Key::Home | Key::End, false) => {
                 self.org.step(k, mods.shift, n);
             }

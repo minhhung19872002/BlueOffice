@@ -8248,7 +8248,8 @@
     "objFlipAcross": "Flip horizontal",
     "objFlipDown": "Flip vertical",
     "objSelectAll": "Select All",
-    "objDelete": "Delete"
+    "objDelete": "Delete",
+    "pagesCopied": "page(s) copied"
   },
   "taskPane": {
     "dockLeft": "Dock left",

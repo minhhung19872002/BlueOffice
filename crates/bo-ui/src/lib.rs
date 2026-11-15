@@ -18,6 +18,8 @@ mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;
 mod editor_arrange;
+#[cfg(test)]
+mod editor_arrange_tests;
 mod editor_backstage;
 mod editor_comment;
 #[cfg(test)]
@@ -36,6 +38,9 @@ mod editor_more2;
 #[cfg(test)]
 mod editor_more_tests;
 mod editor_organize;
+#[cfg(test)]
+mod editor_organize5_tests;
+mod editor_pages5;
 mod editor_sign;
 #[cfg(test)]
 mod editor_tests;

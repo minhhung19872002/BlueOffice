@@ -44,15 +44,71 @@ pub(crate) struct Organize {
     columns: usize,
     content_h: f32,
     drag: Option<Drag>,
+    /// Thumbnail size factor (1 = 150 logical pixels; 0 before the first change).
+    zoom: f32,
+    /// Zoom slider track (window pixels, from the last paint) and the knob is dragged.
+    pub(crate) slider: [f32; 4],
+    pub sliding: bool,
 }
+
+/// Thumbnail size range of the zoom slider.
+pub(crate) const ZOOM_MIN: f32 = 0.5;
+pub(crate) const ZOOM_MAX: f32 = 2.5;
 
 impl Organize {
     fn px(&self, v: f32) -> f32 {
         (v * self.scale.max(0.5)).round()
     }
 
+    /// Thumbnail size factor.
+    pub fn zoom(&self) -> f32 {
+        if self.zoom > 0.0 {
+            self.zoom
+        } else {
+            1.0
+        }
+    }
+
+    /// Set the thumbnail size factor (kept within the slider's range).
+    pub fn set_zoom(&mut self, z: f32) {
+        self.zoom = z.clamp(ZOOM_MIN, ZOOM_MAX);
+    }
+
+    fn thumb(&self) -> f32 {
+        self.px(THUMB * self.zoom())
+    }
+
+    /// The zoom slider is under a window point: set the zoom from it and start sliding.
+    pub fn slider_press(&mut self, x: f32, y: f32) -> bool {
+        let s = self.slider;
+        let pad = self.px(6.0);
+        if s[2] <= 0.0 || !inside([s[0] - pad, s[1] - pad, s[2] + 2.0 * pad, s[3] + 2.0 * pad], x, y) {
+            return false;
+        }
+        self.sliding = true;
+        self.slide_to(x);
+        true
+    }
+
+    /// The slider knob follows the pointer.
+    pub fn slide_to(&mut self, x: f32) {
+        let s = self.slider;
+        let t = ((x - s[0]) / s[2].max(1.0)).clamp(0.0, 1.0);
+        self.set_zoom(ZOOM_MIN + t * (ZOOM_MAX - ZOOM_MIN));
+    }
+
+    /// The pointer moved far enough for the press to be a drag.
+    pub fn drag_moved(&self) -> bool {
+        self.drag.is_some_and(|d| d.moved)
+    }
+
+    /// Forget the drag (it was dropped somewhere else).
+    pub fn cancel_drag(&mut self) {
+        self.drag = None;
+    }
+
     fn cell_size(&self) -> (f32, f32) {
-        let t = self.px(THUMB);
+        let t = self.thumb();
         (
             t + 2.0 * self.px(PAD),
             t + 2.0 * self.px(PAD) + self.px(LABEL),
@@ -110,7 +166,7 @@ impl Organize {
     /// Thumbnail rectangle of page `i` (size `pt`) in window pixels and its scale.
     fn thumb_rect(&self, i: usize, pt: (f32, f32)) -> Option<([f32; 4], f32)> {
         let c = self.cell(i)?;
-        let t = self.px(THUMB);
+        let t = self.thumb();
         let s = t / pt.0.max(pt.1).max(1.0);
         let (w, h) = ((pt.0 * s).round(), (pt.1 * s).round());
         let x = (c[0] + (c[2] - w) / 2.0).round();
@@ -178,14 +234,25 @@ impl Organize {
     }
 
     /// Press on the grid: select (Shift extends from the anchor) and start a drag.
-    pub fn press(&mut self, x: f32, y: f32, shift: bool) -> Option<usize> {
+    pub fn press(&mut self, x: f32, y: f32, shift: bool, ctrl: bool) -> Option<usize> {
         let Some(i) = self.page_at(x, y) else {
-            self.selected.clear();
+            if !ctrl && !shift {
+                self.selected.clear();
+            }
             return None;
         };
-        let collapse =
-            (!shift && self.selected.len() > 1 && self.selected.contains(&i)).then_some(i);
-        if shift {
+        let collapse = (!shift && !ctrl && self.selected.len() > 1 && self.selected.contains(&i))
+            .then_some(i);
+        if ctrl && !shift {
+            // Ctrl+click adds or removes one page.
+            if !self.selected.remove(&i) {
+                self.selected.insert(i);
+            }
+            self.anchor = i;
+            if !self.selected.contains(&i) {
+                return Some(i);
+            }
+        } else if shift {
             let (a, b) = (self.anchor.min(i), self.anchor.max(i));
             self.selected = (a..=b).collect();
         } else if !self.selected.contains(&i) {
@@ -296,7 +363,7 @@ impl Organize {
 
     /// Paint the grid over the document area.
     pub fn paint(
-        &self,
+        &mut self,
         p: &mut dyn Painter,
         v: &ReaderView,
         key_base: usize,
@@ -368,6 +435,7 @@ impl Organize {
             }
         }
         p.pop_clip();
+        self.paint_slider(p, theme);
         // Scroll thumb.
         if self.content_h > f[3] {
             let track = f[3];
@@ -383,6 +451,41 @@ impl Organize {
                 Rgba(133, 133, 133, 255),
             );
         }
+    }
+}
+
+impl Organize {
+    /// Thumbnail size slider at the grid's bottom right: a track with minus and plus marks
+    /// and a round knob, as the view zoom slider of the status bar.
+    fn paint_slider(&mut self, p: &mut dyn Painter, theme: &Theme) {
+        let f = self.frame;
+        let w = self.px(120.0);
+        let (x, y) = (
+            f[0] + f[2] - w - self.px(32.0),
+            f[1] + f[3] - self.px(22.0),
+        );
+        self.slider = [x, y, w, 1.0];
+        let back = [x - self.px(22.0), y - self.px(12.0), w + self.px(44.0), self.px(24.0)];
+        p.path(
+            &rounded(back[0], back[1], back[2], back[3], self.px(4.0)),
+            Some(Rgba(255, 255, 255, 230)),
+            Some((Rgba(204, 204, 204, 255), 1.0)),
+        );
+        let ink = Rgba(102, 102, 102, 255);
+        p.fill_rect(x, y.round(), w, 1.0, Rgba(160, 160, 160, 255));
+        let m = self.px(4.0);
+        let (lx, rx) = (x - self.px(12.0), x + w + self.px(12.0));
+        p.fill_rect(lx - m, y.round(), 2.0 * m + 1.0, 1.0, ink);
+        p.fill_rect(rx - m, y.round(), 2.0 * m + 1.0, 1.0, ink);
+        p.fill_rect(rx, y.round() - m, 1.0, 2.0 * m + 1.0, ink);
+        let t = (self.zoom() - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
+        let kx = x + t * w;
+        let r = self.px(5.0);
+        p.path(
+            &rounded(kx - r, y - r, 2.0 * r, 2.0 * r, r),
+            Some(Rgba(255, 255, 255, 255)),
+            Some((if self.sliding { theme.accent } else { ink }, 1.0)),
+        );
     }
 }
 

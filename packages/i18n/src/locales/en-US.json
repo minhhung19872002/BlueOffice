@@ -7727,6 +7727,36 @@
     "noRecent": "No recent documents",
     "details": "Document Properties…"
   },
+  "pdfPrefs": {
+    "menu": "Preferences",
+    "title": "Preferences",
+    "auto": "Automatic",
+    "single": "Single Page",
+    "continuous": "Continuous",
+    "facing": "Facing",
+    "continuousFacing": "Continuous Facing",
+    "inch": "Inches",
+    "mm": "Millimeters",
+    "cm": "Centimeters",
+    "point": "Points",
+    "pica": "Picas",
+    "pageDisplay": "Page Display",
+    "identity": "Identity",
+    "measure": "Measure",
+    "general": "General",
+    "zoom": "Default zoom",
+    "layout": "Page layout",
+    "author": "Comment author",
+    "name": "Name",
+    "units": "Units",
+    "smooth": "Smooth scrolling"
+  },
+  "pdfBatch": {
+    "menu": "Batch Print",
+    "title": "Batch Print",
+    "ask": "Documents to print with the same settings:",
+    "print": "Print…"
+  },
   "pdfHome": {
     "snapshot": "SnapShot",
     "copied": "The selected area was copied to the clipboard",

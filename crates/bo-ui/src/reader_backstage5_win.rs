@@ -18,17 +18,21 @@ const CHOSEN: Rgba = Rgba(0xD9, 0xD9, 0xD9, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const GREY: Rgba = Rgba(0xC1, 0xC1, 0xC1, 255);
 
-/// Left column: command, label key; `None` is a rule. The reference reader's order; its Batch
-/// Print, Share, Skins and Preferences are not ours.
-const ITEMS: [Option<(&str, &str)>; 8] = [
+/// Left column: command, label key; `None` is a rule. The reference reader's order; its Share
+/// and Skins are not ours.
+const ITEMS: [Option<(&str, &str)>; 12] = [
     Some(("bs.open", "pdfReader.open")),
+    None,
     Some(("bs.properties", "pdfProps.menu")),
     Some(("file.save", "pdfReader.save")),
     Some(("file.saveAs", "pdfReader.saveAs")),
     Some(("file.print", "pdfReader.print")),
+    Some(("bs.batch", "pdfBatch.menu")),
     None,
     Some(("bs.revert", "pdfBackstage.revert")),
     Some(("file.close", "pdfReader.close")),
+    None,
+    Some(("bs.prefs", "pdfPrefs.menu")),
 ];
 
 /// The File page: chosen page and the hit boxes of the last paint.

@@ -7727,6 +7727,36 @@
     "noRecent": "Chưa có tài liệu gần đây",
     "details": "Thuộc tính tài liệu…"
   },
+  "pdfPrefs": {
+    "menu": "Tùy chọn",
+    "title": "Tùy chọn",
+    "auto": "Tự động",
+    "single": "Một trang",
+    "continuous": "Liên tục",
+    "facing": "Hai trang",
+    "continuousFacing": "Hai trang liên tục",
+    "inch": "Inch",
+    "mm": "Milimét",
+    "cm": "Xentimét",
+    "point": "Point",
+    "pica": "Pica",
+    "pageDisplay": "Hiển thị trang",
+    "identity": "Danh tính",
+    "measure": "Đo",
+    "general": "Chung",
+    "zoom": "Thu phóng mặc định",
+    "layout": "Bố cục trang",
+    "author": "Tác giả chú thích",
+    "name": "Tên",
+    "units": "Đơn vị",
+    "smooth": "Cuộn mượt"
+  },
+  "pdfBatch": {
+    "menu": "In hàng loạt",
+    "title": "In hàng loạt",
+    "ask": "Các tài liệu in cùng thiết lập:",
+    "print": "In…"
+  },
   "pdfHome": {
     "snapshot": "Chụp vùng",
     "copied": "Đã chép vùng chọn vào bộ nhớ tạm",

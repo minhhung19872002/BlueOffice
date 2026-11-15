@@ -14,6 +14,7 @@
 #![allow(clippy::items_after_statements, clippy::match_same_arms)]
 
 mod annot;
+mod annot_caret;
 mod annot_draw;
 mod annot_edit;
 mod annot_image;

@@ -78,6 +78,17 @@ fn load_recent(app: &str) -> Vec<std::path::PathBuf> {
         .unwrap_or_default()
 }
 
+/// File › Preferences of BlueReader (`key=value` lines).
+fn prefs_file(app: &str) -> Option<std::path::PathBuf> {
+    let name = if app == "BlueEditor" {
+        "editor-prefs.txt"
+    } else {
+        "reader-prefs.txt"
+    };
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| std::path::PathBuf::from(d).join("BlueOffice").join(name))
+}
+
 fn save_recent(app: &str, list: &[std::path::PathBuf]) {
     if let Some(f) = recent_file(app) {
         if let Some(dir) = f.parent() {
@@ -101,6 +112,9 @@ pub fn run(editor: bool) -> Result<(), String> {
     };
     let app = window.app();
     window.set_recent(load_recent(app));
+    if let Some(text) = prefs_file(app).and_then(|f| std::fs::read_to_string(f).ok()) {
+        window.set_preferences(&text);
+    }
     for arg in std::env::args_os().skip(1) {
         let path = std::path::PathBuf::from(arg);
         let abs = std::fs::canonicalize(&path).unwrap_or(path.clone());
@@ -465,10 +479,38 @@ impl Shell {
             return;
         };
         let title = self.window.title();
+        let devmode = self.devmodes.get(&s.printer).map(Vec::as_slice);
+        // Batch Print: every ticked document with these settings, all of its pages.
+        let batch = self.window.take_batch();
+        if !batch.is_empty() {
+            let mut total = 0;
+            let mut failed = None;
+            for i in batch {
+                let Some(view) = self.window.view_at_mut(i) else {
+                    continue;
+                };
+                let all = bo_ui::PrintSettings {
+                    pages: (0..view.page_count()).collect(),
+                    view: None,
+                    ..s.clone()
+                };
+                match print_job(&gpu.device, view.doc_mut(), &title, &all, None, devmode) {
+                    Ok(n) => total += n,
+                    Err(e) => failed = Some(e),
+                }
+            }
+            let status = match failed {
+                None => self
+                    .window
+                    .text("pdfPrint.done", &[("n", &total.to_string())]),
+                Some(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
+            };
+            self.window.set_status(&status);
+            return;
+        }
         let Some(view) = self.window.view_mut() else {
             return;
         };
-        let devmode = self.devmodes.get(&s.printer).map(Vec::as_slice);
         let result = print_job(&gpu.device, view.doc_mut(), &title, s, None, devmode);
         let status = match result {
             Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
@@ -531,6 +573,16 @@ impl Shell {
                     }
                 }
                 ReaderRequest::PrintPages(settings) => self.print_pages(&settings),
+                ReaderRequest::SavePreferences(text) => {
+                    if let Some(f) = prefs_file(self.window.app()) {
+                        if let Some(dir) = f.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        if let Err(e) = std::fs::write(&f, text) {
+                            self.window.set_status(&format!("{}: {e}", f.display()));
+                        }
+                    }
+                }
                 ReaderRequest::Speak { text, rate } => {
                     if let Err(e) = self.speech.speak(&text, rate) {
                         self.window.set_status(&e);

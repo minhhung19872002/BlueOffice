@@ -78,7 +78,7 @@ pub use editor_window::{EditTool, EditorWindow};
 pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use pdf_window::PdfWindow;
-pub use popup::{Choice, Menu, MenuItem};
+pub use popup::{Choice, Menu, MenuItem, MenuLook};
 pub use reader_impose::{
     plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
 };

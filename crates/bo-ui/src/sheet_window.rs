@@ -1076,7 +1076,8 @@ impl SheetWindow {
             return false;
         };
         self.rest += 1;
-        if self.rest != 5 || self.menu.is_some() {
+        if self.rest != 5 || self.menu.is_some() || self.gallery.is_some() || self.filter.is_some()
+        {
             return false;
         }
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {

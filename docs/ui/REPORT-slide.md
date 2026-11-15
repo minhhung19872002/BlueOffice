@@ -309,3 +309,6 @@ x 1160–1259; Reorder Animation, Move Earlier/Later). Đường chia nhóm: tha
 - Dấu bình luận chưa neo theo hình (`ac:deMkLst`); bình luận cũ (`p:cm`) chưa đọc.
 - Hình ô chuyển trang / sao hoạt hình vẫn phẳng hơn tham chiếu; dấu thả xuống của nút lớn là "▾" trên
   cùng dòng, tham chiếu là chữ v mảnh ở dòng riêng.
+
+Đo lại Design (`b5-Design.png`): 6 thẻ chủ đề x 27 / 167 / … / 727 trùng tham chiếu, cột "thêm" x 863–897, đường chia Customize x 910 (tham chiếu 912), nhóm Slides hiện đủ (trước: tràn, có nút cuộn).
+

@@ -687,22 +687,42 @@ pub fn apply_mask(rgba: &mut [u8], mask: &Mask) {
     }
 }
 
-/// Tint of the removed areas in previews.
-pub const TINT: [u8; 3] = [0xB4, 0x1E, 0xB4];
+/// Tint of the removed areas in previews: magenta (green channel off), as a desktop
+/// presentation app marks them (black-box measurement: white → 252, 0, 252).
+pub const TINT: [u8; 3] = [0xFA, 0x00, 0xFA];
+
+/// Share of the pixel's luminance kept in the tint (measured: sky 162 → 200, grass 111 → 168,
+/// white 255 → 252, i.e. `0.6 × luma + 0.4 × 250`).
+const TINT_LUMA: f64 = 0.6;
+
+/// A removed pixel of composited colour `v` as the preview shows it.
+fn tint_pixel(v: [f64; 3]) -> [u8; 3] {
+    let luma = 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2];
+    let mut out = [0u8; 3];
+    for (o, t) in out.iter_mut().zip(TINT) {
+        *o = if t == 0 {
+            0
+        } else {
+            (luma * TINT_LUMA + f64::from(t) * (1.0 - TINT_LUMA))
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
+    }
+    out
+}
 
 /// The working picture with the removed areas tinted (opaque RGBA).
 pub fn tinted(seg: &Segmentation) -> OwnedImage {
     let mut out = seg.work.rgba.clone();
     for (p, m) in out.chunks_exact_mut(4).zip(&seg.mask.alpha) {
         let a = f64::from(p[3]) / 255.0;
-        for c in 0..3 {
-            let v = f64::from(p[c]) * a + 255.0 * (1.0 - a);
-            p[c] = if *m < 128 {
-                (v * 0.35 + f64::from(TINT[c]) * 0.65).round() as u8
-            } else {
-                v.round() as u8
-            };
-        }
+        let v = [0, 1, 2].map(|c| f64::from(p[c]) * a + 255.0 * (1.0 - a));
+        let px = if *m < 128 {
+            tint_pixel(v)
+        } else {
+            v.map(|c| c.round() as u8)
+        };
+        p[..3].copy_from_slice(&px);
         p[3] = 255;
     }
     OwnedImage {

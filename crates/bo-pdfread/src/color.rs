@@ -210,15 +210,7 @@ impl ColorSpace {
     }
 }
 
-/// CMYK to RGB the simple way most viewers use without a colour profile, slightly darkened
-/// towards printed ink (§10.3.4 suggests 1 − min(1, C + K)).
-pub(crate) fn cmyk_to_rgb(c: f32, m: f32, y: f32, k: f32) -> [f32; 3] {
-    [
-        (1.0 - c) * (1.0 - k),
-        (1.0 - m) * (1.0 - k),
-        (1.0 - y) * (1.0 - k),
-    ]
-}
+pub(crate) use crate::cmyk::cmyk_to_rgb;
 
 fn lab_to_rgb(l: f32, a: f32, b: f32) -> [f32; 3] {
     // CIE L*a*b* (D50) → XYZ → sRGB.
@@ -268,7 +260,11 @@ mod tests {
         )
         .expect("indexed");
         assert_eq!(cs.rgb(&[1.0]), [0.0, 0.0, 1.0]);
-        assert_eq!(ColorSpace::Cmyk.rgb(&[0.0, 0.0, 0.0, 1.0]), [0.0, 0.0, 0.0]);
+        // Pure K is the reference's rich-black-less ink black (36, 32, 33).
+        let k = ColorSpace::Cmyk
+            .rgb(&[0.0, 0.0, 0.0, 1.0])
+            .map(|v| (v * 255.0).round() as u8);
+        assert_eq!(k, [36, 32, 33]);
         assert_eq!(ColorSpace::Cmyk.initial(), vec![0.0, 0.0, 0.0, 1.0]);
     }
 }

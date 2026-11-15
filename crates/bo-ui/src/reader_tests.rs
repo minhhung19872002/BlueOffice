@@ -719,3 +719,132 @@ fn word_count_and_reverse_view() {
     let (a, b) = (v.page_rect(0).expect("p0"), v.page_rect(1).expect("p1"));
     assert!(a[0] > b[0], "{a:?} {b:?}");
 }
+
+/// A PDF of the objects (object 1 the catalog).
+fn raw_pdf(objs: &[&str]) -> Vec<u8> {
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for off in offsets {
+        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn form_fill_area_highlight_eraser_and_comment_order() {
+    let pdf = raw_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R] >>",
+        "<< /FT /Tx /T (name) /Subtype /Widget /Rect [72 700 300 724] /DA (/Helv 12 Tf 0 g) /P 3 0 R >>",
+        "<< /FT /Btn /T (agree) /Subtype /Widget /Rect [72 650 90 668] /V /Off /AS /Off          /AP << /N << /Yes 6 0 R /Off 7 0 R >> >> /P 3 0 R >>",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 12 12] /Length 16 >>
+stream
+0 g 2 2 8 8 re f
+endstream",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 12 12] /Length 0 >>
+stream
+
+endstream",
+    ]);
+    let doc = PdfDocument::open(pdf, bo_pdfread::standard_fonts()).expect("pdf");
+    let mut w = ReaderWindow::new("en-US");
+    w.handle(Input::Scale(1.25), &Fixed);
+    w.handle(
+        Input::Resize {
+            width: 1500.0,
+            height: 1100.0,
+        },
+        &Fixed,
+    );
+    w.open(doc, "form.pdf", None);
+    w.run_command("form.highlight", &Fixed);
+    // A click on the text field with the Hand tool asks for its value.
+    let v = w.view().expect("view");
+    let r = v
+        .doc_rect_to_window(0, [80.0, 70.0, 90.0, 80.0])
+        .expect("field on screen");
+    press(&mut w, r[0] + 2.0, r[1] + 2.0, 1);
+    w.handle(Input::Text("Lan".into()), &Fixed);
+    key(&mut w, Key::Enter, false, false);
+    let fields = w.view().expect("view").doc().form_fields();
+    assert_eq!(
+        fields
+            .iter()
+            .find(|f| f.name == "name")
+            .map(|f| f.value.as_str()),
+        Some("Lan")
+    );
+    // The check box toggles.
+    let v = w.view().expect("view");
+    let r = v
+        .doc_rect_to_window(0, [75.0, 126.0, 80.0, 131.0])
+        .expect("box on screen");
+    press(&mut w, r[0] + 1.0, r[1] + 1.0, 1);
+    let fields = w.view().expect("view").doc().form_fields();
+    assert!(fields.iter().any(|f| f.name == "agree" && f.checked));
+    // Reset Form empties the text field again.
+    w.run_command("form.reset", &Fixed);
+    let fields = w.view().expect("view").doc().form_fields();
+    assert!(fields
+        .iter()
+        .any(|f| f.name == "name" && f.value.is_empty()));
+    // Area Highlight: a dragged box becomes a highlight.
+    w.run_command("comment.areaHighlight", &Fixed);
+    let v = w.view().expect("view");
+    let a = v
+        .doc_rect_to_window(0, [100.0, 300.0, 300.0, 400.0])
+        .expect("area");
+    drag(&mut w, (a[0], a[1]), (a[0] + a[2], a[1] + a[3]));
+    let comments = w.view().expect("view").doc().annotations();
+    assert!(comments
+        .iter()
+        .any(|c| c.kind == bo_pdfread::AnnotKind::Highlight));
+    w.run_command("comment.areaHighlight", &Fixed);
+    // Eraser: a pencil stroke under the pointer goes away.
+    w.view_mut()
+        .expect("view")
+        .doc_mut()
+        .add_drawing(
+            0,
+            &bo_pdfread::Shape::Ink(vec![vec![[100.0, 200.0], [200.0, 220.0]]]),
+            &bo_pdfread::DrawStyle::default(),
+            "me",
+            "",
+        )
+        .expect("ink");
+    w.run_command("comment.eraser", &Fixed);
+    let v = w.view().expect("view");
+    let e = v
+        .doc_rect_to_window(0, [150.0, 210.0, 151.0, 211.0])
+        .expect("ink");
+    press(&mut w, e[0], e[1], 1);
+    let kinds: Vec<_> = w
+        .view()
+        .expect("view")
+        .doc()
+        .annotations()
+        .iter()
+        .map(|c| c.kind)
+        .collect();
+    assert!(!kinds.contains(&bo_pdfread::AnnotKind::Ink), "{kinds:?}");
+    // The comment list's filter keeps one kind.
+    w.run_command("comments.filter0", &Fixed);
+    let shown = w.comments_shown(w.view().expect("view").doc().comment_threads());
+    assert!(shown
+        .iter()
+        .all(|t| t.comment.kind == bo_pdfread::AnnotKind::Highlight));
+}

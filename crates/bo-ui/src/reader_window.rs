@@ -30,6 +30,9 @@ mod draw;
 // Text Viewer, split panes, Read aloud, smooth AutoScroll (BlueReader round 4).
 #[path = "reader_view4_win.rs"]
 mod view4;
+// Form and Protect tabs, Eraser, Area Highlight, Custom Stamp, comment list order (round 4).
+#[path = "reader_tabs4_win.rs"]
+mod tabs4;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -376,6 +379,8 @@ pub struct ReaderWindow {
     draw: draw::Draw,
     /// View tab additions of round 4.
     view4: view4::View4,
+    /// Form / Protect tabs and Comment tab additions of round 4.
+    tabs4: tabs4::Tabs4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -445,6 +450,7 @@ impl ReaderWindow {
             viewx: viewx::ViewX::default(),
             draw: draw::Draw::default(),
             view4: view4::View4::default(),
+            tabs4: tabs4::Tabs4::default(),
         }
     }
 
@@ -469,6 +475,8 @@ impl ReaderWindow {
                 "pdfReader.tabs.home",
                 "pdfReader.tabs.comment",
                 "pdfReader.tabs.view",
+                "pdfReader.tabs.form",
+                "pdfReader.tabs.protect",
                 "pdfReader.tabs.help",
             ]),
         }
@@ -768,10 +776,20 @@ impl ReaderWindow {
                 ("sep5", Sep),
                 ("menu.drawing", Big("rectangle", "pdfDraw.drawing", true)),
                 ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
+                ("comment.eraser", Big("eraser", "pdfComment.eraser", false)),
+                ("sep8", Sep),
+                (
+                    "comment.areaHighlight",
+                    Big("areaHighlight", "pdfComment.areaHighlight", false),
+                ),
                 ("sep6", Sep),
                 ("menu.measure", Big("measure", "pdfDraw.measure", true)),
                 ("sep7", Sep),
                 ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
+                (
+                    "menu.customStamp",
+                    Big("customStamp", "pdfComment.customStamp", true),
+                ),
                 ("draw.props", Big("properties", "pdfDraw.properties", false)),
                 ("sep4", Sep),
                 (
@@ -821,6 +839,7 @@ impl ReaderWindow {
                     Big("viewSetting", "pdfView.viewSetting", true),
                 ),
             ]),
+            3 | 4 => v.extend(Self::tabs4_items(self.ribbon_tab)),
             _ => {
                 v.clear();
                 v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -2514,6 +2533,9 @@ impl ReaderWindow {
         if let Some(&e) = self.enabled_override.get(id) {
             return e;
         }
+        if Self::tabs4_disabled(id) {
+            return false;
+        }
         let Some(v) = self.view() else {
             return id == "file.open";
         };
@@ -2845,7 +2867,8 @@ impl ReaderWindow {
                     p.pop_clip();
                     return;
                 };
-                let list = t.view.doc().comment_threads();
+                let list = self.comments_shown(t.view.doc().comment_threads());
+                y += self.paint_comment_header(p, r);
                 if list.is_empty() {
                     p.text(
                         &self.t("pdfReader.noComments"),

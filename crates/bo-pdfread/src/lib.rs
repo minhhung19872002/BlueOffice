@@ -16,7 +16,9 @@
 mod annot;
 mod annot_draw;
 mod annot_edit;
+mod annot_image;
 mod cmap;
+mod cmyk;
 mod codecs;
 mod color;
 mod crypt;

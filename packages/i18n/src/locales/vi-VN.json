@@ -7388,12 +7388,46 @@
     "polygon": "Đa giác",
     "polyline": "Đường gấp khúc"
   },
+  "pdfComment": {
+    "eraser": "Tẩy",
+    "areaHighlight": "Tô sáng vùng",
+    "customStamp": "Con dấu tuỳ chỉnh",
+    "stampFromImage": "Tạo từ tệp ảnh…",
+    "images": "Ảnh",
+    "placeStamp": "Kéo hoặc nhấp trên trang để đặt con dấu",
+    "sortPage": "Sắp theo trang",
+    "sortAuthor": "Sắp theo tác giả",
+    "sortDate": "Sắp theo ngày",
+    "sortType": "Sắp theo loại",
+    "filterAll": "Mọi chú thích"
+  },
+  "pdfForm": {
+    "reset": "Đặt lại biểu mẫu",
+    "toSheet": "Biểu mẫu ra bảng tính",
+    "import": "Nhập",
+    "export": "Xuất",
+    "settings": "Thiết lập công cụ",
+    "highlight": "Tô sáng các trường",
+    "value": "Giá trị"
+  },
+  "pdfProtect": {
+    "fillSign": "Điền & ký",
+    "sign": "Ký & chứng nhận",
+    "timestamp": "Đóng dấu thời gian",
+    "validate": "Kiểm tra",
+    "noSignatures": "Tài liệu không có chữ ký.",
+    "valid": "chữ ký hợp lệ, tài liệu chưa đổi từ khi ký",
+    "changedAfter": "chữ ký hợp lệ, tài liệu đã đổi sau khi ký",
+    "invalid": "Không kiểm tra được chữ ký"
+  },
   "pdfReader": {
     "tabs": {
       "file": "Tệp",
       "home": "Trang đầu",
       "comment": "Nhận xét",
       "view": "Xem",
+      "form": "Biểu mẫu",
+      "protect": "Bảo vệ",
       "help": "Trợ giúp"
     },
     "hand": "Bàn tay",

@@ -1116,7 +1116,7 @@ impl PdfDocument {
     }
 
     /// An image XObject (and soft mask) from JPEG or PNG bytes.
-    fn image_xobject(&mut self, image: NewImage<'_>) -> Result<ObjectId, String> {
+    pub(crate) fn image_xobject(&mut self, image: NewImage<'_>) -> Result<ObjectId, String> {
         let b = image.0;
         let mut d = Dictionary::new();
         d.set("Type", Object::Name(b"XObject".to_vec()));

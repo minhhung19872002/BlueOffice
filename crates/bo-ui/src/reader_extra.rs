@@ -76,7 +76,10 @@ impl ReaderWindow {
 
     /// Full Screen or a dialog of the additions takes the whole window.
     pub(crate) fn extra_modal(&self) -> bool {
-        self.extra.mode == Mode::Full || self.extra.print.is_some() || self.extra.text.is_some()
+        self.extra.mode == Mode::Full
+            || self.extra.print.is_some()
+            || self.extra.text.is_some()
+            || self.tabs4.field_dialog.is_some()
     }
 
     /// Interface text `key` with `{{name}}` placeholders filled (host messages).
@@ -255,6 +258,9 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
         if self.extra.print.is_none() {
+            if let Some(r) = self.route_tabs4(input, m) {
+                return Some(r);
+            }
             if let Some(r) = self.route_view4(input, m) {
                 return Some(r);
             }
@@ -506,7 +512,12 @@ impl ReaderWindow {
 
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
-        if self.command_viewx(cmd, m) || self.command_view4(cmd, m) || self.command_draw(cmd, m) {
+        if self.command_viewx(cmd, m)
+            || self.command_view4(cmd, m)
+            || self.command_tabs4(cmd, m)
+            || self.field_choice(cmd)
+            || self.command_draw(cmd, m)
+        {
             return true;
         }
         match cmd {
@@ -674,6 +685,7 @@ impl ReaderWindow {
             }
         }
         self.paint_draw(p);
+        self.paint_tabs4(p);
     }
 
     /// Dialogs of the additions, over everything else.
@@ -685,6 +697,7 @@ impl ReaderWindow {
             d.paint(p, &self.theme, self.size, true);
         }
         self.paint_draw_dialog(p);
+        self.paint_tabs4_dialog(p);
     }
 }
 

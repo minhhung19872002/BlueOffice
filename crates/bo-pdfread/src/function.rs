@@ -290,12 +290,13 @@ impl Function {
                 let mut budget = 100_000_u32;
                 run_ps(code, &mut stack, &mut budget, 0);
                 let n = range.len() / 2;
-                // §7.10.5: the program must leave exactly n results. Measured on the reference
-                // reader: any other count paints all components 0 (white in CMYK, black in RGB).
-                if stack.len() != n {
+                // §7.10.5: the program leaves n results. Measured on the reference reader:
+                // fewer paint all components 0 (white in CMYK, black in RGB); of more, the
+                // top n count.
+                if stack.len() < n {
                     return vec![0.0; n];
                 }
-                stack
+                stack[stack.len() - n..]
                     .iter()
                     .enumerate()
                     .map(|(i, v)| v.clamp(range[2 * i], range[2 * i + 1]))

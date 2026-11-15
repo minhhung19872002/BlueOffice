@@ -7388,12 +7388,46 @@
     "polygon": "Polygon",
     "polyline": "Polyline"
   },
+  "pdfComment": {
+    "eraser": "Eraser",
+    "areaHighlight": "Area Highlight",
+    "customStamp": "Custom Stamp",
+    "stampFromImage": "Create from image file…",
+    "images": "Pictures",
+    "placeStamp": "Drag or click on the page to place the stamp",
+    "sortPage": "Sort by page",
+    "sortAuthor": "Sort by author",
+    "sortDate": "Sort by date",
+    "sortType": "Sort by type",
+    "filterAll": "All comments"
+  },
+  "pdfForm": {
+    "reset": "Reset Form",
+    "toSheet": "Form to sheet",
+    "import": "Import",
+    "export": "Export",
+    "settings": "Tool Settings",
+    "highlight": "Highlight Fields",
+    "value": "Value"
+  },
+  "pdfProtect": {
+    "fillSign": "Fill & Sign",
+    "sign": "Sign & Certify",
+    "timestamp": "Time Stamp Document",
+    "validate": "Validate",
+    "noSignatures": "The document has no signatures.",
+    "valid": "signature valid, document not changed since",
+    "changedAfter": "signature valid, the document was changed after signing",
+    "invalid": "Signature cannot be verified"
+  },
   "pdfReader": {
     "tabs": {
       "file": "File",
       "home": "Home",
       "comment": "Comment",
       "view": "View",
+      "form": "Form",
+      "protect": "Protect",
       "help": "Help"
     },
     "hand": "Hand",

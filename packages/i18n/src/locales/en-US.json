@@ -6920,6 +6920,41 @@
     "bookmarksSlides": "Create bookmarks from slide titles",
     "bookmarksSheets": "Create bookmarks from sheet names"
   },
+  "pdfPrint": {
+    "title": "Print",
+    "printer": "Printer",
+    "noPrinter": "No printer installed",
+    "range": "Pages to print",
+    "all": "All",
+    "current": "Current page",
+    "pages": "Pages",
+    "copies": "Copies",
+    "sizing": "Page sizing",
+    "fit": "Fit to printable area",
+    "shrink": "Shrink oversized pages",
+    "actual": "Actual size",
+    "print": "Print",
+    "cancel": "Cancel",
+    "sheets": "{{n}} sheets of paper",
+    "done": "Sent {{n}} pages to the printer",
+    "failed": "Printing failed: {{error}}"
+  },
+  "pdfExtra": {
+    "readMode": "Read Mode",
+    "editText": "Edit Text",
+    "reply": "Reply",
+    "replyTitle": "Reply to comment",
+    "editTitle": "Edit comment",
+    "text": "Text",
+    "delete": "Delete",
+    "color": "Color",
+    "yellow": "Yellow",
+    "red": "Red",
+    "green": "Green",
+    "blue": "Blue",
+    "purple": "Purple",
+    "black": "Black"
+  },
   "pdfReader": {
     "tabs": {
       "file": "File",

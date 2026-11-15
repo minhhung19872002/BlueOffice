@@ -53,7 +53,7 @@ impl AnnotKind {
         })
     }
 
-    fn subtype(self) -> &'static str {
+    pub(crate) fn subtype(self) -> &'static str {
         match self {
             Self::Highlight => "Highlight",
             Self::Underline => "Underline",
@@ -230,7 +230,7 @@ fn note_icon(rect: [f32; 4], [r, g, b]: [f32; 3]) -> String {
 }
 
 /// PDF date string of now (UTC).
-fn pdf_date() -> String {
+pub(crate) fn pdf_date() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -254,7 +254,7 @@ fn pdf_date() -> String {
     )
 }
 
-fn text_obj(s: &str) -> Object {
+pub(crate) fn text_obj(s: &str) -> Object {
     if s.is_ascii() {
         Object::String(s.as_bytes().to_vec(), StringFormat::Literal)
     } else {
@@ -264,7 +264,7 @@ fn text_obj(s: &str) -> Object {
     }
 }
 
-fn nums(v: &[f32]) -> Object {
+pub(crate) fn nums(v: &[f32]) -> Object {
     Object::Array(
         v.iter()
             .map(|x| Object::Real((x * 1000.0).round() / 1000.0))

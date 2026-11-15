@@ -18,6 +18,10 @@ use bo_pdfread::{AnnotKind, LinkTarget, OutlineItem, PdfDocument};
 use bo_render::{PathSeg, Rgba};
 use std::collections::HashSet;
 
+// Print dialog, Read Mode, Full Screen and comment editing (BlueReader round 2).
+#[path = "reader_extra.rs"]
+mod extra;
+
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
 const EDGE: Rgba = Rgba(199, 204, 217, 255);
@@ -79,6 +83,8 @@ pub enum ReaderRequest {
     OpenUrl(String),
     /// A window operation.
     Window(Request),
+    /// Print with these settings (from the Print dialog, [ReaderWindow::open_print]).
+    PrintPages(crate::reader_print::PrintSettings),
     /// A command this window does not know (handled by a window built on it, BlueEditor).
     Command(String),
     /// Pick a file for `purpose`; the host passes its bytes back (BlueEditor `file_picked`).
@@ -341,6 +347,8 @@ pub struct ReaderWindow {
     pub(crate) doc_hidden: bool,
     /// Sizes and greys.
     look: Look,
+    /// Print dialog, Read Mode / Full Screen and the selected comment.
+    extra: extra::Extra,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -406,6 +414,7 @@ impl ReaderWindow {
             tool_hidden: false,
             doc_hidden: false,
             look: Look::READER,
+            extra: extra::Extra::default(),
         }
     }
 
@@ -764,6 +773,7 @@ impl ReaderWindow {
                     "view.fullscreen",
                     Big("fullscreen", "pdfReader.fullScreen", false),
                 ),
+                ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
             ]),
             _ => {
                 v.clear();
@@ -1016,6 +1026,7 @@ impl ReaderWindow {
             (w - margin - sbw - dx).max(1.0),
             (h - sh - top).max(1.0),
         ];
+        self.mode_layout();
         let (rect, scale) = (self.doc_rect, self.scale);
         if let Some(t) = self.tabs.get_mut(self.active) {
             t.view.set_frame(rect, scale);
@@ -1026,7 +1037,7 @@ impl ReaderWindow {
 
     /// What a window point is for the window manager.
     pub fn nc_hit(&self, x: f32, y: f32) -> NcHit {
-        if self.menu.is_some() || self.dialog.is_some() {
+        if self.menu.is_some() || self.dialog.is_some() || self.extra_modal() {
             return NcHit::Client;
         }
         if y >= self.title_h() {
@@ -1087,6 +1098,9 @@ impl ReaderWindow {
 
     #[allow(clippy::too_many_lines)]
     fn route(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        if let Some(redraw) = self.route_extra(&input, m) {
+            return redraw;
+        }
         // Dialog first.
         if let Some((d, _)) = self.dialog.as_mut() {
             let done = match &input {
@@ -1871,6 +1885,9 @@ impl ReaderWindow {
 
     #[allow(clippy::too_many_lines)]
     fn command(&mut self, cmd: &str, m: &dyn TextMeasure) {
+        if self.command_extra(cmd, m) {
+            return;
+        }
         if let Some(z) = cmd
             .strip_prefix("zoom.set.")
             .and_then(|v| v.parse::<f32>().ok())
@@ -2004,6 +2021,13 @@ impl ReaderWindow {
             PanelRow::Page(i) => t.view.go_to(i, None),
             PanelRow::Comment(page, rect) => {
                 t.view.go_to(page, Some((rect[1] - 40.0).max(0.0)));
+                // The comment is selected on the page too.
+                self.extra.selected = t
+                    .view
+                    .doc()
+                    .annotations()
+                    .into_iter()
+                    .find(|a| a.page == page && a.rect == rect);
             }
         }
         true
@@ -2033,6 +2057,7 @@ impl ReaderWindow {
         if self.show_start {
             return false;
         }
+        self.prepare_extra();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
         let thumb_w = self.px(120.0);
@@ -2066,6 +2091,9 @@ impl ReaderWindow {
     /// Paint the window.
     #[allow(clippy::too_many_lines)]
     pub fn paint(&mut self, p: &mut dyn Painter) {
+        if self.paint_full(p) {
+            return;
+        }
         let (w, h) = self.size;
         p.clear(self.look.chrome);
         let ink = Ink {
@@ -2374,12 +2402,14 @@ impl ReaderWindow {
         p.fill_rect(0.0, 0.0, 1.0, h, self.look.edge);
         p.fill_rect(w - 1.0, 0.0, 1.0, h, self.look.edge);
         p.fill_rect(0.0, h - 1.0, w, 1.0, self.look.edge);
+        self.paint_extra(p);
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }
         if let Some((d, _)) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
         }
+        self.paint_extra_dialogs(p);
     }
 
     fn tool_id(&self) -> &'static str {
@@ -2754,7 +2784,7 @@ impl ReaderWindow {
                     p.pop_clip();
                     return;
                 };
-                let list = t.view.doc().annotations();
+                let list = t.view.doc().comment_threads();
                 if list.is_empty() {
                     p.text(
                         &self.t("pdfReader.noComments"),
@@ -2767,7 +2797,8 @@ impl ReaderWindow {
                 let small = self.style(12.5, false);
                 let mut last_page = usize::MAX;
                 let mut rows = Vec::new();
-                for a in list {
+                for thread in list {
+                    let a = thread.comment;
                     if a.page != last_page {
                         last_page = a.page;
                         p.text(
@@ -2801,8 +2832,37 @@ impl ReaderWindow {
                         body.size,
                     );
                     p.text(&shown, r[0] + self.px(17.6), y + self.px(16.0), body, TEXT);
+                    let selected = self
+                        .extra
+                        .selected
+                        .as_ref()
+                        .is_some_and(|s| s.page == a.page && s.rect == a.rect);
+                    if selected {
+                        p.fill_rect(
+                            r[0] + self.px(4.0),
+                            y - 2.0,
+                            2.0,
+                            self.px(36.0),
+                            self.theme.accent,
+                        );
+                    }
                     rows.push((y, self.px(38.0), PanelRow::Comment(a.page, a.rect)));
                     y += self.px(44.0);
+                    // Replies, indented under the comment.
+                    for reply in thread.replies {
+                        let rx = r[0] + self.px(30.0);
+                        p.text(&format!("↳ {}", reply.author), rx, y, small, MUTED);
+                        let text = reply.contents.replace('\n', " ");
+                        let shown = elide(
+                            &text,
+                            self.width_of(&text, body),
+                            r[2] - self.px(40.0),
+                            body.size,
+                        );
+                        p.text(&shown, rx, y + self.px(16.0), body, TEXT);
+                        rows.push((y, self.px(38.0), PanelRow::Comment(a.page, a.rect)));
+                        y += self.px(40.0);
+                    }
                 }
                 self.panel_rows = rows;
             }

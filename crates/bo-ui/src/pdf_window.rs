@@ -54,6 +54,20 @@ pub trait PdfWindow {
     fn caret(&self) -> Option<[f32; 4]> {
         None
     }
+    /// Show the window's own Print dialog with these printers; alse when it has none (the
+    /// host then prints its own way).
+    fn open_print(
+        &mut self,
+        _printers: Vec<String>,
+        _default: Option<&str>,
+        _m: &dyn TextMeasure,
+    ) -> bool {
+        false
+    }
+    /// Interface text `key` with `{{name}}` placeholders filled.
+    fn text(&self, key: &str, _args: &[(&str, &str)]) -> String {
+        key.to_owned()
+    }
 }
 
 impl PdfWindow for ReaderWindow {
@@ -101,6 +115,18 @@ impl PdfWindow for ReaderWindow {
     }
     fn app(&self) -> &'static str {
         "BlueReader"
+    }
+    fn open_print(
+        &mut self,
+        printers: Vec<String>,
+        default: Option<&str>,
+        m: &dyn TextMeasure,
+    ) -> bool {
+        ReaderWindow::open_print(self, printers, default, m);
+        true
+    }
+    fn text(&self, key: &str, args: &[(&str, &str)]) -> String {
+        ReaderWindow::strings_fmt(self, key, args)
     }
 }
 

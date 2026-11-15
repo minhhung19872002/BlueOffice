@@ -380,6 +380,49 @@ impl Shell {
     }
 
     #[allow(clippy::too_many_lines)]
+    /// Print through the Windows print path (GDI): each page rendered as a bitmap.
+    fn print_pages(&mut self, s: &bo_ui::PrintSettings) {
+        let Some(gpu) = self.gpu.as_ref() else {
+            return;
+        };
+        let title = self.window.title();
+        let Some(view) = self.window.view_mut() else {
+            return;
+        };
+        let pages: Vec<(usize, (f32, f32))> =
+            s.pages.iter().map(|&i| (i, view.page_size(i))).collect();
+        let device = &gpu.device;
+        let doc = view.doc_mut();
+        let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
+            let opts = RenderOptions {
+                min_line: 1.0 / scale,
+                ..RenderOptions::default()
+            };
+            let p = doc.render(i, opts).ok()?;
+            let pics = pictures(&p.images);
+            let img = device
+                .render_page(&p.list, doc.fonts(), scale, &pics)
+                .ok()?;
+            Some(print::PrintPage {
+                width: img.width,
+                height: img.height,
+                pixels: img.pixels,
+            })
+        };
+        let scaling = match s.scaling {
+            bo_ui::PrintScaling::Fit => print::Scaling::Fit,
+            bo_ui::PrintScaling::Shrink => print::Scaling::Shrink,
+            bo_ui::PrintScaling::Actual => print::Scaling::Actual,
+        };
+        let result = print::print(&s.printer, &title, &pages, s.copies, scaling, &mut render);
+        let status = match result {
+            Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
+            Err(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
+        };
+        self.window.set_status(&status);
+    }
+
+    #[allow(clippy::too_many_lines)]
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
         for r in self.window.take_requests() {
@@ -410,19 +453,25 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Print => {
-                    // Printed through the system's PDF print verb, like BlueDoc's print path.
-                    if let Some(view) = self.window.view_mut() {
-                        if let Ok(bytes) = view.doc_mut().save() {
-                            let path = std::env::temp_dir()
-                                .join(format!("bluereader-print-{}.pdf", std::process::id()));
-                            if std::fs::write(&path, bytes).is_ok()
-                                && !win32::shell_open(&path, "print")
-                            {
-                                win32::shell_open(&path, "open");
+                    // Our own Print dialog with the installed printers; a window without one
+                    // prints through the system's PDF print verb.
+                    let (printers, default) = print::printers();
+                    let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+                    if !self.window.open_print(printers, default.as_deref(), &m) {
+                        if let Some(view) = self.window.view_mut() {
+                            if let Ok(bytes) = view.doc_mut().save() {
+                                let path = std::env::temp_dir()
+                                    .join(format!("bluereader-print-{}.pdf", std::process::id()));
+                                if std::fs::write(&path, bytes).is_ok()
+                                    && !win32::shell_open(&path, "print")
+                                {
+                                    win32::shell_open(&path, "open");
+                                }
                             }
                         }
                     }
                 }
+                ReaderRequest::PrintPages(settings) => self.print_pages(&settings),
                 ReaderRequest::Copy(text) => win32::set_clipboard(&text, "", ""),
                 ReaderRequest::OpenUrl(url) => {
                     if url.starts_with("http://")
@@ -672,6 +721,11 @@ impl Handler for Shell {
         }
     }
 }
+
+// GDI printing (Win32 calls confined to this child module, like win32.rs).
+#[path = "reader_print.rs"]
+#[allow(unsafe_code)]
+mod print;
 
 /// Gamma, enhanced contrast and ClearType level of PDF page text: the same ink coverage on body
 /// text as the reference reader (docs/ui/REPORT-reader.md round 2).

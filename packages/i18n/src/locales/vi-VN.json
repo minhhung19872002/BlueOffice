@@ -6920,6 +6920,41 @@
     "bookmarksSlides": "Tạo dấu trang từ tiêu đề trang chiếu",
     "bookmarksSheets": "Tạo dấu trang từ tên trang tính"
   },
+  "pdfPrint": {
+    "title": "In",
+    "printer": "Máy in",
+    "noPrinter": "Chưa cài máy in",
+    "range": "Trang cần in",
+    "all": "Tất cả",
+    "current": "Trang hiện tại",
+    "pages": "Các trang",
+    "copies": "Số bản",
+    "sizing": "Cỡ trang",
+    "fit": "Vừa vùng in",
+    "shrink": "Thu nhỏ trang quá khổ",
+    "actual": "Cỡ thật",
+    "print": "In",
+    "cancel": "Hủy",
+    "sheets": "{{n}} tờ giấy",
+    "done": "Đã gửi {{n}} trang tới máy in",
+    "failed": "In không thành công: {{error}}"
+  },
+  "pdfExtra": {
+    "readMode": "Chế độ đọc",
+    "editText": "Sửa nội dung",
+    "reply": "Trả lời",
+    "replyTitle": "Trả lời nhận xét",
+    "editTitle": "Sửa nhận xét",
+    "text": "Nội dung",
+    "delete": "Xóa",
+    "color": "Màu",
+    "yellow": "Vàng",
+    "red": "Đỏ",
+    "green": "Xanh lá",
+    "blue": "Xanh dương",
+    "purple": "Tím",
+    "black": "Đen"
+  },
   "pdfReader": {
     "tabs": {
       "file": "Tệp",

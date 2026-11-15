@@ -244,6 +244,14 @@ impl ReaderView {
         self.frame
     }
 
+    /// Gap between pages and around them in logical pixels (6 normally; Full Screen uses 1).
+    pub fn set_gap(&mut self, gap: f32) {
+        if (self.gap - gap).abs() > f32::EPSILON {
+            self.gap = gap.max(0.0);
+            self.stale = true;
+        }
+    }
+
     fn margin(&self) -> f32 {
         (self.gap * self.dpi).round()
     }

@@ -14,6 +14,7 @@
 #![allow(clippy::items_after_statements, clippy::match_same_arms)]
 
 mod annot;
+mod annot_edit;
 mod cmap;
 mod codecs;
 mod color;
@@ -37,6 +38,7 @@ mod type1;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
+pub use annot_edit::CommentThread;
 pub use edit::SaveOptions;
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
@@ -680,6 +682,10 @@ fn draw_annotation<'a>(
     let flags = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
     let subtype = d.get(b"Subtype").and_then(Object::as_name).unwrap_or(b"");
     if flags & (2 | 32) != 0 || subtype == b"Popup" {
+        return;
+    }
+    // Replies (§12.5.6.2 /IRT) show in the comment list, not on the page.
+    if d.has(b"IRT") && d.get(b"RT").and_then(Object::as_name).ok() != Some(b"Group") {
         return;
     }
     let ap = d

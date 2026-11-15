@@ -1,6 +1,84 @@
 //! BlueReader View tab additions (round 3), the parts that are pure functions: Night Mode
 //! colours of a page's display list, the Reflow layout of a page's text, and the ruler ticks.
+use bo_pdfread::TextChar;
 use bo_render::{Command, PageList, Paint, Rgba};
+
+/// AutoScroll speeds in logical pixels per second; the reference starts at about 2.2 (2.7
+/// device pixels a second at 125 %, measured), the arrow keys step through the others.
+pub(crate) const AUTO_SPEEDS: [f32; 7] = [1.1, 2.2, 4.4, 8.8, 17.6, 35.2, 70.4];
+
+/// A page's text as plain lines like the reference's Text Viewer: characters grouped by
+/// baseline, placed in columns of the page's typical character width (indents and wide gaps
+/// become spaces), a blank line where the line spacing opens up.
+#[must_use]
+pub(crate) fn text_lines(chars: &[TextChar]) -> Vec<String> {
+    let items: Vec<&TextChar> = chars
+        .iter()
+        .filter(|c| !c.text.is_empty() && c.rect[2] > c.rect[0])
+        .collect();
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let median = |mut v: Vec<f32>| {
+        v.sort_by(f32::total_cmp);
+        v.get(v.len().saturating_sub(1) / 2)
+            .copied()
+            .unwrap_or(10.0)
+    };
+    let size = median(items.iter().map(|c| c.size.max(1.0)).collect()).max(1.0);
+    let cw = median(
+        items
+            .iter()
+            .filter(|c| c.text.chars().count() == 1 && !c.text.starts_with(' '))
+            .map(|c| c.rect[2] - c.rect[0])
+            .collect(),
+    )
+    .clamp(size * 0.25, size);
+    let left = items
+        .iter()
+        .map(|c| c.rect[0])
+        .fold(f32::INFINITY, f32::min);
+    // Lines by baseline, top to bottom.
+    let mut sorted = items;
+    sorted.sort_by(|a, b| a.origin[1].total_cmp(&b.origin[1]));
+    let mut lines: Vec<(f32, Vec<&TextChar>)> = Vec::new();
+    for c in sorted {
+        match lines.last_mut() {
+            Some((y, line)) if (c.origin[1] - *y).abs() <= size * 0.4 => line.push(c),
+            _ => lines.push((c.origin[1], vec![c])),
+        }
+    }
+    let steps: Vec<f32> = lines.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    let pitch = median(steps).max(size);
+    let mut out = Vec::new();
+    let mut prev_y: Option<f32> = None;
+    for (y, mut line) in lines {
+        if let Some(py) = prev_y {
+            if y - py > pitch * 1.6 {
+                out.push(String::new());
+            }
+        }
+        prev_y = Some(y);
+        line.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
+        let mut s = String::new();
+        let mut len = 0_usize;
+        let mut end: Option<f32> = None;
+        for c in line {
+            let col = ((c.rect[0] - left) / cw).round().max(0.0) as usize;
+            let gap = end.map_or(f32::INFINITY, |e| c.rect[0] - e);
+            if gap > size * 0.2 && !s.ends_with(' ') && !c.text.starts_with(' ') {
+                let pad = col.max(len + usize::from(len > 0)) - len;
+                s.extend(std::iter::repeat_n(' ', pad));
+                len += pad;
+            }
+            s.push_str(&c.text);
+            len += c.text.chars().count();
+            end = Some(c.rect[2]);
+        }
+        out.push(s.trim_end().to_owned());
+    }
+    out
+}
 
 /// Night Mode paper and text, measured on the reference reader: the page turns (25, 25, 25)
 /// and its text (127, 127, 127); other colours stay as they are.
@@ -250,6 +328,25 @@ mod tests {
         // A long word breaks.
         let lines = wrap(&["abcdefghijklmnopqrstuvwxyz".to_owned()], 100.0, &measure);
         assert_eq!(lines[0], "abcdefghij");
+    }
+
+    #[test]
+    fn text_viewer_lines_keep_columns_and_paragraph_gaps() {
+        let ch = |t: &str, x: f32, y: f32| bo_pdfread::TextChar {
+            text: t.to_owned(),
+            rect: [x, y - 8.0, x + 5.0, y + 2.0],
+            origin: [x, y],
+            dir: [1.0, 0.0],
+            size: 10.0,
+        };
+        let mut chars = Vec::new();
+        // "ab" at the margin, "cd" indented by four columns on the next line, a paragraph gap,
+        // then "e f" with a wide gap.
+        chars.extend([ch("a", 100.0, 100.0), ch("b", 105.0, 100.0)]);
+        chars.extend([ch("c", 120.0, 112.0), ch("d", 125.0, 112.0)]);
+        chars.extend([ch("e", 100.0, 150.0), ch("f", 130.0, 150.0)]);
+        let lines = text_lines(&chars);
+        assert_eq!(lines, vec!["ab", "    cd", "", "e     f"]);
     }
 
     #[test]

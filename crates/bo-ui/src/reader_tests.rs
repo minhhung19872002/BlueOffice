@@ -513,16 +513,22 @@ fn night_mode_reflow_autoscroll_cover_and_rulers() {
         p.texts
     );
     w.run_command("view.reflow", &Fixed);
-    // AutoScroll: ticks move the document down; Escape stops.
+    // AutoScroll: every frame moves the document by the speed times the time since the last
+    // (Down: faster); frames keep coming while it runs; Escape stops.
     w.run_command("view.autoScroll", &Fixed);
-    let y0 = w.view().expect("view").scroll_state().0 .1;
-    for _ in 0..5 {
-        assert!(w.handle(Input::Tick, &Fixed));
+    for _ in 0..6 {
+        key(&mut w, Key::Down, false, false);
     }
+    let y0 = w.view().expect("view").scroll_state().0 .1;
+    let mut store = Store::default();
+    assert!(w.prepare(&mut store));
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    assert!(w.prepare(&mut store));
     let y1 = w.view().expect("view").scroll_state().0 .1;
-    assert!(y1 > y0 + 10.0, "{y0} → {y1}");
+    assert!(y1 > y0 + 5.0, "{y0} → {y1}");
     key(&mut w, Key::Escape, false, false);
-    assert!(!w.handle(Input::Tick, &Fixed));
+    w.prepare(&mut store);
+    assert!(!w.prepare(&mut store));
     // Separate cover page in facing layouts.
     w.run_command("view.facing", &Fixed);
     let cover = w.view().expect("view").cover();
@@ -637,6 +643,61 @@ fn drawing_tools_stamp_measure_resize_and_properties() {
     let mut p = Rec::default();
     w.paint(&mut p);
     assert!(p.texts.iter().any(|t| t == "3 pt"));
+}
+
+#[test]
+fn text_viewer_split_and_read_aloud() {
+    let mut w = window(3);
+    // Text Viewer: every page's text as plain lines, no page images.
+    w.run_command("view.textViewer", &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    for n in 1..=3 {
+        let line = format!("Page {n} hello world");
+        assert!(p.texts.contains(&line), "{line} in {:?}", p.texts);
+    }
+    assert!(p.pages.iter().all(|(k, ..)| *k >= THUMB_KEY));
+    w.run_command("view.textViewer", &Fixed);
+    // Horizontal split: two panes the same width, one above the other; the second keeps its
+    // own scroll and shows pages too.
+    let whole = w.view().expect("view").frame();
+    w.run_command("split.horizontal", &Fixed);
+    let top = w.view().expect("view").frame();
+    assert_eq!(top[2], whole[2]);
+    assert!(top[3] < whole[3] / 2.0 + 1.0);
+    let mut store = Store::default();
+    w.prepare(&mut store);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    let shown = p.pages.iter().filter(|(k, ..)| *k == 0).count();
+    assert_eq!(shown, 2, "page 1 in both panes: {:?}", p.pages);
+    // The wheel over the lower pane moves the view there.
+    let below = (top[0] + 20.0, top[1] + top[3] + 40.0);
+    w.handle(
+        Input::Move {
+            x: below.0,
+            y: below.1,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Wheel(-120.0), &Fixed);
+    assert!(w.view().expect("view").frame()[1] > top[1] + top[3]);
+    // Choosing it again removes the split.
+    w.run_command("split.horizontal", &Fixed);
+    assert_eq!(w.view().expect("view").frame(), whole);
+    w.run_command("split.spreadsheet", &Fixed);
+    let q = w.view().expect("view").frame();
+    assert!(q[2] < whole[2] / 2.0 + 1.0 && q[3] < whole[3] / 2.0 + 1.0);
+    w.run_command("split.spreadsheet", &Fixed);
+    // Read aloud asks the host to speak the page's text.
+    w.take_requests();
+    w.run_command("read.page", &Fixed);
+    w.run_command("read.stop", &Fixed);
+    let req = w.take_requests();
+    assert!(matches!(&req[..], [
+        ReaderRequest::Speak { text, rate: 0 },
+        ReaderRequest::SpeechControl(0)
+    ] if text.contains("Page 1 hello world")));
 }
 
 #[test]

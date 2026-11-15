@@ -64,6 +64,10 @@ pub trait PdfWindow {
     ) -> bool {
         false
     }
+    /// Paper of each printer of the open Print dialog (in the order given to `open_print`).
+    fn set_print_papers(&mut self, _papers: Vec<Option<crate::Paper>>) {}
+    /// Paper of one printer after its driver settings changed.
+    fn set_print_paper(&mut self, _name: &str, _paper: Option<crate::Paper>) {}
     /// Interface text `key` with `{{name}}` placeholders filled.
     fn text(&self, key: &str, _args: &[(&str, &str)]) -> String {
         key.to_owned()
@@ -124,6 +128,12 @@ impl PdfWindow for ReaderWindow {
     ) -> bool {
         ReaderWindow::open_print(self, printers, default, m);
         true
+    }
+    fn set_print_papers(&mut self, papers: Vec<Option<crate::Paper>>) {
+        ReaderWindow::set_print_papers(self, papers);
+    }
+    fn set_print_paper(&mut self, name: &str, paper: Option<crate::Paper>) {
+        ReaderWindow::set_print_paper(self, name, paper);
     }
     fn text(&self, key: &str, args: &[(&str, &str)]) -> String {
         ReaderWindow::strings_fmt(self, key, args)

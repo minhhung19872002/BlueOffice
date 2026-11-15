@@ -68,6 +68,7 @@ impl ReaderWindow {
         if let Some(r) = visible_part(&t.view, current) {
             d.set_view(current, r);
         }
+        d.set_page_sizes((0..n).map(|i| t.view.page_size(i)).collect());
         d.layout(m, self.size, self.scale);
         self.extra.print = Some(d);
         self.update_print_preview();
@@ -93,27 +94,40 @@ impl ReaderWindow {
         self.extra.print.is_some()
     }
 
-    /// The preview image of the page shown in the Print dialog, fitted to its preview box.
+    /// Paper of each printer of the open Print dialog (the host measures them).
+    pub fn set_print_papers(&mut self, papers: Vec<Option<crate::Paper>>) {
+        if let Some(d) = self.extra.print.as_mut() {
+            d.set_papers(papers);
+        }
+    }
+
+    /// Paper of printer `name` after its driver settings changed.
+    pub fn set_print_paper(&mut self, name: &str, paper: Option<crate::Paper>) {
+        if let Some(d) = self.extra.print.as_mut() {
+            d.set_paper(name, paper);
+        }
+    }
+
+    /// The page images of the sheet shown in the Print dialog's preview, each at the size it
+    /// is drawn on the preview's paper.
     fn update_print_preview(&mut self) {
         let (Some(d), Some(t)) = (self.extra.print.as_mut(), self.tabs.get_mut(self.active)) else {
             return;
         };
-        let i = d.preview_page();
-        let (pw, ph) = t.view.page_size(i);
-        let b = d.preview_box();
-        let s = (b[2] / pw.max(1.0)).min(b[3] / ph.max(1.0));
-        if s <= 0.0 {
-            return;
-        }
-        t.view.want_preview(i, s);
-        // The thumbnail is drawn by the view's prepare right after this; until then the
-        // painter has no image for the key and draws nothing.
-        d.set_preview(Some(t.key_base + PREVIEW_KEY), (pw, ph), s);
+        let wanted = d.preview_requests();
+        t.view.want_previews(&wanted);
+        // The images are drawn by the view's prepare right after this; until then the
+        // painter has no image for a key and the preview shows grey pages.
+        let keys = (0..wanted.len())
+            .map(|k| Some(t.key_base + PREVIEW_KEY + 1 + k))
+            .collect();
+        d.set_preview_keys(keys);
     }
 
     /// Before page images are brought up to date (the print preview wants its thumbnail).
     pub(crate) fn prepare_extra(&mut self) {
         self.sync_viewx();
+        self.prepare_view4();
         if self.extra.print.is_some() {
             self.update_print_preview();
         }
@@ -241,6 +255,9 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_extra(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
         if self.extra.print.is_none() {
+            if let Some(r) = self.route_view4(input, m) {
+                return Some(r);
+            }
             if let Some(r) = self.route_viewx(input, m) {
                 return Some(r);
             }
@@ -272,6 +289,9 @@ impl ReaderWindow {
                     self.requests.push(ReaderRequest::PrintPages(s));
                 }
                 Some(PrintAction::Cancel) => self.extra.print = None,
+                Some(PrintAction::Properties(name)) => {
+                    self.requests.push(ReaderRequest::PrinterProperties(name));
+                }
                 None => {}
             }
             if let Some(d) = self.extra.print.as_mut() {
@@ -486,7 +506,7 @@ impl ReaderWindow {
 
     /// Commands of the additions; `true` when handled.
     pub(crate) fn command_extra(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
-        if self.command_viewx(cmd, m) || self.command_draw(cmd, m) {
+        if self.command_viewx(cmd, m) || self.command_view4(cmd, m) || self.command_draw(cmd, m) {
             return true;
         }
         match cmd {

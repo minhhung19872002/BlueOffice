@@ -137,6 +137,11 @@ pub struct ReaderView {
     /// Preview image wanted this frame (page, scale) and the one drawn (page, scale, generation).
     preview_wanted: Option<(usize, f32)>,
     preview_drawn: Option<(usize, f32, u64)>,
+    /// Print preview images wanted (page, scale) and drawn (page, scale, generation).
+    previews_wanted: Vec<(usize, f32)>,
+    previews_drawn: Vec<Option<(usize, f32, u64)>>,
+    /// Other panes of a split window (frame, scroll): their pages are kept drawn too.
+    extra_views: Vec<([f32; 4], (f32, f32))>,
 }
 
 /// Largest page image side and area (device pixels) drawn whole; larger pages at high zoom
@@ -184,6 +189,9 @@ impl ReaderView {
             crops: HashMap::new(),
             preview_wanted: None,
             preview_drawn: None,
+            previews_wanted: Vec::new(),
+            previews_drawn: Vec::new(),
+            extra_views: Vec::new(),
         };
         v.update_sizes();
         v
@@ -629,6 +637,46 @@ impl ReaderView {
         ])
     }
 
+    /// Page rectangle in window pixels in another pane (`frame`, scrolled to `scroll`) of
+    /// the same size as the view.
+    pub fn page_rect_at(&self, i: usize, frame: [f32; 4], scroll: (f32, f32)) -> Option<[f32; 4]> {
+        let r = self.rects.get(i)?;
+        Some([
+            frame[0] + r[0] - scroll.0,
+            frame[1] + r[1] - scroll.1,
+            r[2],
+            r[3],
+        ])
+    }
+
+    /// Pages intersecting another pane (`frame`, scrolled to `scroll`).
+    pub fn visible_pages_at(&self, frame: [f32; 4], scroll: (f32, f32)) -> Vec<usize> {
+        let [fx, fy, fw, fh] = frame;
+        let shown: Vec<usize> = match self.layout {
+            Layout::Single | Layout::Facing => self.row_of(self.single_page),
+            _ => (0..self.rects.len()).collect(),
+        };
+        shown
+            .into_iter()
+            .filter(|&i| {
+                self.page_rect_at(i, frame, scroll).is_some_and(|r| {
+                    r[1] < fy + fh && r[1] + r[3] > fy && r[0] < fx + fw && r[0] + r[2] > fx
+                })
+            })
+            .collect()
+    }
+
+    /// Other panes of a split window (frame, scroll); their pages stay drawn.
+    pub fn set_extra_views(&mut self, views: Vec<([f32; 4], (f32, f32))>) {
+        self.extra_views = views;
+    }
+
+    /// Scroll to `scroll` (switching panes of a split window).
+    pub fn set_scroll(&mut self, scroll: (f32, f32)) {
+        self.scroll = scroll;
+        self.clamp_scroll();
+    }
+
     /// Pages intersecting the view.
     pub fn visible_pages(&self) -> Vec<usize> {
         let [fx, fy, fw, fh] = self.frame;
@@ -702,7 +750,7 @@ impl ReaderView {
             return true;
         }
         let opts = self.render_opts();
-        let Ok(page) = self.doc.render(i, opts) else {
+        let Ok(page) = self.doc.render_extra(i, opts, self.render_extra()) else {
             return false;
         };
         let list = rotate_list(page.list, self.rotation);
@@ -750,6 +798,14 @@ impl ReaderView {
         true
     }
 
+    /// Night Mode greys every shown text, outlined text included.
+    fn render_extra(&self) -> bo_pdfread::RenderExtra {
+        bo_pdfread::RenderExtra {
+            text_color: self.night.then_some(crate::reader_viewx::NIGHT_TEXT),
+            ..bo_pdfread::RenderExtra::default()
+        }
+    }
+
     fn unrotated(&self, i: usize) -> (f32, f32) {
         let info = self.doc.page_info(i);
         info.map_or((612.0, 792.0), |p| (p.width, p.height))
@@ -759,7 +815,7 @@ impl ReaderView {
     fn render_paths(&mut self, i: usize) -> bool {
         let mut opts = self.render_opts();
         opts.text_as_paths = true;
-        let Ok(page) = self.doc.render(i, opts) else {
+        let Ok(page) = self.doc.render_extra(i, opts, self.render_extra()) else {
             return false;
         };
         let night = self.night;
@@ -787,7 +843,14 @@ impl ReaderView {
         self.relayout();
         let start = std::time::Instant::now();
         let scale = self.px_per_pt();
-        let visible = self.visible_pages();
+        let mut visible = self.visible_pages();
+        for &(frame, scroll) in &self.extra_views {
+            for i in self.visible_pages_at(frame, scroll) {
+                if !visible.contains(&i) {
+                    visible.push(i);
+                }
+            }
+        }
         let mut more = false;
         let mut wanted: Vec<usize> = visible.clone();
         // Neighbours for smooth scrolling.
@@ -850,6 +913,23 @@ impl ReaderView {
                 self.preview_drawn = Some((i, s, self.generation[i]));
             }
         }
+        // Print preview pages of the sheet shown.
+        let previews = std::mem::take(&mut self.previews_wanted);
+        if self.previews_drawn.len() < previews.len() {
+            self.previews_drawn.resize(previews.len(), None);
+        }
+        for (k, &(i, s)) in previews.iter().enumerate() {
+            let fresh = i < self.sizes.len()
+                && self.previews_drawn[k].is_some_and(|(p, ds, g)| {
+                    p == i && (ds - s).abs() < 1e-4 && g == self.generation[i]
+                });
+            if fresh || i >= self.sizes.len() {
+                continue;
+            }
+            if self.ensure(i) && self.draw(store, PREVIEW_KEY + 1 + k, i, s).is_ok() {
+                self.previews_drawn[k] = Some((i, s, self.generation[i]));
+            }
+        }
         // Thumbnails.
         let thumbs = std::mem::take(&mut self.thumbs_wanted);
         for (i, s) in thumbs {
@@ -895,6 +975,12 @@ impl ReaderView {
             }
         }
         more
+    }
+
+    /// Ask for the print preview's page images this frame: `(page, scale)` drawn under keys
+    /// [`PREVIEW_KEY`] + 1 + their position.
+    pub fn want_previews(&mut self, wanted: &[(usize, f32)]) {
+        self.previews_wanted = wanted.to_vec();
     }
 
     /// Ask for the preview image of page `i` at `scale` (key [`PREVIEW_KEY`]) this frame.

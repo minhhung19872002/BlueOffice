@@ -27,6 +27,9 @@ mod viewx;
 // Drawing tools, resize handles and the properties panel (BlueReader round 3).
 #[path = "reader_draw_win.rs"]
 mod draw;
+// Text Viewer, split panes, Read aloud, smooth AutoScroll (BlueReader round 4).
+#[path = "reader_view4_win.rs"]
+mod view4;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -131,6 +134,18 @@ pub enum ReaderRequest {
         /// PDF bytes.
         bytes: Vec<u8>,
     },
+    /// Show the driver settings of this printer (the Print dialog's Properties); the host
+    /// keeps them for printing and passes the paper back ([`ReaderWindow::set_print_paper`]).
+    PrinterProperties(String),
+    /// Read text aloud (View > Read) at a rate from −10 to 10, replacing what is being read.
+    Speak {
+        /// Text to read.
+        text: String,
+        /// Rate −10…10.
+        rate: i32,
+    },
+    /// Reading aloud: 0 stop, 1 pause, 2 resume, 10 + rate: change the rate.
+    SpeechControl(i32),
 }
 
 /// What a window built on this one changes (BlueEditor): app name, ribbon tabs and items, File
@@ -359,6 +374,8 @@ pub struct ReaderWindow {
     viewx: viewx::ViewX,
     /// Comment tab drawing tools.
     draw: draw::Draw,
+    /// View tab additions of round 4.
+    view4: view4::View4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -427,6 +444,7 @@ impl ReaderWindow {
             extra: extra::Extra::default(),
             viewx: viewx::ViewX::default(),
             draw: draw::Draw::default(),
+            view4: view4::View4::default(),
         }
     }
 
@@ -770,6 +788,10 @@ impl ReaderWindow {
                 ("view.reflow", Big("reflow", "pdfView.reflow", false)),
                 ("view.reverse", Big("reverseView", "pdfView.reverse", false)),
                 ("view.night", Big("night", "pdfView.night", false)),
+                (
+                    "view.textViewer",
+                    Big("textViewer", "pdfView.textViewer", false),
+                ),
                 ("sep1", Sep),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep2", Sep),
@@ -779,12 +801,15 @@ impl ReaderWindow {
                 ("view.continuous", Small("continuous")),
                 ("view.cover", Small("cover")),
                 ("view.facing", Small("facing")),
-                ("view.grid", Small("grid")),
+                // The reference's sixth cell: split windows (the grid is in View Setting).
+                ("menu.split", Small("split")),
                 ("sep5", Sep),
                 (
                     "view.autoScroll",
                     Big("autoScroll", "pdfView.autoScroll", false),
                 ),
+                ("sep6", Sep),
+                ("menu.read", Big("read", "pdfView.read", true)),
                 ("sep3", Sep),
                 (
                     "view.wordCount",
@@ -2093,6 +2118,7 @@ impl ReaderWindow {
             return false;
         }
         self.prepare_extra();
+        let animating = self.view4_animating();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
         let thumb_w = self.px(120.0);
@@ -2120,7 +2146,7 @@ impl ReaderWindow {
                 }
             }
         }
-        t.view.prepare(&mut keyed, 24)
+        t.view.prepare(&mut keyed, 24) || animating
     }
 
     /// Paint the window.
@@ -2908,6 +2934,7 @@ impl ReaderWindow {
     fn paint_doc(&self, p: &mut dyn Painter) {
         let d = self.doc_rect;
         p.fill_rect(d[0], d[1], d[2], d[3], self.doc_canvas());
+        self.paint_split(p);
         if self.paint_reflow(p) {
             self.paint_viewx_overlay(p);
             return;

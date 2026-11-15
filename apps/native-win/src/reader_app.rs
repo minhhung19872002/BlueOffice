@@ -140,6 +140,8 @@ pub fn run(editor: bool) -> Result<(), String> {
             more: false,
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
+            devmodes: HashMap::new(),
+            speech: speech::Speech::default(),
         }),
     )
 }
@@ -233,6 +235,24 @@ impl Painter for WinPainter<'_, '_> {
     fn pop_clip(&mut self) {
         self.frame.pop_clip();
     }
+    fn page_part(&mut self, index: usize, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        if let Some(b) = self.pages.get(&index) {
+            self.frame.draw_page_part(b, src, dest, opacity);
+        }
+    }
+    fn page_part_rotated(
+        &mut self,
+        index: usize,
+        src: [f32; 4],
+        dest: [f32; 4],
+        opacity: f32,
+        degrees: f32,
+    ) {
+        if let Some(b) = self.pages.get(&index) {
+            self.frame
+                .draw_page_part_rotated(b, src, dest, opacity, degrees);
+        }
+    }
 }
 
 struct Measure<'a>(Option<&'a Device>);
@@ -281,6 +301,10 @@ struct Shell {
     pending_input: Option<PendingInput>,
     /// Last frame: page images, interface paint, end of drawing + present.
     last_frame: [std::time::Duration; 3],
+    /// Printer driver settings chosen with the Print dialog's Properties, by printer.
+    devmodes: HashMap<String, Vec<u64>>,
+    /// Read aloud (made when first used).
+    speech: speech::Speech,
 }
 
 struct PendingInput {
@@ -389,7 +413,8 @@ impl Shell {
         let Some(view) = self.window.view_mut() else {
             return;
         };
-        let result = print_job(&gpu.device, view.doc_mut(), &title, s, None);
+        let devmode = self.devmodes.get(&s.printer).map(Vec::as_slice);
+        let result = print_job(&gpu.device, view.doc_mut(), &title, s, None, devmode);
         let status = match result {
             Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
             Err(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
@@ -432,21 +457,40 @@ impl Shell {
                     // prints through the system's PDF print verb.
                     let (printers, default) = print::printers();
                     let m = Measure(self.gpu.as_ref().map(|g| &g.device));
-                    if !self.window.open_print(printers, default.as_deref(), &m) {
-                        if let Some(view) = self.window.view_mut() {
-                            if let Ok(bytes) = view.doc_mut().save() {
-                                let path = std::env::temp_dir()
-                                    .join(format!("bluereader-print-{}.pdf", std::process::id()));
-                                if std::fs::write(&path, bytes).is_ok()
-                                    && !win32::shell_open(&path, "print")
-                                {
-                                    win32::shell_open(&path, "open");
-                                }
+                    let papers: Vec<Option<bo_ui::Paper>> = printers
+                        .iter()
+                        .map(|p| print::paper(p, self.devmodes.get(p).map(Vec::as_slice)))
+                        .collect();
+                    if self.window.open_print(printers, default.as_deref(), &m) {
+                        self.window.set_print_papers(papers);
+                    } else if let Some(view) = self.window.view_mut() {
+                        if let Ok(bytes) = view.doc_mut().save() {
+                            let path = std::env::temp_dir()
+                                .join(format!("bluereader-print-{}.pdf", std::process::id()));
+                            if std::fs::write(&path, bytes).is_ok()
+                                && !win32::shell_open(&path, "print")
+                            {
+                                win32::shell_open(&path, "open");
                             }
                         }
                     }
                 }
                 ReaderRequest::PrintPages(settings) => self.print_pages(&settings),
+                ReaderRequest::Speak { text, rate } => {
+                    if let Err(e) = self.speech.speak(&text, rate) {
+                        self.window.set_status(&e);
+                    }
+                }
+                ReaderRequest::SpeechControl(what) => self.speech.control(what),
+                ReaderRequest::PrinterProperties(name) => {
+                    // The driver's own settings dialog, modal to our window.
+                    let base = self.devmodes.get(&name).map(Vec::as_slice);
+                    if let Some(dm) = print::properties(self.hwnd, &name, base) {
+                        self.devmodes.insert(name.clone(), dm);
+                    }
+                    let paper = print::paper(&name, self.devmodes.get(&name).map(Vec::as_slice));
+                    self.window.set_print_paper(&name, paper);
+                }
                 ReaderRequest::Copy(text) => win32::set_clipboard(&text, "", ""),
                 ReaderRequest::OpenUrl(url) => {
                     if url.starts_with("http://")
@@ -697,6 +741,11 @@ impl Handler for Shell {
     }
 }
 
+// Read aloud through the Windows speech voice (Win32 calls confined to this child module).
+#[path = "reader_speech.rs"]
+#[allow(unsafe_code)]
+mod speech;
+
 // GDI printing (Win32 calls confined to this child module, like win32.rs).
 #[path = "reader_print.rs"]
 #[allow(unsafe_code)]
@@ -710,6 +759,7 @@ fn print_job(
     title: &str,
     s: &bo_ui::PrintSettings,
     output: Option<String>,
+    devmode: Option<&[u64]>,
 ) -> Result<usize, String> {
     let sizes: Vec<(f32, f32)> = (0..doc.page_count())
         .map(|i| {
@@ -732,7 +782,13 @@ fn print_job(
             min_line: 1.0 / scale,
             ..RenderOptions::default()
         };
-        let p = doc.render(i, opts).ok()?;
+        let extra = bo_pdfread::RenderExtra {
+            printing: true,
+            print_what: s.what,
+            overprint: s.overprint,
+            ..bo_pdfread::RenderExtra::default()
+        };
+        let p = doc.render_extra(i, opts, extra).ok()?;
         let pics = pictures(&p.images);
         let img = device
             .render_page(&p.list, doc.fonts(), scale, &pics)
@@ -751,6 +807,16 @@ fn print_job(
             bo_ui::Duplex::ShortEdge => 2,
         },
         output,
+        landscape: match s.orientation {
+            bo_ui::Orientation::Portrait => false,
+            bo_ui::Orientation::Landscape => true,
+            bo_ui::Orientation::Auto => s.pages.first().is_some_and(|&i| {
+                let (w, h) = size_of(i);
+                w > h
+            }),
+        },
+        max_dpi: if s.as_image { 150.0 } else { 300.0 },
+        devmode: devmode.map(<[u64]>::to_vec),
     };
     print::print(&s.printer, title, &plan, &size_of, &options, &mut render)
 }
@@ -778,6 +844,10 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         layout: bo_ui::PrintLayout::Size,
         duplex: bo_ui::Duplex::Off,
         view: None,
+        orientation: bo_ui::Orientation::Portrait,
+        what: bo_pdfread::PrintWhat::DocumentAndMarkups,
+        as_image: false,
+        overprint: false,
     };
     let mut order = bo_ui::PageOrder::Horizontal;
     let mut border = false;
@@ -848,6 +918,28 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
             "--gray" => s.grayscale = true,
             "--no-rotate" => s.auto_rotate = false,
             "--no-center" => s.auto_center = false,
+            "--landscape" => s.orientation = bo_ui::Orientation::Landscape,
+            "--auto-orient" => s.orientation = bo_ui::Orientation::Auto,
+            "--as-image" => s.as_image = true,
+            "--overprint" => s.overprint = true,
+            "--what" => {
+                s.what = match val().as_str() {
+                    "doc" => bo_pdfread::PrintWhat::Document,
+                    "stamps" => bo_pdfread::PrintWhat::DocumentAndStamps,
+                    "forms" => bo_pdfread::PrintWhat::FormFields,
+                    "annots" => bo_pdfread::PrintWhat::Annotations,
+                    _ => bo_pdfread::PrintWhat::DocumentAndMarkups,
+                }
+            }
+            "--tile" => {
+                let zoom = val().parse().map_err(|_| "--tile wants a percent")?;
+                s.layout = bo_ui::PrintLayout::Tile {
+                    zoom,
+                    overlap: 0.36,
+                    cut_marks: true,
+                    labels: true,
+                };
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -864,7 +956,7 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         std::path::absolute(out).map_or_else(|_| out.clone(), |p| p.display().to_string())
     });
     let t0 = Instant::now();
-    let sheets = print_job(device, doc, "BlueReader", &s, output)?;
+    let sheets = print_job(device, doc, "BlueReader", &s, output, None)?;
     println!(
         r#"{{"sheets":{sheets},"ms":{:.0}}}"#,
         t0.elapsed().as_secs_f64() * 1e3

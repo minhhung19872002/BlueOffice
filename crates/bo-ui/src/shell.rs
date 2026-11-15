@@ -637,6 +637,7 @@ impl DocWindow {
             self.view.handle(Input::Text(t.to_owned()))
         } else if let Some(label) = id.strip_prefix("tab:") {
             self.sync_context();
+            self.relayout_pending = true;
             self.ribbon.select_tab(&format!("ribbon.tabs.{label}"))
         } else {
             self.action(id)

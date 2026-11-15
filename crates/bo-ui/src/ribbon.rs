@@ -284,9 +284,10 @@ fn insert_tab() -> Tab {
         label: "ribbon.tabs.insert",
         groups: vec![
             Group {
+                // Small labelled rows, as the reference's Pages group (room for Pictures).
                 label: "ribbon.groups.pages",
-                large: vec![L("insert.pageBreak")],
-                rows: vec![vec![S("layout.breaks")]],
+                large: vec![],
+                rows: vec![vec![S("insert.pageBreak")], vec![S("layout.breaks")]],
             },
             Group {
                 label: "ribbon.groups.insertObjects",

@@ -192,3 +192,110 @@ Còn khác: vạch mẫu chéo vẽ bằng đường khử răng cưa thay vì �
 - Tab Draw / Page Layout / Review / Help; tính toán thủ công; trình hướng dẫn tách cột; hộp thoại Format Cells có thẻ
   (Number / Alignment / Font / Border / Fill) như đối chứng — hiện là một hộp thoại trường văn bản.
 - Thanh công thức: hộp tên có mũi tên thả, sửa nhiều dòng.
+
+## Vòng 3 — độ trễ đo trên màn hình thật, thanh công thức, ribbon theo bề rộng, các tab còn lại
+
+Nhánh `worktree-agent-a835fa1460ab75a86` (từ `work/desktop-performance` eb3dac0c). Ảnh chụp và số đo trong thư mục
+scratch của phiên (`sheet3/`): `cmp-refs.png` (khung tham chiếu, trên: đối chứng, dưới: BlueSheet), `cmp-w1.png` /
+`cmp-w2.png` (Home ở 1920 px), `cmp-n.png` (Home ở 1500 px), `xh-all.png` (Home của đối chứng ở 1600/1700/1800 px),
+`xw-*.png` (mọi tab của đối chứng ở 1920 px), `tab-*.png` (từng tab, đối chứng trên / BlueSheet dưới),
+`xfb-3c.png` (thanh công thức mở rộng), `xfb-namesc.png` (danh sách tên), `xnote.png` (dấu chú thích).
+
+Cách đo mới, không gửi input thật và không đổi cửa sổ đang có focus của người dùng (kiểm tra sau mỗi lần chạy):
+- Đối chứng tạo bằng COM trong chính tiến trình đo (không `GetActiveObject`, chỉ đóng phiên bản đó). Cửa sổ của nó bỏ
+  `HWND_TOPMOST` (`SetWindowPos` trả `true` nhưng kiểu cửa sổ không có `WS_EX_TOPMOST`), nên `thumb.ps1` dựng một cửa sổ
+  nhỏ của phiên đo — luôn trên cùng, không bao giờ kích hoạt — hiển thị **ảnh thu nhỏ DWM sống** (`DwmRegisterThumbnail`)
+  của vùng lưới cửa sổ đích, rồi lấy mẫu vùng màn hình dưới nó bằng BitBlt. Hai ứng dụng đi qua cùng một đường DWM.
+- Chế độ sửa ô của đối chứng mở được bằng nhấp đúp gửi qua `PostMessage` vào cửa sổ lưới (F2 gửi vào thì không).
+- Đổi tab ribbon của đối chứng: nhấp gửi vào cửa sổ `NetUIHWND` của ribbon.
+- BlueSheet mở với `BLUEOFFICE_SHOW_NOACTIVATE=1` (cửa sổ hiện không lấy focus; thêm vào `win32.rs`, chỉ khi có biến).
+- Máy: màn hình 144 Hz (một khung 6,9 ms) trong phần lớn phiên, GPU NVIDIA RTX 2050; cuối phiên màn hình về 60 Hz
+  (các lần đo đó ghi riêng).
+
+### Vòng 9 — độ trễ bánh xe (`big10k.xlsx`, `WM_MOUSEWHEEL` gửi vào cửa sổ, 30–40 nấc, 144 Hz)
+
+| Cửa sổ / nhịp nấc | Đối chứng trung vị / p95 | BlueSheet vòng 2 | BlueSheet vòng 3 |
+|---|---|---|---|
+| 900×700, nấc cách 120 ms | 8,1 / 14,0 ms | 16,8 / 18,0 | 14,6 / 15,3 |
+| 1500×1000, nấc cách 120 ms | 8,0 / 13,6 | 24,6 / 25,8 | 19,9 / 26,9 |
+| 900×700, nấc cách 15 ms (cuộn liên tục) | 22,1 / 29,1 | — | 15,2 / 16,7 |
+
+Ở 60 Hz (cuối phiên, mỗi mẫu tốn 16 ms nên độ phân giải ±16 ms): đối chứng 16,9 / 18,9 ms (900×700) và 17,1 / 22,2
+(1500×1000); BlueSheet vòng 2 18,9 / 21,1, vòng 3 19,0 / 33,7 (một lần trễ 34–40 ms ở nấc thứ 3–4) và 21,0 / 23,0
+(1500×1000); cuộn liên tục: đối chứng 50,6 / 66,7 ms (dồn nấc), BlueSheet 18,2 / 20,0.
+
+Nhật ký nội bộ (`BLUEOFFICE_NATIVE_GPU=1` đợi GPU xong sau present — chỉ để đo, nó làm chậm luồng): ở 1500×1000 một khung
+cuộn tốn 6,1 ms GPU, tăng theo số điểm ảnh (GPU ở xung nhịp thấp giữa các nấc, giới hạn bởi băng thông bộ nhớ); CPU
+~4 ms (xử lý 2,4, lưới 1,0, vẽ giao diện 1,0). Đã làm:
+- Thanh tiêu đề + ribbon vẽ vào một ảnh GPU riêng (`Device::create_layer` / `draw_layer`, thêm mới), chỉ vẽ lại khi
+  băm các lệnh vẽ của chúng (`bo_ui::PaintHash`) đổi; vẽ giao diện CPU 1,0 → 0,3 ms.
+- Không xoá toàn cửa sổ mỗi khung (lưới + ảnh ribbon + phần phủ đã che kín): GPU mỗi khung 6,1 → 3,9 ms, trung vị
+  1500×1000 24,6 → 19,9 ms.
+- Đã thử: sync interval 0 (`WindowSurface::set_sync_interval`, thêm mới) — trên màn hình như 1 (15,0 / 15,8 so với
+  14,6 / 15,3 ms) nhưng `PrintWindow` khi đó có thể chụp một khung đang vẽ, nên mặc định giữ 1
+  (`BLUEOFFICE_SHEET_SYNC=0` để thử); swap chain bit-block-transfer (16,0 / 23,4 ms ở 900×700) — không tốt hơn flip, bỏ.
+
+Đọc số: đối chứng vẽ GDI trên CPU, DWM ghép ở lần vblank kế tiếp (~1 khung 144 Hz). BlueSheet cần CPU ~4 ms + GPU
+2–4 ms rồi mới được ghép: trung vị ~2 khung; p95 gần đối chứng ở 900×700 (15,3 so với 14,0 ms), và khi cuộn liên tục
+BlueSheet nhanh hơn rõ (đối chứng dồn các nấc: 22 / 29 ms ở 144 Hz, 51 / 67 ms ở 60 Hz). Việc còn lại để hạ thêm ở cửa
+sổ lớn: ảnh lưới dạng vòng (khi cuộn không chép cả ảnh sang ảnh thứ hai — bước chép chiếm ~2 ms GPU ở 1500×1000).
+
+### Vòng 10 — khung tham chiếu, trỏ ô bằng phím, thanh công thức
+
+Khung tham chiếu đo trên đối chứng (`=A1+B2:C3+A5+D2+E6+F8+B10+D11+A3`, `cmp-refs.png`):
+
+| Hạng mục | Đối chứng | BlueSheet trước | BlueSheet sau |
+|---|---|---|---|
+| Màu (theo thứ tự tham chiếu, lặp sau 7) | #326AC7 #C0353E #8157B7 #007C20 #B03E84 #B64900 #267392 | #4472C4 #ED7D31 #7030A0 #00B050 #C00000 #0070C0 #BF8F00 | như đối chứng |
+| Khung | 2 px: đường lưới + 1 px ra ngoài | 2 px | như đối chứng |
+| Bên trong | vòng trắng 1 px, phủ 10 % màu khung (cả đường lưới và chữ) | không | như đối chứng |
+| Góc | ô vuông 5 px màu khung, viền trắng 1 px, ở cả 4 góc | không | như đối chứng |
+| Chữ tham chiếu trong ô đang sửa | cùng màu khung; toán tử đen | một màu | như đối chứng |
+
+- Gõ công thức, sau toán tử / `(` / `,`: mũi tên trỏ ô (lần đầu: ô cạnh ô đang sửa, sau đó dời ô được trỏ), Shift mở
+  rộng thành vùng, gõ toán tử rồi mũi tên lại bắt đầu từ ô đang sửa; thanh trạng thái: Point / Enter / Edit.
+- Hộp tên (`sheet_fbar.rs`): mũi tên ▾ 7×4 px #838688 cách mép phải 15 px liệt kê các tên đã định nghĩa (chọn → chọn
+  vùng); nhấp vào hộp chọn sẵn chữ, gõ tham chiếu hoặc tên rồi Enter để tới, Esc thôi. Danh sách đối chứng: hộp trắng
+  125 px, mỗi tên 25 px (`xfb-namesc.png`); BlueSheet dùng menu sẵn có.
+- Ba chấm ngăn 3×3 px #B3B3B3 cách nhau 5 px; hộp 137 × 30 px quanh dấu huỷ / nhập / fx; nút mở rộng (chữ V đậm
+  9×6 px #777777, cách mép phải 15 px): thanh công thức hiện 3 dòng, cao thêm 48 px (đo `FormulaBarHeight = 3`).
+  So từng cột điểm ảnh ở 1500 px: hộp tên 15–141, hộp dấu 179–315, hộp nội dung 319–1484 — khớp đối chứng.
+
+### Vòng 11 — Home theo bề rộng cửa sổ, tab Page Layout / Review, hộp thoại
+
+Đối chứng thu gọn nhóm Home theo bề rộng (`xh-all.png`): từ ~1800 px hộp định dạng số rộng 196 px trên một hàng nút số,
+Styles là ba nút lớn, Sort & Filter / Find & Select là nút lớn sau cột biểu tượng Σ / Fill / Clear, nhãn nút lớn hai
+dòng; ở 1500 px hộp số 121 px, Styles ba hàng có nhãn, Editing hai cột biểu tượng. BlueSheet chọn cách bày rộng nếu vừa
+cửa sổ, không thì bày gọn (`sheet_ribbon::tabs_wide` / `tabs`; ribbon thêm quy tắc chọn dùng `with_labeled_widths`,
+`with_trailing`, `with_two_line_labels`, `set_tabs` — BlueDoc không đổi). Đo: hộp số 196 / 121 px như đối chứng.
+
+| Tab | Đối chứng (1920 px) | BlueSheet |
+|---|---|---|
+| Thứ tự | Home, Insert, Draw, Page Layout, Formulas, Data, Review, View, Help | Home, Insert, Page Layout, Formulas, Data, Review, View |
+| Page Layout | Themes; Margins, Orientation, Size, Print Area, Breaks, Background, Print Titles; Scale to Fit; Sheet Options; Arrange | Margins (Normal/Wide/Narrow), Orientation, Size (Letter/Legal/A3/A4/A5), Print Area (đặt/xoá), Breaks (chèn/bỏ/đặt lại); Width / Height / Scale; xem/in đường lưới và tiêu đề |
+| Formulas | … Calculation Options ▾, Calculate Now, Calculate Sheet | Calculation Options (Automatic / Manual, lưu calcPr), Calculate Now / Sheet; F9 / Shift+F9; thanh trạng thái “Calculate” khi công thức chờ tính như đối chứng |
+| Review | Proofing, Accessibility, Language; New Comment, Delete, Previous, Next, Show All; Protect Sheet / Workbook, Allow Edit Ranges | New Comment, Delete, Previous, Next (chú thích theo luồng); Protect Sheet (mật khẩu tuỳ chọn, ô khoá từ chối sửa) / Protect Workbook |
+
+- Ô có chú thích: tam giác vuông đỏ #FF0000 cạnh 7 px trong góc trên-phải (đo trên đối chứng, `xnote.png`).
+- Format Cells có 6 thẻ như đối chứng (Number, Alignment, Font, Border, Fill, Protection) — `Dialog::with_tabs`
+  thêm dải thẻ cho hộp thoại bo-ui (tuỳ chọn; Ctrl+Tab / Ctrl+PageDown chuyển thẻ). Các trường vẫn là ô nhập / ô đánh
+  dấu của hộp thoại chung (không có danh sách loại số, mẫu viền vẽ sẵn, bảng màu như đối chứng).
+- Text to Columns: trình hướng dẫn 2 bước (kiểu dữ liệu, dấu phân cách / điểm ngắt, coi dấu liền nhau là một; rồi xem
+  trước các hàng đầu do engine tách) thay cho tách thẳng theo , ; tab.
+
+### Kiểm tra bản web (thay đổi engine vòng 2)
+
+`pnpm build:wasm` (13 phút 41 giây), `pnpm --filter @blueoffice/sheet-editor test`: 44 tệp / 307 test đạt;
+`pnpm --filter @blueoffice/platform test`: 27/28 tệp đạt ở lần đầu — `parity.test.ts` quá thời gian vì tự build
+`bo-cli` trong thư mục `target` của worktree; build `bo-cli` trước rồi chạy lại: đạt (2/2). `@blueoffice/i18n`: đạt.
+
+## Còn lại (sau vòng 3)
+
+- Bánh xe ở cửa sổ lớn: ảnh lưới dạng vòng để không chép cả ảnh mỗi nấc; trung vị vẫn ~2 khung so với ~1 khung của
+  đối chứng khi các nấc cách xa nhau.
+- Format Cells: danh sách loại số và mẫu, ô chọn viền vẽ sẵn, bảng màu; Text to Columns: định dạng từng cột, đích khác.
+- Hộp tên khi sửa công thức (đối chứng hiện danh sách hàm, vd SUM); danh sách tên vẽ như hộp của đối chứng.
+- Tab Draw / Help; nhóm Defined Names / Formula Auditing của Formulas (engine có `defineName`, `createNames`,
+  `traceArrows`); Page Layout: Themes, Background, Print Titles, Arrange; Review: Show All Comments, thẻ hiện chú thích
+  khi rê chuột.
+- Ô đánh dấu “View / Print” của Sheet Options đang là nút bật/tắt có nhãn.

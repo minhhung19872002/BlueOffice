@@ -562,7 +562,29 @@ impl<'s, 'a> Interp<'s, 'a> {
                     .fill_pattern
                     .clone()
                     .is_some_and(|n| self.is_tiling(&n));
-            if tiling {
+            let mesh = if fill && !tiling {
+                self.gs
+                    .fill_pattern
+                    .clone()
+                    .and_then(|n| self.mesh_pattern(&n))
+            } else {
+                None
+            };
+            if let Some((shading, m)) = mesh {
+                // A mesh or function shading pattern: its triangles clipped to the path.
+                self.push_clip(&segs);
+                self.mesh_fill(&shading, m);
+                self.out.commands.push(Command::PopClip);
+                self.gs.clips = self.gs.clips.saturating_sub(1);
+                if stroke {
+                    let st = self.stroke_style();
+                    self.out.commands.push(Command::Path {
+                        segs: segs.clone(),
+                        fill: None,
+                        stroke: st,
+                    });
+                }
+            } else if tiling {
                 if let Some(n) = self.gs.fill_pattern.clone() {
                     self.tiling_fill(&n, &segs);
                 }
@@ -1529,7 +1551,81 @@ impl<'s, 'a> Interp<'s, 'a> {
                 fill: Some(p),
                 stroke: None,
             });
+        } else {
+            let m = self.gs.ctm;
+            self.mesh_fill(&o, m);
         }
+    }
+
+    /// Draw a function-based or mesh shading (types 1, 4–7) as small triangles in pattern
+    /// space `m`; false when it is not one.
+    fn mesh_fill(&mut self, o: &Object, m: M) -> bool {
+        let doc = self.doc();
+        let Ok((_, obj)) = doc.dereference(o) else {
+            return false;
+        };
+        let (dict, data) = match obj {
+            Object::Stream(s) => (&s.dict, filters::stream_bytes(doc, s).ok()),
+            Object::Dictionary(d) => (d, None),
+            _ => return false,
+        };
+        let kind = dict
+            .get(b"ShadingType")
+            .ok()
+            .and_then(|v| v.as_i64().ok())
+            .unwrap_or(0);
+        if !matches!(kind, 1 | 4..=7) {
+            return false;
+        }
+        let Some(cs) = dict
+            .get(b"ColorSpace")
+            .ok()
+            .and_then(|c| self.color_space(c))
+        else {
+            return false;
+        };
+        let func = dict
+            .get(b"Function")
+            .ok()
+            .and_then(|o| Function::parse(doc, o, 0));
+        let tris = match (kind, &func, &data) {
+            (1, Some(f), _) => crate::mesh::function_based(doc, dict, f),
+            (4..=7, _, Some(d)) => {
+                crate::mesh::mesh(kind, dict, d, cs.components(), func.is_some())
+            }
+            _ => return false,
+        };
+        let alpha = self.gs.fill_alpha;
+        // A hairline in each triangle's colour hides the seams between neighbours.
+        let seam = self.sh.opts.min_line * 0.8;
+        for t in tris {
+            let vals = match &func {
+                Some(f) if kind != 1 => f.eval(&t.color),
+                _ => t.color,
+            };
+            let color = rgba(&cs, &vals, alpha);
+            let p: Vec<(f32, f32)> = t.pts.iter().map(|&(x, y)| apply(m, x, y)).collect();
+            if !p.iter().all(|q| q.0.is_finite() && q.1.is_finite()) {
+                continue;
+            }
+            self.out.commands.push(Command::Path {
+                segs: vec![
+                    PathSeg::M(p[0].0, p[0].1),
+                    PathSeg::L(p[1].0, p[1].1),
+                    PathSeg::L(p[2].0, p[2].1),
+                    PathSeg::Z,
+                ],
+                fill: Some(Paint::Solid { color }),
+                stroke: (alpha >= 0.999 && seam > 0.0).then(|| Stroke {
+                    width: seam,
+                    color,
+                    dash: Vec::new(),
+                    cap: "butt".to_owned(),
+                    join: "round".to_owned(),
+                }),
+            });
+        }
+        true
     }
 
     /// Gradient paint of an axial or radial shading in pattern space `m`.
@@ -1601,8 +1697,9 @@ impl<'s, 'a> Interp<'s, 'a> {
                     stops: stops(&|u| (r0 + u * (r1 - r0)) / outer),
                 })
             }
+            1 | 4..=7 => None,
             _ => {
-                // Mesh and function shadings: their background, or the middle colour.
+                // Other shadings: their background.
                 let bg: Vec<f32> = dict
                     .get(b"Background")
                     .ok()
@@ -1618,6 +1715,25 @@ impl<'s, 'a> Interp<'s, 'a> {
                 }
             }
         }
+    }
+
+    /// The shading and pattern matrix of a shading pattern whose shading is a mesh or
+    /// function-based one.
+    fn mesh_pattern(&self, name: &[u8]) -> Option<(Object, M)> {
+        let doc = self.doc();
+        let o = self.pattern_object(name)?;
+        let d = match doc.dereference(&o).ok()?.1 {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &s.dict,
+            _ => return None,
+        };
+        let sh = d.get(b"Shading").ok()?;
+        let kind = match doc.dereference(sh).ok()?.1 {
+            Object::Dictionary(s) => s.get(b"ShadingType").ok()?.as_i64().ok()?,
+            Object::Stream(s) => s.dict.get(b"ShadingType").ok()?.as_i64().ok()?,
+            _ => return None,
+        };
+        matches!(kind, 1 | 4..=7).then(|| (sh.clone(), self.pattern_matrix(d)))
     }
 
     fn pattern_object(&self, name: &[u8]) -> Option<Object> {

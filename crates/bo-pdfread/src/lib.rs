@@ -31,6 +31,7 @@ mod function;
 mod image;
 mod interp;
 mod lexer;
+mod mesh;
 mod objects;
 mod sfnt;
 mod text;

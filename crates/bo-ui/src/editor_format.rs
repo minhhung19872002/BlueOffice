@@ -61,7 +61,10 @@ pub(crate) fn edit_tab_items() -> Vec<(&'static str, crate::reader_window::Kind)
     use crate::reader_window::Kind::{Big, Sep};
     vec![
         ("sep1", Sep),
-        ("ed.editText", Big("editText", "pdfEditor.editText", false)),
+        (
+            "ed.editText",
+            Big("edEditText", "pdfEditor.editText", false),
+        ),
         (
             "ed.editObject",
             Big("editObject", "pdfEditor.editObject", true),
@@ -103,20 +106,7 @@ pub(crate) fn edit_tab_items() -> Vec<(&'static str, crate::reader_window::Kind)
 }
 
 /// Edit tab commands with no feature yet (shown disabled).
-pub(crate) const EDIT_TAB_LATER: [&str; 12] = [
-    "ed.linkJoin",
-    "ed.spell",
-    "ed.addShapes",
-    "ed.reflow",
-    "ed.articleBox",
-    "ed.webLinks",
-    "ed.link",
-    "ed.bookmark",
-    "ed.crossRef",
-    "ed.imageAnnot",
-    "ed.media",
-    "ed.add3d",
-];
+pub(crate) const EDIT_TAB_LATER: [&str; 0] = [];
 
 /// Hit boxes of the pane (window pixels) and their commands, from the last paint.
 #[derive(Debug, Default, Clone)]
@@ -788,7 +778,7 @@ impl EditorWindow {
             icon_at(p, icon, x0 + px(ix), cy, px(20.0), TEXT);
             let r = [x0 + px(bx), cy - px(12.0), px(76.0), px(24.0)];
             frame(p, r, EDGE);
-            let live = cmd != "fmt.paraSp";
+            let live = true;
             let col = ink;
             if let Some(v) = value {
                 p.text(&v, r[0] + px(6.0), r[1] + px(4.0), style(16.0), col);

@@ -48,7 +48,7 @@ impl AnnotKind {
             b"Ink" => Self::Ink,
             b"Line" | b"PolyLine" | b"Polygon" => Self::Line,
             b"Stamp" => Self::Stamp,
-            b"Caret" | b"FileAttachment" | b"Sound" => Self::Other,
+            b"Caret" | b"FileAttachment" | b"Sound" | b"Screen" | b"3D" | b"Movie" => Self::Other,
             _ => return None,
         })
     }

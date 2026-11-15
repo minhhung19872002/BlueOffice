@@ -197,6 +197,29 @@ impl PdfStore for Store<'_> {
             .draw_page(list, fonts, scale, &pics, None, bitmap)
     }
 
+    fn update_band(
+        &mut self,
+        key: usize,
+        list: &PageList,
+        fonts: &bo_text::FontManager,
+        images: &HashMap<String, Arc<bo_pdfread::Image>>,
+        scale: f32,
+        band: [u32; 4],
+    ) -> Result<(), String> {
+        let (w, h) = (
+            (list.width * scale).ceil() as u32,
+            (list.height * scale).ceil() as u32,
+        );
+        match self.pages.get(&key) {
+            Some(bitmap) if (bitmap.width, bitmap.height) == (w, h) => {
+                let pics = pictures(images);
+                self.device
+                    .draw_page(list, fonts, scale, &pics, Some(band), bitmap)
+            }
+            _ => self.update(key, list, fonts, images, scale),
+        }
+    }
+
     fn remove(&mut self, key: usize) {
         self.pages.remove(&key);
     }

@@ -708,8 +708,19 @@ impl Editing {
         let Some(b) = t.block.as_mut() else {
             return false;
         };
+        let before = b.bbox;
         match v.doc_mut().block_edit_update(b) {
-            Ok(()) => v.invalidate_page(page),
+            Ok(()) => {
+                // Only the paragraph's lines change: draw that band of the page again.
+                let (w, _) = v.page_size(page);
+                let r = [
+                    0.0,
+                    before[1].min(b.bbox[1]) - 4.0,
+                    w,
+                    before[3].max(b.bbox[3]) + 4.0,
+                ];
+                v.invalidate_band(page, r);
+            }
             Err(e) => self.status = Some(e),
         }
         true

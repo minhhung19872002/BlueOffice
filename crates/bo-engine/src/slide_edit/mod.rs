@@ -19,6 +19,7 @@ pub mod anim_text;
 pub mod build;
 pub mod chart;
 pub mod clip;
+pub mod clip_xfer;
 pub mod collab;
 pub mod comments;
 pub mod connect;

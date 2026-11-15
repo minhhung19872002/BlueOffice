@@ -6908,7 +6908,7 @@
     "print": "Print...",
     "close": "Close",
     "start": "Start",
-    "recent": "Recent Documents",
+    "recent": "Recent Files",
     "noRecent": "No documents opened yet. Use File > Open.",
     "searchPlaceholder": "Search",
     "noMatches": "no matches",
@@ -6923,7 +6923,8 @@
     "openFailed": "Could not open the file",
     "saveFailed": "Could not save the file",
     "pdfFiles": "PDF documents (*.pdf)",
-    "allFiles": "All files"
+    "allFiles": "All files",
+    "openFile": "Open File"
   },
   "taskPane": {
     "dockLeft": "Dock left",

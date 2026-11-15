@@ -978,9 +978,15 @@ impl ReaderWindow {
         if self.show_start || self.tabs.is_empty() {
             for (i, r) in self.recent_rects.clone().into_iter().enumerate() {
                 if inside(r, x, y) {
-                    if let Some(p) = self.recent.get(i).cloned() {
-                        self.requests.push(ReaderRequest::Open(Some(p)));
-                    }
+                    // Row 0 is "Open File", then the recent files.
+                    let path = match i.checked_sub(1) {
+                        None => None,
+                        Some(k) => match self.recent.get(k) {
+                            Some(p) => Some(p.clone()),
+                            None => return true,
+                        },
+                    };
+                    self.requests.push(ReaderRequest::Open(path));
                     return true;
                 }
             }
@@ -2167,50 +2173,80 @@ impl ReaderWindow {
         );
     }
 
+    /// Start page: a "Recent Files" card with an Open File row, as on the reference's start tab
+    /// (125 %: card 34–409 px, title 292 px, rows 29.5 px apart; no promotions).
     fn paint_start(&mut self, p: &mut dyn Painter) {
-        let d = [
-            self.nav_rect[0] + self.nav_rect[2],
-            self.nav_rect[1],
-            self.size.0 - self.nav_rect[0] - self.nav_rect[2] - 1.0,
-            self.nav_rect[3],
+        let top = self.nav_rect[1];
+        let (w, h) = self.size;
+        let d = [1.0, top, w - 2.0, h - self.status_h() - top];
+        p.fill_rect(d[0], d[1], d[2], d[3], Rgba(235, 236, 240, 255));
+        let card = [
+            self.px(27.2),
+            top + self.px(20.0),
+            self.px(300.0),
+            d[3] - self.px(40.0),
         ];
-        p.fill_rect(d[0], d[1], d[2], d[3], CANVAS);
-        let title = self.style(22.0, true);
-        let body = self.style(14.0, false);
-        let x = d[0] + self.px(40.0);
-        let mut y = d[1] + self.px(32.0);
-        p.text(&self.t("pdfReader.recent"), x, y, title, TEXT);
-        y += self.px(44.0);
+        p.fill_rect(card[0], card[1], card[2], card[3], WHITE);
+        let title = self.style(19.0, false);
+        let body = self.style(15.0, false);
+        let x = card[0] + self.px(10.4);
+        p.text(
+            &self.t("pdfReader.recent"),
+            x,
+            card[1] + self.px(10.4),
+            title,
+            TEXT,
+        );
+        let line_y = card[1] + self.px(36.0);
+        p.fill_rect(
+            x,
+            line_y,
+            card[2] - self.px(20.8),
+            1.0,
+            Rgba(229, 229, 229, 255),
+        );
+        let row = self.px(23.6);
+        let mut y = line_y + self.px(12.0);
+        let ink = Ink {
+            ink: TEXT,
+            accent: self.theme.accent,
+        };
         self.recent_rects.clear();
-        if self.recent.is_empty() {
-            p.text(&self.t("pdfReader.noRecent"), x, y, body, MUTED);
-        }
-        let rows: Vec<String> = self
-            .recent
-            .iter()
-            .map(|r| r.to_string_lossy().into_owned())
-            .collect();
-        for r in rows {
-            let rr = [
-                x - self.px(8.0),
-                y - self.px(4.0),
-                d[2] - self.px(64.0),
-                self.px(28.0),
-            ];
-            reader_icons::draw(
-                p,
+        let mut rows: Vec<(String, &'static str)> = vec![(self.t("pdfReader.openFile"), "open")];
+        rows.extend(self.recent.iter().map(|r| {
+            (
+                r.file_name().map_or_else(
+                    || r.to_string_lossy().into_owned(),
+                    |n| n.to_string_lossy().into_owned(),
+                ),
                 "file",
-                x,
-                y,
-                self.px(16.0),
-                Ink {
-                    ink: TEXT,
-                    accent: self.theme.accent,
-                },
+            )
+        }));
+        let is = self.px(14.4);
+        for (label, icon) in rows {
+            if y + row > card[1] + card[3] {
+                break;
+            }
+            let rr = [card[0], y, card[2], row];
+            if inside(rr, self.pointer.0, self.pointer.1) {
+                p.fill_rect(rr[0], rr[1], rr[2], rr[3], HOVER);
+            }
+            reader_icons::draw(p, icon, x, y + ((row - is) / 2.0).round(), is, ink);
+            let shown = elide(
+                &label,
+                self.width_of(&label, body),
+                card[2] - self.px(44.0),
+                body.size,
             );
-            p.text(&r, x + self.px(24.0), y, body, TEXT);
+            p.text(
+                &shown,
+                x + self.px(19.2),
+                y + ((row - body.size * 1.33) / 2.0).round(),
+                body,
+                TEXT,
+            );
             self.recent_rects.push(rr);
-            y += self.px(30.0);
+            y += row;
         }
     }
 

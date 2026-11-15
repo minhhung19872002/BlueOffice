@@ -6908,7 +6908,7 @@
     "print": "In...",
     "close": "Đóng",
     "start": "Bắt đầu",
-    "recent": "Tài liệu gần đây",
+    "recent": "Tệp gần đây",
     "noRecent": "Chưa mở tài liệu nào. Dùng Tệp > Mở.",
     "searchPlaceholder": "Tìm kiếm",
     "noMatches": "không tìm thấy",
@@ -6923,7 +6923,8 @@
     "openFailed": "Không mở được tệp",
     "saveFailed": "Không lưu được tệp",
     "pdfFiles": "Tài liệu PDF (*.pdf)",
-    "allFiles": "Mọi tệp"
+    "allFiles": "Mọi tệp",
+    "openFile": "Mở tệp"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

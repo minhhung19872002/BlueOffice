@@ -14,7 +14,7 @@ bundled-fonts = []
 [dependencies]
 bo-render.workspace = true
 bo-text.workspace = true
-lopdf = { version = "0.38", default-features = false }
+lopdf = { version = "0.38", default-features = false, features = ["rayon"] }
 ttf-parser.workspace = true
 miniz_oxide = "0.8"
 weezl = "0.1"

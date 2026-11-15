@@ -63,7 +63,7 @@ impl Painter for Rec {
 }
 
 /// A PDF with `pages` Letter pages, each showing "Page N hello world".
-fn pdf(pages: usize) -> Vec<u8> {
+pub(crate) fn pdf(pages: usize) -> Vec<u8> {
     let mut objs: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".into(),
         String::new(),

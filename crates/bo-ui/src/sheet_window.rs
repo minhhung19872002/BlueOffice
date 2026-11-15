@@ -25,6 +25,8 @@ mod fcells_impl;
 mod filter_impl;
 #[path = "sheet_form.rs"]
 mod form_impl;
+#[path = "sheet_gallery.rs"]
+mod gallery_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
 #[path = "sheet_review.rs"]
@@ -273,6 +275,8 @@ pub struct SheetWindow {
     /// A form waiting under More Colors…, and that form's new and current colour.
     form_stash: Option<(form_impl::Form, form_impl::FormKind)>,
     more_colors: (String, String),
+    /// Open picture gallery (Cell Styles, Format as Table).
+    gallery: Option<gallery_impl::Gallery>,
 }
 
 impl SheetWindow {
@@ -347,6 +351,7 @@ impl SheetWindow {
             symbol: (0, 0),
             form_stash: None,
             more_colors: (String::new(), String::new()),
+            gallery: None,
         };
         insert_impl::add_icons(&mut w.icons);
         w.load_functions();
@@ -1167,6 +1172,11 @@ impl SheetWindow {
                 return r;
             }
         }
+        if self.gallery.is_some() {
+            if let Some(r) = self.gallery_input(&input, text) {
+                return r;
+            }
+        }
         if self.filter.is_some() {
             if let Some(r) = self.filter_input(&input, text) {
                 return r;
@@ -1527,6 +1537,7 @@ impl SheetWindow {
         self.paint_scrollbars(p);
         self.paint_status(p);
         self.paint_filter(p);
+        self.paint_gallery(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {

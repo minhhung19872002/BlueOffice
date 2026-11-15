@@ -728,6 +728,9 @@ impl SheetWindow {
     /// Run a BlueSheet ribbon command or menu choice; `None` when `id` is not one.
     #[allow(clippy::too_many_lines)]
     pub(super) fn sheet_action(&mut self, id: &str, text: &dyn TextMeasure) -> Option<bool> {
+        if matches!(id, "sheet.cellStyles" | "sheet.formatTable") {
+            return Some(self.open_gallery(id == "sheet.cellStyles"));
+        }
         if let Some(static_id) = sheet_ribbon::tab_ids().into_iter().find(|i| *i == id) {
             if self.open_sheet_menu(static_id) {
                 return Some(true);

@@ -9553,5 +9553,14 @@
     "hexagon": "Hexagon",
     "heart": "Heart",
     "wedgeRectCallout": "Speech Bubble: Rectangle"
+  },
+  "sheetGallery": {
+    "goodBad": "Good, Bad and Neutral",
+    "dataModel": "Data and Model",
+    "titles": "Titles and Headings",
+    "mergeStyles": "Normal style for the selection",
+    "light": "Light",
+    "medium": "Medium",
+    "dark": "Dark"
   }
 }

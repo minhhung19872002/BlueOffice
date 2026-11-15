@@ -1650,3 +1650,41 @@ fn colour_drop_downs_open_the_palette_and_more_colors() {
     press(&mut w, ok, 1);
     assert_eq!(w.view().format().color.to_uppercase(), "FF8000");
 }
+
+#[test]
+fn cell_style_and_table_galleries_apply_their_choice() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[(0, 0, "A"), (0, 1, "B"), (1, 0, "1"), (1, 1, "2")],
+    );
+    w.relayout(&Fixed);
+    assert!(w.action("sheet.cellStyles", &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    assert_eq!(g.sections.len(), 3);
+    assert_eq!(w.gallery_choice_at(0, 2).as_deref(), Some("style.Good"));
+    // Clicking the Good tile styles the selection.
+    let r = w.gallery.as_ref().expect("g").rect();
+    let hit = (0..400)
+        .flat_map(|dx| (0..200).map(move |dy| (dx as f32, dy as f32)))
+        .map(|(dx, dy)| (r[0] + dx, r[1] + dy))
+        .find(|(x, y)| w.gallery.as_ref().and_then(|g| g.hit(*x, *y)) == Some((0, 2)))
+        .expect("Good tile");
+    press(&mut w, hit, 1);
+    assert!(w.gallery.is_none());
+    let st = w
+        .view
+        .query(json!({ "cmd": "formatState", "row": 0, "col": 0 }))
+        .expect("st");
+    assert_eq!(st["styleName"], "Good");
+    // Format as Table: 3 families × 7 styles.
+    assert!(w.action("sheet.formatTable", &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    assert_eq!(g.sections.iter().map(|s| s.1.len()).sum::<usize>(), 21);
+    let c = w.gallery_choice_at(1, 1).expect("medium 2");
+    assert_eq!(c, "table.TableStyleMedium2");
+    w.gallery = None;
+    assert!(w.action(&c, &Fixed));
+    let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
+    assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
+}

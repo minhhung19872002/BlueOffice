@@ -9553,5 +9553,14 @@
     "hexagon": "Hình lục giác",
     "heart": "Hình trái tim",
     "wedgeRectCallout": "Bong bóng lời thoại: chữ nhật"
+  },
+  "sheetGallery": {
+    "goodBad": "Tốt, xấu và trung tính",
+    "dataModel": "Dữ liệu và mô hình",
+    "titles": "Tiêu đề và đề mục",
+    "mergeStyles": "Kiểu Normal cho vùng chọn",
+    "light": "Nhạt",
+    "medium": "Trung bình",
+    "dark": "Đậm"
   }
 }

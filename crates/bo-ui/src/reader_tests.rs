@@ -311,3 +311,145 @@ fn page_is_centred_in_the_frame() {
     // The view starts at the top: the 7.5 px margin above the first page shows.
     assert!((r[1] - f[1] - 8.0).abs() < 1.0, "frame {f:?} page {r:?}");
 }
+
+#[test]
+fn read_mode_and_full_screen_flip_pages() {
+    let mut w = window(4);
+    let before = w.view().expect("view").frame();
+    // Read Mode (Ctrl+H): the document starts under the title bar.
+    key(&mut w, Key::Letter('h'), true, false);
+    let read = w.view().expect("view").frame();
+    assert!(
+        read[1] < before[1] && read[3] > before[3],
+        "{read:?} vs {before:?}"
+    );
+    key(&mut w, Key::Letter('h'), true, false);
+    assert_eq!(w.view().expect("view").frame(), before);
+    // Full Screen (F11): the whole window, one page fitted, flipped by keys and clicks.
+    key(&mut w, Key::F(11), false, false);
+    assert!(w
+        .take_requests()
+        .contains(&ReaderRequest::Window(crate::Request::FullScreen(true))));
+    let v = w.view().expect("view");
+    assert_eq!(v.frame(), [0.0, 0.0, 1500.0, 1100.0]);
+    assert_eq!((v.layout(), v.fit()), (Layout::Single, Fit::Page));
+    key(&mut w, Key::Right, false, false);
+    w.handle(
+        Input::Press {
+            x: 700.0,
+            y: 500.0,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    assert_eq!(w.view().expect("view").current_page(), 2);
+    key(&mut w, Key::PageUp, false, false);
+    assert_eq!(w.view().expect("view").current_page(), 1);
+    key(&mut w, Key::Escape, false, false);
+    let v = w.view().expect("view");
+    assert_eq!((v.layout(), v.fit()), (Layout::Continuous, Fit::Width));
+    assert_eq!(v.frame(), before);
+    assert!(w
+        .take_requests()
+        .contains(&ReaderRequest::Window(crate::Request::FullScreen(false))));
+}
+
+#[test]
+fn print_dialog_returns_the_job() {
+    let mut w = window(3);
+    key(&mut w, Key::Letter('p'), true, false);
+    assert!(w.take_requests().contains(&ReaderRequest::Print));
+    w.open_print(vec!["Printer A".into()], Some("Printer A"), &Fixed);
+    assert!(w.print_open());
+    key(&mut w, Key::Enter, false, false);
+    assert!(!w.print_open());
+    let reqs = w.take_requests();
+    assert!(reqs.iter().any(|r| matches!(
+        r,
+        ReaderRequest::PrintPages(s) if s.printer == "Printer A" && s.pages == vec![0, 1, 2]
+    )));
+}
+
+#[test]
+fn select_move_recolour_and_delete_a_comment() {
+    let mut w = window(1);
+    w.view_mut()
+        .expect("view")
+        .doc_mut()
+        .add_annotation(&bo_pdfread::NewAnnot {
+            kind: bo_pdfread::AnnotKind::Square,
+            page: 0,
+            rects: vec![[100.0, 100.0, 200.0, 160.0]],
+            color: [255, 0, 0],
+            author: "T".into(),
+            contents: "box".into(),
+        })
+        .expect("adds");
+    let (r, s) = {
+        let v = w.view().expect("view");
+        (v.page_rect(0).expect("page"), v.px_per_pt())
+    };
+    let (x, y) = (r[0] + 150.0 * s, r[1] + 130.0 * s);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Drag {
+            x: x + 20.0 * s,
+            y: y + 10.0 * s,
+        },
+        &Fixed,
+    );
+    w.handle(
+        Input::Release {
+            x: x + 20.0 * s,
+            y: y + 10.0 * s,
+        },
+        &Fixed,
+    );
+    let a = w.view().expect("view").doc().annotations().remove(0);
+    assert!(
+        (a.rect[0] - 120.0).abs() < 0.5 && (a.rect[1] - 110.0).abs() < 0.5,
+        "{a:?}"
+    );
+    // Context menu: colour; then Delete removes it.
+    w.handle(
+        Input::Context {
+            x: x + 20.0 * s,
+            y: y + 10.0 * s,
+        },
+        &Fixed,
+    );
+    w.run_command("comment.color.3", &Fixed);
+    assert_eq!(
+        w.view().expect("view").doc().annotations()[0].color,
+        [30, 136, 229]
+    );
+    key(&mut w, Key::Escape, false, false);
+    key(&mut w, Key::Delete, false, false);
+    assert_eq!(w.view().expect("view").doc().annotations().len(), 0);
+}
+
+#[test]
+fn huge_zoom_draws_only_the_part_in_view() {
+    let mut w = window(1);
+    w.view_mut().expect("view").set_zoom(16.0);
+    let mut s = Store::default();
+    w.prepare(&mut s);
+    let (pw, ph, sc) = s.keys[&0];
+    // 1600 %: the whole page would be about 16 000 px wide; only the view's part is drawn.
+    assert!(
+        pw * sc <= 8192.0 && pw < 612.0 && ph < 792.0,
+        "{pw} x {ph} at {sc}"
+    );
+    w.view_mut().expect("view").scroll_by(0.0, 6000.0);
+    w.prepare(&mut s);
+    assert!(w.view().expect("view").image_offset(0).1 > 0.0);
+}

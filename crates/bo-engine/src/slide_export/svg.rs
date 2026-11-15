@@ -345,6 +345,7 @@ impl Writer<'_> {
                 let _ = write!(self.body, r#"<g opacity="{}">"#, n(a.clamp(0.0, 1.0)));
                 self.open.push("</g>");
             }
+            Command::PushGroup { .. } | Command::PopGroup => {}
             Command::PopClip | Command::PopTransform | Command::PopOpacity => {
                 if let Some(close) = self.open.pop() {
                     self.body.push_str(close);

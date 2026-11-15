@@ -1,7 +1,7 @@
 //! Image XObjects and inline images (ISO 32000-1, §8.9): samples of any bit depth in any
 //! colour space with `/Decode`, stencil masks (`/ImageMask`), soft masks (`/SMask`), explicit
-//! and colour-key masks (`/Mask`), and JPEG (DCTDecode). JPEG 2000, JBIG2 and CCITT images
-//! are not decoded (the page shows a light placeholder box instead).
+//! and colour-key masks (`/Mask`), JPEG (DCTDecode), JPEG 2000 (JPXDecode), JBIG2 and CCITT
+//! fax images (`codecs`); an image that fails to decode shows a light placeholder box.
 use crate::color::ColorSpace;
 use crate::filters::{self, Codec};
 use lopdf::{Dictionary, Document, Object};
@@ -83,6 +83,21 @@ pub(crate) fn decode(p: &Params<'_>) -> Option<Image> {
     }
     let (w, h) = (width as usize, height as usize);
     let (bytes, codec) = filters::decode(doc, dict, p.data).ok()?;
+    // Bi-level codecs become plain 1-bit samples.
+    let (bytes, codec, bilevel) = match codec {
+        Some(Codec::Ccitt(params)) => match crate::codecs::ccitt(&bytes, &params, w, h) {
+            Some(b) => (b, None, true),
+            None => (bytes, Some(Codec::Ccitt(params)), false),
+        },
+        Some(Codec::Jbig2) => {
+            let globals = crate::codecs::jbig2_globals(doc, dict);
+            match crate::codecs::jbig2(&bytes, globals.as_deref(), w, h) {
+                Some(b) => (b, None, true),
+                None => (bytes, Some(Codec::Jbig2), false),
+            }
+        }
+        c => (bytes, c, false),
+    };
     let stencil = get(doc, dict, b"ImageMask", b"IM").is_some_and(|o| o.as_bool().unwrap_or(false));
     let decode_arr: Vec<f32> = match get(doc, dict, b"Decode", b"D") {
         Some(Object::Array(a)) => a
@@ -90,6 +105,11 @@ pub(crate) fn decode(p: &Params<'_>) -> Option<Image> {
             .filter_map(|o| resolve(doc, o).as_float().ok())
             .collect(),
         _ => Vec::new(),
+    };
+    let jpx = if matches!(codec, Some(Codec::Jpx)) {
+        crate::codecs::jpx(&bytes)
+    } else {
+        None
     };
     // Colour samples: rgb per pixel (0..=255) and alpha.
     let (mut rgb, mut alpha): (Vec<[u8; 3]>, Vec<u8>) = match codec {
@@ -101,6 +121,13 @@ pub(crate) fn decode(p: &Params<'_>) -> Option<Image> {
             }
             let n = rgb.len();
             (rgb, vec![255; n])
+        }
+        Some(Codec::Jpx) if jpx.is_some() => {
+            let (rgb, a, jw, jh) = jpx?;
+            if (jw, jh) != (w, h) {
+                return Some(finish(&rgb, a, jw, jh, p, dict));
+            }
+            (rgb, a)
         }
         Some(Codec::Ccitt(_) | Codec::Jpx | Codec::Jbig2) => {
             // Undecodable here: a very light grey box keeps the layout visible.
@@ -137,7 +164,11 @@ pub(crate) fn decode(p: &Params<'_>) -> Option<Image> {
         }
         None => {
             let space = p.space.clone().unwrap_or(ColorSpace::Gray);
-            let bpc = int(doc, dict, b"BitsPerComponent", b"BPC").unwrap_or(8);
+            let bpc = if bilevel {
+                1
+            } else {
+                int(doc, dict, b"BitsPerComponent", b"BPC").unwrap_or(8)
+            };
             let bpc = match bpc {
                 1 | 2 | 4 | 8 | 16 => bpc as u32,
                 _ => return None,

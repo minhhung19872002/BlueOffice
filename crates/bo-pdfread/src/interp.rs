@@ -8,7 +8,7 @@ use crate::function::Function;
 use crate::image::{self, Image};
 use crate::lexer::{Lexer, Op};
 use crate::{RenderOptions, TextChar};
-use bo_render::{Command, Glyph, GradientStop, Paint, PathSeg, Rgba, Stroke};
+use bo_render::{BlendMode, Command, Glyph, GradientStop, Paint, PathSeg, Rgba, SoftMask, Stroke};
 use bo_text::FontManager;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
@@ -150,6 +150,10 @@ struct Gs {
     tl: f32,
     rise: f32,
     mode: u8,
+    /// Blend mode (§11.3.5, ExtGState `/BM`); `None` = Normal.
+    blend: Option<BlendMode>,
+    /// Soft mask (§11.6.5, ExtGState `/SMask`) in page space.
+    smask: Option<Rc<SoftMask>>,
     /// Clips pushed while this state was current.
     clips: u32,
 }
@@ -179,6 +183,8 @@ impl Gs {
             tl: 0.0,
             rise: 0.0,
             mode: 0,
+            blend: None,
+            smask: None,
             clips: 0,
         }
     }
@@ -277,6 +283,8 @@ pub(crate) struct Interp<'s, 'a> {
     /// Type 3 glyph with `d1`: colours come from the text state.
     uncolored: bool,
     image_prefix: String,
+    /// Where the clip pushed by the last path painting operator starts.
+    clip_mark: Option<usize>,
 }
 
 impl<'s, 'a> Interp<'s, 'a> {
@@ -309,6 +317,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             page,
             uncolored: false,
             image_prefix,
+            clip_mark: None,
         }
     }
 
@@ -553,7 +562,29 @@ impl<'s, 'a> Interp<'s, 'a> {
                     .fill_pattern
                     .clone()
                     .is_some_and(|n| self.is_tiling(&n));
-            if tiling {
+            let mesh = if fill && !tiling {
+                self.gs
+                    .fill_pattern
+                    .clone()
+                    .and_then(|n| self.mesh_pattern(&n))
+            } else {
+                None
+            };
+            if let Some((shading, m)) = mesh {
+                // A mesh or function shading pattern: its triangles clipped to the path.
+                self.push_clip(&segs);
+                self.mesh_fill(&shading, m);
+                self.out.commands.push(Command::PopClip);
+                self.gs.clips = self.gs.clips.saturating_sub(1);
+                if stroke {
+                    let st = self.stroke_style();
+                    self.out.commands.push(Command::Path {
+                        segs: segs.clone(),
+                        fill: None,
+                        stroke: st,
+                    });
+                }
+            } else if tiling {
                 if let Some(n) = self.gs.fill_pattern.clone() {
                     self.tiling_fill(&n, &segs);
                 }
@@ -578,6 +609,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             }
         }
         if self.clip.take().is_some() {
+            self.clip_mark = Some(self.out.commands.len());
             self.push_clip(&segs);
         }
     }
@@ -604,8 +636,54 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.gs.clips += 1;
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Run one operator; painting operators under a blend mode or soft mask are wrapped in a
+    /// group (§11.3.5 / §11.6.5: each object is composited on its own). Form XObjects are
+    /// treated as transparency groups: their content starts with Normal and no soft mask.
     fn op(&mut self, op: &Op) {
+        let painting = matches!(
+            op.name.as_slice(),
+            b"S" | b"s"
+                | b"f"
+                | b"F"
+                | b"f*"
+                | b"B"
+                | b"B*"
+                | b"b"
+                | b"b*"
+                | b"sh"
+                | b"Do"
+                | b"BI"
+                | b"Tj"
+                | b"'"
+                | b"\""
+                | b"TJ"
+        );
+        if !painting || (self.gs.blend.is_none() && self.gs.smask.is_none()) {
+            self.op_inner(op);
+            return;
+        }
+        let blend = self.gs.blend.take();
+        let mask = self.gs.smask.take();
+        let start = self.out.commands.len();
+        self.clip_mark = None;
+        self.op_inner(op);
+        let end = self.clip_mark.take().unwrap_or(self.out.commands.len());
+        if end > start {
+            self.out.commands.insert(end, Command::PopGroup);
+            self.out.commands.insert(
+                start,
+                Command::PushGroup {
+                    blend,
+                    mask: mask.as_ref().map(|m| Box::new(SoftMask::clone(m))),
+                },
+            );
+        }
+        self.gs.blend = blend;
+        self.gs.smask = mask;
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn op_inner(&mut self, op: &Op) {
         let a = &op.args;
         let n = |i: usize| a.get(i).map_or(0.0, f);
         match op.name.as_slice() {
@@ -882,6 +960,22 @@ impl<'s, 'a> Interp<'s, 'a> {
                 }
                 b"CA" => self.gs.stroke_alpha = f(v).clamp(0.0, 1.0),
                 b"ca" => self.gs.fill_alpha = f(v).clamp(0.0, 1.0),
+                b"BM" => {
+                    self.gs.blend = match v {
+                        Object::Name(n) => BlendMode::from_pdf_name(n),
+                        Object::Array(a) => a
+                            .iter()
+                            .filter_map(|o| o.as_name().ok())
+                            .find_map(BlendMode::from_pdf_name),
+                        _ => None,
+                    };
+                }
+                b"SMask" => {
+                    self.gs.smask = match v {
+                        Object::Dictionary(m) => self.soft_mask(m).map(Rc::new),
+                        _ => None,
+                    };
+                }
                 b"Font" => {
                     if let Ok(arr) = v.as_array() {
                         if let (Some(fo), Some(size)) = (arr.first(), arr.get(1)) {
@@ -893,6 +987,76 @@ impl<'s, 'a> Interp<'s, 'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Draw a soft mask's group (§11.6.5.2) with the current matrix into its own commands.
+    fn soft_mask(&mut self, d: &Dictionary) -> Option<SoftMask> {
+        let doc = self.doc();
+        let luminosity = d.get(b"S").and_then(Object::as_name).ok() != Some(b"Alpha");
+        let id = d.get(b"G").ok()?.as_reference().ok()?;
+        if self.depth > 12 || self.forms.contains(&id) {
+            return None;
+        }
+        let Object::Stream(s) = doc.get_object(id).ok()? else {
+            return None;
+        };
+        let content = filters::stream_bytes(doc, s).ok()?;
+        let num_array = |o: &Object| -> Vec<f32> {
+            doc.dereference(o)
+                .map_or(o, |(_, o)| o)
+                .as_array()
+                .map(|a| a.iter().map(f).collect())
+                .unwrap_or_default()
+        };
+        let matrix = s
+            .dict
+            .get(b"Matrix")
+            .ok()
+            .map(num_array)
+            .and_then(|v| <[f32; 6]>::try_from(v.as_slice()).ok())
+            .unwrap_or(IDENTITY);
+        let bbox = s.dict.get(b"BBox").ok().map(num_array);
+        let res = s
+            .dict
+            .get(b"Resources")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok());
+        // Backdrop colour in the group's colour space (default black: nothing shows outside).
+        let space = s
+            .dict
+            .get(b"Group")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok())
+            .and_then(|g| g.get(b"CS").ok())
+            .and_then(|o| self.color_space(o));
+        let bc = d.get(b"BC").ok().map(num_array).unwrap_or_default();
+        let backdrop = match (&space, bc.is_empty()) {
+            (Some(cs), false) => rgba(cs, &bc, 1.0),
+            (None, false) if bc.len() == 1 => rgba(&ColorSpace::Gray, &bc, 1.0),
+            (None, false) if bc.len() == 3 => rgba(&ColorSpace::Rgb, &bc, 1.0),
+            (None, false) if bc.len() == 4 => rgba(&ColorSpace::Cmyk, &bc, 1.0),
+            _ => Rgba(0, 0, 0, 255),
+        };
+        let saved = std::mem::take(&mut self.out.commands);
+        let chars = self.out.chars.len();
+        let path = std::mem::take(&mut self.path);
+        self.save();
+        let ctm = self.gs.ctm;
+        self.gs = Gs::new(ctm);
+        self.forms.push(id);
+        self.run_form(&content, matrix, bbox.as_deref(), res);
+        self.forms.pop();
+        self.restore();
+        self.path = path;
+        self.out.chars.truncate(chars);
+        let commands = std::mem::replace(&mut self.out.commands, saved);
+        Some(SoftMask {
+            luminosity,
+            backdrop,
+            commands,
+        })
     }
 
     fn load_font(&mut self, name: &[u8]) -> Option<Rc<Font>> {
@@ -1387,7 +1551,81 @@ impl<'s, 'a> Interp<'s, 'a> {
                 fill: Some(p),
                 stroke: None,
             });
+        } else {
+            let m = self.gs.ctm;
+            self.mesh_fill(&o, m);
         }
+    }
+
+    /// Draw a function-based or mesh shading (types 1, 4–7) as small triangles in pattern
+    /// space `m`; false when it is not one.
+    fn mesh_fill(&mut self, o: &Object, m: M) -> bool {
+        let doc = self.doc();
+        let Ok((_, obj)) = doc.dereference(o) else {
+            return false;
+        };
+        let (dict, data) = match obj {
+            Object::Stream(s) => (&s.dict, filters::stream_bytes(doc, s).ok()),
+            Object::Dictionary(d) => (d, None),
+            _ => return false,
+        };
+        let kind = dict
+            .get(b"ShadingType")
+            .ok()
+            .and_then(|v| v.as_i64().ok())
+            .unwrap_or(0);
+        if !matches!(kind, 1 | 4..=7) {
+            return false;
+        }
+        let Some(cs) = dict
+            .get(b"ColorSpace")
+            .ok()
+            .and_then(|c| self.color_space(c))
+        else {
+            return false;
+        };
+        let func = dict
+            .get(b"Function")
+            .ok()
+            .and_then(|o| Function::parse(doc, o, 0));
+        let tris = match (kind, &func, &data) {
+            (1, Some(f), _) => crate::mesh::function_based(doc, dict, f),
+            (4..=7, _, Some(d)) => {
+                crate::mesh::mesh(kind, dict, d, cs.components(), func.is_some())
+            }
+            _ => return false,
+        };
+        let alpha = self.gs.fill_alpha;
+        // A hairline in each triangle's colour hides the seams between neighbours.
+        let seam = self.sh.opts.min_line * 0.8;
+        for t in tris {
+            let vals = match &func {
+                Some(f) if kind != 1 => f.eval(&t.color),
+                _ => t.color,
+            };
+            let color = rgba(&cs, &vals, alpha);
+            let p: Vec<(f32, f32)> = t.pts.iter().map(|&(x, y)| apply(m, x, y)).collect();
+            if !p.iter().all(|q| q.0.is_finite() && q.1.is_finite()) {
+                continue;
+            }
+            self.out.commands.push(Command::Path {
+                segs: vec![
+                    PathSeg::M(p[0].0, p[0].1),
+                    PathSeg::L(p[1].0, p[1].1),
+                    PathSeg::L(p[2].0, p[2].1),
+                    PathSeg::Z,
+                ],
+                fill: Some(Paint::Solid { color }),
+                stroke: (alpha >= 0.999 && seam > 0.0).then(|| Stroke {
+                    width: seam,
+                    color,
+                    dash: Vec::new(),
+                    cap: "butt".to_owned(),
+                    join: "round".to_owned(),
+                }),
+            });
+        }
+        true
     }
 
     /// Gradient paint of an axial or radial shading in pattern space `m`.
@@ -1459,8 +1697,9 @@ impl<'s, 'a> Interp<'s, 'a> {
                     stops: stops(&|u| (r0 + u * (r1 - r0)) / outer),
                 })
             }
+            1 | 4..=7 => None,
             _ => {
-                // Mesh and function shadings: their background, or the middle colour.
+                // Other shadings: their background.
                 let bg: Vec<f32> = dict
                     .get(b"Background")
                     .ok()
@@ -1476,6 +1715,25 @@ impl<'s, 'a> Interp<'s, 'a> {
                 }
             }
         }
+    }
+
+    /// The shading and pattern matrix of a shading pattern whose shading is a mesh or
+    /// function-based one.
+    fn mesh_pattern(&self, name: &[u8]) -> Option<(Object, M)> {
+        let doc = self.doc();
+        let o = self.pattern_object(name)?;
+        let d = match doc.dereference(&o).ok()?.1 {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &s.dict,
+            _ => return None,
+        };
+        let sh = d.get(b"Shading").ok()?;
+        let kind = match doc.dereference(sh).ok()?.1 {
+            Object::Dictionary(s) => s.get(b"ShadingType").ok()?.as_i64().ok()?,
+            Object::Stream(s) => s.dict.get(b"ShadingType").ok()?.as_i64().ok()?,
+            _ => return None,
+        };
+        matches!(kind, 1 | 4..=7).then(|| (sh.clone(), self.pattern_matrix(d)))
     }
 
     fn pattern_object(&self, name: &[u8]) -> Option<Object> {

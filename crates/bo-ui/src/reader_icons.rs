@@ -96,6 +96,7 @@ fn shape(name: &str) -> &'static [Part] {
         "facing" => &[S("M2.5 4h8.5v16H2.5z M13 4h8.5v16H13z"), S("M5 8h4 M5 11h4 M15 8h4 M15 11h4")],
         "contFacing" => &[S("M3 2v6h8V2 M13 2v6h8V2 M3 22v-10h8v10 M13 22v-10h8v10")],
         "fullscreen" => &[S("M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6")],
+        "readMode" => &[S("M2.5 5.5c3.2-1.5 6.5-1.3 9.5 1 3-2.3 6.3-2.5 9.5-1v13c-3.2-1.5-6.5-1.3-9.5 1-3-2.3-6.3-2.5-9.5-1z"), A("M12 6.5v13")],
         "search" => &[S("M10.5 3.5a7 7 0 1 0 0.01 0z M15.5 15.5l5 5")],
         "close" => &[S("M5 5l14 14 M19 5L5 19")],
         "arrowDown" => &[F("M7 10h10l-5 5z")],

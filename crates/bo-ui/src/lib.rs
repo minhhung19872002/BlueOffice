@@ -26,6 +26,7 @@ mod nav_pane;
 mod pdf_window;
 mod popup;
 mod reader_icons;
+mod reader_print;
 #[cfg(test)]
 mod reader_tests;
 mod reader_view;
@@ -58,6 +59,7 @@ pub use icons::{parse_path, IconColors, Icons};
 pub use input::{Input, Key, Mods};
 pub use pdf_window::PdfWindow;
 pub use popup::{Choice, Menu, MenuItem};
+pub use reader_print::{parse_pages, PrintAction, PrintDialog, PrintScaling, PrintSettings};
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};

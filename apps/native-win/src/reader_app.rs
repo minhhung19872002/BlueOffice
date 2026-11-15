@@ -380,6 +380,57 @@ impl Shell {
     }
 
     #[allow(clippy::too_many_lines)]
+    /// Print through the Windows print path (GDI): each page rendered as a bitmap.
+    fn print_pages(&mut self, s: &bo_ui::PrintSettings) {
+        let Some(gpu) = self.gpu.as_ref() else {
+            return;
+        };
+        let title = self.window.title();
+        let Some(view) = self.window.view_mut() else {
+            return;
+        };
+        let pages: Vec<(usize, (f32, f32))> =
+            s.pages.iter().map(|&i| (i, view.page_size(i))).collect();
+        let device = &gpu.device;
+        let doc = view.doc_mut();
+        let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
+            let opts = RenderOptions {
+                min_line: 1.0 / scale,
+                ..RenderOptions::default()
+            };
+            let p = doc.render(i, opts).ok()?;
+            let pics = pictures(&p.images);
+            let img = device
+                .render_page(&p.list, doc.fonts(), scale, &pics)
+                .ok()?;
+            Some(print::PrintPage {
+                width: img.width,
+                height: img.height,
+                pixels: img.pixels,
+            })
+        };
+        let scaling = match s.scaling {
+            bo_ui::PrintScaling::Fit => print::Scaling::Fit,
+            bo_ui::PrintScaling::Shrink => print::Scaling::Shrink,
+            bo_ui::PrintScaling::Actual => print::Scaling::Actual,
+        };
+        let options = print::Options {
+            copies: s.copies,
+            collate: s.collate,
+            scaling,
+            auto_rotate: s.auto_rotate,
+            auto_center: s.auto_center,
+            grayscale: s.grayscale,
+        };
+        let result = print::print(&s.printer, &title, &pages, &options, &mut render);
+        let status = match result {
+            Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
+            Err(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
+        };
+        self.window.set_status(&status);
+    }
+
+    #[allow(clippy::too_many_lines)]
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
         for r in self.window.take_requests() {
@@ -410,19 +461,25 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Print => {
-                    // Printed through the system's PDF print verb, like BlueDoc's print path.
-                    if let Some(view) = self.window.view_mut() {
-                        if let Ok(bytes) = view.doc_mut().save() {
-                            let path = std::env::temp_dir()
-                                .join(format!("bluereader-print-{}.pdf", std::process::id()));
-                            if std::fs::write(&path, bytes).is_ok()
-                                && !win32::shell_open(&path, "print")
-                            {
-                                win32::shell_open(&path, "open");
+                    // Our own Print dialog with the installed printers; a window without one
+                    // prints through the system's PDF print verb.
+                    let (printers, default) = print::printers();
+                    let m = Measure(self.gpu.as_ref().map(|g| &g.device));
+                    if !self.window.open_print(printers, default.as_deref(), &m) {
+                        if let Some(view) = self.window.view_mut() {
+                            if let Ok(bytes) = view.doc_mut().save() {
+                                let path = std::env::temp_dir()
+                                    .join(format!("bluereader-print-{}.pdf", std::process::id()));
+                                if std::fs::write(&path, bytes).is_ok()
+                                    && !win32::shell_open(&path, "print")
+                                {
+                                    win32::shell_open(&path, "open");
+                                }
                             }
                         }
                     }
                 }
+                ReaderRequest::PrintPages(settings) => self.print_pages(&settings),
                 ReaderRequest::Copy(text) => win32::set_clipboard(&text, "", ""),
                 ReaderRequest::OpenUrl(url) => {
                     if url.starts_with("http://")
@@ -537,14 +594,7 @@ impl Handler for Shell {
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
-        // Page text like the reference reader: the system's ClearType settings
-        // (BLUEOFFICE_TEXT=gray|light compares other renderings).
-        device.set_text_rendering(match std::env::var("BLUEOFFICE_TEXT").as_deref() {
-            Ok("gray") => TextRendering::Grayscale,
-            Ok("light") => TextRendering::light_cleartype(),
-            Ok("doc") => TextRendering::document_default(),
-            _ => TextRendering::System,
-        });
+        device.set_text_rendering(page_text());
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
         self.gpu = Some(Gpu {
             device,
@@ -680,6 +730,48 @@ impl Handler for Shell {
     }
 }
 
+// GDI printing (Win32 calls confined to this child module, like win32.rs).
+#[path = "reader_print.rs"]
+#[allow(unsafe_code)]
+mod print;
+
+/// Gamma, enhanced contrast and ClearType level of PDF page text: the same ink coverage on body
+/// text as the reference reader (docs/ui/REPORT-reader.md round 2).
+const PDF_TEXT: (f32, f32, f32) = (1.8, 1.0, 1.0);
+
+/// Page text rendering: [PDF_TEXT] unless `BLUEOFFICE_TEXT=system|gray|light|doc` asks for
+/// another; `BO_PDF_TEXT=gamma,contrast,level[,gray][,nosym][,nofit]` tunes it for comparisons.
+fn page_text() -> TextRendering {
+    match std::env::var("BLUEOFFICE_TEXT").as_deref() {
+        Ok("system") => return TextRendering::System,
+        Ok("gray") => return TextRendering::Grayscale,
+        Ok("light") => return TextRendering::light_cleartype(),
+        Ok("doc") => return TextRendering::document_default(),
+        _ => {}
+    }
+    let tuned = std::env::var("BO_PDF_TEXT").ok();
+    let mut it = tuned.as_deref().unwrap_or("").split(',');
+    let mut num = |d: f32| it.next().and_then(|v| v.trim().parse().ok()).unwrap_or(d);
+    let (gamma, contrast, level) = (num(PDF_TEXT.0), num(PDF_TEXT.1), num(PDF_TEXT.2));
+    let has = |s: &str| tuned.as_deref().is_some_and(|v| v.contains(s));
+    let grid_fit = !has("nofit");
+    // The reference draws page text with ClearType when the system uses it, grayscale else.
+    if has("gray") || !bo_gpu_win::system_cleartype() {
+        return TextRendering::GrayscaleTuned {
+            gamma,
+            contrast,
+            grid_fit,
+        };
+    }
+    TextRendering::Tuned {
+        gamma,
+        contrast,
+        level,
+        symmetric: !has("nosym"),
+        grid_fit,
+    }
+}
+
 /// Command-line tools: `--render in.pdf <page> out.png [zoom%]` and `--bench in.pdf [pages]`.
 pub fn tool(args: &[String]) -> Result<(), String> {
     let path = args.get(1).ok_or("missing PDF path")?;
@@ -687,7 +779,7 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     let mut doc = open_pdf(std::path::Path::new(path))?;
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
     let device = Device::new()?;
-    device.set_text_rendering(TextRendering::System);
+    device.set_text_rendering(page_text());
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
         let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);

@@ -746,3 +746,17 @@ fn misspelt_words_get_wavy_lines_and_tab_types_inside_a_paragraph() {
         before.matches('\t').count() + 1
     );
 }
+
+#[test]
+fn slide_sorter_has_its_own_zoom() {
+    let mut v = open("slide-text-bullets.pptx");
+    let edit = v.scale();
+    v.set_mode(ViewMode::Sorter);
+    assert!((v.zoom() - 1.0).abs() < 1e-6);
+    assert_eq!(v.sort_rect(0)[2], 400.0, "320 logical px at 125 %");
+    assert!(v.set_zoom(Some(0.5)));
+    assert_eq!(v.sort_rect(0)[2], 200.0);
+    assert!((v.scale() - edit).abs() < 1e-6, "the editing zoom is kept");
+    v.set_mode(ViewMode::Normal);
+    assert!((v.zoom() - edit / v.base_scale()).abs() < 1e-6);
+}

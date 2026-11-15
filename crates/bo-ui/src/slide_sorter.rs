@@ -81,9 +81,11 @@ impl SlideView {
 
     /// Sorter image size and pitch (device pixels) and the number of columns.
     pub(super) fn sort_geom(&self) -> (f32, f32, f32, f32, usize) {
-        let w = self.px(320.0);
+        // Images and gaps scale with the sorter's zoom (gaps never below half).
+        let z = self.sort_zoom;
+        let w = self.px(320.0 * z).round().max(self.px(24.0));
         let h = (w * self.slide_size.1 / self.slide_size.0).round();
-        let (gx, gy) = (self.px(36.8), self.px(56.8));
+        let (gx, gy) = (self.px(36.8 * z.max(0.5)), self.px(56.8 * z.max(0.5)));
         let avail = self.size.0 - self.px(31.2) - self.sb_w();
         let cols = (((avail - w) / (w + gx)).floor() as usize + 1).max(1);
         (w, h, w + gx, h + gy, cols)

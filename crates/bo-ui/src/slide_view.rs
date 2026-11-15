@@ -326,6 +326,8 @@ pub struct SlideView {
     /// (slide points: from, to, grammar), checked again on the next tick after a change.
     spell: Vec<([f64; 2], [f64; 2], bool)>,
     spell_dirty: bool,
+    /// Slide Sorter zoom (1 = 100 %).
+    sort_zoom: f32,
     /// Draw tab tool in use, and the stroke being drawn (slide points).
     ink_tool: Option<InkTool>,
     ink_stroke: Vec<[f64; 2]>,
@@ -403,6 +405,7 @@ impl SlideView {
             live_since: None,
             spell: Vec::new(),
             spell_dirty: true,
+            sort_zoom: 1.0,
             ink_tool: None,
             ink_stroke: Vec::new(),
             focus: Focus::Canvas,
@@ -753,8 +756,17 @@ impl SlideView {
         ((z * 100.0).floor() / 100.0).max(0.1)
     }
 
-    /// Zoom factor in use (1 = 100 %).
+    /// Zoom factor in use (1 = 100 %): the Slide Sorter's own zoom in that view (its
+    /// images are 320 logical pixels wide at 100 %, as the reference's), else the editing
+    /// area's.
     pub fn zoom(&self) -> f32 {
+        if self.sorter {
+            return self.sort_zoom;
+        }
+        self.edit_zoom()
+    }
+
+    fn edit_zoom(&self) -> f32 {
         self.zoom.unwrap_or_else(|| self.fit_zoom())
     }
 
@@ -766,6 +778,13 @@ impl SlideView {
     /// Set a fixed zoom (`None`: fit to the window).
     pub fn set_zoom(&mut self, zoom: Option<f32>) -> bool {
         let zoom = zoom.map(|z| (z.clamp(0.1, 4.0) * 100.0).round() / 100.0);
+        if self.sorter {
+            let z = zoom.unwrap_or(1.0);
+            let changed = (z - self.sort_zoom).abs() > f32::EPSILON;
+            self.sort_zoom = z;
+            self.reveal_sorted(self.current);
+            return changed;
+        }
         let changed = zoom != self.zoom;
         self.zoom = zoom;
         self.clamp_canvas_scroll();
@@ -774,7 +793,7 @@ impl SlideView {
 
     /// Device pixels per point of the slide on the canvas.
     pub fn scale(&self) -> f32 {
-        self.zoom() * self.base_scale()
+        self.edit_zoom() * self.base_scale()
     }
 
     /// The slide's image size in device pixels.
@@ -1709,7 +1728,7 @@ impl SlideView {
         let r = self.engine.slide_command(SlideCommand::Transform {
             transform: t,
             snap: true,
-            tolerance: 4.0,
+            tolerance: self.snap_tol(),
             preview: true,
         });
         self.preview = r.ok().and_then(|r| r.preview);
@@ -1719,7 +1738,7 @@ impl SlideView {
             let ok = self.engine.slide_command(SlideCommand::Transform {
                 transform: t,
                 snap: true,
-                tolerance: 4.0,
+                tolerance: self.snap_tol(),
                 preview: false,
             });
             if let Ok(r) = ok {
@@ -1731,6 +1750,12 @@ impl SlideView {
             }
         }
         true
+    }
+
+    /// Smart guide snapping distance: 6 logical pixels on screen in slide points (the
+    /// reference snaps a 5.5 px gap at 75 % zoom and 125 % display scale).
+    fn snap_tol(&self) -> f64 {
+        f64::from(6.0 * self.display_scale / self.scale().max(0.01))
     }
 
     fn history_len(&mut self) -> usize {
@@ -1798,7 +1823,7 @@ impl SlideView {
             Some(t) => self.run(SlideCommand::Transform {
                 transform: t,
                 snap: true,
-                tolerance: 4.0,
+                tolerance: self.snap_tol(),
                 preview: false,
             }),
             None => true,
@@ -1862,7 +1887,7 @@ impl SlideView {
                 dy: dy - 12.0,
             },
             snap: true,
-            tolerance: 4.0,
+            tolerance: self.snap_tol(),
             preview: false,
         });
         let copies: Vec<u32> = self.selection().iter().map(|s| s.id).collect();
@@ -2985,10 +3010,12 @@ impl SlideView {
                 } else {
                     (self.to_px(g.from, g.pos), self.to_px(g.to, g.pos))
                 };
+                // The reference runs the line about 10 px past both shapes at 125 %.
+                let ext = 8.0 * self.display_scale;
                 let (from, to) = if vertical {
-                    (a.1.min(z.1), a.1.max(z.1))
+                    (a.1.min(z.1) - ext, a.1.max(z.1) + ext)
                 } else {
-                    (a.0.min(z.0), a.0.max(z.0))
+                    (a.0.min(z.0) - ext, a.0.max(z.0) + ext)
                 };
                 let mut t = from;
                 while t < to {

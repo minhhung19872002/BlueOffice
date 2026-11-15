@@ -193,3 +193,18 @@ fn installed_width_variants_do_not_replace_the_regular_face() {
     assert!(fm.info(black).weight >= 800, "Arial Black by its own name");
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn windows_metrics_and_typo_flag() {
+    let mut fm = manager();
+    // Carlito: usWinAscent 1950, usWinDescent 550, no USE_TYPO_METRICS.
+    let c = fm.resolve("Calibri", false, false).unwrap();
+    let i = fm.info(c);
+    assert_eq!(
+        (i.win_ascent, i.win_descent, i.use_typo_metrics),
+        (1950, 550, false)
+    );
+    // Caladea asks for its typographic metrics (fsSelection bit 7).
+    let cam = fm.resolve("Cambria", false, false).unwrap();
+    assert!(fm.info(cam).use_typo_metrics);
+}

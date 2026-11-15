@@ -2213,12 +2213,16 @@ fn leader_fragment(
     if adv <= 0.1 || x1 - x0 < adv * 2.0 {
         return None;
     }
-    // Align leader glyphs to a grid so consecutive leaders line up.
-    let start = (x0 / adv).ceil() * adv;
+    // Leader glyphs end exactly at the tab position (the following text starts there),
+    // counted back from it: lines sharing a tab stop line up, and no gap is left before
+    // the page number, as desktop word processors draw TOC leaders (ECMA-376 Part 1,
+    // §17.3.1.37 tab, leader attribute).
+    let count = ((x1 - x0) / adv + 0.001).floor().max(0.0) as usize;
+    let start = x1 - count as f32 * adv;
     let mut glyphs = Vec::new();
     let mut x = start;
     let mut text = String::new();
-    while x + adv <= x1 - adv * 0.5 {
+    for _ in 0..count {
         glyphs.push(GlyphPos {
             id: g.glyph_id,
             x: x - start,

@@ -939,3 +939,51 @@ fn display_equation_takes_its_own_aligned_line() {
         .count();
     assert_eq!(body, 1);
 }
+
+/// TOC-style dot leader (§17.3.1.37 tab, leader="dot"): the dots run up to the page
+/// number, as desktop word processors draw them: the last dot ends where the number starts,
+/// wherever the tab stop falls.
+#[test]
+fn dot_leader_runs_up_to_the_right_tab() {
+    use bo_model::{TabAlign, TabLeader, TabStop};
+    for pos in (5000..5060).step_by(3) {
+        let props = ParaProps {
+            tabs: Some(vec![TabStop {
+                pos: Twips(pos),
+                align: TabAlign::Right,
+                leader: TabLeader::Dot,
+            }]),
+            ..ParaProps::default()
+        };
+        let l = run(&doc(vec![Section {
+            blocks: vec![pp("Chương I	1", props)],
+            ..Default::default()
+        }]));
+        let frags: Vec<_> = l.pages[0]
+            .lines
+            .iter()
+            .flat_map(|line| line.fragments.iter())
+            .collect();
+        let names: Vec<_> = frags.iter().map(|f| (f.text.clone(), f.x)).collect();
+        // Leaders ending where the number starts are merged with it into one fragment.
+        if frags
+            .iter()
+            .any(|f| f.text.starts_with("...") && f.text.ends_with(".1"))
+        {
+            continue;
+        }
+        let dots = frags
+            .iter()
+            .find(|f| f.text.starts_with("..."))
+            .unwrap_or_else(|| panic!("{names:?}"));
+        let number = frags
+            .iter()
+            .find(|f| f.text == "1")
+            .unwrap_or_else(|| panic!("{names:?}"));
+        let gap = number.x - (dots.x + dots.width);
+        assert!(
+            gap.abs() < 0.01,
+            "tab at {pos}: gap {gap} before the number"
+        );
+    }
+}

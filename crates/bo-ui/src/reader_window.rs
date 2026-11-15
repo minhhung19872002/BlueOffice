@@ -27,6 +27,12 @@ mod viewx;
 // Drawing tools, resize handles and the properties panel (BlueReader round 3).
 #[path = "reader_draw_win.rs"]
 mod draw;
+// Text Viewer, split panes, Read aloud, smooth AutoScroll (BlueReader round 4).
+#[path = "reader_view4_win.rs"]
+mod view4;
+// Form and Protect tabs, Eraser, Area Highlight, Custom Stamp, comment list order (round 4).
+#[path = "reader_tabs4_win.rs"]
+mod tabs4;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -147,6 +153,26 @@ pub enum ReaderRequest {
         name: String,
         /// PDF bytes.
         bytes: Vec<u8>,
+    },
+    /// Show the driver settings of this printer (the Print dialog's Properties); the host
+    /// keeps them for printing and passes the paper back ([`ReaderWindow::set_print_paper`]).
+    PrinterProperties(String),
+    /// Read text aloud (View > Read) at a rate from −10 to 10, replacing what is being read.
+    Speak {
+        /// Text to read.
+        text: String,
+        /// Rate −10…10.
+        rate: i32,
+    },
+    /// Reading aloud: 0 stop, 1 pause, 2 resume, 10 + rate: change the rate.
+    SpeechControl(i32),
+    /// SnapShot: copy this part of a page (page points: left, top, right, bottom) to the
+    /// clipboard as a picture.
+    Snapshot {
+        /// Page index.
+        page: usize,
+        /// The part.
+        rect: [f32; 4],
     },
 }
 
@@ -390,6 +416,10 @@ pub struct ReaderWindow {
     viewx: viewx::ViewX,
     /// Comment tab drawing tools.
     draw: draw::Draw,
+    /// View tab additions of round 4.
+    view4: view4::View4,
+    /// Form / Protect tabs and Comment tab additions of round 4.
+    tabs4: tabs4::Tabs4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -462,6 +492,8 @@ impl ReaderWindow {
             extra: extra::Extra::default(),
             viewx: viewx::ViewX::default(),
             draw: draw::Draw::default(),
+            view4: view4::View4::default(),
+            tabs4: tabs4::Tabs4::default(),
         }
     }
 
@@ -486,6 +518,8 @@ impl ReaderWindow {
                 "pdfReader.tabs.home",
                 "pdfReader.tabs.comment",
                 "pdfReader.tabs.view",
+                "pdfReader.tabs.form",
+                "pdfReader.tabs.protect",
                 "pdfReader.tabs.help",
             ]),
         }
@@ -747,10 +781,14 @@ impl ReaderWindow {
         let mut v: Vec<(&'static str, Kind)> = common.to_vec();
         match self.ribbon_tab {
             0 => v.extend([
+                // The reference's Home tab: SnapShot, Clipboard | Zoom, Page Fit, Reflow,
+                // Rotate View | Typewriter, Highlight | Fill & Sign.
+                ("home.snapshot", Big("snapshot", "pdfHome.snapshot", false)),
                 ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
                 ("sep1", Sep),
                 ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
                 ("menu.fit", Big("fit", "pdfReader.pageFit", true)),
+                ("view.reflow", Big("reflow", "pdfView.reflow", false)),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep2", Sep),
                 (
@@ -762,19 +800,29 @@ impl ReaderWindow {
                     Big("highlight", "pdfReader.highlight", false),
                 ),
                 ("sep3", Sep),
+                (
+                    "prot.fillSign",
+                    Big("fillSign", "pdfProtect.fillSign", false),
+                ),
+                ("sep4", Sep),
                 ("find", Big("search", "pdfReader.find", false)),
             ]),
             1 => v.extend([
                 ("sep1", Sep),
                 // Text markup as a grid of small buttons, like the reference's Comment tab.
+                // Six text markup tools in a 3 × 2 grid like the reference's (filled column
+                // by column).
                 ("tool.highlight", Small("highlight")),
-                ("tool.underline", Small("underline")),
                 ("tool.strikeout", Small("strikeout")),
                 ("tool.squiggly", Small("squiggly")),
+                ("comment.replace", Small("replaceText")),
+                ("tool.underline", Small("underline")),
+                ("comment.insert", Small("insertText")),
                 ("sep2", Sep),
                 // Order of the reference's Comment tab: note | typewriter, text box, callout |
                 // drawing, pencil | measure | stamp.
                 ("tool.note", Big("note", "pdfReader.note", false)),
+                ("comment.file", Big("attach", "pdfComment.file", false)),
                 ("sep3", Sep),
                 (
                     "draw.typewriter",
@@ -785,12 +833,32 @@ impl ReaderWindow {
                 ("sep5", Sep),
                 ("menu.drawing", Big("rectangle", "pdfDraw.drawing", true)),
                 ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
+                ("comment.eraser", Big("eraser", "pdfComment.eraser", false)),
+                ("sep8", Sep),
+                (
+                    "comment.areaHighlight",
+                    Big("areaHighlight", "pdfComment.areaHighlight", false),
+                ),
+                (
+                    "comment.searchHighlight",
+                    Big("searchHighlight", "pdfComment.searchHighlight", false),
+                ),
                 ("sep6", Sep),
                 ("menu.measure", Big("measure", "pdfDraw.measure", true)),
                 ("sep7", Sep),
                 ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
+                (
+                    "menu.customStamp",
+                    Big("customStamp", "pdfComment.customStamp", true),
+                ),
                 ("draw.props", Big("properties", "pdfDraw.properties", false)),
                 ("sep4", Sep),
+                (
+                    "comment.summarize",
+                    Big("summarize", "pdfComment.summarize", false),
+                ),
+                ("comment.import", Big("import", "pdfComment.import", false)),
+                ("comment.export", Big("export", "pdfComment.export", false)),
                 (
                     "panel.comments",
                     Big("comments", "pdfReader.commentList", false),
@@ -805,6 +873,10 @@ impl ReaderWindow {
                 ("view.reflow", Big("reflow", "pdfView.reflow", false)),
                 ("view.reverse", Big("reverseView", "pdfView.reverse", false)),
                 ("view.night", Big("night", "pdfView.night", false)),
+                (
+                    "view.textViewer",
+                    Big("textViewer", "pdfView.textViewer", false),
+                ),
                 ("sep1", Sep),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep2", Sep),
@@ -814,12 +886,15 @@ impl ReaderWindow {
                 ("view.continuous", Small("continuous")),
                 ("view.cover", Small("cover")),
                 ("view.facing", Small("facing")),
-                ("view.grid", Small("grid")),
+                // The reference's sixth cell: split windows (the grid is in View Setting).
+                ("menu.split", Small("split")),
                 ("sep5", Sep),
                 (
                     "view.autoScroll",
                     Big("autoScroll", "pdfView.autoScroll", false),
                 ),
+                ("sep6", Sep),
+                ("menu.read", Big("read", "pdfView.read", true)),
                 ("sep3", Sep),
                 (
                     "view.wordCount",
@@ -831,6 +906,7 @@ impl ReaderWindow {
                     Big("viewSetting", "pdfView.viewSetting", true),
                 ),
             ]),
+            3 | 4 => v.extend(Self::tabs4_items(self.ribbon_tab)),
             _ => {
                 v.clear();
                 v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -1564,6 +1640,7 @@ impl ReaderWindow {
             Some(Drag::Select { page, .. }) => {
                 if let Tool::Markup(kind) = self.tool {
                     self.markup_selection(kind, page);
+                    self.after_markup(m);
                 }
                 true
             }
@@ -2157,6 +2234,7 @@ impl ReaderWindow {
             return false;
         }
         self.prepare_extra();
+        let animating = self.view4_animating();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
         let thumb_w = self.px(120.0);
@@ -2184,7 +2262,7 @@ impl ReaderWindow {
                 }
             }
         }
-        t.view.prepare(&mut keyed, 24)
+        t.view.prepare(&mut keyed, 24) || animating
     }
 
     /// Paint the window.
@@ -2318,7 +2396,15 @@ impl ReaderWindow {
             let r = c.r;
             match c.kind {
                 Kind::Big(icon, label, dropdown) => {
-                    if on || down || hot {
+                    // A command this window does not offer: grey, no hover.
+                    let off = !self.enabled(c.id);
+                    let (ink, label_ink) = if off {
+                        let g = Rgba(175, 175, 176, 255);
+                        (Ink { ink: g, accent: g }, g)
+                    } else {
+                        (ink, TEXT)
+                    };
+                    if !off && (on || down || hot) {
                         let fill = if on || down {
                             self.look.pressed
                         } else {
@@ -2359,14 +2445,14 @@ impl ReaderWindow {
                             0.0
                         };
                         let lx = r[0] + ((r[2] - lw - extra) / 2.0).round();
-                        p.text(l, lx, ly, label_style, TEXT);
+                        p.text(l, lx, ly, label_style, label_ink);
                         if dropdown && k == n - 1 && n > 1 {
                             tri(
                                 p,
                                 lx + lw + self.px(2.0),
                                 ly + lh * 0.45,
                                 self.px(3.2),
-                                TEXT,
+                                label_ink,
                             );
                         }
                         ly += lh;
@@ -2555,6 +2641,9 @@ impl ReaderWindow {
     fn enabled(&self, id: &str) -> bool {
         if let Some(&e) = self.enabled_override.get(id) {
             return e;
+        }
+        if Self::tabs4_disabled(id) {
+            return false;
         }
         let Some(v) = self.view() else {
             return id == "file.open";
@@ -2885,7 +2974,8 @@ impl ReaderWindow {
                     p.pop_clip();
                     return;
                 };
-                let list = t.view.doc().comment_threads();
+                let list = self.comments_shown(t.view.doc().comment_threads());
+                y += self.paint_comment_header(p, r);
                 if list.is_empty() {
                     p.text(
                         &self.t("pdfReader.noComments"),
@@ -3010,6 +3100,7 @@ impl ReaderWindow {
     fn paint_doc(&self, p: &mut dyn Painter) {
         let d = self.doc_rect;
         p.fill_rect(d[0], d[1], d[2], d[3], self.doc_canvas());
+        self.paint_split(p);
         if self.paint_reflow(p) {
             self.paint_viewx_overlay(p);
             return;

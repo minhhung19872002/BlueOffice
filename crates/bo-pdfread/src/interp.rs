@@ -156,6 +156,9 @@ struct Gs {
     smask: Option<Rc<SoftMask>>,
     /// Clips pushed while this state was current.
     clips: u32,
+    /// Overprint of fills and strokes (§8.7.4.5, ExtGState `/op` and `/OP`).
+    op_fill: bool,
+    op_stroke: bool,
 }
 
 impl Gs {
@@ -186,6 +189,8 @@ impl Gs {
             blend: None,
             smask: None,
             clips: 0,
+            op_fill: false,
+            op_stroke: false,
         }
     }
 }
@@ -287,6 +292,10 @@ pub(crate) struct Interp<'s, 'a> {
     image_prefix: String,
     /// Where the clip pushed by the last path painting operator starts.
     clip_mark: Option<usize>,
+    /// Colour of all shown text, fill and stroke (BlueReader Night Mode); alpha is kept.
+    pub(crate) text_color: Option<Rgba>,
+    /// Simulate overprinting ([`crate::RenderExtra::overprint`]).
+    pub(crate) overprint: bool,
 }
 
 impl<'s, 'a> Interp<'s, 'a> {
@@ -321,6 +330,8 @@ impl<'s, 'a> Interp<'s, 'a> {
             uncolored: false,
             image_prefix,
             clip_mark: None,
+            text_color: None,
+            overprint: false,
         }
     }
 
@@ -351,6 +362,23 @@ impl<'s, 'a> Interp<'s, 'a> {
     fn color_space(&self, o: &Object) -> Option<ColorSpace> {
         let lookup = |n: &[u8]| self.resource(b"ColorSpace", n);
         ColorSpace::parse(self.doc(), o, &lookup, 0)
+    }
+
+    /// Whether `o` (or the named `/ColorSpace` resource) is a Separation / DeviceN array.
+    fn is_tint_space(&self, o: &Object) -> bool {
+        let doc = self.doc();
+        let o = match o {
+            Object::Name(n) => match self.resource(b"ColorSpace", n) {
+                Some(v) => v,
+                None => return false,
+            },
+            other => other.clone(),
+        };
+        let o = doc.dereference(&o).map_or(o.clone(), |(_, v)| v.clone());
+        o.as_array().ok().and_then(|a| a.first()).is_some_and(|k| {
+            let k = doc.dereference(k).map_or(k, |(_, v)| v);
+            matches!(k.as_name(), Ok(b"Separation" | b"DeviceN"))
+        })
     }
 
     fn hidden(&self) -> bool {
@@ -661,6 +689,20 @@ impl<'s, 'a> Interp<'s, 'a> {
                 | b"\""
                 | b"TJ"
         );
+        // Overprint simulation: an overprinting CMYK / spot colour multiplies with the
+        // backdrop (subtractive inks add up), the usual on-screen approximation.
+        let simulate = painting && self.overprint && self.gs.blend.is_none() && {
+            let stroke_only = matches!(op.name.as_slice(), b"S" | b"s");
+            let (on, cs) = if stroke_only {
+                (self.gs.op_stroke, &self.gs.stroke_cs)
+            } else {
+                (self.gs.op_fill, &self.gs.fill_cs)
+            };
+            on && cs.is_subtractive()
+        };
+        if simulate {
+            self.gs.blend = Some(BlendMode::Multiply);
+        }
         if !painting || (self.gs.blend.is_none() && self.gs.smask.is_none()) {
             self.op_inner(op);
             return;
@@ -678,10 +720,11 @@ impl<'s, 'a> Interp<'s, 'a> {
                 Command::PushGroup {
                     blend,
                     mask: mask.as_ref().map(|m| Box::new(SoftMask::clone(m))),
+                    knockout: false,
                 },
             );
         }
-        self.gs.blend = blend;
+        self.gs.blend = if simulate { None } else { blend };
         self.gs.smask = mask;
     }
 
@@ -749,10 +792,13 @@ impl<'s, 'a> Interp<'s, 'a> {
             b"W" | b"W*" => self.clip = Some(op.name == b"W*"),
             // Colour.
             b"CS" | b"cs" => {
-                let cs = a
-                    .first()
-                    .and_then(|o| self.color_space(o))
-                    .unwrap_or(ColorSpace::Gray);
+                let parsed = a.first().and_then(|o| self.color_space(o));
+                // A Separation / DeviceN space whose tint transform is unusable is ignored:
+                // the previous space stays current (measured on the reference reader).
+                if parsed.is_none() && a.first().is_some_and(|o| self.is_tint_space(o)) {
+                    return;
+                }
+                let cs = parsed.unwrap_or(ColorSpace::Gray);
                 let init = cs.initial();
                 if op.name == b"CS" {
                     self.gs.stroke_cs = Arc::new(cs);
@@ -967,6 +1013,15 @@ impl<'s, 'a> Interp<'s, 'a> {
                             .unwrap_or_default();
                     }
                 }
+                // `/OP` sets both unless `/op` is given too (§8.4.5 Table 58).
+                b"OP" => {
+                    let on = v.as_bool().unwrap_or(false);
+                    self.gs.op_stroke = on;
+                    if d.get(b"op").is_err() {
+                        self.gs.op_fill = on;
+                    }
+                }
+                b"op" => self.gs.op_fill = v.as_bool().unwrap_or(false),
                 b"CA" => self.gs.stroke_alpha = f(v).clamp(0.0, 1.0),
                 b"ca" => self.gs.fill_alpha = f(v).clamp(0.0, 1.0),
                 b"BM" => {
@@ -1092,11 +1147,14 @@ impl<'s, 'a> Interp<'s, 'a> {
         let fill = !matches!(mode, 1 | 5);
         let stroke = matches!(mode, 1 | 2 | 5 | 6);
         let clip_mode = mode >= 4;
-        let color = if fill {
+        let mut color = if fill {
             self.fill_rgba()
         } else {
             rgba(&self.gs.stroke_cs, &self.gs.stroke, self.gs.stroke_alpha)
         };
+        if let Some(t) = self.text_color {
+            color = Rgba(t.0, t.1, t.2, color.3);
+        }
         // Outlines for stroked and clipping text too (glyph runs only fill).
         let paths = self.sh.opts.text_as_paths
             || font.face.is_none()
@@ -1242,7 +1300,10 @@ impl<'s, 'a> Interp<'s, 'a> {
         }
         if !glyph_path.is_empty() && visible {
             let fill_paint = fill.then_some(Paint::Solid { color });
-            let stroke_style = if stroke { self.stroke_style() } else { None };
+            let mut stroke_style = if stroke { self.stroke_style() } else { None };
+            if let (Some(t), Some(st)) = (self.text_color, stroke_style.as_mut()) {
+                st.color = Rgba(t.0, t.1, t.2, st.color.3);
+            }
             self.out.commands.push(Command::Path {
                 segs: glyph_path,
                 fill: fill_paint,
@@ -1425,12 +1486,32 @@ impl<'s, 'a> Interp<'s, 'a> {
                     .ok()
                     .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
                     .and_then(|o| o.as_dict().ok());
+                // §11.4.6.2 / §11.6.6: a transparency group with `/K true` is a knockout group.
+                let knockout = s
+                    .dict
+                    .get(b"Group")
+                    .ok()
+                    .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+                    .and_then(|o| o.as_dict().ok())
+                    .and_then(|g| g.get(b"K").ok())
+                    .and_then(|k| k.as_bool().ok())
+                    .unwrap_or(false);
+                if knockout {
+                    self.out.commands.push(Command::PushGroup {
+                        blend: None,
+                        mask: None,
+                        knockout: true,
+                    });
+                }
                 if let Some(i) = id {
                     self.forms.push(i);
                 }
                 self.run_form(&content, matrix, bbox.as_deref(), res);
                 if id.is_some() {
                     self.forms.pop();
+                }
+                if knockout {
+                    self.out.commands.push(Command::PopGroup);
                 }
             }
             _ => {}

@@ -1,7 +1,7 @@
 //! BlueReader View tab additions in the window (round 3, a child of `reader_window`): Night
 //! Mode, Reflow, AutoScroll, a separate cover page in facing layouts, rulers and a grid.
 use super::{ReaderWindow, TEXT};
-use crate::reader_viewx::{paragraphs, ruler_ticks, wrap};
+use crate::reader_viewx::{paragraphs, ruler_ticks, wrap, AUTO_SPEEDS};
 use crate::{Input, Key, Painter, TextMeasure, TextStyle};
 use bo_render::Rgba;
 
@@ -11,8 +11,6 @@ const RULER_EDGE: Rgba = Rgba(199, 204, 217, 255);
 const RULER_TICK: Rgba = Rgba(110, 110, 112, 255);
 const GRID: Rgba = Rgba(64, 140, 255, 70);
 const GRID_MAJOR: Rgba = Rgba(64, 140, 255, 120);
-/// AutoScroll speeds (logical pixels per 100 ms tick).
-const AUTO_SPEEDS: [f32; 6] = [2.0, 4.0, 7.0, 11.0, 16.0, 24.0];
 
 /// State of the View additions.
 #[derive(Debug, Default)]
@@ -232,29 +230,17 @@ impl ReaderWindow {
         None
     }
 
-    /// A timer tick: AutoScroll moves the document; `true` when it moved.
+    /// A timer tick: AutoScroll in Reflow moves the text (pages move every frame,
+    /// `prepare_view4`); `true` when it moved.
     pub(crate) fn tick_viewx(&mut self, m: &dyn TextMeasure) -> bool {
         let Some(speed) = self.viewx.auto else {
             return false;
         };
-        let dy = self.px(AUTO_SPEEDS[speed.min(AUTO_SPEEDS.len() - 1)]);
-        if self.viewx.reflow {
-            self.reflow_scroll_by(dy, m);
-            return true;
-        }
-        let Some(t) = self.tabs.get_mut(self.active) else {
+        if !self.viewx.reflow {
             return false;
-        };
-        let before = t.view.scroll_state().0;
-        let page = t.view.current_page();
-        t.view.scroll_by(0.0, dy);
-        let moved = t.view.scroll_state().0 != before || t.view.current_page() != page;
-        if !moved {
-            // The end of the document: stop.
-            self.viewx.auto = None;
-            self.sync_viewx_buttons();
-            return true;
         }
+        let dy = self.px(AUTO_SPEEDS[speed.min(AUTO_SPEEDS.len() - 1)] / 10.0);
+        self.reflow_scroll_by(dy, m);
         true
     }
 
@@ -339,6 +325,7 @@ impl ReaderWindow {
         }
         // Reflowed text wraps to the new width when next painted.
         self.viewx.reflow_page = None;
+        self.view4_layout();
     }
 
     /// Canvas colour of the document area (the reference keeps it in Night Mode).
@@ -357,6 +344,9 @@ impl ReaderWindow {
 
     /// Reflow replaces the page drawing; `true` when it painted the document area.
     pub(crate) fn paint_reflow(&self, p: &mut dyn Painter) -> bool {
+        if self.paint_text_viewer(p) {
+            return true;
+        }
         if !self.viewx.reflow || self.viewx.reflow_page.is_none() {
             return false;
         }

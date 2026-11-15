@@ -3,11 +3,14 @@
 //! scale, several pages per sheet, booklet, current view) with every page as a bitmap rendered
 //! at the printer's resolution (capped), on one or both sides of the paper.
 use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{
-    CreateDCW, DeleteDC, GetDeviceCaps, PatBlt, SetStretchBltMode, StretchDIBits, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, BLACKNESS, DEVMODEW, DIB_RGB_COLORS, DMDUP_HORIZONTAL,
-    DMDUP_VERTICAL, DM_DUPLEX, DM_OUT_BUFFER, HALFTONE, HDC, HORZRES, LOGPIXELSX, LOGPIXELSY,
-    SRCCOPY, VERTRES,
+    CreateDCW, CreateICW, DeleteDC, GetDeviceCaps, PatBlt, SetBkMode, SetStretchBltMode,
+    StretchDIBits, TextOutW, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLACKNESS, DEVMODEW,
+    DIB_RGB_COLORS, DMDUP_HORIZONTAL, DMDUP_VERTICAL, DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT,
+    DM_DUPLEX, DM_IN_BUFFER, DM_IN_PROMPT, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH,
+    DM_PAPERSIZE, DM_PAPERWIDTH, HALFTONE, HDC, HORZRES, LOGPIXELSX, LOGPIXELSY, PHYSICALHEIGHT,
+    PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY, TRANSPARENT, VERTRES,
 };
 use windows::Win32::Graphics::Printing::{
     ClosePrinter, DocumentPropertiesW, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
@@ -15,8 +18,8 @@ use windows::Win32::Graphics::Printing::{
 };
 use windows::Win32::Storage::Xps::{EndDoc, EndPage, StartDocW, StartPage, DOCINFOW};
 
-/// Highest resolution pages are rendered at (dots per inch); the printer scales up.
-const MAX_DPI: f32 = 300.0;
+/// IDOK of the driver's settings dialog.
+const IDOK: i32 = 1;
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -102,44 +105,121 @@ pub struct Options {
     /// Write the job to this file instead of the printer port (print-to-file printers such
     /// as the system's PDF printer).
     pub output: Option<String>,
+    /// Paper turned landscape.
+    pub landscape: bool,
+    /// Highest resolution pages are rendered at (dots per inch); the printer scales up.
+    pub max_dpi: f32,
+    /// Driver settings chosen with Properties (a DEVMODEW buffer), the base of the job's.
+    pub devmode: Option<Vec<u64>>,
+    /// Paper of this size (points, portrait), when the PDF page size chooses the paper.
+    pub paper: Option<(f32, f32)>,
 }
 
-/// A device mode of `printer` asking for duplex printing, when the driver gives one.
-fn devmode(printer: &[u16], duplex: u8) -> Option<Vec<u64>> {
-    if duplex == 0 {
-        return None;
-    }
+/// The driver settings of `printer`: `base` merged in when given; DEVMODEW in a u64 buffer.
+/// `prompt` shows the driver's dialog owned by `hwnd` and returns `None` when it is cancelled.
+fn driver_devmode(
+    printer: &[u16],
+    base: Option<&[u64]>,
+    prompt: Option<isize>,
+) -> Option<Vec<u64>> {
     // SAFETY: the printer handle is closed on every path; the buffer is as large as the
-    // driver asked and u64-aligned for DEVMODEW.
+    // driver asked and u64-aligned for DEVMODEW; `base` is a DEVMODEW the driver gave earlier.
     unsafe {
         let mut h = PRINTER_HANDLE::default();
         OpenPrinterW(PCWSTR(printer.as_ptr()), &raw mut h, None).ok()?;
-        let size = DocumentPropertiesW(None, h, PCWSTR(printer.as_ptr()), None, None, 0);
+        let owner = prompt.map(|w| HWND(w as *mut _));
+        let size = DocumentPropertiesW(owner, h, PCWSTR(printer.as_ptr()), None, None, 0);
         let mut out = None;
         if size > 0 {
             let mut buf = vec![0_u64; (size as usize).div_ceil(8)];
             let dm = buf.as_mut_ptr().cast::<DEVMODEW>();
-            if DocumentPropertiesW(
-                None,
-                h,
-                PCWSTR(printer.as_ptr()),
-                Some(dm),
-                None,
-                DM_OUT_BUFFER.0,
-            ) >= 0
-            {
-                (*dm).dmFields |= DM_DUPLEX;
-                (*dm).dmDuplex = if duplex == 1 {
-                    DMDUP_VERTICAL
-                } else {
-                    DMDUP_HORIZONTAL
-                };
+            let input = base.map(|b| b.as_ptr().cast::<DEVMODEW>());
+            let mut mode = DM_OUT_BUFFER.0;
+            if input.is_some() {
+                mode |= DM_IN_BUFFER.0;
+            }
+            if prompt.is_some() {
+                mode |= DM_IN_PROMPT.0;
+            }
+            let r = DocumentPropertiesW(owner, h, PCWSTR(printer.as_ptr()), Some(dm), input, mode);
+            if (prompt.is_some() && r == IDOK) || (prompt.is_none() && r >= 0) {
                 out = Some(buf);
             }
         }
         let _ = ClosePrinter(h);
         out
     }
+}
+
+/// Show `printer`'s own settings dialog (the Print dialog's Properties) over window `hwnd`,
+/// starting from `base`; the chosen settings, or `None` when cancelled.
+pub fn properties(hwnd: isize, printer: &str, base: Option<&[u64]>) -> Option<Vec<u64>> {
+    driver_devmode(&wide(printer), base, Some(hwnd))
+}
+
+/// Paper size and printable area of `printer` (with its chosen settings), in points.
+pub fn paper(printer: &str, devmode: Option<&[u64]>) -> Option<bo_ui::Paper> {
+    let name = wide(printer);
+    let driver = wide("WINSPOOL");
+    // SAFETY: an information context only answers GetDeviceCaps; it is deleted here.
+    unsafe {
+        let ic = CreateICW(
+            PCWSTR(driver.as_ptr()),
+            PCWSTR(name.as_ptr()),
+            PCWSTR::null(),
+            devmode.map(|b| b.as_ptr().cast::<DEVMODEW>()),
+        );
+        if ic.is_invalid() {
+            return None;
+        }
+        let cap = |i| GetDeviceCaps(Some(ic), i) as f32;
+        let (dx, dy) = (cap(LOGPIXELSX).max(72.0), cap(LOGPIXELSY).max(72.0));
+        let pt = |v: f32, d: f32| v / d * 72.0;
+        let p = bo_ui::Paper {
+            size: (pt(cap(PHYSICALWIDTH), dx), pt(cap(PHYSICALHEIGHT), dy)),
+            area: [
+                pt(cap(PHYSICALOFFSETX), dx),
+                pt(cap(PHYSICALOFFSETY), dy),
+                pt(cap(HORZRES), dx),
+                pt(cap(VERTRES), dy),
+            ],
+        };
+        let _ = DeleteDC(ic);
+        (p.size.0 > 0.0 && p.size.1 > 0.0).then_some(p)
+    }
+}
+
+/// The job's device mode of `printer`: the chosen driver settings with the dialog's
+/// orientation and both-sides choice, when the driver gives one.
+fn devmode(printer: &[u16], opts: &Options) -> Option<Vec<u64>> {
+    let mut buf = driver_devmode(printer, opts.devmode.as_deref(), None)?;
+    // SAFETY: `buf` holds a DEVMODEW written by the driver (u64-aligned).
+    unsafe {
+        let dm = buf.as_mut_ptr().cast::<DEVMODEW>();
+        (*dm).dmFields |= DM_ORIENTATION;
+        (*dm).Anonymous1.Anonymous1.dmOrientation = if opts.landscape {
+            DMORIENT_LANDSCAPE as i16
+        } else {
+            DMORIENT_PORTRAIT as i16
+        };
+        if let Some((w, h)) = opts.paper {
+            // Tenths of a millimetre; no named size.
+            let tenth = |v: f32| (v / 72.0 * 254.0).round() as i16;
+            (*dm).dmFields |= DM_PAPERSIZE | DM_PAPERWIDTH | DM_PAPERLENGTH;
+            (*dm).Anonymous1.Anonymous1.dmPaperSize = 0;
+            (*dm).Anonymous1.Anonymous1.dmPaperWidth = tenth(w.min(h));
+            (*dm).Anonymous1.Anonymous1.dmPaperLength = tenth(w.max(h));
+        }
+        if opts.duplex != 0 {
+            (*dm).dmFields |= DM_DUPLEX;
+            (*dm).dmDuplex = if opts.duplex == 1 {
+                DMDUP_VERTICAL
+            } else {
+                DMDUP_HORIZONTAL
+            };
+        }
+    }
+    Some(buf)
 }
 
 /// Print the sheets `plan` gives for the printable area (points) on `printer`. `size_of` is a
@@ -158,7 +238,7 @@ pub fn print(
     let driver = wide("WINSPOOL");
     let doc_name = wide(title);
     let output = opts.output.as_deref().map(wide);
-    let dm = devmode(&name, opts.duplex);
+    let dm = devmode(&name, opts);
     // SAFETY: the device context is created and deleted here; every buffer passed to GDI
     // lives for the duration of the call; the job is ended (or aborted by EndDoc) on all paths.
     unsafe {
@@ -209,7 +289,8 @@ pub fn print(
                     let across = if pl.turn { pl.dest[3] } else { pl.dest[2] };
                     let page_w = pl.clip.map_or_else(|| size_of(pl.page).0, |c| c[2]);
                     // Render resolution: the printed size, at most MAX_DPI.
-                    let printed_dpi = (across / page_w.max(1.0) * dpi_x).clamp(36.0, MAX_DPI);
+                    let printed_dpi =
+                        (across / page_w.max(1.0) * dpi_x).clamp(36.0, opts.max_dpi.max(36.0));
                     let scale = printed_dpi / 72.0;
                     if let Some(img) = render(pl.page, scale) {
                         let img = match pl.clip {
@@ -259,6 +340,28 @@ pub fn print(
                             DIB_RGB_COLORS,
                             SRCCOPY,
                         );
+                    }
+                    if pl.cut_marks {
+                        // Corner marks a quarter inch long, about 0.5 pt thick.
+                        let t = (dpi_x / 144.0).round().max(1.0) as i32;
+                        let m = (dpi_x / 4.0) as i32;
+                        for (x, y, sx, sy) in [
+                            (d[0], d[1], 1, 1),
+                            (d[0] + d[2], d[1], -1, 1),
+                            (d[0], d[1] + d[3], 1, -1),
+                            (d[0] + d[2], d[1] + d[3], -1, -1),
+                        ] {
+                            let hx = if sx > 0 { x } else { x - m };
+                            let vy = if sy > 0 { y } else { y - m };
+                            let _ = PatBlt(hdc, hx, y - t / 2, m, t, BLACKNESS);
+                            let _ = PatBlt(hdc, x - t / 2, vy, t, m, BLACKNESS);
+                        }
+                    }
+                    if let Some((row, col)) = pl.tile {
+                        let label = wide(&format!("{} ({row}, {col})", pl.page + 1));
+                        SetBkMode(hdc, TRANSPARENT);
+                        let n = label.len().saturating_sub(1);
+                        let _ = TextOutW(hdc, d[0] + 4, d[1] + 4, &label[..n]);
                     }
                     if pl.border {
                         // A hairline frame (about 0.5 pt).

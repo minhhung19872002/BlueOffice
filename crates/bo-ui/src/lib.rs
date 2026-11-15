@@ -78,7 +78,9 @@ pub use popup::{Choice, Menu, MenuItem};
 pub use reader_impose::{
     plan as print_plan, BookletSides, Duplex, PageOrder, Placement, PlanOptions, PrintLayout, Sheet,
 };
-pub use reader_print::{parse_pages, PrintAction, PrintDialog, PrintScaling, PrintSettings};
+pub use reader_print::{
+    parse_pages, Orientation, Paper, PrintAction, PrintDialog, PrintScaling, PrintSettings,
+};
 pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};

@@ -107,6 +107,15 @@ impl Function {
                 if size.is_empty() || range.len() < 2 {
                     return None;
                 }
+                let samples = data?;
+                // §7.10.2: the stream holds Size[0] × … × Size[m-1] × n samples; a short table
+                // makes the function unusable (the reference then rejects the colour space).
+                let needed = size
+                    .iter()
+                    .try_fold(range.len() / 2 * bps as usize, |acc, s| acc.checked_mul(*s));
+                if needed.is_none_or(|bits| samples.len().saturating_mul(8) < bits) {
+                    return None;
+                }
                 Some(Function::Sampled {
                     domain,
                     range,
@@ -114,7 +123,7 @@ impl Function {
                     bps,
                     encode,
                     decode,
-                    samples: data?,
+                    samples,
                 })
             }
             2 => {
@@ -152,6 +161,19 @@ impl Function {
                 })
             }
             _ => None,
+        }
+    }
+
+    /// Number of outputs, when known from the dictionary (`Range`, `C0`, the first stitched
+    /// function); `None` for an empty stitching function.
+    pub(crate) fn outputs(&self) -> Option<usize> {
+        match self {
+            Function::Sampled { range, .. } | Function::PostScript { range, .. } => {
+                Some(range.len() / 2)
+            }
+            Function::Exponential { c0, .. } => Some(c0.len()),
+            Function::Stitching { functions, .. } => functions.first()?.outputs(),
+            Function::Array(fs) => fs.iter().map(Function::outputs).sum(),
         }
     }
 
@@ -268,8 +290,13 @@ impl Function {
                 let mut budget = 100_000_u32;
                 run_ps(code, &mut stack, &mut budget, 0);
                 let n = range.len() / 2;
-                let start = stack.len().saturating_sub(n);
-                stack[start..]
+                // §7.10.5: the program leaves n results. Measured on the reference reader:
+                // fewer paint all components 0 (white in CMYK, black in RGB); of more, the
+                // top n count.
+                if stack.len() < n {
+                    return vec![0.0; n];
+                }
+                stack[stack.len() - n..]
                     .iter()
                     .enumerate()
                     .map(|(i, v)| v.clamp(range[2 * i], range[2 * i + 1]))

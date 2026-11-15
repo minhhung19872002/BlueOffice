@@ -37,14 +37,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageTime, GetMessageW,
-    LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassExW, SetTimer, SetWindowPos,
-    ShowWindow, SystemParametersInfoW, TranslateMessage, CS_DBLCLKS, CW_USEDEFAULT, IDC_IBEAM,
-    MB_ICONERROR, MB_OK, MSG, SPI_GETWHEELSCROLLLINES, SWP_NOACTIVATE, SWP_NOZORDER,
-    SW_SHOWMAXIMIZED, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER,
-    WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassExW, SetCursor, SetTimer, SetWindowPos,
+    ShowWindow, SystemParametersInfoW, TranslateMessage, CS_DBLCLKS, CW_USEDEFAULT, IDC_ARROW,
+    IDC_CROSS, IDC_IBEAM, IDC_SIZENS, IDC_SIZEWE, MB_ICONERROR, MB_OK, MSG,
+    SPI_GETWHEELSCROLLLINES, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOWMAXIMIZED,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE, WM_CHAR, WM_DESTROY, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
+    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_PAINT,
+    WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IsZoomed, PeekMessageW, PostMessageW, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
@@ -78,6 +78,11 @@ pub trait Handler {
     fn wants_frame(&self) -> bool;
     /// Draw and present one frame (waits for the swap chain, so it paces to the display).
     fn frame(&mut self);
+    /// Pointer shape over the client area: `0` cell cross, `1` column resize, `2` row resize,
+    /// `3` arrow; `None` keeps the window class cursor.
+    fn cursor(&self) -> Option<u8> {
+        None
+    }
 }
 
 thread_local! {
@@ -616,6 +621,27 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_ERASEBKGND => LRESULT(1),
+        // WM_SETCURSOR over the client area: the handler's pointer shape, if it has one.
+        0x0020 if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => {
+            let shape = with_handler(|h| h.cursor()).flatten();
+            let Some(shape) = shape else {
+                // SAFETY: default processing of this window's own message.
+                return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+            };
+            let id = match shape {
+                1 => IDC_SIZEWE,
+                2 => IDC_SIZENS,
+                3 => IDC_ARROW,
+                _ => IDC_CROSS,
+            };
+            // SAFETY: system cursors are shared and need no release.
+            unsafe {
+                if let Ok(c) = LoadCursorW(None, id) {
+                    SetCursor(Some(c));
+                }
+            }
+            LRESULT(1)
+        }
         // Full screen: the client area is the whole window.
         WM_NCCALCSIZE if wparam.0 != 0 && FULL_SCREEN.with(Cell::get).is_some() => LRESULT(0),
         WM_NCCALCSIZE if wparam.0 != 0 => {

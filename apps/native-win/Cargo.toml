@@ -14,6 +14,10 @@ path = "src/main.rs"
 name = "blueslide-native"
 path = "src/slide_main.rs"
 
+[[bin]]
+name = "bluesheet-native"
+path = "src/sheet_main.rs"
+
 [dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 bo-render.workspace = true

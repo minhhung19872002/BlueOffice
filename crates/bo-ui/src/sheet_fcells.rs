@@ -433,7 +433,7 @@ impl SheetWindow {
             "hLabel",
             p,
             [46.0, 114.0, 0.0, 0.0],
-            Kind::Label(t("sheetMenu.fcHorizontal", "Horizontal:")),
+            Kind::Label(t("sheetFc.horizontal", "Horizontal:")),
         );
         let h_items = [
             ("sheetFc.hGeneral", "General", ""),
@@ -486,7 +486,7 @@ impl SheetWindow {
             "vLabel",
             p,
             [46.0, 167.0, 0.0, 0.0],
-            Kind::Label(t("sheetMenu.fcVertical", "Vertical:")),
+            Kind::Label(t("sheetFc.vertical", "Vertical:")),
         );
         let v_items = [
             ("sheetFc.vTop", "Top", "top"),
@@ -1202,6 +1202,11 @@ impl SheetWindow {
             let ty = f.text("type");
             f.set_text("code", &ty);
         }
+        // The description sits under the sample when the page has no other controls
+        // (General, Text), else at the bottom (reference).
+        if let Some(c) = f.get_mut("desc") {
+            c.rect[1] = if matches!(cat, 0 | 9) { 168.0 } else { 480.0 };
+        }
         if let Some(Kind::Note(s)) = f.get_mut("desc").map(|c| &mut c.kind) {
             s.clone_from(&descs[cat]);
         }
@@ -1645,11 +1650,46 @@ impl SheetWindow {
                     );
                 };
                 let e = &self.fc.edges;
+                // Each button shows a dotted square with its edge drawn solid.
+                let glyph = |p: &mut dyn Painter, bx: f32, by: f32, slot: usize| {
+                    let (x0, y0) = (r[0] + (bx + 8.0) * k, r[1] + (by + 8.0) * k);
+                    let s = 16.0 * k;
+                    let grey = Rgba(0xa0, 0xa0, 0xa0, 255);
+                    let mut d = 0.0;
+                    while d < s {
+                        for (x, y) in [
+                            (x0 + d, y0),
+                            (x0 + d, y0 + s),
+                            (x0, y0 + d),
+                            (x0 + s, y0 + d),
+                        ] {
+                            p.fill_rect(x.round(), y.round(), 1.0, 1.0, grey);
+                        }
+                        d += 2.0;
+                    }
+                    let seg = match slot {
+                        0 => [x0, y0, x0 + s, y0],
+                        1 => [x0, y0 + s / 2.0, x0 + s, y0 + s / 2.0],
+                        2 => [x0, y0 + s, x0 + s, y0 + s],
+                        3 => [x0, y0, x0, y0 + s],
+                        4 => [x0 + s / 2.0, y0, x0 + s / 2.0, y0 + s],
+                        5 => [x0 + s, y0, x0 + s, y0 + s],
+                        6 => [x0, y0 + s, x0 + s, y0],
+                        _ => [x0, y0, x0 + s, y0 + s],
+                    };
+                    p.path(
+                        &[PathSeg::M(seg[0], seg[1]), PathSeg::L(seg[2], seg[3])],
+                        None,
+                        Some((ink, 1.0)),
+                    );
+                };
                 for (slot, y) in [(0, 2.0), (1, 51.0), (2, 100.0), (6, 134.0)] {
                     btn(p, 0.0, y, e[slot].0 > 0);
+                    glyph(p, 0.0, y, slot);
                 }
                 for (slot, x) in [(3, 50.0), (4, 146.0), (5, 241.0), (7, 290.0)] {
                     btn(p, x, 134.0, e[slot].0 > 0);
+                    glyph(p, x, 134.0, slot);
                 }
                 // The preview box with the text and the chosen edges.
                 let (bx, by, bw, bh) = (r[0] + 50.0 * k, r[1] + 1.0 * k, 225.0 * k, 128.0 * k);
@@ -1989,31 +2029,41 @@ impl SheetWindow {
     }
 }
 
-/// A border line style drawn horizontally from (x, y) over `w` pixels.
+/// A border line style drawn horizontally from (x, y) over `w` pixels: dash patterns of
+/// (on, off) lengths and the line's thickness.
 fn paint_line(p: &mut dyn Painter, x: f32, y: f32, w: f32, style: &str, c: Rgba) {
-    let (dash, gap, h): (f32, f32, f32) = match style {
-        "hair" => (1.0, 1.0, 1.0),
-        "dotted" => (2.0, 2.0, 1.0),
-        "dashDotDot" => (6.0, 2.0, 1.0),
-        "dashDot" => (7.0, 3.0, 1.0),
-        "dashed" => (4.0, 2.0, 1.0),
-        "mediumDashDotDot" => (8.0, 3.0, 2.0),
-        "slantDashDot" => (9.0, 2.0, 2.0),
-        "mediumDashDot" => (9.0, 3.0, 2.0),
-        "mediumDashed" => (8.0, 4.0, 2.0),
-        "medium" => (w, 0.0, 2.0),
-        "thick" => (w, 0.0, 3.0),
-        _ => (w, 0.0, 1.0),
+    let (pattern, h): (&[f32], f32) = match style {
+        "hair" => (&[1.0, 1.0], 1.0),
+        "dotted" => (&[2.0, 2.0], 1.0),
+        "dashDotDot" => (&[6.0, 2.0, 2.0, 2.0, 2.0, 2.0], 1.0),
+        "dashDot" => (&[6.0, 2.0, 2.0, 2.0], 1.0),
+        "dashed" => (&[4.0, 2.0], 1.0),
+        "mediumDashDotDot" => (&[8.0, 3.0, 3.0, 3.0, 3.0, 3.0], 2.0),
+        "slantDashDot" => (&[9.0, 2.0, 3.0, 2.0], 2.0),
+        "mediumDashDot" => (&[9.0, 3.0, 3.0, 3.0], 2.0),
+        "mediumDashed" => (&[8.0, 4.0], 2.0),
+        "medium" => (&[], 2.0),
+        "thick" => (&[], 3.0),
+        _ => (&[], 1.0),
     };
     if style == "double" {
         p.fill_rect(x, y - 1.0, w, 1.0, c);
         p.fill_rect(x, y + 1.0, w, 1.0, c);
         return;
     }
+    if pattern.is_empty() {
+        p.fill_rect(x, y, w, h, c);
+        return;
+    }
     let mut at = x;
+    let mut k = 0;
     while at < x + w {
-        p.fill_rect(at, y, dash.min(x + w - at), h, c);
-        at += dash + gap;
+        let len = pattern[k % pattern.len()];
+        if k % 2 == 0 {
+            p.fill_rect(at, y, len.min(x + w - at), h, c);
+        }
+        at += len;
+        k += 1;
     }
 }
 

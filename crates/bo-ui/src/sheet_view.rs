@@ -374,6 +374,9 @@ pub struct SheetView {
     /// Scroll bar figures of both axes and what they were computed for: the sheet's content
     /// size scans every cell, so it is only redone after edits, not per scroll step.
     bar_cache: Option<(BarKey, BarFigures)>,
+    /// The sheet's content size (points) for (sheet, content generation): scanning every
+    /// cell is the costly part of the scroll bars, and scrolling does not change it.
+    content_cache: Option<((usize, u64), (f64, f64))>,
     /// Counts edits that may change the content size or row / column geometry.
     content_gen: u64,
     /// Scroll of the last drawn grid image.
@@ -452,6 +455,7 @@ impl SheetView {
             grid_dirty: true,
             full_redraw: true,
             bar_cache: None,
+            content_cache: None,
             content_gen: 0,
             drawn: None,
             drag: None,
@@ -1241,7 +1245,15 @@ impl SheetView {
 
     fn scroll_info_now(&mut self, vertical: bool) -> (f64, f64, f64) {
         let vp = self.viewport();
-        let (content_w, content_h) = self.engine.content_size(self.sheet).unwrap_or((0.0, 0.0));
+        let key = (self.sheet, self.content_gen);
+        let (content_w, content_h) = match self.content_cache {
+            Some((k, v)) if k == key => v,
+            _ => {
+                let v = self.engine.content_size(self.sheet).unwrap_or((0.0, 0.0));
+                self.content_cache = Some((key, v));
+                v
+            }
+        };
         let Ok((layout, geom)) = self.engine.view_layout(self.sheet, &vp) else {
             return (0.0, 1.0, 1.0);
         };

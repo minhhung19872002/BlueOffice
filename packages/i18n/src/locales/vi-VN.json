@@ -9055,7 +9055,9 @@
     "text": "Chữ",
     "none": "Không",
     "outline": "Viền ngoài",
-    "inside": "Bên trong"
+    "inside": "Bên trong",
+    "horizontal": "Ngang:",
+    "vertical": "Dọc:"
   },
   "common": {
     "ok": "OK",

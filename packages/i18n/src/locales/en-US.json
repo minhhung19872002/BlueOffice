@@ -9055,7 +9055,9 @@
     "text": "Text",
     "none": "None",
     "outline": "Outline",
-    "inside": "Inside"
+    "inside": "Inside",
+    "horizontal": "Horizontal:",
+    "vertical": "Vertical:"
   },
   "common": {
     "ok": "OK",

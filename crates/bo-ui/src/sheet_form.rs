@@ -147,6 +147,8 @@ pub(super) struct Form {
     widths: Vec<(String, f32)>,
     /// Width of the focused edit box's text before the caret.
     caret_w: f32,
+    /// Notes wrapped to the form's width at layout time (control index, lines).
+    wrapped: Vec<(usize, Vec<String>)>,
 }
 
 impl Form {
@@ -166,6 +168,7 @@ impl Form {
             tab_rects: Vec::new(),
             widths: Vec::new(),
             caret_w: 0.0,
+            wrapped: Vec::new(),
         }
     }
 
@@ -418,6 +421,34 @@ impl Form {
         }
         self.measure(m, &strings);
         let font = self.font();
+        self.wrapped = self
+            .ctls
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| match &c.kind {
+                Kind::Note(s) => {
+                    let max = (self.size.0 - c.rect[0] - 24.0) * self.k;
+                    let mut lines = Vec::new();
+                    let mut line = String::new();
+                    for word in s.split(' ') {
+                        let next = if line.is_empty() {
+                            word.to_owned()
+                        } else {
+                            format!("{line} {word}")
+                        };
+                        if !line.is_empty() && m.measure_font(&next, &font).0 > max {
+                            lines.push(std::mem::take(&mut line));
+                            line = word.to_owned();
+                        } else {
+                            line = next;
+                        }
+                    }
+                    lines.push(line);
+                    Some((i, lines))
+                }
+                _ => None,
+            })
+            .collect();
         self.caret_w = self
             .caret_text()
             .map_or(0.0, |(_, before)| m.measure_font(&before, &font).0);
@@ -427,7 +458,7 @@ impl Form {
     pub fn font(&self) -> Font<'static> {
         Font {
             family: "Segoe UI",
-            size: (12.0 * REF_SCALE * self.k).round(),
+            size: 10.8 * REF_SCALE * self.k,
             weight: 400,
             italic: false,
             underline: false,
@@ -882,10 +913,18 @@ impl Form {
             let ink = if c.enabled { INK } else { GREY_INK };
             let focused = self.focus == Some(i);
             match &c.kind {
-                Kind::Label(s) | Kind::Note(s) => p.text_font(s, r[0], r[1], &font, ink),
+                Kind::Label(s) => p.text_font(s, r[0], r[1], &font, ink),
+                Kind::Note(s) => match self.wrapped.iter().find(|(k, _)| *k == i) {
+                    Some((_, lines)) => {
+                        for (n, l) in lines.iter().enumerate() {
+                            p.text_font(l, r[0], r[1] + n as f32 * line, &font, ink);
+                        }
+                    }
+                    None => p.text_font(s, r[0], r[1], &font, ink),
+                },
                 Kind::Group(s) => {
                     let tw = self.width(s);
-                    p.text_font(s, r[0], r[1], &font, ink);
+
                     let ly = (r[1] + line / 2.0).round();
                     if c.rect[3] > 30.0 {
                         // Frame with the caption over its top edge.
@@ -906,6 +945,7 @@ impl Form {
                         );
                         p.text_font(s, r[0] + 8.0 * self.k, r[1], &font, ink);
                     } else {
+                        p.text_font(s, r[0], r[1], &font, ink);
                         let x = r[0] + tw + 6.0 * self.k;
                         p.fill_rect(x, ly, r[0] + r[2] - x, 1.0, GROUP_LINE);
                     }

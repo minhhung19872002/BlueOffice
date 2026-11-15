@@ -145,9 +145,22 @@ fn shape(name: &str) -> &'static [Part] {
 
 /// Draw reader icon `name` into a `size`-pixel square at (`x`, `y`).
 pub(crate) fn draw(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, c: Ink) {
+    draw_weight(p, name, x, y, size, c, 1.5);
+}
+
+/// [`draw`] with strokes `stroke` grid units wide (at least one device pixel).
+pub(crate) fn draw_weight(
+    p: &mut dyn Painter,
+    name: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    c: Ink,
+    stroke: f32,
+) {
     let k = size / 24.0;
     // About the 1.5 / 24 stroke of the reference toolbar, at least one device pixel.
-    let width = (1.5 * k).round().max(1.0);
+    let width = (stroke * k).round().max(1.0);
     let (x, y) = (x.round(), y.round());
     // Odd widths sit on pixel centres so straight lines stay solid.
     let off = if (width as i32) % 2 == 1 { 0.5 } else { 0.0 };

@@ -605,6 +605,18 @@ impl BlockEdit {
         }
     }
 
+    /// Space beyond the line height between lines (points): the pitch less the height of the
+    /// first character's box (ascent to descent of its font).
+    pub fn line_gap(&self) -> f32 {
+        let h = self
+            .char_boxes
+            .iter()
+            .zip(&self.text)
+            .find(|(_, c)| !c.is_whitespace())
+            .map_or(self.pitch, |(b, _)| b[3] - b[1]);
+        (self.pitch - h).max(0.0)
+    }
+
     /// Move the paragraph's left edge by `delta` points (indent / outdent; the right edge
     /// stays).
     pub fn shift_left(&mut self, delta: f32) {

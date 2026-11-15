@@ -212,6 +212,8 @@ pub(crate) struct Look {
     pub status_box_h: f32,
     /// Top of those boxes below the status bar's edge (`None`: centred).
     pub status_box_top: Option<f32>,
+    /// Stroke width of ribbon icons in icon grid units (24 to the icon).
+    pub icon_stroke: f32,
 }
 
 impl Look {
@@ -251,6 +253,7 @@ impl Look {
         body_gap: 0.8,
         status_box_h: 19.2,
         status_box_top: None,
+        icon_stroke: 1.5,
     };
 }
 
@@ -2265,13 +2268,14 @@ impl ReaderWindow {
                         );
                     }
                     let is = self.px(self.look.icon);
-                    reader_icons::draw(
+                    reader_icons::draw_weight(
                         p,
                         icon,
                         r[0] + ((r[2] - is) / 2.0).round(),
                         r[1] + self.px(self.look.icon_y),
                         is,
                         ink,
+                        self.look.icon_stroke,
                     );
                     let text = self.t(label);
                     let lines: Vec<String> =
@@ -2363,13 +2367,14 @@ impl ReaderWindow {
                         },
                         accent,
                     };
-                    reader_icons::draw(
+                    reader_icons::draw_weight(
                         p,
                         icon,
                         r[0] + ((r[2] - is) / 2.0).round(),
                         r[1] + ((r[3] - is) / 2.0).round(),
                         is,
                         ink2,
+                        self.look.icon_stroke,
                     );
                 }
                 Kind::Win(k) => {

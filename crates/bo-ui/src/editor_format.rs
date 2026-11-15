@@ -367,12 +367,23 @@ impl EditorWindow {
                 return true;
             }
             "fmt.lineSp" => {
-                let size = style.as_ref().map_or(12.0, |(s, _)| s.size);
-                let items = [1.0_f32, 1.15, 1.5, 2.0]
+                // Space added to the line height, in points (as the reference shows it).
+                let Some((h, gap)) = self
+                    .edit
+                    .block()
+                    .map(|b| (b.pitch - b.line_gap(), b.line_gap()))
+                else {
+                    return true;
+                };
+                let items = [0.0_f32, 0.6, 1.0, 2.0, 3.0, 6.0, 12.0]
                     .iter()
-                    .map(|m| {
-                        let v = (size * 1.15 * m * 100.0).round() / 100.0;
-                        (format!("fmt.pitch.{v}"), format!("{v:.2}"), false)
+                    .map(|g| {
+                        let v = ((h + g) * 100.0).round() / 100.0;
+                        (
+                            format!("fmt.pitch.{v}"),
+                            format!("{g:.2}"),
+                            (g - gap).abs() < 0.05,
+                        )
                     })
                     .collect();
                 self.pane_menu(items, cmd);
@@ -571,16 +582,30 @@ impl EditorWindow {
         let (x0, y0) = (r[0], r[1]);
         p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255));
         p.fill_rect(x0, y0, 1.0, r[3], LINE);
-        // Header: "Format" in the accent with a close box.
+        // Header: a "Format" tab (framed, open at the bottom) with a close box, as the
+        // reference's (125 %: tab 1095–1200 × 190–224, label at y 205).
+        let tab = [x0 + px(6.0), y0 + px(4.0), px(84.0), px(27.0)];
+        let line_y = tab[1] + tab[3];
+        p.fill_rect(x0 + 1.0, line_y, tab[0] - x0 - 1.0, 1.0, LINE);
+        p.fill_rect(
+            tab[0] + tab[2],
+            line_y,
+            r[2] - (tab[0] + tab[2] - x0),
+            1.0,
+            LINE,
+        );
+        p.fill_rect(tab[0], tab[1], 1.0, tab[3], LINE);
+        p.fill_rect(tab[0] + tab[2] - 1.0, tab[1], 1.0, tab[3], LINE);
+        p.fill_rect(tab[0], tab[1], tab[2], 1.0, LINE);
         p.text(
             &self.t("pdfEditor.format"),
-            x0 + px(22.0),
-            y0 + px(9.0),
+            x0 + px(17.0),
+            y0 + px(10.0),
             style(17.0),
             accent_text,
         );
-        let cx = x0 + px(84.0);
-        let cy = y0 + px(12.0);
+        let cx = x0 + px(72.0);
+        let cy = y0 + px(14.0);
         let c = px(8.0);
         p.path(
             &[
@@ -596,13 +621,12 @@ impl EditorWindow {
             [cx - px(4.0), cy - px(4.0), c + px(8.0), c + px(8.0)],
             "fmt.close",
         ));
-        p.fill_rect(x0 + 1.0, y0 + px(31.0), r[2] - 1.0, 1.0, LINE);
         if self.comment.tool.is_some() && self.edit_tool() != Some(EditTool::Text) {
             self.paint_comment_props(p, x0, y0);
             return;
         }
         // "Text Style" section.
-        let ty = y0 + px(46.0);
+        let ty = y0 + px(50.0);
         p.path(
             &[
                 PathSeg::M(x0 + px(7.0), ty + px(4.0)),
@@ -724,24 +748,11 @@ impl EditorWindow {
         }
         // Spacing: line and paragraph spacing, character scale, character and word spacing.
         let blk = self.edit.block();
-        let pitch = blk.map(|b| b.pitch);
+        let pitch = blk.map(|b| format!("{:.2}", b.line_gap()));
+        let para = self.para_spacing().map(|v| format!("{v:.2}"));
         let fields = [
-            (
-                "fmt.lineSp",
-                "lineSpacing",
-                42.0,
-                61.0,
-                270.0,
-                pitch.map(|v| format!("{v:.2}")),
-            ),
-            (
-                "fmt.paraSp",
-                "paraSpacing",
-                171.0,
-                199.0,
-                270.0,
-                Some("0.00".to_owned()),
-            ),
+            ("fmt.lineSp", "lineSpacing", 42.0, 61.0, 270.0, pitch),
+            ("fmt.paraSp", "paraSpacing", 171.0, 199.0, 270.0, para),
             (
                 "fmt.scale",
                 "charScale",
@@ -775,7 +786,7 @@ impl EditorWindow {
             let r = [x0 + px(bx), cy - px(12.0), px(76.0), px(24.0)];
             frame(p, r, EDGE);
             let live = cmd != "fmt.paraSp";
-            let col = if live { ink } else { MUTED };
+            let col = ink;
             if let Some(v) = value {
                 p.text(&v, r[0] + px(6.0), r[1] + px(4.0), style(16.0), col);
             }
@@ -789,13 +800,15 @@ impl EditorWindow {
 
 /// Icon `name` centred on (`cx`, `cy`) in one ink colour.
 fn icon_at(p: &mut dyn Painter, name: &str, cx: f32, cy: f32, size: f32, ink: Rgba) {
-    reader_icons::draw(
+    // Thin 1 px lines as the reference's pane icons.
+    reader_icons::draw_weight(
         p,
         name,
         cx - size / 2.0,
         cy - size / 2.0,
         size,
         Ink { ink, accent: ink },
+        0.9,
     );
 }
 
@@ -814,6 +827,22 @@ fn arrow(p: &mut dyn Painter, x: f32, y: f32, w: f32, c: Rgba) {
 }
 
 impl EditorWindow {
+    /// Space between the paragraph being typed into and the next one below it, as the
+    /// reference shows it: the gap between their boxes less the line gap.
+    fn para_spacing(&mut self) -> Option<f32> {
+        let t = self.edit.typing.as_ref()?;
+        let b = t.block.as_ref()?;
+        let (page, bottom, top0, gap) = (t.page, b.bbox[3], b.bbox[1], b.line_gap());
+        let v = self.r.view_mut()?;
+        let objs = v.doc_mut().page_objects(page).ok()?;
+        let next = bo_pdfread::text_blocks(&objs)
+            .into_iter()
+            .filter(|o| o.bbox[1] > top0 + 1.0 && o.bbox[1] >= bottom - 2.0)
+            .map(|o| o.bbox[1])
+            .fold(f32::INFINITY, f32::min);
+        next.is_finite().then(|| (next - bottom - gap).max(0.0))
+    }
+
     /// Bullets or numbers at the start of each paragraph of the block (`b0`…, `n0`…, `none`).
     fn apply_list(&mut self, kind: &str) {
         const MARKS: [&str; 4] = ["\u{2022}", "\u{2013}", "\u{2713}", "\u{25E6}"];

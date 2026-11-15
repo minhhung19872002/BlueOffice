@@ -291,6 +291,8 @@ const LOOK: Look = Look {
     // Reference: status bar 45 px, boxes 28 px high 4 px below its edge (125 %).
     status_box_h: 22.4,
     status_box_top: Some(3.2),
+    // The reference's toolbar icons are drawn with 1 px lines at 36 px.
+    icon_stroke: 0.66,
 };
 
 /// Editor tool that takes the document area's pointer input.

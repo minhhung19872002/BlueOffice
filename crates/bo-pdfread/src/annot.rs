@@ -550,7 +550,7 @@ impl PdfDocument {
         }
         if a.kind == AnnotKind::TextBox {
             // A new appearance with the text in the embedded Unicode font.
-            let (font, _) = self.embed_text(false, "")?;
+            let (font, _) = self.embed_text(crate::fallback::SANS, "")?;
             let [r, g, b] = a.color.map(|c| f32::from(c) / 255.0);
             let mut s = format!(
                 "{r} {g} {b} RG 1 w {} {} {} {} re S\nBT /BoF 11 Tf 0 g 13 TL {} {} Td\n",
@@ -562,7 +562,7 @@ impl PdfDocument {
                 rect[3] - 14.0
             );
             for line in text.lines() {
-                let (_, bytes) = self.embed_text(false, line)?;
+                let (_, bytes) = self.embed_text(crate::fallback::SANS, line)?;
                 let hex = bytes.iter().fold(String::new(), |mut h, b| {
                     use std::fmt::Write as _;
                     let _ = write!(h, "{b:02X}");

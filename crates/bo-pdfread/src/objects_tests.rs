@@ -304,3 +304,13 @@ fn edit_text_in_embedded_subset_font() {
     let objs = doc.page_objects(0).expect("objects");
     assert_eq!(objs[id].text, "∑ Ω ≈");
 }
+
+#[test]
+fn fallback_face_follows_the_font_name() {
+    use crate::fallback::face_for;
+    assert_eq!(face_for("ABCDEF+Tinos-Bold"), 1);
+    assert_eq!(face_for("TimesNewRomanPS-BoldItalicMT"), 3);
+    assert_eq!(face_for("Helvetica-Oblique"), 6);
+    assert_eq!(face_for("Arial"), 4);
+    assert_eq!(face_for("LiberationSans-Bold"), 5);
+}

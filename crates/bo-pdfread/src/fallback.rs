@@ -8,16 +8,33 @@ use lopdf::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+/// Face of the bundled set: Tinos (serif) 0–3 or Liberation Sans 4–7, each regular, bold,
+/// italic, bold italic.
+pub(crate) const SANS: usize = 4;
+
+/// The bundled face standing in for a font named `base` (PostScript name).
+pub(crate) fn face_for(base: &str) -> usize {
+    let b = base.to_ascii_lowercase();
+    let serif = [
+        "times", "serif", "roman", "tinos", "georgia", "cambria", "garamond",
+    ]
+    .iter()
+    .any(|k| b.contains(k))
+        && !b.contains("sans");
+    let bold = ["bold", "black", "heavy", "semibold", "demi"]
+        .iter()
+        .any(|k| b.contains(k));
+    let italic = b.contains("italic") || b.contains("oblique");
+    (if serif { 0 } else { SANS }) + usize::from(bold) + 2 * usize::from(italic)
+}
+
 #[cfg(feature = "bundled-fonts")]
-fn face_data(serif: bool) -> Option<&'static [u8]> {
-    // Tinos (serif) or Liberation Sans, regular.
-    crate::bundled::FONTS
-        .get(if serif { 0 } else { 4 })
-        .copied()
+fn face_data(face: usize) -> Option<&'static [u8]> {
+    crate::bundled::FONTS.get(face).copied()
 }
 
 #[cfg(not(feature = "bundled-fonts"))]
-fn face_data(_serif: bool) -> Option<&'static [u8]> {
+fn face_data(_face: usize) -> Option<&'static [u8]> {
     None
 }
 
@@ -74,17 +91,17 @@ impl PdfDocument {
     /// The embedded font (serif or sans) and `text` encoded for it (glyph ids).
     pub(crate) fn embed_text(
         &mut self,
-        serif: bool,
+        face_index: usize,
         text: &str,
     ) -> Result<(ObjectId, Vec<u8>), String> {
-        let data = face_data(serif).ok_or("no font to embed")?;
+        let data = face_data(face_index).ok_or("no font to embed")?;
         let face = ttf_parser::Face::parse(data, 0).map_err(|e| e.to_string())?;
         let mut bytes = Vec::with_capacity(text.len() * 2);
         for c in text.chars() {
             let g = face.glyph_index(c).map_or(0, |g| g.0);
             bytes.extend_from_slice(&g.to_be_bytes());
         }
-        if let Some(&id) = self.edit.embedded.get(&serif) {
+        if let Some(&id) = self.edit.embedded.get(&face_index) {
             if self.doc.objects.contains_key(&id) {
                 return Ok((id, bytes));
             }
@@ -94,11 +111,11 @@ impl PdfDocument {
         let mut len1 = Dictionary::new();
         len1.set("Length1", data.len() as i64);
         let file = self.add(flate_stream(len1, data));
-        let name: &[u8] = if serif {
-            b"BlueOffice-Serif"
-        } else {
-            b"BlueOffice-Sans"
-        };
+        let serif = face_index < SANS;
+        let style = ["", "-Bold", "-Italic", "-BoldItalic"][face_index % 4];
+        let name =
+            format!("BlueOffice-{}{style}", if serif { "Serif" } else { "Sans" }).into_bytes();
+        let name: &[u8] = &name;
         let bb = face.global_bounding_box();
         let mut fd = Dictionary::new();
         fd.set("Type", Object::Name(b"FontDescriptor".to_vec()));
@@ -159,7 +176,7 @@ impl PdfDocument {
         t0.set("DescendantFonts", vec![Object::Reference(cid_id)]);
         t0.set("ToUnicode", Object::Reference(tu));
         let font = self.add(Object::Dictionary(t0));
-        self.edit.embedded.insert(serif, font);
+        self.edit.embedded.insert(face_index, font);
         Ok((font, bytes))
     }
 }

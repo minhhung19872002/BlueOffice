@@ -281,7 +281,7 @@ impl PdfDocument {
             } else {
                 (h * 0.7).clamp(4.0, 12.0)
             };
-            let (font, _) = self.embed_text(false, "")?;
+            let (font, _) = self.embed_text(crate::fallback::SANS, "")?;
             let mut fonts = Dictionary::new();
             fonts.set("BoF", Object::Reference(font));
             res.set("Font", fonts);
@@ -302,7 +302,7 @@ impl PdfDocument {
                 size * 1.15
             ));
             for (k, line) in lines.iter().enumerate() {
-                let (_, bytes) = self.embed_text(false, line)?;
+                let (_, bytes) = self.embed_text(crate::fallback::SANS, line)?;
                 if k > 0 {
                     content.push_str("T* ");
                 }

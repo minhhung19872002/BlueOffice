@@ -59,7 +59,7 @@ pub(crate) struct EditState {
     /// An undo group is open ([`PdfDocument::begin_group`]).
     pub group: bool,
     /// Embedded fallback fonts (serif?) by font object.
-    pub embedded: HashMap<bool, ObjectId>,
+    pub embedded: HashMap<usize, ObjectId>,
 }
 
 const UNDO_LIMIT: usize = 100;

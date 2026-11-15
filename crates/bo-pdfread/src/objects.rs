@@ -637,8 +637,8 @@ impl PdfDocument {
         let (font, bytes) = match encoded {
             Some(b) => (ts.font.clone(), b),
             None => {
-                let serif = self.font_is_serif(index, &ts.font);
-                let (fid, bytes) = self.embed_text(serif, text)?;
+                let face = self.fallback_face(index, &ts.font);
+                let (fid, bytes) = self.embed_text(face, text)?;
                 (self.add_resource(index, b"Font", "BoF", fid)?, bytes)
             }
         };
@@ -677,7 +677,7 @@ impl PdfDocument {
         self.begin("add text");
         let r = (|| {
             let (base, inv_base) = self.bases(index)?;
-            let (fid, bytes) = self.embed_text(false, text)?;
+            let (fid, bytes) = self.embed_text(crate::fallback::SANS, text)?;
             let font = self.add_resource(index, b"Font", "BoF", fid)?;
             let (sid, content) = self.page_stream(index)?;
             // Text space upright on the page in any page rotation: x right, y up on screen.
@@ -995,9 +995,10 @@ impl PdfDocument {
         Some(out)
     }
 
-    fn font_is_serif(&self, index: usize, name: &[u8]) -> bool {
+    /// Bundled face (serif / sans, bold, italic) standing in for font resource `name`.
+    fn fallback_face(&self, index: usize, name: &[u8]) -> usize {
         let Some(info) = self.pages.get(index) else {
-            return false;
+            return crate::fallback::SANS;
         };
         let base = self
             .doc
@@ -1011,14 +1012,9 @@ impl PdfDocument {
             .and_then(|f| resolve(&self.doc, f).as_dict().ok())
             .and_then(|f| f.get(b"BaseFont").ok())
             .and_then(|b| b.as_name().ok())
-            .map(|b| String::from_utf8_lossy(b).to_lowercase())
+            .map(|b| String::from_utf8_lossy(b).into_owned())
             .unwrap_or_default();
-        [
-            "times", "serif", "roman", "tinos", "georgia", "cambria", "garamond",
-        ]
-        .iter()
-        .any(|k| base.contains(k))
-            && !base.contains("sans")
+        crate::fallback::face_for(&base)
     }
 
     /// Add `id` to page `index`'s resources under `category` (`Font`, `XObject`) with a new

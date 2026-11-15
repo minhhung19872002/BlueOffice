@@ -401,6 +401,238 @@ pub(crate) fn set_direction(
     }
 }
 
+/// Align the content of the cells in rows `r0..=r1`, grid columns `g0..=g1`: vertically
+/// (§17.4.84 vAlign; top is the default and is not written) and their paragraphs
+/// horizontally (§17.3.1.13 jc).
+pub(crate) fn set_cell_align(
+    t: &mut Table,
+    (r0, r1): (usize, usize),
+    (g0, g1): (usize, usize),
+    vertical: bo_model::CellVAlign,
+    horizontal: bo_model::Alignment,
+) {
+    let v = (vertical != bo_model::CellVAlign::Top).then_some(vertical);
+    for row in t.rows.iter_mut().take(r1 + 1).skip(r0) {
+        let mut done = Vec::new();
+        for g in g0..=g1 {
+            let Some(i) = cell_covering(row, g) else {
+                continue;
+            };
+            if done.contains(&i) {
+                continue;
+            }
+            done.push(i);
+            let cell = &mut row.cells[i];
+            cell.props.v_align = v;
+            for b in &mut cell.blocks {
+                if let Block::Paragraph(p) = b {
+                    p.props.align = Some(horizontal);
+                }
+            }
+        }
+    }
+}
+
+/// Style options of a quick table look (which rows and columns stand out).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LookOptions {
+    /// The first row is a header row.
+    pub header_row: bool,
+    /// The last row is a total row.
+    pub total_row: bool,
+    /// The first column stands out.
+    pub first_column: bool,
+    /// The last column stands out.
+    pub last_column: bool,
+    /// Every other row is shaded.
+    pub banded_rows: bool,
+    /// Every other column is shaded.
+    pub banded_columns: bool,
+}
+
+impl Default for LookOptions {
+    fn default() -> Self {
+        // A desktop word processor's defaults for a new table.
+        LookOptions {
+            header_row: true,
+            total_row: false,
+            first_column: true,
+            last_column: false,
+            banded_rows: true,
+            banded_columns: false,
+        }
+    }
+}
+
+/// One quick look: border colour and width (eighths of a point; 0 = no grid), whether
+/// only horizontal lines are drawn, the header fill and the band fill (`RRGGBB`).
+struct Look {
+    name: &'static str,
+    border: Option<(&'static str, u32)>,
+    horizontal_only: bool,
+    header: Option<&'static str>,
+    band: Option<&'static str>,
+}
+
+/// Bluestar's own quick table looks, in gallery order.
+pub const LOOKS: [&str; 8] = [
+    "plain",
+    "grid",
+    "gridLight",
+    "listLight",
+    "gridBlue",
+    "listBlue",
+    "gridGreen",
+    "gridOrange",
+];
+
+fn look(name: &str) -> Option<Look> {
+    let l = |name, border, horizontal_only, header, band| Look {
+        name,
+        border,
+        horizontal_only,
+        header,
+        band,
+    };
+    Some(match name {
+        "plain" => l("plain", None, false, None, None),
+        "grid" => l("grid", Some(("000000", 4)), false, None, None),
+        "gridLight" => l(
+            "gridLight",
+            Some(("BFBFBF", 4)),
+            false,
+            Some("F2F2F2"),
+            None,
+        ),
+        "listLight" => l("listLight", Some(("7F7F7F", 4)), true, None, Some("F2F2F2")),
+        "gridBlue" => l(
+            "gridBlue",
+            Some(("8FB3DE", 4)),
+            false,
+            Some("B9D2EE"),
+            Some("E8F0FA"),
+        ),
+        "listBlue" => l(
+            "listBlue",
+            Some(("2B6AB8", 8)),
+            true,
+            Some("D6E4F5"),
+            Some("EEF4FB"),
+        ),
+        "gridGreen" => l(
+            "gridGreen",
+            Some(("A8D08D", 4)),
+            false,
+            Some("E2EFDA"),
+            Some("F2F8EE"),
+        ),
+        "gridOrange" => l(
+            "gridOrange",
+            Some(("F4B183", 4)),
+            false,
+            Some("FCE4D6"),
+            Some("FEF4EE"),
+        ),
+        _ => return None,
+    })
+}
+
+/// Colours of a quick look for its gallery preview (`RRGGBB`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LookPreview {
+    /// Line colour; `None`: no lines.
+    pub border: Option<&'static str>,
+    /// Only horizontal lines are drawn.
+    pub horizontal_only: bool,
+    /// Fill of the header row and first column.
+    pub header: Option<&'static str>,
+    /// Fill of every other body row.
+    pub band: Option<&'static str>,
+}
+
+/// Colours of quick look `name` (one of [`LOOKS`]).
+#[must_use]
+pub fn look_preview(name: &str) -> Option<LookPreview> {
+    look(name).map(|l| LookPreview {
+        border: l.border.map(|b| b.0),
+        horizontal_only: l.horizontal_only,
+        header: l.header,
+        band: l.band,
+    })
+}
+
+/// Apply quick look `name` with `o` to the whole table: table borders and every cell's
+/// fill (cell borders are cleared). `false` for an unknown look.
+pub(crate) fn apply_look(t: &mut Table, name: &str, o: LookOptions) -> bool {
+    let Some(lk) = look(name) else {
+        return false;
+    };
+    let line = |hex: &str, sz: u32| {
+        let mut b = bo_model::Border::single(sz);
+        b.color = bo_model::Color::from_hex(hex);
+        Some(b)
+    };
+    let none = || Some(crate::table::nil_border());
+    t.props.borders = Some(match lk.border {
+        None => bo_model::Borders {
+            top: none(),
+            left: none(),
+            bottom: none(),
+            right: none(),
+            inside_h: none(),
+            inside_v: none(),
+        },
+        Some((hex, sz)) => bo_model::Borders {
+            top: line(hex, sz),
+            bottom: line(hex, sz),
+            inside_h: line(hex, sz),
+            left: if lk.horizontal_only {
+                none()
+            } else {
+                line(hex, sz)
+            },
+            right: if lk.horizontal_only {
+                none()
+            } else {
+                line(hex, sz)
+            },
+            inside_v: if lk.horizontal_only {
+                none()
+            } else {
+                line(hex, sz)
+            },
+        },
+    });
+    let rows = t.rows.len();
+    let cols = t.grid.len().max(1);
+    for (r, row) in t.rows.iter_mut().enumerate() {
+        let st = starts(row);
+        for (i, c) in row.cells.iter_mut().enumerate() {
+            let g = st.get(i).copied().unwrap_or(0);
+            let g_last = g + span(c) - 1;
+            let header = (o.header_row && r == 0) || (o.total_row && r + 1 == rows && rows > 1);
+            let edge_col = (o.first_column && g == 0) || (o.last_column && g_last + 1 >= cols);
+            // Bands count from the first body row / column.
+            let body_r = r - usize::from(o.header_row && r > 0);
+            let body_g = g - usize::from(o.first_column && g > 0);
+            let band = (o.banded_rows && body_r % 2 == 0) || (o.banded_columns && body_g % 2 == 0);
+            let fill = if header || edge_col {
+                lk.header.or(lk.band)
+            } else if band {
+                lk.band
+            } else {
+                None
+            };
+            // A look without its own header fill marks the header by its band.
+            let fill = if lk.name == "plain" { None } else { fill };
+            c.props.shading = fill.and_then(bo_model::Color::from_hex);
+            c.props.borders = None;
+        }
+    }
+    true
+}
+
 /// Let the text wrap around the table (a §17.4.58 tblpPr at the table's place) or put
 /// the table back in line with the text.
 pub(crate) fn set_wrap(t: &mut Table, around: bool) {

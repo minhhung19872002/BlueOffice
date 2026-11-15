@@ -10,6 +10,7 @@ mod backstage;
 mod catalog;
 mod commands;
 mod dialog;
+mod doc_table;
 mod doc_tools;
 mod doc_view;
 mod icons;
@@ -180,5 +181,17 @@ pub trait Painter {
     ) {
         let _ = degrees;
         self.page_part(index, src, dest, opacity);
+    }
+    /// Start cached layer `id` over `rect` (x, y, width, height) showing content `key`.
+    /// `true`: the backend's image of the layer still shows `key` and was drawn, so the
+    /// caller skips painting; `false`: paint the layer, then call [`Painter::layer_end`].
+    /// Backends without layers paint directly (the default).
+    fn layer_begin(&mut self, id: usize, rect: [f32; 4], key: u64) -> bool {
+        let _ = (id, rect, key);
+        false
+    }
+    /// End the layer started by [`Painter::layer_begin`] (its image goes on the frame).
+    fn layer_end(&mut self, id: usize) {
+        let _ = id;
     }
 }

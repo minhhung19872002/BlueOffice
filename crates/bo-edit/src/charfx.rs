@@ -7,7 +7,7 @@
 //! The UI talks in simple units (points, degrees, percent, `RRGGBB`); this module
 //! converts them to the model.
 
-use crate::{body_paragraphs, para, para_at, Pos, Result, Selection, Session};
+use crate::{para, Pos, Result, Selection, Session};
 use bo_model::run_fx::{
     EastAsianLayout, FxColor, FxFill, GradientStop, TextFill, TextGlow, TextOutline,
     TextReflection, TextShadow,
@@ -586,8 +586,7 @@ impl Session {
         if a.para != b.para {
             return None;
         }
-        let paths = body_paragraphs(&self.doc);
-        let p = para_at(&self.doc, paths.get(a.para)?)?;
+        let p = bo_model::index::para_by_id(&self.doc, a.para)?;
         let mut off = 0;
         for (_, c) in para::flatten(p) {
             let n = para::atom_len(&c);

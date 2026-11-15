@@ -109,8 +109,7 @@ impl Session {
         index: impl Fn(&[Atom], (usize, usize)) -> Option<usize>,
     ) -> Option<(usize, usize)> {
         let (a, b) = self.selection.ordered();
-        let paths = body_paragraphs(&self.doc);
-        let p = para_at(&self.doc, paths.get(a.para)?)?;
+        let p = bo_model::index::para_by_id(&self.doc, a.para)?;
         let atoms = para::flatten(p);
         let range = if a.para == b.para {
             (a.offset, b.offset)

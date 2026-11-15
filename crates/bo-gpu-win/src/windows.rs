@@ -65,6 +65,16 @@ type UiLayouts = std::collections::HashMap<
     windows::Win32::Graphics::DirectWrite::IDWriteTextLayout,
 >;
 
+/// Interface layers by id: (content key, rectangle in device pixels, image).
+type UiLayers = std::collections::HashMap<
+    usize,
+    (
+        u64,
+        [i32; 4],
+        windows::Win32::Graphics::Direct2D::ID2D1Bitmap1,
+    ),
+>;
+
 /// A Direct2D context backed by a Direct3D device. It is not yet connected to a surface.
 pub struct Device {
     // Retain all parent COM objects for the lifetime of the context.
@@ -101,6 +111,14 @@ pub struct Device {
     >,
     // Rendering parameters for interface text, see `Device::apply_ui_text`.
     ui_params: RefCell<Option<windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams>>,
+    // One solid brush recoloured for every interface draw, and the round-cap stroke style of
+    // interface paths (creating them per call cost about half of a frame's interface time).
+    ui_brush: RefCell<Option<windows::Win32::Graphics::Direct2D::ID2D1SolidColorBrush>>,
+    ui_stroke: RefCell<Option<windows::Win32::Graphics::Direct2D::ID2D1StrokeStyle>>,
+    // Cached interface layers (ribbon, status bar) by id: content key, device-pixel
+    // rectangle and image; and the frame's target while a layer is drawn. See surface.rs.
+    ui_layers: RefCell<UiLayers>,
+    ui_layer_target: RefCell<Option<windows::Win32::Graphics::Direct2D::ID2D1Image>>,
     // A single-threaded Direct2D factory and its resources must remain on their creating thread.
     _thread_bound: PhantomData<Rc<()>>,
 }
@@ -410,6 +428,10 @@ impl Device {
                 ui_geoms: RefCell::new(std::collections::HashMap::new()),
                 ui_formats: RefCell::new(std::collections::HashMap::new()),
                 ui_params: RefCell::new(None),
+                ui_brush: RefCell::new(None),
+                ui_stroke: RefCell::new(None),
+                ui_layers: RefCell::new(std::collections::HashMap::new()),
+                ui_layer_target: RefCell::new(None),
                 _thread_bound: PhantomData,
             })
         }

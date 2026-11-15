@@ -144,6 +144,78 @@ fn collect(blocks: &[Block], prefix: &mut Vec<usize>, out: &mut Vec<ParaPath>) {
     }
 }
 
+/// Path of body paragraph `id` (its position in [`body_paragraphs`]), found without listing
+/// every paragraph: typing in a long document looks the caret's paragraph up on each key.
+pub fn para_path(doc: &Document, id: usize) -> Option<ParaPath> {
+    let mut left = id;
+    for (si, s) in doc.sections.iter().enumerate() {
+        let mut prefix = vec![si];
+        if let Some(p) = find_para(&s.blocks, &mut prefix, &mut left) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Body paragraph `id` (see [`para_path`]).
+pub fn para_by_id(doc: &Document, id: usize) -> Option<&Paragraph> {
+    para_at(doc, &para_path(doc, id)?)
+}
+
+/// Paragraphs in `blocks`, table cells included (as [`body_paragraphs`] counts them).
+fn count_paras(blocks: &[Block]) -> usize {
+    blocks
+        .iter()
+        .map(|b| match b {
+            Block::Paragraph(_) => 1,
+            Block::Table(t) => t
+                .rows
+                .iter()
+                .flat_map(|r| &r.cells)
+                .map(|c| count_paras(&c.blocks))
+                .sum(),
+            Block::Opaque(_) => 0,
+        })
+        .sum()
+}
+
+fn find_para(blocks: &[Block], prefix: &mut Vec<usize>, left: &mut usize) -> Option<ParaPath> {
+    for (bi, b) in blocks.iter().enumerate() {
+        match b {
+            Block::Paragraph(_) => {
+                if *left == 0 {
+                    let mut p = prefix.clone();
+                    p.push(bi);
+                    return Some(p);
+                }
+                *left -= 1;
+            }
+            Block::Table(t) => {
+                let n = count_paras(std::slice::from_ref(b));
+                if *left >= n {
+                    *left -= n;
+                    continue;
+                }
+                prefix.push(bi);
+                for (ri, r) in t.rows.iter().enumerate() {
+                    for (ci, c) in r.cells.iter().enumerate() {
+                        prefix.push(ri);
+                        prefix.push(ci);
+                        if let Some(p) = find_para(&c.blocks, prefix, left) {
+                            return Some(p);
+                        }
+                        prefix.pop();
+                        prefix.pop();
+                    }
+                }
+                prefix.pop();
+            }
+            Block::Opaque(_) => {}
+        }
+    }
+    None
+}
+
 /// Blocks container addressed by a path prefix (everything but the last block index).
 pub fn blocks_at<'d>(doc: &'d Document, path: &[usize]) -> Option<&'d Vec<Block>> {
     let (&si, rest) = path.split_first()?;
@@ -255,5 +327,14 @@ mod tests {
             "ab\t\u{FFFC}"
         );
         assert!(para_at(&doc, &[0, 1]).is_none());
+        // The direct lookup finds the same paths, with and without tables to skip.
+        let mut big = doc.clone();
+        big.sections.push(doc.sections[0].clone());
+        let all = body_paragraphs(&big);
+        for (id, path) in all.iter().enumerate() {
+            assert_eq!(para_path(&big, id).as_ref(), Some(path), "paragraph {id}");
+        }
+        assert_eq!(para_path(&big, all.len()), None);
+        assert!(para_by_id(&big, 3).is_some());
     }
 }

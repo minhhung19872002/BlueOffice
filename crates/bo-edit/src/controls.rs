@@ -82,6 +82,17 @@ fn lock_value(delete: bool, content: bool) -> Option<String> {
 impl Session {
     /// Every block-level control of the main text, in the order they end.
     pub(crate) fn block_spans(&self) -> Vec<BlockSpan> {
+        if let Some((v, spans)) = self.block_spans_at.borrow().as_ref() {
+            if *v == self.version {
+                return spans.clone();
+            }
+        }
+        let out = self.list_block_spans();
+        *self.block_spans_at.borrow_mut() = Some((self.version, out.clone()));
+        out
+    }
+
+    fn list_block_spans(&self) -> Vec<BlockSpan> {
         let mut out = Vec::new();
         let mut open: Vec<(ContentControl, usize, usize)> = Vec::new();
         for (pid, path) in body_paragraphs(&self.doc).iter().enumerate() {
@@ -150,8 +161,7 @@ impl Session {
     /// caret.
     pub fn inline_control_range(&self) -> Option<(ContentControl, usize, usize, usize)> {
         let caret = self.selection.focus;
-        let path = body_paragraphs(&self.doc).get(caret.para)?.clone();
-        let atoms = para::flatten(para_at(&self.doc, &path)?);
+        let atoms = para::flatten(bo_model::index::para_by_id(&self.doc, caret.para)?);
         let mut pos = 0;
         let mut open: Vec<(usize, usize)> = Vec::new();
         for (i, (_, c)) in atoms.iter().enumerate() {

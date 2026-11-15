@@ -15,7 +15,6 @@
 
 use crate::{para, para_clone, path_of, revisions, Result, Session, Tx};
 use crate::{Op, Pos, Selection};
-use bo_model::index::body_paragraphs;
 use bo_model::{Color, NumFormat, NumRef, RunProps, Underline, VertAlign};
 use serde::{Deserialize, Serialize};
 
@@ -792,10 +791,10 @@ impl Session {
         typed: char,
         move_caret: bool,
     ) -> Result<Option<Rule>> {
-        let paths = body_paragraphs(&self.doc);
-        let Some(path) = paths.get(at.para) else {
+        let Some(path) = bo_model::index::para_path(&self.doc, at.para) else {
             return Ok(None);
         };
+        let path = &path;
         let p = para_clone(&self.doc, path)?;
         let text = bo_model::index::para_index_text(&p);
         let ctx = Context {
@@ -827,8 +826,7 @@ impl Session {
 
 /// Apply `c` to paragraph `at.para`; returns the new byte offset of `at`.
 fn apply(tx: &mut Tx<'_>, at: Pos, c: &Correction) -> Result<usize> {
-    let paths = tx.paths();
-    let path = path_of(tx.doc, &paths, at.para)?;
+    let path = crate::path_by_id(tx.doc, at.para)?;
     let mut p = para_clone(tx.doc, &path)?;
     let mut atoms = para::flatten(&p);
     let len_before = para::len(&atoms);
@@ -964,10 +962,7 @@ impl Session {
     /// Target of the hyperlink at the caret (or at the start of the selection).
     pub fn link_at_selection(&self) -> Option<String> {
         let (a, _) = self.selection().ordered();
-        let paths = body_paragraphs(self.doc());
-        let p = paths
-            .get(a.para)
-            .and_then(|path| crate::para_at(self.doc(), path))?;
+        let p = bo_model::index::para_by_id(self.doc(), a.para)?;
         let atoms = para::flatten(p);
         let probe = |o: usize| para::props_at(&atoms, o).link;
         probe(a.offset + 1)

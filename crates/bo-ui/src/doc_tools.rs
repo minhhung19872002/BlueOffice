@@ -18,7 +18,8 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 9] = [
+const MENUS: [&str; 10] = [
+    "table.select",
     "review.markupMode",
     "review.showMarkup",
     "review.acceptMenu",
@@ -73,13 +74,28 @@ pub(crate) fn tabs(c: Context) -> Vec<Tab> {
 }
 
 fn table_design_tab() -> Tab {
-    use Item::Large as L;
+    use Item::{Labeled as S, Large as L};
+    let mut looks: Vec<Item> = crate::doc_table::LOOK_TILES
+        .iter()
+        .map(|(id, _)| L(id))
+        .collect();
+    looks.push(L("table.shadingMenu"));
     Tab {
         label: TABLE_DESIGN,
         groups: vec![
+            // Check boxes in three rows of two, as on the reference.
             Group {
-                label: "ribbon.groups.tableStyle",
-                large: vec![L("table.shadingMenu")],
+                label: "ribbon.groups.tableStyleOptions",
+                large: vec![],
+                rows: vec![
+                    vec![S("table.opt.headerRow"), S("table.opt.firstColumn")],
+                    vec![S("table.opt.totalRow"), S("table.opt.lastColumn")],
+                    vec![S("table.opt.bandedRows"), S("table.opt.bandedColumns")],
+                ],
+            },
+            Group {
+                label: "ribbon.groups.tableStyles",
+                large: looks,
                 rows: vec![],
             },
             Group {
@@ -92,10 +108,16 @@ fn table_design_tab() -> Tab {
 }
 
 fn table_layout_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
+    let a = |i: usize| B(crate::doc_table::ALIGN[i].0);
     Tab {
         label: TABLE_LAYOUT,
         groups: vec![
+            Group {
+                label: "ribbon.groups.table",
+                large: vec![],
+                rows: vec![vec![S("table.select")]],
+            },
             Group {
                 label: "ribbon.groups.rowsColumns",
                 large: vec![L("table.delete"), L("table.insertRowAbove")],
@@ -118,10 +140,15 @@ fn table_layout_tab() -> Tab {
                     vec![S("table.distributeColumns")],
                 ],
             },
+            // Nine alignment buttons in three rows, then Text Direction (reference order).
             Group {
-                label: "ribbon.groups.tableText",
+                label: "ribbon.groups.cellAlignment",
                 large: vec![L("table.textDirection")],
-                rows: vec![],
+                rows: vec![
+                    vec![a(0), a(1), a(2)],
+                    vec![a(3), a(4), a(5)],
+                    vec![a(6), a(7), a(8)],
+                ],
             },
             Group {
                 label: "ribbon.groups.tableData",
@@ -208,6 +235,10 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("table.bordersInside", "commands.table.bordersInside"),
             e("table.bordersNone", "commands.table.bordersNone"),
         ],
+        "table.select" => crate::doc_table::SELECT
+            .iter()
+            .map(|(id, label)| e(id, label))
+            .collect(),
         "table.delete" => vec![
             e("table.deleteCell", "commands.table.deleteCell"),
             e("table.deleteColumn", "commands.table.deleteColumn"),
@@ -287,6 +318,9 @@ pub(crate) fn command(
     page: usize,
     markup: &MarkupOptions,
 ) -> Option<Tool> {
+    if let Some(cmd) = crate::doc_table::command(id) {
+        return Some(Tool::Edit(cmd));
+    }
     if let Some(hex) = id.strip_prefix("table.shade.") {
         let hex = (hex != "none").then(|| hex.to_owned());
         return table(&json!({ "kind": "shading", "hex": hex }));
@@ -426,6 +460,7 @@ pub(crate) fn enabled(id: &str, f: &FormatState) -> Option<bool> {
 /// Ids drawn as on: repeat header row, header/footer options.
 pub(crate) fn on_ids(f: &FormatState, story: Option<(bool, bool, bool)>) -> Vec<&'static str> {
     let mut on = Vec::new();
+    on.extend(crate::doc_table::align_on(f));
     if f.table.as_ref().is_some_and(|t| t.header_row) {
         on.push("table.headerRow");
     }

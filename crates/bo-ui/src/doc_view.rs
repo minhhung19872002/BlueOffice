@@ -107,6 +107,8 @@ pub struct DocView {
     highlights: Vec<SelRect>,
     /// Misspelt words and grammar issues under a wavy line (check as you type).
     spell: Vec<bo_engine::spell::SpellMark>,
+    /// Pages the marks were checked on (those in view and one either side).
+    spell_pages: Vec<usize>,
     /// How tracked changes and comments are shown.
     markup: bo_engine::markup::MarkupOptions,
 }
@@ -141,6 +143,7 @@ impl DocView {
             story: None,
             highlights: Vec::new(),
             spell: Vec::new(),
+            spell_pages: Vec::new(),
             markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
@@ -415,15 +418,37 @@ impl DocView {
     /// Check spelling and grammar of the whole document again (the engine caches checked
     /// paragraphs); `true` when the wavy lines changed.
     pub fn refresh_spelling(&mut self) -> bool {
+        // Only the pages in view (and one either side) are checked: the cost does not grow
+        // with the document's length; scrolling checks the pages that come into view.
+        let pages = self.spell_range();
+        self.spell_pages.clone_from(&pages);
         let marks = self
             .engine
-            .command(Command::Spelling { pages: None })
+            .command(Command::Spelling { pages: Some(pages) })
             .ok()
             .and_then(|r| r.spelling)
             .unwrap_or_default();
         let changed = marks != self.spell;
         self.spell = marks;
         changed
+    }
+
+    /// Pages whose spelling marks are kept: those in view and one either side.
+    fn spell_range(&self) -> Vec<usize> {
+        let visible = self.visible();
+        match (visible.first(), visible.last()) {
+            (Some(a), Some(b)) => (a.index.saturating_sub(OVERSCAN)
+                ..=(b.index + OVERSCAN).min(self.pages.len().saturating_sub(1)))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Some page in view was not checked yet (after scrolling).
+    pub fn spelling_out_of_view(&self) -> bool {
+        self.visible()
+            .iter()
+            .any(|s| !self.spell_pages.contains(&s.index))
     }
 
     /// Wavy-line marks of the last spelling check.

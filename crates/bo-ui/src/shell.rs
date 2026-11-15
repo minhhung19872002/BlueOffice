@@ -131,6 +131,11 @@ pub struct DocWindow {
     /// Left edges of the status bar's word count, proofing icon and language, laid out one
     /// after the other from measured text as on the reference.
     status_x: [f32; 3],
+    /// Status bar texts (page, word count) and the scale they were measured at: typing
+    /// re-measures them only when they change.
+    status_cache: (String, String, f32),
+    /// Quick table look and style options of the Table Design tab.
+    table_look: crate::doc_table::TableLook,
     /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
     spell_pane: Option<SpellPane>,
     /// Insert › Table size picker, when open.
@@ -215,14 +220,18 @@ impl DocWindow {
     pub fn new(view: DocView, locale: &str, name: &str) -> Self {
         let mut strings = Strings::load(locale);
         doc_tools::install_strings(&mut strings);
+        crate::doc_table::install_strings(&mut strings);
         let mut icons = Icons::load();
         doc_tools::install_icons(&mut icons);
+        crate::doc_table::install_icons(&mut icons);
         Self {
             view,
             title: TitleBar::new(),
             name: name.to_owned(),
             requests: Vec::new(),
-            ribbon: Ribbon::new(),
+            ribbon: Ribbon::new()
+                .with_labeled_widths(crate::doc_table::labeled_w)
+                .with_large_widths(crate::doc_table::large_w),
             theme: Theme::light("doc"),
             icons,
             strings,
@@ -259,6 +268,8 @@ impl DocWindow {
             spell_menu: None,
             tag_w: [0.0; 2],
             status_x: [0.0; 3],
+            status_cache: (String::new(), String::new(), 0.0),
+            table_look: crate::doc_table::TableLook::default(),
             spell_pane: None,
             table_grid: None,
             painter_lock: false,
@@ -421,12 +432,17 @@ impl DocWindow {
             bold: false,
         };
         let (page, words) = self.status_texts();
+        let c = &self.status_cache;
+        if c.0 == page && c.1 == words && c.2.to_bits() == self.scale.to_bits() {
+            return;
+        }
         let px = |v: f32| (v * self.scale).round();
         let x0 = px(12.0);
         let words_x = x0 + text.measure(&page, style).0.ceil() + px(17.0);
         let book_x = words_x + text.measure(&words, style).0.ceil() + px(54.0);
         let lang_x = book_x + px(15.0) + px(26.0);
         self.status_x = [words_x, book_x, lang_x];
+        self.status_cache = (page, words, self.scale);
     }
 
     /// Style of the "Header" / "Footer" tags (the reference's are small: 60×21 px at 125 %).
@@ -1436,6 +1452,12 @@ impl DocWindow {
                 self.open_command_menu(id, anchor);
                 true
             }
+            id if id.starts_with("table.look.") || id.starts_with("table.opt.") => {
+                match self.table_look.command(id) {
+                    Some(cmd) => self.view.run_command(cmd),
+                    None => false,
+                }
+            }
             _ => {
                 let page = self.view.current_page();
                 let story = self.story_options();
@@ -1591,6 +1613,8 @@ impl DocWindow {
     }
 
     fn relayout(&mut self, text: &dyn TextMeasure) {
+        // Text sizes may have changed (Windows text size): measure the status bar again.
+        self.status_cache.2 = 0.0;
         self.title
             .layout(text, &self.strings, &self.name, self.size.0, self.scale);
         let top = self.title.height();
@@ -1778,6 +1802,12 @@ impl DocWindow {
                     if self.view.refresh_spelling() {
                         return true;
                     }
+                }
+            }
+            // Pages scrolled into view are checked at the next tick.
+            Input::Tick if self.view.spelling_out_of_view() => {
+                if self.view.refresh_spelling() {
+                    return true;
                 }
             }
             _ => {}
@@ -2284,24 +2314,41 @@ impl DocWindow {
         p.clear(self.theme.bg);
         self.view.paint(p);
         self.paint_story_frame(p);
-        self.title.paint(
-            p,
-            &self.theme,
-            &self.icons,
-            &self.strings,
-            &self.name,
-            self.view.modified(),
-            self.view.format(),
-        );
-        self.ribbon.paint(
-            p,
-            &self.theme,
-            &self.icons,
-            &self.strings,
-            self.view.format(),
-            &self.styles,
-            &self.on_ids(),
-        );
+        // Title bar and ribbon: one cached layer, redrawn only when what it shows changes
+        // (typing changes the document, not the ribbon).
+        let chrome_h = self.ribbon.bottom();
+        let on = self.on_ids();
+        self.layered(p, 0, [0.0, 0.0, self.size.0, chrome_h], &mut |p| {
+            p.fill_rect(0.0, 0.0, self.size.0, chrome_h, self.theme.bg);
+            self.title.paint(
+                p,
+                &self.theme,
+                &self.icons,
+                &self.strings,
+                &self.name,
+                self.view.modified(),
+                self.view.format(),
+            );
+            self.ribbon.paint(
+                p,
+                &self.theme,
+                &self.icons,
+                &self.strings,
+                self.view.format(),
+                &self.styles,
+                &on,
+            );
+            if self.context.table {
+                crate::doc_table::paint(
+                    p,
+                    &self.ribbon,
+                    &self.table_look,
+                    &self.theme,
+                    &self.strings,
+                    self.scale,
+                );
+            }
+        });
         if self.show_ruler {
             self.ruler.paint(p, &self.theme);
             if let Some(page) = self.view.ruler_page_v() {
@@ -2374,6 +2421,65 @@ impl DocWindow {
                 None,
             );
         }
+        self.layered(p, 1, [0.0, y, w, sh], &mut |p| self.paint_status(p));
+        if let Some(grid) = &self.table_grid {
+            let label = |c: usize, r: usize| {
+                self.strings.fmt(
+                    "ribbon.docTools.tableSize",
+                    &[("cols", &c.to_string()), ("rows", &r.to_string())],
+                )
+            };
+            grid.paint(
+                p,
+                &self.theme,
+                &self.t("ribbon.docTools.insertTable", "Insert Table"),
+                &label,
+            );
+        }
+        if let Some(menu) = &self.menu {
+            menu.paint(p, &self.theme, &self.icons);
+        } else if let Some((label, tw, anchor)) = &self.tooltip {
+            paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale);
+        }
+        if let Some(b) = &self.backstage {
+            b.paint(
+                p,
+                &self.theme,
+                &self.strings,
+                &self.name,
+                self.view.page_count(),
+                self.view.word_count(),
+                self.view.modified(),
+            );
+            b.paint_icons(p, &self.theme, &self.icons);
+        }
+        if let Some(d) = &self.dialog {
+            d.paint(p, &self.theme, self.size, true);
+        }
+    }
+
+    /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
+    /// keeps its image and draws it again while the drawing it records hashes the same.
+    fn layered(
+        &self,
+        p: &mut dyn Painter,
+        id: usize,
+        rect: [f32; 4],
+        paint: &mut dyn FnMut(&mut dyn Painter),
+    ) {
+        let mut hash = crate::PaintHash::default();
+        paint(&mut hash);
+        if !p.layer_begin(id, rect, hash.finish()) {
+            paint(p);
+            p.layer_end(id);
+        }
+    }
+
+    /// The status bar: page, words, proofing state, language, view buttons and zoom.
+    fn paint_status(&self, p: &mut dyn Painter) {
+        let w = self.size.0;
+        let sh = self.status_h();
+        let y = self.size.1 - sh;
         // Neutral grey bar with dark text, like the ribbon body (and a desktop word
         // processor's status bar).
         p.fill_rect(0.0, y, w, sh, self.theme.ribbon);
@@ -2457,7 +2563,10 @@ impl DocWindow {
             }
         }
         // Proofing language at the caret, as a desktop word processor's status bar shows it.
-        if let Some(lang) = self.view.format().lang.as_deref() {
+        // Text without a language of its own shows the editing language (the reference
+        // shows its default, English (United States), there).
+        {
+            let lang = self.view.format().lang.as_deref().unwrap_or("en-US");
             let key = format!("spell.lang.{lang}");
             let name = self.strings.get(&key);
             let shown = if name == key { lang } else { name };
@@ -2498,40 +2607,6 @@ impl DocWindow {
             self.theme.text,
         );
         p.text(&zoom, pct[0] + (6.0 * self.scale).round(), ty, style, ink);
-        if let Some(grid) = &self.table_grid {
-            let label = |c: usize, r: usize| {
-                self.strings.fmt(
-                    "ribbon.docTools.tableSize",
-                    &[("cols", &c.to_string()), ("rows", &r.to_string())],
-                )
-            };
-            grid.paint(
-                p,
-                &self.theme,
-                &self.t("ribbon.docTools.insertTable", "Insert Table"),
-                &label,
-            );
-        }
-        if let Some(menu) = &self.menu {
-            menu.paint(p, &self.theme, &self.icons);
-        } else if let Some((label, tw, anchor)) = &self.tooltip {
-            paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale);
-        }
-        if let Some(b) = &self.backstage {
-            b.paint(
-                p,
-                &self.theme,
-                &self.strings,
-                &self.name,
-                self.view.page_count(),
-                self.view.word_count(),
-                self.view.modified(),
-            );
-            b.paint_icons(p, &self.theme, &self.icons);
-        }
-        if let Some(d) = &self.dialog {
-            d.paint(p, &self.theme, self.size, true);
-        }
     }
 
     /// While a header or footer is edited: the body text faded, a dashed line under the
@@ -3070,6 +3145,9 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "doc_perf_tests.rs"]
+mod doc_perf_tests;
 #[cfg(test)]
 #[path = "doc_window_tests.rs"]
 mod doc_window_tests;

@@ -149,6 +149,96 @@ pub(crate) struct SpellState {
     /// Ignored grammar issues: (rule id, flagged text).
     ignored: HashSet<(String, String)>,
     cache: HashMap<String, Analysis>,
+    /// Old / new tone placements counted per body block, updated with the changed blocks
+    /// only (the document's style is their majority): a check of the pages in view does
+    /// not read the whole document.
+    pub(crate) tones: ToneCounts,
+}
+
+/// Old / new tone placements of each block of each section.
+#[derive(Default)]
+pub(crate) struct ToneCounts {
+    blocks: Vec<Vec<(u32, u32)>>,
+}
+
+impl ToneCounts {
+    fn block(doc: &Document, b: &bo_model::Block, out: &mut (u32, u32)) {
+        match b {
+            bo_model::Block::Paragraph(p) => {
+                let text = bo_model::index::para_index(p).0;
+                let styles = grammar::tone_styles(&text);
+                if styles.is_empty() {
+                    return;
+                }
+                let sp = spans(doc, p);
+                for (r, st) in styles {
+                    let skipped = sp.iter().any(|s| {
+                        s.skip && s.range.start < r.end.max(r.start + 1) && r.start < s.range.end
+                    });
+                    if skipped {
+                        continue;
+                    }
+                    match st {
+                        ToneStyle::Old => out.0 += 1,
+                        ToneStyle::New => out.1 += 1,
+                    }
+                }
+            }
+            bo_model::Block::Table(t) => {
+                for c in t.rows.iter().flat_map(|r| &r.cells) {
+                    for b in &c.blocks {
+                        Self::block(doc, b, out);
+                    }
+                }
+            }
+            bo_model::Block::Opaque(_) => {}
+        }
+    }
+
+    fn count(doc: &Document, b: &bo_model::Block) -> (u32, u32) {
+        let mut out = (0, 0);
+        Self::block(doc, b, &mut out);
+        out
+    }
+
+    /// Count the changed blocks again (everything when `changes` says so).
+    pub(crate) fn update(&mut self, doc: &Document, changes: &bo_model::change::BlockChanges) {
+        let consistent = self.blocks.len() == doc.sections.len()
+            && doc.sections.iter().enumerate().all(|(si, s)| {
+                let delta = changes.section(si).map_or(0, |c| c.delta);
+                self.blocks[si].len() as isize + delta == s.blocks.len() as isize
+            });
+        if changes.is_all() || !consistent {
+            self.blocks = doc
+                .sections
+                .iter()
+                .map(|s| s.blocks.iter().map(|b| Self::count(doc, b)).collect())
+                .collect();
+        } else {
+            for c in changes.sections() {
+                let new = doc.sections[c.section].blocks[c.start..c.end]
+                    .iter()
+                    .map(|b| Self::count(doc, b));
+                let v = &mut self.blocks[c.section];
+                let e = c.old_end().min(v.len());
+                v.splice(c.start.min(e)..e, new);
+            }
+        }
+    }
+
+    /// The placement most used (`None` when no word shows one).
+    fn style(&self) -> Option<ToneStyle> {
+        let (old, new) = self
+            .blocks
+            .iter()
+            .flatten()
+            .fold((0u32, 0u32), |a, b| (a.0 + b.0, a.1 + b.1));
+        match (old, new) {
+            (0, 0) => None,
+            _ if old > new => Some(ToneStyle::Old),
+            _ => Some(ToneStyle::New),
+        }
+    }
 }
 
 impl Default for SpellState {
@@ -162,6 +252,7 @@ impl Default for SpellState {
             auto_language: false,
             ignored: HashSet::new(),
             cache: HashMap::new(),
+            tones: ToneCounts::default(),
         }
     }
 }
@@ -358,12 +449,32 @@ impl Engine {
             .collect()
     }
 
-    /// Marks of the misspelt words on `pages` (all pages when `None`).
+    /// Index text and language spans of the body paragraphs `ids` (by id).
+    fn body_texts_of(&self, ids: &BTreeSet<usize>) -> HashMap<usize, ProofText> {
+        let Some(doc) = self.document() else {
+            return HashMap::new();
+        };
+        let paths = bo_model::index::body_paragraphs(doc);
+        ids.iter()
+            .filter_map(|&id| {
+                let para = bo_model::index::para_at(doc, paths.get(id)?)?;
+                Some((id, (bo_model::index::para_index(para).0, spans(doc, para))))
+            })
+            .collect()
+    }
+
+    /// The document's tone style (majority of the counts kept per block).
+    fn document_tone_style(&mut self) -> Option<ToneStyle> {
+        self.spell.tones.style()
+    }
+
+    /// Marks of the misspelt words on `pages` (all pages when `None`). Only the paragraphs
+    /// on those pages are read, so checking the pages in view costs the same in a 300-page
+    /// document as in a short one.
     pub fn spelling_marks(&mut self, pages: Option<&[usize]>) -> Vec<SpellMark> {
         if !self.spell.enabled {
             return Vec::new();
         }
-        let texts = self.body_texts();
         let Some(layout) = self.layout() else {
             return Vec::new();
         };
@@ -379,8 +490,16 @@ impl Engine {
                     .map(move |l| (i, l.clone()))
             })
             .collect();
+        let ids: BTreeSet<usize> = lines
+            .iter()
+            .filter_map(|(_, l)| match l.source {
+                LineSource::Body(id) => Some(id as usize),
+                _ => None,
+            })
+            .collect();
+        let texts = self.body_texts_of(&ids);
         let style = if self.spell.grammar {
-            self.spell.document_style(&texts)
+            self.document_tone_style()
         } else {
             None
         };
@@ -389,7 +508,7 @@ impl Engine {
             let LineSource::Body(id) = l.source else {
                 continue;
             };
-            let Some((text, sp)) = texts.get(id as usize) else {
+            let Some((text, sp)) = texts.get(&(id as usize)) else {
                 continue;
             };
             let (ls, le) = (l.start as usize, l.end as usize);
@@ -451,7 +570,7 @@ impl Engine {
                 rule: None,
             });
         }
-        let style = self.spell.document_style(&texts);
+        let style = self.document_tone_style();
         let issue = self
             .spell
             .issues(&text, &sp, style)

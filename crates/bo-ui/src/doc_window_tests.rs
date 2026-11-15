@@ -242,6 +242,15 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 };
                 let key = format!("commands.{id}");
                 assert_ne!(w.strings.get(&key), key, "label of {id}");
+                // Check boxes and gallery tiles are drawn by the window and run with its
+                // table look state.
+                if crate::doc_table::labeled_w(id).is_some()
+                    || crate::doc_table::large_w(id).is_some()
+                {
+                    let mut look = crate::doc_table::TableLook::default();
+                    assert!(look.command(id).is_some(), "{id} does nothing");
+                    continue;
+                }
                 assert!(w.icons.has(crate::ribbon::icon_of(id)), "icon of {id}");
                 assert!(
                     catalog::is_menu(id)
@@ -575,4 +584,59 @@ fn word_count_lists_characters_and_paragraphs() {
             "Paragraphs: 1",
         ]
     );
+}
+
+/// Table Design: a quick look and the style options; Table Layout: the nine alignment
+/// buttons and the Select menu, clicked on the ribbon.
+#[test]
+fn table_looks_options_alignment_and_select() {
+    let mut w = window();
+    act(&mut w, "insert.table.3x3");
+    show_tab(&mut w, doc_tools::TABLE_DESIGN);
+    click(&mut w, "table.look.gridBlue");
+    let shading = |w: &DocWindow| {
+        w.view
+            .format()
+            .table
+            .as_ref()
+            .and_then(|t| t.shading.clone())
+    };
+    // The caret's cell (top left) is in the header row.
+    assert_eq!(shading(&w).as_deref(), Some("B9D2EE"));
+    // Without header row and first column it is the first banded row.
+    click(&mut w, "table.opt.headerRow");
+    click(&mut w, "table.opt.firstColumn");
+    assert_eq!(shading(&w).as_deref(), Some("E8F0FA"));
+    assert!(!w.table_look.option("table.opt.headerRow"));
+    // The tiles and boxes are drawn over their placeholders.
+    let mut rec = Rects::default();
+    w.paint(&mut rec);
+    assert!(rec.0 > 100);
+
+    show_tab(&mut w, doc_tools::TABLE_LAYOUT);
+    click(&mut w, "table.align.bottomRight");
+    let t = w.view.format().table.clone().expect("in a table");
+    assert_eq!(t.v_align, Some(bo_model::CellVAlign::Bottom));
+    assert_eq!(t.cell_h_align, bo_model::Alignment::Right);
+    assert!(w.on_ids().contains(&"table.align.bottomRight"));
+    // Select › Select Table: every cell.
+    click(&mut w, "table.select");
+    assert!(w.menu.is_some(), "Select opens its menu");
+    w.menu = None;
+    act(&mut w, "table.select.table");
+    assert!(w.view.format().table.as_ref().is_some_and(|t| t.multi_cell));
+}
+
+#[derive(Default)]
+struct Rects(usize);
+impl Painter for Rects {
+    fn clear(&mut self, _: Rgba) {}
+    fn fill_rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: Rgba) {
+        self.0 += 1;
+    }
+    fn page(&mut self, _: usize, _: i32, _: i32) {}
+    fn text(&mut self, _: &str, _: f32, _: f32, _: TextStyle, _: Rgba) {}
+    fn path(&mut self, _: &[PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
+    fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+    fn pop_clip(&mut self) {}
 }

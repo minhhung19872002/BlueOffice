@@ -144,6 +144,30 @@ pub enum TableEdit {
         /// Text between the cells of a row.
         separator: String,
     },
+    /// Align the content of the selected cells: vertically (§17.4.84 vAlign) and
+    /// horizontally (the cells' paragraphs, §17.3.1.13 jc), as the nine alignment buttons
+    /// of a desktop word processor's table layout tab do.
+    CellAlign {
+        /// Top, centre or bottom of the cell.
+        vertical: bo_model::CellVAlign,
+        /// Left, centre or right.
+        horizontal: Alignment,
+    },
+    /// A quick table look: borders and fills of one of Bluestar's own presets
+    /// (§17.4.39 tblBorders, §17.4.33 shd), shaped by the style options (header row,
+    /// total row, first and last column, banded rows and columns).
+    Look {
+        /// Preset name (see [`tools::LOOKS`]).
+        preset: String,
+        /// Style options.
+        #[serde(default)]
+        options: tools::LookOptions,
+    },
+    /// Select the caret's cell, column, row or the whole table.
+    Select {
+        /// `cell`, `column`, `row` or `table`.
+        part: String,
+    },
     /// Turn the selected paragraphs into a table (the caret need not be in a table):
     /// cells split at `separator`, or with `"\n"` one cell per paragraph and `cols`
     /// cells per row.
@@ -167,8 +191,7 @@ pub(crate) struct CellAt {
 }
 
 pub(crate) fn cell_at(doc: &Document, id: usize) -> Option<CellAt> {
-    let paths = body_paragraphs(doc);
-    let p = paths.get(id)?;
+    let p = &bo_model::index::para_path(doc, id)?;
     if p.len() < 5 {
         return None;
     }
@@ -554,7 +577,7 @@ impl Session {
     }
 }
 
-fn nil_border() -> Border {
+pub(crate) fn nil_border() -> Border {
     Border {
         style: "nil".into(),
         size: 0,
@@ -597,6 +620,47 @@ impl Session {
             direction: cell.props.text_direction,
             wrap: t.props.float.is_some(),
             fixed_layout: t.props.fixed_layout,
+            v_align: cell.props.v_align,
+            cell_h_align: bo_model::index::para_by_id(&self.doc, a.para)
+                .and_then(|p| p.props.align)
+                .unwrap_or_default(),
+        })
+    }
+
+    /// A selection from the start of the cell at (row, grid column) `from` to the end of
+    /// the cell at `to` in the caret's table.
+    fn cell_range_selection(
+        &self,
+        at: &CellAt,
+        t: &Table,
+        from: (usize, usize),
+        to: (usize, usize),
+    ) -> Option<Selection> {
+        let cell_path = |r: usize, g: usize, last: bool| -> Option<Vec<usize>> {
+            let row = t.rows.get(r)?;
+            let c = cell_covering(row, g)?;
+            let blocks = &row.cells.get(c)?.blocks;
+            let b = if last {
+                blocks
+                    .iter()
+                    .rposition(|b| matches!(b, Block::Paragraph(_)))?
+            } else {
+                blocks
+                    .iter()
+                    .position(|b| matches!(b, Block::Paragraph(_)))?
+            };
+            let mut p = at.container.clone();
+            p.extend([at.index, r, c, b]);
+            Some(p)
+        };
+        let a = id_of(&self.doc, &cell_path(from.0, from.1, false)?)?;
+        let end_path = cell_path(to.0, to.1, true)?;
+        let b = id_of(&self.doc, &end_path)?;
+        let end = bo_model::index::para_at(&self.doc, &end_path)
+            .map_or(0, |p| para::len(&para::flatten(p)));
+        Some(Selection {
+            anchor: Pos::new(a, 0),
+            focus: Pos::new(b, end),
         })
     }
 
@@ -671,6 +735,34 @@ impl Session {
                 if let Some(why) = tools::sort_blocker(&old, lo, hi) {
                     return Err(EditError::Unsupported(why.into()));
                 }
+            }
+            TableEdit::Select { part } => {
+                let rows = old.rows.len().saturating_sub(1);
+                let last_col = |r: usize| {
+                    old.rows
+                        .get(r)
+                        .map_or(0, |row| starts(row).last().copied().unwrap_or(0))
+                };
+                let (from, to) = match part.as_str() {
+                    "cell" => ((r0, g0), (r1, g1)),
+                    "column" => ((0, g0), (rows, g1)),
+                    "row" => ((r0, 0), (r1, usize::MAX)),
+                    "table" => ((0, 0), (rows, usize::MAX)),
+                    _ => return Err(EditError::Unsupported(format!("select {part}"))),
+                };
+                let to = (
+                    to.0,
+                    if to.1 == usize::MAX {
+                        last_col(to.0)
+                    } else {
+                        to.1
+                    },
+                );
+                let sel = self
+                    .cell_range_selection(&at, &old, from, to)
+                    .ok_or(EditError::BadPath)?;
+                self.set_selection(sel);
+                return Ok(sel);
             }
             _ => {}
         }
@@ -996,9 +1088,18 @@ impl Session {
             TableEdit::TextDirection { dir } => {
                 tools::set_direction(&mut t, (r0, r1), (g0, g1), *dir);
             }
+            TableEdit::CellAlign {
+                vertical,
+                horizontal,
+            } => tools::set_cell_align(&mut t, (r0, r1), (g0, g1), *vertical, *horizontal),
+            TableEdit::Look { preset, options } => {
+                if !tools::apply_look(&mut t, preset, *options) {
+                    return Err(EditError::Unsupported(format!("table look {preset}")));
+                }
+            }
             TableEdit::Wrap { around } => tools::set_wrap(&mut t, *around),
             // Handled before the table is copied.
-            TableEdit::ToText { .. } | TableEdit::FromText { .. } => {}
+            TableEdit::ToText { .. } | TableEdit::FromText { .. } | TableEdit::Select { .. } => {}
         }
         if !remove_table && t == old {
             return Ok(self.selection);

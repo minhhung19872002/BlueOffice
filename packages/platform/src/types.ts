@@ -326,6 +326,10 @@ export interface TableState {
   wrap: boolean;
   /** Fixed column widths (§17.4.53 tblLayout). */
   fixedLayout: boolean;
+  /** Vertical alignment of the caret's cell (§17.4.84); absent = top. */
+  vAlign?: 'Top' | 'Center' | 'Bottom';
+  /** Horizontal alignment of the caret's paragraph in its cell. */
+  cellHAlign: Alignment;
 }
 
 /** §17.18.93 ST_TextDirection (transitional names). */
@@ -359,6 +363,25 @@ export type TableEdit =
   | { kind: 'sort'; keys: TableSortKey[]; header: boolean }
   | { kind: 'textDirection'; dir: TextDirection | null }
   | { kind: 'wrap'; around: boolean }
+  | {
+      kind: 'cellAlign';
+      vertical: 'Top' | 'Center' | 'Bottom';
+      horizontal: Alignment;
+    }
+  /** Bluestar's own quick looks: plain, grid, gridLight, listLight, gridBlue, listBlue, gridGreen, gridOrange. */
+  | {
+      kind: 'look';
+      preset: string;
+      options?: {
+        headerRow?: boolean;
+        totalRow?: boolean;
+        firstColumn?: boolean;
+        lastColumn?: boolean;
+        bandedRows?: boolean;
+        bandedColumns?: boolean;
+      };
+    }
+  | { kind: 'select'; part: 'cell' | 'column' | 'row' | 'table' }
   /** Separator: "\t", ",", "\n" (one paragraph per cell) or any text. */
   | { kind: 'toText'; separator: string }
   | { kind: 'fromText'; separator: string; cols?: number | null };

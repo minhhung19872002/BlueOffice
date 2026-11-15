@@ -97,8 +97,7 @@ impl Session {
     /// (paragraph id, atom index) of the picture the tools act on.
     pub(crate) fn tools_target(&self) -> Option<(usize, usize)> {
         let (a, b) = self.selection.ordered();
-        let paths = body_paragraphs(&self.doc);
-        let p = para_at(&self.doc, paths.get(a.para)?)?;
+        let p = bo_model::index::para_by_id(&self.doc, a.para)?;
         let atoms = para::flatten(p);
         let range = if a.para == b.para {
             (a.offset, b.offset)
@@ -111,8 +110,7 @@ impl Session {
     /// The picture the picture tools act on (a copy).
     pub fn tools_picture(&self) -> Option<Image> {
         let (id, k) = self.tools_target()?;
-        let paths = body_paragraphs(&self.doc);
-        let p = para_at(&self.doc, paths.get(id)?)?;
+        let p = bo_model::index::para_by_id(&self.doc, id)?;
         match para::flatten(p).into_iter().nth(k)?.1 {
             RunContent::Image(img) => Some(*img),
             _ => None,

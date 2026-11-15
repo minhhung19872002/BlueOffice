@@ -546,6 +546,11 @@ pub struct TableState {
     pub wrap: bool,
     /// Fixed column widths (§17.4.53 tblLayout `fixed`).
     pub fixed_layout: bool,
+    /// Vertical alignment of the caret's cell (§17.4.84 vAlign; `None` = top).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_align: Option<bo_model::CellVAlign>,
+    /// Horizontal alignment of the caret's paragraph in its cell (§17.3.1.13 jc).
+    pub cell_h_align: Alignment,
 }
 
 /// Formatting at the selection start (drives ribbon toggle states).
@@ -708,6 +713,14 @@ struct ClipBlocks {
 pub const INTERNAL_MIME: &str = "application/x-blueoffice-blocks+json";
 
 // ------------------------------------------------------------------ helpers
+
+/// Path of body paragraph `id` found directly (no list of every paragraph), checked like
+/// [`path_of`]: typing in a long document edits one paragraph per key.
+fn path_by_id(doc: &Document, id: usize) -> Result<ParaPath> {
+    let p = bo_model::index::para_path(doc, id).ok_or(EditError::BadPosition)?;
+    para_at(doc, &p).ok_or(EditError::BadPath)?;
+    Ok(p)
+}
 
 fn path_of(doc: &Document, paths: &[ParaPath], id: usize) -> Result<ParaPath> {
     let p = paths.get(id).ok_or(EditError::BadPosition)?;
@@ -906,8 +919,7 @@ impl Tx<'_> {
     }
 
     fn atoms(&self, id: usize) -> Result<(ParaPath, Paragraph, Vec<Atom>)> {
-        let paths = self.paths();
-        let path = path_of(self.doc, &paths, id)?;
+        let path = path_by_id(self.doc, id)?;
         let p = para_clone(self.doc, &path)?;
         let a = para::flatten(&p);
         Ok((path, p, a))
@@ -967,9 +979,8 @@ impl Tx<'_> {
     }
 
     fn untracked_delete(&mut self, a: Pos, b: Pos) -> Result<Pos> {
-        let paths = self.paths();
-        let pa = path_of(self.doc, &paths, a.para)?;
-        let pb = path_of(self.doc, &paths, b.para)?;
+        let pa = path_by_id(self.doc, a.para)?;
+        let pb = path_by_id(self.doc, b.para)?;
         if a.para == b.para {
             let p = para_clone(self.doc, &pa)?;
             let mut atoms = para::flatten(&p);
@@ -1000,6 +1011,7 @@ impl Tx<'_> {
             return Ok(a);
         }
         // Range across containers (e.g. table cells): clear the text, keep the structure.
+        let paths = self.paths();
         for id in a.para..=b.para {
             let path = path_of(self.doc, &paths, id)?;
             let p = para_clone(self.doc, &path)?;
@@ -1326,6 +1338,9 @@ pub struct Session {
     /// with `group`): the next such edit of it joins the same undo step.
     math_group: Option<Pos>,
     version: u64,
+    /// Block-level content controls of the main text at a version (the caret's control is
+    /// reported after every key; listing them walks the whole document).
+    block_spans_at: std::cell::RefCell<Option<(u64, Vec<controls::BlockSpan>)>>,
     /// Track-changes mode (§17.13.5): new edits are recorded as revisions.
     track: bool,
     /// Author of new revisions and comments.
@@ -1406,6 +1421,7 @@ impl Session {
             typing: false,
             math_group: None,
             version: 0,
+            block_spans_at: std::cell::RefCell::new(None),
             track,
             author: DEFAULT_AUTHOR.to_owned(),
             clock: None,
@@ -1804,10 +1820,15 @@ impl Session {
     /// code, showing its code).
     fn selected_fields(&self) -> Vec<(usize, usize, String, bool)> {
         let scope = self.selection_scope();
-        let paths = body_paragraphs(&self.doc);
+        // A few paragraphs (typing): look each up; a long selection: list them once.
+        let paths = (scope.ranges.len() > 4).then(|| body_paragraphs(&self.doc));
         let mut out = Vec::new();
         for &(pid, _, _) in &scope.ranges {
-            let Some(p) = paths.get(pid).and_then(|path| para_at(&self.doc, path)) else {
+            let p = match &paths {
+                Some(paths) => paths.get(pid).and_then(|path| para_at(&self.doc, path)),
+                None => bo_model::index::para_by_id(&self.doc, pid),
+            };
+            let Some(p) = p else {
                 continue;
             };
             let mut pos = 0;
@@ -2392,8 +2413,7 @@ impl Session {
     /// indices of its start and end markers.
     fn control_span(&self) -> Option<(ContentControl, usize, usize, usize)> {
         let caret = self.selection.focus;
-        let path = body_paragraphs(&self.doc).get(caret.para)?.clone();
-        let p = para_at(&self.doc, &path)?;
+        let p = bo_model::index::para_by_id(&self.doc, caret.para)?;
         let atoms = para::flatten(p);
         let mut pos = 0;
         let mut open: Vec<(usize, usize)> = Vec::new(); // (atom index, offset)
@@ -2618,8 +2638,7 @@ impl Session {
         if a.para != b.para {
             return None;
         }
-        let paths = body_paragraphs(&self.doc);
-        let p = para_at(&self.doc, paths.get(a.para)?)?;
+        let p = bo_model::index::para_by_id(&self.doc, a.para)?;
         let mut off = 0;
         for (_, c) in para::flatten(p) {
             let n = para::atom_len(&c);
@@ -3605,8 +3624,7 @@ impl Session {
 
     fn caret_props(&self) -> RunProps {
         let at = self.selection.ordered().0;
-        let paths = body_paragraphs(&self.doc);
-        let Some(p) = paths.get(at.para).and_then(|p| para_at(&self.doc, p)) else {
+        let Some(p) = bo_model::index::para_by_id(&self.doc, at.para) else {
             return self.doc.default_run.clone();
         };
         // With a selection, report the formatting of its first character.
@@ -3809,10 +3827,7 @@ impl Session {
     }
 
     fn para_props(&self, id: usize) -> ParaProps {
-        let paths = body_paragraphs(&self.doc);
-        paths
-            .get(id)
-            .and_then(|p| para_at(&self.doc, p))
+        bo_model::index::para_by_id(&self.doc, id)
             .map(|p| p.props.clone())
             .unwrap_or_default()
     }

@@ -1652,6 +1652,132 @@ fn colour_drop_downs_open_the_palette_and_more_colors() {
 }
 
 #[test]
+fn insert_icons_shapes_smartart_equation_and_timeline() {
+    let mut w = window();
+    w.relayout(&Fixed);
+    let groups = |w: &SheetWindow| {
+        w.view
+            .engine()
+            .workbook()
+            .map_or(0, |wb| wb.sheets[0].shape_groups.len())
+    };
+    // Icons: the library gallery; choosing an icon inserts its drawing (SVG stored as PNG).
+    let [x, y, ww, hh] = w.ribbon.rect_of(RibbonHit::Tab(1)).expect("insert tab");
+    press(&mut w, (x + ww / 2.0, y + hh / 2.0), 1);
+    w.handle(
+        Input::Release {
+            x: x + ww / 2.0,
+            y: y + hh / 2.0,
+        },
+        &Fixed,
+    );
+    assert!(w.action("sheet.icons", &Fixed));
+    assert!(w.picker.is_some() && !w.library.is_empty());
+    let id = w.library[0].id.clone();
+    w.picker = None;
+    assert!(w.pick_drawing(&format!("icon:{id}")));
+    assert_eq!(groups(&w), 1);
+    // Shapes: the shapes gallery.
+    assert!(w.action("sheet.shapes", &Fixed));
+    assert!(w.picker.is_some());
+    w.picker = None;
+    assert!(w.pick_drawing("shape:ellipse"));
+    assert_eq!(groups(&w), 2);
+    // Equation: a text box with the equation's linear form.
+    assert!(w.action("equation.eqPythagoras", &Fixed));
+    assert_eq!(groups(&w), 3);
+    // SmartArt by family.
+    assert!(w.action("smartart.process", &Fixed));
+    assert_eq!(
+        w.view
+            .engine()
+            .workbook()
+            .map(|wb| wb.sheets[0].diagrams.len()),
+        Some(1)
+    );
+    // Timeline without a pivot table: a hint.
+    assert!(w.action("sheet.timeline", &Fixed));
+    assert!(w.status.contains("PivotTable"));
+    // Screenshot and 3D Models are shown dimmed.
+    assert!(!sheet_enabled("sheet.screenshot", &w.format_state()));
+}
+
+#[test]
+fn data_formulas_and_view_tabs_round_6() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Amount"),
+            (1, 0, "A"),
+            (1, 1, "5"),
+            (2, 0, "A"),
+            (2, 1, "7"),
+            (3, 0, "B"),
+            (3, 1, "9"),
+        ],
+    );
+    w.relayout(&Fixed);
+    // The reference's Data tab commands are on the ribbon (some dimmed).
+    let ids = sheet_ribbon::tab_ids();
+    for id in [
+        "sheet.getData",
+        "sheet.refreshAll",
+        "sheet.flashFill",
+        "sheet.consolidate",
+        "sheet.whatIf",
+        "sheet.outline",
+        "sheet.definedNames",
+        "sheet.fnRecent",
+        "sheet.customViews",
+        "sheet.zoomDialog",
+    ] {
+        assert!(ids.contains(&id), "{id}");
+    }
+    assert!(!sheet_enabled("sheet.split", &w.format_state()));
+    // Get Data from Text/CSV: a text file becomes a query table on a new sheet.
+    assert!(w.action("sheet.fromText", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickMergeData));
+    assert!(w.pick_filters()[0].1.contains("csv"));
+    assert!(w.picked_file(b"City,Count\nHue,3\nVinh,4\n", "cities.csv"));
+    assert_eq!(w.view.sheet_names().len(), 2);
+    assert_eq!(
+        w.view.engine().cell(1, 1, 0).map(|c| c.display).ok().as_deref(),
+        Some("Hue")
+    );
+    assert!(w.action("sheet.refreshAllNow", &Fixed));
+    assert!(w.status.contains('1'), "{}", w.status);
+    w.view.set_sheet(0);
+    // Outline: group rows 2–3, then subtotals.
+    w.view_mut().select((1, 0), (2, 1), (1, 0));
+    assert!(w.action("outline.group", &Fixed));
+    assert!(w.action("outline.clear", &Fixed));
+    // Custom views: add one, then the list shows it.
+    assert!(w.action("sheet.customViews", &Fixed));
+    w.form.as_mut().expect("views").set_text("name", "Mine");
+    w.data_form_event(&form_impl::Event::Clicked("add"), &Fixed);
+    assert_eq!(w.custom_view_names().len(), 1);
+    w.data_form_event(&form_impl::Event::Cancel, &Fixed);
+    // Zoom: 75 %.
+    assert!(w.action("sheet.zoomDialog", &Fixed));
+    w.form.as_mut().expect("zoom").set_sel("mag", Some(2));
+    w.data_form_event(&form_impl::Event::Ok, &Fixed);
+    assert!((w.view.zoom() - 0.75).abs() < 0.01);
+    // Consolidate the list by name into D1.
+    w.view_mut().select((0, 3), (0, 3), (0, 3));
+    assert!(w.action("sheet.consolidate", &Fixed));
+    w.form.as_mut().expect("cons").set_text("ref", "$A$1:$B$4");
+    w.data_form_event(&form_impl::Event::Ok, &Fixed);
+    assert_eq!(
+        w.view.engine().cell(0, 1, 4).map(|c| c.display).ok().as_deref(),
+        Some("12"),
+        "{}",
+        w.status
+    );
+}
+
+#[test]
 fn cell_style_and_table_galleries_apply_their_choice() {
     let mut w = window();
     put(
@@ -1661,7 +1787,22 @@ fn cell_style_and_table_galleries_apply_their_choice() {
     w.relayout(&Fixed);
     assert!(w.action("sheet.cellStyles", &Fixed));
     let g = w.gallery.as_ref().expect("gallery");
-    assert_eq!(g.sections.len(), 4);
+    // Good / Bad / Neutral, Data and Model, Titles, Themed, Number Format; menu lines.
+    assert_eq!(g.sections.len(), 5);
+    assert_eq!(g.sections[4].1.len(), 5);
+    assert_eq!(g.footer.len(), 2);
+    assert_eq!(
+        w.gallery_choice_at(4, 1).as_deref(),
+        Some("style.Comma [0]")
+    );
+    // Calculation shows its four edges (the reference frames it), Heading 1 a thick rule.
+    let edges = |s: usize, i: usize| match &w.gallery.as_ref().expect("g").sections[s].1[i].1 {
+        gallery_impl::Tile::Cell { edges, .. } => edges.map(|e| e.map(|(l, _)| l)),
+        gallery_impl::Tile::Table { .. } => [None; 4],
+    };
+    assert!(edges(1, 0).iter().all(Option::is_some));
+    assert_eq!(edges(2, 0)[2], Some(gallery_impl::Line::Thick));
+    assert_eq!(edges(1, 4)[2], Some(gallery_impl::Line::Double));
     assert_eq!(w.gallery_choice_at(0, 2).as_deref(), Some("style.Good"));
     // Clicking the Good tile styles the selection.
     let r = w.gallery.as_ref().expect("g").rect();
@@ -1677,6 +1818,23 @@ fn cell_style_and_table_galleries_apply_their_choice() {
         .query(json!({ "cmd": "formatState", "row": 0, "col": 0 }))
         .expect("st");
     assert_eq!(st["styleName"], "Good");
+    // New Cell Style…: the Style form takes the active cell's format under a new name, and
+    // the gallery then shows a Custom group with it.
+    assert!(w.action("sheet.newCellStyle", &Fixed));
+    assert_eq!(w.form_kind, form_impl::FormKind::CellStyle);
+    assert_eq!(w.form.as_ref().expect("form").text("name"), "Style 1");
+    w.cell_style_event(&form_impl::Event::Ok);
+    assert!(w.form.is_none());
+    assert!(w.action("sheet.cellStyles", &Fixed));
+    let g = w.gallery.take().expect("gallery");
+    assert_eq!(g.sections.len(), 6);
+    assert_eq!(g.sections[0].1[0].0, "style.Style 1");
+    // Merge Styles… asks the host for a workbook; a file that is not one is reported.
+    assert!(w.action("sheet.mergeStyles", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickMergeData));
+    assert!(w.pick_filters()[0].1.contains("xlsx"));
+    assert!(w.picked_file(b"not a workbook", "x.xlsx"));
+    assert!(w.status.contains("not a workbook"));
     // Format as Table: 3 families × 7 styles.
     assert!(w.action("sheet.formatTable", &Fixed));
     let g = w.gallery.as_ref().expect("gallery");

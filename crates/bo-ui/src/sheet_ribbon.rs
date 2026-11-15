@@ -353,6 +353,61 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             .iter()
             .map(|s| e(&format!("shape.{s}"), &format!("sheetShape.{s}")))
             .collect(),
+        "sheet.fnRecent" => [
+            "SUM",
+            "AVERAGE",
+            "IF",
+            "HYPERLINK",
+            "COUNT",
+            "MAX",
+            "SIN",
+            "SUMIF",
+            "PMT",
+            "STDEV",
+        ]
+        .iter()
+        .filter(|n| known(n))
+        .map(|n| e(&format!("fn.{n}"), n))
+        .chain([e("sheet.insertFunction", "sheetMenu.autoSum.more")])
+        .collect(),
+        "sheet.definedNames" => vec![
+            e("sheet.defineName", "commands.sheet.defineName"),
+            e("sheet.createNames", "commands.sheet.createNames"),
+            e("sheet.nameManager", "commands.sheet.nameManager"),
+        ],
+        "sheet.getData" => vec![
+            e("sheet.fromText", "commands.sheet.fromText"),
+            e("sheet.fromTable", "commands.sheet.fromTable"),
+            e("sheet.queriesConn", "commands.sheet.queriesConn"),
+        ],
+        "sheet.refreshAll" => vec![
+            e("sheet.refreshAllNow", "commands.sheet.refreshAll"),
+            e("sheet.refreshPivots", "sheetData.refreshPivots"),
+        ],
+        "sheet.whatIf" => vec![
+            e("sheet.scenarios", "sheetData.scenarios"),
+            e("sheet.goalSeek", "commands.sheet.goalSeek"),
+            e("sheet.dataTableWhatIf", "sheetData.dataTable"),
+        ],
+        "sheet.outline" => vec![
+            e("outline.group", "sheetData.outlineGroup"),
+            e("outline.ungroup", "sheetData.outlineUngroup"),
+            e("outline.subtotal", "sheetData.subtotal"),
+            e("outline.show", "sheetData.showDetail"),
+            e("outline.hide", "sheetData.hideDetail"),
+            e("outline.auto", "sheetData.autoOutline"),
+            e("outline.clear", "sheetData.clearOutline"),
+        ],
+        "sheet.macros" => vec![e("sheet.viewMacros", "sheetView.viewMacros")],
+        "sheet.smartArt" => crate::sheet_window::SMARTART_FAMILIES
+            .iter()
+            .map(|l| e(&format!("smartart.{l}"), &format!("sheetInsertSmart.{l}")))
+            .collect(),
+        "sheet.equation" => crate::sheet_window::EQUATION_KEYS
+            .iter()
+            .map(|k| e(&format!("equation.{k}"), &format!("sheetInsert.{k}")))
+            .collect(),
+        "sheet.screenshot" | "sheet.models3d" => vec![e("sheet.none", "sheetInsert.notAvailable")],
         "sheet.text" => vec![
             e("sheet.headerFooter", "sheetInsert.headerFooter"),
             e("sheet.symbol", "sheetInsert.symbolMore"),
@@ -596,7 +651,14 @@ pub(crate) fn number_box_width(wide: bool) -> f32 {
 pub(crate) fn trailing(id: &str) -> bool {
     matches!(
         id,
-        "sheet.sortFilter" | "sheet.findSelect" | "sheet.chartMap" | "sheet.pivotChart"
+        "sheet.sortFilter"
+            | "sheet.findSelect"
+            | "sheet.chartMap"
+            | "sheet.pivotChart"
+            | "sheet.sortDialog"
+            | "sheet.filter"
+            | "sheet.watchWindow"
+            | "sheet.switchWindows"
     )
 }
 
@@ -616,7 +678,13 @@ fn insert() -> Tab {
             Group {
                 label: "sheetInsert.groupIllustrations",
                 large: vec![L("sheet.pictures")],
-                rows: vec![vec![S("sheet.shapes")]],
+                // Two columns of small labelled buttons as the reference: Shapes / Icons /
+                // 3D Models, then SmartArt / Screenshot.
+                rows: vec![
+                    vec![S("sheet.shapes"), S("sheet.smartArt")],
+                    vec![S("sheet.icons"), S("sheet.screenshot")],
+                    vec![S("sheet.models3d")],
+                ],
             },
             Group {
                 label: "sheetEditor.groupCharts",
@@ -654,7 +722,7 @@ fn insert() -> Tab {
             },
             Group {
                 label: "sheetInsert.groupFilters",
-                large: vec![L("sheet.slicer")],
+                large: vec![L("sheet.slicer"), L("sheet.timeline")],
                 rows: vec![],
             },
             Group {
@@ -670,56 +738,56 @@ fn insert() -> Tab {
             Group {
                 label: "sheetInsert.groupSymbols",
                 large: vec![],
-                rows: vec![vec![S("sheet.symbol")]],
+                rows: vec![vec![S("sheet.equation")], vec![S("sheet.symbol")]],
             },
         ],
     }
 }
 
 fn formulas() -> Tab {
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
+    // As the reference at 1500 px (round 6): Insert Function and AutoSum, then the
+    // categories as three columns of small menu buttons; Defined Names folded into one menu;
+    // Formula Auditing with Watch Window; Calculation Options with two icon buttons.
     Tab {
         label: "sheetMenu.tabFormulas",
 
         groups: vec![
             Group {
                 label: "sheetMenu.groupFunctions",
-                large: vec![
-                    L("sheet.insertFunction"),
-                    L("sheet.autoSumF"),
-                    L("sheet.fnFinancial"),
-                    L("sheet.fnLogical"),
-                    L("sheet.fnText"),
-                    L("sheet.fnDateTime"),
-                    L("sheet.fnLookup"),
-                    L("sheet.fnMath"),
-                    L("sheet.fnMore"),
+                large: vec![L("sheet.insertFunction"), L("sheet.autoSumF")],
+                rows: vec![
+                    vec![S("sheet.fnRecent"), S("sheet.fnText"), S("sheet.fnMath")],
+                    vec![
+                        S("sheet.fnFinancial"),
+                        S("sheet.fnDateTime"),
+                        S("sheet.fnMore"),
+                    ],
+                    vec![S("sheet.fnLogical"), S("sheet.fnLookup")],
                 ],
-                rows: vec![],
             },
             Group {
                 label: "sheetMenu.groupDefinedNames",
-                large: vec![L("sheet.nameManager")],
-                rows: vec![vec![S("sheet.defineName")], vec![S("sheet.createNames")]],
+                large: vec![L("sheet.definedNames")],
+                rows: vec![],
             },
             Group {
                 label: "sheetMenu.groupAuditing",
-                large: vec![],
+                large: vec![L("sheet.watchWindow")],
                 rows: vec![
-                    vec![S("sheet.tracePrecedents"), S("sheet.showFormulas")],
-                    vec![S("sheet.traceDependents"), S("sheet.errorCheck")],
-                    vec![S("sheet.removeArrows"), S("sheet.evaluateFormula")],
+                    vec![S("sheet.tracePrecedents"), B("sheet.showFormulas")],
+                    vec![S("sheet.traceDependents"), B("sheet.errorCheck")],
+                    vec![S("sheet.removeArrows"), B("sheet.evaluateFormula")],
                 ],
             },
             Group {
                 label: "sheetMenu.groupCalculation",
                 large: vec![L("sheet.calcOptions")],
-                rows: vec![vec![S("sheet.calcNow")], vec![S("sheet.calcSheet")]],
+                rows: vec![vec![B("sheet.calcNow")], vec![B("sheet.calcSheet")]],
             },
         ],
     }
 }
-
 fn page_layout() -> Tab {
     use Item::{Labeled as S, Large as L};
     Tab {
@@ -784,27 +852,56 @@ fn review() -> Tab {
 }
 
 fn data() -> Tab {
-    use Item::{Button as B, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
+    // As the reference at 1500 px (round 6): Get & Transform Data, Queries & Connections,
+    // Sort & Filter, Data Tools (two icon columns), Forecast, Outline (one menu).
     Tab {
         label: "sheetEditor.tabData",
         groups: vec![
             Group {
+                label: "sheetData.groupGet",
+                large: vec![L("sheet.getData")],
+                rows: vec![
+                    vec![B("sheet.fromText"), B("sheet.recentSources")],
+                    vec![B("sheet.fromWeb"), B("sheet.connections")],
+                    vec![B("sheet.fromTable")],
+                ],
+            },
+            Group {
+                label: "sheetData.groupQueries",
+                large: vec![L("sheet.refreshAll")],
+                rows: vec![
+                    vec![S("sheet.queriesConn")],
+                    vec![S("sheet.queryProps")],
+                    vec![S("sheet.editLinks")],
+                ],
+            },
+            Group {
                 label: "sheetEditor.groupSortFilter",
                 large: vec![L("sheet.sortDialog"), L("sheet.filter")],
-                rows: vec![vec![B("sheet.sortAsc")], vec![B("sheet.sortDesc")]],
+                rows: vec![
+                    vec![B("sheet.sortAsc"), S("sheet.filterClear")],
+                    vec![B("sheet.sortDesc"), S("sheet.filterReapply")],
+                    vec![S("sheet.filterAdvanced")],
+                ],
             },
             Group {
                 label: "sheetEditor.groupDataTools",
-                large: vec![
-                    L("sheet.textToColumns"),
-                    L("sheet.removeDuplicates"),
-                    L("sheet.dataValidation"),
+                large: vec![L("sheet.textToColumns")],
+                rows: vec![
+                    vec![B("sheet.flashFill"), B("sheet.consolidate")],
+                    vec![B("sheet.removeDuplicates"), B("sheet.relationships")],
+                    vec![B("sheet.dataValidation"), B("sheet.dataModel")],
                 ],
-                rows: vec![],
             },
             Group {
                 label: "sheetMenu.groupForecast",
-                large: vec![L("sheet.goalSeek")],
+                large: vec![L("sheet.whatIf"), L("sheet.forecastSheet")],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetData.groupOutline",
+                large: vec![L("sheet.outline")],
                 rows: vec![],
             },
         ],
@@ -813,32 +910,54 @@ fn data() -> Tab {
 
 fn view() -> Tab {
     use Item::{Labeled as S, Large as L};
+    // As the reference at 1500 px (round 6): Workbook Views, Show (check boxes in two
+    // columns), Zoom, Window, Macros.
     Tab {
         label: "ribbon.tabs.view",
         groups: vec![
             Group {
+                label: "sheetView.groupViews",
+                large: vec![L("sheet.viewNormal"), L("sheet.viewPageBreak")],
+                rows: vec![
+                    vec![S("sheet.viewPageLayout")],
+                    vec![S("sheet.customViews")],
+                ],
+            },
+            Group {
                 label: "ribbon.groups.show",
                 large: vec![],
                 rows: vec![
+                    vec![S("sheet.ruler"), S("sheet.headings")],
                     vec![S("sheet.gridlines")],
-                    vec![S("sheet.headings")],
                     vec![S("sheet.formulaBar")],
                 ],
             },
             Group {
                 label: "ribbon.groups.zoom",
-                large: vec![L("sheet.zoom100"), L("sheet.zoomSelection")],
+                large: vec![
+                    L("sheet.zoomDialog"),
+                    L("sheet.zoom100"),
+                    L("sheet.zoomSelection"),
+                ],
                 rows: vec![],
             },
             Group {
                 label: "ribbon.groups.window",
-                large: vec![L("sheet.freezePanes")],
+                large: vec![L("sheet.switchWindows")],
+                rows: vec![
+                    vec![S("sheet.newWindow"), S("sheet.split")],
+                    vec![S("sheet.arrangeAll"), S("sheet.hideWindow")],
+                    vec![S("sheet.freezePanes"), S("sheet.unhideWindow")],
+                ],
+            },
+            Group {
+                label: "sheetView.groupMacros",
+                large: vec![L("sheet.macros")],
                 rows: vec![],
             },
         ],
     }
 }
-
 /// The ribbon tabs of BlueSheet.
 pub(crate) fn tabs() -> Vec<Tab> {
     vec![

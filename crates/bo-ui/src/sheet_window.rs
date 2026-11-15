@@ -15,6 +15,8 @@ mod audit_impl;
 mod commands_impl;
 #[path = "sheet_comments.rs"]
 mod comments_impl;
+#[path = "sheet_data.rs"]
+mod data_impl;
 #[path = "sheet_dataforms.rs"]
 mod dataforms_impl;
 #[path = "sheet_fbar.rs"]
@@ -27,6 +29,8 @@ mod filter_impl;
 mod form_impl;
 #[path = "sheet_gallery.rs"]
 mod gallery_impl;
+#[path = "sheet_illus.rs"]
+mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
 #[path = "sheet_review.rs"]
@@ -39,6 +43,16 @@ use bo_edit::FormatState;
 use bo_model::Alignment;
 use bo_render::{PathSeg, Rgba};
 use serde_json::json;
+
+/// SmartArt layout families and built-in equations of the Insert tab's menus.
+pub(crate) const SMARTART_FAMILIES: [&str; 7] = illus_impl::SMARTART;
+pub(crate) const EQUATION_KEYS: [&str; 5] = [
+    illus_impl::EQUATIONS[0].0,
+    illus_impl::EQUATIONS[1].0,
+    illus_impl::EQUATIONS[2].0,
+    illus_impl::EQUATIONS[3].0,
+    illus_impl::EQUATIONS[4].0,
+];
 
 /// Tab strip and status bar greys of the reference spreadsheet.
 const TABS_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
@@ -117,6 +131,30 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
+        // No screen capture or 3-D model support in BlueSheet: shown dimmed.
+        "sheet.screenshot"
+        | "sheet.models3d"
+        // Not in BlueSheet yet (shown dimmed like the reference's unavailable commands).
+        | "sheet.recentSources"
+        | "sheet.fromWeb"
+        | "sheet.queryProps"
+        | "sheet.editLinks"
+        | "sheet.filterReapply"
+        | "sheet.filterAdvanced"
+        | "sheet.relationships"
+        | "sheet.dataModel"
+        | "sheet.forecastSheet"
+        | "sheet.watchWindow"
+        | "sheet.viewPageBreak"
+        | "sheet.viewPageLayout"
+        | "sheet.ruler"
+        | "sheet.newWindow"
+        | "sheet.split"
+        | "sheet.arrangeAll"
+        | "sheet.hideWindow"
+        | "sheet.unhideWindow"
+        | "sheet.switchWindows"
+        | "sheet.macros" => false,
         _ => COMMANDS.contains(&id) || id.starts_with("sheet."),
     }
 }
@@ -277,6 +315,12 @@ pub struct SheetWindow {
     more_colors: (String, String),
     /// Open picture gallery (Cell Styles, Format as Table).
     gallery: Option<gallery_impl::Gallery>,
+    /// What a file asked of the host (`Request::PickMergeData`) is for: `"styles"` (Merge
+    /// Styles…) or `"text"` (Get Data from Text/CSV).
+    pick: Option<&'static str>,
+    /// Open Shapes / Icons gallery and the icon library (loaded when Icons first opens).
+    picker: Option<crate::slide_pickers::Picker>,
+    library: Vec<crate::slide_pickers::LibIcon>,
 }
 
 impl SheetWindow {
@@ -352,8 +396,13 @@ impl SheetWindow {
             form_stash: None,
             more_colors: (String::new(), String::new()),
             gallery: None,
+            pick: None,
+            picker: None,
+            library: Vec::new(),
         };
         insert_impl::add_icons(&mut w.icons);
+        data_impl::add_icons(&mut w.icons);
+        data_impl::install_labels(&mut w.strings);
         w.load_functions();
         w.refresh_calc_state();
         w
@@ -1178,6 +1227,11 @@ impl SheetWindow {
                 return r;
             }
         }
+        if self.picker.is_some() {
+            if let Some(r) = self.picker_input(&input) {
+                return r;
+            }
+        }
         if self.filter.is_some() {
             if let Some(r) = self.filter_input(&input, text) {
                 return r;
@@ -1539,6 +1593,7 @@ impl SheetWindow {
         self.paint_status(p);
         self.paint_filter(p);
         self.paint_gallery(p);
+        self.paint_picker(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {

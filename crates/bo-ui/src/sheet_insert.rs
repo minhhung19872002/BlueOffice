@@ -78,6 +78,62 @@ pub(crate) fn add_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("sheet.symbol", "insert.symbol");
+    // Icons: a person and a star; SmartArt: three linked boxes; Screenshot: a frame with a
+    // camera corner; 3D Models: a cube; Timeline: a ruler of dated slots; Equation: a pi
+    // sign (own drawings).
+    icons.add_solid(
+        "sheet.icons",
+        &[
+            ("M7 5a3 3 0 1 0 0.1 0Z", Some(BLUE)),
+            ("M2 18c0-4 2-6 5-6s5 2 5 6Z", Some(BLUE)),
+            (
+                "M17 7l1.3 2.7l3 0.4l-2.2 2l0.6 3l-2.7-1.5l-2.7 1.5l0.6-3l-2.2-2l3-0.4Z",
+                Some(ORANGE),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "sheet.smartArt",
+        &[
+            ("M2 9h6v6h-6Z", Some(GREEN)),
+            ("M9 4h6v6h-6Z", Some(GREEN)),
+            ("M16 9h6v6h-6Z", Some(GREEN)),
+            ("M8 12h1M15 7h1v5", None),
+        ],
+    );
+    icons.add_solid(
+        "sheet.screenshot",
+        &[
+            ("M2 6h20v14h-20Z", Some(PALE)),
+            ("M2 6h20v14h-20Z", None),
+            ("M2 16h4v4h-4Z", Some(GREY)),
+        ],
+    );
+    icons.add_solid(
+        "sheet.models3d",
+        &[
+            ("M12 3l8 4.5v9l-8 4.5l-8-4.5v-9Z", Some(PALE)),
+            ("M12 3l8 4.5v9l-8 4.5l-8-4.5v-9Z", None),
+            ("M4 7.5l8 4.5l8-4.5M12 12v9", None),
+        ],
+    );
+    icons.add_solid(
+        "sheet.timeline",
+        &[
+            ("M2 5h20v14h-20Z", Some(PALE)),
+            ("M2 5h20v14h-20Z", None),
+            ("M5 13h6v3h-6Z", Some(BLUE)),
+            ("M12 13h3v3h-3Z", Some(BLUE)),
+            ("M2 9h20", None),
+        ],
+    );
+    icons.add_solid(
+        "sheet.equation",
+        &[(
+            "M4 6h16v2.4h-3.2v10h-2.6v-10h-4.4v6.5c0 2-1 3.5-3 3.5h-1v-2.4h0.6c0.6 0 0.8-0.4 0.8-1.2v-6.4h-3.2Z",
+            Some(BLUE),
+        )],
+    );
     icons.alias("sheet.headerFooter", "insert.header");
     // Filled chart type pictures like the reference's Charts group (own drawings).
     icons.add_solid(
@@ -221,7 +277,7 @@ fn edit(value: &str) -> Kind {
 }
 
 /// `R0C0:R1C1` range JSON as A1 text (`$A$1:$D$13`).
-fn a1(r: &Value) -> String {
+pub(super) fn a1(r: &Value) -> String {
     let n = |k: &str| r.get(k).and_then(Value::as_u64).unwrap_or(0) as u32;
     let cell = |row: u32, col: u32| {
         format!(

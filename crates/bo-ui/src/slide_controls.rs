@@ -64,8 +64,8 @@ pub(super) struct Controls {
     label_w: Vec<(&'static str, f32)>,
     /// The After box is ticked on this slide (index) although no time is set yet.
     after_on: Option<usize>,
-    /// Widths of Effect Options' two label lines.
-    effect_w: (f32, f32),
+    /// Widths of the two label lines of Effect Options and Add Animation.
+    effect_w: Vec<(&'static str, (f32, f32))>,
 }
 
 /// Where a slot's parts are.
@@ -77,6 +77,9 @@ struct Parts {
 }
 
 const BG: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
+
+/// Large buttons drawn with a two-line label, as the reference writes them.
+const TWO_LINE: [&str; 3] = ["transition.effect", "anim.effect", "anim.add"];
 const SEPARATOR: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
 const DIM: Rgba = Rgba(0xa6, 0xa6, 0xa6, 255);
 const HOVER: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
@@ -105,8 +108,13 @@ impl SlideWindow {
                 (*id, text.measure(label, style).0)
             })
             .collect();
-        let (a, b) = self.effect_lines();
-        self.controls.effect_w = (text.measure(&a, style).0, text.measure(&b, style).0);
+        self.controls.effect_w = TWO_LINE
+            .iter()
+            .map(|id| {
+                let (a, b) = self.two_lines(id);
+                (*id, (text.measure(&a, style).0, text.measure(&b, style).0))
+            })
+            .collect();
         if let Some(e) = &self.controls.edit {
             self.controls.caret_w = text.measure(&e.text, style).0;
         }
@@ -460,8 +468,8 @@ impl SlideWindow {
     }
 
     /// Effect Options in two lines, as the reference writes it.
-    fn effect_lines(&self) -> (String, String) {
-        let label = self.strings.get("commands.transition.effect").to_owned();
+    fn two_lines(&self, id: &str) -> (String, String) {
+        let label = self.strings.get(&format!("commands.{id}")).to_owned();
         let words: Vec<&str> = label.split(' ').collect();
         if words.len() < 2 {
             return (label, "\u{25BE}".to_owned());
@@ -516,7 +524,9 @@ impl SlideWindow {
         let hovered = self.ribbon.hovered();
         for (id, kind, icon) in SLOTS {
             let Some(r) = self.slot(id) else { continue };
-            p.fill_rect(r[0], r[1], r[2] + px(2.0), r[3], BG);
+            // Over the ribbon's own label too, which can run past the slot (not over the
+            // group's divider).
+            p.fill_rect(r[0], r[1], r[2] + px(3.2), r[3], BG);
             if kind == Kind::Button && hovered == Some(RibbonHit::Command(id)) {
                 p.fill_rect(r[0], r[1], self.label_of(id) + px(30.4), r[3], HOVER);
             }
@@ -597,13 +607,22 @@ impl SlideWindow {
     fn paint_effect_options(&self, p: &mut dyn Painter, style: TextStyle) {
         let px = |v: f32| (v * self.scale).round();
         let hovered = self.ribbon.hovered();
-        for id in ["transition.effect", "anim.effect"] {
+        for id in TWO_LINE {
             let Some(r) = self.slot(id) else { continue };
-            let enabled = self.effect_options_enabled(id);
+            let enabled = if id == "anim.add" {
+                !self.view.selection().is_empty()
+            } else {
+                self.effect_options_enabled(id)
+            };
             // Also over the ribbon's own label, wider than the slot.
             p.fill_rect(r[0] - px(2.4), r[1], r[2] + px(4.8), r[3], BG);
-            // Reference: picture centred 42 px into the slot (it reaches into the gap).
-            let cx = r[0] + px(34.0);
+            // Reference: Effect Options' picture centred 42 px into the slot (it reaches into
+            // the gap); Add Animation centred.
+            let cx = if id == "anim.add" {
+                r[0] + r[2] / 2.0
+            } else {
+                r[0] + px(34.0)
+            };
             if enabled && hovered == Some(RibbonHit::Command(id)) {
                 p.fill_rect(cx - px(30.0), r[1], px(60.0), r[3], HOVER);
             }
@@ -622,8 +641,13 @@ impl SlideWindow {
                 },
             );
             let ink = if enabled { self.theme.text } else { DIM };
-            let (a, b) = self.effect_lines();
-            let (wa, wb) = self.controls.effect_w;
+            let (a, b) = self.two_lines(id);
+            let (wa, wb) = self
+                .controls
+                .effect_w
+                .iter()
+                .find(|(k, _)| *k == id)
+                .map_or((0.0, 0.0), |(_, w)| *w);
             p.text(&a, (cx - wa / 2.0).round(), r[1] + px(43.2), style, ink);
             p.text(&b, (cx - wb / 2.0).round(), r[1] + px(62.4), style, ink);
         }

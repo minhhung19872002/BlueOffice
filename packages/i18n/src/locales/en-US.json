@@ -2571,7 +2571,19 @@
     "playAll": "Play All",
     "playSelected": "Play Selected",
     "reply": "Reply...",
-    "remove": "Remove"
+    "remove": "Remove",
+    "draw": "Draw",
+    "drawTools": "Drawing Tools",
+    "select": "Select",
+    "pen": "Pen: Black",
+    "redPen": "Pen: Red",
+    "highlighter": "Highlighter",
+    "eraser": "Eraser",
+    "addAnimation": "Add Animation",
+    "trigger": "Trigger",
+    "animationPainter": "Animation Painter",
+    "onClickOf": "On Click of {{name}}",
+    "onSequence": "On Sequence"
   },
   "slideEditor": {
     "open": "Open",

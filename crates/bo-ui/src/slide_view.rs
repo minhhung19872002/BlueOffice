@@ -90,6 +90,10 @@ enum Drag {
 mod sorter;
 pub use sorter::ViewMode;
 
+#[path = "slide_ink.rs"]
+mod ink;
+pub use ink::InkTool;
+
 /// The running slide show.
 #[derive(Debug, Clone, PartialEq)]
 struct Show {
@@ -257,6 +261,9 @@ pub struct SlideView {
     canvas_scroll: f32,
     thumb_scroll: f32,
     show_notes: bool,
+    /// Draw tab tool in use, and the stroke being drawn (slide points).
+    ink_tool: Option<InkTool>,
+    ink_stroke: Vec<[f64; 2]>,
     focus: Focus,
     state: Option<SlideEditResult>,
     /// Display list each stored image shows, with its scale.
@@ -313,6 +320,8 @@ impl SlideView {
             canvas_scroll: 0.0,
             thumb_scroll: 0.0,
             show_notes: true,
+            ink_tool: None,
+            ink_stroke: Vec::new(),
             focus: Focus::Canvas,
             state: None,
             shown: HashMap::new(),
@@ -1475,6 +1484,9 @@ impl SlideView {
         if self.show.is_some() {
             return self.show_input(&input);
         }
+        if let Some(r) = self.ink_input(&input) {
+            return r;
+        }
         match input {
             Input::Text(text) => {
                 let text: String = text.chars().filter(|c| !c.is_control()).collect();
@@ -2237,6 +2249,7 @@ impl SlideView {
         let canvas = self.canvas_rect();
         p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
         self.paint_slide(p);
+        self.paint_ink(p);
         p.pop_clip();
         if let Some(n) = self.notes_rect() {
             p.fill_rect(n[0], n[1] - 1.0, w - (n[0] - ox), 1.0, SPLITTER);

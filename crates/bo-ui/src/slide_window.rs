@@ -246,6 +246,9 @@ pub struct SlideWindow {
     anim_pane: AnimPane,
     /// The last press was in the Animation Pane (its keys go to it).
     anim_focus: bool,
+    /// Animation Painter: the effect to give the next shape chosen, and the shape it came
+    /// from.
+    painter: Option<(AnimSpec, u32)>,
     /// Measured widths of the gallery tiles' names.
     gallery_w: Vec<(&'static str, f32)>,
     ribbon: Ribbon,
@@ -350,10 +353,12 @@ impl SlideWindow {
             comments: CommentsPane::default(),
             anim_pane: AnimPane::default(),
             anim_focus: false,
+            painter: None,
             gallery_w: Vec::new(),
             ribbon: Ribbon::with_tabs(vec![
                 home(),
                 insert_tab(),
+                sr::draw_tab(),
                 sr::design_tab(),
                 sr::transitions_tab(),
                 sr::animations_tab(),
@@ -545,7 +550,7 @@ impl SlideWindow {
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let showing = self.view.showing();
         let mode = self.view.mode();
-        let redraw = self.route(input, text);
+        let redraw = self.route(input, text) | self.paint_effect();
         if mode != self.view.mode() {
             self.relayout_pending = true;
         }
@@ -659,6 +664,38 @@ impl SlideWindow {
             "edit.paste" => {
                 // The host reads the system clipboard and calls `paste`.
                 self.requests.push(Request::Paste);
+                true
+            }
+            id if sr::DRAW_TOOLS.contains(&id) => {
+                self.view.set_ink_tool(crate::slide_view::InkTool::of(id));
+                true
+            }
+            "anim.painter" => {
+                if self.painter.take().is_some() {
+                    return true;
+                }
+                let Some(i) = self.anim_index() else {
+                    return false;
+                };
+                let Some(a) = self.view.state().and_then(|s| s.animations.get(i).cloned()) else {
+                    return false;
+                };
+                self.painter = Some((
+                    AnimSpec {
+                        effect: Some(a.effect.clone()),
+                        class: Some(a.class.to_owned()),
+                        direction: a.direction.clone(),
+                        trigger: Some(a.trigger.to_owned()),
+                        dur_ms: Some(a.dur_ms),
+                        delay_ms: Some(a.delay_ms),
+                        ..AnimSpec::default()
+                    },
+                    a.shape_id,
+                ));
+                true
+            }
+            "anim.trigger" => {
+                self.open_trigger_menu();
                 true
             }
             "anim.pane" => {
@@ -782,6 +819,62 @@ impl SlideWindow {
             .iter()
             .find(|a| ids.contains(&a.shape_id))
             .map(|a| a.index)
+    }
+
+    /// Trigger: start the effect on a click of another shape of the slide, or with the
+    /// sequence.
+    fn open_trigger_menu(&mut self) {
+        let Some(i) = self.anim_index() else { return };
+        let Some(a) = self.view.state().and_then(|s| s.animations.get(i).cloned()) else {
+            return;
+        };
+        let slide = self.view.current();
+        let shapes: Vec<(u32, String)> = self
+            .view
+            .engine()
+            .presentation()
+            .and_then(|p| p.slides.get(slide))
+            .map(|s| {
+                s.data
+                    .shapes
+                    .iter()
+                    .filter_map(|n| n.nv().map(|nv| (nv.id, nv.name.clone())))
+                    .filter(|(id, _)| *id != a.shape_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let on_click = self.t("slideNative.onClickOf", "On Click of {{name}}");
+        let mut items = vec![MenuItem {
+            label: self.t("slideNative.onSequence", "On Sequence"),
+            choice: Choice::Command("tshape:0".into()),
+            checked: a.trigger_shape.is_none(),
+            dim: false,
+        }];
+        items.extend(shapes.into_iter().map(|(id, name)| MenuItem {
+            label: on_click.replace("{{name}}", &name),
+            choice: Choice::Command(format!("tshape:{id}")),
+            checked: a.trigger_shape == Some(id),
+            dim: false,
+        }));
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("anim.trigger"))
+            .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        self.menu_kind = MenuKind::Duration;
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    }
+
+    /// Give the shape just chosen the effect the Animation Painter holds.
+    fn paint_effect(&mut self) -> bool {
+        let Some((spec, from)) = self.painter.clone() else {
+            return false;
+        };
+        let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
+        if ids.is_empty() || ids == [from] {
+            return false;
+        }
+        self.painter = None;
+        self.view.run(SlideCommand::AddAnimation { spec })
     }
 
     /// Input for the Animation Pane (clicks in it; arrows and Delete after a click in it).
@@ -1422,6 +1515,18 @@ impl SlideWindow {
             "tdur" => self.set_transition(None, None, v.parse().ok(), false),
             "adir" => self.apply_effect(None, Some(v.to_owned())),
             "snd" | "trig" => return self.choose_control(kind, v),
+            "tshape" => {
+                let Some(index) = self.anim_index() else {
+                    return Some(false);
+                };
+                self.view.run(SlideCommand::SetAnimation {
+                    index,
+                    spec: AnimSpec {
+                        trigger_shape: v.parse().ok(),
+                        ..AnimSpec::default()
+                    },
+                })
+            }
             "add" => {
                 let Some((_, Some((e, class)))) = sr::EFFECTS.iter().find(|(c, _)| *c == v) else {
                     return Some(false);
@@ -1821,6 +1926,16 @@ impl SlideWindow {
         let mut on = Vec::new();
         if self.view.notes_shown() {
             on.push("view.notes");
+        }
+        if self.painter.is_some() {
+            on.push("anim.painter");
+        }
+        // The Draw tool in use (Select when none).
+        let tool = sr::DRAW_TOOLS
+            .iter()
+            .find(|id| crate::slide_view::InkTool::of(id).as_ref() == self.view.ink_tool());
+        if let Some(id) = tool {
+            on.push(id);
         }
         let Some(st) = self.view.state() else {
             return on;

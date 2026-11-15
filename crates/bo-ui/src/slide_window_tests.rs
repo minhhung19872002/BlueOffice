@@ -110,8 +110,8 @@ fn f5_asks_for_full_screen_and_escape_returns() {
     assert_eq!(w.take_requests(), vec![Request::Save]);
 }
 
-/// Open ribbon tab `i` (0 Home, 1 Insert, 2 Design, 3 Transitions, 4 Animations,
-/// 5 Slide Show, 6 Review, 7 View).
+/// Open ribbon tab `i` (0 Home, 1 Insert, 2 Draw, 3 Design, 4 Transitions, 5 Animations,
+/// 6 Slide Show, 7 Review, 8 View).
 fn tab(w: &mut SlideWindow, i: usize) {
     let [x, y, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(i)).expect("tab");
     click(w, x + tw / 2.0, y + th / 2.0);
@@ -128,7 +128,7 @@ fn ribbon_is_one_pixel_taller_than_bluedocs() {
 #[test]
 fn transitions_tab_sets_duration_and_applies_to_all() {
     let mut w = window();
-    tab(&mut w, 3);
+    tab(&mut w, 4);
     click_command(&mut w, "transition.fade");
     let kind = |w: &SlideWindow| {
         w.view()
@@ -203,7 +203,7 @@ fn transitions_tab_sets_duration_and_applies_to_all() {
 #[test]
 fn design_tab_applies_a_theme_and_slide_size() {
     let mut w = window();
-    tab(&mut w, 2);
+    tab(&mut w, 3);
     click_command(&mut w, "design.theme.lotus");
     let theme = w
         .view()
@@ -229,7 +229,7 @@ fn animations_tab_gives_the_selection_one_effect() {
     w.view_mut().run(SlideCommand::SelectAll);
     let n = w.view().selection().len();
     assert_ne!(n, 0);
-    tab(&mut w, 4);
+    tab(&mut w, 5);
     let count = |w: &SlideWindow| w.view().state().map_or(0, |s| s.animations.len());
     click_command(&mut w, "anim.fade");
     assert_eq!(count(&w), n);
@@ -451,7 +451,7 @@ fn animation_pane_lists_reorders_and_times_effects() {
     w.view_mut().run(SlideCommand::SelectAll);
     let n = w.view().selection().len();
     assert!(n >= 2, "two shapes to order");
-    tab(&mut w, 4);
+    tab(&mut w, 5);
     click_command(&mut w, "anim.fade");
     click_command(&mut w, "anim.pane");
     assert!(w.anim_pane.shown);
@@ -523,4 +523,61 @@ fn shapes_paste_into_another_window() {
     // The other window gets the shapes themselves, not a text box.
     assert!(b.paste(Some(internal), None, Some(text)));
     assert_eq!(shapes(&b), n + copied);
+}
+
+#[test]
+fn draw_tab_pens_and_erases_ink() {
+    let mut w = window();
+    tab(&mut w, 2);
+    click_command(&mut w, "draw.red");
+    assert!(w.toggled().contains(&"draw.red"));
+    let shapes = |w: &SlideWindow| {
+        w.view().engine().presentation().unwrap().slides[0]
+            .data
+            .shapes
+            .len()
+    };
+    let n = shapes(&w);
+    let c = w.view().canvas_rect();
+    let (x0, y0) = (c[0] + c[2] * 0.3, c[1] + c[3] * 0.8);
+    drag(&mut w, (x0, y0), (x0 + 200.0, y0 - 40.0));
+    assert_eq!(shapes(&w), n + 1, "one ink object");
+    // The eraser takes it away again.
+    click_command(&mut w, "draw.eraser");
+    drag(&mut w, (x0 + 100.0, y0 - 60.0), (x0 + 100.0, y0 + 10.0));
+    assert_eq!(shapes(&w), n);
+    // Select: back to shapes.
+    click_command(&mut w, "draw.select");
+    assert!(w.view().ink_tool().is_none());
+}
+
+#[test]
+fn animation_painter_copies_an_effect_to_the_next_shape() {
+    let mut w = window();
+    w.view_mut().run(SlideCommand::SelectAll);
+    let ids: Vec<u32> = w.view().selection().iter().map(|s| s.id).collect();
+    assert!(ids.len() >= 2);
+    w.view_mut().run(SlideCommand::Select { ids: vec![ids[0]] });
+    tab(&mut w, 5);
+    click_command(&mut w, "anim.flyIn");
+    click_command(&mut w, "anim.painter");
+    assert!(w.toggled().contains(&"anim.painter"));
+    // Choosing the other shape gives it the same effect.
+    w.view_mut().run(SlideCommand::Select { ids: vec![ids[1]] });
+    w.handle(Input::Tick, &Fixed);
+    let effects: Vec<(u32, String)> = w
+        .view()
+        .state()
+        .map(|s| {
+            s.animations
+                .iter()
+                .map(|a| (a.shape_id, a.effect.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        effects.contains(&(ids[1], "flyIn".to_owned())),
+        "{effects:?}"
+    );
+    assert!(!w.toggled().contains(&"anim.painter"));
 }

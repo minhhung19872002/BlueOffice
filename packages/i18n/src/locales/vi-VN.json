@@ -2571,7 +2571,19 @@
     "playAll": "Phát tất cả",
     "playSelected": "Phát mục đã chọn",
     "reply": "Trả lời...",
-    "remove": "Loại bỏ"
+    "remove": "Loại bỏ",
+    "draw": "Vẽ",
+    "drawTools": "Công cụ vẽ",
+    "select": "Chọn",
+    "pen": "Bút: Đen",
+    "redPen": "Bút: Đỏ",
+    "highlighter": "Bút đánh dấu",
+    "eraser": "Tẩy",
+    "addAnimation": "Thêm hoạt hình",
+    "trigger": "Kích hoạt",
+    "animationPainter": "Sao chép hoạt hình",
+    "onClickOf": "Khi bấm vào {{name}}",
+    "onSequence": "Theo trình tự"
   },
   "slideEditor": {
     "open": "Mở",

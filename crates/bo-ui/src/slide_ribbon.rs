@@ -73,7 +73,9 @@ pub const GALLERY_TILES: usize = 6;
 pub const ANIM_TILES: usize = 4;
 
 /// Other commands of these tabs.
-const OWN: [&str; 28] = [
+const OWN: [&str; 30] = [
+    "anim.trigger",
+    "anim.painter",
     "anim.add",
     "anim.start",
     "anim.duration",
@@ -107,6 +109,7 @@ const OWN: [&str; 28] = [
 /// Whether `id` is one of the commands of these tabs.
 pub fn is_command(id: &str) -> bool {
     OWN.contains(&id)
+        || DRAW_TOOLS.contains(&id)
         || id == "view.normal"
         || TRANSITIONS.iter().any(|(c, _)| *c == id)
         || EFFECTS.iter().any(|(c, _)| *c == id)
@@ -125,6 +128,7 @@ pub fn is_menu(id: &str) -> bool {
             | "transition.more"
             | "anim.effect"
             | "anim.add"
+            | "anim.trigger"
             | "anim.more"
     )
 }
@@ -139,6 +143,8 @@ pub fn large_width(id: &str) -> Option<f32> {
         "transition.preview" | "anim.preview" => return Some(50.4),
         "transition.more" | "anim.more" => return Some(29.6),
         "transition.effect" | "anim.effect" => return Some(72.0),
+        // Add Animation: reference x 745-850.
+        "anim.add" => return Some(80.0),
         _ => {}
     }
     if THEMES.iter().any(|(c, _)| *c == id) {
@@ -150,6 +156,28 @@ pub fn large_width(id: &str) -> Option<f32> {
         None
     }
 }
+
+/// Draw tab: Select and the drawing tools (pens, highlighter, eraser).
+pub(crate) fn draw_tab() -> Tab {
+    use Item::Large as L;
+    Tab {
+        label: "slideNative.draw",
+        groups: vec![Group {
+            label: "slideNative.drawTools",
+            large: DRAW_TOOLS.iter().map(|id| L(id)).collect(),
+            rows: vec![],
+        }],
+    }
+}
+
+/// Commands of the Draw tab.
+pub const DRAW_TOOLS: [&str; 5] = [
+    "draw.select",
+    "draw.pen",
+    "draw.red",
+    "draw.highlight",
+    "draw.eraser",
+];
 
 pub(crate) fn design_tab() -> Tab {
     use Item::Large as L;
@@ -248,7 +276,11 @@ pub(crate) fn animations_tab() -> Tab {
             Group {
                 label: "slideNative.advanced",
                 large: vec![L("anim.add")],
-                rows: vec![vec![S("anim.pane")]],
+                rows: vec![
+                    vec![S("anim.pane")],
+                    vec![S("anim.trigger")],
+                    vec![S("anim.painter")],
+                ],
             },
             // Start, duration and delay of the chosen effect; reorder it (drawn controls).
             Group {
@@ -327,7 +359,14 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("anim.pane", "slideNative.animationPane"),
         ("transition.more", "slideEditor.transitionGroup.subtle"),
         ("anim.more", "slideEditor.addEffect"),
-        ("anim.add", "slideEditor.addEffect"),
+        ("anim.add", "slideNative.addAnimation"),
+        ("anim.trigger", "slideNative.trigger"),
+        ("anim.painter", "slideNative.animationPainter"),
+        ("draw.select", "slideNative.select"),
+        ("draw.pen", "slideNative.pen"),
+        ("draw.red", "slideNative.redPen"),
+        ("draw.highlight", "slideNative.highlighter"),
+        ("draw.eraser", "slideNative.eraser"),
         ("review.newComment", "slideEditor.comments.new"),
         ("review.comments", "slideEditor.comments.title"),
         ("view.normal", "slideEditor.normal"),
@@ -471,6 +510,74 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ],
     );
     icons.alias("anim.delay", "transition.clock");
+    icons.alias("draw.select", "anim.start");
+    icons.add_solid(
+        "anim.trigger",
+        &[(
+            "M13 2l-8 11h6l-2 9l9-12h-6Z",
+            Some(Rgba(0xf0, 0xb4, 0x1e, 255)),
+        )],
+    );
+    icons.add_solid(
+        "anim.painter",
+        &[
+            (STAR, Some(Rgba(0x44, 0x80, 0xc0, 255))),
+            ("M14 13l7 7l-2 2l-7-7Z", Some(Rgba(0xd8, 0x9a, 0x3a, 255))),
+        ],
+    );
+    // Preview of effects: a star with a green play button (own drawing).
+    icons.add_solid(
+        "anim.preview",
+        &[
+            (STAR, Some(Rgba(0x44, 0x80, 0xc0, 255))),
+            (
+                "M17 12a6 6 0 1 0 0.01 0Z",
+                Some(Rgba(0x3f, 0xa3, 0x4d, 255)),
+            ),
+            (
+                "M15.5 14.5l4.5 3.5l-4.5 3.5Z",
+                Some(Rgba(255, 255, 255, 255)),
+            ),
+        ],
+    );
+    // Pens: a slanted barrel with a coloured tip and cap (own drawings).
+    let pen = |icons: &mut Icons, id: &str, tip: Rgba, wide: bool| {
+        let body = if wide {
+            "M14 3l6 6l-9 9h-6v-6Z"
+        } else {
+            "M16 3l5 5l-11 11l-5 1l1-5Z"
+        };
+        icons.add_solid(
+            id,
+            &[
+                (body, Some(Rgba(0xf4, 0xf4, 0xf4, 255))),
+                (body, None),
+                (
+                    if wide {
+                        "M5 12v6h6Z"
+                    } else {
+                        "M5 15l4 4l-5 1Z"
+                    },
+                    Some(tip),
+                ),
+                ("M3 21h18v2h-18Z", Some(tip)),
+            ],
+        );
+    };
+    pen(icons, "draw.pen", Rgba(0x20, 0x20, 0x20, 255), false);
+    pen(icons, "draw.red", Rgba(0xe7, 0x12, 0x24, 255), false);
+    pen(icons, "draw.highlight", Rgba(0xff, 0xe0, 0x00, 255), true);
+    icons.add_solid(
+        "draw.eraser",
+        &[
+            (
+                "M9 20l-5-5l10-10l7 7l-8 8Z",
+                Some(Rgba(0xf4, 0xb8, 0xc8, 255)),
+            ),
+            ("M4 15l5 5h11", None),
+            ("M9 20l-5-5l10-10l7 7l-8 8Z", None),
+        ],
+    );
     icons.add_solid(
         "anim.earlier",
         &[("M12 4l7 8h-4.5v8h-5v-8h-4.5Z", Some(blue))],

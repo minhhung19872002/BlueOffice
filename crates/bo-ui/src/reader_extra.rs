@@ -262,6 +262,9 @@ impl ReaderWindow {
             return Some(r);
         }
         if self.extra.print.is_none() {
+            if let Some(r) = self.route_keys7(input, m) {
+                return Some(r);
+            }
             if let Some(r) = self.route_tabs5(input, m) {
                 return Some(r);
             }
@@ -696,6 +699,7 @@ impl ReaderWindow {
         self.paint_draw(p);
         self.paint_tabs4(p);
         self.paint_tabs5(p);
+        self.paint_keys7(p);
     }
 
     /// Dialogs of the additions, over everything else.

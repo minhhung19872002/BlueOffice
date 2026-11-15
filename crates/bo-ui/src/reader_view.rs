@@ -106,6 +106,18 @@ pub struct Hit {
     pub b: usize,
 }
 
+/// A search reading the document page by page: from the current page to the end, then from
+/// the first page, so the first hit after the current page shows before the rest is read.
+#[derive(Debug, Clone)]
+struct SearchJob {
+    query: String,
+    match_case: bool,
+    whole_word: bool,
+    start: usize,
+    /// Pages read so far (in search order).
+    done: usize,
+}
+
 /// The document view.
 pub struct ReaderView {
     doc: PdfDocument,
@@ -134,6 +146,8 @@ pub struct ReaderView {
     selection: Option<Selection>,
     hits: Vec<Hit>,
     current_hit: Option<usize>,
+    /// A search still reading pages (continued by [`ReaderView::search_step`]).
+    search: Option<SearchJob>,
     /// Pages shown by thumbnails (index, scale) wanted this frame.
     thumbs_wanted: Vec<(usize, f32)>,
     /// Layout pass needed.
@@ -197,6 +211,7 @@ impl ReaderView {
             selection: None,
             hits: Vec::new(),
             current_hit: None,
+            search: None,
             thumbs_wanted: Vec::new(),
             stale: true,
             gap: 6.0,
@@ -1201,26 +1216,106 @@ impl ReaderView {
     /// Find `query` in every page; returns the number of hits and shows the first one after
     /// the current page.
     pub fn find(&mut self, query: &str, match_case: bool, whole_word: bool) -> usize {
+        self.find_start(query, match_case, whole_word);
+        while self.search_step(std::time::Duration::from_secs(3600)) {}
+        self.hits.len()
+    }
+
+    /// Start finding `query`: pages are read from the current page on until the first hit is
+    /// shown (or `FIRST_BUDGET` passes); [`ReaderView::search_step`] reads the rest, a slice
+    /// at a time, so a long document stays responsive. Pages read for the search are not kept
+    /// in the page cache (the pages on screen stay drawn).
+    pub fn find_start(&mut self, query: &str, match_case: bool, whole_word: bool) {
+        const FIRST_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
         self.hits.clear();
         self.current_hit = None;
+        self.search = None;
         if query.trim().is_empty() {
-            return 0;
+            return;
         }
-        let start = self.current_page();
-        for i in 0..self.sizes.len() {
-            if self.ensure(i) {
-                if let Some(r) = self.cache.get(&i) {
-                    for (a, b) in r.text.find(query, match_case, whole_word) {
-                        self.hits.push(Hit { page: i, a, b });
-                    }
-                }
+        self.search = Some(SearchJob {
+            query: query.to_owned(),
+            match_case,
+            whole_word,
+            start: self.current_page(),
+            done: 0,
+        });
+        let t0 = std::time::Instant::now();
+        while self.current_hit.is_none() && t0.elapsed() < FIRST_BUDGET {
+            if !self.search_step(std::time::Duration::ZERO) {
+                break;
             }
         }
-        if !self.hits.is_empty() {
-            let k = self.hits.iter().position(|h| h.page >= start).unwrap_or(0);
-            self.show_hit(k);
+    }
+
+    /// Whether a search is still reading pages.
+    pub fn searching(&self) -> bool {
+        self.search.is_some()
+    }
+
+    /// Search progress: pages read and page count.
+    pub fn search_progress(&self) -> Option<(usize, usize)> {
+        self.search.as_ref().map(|j| (j.done, self.sizes.len()))
+    }
+
+    /// Read pages of the running search for about `budget` (at least one page); `true` while
+    /// pages remain.
+    pub fn search_step(&mut self, budget: std::time::Duration) -> bool {
+        let t0 = std::time::Instant::now();
+        let n = self.sizes.len();
+        loop {
+            let Some(job) = self.search.as_ref() else {
+                return false;
+            };
+            if job.done >= n {
+                self.search = None;
+                return false;
+            }
+            let page = (job.start + job.done) % n;
+            let (query, case, whole) = (job.query.clone(), job.match_case, job.whole_word);
+            let found: Vec<(usize, usize)> = match self.cache.get(&page) {
+                Some(r) => r.text.find(&query, case, whole),
+                None => self
+                    .page_text(page)
+                    .map_or_else(Vec::new, |t| t.find(&query, case, whole)),
+            };
+            if let Some(j) = self.search.as_mut() {
+                j.done += 1;
+            }
+            if !found.is_empty() {
+                // Hits stay in page order; pages before the start come last in search order
+                // but first in the list.
+                let at = self.hits.partition_point(|h| h.page < page);
+                let k = found.len();
+                self.hits
+                    .splice(at..at, found.into_iter().map(|(a, b)| Hit { page, a, b }));
+                match self.current_hit {
+                    Some(c) if c >= at => self.current_hit = Some(c + k),
+                    Some(_) => {}
+                    None => self.show_hit(at),
+                }
+            }
+            if t0.elapsed() >= budget {
+                return self.search.is_some();
+            }
         }
-        self.hits.len()
+    }
+
+    /// Text of page `i` (rotated like the view) without keeping it in the page cache.
+    fn page_text(&mut self, i: usize) -> Option<TextLayer> {
+        let opts = self.render_opts();
+        let page = self.doc.render_extra(i, opts, self.render_extra()).ok()?;
+        let chars = page
+            .chars
+            .into_iter()
+            .map(|mut c| {
+                c.rect = rotate_rect(c.rect, self.rotation, self.unrotated(i));
+                c.origin = rotate_point(c.origin, self.rotation, self.unrotated(i));
+                c.dir = rotate_vec(c.dir, self.rotation);
+                c
+            })
+            .collect();
+        Some(TextLayer::new(chars))
     }
 
     /// Search hits.
@@ -1252,6 +1347,8 @@ impl ReaderView {
             return;
         };
         self.current_hit = Some(k);
+        // The hit's page text (a search does not keep the pages it reads).
+        self.ensure(h.page);
         self.selection = Some(Selection {
             page: h.page,
             a: h.a,
@@ -1279,6 +1376,7 @@ impl ReaderView {
     pub fn clear_hits(&mut self) {
         self.hits.clear();
         self.current_hit = None;
+        self.search = None;
     }
 
     /// Hit rectangles on page `i` (page points); the current hit flagged.

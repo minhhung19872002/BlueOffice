@@ -50,6 +50,8 @@ mod props5;
 #[path = "reader_backstage5_win.rs"]
 mod bs5;
 // Preferences, Batch Print (BlueReader round 6).
+#[path = "reader_keys7_win.rs"]
+mod keys7;
 #[path = "reader_prefs6_win.rs"]
 mod prefs6;
 
@@ -484,6 +486,8 @@ pub struct ReaderWindow {
     /// Fill & Sign, signing, comment exchange of round 5.
     tabs5: tabs5::Tabs5,
     prefs6: prefs6::Prefs6,
+    /// Keyboard access to the ribbon (key tips, focus ring).
+    keys7: keys7::KeyLevel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -563,6 +567,7 @@ impl ReaderWindow {
             tabs4: tabs4::Tabs4::default(),
             tabs5: tabs5::Tabs5::default(),
             prefs6: prefs6::Prefs6::default(),
+            keys7: keys7::KeyLevel::Off,
         }
     }
 
@@ -1399,7 +1404,10 @@ impl ReaderWindow {
                 self.maximized = on;
                 true
             }
-            Input::Tick => self.tick_viewx(m) || self.search_focus,
+            Input::Tick => {
+                let searched = self.tick_search();
+                self.tick_viewx(m) || self.search_focus || searched
+            }
             Input::Blink => self.search_focus,
             Input::Leave => self.hover.take().is_some(),
             _ => {
@@ -2097,16 +2105,44 @@ impl ReaderWindow {
         if same && t.view.current_hit().is_some() && self.status.starts_with(&q) {
             t.view.next_hit(forward);
         } else {
-            let n = t.view.find(&q, false, false);
-            self.status = format!("{q}: {n}");
+            // The first hit after the current page shows at once; the rest of a long document
+            // is read on ticks (`tick_search`).
+            t.view.find_start(&q, false, false);
         }
+        self.search_status();
+    }
+
+    /// Status of the search box's query: hit k / n (with the pages read while searching).
+    fn search_status(&mut self) {
+        let q = self.search_text.clone();
+        let Some(t) = self.tabs.get(self.active) else {
+            return;
+        };
         let n = t.view.hits().len();
         let cur = t.view.current_hit().map_or(0, |c| c + 1);
-        self.status = if n == 0 {
+        let progress = t
+            .view
+            .search_progress()
+            .map(|(done, all)| format!(" ({done} / {all})"))
+            .unwrap_or_default();
+        self.status = if n == 0 && progress.is_empty() {
             format!("{q}: {}", self.strings.get("pdfReader.noMatches"))
         } else {
-            format!("{q}: {cur} / {n}")
+            format!("{q}: {cur} / {n}{progress}")
         };
+    }
+
+    /// Continue a running search for part of a tick; `true` when the window changed.
+    fn tick_search(&mut self) -> bool {
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        if !t.view.searching() {
+            return false;
+        }
+        t.view.search_step(std::time::Duration::from_millis(60));
+        self.search_status();
+        true
     }
 
     fn click(&mut self, id: &'static str, r: [f32; 4], m: &dyn TextMeasure) {

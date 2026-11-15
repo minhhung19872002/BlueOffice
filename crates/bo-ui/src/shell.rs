@@ -135,6 +135,8 @@ pub struct DocWindow {
     spell_pane: Option<SpellPane>,
     /// Insert › Table size picker, when open.
     table_grid: Option<TableGrid>,
+    /// The format painter stays on after applying (double click), until Escape.
+    painter_lock: bool,
 }
 
 /// Font sizes offered by the size box (points).
@@ -259,6 +261,7 @@ impl DocWindow {
             status_x: [0.0; 3],
             spell_pane: None,
             table_grid: None,
+            painter_lock: false,
         }
     }
 
@@ -1337,6 +1340,7 @@ impl DocWindow {
                 self.view.set_zoom(z)
             }
             "format.painter" => {
+                self.painter_lock = false;
                 self.painter = self.view.run_command(Command::PickFormat);
                 true
             }
@@ -1799,6 +1803,7 @@ impl DocWindow {
             }
             if self.painter {
                 self.painter = false;
+                self.painter_lock = false;
                 if let Some(c) = catalog::from_json(json!({ "cmd": "cancelFormat" })) {
                     self.view.run_command(c);
                 }
@@ -1945,8 +1950,17 @@ impl DocWindow {
                 self.doc_press = false;
                 self.title.press(x, y)
             }
-            Input::Press { x, y, .. } if in_ribbon(self, y) => {
+            Input::Press { x, y, count, .. } if in_ribbon(self, y) => {
                 self.doc_press = false;
+                // A double click on the format painter keeps it on, as on the reference.
+                if count == 2 && self.ribbon.hit(x, y) == Some(RibbonHit::Command("format.painter"))
+                {
+                    self.painter_lock = true;
+                    if !self.painter {
+                        self.painter = self.view.run_command(Command::PickFormat);
+                    }
+                    return true;
+                }
                 self.ribbon.press(x, y)
             }
             Input::Press { x, y, count, .. } => {
@@ -1973,6 +1987,10 @@ impl DocWindow {
                 if self.doc_press && self.painter {
                     self.painter = false;
                     self.view.run_command(Command::ApplyFormat);
+                    // Locked by a double click: pick the format again for the next one.
+                    if self.painter_lock {
+                        self.painter = self.view.run_command(Command::PickFormat);
+                    }
                 }
                 self.doc_press = false;
                 self.last_drag = None;

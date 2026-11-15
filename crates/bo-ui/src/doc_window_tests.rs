@@ -489,3 +489,47 @@ fn page_setup_dialog_sets_margins_and_paper_in_centimetres() {
     assert!(w.dialog.is_none());
     assert_eq!(w.view.format().section.margin_top, 1701);
 }
+
+#[test]
+fn double_click_keeps_the_format_painter_on() {
+    let mut w = window();
+    w.handle(Input::Text("one two three".into()), &Fixed);
+    w.view.run_command(Command::SelectAll);
+    w.view.run_command(Command::FormatText {
+        format: CharFormat::Bold,
+    });
+    let [x, y, bw, bh] = w
+        .ribbon
+        .rect_of(RibbonHit::Command("format.painter"))
+        .unwrap();
+    let (x, y) = (x + bw / 2.0, y + bh / 2.0);
+    for count in [1, 2] {
+        w.handle(
+            Input::Press {
+                x,
+                y,
+                count,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Release { x, y }, &Fixed);
+    }
+    assert!(w.painter && w.painter_lock);
+    // Applying keeps it on; Escape turns it off.
+    let slot = w.view.slots()[0];
+    let (px, py) = ((slot.x + 200) as f32, (slot.y + 140) as f32);
+    w.handle(
+        Input::Press {
+            x: px,
+            y: py,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x: px, y: py }, &Fixed);
+    assert!(w.painter, "still on after applying");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert!(!w.painter && !w.painter_lock);
+}

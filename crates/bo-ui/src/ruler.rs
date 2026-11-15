@@ -3,7 +3,10 @@
 use crate::theme::Theme;
 use crate::{Painter, TextStyle};
 use bo_edit::{FormatState, SectionState};
-use bo_render::PathSeg;
+use bo_render::{PathSeg, Rgba};
+
+/// Margin areas on the ruler (grey measured on a desktop word processor).
+const RULER_MARGIN: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
 
 /// Indent markers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,9 +157,11 @@ impl Ruler {
     pub fn paint(&self, p: &mut dyn Painter, t: &Theme) {
         let s = self.scale;
         let (y, h) = (self.y, self.h());
-        p.fill_rect(0.0, y, self.width, h, t.bg);
+        // Neutral greys measured on a desktop word processor's ruler: the strip matches
+        // the canvas around the pages, the margins are a darker grey.
+        p.fill_rect(0.0, y, self.width, h, crate::doc_view::CANVAS_BG);
         let band = (y + (4.0 * s).round(), h - (8.0 * s).round());
-        p.fill_rect(self.page_x, band.0, self.page_w, band.1, t.border);
+        p.fill_rect(self.page_x, band.0, self.page_w, band.1, RULER_MARGIN);
         let (l, r) = (self.text_left(), self.text_right());
         p.fill_rect(l, band.0, r - l, band.1, t.surface);
         // Ticks every 0.25 cm, numbered every centimetre from the left margin.
@@ -166,6 +171,7 @@ impl Ruler {
                 size: (10.0 * s).round(),
                 bold: false,
             };
+            let line_w = s.max(1.0).round();
             let first = ((self.page_x - l) / per_cm * 4.0).floor() as i32;
             let last = ((self.page_x + self.page_w - l) / per_cm * 4.0).ceil() as i32;
             for q in first..=last {
@@ -185,13 +191,13 @@ impl Ruler {
                             t.text_muted,
                         );
                     }
+                } else if q % 2 == 0 {
+                    // Half centimetre: a short line.
+                    let len = (5.0 * s).round();
+                    p.fill_rect(x, (mid - len / 2.0).round(), line_w, len, t.text_muted);
                 } else {
-                    let len = if q % 2 == 0 {
-                        (5.0 * s).round()
-                    } else {
-                        (3.0 * s).round()
-                    };
-                    p.fill_rect(x, mid - len / 2.0, s.max(1.0).round(), len, t.text_muted);
+                    // Quarter centimetre: a dot.
+                    p.fill_rect(x, mid.round(), line_w, line_w, t.text_muted);
                 }
             }
         }

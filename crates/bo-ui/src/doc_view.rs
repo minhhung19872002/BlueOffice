@@ -8,8 +8,9 @@ use bo_engine::{EditResult, Engine, PageSize};
 use bo_render::{changed_region, Change, PageList, Rgba};
 use std::collections::{HashMap, HashSet};
 
-/// Background behind the pages (`--bo-canvas-bg` of the light theme).
-pub const CANVAS_BG: Rgba = Rgba(0xe3, 0xe7, 0xee, 255);
+/// Background behind the pages: the neutral grey measured on a desktop word processor
+/// (docs/ui/REPORT.md round 30).
+pub const CANVAS_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
 const PAGE_SHADOW: Rgba = Rgba(0xc3, 0xca, 0xd6, 255);
 const SELECTION: Rgba = Rgba(0x1f, 0x6f, 0xeb, 72);
 const CARET: Rgba = Rgba(0, 0, 0, 255);

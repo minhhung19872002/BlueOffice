@@ -637,3 +637,23 @@ fn drawing_tools_stamp_measure_resize_and_properties() {
     w.paint(&mut p);
     assert!(p.texts.iter().any(|t| t == "3 pt"));
 }
+
+#[test]
+fn word_count_and_reverse_view() {
+    let mut w = window(4);
+    w.run_command("view.wordCount", &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    // "Page N hello world" on 4 pages.
+    assert!(p.texts.iter().any(|t| t == "Words: 16"), "{:?}", p.texts);
+    key(&mut w, Key::Enter, false, false);
+    w.run_command("view.facing", &Fixed);
+    w.run_command("view.cover", &Fixed);
+    let v = w.view().expect("view");
+    let (a, b) = (v.page_rect(0).expect("p0"), v.page_rect(1).expect("p1"));
+    assert!(a[0] < b[0]);
+    w.run_command("view.reverse", &Fixed);
+    let v = w.view().expect("view");
+    let (a, b) = (v.page_rect(0).expect("p0"), v.page_rect(1).expect("p1"));
+    assert!(a[0] > b[0], "{a:?} {b:?}");
+}

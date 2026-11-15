@@ -125,8 +125,10 @@ pub struct ReaderView {
     gap: f32,
     /// Spreads start with a single first page (cover) in facing layouts.
     cover: bool,
-    /// Night Mode: pages drawn with their lightness inverted.
+    /// Night Mode: pages drawn in the dark scheme (dark paper, grey text).
     night: bool,
+    /// Reverse View: spreads read right to left.
+    reverse: bool,
     /// First page of the spread shown in single and facing layouts.
     single_page: usize,
     /// Pages too large to keep whole at this zoom: the part drawn (device pixels from the
@@ -177,6 +179,7 @@ impl ReaderView {
             gap: 6.0,
             cover: true,
             night: false,
+            reverse: false,
             single_page: 0,
             crops: HashMap::new(),
             preview_wanted: None,
@@ -289,7 +292,11 @@ impl ReaderView {
                 }
                 while i < n {
                     if i + 1 < n {
-                        rows.push(vec![i, i + 1]);
+                        rows.push(if self.reverse {
+                            vec![i + 1, i]
+                        } else {
+                            vec![i, i + 1]
+                        });
                     } else {
                         rows.push(vec![i]);
                     }
@@ -1204,6 +1211,20 @@ impl ReaderView {
             self.relayout();
             self.restore_anchor(anchor);
         }
+    }
+
+    /// Reverse View: the pages of a spread right to left.
+    pub fn set_reverse(&mut self, on: bool) {
+        if self.reverse != on {
+            self.reverse = on;
+            self.stale = true;
+            self.relayout();
+        }
+    }
+
+    /// Whether spreads read right to left.
+    pub fn reverse(&self) -> bool {
+        self.reverse
     }
 
     /// Whether facing layouts show the first page alone.

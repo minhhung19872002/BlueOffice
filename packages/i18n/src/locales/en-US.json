@@ -7081,7 +7081,14 @@
     "autoScroll": "AutoScroll",
     "cover": "Separate Cover",
     "rulers": "Rulers",
-    "grid": "Grid"
+    "grid": "Grid",
+    "reverse": "Reverse View",
+    "wordCount": "Word Count",
+    "viewSetting": "View Setting",
+    "countPages": "Pages: {{n}}",
+    "countWords": "Words: {{n}}",
+    "countChars": "Characters (with spaces): {{n}}",
+    "countCharsNoSpaces": "Characters (no spaces): {{n}}"
   },
   "pdfDraw": {
     "typewriter": "Typewriter",

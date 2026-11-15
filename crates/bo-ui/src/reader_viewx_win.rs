@@ -64,6 +64,41 @@ impl ReaderWindow {
                 self.layout_doc();
             }
             "view.grid" => self.viewx.grid = !self.viewx.grid,
+            "view.reverse" => {
+                if let Some(t) = self.tabs.get_mut(self.active) {
+                    let on = !t.view.reverse();
+                    t.view.set_reverse(on);
+                }
+            }
+            "view.wordCount" => self.word_count(),
+            "menu.viewSetting" => {
+                let items: Vec<crate::popup::MenuItem> = [
+                    ("zoom.in", "pdfReader.zoomIn"),
+                    ("zoom.out", "pdfReader.zoomOut"),
+                    ("zoom.actual", "pdfReader.actualSize"),
+                    ("zoom.page", "pdfReader.fitPage"),
+                    ("zoom.width", "pdfReader.fitWidth"),
+                    ("panel.bookmarks", "pdfReader.bookmarks"),
+                    ("panel.pages", "pdfReader.pages"),
+                    ("view.rulers", "pdfView.rulers"),
+                    ("view.grid", "pdfView.grid"),
+                    ("view.fullscreen", "pdfReader.fullScreen"),
+                ]
+                .iter()
+                .map(|(c, k)| crate::popup::MenuItem {
+                    label: self.t(k),
+                    choice: crate::popup::Choice::Command((*c).to_owned()),
+                    checked: (*c == "view.rulers" && self.viewx.rulers)
+                        || (*c == "view.grid" && self.viewx.grid),
+                    dim: false,
+                })
+                .collect();
+                let r = self.control_rect("menu.viewSetting").unwrap_or([0.0; 4]);
+                self.menu = Some((
+                    crate::popup::Menu::open(items, r, self.size, self.scale),
+                    "menu.viewSetting",
+                ));
+            }
             _ => return false,
         }
         self.sync_viewx_buttons();
@@ -73,11 +108,13 @@ impl ReaderWindow {
     /// Pressed look of the View toggles.
     fn sync_viewx_buttons(&mut self) {
         let cover = self.tabs.get(self.active).is_some_and(|t| t.view.cover());
+        let reverse = self.tabs.get(self.active).is_some_and(|t| t.view.reverse());
         for (id, on) in [
             ("view.night", self.viewx.night),
             ("view.reflow", self.viewx.reflow),
             ("view.autoScroll", self.viewx.auto.is_some()),
             ("view.cover", cover),
+            ("view.reverse", reverse),
             ("view.rulers", self.viewx.rulers),
             ("view.grid", self.viewx.grid),
         ] {
@@ -87,6 +124,48 @@ impl ReaderWindow {
                 self.on.remove(id);
             }
         }
+    }
+
+    /// Pages, words and characters of the document (the reference's Word Count).
+    fn word_count(&mut self) {
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let n = t.view.page_count();
+        let (mut words, mut chars, mut spaces) = (0_usize, 0_usize, 0_usize);
+        for i in 0..n {
+            if let Some(layer) = t.view.text(i) {
+                let text = layer.text();
+                words += text.split_whitespace().count();
+                for c in text.chars() {
+                    if c == ' ' {
+                        spaces += 1;
+                    } else if !c.is_whitespace() {
+                        chars += 1;
+                    }
+                }
+            }
+        }
+        let lines = vec![
+            self.strings
+                .fmt("pdfView.countPages", &[("n", &n.to_string())]),
+            self.strings
+                .fmt("pdfView.countWords", &[("n", &words.to_string())]),
+            self.strings.fmt(
+                "pdfView.countChars",
+                &[("n", &(chars + spaces).to_string())],
+            ),
+            self.strings
+                .fmt("pdfView.countCharsNoSpaces", &[("n", &chars.to_string())]),
+        ];
+        let d = crate::dialog::Dialog::new(
+            crate::dialog::DialogKind::WordCount,
+            self.t("pdfView.wordCount"),
+            Vec::new(),
+            vec![(self.t("pdfReader.ok"), crate::dialog::DialogButton::Ok)],
+            lines,
+        );
+        self.dialog = Some((d, None));
     }
 
     /// Night Mode follows the window to every document.

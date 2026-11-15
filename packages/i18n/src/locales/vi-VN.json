@@ -7081,7 +7081,14 @@
     "autoScroll": "Tự cuộn",
     "cover": "Trang bìa riêng",
     "rulers": "Thước",
-    "grid": "Lưới"
+    "grid": "Lưới",
+    "reverse": "Xem ngược",
+    "wordCount": "Đếm từ",
+    "viewSetting": "Thiết lập xem",
+    "countPages": "Số trang: {{n}}",
+    "countWords": "Số từ: {{n}}",
+    "countChars": "Số ký tự (có dấu cách): {{n}}",
+    "countCharsNoSpaces": "Số ký tự (không dấu cách): {{n}}"
   },
   "pdfDraw": {
     "typewriter": "Gõ chữ",

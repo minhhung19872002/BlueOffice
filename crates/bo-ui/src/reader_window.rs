@@ -768,16 +768,17 @@ impl ReaderWindow {
                 // AutoScroll, in the reference's order.
                 ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
                 ("view.reflow", Big("reflow", "pdfView.reflow", false)),
+                ("view.reverse", Big("reverseView", "pdfView.reverse", false)),
                 ("view.night", Big("night", "pdfView.night", false)),
                 ("sep1", Sep),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep2", Sep),
+                // Page display as a 3 × 2 grid like the reference's.
                 ("view.single", Small("single")),
-                ("view.continuous", Small("continuous")),
-                ("view.facing", Small("facing")),
                 ("view.contFacing", Small("contFacing")),
+                ("view.continuous", Small("continuous")),
                 ("view.cover", Small("cover")),
-                ("view.rulers", Small("ruler")),
+                ("view.facing", Small("facing")),
                 ("view.grid", Small("grid")),
                 ("sep5", Sep),
                 (
@@ -785,20 +786,14 @@ impl ReaderWindow {
                     Big("autoScroll", "pdfView.autoScroll", false),
                 ),
                 ("sep3", Sep),
-                ("zoom.in", Big("zoom", "pdfReader.zoomIn", false)),
-                ("zoom.out", Big("zoomOut", "pdfReader.zoomOut", false)),
-                ("zoom.actual", Big("actual", "pdfReader.actualSize", false)),
-                ("zoom.page", Big("fit", "pdfReader.fitPage", false)),
-                ("zoom.width", Big("fitWidth", "pdfReader.fitWidth", false)),
+                (
+                    "view.wordCount",
+                    Big("wordCount", "pdfView.wordCount", false),
+                ),
                 ("sep4", Sep),
                 (
-                    "panel.bookmarks",
-                    Big("bookmark", "pdfReader.bookmarks", false),
-                ),
-                ("panel.pages", Big("pages", "pdfReader.pages", false)),
-                (
-                    "view.fullscreen",
-                    Big("fullscreen", "pdfReader.fullScreen", false),
+                    "menu.viewSetting",
+                    Big("viewSetting", "pdfView.viewSetting", true),
                 ),
             ]),
             _ => {

@@ -107,6 +107,9 @@ fn shape(name: &str) -> &'static [Part] {
         "stamp" => &[S("M9.5 3.5h5l-1 8h-3z M4 12.5h16v4H4z"), A("M5 20.5h14")],
         "measure" => &[S("M2.5 15.5L15.5 2.5l6 6-13 13z"), A("M6.5 11.5l2 2 M9.5 8.5l2 2 M12.5 5.5l2 2")],
         // View tab additions (round 3).
+        "reverseView" => &[S("M3 5h7.5v14H3z M13.5 5H21v14h-7.5z"), A("M8 12h8 M14 9.5l2.5 2.5-2.5 2.5")],
+        "wordCount" => &[S("M3.5 4h17v16h-17z"), A("M6.5 8.5h5 M6.5 12h8 M6.5 15.5h4"), S("M16 14v4.5 M14 16.2h4")],
+        "viewSetting" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 11.5a2.5 2.5 0 1 0 .01 0z M12 8.5v1 M12 15.5v1 M8.5 13h1 M14.5 13h1")],
         "night" => &[F("M14 3a9 9 0 1 0 7 13.5A7.5 7.5 0 0 1 14 3z")],
         "reflow" => &[S("M5 2.5h14v19H5z"), A("M8 7h8 M8 10.5h8 M8 14h5.5 M13.5 14l2 2-2 2 M8 18h7.5")],
         "autoScroll" => &[S("M7 2.5h10v19H7z"), A("M12 6v9 M9 12l3 3 3-3 M9 18h6")],

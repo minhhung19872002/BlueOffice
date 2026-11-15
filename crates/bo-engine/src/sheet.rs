@@ -1379,7 +1379,11 @@ impl SheetEngine {
             .ok_or(EngineError::PageOutOfRange(sheet))?;
         if slot.is_none() {
             *slot = Some(match self.display_ppp {
-                Some(ppp) => SheetGeometry::for_display(ws, &wb.styles, &mut self.fonts, ppp),
+                Some(ppp) => {
+                    let locale = self.locale;
+                    let text_of = |c: &Cell| format_cell(wb, c, &locale).text;
+                    SheetGeometry::for_display(ws, &wb.styles, &mut self.fonts, ppp, &text_of)
+                }
                 None => SheetGeometry::new(ws, &wb.styles, &mut self.fonts),
             });
         }

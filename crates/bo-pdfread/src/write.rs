@@ -1,7 +1,8 @@
 //! Incremental updates (ISO 32000-1, §7.5.6): changed and new objects are appended after the
 //! original bytes with a cross-reference section (a table, or a stream when the file uses
 //! cross-reference streams) whose `/Prev` points at the previous one.
-use lopdf::{Dictionary, Document, Object, ObjectId, StringFormat};
+use crate::store::Document;
+use lopdf::{Dictionary, Object, ObjectId, StringFormat};
 use std::fmt::Write as _;
 
 fn name(out: &mut Vec<u8>, n: &[u8]) {

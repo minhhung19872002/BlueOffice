@@ -252,3 +252,59 @@ theo offset từ ngoài (`Reader::read_object` riêng tư), cần thay bộ đ�
 Còn lại: nạp lười để mở ≤ 210 ms (đo trên máy rảnh), so chọn chữ / tìm (Ctrl+F) với bản đối chiếu (cần thao tác
 thật), danh sách zoom và menu dùng chung cỡ chữ lớn hơn bản đối chiếu, Batch Print / Share / Preferences của trang
 File, Insert Text thật (Caret), chia khung kéo được, Advanced / Page Setting trong hộp In.
+
+## Vòng 6 (2026-11-16)
+
+Phần thêm ở mô-đun riêng: `bo-pdfread/src/{store,annot_caret}.rs`, `reader_prefs6_win.rs` (Tùy chọn, In hàng loạt,
+Chèn chữ, cuộn mượt), `reader_print6.rs` (Nâng cao / Thiết lập trang của hộp In). Ảnh so sánh:
+`scratchpad/show/reader-26…34-*.png` (bản đối chiếu trên / trái).
+
+**Bộ đọc đối tượng của chính ta** (`store.rs`, `reader-26`). Mở tệp chỉ đọc bảng xref / xref stream (`/Prev`,
+`/XRefStm`) và trailer; đối tượng được phân tích khi dùng lần đầu (bộ phân tích riêng trên lexer nội dung, `/Length`
+gián tiếp, object stream giải nén một lần rồi giữ, offset sai thì tìm theo đầu `n g obj`). Sửa, lưu và các hàm của
+lopdf đi qua `Deref` / `DerefMut`, nạp `lopdf::Document` đầy đủ một lần như trước — đường ghi của BlueEditor không
+đổi (test xanh). Tệp mã hoá hoặc xref hỏng nạp đầy đủ khi mở. Mở sổ tay 1 202 trang trong cửa sổ không nạp toàn bộ
+(kiểm bằng `BO_PDF_LOAD_TRACE`).
+
+| Sổ tay 1 202 trang, `--bench`, bản release | Vòng 5 | Vòng 6 |
+| --- | --- | --- |
+| Mở (máy bận: 7 tiến trình biên dịch, CPU 26–43 %) | 351–689 ms | 33–49 ms |
+| Trang đầu (cùng điều kiện) | 376–752 ms | 43–59 ms |
+| Bản cuối, 5 lần sau 25 phút chờ máy rảnh (không lúc nào rảnh: 10 trình biên dịch, CPU 43–60 %) | — | mở 36–74 ms, trang đầu 47–86 ms (nhỏ nhất 47,1 ms; mục tiêu ≤ 210 ms) |
+
+**Menu** (`reader-27`, `reader-28`). Đo menu của bản đối chiếu ở 125 %: hàng 30 px, chữ 13 px (chữ số cao 9 px),
+nhãn cách khung 41 px, biểu tượng 20 px cách 10 px, khung 195 trên nền 251, 251, 253, đường kẻ trước Actual Size.
+`popup::MenuLook` mới (mặc định như cũ cho BlueDoc / BlueSheet / BlueSlide / BlueEditor); menu của BlueReader:
+hàng 30 px (trước 33), chữ số 9 px (trước 13), nhãn cách khung 42 px, menu Clipboard 131 × 129 px (bản đối chiếu
+131 × 131).
+
+**Trang File** (`reader-29`, `reader-30`). Đo lại cột trái ở cùng 125 % / cùng cỡ cửa sổ: cỡ chữ vốn đã bằng nhau
+("Properties" rộng 74 px cả hai — ảnh vòng 5 bị thu nhỏ); sửa màu cột 245, 246, 250 + viền 199, 204, 217, hàng
+cách 46 px từ 14 px dưới tab, đường kẻ 230, 233, 240 thêm 7 px, ô lệnh đang chọn góc 4 px; nhãn lệch ≤ 2 px. Thêm
+Batch Print (bản đối chiếu hiện bật): chọn các tài liệu đang mở rồi một hộp In, host in từng tài liệu (mọi trang)
+với cùng thiết lập. Preferences: thu phóng mặc định, bố cục trang, tác giả chú thích, đơn vị đo (in / mm / cm / pt
+/ pica, cho công cụ đo), cuộn mượt; host lưu `reader-prefs.txt`. Share, Skins không làm. Hộp Preferences và các
+hộp con của hộp In bản đối chiếu không mở được nếu không thao tác thật (UIA Invoke bị bỏ qua) nên bố cục là của ta.
+
+**Chèn chữ, chia khung, hộp In** (`reader-31`, `reader-32`). Insert Text đặt chú thích Caret thật (§12.5.6.11,
+`/Sy /None`, nội dung là chữ cần chèn) ở mép ký tự gần nhất. Thanh chia khung kéo được (con trỏ mũi tên hai đầu;
+mỗi khung giữ ít nhất 1/10). Hộp In: Advanced (in thành ảnh 72 / 150 / 300 / 600 dpi; màu, thang xám, đen trắng)
+và Page Setting (giấy của máy in hoặc Letter / Legal / A3 / A4 / A5; lề mm, vùng in co lại theo lề).
+
+**Chữ sao chép** (`reader-33`). `bluereader-native --text` in ra đúng chữ Select All + Copy; so với MuPDF 1.27
+(chữ của bản đối chiếu không đọc được: mẫu Text của UIA chỉ có khi tài liệu nhận focus thật):
+
+| Tệp | Kết quả |
+| --- | --- |
+| Sổ tay 1 202 trang | 585 524 từ, 100,00 % cùng thứ tự và khoảng trắng |
+| Hai cột viết xen dòng (tự sinh) | trước: L0 R0 L1 R1… như MuPDF; nay đọc hết cột trái rồi cột phải |
+| Tiếng Việt, Arial nhúng, từng từ đặt riêng | giống MuPDF trừ 4 khoảng trắng MuPDF bỏ sót sau ủ / ự / ở / ợ / ả |
+
+Thứ tự đọc: cắt XY các dòng; chỉ cắt cột khi rãnh ≥ 1 em và mỗi bên có ≥ 4 dòng chữ rộng ≥ 15 em, phần lớn dài
+≥ 60 % cột — bảng (trang 26, 32 của sổ tay) và trang một cột giữ thứ tự nội dung.
+
+Toàn cửa sổ (`reader-34`): cùng tệp, bố cục ribbon / tab / cột bookmark / trang / thanh trạng thái như vòng 5.
+
+Còn lại: xem trước của hộp In chưa theo giấy / lề của Page Setting; hình học caret và màu xanh chưa đo được trên
+bản đối chiếu; menu Clipboard chưa có biểu tượng; Share / Skins; so chọn chữ bằng chuột với bản đối chiếu (cần thao
+tác thật).

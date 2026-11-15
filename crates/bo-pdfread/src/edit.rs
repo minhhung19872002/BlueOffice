@@ -6,8 +6,9 @@
 //! which remembers the object's previous value in the open undo step, so undo restores objects
 //! exactly. The page tree is rewritten flat (one `/Pages` node) with each page's inherited
 //! attributes copied onto it (§7.7.3.4), which keeps every later reorder a simple list edit.
+use crate::store::Document;
 use crate::{resolve, PdfDocument};
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Dictionary, Object, ObjectId, Stream};
 use std::collections::{HashMap, HashSet};
 
 /// How [`PdfDocument::save_full`] writes the file.
@@ -594,7 +595,9 @@ impl PdfDocument {
             .take(1024)
             .position(|w| w == b"%PDF-")
             .ok_or("not a PDF file")?;
-        let mut other = Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?;
+        let mut other = Document::from(
+            lopdf::Document::load_mem(&bytes[start..]).map_err(|e| format!("PDF: {e}"))?,
+        );
         if other.is_encrypted() && other.encryption_state.is_none() {
             return Err("the document is protected by a password".into());
         }

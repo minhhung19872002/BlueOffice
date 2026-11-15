@@ -882,12 +882,14 @@ impl ReaderWindow {
         let bh = self.px(self.look.body_h);
         let label_style = self.style(self.look.label, false);
         let mut x = self.px(11.2);
-        let mut small_col = 0;
+        let mut small_col = 0_usize;
         for (id, kind) in self.ribbon_items() {
             match kind {
                 Kind::Big(_, label, _) => {
                     if small_col > 0 {
-                        x += self.px(32.0);
+                        // Past the columns of the small-button grid.
+                        let cols = small_col.div_ceil(2) as f32;
+                        x += cols * self.px(34.0) - self.px(2.0);
                         small_col = 0;
                     }
                     let text = self.t(label);
@@ -925,7 +927,10 @@ impl ReaderWindow {
                 }
                 Kind::Sep => {
                     if small_col > 0 {
-                        x += self.px(28.0 * 2.0 + 6.0 + 4.0);
+                        // Two-column grids keep their measured width; wider ones grow by
+                        // a column each.
+                        let cols = small_col.div_ceil(2).max(2) as f32;
+                        x += self.px(28.0 * cols + 6.0 * (cols - 1.0) + 4.0);
                         small_col = 0;
                     }
                     x += self.px(4.8);

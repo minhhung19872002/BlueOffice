@@ -3443,7 +3443,10 @@
     },
     "fontSize": "Font size",
     "newDeck": "New presentation",
-    "hideSlide": "Hide slide"
+    "hideSlide": "Hide slide",
+    "promptTitle": "Click to add title",
+    "promptSubtitle": "Click to add subtitle",
+    "promptText": "Click to add text"
   },
   "review": {
     "title": "Review",

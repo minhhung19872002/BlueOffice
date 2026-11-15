@@ -3443,7 +3443,10 @@
     },
     "fontSize": "Cỡ chữ",
     "newDeck": "Bản trình chiếu mới",
-    "hideSlide": "Ẩn slide"
+    "hideSlide": "Ẩn slide",
+    "promptTitle": "Bấm để thêm tiêu đề",
+    "promptSubtitle": "Bấm để thêm tiêu đề phụ",
+    "promptText": "Bấm để thêm văn bản"
   },
   "review": {
     "title": "Xem lại",

@@ -1283,6 +1283,9 @@ pub struct SlideEditResult {
     pub handles: Vec<Handle>,
     /// Empty placeholders of the current slide (drawn as dashed outlines).
     pub placeholders: Vec<BoxR>,
+    /// Type of each of [`SlideEditResult::placeholders`] (§19.7.10 ST_PlaceholderType:
+    /// `title`, `ctrTitle`, `subTitle`, `body`, `obj`, …), for their prompt text.
+    pub placeholder_kinds: Vec<String>,
     /// Slides whose display list changed.
     pub dirty: Vec<usize>,
     /// The slide list changed (count or order).
@@ -5922,15 +5925,19 @@ impl Engine {
             [one] => Some(one.b),
             many => Rect::union_all(many.iter().map(|p| p.b.bounds())).map(BoxR::from_rect),
         };
-        let placeholders = placed
+        let (placeholders, placeholder_kinds): (Vec<BoxR>, Vec<String>) = placed
             .iter()
-            .filter(|p| {
-                matches!(ops::node_at(pres, slide, &p.path), Some(ShapeNode::Shape(s))
-                    if s.nv.placeholder.is_some()
-                        && s.text.as_ref().is_none_or(|t| t.text().trim().is_empty()))
+            .filter_map(|p| match ops::node_at(pres, slide, &p.path) {
+                Some(ShapeNode::Shape(s))
+                    if s.text.as_ref().is_none_or(|t| t.text().trim().is_empty()) =>
+                {
+                    s.nv.placeholder
+                        .as_ref()
+                        .map(|ph| (p.b, ph.kind.clone().unwrap_or_else(|| "obj".to_owned())))
+                }
+                _ => None,
             })
-            .map(|p| p.b)
-            .collect();
+            .unzip();
         Ok(SlideEditResult {
             info: self.info()?,
             slide,
@@ -5938,6 +5945,7 @@ impl Engine {
             bounds,
             selection,
             placeholders,
+            placeholder_kinds,
             dirty,
             slides_changed: out.all,
             modified: ed.is_modified() || self.sec.dirty(),

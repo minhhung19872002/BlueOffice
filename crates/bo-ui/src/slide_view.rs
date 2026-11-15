@@ -30,6 +30,8 @@ const FRAME: Rgba = Rgba(0x61, 0x61, 0x61, 255);
 const HANDLE_FILL: Rgba = Rgba(255, 255, 255, 255);
 /// Text selection inside a shape: neutral grey over the text (reference: 185 over white).
 const TEXT_SELECTION: Rgba = Rgba(0, 0, 0, 70);
+/// Prompt text of empty placeholders.
+const PROMPT_INK: Rgba = Rgba(0x00, 0x00, 0x00, 255);
 /// Dashed outline of empty placeholders.
 const PLACEHOLDER_EDGE: Rgba = Rgba(0x9a, 0x9a, 0x9a, 255);
 /// Smart guides while moving shapes.
@@ -187,6 +189,8 @@ fn word_at(s: &str, u: usize) -> (usize, usize) {
 
 /// The editing area of one presentation.
 pub struct SlideView {
+    /// Prompts of empty title, subtitle and body placeholders (interface language).
+    prompts: [String; 3],
     engine: Engine,
     /// Stable id of each slide, in order.
     ids: Vec<usize>,
@@ -232,6 +236,11 @@ impl SlideView {
     /// A view of the presentation already open in `engine`.
     pub fn new(engine: Engine) -> Result<Self, String> {
         let mut view = Self {
+            prompts: [
+                "Click to add title".into(),
+                "Click to add subtitle".into(),
+                "Click to add text".into(),
+            ],
             engine,
             ids: Vec::new(),
             slide_size: (960.0, 540.0),
@@ -365,6 +374,11 @@ impl SlideView {
     pub fn mark_saved(&mut self) {
         self.engine.mark_saved();
         self.run(SlideCommand::State);
+    }
+
+    /// Prompts of empty title, subtitle and body placeholders.
+    pub fn set_prompts(&mut self, title: &str, subtitle: &str, body: &str) {
+        self.prompts = [title.to_owned(), subtitle.to_owned(), body.to_owned()];
     }
 
     /// Interface texts in the window's language: the empty notes hint and the end screen of
@@ -1879,9 +1893,54 @@ impl SlideView {
             return;
         };
         let editing = st.text_edit.as_ref();
-        // Empty placeholders: dashed outline.
-        for b in &st.placeholders {
+        // Empty placeholders: dashed outline and a grey prompt ("Click to add title"), as a
+        // desktop presentation app shows them while editing.
+        let s = self.scale();
+        for (i, b) in st.placeholders.iter().enumerate() {
             self.dashed(p, b, PLACEHOLDER_EDGE, (2.4, 1.6));
+            let kind = st.placeholder_kinds.get(i).map_or("obj", String::as_str);
+            // Size and vertical anchor of the default title, subtitle and body styles, as
+            // measured on the reference: the title slide's title sits on the bottom of its
+            // box, the subtitle on the top, other titles in the middle.
+            let (text, pt, centred, anchor) = match kind {
+                "ctrTitle" => (&self.prompts[0], 54.0, true, 'b'),
+                "title" => (&self.prompts[0], 44.0, true, 'm'),
+                "subTitle" => (&self.prompts[1], 24.0, true, 't'),
+                "body" | "obj" => (&self.prompts[2], 28.0, false, 't'),
+                _ => continue,
+            };
+            if text.is_empty() {
+                continue;
+            }
+            let size = (pt * s).max(6.0);
+            let font = crate::Font {
+                family: if centred && pt > 30.0 {
+                    "Calibri Light"
+                } else {
+                    "Calibri"
+                },
+                size,
+                weight: 400,
+                italic: false,
+                underline: false,
+            };
+            let (left, top) = self.to_px(b.cx - b.w / 2.0, b.cy - b.h / 2.0);
+            let (cx, cy) = self.to_px(b.cx, b.cy);
+            let (_, bottom) = self.to_px(b.cx, b.cy + b.h / 2.0);
+            // Average advance of the prompt in Calibri, measured: 0.39 em.
+            let est_w = text.chars().count() as f32 * size * 0.39;
+            let line = size * 1.22;
+            let x = if centred {
+                cx - est_w / 2.0
+            } else {
+                left + 7.2 * s
+            };
+            let y = match anchor {
+                'b' => bottom - 3.6 * s - line - 0.15 * size,
+                'm' => cy - line / 2.0,
+                _ => top + 0.4 * s,
+            };
+            p.text_font(text, x.round(), y.round(), &font, PROMPT_INK);
         }
         if let Some(pv) = &self.preview {
             for b in &pv.boxes {

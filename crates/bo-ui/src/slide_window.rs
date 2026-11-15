@@ -268,6 +268,11 @@ impl SlideWindow {
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
         );
+        view.set_prompts(
+            strings.get("slideEditor.promptTitle"),
+            strings.get("slideEditor.promptSubtitle"),
+            strings.get("slideEditor.promptText"),
+        );
         let mut title = TitleBar::new();
         title.set_app("BlueSlide", "app.slide");
         Self {

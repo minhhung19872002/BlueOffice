@@ -157,9 +157,11 @@ impl PdfDocument {
 
     /// Remember `id`'s current value in the open step before it changes.
     pub(crate) fn touch(&mut self, id: ObjectId) {
-        let prev = self.doc.objects.get(&id).cloned();
         if let Some(step) = self.edit.open.as_mut() {
+            // Only the first change in a step clones the old value (typing touches the page
+            // stream on every key).
             if step.seen.insert(id) {
+                let prev = self.doc.objects.get(&id).cloned();
                 step.before.push((id, prev));
             }
         }
@@ -653,6 +655,23 @@ impl PdfDocument {
         }
         self.saved(out.clone());
         Ok(out)
+    }
+
+    /// Compress changed streams written without a filter (typed text, embedded faces)
+    /// before an incremental save.
+    pub(crate) fn compress_changed(&mut self) {
+        for id in self.changed.clone() {
+            if let Some(Object::Stream(s)) = self.doc.objects.get_mut(&id) {
+                if compressible(s) {
+                    let z = flate(&s.content);
+                    if z.len() + 19 < s.content.len() {
+                        s.dict.set("Filter", Object::Name(b"FlateDecode".to_vec()));
+                        s.dict.remove(b"DecodeParms");
+                        s.set_content(z);
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) fn saved(&mut self, bytes: Vec<u8>) {

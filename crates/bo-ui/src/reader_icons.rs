@@ -11,7 +11,7 @@ pub(crate) struct Ink {
     pub accent: Rgba,
 }
 
-enum Part {
+pub(crate) enum Part {
     /// Stroked outline in ink.
     S(&'static str),
     /// Stroked outline in the accent.
@@ -139,7 +139,7 @@ fn shape(name: &str) -> &'static [Part] {
         "resetForm" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8.5 15a3.5 3.5 0 1 0 1-2.5 M8.5 10.5v2.5H11")],
         "formFields" => &[S("M3 5h18v5H3z M3 14h18v5H3z"), FA("M5 6.5h7v2H5z M5 15.5h4v2H5z")],
         "organize" => &[S("M3 3h7v8H3z M14 3h7v8h-7z M3 13h7v8H3z"), A("M14 13h7v8h-7z")],
-        _ => &[S("M5 5h14v14H5z")],
+        _ => crate::editor_icons::shape(name),
     }
 }
 

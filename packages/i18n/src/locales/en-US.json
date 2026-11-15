@@ -7068,7 +7068,8 @@
       "edit": "Edit",
       "organize": "Organize",
       "form": "Form",
-      "protect": "Protect"
+      "protect": "Protect",
+      "format": "Format"
     },
     "editText": "Edit Text",
     "editObject": "Edit Object",
@@ -7127,7 +7128,29 @@
     "signLocation": "Location",
     "signed": "Signed",
     "converted": "Converted",
-    "untitled": "Untitled"
+    "untitled": "Untitled",
+    "font": "Font",
+    "fontSize": "Font Size",
+    "fontColor": "Font Color",
+    "bold": "Bold",
+    "italic": "Italic",
+    "alignLeft": "Align Left",
+    "alignCenter": "Center",
+    "alignRight": "Align Right",
+    "justify": "Justify",
+    "done": "Done",
+    "serif": "Serif (Tinos)",
+    "sans": "Sans Serif (Liberation Sans)",
+    "colors": {
+      "black": "Black",
+      "gray": "Gray",
+      "red": "Red",
+      "orange": "Orange",
+      "green": "Green",
+      "blue": "Blue",
+      "purple": "Purple",
+      "white": "White"
+    }
   },
   "taskPane": {
     "dockLeft": "Dock left",

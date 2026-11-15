@@ -30,6 +30,7 @@ mod image;
 mod interp;
 mod lexer;
 mod objects;
+mod paragraph;
 mod sfnt;
 mod text;
 mod type1;
@@ -40,6 +41,7 @@ pub use edit::SaveOptions;
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
+pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use text::TextLayer;
 
 use bo_render::PageList;
@@ -977,5 +979,7 @@ mod edit_tests;
 mod forms_tests;
 #[cfg(test)]
 mod objects_tests;
+#[cfg(test)]
+mod paragraph_tests;
 #[cfg(test)]
 mod tests;

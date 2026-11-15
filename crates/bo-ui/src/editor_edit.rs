@@ -1,13 +1,15 @@
 //! BlueEditor's Edit Text / Edit Object / Add Text tools on the document view: hover and
-//! selection boxes, dragging to move, corner handles to resize, typing into a text line in
-//! place (each keystroke rewrites the run and the page redraws), Delete, Escape.
+//! selection boxes, dragging to move, corner handles to resize, typing into a paragraph in
+//! place (a [`BlockEdit`] session: the page is analysed once, every keystroke lays the
+//! paragraph out again and rewrites only its text), selecting text, character formatting,
+//! Delete, Escape.
 use crate::editor_window::EditTool;
 use crate::reader_view::ReaderView;
 use crate::{Key, Mods, Painter};
-use bo_pdfread::{text_lines, ObjectKind, PageObject, TextLine};
+use bo_pdfread::{text_blocks, Align, BlockEdit, ObjectKind, PageObject, StyleChange, TextBlock};
 use bo_render::{PathSeg, Rgba};
 
-/// Something the tools select: a text line (several runs) or another page object.
+/// Something the tools select: a paragraph (several runs) or another page object.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Item {
     /// Page object indices.
@@ -15,26 +17,36 @@ pub(crate) struct Item {
     /// Box in document page points.
     pub bbox: [f32; 4],
     pub kind: ObjectKind,
-    pub line: Option<TextLine>,
+    pub block: Option<TextBlock>,
 }
 
 /// Text being typed into.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) struct Typing {
     pub page: usize,
-    /// Runs that hold the text now (one after the first keystroke).
-    pub ids: Vec<usize>,
-    pub text: Vec<char>,
+    /// The paragraph session (none yet for Add Text before the first character).
+    pub block: Option<BlockEdit>,
     pub caret: usize,
-    /// All text selected (the next key replaces it).
-    pub all: bool,
-    /// Character boxes in document points (one per character).
-    pub boxes: Vec<[f32; 4]>,
-    pub bbox: [f32; 4],
+    /// Other end of the selected text.
+    pub anchor: Option<usize>,
     /// A new text block not written yet: its baseline origin and size.
     pub new_at: Option<([f32; 2], f32)>,
-    /// An undo group is open for this typing.
-    pub grouped: bool,
+    /// Box shown before the first character of a new block.
+    pub bbox: [f32; 4],
+    /// The pointer is selecting text (button down).
+    pub selecting: bool,
+}
+
+impl Typing {
+    /// Selected characters (start, end), if any.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let a = self.anchor?;
+        (a != self.caret).then(|| (a.min(self.caret), a.max(self.caret)))
+    }
+
+    fn bbox(&self) -> [f32; 4] {
+        self.block.as_ref().map_or(self.bbox, |b| b.bbox)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,13 +75,13 @@ fn inside(r: [f32; 4], x: f32, y: f32) -> bool {
 }
 
 fn items(objs: &[PageObject]) -> Vec<Item> {
-    let mut out: Vec<Item> = text_lines(objs)
+    let mut out: Vec<Item> = text_blocks(objs)
         .into_iter()
-        .map(|l| Item {
-            ids: l.ids.clone(),
-            bbox: l.bbox,
+        .map(|b| Item {
+            ids: b.ids.clone(),
+            bbox: b.bbox,
             kind: ObjectKind::Text,
-            line: Some(l),
+            block: Some(b),
         })
         .collect();
     for (i, o) in objs.iter().enumerate() {
@@ -78,7 +90,7 @@ fn items(objs: &[PageObject]) -> Vec<Item> {
                 ids: vec![i],
                 bbox: o.bbox,
                 kind: o.kind,
-                line: None,
+                block: None,
             });
         }
     }
@@ -96,7 +108,8 @@ impl Editing {
         self.drag = None;
     }
 
-    /// Items of page `i` (analysed again after every edit).
+    /// Items of page `i` (analysed again after every edit; kept while typing, the typed
+    /// paragraph draws from its session).
     pub fn items(&mut self, v: &mut ReaderView, i: usize) -> &[Item] {
         let edits = v.doc().edit_count();
         let fresh = matches!(&self.cache, Some((p, e, _)) if *p == i && *e == edits);
@@ -196,62 +209,91 @@ impl Editing {
                 return;
             }
         }
-        if tool == EditTool::AddText {
+        // A press inside the paragraph being typed into moves the caret or selects.
+        if let Some(t) = self.typing.as_mut() {
+            let b = t.bbox();
+            let pad = 3.0;
+            if t.page == page
+                && inside([b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad], px, py)
+                && tool != EditTool::Object
+            {
+                if let Some(blk) = &t.block {
+                    let c = blk.hit(px, py);
+                    match count {
+                        2 => {
+                            let (a, e) = blk.word(c);
+                            t.anchor = Some(a);
+                            t.caret = e;
+                        }
+                        n if n >= 3 => {
+                            t.anchor = Some(0);
+                            t.caret = blk.text.len();
+                        }
+                        _ => {
+                            if shift {
+                                t.anchor.get_or_insert(t.caret);
+                            } else {
+                                t.anchor = None;
+                            }
+                            t.caret = c;
+                            t.selecting = true;
+                        }
+                    }
+                }
+                return;
+            }
             self.finish_typing(Some(v));
+        }
+        if tool == EditTool::AddText {
             let size = 12.0;
             self.typing = Some(Typing {
                 page,
-                ids: Vec::new(),
-                text: Vec::new(),
+                block: None,
                 caret: 0,
-                all: false,
-                boxes: Vec::new(),
-                bbox: [px, py, px + 2.0, py + size * 1.2],
+                anchor: None,
                 new_at: Some(([px, py + size * 0.9], size)),
-                grouped: false,
+                bbox: [px, py, px + 2.0, py + size * 1.2],
+                selecting: false,
             });
             return;
         }
         let hit = self.item_at(v, page, px, py, tool);
         let Some(k) = hit else {
-            self.finish_typing(Some(v));
             self.selected.clear();
             return;
         };
         let item = self.items(v, page).get(k).cloned();
         let Some(item) = item else { return };
         if tool == EditTool::Text || (count >= 2 && item.kind == ObjectKind::Text) {
-            if let Some(t) = &self.typing {
-                if t.page == page && t.ids == item.ids {
-                    // Click inside the text being edited: move the caret.
-                    let caret = caret_at(&t.boxes, px);
-                    if let Some(t) = self.typing.as_mut() {
-                        t.caret = caret;
-                        t.all = count >= 3;
+            if let Some(b) = item.block {
+                match v.doc_mut().begin_block_edit(page, &b) {
+                    Ok(blk) => {
+                        let caret = blk.hit(px, py);
+                        let n = blk.text.len();
+                        let anchor = match count {
+                            2 => {
+                                let (a, e) = blk.word(caret);
+                                Some((a, e))
+                            }
+                            n2 if n2 >= 3 => Some((0, n)),
+                            _ => None,
+                        };
+                        self.typing = Some(Typing {
+                            page,
+                            block: Some(blk),
+                            caret: anchor.map_or(caret, |a| a.1),
+                            anchor: anchor.map(|a| a.0),
+                            new_at: None,
+                            bbox: b.bbox,
+                            selecting: anchor.is_none(),
+                        });
+                        self.selected = vec![k];
                     }
-                    return;
+                    Err(e) => self.status = Some(e),
                 }
-            }
-            self.finish_typing(Some(v));
-            if let Some(line) = item.line {
-                let caret = caret_at(&line.char_boxes, px);
-                v.doc_mut().begin_group("edit text");
-                self.typing = Some(Typing {
-                    page,
-                    ids: line.ids.clone(),
-                    text: line.text.chars().collect(),
-                    caret,
-                    all: count >= 2,
-                    boxes: line.char_boxes.clone(),
-                    bbox: line.bbox,
-                    new_at: None,
-                    grouped: true,
-                });
-                self.selected = vec![k];
             }
             return;
         }
-        self.finish_typing(Some(v));
         if shift {
             if let Some(p) = self.selected.iter().position(|&s| s == k) {
                 self.selected.remove(p);
@@ -285,6 +327,21 @@ impl Editing {
 
     /// Button down and moving.
     pub fn drag(&mut self, v: &ReaderView, x: f32, y: f32) -> bool {
+        if let Some(t) = self.typing.as_mut().filter(|t| t.selecting) {
+            let Some(pr) = v.page_rect(t.page) else {
+                return false;
+            };
+            let s = v.scale();
+            let r = v.unrotate_rect(t.page, [(x - pr[0]) / s, (y - pr[1]) / s, 0.0, 0.0]);
+            if let Some(b) = &t.block {
+                let c = b.hit(r[0], r[1]);
+                if c != t.caret {
+                    t.anchor.get_or_insert(t.caret);
+                    t.caret = c;
+                }
+            }
+            return true;
+        }
         let Some(page) = self.page else { return false };
         let Some(pr) = v.page_rect(page) else {
             return false;
@@ -304,6 +361,9 @@ impl Editing {
 
     /// Button released: apply a move or resize.
     pub fn release(&mut self, v: &mut ReaderView) -> bool {
+        if let Some(t) = self.typing.as_mut() {
+            t.selecting = false;
+        }
         let Some(page) = self.page else { return false };
         match self.drag.take() {
             Some(Drag::Move { from, to }) => {
@@ -397,160 +457,250 @@ impl Editing {
     /// End typing (the edits so far stay, as one undo step).
     pub fn finish_typing(&mut self, v: Option<&mut ReaderView>) {
         if let Some(t) = self.typing.take() {
-            if let (Some(v), true) = (v, t.grouped) {
-                v.doc_mut().end_group();
+            if let (Some(v), Some(b)) = (v, &t.block) {
+                v.doc_mut().end_block_edit(b);
+                if b.dirty {
+                    v.invalidate_page(t.page);
+                }
             }
+            self.cache = None;
+            self.selected.clear();
         }
     }
 
-    /// Typed text.
+    /// Typed text (replaces the selected text).
     pub fn type_text(&mut self, v: &mut ReaderView, s: &str) -> bool {
         let Some(t) = self.typing.as_mut() else {
             return false;
         };
-        if t.all {
-            t.text.clear();
-            t.caret = 0;
-            t.all = false;
+        let s: String = s.chars().filter(|c| !c.is_control()).collect();
+        if s.is_empty() {
+            return false;
         }
-        for c in s.chars().filter(|c| !c.is_control()) {
-            t.text.insert(t.caret, c);
-            t.caret += 1;
+        if t.block.is_none() {
+            return self.start_new_text(v, &s);
         }
+        let sel = t.selection();
+        if let Some(b) = t.block.as_mut() {
+            if let Some((a, e)) = sel {
+                b.remove(a, e);
+                t.caret = a;
+            }
+            t.caret = b.insert(t.caret, &s);
+        }
+        t.anchor = None;
         self.write(v)
     }
 
+    /// First characters of an Add Text block: write them, then edit the new paragraph.
+    fn start_new_text(&mut self, v: &mut ReaderView, s: &str) -> bool {
+        let Some(t) = self.typing.as_mut() else {
+            return false;
+        };
+        let Some((at, size)) = t.new_at else {
+            return false;
+        };
+        let page = t.page;
+        v.doc_mut().begin_group("add text");
+        let r = v
+            .doc_mut()
+            .add_text(page, at, s, size, [0, 0, 0])
+            .and_then(|id| {
+                let objs = v.doc_mut().page_objects(page)?;
+                let blocks = text_blocks(&objs);
+                let b = blocks
+                    .into_iter()
+                    .find(|b| b.ids.contains(&id))
+                    .ok_or("no text")?;
+                let caret = b
+                    .runs
+                    .iter()
+                    .rposition(|&r| r == id)
+                    .map_or(b.text.chars().count(), |i| i + 1);
+                let blk = v.doc_mut().begin_block_edit(page, &b)?;
+                Ok((blk, caret))
+            });
+        v.invalidate_page(page);
+        // The block's session joins the open group: ending it closes one undo step.
+        match r {
+            Ok((blk, caret)) => {
+                if let Some(t) = self.typing.as_mut() {
+                    t.block = Some(blk);
+                    t.caret = caret;
+                    t.new_at = None;
+                }
+                true
+            }
+            Err(e) => {
+                v.doc_mut().end_group();
+                self.status = Some(e);
+                self.typing = None;
+                true
+            }
+        }
+    }
+
     /// A key while typing; false when it is not for the text.
+    #[allow(clippy::too_many_lines)]
     pub fn key(&mut self, v: &mut ReaderView, k: Key, mods: Mods) -> bool {
         let Some(t) = self.typing.as_mut() else {
             return false;
         };
-        let n = t.text.len();
+        let Some(b) = t.block.as_ref() else {
+            if matches!(k, Key::Escape | Key::Enter) {
+                self.typing = None;
+                return true;
+            }
+            return false;
+        };
+        let n = b.text.len();
+        let sel = t.selection();
+        // Moving the caret: Shift extends the selection.
+        let moved = match (k, mods.ctrl) {
+            (Key::Left, _) => Some(match (sel, mods.shift) {
+                (Some((a, _)), false) => a,
+                _ => t.caret.saturating_sub(1),
+            }),
+            (Key::Right, _) => Some(match (sel, mods.shift) {
+                (Some((_, e)), false) => e,
+                _ => (t.caret + 1).min(n),
+            }),
+            (Key::Up, _) => Some(b.vertical(t.caret, false)),
+            (Key::Down, _) => Some(b.vertical(t.caret, true)),
+            (Key::Home, true) => Some(0),
+            (Key::End, true) => Some(n),
+            (Key::Home, false) => Some(b.home_end(t.caret).0),
+            (Key::End, false) => Some(b.home_end(t.caret).1),
+            _ => None,
+        };
+        if let Some(c) = moved {
+            if mods.shift {
+                t.anchor.get_or_insert(t.caret);
+            } else {
+                t.anchor = None;
+            }
+            t.caret = c;
+            return true;
+        }
         let changed = match (k, mods.ctrl) {
-            (Key::Left, _) => {
-                t.caret = if t.all { 0 } else { t.caret.saturating_sub(1) };
-                t.all = false;
-                false
-            }
-            (Key::Right, _) => {
-                t.caret = if t.all { n } else { (t.caret + 1).min(n) };
-                t.all = false;
-                false
-            }
-            (Key::Home, _) => {
-                t.caret = 0;
-                t.all = false;
-                false
-            }
-            (Key::End, _) => {
-                t.caret = n;
-                t.all = false;
-                false
-            }
             (Key::Letter('a'), true) => {
-                t.all = true;
-                false
+                t.anchor = Some(0);
+                t.caret = n;
+                return true;
             }
-            (Key::Backspace | Key::Delete, _) if t.all => {
-                t.text.clear();
-                t.caret = 0;
-                t.all = false;
+            (Key::Letter('b'), true) => {
+                let on = !b.style_at(t.caret).is_some_and(|s| s.bold);
+                return self.style(v, &StyleChange::Bold(on));
+            }
+            (Key::Letter('i'), true) => {
+                let on = !b.style_at(t.caret).is_some_and(|s| s.italic);
+                return self.style(v, &StyleChange::Italic(on));
+            }
+            (Key::Backspace | Key::Delete, _) if sel.is_some() => {
+                if let (Some((a, e)), Some(b)) = (sel, t.block.as_mut()) {
+                    b.remove(a, e);
+                    t.caret = a;
+                }
                 true
             }
             (Key::Backspace, _) if t.caret > 0 => {
                 t.caret -= 1;
-                t.text.remove(t.caret);
+                if let Some(b) = t.block.as_mut() {
+                    b.remove(t.caret, t.caret + 1);
+                }
                 true
             }
             (Key::Delete, _) if t.caret < n => {
-                t.text.remove(t.caret);
+                if let Some(b) = t.block.as_mut() {
+                    b.remove(t.caret, t.caret + 1);
+                }
                 true
             }
             (Key::Backspace | Key::Delete, _) => false,
-            (Key::Enter | Key::Escape, _) => {
+            (Key::Enter, _) => {
+                if let (Some((a, e)), Some(b)) = (sel, t.block.as_mut()) {
+                    b.remove(a, e);
+                    t.caret = a;
+                }
+                if let Some(b) = t.block.as_mut() {
+                    t.caret = b.insert(t.caret, "\n");
+                }
+                true
+            }
+            (Key::Escape, _) => {
                 self.finish_typing(Some(v));
                 return true;
             }
             _ => return false,
         };
+        if let Some(t) = self.typing.as_mut() {
+            t.anchor = None;
+        }
         if changed {
             self.write(v);
         }
         true
     }
 
-    /// Write the typed text into the page.
-    fn write(&mut self, v: &mut ReaderView) -> bool {
-        let Some(t) = self.typing.clone() else {
+    /// Change the style of the selected text (all of the paragraph when nothing is
+    /// selected).
+    pub fn style(&mut self, v: &mut ReaderView, change: &StyleChange) -> bool {
+        let Some(t) = self.typing.as_mut() else {
             return false;
         };
-        let text: String = t.text.iter().collect();
-        let r = match t.new_at {
-            Some((at, size)) if t.ids.is_empty() => {
-                if text.is_empty() {
-                    return true;
-                }
-                if !t.grouped {
-                    v.doc_mut().begin_group("add text");
-                    if let Some(t) = self.typing.as_mut() {
-                        t.grouped = true;
-                    }
-                }
-                v.doc_mut().add_text(t.page, at, &text, size, [0, 0, 0])
-            }
-            _ => v.doc_mut().replace_text_runs(t.page, &t.ids, &text),
+        let range = t.selection().map_or(0..0, |(a, e)| a..e);
+        let page = t.page;
+        let Some(b) = t.block.as_mut() else {
+            return false;
         };
-        match r {
-            Ok(id) => {
-                v.invalidate_page(t.page);
-                self.cache = None;
-                let obj = v
-                    .doc_mut()
-                    .page_objects(t.page)
-                    .ok()
-                    .and_then(|o| o.get(id).cloned());
-                if let Some(t) = self.typing.as_mut() {
-                    t.ids = if text.is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![id]
-                    };
-                    if let Some(o) = obj.filter(|_| !text.is_empty()) {
-                        t.boxes = o.char_boxes.clone();
-                        t.boxes
-                            .resize(t.text.len(), [o.bbox[2], o.bbox[1], o.bbox[2], o.bbox[3]]);
-                        t.bbox = o.bbox;
-                    } else {
-                        t.boxes.clear();
-                        t.bbox = [t.bbox[0], t.bbox[1], t.bbox[0] + 2.0, t.bbox[3]];
-                    }
-                    if text.is_empty() && t.new_at.is_none() {
-                        // The line is gone; typing again writes a new run where it was.
-                        t.new_at = Some((
-                            [t.bbox[0], t.bbox[3] - (t.bbox[3] - t.bbox[1]) * 0.2],
-                            (t.bbox[3] - t.bbox[1]) / 1.2,
-                        ));
-                    }
-                }
-                true
-            }
-            Err(e) => {
-                self.status = Some(e);
-                true
-            }
+        match v.doc_mut().block_edit_style(b, range, change) {
+            Ok(()) => v.invalidate_page(page),
+            Err(e) => self.status = Some(e),
         }
+        true
+    }
+
+    /// Align the paragraph being typed into.
+    pub fn align(&mut self, v: &mut ReaderView, align: Align) -> bool {
+        let Some(b) = self.typing.as_mut().and_then(|t| t.block.as_mut()) else {
+            return false;
+        };
+        b.align = align;
+        self.write(v)
+    }
+
+    /// Style at the caret of the paragraph being typed into.
+    pub fn current_style(&self) -> Option<(bo_pdfread::RunStyle, Align)> {
+        let t = self.typing.as_ref()?;
+        let b = t.block.as_ref()?;
+        let at = t.selection().map_or(t.caret, |s| s.0 + 1);
+        Some((b.style_at(at)?.clone(), b.align))
+    }
+
+    /// Lay the paragraph out again and write it into the page.
+    fn write(&mut self, v: &mut ReaderView) -> bool {
+        let Some(t) = self.typing.as_mut() else {
+            return false;
+        };
+        let page = t.page;
+        let Some(b) = t.block.as_mut() else {
+            return false;
+        };
+        match v.doc_mut().block_edit_update(b) {
+            Ok(()) => v.invalidate_page(page),
+            Err(e) => self.status = Some(e),
+        }
+        true
     }
 
     /// Caret rectangle in window pixels.
     pub fn caret(&self, v: &ReaderView) -> Option<[f32; 4]> {
         let t = self.typing.as_ref()?;
-        let b = t.bbox;
-        let x = if t.caret == 0 {
-            t.boxes.first().map_or(b[0], |c| c[0])
-        } else {
-            t.boxes.get(t.caret - 1).map_or(b[2], |c| c[2])
+        let c = match &t.block {
+            Some(b) => b.caret_box(t.caret),
+            None => [t.bbox[0], t.bbox[1], t.bbox[0], t.bbox[3]],
         };
-        let r = v.doc_rect_to_window(t.page, [x, b[1], x, b[3]])?;
+        let r = v.doc_rect_to_window(t.page, c)?;
         Some([
             r[0].round(),
             r[1],
@@ -588,7 +738,8 @@ impl Editing {
             );
         };
         let soft = Rgba(accent.0, accent.1, accent.2, 140);
-        if let Some(h) = self.hover.filter(|h| !self.selected.contains(h)) {
+        let typing = self.typing.is_some();
+        if let Some(h) = self.hover.filter(|h| !self.selected.contains(h) && !typing) {
             if let Some(r) = list
                 .get(h)
                 .and_then(|it| v.doc_rect_to_window(page, it.bbox))
@@ -600,7 +751,7 @@ impl Editing {
             Some(Drag::Move { from, to }) => (to.0 - from.0, to.1 - from.1),
             _ => (0.0, 0.0),
         };
-        for &k in &self.selected {
+        for &k in self.selected.iter().filter(|_| !typing) {
             let Some(it) = list.get(k) else { continue };
             let b = it.bbox;
             let moved = [
@@ -646,7 +797,7 @@ impl Editing {
             }
         }
         if let Some(t) = &self.typing {
-            if let Some(r) = v.doc_rect_to_window(t.page, t.bbox) {
+            if let Some(r) = v.doc_rect_to_window(t.page, t.bbox()) {
                 outline(
                     p,
                     [r[0] - 2.0, r[1] - 1.0, r[2] + 4.0, r[3] + 2.0],
@@ -654,9 +805,11 @@ impl Editing {
                     1.0,
                 );
             }
-            if t.all {
-                if let Some(r) = v.doc_rect_to_window(t.page, t.bbox) {
-                    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0, 120, 215, 70));
+            if let (Some((a, e)), Some(b)) = (t.selection(), &t.block) {
+                for s in b.selection_rects(a, e) {
+                    if let Some(r) = v.doc_rect_to_window(t.page, s) {
+                        p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0, 120, 215, 70));
+                    }
                 }
             }
             if caret_on {
@@ -667,12 +820,4 @@ impl Editing {
         }
         p.pop_clip();
     }
-}
-
-/// Caret index nearest to `x` among character boxes.
-fn caret_at(boxes: &[[f32; 4]], x: f32) -> usize {
-    boxes
-        .iter()
-        .position(|b| x < f32::midpoint(b[0], b[2]))
-        .unwrap_or(boxes.len())
 }

@@ -607,6 +607,7 @@ impl PdfDocument {
         if self.changed.is_empty() {
             return Ok(self.bytes.to_vec());
         }
+        self.compress_changed();
         let out = crate::write::incremental(&self.bytes, &self.doc, &self.changed)?;
         self.saved(out.clone());
         Ok(out)

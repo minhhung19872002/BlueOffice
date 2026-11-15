@@ -16,6 +16,10 @@ mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;
 mod editor_edit;
+mod editor_format;
+#[cfg(test)]
+mod editor_format_tests;
+mod editor_icons;
 mod editor_organize;
 #[cfg(test)]
 mod editor_tests;

@@ -222,6 +222,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("prot.sign", Big("sign", "pdfEditor.signCertify", false)),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         ]),
+        crate::editor_format::TAB_FORMAT => return crate::editor_format::format_items(),
         _ => {
             v.clear();
             v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -313,7 +314,7 @@ enum Ask {
 
 /// Window contents of BlueEditor.
 pub struct EditorWindow {
-    r: ReaderWindow,
+    pub(crate) r: ReaderWindow,
     org: Organize,
     tool: Option<EditTool>,
     dialog: Option<(Dialog, Ask)>,
@@ -323,7 +324,9 @@ pub struct EditorWindow {
     /// Pointer position (window pixels).
     pointer: (f32, f32),
     /// Edit Text / Edit Object / Add Text state.
-    edit: crate::editor_edit::Editing,
+    pub(crate) edit: crate::editor_edit::Editing,
+    /// Ribbon tab shown before the Format tab appeared.
+    pub(crate) format_before: Option<usize>,
     /// Caret shown (blink phase).
     caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -356,6 +359,7 @@ impl EditorWindow {
             panel_before: None,
             pointer: (0.0, 0.0),
             edit: crate::editor_edit::Editing::default(),
+            format_before: None,
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -596,6 +600,12 @@ impl EditorWindow {
         }
         redraw |= self.drain(m);
         self.sync();
+        self.sync_format(m);
+        if redraw && self.edit.typing.is_some() {
+            if let Some(s) = self.format_status() {
+                self.r.set_status(&s);
+            }
+        }
         redraw
     }
 
@@ -700,7 +710,7 @@ impl EditorWindow {
             self.choose_option(i);
             return;
         }
-        if self.action(cmd, m) {
+        if self.action(cmd, m) || self.format_command(cmd) {
             return;
         }
         match cmd {

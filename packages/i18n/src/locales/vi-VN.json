@@ -7068,7 +7068,8 @@
       "edit": "Chỉnh sửa",
       "organize": "Sắp xếp",
       "form": "Biểu mẫu",
-      "protect": "Bảo vệ"
+      "protect": "Bảo vệ",
+      "format": "Định dạng"
     },
     "editText": "Sửa chữ",
     "editObject": "Sửa đối tượng",
@@ -7127,7 +7128,29 @@
     "signLocation": "Nơi ký",
     "signed": "Đã ký",
     "converted": "Đã chuyển đổi",
-    "untitled": "Chưa đặt tên"
+    "untitled": "Chưa đặt tên",
+    "font": "Phông chữ",
+    "fontSize": "Cỡ chữ",
+    "fontColor": "Màu chữ",
+    "bold": "Đậm",
+    "italic": "Nghiêng",
+    "alignLeft": "Căn trái",
+    "alignCenter": "Căn giữa",
+    "alignRight": "Căn phải",
+    "justify": "Căn đều",
+    "done": "Xong",
+    "serif": "Có chân (Tinos)",
+    "sans": "Không chân (Liberation Sans)",
+    "colors": {
+      "black": "Đen",
+      "gray": "Xám",
+      "red": "Đỏ",
+      "orange": "Cam",
+      "green": "Xanh lá",
+      "blue": "Xanh dương",
+      "purple": "Tím",
+      "white": "Trắng"
+    }
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

@@ -906,6 +906,54 @@ pub enum SheetCommand {
         /// Bottom-right anchor cell `[row, col]`.
         to: [u32; 2],
     },
+    /// The data a chart plots (Select Data Source): `{ range, byRow, series, categories }`.
+    ChartData {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+    },
+    /// Changes the data a chart plots: a whole `range` (series by row or column), or the
+    /// `series` list; `categories` sets every series' category labels. One undo step.
+    SetChartData {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+        /// Chart data range (`=Sheet1!$A$1:$C$5`).
+        #[serde(default)]
+        range: Option<String>,
+        /// Series in rows (`true`) or columns.
+        #[serde(default)]
+        by_row: Option<bool>,
+        /// Series references in order.
+        #[serde(default)]
+        series: Option<Vec<super::chart_data_cmd::SeriesSpec>>,
+        /// Category (horizontal axis) labels reference for every series.
+        #[serde(default)]
+        categories: Option<String>,
+    },
+    /// Switch Row/Column: the chart's series become its categories and back.
+    SwitchRowColumn {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+    },
+    /// Move Chart: onto sheet `to` (same anchor) or onto a new sheet `newSheet` placed before
+    /// the chart's sheet. Answers `{ sheet, index }` of the moved chart.
+    MoveChartTo {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// 0-based index of the chart in the sheet.
+        index: usize,
+        /// Destination sheet.
+        #[serde(default)]
+        to: Option<usize>,
+        /// Name of a new sheet for the chart.
+        #[serde(default)]
+        new_sheet: Option<String>,
+    },
     /// Finds cells matching a query.
     Find {
         /// Text to look for.
@@ -2734,6 +2782,9 @@ impl SheetEngine {
             | C::SetChartMap { sheet, .. }
             | C::DeleteChart { sheet, .. }
             | C::MoveChart { sheet, .. }
+            | C::SetChartData { sheet, .. }
+            | C::SwitchRowColumn { sheet, .. }
+            | C::MoveChartTo { sheet, .. }
             | C::InsertFormControl { sheet, .. }
             | C::FormatFormControl { sheet, .. }
             | C::MoveFormControl { sheet, .. }
@@ -4810,6 +4861,29 @@ impl SheetEngine {
                     }
                 })
             }
+            C::ChartData { sheet, index } => self.chart_data(sheet, index),
+            C::SetChartData {
+                sheet,
+                index,
+                range,
+                by_row,
+                series,
+                categories,
+            } => self.set_chart_data(
+                sheet,
+                index,
+                range.as_deref(),
+                by_row,
+                series.as_deref(),
+                categories.as_deref(),
+            ),
+            C::SwitchRowColumn { sheet, index } => self.switch_row_column(sheet, index),
+            C::MoveChartTo {
+                sheet,
+                index,
+                to,
+                new_sheet,
+            } => self.move_chart_to(sheet, index, to, new_sheet.as_deref()),
             C::Find {
                 query,
                 match_case,
@@ -5834,7 +5908,7 @@ fn locked_cells_unchanged(
 
 /// Moves a sheet, keeping sheet-scoped names (`localSheetId`, §18.2.5) and the
 /// pivot caches pointing at the same sheets.
-fn move_sheet(wb: &mut Workbook, from: usize, to: usize) {
+pub(super) fn move_sheet(wb: &mut Workbook, from: usize, to: usize) {
     let ws = wb.sheets.remove(from);
     wb.sheets.insert(to, ws);
     let map = |i: usize| -> usize {

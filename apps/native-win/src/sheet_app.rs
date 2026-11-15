@@ -4,8 +4,8 @@ use bo_engine::{SheetEngine, SystemFontIndex};
 use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, GridMove, GridRing, GridStore, Input, NcHit, PaintHash, Painter, Request, SheetView,
-    SheetWindow, TextMeasure, TextStyle,
+    Font, GridBand, GridMove, GridRing, GridStore, Input, NcHit, PaintHash, Painter, Request,
+    SheetView, SheetWindow, TextMeasure, TextStyle,
 };
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -82,7 +82,10 @@ pub fn run() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         "Book1.xlsx".into()
     };
-    let view = SheetWindow::new(SheetView::new(engine), &locale, &name);
+    let mut view = SheetWindow::new(SheetView::new(engine), &locale, &name);
+    // BLUEOFFICE_SHEET_BANDS=0 lays out the whole viewport on each scroll (to compare).
+    view.view_mut()
+        .set_band_lists(std::env::var("BLUEOFFICE_SHEET_BANDS").as_deref() != Ok("0"));
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -184,6 +187,52 @@ impl GridStore for Store<'_> {
                     *self.ring = before;
                     self.update(list, engine, scale)?;
                     return Ok(true);
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    fn turn_bands(
+        &mut self,
+        engine: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[GridBand],
+        size: (u32, u32),
+    ) -> Result<bool, String> {
+        let Some(bitmap) = self.grid.as_ref() else {
+            return Ok(false);
+        };
+        if !(self.blit && self.use_ring) || (bitmap.width, bitmap.height) != size {
+            return Ok(false);
+        }
+        let before = *self.ring;
+        self.ring.turn(shift);
+        for band in bands {
+            for (r, at) in self.ring.split(band.rect) {
+                // The band's list starts at its origin in the image.
+                let local = [r[0] - band.origin[0], r[1] - band.origin[1], r[2], r[3]];
+                let moved = [
+                    at[0] as i32 - local[0] as i32,
+                    at[1] as i32 - local[1] as i32,
+                ];
+                if self
+                    .device
+                    .draw_page_at(
+                        &band.list,
+                        engine.fonts(),
+                        scale,
+                        &|_| None,
+                        local,
+                        moved,
+                        bitmap,
+                    )
+                    .is_err()
+                {
+                    // The caller lays out the whole viewport and turns the ring again.
+                    *self.ring = before;
+                    return Ok(false);
                 }
             }
         }

@@ -50,6 +50,33 @@ pub trait GridStore {
         let _ = (list, engine, scale, shift, bands);
         Ok(false)
     }
+
+    /// [`GridStore::turn`] with a display list laid out for each newly exposed band only
+    /// (round 27: the rest of the viewport is not laid out again). `size` is the whole
+    /// image's size in device pixels. `Ok(false)`: not supported (the caller lays out the
+    /// whole viewport and uses [`GridStore::turn`]).
+    fn turn_bands(
+        &mut self,
+        engine: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[GridBand],
+        size: (u32, u32),
+    ) -> Result<bool, String> {
+        let _ = (engine, scale, shift, bands, size);
+        Ok(false)
+    }
+}
+
+/// A newly exposed band of the grid image with its own display list.
+#[derive(Debug, Clone)]
+pub struct GridBand {
+    /// The band in image pixels (left, top, width, height).
+    pub rect: [u32; 4],
+    /// Image pixel of the list's origin (the list covers the band and a small margin).
+    pub origin: [u32; 2],
+    /// Display list of the band (points, origin at `origin`).
+    pub list: PageList,
 }
 
 /// A grid image kept as a ring: image pixel (x, y) is stored at ((x + px) mod w,
@@ -215,6 +242,13 @@ struct Editor {
     /// Pieces of a formula's text, references in their frame colour (`None`: the cell's
     /// colour): x offset from the text start, byte range of `text`, colour.
     runs: Vec<(f32, std::ops::Range<usize>, Option<Rgba>)>,
+    /// AutoComplete: the text from this byte offset is the suggested rest of an entry of the
+    /// column (shown selected; typing replaces it, Backspace removes it, Enter keeps it).
+    auto: Option<usize>,
+    /// The entry suggested (its letter case is kept when the suggestion is accepted).
+    auto_entry: String,
+    /// Width of the text before the suggestion.
+    auto_x: f32,
 }
 
 /// Placed column or row: index, first pixel (window), pixel of its closing gridline.
@@ -236,6 +270,9 @@ enum Drag {
     RowEdge(u32, f32),
     /// Dragging the fill handle of the selection (its bounds when the drag began).
     Fill(u32, u32, u32, u32),
+    /// Moving the selection by its border (grabbed at a cell): the cells go where the grey
+    /// frame (`fill_to`) is on release, as the reference's drag-and-drop.
+    Move(u32, u32),
     /// Pointing at cells for a formula being typed: the cell the drag began on.
     Point(u32, u32),
 }
@@ -373,6 +410,8 @@ pub struct SheetView {
     grid_dirty: bool,
     /// The grid image must be drawn whole (cells, size or scale changed), not only scrolled.
     full_redraw: bool,
+    /// Scrolling lays out only the exposed rows (set_band_lists).
+    band_lists: bool,
     /// Scroll bar figures of both axes and what they were computed for: the sheet's content
     /// size scans every cell, so it is only redone after edits, not per scroll step.
     bar_cache: Option<(BarKey, BarFigures)>,
@@ -457,6 +496,7 @@ impl SheetView {
             edit: None,
             grid_dirty: true,
             full_redraw: true,
+            band_lists: true,
             bar_cache: None,
             content_cache: None,
             content_gen: 0,
@@ -645,6 +685,13 @@ impl SheetView {
 
     /// Lay out the visible headers, selection rectangles and the active cell's details.
     fn refresh(&mut self) {
+        self.refresh_with(true);
+    }
+
+    /// [`Self::refresh`]; scrolling (`details` false) keeps the active cell's details, whose
+    /// reading costs more than the layout (1.3 ms of a 1.5 ms wheel notch on a 10 000-row
+    /// sheet, round 27).
+    fn refresh_with(&mut self, details: bool) {
         // Row heights in whole pixels at this scale, as the reference shows them.
         self.engine.set_display_scale(Some(f64::from(self.k())));
         let vp = self.viewport();
@@ -740,7 +787,9 @@ impl SheetView {
         );
         self.sel_rect = sel;
         self.active_rect = act;
-        self.load_details();
+        if details {
+            self.load_details();
+        }
     }
 
     fn load_details(&mut self) {
@@ -1226,7 +1275,7 @@ impl SheetView {
         }
         self.scroll = s;
         self.grid_dirty = true;
-        self.refresh();
+        self.refresh_with(false);
         true
     }
 
@@ -1300,7 +1349,7 @@ impl SheetView {
         }
         self.scroll = s;
         self.grid_dirty = true;
-        self.refresh();
+        self.refresh_with(false);
         true
     }
 
@@ -1318,6 +1367,9 @@ impl SheetView {
             point: None,
             point_cells: None,
             runs: Vec::new(),
+            auto: None,
+            auto_entry: String::new(),
+            auto_x: 0.0,
         });
         self.measure_edit(m);
     }
@@ -1482,19 +1534,107 @@ impl SheetView {
                     runs.push((x, at..e.text.len(), None));
                 }
             }
+            let auto_x = e
+                .auto
+                .and_then(|a| e.text.get(..a))
+                .map_or(0.0, |s| m.measure_font(s, &font).0);
             if let Some(e) = self.edit.as_mut() {
                 e.caret_x = caret_x;
                 e.text_w = text_w;
                 e.runs = runs;
+                e.auto_x = auto_x;
             }
         }
     }
 
+    /// AutoComplete as the reference: when the typed text (not a formula or a number) starts
+    /// exactly one longer text entry of the column's block of data, the rest of that entry is
+    /// suggested after the caret.
+    fn autocomplete(&mut self, m: &dyn TextMeasure) {
+        let Some(e) = self.edit.as_ref() else { return };
+        if !e.typed
+            || e.caret != e.text.len()
+            || e.text.is_empty()
+            || e.text.starts_with('=')
+            || e.text.contains('\n')
+            || e.text.trim().parse::<f64>().is_ok()
+        {
+            return;
+        }
+        let typed = e.text.to_lowercase();
+        let (row, col) = self.active;
+        let Some(ws) = self
+            .engine
+            .workbook()
+            .and_then(|w| w.sheets.get(self.sheet))
+        else {
+            return;
+        };
+        let text_at = |r: u32| -> Option<String> {
+            let c = ws.cell(r, col)?;
+            match &c.value {
+                bo_model::sheet::CellValue::Text(s) => Some(s.clone()),
+                bo_model::sheet::CellValue::Empty => None,
+                other => Some(other.as_text().unwrap_or_default()),
+            }
+        };
+        // The column's contiguous entries above and below the active cell.
+        let mut entries = Vec::new();
+        let mut r = row;
+        while r > 0 {
+            r -= 1;
+            match text_at(r) {
+                Some(t) => entries.push(t),
+                None => break,
+            }
+        }
+        let mut r = row + 1;
+        while let Some(t) = text_at(r) {
+            entries.push(t);
+            r += 1;
+            if entries.len() > 10_000 {
+                break;
+            }
+        }
+        let mut found: Option<String> = None;
+        for t in entries {
+            let low = t.to_lowercase();
+            if low.len() > typed.len() && low.starts_with(&typed) {
+                match &found {
+                    Some(f) if f.to_lowercase() != low => return,
+                    Some(_) => {}
+                    None => found = Some(t),
+                }
+            }
+        }
+        let Some(full) = found else { return };
+        // The typed text, then the rest of the entry (accepted in the entry's letter case).
+        let Some(rest) = full
+            .char_indices()
+            .nth(e.text.chars().count())
+            .map(|(i, _)| full[i..].to_owned())
+        else {
+            return;
+        };
+        if let Some(e) = self.edit.as_mut() {
+            let a = e.text.len();
+            e.text.push_str(&rest);
+            e.auto = Some(a);
+            e.auto_entry = full;
+            e.caret = a;
+        }
+        self.measure_edit(m);
+    }
+
     /// Commit the editor's text to the active cell; `true` when something was written.
     pub fn commit(&mut self) -> bool {
-        let Some(e) = self.edit.take() else {
+        let Some(mut e) = self.edit.take() else {
             return false;
         };
+        // An accepted AutoComplete suggestion enters the entry as the column has it.
+        if e.auto.is_some() && !e.auto_entry.is_empty() {
+            e.text = std::mem::take(&mut e.auto_entry);
+        }
         let (r, c) = self.active;
         if e.text == self.details.1 && !e.typed {
             return false;
@@ -1723,6 +1863,21 @@ impl SheetView {
         let typed = self.edit.as_ref()?.typed;
         let pointing = self.pointing();
         let e = self.edit.as_mut()?;
+        // Backspace removes an AutoComplete suggestion; Enter / Tab accept it (commit);
+        // other keys keep it as typed text.
+        if let Some(a) = e.auto {
+            if k == Key::Backspace {
+                e.auto = None;
+                e.text.truncate(a);
+                e.caret = a;
+                self.measure_edit(m);
+                return Some(true);
+            }
+            if !matches!(k, Key::Enter | Key::Tab) {
+                e.auto = None;
+                e.caret = e.text.len();
+            }
+        }
         match k {
             Key::Escape => {
                 self.edit = None;
@@ -1798,8 +1953,14 @@ impl SheetView {
                 }
                 if let Some(e) = self.edit.as_mut() {
                     e.preedit.clear();
+                    // Typing replaces the suggested rest of an entry.
+                    if let Some(a) = e.auto.take() {
+                        e.text.truncate(a);
+                        e.caret = a;
+                    }
                 }
                 self.edit_insert(&s, m);
+                self.autocomplete(m);
                 true
             }
             Input::Preedit(s) => {
@@ -1834,6 +1995,7 @@ impl SheetView {
                     Some(Drag::ColEdge(c, origin)) => self.resize_edge(false, c, origin, x),
                     Some(Drag::RowEdge(r, origin)) => self.resize_edge(true, r, origin, y),
                     Some(Drag::Fill(r0, c0, r1, c1)) => self.finish_fill((r0, c0, r1, c1)),
+                    Some(Drag::Move(..)) => self.finish_move(),
                     Some(Drag::Point(..)) => {
                         self.measure_edit(m);
                         true
@@ -1989,6 +2151,90 @@ impl SheetView {
         (x - r).abs() <= near && (y - b).abs() <= near
     }
 
+    /// Within a few pixels of the selection's border (not its fill handle).
+    fn on_sel_border(&self, x: f32, y: f32) -> bool {
+        let Some([l, t, r, b]) = self.sel_rect else {
+            return false;
+        };
+        if self.object_selected || self.on_fill_handle(x, y) || self.whole_lines().is_some() {
+            return false;
+        }
+        let near = (3.0 * self.scale / 1.25).round().max(2.0);
+        let inside_x = x >= l - near && x <= r + near;
+        let inside_y = y >= t - near && y <= b + near;
+        let on_v = inside_y && ((x - l).abs() <= near || (x - r).abs() <= near);
+        let on_h = inside_x && ((y - t).abs() <= near || (y - b).abs() <= near);
+        on_v || on_h
+    }
+
+    /// Drag-and-drop of the selection ended: move the cells to the grey frame (cut and
+    /// paste: references to them follow).
+    fn finish_move(&mut self) -> bool {
+        let Some(to) = self.fill_to.take() else {
+            return false;
+        };
+        let from = self.range_bounds();
+        if to == from {
+            return true;
+        }
+        let rng = self.rng();
+        if !self.run(json!({ "cmd": "copy", "range": rng, "cut": true })) {
+            return false;
+        }
+        let ok = self.run(json!({ "cmd": "paste", "row": to.0, "col": to.1 }));
+        if ok {
+            let off = (
+                i64::from(to.0) - i64::from(from.0),
+                i64::from(to.1) - i64::from(from.1),
+            );
+            let mv = |v: u32, d: i64| (i64::from(v) + d).max(0) as u32;
+            self.anchor = (to.0, to.1);
+            self.extent = (to.2, to.3);
+            self.active = (mv(self.active.0, off.0), mv(self.active.1, off.1));
+            self.copied = None;
+            self.refresh();
+        }
+        ok
+    }
+
+    /// Double click on the fill handle: AutoFill down to the last row of the data in the
+    /// column left of the selection (else right of it), as the reference does.
+    fn fill_to_neighbour(&mut self) -> bool {
+        let (r0, c0, r1, c1) = self.range_bounds();
+        let end = {
+            let Some(ws) = self
+                .engine
+                .workbook()
+                .and_then(|w| w.sheets.get(self.sheet))
+            else {
+                return false;
+            };
+            let filled = |r: u32, c: u32| {
+                ws.cell(r, c)
+                    .is_some_and(|x| !matches!(x.value, bo_model::sheet::CellValue::Empty))
+            };
+            let end_of = |c: u32| {
+                let mut r = r1;
+                while r + 1 < MAX_ROWS && filled(r + 1, c) {
+                    r += 1;
+                }
+                r
+            };
+            if c0 > 0 && filled(r1 + 1, c0 - 1) {
+                end_of(c0 - 1)
+            } else if c1 + 1 < MAX_COLS && filled(r1 + 1, c1 + 1) {
+                end_of(c1 + 1)
+            } else {
+                r1
+            }
+        };
+        if end == r1 {
+            return false;
+        }
+        self.fill_to = Some((r0, c0, end, c1));
+        self.finish_fill((r0, c0, r1, c1))
+    }
+
     /// The fill handle drag ended over `to`: AutoFill the selection into it.
     fn finish_fill(&mut self, from: (u32, u32, u32, u32)) -> bool {
         let Some(to) = self.fill_to.take() else {
@@ -2062,6 +2308,8 @@ impl SheetView {
         match self.header_edge(x, y) {
             Some((false, ..)) => 1,
             Some((true, ..)) => 2,
+            // The selection's border moves it (four-way arrow).
+            None if self.edit.is_none() && self.on_sel_border(x, y) => 6,
             None => {
                 let (gx, gy) = self.grid_origin();
                 u8::from(x < gx || y < gy) * 3
@@ -2085,9 +2333,14 @@ impl SheetView {
         if self.edit.is_some() {
             self.commit();
         }
-        // The fill handle drags a series / copy of the selection.
+        // The fill handle drags a series / copy of the selection; a double click fills down
+        // as far as the column beside it has data.
         if !shift && self.on_fill_handle(x, y) {
             let (r0, c0, r1, c1) = self.range_bounds();
+            if count >= 2 {
+                self.drag = None;
+                return self.fill_to_neighbour();
+            }
             self.drag = Some(Drag::Fill(r0, c0, r1, c1));
             self.fill_to = Some((r0, c0, r1, c1));
             return true;
@@ -2105,6 +2358,14 @@ impl SheetView {
             } else {
                 Drag::ColEdge(index, line)
             });
+            return true;
+        }
+        // The selection's border drags the cells somewhere else.
+        if !shift && self.on_sel_border(x, y) {
+            let (r0, c0, r1, c1) = self.range_bounds();
+            let at = self.cell_at(x.max(gx), y.max(gy));
+            self.drag = Some(Drag::Move(at.0, at.1));
+            self.fill_to = Some((r0, c0, r1, c1));
             return true;
         }
         let (r, c) = self.cell_at(x, y);
@@ -2203,6 +2464,16 @@ impl SheetView {
                 self.fill_to = Some(to);
                 return changed || scrolled;
             }
+            Drag::Move(gr, gc) => {
+                let (r0, c0, r1, c1) = self.range_bounds();
+                let dr = (i64::from(r) - i64::from(gr)).max(-i64::from(r0));
+                let dc = (i64::from(c) - i64::from(gc)).max(-i64::from(c0));
+                let mv = |v: u32, d: i64| (i64::from(v) + d) as u32;
+                let to = (mv(r0, dr), mv(c0, dc), mv(r1, dr), mv(c1, dc));
+                let changed = self.fill_to != Some(to);
+                self.fill_to = Some(to);
+                return changed || scrolled;
+            }
             Drag::Point(ar, ac) => {
                 let before = self.edit.as_ref().map(|e| e.text.clone());
                 self.point_ref((ar, ac), (r, c), m);
@@ -2251,6 +2522,53 @@ impl SheetView {
         let vp = self.viewport();
         let show_grid = self.show_grid;
         let show_formulas = self.show_formulas;
+        let k = self.k();
+        // A vertical scroll that turns the ring: lay out only the exposed rows (with two
+        // pixels around them for the lines on their edges).
+        if self.band_lists && !self.full_redraw {
+            if let Some((_, bands, Some(shift))) = self
+                .drawn
+                .and_then(|from| self.blit_plan(from, (vp.width as f32, vp.height as f32), k))
+            {
+                if shift[0] == 0 && !bands.is_empty() {
+                    let w = (vp.width as f32 * k).ceil() as u32;
+                    let h = (vp.height as f32 * k).ceil() as u32;
+                    let mut lists = Vec::new();
+                    for b in &bands {
+                        let y0 = b[1].saturating_sub(2);
+                        let y1 = (b[1] + b[3] + 2).min(h);
+                        let band_vp = Viewport {
+                            scroll_y: vp.scroll_y + f64::from(y0) / f64::from(k),
+                            height: f64::from(y1 - y0) / f64::from(k),
+                            ..vp
+                        };
+                        let list = self
+                            .engine
+                            .render_viewport_with(self.sheet, &band_vp, |o| {
+                                o.headers = Some(false);
+                                o.gridline_color = GRID_LINE;
+                                if !show_grid {
+                                    o.gridlines = Some(false);
+                                }
+                                if show_formulas {
+                                    o.show_formulas = Some(true);
+                                }
+                            })
+                            .map_err(|e| e.to_string())?;
+                        lists.push(GridBand {
+                            rect: *b,
+                            origin: [0, y0],
+                            list,
+                        });
+                    }
+                    if store.turn_bands(&self.engine, k, shift, &lists, (w, h))? {
+                        self.drawn = Some(self.scroll);
+                        self.grid_dirty = false;
+                        return Ok(());
+                    }
+                }
+            }
+        }
         let list = self
             .engine
             .render_viewport_with(self.sheet, &vp, |o| {
@@ -2264,11 +2582,11 @@ impl SheetView {
                 }
             })
             .map_err(|e| e.to_string())?;
-        let k = self.k();
         let plan = if self.full_redraw {
             None
         } else {
-            self.drawn.and_then(|from| self.blit_plan(from, &list, k))
+            self.drawn
+                .and_then(|from| self.blit_plan(from, (list.width, list.height), k))
         };
         match plan {
             Some((moves, bands, _)) if moves.is_empty() && bands.is_empty() => {}
@@ -2297,11 +2615,11 @@ impl SheetView {
     fn blit_plan(
         &self,
         from: (f64, f64),
-        list: &PageList,
+        (lw, lh): (f32, f32),
         k: f32,
     ) -> Option<(Vec<GridMove>, Vec<[u32; 4]>, Option<[i64; 2]>)> {
-        let w = (list.width * k).ceil() as i64;
-        let h = (list.height * k).ceil() as i64;
+        let w = (lw * k).ceil() as i64;
+        let h = (lh * k).ceil() as i64;
         let whole = |v: f64| {
             let r = v.round();
             ((v - r).abs() < 0.01).then_some(r as i64)
@@ -2360,6 +2678,12 @@ impl SheetView {
         bands.push(rect(band, n));
         let shift = (fixed == 0).then_some([dx, dy]);
         Some((moves, bands, shift))
+    }
+
+    /// Lay out only the newly exposed rows when the grid image turns (default on; off
+    /// lays out the whole viewport, for measurements).
+    pub fn set_band_lists(&mut self, on: bool) {
+        self.band_lists = on;
     }
 
     /// The grid image must be drawn again (text rendering or device changed).
@@ -2580,6 +2904,21 @@ impl SheetView {
             }
         }
 
+        // An AutoComplete suggestion is shown selected.
+        if let Some(a) = e.auto {
+            let x0 = (l + 1.0 + pad + e.auto_x).round();
+            let x1 = (l + 1.0 + pad + e.text_w).round();
+            p.fill_rect(
+                x0,
+                (t + 3.0).round(),
+                x1 - x0,
+                (b - t - 5.0).max(1.0),
+                Rgba(0x00, 0x78, 0xd7, 255),
+            );
+            if let Some(rest) = e.text.get(a..) {
+                p.text_font(rest, x0, ty, &font, Rgba(255, 255, 255, 255));
+            }
+        }
         let cx = (l + 1.0 + pad + e.caret_x).round();
         p.fill_rect(
             cx,

@@ -4160,7 +4160,23 @@
   ],
   "sheet.deleteCells": [
    {
-    "d": "m6 9 6 6 6-6",
+    "d": "M10 11v6",
+    "stroke": "current"
+   },
+   {
+    "d": "M14 11v6",
+    "stroke": "current"
+   },
+   {
+    "d": "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6",
+    "stroke": "current"
+   },
+   {
+    "d": "M3 6h18",
+    "stroke": "current"
+   },
+   {
+    "d": "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
     "stroke": "current"
    }
   ],
@@ -4434,7 +4450,11 @@
   ],
   "sheet.insertCells": [
    {
-    "d": "m6 9 6 6 6-6",
+    "d": "M5 12h14",
+    "stroke": "current"
+   },
+   {
+    "d": "M12 5v14",
     "stroke": "current"
    }
   ],

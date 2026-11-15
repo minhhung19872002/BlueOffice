@@ -450,14 +450,16 @@ impl Renderer<'_> {
                 self.fill_rect(rect, color);
             }
             if let Some(bar) = f.bar {
-                // Inset 1.5 px at the top / left and 2 px at the right / bottom (the bar
-                // lines up with a desktop spreadsheet's at 125 %).
-                let (lead, trail) = (1.5 * PT_PER_PX, 2.0 * PT_PER_PX);
+                // Inset 1 px at the left and top, 2 px at the right and 2.4 px at the
+                // bottom (the bar lines up with a desktop spreadsheet's at 125 %: one pixel
+                // from the cell's left and top edges, three above the gridline below).
+                let (left, right) = (PT_PER_PX, 2.0 * PT_PER_PX);
+                let (top, bottom) = (PT_PER_PX, 2.4 * PT_PER_PX);
                 let inner = Rect {
-                    x: rect.x + lead,
-                    y: rect.y + lead,
-                    w: (rect.w - lead - trail).max(0.0),
-                    h: (rect.h - lead - trail).max(0.0),
+                    x: rect.x + left,
+                    y: rect.y + top,
+                    w: (rect.w - left - right).max(0.0),
+                    h: (rect.h - top - bottom).max(0.0),
                 };
                 self.out.extend(crate::cf_draw::data_bar(&bar, inner));
             }

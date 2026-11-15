@@ -1394,7 +1394,8 @@ impl<'s, 'a> Interp<'s, 'a> {
                     })
                 });
                 if let Some(img) = img {
-                    self.place_image(key, img);
+                    let smooth = interpolate(doc, &s.dict);
+                    self.place_image(key, img, smooth);
                 }
             }
             Ok(b"Form") => {
@@ -1503,16 +1504,24 @@ impl<'s, 'a> Interp<'s, 'a> {
             fill,
         });
         if let Some(img) = img {
-            self.place_image(key, Arc::new(img));
+            let smooth = interpolate(self.doc(), d);
+            self.place_image(key, Arc::new(img), smooth);
         }
     }
 
     /// Draw a picture into the unit square of the current matrix.
-    fn place_image(&mut self, key: String, img: Arc<Image>) {
+    /// Without `/Interpolate true` (§8.9.5.3) the image id ends in [`PIXELATED`]: backends
+    /// enlarge it pixel by pixel, as other readers do.
+    fn place_image(&mut self, key: String, img: Arc<Image>, smooth: bool) {
         let t = mul([1.0, 0.0, 0.0, -1.0, 0.0, 1.0], self.gs.ctm);
         if !t.iter().all(|v| v.is_finite()) {
             return;
         }
+        let key = if smooth {
+            key
+        } else {
+            format!("{key}{PIXELATED}")
+        };
         self.out.images.insert(key.clone(), img);
         let alpha = self.gs.fill_alpha;
         if alpha < 0.999 {
@@ -1882,6 +1891,19 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.out.commands.push(Command::PopClip);
         self.gs.clips = self.gs.clips.saturating_sub(1);
     }
+}
+
+/// Suffix of the id of an image that is enlarged without smoothing (no `/Interpolate true`).
+pub const PIXELATED: &str = "#px";
+
+/// `/Interpolate` (or `/I` inline) of an image dictionary.
+fn interpolate(doc: &Document, d: &Dictionary) -> bool {
+    d.get(b"Interpolate")
+        .or_else(|_| d.get(b"I"))
+        .ok()
+        .and_then(|o| doc.dereference(o).ok().map(|(_, o)| o))
+        .and_then(|o| o.as_bool().ok())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

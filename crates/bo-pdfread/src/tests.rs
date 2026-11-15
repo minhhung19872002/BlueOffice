@@ -185,6 +185,8 @@ fn images_clips_forms_and_annotation_appearance() {
     });
     let (x, y, w, h, id) = img.expect("image");
     assert_eq!((x, y, w, h), (10.0, 70.0, 40.0, 20.0));
+    // No /Interpolate: enlarged without smoothing.
+    assert!(id.ends_with(crate::interp::PIXELATED));
     let pic = &p.images[&id];
     assert_eq!((pic.width, pic.height), (2, 1));
     assert_eq!(&pic.pixels[..4], &[255, 0, 0, 255]);

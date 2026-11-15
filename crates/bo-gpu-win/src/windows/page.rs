@@ -1696,11 +1696,21 @@ impl Device {
                                         right: iw * l + iw * (1.0 - l - r).max(0.0001),
                                         bottom: ih * t + ih * (1.0 - t - b).max(0.0001),
                                     };
+                                    // PDF images without /Interpolate (id ending in `#px`,
+                                    // bo-pdfread) enlarged twice or more show their pixels.
+                                    let m = &local;
+                                    let device_w = w * m.M11.hypot(m.M12) * pixels_per_point;
+                                    let pixelated = image.ends_with("#px")
+                                        && device_w >= 2.0 * (source.right - source.left);
                                     self.context.DrawBitmap(
                                         bitmap,
                                         Some(&dest),
                                         alpha,
-                                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+                                        if pixelated {
+                                            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR
+                                        } else {
+                                            D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC
+                                        },
                                         Some(&source),
                                         None,
                                     );

@@ -179,6 +179,11 @@ pub struct Ribbon {
     /// Height of the group label row, from the measured label text (it grows with the
     /// platform's interface text size, as the reference ribbon does).
     label_row: f32,
+    /// Extra height of the command band (logical px) for windows whose reference ribbon is
+    /// taller than BlueDoc's (BlueSlide); 0 keeps BlueDoc's metrics.
+    band_extra: f32,
+    /// Fixed width (logical px) of some large buttons (gallery-like tiles), by command id.
+    large_w: fn(&str) -> Option<f32>,
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
 }
@@ -513,6 +518,8 @@ impl Ribbon {
             glyph_size: [(0.0, 0.0); GLYPH_BUTTONS.len()],
             previews: Vec::new(),
             label_row: 0.0,
+            band_extra: 0.0,
+            large_w: |_| None,
             enabled: commands::enabled,
         }
     }
@@ -520,6 +527,18 @@ impl Ribbon {
     /// Use `rule` to decide which commands are enabled (dimmed otherwise).
     pub(crate) fn with_enabled(mut self, rule: fn(&str, &FormatState) -> bool) -> Self {
         self.enabled = rule;
+        self
+    }
+
+    /// Make the command band `logical` px taller than BlueDoc's (per window).
+    pub(crate) fn with_band_extra(mut self, logical: f32) -> Self {
+        self.band_extra = logical.max(0.0);
+        self
+    }
+
+    /// Give some large buttons a fixed width (logical px), as gallery tiles.
+    pub(crate) fn with_large_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
+        self.large_w = rule;
         self
     }
 
@@ -535,7 +554,7 @@ impl Ribbon {
     /// Height of the band holding the group commands (three small-button rows high, as
     /// on the reference ribbon; two-row groups are centred in it).
     fn band_h(&self) -> f32 {
-        self.px(80.0)
+        self.px(80.0 + self.band_extra)
     }
 
     /// Height of the group label row.
@@ -699,7 +718,10 @@ impl Ribbon {
                                 _ => "",
                             };
                             let lw = self.measure_label(text, strings, id);
-                            let w = self.px(52.0).max(lw + self.px(14.0));
+                            let w = match (self.large_w)(id) {
+                                Some(fixed) => self.px(fixed),
+                                None => self.px(52.0).max(lw + self.px(14.0)),
+                            };
                             placed.push(Placed::Item(
                                 *item,
                                 Rect {

@@ -19,6 +19,9 @@ mod ruler;
 mod sheet_view;
 mod sheet_window;
 mod shell;
+mod slide_comments;
+mod slide_ribbon;
+mod slide_show;
 mod slide_view;
 mod slide_window;
 mod strings;
@@ -36,7 +39,7 @@ pub use ruler::Ruler;
 pub use sheet_view::{CellFormat, GridStore, SheetView, Stats};
 pub use sheet_window::SheetWindow;
 pub use shell::{DocWindow, Request};
-pub use slide_view::{Focus, SlideView, SLIDE_CANVAS};
+pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
 pub use slide_window::SlideWindow;
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};
@@ -61,6 +64,19 @@ pub trait PageStore {
 
     /// Forget the image of page `index`.
     fn remove(&mut self, index: usize);
+
+    /// Bring image `index` up to date with a slide show layer `list` drawn on a transparent
+    /// background (shapes that animate over the slide). Backends without transparent images
+    /// draw it as a page.
+    fn update_layer(
+        &mut self,
+        index: usize,
+        list: &PageList,
+        engine: &bo_engine::Engine,
+        scale: f32,
+    ) -> Result<(), String> {
+        self.update(index, list, engine, scale, None)
+    }
 }
 
 /// Interface text style.
@@ -127,4 +143,14 @@ pub trait Painter {
     fn push_clip(&mut self, x: f32, y: f32, w: f32, h: f32);
     /// Undo the last [`Painter::push_clip`].
     fn pop_clip(&mut self);
+    /// Draw the `src` part (device pixels of the stored image) of page `index` into `dest`
+    /// (scaled when the sizes differ) at `opacity` 0–1, for slide show transitions and
+    /// effects. Backends without scaling or opacity draw it 1:1, clipped, when mostly opaque.
+    fn page_part(&mut self, index: usize, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        if opacity >= 0.5 {
+            self.push_clip(dest[0], dest[1], dest[2], dest[3]);
+            self.page(index, (dest[0] - src[0]) as i32, (dest[1] - src[1]) as i32);
+            self.pop_clip();
+        }
+    }
 }

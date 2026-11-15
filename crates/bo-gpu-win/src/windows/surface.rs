@@ -6,11 +6,13 @@ use windows::core::Interface;
 use windows::core::HSTRING;
 use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     ID2D1Bitmap1, ID2D1Image, D2D1_ANTIALIAS_MODE_ALIASED, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_INTERPOLATION_MODE_LINEAR,
+    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
 };
 use windows::Win32::Graphics::Direct2D::{
     ID2D1Brush, D2D1_CAP_STYLE_ROUND, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_LINE_JOIN_ROUND,
@@ -82,6 +84,47 @@ impl Device {
             pixelFormat: D2D1_PIXEL_FORMAT {
                 format: DXGI_FORMAT_B8G8R8A8_UNORM,
                 alphaMode: D2D1_ALPHA_MODE_IGNORE,
+            },
+            dpiX: dpi,
+            dpiY: dpi,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+            ..Default::default()
+        };
+        // SAFETY: the context owns the returned bitmap; no pointers are passed.
+        let bitmap = unsafe {
+            self.context
+                .CreateBitmap(D2D_SIZE_U { width, height }, None, 0, &props)
+                .map_err(|e| e.to_string())?
+        };
+        Ok(PageBitmap {
+            bitmap,
+            width,
+            height,
+        })
+    }
+}
+
+impl Device {
+    /// A GPU bitmap with a transparent background for `page` at `pixels_per_point`: a slide
+    /// show layer drawn over the slide below it (document text is grayscale on it).
+    pub fn create_layer_bitmap(
+        &self,
+        page: &PageList,
+        pixels_per_point: f32,
+    ) -> Result<PageBitmap, String> {
+        if !(pixels_per_point.is_finite() && pixels_per_point > 0.0) {
+            return Err("invalid scale".into());
+        }
+        let width = (page.width * pixels_per_point).ceil() as u32;
+        let height = (page.height * pixels_per_point).ceil() as u32;
+        if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
+            return Err("page too large or empty".into());
+        }
+        let dpi = 96.0 * pixels_per_point;
+        let props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
             },
             dpiX: dpi,
             dpiY: dpi,
@@ -554,6 +597,43 @@ impl Frame<'_> {
                         .DrawGeometry(&geometry, &brush, width, &style);
                 }
             }
+        }
+    }
+
+    /// Draw the `src` part (device pixels of the bitmap) of a page bitmap into `dest` (device
+    /// pixels; scaled smoothly when the sizes differ) at `opacity` 0–1 (slide show effects).
+    pub fn draw_page_part(&self, page: &PageBitmap, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        if dest[2] <= 0.0 || dest[3] <= 0.0 || src[2] <= 0.0 || src[3] <= 0.0 {
+            return;
+        }
+        let d = D2D_RECT_F {
+            left: dest[0],
+            top: dest[1],
+            right: dest[0] + dest[2],
+            bottom: dest[1] + dest[3],
+        };
+        let s = D2D_RECT_F {
+            left: src[0],
+            top: src[1],
+            right: src[0] + src[2],
+            bottom: src[1] + src[3],
+        };
+        let same = (src[2] - dest[2]).abs() < 0.01 && (src[3] - dest[3]).abs() < 0.01;
+        let mode = if same && dest[0].fract() == 0.0 && dest[1].fract() == 0.0 {
+            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR
+        } else {
+            D2D1_INTERPOLATION_MODE_LINEAR
+        };
+        // SAFETY: the bitmap belongs to the same device; drawing happens inside the frame.
+        unsafe {
+            self.device.context.DrawBitmap(
+                &page.bitmap,
+                Some(&d),
+                opacity.clamp(0.0, 1.0),
+                mode,
+                Some(&s),
+                None,
+            );
         }
     }
 

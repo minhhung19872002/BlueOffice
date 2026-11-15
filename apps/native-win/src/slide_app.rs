@@ -92,6 +92,8 @@ pub fn run() -> Result<(), String> {
             prefetching: true,
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
+            epoch: Instant::now(),
+            anim_frame: None,
         }),
     )
 }
@@ -146,6 +148,29 @@ impl PageStore for Store<'_> {
     fn remove(&mut self, index: usize) {
         self.bitmaps.remove(&index);
     }
+
+    fn update_layer(
+        &mut self,
+        index: usize,
+        list: &PageList,
+        engine: &Engine,
+        scale: f32,
+    ) -> Result<(), String> {
+        let bitmap = self.device.create_layer_bitmap(list, scale)?;
+        let pictures = |id: &str| {
+            let bytes = engine.media_resolved(id)?;
+            let (width, height, pixels) = bo_raster::decode_premultiplied(&bytes)?;
+            Some(bo_gpu_win::Bitmap {
+                width,
+                height,
+                pixels,
+            })
+        };
+        self.device
+            .draw_page(list, engine.fonts(), scale, &pictures, None, &bitmap)?;
+        self.bitmaps.insert(index, bitmap);
+        Ok(())
+    }
 }
 
 struct WinPainter<'a, 'f> {
@@ -163,6 +188,11 @@ impl Painter for WinPainter<'_, '_> {
     fn page(&mut self, index: usize, x: i32, y: i32) {
         if let Some(bitmap) = self.bitmaps.get(&index) {
             self.frame.draw_page(bitmap, x, y);
+        }
+    }
+    fn page_part(&mut self, index: usize, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        if let Some(bitmap) = self.bitmaps.get(&index) {
+            self.frame.draw_page_part(bitmap, src, dest, opacity);
         }
     }
     fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
@@ -237,6 +267,10 @@ struct Shell {
     prefetching: bool,
     pending_input: Option<PendingInput>,
     last_frame: [std::time::Duration; 3],
+    /// Clock origin of slide show animations.
+    epoch: Instant,
+    /// Previous animation frame (frame pacing in the performance log).
+    anim_frame: Option<Instant>,
 }
 
 impl Shell {
@@ -289,6 +323,15 @@ impl Shell {
                     };
                 }
                 Request::SaveAs => redraw |= self.save_as(),
+                Request::SetClipboard {
+                    text,
+                    html,
+                    internal,
+                } => win32::set_clipboard(&text, &html, &internal),
+                Request::Paste => {
+                    let (internal, html, text) = win32::read_clipboard();
+                    redraw |= self.view.paste(internal, html, text);
+                }
                 Request::New => spawn_self(None),
                 Request::Open => {
                     let filters = [
@@ -344,6 +387,8 @@ impl Shell {
             return Ok(());
         };
         let t0 = Instant::now();
+        self.view
+            .set_clock(self.epoch.elapsed().as_secs_f64() * 1e3);
         self.view.prepare(&mut Store {
             device: &gpu.device,
             bitmaps: &mut gpu.bitmaps,
@@ -496,10 +541,25 @@ impl Handler for Shell {
     }
 
     fn wants_frame(&self) -> bool {
-        self.dirty || self.prefetching
+        self.dirty || self.prefetching || self.view.animating()
     }
 
     fn frame(&mut self) {
+        if self.view.animating() {
+            // Transitions and effects: one frame per display refresh.
+            self.dirty = true;
+            let now = Instant::now();
+            if let (Some(file), Some(prev)) = (self.perf.as_mut(), self.anim_frame) {
+                let _ = writeln!(
+                    file,
+                    r#"{{"anim_frame_ms":{:.3}}}"#,
+                    (now - prev).as_secs_f64() * 1e3
+                );
+            }
+            self.anim_frame = Some(now);
+        } else {
+            self.anim_frame = None;
+        }
         if !self.dirty {
             // Idle: draw one slide ahead of need, without presenting.
             self.prefetching = match self.gpu.as_mut() {

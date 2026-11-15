@@ -33,7 +33,10 @@ pub(crate) fn text_lines(chars: &[TextChar]) -> Vec<String> {
             .map(|c| c.rect[2] - c.rect[0])
             .collect(),
     )
-    .clamp(size * 0.25, size);
+    .clamp(size * 0.25, size)
+        // The reference's columns are narrower than a typical letter (wider gaps, deeper
+        // indents measured on its Text Viewer).
+        * 0.8;
     let left = items
         .iter()
         .map(|c| c.rect[0])
@@ -54,7 +57,7 @@ pub(crate) fn text_lines(chars: &[TextChar]) -> Vec<String> {
     let mut prev_y: Option<f32> = None;
     for (y, mut line) in lines {
         if let Some(py) = prev_y {
-            if y - py > pitch * 1.6 {
+            if y - py > pitch * 1.25 {
                 out.push(String::new());
             }
         }
@@ -346,7 +349,7 @@ mod tests {
         chars.extend([ch("c", 120.0, 112.0), ch("d", 125.0, 112.0)]);
         chars.extend([ch("e", 100.0, 150.0), ch("f", 130.0, 150.0)]);
         let lines = text_lines(&chars);
-        assert_eq!(lines, vec!["ab", "    cd", "", "e     f"]);
+        assert_eq!(lines, vec!["ab", "     cd", "", "e       f"]);
     }
 
     #[test]

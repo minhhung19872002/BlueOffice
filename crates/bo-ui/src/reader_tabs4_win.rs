@@ -45,6 +45,10 @@ pub(crate) struct Tabs4 {
     pub(crate) filter: Option<AnnotKind>,
     /// Sort and filter boxes of the comment list header.
     pub(crate) header: [[f32; 4]; 2],
+    /// Replace Text: the strike-out just made asks for the replacement.
+    replace: bool,
+    /// Search & Highlight: the words asked for.
+    pub(crate) search_dialog: Option<Dialog>,
 }
 
 /// Kinds offered by the comment list's filter.
@@ -99,14 +103,108 @@ impl ReaderWindow {
     pub(crate) fn tabs4_disabled(id: &str) -> bool {
         matches!(
             id,
-            "form.import" | "form.export" | "prot.fillSign" | "prot.sign" | "prot.timestamp"
+            "form.import"
+                | "form.export"
+                | "prot.fillSign"
+                | "prot.sign"
+                | "prot.timestamp"
+                | "comment.file"
+                | "comment.summarize"
+                | "comment.import"
+                | "comment.export"
         )
+    }
+
+    /// After a text markup was made: Replace Text asks for the replacement.
+    pub(crate) fn after_markup(&mut self, m: &dyn TextMeasure) {
+        if !std::mem::take(&mut self.tabs4.replace) {
+            return;
+        }
+        let newest = self.tabs.get(self.active).and_then(|t| {
+            t.view
+                .doc()
+                .annotations()
+                .into_iter()
+                .filter(|a| a.kind == AnnotKind::StrikeOut)
+                .max_by(|a, b| a.modified.cmp(&b.modified))
+        });
+        if let Some(a) = newest {
+            self.ask_comment_text(a, false, m);
+        }
+        self.tool = super::Tool::Hand;
+    }
+
+    /// Highlight every place `words` occur (Search & Highlight).
+    fn search_highlight(&mut self, words: &str) {
+        let author = self.author.clone();
+        let Some(t) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let n = t.view.find(words, false, false);
+        let hits = t.view.hits().to_vec();
+        let mut by_page: std::collections::BTreeMap<usize, Vec<[f32; 4]>> =
+            std::collections::BTreeMap::default();
+        for h in hits {
+            if let Some(layer) = t.view.text(h.page) {
+                for r in layer.rects(h.a, h.b) {
+                    by_page.entry(h.page).or_default().push(r);
+                }
+            }
+        }
+        for (page, rects) in by_page {
+            let rects = rects
+                .iter()
+                .map(|r| t.view.unrotate_rect(page, *r))
+                .collect();
+            let a = NewAnnot {
+                kind: AnnotKind::Highlight,
+                page,
+                rects,
+                color: AREA_YELLOW,
+                author: author.clone(),
+                contents: String::new(),
+            };
+            if let Err(e) = t.view.doc_mut().add_annotation(&a) {
+                self.status = e;
+                break;
+            }
+        }
+        t.view.clear_hits();
+        self.status = self
+            .strings
+            .fmt("pdfComment.highlighted", &[("n", &n.to_string())]);
+        self.document_changed();
     }
 
     /// Commands of the additions; `true` when `cmd` was one.
     pub(crate) fn command_tabs4(&mut self, cmd: &str, m: &dyn TextMeasure) -> bool {
         match cmd {
             "comment.eraser" => self.toggle_tool4(Tool4::Eraser),
+            // Replace Text: strike the text out and say what replaces it (§12.5.6.10, a
+            // strike-out with the replacement as its comment).
+            "comment.replace" => {
+                self.tool = super::Tool::Markup(AnnotKind::StrikeOut);
+                self.tabs4.replace = true;
+            }
+            // Insert Text: a note where the text goes.
+            "comment.insert" => {
+                self.tool = super::Tool::Note;
+                self.tabs4.replace = false;
+            }
+            "comment.searchHighlight" => {
+                let mut d = Dialog::new(
+                    DialogKind::Comment,
+                    self.t("pdfComment.searchHighlight"),
+                    vec![(self.t("pdfComment.words"), String::new())],
+                    vec![
+                        (self.t("pdfReader.ok"), DialogButton::Ok),
+                        (self.t("pdfPrint.cancel"), DialogButton::Cancel),
+                    ],
+                    Vec::new(),
+                );
+                d.layout(m, self.size, self.scale);
+                self.tabs4.search_dialog = Some(d);
+            }
             "comment.areaHighlight" => self.toggle_tool4(Tool4::AreaHighlight),
             "menu.customStamp" => {
                 let items = vec![MenuItem {
@@ -307,6 +405,31 @@ impl ReaderWindow {
     /// Input of the additions first: `Some(redraw)` when handled.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn route_tabs4(&mut self, input: &Input, m: &dyn TextMeasure) -> Option<bool> {
+        if let Some(d) = self.tabs4.search_dialog.as_mut() {
+            let done = match input {
+                Input::Text(s) => {
+                    d.text(s);
+                    None
+                }
+                Input::Key(k, mods) => d.key(*k, *mods),
+                Input::Press { x, y, .. } => d.press(*x, *y),
+                Input::Move { x, y } => {
+                    d.hover(*x, *y);
+                    None
+                }
+                Input::Resize { .. } | Input::Scale(_) => return None,
+                _ => None,
+            };
+            if let Some(b) = done {
+                if let Some(d) = self.tabs4.search_dialog.take() {
+                    let words = d.values().into_iter().next().unwrap_or_default();
+                    if b == DialogButton::Ok && !words.trim().is_empty() {
+                        self.search_highlight(words.trim());
+                    }
+                }
+            }
+            return Some(true);
+        }
         // Text typed into a form field.
         if let Some((d, _)) = self.tabs4.field_dialog.as_mut() {
             let done = match input {
@@ -667,6 +790,9 @@ impl ReaderWindow {
     /// The field text dialog, over everything else.
     pub(crate) fn paint_tabs4_dialog(&self, p: &mut dyn Painter) {
         if let Some((d, _)) = &self.tabs4.field_dialog {
+            d.paint(p, &self.theme, self.size, true);
+        }
+        if let Some(d) = &self.tabs4.search_dialog {
             d.paint(p, &self.theme, self.size, true);
         }
     }

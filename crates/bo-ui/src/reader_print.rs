@@ -43,6 +43,8 @@ pub struct PrintSettings {
     pub as_image: bool,
     /// Overprinting simulated (inks multiply).
     pub overprint: bool,
+    /// Paper chosen by the PDF page size (the first page printed).
+    pub paper_by_page: bool,
 }
 
 /// Paper orientation (the reference's Orientation box).
@@ -119,6 +121,7 @@ enum Part {
     CutMarks,
     Labels,
     Slider,
+    PaperByPage,
     Copies,
     CopiesUp,
     CopiesDown,
@@ -277,6 +280,7 @@ pub struct PrintDialog {
     overlap: Vec<char>,
     cut_marks: bool,
     labels: bool,
+    paper_by_page: bool,
     /// Size of every page (points).
     sizes: Vec<(f32, f32)>,
     /// Paper of each printer, when the host knows it.
@@ -350,6 +354,7 @@ impl PrintDialog {
             overlap: "0.005".chars().collect(),
             cut_marks: false,
             labels: false,
+            paper_by_page: false,
             sizes: Vec::new(),
             papers: Vec::new(),
             preview_keys: Vec::new(),
@@ -631,7 +636,7 @@ impl PrintDialog {
             2 => v.retain(|p| p % 2 == 1),
             _ => {}
         }
-        if self.reverse {
+        if self.reverse && self.range != Range::All {
             v.reverse();
         }
         v
@@ -665,6 +670,7 @@ impl PrintDialog {
             what: self.what,
             as_image: self.as_image,
             overprint: self.overprint,
+            paper_by_page: self.paper_by_page,
         })
     }
 
@@ -830,6 +836,9 @@ impl PrintDialog {
                 }
                 self.parts
                     .push((Part::ScaleText, r(160.0, 551.0, 60.0, 26.0)));
+                // Reference: (59, 880) px at 125 % in the dialog at (23, 150).
+                self.parts
+                    .push((Part::PaperByPage, r(28.8, 584.0, 360.0, 20.0)));
             }
             Handling::Multiple => {
                 self.parts
@@ -957,6 +966,7 @@ impl PrintDialog {
             Part::AsImage => self.as_image = !self.as_image,
             Part::Overprint => self.overprint = !self.overprint,
             Part::CutMarks => self.cut_marks = !self.cut_marks,
+            Part::PaperByPage => self.paper_by_page = !self.paper_by_page,
             Part::Labels => self.labels = !self.labels,
             Part::TileZoom => self.focus = Field::TileZoom,
             Part::Overlap => self.focus = Field::Overlap,
@@ -994,6 +1004,8 @@ impl PrintDialog {
                 self.copies = self.copies.saturating_sub(1).max(1);
                 self.sync_copies();
             }
+            // One copy: nothing to collate (disabled like the reference's).
+            Part::Collate if self.copies <= 1 => {}
             Part::Collate => self.collate = !self.collate,
             Part::Gray => self.gray = !self.gray,
             Part::Range(Range::View) if self.view.is_none() => {}
@@ -1008,6 +1020,7 @@ impl PrintDialog {
                 self.range = Range::Pages;
                 self.focus = Field::Pages;
             }
+            Part::Reverse if self.range == Range::All => {}
             Part::Reverse => self.reverse = !self.reverse,
             Part::Scaling(PrintScaling::Custom(_)) | Part::ScaleText => {
                 self.focus = Field::Scale;
@@ -1356,12 +1369,16 @@ impl PrintDialog {
                 Some((TEXT, self.scale.max(1.0))),
             );
         }
-        self.check(
-            p,
-            self.rect(Part::Collate),
-            self.collate,
-            s.get("pdfPrint.collate"),
-        );
+        if self.copies > 1 {
+            self.check(
+                p,
+                self.rect(Part::Collate),
+                self.collate,
+                s.get("pdfPrint.collate"),
+            );
+        } else {
+            self.check_off(p, self.rect(Part::Collate), s.get("pdfPrint.collate"));
+        }
         self.check(
             p,
             self.rect(Part::Gray),
@@ -1436,12 +1453,16 @@ impl PrintDialog {
             "pdfPrint.subsetEven",
         ][usize::from(self.subset.min(2))];
         self.combo(p, sb, s.get(subset), self.drop == Some(Part::Subset));
-        self.check(
-            p,
-            self.rect(Part::Reverse),
-            self.reverse,
-            s.get("pdfPrint.reverse"),
-        );
+        if self.range == Range::All {
+            self.check_off(p, self.rect(Part::Reverse), s.get("pdfPrint.reverse"));
+        } else {
+            self.check(
+                p,
+                self.rect(Part::Reverse),
+                self.reverse,
+                s.get("pdfPrint.reverse"),
+            );
+        }
         // Print Handling.
         self.group(p, s.get("pdfPrint.handling"), [17.0, 386.0, 449.0, 258.0]);
         self.paint_handling(p, s, caret);
@@ -1843,6 +1864,12 @@ impl PrintDialog {
                 let text: String = self.scale_text.iter().collect();
                 self.field(p, r, custom && self.focus == Field::Scale, &text, caret);
                 self.text_in(p, "%", [r[0] + r[2], r[1], 0.0, r[3]], self.px(6.4), TEXT);
+                self.check(
+                    p,
+                    self.rect(Part::PaperByPage),
+                    self.paper_by_page,
+                    s.get("pdfPrint.paperByPage"),
+                );
             }
             Handling::Multiple => {
                 caption(p, Part::PerSheet, "pdfPrint.perSheet");
@@ -2150,6 +2177,7 @@ mod tests {
                 what: PrintWhat::DocumentAndMarkups,
                 as_image: false,
                 overprint: false,
+                paper_by_page: false,
             }))
         );
         assert_eq!(

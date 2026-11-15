@@ -7314,7 +7314,8 @@
     "pageSetting": "Page Setting",
     "zoom": "Zoom:",
     "paper": "Paper:",
-    "tileLabel": "Page {{page}} ({{row}}, {{col}})"
+    "tileLabel": "Page {{page}} ({{row}}, {{col}})",
+    "paperByPage": "Choose paper source by PDF page size"
   },
   "pdfExtra": {
     "readMode": "Read Mode",
@@ -7399,7 +7400,16 @@
     "sortAuthor": "Sort by author",
     "sortDate": "Sort by date",
     "sortType": "Sort by type",
-    "filterAll": "All comments"
+    "filterAll": "All comments",
+    "file": "File",
+    "searchHighlight": "Search & Highlight",
+    "words": "Find",
+    "highlighted": "{{n}} matches highlighted",
+    "summarize": "Summarize Comments",
+    "import": "Import",
+    "export": "Export",
+    "replace": "Replace Text",
+    "insert": "Insert Text"
   },
   "pdfForm": {
     "reset": "Reset Form",

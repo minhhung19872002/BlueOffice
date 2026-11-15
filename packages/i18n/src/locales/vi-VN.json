@@ -7314,7 +7314,8 @@
     "pageSetting": "Thiết lập trang",
     "zoom": "Thu phóng:",
     "paper": "Giấy:",
-    "tileLabel": "Trang {{page}} ({{row}}, {{col}})"
+    "tileLabel": "Trang {{page}} ({{row}}, {{col}})",
+    "paperByPage": "Chọn khổ giấy theo kích thước trang PDF"
   },
   "pdfExtra": {
     "readMode": "Chế độ đọc",
@@ -7399,7 +7400,16 @@
     "sortAuthor": "Sắp theo tác giả",
     "sortDate": "Sắp theo ngày",
     "sortType": "Sắp theo loại",
-    "filterAll": "Mọi chú thích"
+    "filterAll": "Mọi chú thích",
+    "file": "Tệp",
+    "searchHighlight": "Tìm & tô sáng",
+    "words": "Tìm",
+    "highlighted": "Đã tô sáng {{n}} kết quả",
+    "summarize": "Tóm tắt chú thích",
+    "import": "Nhập",
+    "export": "Xuất",
+    "replace": "Thay chữ",
+    "insert": "Chèn chữ"
   },
   "pdfForm": {
     "reset": "Đặt lại biểu mẫu",

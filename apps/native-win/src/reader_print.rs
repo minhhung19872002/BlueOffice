@@ -8,9 +8,9 @@ use windows::Win32::Graphics::Gdi::{
     CreateDCW, CreateICW, DeleteDC, GetDeviceCaps, PatBlt, SetBkMode, SetStretchBltMode,
     StretchDIBits, TextOutW, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLACKNESS, DEVMODEW,
     DIB_RGB_COLORS, DMDUP_HORIZONTAL, DMDUP_VERTICAL, DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT,
-    DM_DUPLEX, DM_IN_BUFFER, DM_IN_PROMPT, DM_ORIENTATION, DM_OUT_BUFFER, HALFTONE, HDC, HORZRES,
-    LOGPIXELSX, LOGPIXELSY, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH,
-    SRCCOPY, TRANSPARENT, VERTRES,
+    DM_DUPLEX, DM_IN_BUFFER, DM_IN_PROMPT, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH,
+    DM_PAPERSIZE, DM_PAPERWIDTH, HALFTONE, HDC, HORZRES, LOGPIXELSX, LOGPIXELSY, PHYSICALHEIGHT,
+    PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY, TRANSPARENT, VERTRES,
 };
 use windows::Win32::Graphics::Printing::{
     ClosePrinter, DocumentPropertiesW, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
@@ -111,6 +111,8 @@ pub struct Options {
     pub max_dpi: f32,
     /// Driver settings chosen with Properties (a DEVMODEW buffer), the base of the job's.
     pub devmode: Option<Vec<u64>>,
+    /// Paper of this size (points, portrait), when the PDF page size chooses the paper.
+    pub paper: Option<(f32, f32)>,
 }
 
 /// The driver settings of `printer`: `base` merged in when given; DEVMODEW in a u64 buffer.
@@ -200,6 +202,14 @@ fn devmode(printer: &[u16], opts: &Options) -> Option<Vec<u64>> {
         } else {
             DMORIENT_PORTRAIT as i16
         };
+        if let Some((w, h)) = opts.paper {
+            // Tenths of a millimetre; no named size.
+            let tenth = |v: f32| (v / 72.0 * 254.0).round() as i16;
+            (*dm).dmFields |= DM_PAPERSIZE | DM_PAPERWIDTH | DM_PAPERLENGTH;
+            (*dm).Anonymous1.Anonymous1.dmPaperSize = 0;
+            (*dm).Anonymous1.Anonymous1.dmPaperWidth = tenth(w.min(h));
+            (*dm).Anonymous1.Anonymous1.dmPaperLength = tenth(w.max(h));
+        }
         if opts.duplex != 0 {
             (*dm).dmFields |= DM_DUPLEX;
             (*dm).dmDuplex = if opts.duplex == 1 {

@@ -817,6 +817,11 @@ fn print_job(
         },
         max_dpi: if s.as_image { 150.0 } else { 300.0 },
         devmode: devmode.map(<[u64]>::to_vec),
+        paper: if s.paper_by_page {
+            s.pages.first().map(|&i| size_of(i))
+        } else {
+            None
+        },
     };
     print::print(&s.printer, title, &plan, &size_of, &options, &mut render)
 }
@@ -848,6 +853,7 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         what: bo_pdfread::PrintWhat::DocumentAndMarkups,
         as_image: false,
         overprint: false,
+        paper_by_page: false,
     };
     let mut order = bo_ui::PageOrder::Horizontal;
     let mut border = false;

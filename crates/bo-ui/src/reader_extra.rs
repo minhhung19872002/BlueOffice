@@ -80,6 +80,7 @@ impl ReaderWindow {
             || self.extra.print.is_some()
             || self.extra.text.is_some()
             || self.tabs4.field_dialog.is_some()
+            || self.tabs4.search_dialog.is_some()
     }
 
     /// Interface text `key` with `{{name}}` placeholders filled (host messages).
@@ -559,7 +560,7 @@ impl ReaderWindow {
         true
     }
 
-    fn ask_comment_text(&mut self, a: Annot, reply: bool, m: &dyn TextMeasure) {
+    pub(crate) fn ask_comment_text(&mut self, a: Annot, reply: bool, m: &dyn TextMeasure) {
         let (title, value) = if reply {
             (self.t("pdfExtra.replyTitle"), String::new())
         } else {

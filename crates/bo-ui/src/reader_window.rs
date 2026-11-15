@@ -758,14 +758,19 @@ impl ReaderWindow {
             1 => v.extend([
                 ("sep1", Sep),
                 // Text markup as a grid of small buttons, like the reference's Comment tab.
+                // Six text markup tools in a 3 × 2 grid like the reference's (filled column
+                // by column).
                 ("tool.highlight", Small("highlight")),
-                ("tool.underline", Small("underline")),
                 ("tool.strikeout", Small("strikeout")),
                 ("tool.squiggly", Small("squiggly")),
+                ("comment.replace", Small("replaceText")),
+                ("tool.underline", Small("underline")),
+                ("comment.insert", Small("insertText")),
                 ("sep2", Sep),
                 // Order of the reference's Comment tab: note | typewriter, text box, callout |
                 // drawing, pencil | measure | stamp.
                 ("tool.note", Big("note", "pdfReader.note", false)),
+                ("comment.file", Big("attach", "pdfComment.file", false)),
                 ("sep3", Sep),
                 (
                     "draw.typewriter",
@@ -782,6 +787,10 @@ impl ReaderWindow {
                     "comment.areaHighlight",
                     Big("areaHighlight", "pdfComment.areaHighlight", false),
                 ),
+                (
+                    "comment.searchHighlight",
+                    Big("searchHighlight", "pdfComment.searchHighlight", false),
+                ),
                 ("sep6", Sep),
                 ("menu.measure", Big("measure", "pdfDraw.measure", true)),
                 ("sep7", Sep),
@@ -792,6 +801,12 @@ impl ReaderWindow {
                 ),
                 ("draw.props", Big("properties", "pdfDraw.properties", false)),
                 ("sep4", Sep),
+                (
+                    "comment.summarize",
+                    Big("summarize", "pdfComment.summarize", false),
+                ),
+                ("comment.import", Big("import", "pdfComment.import", false)),
+                ("comment.export", Big("export", "pdfComment.export", false)),
                 (
                     "panel.comments",
                     Big("comments", "pdfReader.commentList", false),
@@ -1548,6 +1563,7 @@ impl ReaderWindow {
             Some(Drag::Select { page, .. }) => {
                 if let Tool::Markup(kind) = self.tool {
                     self.markup_selection(kind, page);
+                    self.after_markup(m);
                 }
                 true
             }

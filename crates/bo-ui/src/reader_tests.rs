@@ -848,3 +848,18 @@ endstream",
         .iter()
         .all(|t| t.comment.kind == bo_pdfread::AnnotKind::Highlight));
 }
+
+#[test]
+fn search_and_highlight_marks_every_match() {
+    let mut w = window(2);
+    w.run_command("comment.searchHighlight", &Fixed);
+    w.handle(Input::Text("hello".into()), &Fixed);
+    key(&mut w, Key::Enter, false, false);
+    let comments = w.view().expect("view").doc().annotations();
+    let pages: Vec<usize> = comments
+        .iter()
+        .filter(|c| c.kind == bo_pdfread::AnnotKind::Highlight)
+        .map(|c| c.page)
+        .collect();
+    assert_eq!(pages, vec![0, 1]);
+}

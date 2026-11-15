@@ -333,6 +333,11 @@ impl PrintDialog {
         }
     }
 
+    /// Whether "Current view" is offered.
+    pub fn has_view(&self) -> bool {
+        self.view.is_some()
+    }
+
     /// Offer "Current view": the visible part (page points) of page `page`.
     pub fn set_view(&mut self, page: usize, rect: [f32; 4]) {
         self.view = Some((page, rect));
@@ -539,6 +544,7 @@ impl PrintDialog {
             }
             Part::Collate => self.collate = !self.collate,
             Part::Gray => self.gray = !self.gray,
+            Part::Range(Range::View) if self.view.is_none() => {}
             Part::Range(r) => {
                 self.range = r;
                 if r == Range::Pages {
@@ -919,6 +925,17 @@ impl PrintDialog {
         );
         // Print Range.
         self.group(p, s.get("pdfPrint.range"), [17.0, 132.0, 449.0, 235.0]);
+        let view = self.rect(Part::Range(Range::View));
+        if self.view.is_some() {
+            self.radio(
+                p,
+                view,
+                self.range == Range::View,
+                s.get("pdfPrint.currentView"),
+            );
+        } else {
+            self.radio_off(p, view, s.get("pdfPrint.currentView"));
+        }
         self.radio(
             p,
             self.rect(Part::Range(Range::Current)),

@@ -362,6 +362,7 @@ fn print_dialog_returns_the_job() {
     assert!(w.take_requests().contains(&ReaderRequest::Print));
     w.open_print(vec!["Printer A".into()], Some("Printer A"), &Fixed);
     assert!(w.print_open());
+    assert!(w.print_dialog().is_some_and(crate::PrintDialog::has_view));
     key(&mut w, Key::Enter, false, false);
     assert!(!w.print_open());
     let reqs = w.take_requests();

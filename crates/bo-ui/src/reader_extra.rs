@@ -83,6 +83,11 @@ impl ReaderWindow {
         self.strings.fmt(key, args)
     }
 
+    /// The open Print dialog.
+    pub fn print_dialog(&self) -> Option<&PrintDialog> {
+        self.extra.print.as_ref()
+    }
+
     /// The Print dialog is open.
     pub fn print_open(&self) -> bool {
         self.extra.print.is_some()

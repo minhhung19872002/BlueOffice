@@ -444,6 +444,28 @@ impl PrintDialog {
                 size: (612.0, 792.0),
                 area: [18.0, 18.0, 576.0, 756.0],
             });
+        // Page Setting's paper replaces the printer's, keeping the printer's unprintable edges.
+        let base = match self.sub.paper_pt() {
+            Some((w, h)) => {
+                let (bw, bh) = if base.size.0 <= base.size.1 {
+                    base.size
+                } else {
+                    (base.size.1, base.size.0)
+                };
+                let b = if base.size.0 <= base.size.1 {
+                    base
+                } else {
+                    base.turned()
+                };
+                let [x, y, aw, ah] = b.area;
+                let (r, btm) = ((bw - x - aw).max(0.0), (bh - y - ah).max(0.0));
+                Paper {
+                    size: (w, h),
+                    area: [x, y, (w - x - r).max(36.0), (h - y - btm).max(36.0)],
+                }
+            }
+            None => base,
+        };
         let portrait = base.size.0 <= base.size.1;
         let landscape = match self.orientation {
             Orientation::Portrait => false,
@@ -462,7 +484,7 @@ impl PrintDialog {
 
     /// The sheets printed (one copy).
     fn sheets(&self) -> Vec<crate::reader_impose::Sheet> {
-        let paper = self.paper();
+        let area = Self::inner(&self.paper(), self.sub.margins_pt());
         let view = match self.range {
             Range::View => self.view.map(|v| v.1),
             _ => None,
@@ -479,9 +501,22 @@ impl PrintDialog {
             &self.pages(),
             &|i| self.size_of(i),
             view,
-            (paper.area[2], paper.area[3]),
+            (area[2], area[3]),
             &o,
         )
+    }
+
+    /// The printable area inside Page Setting's margins (top, bottom, left, right), as the host
+    /// prints it: at least ½ inch each way, moved by the top / left margin.
+    fn inner(paper: &Paper, m: [f32; 4]) -> [f32; 4] {
+        let [x, y, w, h] = paper.area;
+        let [mt, mb, ml, mr] = m;
+        [
+            x + ml,
+            y + mt,
+            (w - ml - mr).max(36.0),
+            (h - mt - mb).max(36.0),
+        ]
     }
 
     fn sheet_count(&self) -> usize {
@@ -511,7 +546,7 @@ impl PrintDialog {
         let Some(sheet) = sheets.get(self.preview_at.min(sheets.len().saturating_sub(1))) else {
             return Vec::new();
         };
-        let paper = self.paper();
+        let area = Self::inner(&self.paper(), self.sub.margins_pt());
         let (pr, k) = self.paper_rect();
         sheet
             .items
@@ -523,8 +558,8 @@ impl PrintDialog {
                     page: pl.page,
                     src: pl.clip.unwrap_or([0.0, 0.0, pw, ph]),
                     dest: [
-                        pr[0] + (paper.area[0] + d[0]) * k,
-                        pr[1] + (paper.area[1] + d[1]) * k,
+                        pr[0] + (area[0] + d[0]) * k,
+                        pr[1] + (area[1] + d[1]) * k,
                         d[2] * k,
                         d[3] * k,
                     ],
@@ -2151,6 +2186,38 @@ mod tests {
         // Keys of the preview images come back from the host.
         d.set_preview_keys(vec![Some(7)]);
         assert_eq!(d.preview_keys, vec![Some(7)]);
+    }
+
+    #[test]
+    fn preview_follows_page_setting_paper_and_margins() {
+        let mut d = PrintDialog::new(vec!["A".into()], None, 1, 0);
+        d.set_page_sizes(vec![(612.0, 792.0)]);
+        d.set_papers(vec![Some(Paper {
+            size: (612.0, 792.0),
+            area: [18.0, 18.0, 576.0, 756.0],
+        })]);
+        d.layout(&Fixed, (1600.0, 1000.0), 1.25);
+        let before = d.shown()[0].zoom;
+        // A4 with 20 mm left and 10 mm top margins: the preview's paper is A4 and the page
+        // fits the area inside the margins, moved right / down by them.
+        d.sub.paper = 4;
+        d.sub.margins[2] = vec!['2', '0'];
+        d.sub.margins[0] = vec!['1', '0'];
+        let paper = d.paper();
+        assert!((paper.size.0 - 595.28).abs() < 0.01);
+        assert!((paper.area[2] - (595.28 - 36.0)).abs() < 0.01);
+        let shown = d.shown();
+        let after = &shown[0];
+        let (pr, k) = d.paper_rect();
+        let ml: f32 = 20.0 / 25.4 * 72.0;
+        let mt: f32 = 10.0 / 25.4 * 72.0;
+        let inner_w = 595.28 - 36.0 - ml;
+        let inner_h = 841.89 - 36.0 - mt;
+        let fit = (inner_w / 612.0).min(inner_h / 792.0);
+        assert!((after.zoom - fit).abs() < 1e-3, "{} vs {fit}", after.zoom);
+        assert!(after.dest[0] >= pr[0] + (18.0 + ml) * k - 0.5);
+        assert!(after.dest[1] >= pr[1] + (18.0 + mt) * k - 0.5);
+        assert!(after.zoom < before);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Slide Sorter view, Reading view and moving slides by dragging their thumbnails (N6,
 //! round 2), laid out as the reference presentation app at 125 %: sorter images 400 × 225
 //! device pixels (320 logical at 100 % zoom), 46 px apart across and 71 px down, the first
-//! one 39 px from the left and 24 px below the ribbon, its number 15 px under the image.
+//! one 39 px from the left and 25 px below the ribbon, its number 15 px under the image.
 use super::{inside, Drag, Focus, SlideView, ACCENT, ACCENT_TEXT, HANDLE_FILL, R, SLIDE_CANVAS};
 use super::{THUMB_EDGE, THUMB_NUMBER};
 use crate::{Key, Mods, PageStore, Painter};
@@ -95,7 +95,7 @@ impl SlideView {
         let (c, r) = (i % cols, i / cols);
         [
             self.origin.0 + self.px(31.2) + c as f32 * px_,
-            self.origin.1 + self.px(19.2) + r as f32 * py_ - self.sorter_scroll,
+            self.origin.1 + self.px(20.0) + r as f32 * py_ - self.sorter_scroll,
             w,
             h,
         ]
@@ -103,7 +103,7 @@ impl SlideView {
 
     pub(super) fn sort_content_h(&self) -> f32 {
         let (_, _, _, py, cols) = self.sort_geom();
-        self.px(19.2) + self.ids.len().div_ceil(cols) as f32 * py
+        self.px(20.0) + self.ids.len().div_ceil(cols) as f32 * py
     }
 
     pub(super) fn clamp_sorter_scroll(&mut self) {
@@ -115,7 +115,7 @@ impl SlideView {
         let [_, y, _, h] = self.sort_rect(i);
         let top = self.origin.1;
         if y < top {
-            self.sorter_scroll -= top - y + self.px(19.2);
+            self.sorter_scroll -= top - y + self.px(20.0);
         } else if y + h + self.px(40.0) > top + self.size.1 {
             self.sorter_scroll += y + h + self.px(40.0) - top - self.size.1;
         }
@@ -124,7 +124,7 @@ impl SlideView {
 
     pub(super) fn visible_sorted(&self) -> std::ops::Range<usize> {
         let (_, _, _, py, cols) = self.sort_geom();
-        let first_row = ((self.sorter_scroll - self.px(19.2)) / py).floor().max(0.0) as usize;
+        let first_row = ((self.sorter_scroll - self.px(20.0)) / py).floor().max(0.0) as usize;
         let rows = (self.size.1 / py).ceil() as usize + 2;
         let n = self.ids.len();
         (first_row * cols).min(n)..((first_row + rows) * cols).min(n)

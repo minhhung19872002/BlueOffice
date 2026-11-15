@@ -249,7 +249,7 @@ fn sorter_shows_a_grid_and_drag_reorders() {
     let b = w.view().sort_rect(1);
     assert_eq!((a[2], a[3]), (400.0, 225.0));
     assert_eq!(b[0] - a[0] - a[2], 46.0);
-    assert_eq!(a[1] - w.ribbon.bottom(), 24.0);
+    assert_eq!(a[1] - w.ribbon.bottom(), 25.0);
     // Drag slide 1 after slide 3.
     let c = w.view().sort_rect(2);
     drag(

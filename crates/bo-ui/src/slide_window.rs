@@ -1702,22 +1702,25 @@ impl SlideWindow {
                 colors,
             );
         }
-        // The notes toggle is a plain icon and label (no band), as on the reference.
-        self.icons.draw(
-            p,
-            "format.lineSpacing",
-            notes[0] + self.px(4.0),
-            (notes[1] + (notes[3] - icon) / 2.0).round(),
-            icon,
-            colors,
-        );
-        p.text(
-            &self.t("slideEditor.notes", "Notes"),
-            notes[0] + self.px(24.0),
-            ty,
-            style,
-            ink,
-        );
+        // The notes toggle is a plain icon and label (no band), as on the reference; the
+        // sorter has no notes, so no toggle.
+        if self.view.mode() == ViewMode::Normal {
+            self.icons.draw(
+                p,
+                "format.lineSpacing",
+                notes[0] + self.px(4.0),
+                (notes[1] + (notes[3] - icon) / 2.0).round(),
+                icon,
+                colors,
+            );
+            p.text(
+                &self.t("slideEditor.notes", "Notes"),
+                notes[0] + self.px(24.0),
+                ty,
+                style,
+                ink,
+            );
+        }
         let k = (4.0 * self.scale).round();
         let line = self.scale.max(1.0).round();
         let (mx, my) = (minus[0] + minus[2] / 2.0, minus[1] + minus[3] / 2.0);
@@ -1744,7 +1747,12 @@ impl SlideWindow {
             2.0 * k + 3.0 * line,
             ink,
         );
-        let zoom = format!("{}%", (self.view.zoom() * 100.0).round() as i32);
+        // The sorter shows its own zoom (its images at 100 %).
+        let zoom = if self.view.mode() == ViewMode::Sorter {
+            "100%".to_owned()
+        } else {
+            format!("{}%", (self.view.zoom() * 100.0).round() as i32)
+        };
         p.text(&zoom, pct[0], ty, style, ink);
         // Fit to window: a frame with arrows out to its corners (own drawing).
         let (cx, cy) = (fit[0] + fit[2] / 2.0, fit[1] + fit[3] / 2.0);

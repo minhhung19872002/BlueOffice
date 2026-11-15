@@ -285,6 +285,64 @@ impl SheetGeometry {
         }
     }
 
+    /// Geometry as a desktop spreadsheet shows the sheet at `ppp` device pixels per point:
+    /// rows whose height was not set by hand are as tall as the default font's line in whole
+    /// pixels plus 2 px at that scale (Calibri 11: 20 px at 96 dpi, 24 px = 14.4 pt at 120 dpi,
+    /// measured black-box), other heights are rounded to whole pixels. Columns are unchanged.
+    pub fn for_display(
+        ws: &Worksheet,
+        styles: &Stylesheet,
+        fonts: &mut FontManager,
+        ppp: f64,
+    ) -> SheetGeometry {
+        let mut g = Self::new(ws, styles, fonts);
+        if !(ppp.is_finite() && ppp > 0.0) || ws.format.zero_height {
+            return g;
+        }
+        let f = styles.fonts.first();
+        let name = f.and_then(|f| f.name.as_deref()).unwrap_or("Calibri");
+        let size = f.and_then(|f| f.size).unwrap_or(11.0);
+        let line = fonts
+            .resolve(name, false, false)
+            .map_or(size * 15.0 / 11.0 - 1.5, |face| {
+                let info = fonts.info(face);
+                let upem = f64::from(info.units_per_em.max(1));
+                f64::from(
+                    i32::from(info.ascender) - i32::from(info.descender) + i32::from(info.line_gap),
+                ) * size
+                    / upem
+            });
+        let auto = ((line * ppp).round() + 2.0) / ppp;
+        let file_default = ws.format.default_row_height;
+        let default = match file_default {
+            Some(h) if ws.format.custom_height => (h * ppp).round() / ppp,
+            _ => auto,
+        };
+        let rows = ws
+            .rows
+            .iter()
+            .filter(|(_, r)| r.hidden || r.height.is_some())
+            .map(|(&i, r)| {
+                let size = match r.height {
+                    _ if r.hidden => 0.0,
+                    Some(h) if r.custom_height => (h * ppp).round() / ppp,
+                    // Heights written for the default font follow the display default.
+                    Some(h)
+                        if file_default.is_none_or(|d| (h - d).abs() < 0.01)
+                            || (h - g.metrics.default_row_height_pt).abs() < 0.01 =>
+                    {
+                        default
+                    }
+                    Some(h) => (h * ppp).round() / ppp,
+                    None => default,
+                };
+                (i, i, size)
+            })
+            .collect();
+        g.rows = Axis::new(default, MAX_ROWS, rows);
+        g
+    }
+
     /// Column width in points (0 if hidden).
     pub fn col_width(&self, col: u32) -> f64 {
         self.cols.size(col)

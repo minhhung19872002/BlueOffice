@@ -138,6 +138,10 @@ fn transitions_tab_sets_duration_and_applies_to_all() {
     };
     assert_eq!(kind(&w).as_deref(), Some("fade"));
     assert!(w.toggled().contains(&"transition.fade"));
+    // Choosing it plays it on the canvas, then the canvas is back.
+    assert!(w.view().previewing() && w.animating());
+    w.set_clock(60_000.0);
+    assert!(!w.view().previewing());
     // Duration menu: pick 1 s.
     click_command(&mut w, "transition.duration");
     assert!(w.menu.is_some());

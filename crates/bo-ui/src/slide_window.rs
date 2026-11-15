@@ -653,6 +653,8 @@ impl SlideWindow {
                 true
             }
             "transition.applyAll" => self.set_transition(None, None, None, true),
+            "transition.preview" => self.view.start_preview(false),
+            "anim.preview" => self.view.start_preview(true),
             id => {
                 if let Some((_, theme)) = sr::THEMES.iter().find(|(c, _)| *c == id) {
                     return self.view.run_master(MasterCommand::ApplyTheme {
@@ -662,10 +664,19 @@ impl SlideWindow {
                     });
                 }
                 if let Some((_, kind)) = sr::TRANSITIONS.iter().find(|(c, _)| *c == id) {
-                    return self.set_transition(Some(kind), None, None, false);
+                    // The reference plays a transition as soon as it is chosen.
+                    let set = self.set_transition(Some(kind), None, None, false);
+                    if set {
+                        self.view.start_preview(false);
+                    }
+                    return set;
                 }
                 if let Some((_, effect)) = sr::EFFECTS.iter().find(|(c, _)| *c == id) {
-                    return self.apply_effect(*effect, None);
+                    let set = self.apply_effect(*effect, None);
+                    if set && effect.is_some() {
+                        self.view.start_preview(true);
+                    }
+                    return set;
                 }
                 self.view.action(id)
             }

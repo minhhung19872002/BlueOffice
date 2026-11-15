@@ -108,6 +108,9 @@ struct Show {
     layers: Option<(usize, f32)>,
     /// When the slide was fully shown (automatic advance counts from there).
     arrived: f64,
+    /// A preview on the editing canvas (Transitions / Animations tab): `Some(true)` plays
+    /// the effects one click after the other, `Some(false)` the transition only.
+    preview: Option<bool>,
 }
 
 impl Show {
@@ -121,6 +124,7 @@ impl Show {
             fx_start: None,
             layers: None,
             arrived: 0.0,
+            preview: None,
         }
     }
 }
@@ -417,7 +421,45 @@ impl SlideView {
 
     /// The slide show is running full screen (Reading view plays it in the window).
     pub fn showing(&self) -> bool {
-        self.show.is_some() && !self.reading
+        self.show.is_some() && !self.reading && !self.previewing()
+    }
+
+    /// A transition or effects preview plays on the editing canvas.
+    pub fn previewing(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| s.preview.is_some())
+    }
+
+    /// Preview the current slide on the canvas: its transition (`effects` false, from the
+    /// previous slide) or its effects one after the other, as the reference does when a
+    /// transition or an effect is chosen.
+    pub fn start_preview(&mut self, effects: bool) -> bool {
+        if self.text_edit().is_some() {
+            self.run(SlideCommand::TextExit);
+        }
+        let cur = self.current;
+        let mut s = Show::at(cur);
+        s.preview = Some(effects);
+        self.show = Some(s);
+        self.enter_slide(cur.checked_sub(1));
+        let Some(s) = self.show.as_mut() else {
+            return false;
+        };
+        if effects {
+            s.trans = None;
+            let clicks = s.info.as_ref().map_or(0, |i| i.clicks);
+            if clicks == 0 && s.fx_start.is_none() {
+                self.show = None;
+                return false;
+            }
+            if s.fx_start.is_none() {
+                s.step = 1;
+                s.fx_start = Some(self.clock);
+            }
+        } else if s.trans.is_none() {
+            self.show = None;
+            return false;
+        }
+        true
     }
 
     /// The presentation as `.pptx` bytes.
@@ -1415,6 +1457,13 @@ impl SlideView {
 
     /// Handle an input event inside the area; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input) -> bool {
+        if self.previewing() {
+            // Anything but timers stops a preview and acts as usual.
+            if matches!(input, Input::Blink | Input::Tick | Input::Move { .. }) {
+                return false;
+            }
+            self.show = None;
+        }
         if self.show.is_some() {
             return self.show_input(&input);
         }
@@ -1606,9 +1655,24 @@ impl SlideView {
                 s.fx_start = None;
                 s.arrived = ms;
                 changed = true;
+                // An effects preview goes on with the next click's effects.
+                if s.preview == Some(true) && s.step < info.clicks {
+                    s.step += 1;
+                    s.fx_start = Some(ms);
+                }
             }
         } else if s.fx_start.is_some() && s.info.is_none() {
             s.fx_start = None;
+        }
+        // A finished preview gives the canvas back.
+        let done = match s.preview {
+            Some(false) => s.trans.is_none(),
+            Some(true) => s.trans.is_none() && s.fx_start.is_none(),
+            None => false,
+        };
+        if done {
+            self.show = None;
+            return true;
         }
         changed || self.animating()
     }
@@ -1737,6 +1801,11 @@ impl SlideView {
 
     /// Where the show draws: the whole window, or the editing area in Reading view.
     fn show_area(&self) -> R {
+        if self.previewing() {
+            let (x, y) = self.slide_origin();
+            let (w, h) = self.slide_px(self.scale());
+            return [x, y, w, h];
+        }
         if self.reading {
             [self.origin.0, self.origin.1, self.size.0, self.size.1]
         } else {
@@ -2099,7 +2168,7 @@ impl SlideView {
 
     /// Paint the editing area (or the slide show over the whole window).
     pub fn paint(&self, p: &mut dyn Painter, text_size: f32) {
-        if self.show.is_some() {
+        if self.show.is_some() && !self.previewing() {
             self.paint_show(p, text_size);
             return;
         }
@@ -2126,6 +2195,11 @@ impl SlideView {
             self.paint_notes(p, n, text_size);
         }
         self.paint_scrollbar(p);
+        if self.previewing() {
+            p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
+            self.paint_show(p, text_size);
+            p.pop_clip();
+        }
         p.pop_clip();
     }
 

@@ -75,6 +75,11 @@ pub struct DocWindow {
     styles: Vec<bo_engine::gallery::StyleEntry>,
     /// Status bar zoom controls: minus, slider track, plus, percentage.
     zoom_rects: [[f32; 4]; 4],
+    /// Status bar view buttons (print layout, web layout, draft), as in a desktop word
+    /// processor's status bar.
+    view_rects: [[f32; 4]; 3],
+    /// Current view layout (`print`, `web`, `draft`).
+    view_mode: &'static str,
     /// The pointer is dragging the zoom slider.
     zoom_drag: bool,
     dialog: Option<Dialog>,
@@ -103,6 +108,13 @@ const SIZES: [f32; 18] = [
 ];
 
 /// Next standard font size, in half-points, matching the shared editor's size steps.
+/// Status bar view buttons: view layout and its icon (Bluestar's own drawings).
+const VIEW_MODES: [(&str, &str); 3] = [
+    ("print", "layout.margins"),
+    ("web", "view.normal"),
+    ("draft", "format.justify"),
+];
+
 fn step_font_size(current: u32, grow: bool) -> u32 {
     if grow {
         if current >= 144 {
@@ -162,6 +174,8 @@ impl DocWindow {
             tooltip: None,
             styles: Vec::new(),
             zoom_rects: [[0.0; 4]; 4],
+            view_rects: [[0.0; 4]; 3],
+            view_mode: "print",
             zoom_drag: false,
             dialog: None,
             ruler: Ruler::default(),
@@ -473,6 +487,12 @@ impl DocWindow {
 
     /// Run interface command `id` from the ribbon, title bar, a menu or a shortcut.
     fn action(&mut self, id: &str) -> bool {
+        if let Some(mode) = id.strip_prefix("view.layout.") {
+            self.view_mode = VIEW_MODES
+                .iter()
+                .find(|(m, _)| *m == mode)
+                .map_or("print", |(m, _)| m);
+        }
         let merge = |w: &mut Self, record: Option<usize>| {
             w.merge_record = record;
             catalog::from_json(json!({ "cmd": "mergePreview", "record": record }))
@@ -661,6 +681,14 @@ impl DocWindow {
         let track = [plus[0] - px(108.0), y, px(104.0), sh];
         let minus = [track[0] - px(24.0), y, px(22.0), sh];
         self.zoom_rects = [minus, track, plus, pct];
+        // View buttons before the zoom controls.
+        let bw = px(32.0);
+        let gap = px(2.0);
+        let right = minus[0] - px(12.0);
+        for (i, r) in self.view_rects.iter_mut().enumerate() {
+            let x = right - (3 - i) as f32 * (bw + gap);
+            *r = [x, y + 1.0, bw, sh - 1.0];
+        }
     }
 
     fn layout_ruler(&mut self) {
@@ -855,6 +883,14 @@ impl DocWindow {
         let status_top = self.size.1 - self.status_h();
         match input {
             Input::Press { x, y, .. } if y >= status_top => {
+                if let Some(i) = self
+                    .view_rects
+                    .iter()
+                    .position(|[rx, ry, rw, rh]| x >= *rx && x < rx + rw && y >= *ry && y < ry + rh)
+                {
+                    let id = format!("view.layout.{}", VIEW_MODES[i].0);
+                    return self.action(&id);
+                }
                 return match self.zoom_hit(x, y) {
                     Some(0) => self.zoom_to(((self.view.zoom() - 0.1) * 10.0).round() / 10.0, text),
                     Some(1) => {
@@ -1163,8 +1199,30 @@ impl DocWindow {
         let (w, h) = self.size;
         let sh = self.status_h();
         let y = h - sh;
-        p.fill_rect(0.0, y, w, sh, self.theme.bg);
+        // Neutral grey bar with dark text, like the ribbon body (and a desktop word
+        // processor's status bar).
+        p.fill_rect(0.0, y, w, sh, self.theme.ribbon);
         p.fill_rect(0.0, y, w, 1.0, self.theme.border);
+        for (i, r) in self.view_rects.iter().enumerate() {
+            let (mode, icon) = VIEW_MODES[i];
+            if mode == self.view_mode {
+                p.fill_rect(r[0], r[1], r[2], r[3], self.theme.active);
+            }
+            let size = (16.0 * self.scale).round();
+            self.icons.draw(
+                p,
+                icon,
+                (r[0] + (r[2] - size) / 2.0).round(),
+                (r[1] + (r[3] - size) / 2.0).round(),
+                size,
+                crate::icons::IconColors {
+                    ink: self.theme.text,
+                    accent: self.theme.accent,
+                    on: self.theme.accent_on,
+                    tinted: true,
+                },
+            );
+        }
         let style = TextStyle {
             size: (12.0 * self.scale).round(),
             bold: false,
@@ -1182,13 +1240,13 @@ impl DocWindow {
             &[("count", &self.view.word_count().to_string())],
         );
         let x0 = (12.0 * self.scale).round();
-        p.text(&page, x0, ty, style, self.theme.text_muted);
+        p.text(&page, x0, ty, style, self.theme.text);
         p.text(
             &words,
             x0 + (110.0 * self.scale).round(),
             ty,
             style,
-            self.theme.text_muted,
+            self.theme.text,
         );
         let zoom = self.strings.fmt(
             "status.zoom",
@@ -1198,7 +1256,7 @@ impl DocWindow {
             )],
         );
         let [minus, track, plus, pct] = self.zoom_rects;
-        let ink = self.theme.text_muted;
+        let ink = self.theme.text;
         let k = (4.0 * self.scale).round();
         let line = self.scale.max(1.0).round();
         let (mx, my) = (minus[0] + minus[2] / 2.0, minus[1] + minus[3] / 2.0);

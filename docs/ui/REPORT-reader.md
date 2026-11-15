@@ -81,3 +81,64 @@ trộn + tô sáng) vẽ 22 ms; trang thử lưới shading (8 708 tam giác) 50
 Còn lại: các tuỳ chọn in nâng cao (hai mặt, nhiều trang mỗi tờ, booklet, Current view), Night Mode / Reflow /
 AutoScroll của tab View, công cụ vẽ (Pencil, Callout, Stamp, Measure) của tab Comment, kéo đổi kích thước chú thích
 bằng tay nắm, blend mode bên trong vùng cắt hình dạng (vẽ như Normal), patch tensor dùng điểm trong.
+
+## Vòng 3 (2026-11-15)
+
+Phần thêm nằm ở mô-đun riêng: `reader_impose.rs` (sắp trang in), `reader_viewx.rs` + `reader_viewx_win.rs`
+(tab View), `reader_draw_win.rs` (công cụ vẽ), `bo-pdfread/src/annot_draw.rs` (chú thích vẽ); mã chung chỉ thêm móc.
+Ảnh so sánh: thư mục `scratchpad/show/reader-NN-*.png` của phiên (bản đối chiếu trên / trái).
+
+**Web.** Display list `pushGroup` / `popGroup` (blend mode, soft mask) có kiểu TS; canvas vẽ blend bằng
+`globalCompositeOperation`, soft mask bỏ qua (vẽ như nội dung thường). `pnpm build:wasm` xanh trở lại (sửa
+`clip_xfer.rs` không có `bundled-fonts`).
+
+**In.** Hộp thoại thêm Current view (vùng đang thấy, in đứng, vừa khổ), in hai mặt (lật cạnh dài / ngắn, đặt qua
+DEVMODE), ba nút Print Handling đo theo bản đối chiếu (123 × 51 px ở 125 %, chọn: viền 0,84,153 nền 204,228,247):
+Scale (None / Fit / Reduce / Custom %), Multiple Pages Per Sheet (2 / 4 / 6 / 9 / 16, bốn thứ tự, viền trang; 2 và
+6 trang xoay tờ ngang), Booklet (thứ tự gập giữa, gáy trái / phải, cả hai mặt / mặt trước / mặt sau). Xem trước
+hiện ô trang trên tờ. Kiểm bằng in thật qua "Microsoft Print to PDF" (`bluereader-native --print in.pdf
+"<máy in>" out.pdf --nup 4 --border | --booklet | --scale 50 | --view x,y,w,h`), dựng lại bằng MuPDF: 5 trang →
+2 tờ (4-up), 3 tờ (2-up), 4 mặt (booklet), đúng thứ tự (`reader-01-print-layouts.png`). Chưa so được bản in của
+bản đối chiếu: không mở được hộp thoại In của nó mà không dùng thao tác thật.
+
+**Tab View** (đo lại thứ tự theo ribbon bản đối chiếu, `reader-05-view-tab.png`): Read Mode, Reflow, Reverse View,
+Night Mode | Rotate View | lưới bố cục trang 3 × 2 (thêm trang bìa riêng) | AutoScroll | Word Count | View Setting
+(zoom, vừa trang, bảng điều hướng, thước, lưới, toàn màn hình). Night Mode đo trên bản đối chiếu: nền trang
+(25, 25, 25), mọi chữ (127, 127, 127), trắng / đen của hình vẽ theo nền / chữ, màu khác và ảnh giữ nguyên, nền
+canvas không đổi (`reader-07-night-mode.png`). Reflow: chữ trang dàn lại theo bề rộng cửa sổ, cuộn sang trang kế.
+AutoScroll: phím lên / xuống đổi tốc độ, Esc dừng (nhịp 100 ms).
+
+**Tab Comment** (`reader-06-comment-tab.png`): Note | Typewriter, Text Box, Callout | Drawing (chữ nhật, bầu dục,
+đường, mũi tên, đa giác, đường gấp khúc), Pencil | Measure (khoảng cách, chu vi, diện tích theo inch, `/Measure`
+§12.9) | Stamp (8 con dấu tên chuẩn Table 181, hình vẽ của ta) | Properties (màu, độ mờ, độ dày, cỡ chữ). Kéo
+tay nắm góc để đổi kích thước. Hình học đọc lại từ khoá chuẩn (`/InkList`, `/L`, `/Vertices`, `/CL`, `/RD`) nên
+đổi kích thước / thuộc tính dựng lại appearance. Tệp có đủ 12 loại mở trong bản đối chiếu trùng hình
+(`reader-08-drawn-comments.png`); lệch duy nhất (con dấu không đậm) là lỗi bộ nhớ đệm font từ điển trực tiếp,
+đã sửa.
+
+**Vẽ trang.** Chạy 15 tệp (5 PDF có sẵn trong phần mềm đã cài, 4 tệp vòng 2, 5 tệp khó tự sinh, tệp mẫu) so với
+MuPDF ở 100 % (125 %), chênh trung bình mỗi kênh / % điểm ảnh lệch > 48:
+
+| Tệp | Trước | Sau | Sửa |
+| --- | --- | --- | --- |
+| misc (chế độ vẽ chữ, mẫu, màu) | 12,74 / 6,42 % | 3,20 / 2,30 % | chữ Tr 1/2/5/6 viền nét, Tr 4–7 thành vùng cắt |
+| clipblend (blend trong vùng cắt tròn) | 8,02 / 7,26 % | 0,39 / 0,23 % | đóng / mở lại layer quanh nhóm blend |
+| tensor (patch kiểu 7) | 3,07 / 0,14 % | 0,64 / 0,14 % | dùng 4 điểm trong |
+| type3 | 0,43 | 0,10 | (theo chế độ vẽ chữ) |
+| license (AES-256, mật khẩu người dùng rỗng) | không mở | 5,47 (khác ClearType) | /O /U đệm quá 48 byte, /Encrypt trực tiếp |
+
+Ảnh nhỏ phóng to không có `/Interpolate` vẽ theo điểm ảnh như bản đối chiếu. Các tệp còn lại 0,4–3,8 (khác cách
+khử răng cưa chữ). Knockout group: 0,71 (chưa cài knockout, chênh nhỏ). Overprint chưa làm.
+
+**Mở tệp.** Sổ tay 1 202 trang (bản release, máy vẫn chạy 9 tiến trình biên dịch của agent khác, CPU 44–49 %):
+mở 216–220 ms, trang đầu 226–232 ms (vòng 2: 300 / 312 ms; mục tiêu vòng 1: 214 ms). Đo tách: phân tích
+lopdf (song song) 204–209 ms, quét cây trang 6 ms, nhóm nội dung ẩn < 0,1 ms — phần còn lại là font; chưa đo
+được trên máy rảnh.
+
+**So hộp thoại In** (`reader-09-print-dialog.png`): các nhóm, nút Print Handling và Current view trùng vị trí bản
+đối chiếu. Còn thiếu: Tile Large Pages, nhóm Orientation / Print What / Output, Properties / Advanced, Print as
+image, xem trước tờ nhiều trang vẽ ô thay vì ảnh trang.
+
+Còn lại: Text Viewer, Read (đọc to), chia đôi cửa sổ (Split), Eraser / Area Highlight / Custom Stamp của tab
+Comment, chữ vẽ bằng viền (Tr 1/2) trong Night Mode vẫn giữ màu, AutoScroll nhịp 100 ms (giật hơn bản đối chiếu),
+knockout group, overprint, mở 1 202 trang ≤ 210 ms đo trên máy rảnh.

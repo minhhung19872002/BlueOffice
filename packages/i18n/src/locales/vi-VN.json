@@ -76,7 +76,8 @@
       "splitCells": "Tách ô",
       "spelling": "Chính tả & ngữ pháp",
       "insertTable": "Chèn bảng",
-      "tableSize": "Bảng {{cols}}x{{rows}}"
+      "tableSize": "Bảng {{cols}}x{{rows}}",
+      "goToPage": "Nhập số trang"
     },
     "groups": {
       "links": "Liên kết",

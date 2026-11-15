@@ -782,6 +782,18 @@ impl DocWindow {
                     vec![],
                 )
             }
+            DialogKind::GoTo => (
+                self.t("sheetEditor.goto.title", "Go To"),
+                vec![(
+                    self.t("ribbon.docTools.goToPage", "Enter page number"),
+                    (self.view.current_page() + 1).to_string(),
+                )],
+                vec![
+                    (self.t("inspect.goTo", "Go To"), DialogButton::Ok),
+                    (cancel, DialogButton::Cancel),
+                ],
+                vec![],
+            ),
             DialogKind::PageSetup => {
                 let s = &self.view.format().section;
                 // Centimetres with two decimals at most, decimal comma.
@@ -1005,7 +1017,28 @@ impl DocWindow {
                     self.view.run_command(c);
                 }
             }
-            (DialogKind::Font | DialogKind::Paragraph | DialogKind::PageSetup, _) => {
+            (DialogKind::GoTo, DialogButton::Ok) => {
+                // Page numbers count from 1; "+n" / "-n" move from the current page.
+                let typed = v(0);
+                let t = typed.trim();
+                let current = self.view.current_page() as i64;
+                let target = if let Some(n) = t.strip_prefix('+') {
+                    n.parse::<i64>().ok().map(|n| current + n)
+                } else if let Some(n) = t.strip_prefix('-') {
+                    n.parse::<i64>().ok().map(|n| current - n)
+                } else {
+                    t.parse::<i64>().ok().map(|n| n - 1)
+                };
+                if let Some(page) = target {
+                    let last = self.view.page_count().saturating_sub(1) as i64;
+                    self.dialog = None;
+                    self.view.show_page(page.clamp(0, last) as usize);
+                }
+            }
+            (
+                DialogKind::Font | DialogKind::Paragraph | DialogKind::PageSetup | DialogKind::GoTo,
+                _,
+            ) => {
                 self.dialog = None;
             }
             (DialogKind::Comment, _) => {
@@ -1290,6 +1323,7 @@ impl DocWindow {
             "edit.find" => self.toggle_nav(true, true),
             "review.spellingDialog" => self.open_spelling(),
             "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
+            "edit.goTo" => self.open_dialog(DialogKind::GoTo),
             "view.printLayout" => self.action("view.layout.print"),
             "view.webLayout" => self.action("view.layout.web"),
             "view.draft" => self.action("view.layout.draft"),
@@ -1779,7 +1813,7 @@ impl DocWindow {
         let in_title = |w: &Self, y: f32| y < w.title.height();
         let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
         if let Input::Key(
-            Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k')),
+            Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k' | 'g')),
             Mods {
                 ctrl: true, shift, ..
             },
@@ -1793,6 +1827,7 @@ impl DocWindow {
                 ('v', _) => "edit.paste",
                 ('f', _) => "edit.find",
                 ('h', _) => "edit.replace",
+                ('g', _) => "edit.goTo",
                 _ => "insert.link",
             };
             return self.action(id);

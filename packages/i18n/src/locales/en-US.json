@@ -76,7 +76,8 @@
       "splitCells": "Split Cells",
       "spelling": "Spelling & Grammar",
       "insertTable": "Insert Table",
-      "tableSize": "{{cols}}x{{rows}} Table"
+      "tableSize": "{{cols}}x{{rows}} Table",
+      "goToPage": "Enter page number"
     },
     "groups": {
       "links": "Links",

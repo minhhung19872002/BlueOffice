@@ -150,6 +150,22 @@ pub fn text_lines(objs: &[PageObject]) -> Vec<TextLine> {
     out
 }
 
+/// Pixel size of JPEG or PNG bytes.
+pub fn image_size(b: &[u8]) -> Option<(u32, u32)> {
+    if b.starts_with(&[0x89, b'P', b'N', b'G']) && b.len() >= 24 {
+        let w = u32::from_be_bytes(b[16..20].try_into().ok()?);
+        let h = u32::from_be_bytes(b[20..24].try_into().ok()?);
+        return Some((w, h));
+    }
+    if b.starts_with(&[0xff, 0xd8]) {
+        let mut d = zune_jpeg::JpegDecoder::new(b);
+        d.decode_headers().ok()?;
+        let (w, h) = d.dimensions()?;
+        return Some((w as u32, h as u32));
+    }
+    None
+}
+
 /// A picture to place: JPEG or PNG file bytes.
 #[derive(Debug, Clone, Copy)]
 pub struct NewImage<'a>(pub &'a [u8]);
@@ -433,7 +449,7 @@ impl PdfDocument {
 
     /// The page's content as one stream wrapped in `q … Q` (made on the first edit); its id
     /// and decoded bytes.
-    fn page_stream(&mut self, index: usize) -> Result<(ObjectId, Vec<u8>), String> {
+    pub(crate) fn page_stream(&mut self, index: usize) -> Result<(ObjectId, Vec<u8>), String> {
         let info = self.pages.get(index).ok_or("no such page")?.clone();
         let page = self
             .doc
@@ -491,7 +507,7 @@ impl PdfDocument {
     }
 
     /// Splice `edits` (byte range, replacement) into `content`, append `tail` and store it.
-    fn write_page(
+    pub(crate) fn write_page(
         &mut self,
         sid: ObjectId,
         mut content: Vec<u8>,
@@ -753,6 +769,192 @@ impl PdfDocument {
         })();
         self.commit();
         r
+    }
+
+    /// Redact page `index` under `rects` (page points): the glyphs whose boxes touch a
+    /// rectangle are removed from their runs (the other glyphs keep their places), images,
+    /// paths and forms touching one are removed, comments over one are deleted, and the areas
+    /// are painted black. Returns how many objects were changed.
+    pub fn apply_redactions(&mut self, index: usize, rects: &[[f32; 4]]) -> Result<usize, String> {
+        if rects.is_empty() {
+            return Ok(0);
+        }
+        self.begin("redact");
+        let r = self.redact_inner(index, rects);
+        self.commit();
+        r
+    }
+
+    fn redact_inner(&mut self, index: usize, rects: &[[f32; 4]]) -> Result<usize, String> {
+        let hits = |b: [f32; 4]| {
+            rects
+                .iter()
+                .any(|r| b[0] < r[2] && b[2] > r[0] && b[1] < r[3] && b[3] > r[1])
+        };
+        let (_, inv_base) = self.bases(index)?;
+        let (sid, content, objs) = self.edit_page(index, &[])?;
+        let mut edits = Vec::new();
+        let mut changed = 0;
+        for o in &objs {
+            if !hits(o.bbox) {
+                continue;
+            }
+            changed += 1;
+            let rec = &o.rec;
+            let with = match &rec.text {
+                Some(ts) => self
+                    .redacted_run(index, rec, ts, &hits)
+                    .unwrap_or_else(|| deleted_run(rec).into_bytes()),
+                None => Vec::new(),
+            };
+            edits.push((rec.span, with));
+        }
+        let mut tail = String::from("\nq 0 g\n");
+        for r in rects {
+            let a = crate::interp::apply(inv_base, r[0], r[1]);
+            let b = crate::interp::apply(inv_base, r[2], r[3]);
+            let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+            let (x1, y1) = (a.0.max(b.0), a.1.max(b.1));
+            tail.push_str(&format!(
+                "{} {} {} {} re f\n",
+                num(x0),
+                num(y0),
+                num(x1 - x0),
+                num(y1 - y0)
+            ));
+        }
+        tail.push_str("Q\n");
+        self.write_page(sid, content, edits, tail.as_bytes());
+        // Comments over the areas go too.
+        let annots: Vec<ObjectId> = self
+            .annotations()
+            .into_iter()
+            .filter(|a| a.page == index && hits(a.rect))
+            .filter_map(|a| a.id)
+            .collect();
+        changed += annots.len();
+        self.remove_annots(index, &annots)?;
+        Ok(changed)
+    }
+
+    /// A text run without the glyphs `hits` selects: a `TJ` whose numbers keep the other
+    /// glyphs in place. `None` when the run cannot be split (Type 3 or vertical fonts).
+    fn redacted_run(
+        &mut self,
+        index: usize,
+        rec: &Recorded,
+        ts: &TextState,
+        hits: &dyn Fn([f32; 4]) -> bool,
+    ) -> Option<Vec<u8>> {
+        let info = self.pages.get(index)?.clone();
+        let page = self.doc.get_dictionary(info.id).ok()?;
+        let res = inherited(&self.doc, page, b"Resources")?.as_dict().ok()?;
+        let fonts = resolve(&self.doc, res.get(b"Font").ok()?).as_dict().ok()?;
+        let fo = fonts.get(&ts.font).ok()?.clone();
+        let font = self.font_cache.get(&self.doc, &fo, &mut self.fonts)?;
+        if font.type3.is_some() || font.vertical || ts.size.abs() < 1e-6 {
+            return None;
+        }
+        let items: Vec<Object> = match rec.op.as_slice() {
+            b"TJ" => rec.args.first()?.as_array().ok()?.clone(),
+            b"\"" => vec![rec.args.get(2)?.clone()],
+            _ => vec![rec.args.first()?.clone()],
+        };
+        let fs = ts.size;
+        let th = ts.th;
+        let (asc, desc) = (font.ascent / 1000.0, font.descent / 1000.0);
+        let mut tx = 0.0_f32;
+        let mut out: Vec<Object> = Vec::new();
+        let mut kept: Vec<u8> = Vec::new();
+        let mut gap = 0.0_f32;
+        let flush = |out: &mut Vec<Object>, kept: &mut Vec<u8>, gap: &mut f32| {
+            if !kept.is_empty() {
+                out.push(Object::String(
+                    std::mem::take(kept),
+                    lopdf::StringFormat::Hexadecimal,
+                ));
+            }
+            if gap.abs() > 1e-4 {
+                out.push(Object::Real(*gap));
+                *gap = 0.0;
+            }
+        };
+        for it in &items {
+            match it {
+                Object::String(bytes, _) => {
+                    for (code, len) in font.codes(bytes) {
+                        let w0 = font.width(code) / 1000.0;
+                        let space = code == 32 && len == 1;
+                        let adv = (w0 * fs + ts.tc + if space { ts.tw } else { 0.0 }) * th;
+                        let trm = mul(
+                            [fs * th, 0.0, 0.0, fs, 0.0, ts.rise],
+                            mul(mul([1.0, 0.0, 0.0, 1.0, tx, 0.0], ts.tm), rec.ctm),
+                        );
+                        let c = [
+                            crate::interp::apply(trm, 0.0, desc),
+                            crate::interp::apply(trm, w0.max(0.01), asc),
+                        ];
+                        let b = [
+                            c[0].0.min(c[1].0),
+                            c[0].1.min(c[1].1),
+                            c[0].0.max(c[1].0),
+                            c[0].1.max(c[1].1),
+                        ];
+                        tx += adv;
+                        // The code's bytes in this string, in order.
+                        let code_bytes = {
+                            let n = len.min(4);
+                            (0..n)
+                                .rev()
+                                .map(|k| (code >> (8 * k)) as u8)
+                                .collect::<Vec<u8>>()
+                        };
+                        if hits(b) {
+                            if !kept.is_empty() {
+                                out.push(Object::String(
+                                    std::mem::take(&mut kept),
+                                    lopdf::StringFormat::Hexadecimal,
+                                ));
+                            }
+                            gap -= adv * 1000.0 / (fs * th);
+                        } else {
+                            if gap.abs() > 1e-4 {
+                                flush(&mut out, &mut kept, &mut gap);
+                            }
+                            kept.extend(code_bytes);
+                        }
+                    }
+                }
+                o => {
+                    let n = o.as_float().unwrap_or(0.0);
+                    tx -= n / 1000.0 * fs * th;
+                    if !kept.is_empty() {
+                        out.push(Object::String(
+                            std::mem::take(&mut kept),
+                            lopdf::StringFormat::Hexadecimal,
+                        ));
+                    }
+                    gap += n;
+                }
+            }
+        }
+        flush(&mut out, &mut kept, &mut gap);
+        let mut s = Vec::new();
+        match rec.op.as_slice() {
+            b"'" => s.extend_from_slice(b"T* "),
+            b"\"" => {
+                let aw = rec.args.first().map(obj_bytes).unwrap_or_default();
+                let ac = rec.args.get(1).map(obj_bytes).unwrap_or_default();
+                s.extend(aw);
+                s.extend_from_slice(b" Tw ");
+                s.extend(ac);
+                s.extend_from_slice(b" Tc T* ");
+            }
+            _ => {}
+        }
+        s.extend(obj_bytes(&Object::Array(out)));
+        s.extend_from_slice(b" TJ");
+        Some(s)
     }
 
     /// Start a group of edits that undo as one (typing into a text run).

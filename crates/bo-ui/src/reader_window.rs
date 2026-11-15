@@ -136,6 +136,79 @@ pub(crate) struct Profile {
     pub title_band: Option<Rgba>,
     /// App mark icon in the title bar.
     pub app_icon: &'static str,
+    /// Sizes and greys.
+    pub look: Look,
+}
+
+/// Sizes (logical pixels; 125 % values / 1.25) and greys of the window, so a product built
+/// on it (BlueEditor) can follow its own reference app.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Look {
+    pub title_h: f32,
+    pub ribbon_bottom: f32,
+    pub doc_tabs_h: f32,
+    pub status_h: f32,
+    /// Ribbon tab row height, first label x, gap after File and between labels.
+    pub tab_h: f32,
+    pub tab_gap_first: f32,
+    pub tab_gap: f32,
+    /// Underline of the selected tab from the row bottom.
+    pub underline_up: f32,
+    /// Ribbon buttons: height, icon size and offset, label size (125 % px) and offset.
+    pub body_h: f32,
+    pub icon: f32,
+    pub icon_y: f32,
+    pub label: f32,
+    pub label_y: f32,
+    /// Quick access: first box x, step, box size.
+    pub quick_x: f32,
+    pub quick_step: f32,
+    /// Title text centred in the window (else after the quick access icons).
+    pub title_center: bool,
+    /// Search box in the tab row at the right (x from the right edge, y, w, h); else in the
+    /// title bar.
+    pub search_in_tabs: Option<[f32; 4]>,
+    /// Document tab width.
+    pub doc_tab_w: f32,
+    pub chrome: Rgba,
+    pub edge: Rgba,
+    pub canvas: Rgba,
+    pub nav_bg: Rgba,
+    pub pressed: Rgba,
+    pub hover: Rgba,
+    /// Document tab strip background.
+    pub strip_bg: Rgba,
+}
+
+impl Look {
+    /// BlueReader, measured against the reference reader (`docs/ui/REPORT-reader.md`).
+    pub(crate) const READER: Look = Look {
+        title_h: 56.0,
+        ribbon_bottom: 160.0,
+        doc_tabs_h: 35.2,
+        status_h: 36.8,
+        tab_h: 26.4,
+        tab_gap_first: 22.4,
+        tab_gap: 27.5,
+        underline_up: 2.4,
+        body_h: 72.8,
+        icon: 25.6,
+        icon_y: 6.4,
+        label: 14.0,
+        label_y: 28.8,
+        quick_x: 52.0,
+        quick_step: 32.0,
+        title_center: false,
+        search_in_tabs: None,
+        doc_tab_w: 144.0,
+        chrome: CHROME,
+        edge: EDGE,
+        canvas: CANVAS,
+        nav_bg: NAV_BG,
+        pressed: PRESSED,
+        hover: HOVER,
+        strip_bg: CANVAS,
+    };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -246,6 +319,8 @@ pub struct ReaderWindow {
     pub(crate) tool_hidden: bool,
     /// The document area is drawn by a window built on this one (page grid).
     pub(crate) doc_hidden: bool,
+    /// Sizes and greys.
+    look: Look,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -310,6 +385,7 @@ impl ReaderWindow {
             enabled_override: std::collections::HashMap::new(),
             tool_hidden: false,
             doc_hidden: false,
+            look: Look::READER,
         }
     }
 
@@ -317,6 +393,7 @@ impl ReaderWindow {
     pub(crate) fn with_profile(locale: &str, profile: Profile) -> Self {
         let mut w = Self::new(locale);
         w.author = std::env::var("USERNAME").unwrap_or_else(|_| profile.app.into());
+        w.look = profile.look;
         w.profile = Some(profile);
         w
     }
@@ -562,7 +639,7 @@ impl ReaderWindow {
     // ---- Layout ------------------------------------------------------------------------
 
     fn title_h(&self) -> f32 {
-        self.px(56.0)
+        self.px(self.look.title_h)
     }
 
     fn tabs_y(&self) -> f32 {
@@ -571,15 +648,15 @@ impl ReaderWindow {
 
     fn ribbon_bottom(&self) -> f32 {
         // Title 70 px, tabs + body to the line at 200 px (125 %).
-        self.px(160.0)
+        self.px(self.look.ribbon_bottom)
     }
 
     fn doc_tabs_h(&self) -> f32 {
-        self.px(35.2)
+        self.px(self.look.doc_tabs_h)
     }
 
     fn status_h(&self) -> f32 {
-        self.px(36.8)
+        self.px(self.look.status_h)
     }
 
     fn ribbon_items(&self) -> Vec<(&'static str, Kind)> {
@@ -681,8 +758,8 @@ impl ReaderWindow {
         self.controls.clear();
         let th = self.title_h();
         // Title bar quick access (125 %: icons 40 px apart from x 85).
-        let qs = self.px(32.0);
-        let mut x = self.px(52.0);
+        let qs = self.px(self.look.quick_step);
+        let mut x = self.px(self.look.quick_x);
         for (id, icon) in [
             ("file.open", "open"),
             ("file.save", "save"),
@@ -715,14 +792,22 @@ impl ReaderWindow {
         }
         // Search box 458 × 40 px from x 580.
         let sw = self.px(366.4).min((w - self.px(560.0)).max(self.px(120.0)));
-        self.search = [self.px(464.0), self.px(16.0), sw, self.px(32.0)];
+        self.search = match self.look.search_in_tabs {
+            Some([right, y, sw, sh]) => [
+                w - self.px(right) - self.px(sw),
+                self.px(y),
+                self.px(sw),
+                self.px(sh),
+            ],
+            None => [self.px(464.0), self.px(16.0), sw, self.px(32.0)],
+        };
         // Ribbon tabs: label + 35 px between labels, first at x 27.
         let tab_style = self.style(17.0, true);
         let labels = self.tab_label_keys();
         self.tab_rects.clear();
         let mut x = self.px(21.6);
         let ty = self.tabs_y();
-        let tab_h = self.px(26.4);
+        let tab_h = self.px(self.look.tab_h);
         for key in labels {
             let label = self.t(key);
             let lw = self.measure(m, &label, tab_style);
@@ -731,15 +816,15 @@ impl ReaderWindow {
             // 125 %: 28 px after "File", 35–37 px between the other labels.
             x += lw
                 + if key == "pdfReader.tabs.file" {
-                    self.px(22.4)
+                    self.px(self.look.tab_gap_first)
                 } else {
-                    self.px(27.5)
+                    self.px(self.look.tab_gap)
                 };
         }
         // Ribbon body: buttons 91 px high from y 104.
         let by = ty + tab_h + self.px(0.8);
-        let bh = self.px(72.8);
-        let label_style = self.style(14.0, false);
+        let bh = self.px(self.look.body_h);
+        let label_style = self.style(self.look.label, false);
         let mut x = self.px(11.2);
         let mut small_col = 0;
         for (id, kind) in self.ribbon_items() {
@@ -1962,7 +2047,7 @@ impl ReaderWindow {
     #[allow(clippy::too_many_lines)]
     pub fn paint(&mut self, p: &mut dyn Painter) {
         let (w, h) = self.size;
-        p.clear(CHROME);
+        p.clear(self.look.chrome);
         let ink = Ink {
             ink: TEXT,
             accent: self.theme.accent,
@@ -1975,7 +2060,7 @@ impl ReaderWindow {
                 p.fill_rect(0.0, 0.0, w, th, c);
                 (WHITE, Rgba(255, 255, 255, 90), Rgba(255, 255, 255, 46))
             }
-            None => (TEXT, EDGE, HOVER),
+            None => (TEXT, self.look.edge, self.look.hover),
         };
         let mark = self.px(16.0);
         reader_icons::draw(
@@ -1989,7 +2074,7 @@ impl ReaderWindow {
         p.fill_rect(self.px(46.4), self.px(20.0), 1.0, self.px(16.0), title_edge);
         let title = self.title();
         let tstyle = self.style(14.0, true);
-        let qe = self.px(52.0) + 5.0 * self.px(32.0);
+        let qe = self.px(self.look.quick_x) + 5.0 * self.px(self.look.quick_step);
         p.fill_rect(
             qe + self.px(6.4),
             self.px(20.0),
@@ -1997,8 +2082,13 @@ impl ReaderWindow {
             self.px(16.0),
             title_edge,
         );
-        let tx = qe + self.px(19.2);
-        let max_tx = self.search[0] - self.px(12.0);
+        let mut tx = qe + self.px(19.2);
+        let mut max_tx = self.search[0] - self.px(12.0);
+        if self.look.title_center {
+            let tw = self.width_of(&title, tstyle);
+            max_tx = w - self.px(41.6) * 3.0 - self.px(12.0);
+            tx = ((w - tw) / 2.0).round().max(tx);
+        }
         let shown = elide(
             &title,
             self.width_of(&title, tstyle),
@@ -2017,7 +2107,7 @@ impl ReaderWindow {
         let edge = if self.search_focus {
             self.theme.accent
         } else {
-            EDGE
+            self.look.edge
         };
         p.path(
             &rounded(s[0] + 0.5, s[1] + 0.5, s[2] - 1.0, s[3] - 1.0, self.px(4.0)),
@@ -2048,7 +2138,7 @@ impl ReaderWindow {
             let cx = s[0] + self.px(33.6) + self.width_of(&self.search_text, sst) + 1.0;
             p.fill_rect(cx.round(), sty, 1.0, sst.size * 1.33, TEXT);
         }
-        p.fill_rect(0.0, th, w, 1.0, EDGE);
+        p.fill_rect(0.0, th, w, 1.0, self.look.edge);
         // Ribbon tabs.
         let tab_style = self.style(17.0, true);
         let labels = self.tab_label_keys();
@@ -2060,7 +2150,7 @@ impl ReaderWindow {
             p.text(label, r[0] + self.px(4.0), ty, tab_style, color);
             if active {
                 let lw = r[2] - self.px(8.0);
-                let uy = r[1] + r[3] - self.px(2.4);
+                let uy = r[1] + r[3] - self.px(self.look.underline_up);
                 p.path(
                     &rounded(r[0] + self.px(4.0), uy, lw, self.px(2.4), self.px(1.2)),
                     Some(self.theme.accent),
@@ -2070,9 +2160,9 @@ impl ReaderWindow {
         }
         // Navigation column (its icons are controls drawn below).
         let nr = self.nav_rect;
-        p.fill_rect(nr[0], nr[1], nr[2], nr[3], NAV_BG);
+        p.fill_rect(nr[0], nr[1], nr[2], nr[3], self.look.nav_bg);
         // Ribbon controls.
-        let label_style = self.style(14.0, false);
+        let label_style = self.style(self.look.label, false);
         let tool_id = self.tool_id();
         for c in self.controls.clone() {
             let hot = self.hover == Some(c.id);
@@ -2085,19 +2175,23 @@ impl ReaderWindow {
             match c.kind {
                 Kind::Big(icon, label, dropdown) => {
                     if on || down || hot {
-                        let fill = if on || down { PRESSED } else { HOVER };
+                        let fill = if on || down {
+                            self.look.pressed
+                        } else {
+                            self.look.hover
+                        };
                         p.path(
                             &rounded(r[0], r[1], r[2], r[3], self.px(3.2)),
                             Some(fill),
                             None,
                         );
                     }
-                    let is = self.px(25.6);
+                    let is = self.px(self.look.icon);
                     reader_icons::draw(
                         p,
                         icon,
                         r[0] + ((r[2] - is) / 2.0).round(),
-                        r[1] + self.px(6.4),
+                        r[1] + self.px(self.look.icon_y),
                         is,
                         ink,
                     );
@@ -2109,7 +2203,7 @@ impl ReaderWindow {
                         vec![text]
                     };
                     let lh = (label_style.size * 1.33 * 0.93).round();
-                    let mut ly = r[1] + self.px(28.8);
+                    let mut ly = r[1] + self.px(self.look.label_y);
                     let n = lines.len();
                     for (k, l) in lines.iter().enumerate() {
                         let lw = self.width_of(l, label_style);
@@ -2155,9 +2249,9 @@ impl ReaderWindow {
                         let fill = if quick_band {
                             title_hover
                         } else if on || down {
-                            PRESSED
+                            self.look.pressed
                         } else {
-                            HOVER
+                            self.look.hover
                         };
                         p.path(
                             &rounded(r[0], r[1], r[2], r[3], self.px(2.4)),
@@ -2207,15 +2301,15 @@ impl ReaderWindow {
                     let col = if hot && close { WHITE } else { title_ink };
                     win_glyph(p, k, r, self.scale, self.maximized, col);
                 }
-                Kind::Sep => p.fill_rect(r[0], r[1], 1.0, r[3], EDGE),
+                Kind::Sep => p.fill_rect(r[0], r[1], 1.0, r[3], self.look.edge),
             }
         }
         let rb = self.ribbon_bottom();
-        p.fill_rect(0.0, rb, w, 1.0, EDGE);
+        p.fill_rect(0.0, rb, w, 1.0, self.look.edge);
         // Document tabs strip.
         self.paint_doc_tabs(p, rb + 1.0);
         let top = rb + 1.0 + self.doc_tabs_h();
-        p.fill_rect(0.0, top - 1.0, w, 1.0, EDGE);
+        p.fill_rect(0.0, top - 1.0, w, 1.0, self.look.edge);
         if self.show_start || self.tabs.is_empty() {
             self.paint_start(p);
         } else {
@@ -2244,7 +2338,7 @@ impl ReaderWindow {
             p.path(&segs, Some(Rgba(20, 20, 20, 255)), None);
             if self.doc_hidden {
                 let d = self.doc_rect;
-                p.fill_rect(d[0], d[1], d[2] + self.vbar[2], d[3], CANVAS);
+                p.fill_rect(d[0], d[1], d[2] + self.vbar[2], d[3], self.look.canvas);
             } else {
                 self.paint_doc(p);
                 self.paint_vbar(p);
@@ -2252,12 +2346,12 @@ impl ReaderWindow {
         }
         // Status bar.
         let sh = self.status_h();
-        p.fill_rect(0.0, h - sh, w, 1.0, EDGE);
+        p.fill_rect(0.0, h - sh, w, 1.0, self.look.edge);
         self.paint_status(p);
         // Window border (1 px, measured).
-        p.fill_rect(0.0, 0.0, 1.0, h, EDGE);
-        p.fill_rect(w - 1.0, 0.0, 1.0, h, EDGE);
-        p.fill_rect(0.0, h - 1.0, w, 1.0, EDGE);
+        p.fill_rect(0.0, 0.0, 1.0, h, self.look.edge);
+        p.fill_rect(w - 1.0, 0.0, 1.0, h, self.look.edge);
+        p.fill_rect(0.0, h - 1.0, w, 1.0, self.look.edge);
         if let Some((menu, _)) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         }
@@ -2327,9 +2421,9 @@ impl ReaderWindow {
     fn paint_doc_tabs(&mut self, p: &mut dyn Painter, y: f32) {
         let (w, _) = self.size;
         let hgt = self.doc_tabs_h() - 1.0;
-        p.fill_rect(1.0, y, w - 2.0, hgt, CANVAS);
+        p.fill_rect(1.0, y, w - 2.0, hgt, self.look.strip_bg);
         let st = self.style(14.0, false);
-        let tab_w = self.px(144.0);
+        let tab_w = self.px(self.look.doc_tab_w);
         let ty0 = y + self.px(7.2);
         let th = hgt - self.px(7.2);
         let mut x = self.px(10.4);
@@ -2389,11 +2483,17 @@ impl ReaderWindow {
         st: TextStyle,
     ) {
         if on {
-            p.fill_rect(r[0], r[1], r[2], r[3] + 1.0, EDGE);
+            p.fill_rect(r[0], r[1], r[2], r[3] + 1.0, self.look.edge);
             p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] + 1.0, WHITE);
         } else {
-            p.fill_rect(r[0], r[1], r[2], r[3], EDGE);
-            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 1.0, CANVAS);
+            p.fill_rect(r[0], r[1], r[2], r[3], self.look.edge);
+            p.fill_rect(
+                r[0] + 1.0,
+                r[1] + 1.0,
+                r[2] - 2.0,
+                r[3] - 1.0,
+                self.look.canvas,
+            );
         }
         let color = if on && closable {
             self.theme.accent_text
@@ -2467,7 +2567,7 @@ impl ReaderWindow {
             }
             let rr = [card[0], y, card[2], row];
             if inside(rr, self.pointer.0, self.pointer.1) {
-                p.fill_rect(rr[0], rr[1], rr[2], rr[3], HOVER);
+                p.fill_rect(rr[0], rr[1], rr[2], rr[3], self.look.hover);
             }
             reader_icons::draw(p, icon, x, y + ((row - is) / 2.0).round(), is, ink);
             let shown = elide(
@@ -2495,7 +2595,7 @@ impl ReaderWindow {
         if r[2] <= 0.0 {
             return;
         }
-        p.fill_rect(r[0], r[1], r[2], r[3], CHROME);
+        p.fill_rect(r[0], r[1], r[2], r[3], self.look.chrome);
         let Some(panel) = self.panel_open() else {
             return;
         };
@@ -2690,7 +2790,7 @@ impl ReaderWindow {
 
     fn paint_doc(&self, p: &mut dyn Painter) {
         let d = self.doc_rect;
-        p.fill_rect(d[0], d[1], d[2], d[3], CANVAS);
+        p.fill_rect(d[0], d[1], d[2], d[3], self.look.canvas);
         let Some(t) = self.tabs.get(self.active) else {
             return;
         };

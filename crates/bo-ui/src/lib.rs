@@ -11,6 +11,7 @@ mod catalog;
 mod commands;
 mod dialog;
 mod doc_view;
+mod editor_edit;
 mod editor_organize;
 #[cfg(test)]
 mod editor_tests;

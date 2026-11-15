@@ -22,6 +22,7 @@ serde_json.workspace = true
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 zip.workspace = true
 bo-raster.workspace = true
+png.workspace = true
 
 [lints]
 workspace = true

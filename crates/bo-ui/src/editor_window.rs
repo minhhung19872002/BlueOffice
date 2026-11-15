@@ -8,7 +8,7 @@ use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::editor_organize::Organize;
 use crate::popup::{Choice, MenuItem};
 use crate::reader_view::{PdfStore, ReaderView};
-use crate::reader_window::{Kind, Panel, Profile, ReaderRequest, ReaderWindow, Tool};
+use crate::reader_window::{Kind, Look, Panel, Profile, ReaderRequest, ReaderWindow, Tool};
 use crate::theme::Theme;
 use crate::titlebar::NcHit;
 use crate::{Input, Key, Mods, Painter, TextMeasure};
@@ -247,8 +247,41 @@ fn profile() -> Profile {
         ],
         title_band: Some(EDITOR_TITLE),
         app_icon: "appEditor",
+        look: LOOK,
     }
 }
+
+/// Sizes and greys of the reference desktop PDF editor at 125 % (pixels / 1.25):
+/// title bar 45 px, ribbon to the line at 180 px, buttons 92 px high with 36 px icons and
+/// 17 px labels, document tabs 44 px, status bar 44 px, white chrome with #E0E0E0 lines,
+/// canvas #F0F0F0, pressed #E2E2E2 (`docs/ui/REPORT-editor.md`).
+const LOOK: Look = Look {
+    title_h: 36.0,
+    ribbon_bottom: 144.0,
+    doc_tabs_h: 35.2,
+    status_h: 35.2,
+    tab_h: 28.8,
+    tab_gap_first: 24.0,
+    tab_gap: 25.6,
+    underline_up: 4.8,
+    body_h: 73.6,
+    icon: 28.8,
+    icon_y: 4.8,
+    label: 17.0,
+    label_y: 37.6,
+    quick_x: 54.8,
+    quick_step: 28.0,
+    title_center: true,
+    search_in_tabs: Some([38.4, 40.0, 90.4, 22.4]),
+    doc_tab_w: 140.0,
+    chrome: Rgba(255, 255, 255, 255),
+    edge: Rgba(224, 224, 224, 255),
+    canvas: Rgba(240, 240, 240, 255),
+    nav_bg: Rgba(255, 255, 255, 255),
+    pressed: Rgba(226, 226, 226, 255),
+    hover: Rgba(236, 236, 236, 255),
+    strip_bg: Rgba(255, 255, 255, 255),
+};
 
 /// Editor tool that takes the document area's pointer input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +315,10 @@ pub struct EditorWindow {
     panel_before: Option<Panel>,
     /// Pointer position (window pixels).
     pointer: (f32, f32),
+    /// Edit Text / Edit Object / Add Text state.
+    edit: crate::editor_edit::Editing,
+    /// Caret shown (blink phase).
+    caret_on: bool,
 }
 
 fn editor_theme() -> Theme {
@@ -305,11 +342,14 @@ impl EditorWindow {
             requests: Vec::new(),
             panel_before: None,
             pointer: (0.0, 0.0),
+            edit: crate::editor_edit::Editing::default(),
+            caret_on: true,
         }
     }
 
     /// Open `doc` named `name` in a new tab.
     pub fn open(&mut self, doc: PdfDocument, name: &str, path: Option<std::path::PathBuf>) {
+        self.edit.reset(self.r.view_mut());
         self.r.open(doc, name, path);
         self.org = Organize::default();
         self.sync();
@@ -440,14 +480,23 @@ impl EditorWindow {
         if self.dialog.is_some() {
             return self.dialog_input(&input, m);
         }
+        if let Input::Blink = input {
+            if self.edit.typing.is_some() {
+                self.caret_on = !self.caret_on;
+                return true;
+            }
+        }
         let mut redraw = false;
         let mut used = false;
         if !self.r.modal_open() {
             if let Input::Key(k, mods) = input {
-                used = self.key(k, mods);
+                used = self.key(k, mods, m);
             }
             if !used && self.organize_on() {
                 used = self.org_input(&input, m);
+            }
+            if !used && self.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.edit_input(&input, m);
             }
         }
         if used {
@@ -460,7 +509,21 @@ impl EditorWindow {
         redraw
     }
 
-    fn key(&mut self, k: Key, mods: Mods) -> bool {
+    fn key(&mut self, k: Key, mods: Mods, m: &dyn TextMeasure) -> bool {
+        if self.edit.typing.is_some() && !(mods.ctrl && matches!(k, Key::Letter('z' | 'y' | 's'))) {
+            let used = match self.r.view_mut() {
+                Some(v) => self.edit.key(v, k, mods),
+                None => false,
+            };
+            if used {
+                self.caret_on = true;
+                return true;
+            }
+        }
+        if k == Key::Delete && !self.edit.selected.is_empty() && self.tool.is_some() {
+            self.command("ed.delete", m);
+            return true;
+        }
         match (k, mods.ctrl, mods.shift) {
             (Key::Letter('z'), true, false) => {
                 self.undo(true);
@@ -480,6 +543,7 @@ impl EditorWindow {
 
     /// Undo (`back`) or redo the last edit of the active document.
     pub fn undo(&mut self, back: bool) {
+        self.edit.reset(self.r.view_mut());
         let Some(v) = self.r.view_mut() else { return };
         let done = if back {
             v.doc_mut().undo()
@@ -538,12 +602,30 @@ impl EditorWindow {
     fn command(&mut self, cmd: &str, m: &dyn TextMeasure) {
         match cmd {
             "edit.undo" => self.undo(true),
+            "ed.delete" => {
+                if let Some(v) = self.r.view_mut() {
+                    self.edit.finish_typing(Some(&mut *v));
+                    self.edit.delete(v);
+                }
+                self.take_edit_status();
+            }
+            "ed.addImage" => self.requests.push(ReaderRequest::PickFile {
+                purpose: "addImage".into(),
+                filters: image_filters(),
+            }),
+            "ed.replaceImage" => self.requests.push(ReaderRequest::PickFile {
+                purpose: "replaceImage".into(),
+                filters: image_filters(),
+            }),
             "edit.redo" => self.undo(false),
             "ed.editText" => self.toggle_tool(EditTool::Text),
             "ed.editObject" => self.toggle_tool(EditTool::Object),
             "ed.addText" => self.toggle_tool(EditTool::AddText),
             "prot.redact" => self.toggle_tool(EditTool::Redact),
-            "tool.hand" | "tool.select" => self.tool = None,
+            "tool.hand" | "tool.select" => {
+                self.edit.reset(self.r.view_mut());
+                self.tool = None;
+            }
             "org.insertMenu" => {
                 let items = [
                     ("org.insertBlank", "pdfEditor.blankPage"),
@@ -656,6 +738,7 @@ impl EditorWindow {
     }
 
     fn toggle_tool(&mut self, t: EditTool) {
+        self.edit.reset(self.r.view_mut());
         self.tool = if self.tool == Some(t) { None } else { Some(t) };
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
@@ -811,14 +894,18 @@ impl EditorWindow {
 
     /// Text caret in window pixels while editing text.
     pub fn caret(&self) -> Option<[f32; 4]> {
-        None
+        self.r.view().and_then(|v| self.edit.caret(v))
     }
 
-    /// A file the host picked for `purpose` (`insert`, `merge`).
+    /// A file the host picked for `purpose` (`insert`, `merge`, `addImage`, `replaceImage`).
     pub fn file_picked(&mut self, purpose: &str, path: &std::path::Path, bytes: &[u8]) {
         let name = path
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        if purpose == "addImage" || purpose == "replaceImage" {
+            self.picture_picked(purpose, bytes);
+            return;
+        }
         if bo_pdfread::PdfDocument::needs_password(bytes) {
             self.r.set_status(&format!(
                 "{name}: {}",
@@ -846,6 +933,115 @@ impl EditorWindow {
             }
             Err(e) => self.r.set_status(&e),
         }
+    }
+
+    /// Place or swap in a picture.
+    fn picture_picked(&mut self, purpose: &str, bytes: &[u8]) {
+        let Some(v) = self.r.view_mut() else { return };
+        let r = if purpose == "replaceImage" {
+            match self.edit.selected_image(v) {
+                Some((page, id)) => v
+                    .doc_mut()
+                    .replace_image(page, id, bo_pdfread::NewImage(bytes))
+                    .map(|()| page),
+                None => Err("select an image first".into()),
+            }
+        } else {
+            let page = v.current_page();
+            let (pw, ph) = v
+                .doc()
+                .page_info(page)
+                .map_or((595.0, 842.0), |p| (p.width, p.height));
+            let (iw, ih) = bo_pdfread::image_size(bytes).unwrap_or((4, 3));
+            // Natural size at 96 dpi, at most half the page.
+            let mut w = iw as f32 * 0.75;
+            let mut h = ih as f32 * 0.75;
+            let k = (pw * 0.5 / w).min(ph * 0.5 / h).min(1.0);
+            w *= k;
+            h *= k;
+            let rect = [
+                (pw - w) / 2.0,
+                (ph - h) / 2.0,
+                f32::midpoint(pw, w),
+                f32::midpoint(ph, h),
+            ];
+            v.doc_mut()
+                .add_image(page, rect, bo_pdfread::NewImage(bytes))
+                .map(|()| page)
+        };
+        match r {
+            Ok(page) => {
+                if let Some(v) = self.r.view_mut() {
+                    v.invalidate_page(page);
+                }
+                self.edit.reset(None);
+                if self.tool.is_none() {
+                    self.tool = Some(EditTool::Object);
+                }
+            }
+            Err(e) => self.r.set_status(&e),
+        }
+    }
+
+    fn take_edit_status(&mut self) {
+        if let Some(s) = self.edit.status.take() {
+            self.r.set_status(&s);
+        }
+    }
+
+    /// Pointer and text input for the editing tools over the document area.
+    fn edit_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
+        let Some(tool) = self.tool else { return false };
+        if matches!(tool, EditTool::Redact) {
+            return false;
+        }
+        let area = self.r.doc_area();
+        let used = match *input {
+            Input::Text(ref s) => match self.r.view_mut() {
+                Some(v) => {
+                    self.caret_on = true;
+                    self.edit.type_text(v, s)
+                }
+                None => false,
+            },
+            Input::Press { x, y, count, shift } if inside(area, x, y) => {
+                let image = self.r.view_mut().and_then(|v| {
+                    let (p, px, py) = v.window_to_doc(x, y)?;
+                    let _ = (p, px, py);
+                    Some(())
+                });
+                if let Some(v) = self.r.view_mut() {
+                    self.edit.press(v, x, y, count, shift, tool);
+                }
+                if count >= 2 && image.is_some() && tool == EditTool::Object {
+                    if let Some(v) = self.r.view_mut() {
+                        if self.edit.selected_image(v).is_some() {
+                            self.command("ed.replaceImage", m);
+                        }
+                    }
+                }
+                self.caret_on = true;
+                true
+            }
+            Input::Drag { x, y } => match self.r.view() {
+                Some(v) => self.edit.drag(v, x, y),
+                None => false,
+            },
+            Input::Release { .. } => match self.r.view_mut() {
+                Some(v) => self.edit.release(v),
+                None => false,
+            },
+            Input::Move { x, y } if inside(area, x, y) => {
+                if let Some(v) = self.r.view_mut() {
+                    self.edit.hover(v, x, y, tool);
+                }
+                // The reader window still tracks the pointer (status bar, controls).
+                return false;
+            }
+            _ => false,
+        };
+        self.take_edit_status();
+        used
     }
 
     /// Keep the reader window's pressed / enabled states and the page grid in step.
@@ -986,10 +1182,23 @@ impl EditorWindow {
                 self.org.paint(p, v, base, &labels, self.r.theme());
             }
         }
+        if let Some(tool) = self.tool {
+            if self.r.showing_doc() && !self.organize_on() {
+                let accent = self.r.theme().accent;
+                let caret_on = self.caret_on;
+                if let Some(v) = self.r.view_mut() {
+                    self.edit.paint(p, v, accent, tool, caret_on);
+                }
+            }
+        }
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }
     }
+}
+
+fn image_filters() -> Vec<(String, String)> {
+    vec![("Images (*.png; *.jpg)".into(), "*.png;*.jpg;*.jpeg".into())]
 }
 
 fn pdf_filters() -> Vec<(String, String)> {

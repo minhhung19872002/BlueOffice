@@ -7,7 +7,7 @@ use crate::{Key, Painter, TextStyle};
 use bo_render::{PathSeg, Rgba};
 use std::collections::BTreeSet;
 
-const CANVAS: Rgba = Rgba(240, 241, 245, 255);
+const CANVAS: Rgba = Rgba(240, 240, 240, 255);
 const PAGE_EDGE: Rgba = Rgba(119, 120, 122, 255);
 const TEXT: Rgba = Rgba(51, 51, 51, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);

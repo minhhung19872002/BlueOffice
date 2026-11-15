@@ -326,3 +326,156 @@ fn title_bar_band_and_undo_buttons() {
     );
     assert!(w.view().is_some_and(|v| v.doc().can_redo()));
 }
+
+/// Window point at the centre of the first text line of page 0.
+fn line_centre(w: &mut EditorWindow) -> (f32, f32) {
+    let v = w.view_mut().expect("view");
+    let objs = v.doc_mut().page_objects(0).expect("objects");
+    let line = bo_pdfread::text_lines(&objs)
+        .into_iter()
+        .next()
+        .expect("line");
+    let r = v.doc_rect_to_window(0, line.bbox).expect("on screen");
+    // Inside the first character so the caret goes before or after it.
+    (r[0] + 3.0, r[1] + r[3] / 2.0)
+}
+
+#[test]
+fn edit_text_in_place_and_undo() {
+    let mut w = window(1);
+    w.run("ed.editText", &Fixed);
+    assert_eq!(w.edit_tool(), Some(crate::EditTool::Text));
+    let (x, y) = line_centre(&mut w);
+    w.handle(Input::Move { x, y }, &Fixed);
+    assert_eq!(w.cursor(), 4);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
+    // The caret shows while typing.
+    assert!(w.caret().is_some());
+    key(&mut w, Key::End, false, false);
+    w.handle(Input::Text("!".into()), &Fixed);
+    w.handle(Input::Text(" ổn".into()), &Fixed);
+    assert_eq!(texts(&mut w), ["Page 1! ổn"]);
+    key(&mut w, Key::Home, false, false);
+    key(&mut w, Key::Delete, false, false);
+    assert_eq!(texts(&mut w), ["age 1! ổn"]);
+    key(&mut w, Key::Escape, false, false);
+    assert!(w.caret().is_none());
+    // The whole typing session undoes in one step.
+    key(&mut w, Key::Letter('z'), true, false);
+    assert_eq!(texts(&mut w), ["Page 1"]);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+}
+
+#[test]
+fn edit_object_moves_and_deletes() {
+    let mut w = window(1);
+    w.run("ed.editObject", &Fixed);
+    let (x, y) = line_centre(&mut w);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    let s = w.view().map_or(1.0, crate::ReaderView::scale);
+    // Drag 50 document points to the right and 20 down.
+    let (tx, ty) = (x + 50.0 * s, y + 20.0 * s);
+    w.handle(Input::Drag { x: tx, y: ty }, &Fixed);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    w.handle(Input::Release { x: tx, y: ty }, &Fixed);
+    let v = w.view_mut().expect("view");
+    let objs = v.doc_mut().page_objects(0).expect("objects");
+    let line = bo_pdfread::text_lines(&objs).remove(0);
+    assert_eq!(line.text, "Page 1");
+    assert!(
+        (line.bbox[0] - (72.0 + 50.0)).abs() < 0.5,
+        "{:?}",
+        line.bbox
+    );
+    // Select it again and delete it.
+    let (x, y) = line_centre(&mut w);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
+    key(&mut w, Key::Delete, false, false);
+    assert_eq!(texts(&mut w), [""]);
+    key(&mut w, Key::Letter('z'), true, false);
+    key(&mut w, Key::Letter('z'), true, false);
+    assert_eq!(texts(&mut w), ["Page 1"]);
+}
+
+#[test]
+fn add_text_and_image() {
+    let mut w = window(1);
+    w.run("ed.addText", &Fixed);
+    let v = w.view().expect("view");
+    let r = v
+        .doc_rect_to_window(0, [100.0, 300.0, 100.0, 300.0])
+        .expect("page");
+    w.handle(
+        Input::Press {
+            x: r[0],
+            y: r[1],
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x: r[0], y: r[1] }, &Fixed);
+    w.handle(Input::Text("Ghi chú".into()), &Fixed);
+    key(&mut w, Key::Escape, false, false);
+    let t = texts(&mut w).remove(0);
+    assert!(t.contains("Ghi chú"), "{t}");
+    // A picture from a file goes in the middle of the page.
+    let mut png_bytes = Vec::new();
+    {
+        let mut e = png_encoder(&mut png_bytes);
+        e.write_image_data(&[255, 0, 0, 255, 0, 0, 255, 255, 0, 255, 0, 255, 9, 9, 9, 128])
+            .expect("png");
+    }
+    w.run("ed.addImage", &Fixed);
+    assert!(
+        matches!(&w.take_requests()[..], [ReaderRequest::PickFile { purpose, .. }] if purpose == "addImage")
+    );
+    w.file_picked("addImage", std::path::Path::new("a.png"), &png_bytes);
+    let v = w.view_mut().expect("view");
+    let objs = v.doc_mut().page_objects(0).expect("objects");
+    let img = objs
+        .iter()
+        .find(|o| o.kind == bo_pdfread::ObjectKind::Image)
+        .expect("image");
+    // 2 × 2 px at 96 dpi is 1.5 pt, centred on the 612 × 792 page.
+    assert!(
+        (img.bbox[0] - 305.25).abs() < 0.1 && (img.bbox[1] - 395.25).abs() < 0.1,
+        "{:?}",
+        img.bbox
+    );
+}
+
+fn png_encoder(out: &mut Vec<u8>) -> png::Writer<&mut Vec<u8>> {
+    let mut e = png::Encoder::new(out, 2, 2);
+    e.set_color(png::ColorType::Rgba);
+    e.set_depth(png::BitDepth::Eight);
+    e.write_header().expect("header")
+}

@@ -88,6 +88,8 @@ pub struct Annot {
     pub modified: String,
     /// Colour.
     pub color: [u8; 3],
+    /// The annotation object (to edit or delete it).
+    pub(crate) id: Option<lopdf::ObjectId>,
 }
 
 fn color_of(doc: &Document, d: &Dictionary) -> [u8; 3] {
@@ -335,6 +337,7 @@ impl PdfDocument {
                     author: s(b"T"),
                     modified: s(b"M"),
                     color: color_of(doc, d),
+                    id: a.as_reference().ok(),
                 });
             }
         }
@@ -508,6 +511,80 @@ impl PdfDocument {
             match page.get_mut(b"Annots") {
                 Ok(Object::Array(v)) => v.push(Object::Reference(annot_id)),
                 _ => page.set("Annots", vec![Object::Reference(annot_id)]),
+            }
+        }
+        self.commit();
+        Ok(())
+    }
+
+    /// Delete a comment (and its pop-up).
+    pub fn delete_annotation(&mut self, a: &Annot) -> Result<(), String> {
+        let id = a.id.ok_or("the comment cannot be changed")?;
+        let popup = self
+            .doc
+            .get_dictionary(id)
+            .ok()
+            .and_then(|d| d.get(b"Popup").ok())
+            .and_then(|p| p.as_reference().ok());
+        self.begin("delete comment");
+        let mut ids = vec![id];
+        ids.extend(popup);
+        let r = self.remove_annots(a.page, &ids);
+        self.commit();
+        r
+    }
+
+    /// Change a comment's text (a text box shows the new text).
+    pub fn set_annotation_contents(&mut self, a: &Annot, text: &str) -> Result<(), String> {
+        let id = a.id.ok_or("the comment cannot be changed")?;
+        let rect = {
+            let d = self.doc.get_dictionary(id).map_err(|e| e.to_string())?;
+            crate::annot_rect(&self.doc, d).ok_or("comment box")?
+        };
+        self.begin("edit comment");
+        self.touch(id);
+        let now = pdf_date();
+        if let Ok(d) = self.doc.get_dictionary_mut(id) {
+            d.set("Contents", text_obj(text));
+            d.set("M", text_obj(&now));
+        }
+        if a.kind == AnnotKind::TextBox {
+            // A new appearance with the text in the embedded Unicode font.
+            let (font, _) = self.embed_text(false, "")?;
+            let [r, g, b] = a.color.map(|c| f32::from(c) / 255.0);
+            let mut s = format!(
+                "{r} {g} {b} RG 1 w {} {} {} {} re S\nBT /BoF 11 Tf 0 g 13 TL {} {} Td\n",
+                rect[0] + 0.5,
+                rect[1] + 0.5,
+                rect[2] - rect[0] - 1.0,
+                rect[3] - rect[1] - 1.0,
+                rect[0] + 4.0,
+                rect[3] - 14.0
+            );
+            for line in text.lines() {
+                let (_, bytes) = self.embed_text(false, line)?;
+                let hex = bytes.iter().fold(String::new(), |mut h, b| {
+                    use std::fmt::Write as _;
+                    let _ = write!(h, "{b:02X}");
+                    h
+                });
+                s.push_str(&format!("<{hex}> Tj T*\n"));
+            }
+            s.push_str("ET\n");
+            let mut fonts = Dictionary::new();
+            fonts.set("BoF", Object::Reference(font));
+            let mut res = Dictionary::new();
+            res.set("Font", fonts);
+            let mut ap_dict = Dictionary::new();
+            ap_dict.set("Type", Object::Name(b"XObject".to_vec()));
+            ap_dict.set("Subtype", Object::Name(b"Form".to_vec()));
+            ap_dict.set("BBox", nums(&rect));
+            ap_dict.set("Resources", res);
+            let ap_id = self.add(Object::Stream(Stream::new(ap_dict, s.into_bytes())));
+            if let Ok(d) = self.doc.get_dictionary_mut(id) {
+                let mut ap = Dictionary::new();
+                ap.set("N", Object::Reference(ap_id));
+                d.set("AP", ap);
             }
         }
         self.commit();

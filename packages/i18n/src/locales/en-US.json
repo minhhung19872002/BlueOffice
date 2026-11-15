@@ -165,7 +165,46 @@
       "moveRight": "Move sheet right",
       "insertBefore": "Insert sheet",
       "previous": "Previous sheet",
-      "next": "Next sheet"
+      "next": "Next sheet",
+      "numberFormat": "Number format",
+      "conditional": "Conditional formatting",
+      "formatTable": "Format as table",
+      "cellStyles": "Cell styles",
+      "insertCells": "Insert",
+      "deleteCells": "Delete",
+      "formatCells": "Format",
+      "autoSum": "Sum",
+      "autoSumF": "Sum",
+      "fill": "Fill",
+      "clear": "Clear",
+      "sortFilter": "Sort & filter",
+      "findSelect": "Find & select",
+      "table": "Table",
+      "chartColumn": "Column chart",
+      "chartLine": "Line chart",
+      "chartPie": "Pie chart",
+      "insertFunction": "Insert function",
+      "fnFinancial": "Financial",
+      "fnLogical": "Logical",
+      "fnText": "Text",
+      "fnDateTime": "Date & time",
+      "fnLookup": "Lookup",
+      "fnMath": "Math",
+      "fnMore": "Statistical",
+      "calcOptions": "Calculation",
+      "calcNow": "Calculate now",
+      "calcSheet": "Calculate sheet",
+      "filter": "Filter",
+      "sortAsc": "Sort ascending",
+      "sortDesc": "Sort descending",
+      "textToColumns": "Split text",
+      "removeDuplicates": "Remove duplicates",
+      "gridlines": "Gridlines",
+      "headings": "Headings",
+      "formulaBar": "Formula bar",
+      "zoom100": "100%",
+      "zoomSelection": "Zoom to selection",
+      "freezePanes": "Freeze"
     },
     "addins": {
       "manage": "Manage add-ins"
@@ -8595,5 +8634,128 @@
     "prevMonth": "Previous month",
     "nextMonth": "Next month",
     "today": "Today"
+  },
+  "sheetMenu": {
+    "tabFormulas": "Formulas",
+    "groupFunctions": "Function library",
+    "groupCalculation": "Calculation",
+    "numFmt": {
+      "general": "General",
+      "number": "Number",
+      "currency": "Currency",
+      "accounting": "Accounting",
+      "shortDate": "Short date",
+      "longDate": "Long date",
+      "time": "Time",
+      "percentage": "Percentage",
+      "fraction": "Fraction",
+      "scientific": "Scientific",
+      "text": "Text",
+      "custom": "Custom",
+      "more": "Other number formats…"
+    },
+    "autoSum": {
+      "sum": "Sum",
+      "average": "Average",
+      "count": "Count numbers",
+      "max": "Maximum",
+      "min": "Minimum",
+      "more": "Other functions…"
+    },
+    "fill": {
+      "down": "Down",
+      "right": "Right",
+      "up": "Up",
+      "left": "Left",
+      "series": "Series (step 1)"
+    },
+    "clear": {
+      "all": "Clear all",
+      "formats": "Clear formats",
+      "contents": "Clear contents"
+    },
+    "sort": {
+      "asc": "Sort smallest to largest",
+      "desc": "Sort largest to smallest",
+      "filter": "Filter",
+      "clear": "Show all rows"
+    },
+    "find": {
+      "find": "Find…",
+      "replace": "Replace…",
+      "goto": "Go to…"
+    },
+    "cf": {
+      "greater": "Highlight values above average",
+      "less": "Highlight values below average",
+      "duplicates": "Highlight duplicate values",
+      "top10": "Top 10 items",
+      "bottom10": "Bottom 10 items",
+      "barBlue": "Data bars — blue",
+      "barGreen": "Data bars — green",
+      "scaleGyr": "Colour scale — green, yellow, red",
+      "scaleRwb": "Colour scale — red, white, blue",
+      "icons3Arrows": "Icon set — 3 arrows",
+      "icons3Traffic": "Icon set — 3 lights",
+      "icons5Quarters": "Icon set — 5 quarters",
+      "clearSel": "Clear rules from the selection",
+      "clearSheet": "Clear rules from the sheet"
+    },
+    "table": {
+      "light": "Light table style",
+      "medium": "Medium table style",
+      "dark": "Dark table style"
+    },
+    "cells": {
+      "insertRows": "Insert sheet rows",
+      "insertCols": "Insert sheet columns",
+      "insertSheet": "Insert sheet",
+      "deleteRows": "Delete sheet rows",
+      "deleteCols": "Delete sheet columns",
+      "autofitRow": "AutoFit row height",
+      "autofitCol": "AutoFit column width",
+      "hideRows": "Hide rows",
+      "hideCols": "Hide columns",
+      "unhideRows": "Unhide rows",
+      "unhideCols": "Unhide columns",
+      "formatCells": "Format cells…"
+    },
+    "chart": {
+      "column": "Clustered columns",
+      "bar": "Clustered bars",
+      "line": "Line",
+      "area": "Area",
+      "pie": "Pie",
+      "doughnut": "Doughnut"
+    },
+    "freeze": {
+      "panes": "Freeze at the active cell",
+      "row": "Freeze top row",
+      "col": "Freeze first column",
+      "none": "Unfreeze"
+    },
+    "dialog": {
+      "find": "Find",
+      "replace": "Replace",
+      "findWhat": "Find what",
+      "replaceWith": "Replace with",
+      "findNext": "Find next",
+      "replaceAll": "Replace all",
+      "notFound": "Nothing found.",
+      "replaced": "Replaced:",
+      "goto": "Go to",
+      "reference": "Reference or name",
+      "function": "Function name",
+      "numberCode": "Number format code",
+      "font": "Font",
+      "size": "Size (pt)",
+      "fontColor": "Font colour (RRGGBB)",
+      "fill": "Fill colour (RRGGBB)",
+      "hAlign": "Horizontal alignment (left, center, right)",
+      "bold": "Bold",
+      "italic": "Italic",
+      "wrap": "Wrap text",
+      "border": "Thin border around the selection"
+    }
   }
 }

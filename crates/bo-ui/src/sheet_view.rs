@@ -18,6 +18,31 @@ pub trait GridStore {
     /// Draw `list` (points) at `scale` device pixels per point as the new grid image; the
     /// glyph runs refer to `engine`'s fonts.
     fn update(&mut self, list: &PageList, engine: &SheetEngine, scale: f32) -> Result<(), String>;
+
+    /// The view scrolled by whole device pixels: keep the still-visible part of the last
+    /// image by applying moves (old image to new image), then draw list into ands
+    /// only (left, top, width, height in device pixels). Stores that cannot move pixels
+    /// redraw the whole image.
+    fn scroll(
+        &mut self,
+        list: &PageList,
+        engine: &SheetEngine,
+        scale: f32,
+        moves: &[GridMove],
+        bands: &[[u32; 4]],
+    ) -> Result<(), String> {
+        let _ = (moves, bands);
+        self.update(list, engine, scale)
+    }
+}
+
+/// A rectangle of the previous grid image kept at a new place when scrolling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridMove {
+    /// Left, top, width, height in the previous image (device pixels).
+    pub src: [u32; 4],
+    /// Top-left corner in the new image.
+    pub dst: [u32; 2],
 }
 
 /// Gridlines.
@@ -86,6 +111,8 @@ struct Editor {
     text_w: f32,
     /// Text being composed by an input method.
     preedit: String,
+    /// The reference inserted by pointing at cells (byte range in `text`).
+    point: Option<std::ops::Range<usize>>,
 }
 
 /// Placed column or row: index, first pixel (window), pixel of its closing gridline.
@@ -105,6 +132,107 @@ enum Drag {
     /// Resizing column / row `index` from the edge at window pixel `origin`.
     ColEdge(u32, f32),
     RowEdge(u32, f32),
+    /// Dragging the fill handle of the selection (its bounds when the drag began).
+    Fill(u32, u32, u32, u32),
+    /// Pointing at cells for a formula being typed: the cell the drag began on.
+    Point(u32, u32),
+}
+
+/// Colours of the reference frames drawn around the cells a formula refers to while it is
+/// edited, in the order the references appear.
+pub const REF_COLORS: [Rgba; 7] = [
+    Rgba(0x44, 0x72, 0xc4, 255),
+    Rgba(0xed, 0x7d, 0x31, 255),
+    Rgba(0x70, 0x30, 0xa0, 255),
+    Rgba(0x00, 0xb0, 0x50, 255),
+    Rgba(0xc0, 0x00, 0x00, 255),
+    Rgba(0x00, 0x70, 0xc0, 255),
+    Rgba(0xbf, 0x8f, 0x00, 255),
+];
+
+/// A reference of a formula: byte range in the text and cell bounds (first row, first column,
+/// last row, last column).
+pub type FormulaRef = (std::ops::Range<usize>, (u32, u32, u32, u32));
+
+/// A1 references in a formula (`=A1+SUM(B2:C3)`): byte range and cell bounds
+/// (first row, first column, last row, last column), outside string literals.
+pub fn formula_refs(text: &str) -> Vec<FormulaRef> {
+    let b = text.as_bytes();
+    let mut out = Vec::new();
+    if b.first() != Some(&b'=') {
+        return out;
+    }
+    // One cell reference at `i`: ($)letters($)digits → (end, row, col).
+    let cell = |mut i: usize| -> Option<(usize, u32, u32)> {
+        if b.get(i) == Some(&b'$') {
+            i += 1;
+        }
+        let ls = i;
+        while i < b.len() && b[i].is_ascii_alphabetic() {
+            i += 1;
+        }
+        if i == ls || i - ls > 3 {
+            return None;
+        }
+        let letters = &text[ls..i];
+        if b.get(i) == Some(&b'$') {
+            i += 1;
+        }
+        let ds = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == ds || i - ds > 7 {
+            return None;
+        }
+        let row: u32 = text[ds..i].parse().ok()?;
+        let col = letters.bytes().try_fold(0_u32, |a, c| {
+            Some(a * 26 + u32::from(c.to_ascii_uppercase() - b'A') + 1)
+        })?;
+        ((1..=MAX_ROWS).contains(&row) && (1..=MAX_COLS).contains(&col)).then_some((
+            i,
+            row - 1,
+            col - 1,
+        ))
+    };
+    let mut i = 1;
+    let mut quoted = false;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'"' {
+            quoted = !quoted;
+            i += 1;
+            continue;
+        }
+        let starts = !quoted
+            && (c == b'$' || c.is_ascii_alphabetic())
+            && !b[i - 1].is_ascii_alphanumeric()
+            && !matches!(b[i - 1], b'_' | b'.' | b'!' | b'\'' | b'$');
+        if starts {
+            if let Some((end, r, col)) = cell(i) {
+                // A name or function continues with letters, digits, `(` or `_`.
+                let next = b.get(end).copied();
+                if !next.is_some_and(|n| n.is_ascii_alphanumeric() || n == b'(' || n == b'_') {
+                    let (mut stop, mut bounds) = (end, (r, col, r, col));
+                    if next == Some(b':') {
+                        if let Some((e2, r2, c2)) = cell(end + 1) {
+                            stop = e2;
+                            bounds = (r.min(r2), col.min(c2), r.max(r2), col.max(c2));
+                        }
+                    }
+                    out.push((i..stop, bounds));
+                    i = stop;
+                    continue;
+                }
+            }
+            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                i += 1;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    out
 }
 
 /// Statistics of the selection for the status bar.
@@ -135,6 +263,10 @@ pub struct SheetView {
     active: (u32, u32),
     edit: Option<Editor>,
     grid_dirty: bool,
+    /// The grid image must be drawn whole (cells, size or scale changed), not only scrolled.
+    full_redraw: bool,
+    /// Scroll of the last drawn grid image.
+    drawn: Option<(f64, f64)>,
     drag: Option<Drag>,
     cols: Vec<Span>,
     rows: Vec<Span>,
@@ -160,6 +292,11 @@ pub struct SheetView {
     /// Measured header label widths at `label_size` pixels.
     label_widths: std::collections::HashMap<String, f32>,
     label_size: f32,
+    /// View settings: gridlines, row / column headings.
+    show_grid: bool,
+    show_headings: bool,
+    /// Cells the fill handle drag would fill (bounds), while dragging.
+    fill_to: Option<(u32, u32, u32, u32)>,
 }
 
 fn rgba_hex(s: &str) -> Option<Rgba> {
@@ -200,6 +337,8 @@ impl SheetView {
             active: (0, 0),
             edit: None,
             grid_dirty: true,
+            full_redraw: true,
+            drawn: None,
             drag: None,
             cols: Vec::new(),
             rows: Vec::new(),
@@ -217,6 +356,9 @@ impl SheetView {
             error: None,
             label_widths: std::collections::HashMap::new(),
             label_size: 0.0,
+            show_grid: true,
+            show_headings: true,
+            fill_to: None,
         };
         // Start on the sheet the workbook was saved on, at its first unfrozen cell.
         let active = v
@@ -309,12 +451,18 @@ impl SheetView {
 
     /// Height of the column header band (24 px at 125 %, as measured).
     fn hdr_h(&self) -> f32 {
+        if !self.show_headings {
+            return 0.0;
+        }
         (19.2 * self.scale * self.zoom).round()
     }
 
     /// Width of the row header band: room for the largest row number shown (34 px at
     /// 125 % for up to two digits, as measured), its last pixel being the edge line.
     fn hdr_w(&self) -> f32 {
+        if !self.show_headings {
+            return 0.0;
+        }
         let last = self.rows.last().map_or(1, |r| r.index + 1);
         let digits = last.to_string().len().max(2) as f32;
         ((digits * 7.0 + 13.0) * self.scale * self.zoom).round()
@@ -330,7 +478,7 @@ impl SheetView {
         let f = [x.round(), y.round(), w.round().max(1.0), h.round().max(1.0)];
         if f != self.frame {
             self.frame = f;
-            self.grid_dirty = true;
+            self.redraw_all();
             self.refresh();
         }
     }
@@ -339,7 +487,7 @@ impl SheetView {
     pub fn set_scale(&mut self, scale: f32) {
         if scale > 0.0 && scale != self.scale {
             self.scale = scale;
-            self.grid_dirty = true;
+            self.redraw_all();
             self.refresh();
         }
     }
@@ -351,7 +499,7 @@ impl SheetView {
             return false;
         }
         self.zoom = z;
-        self.grid_dirty = true;
+        self.redraw_all();
         self.refresh();
         true
     }
@@ -579,6 +727,145 @@ impl SheetView {
         }
     }
 
+    /// Run any engine command given as JSON (`sheet` filled in when absent) and return its
+    /// result; nothing is marked as changed (queries, plans).
+    pub fn query(&mut self, mut cmd: Value) -> Option<Value> {
+        if let Some(o) = cmd.as_object_mut() {
+            o.entry("sheet").or_insert(json!(self.sheet));
+        }
+        match self.engine.exec_json(&cmd.to_string()) {
+            Ok(out) => serde_json::from_str(&out).ok().or(Some(Value::Null)),
+            Err(e) => {
+                self.error = Some(e.to_string());
+                None
+            }
+        }
+    }
+
+    /// Open the cell editor on the active cell with `text` (caret at the end), in Enter
+    /// mode (AutoSum, Insert Function).
+    pub fn edit_with(&mut self, text: &str, m: &dyn TextMeasure) {
+        self.begin_edit(text.to_owned(), true, m);
+    }
+
+    /// The cells with content in the selection, for clearing: `(row, col, "")`.
+    fn filled_cells(&self) -> Vec<(u32, u32, String)> {
+        let (r0, c0, r1, c1) = self.range_bounds();
+        self.engine
+            .workbook()
+            .and_then(|w| w.sheets.get(self.sheet))
+            .map(|ws| {
+                (r0..=r1.min(ws.cells.keys().next_back().map_or(0, |k| k.0)))
+                    .flat_map(|row| {
+                        ws.cells
+                            .range((row, c0)..=(row, c1))
+                            .map(|(&(r, c), _)| (r, c, String::new()))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Clear the selection's contents and / or formats as one undo step.
+    pub fn clear(&mut self, contents: bool, formats: bool) -> bool {
+        let mut cmds = Vec::new();
+        if formats {
+            cmds.push(json!({ "cmd": "clearFormats", "sheet": self.sheet, "range": self.rng() }));
+        }
+        if contents {
+            let cells = self.filled_cells();
+            if !cells.is_empty() {
+                cmds.push(json!({ "cmd": "setInputs", "sheet": self.sheet, "cells": cells }));
+            }
+        }
+        if cmds.is_empty() {
+            return false;
+        }
+        self.run(json!({ "cmd": "batch", "cmds": cmds }))
+    }
+
+    /// Active cell (row, column).
+    pub fn active(&self) -> (u32, u32) {
+        self.active
+    }
+
+    /// First row and column shown in the main pane (frozen rows / columns included).
+    pub fn top_left(&self) -> (u32, u32) {
+        (
+            self.rows.first().map_or(0, |r| r.index),
+            self.cols.first().map_or(0, |c| c.index),
+        )
+    }
+
+    /// Size of the selection in points (zoom to selection).
+    pub fn selection_size_pt(&mut self) -> Option<(f64, f64)> {
+        let vp = self.viewport();
+        let (r0, c0, r1, c1) = self.range_bounds();
+        let (_, geom) = self.engine.view_layout(self.sheet, &vp).ok()?;
+        let w = geom.col_x(c1.min(MAX_COLS - 1) + 1) - geom.col_x(c0);
+        let h = geom.row_y(r1.min(MAX_ROWS - 1) + 1) - geom.row_y(r0);
+        Some((w, h))
+    }
+
+    /// Size of the grid area in points at 100 % zoom.
+    pub fn view_size_pt(&self) -> (f64, f64) {
+        let vp = self.viewport();
+        let z = f64::from(self.zoom);
+        (vp.width * z, vp.height * z)
+    }
+
+    /// Scroll so that cell (`r`, `c`) is the first one shown in the main pane.
+    pub fn scroll_to_cell(&mut self, r: u32, c: u32) {
+        let vp = self.viewport();
+        let Ok((layout, geom)) = self.engine.view_layout(self.sheet, &vp) else {
+            return;
+        };
+        let (fr, fc) = (layout.frozen_rows, layout.frozen_cols);
+        let s = (
+            (geom.col_x(c.max(fc)) - geom.col_x(fc)).max(0.0),
+            (geom.row_y(r.max(fr)) - geom.row_y(fr)).max(0.0),
+        );
+        if s != self.scroll {
+            self.scroll = s;
+            self.grid_dirty = true;
+        }
+        self.refresh();
+    }
+
+    /// Lay out again after the engine changed outside a command (recalculation).
+    pub fn reload(&mut self) {
+        self.redraw_all();
+        self.refresh();
+    }
+
+    /// Show or hide the gridlines (view setting).
+    pub fn set_gridlines(&mut self, on: bool) {
+        if self.show_grid != on {
+            self.show_grid = on;
+            self.redraw_all();
+        }
+    }
+
+    /// Gridlines shown.
+    pub fn gridlines(&self) -> bool {
+        self.show_grid
+    }
+
+    /// Show or hide the row and column headings (view setting).
+    pub fn set_headings(&mut self, on: bool) {
+        if self.show_headings != on {
+            self.show_headings = on;
+            self.redraw_all();
+            self.refresh();
+        }
+    }
+
+    /// Row and column headings shown.
+    pub fn headings(&self) -> bool {
+        self.show_headings
+    }
+
     /// Run a typed sheet command; `true` when it ran (the grid is redrawn).
     pub fn exec(&mut self, cmd: SheetCommand) -> bool {
         match self.engine.exec(cmd) {
@@ -596,7 +883,7 @@ impl SheetView {
     /// The workbook changed: redraw the grid and reload the active cell.
     pub fn changed(&mut self) {
         self.modified = true;
-        self.grid_dirty = true;
+        self.redraw_all();
         self.refresh();
     }
 
@@ -632,7 +919,7 @@ impl SheetView {
         self.extent = (0, 0);
         self.active = (0, 0);
         self.copied = None;
-        self.grid_dirty = true;
+        self.redraw_all();
         self.refresh();
         true
     }
@@ -836,8 +1123,82 @@ impl SheetView {
             caret_x: 0.0,
             text_w: 0.0,
             preedit: String::new(),
+            point: None,
         });
         self.measure_edit(m);
+    }
+
+    /// Whether a click on a cell now inserts its reference in the formula being typed (the
+    /// caret follows an operator, a parenthesis or a separator, or a pointed reference).
+    fn pointing(&self) -> bool {
+        let Some(e) = self.edit.as_ref() else {
+            return false;
+        };
+        if !e.text.starts_with('=') || !e.preedit.is_empty() {
+            return false;
+        }
+        if e.point.as_ref().is_some_and(|p| p.end == e.caret) {
+            return true;
+        }
+        e.text[..e.caret]
+            .trim_end()
+            .chars()
+            .next_back()
+            .is_some_and(|c| "=+-*/^&(,;:<>".contains(c))
+    }
+
+    /// Put the reference of cells `a`..`b` at the caret (replacing the pointed one).
+    fn point_ref(&mut self, a: (u32, u32), b: (u32, u32), m: &dyn TextMeasure) {
+        let r = if a == b {
+            CellRef::new(a.0, a.1).to_string()
+        } else {
+            let (r0, c0, r1, c1) = (a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1));
+            format!("{}:{}", CellRef::new(r0, c0), CellRef::new(r1, c1))
+        };
+        if let Some(e) = self.edit.as_mut() {
+            let at = match e.point.take() {
+                Some(p) if p.end == e.caret => {
+                    e.text.replace_range(p.clone(), "");
+                    p.start
+                }
+                _ => e.caret,
+            };
+            e.text.insert_str(at, &r);
+            e.caret = at + r.len();
+            e.point = Some(at..e.caret);
+        }
+        self.measure_edit(m);
+    }
+
+    /// Reference frames of the formula being edited: colour and window rectangle (the
+    /// outer pixels of the gridlines around the cells), for references on screen.
+    fn ref_frames(&self) -> Vec<(Rgba, [f32; 4])> {
+        let Some(e) = self.edit.as_ref() else {
+            return Vec::new();
+        };
+        let find = |spans: &[Span], i: u32, first: bool| -> Option<f32> {
+            spans
+                .iter()
+                .find(|x| x.index == i)
+                .map(|x| if first { x.start - 1.0 } else { x.line })
+        };
+        let mut out = Vec::new();
+        for (n, (_, (r0, c0, r1, c1))) in formula_refs(&e.text).into_iter().enumerate() {
+            let color = REF_COLORS[n % REF_COLORS.len()];
+            let visible = |spans: &[Span], lo: u32, hi: u32| {
+                spans.iter().any(|s| s.index >= lo && s.index <= hi)
+            };
+            if !visible(&self.cols, c0, c1) || !visible(&self.rows, r0, r1) {
+                continue;
+            }
+            let (gx, gy) = self.grid_origin();
+            let l = find(&self.cols, c0, true).unwrap_or(gx - 1.0);
+            let t = find(&self.rows, r0, true).unwrap_or(gy - 1.0);
+            let r = find(&self.cols, c1, false).unwrap_or(self.frame[0] + self.frame[2]);
+            let b = find(&self.rows, r1, false).unwrap_or(self.frame[1] + self.frame[3]);
+            out.push((color, [l, t, r, b]));
+        }
+        out
     }
 
     /// Start editing the active cell with its content, caret at the end (F2).
@@ -906,6 +1267,7 @@ impl SheetView {
         if let Some(e) = self.edit.as_mut() {
             e.text.insert_str(e.caret, s);
             e.caret += s.len();
+            e.point = None;
         }
         self.measure_edit(m);
     }
@@ -1196,12 +1558,17 @@ impl SheetView {
                 self.scroll_rows(n)
             }
             Input::Press { x, y, count, shift } => self.press(x, y, count, shift, m),
-            Input::Drag { x, y } => self.drag_to(x, y),
+            Input::Drag { x, y } => self.drag_to(x, y, m),
             Input::Release { x, y } => {
                 let d = self.drag.take();
                 match d {
                     Some(Drag::ColEdge(c, origin)) => self.resize_edge(false, c, origin, x),
                     Some(Drag::RowEdge(r, origin)) => self.resize_edge(true, r, origin, y),
+                    Some(Drag::Fill(r0, c0, r1, c1)) => self.finish_fill((r0, c0, r1, c1)),
+                    Some(Drag::Point(..)) => {
+                        self.measure_edit(m);
+                        true
+                    }
                     Some(_) => {
                         self.load_details();
                         true
@@ -1340,6 +1707,86 @@ impl SheetView {
         None
     }
 
+    /// Whether a window point is on the fill handle of the selection.
+    fn on_fill_handle(&self, x: f32, y: f32) -> bool {
+        let Some([_, _, r, b]) = self.sel_rect else {
+            return false;
+        };
+        let (r0, c0, r1, c1) = self.range_bounds();
+        if (r0 == 0 && r1 == MAX_ROWS - 1) || (c0 == 0 && c1 == MAX_COLS - 1) {
+            return false;
+        }
+        let near = (4.0 * self.scale).round();
+        (x - r).abs() <= near && (y - b).abs() <= near
+    }
+
+    /// The fill handle drag ended over `to`: AutoFill the selection into it.
+    fn finish_fill(&mut self, from: (u32, u32, u32, u32)) -> bool {
+        let Some(to) = self.fill_to.take() else {
+            return false;
+        };
+        if to == from {
+            return true;
+        }
+        let rng = |(r0, c0, r1, c1): (u32, u32, u32, u32)| json!({ "r0": r0, "c0": c0, "r1": r1, "c1": c1 });
+        let ok = self.run(json!({ "cmd": "autofill", "source": rng(from), "target": rng(to) }));
+        if ok {
+            self.anchor = (to.0, to.1);
+            self.extent = (to.2, to.3);
+            self.refresh();
+        }
+        ok
+    }
+
+    /// The cell under a window point, selected unless it is already in the selection (a
+    /// right click before the context menu); `false` outside the cells.
+    pub fn context_at(&mut self, x: f32, y: f32) -> Option<bool> {
+        let (gx, gy) = self.grid_origin();
+        let [fx, fy, fw, fh] = self.frame;
+        if x < fx || y < fy || x >= fx + fw || y >= fy + fh {
+            return None;
+        }
+        self.commit();
+        let (r, c) = self.cell_at(x.max(gx), y.max(gy));
+        let (r0, c0, r1, c1) = self.range_bounds();
+        let header_col = y < gy && x >= gx;
+        let header_row = x < gx && y >= gy;
+        if header_col {
+            if !(c >= c0 && c <= c1 && r0 == 0 && r1 == MAX_ROWS - 1) {
+                self.anchor = (0, c);
+                self.extent = (MAX_ROWS - 1, c);
+                self.active = (self.rows.first().map_or(0, |s| s.index), c);
+                self.refresh();
+            }
+            return Some(false);
+        }
+        if header_row {
+            if !(r >= r0 && r <= r1 && c0 == 0 && c1 == MAX_COLS - 1) {
+                self.anchor = (r, 0);
+                self.extent = (r, MAX_COLS - 1);
+                self.active = (r, self.cols.first().map_or(0, |s| s.index));
+                self.refresh();
+            }
+            return Some(true);
+        }
+        if !(r >= r0 && r <= r1 && c >= c0 && c <= c1) {
+            self.select((r, c), (r, c), (r, c));
+        }
+        Some(true)
+    }
+
+    /// Whole rows or whole columns are selected: `Some(true)` rows, `Some(false)` columns.
+    pub fn whole_lines(&self) -> Option<bool> {
+        let (r0, c0, r1, c1) = self.range_bounds();
+        if c0 == 0 && c1 == MAX_COLS - 1 {
+            Some(true)
+        } else if r0 == 0 && r1 == MAX_ROWS - 1 {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// Pointer cursor kind at a window point: `0` cell cross, `1` column resize, `2` row resize,
     /// `3` arrow (headers).
     pub fn cursor_at(&self, x: f32, y: f32) -> u8 {
@@ -1359,10 +1806,31 @@ impl SheetView {
         if x < fx || y < fy || x >= fx + fw || y >= fy + fh {
             return false;
         }
+        // Pointing at a cell while typing a formula inserts its reference.
+        if x >= gx && y >= gy && self.pointing() {
+            let at = self.cell_at(x, y);
+            self.point_ref(at, at, m);
+            self.drag = Some(Drag::Point(at.0, at.1));
+            return true;
+        }
         if self.edit.is_some() {
             self.commit();
         }
+        // The fill handle drags a series / copy of the selection.
+        if !shift && self.on_fill_handle(x, y) {
+            let (r0, c0, r1, c1) = self.range_bounds();
+            self.drag = Some(Drag::Fill(r0, c0, r1, c1));
+            self.fill_to = Some((r0, c0, r1, c1));
+            return true;
+        }
         if let Some((rows, index, line)) = self.header_edge(x, y) {
+            // A double click on the edge fits the column / row to its contents.
+            if count >= 2 {
+                self.drag = None;
+                return self.run(json!({
+                    "cmd": "autofit", "rows": rows, "first": index, "last": index,
+                }));
+            }
             self.drag = Some(if rows {
                 Drag::RowEdge(index, line)
             } else {
@@ -1421,7 +1889,7 @@ impl SheetView {
         true
     }
 
-    fn drag_to(&mut self, x: f32, y: f32) -> bool {
+    fn drag_to(&mut self, x: f32, y: f32, m: &dyn TextMeasure) -> bool {
         let Some(d) = self.drag else { return false };
         let (gx, gy) = self.grid_origin();
         // Past the edge: scroll one row / column per move.
@@ -1441,6 +1909,36 @@ impl SheetView {
             Drag::Cols => self.extent = (MAX_ROWS - 1, c),
             Drag::Rows => self.extent = (r, MAX_COLS - 1),
             Drag::ColEdge(..) | Drag::RowEdge(..) => return true,
+            Drag::Fill(r0, c0, r1, c1) => {
+                // Along the axis the pointer left the selection by the most cells.
+                let down = r.saturating_sub(r1);
+                let up = r0.saturating_sub(r);
+                let right = c.saturating_sub(c1);
+                let left = c0.saturating_sub(c);
+                let rows = down.max(up);
+                let cols = right.max(left);
+                let to = if rows == 0 && cols == 0 {
+                    (r0, c0, r1, c1)
+                } else if rows >= cols {
+                    if down >= up {
+                        (r0, c0, r, c1)
+                    } else {
+                        (r, c0, r1, c1)
+                    }
+                } else if right >= left {
+                    (r0, c0, r1, c)
+                } else {
+                    (r0, c, r1, c1)
+                };
+                let changed = self.fill_to != Some(to);
+                self.fill_to = Some(to);
+                return changed || scrolled;
+            }
+            Drag::Point(ar, ac) => {
+                let before = self.edit.as_ref().map(|e| e.text.clone());
+                self.point_ref((ar, ac), (r, c), m);
+                return before != self.edit.as_ref().map(|e| e.text.clone()) || scrolled;
+            }
         }
         if before != self.extent || scrolled {
             self.refresh();
@@ -1467,27 +1965,121 @@ impl SheetView {
 
     // ------------------------------------------------------------------ drawing
 
-    /// Redraw the grid image when the cells, scroll or size changed.
+    /// The whole grid image must be drawn again.
+    fn redraw_all(&mut self) {
+        self.grid_dirty = true;
+        self.full_redraw = true;
+    }
+
+    /// Redraw the grid image when the cells, scroll or size changed. A pure scroll by whole
+    /// pixels in one direction keeps the still-visible part and draws only the newly exposed
+    /// rows / columns ([GridStore::scroll]).
     pub fn prepare(&mut self, store: &mut dyn GridStore) -> Result<(), String> {
         if !self.grid_dirty {
             return Ok(());
         }
         let vp = self.viewport();
+        let show_grid = self.show_grid;
         let list = self
             .engine
             .render_viewport_with(self.sheet, &vp, |o| {
                 o.headers = Some(false);
                 o.gridline_color = GRID_LINE;
+                if !show_grid {
+                    o.gridlines = Some(false);
+                }
             })
             .map_err(|e| e.to_string())?;
-        store.update(&list, &self.engine, self.k())?;
+        let k = self.k();
+        let plan = if self.full_redraw {
+            None
+        } else {
+            self.drawn.and_then(|from| self.blit_plan(from, &list, k))
+        };
+        match plan {
+            Some((moves, bands)) if moves.is_empty() && bands.is_empty() => {}
+            Some((moves, bands)) => store.scroll(&list, &self.engine, k, &moves, &bands)?,
+            None => store.update(&list, &self.engine, k)?,
+        }
+        self.drawn = Some(self.scroll);
         self.grid_dirty = false;
+        self.full_redraw = false;
         Ok(())
+    }
+
+    /// Moves and bands that turn the image drawn at scroll rom into the current one, or
+    /// None when it must be drawn whole (both directions, fractional pixels, a jump
+    /// larger than the scrolling part).
+    fn blit_plan(
+        &self,
+        from: (f64, f64),
+        list: &PageList,
+        k: f32,
+    ) -> Option<(Vec<GridMove>, Vec<[u32; 4]>)> {
+        let w = (list.width * k).ceil() as i64;
+        let h = (list.height * k).ceil() as i64;
+        let whole = |v: f64| {
+            let r = v.round();
+            ((v - r).abs() < 0.01).then_some(r as i64)
+        };
+        let dx = whole((self.scroll.0 - from.0) * f64::from(k))?;
+        let dy = whole((self.scroll.1 - from.1) * f64::from(k))?;
+        if dx == 0 && dy == 0 {
+            return Some((Vec::new(), Vec::new()));
+        }
+        if dx != 0 && dy != 0 {
+            return None;
+        }
+        let (gx, gy) = self.grid_origin();
+        // Frozen rows / columns stay; the scrolling part starts after their boundary line.
+        let fixed = if dy == 0 {
+            self.freeze.0.map_or(0, |x| (x - gx + 1.0) as i64)
+        } else {
+            self.freeze.1.map_or(0, |y| (y - gy + 1.0) as i64)
+        }
+        .clamp(0, if dy == 0 { w } else { h });
+        let (len, d) = if dy == 0 { (w, dx) } else { (h, dy) };
+        let room = len - fixed;
+        let n = d.abs();
+        if n >= room {
+            return None;
+        }
+        let u = |v: i64| v.max(0) as u32;
+        // Along the scrolling axis: (source start, destination start, kept length, band start).
+        let (src, dst, band) = if d > 0 {
+            (fixed + n, fixed, len - n)
+        } else {
+            (fixed, fixed + n, fixed)
+        };
+        let keep = room - n;
+        let mut moves = Vec::new();
+        let mut bands = Vec::new();
+        let rect = |a: i64, l: i64| -> [u32; 4] {
+            if dy == 0 {
+                [u(a), 0, u(l), u(h)]
+            } else {
+                [0, u(a), u(w), u(l)]
+            }
+        };
+        if fixed > 0 {
+            let r = rect(0, fixed);
+            moves.push(GridMove {
+                src: r,
+                dst: [0, 0],
+            });
+            // Redraw around the frozen boundary line itself.
+            bands.push(rect((fixed - 2).max(0), 4.min(len - (fixed - 2).max(0))));
+        }
+        let s = rect(src, keep);
+        let at = if dy == 0 { [u(dst), 0] } else { [0, u(dst)] };
+        moves.push(GridMove { src: s, dst: at });
+        bands.push(rect(band, n));
+        Some((moves, bands))
     }
 
     /// The grid image must be drawn again (text rendering or device changed).
     pub fn invalidate(&mut self) {
-        self.grid_dirty = true;
+        self.redraw_all();
     }
 
     /// Caret rectangle of the in-cell editor (window pixels), for input method windows.
@@ -1548,6 +2140,34 @@ impl SheetView {
         }
         // Copied range: dashed frame.
         self.paint_copied(p, right, bottom);
+        // Formula references: one coloured frame per reference.
+        let w2 = (2.0 * self.scale / 1.25).round().max(2.0);
+        p.push_clip(gx, gy, right - gx, bottom - gy);
+        for (color, [l, t, r, b]) in self.ref_frames() {
+            p.fill_rect(l, t - 1.0, r - l + 1.0, w2, color);
+            p.fill_rect(l, b - w2 + 2.0, r - l + 1.0, w2, color);
+            p.fill_rect(l - 1.0, t, w2, b - t + 1.0, color);
+            p.fill_rect(r - w2 + 2.0, t, w2, b - t + 1.0, color);
+        }
+        // Fill handle drag: grey frame around the cells being filled.
+        if let Some((r0, c0, r1, c1)) = self.fill_to {
+            let find = |spans: &[Span], i: u32, first: bool| -> Option<f32> {
+                spans
+                    .iter()
+                    .find(|x| x.index == i)
+                    .map(|x| if first { x.start - 1.0 } else { x.line })
+            };
+            let l = find(&self.cols, c0, true).unwrap_or(gx - 1.0);
+            let t = find(&self.rows, r0, true).unwrap_or(gy - 1.0);
+            let r = find(&self.cols, c1, false).unwrap_or(right);
+            let b = find(&self.rows, r1, false).unwrap_or(bottom);
+            let grey = Rgba(0x80, 0x80, 0x80, 255);
+            p.fill_rect(l, t, r - l + 1.0, 1.0, grey);
+            p.fill_rect(l, b, r - l + 1.0, 1.0, grey);
+            p.fill_rect(l, t, 1.0, b - t + 1.0, grey);
+            p.fill_rect(r, t, 1.0, b - t + 1.0, grey);
+        }
+        p.pop_clip();
         if let Some([l, t, r, b]) = self.sel_rect {
             p.push_clip(gx - 2.0, gy - 2.0, right - gx + 2.0, bottom - gy + 2.0);
             let w = (2.0 * self.scale / 1.25).round().max(2.0);
@@ -1773,6 +2393,36 @@ impl SheetView {
             .get(s)
             .copied()
             .unwrap_or_else(|| s.chars().count() as f32 * font.size * 0.52)
+    }
+
+    /// Placed rows: index, first pixel, closing gridline (tests).
+    #[cfg(test)]
+    pub(crate) fn rows_for_test(&self) -> Vec<(u32, f32, f32)> {
+        self.rows
+            .iter()
+            .map(|s| (s.index, s.start, s.line))
+            .collect()
+    }
+
+    /// Placed columns (tests).
+    #[cfg(test)]
+    pub(crate) fn cols_for_test(&self) -> Vec<(u32, f32, f32)> {
+        self.cols
+            .iter()
+            .map(|s| (s.index, s.start, s.line))
+            .collect()
+    }
+
+    /// Selection frame (tests).
+    #[cfg(test)]
+    pub(crate) fn sel_rect_for_test(&self) -> Option<[f32; 4]> {
+        self.sel_rect
+    }
+
+    /// Grid frame (tests).
+    #[cfg(test)]
+    pub(crate) fn frame_for_test(&self) -> [f32; 4] {
+        self.frame
     }
 
     /// Measure the header labels now shown (call after input, with the host's text measure).

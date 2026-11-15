@@ -500,6 +500,8 @@ pub struct SheetEngine {
     pub(crate) name: String,
     /// Screen scale of the geometry ([`SheetEngine::set_display_scale`]).
     display_ppp: Option<f64>,
+    /// Calculate every formula when a file is opened ([`SheetEngine::set_recalc_on_open`]).
+    recalc_on_open: bool,
     wb: Option<Workbook>,
     geometry: Vec<Option<SheetGeometry>>,
     locale: Locale,
@@ -1041,6 +1043,7 @@ impl SheetEngine {
             fonts: FontManager::new(),
             name: String::new(),
             display_ppp: None,
+            recalc_on_open: false,
             wb: None,
             geometry: Vec::new(),
             locale: Locale::VI_VN,
@@ -1237,11 +1240,28 @@ impl SheetEngine {
     /// results are kept unless the file asks for a full calculation on load
     /// (ECMA-376 Part 1, §18.2.2 `calcPr/@fullCalcOnLoad`).
     fn load_opened(&mut self, mut wb: Workbook, name: &str) -> Result<WorkbookInfo> {
-        if full_calc_on_load(&wb) {
+        if self.recalc_on_open || full_calc_on_load(&wb) {
             return self.load(wb, name);
         }
         self.live.rebuild_from_file(&mut wb);
         self.install(wb, name)
+    }
+
+    /// Calculate every formula of files opened from now on, whatever their saved results
+    /// (a desktop spreadsheet recalculates a file saved by another application when it
+    /// opens it). Off by default: saved results are kept unless the file asks for a full
+    /// calculation (§18.2.2 `calcPr/@fullCalcOnLoad`).
+    pub fn set_recalc_on_open(&mut self, on: bool) {
+        self.recalc_on_open = on;
+    }
+
+    /// Calculate every formula of the open workbook again (Calculate Now). Not an undo
+    /// step: only formula results change.
+    pub fn recalculate(&mut self) -> Result<()> {
+        let wb = self.wb.as_mut().ok_or(EngineError::NoDocument)?;
+        self.live.rebuild(wb);
+        self.invalidate(None);
+        Ok(())
     }
 
     /// New empty workbook with one sheet.

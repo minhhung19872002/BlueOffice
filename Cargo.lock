@@ -1035,6 +1035,7 @@ dependencies = [
  "bo-edit",
  "bo-engine",
  "bo-model",
+ "bo-raster",
  "bo-render",
  "bo-sheet",
  "serde",

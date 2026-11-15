@@ -4,7 +4,8 @@ use bo_engine::{SheetEngine, SystemFontIndex};
 use bo_gpu_win::{Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, GridStore, Input, NcHit, Painter, Request, SheetView, SheetWindow, TextMeasure, TextStyle,
+    Font, GridMove, GridStore, Input, NcHit, Painter, Request, SheetView, SheetWindow, TextMeasure,
+    TextStyle,
 };
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -90,6 +91,8 @@ pub fn run() -> Result<(), String> {
             dirty: true,
             pending_input: None,
             last_frame: [std::time::Duration::ZERO; 3],
+            grid_time: std::time::Duration::ZERO,
+            blit: std::env::var("BLUEOFFICE_SHEET_BLIT").as_deref() != Ok("0"),
         }),
     )
 }
@@ -98,11 +101,15 @@ struct Gpu {
     device: Device,
     surface: WindowSurface,
     grid: Option<PageBitmap>,
+    /// Second grid bitmap: scrolling copies the kept part of grid into it, then swaps.
+    spare: Option<PageBitmap>,
 }
 
 struct Store<'a> {
     device: &'a Device,
     grid: &'a mut Option<PageBitmap>,
+    spare: &'a mut Option<PageBitmap>,
+    blit: bool,
 }
 
 impl GridStore for Store<'_> {
@@ -121,6 +128,49 @@ impl GridStore for Store<'_> {
         let bitmap = self.grid.as_ref().ok_or("grid bitmap")?;
         self.device
             .draw_page(list, engine.fonts(), scale, &|_| None, None, bitmap)
+    }
+
+    fn scroll(
+        &mut self,
+        list: &PageList,
+        engine: &SheetEngine,
+        scale: f32,
+        moves: &[GridMove],
+        bands: &[[u32; 4]],
+    ) -> Result<(), String> {
+        let (w, h) = (
+            (list.width * scale).ceil() as u32,
+            (list.height * scale).ceil() as u32,
+        );
+        if !self.blit
+            || self
+                .grid
+                .as_ref()
+                .is_none_or(|b| (b.width, b.height) != (w, h))
+        {
+            return self.update(list, engine, scale);
+        }
+        if self
+            .spare
+            .as_ref()
+            .is_none_or(|b| (b.width, b.height) != (w, h))
+        {
+            *self.spare = Some(self.device.create_page_bitmap(list, scale)?);
+        }
+        let (Some(old), Some(new)) = (self.grid.as_ref(), self.spare.as_ref()) else {
+            return self.update(list, engine, scale);
+        };
+        let rects: Vec<([u32; 4], [u32; 2])> = moves.iter().map(|m| (m.src, m.dst)).collect();
+        if self.device.copy_page_rects(old, new, &rects).is_err() {
+            return self.update(list, engine, scale);
+        }
+        std::mem::swap(self.grid, self.spare);
+        let bitmap = self.grid.as_ref().ok_or("grid bitmap")?;
+        for band in bands {
+            self.device
+                .draw_page(list, engine.fonts(), scale, &|_| None, Some(*band), bitmap)?;
+        }
+        Ok(())
     }
 }
 
@@ -202,6 +252,11 @@ struct Shell {
     pending_input: Option<PendingInput>,
     /// Last frame: grid image, interface paint, end of drawing + present.
     last_frame: [std::time::Duration; 3],
+    /// Grid image drawing since the last logged frame (also by paints the system asks for).
+    grid_time: std::time::Duration,
+    /// Scrolling moves the grid image instead of redrawing it (BLUEOFFICE_SHEET_BLIT=0
+    /// turns it off to compare).
+    blit: bool,
 }
 
 struct PendingInput {
@@ -310,8 +365,11 @@ impl Shell {
         self.view.prepare(&mut Store {
             device: &gpu.device,
             grid: &mut gpu.grid,
+            spare: &mut gpu.spare,
+            blit: self.blit,
         })?;
         let t1 = Instant::now();
+        self.grid_time += t1 - t0;
         let (view, grid) = (&self.view, gpu.grid.as_ref());
         let mut painted = std::time::Duration::ZERO;
         let r = gpu.surface.frame(&gpu.device, |frame| {
@@ -343,6 +401,7 @@ impl Handler for Shell {
             device,
             surface,
             grid: None,
+            spare: None,
         });
         let m = Measure(self.gpu.as_ref().map(|g| &g.device));
         self.view.handle(Input::Scale(scale), &m);
@@ -436,11 +495,14 @@ impl Handler for Shell {
     }
 
     fn paint(&mut self) {
-        if let Err(e) = self.render() {
+        // A paint the system asks for (a capture, an uncovered window) draws the pending
+        // input's frame at once (logged like a frame) so that it is presented only once.
+        if self.dirty {
+            self.frame();
+        } else if let Err(e) = self.render() {
             eprintln!("render: {e}");
         }
     }
-
     fn caret(&self) -> Option<[f32; 4]> {
         self.view.caret_rect()
     }
@@ -470,11 +532,12 @@ impl Handler for Shell {
             let total = p.first.elapsed();
             let _ = writeln!(
                 file,
-                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
+                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"grid_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
                 p.kind,
                 p.count,
                 p.age_ms,
                 p.handle.as_secs_f64() * 1e3,
+                std::mem::take(&mut self.grid_time).as_secs_f64() * 1e3,
                 self.last_frame[0].as_secs_f64() * 1e3,
                 self.last_frame[1].as_secs_f64() * 1e3,
                 self.last_frame[2].as_secs_f64() * 1e3,

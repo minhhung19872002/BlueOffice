@@ -165,7 +165,46 @@
       "moveRight": "Chuyển trang tính sang phải",
       "insertBefore": "Chèn trang tính",
       "previous": "Trang tính trước",
-      "next": "Trang tính sau"
+      "next": "Trang tính sau",
+      "numberFormat": "Định dạng số",
+      "conditional": "Định dạng có điều kiện",
+      "formatTable": "Định dạng thành bảng",
+      "cellStyles": "Kiểu ô",
+      "insertCells": "Chèn",
+      "deleteCells": "Xoá",
+      "formatCells": "Định dạng",
+      "autoSum": "Tổng",
+      "autoSumF": "Tổng",
+      "fill": "Điền",
+      "clear": "Xoá",
+      "sortFilter": "Sắp xếp & lọc",
+      "findSelect": "Tìm & chọn",
+      "table": "Bảng",
+      "chartColumn": "Biểu đồ cột",
+      "chartLine": "Biểu đồ đường",
+      "chartPie": "Biểu đồ tròn",
+      "insertFunction": "Chèn hàm",
+      "fnFinancial": "Tài chính",
+      "fnLogical": "Lô-gic",
+      "fnText": "Văn bản",
+      "fnDateTime": "Ngày & giờ",
+      "fnLookup": "Tra cứu",
+      "fnMath": "Toán học",
+      "fnMore": "Thống kê",
+      "calcOptions": "Tính toán",
+      "calcNow": "Tính ngay",
+      "calcSheet": "Tính trang tính",
+      "filter": "Lọc",
+      "sortAsc": "Sắp xếp tăng dần",
+      "sortDesc": "Sắp xếp giảm dần",
+      "textToColumns": "Tách văn bản",
+      "removeDuplicates": "Loại bỏ trùng lặp",
+      "gridlines": "Đường lưới",
+      "headings": "Tiêu đề hàng/cột",
+      "formulaBar": "Thanh công thức",
+      "zoom100": "100%",
+      "zoomSelection": "Thu phóng theo vùng chọn",
+      "freezePanes": "Cố định"
     },
     "addins": {
       "manage": "Quản lý add-in"
@@ -8595,5 +8634,128 @@
     "prevMonth": "Tháng trước",
     "nextMonth": "Tháng sau",
     "today": "Hôm nay"
+  },
+  "sheetMenu": {
+    "tabFormulas": "Công thức",
+    "groupFunctions": "Thư viện hàm",
+    "groupCalculation": "Tính toán",
+    "numFmt": {
+      "general": "Chung",
+      "number": "Số",
+      "currency": "Tiền tệ",
+      "accounting": "Kế toán",
+      "shortDate": "Ngày dạng ngắn",
+      "longDate": "Ngày dạng dài",
+      "time": "Giờ",
+      "percentage": "Phần trăm",
+      "fraction": "Phân số",
+      "scientific": "Khoa học",
+      "text": "Văn bản",
+      "custom": "Tuỳ chỉnh",
+      "more": "Định dạng số khác…"
+    },
+    "autoSum": {
+      "sum": "Tổng",
+      "average": "Trung bình",
+      "count": "Đếm số",
+      "max": "Lớn nhất",
+      "min": "Nhỏ nhất",
+      "more": "Hàm khác…"
+    },
+    "fill": {
+      "down": "Xuống",
+      "right": "Sang phải",
+      "up": "Lên",
+      "left": "Sang trái",
+      "series": "Chuỗi (bước 1)"
+    },
+    "clear": {
+      "all": "Xoá tất cả",
+      "formats": "Xoá định dạng",
+      "contents": "Xoá nội dung"
+    },
+    "sort": {
+      "asc": "Sắp xếp từ nhỏ đến lớn",
+      "desc": "Sắp xếp từ lớn đến nhỏ",
+      "filter": "Lọc",
+      "clear": "Hiện mọi hàng"
+    },
+    "find": {
+      "find": "Tìm…",
+      "replace": "Thay thế…",
+      "goto": "Đi tới…"
+    },
+    "cf": {
+      "greater": "Tô giá trị trên trung bình",
+      "less": "Tô giá trị dưới trung bình",
+      "duplicates": "Tô giá trị trùng lặp",
+      "top10": "10 mục lớn nhất",
+      "bottom10": "10 mục nhỏ nhất",
+      "barBlue": "Thanh dữ liệu — xanh dương",
+      "barGreen": "Thanh dữ liệu — xanh lá",
+      "scaleGyr": "Thang màu — xanh, vàng, đỏ",
+      "scaleRwb": "Thang màu — đỏ, trắng, xanh",
+      "icons3Arrows": "Bộ biểu tượng — 3 mũi tên",
+      "icons3Traffic": "Bộ biểu tượng — 3 đèn",
+      "icons5Quarters": "Bộ biểu tượng — 5 phần tư",
+      "clearSel": "Xoá quy tắc khỏi vùng chọn",
+      "clearSheet": "Xoá quy tắc khỏi trang tính"
+    },
+    "table": {
+      "light": "Kiểu bảng sáng",
+      "medium": "Kiểu bảng vừa",
+      "dark": "Kiểu bảng tối"
+    },
+    "cells": {
+      "insertRows": "Chèn hàng",
+      "insertCols": "Chèn cột",
+      "insertSheet": "Chèn trang tính",
+      "deleteRows": "Xoá hàng",
+      "deleteCols": "Xoá cột",
+      "autofitRow": "Tự khớp chiều cao hàng",
+      "autofitCol": "Tự khớp độ rộng cột",
+      "hideRows": "Ẩn hàng",
+      "hideCols": "Ẩn cột",
+      "unhideRows": "Hiện hàng",
+      "unhideCols": "Hiện cột",
+      "formatCells": "Định dạng ô…"
+    },
+    "chart": {
+      "column": "Cột nhóm",
+      "bar": "Thanh nhóm",
+      "line": "Đường",
+      "area": "Vùng",
+      "pie": "Tròn",
+      "doughnut": "Vành khuyên"
+    },
+    "freeze": {
+      "panes": "Cố định tại ô hiện hành",
+      "row": "Cố định hàng đầu",
+      "col": "Cố định cột đầu",
+      "none": "Bỏ cố định"
+    },
+    "dialog": {
+      "find": "Tìm",
+      "replace": "Thay thế",
+      "findWhat": "Tìm gì",
+      "replaceWith": "Thay bằng",
+      "findNext": "Tìm tiếp",
+      "replaceAll": "Thay tất cả",
+      "notFound": "Không tìm thấy.",
+      "replaced": "Đã thay:",
+      "goto": "Đi tới",
+      "reference": "Tham chiếu hoặc tên",
+      "function": "Tên hàm",
+      "numberCode": "Mã định dạng số",
+      "font": "Phông",
+      "size": "Cỡ (pt)",
+      "fontColor": "Màu chữ (RRGGBB)",
+      "fill": "Màu tô (RRGGBB)",
+      "hAlign": "Căn ngang (left, center, right)",
+      "bold": "Đậm",
+      "italic": "Nghiêng",
+      "wrap": "Xuống dòng",
+      "border": "Viền mảnh quanh vùng chọn"
+    }
   }
 }

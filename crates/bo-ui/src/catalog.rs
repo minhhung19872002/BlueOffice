@@ -218,7 +218,7 @@ pub fn menu(id: &str) -> Vec<Entry> {
 
 /// Whether `id` is a menu button.
 pub fn is_menu(id: &str) -> bool {
-    !menu(id).is_empty()
+    !menu(id).is_empty() || crate::sheet_ribbon::is_menu(id)
 }
 
 /// The engine command of a tab button or menu entry, given the caret's section setup.

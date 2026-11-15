@@ -60,12 +60,24 @@ ColorBurn ở giá trị biên: 10); so với bản đối chiếu (5 điểm): 
 ảnh giống MuPDF. Shading lưới (kiểu 4–7, patch tensor vẽ như Coons) và shading hàm (kiểu 1) thành tam giác
 màu phẳng. Trang rất lớn ở zoom cao (A4 1600 % ≈ 16 000 × 22 000 px) chỉ vẽ phần quanh vùng nhìn.
 
-**In, chế độ đọc, toàn màn hình.** Hộp thoại In riêng (máy in, trang: tất cả / hiện tại / danh sách,
-số bản, vừa vùng in / thu trang quá khổ / cỡ thật, xem trước) in qua GDI (trang vẽ bằng Direct2D tới
-300 dpi, tự xoay theo khổ giấy). Read Mode (Ctrl+H, tab View đầu tiên sau Select như bản đối chiếu): ẩn ribbon,
-tab tài liệu, cột điều hướng. Full Screen (F11): nền đen, trang vừa chiều cao với lề 1 px — đo bản đối chiếu ở
-1920 × 1080: trang y 2–1078, nền (0, 0, 0); phím / nhấp / cuộn lật trang, Esc thoát.
-
+**In, chế độ đọc, toàn màn hình.** Hộp thoại In bố cục như bản đối chiếu (đo ở 125 %: 1535 × 870 px, cả hai
+bằng nhau): Name / Copies / Collate / Print as grayscale; Print Range (trang hiện tại, tất cả, danh sách trang
+“/ N” kèm ví dụ, tập con tất cả / lẻ / chẵn, đảo thứ tự); Print Handling (None, Fit / Reduce to printer margins);
+Auto-Rotate / Auto-Center; xem trước từng trang với nút chuyển trang; OK / Cancel. In qua GDI (StartDoc /
+StretchDIBits, trang vẽ bằng Direct2D tới 300 dpi, tự xoay, theo bộ hoặc không, thang xám). Chưa có: Current
+view, in hai mặt, Tile / nhiều trang mỗi tờ / booklet, Custom scale, Print What.
+Read Mode (tab View, ngay sau Select như bản đối chiếu; Ctrl+H): đo hàng ở 125 % — hàng tab ribbon giữ nguyên,
+dải tab tài liệu y 100–143, mép trang 151, không còn thân ribbon, cột điều hướng, thanh trạng thái: **trùng
+từng hàng** với bản đối chiếu. Full Screen (F11): đo ở 1920 × 1080 — nền đen, trang x 580–1340 (trùng), y 1–1077
+(bản đối chiếu 2–1077), khung cửa sổ 1 px như bản đối chiếu; phím / nhấp / cuộn lật trang, Esc thoát.
 **Chú thích.** Nhấp chọn (khung + tay nắm), kéo để di chuyển, nhấp đúp sửa nội dung, chuột phải: sửa, trả lời,
 đổi màu (vẽ lại appearance), xoá; phím Delete; danh sách chú thích hiện luồng trả lời (/IRT); trả lời không vẽ
 trên trang. Tất cả là bước hoàn tác của nhật ký sửa và lưu bằng cập nhật nối thêm.
+
+Tốc độ (bản release, máy đang chạy song song bản build của các agent khác): sổ tay 1 202 trang mở 300 ms, trang
+đầu 312 ms, dựng display list trung vị 1,0 ms, vẽ GPU trung vị 2,7 ms (60 trang đầu); trang thử blend (16 nhóm
+trộn + tô sáng) vẽ 22 ms; trang thử lưới shading (8 708 tam giác) 50 ms.
+
+Còn lại: các tuỳ chọn in nâng cao (hai mặt, nhiều trang mỗi tờ, booklet, Current view), Night Mode / Reflow /
+AutoScroll của tab View, công cụ vẽ (Pencil, Callout, Stamp, Measure) của tab Comment, kéo đổi kích thước chú thích
+bằng tay nắm, blend mode bên trong vùng cắt hình dạng (vẽ như Normal), patch tensor dùng điểm trong.

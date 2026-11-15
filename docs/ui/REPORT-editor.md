@@ -137,3 +137,57 @@ Area/Search & Highlight, Measure, Accounting Calculator, Eraser, Import/Export; 
 Transitions, Read, Compare; Form: Page Templates, XFA, Calculation Order, Tooltip, Form to sheet, Import/Export,
 JavaScript; Protect: Hidden Data, Restrict Access, Batch Encrypt, Sensitivity, Time Stamp, Validate; File: Action
 Wizard, Batch Print, Index, Share, Revert, Preferences, Skins; nút “⋮” và nút kiểu tìm cạnh Find.
+
+## Vòng 4 (2026-11-16)
+
+Ảnh so sánh (bản đối chiếu trên, BlueEditor dưới): `scratchpad/show/editor-21…34-*.png (28–34: bản cuối)`.
+
+**Ribbon.** Nút hàng (`Kind::Row`, `editor_rows_win.rs`): icon nhỏ, nhãn bên phải, ba nút một cột như
+Move / Duplicate / Replace của bản đối chiếu (hàng cách 29 px, icon 20 px cách mép cột 5 px, nhãn cách 32 px,
+cột hết 8 px sau nhãn dài nhất). Mũi tên thả xuống của nhãn hai dòng chỉ nới nút khi dòng có mũi tên là dòng
+dài hơn (lỗi làm nhóm Zoom … Rotate View rộng thêm 16 px). Mỗi tab kết thúc bằng một vạch ngăn như bản đối
+chiếu. Lệnh chưa có (From Web Page, OCR, Form, PDF Portfolio, Preflight, Page Transitions, Page Templates, XFA,
+Accounting Calculator, Rearrange) vẽ xám, rê chuột hiện chú giải. Icon trang (Background, Header & Footer,
+Bates, Format Page Numbers) chuyển sang nét viền + một chi tiết màu nhấn, không tô khối.
+
+| Vạch ngăn (125 %) | Bản đối chiếu | Vòng 3 | Vòng 4 |
+| --- | --- | --- | --- |
+| Home | 363 / 612 / 743 / 916 / 1043 / 1226 | 360 / 628 / 755 / 924 / 1052 / 1239 | 360 / 614 / 741 / 910 / 1033 / 1220 |
+| Organize | 123 / 669 / 852 / 921 / 1396 | — | 118 / 665 / 853 / 920 / 1402 |
+| Convert | 123 / 764 / 853 / 1108 / 1367 / 1448 | — | 118 / 769 / 859 / 1120 / 1388 / 1467 |
+| Edit | 123 / 470 / 677 / 748 / 843 / 1126 | 117 / 470 / 676 / 748 / 845 / 1131 | 118 / 471 / 677 / 749 / 846 / 1132 |
+
+**Organize** (`bo-pdfread::pages_edit`): Move (trang, trước trang N), Duplicate (bản sao đứng sau trang gốc,
+ghi chú chép theo), Replace (trang chọn thay bằng trang của tệp khác), Swap, Interleaving (xen kẽ với tệp khác,
+tuỳ chọn lấy ngược), Resize Pages (khổ mm, co giãn nội dung bằng `cm`, ghi chú dời theo), Flatten (vẽ ghi chú và
+trường vào nội dung trang), Format Page Numbers (`/PageLabels`: 1, i, I, a, A, tiền tố, số đầu; trang sau giữ
+nhãn). Mỗi lệnh một bước hoàn tác.
+
+**Convert** (`extract`): Export All Images (JPEG giữ nguyên luồng, ảnh khác giải mã ra PNG, mỗi ảnh một lần),
+To HTML (một tệp, mỗi trang một khung đúng khổ, dòng chữ và ảnh đặt đúng chỗ, ảnh `data:`), From Clipboard (host
+đọc `CF_DIB` → trang PDF đúng cỡ ảnh ở 96 dpi), From Template (trang trắng A4/A3/A5/Letter/Legal/Tabloid), menu To
+Office / To Image (PNG, JPEG) / To Other.
+
+**Comment** (`exchange`): Import XFDF/FDF (ghi chú → chú thích mới, giá trị trường), Export XFDF hoặc đoạn được
+tô sáng (.txt); Eraser, Area / Search & Highlight, Measure, Create (dấu từ ảnh) dùng công cụ của BlueReader —
+chọn chúng tắt công cụ của Editor.
+
+**View**: Text Viewer, Toggle Ruler, lưới hiển thị trang, Read (giọng Windows), Compare (chọn tệp thứ hai →
+khác biệt chữ từng trang theo LCS, hai cột trái/phải đỏ/xanh, mở thành PDF mới qua BlueDoc).
+
+**Protect** (`sanitize`): Hidden Data (hộp chọn có số lượng: siêu dữ liệu, tệp đính kèm, ghi chú, trường biểu
+mẫu, lớp ẩn — nội dung `/OC … BDC … EMC` của nhóm OFF bị cắt, dấu trang, liên kết, JavaScript/hành động), menu
+Secure, Restrict Access (chỉ mật khẩu quyền), Time Stamp Document (`/DocTimeStamp` RFC 3161 từ TSA), Validate.
+
+**Form**: Calculation Order (`/CO`), Add Tooltip (`/TU`), Form to sheet (CSV / .xlsx qua BlueSheet), Import /
+Export (XFDF, FDF, CSV), Actions (nút: đặt lại biểu mẫu, hiện/ẩn trường — chạy khi bấm nút lúc điền).
+
+**Hành vi Edit Text** (so với quy ước của bản đối chiếu; bàn phím gửi bằng PostMessage không mang trạng thái
+Ctrl nên phần này đối chiếu theo quy ước Windows): Ctrl+←/→ theo từ (Shift mở rộng chọn), Ctrl+Backspace/Delete
+xoá theo từ, Ctrl+C / Ctrl+X / Ctrl+V (chữ thuần từ host, tab thành dấu cách, xuống dòng thành ngắt dòng),
+Ctrl+Z / Ctrl+Y trong phiên lùi/tiến từng cụm gõ (ngắt ở dấu cách, xoá, Enter, dán), hết cụm thì hoàn tác của
+tài liệu lấy lại cả phiên.
+
+Còn lại: Page Transitions, OCR, From Web Page, PDF Portfolio, Preflight, Accounting Calculator, XFA, Page
+Templates (xám); lưới nút nhỏ tab Comment hẹp hơn bản đối chiếu ~23 px; nhãn "Text Box" hai dòng (bản đối chiếu
+"Textbox"); undo trong phiên của bản đối chiếu chưa đo được bằng input gửi qua PostMessage.

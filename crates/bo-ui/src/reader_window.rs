@@ -34,6 +34,10 @@ mod view4;
 #[path = "reader_tabs4_win.rs"]
 mod tabs4;
 
+// Helpers used by BlueEditor (tool hand-off, status text in tests).
+#[path = "editor_rows_win.rs"]
+mod rows;
+
 #[path = "reader_tabs5_win.rs"]
 mod tabs5;
 
@@ -1101,19 +1105,21 @@ impl ReaderWindow {
                     let text = self.t(label);
                     let words: Vec<&str> = text.split(' ').collect();
                     // Two-line labels wrap at the last space.
-                    let lw = if words.len() > 1 && (text.len() > 9 || self.look.wrap_words) {
+                    let two = words.len() > 1 && (text.len() > 9 || self.look.wrap_words);
+                    // The drop-down arrow follows the second line: it widens the button only
+                    // when that line with the arrow is the longer one.
+                    let arrow = if dropdown && two {
+                        self.px(self.look.arrow_w)
+                    } else {
+                        0.0
+                    };
+                    let lw = if two {
                         let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
                         let wa = self.measure(m, a, label_style);
                         let wb = self.measure(m, b, label_style);
-                        wa.max(wb)
+                        wa.max(wb + arrow)
                     } else {
                         self.measure(m, &text, label_style)
-                    };
-                    let two = words.len() > 1 && (text.len() > 9 || self.look.wrap_words);
-                    let lw = if dropdown && two {
-                        lw + self.px(self.look.arrow_w)
-                    } else {
-                        lw
                     };
                     let pad = if two {
                         self.look.big_pad

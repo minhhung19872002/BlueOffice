@@ -35,6 +35,56 @@ pub(crate) struct Typing {
     pub bbox: [f32; 4],
     /// The pointer is selecting text (button down).
     pub selecting: bool,
+    /// Undo / redo within the session (Ctrl+Z / Ctrl+Y while typing), newest last.
+    pub undo: Vec<Snap>,
+    pub redo: Vec<Snap>,
+    /// Kind of the last change (typing, deleting, other) for grouping undo steps.
+    pub last: Change,
+}
+
+/// The paragraph's text and styles at one point of a typing session.
+#[derive(Debug, Clone)]
+pub(crate) struct Snap {
+    text: Vec<char>,
+    style_of: Vec<usize>,
+    styles: Vec<bo_pdfread::RunStyle>,
+    align: Align,
+    caret: usize,
+}
+
+/// What a change in a typing session did: consecutive typing (up to a space) or deleting
+/// undo together, as in the reference editor and word processors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Change {
+    #[default]
+    None,
+    Typing,
+    Deleting,
+    Other,
+}
+
+/// Start of the word left of c (Ctrl+Left).
+fn word_left(t: &[char], c: usize) -> usize {
+    let mut i = c.min(t.len());
+    while i > 0 && t[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    while i > 0 && !t[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    i
+}
+
+/// Start of the next word right of c (Ctrl+Right).
+fn word_right(t: &[char], c: usize) -> usize {
+    let mut i = c.min(t.len());
+    while i < t.len() && !t[i].is_whitespace() {
+        i += 1;
+    }
+    while i < t.len() && t[i].is_whitespace() {
+        i += 1;
+    }
+    i
 }
 
 impl Typing {
@@ -46,6 +96,51 @@ impl Typing {
 
     fn bbox(&self) -> [f32; 4] {
         self.block.as_ref().map_or(self.bbox, |b| b.bbox)
+    }
+
+    fn snap(&self) -> Option<Snap> {
+        let b = self.block.as_ref()?;
+        Some(Snap {
+            text: b.text.clone(),
+            style_of: b.style_of.clone(),
+            styles: b.styles.clone(),
+            align: b.align,
+            caret: self.caret,
+        })
+    }
+
+    /// Remember the paragraph before a change of kind; a run of the same kind joins the
+    /// step before unless `boundary` (a space or line break typed) starts a new one.
+    fn checkpoint(&mut self, kind: Change, boundary: bool) {
+        if kind != self.last || kind == Change::Other || boundary {
+            if let Some(s) = self.snap() {
+                self.undo.push(s);
+                if self.undo.len() > 200 {
+                    self.undo.remove(0);
+                }
+            }
+        }
+        self.redo.clear();
+        self.last = kind;
+    }
+
+    fn restore(&mut self, s: Snap) {
+        if let Some(b) = self.block.as_mut() {
+            b.text = s.text;
+            b.style_of = s.style_of;
+            b.styles = s.styles;
+            b.align = s.align;
+        }
+        self.caret = s.caret;
+        self.anchor = None;
+        self.last = Change::None;
+    }
+
+    /// The selected text.
+    pub fn selected_text(&self) -> Option<String> {
+        let (a, e) = self.selection()?;
+        let b = self.block.as_ref()?;
+        Some(b.text.get(a..e)?.iter().collect())
     }
 }
 
@@ -254,6 +349,9 @@ impl Editing {
                 new_at: Some(([px, py + size * 0.9], size)),
                 bbox: [px, py, px + 2.0, py + size * 1.2],
                 selecting: false,
+                undo: Vec::new(),
+                redo: Vec::new(),
+                last: Change::None,
             });
             return;
         }
@@ -286,6 +384,9 @@ impl Editing {
                             new_at: None,
                             bbox: b.bbox,
                             selecting: anchor.is_none(),
+                            undo: Vec::new(),
+                            redo: Vec::new(),
+                            last: Change::None,
                         });
                         self.selected = vec![k];
                     }
@@ -481,6 +582,8 @@ impl Editing {
             return self.start_new_text(v, &s);
         }
         let sel = t.selection();
+        let boundary = sel.is_some() || s.chars().any(char::is_whitespace) || s.chars().count() > 1;
+        t.checkpoint(Change::Typing, boundary);
         if let Some(b) = t.block.as_mut() {
             if let Some((a, e)) = sel {
                 b.remove(a, e);
@@ -488,6 +591,50 @@ impl Editing {
             }
             t.caret = b.insert(t.caret, &s);
         }
+        t.anchor = None;
+        self.write(v)
+    }
+
+    /// Pasted plain text: line breaks become paragraph breaks of the block (as Enter).
+    pub fn paste_text(&mut self, v: &mut ReaderView, s: &str) -> bool {
+        let Some(t) = self.typing.as_mut() else {
+            return false;
+        };
+        let text = s.replace("\r\n", "\n").replace('\r', "\n");
+        let text: String = text
+            .chars()
+            .map(|c| if c == '\t' { ' ' } else { c })
+            .filter(|c| *c == '\n' || !c.is_control())
+            .collect();
+        if text.is_empty() || t.block.is_none() {
+            return t.block.is_none() && self.type_text(v, &text.replace('\n', " "));
+        }
+        t.checkpoint(Change::Other, true);
+        let sel = t.selection();
+        if let Some(b) = t.block.as_mut() {
+            if let Some((a, e)) = sel {
+                b.remove(a, e);
+                t.caret = a;
+            }
+            t.caret = b.insert(t.caret, &text);
+        }
+        t.anchor = None;
+        self.write(v)
+    }
+
+    /// Cut: remove the selected text (the caller copied it).
+    pub fn cut(&mut self, v: &mut ReaderView) -> bool {
+        let Some(t) = self.typing.as_mut() else {
+            return false;
+        };
+        let Some((a, e)) = t.selection() else {
+            return false;
+        };
+        t.checkpoint(Change::Other, true);
+        if let Some(b) = t.block.as_mut() {
+            b.remove(a, e);
+        }
+        t.caret = a;
         t.anchor = None;
         self.write(v)
     }
@@ -557,6 +704,8 @@ impl Editing {
         let sel = t.selection();
         // Moving the caret: Shift extends the selection.
         let moved = match (k, mods.ctrl) {
+            (Key::Left, true) => Some(word_left(&b.text, t.caret)),
+            (Key::Right, true) => Some(word_right(&b.text, t.caret)),
             (Key::Left, _) => Some(match (sel, mods.shift) {
                 (Some((a, _)), false) => a,
                 _ => t.caret.saturating_sub(1),
@@ -582,18 +731,78 @@ impl Editing {
             t.caret = c;
             return true;
         }
+        // Undo and redo inside the session; past its first change the document's undo
+        // takes over (it ends the session).
+        match (k, mods.ctrl, mods.shift) {
+            (Key::Letter('z'), true, false) => {
+                let Some(s) = t.undo.pop() else {
+                    return false;
+                };
+                if let Some(cur) = t.snap() {
+                    t.redo.push(cur);
+                }
+                t.restore(s);
+                self.write(v);
+                return true;
+            }
+            (Key::Letter('y'), true, false) | (Key::Letter('z'), true, true) => {
+                let Some(s) = t.redo.pop() else {
+                    return false;
+                };
+                if let Some(cur) = t.snap() {
+                    t.undo.push(cur);
+                }
+                t.restore(s);
+                self.write(v);
+                return true;
+            }
+            _ => {}
+        }
+        let kind = match k {
+            Key::Backspace | Key::Delete => Change::Deleting,
+            Key::Enter => Change::Other,
+            _ => Change::None,
+        };
+        if kind != Change::None {
+            t.checkpoint(kind, sel.is_some() || mods.ctrl);
+        }
         let changed = match (k, mods.ctrl) {
+            (Key::Backspace, true) if sel.is_none() && t.caret > 0 => {
+                let e = t.caret;
+                let a = t.block.as_ref().map_or(e, |b| word_left(&b.text, e));
+                if let Some(b) = t.block.as_mut() {
+                    b.remove(a, e);
+                }
+                t.caret = a;
+                true
+            }
+            (Key::Delete, true) if sel.is_none() && t.caret < n => {
+                let a = t.caret;
+                let e = t.block.as_ref().map_or(a, |b| word_right(&b.text, a));
+                if let Some(b) = t.block.as_mut() {
+                    b.remove(a, e);
+                }
+                true
+            }
             (Key::Letter('a'), true) => {
                 t.anchor = Some(0);
                 t.caret = n;
                 return true;
             }
             (Key::Letter('b'), true) => {
-                let on = !b.style_at(t.caret).is_some_and(|s| s.bold);
+                let on = !t
+                    .block
+                    .as_ref()
+                    .and_then(|b| b.style_at(t.caret))
+                    .is_some_and(|s| s.bold);
                 return self.style(v, &StyleChange::Bold(on));
             }
             (Key::Letter('i'), true) => {
-                let on = !b.style_at(t.caret).is_some_and(|s| s.italic);
+                let on = !t
+                    .block
+                    .as_ref()
+                    .and_then(|b| b.style_at(t.caret))
+                    .is_some_and(|s| s.italic);
                 return self.style(v, &StyleChange::Italic(on));
             }
             (Key::Backspace | Key::Delete, _) if sel.is_some() => {

@@ -44,7 +44,7 @@ pub(crate) fn ribbon_items(tab: usize) -> Vec<(&'static str, Kind)> {
 
 #[allow(clippy::too_many_lines)]
 fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
-    use Kind::{Big, Sep, Small};
+    use Kind::{Big, Row, Sep, Small};
     let common = [
         ("tool.hand", Big("hand", "pdfReader.hand", false)),
         ("tool.select", Big("select", "pdfReader.select", false)),
@@ -97,23 +97,68 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("ed.ocr", Big("ocr", "pdfEditor.quickRecognition", false)),
             ("sep6", Sep),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
+            // The reference closes the last group with a separator too.
+            ("sep7", Sep),
         ]),
+        // The reference's Convert tab; From Web Page and text recognition stay grey.
         1 => v.extend([
             ("sep1", Sep),
+            ("conv.create", Big("createPdf", "pdfEditor.fromFiles", true)),
             (
-                "conv.create",
-                Big("createPdf", "pdfEditor.fromFiles", false),
+                "conv.scanner",
+                Big("scanner", "pdfEditor.fromScanner", true),
+            ),
+            (
+                "conv.clipboard",
+                Big("fromClipboard", "pdfEditor.fromClipboard", false),
+            ),
+            ("conv.web", Big("fromWeb", "pdfEditor.fromWebPage", false)),
+            ("conv.form", Big("formPdf", "pdfEditor.formFromFile", true)),
+            (
+                "conv.portfolio",
+                Big("portfolio", "pdfEditor.portfolio", true),
             ),
             ("conv.combine", Big("combine", "pdfEditor.combine", false)),
             ("conv.blank", Big("blankPage", "pdfEditor.blank", false)),
+            (
+                "conv.templateMenu",
+                Big("template", "pdfEditor.fromTemplate", false),
+            ),
             ("sep2", Sep),
-            ("conv.word", Big("toWord", "pdfEditor.toWord", false)),
-            ("conv.excel", Big("toExcel", "pdfEditor.toExcel", false)),
-            ("conv.slides", Big("toSlides", "pdfEditor.toSlides", false)),
-            ("conv.image", Big("toImage", "pdfEditor.toImage", false)),
-            ("conv.text", Big("file", "pdfEditor.toText", false)),
+            (
+                "conv.exportImages",
+                Big("exportImages", "pdfEditor.exportImages", false),
+            ),
+            ("sep3", Sep),
+            (
+                "conv.officeMenu",
+                Big("toOffice", "pdfEditor.toOffice", true),
+            ),
+            ("conv.imageMenu", Big("toImage", "pdfEditor.toImage", true)),
+            ("conv.html", Big("toHtml", "pdfEditor.toHtml", false)),
+            ("conv.otherMenu", Big("toOther", "pdfEditor.toOther", true)),
+            ("sep4", Sep),
+            (
+                "conv.ocr",
+                Big("recognizeText", "pdfEditor.recognizeText", true),
+            ),
+            (
+                "conv.quickOcr",
+                Big("ocr", "pdfEditor.quickRecognition", false),
+            ),
+            (
+                "conv.suspect",
+                Big("suspect", "pdfEditor.suspectResults", true),
+            ),
+            ("sep5", Sep),
+            (
+                "conv.preflight",
+                Big("validate", "pdfEditor.preflight", false),
+            ),
+            ("sep6", Sep),
         ]),
         2 => v.extend(crate::editor_format::edit_tab_items()),
+        // The reference's Organize tab: row buttons in two columns of three.
         TAB_ORGANIZE => v.extend([
             ("sep1", Sep),
             (
@@ -129,19 +174,37 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "org.reverse",
                 Big("reversePages", "pdfEditor.reverse", false),
             ),
+            (
+                "org.rearrange",
+                Big("rearrange", "pdfEditor.rearrange", false),
+            ),
+            ("org.move", Row("movePages", "pdfEditor.move", false)),
+            (
+                "org.duplicate",
+                Row("duplicatePages", "pdfEditor.duplicate", false),
+            ),
+            (
+                "org.replace",
+                Row("replacePages", "pdfEditor.replace", false),
+            ),
+            ("org.split", Row("splitPages", "pdfEditor.split", false)),
+            ("org.swap", Row("swapPages", "pdfEditor.swap", false)),
+            (
+                "org.interleave",
+                Row("interleave", "pdfEditor.interleave", false),
+            ),
             ("sep2", Sep),
             (
-                "org.rotateLeft",
-                Big("rotateLeft", "pdfEditor.rotateLeft", false),
-            ),
-            (
-                "org.rotateRight",
-                Big("rotateRight", "pdfEditor.rotateRight", false),
+                "org.rotateMenu",
+                Big("edRotatePages", "pdfEditor.rotatePages", true),
             ),
             ("org.crop", Big("cropPages", "pdfEditor.cropPages", false)),
+            (
+                "org.resize",
+                Big("resizePages", "pdfEditor.resizePages", false),
+            ),
             ("sep3", Sep),
-            ("org.split", Big("splitPages", "pdfEditor.split", false)),
-            ("org.combine", Big("combine", "pdfEditor.combine", false)),
+            ("org.flatten", Big("flatten", "pdfEditor.flatten", false)),
             ("sep4", Sep),
             (
                 "org.watermark",
@@ -155,26 +218,23 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "org.headerFooter",
                 Big("headerFooter", "pdfEditor.headerFooter", true),
             ),
-            ("org.bates", Big("bates", "pdfEditor.bates", false)),
+            ("org.bates", Big("bates", "pdfEditor.bates", true)),
+            (
+                "org.pageNumbers",
+                Big("pageNumbers", "pdfEditor.pageNumbers", false),
+            ),
+            ("sep5", Sep),
         ]),
+        // The reference's Comment tab: text markup as a 3 × 2 grid, row buttons for the
+        // drawing tools, stamps and comment data.
         4 => v.extend([
             ("sep1", Sep),
-            (
-                "tool.highlight",
-                Big("highlight", "pdfReader.highlight", false),
-            ),
-            (
-                "tool.underline",
-                Big("underline", "pdfReader.underline", false),
-            ),
-            (
-                "tool.strikeout",
-                Big("strikeout", "pdfReader.strikeout", false),
-            ),
-            (
-                "tool.squiggly",
-                Big("squiggly", "pdfReader.squiggly", false),
-            ),
+            ("tool.highlight", Small("highlight")),
+            ("tool.strikeout", Small("strikeout")),
+            ("tool.squiggly", Small("squiggly")),
+            ("comment.replace", Small("replaceText")),
+            ("tool.underline", Small("underline")),
+            ("comment.insert", Small("insertText")),
             ("sep2", Sep),
             ("tool.note", Big("note", "pdfReader.note", false)),
             ("cm.file", Big("attach", "pdfEditor.file", false)),
@@ -186,34 +246,64 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
             ("cm.callout", Big("callout", "pdfEditor.callout", false)),
             ("sep4", Sep),
-            ("cm.drawing", Big("drawing", "pdfEditor.drawing", true)),
-            ("cm.pencil", Big("pencil", "pdfEditor.pencil", false)),
+            ("cm.drawing", Row("drawing", "pdfEditor.drawing", true)),
+            ("cm.pencil", Row("pencil", "pdfEditor.pencil", false)),
+            ("comment.eraser", Row("eraser", "pdfComment.eraser", false)),
             ("sep5", Sep),
-            ("cm.stamp", Big("stamp", "pdfEditor.stamp", true)),
+            (
+                "comment.areaHighlight",
+                Big("areaHighlight", "pdfComment.areaHighlight", false),
+            ),
+            (
+                "comment.searchHighlight",
+                Big("searchHighlight", "pdfComment.searchHighlight", false),
+            ),
             ("sep6", Sep),
-            ("cm.summary", Big("summary", "pdfEditor.summarize", false)),
+            ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+            (
+                "cm.calculator",
+                Big("calculator", "pdfEditor.calculator", false),
+            ),
+            ("sep7", Sep),
+            ("cm.stamp", Row("stamp", "pdfEditor.stamp", true)),
+            (
+                "menu.customStamp",
+                Row("createStamp", "pdfEditor.createStamp", true),
+            ),
+            ("sep8", Sep),
+            ("cm.summary", Row("summary", "pdfEditor.summarize", false)),
+            ("cm.import", Row("import", "pdfComment.import", false)),
+            ("cm.exportMenu", Row("export", "pdfComment.export", true)),
+            ("sep9", Sep),
             (
                 "panel.comments",
                 Big("comments", "pdfReader.commentList", false),
             ),
+            ("sep10", Sep),
         ]),
-        // The reference editor's View tab is its reader's: Read Mode, Reflow, Reverse View,
-        // Night Mode, Rotate View, page display, AutoScroll, Word Count, View Setting.
+        // The reference editor's View tab: Read Mode, Reflow, Reverse View, Night Mode, Text
+        // Viewer | Rotate View, Toggle Ruler | page display | AutoScroll | Page Transitions |
+        // Read | Compare, Word Count | View Setting.
         5 => v.extend([
             ("sep1", Sep),
             ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
             ("view.reflow", Big("reflow", "pdfView.reflow", false)),
             ("view.reverse", Big("reverseView", "pdfView.reverse", false)),
             ("view.night", Big("night", "pdfView.night", false)),
+            (
+                "view.textViewer",
+                Big("textViewer", "pdfView.textViewer", false),
+            ),
             ("sep2", Sep),
             ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
+            ("view.rulers", Big("ruler", "pdfEditor.toggleRuler", false)),
             ("sep3", Sep),
             ("view.single", Small("single")),
             ("view.contFacing", Small("contFacing")),
             ("view.continuous", Small("continuous")),
             ("view.cover", Small("cover")),
             ("view.facing", Small("facing")),
-            ("view.grid", Small("grid")),
+            ("menu.split", Small("split")),
             ("sep4", Sep),
             (
                 "view.autoScroll",
@@ -221,16 +311,26 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep5", Sep),
             (
+                "view.transitions",
+                Big("transitions", "pdfEditor.pageTransitions", false),
+            ),
+            ("sep6", Sep),
+            ("menu.read", Big("read", "pdfView.read", true)),
+            ("sep7", Sep),
+            ("view.compare", Big("compare", "pdfEditor.compare", false)),
+            (
                 "view.wordCount",
                 Big("wordCount", "pdfView.wordCount", false),
             ),
-            ("sep6", Sep),
+            ("sep8", Sep),
             (
                 "menu.viewSetting",
                 Big("viewSetting", "pdfView.viewSetting", true),
             ),
+            ("sep9", Sep),
         ]),
         6 => v.extend(crate::editor_design::form_tab_items()),
+        // The reference's Protect tab (Sensitivity labels and Batch Encrypt are not offered).
         7 => v.extend([
             ("sep1", Sep),
             (
@@ -238,26 +338,45 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 Big("redact", "pdfEditor.markRedaction", false),
             ),
             (
-                "prot.applyRedact",
-                Big("applyRedact", "pdfEditor.applyRedactions", false),
-            ),
-            (
                 "prot.whiteout",
                 Big("whiteout", "pdfEditor.whiteout", false),
             ),
+            (
+                "prot.applyRedact",
+                Big("applyRedact", "pdfEditor.applyRedactions", false),
+            ),
             ("sep2", Sep),
-            ("prot.password", Big("secure", "pdfEditor.secure", false)),
+            (
+                "prot.hiddenData",
+                Big("hiddenData", "pdfEditor.hiddenData", false),
+            ),
+            ("sep3", Sep),
+            ("prot.secureMenu", Big("secure", "pdfEditor.secure", true)),
+            ("sep4", Sep),
+            (
+                "prot.restrict",
+                Big("restrictAccess", "pdfEditor.restrictAccess", false),
+            ),
             (
                 "prot.removeSecurity",
                 Big("unsecure", "pdfEditor.removeSecurity", false),
             ),
-            ("sep3", Sep),
+            ("sep5", Sep),
+            ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
             ("prot.sign", Big("sign", "pdfEditor.signCertify", false)),
+            (
+                "prot.timestamp",
+                Big("timestamp", "pdfEditor.timeStamp", false),
+            ),
+            (
+                "prot.validate",
+                Big("validate", "pdfProtect.validate", false),
+            ),
             (
                 "prot.sigPanel",
                 Big("signPanel", "pdfEditor.signaturePanel", false),
             ),
-            ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
+            ("sep6", Sep),
         ]),
         _ => {
             v.clear();
@@ -368,7 +487,7 @@ enum Ask {
 /// Window contents of BlueEditor.
 pub struct EditorWindow {
     pub(crate) r: ReaderWindow,
-    org: Organize,
+    pub(crate) org: Organize,
     tool: Option<EditTool>,
     dialog: Option<(Dialog, Ask)>,
     requests: Vec<ReaderRequest>,
@@ -596,6 +715,11 @@ impl EditorWindow {
         self.requests.push(r);
     }
 
+    /// Pointer position (window pixels).
+    pub(crate) fn pointer(&self) -> (f32, f32) {
+        self.pointer
+    }
+
     pub(crate) fn window_size(&self) -> (f32, f32) {
         self.r.window_size()
     }
@@ -673,6 +797,7 @@ impl EditorWindow {
         let mut redraw = false;
         let mut used = false;
         let reader_tool = self.r.current_tool();
+        let reader_extra = self.r.extra_tool_on();
         if self.backstage_input(&input) {
             return true;
         }
@@ -727,7 +852,9 @@ impl EditorWindow {
             // A reader tool chosen on the ribbon (highlight, note, select…) turns the
             // editor's tools off.
             let now = self.r.current_tool();
-            if now != reader_tool && now != Tool::Hand {
+            if (now != reader_tool && now != Tool::Hand)
+                || (!reader_extra && self.r.extra_tool_on())
+            {
                 self.set_tool(None);
                 self.comment.tool = None;
                 self.design.tool = None;
@@ -747,7 +874,33 @@ impl EditorWindow {
     }
 
     fn key(&mut self, k: Key, mods: Mods, m: &dyn TextMeasure) -> bool {
-        if self.edit.typing.is_some() && !(mods.ctrl && matches!(k, Key::Letter('z' | 'y' | 's'))) {
+        // Clipboard while typing: copy and cut the selected text, paste plain text from
+        // the host.
+        if self.edit.typing.is_some() && mods.ctrl && matches!(k, Key::Letter('c' | 'x' | 'v')) {
+            let sel = self
+                .edit
+                .typing
+                .as_ref()
+                .and_then(crate::editor_edit::Typing::selected_text);
+            match k {
+                Key::Letter('v') => self
+                    .requests
+                    .push(ReaderRequest::Command("host.pasteText".into())),
+                _ => {
+                    if let Some(s) = sel {
+                        self.requests.push(ReaderRequest::Copy(s));
+                        if k == Key::Letter('x') {
+                            if let Some(v) = self.r.view_mut() {
+                                self.edit.cut(v);
+                            }
+                        }
+                    }
+                }
+            }
+            self.caret_on = true;
+            return true;
+        }
+        if self.edit.typing.is_some() && !(mods.ctrl && matches!(k, Key::Letter('s'))) {
             let used = match self.r.view_mut() {
                 Some(v) => self.edit.key(v, k, mods),
                 None => false,
@@ -817,7 +970,7 @@ impl EditorWindow {
     }
 
     /// Selected pages of the grid, or the current page.
-    fn target_pages(&self) -> Vec<usize> {
+    pub(crate) fn target_pages(&self) -> Vec<usize> {
         if self.organize_on() && !self.org.selected.is_empty() {
             return self.selected_pages();
         }
@@ -863,6 +1016,8 @@ impl EditorWindow {
             || self.comment_command(cmd)
             || self.edit_tab_command(cmd)
             || self.design_command(cmd)
+            || self.more_command(cmd)
+            || self.more2_command(cmd)
         {
             return;
         }
@@ -1226,6 +1381,10 @@ impl EditorWindow {
             self.slides_rendered(pngs);
             return;
         }
+        if purpose == "jpeg" {
+            self.jpeg_rendered(&pngs);
+            return;
+        }
         if purpose == "images" {
             let files = pngs
                 .into_iter()
@@ -1250,8 +1409,18 @@ impl EditorWindow {
             self.picture_picked(purpose, bytes);
             return;
         }
+        if purpose == "pasteText" {
+            let text = String::from_utf8_lossy(bytes).into_owned();
+            if let Some(v) = self.r.view_mut() {
+                self.edit.paste_text(v, &text);
+            }
+            return;
+        }
         if purpose == "certificate" {
             self.certificate_picked(bytes);
+            return;
+        }
+        if self.more_file_picked(purpose, bytes) || self.more2_file_picked(purpose, &name, bytes) {
             return;
         }
         if self.tools_file_picked(purpose, &name, bytes) {
@@ -1444,6 +1613,14 @@ impl EditorWindow {
         for id in ["ed.scanner", "ed.ocr"] {
             self.r.enabled_override.insert(id, false);
         }
+        // Round 4: commands shown grey with a tooltip; the reader's Time Stamp works here.
+        for (id, _) in crate::editor_more::NOT_OFFERED
+            .iter()
+            .chain(crate::editor_more2::NOT_OFFERED2.iter())
+        {
+            self.r.enabled_override.insert(*id, false);
+        }
+        self.r.enabled_override.insert("prot.timestamp", doc);
         for id in crate::editor_format::EDIT_TAB_LATER
             .iter()
             .chain(&crate::editor_design::FORM_TAB_LATER)
@@ -1603,6 +1780,7 @@ impl EditorWindow {
         self.paint_design(p);
         self.paint_tools(p, &Estimate);
         self.paint_format(p);
+        self.paint_more_tip(p);
         self.paint_backstage(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);

@@ -1000,21 +1000,48 @@ impl PdfDocument {
         let Some(info) = self.pages.get(index) else {
             return crate::fallback::SANS;
         };
-        let base = self
-            .doc
+        let doc = &self.doc;
+        let Some(font) = doc
             .get_dictionary(info.id)
             .ok()
-            .and_then(|p| inherited(&self.doc, p, b"Resources"))
+            .and_then(|p| inherited(doc, p, b"Resources"))
             .and_then(|r| r.as_dict().ok())
             .and_then(|r| r.get(b"Font").ok())
-            .and_then(|f| resolve(&self.doc, f).as_dict().ok())
+            .and_then(|f| resolve(doc, f).as_dict().ok())
             .and_then(|f| f.get(name).ok())
-            .and_then(|f| resolve(&self.doc, f).as_dict().ok())
-            .and_then(|f| f.get(b"BaseFont").ok())
+            .and_then(|f| resolve(doc, f).as_dict().ok())
+        else {
+            return crate::fallback::SANS;
+        };
+        let base = font
+            .get(b"BaseFont")
+            .ok()
             .and_then(|b| b.as_name().ok())
             .map(|b| String::from_utf8_lossy(b).into_owned())
             .unwrap_or_default();
-        crate::fallback::face_for(&base)
+        // The descriptor tells bold and italic when the name does not (§9.8.2): ForceBold or
+        // a weight ≥ 600 or a thick stem, and the Italic flag.
+        let desc = font
+            .get(b"DescendantFonts")
+            .ok()
+            .and_then(|d| resolve(doc, d).as_array().ok())
+            .and_then(|a| a.first())
+            .and_then(|d| resolve(doc, d).as_dict().ok())
+            .unwrap_or(font)
+            .get(b"FontDescriptor")
+            .ok()
+            .and_then(|d| resolve(doc, d).as_dict().ok());
+        let num = |k: &[u8]| {
+            desc.and_then(|d| d.get(k).ok())
+                .and_then(|o| resolve(doc, o).as_float().ok())
+                .unwrap_or(0.0)
+        };
+        let flags = num(b"Flags") as i64;
+        let bold = flags & (1 << 18) != 0 || num(b"FontWeight") >= 600.0 || num(b"StemV") >= 120.0;
+        let italic = flags & (1 << 6) != 0 || num(b"ItalicAngle").abs() > 1.0;
+        let face = crate::fallback::face_for(&base);
+        let (base_face, b0, i0) = ((face / 4) * 4, face & 1, face & 2);
+        base_face + (b0 | usize::from(bold)) + (i0 | (2 * usize::from(italic)))
     }
 
     /// Add `id` to page `index`'s resources under `category` (`Font`, `XObject`) with a new

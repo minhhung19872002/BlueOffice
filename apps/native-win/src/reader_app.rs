@@ -1,11 +1,12 @@
-//! BlueReader host: PDF documents, GPU page images and presentation (safe code only; ADR-0018).
+//! BlueReader / BlueEditor host: PDF documents, GPU page images and presentation (safe code
+//! only; ADR-0018). Both products run the same host over a [`PdfWindow`].
 use crate::win32::{self, Handler};
 use bo_gpu_win::{Bitmap, Device, FontSpec, Frame, PageBitmap, TextRendering, WindowSurface};
 use bo_pdfread::{PdfDocument, RenderOptions};
 use bo_render::{PageList, PathSeg, Rgba};
 use bo_ui::{
-    Font, Input, NcHit, Painter, PdfStore, ReaderRequest, ReaderWindow, Request, TextMeasure,
-    TextStyle,
+    EditorWindow, Font, Input, NcHit, Painter, PdfStore, PdfWindow, ReaderRequest, ReaderWindow,
+    Request, TextMeasure, TextStyle,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -55,16 +56,18 @@ fn open_pdf(path: &std::path::Path) -> Result<PdfDocument, String> {
     PdfDocument::open(bytes, document_fonts())
 }
 
-fn recent_file() -> Option<std::path::PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|d| {
-        std::path::PathBuf::from(d)
-            .join("BlueOffice")
-            .join("reader-recent.txt")
-    })
+fn recent_file(app: &str) -> Option<std::path::PathBuf> {
+    let name = if app == "BlueEditor" {
+        "editor-recent.txt"
+    } else {
+        "reader-recent.txt"
+    };
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| std::path::PathBuf::from(d).join("BlueOffice").join(name))
 }
 
-fn load_recent() -> Vec<std::path::PathBuf> {
-    recent_file()
+fn load_recent(app: &str) -> Vec<std::path::PathBuf> {
+    recent_file(app)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .map(|s| {
             s.lines()
@@ -75,8 +78,8 @@ fn load_recent() -> Vec<std::path::PathBuf> {
         .unwrap_or_default()
 }
 
-fn save_recent(list: &[std::path::PathBuf]) {
-    if let Some(f) = recent_file() {
+fn save_recent(app: &str, list: &[std::path::PathBuf]) {
+    if let Some(f) = recent_file(app) {
         if let Some(dir) = f.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -88,28 +91,33 @@ fn save_recent(list: &[std::path::PathBuf]) {
     }
 }
 
-/// Open the PDFs named on the command line and run the window.
-pub fn run() -> Result<(), String> {
+/// Open the PDFs named on the command line and run the window (BlueEditor when `editor`).
+pub fn run(editor: bool) -> Result<(), String> {
     let locale = std::env::var("BLUEOFFICE_LOCALE").unwrap_or_else(|_| "en-US".into());
-    let mut window = ReaderWindow::new(&locale);
-    window.set_recent(load_recent());
+    let mut window: Box<dyn PdfWindow> = if editor {
+        Box::new(EditorWindow::new(&locale))
+    } else {
+        Box::new(ReaderWindow::new(&locale))
+    };
+    let app = window.app();
+    window.set_recent(load_recent(app));
     for arg in std::env::args_os().skip(1) {
         let path = std::path::PathBuf::from(arg);
+        let abs = std::fs::canonicalize(&path).unwrap_or(path.clone());
+        let abs =
+            std::path::PathBuf::from(abs.to_string_lossy().trim_start_matches(r"\\?\").to_owned());
         match open_pdf(&path) {
             Ok(doc) => {
                 let name = path
                     .file_name()
                     .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-                let abs = std::fs::canonicalize(&path).unwrap_or(path);
-                let abs = std::path::PathBuf::from(
-                    abs.to_string_lossy().trim_start_matches(r"\\?\").to_owned(),
-                );
                 window.open(doc, &name, Some(abs));
             }
+            Err(e) if e.contains("password") => window.password_needed(&abs),
             Err(e) => window.set_status(&e),
         }
     }
-    save_recent(window.recent());
+    save_recent(app, window.recent());
     let title = window.title();
     let perf = std::env::var_os("BLUEOFFICE_NATIVE_PERF").and_then(|p| {
         std::fs::OpenOptions::new()
@@ -261,7 +269,7 @@ fn spec<'a>(f: &Font<'a>) -> FontSpec<'a> {
 }
 
 struct Shell {
-    window: ReaderWindow,
+    window: Box<dyn PdfWindow>,
     gpu: Option<Gpu>,
     hwnd: isize,
     title: String,
@@ -291,10 +299,70 @@ impl Shell {
                     .file_name()
                     .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                 self.window.open(doc, &name, Some(path.to_path_buf()));
-                save_recent(self.window.recent());
+                save_recent(self.window.app(), self.window.recent());
             }
+            Err(e) if e.contains("password") => self.window.password_needed(path),
             Err(e) => self.window.set_status(&e),
         }
+    }
+
+    /// Ask where to write `bytes` (suggested `name`) and write them.
+    fn save_bytes(&mut self, name: &str, bytes: &[u8]) -> Option<std::path::PathBuf> {
+        let ext = std::path::Path::new(name)
+            .extension()
+            .map_or_else(|| "pdf".to_owned(), |e| e.to_string_lossy().to_lowercase());
+        let label = format!("{} (*.{ext})", ext.to_uppercase());
+        let pattern = format!("*.{ext}");
+        let path = win32::file_dialog(true, &[(label.as_str(), pattern.as_str())], name)?;
+        match std::fs::write(&path, bytes) {
+            Ok(()) => {
+                self.window.set_status(&format!("{}", path.display()));
+                Some(path)
+            }
+            Err(e) => {
+                self.window.set_status(&format!("{}: {e}", path.display()));
+                None
+            }
+        }
+    }
+
+    /// Render every page of the active document as PNG at `scale` pixels per point.
+    fn render_pngs(&mut self, scale: f32) -> Result<Vec<Vec<u8>>, String> {
+        let gpu = self.gpu.as_ref().ok_or("no device")?;
+        let view = self.window.view_mut().ok_or("no document")?;
+        let doc = view.doc_mut();
+        let mut out = Vec::new();
+        for i in 0..doc.page_count() {
+            let opts = RenderOptions {
+                min_line: 1.0 / scale,
+                ..RenderOptions::default()
+            };
+            let p = doc.render(i, opts)?;
+            let pics = pictures(&p.images);
+            let img = if let Ok(img) = gpu.device.render_page(&p.list, doc.fonts(), scale, &pics) {
+                img
+            } else {
+                let p = doc.render(
+                    i,
+                    RenderOptions {
+                        text_as_paths: true,
+                        ..opts
+                    },
+                )?;
+                let pics = pictures(&p.images);
+                gpu.device.render_page(&p.list, doc.fonts(), scale, &pics)?
+            };
+            let mut png_bytes = Vec::new();
+            {
+                let mut enc = png::Encoder::new(&mut png_bytes, img.width, img.height);
+                enc.set_color(png::ColorType::Rgba);
+                enc.set_depth(png::BitDepth::Eight);
+                let mut w = enc.write_header().map_err(|e| e.to_string())?;
+                w.write_image_data(&img.pixels).map_err(|e| e.to_string())?;
+            }
+            out.push(png_bytes);
+        }
+        Ok(out)
     }
 
     fn save_to(&mut self, path: &std::path::Path) -> bool {
@@ -311,6 +379,7 @@ impl Shell {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn handle_requests(&mut self) -> bool {
         let mut redraw = false;
         for r in self.window.take_requests() {
@@ -364,6 +433,70 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Window(w) => self.pending.push(w),
+                ReaderRequest::Command(_) => {}
+                ReaderRequest::PickFile { purpose, filters } => {
+                    let f: Vec<(&str, &str)> = filters
+                        .iter()
+                        .map(|(a, b)| (a.as_str(), b.as_str()))
+                        .collect();
+                    if let Some(path) = win32::file_dialog(false, &f, "") {
+                        match std::fs::read(&path) {
+                            Ok(bytes) => self.window.file_picked(&purpose, &path, &bytes),
+                            Err(e) => self.window.set_status(&format!("{}: {e}", path.display())),
+                        }
+                    }
+                }
+                ReaderRequest::SaveBytes { name, bytes } => {
+                    self.save_bytes(&name, &bytes);
+                }
+                ReaderRequest::SaveMany(files) => {
+                    let Some((first, bytes)) = files.first() else {
+                        continue;
+                    };
+                    if let Some(path) = self.save_bytes(first, bytes) {
+                        let dir = path.parent().map(std::path::Path::to_path_buf);
+                        for (name, bytes) in files.iter().skip(1) {
+                            let target = dir
+                                .as_ref()
+                                .map_or_else(|| std::path::PathBuf::from(name), |d| d.join(name));
+                            if let Err(e) = std::fs::write(&target, bytes) {
+                                self.window
+                                    .set_status(&format!("{}: {e}", target.display()));
+                            }
+                        }
+                        if let Some(d) = dir {
+                            self.window
+                                .set_status(&format!("{} × {}", files.len(), d.display()));
+                        }
+                    }
+                }
+                ReaderRequest::RenderPages { purpose, scale } => match self.render_pngs(scale) {
+                    Ok(pngs) => self.window.pages_rendered(&purpose, pngs),
+                    Err(e) => self.window.set_status(&e),
+                },
+                ReaderRequest::OpenWithPassword { path, password } => {
+                    let r = std::fs::read(&path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|b| {
+                            PdfDocument::open_with_password(b, document_fonts(), &password)
+                        });
+                    match r {
+                        Ok(doc) => {
+                            let name = path
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                            self.window.open(doc, &name, Some(path));
+                            save_recent(self.window.app(), self.window.recent());
+                        }
+                        Err(e) => self.window.set_status(&e),
+                    }
+                }
+                ReaderRequest::OpenDocument { name, bytes } => {
+                    match PdfDocument::open(bytes, document_fonts()) {
+                        Ok(doc) => self.window.open(doc, &name, None),
+                        Err(e) => self.window.set_status(&e),
+                    }
+                }
             }
         }
         redraw
@@ -505,7 +638,7 @@ impl Handler for Shell {
     }
 
     fn caret(&self) -> Option<[f32; 4]> {
-        None
+        self.window.caret()
     }
 
     fn nc_hit(&self, x: f32, y: f32) -> NcHit {

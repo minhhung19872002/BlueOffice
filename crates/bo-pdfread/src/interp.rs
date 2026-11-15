@@ -98,6 +98,25 @@ pub(crate) struct Out {
     pub commands: Vec<Command>,
     pub images: HashMap<String, Arc<Image>>,
     pub chars: Vec<TextChar>,
+    /// Page objects with their content stream spans (BlueEditor), when recording.
+    pub objects: Option<Vec<crate::objects::Recorded>>,
+}
+
+/// Text state at a text-showing operator (to write the run again elsewhere).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TextState {
+    pub font: Vec<u8>,
+    pub size: f32,
+    pub tm: M,
+    pub tm_after: M,
+    pub tc: f32,
+    pub tw: f32,
+    pub th: f32,
+    pub tl: f32,
+    pub rise: f32,
+    pub mode: u8,
+    pub fill: Rgba,
+    pub stroke: Rgba,
 }
 
 #[derive(Clone)]
@@ -122,6 +141,8 @@ struct Gs {
     fill_alpha: f32,
     stroke_alpha: f32,
     font: Option<Rc<Font>>,
+    /// Resource name of the font.
+    font_name: Vec<u8>,
     size: f32,
     tc: f32,
     tw: f32,
@@ -150,6 +171,7 @@ impl Gs {
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
             font: None,
+            font_name: Vec::new(),
             size: 0.0,
             tc: 0.0,
             tw: 0.0,
@@ -325,7 +347,9 @@ impl<'s, 'a> Interp<'s, 'a> {
 
     /// Run a content stream.
     pub(crate) fn run(&mut self, content: &[u8]) {
-        for op in Lexer::new(content) {
+        let mut lexer = Lexer::new(content);
+        let mut path_start: Option<usize> = None;
+        while let Some(op) = lexer.next() {
             self.ops += 1;
             if self.ops > MAX_OPS
                 || (self.ops.is_multiple_of(4096)
@@ -333,7 +357,83 @@ impl<'s, 'a> Interp<'s, 'a> {
             {
                 break;
             }
-            self.op(&op);
+            if self.out.objects.is_some() && self.depth == 0 {
+                self.recorded_op(&op, lexer.span(), &mut path_start);
+            } else {
+                self.op(&op);
+            }
+        }
+    }
+
+    /// Run one top-level operator and note the page object it drew (BlueEditor).
+    fn recorded_op(&mut self, op: &Op, span: (usize, usize), path_start: &mut Option<usize>) {
+        use crate::objects::{ObjectKind, Recorded};
+        let name = op.name.as_slice();
+        let (n_cmds, n_chars) = (self.out.commands.len(), self.out.chars.len());
+        let show = matches!(name, b"Tj" | b"TJ" | b"'" | b"\"");
+        let before = show.then(|| (self.tm, self.gs.clone()));
+        let clipping = self.clip.is_some();
+        if matches!(name, b"m" | b"re") && path_start.is_none() {
+            *path_start = Some(span.0);
+        }
+        let ctm = self.gs.ctm;
+        self.op(op);
+        let mut start = span.0;
+        let kind = match name {
+            b"Tj" | b"TJ" | b"'" | b"\"" => Some(ObjectKind::Text),
+            b"S" | b"s" | b"f" | b"F" | b"f*" | b"B" | b"B*" | b"b" | b"b*" | b"n" => {
+                let first = path_start.take();
+                // Clipping paths and `n` belong to the content around them.
+                match first {
+                    Some(p) if name != b"n" && !clipping => {
+                        start = p;
+                        Some(ObjectKind::Path)
+                    }
+                    _ => None,
+                }
+            }
+            b"Do" => Some(
+                if self.out.commands[n_cmds..]
+                    .iter()
+                    .any(|c| matches!(c, Command::Image { .. }))
+                {
+                    ObjectKind::Image
+                } else {
+                    ObjectKind::Form
+                },
+            ),
+            b"BI" => Some(ObjectKind::Image),
+            b"sh" => Some(ObjectKind::Shading),
+            _ => None,
+        };
+        let Some(kind) = kind else { return };
+
+        let text_state = before.map(|(tm, gs)| TextState {
+            font: gs.font_name.clone(),
+            size: gs.size,
+            tm,
+            tm_after: self.tm,
+            tc: gs.tc,
+            tw: gs.tw,
+            th: gs.th,
+            tl: gs.tl,
+            rise: gs.rise,
+            mode: gs.mode,
+            fill: rgba(&gs.fill_cs, &gs.fill, 1.0),
+            stroke: rgba(&gs.stroke_cs, &gs.stroke, 1.0),
+        });
+        let rec = Recorded {
+            kind,
+            span: (start, span.1),
+            commands: (n_cmds, self.out.commands.len()),
+            chars: (n_chars, self.out.chars.len()),
+            ctm,
+            op: op.name.clone(),
+            args: op.args.clone(),
+            text: text_state,
+        };
+        if let Some(list) = self.out.objects.as_mut() {
+            list.push(rec);
         }
     }
 
@@ -631,6 +731,7 @@ impl<'s, 'a> Interp<'s, 'a> {
                 self.gs.size = n(1);
                 if let Some(Object::Name(name)) = a.first() {
                     self.gs.font = self.load_font(name);
+                    self.gs.font_name.clone_from(name);
                 }
             }
             b"Td" => self.next_line(n(0), n(1)),

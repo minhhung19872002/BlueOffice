@@ -88,6 +88,8 @@ pub struct Annot {
     pub modified: String,
     /// Colour.
     pub color: [u8; 3],
+    /// The annotation object (to edit or delete it).
+    pub(crate) id: Option<lopdf::ObjectId>,
 }
 
 fn color_of(doc: &Document, d: &Dictionary) -> [u8; 3] {
@@ -335,6 +337,7 @@ impl PdfDocument {
                     author: s(b"T"),
                     modified: s(b"M"),
                     color: color_of(doc, d),
+                    id: a.as_reference().ok(),
                 });
             }
         }
@@ -343,7 +346,7 @@ impl PdfDocument {
 
     /// Add a comment; it shows at once and is written by [`PdfDocument::save`].
     pub fn add_annotation(&mut self, a: &NewAnnot) -> Result<(), String> {
-        if self.doc.is_encrypted() {
+        if self.doc.is_encrypted() && self.doc.encryption_state.is_none() {
             return Err("comments cannot be added to an encrypted document".into());
         }
         let info = self.pages.get(a.page).ok_or("no such page")?.clone();
@@ -453,9 +456,8 @@ impl PdfDocument {
         ap_dict.set("Subtype", Object::Name(b"Form".to_vec()));
         ap_dict.set("BBox", nums(&rect));
         ap_dict.set("Resources", res);
-        let ap_id = self
-            .doc
-            .add_object(Object::Stream(Stream::new(ap_dict, content.into_bytes())));
+        self.begin("comment");
+        let ap_id = self.add(Object::Stream(Stream::new(ap_dict, content.into_bytes())));
         let mut ap = Dictionary::new();
         ap.set("N", Object::Reference(ap_id));
         let mut d = Dictionary::new();
@@ -488,9 +490,7 @@ impl PdfDocument {
             }
             _ => {}
         }
-        let annot_id = self.doc.add_object(Object::Dictionary(d));
-        self.changed.push(ap_id);
-        self.changed.push(annot_id);
+        let annot_id = self.add(Object::Dictionary(d));
         // Link it from the page's /Annots.
         let page = self
             .doc
@@ -498,11 +498,12 @@ impl PdfDocument {
             .map_err(|e| e.to_string())?;
         if let Ok(Object::Reference(arr)) = page.get(b"Annots") {
             let arr = *arr;
+            self.touch(arr);
             if let Ok(Object::Array(v)) = self.doc.get_object_mut(arr) {
                 v.push(Object::Reference(annot_id));
-                self.changed.push(arr);
             }
         } else {
+            self.touch(info.id);
             let page = self
                 .doc
                 .get_dictionary_mut(info.id)
@@ -511,25 +512,103 @@ impl PdfDocument {
                 Ok(Object::Array(v)) => v.push(Object::Reference(annot_id)),
                 _ => page.set("Annots", vec![Object::Reference(annot_id)]),
             }
-            self.changed.push(info.id);
         }
+        self.commit();
+        Ok(())
+    }
+
+    /// Delete a comment (and its pop-up).
+    pub fn delete_annotation(&mut self, a: &Annot) -> Result<(), String> {
+        let id = a.id.ok_or("the comment cannot be changed")?;
+        let popup = self
+            .doc
+            .get_dictionary(id)
+            .ok()
+            .and_then(|d| d.get(b"Popup").ok())
+            .and_then(|p| p.as_reference().ok());
+        self.begin("delete comment");
+        let mut ids = vec![id];
+        ids.extend(popup);
+        let r = self.remove_annots(a.page, &ids);
+        self.commit();
+        r
+    }
+
+    /// Change a comment's text (a text box shows the new text).
+    pub fn set_annotation_contents(&mut self, a: &Annot, text: &str) -> Result<(), String> {
+        let id = a.id.ok_or("the comment cannot be changed")?;
+        let rect = {
+            let d = self.doc.get_dictionary(id).map_err(|e| e.to_string())?;
+            crate::annot_rect(&self.doc, d).ok_or("comment box")?
+        };
+        self.begin("edit comment");
+        self.touch(id);
+        let now = pdf_date();
+        if let Ok(d) = self.doc.get_dictionary_mut(id) {
+            d.set("Contents", text_obj(text));
+            d.set("M", text_obj(&now));
+        }
+        if a.kind == AnnotKind::TextBox {
+            // A new appearance with the text in the embedded Unicode font.
+            let (font, _) = self.embed_text(crate::fallback::SANS, "")?;
+            let [r, g, b] = a.color.map(|c| f32::from(c) / 255.0);
+            let mut s = format!(
+                "{r} {g} {b} RG 1 w {} {} {} {} re S\nBT /BoF 11 Tf 0 g 13 TL {} {} Td\n",
+                rect[0] + 0.5,
+                rect[1] + 0.5,
+                rect[2] - rect[0] - 1.0,
+                rect[3] - rect[1] - 1.0,
+                rect[0] + 4.0,
+                rect[3] - 14.0
+            );
+            for line in text.lines() {
+                let (_, bytes) = self.embed_text(crate::fallback::SANS, line)?;
+                let hex = bytes.iter().fold(String::new(), |mut h, b| {
+                    use std::fmt::Write as _;
+                    let _ = write!(h, "{b:02X}");
+                    h
+                });
+                s.push_str(&format!("<{hex}> Tj T*\n"));
+            }
+            s.push_str("ET\n");
+            let mut fonts = Dictionary::new();
+            fonts.set("BoF", Object::Reference(font));
+            let mut res = Dictionary::new();
+            res.set("Font", fonts);
+            let mut ap_dict = Dictionary::new();
+            ap_dict.set("Type", Object::Name(b"XObject".to_vec()));
+            ap_dict.set("Subtype", Object::Name(b"Form".to_vec()));
+            ap_dict.set("BBox", nums(&rect));
+            ap_dict.set("Resources", res);
+            let ap_id = self.add(Object::Stream(Stream::new(ap_dict, s.into_bytes())));
+            if let Ok(d) = self.doc.get_dictionary_mut(id) {
+                let mut ap = Dictionary::new();
+                ap.set("N", Object::Reference(ap_id));
+                d.set("AP", ap);
+            }
+        }
+        self.commit();
         Ok(())
     }
 
     /// Whether comments were added since opening or the last save.
     pub fn modified(&self) -> bool {
-        !self.changed.is_empty()
+        !self.changed.is_empty() || self.edit.edits > 0
     }
 
     /// The document with the changes appended as an incremental update; afterwards the
     /// document is unmodified and the returned bytes are its new original.
+    /// Page tree edits rewrite the whole file instead ([`PdfDocument::save_full`]); comments,
+    /// form values and content edits keep earlier revisions (and signatures over them) intact.
     pub fn save(&mut self) -> Result<Vec<u8>, String> {
+        if self.edit.structural {
+            return self.save_full(crate::SaveOptions::default());
+        }
         if self.changed.is_empty() {
             return Ok(self.bytes.to_vec());
         }
         let out = crate::write::incremental(&self.bytes, &self.doc, &self.changed)?;
-        self.bytes = std::sync::Arc::new(out.clone());
-        self.changed.clear();
+        self.saved(out.clone());
         Ok(out)
     }
 }

@@ -670,6 +670,53 @@ impl Font {
         }
     }
 
+    /// Codes that show each character with a glyph this font has (to write edited text in
+    /// the run's own font): simple fonts by their encoding, composite fonts with a two-byte
+    /// identity CMap through `/ToUnicode`. `None` when text cannot be encoded for this font.
+    pub(crate) fn encoder(&self) -> Option<HashMap<char, Vec<u8>>> {
+        let mut out: HashMap<char, Vec<u8>> = HashMap::new();
+        let mut add = |text: String, bytes: Vec<u8>| {
+            let mut it = text.chars();
+            if let (Some(c), None) = (it.next(), it.next()) {
+                out.entry(c).or_insert(bytes);
+            }
+        };
+        if self.composite {
+            if self.substitute || self.to_unicode.is_none() {
+                return None;
+            }
+            for code in 0..=0xffff_u32 {
+                let b = [(code >> 8) as u8, code as u8];
+                if self.cmap.codes(&b) != [(code, 2)] {
+                    return None;
+                }
+                let t = self.text(code);
+                if t.is_empty() {
+                    continue;
+                }
+                if matches!(self.glyph(code), Some(GlyphRef::Gid(0)) | None) {
+                    continue;
+                }
+                add(t, b.to_vec());
+            }
+        } else {
+            if self.type3.is_some() {
+                return None;
+            }
+            for code in 0..=255_u32 {
+                let ok = match self.glyph(code) {
+                    Some(GlyphRef::Gid(g)) => g != 0,
+                    Some(GlyphRef::Name(n)) => n != ".notdef",
+                    None => false,
+                };
+                if ok {
+                    add(self.text(code), vec![code as u8]);
+                }
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
     /// Glyph name of a simple font's code (Type 3 glyph procedures).
     pub(crate) fn glyph_name(&self, code: u32) -> Option<&str> {
         self.names.get(code as usize).and_then(|n| n.as_deref())

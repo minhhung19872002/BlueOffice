@@ -29,6 +29,8 @@ fn is_delim(c: u8) -> bool {
 pub(crate) struct Lexer<'a> {
     s: &'a [u8],
     pos: usize,
+    /// Where the last returned operator's first operand started.
+    start: usize,
 }
 
 enum Tok {
@@ -42,7 +44,16 @@ enum Tok {
 
 impl<'a> Lexer<'a> {
     pub(crate) fn new(s: &'a [u8]) -> Self {
-        Self { s, pos: 0 }
+        Self {
+            s,
+            pos: 0,
+            start: 0,
+        }
+    }
+
+    /// Byte range of the last returned operator with its operands.
+    pub(crate) fn span(&self) -> (usize, usize) {
+        (self.start, self.pos)
     }
 
     fn skip_white(&mut self) {
@@ -378,6 +389,8 @@ impl Iterator for Lexer<'_> {
 
     fn next(&mut self) -> Option<Op> {
         let mut args = Vec::new();
+        self.skip_white();
+        self.start = self.pos;
         loop {
             let t = self.token()?;
             match t {

@@ -15,6 +15,8 @@ bo-model.workspace = true
 bo-pptx = { path = "../bo-pptx" }
 bo-sheet.workspace = true
 bo-pdfread = { path = "../bo-pdfread" }
+# BlueEditor signs PDFs with certificates from .p12 / .pfx files.
+bo-sign = { path = "../bo-sign", features = ["pkcs12"] }
 bo-text.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
@@ -23,6 +25,8 @@ serde_json.workspace = true
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 zip.workspace = true
 bo-raster.workspace = true
+png.workspace = true
+rand = "0.8"
 
 [lints]
 workspace = true

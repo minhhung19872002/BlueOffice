@@ -94,6 +94,8 @@ thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
     static HIGH_SURROGATE: Cell<u16> = const { Cell::new(0) };
     static LAST_DOUBLE: Cell<(u32, i32, i32)> = const { Cell::new((0, 0, 0)) };
+    /// Shift / Ctrl flags (MK_SHIFT, MK_CONTROL) of the last mouse button / move message.
+    static MOUSE_KEYS: Cell<(bool, bool)> = const { Cell::new((false, false)) };
     /// Window placement before going full screen (slide show), while full screen.
     static FULL_SCREEN: Cell<Option<(isize, RECT, bool)>> = const { Cell::new(None) };
 }
@@ -138,6 +140,22 @@ fn mods() -> Mods {
         ctrl: down(VK_CONTROL),
         alt: down(VK_MENU),
     }
+}
+
+/// Shift / Ctrl held with the last mouse message (its MK_SHIFT / MK_CONTROL flags, so they
+/// hold for posted messages too).
+#[allow(dead_code)] // BlueSlide only.
+pub fn mouse_mods() -> Mods {
+    let (shift, ctrl) = MOUSE_KEYS.with(Cell::get);
+    Mods {
+        shift,
+        ctrl,
+        alt: false,
+    }
+}
+
+fn note_mouse_keys(wparam: WPARAM) {
+    MOUSE_KEYS.with(|k| k.set((wparam.0 & 0x0004 != 0, wparam.0 & 0x0008 != 0)));
 }
 
 fn scale(hwnd: HWND) -> f32 {
@@ -518,6 +536,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
+            note_mouse_keys(wparam);
             let (x, y) = point(lparam);
             // SAFETY: plain queries and capture of this thread's window.
             let (now, limit) = unsafe {
@@ -549,6 +568,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
+            note_mouse_keys(wparam);
             let (x, y) = point(lparam);
             // MK_LBUTTON
             if wparam.0 & 0x0001 != 0 {
@@ -560,6 +580,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_LBUTTONUP => {
+            note_mouse_keys(wparam);
             // SAFETY: releases this thread's mouse capture.
             unsafe {
                 let _ = ReleaseCapture();

@@ -35,8 +35,19 @@ const TEXT_SELECTION: Rgba = Rgba(0, 0, 0, 70);
 const PROMPT_INK: Rgba = Rgba(0x00, 0x00, 0x00, 255);
 /// Dashed outline of empty placeholders.
 const PLACEHOLDER_EDGE: Rgba = Rgba(0x9a, 0x9a, 0x9a, 255);
-/// Smart guides while moving shapes.
-const GUIDE: Rgba = Rgba(0xd2, 0x4a, 0x26, 255);
+/// Slide frames of the Handout Master view (reference: dots of 32–160 grey).
+const HANDOUT_SLOT: Rgba = Rgba(0x50, 0x50, 0x50, 255);
+/// Wavy lines of spelling (red) and grammar (blue) issues, as BlueDoc draws them.
+const SPELL_RED: Rgba = Rgba(0xe8, 0x11, 0x23, 255);
+const SPELL_GRAMMAR: Rgba = Rgba(0x2b, 0x57, 0xd8, 255);
+/// Selection rectangle dragged on the empty slide.
+/// Reference: 1 px edge of grey 115 and the same grey at half opacity inside (white shows
+/// 185, a 46/117/182 fill 81/116/149).
+const MARQUEE_EDGE: Rgba = Rgba(0x73, 0x73, 0x73, 255);
+const MARQUEE_FILL: Rgba = Rgba(0x73, 0x73, 0x73, 0x80);
+/// Smart guides while moving shapes: 1 px dashes of 209/139/121, 7 px period at 125 %
+/// (reference).
+const GUIDE: Rgba = Rgba(0xd1, 0x8b, 0x79, 255);
 const CARET: Rgba = Rgba(0, 0, 0, 255);
 const NOTES_HINT: Rgba = Rgba(0x52, 0x52, 0x52, 255);
 const BLACK: Rgba = Rgba(0, 0, 0, 255);
@@ -77,6 +88,8 @@ enum Drag {
     Handle { kind: HandleKind, from: (f32, f32) },
     /// Extending the text selection.
     Text,
+    /// Pressed on the empty slide: a selection rectangle from `from` to `to`.
+    Marquee { from: (f32, f32), to: (f32, f32) },
     /// Pressed on a slide thumbnail (pane or sorter): drags the chosen slides once the
     /// pointer travels; `to` is the insertion index.
     Slides {
@@ -246,11 +259,29 @@ fn word_at(s: &str, u: usize) -> (usize, usize) {
     (off(a), off(b))
 }
 
+/// UTF-16 range of the paragraph around offset `u`, its paragraph mark included (triple
+/// click, as the reference selects it).
+fn para_at(s: &str, u: usize) -> (usize, usize) {
+    let b = byte_at(s, u);
+    let start = s[..b].rfind('\n').map_or(0, |i| i + 1);
+    let end = s[b..].find('\n').map_or(s.len(), |i| b + i + 1);
+    (utf16_len(&s[..start]), utf16_len(&s[..end]))
+}
+
+/// Offset `u` starts a paragraph.
+fn para_start(s: &str, u: usize) -> bool {
+    let b = byte_at(s, u);
+    b == 0 || s[..b].ends_with('\n')
+}
+
 #[path = "slide_colormode.rs"]
 pub mod colormode;
 
 #[path = "slide_thumb_sections.rs"]
 mod thumb_sections;
+
+#[path = "slide_show_tools.rs"]
+pub mod show_tools;
 
 /// The editing area of one presentation.
 pub struct SlideView {
@@ -261,7 +292,8 @@ pub struct SlideView {
     /// The selection's frame and handles are not drawn (Remove Background).
     hide_handles: bool,
     /// Prompts of empty title, subtitle and body placeholders (interface language).
-    prompts: [String; 3],
+    /// Prompts: title, subtitle, body, then header and footer (page master views).
+    prompts: [String; 5],
     engine: Engine,
     /// Stable id of each slide, in order.
     ids: Vec<usize>,
@@ -277,6 +309,23 @@ pub struct SlideView {
     canvas_scroll: f32,
     thumb_scroll: f32,
     show_notes: bool,
+    /// Slide show keys and pointer tools (blank screens, pen, laser).
+    show_tools: show_tools::ShowTools,
+    /// Shift / Ctrl held with the mouse button (host: the mouse message's key flags).
+    pointer_mods: Mods,
+    /// Shift + press on a selected shape: it leaves the selection on release unless the
+    /// press became a (constrained) move (slide point of the press).
+    shift_toggle: Option<(f64, f64)>,
+    /// Second click on a selected shape: its text takes the caret on release (shape id,
+    /// slide point) unless the press became a move.
+    pending_text: Option<(u32, f64, f64)>,
+    /// A move / resize / rotation applied live while the pointer drags (history length
+    /// before it): the shapes themselves follow the pointer, as the reference draws them.
+    live_since: Option<usize>,
+    /// Wavy lines under spelling (red) and grammar (blue) issues of the current slide
+    /// (slide points: from, to, grammar), checked again on the next tick after a change.
+    spell: Vec<([f64; 2], [f64; 2], bool)>,
+    spell_dirty: bool,
     /// Draw tab tool in use, and the stroke being drawn (slide points).
     ink_tool: Option<InkTool>,
     ink_stroke: Vec<[f64; 2]>,
@@ -333,6 +382,8 @@ impl SlideView {
                 "Click to add title".into(),
                 "Click to add subtitle".into(),
                 "Click to add text".into(),
+                "Header".into(),
+                "Footer".into(),
             ],
             engine,
             ids: Vec::new(),
@@ -345,6 +396,13 @@ impl SlideView {
             canvas_scroll: 0.0,
             thumb_scroll: 0.0,
             show_notes: true,
+            show_tools: show_tools::ShowTools::default(),
+            pointer_mods: Mods::default(),
+            shift_toggle: None,
+            pending_text: None,
+            live_since: None,
+            spell: Vec::new(),
+            spell_dirty: true,
             ink_tool: None,
             ink_stroke: Vec::new(),
             focus: Focus::Canvas,
@@ -519,7 +577,23 @@ impl SlideView {
 
     /// Prompts of empty title, subtitle and body placeholders.
     pub fn set_prompts(&mut self, title: &str, subtitle: &str, body: &str) {
-        self.prompts = [title.to_owned(), subtitle.to_owned(), body.to_owned()];
+        self.prompts[..3].clone_from_slice(&[
+            title.to_owned(),
+            subtitle.to_owned(),
+            body.to_owned(),
+        ]);
+    }
+
+    /// Prompts of the header and footer placeholders of the handout / notes master views.
+    pub fn set_hf_prompts(&mut self, header: &str, footer: &str) {
+        self.prompts[3] = header.to_owned();
+        self.prompts[4] = footer.to_owned();
+    }
+
+    /// A notes / handout master view is open: the reference shows the page alone, without
+    /// the thumbnails and notes panes.
+    pub fn in_page_master(&self) -> bool {
+        self.state.as_ref().is_some_and(|s| s.page_master.is_some())
     }
 
     /// Interface texts in the window's language: the empty notes hint and the end screen of
@@ -589,17 +663,25 @@ impl SlideView {
 
     /// Width of the thumbnails pane (reference: 187 logical px), its splitter excluded.
     fn thumbs_w(&self) -> f32 {
+        if self.in_page_master() {
+            return 0.0;
+        }
         self.px(187.0).min((self.size.0 * 0.4).max(0.0))
     }
 
     /// Height of the notes pane (reference: 36 logical px), its splitter excluded.
     fn notes_h(&self) -> f32 {
-        if self.show_notes {
+        if self.notes_on() {
             // Reference: splitter 47 px above the status bar line at 125 %.
             self.px(36.8)
         } else {
             0.0
         }
+    }
+
+    /// The notes pane is shown (never in the page master views).
+    fn notes_on(&self) -> bool {
+        self.show_notes && !self.in_page_master()
     }
 
     /// Width of the canvas scroll bar.
@@ -612,7 +694,7 @@ impl SlideView {
         let x = self.origin.0 + self.thumbs_w() + 1.0;
         let y = self.origin.1;
         let w = (self.origin.0 + self.size.0 - self.sb_w() - x).max(1.0);
-        let notes = if self.show_notes {
+        let notes = if self.notes_on() {
             self.notes_h() + 1.0
         } else {
             0.0
@@ -623,7 +705,7 @@ impl SlideView {
 
     /// The notes pane rectangle (below its splitter line).
     pub fn notes_rect(&self) -> Option<R> {
-        if !self.show_notes {
+        if !self.notes_on() {
             return None;
         }
         let c = self.canvas_rect();
@@ -736,7 +818,7 @@ impl SlideView {
     }
 
     /// Window position of a slide point.
-    fn to_px(&self, x: f64, y: f64) -> (f32, f32) {
+    pub(crate) fn to_px(&self, x: f64, y: f64) -> (f32, f32) {
         let (ox, oy) = self.slide_origin();
         let s = self.scale();
         (ox + x as f32 * s, oy + y as f32 * s)
@@ -774,6 +856,10 @@ impl SlideView {
     }
 
     fn visible_thumbs(&self) -> std::ops::Range<usize> {
+        // No thumbnails pane in the page master views (zero-sized images would fail).
+        if self.in_page_master() {
+            return 0..0;
+        }
         self.thumbs_in_view()
     }
 
@@ -958,6 +1044,9 @@ impl SlideView {
         }
         self.notes_caret = self.notes_caret.min(utf16_len(&r.notes));
         self.caret_on = true;
+        if moved || !r.dirty.is_empty() || r.slides_changed {
+            self.spell_dirty = true;
+        }
         self.state = Some(r);
     }
 
@@ -1240,6 +1329,11 @@ impl SlideView {
             // Shift+Enter: line break inside the paragraph (§21.1.2.2.1 br).
             Key::Enter if m.shift => self.type_text("\u{b}"),
             Key::Enter => self.type_text("\n"),
+            // Tab inside a paragraph types a tab; at its start (or over a selection) it
+            // demotes the paragraph, Shift+Tab promotes (reference).
+            Key::Tab if !m.shift && te.start == te.end && !para_start(&te.text, te.end) => {
+                self.type_text("\t")
+            }
             Key::Tab => self.format_text(TextFormat::Level {
                 delta: if m.shift { -1 } else { 1 },
             }),
@@ -1442,8 +1536,10 @@ impl SlideView {
                     extend: shift,
                 });
                 if count >= 3 {
-                    let len = self.text_edit().map_or(0, |t| utf16_len(&t.text));
-                    return self.select_text(0, len);
+                    if let Some(t) = self.text_edit().cloned() {
+                        let (a, b) = para_at(&t.text, t.end);
+                        return self.select_text(a, b);
+                    }
                 }
                 if count == 2 {
                     if let Some(t) = self.text_edit().cloned() {
@@ -1456,6 +1552,22 @@ impl SlideView {
             }
         }
         let before: Vec<u32> = self.selection().iter().map(|s| s.id).collect();
+        // Shift on a selected shape: a drag moves the selection straight; a click without
+        // moving takes the shape out of it (on release), as the reference does.
+        self.shift_toggle = None;
+        if shift
+            && self
+                .selection()
+                .iter()
+                .any(|s| Self::in_box(&s.rect, sx, sy, 3.0))
+        {
+            self.shift_toggle = Some((sx, sy));
+            self.drag = Some(Drag::Move {
+                from: (x, y),
+                moved: false,
+            });
+            return true;
+        }
         self.run(SlideCommand::Click {
             x: sx,
             y: sy,
@@ -1472,35 +1584,28 @@ impl SlideView {
             })
             .cloned();
         let Some(hit) = hit else {
+            // Empty slide: drag a selection rectangle (reference).
+            if inside(self.canvas_rect(), x, y) {
+                self.drag = Some(Drag::Marquee {
+                    from: (x, y),
+                    to: (x, y),
+                });
+            }
             return true;
         };
         // Text placeholders and text boxes take the caret at once; other shapes on a second
         // click (or a double click), as the reference does.
         let text_box = hit.placeholder.is_some() || hit.name.starts_with("TextBox");
-        if !shift
-            && hit.editable_text
-            && (text_box || count >= 2 || before == [hit.id])
-            && Self::in_box(&hit.rect, sx, sy, -2.0)
-        {
-            self.run(SlideCommand::TextSelect {
-                id: Some(hit.id),
-                start: 0,
-                end: 0,
-                cell: None,
-            });
-            self.run(SlideCommand::TextHit {
-                x: sx,
-                y: sy,
-                extend: false,
-            });
-            if count == 2 {
-                if let Some(t) = self.text_edit().cloned() {
-                    let (a, b) = word_at(&t.text, t.end);
-                    self.select_text(a, b);
-                }
+        self.pending_text = None;
+        if !shift && hit.editable_text && Self::in_box(&hit.rect, sx, sy, -2.0) {
+            if text_box || count >= 2 {
+                return self.enter_text_at(hit.id, sx, sy, count);
             }
-            self.drag = Some(Drag::Text);
-            return true;
+            // A second click on a selected shape: the caret goes in on release, unless the
+            // press becomes a move (the reference moves a selected shape dragged anywhere).
+            if before == [hit.id] {
+                self.pending_text = Some((hit.id, sx, sy));
+            }
         }
         self.drag = Some(Drag::Move {
             from: (x, y),
@@ -1509,13 +1614,45 @@ impl SlideView {
         true
     }
 
+    /// Put the caret in shape `id`'s text at slide point (`sx`, `sy`); a double click
+    /// selects the word there.
+    fn enter_text_at(&mut self, id: u32, sx: f64, sy: f64, count: u8) -> bool {
+        self.run(SlideCommand::TextSelect {
+            id: Some(id),
+            start: 0,
+            end: 0,
+            cell: None,
+        });
+        self.run(SlideCommand::TextHit {
+            x: sx,
+            y: sy,
+            extend: false,
+        });
+        if count == 2 {
+            if let Some(t) = self.text_edit().cloned() {
+                let (a, b) = word_at(&t.text, t.end);
+                self.select_text(a, b);
+            }
+        }
+        self.drag = Some(Drag::Text);
+        true
+    }
+
     fn transform_of(&self, x: f32, y: f32, shift: bool) -> Option<Transform> {
         let s = f64::from(self.scale());
         match self.drag? {
-            Drag::Move { from, .. } => Some(Transform::Move {
-                dx: f64::from(x - from.0) / s,
-                dy: f64::from(y - from.1) / s,
-            }),
+            Drag::Move { from, .. } => {
+                let (mut dx, mut dy) = (f64::from(x - from.0) / s, f64::from(y - from.1) / s);
+                // Shift keeps the move horizontal or vertical (reference).
+                if shift {
+                    if dx.abs() >= dy.abs() {
+                        dy = 0.0;
+                    } else {
+                        dx = 0.0;
+                    }
+                }
+                Some(Transform::Move { dx, dy })
+            }
             Drag::Handle {
                 kind: HandleKind::Rot,
                 ..
@@ -1533,7 +1670,7 @@ impl SlideView {
                 dy: f64::from(y - from.1) / s,
                 keep_aspect: shift,
             }),
-            Drag::Text | Drag::Slides { .. } => None,
+            Drag::Text | Drag::Slides { .. } | Drag::Marquee { .. } => None,
         }
     }
 
@@ -1556,14 +1693,19 @@ impl SlideView {
             }
             Some(Drag::Handle { .. }) => self.preview_transform(x, y),
             Some(Drag::Slides { .. }) => self.drag_slides(x, y),
+            Some(Drag::Marquee { from, .. }) => {
+                self.drag = Some(Drag::Marquee { from, to: (x, y) });
+                true
+            }
             None => false,
         }
     }
 
     fn preview_transform(&mut self, x: f32, y: f32) -> bool {
-        let Some(t) = self.transform_of(x, y, false) else {
+        let Some(t) = self.transform_of(x, y, self.pointer_mods.shift) else {
             return false;
         };
+        self.undo_live();
         let r = self.engine.slide_command(SlideCommand::Transform {
             transform: t,
             snap: true,
@@ -1571,12 +1713,47 @@ impl SlideView {
             preview: true,
         });
         self.preview = r.ok().and_then(|r| r.preview);
+        // Ctrl + drag copies: the shapes stay, their outlines follow the pointer.
+        if !self.pointer_mods.ctrl {
+            let since = self.history_len();
+            let ok = self.engine.slide_command(SlideCommand::Transform {
+                transform: t,
+                snap: true,
+                tolerance: 4.0,
+                preview: false,
+            });
+            if let Ok(r) = ok {
+                let applied = r.error.is_none();
+                self.apply(r);
+                if applied && self.history_len() > since {
+                    self.live_since = Some(since);
+                }
+            }
+        }
         true
+    }
+
+    fn history_len(&mut self) -> usize {
+        self.engine
+            .slide_command(SlideCommand::HistoryLen)
+            .ok()
+            .and_then(|r| r.history)
+            .unwrap_or(0)
+    }
+
+    /// Take back the transform applied live during a drag.
+    fn undo_live(&mut self) {
+        if let Some(since) = self.live_since.take() {
+            if self.history_len() > since {
+                self.run(SlideCommand::Undo);
+            }
+        }
     }
 
     fn release(&mut self, x: f32, y: f32) -> bool {
         let drag = self.drag.take();
         self.preview = None;
+        self.undo_live();
         if let Some(Drag::Slides { moved, to, .. }) = drag {
             return match to.filter(|_| moved) {
                 Some(t) => {
@@ -1586,12 +1763,36 @@ impl SlideView {
                 None => true,
             };
         }
+        if let Some(Drag::Marquee { from, .. }) = drag {
+            return self.select_marquee(from, (x, y));
+        }
+        if let Some((id, sx, sy)) = self.pending_text.take() {
+            if matches!(drag, Some(Drag::Move { moved: false, .. })) {
+                self.enter_text_at(id, sx, sy, 1);
+                self.drag = None;
+                return true;
+            }
+        }
+        if let Some((sx, sy)) = self.shift_toggle.take() {
+            if matches!(drag, Some(Drag::Move { moved: false, .. })) {
+                return self.run(SlideCommand::Click {
+                    x: sx,
+                    y: sy,
+                    extend: true,
+                    deep: false,
+                });
+            }
+        }
         let commit = matches!(
             drag,
             Some(Drag::Move { moved: true, .. } | Drag::Handle { .. })
         );
         if !commit {
             return drag.is_some();
+        }
+        // Ctrl + drag leaves the shapes and moves copies of them (one undo step).
+        if self.pointer_mods.ctrl && matches!(drag, Some(Drag::Move { .. })) {
+            return self.copy_by_drag(drag, x, y);
         }
         match self.transform_of_drag(drag, x, y) {
             Some(t) => self.run(SlideCommand::Transform {
@@ -1604,9 +1805,74 @@ impl SlideView {
         }
     }
 
+    /// Shift / Ctrl held with the mouse button; the host sets them before each mouse event.
+    pub fn set_pointer_mods(&mut self, m: Mods) {
+        self.pointer_mods = m;
+    }
+
+    /// The selection rectangle being dragged (window pixels), if any.
+    pub fn marquee(&self) -> Option<R> {
+        match self.drag {
+            Some(Drag::Marquee { from, to }) => Some([
+                from.0.min(to.0),
+                from.1.min(to.1),
+                (from.0 - to.0).abs(),
+                (from.1 - to.1).abs(),
+            ]),
+            _ => None,
+        }
+    }
+
+    /// Select the shapes inside the rectangle dragged from `a` to `b`.
+    fn select_marquee(&mut self, a: (f32, f32), b: (f32, f32)) -> bool {
+        if (a.0 - b.0).abs() < 2.0 && (a.1 - b.1).abs() < 2.0 {
+            return true;
+        }
+        let (x0, y0) = self.to_slide(a.0.min(b.0), a.1.min(b.1));
+        let (x1, y1) = self.to_slide(a.0.max(b.0), a.1.max(b.1));
+        self.run(SlideCommand::SelectRect {
+            rect: bo_engine::slide_edit::geom::Rect {
+                x: x0,
+                y: y0,
+                w: x1 - x0,
+                h: y1 - y0,
+            },
+            extend: self.pointer_mods.shift,
+        })
+    }
+
+    /// Ctrl + drag: duplicate the selection and move the copies where the drag ended.
+    fn copy_by_drag(&mut self, drag: Option<Drag>, x: f32, y: f32) -> bool {
+        let Some(Transform::Move { dx, dy }) = self.transform_of_drag(drag, x, y) else {
+            return true;
+        };
+        let since = self
+            .engine
+            .slide_command(SlideCommand::HistoryLen)
+            .ok()
+            .and_then(|r| r.history)
+            .unwrap_or(0);
+        if !self.run(SlideCommand::Duplicate) {
+            return true;
+        }
+        // The copies sit 12 pt down and right of the shapes (engine `DUPLICATE_OFFSET`).
+        self.run(SlideCommand::Transform {
+            transform: Transform::Move {
+                dx: dx - 12.0,
+                dy: dy - 12.0,
+            },
+            snap: true,
+            tolerance: 4.0,
+            preview: false,
+        });
+        let copies: Vec<u32> = self.selection().iter().map(|s| s.id).collect();
+        self.run(SlideCommand::MergeHistory { since });
+        self.run(SlideCommand::Select { ids: copies })
+    }
+
     fn transform_of_drag(&mut self, drag: Option<Drag>, x: f32, y: f32) -> Option<Transform> {
         let saved = std::mem::replace(&mut self.drag, drag);
-        let t = self.transform_of(x, y, false);
+        let t = self.transform_of(x, y, self.pointer_mods.shift);
         self.drag = saved;
         t
     }
@@ -1756,6 +2022,7 @@ impl SlideView {
             self.run(SlideCommand::TextExit);
         }
         let index = from.min(self.ids.len().saturating_sub(1));
+        self.reset_show_tools();
         self.show = Some(Show::at(index));
         self.enter_slide(None);
         self.drag = None;
@@ -1775,6 +2042,7 @@ impl SlideView {
         let Some(s) = self.show.take() else {
             return false;
         };
+        self.reset_show_tools();
         self.reading = false;
         if !s.ended {
             self.go_to(s.index);
@@ -1971,6 +2239,11 @@ impl SlideView {
     }
 
     fn show_input(&mut self, input: &Input) -> bool {
+        if !self.previewing() {
+            if let Some(r) = self.show_tools_input(input) {
+                return r;
+            }
+        }
         match *input {
             Input::Press { .. } | Input::Text(_) if matches!(input, Input::Press { .. }) => {
                 self.show_step(true)
@@ -2301,6 +2574,9 @@ impl SlideView {
             }
         }
         let ts = self.thumb_scale();
+        if self.in_page_master() || ts <= 0.0 {
+            return Ok(false);
+        }
         let vis = self.visible_thumbs();
         let more = vis.end..(vis.end + 4).min(self.ids.len());
         let less = vis.start.saturating_sub(2)..vis.start;
@@ -2348,6 +2624,87 @@ impl SlideView {
     }
 
     /// Dashed outline of an axis-aligned or rotated box.
+    /// The selection rectangle while it is dragged.
+    fn paint_marquee(&self, p: &mut dyn Painter) {
+        let Some([x, y, w, h]) = self.marquee() else {
+            return;
+        };
+        let one = self.display_scale.round().max(1.0);
+        p.fill_rect(x, y, w, h, MARQUEE_FILL);
+        p.fill_rect(x, y, w, one, MARQUEE_EDGE);
+        p.fill_rect(x, y + h - one, w, one, MARQUEE_EDGE);
+        p.fill_rect(x, y, one, h, MARQUEE_EDGE);
+        p.fill_rect(x + w - one, y, one, h, MARQUEE_EDGE);
+    }
+
+    /// Check the current slide's spelling again after a change (timer tick, as the
+    /// reference checks while typing); `true` when the wavy lines changed.
+    pub fn spell_tick(&mut self) -> bool {
+        if !self.spell_dirty || self.show.is_some() || self.drag.is_some() {
+            return false;
+        }
+        self.spell_dirty = false;
+        let marks: Vec<([f64; 2], [f64; 2], bool)> = self
+            .engine
+            .slide_command_json(r#"{"cmd":"slideSpelling"}"#)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| {
+                v.pointer("/slideSpell/marks")
+                    .and_then(|m| m.as_array())
+                    .cloned()
+            })
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|m| {
+                let pt = |k: &str| -> Option<[f64; 2]> {
+                    let a = m.get(k)?.as_array()?;
+                    Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?])
+                };
+                let grammar = m.get("grammar").and_then(serde_json::Value::as_bool);
+                Some((pt("from")?, pt("to")?, grammar.unwrap_or(false)))
+            })
+            .collect();
+        let changed = marks != self.spell;
+        self.spell = marks;
+        changed
+    }
+
+    /// Spelling / grammar wavy lines of the current slide.
+    pub fn spell_marks(&self) -> &[([f64; 2], [f64; 2], bool)] {
+        &self.spell
+    }
+
+    fn paint_spelling(&self, p: &mut dyn Painter) {
+        let k = self.display_scale;
+        for (a, b, grammar) in &self.spell {
+            let (x0, y0) = self.to_px(a[0], a[1]);
+            let (x1, _) = self.to_px(b[0], b[1]);
+            let color = if *grammar { SPELL_GRAMMAR } else { SPELL_RED };
+            let (step, amp) = ((2.0 * k).max(1.0), (1.0 * k).max(1.0));
+            let y = (y0 + 1.5 * k).round();
+            let mut segs = vec![PathSeg::M(x0, y)];
+            let (mut dx, mut up) = (0.0, true);
+            while dx < x1 - x0 {
+                dx = (dx + step).min(x1 - x0);
+                segs.push(PathSeg::L(x0 + dx, if up { y - amp } else { y }));
+                up = !up;
+            }
+            p.path(&segs, None, Some((color, k.max(1.0))));
+        }
+    }
+
+    /// Handout Master: where the slides go on the page, as dotted frames (reference: dark
+    /// grey dots about 2.6 px apart at 125 %, over the white page).
+    fn paint_handout_slots(&self, p: &mut dyn Painter, st: &SlideEditResult) {
+        let Some(pm) = st.page_master.as_ref() else {
+            return;
+        };
+        for r in &pm.slots {
+            self.dashed(p, &BoxR::from_rect(*r), HANDOUT_SLOT, (0.8, 1.3));
+        }
+    }
+
     fn dashed(&self, p: &mut dyn Painter, b: &BoxR, color: Rgba, pattern: (f32, f32)) {
         let c = b.corners();
         let pts: Vec<(f32, f32)> = c.iter().map(|[x, y]| self.to_px(*x, *y)).collect();
@@ -2453,6 +2810,7 @@ impl SlideView {
     pub fn paint(&self, p: &mut dyn Painter, text_size: f32) {
         if self.show.is_some() && !self.previewing() {
             self.paint_show(p, text_size);
+            self.paint_show_tools(p);
             self.paint_rehearsal_bar(p, text_size);
             return;
         }
@@ -2474,6 +2832,7 @@ impl SlideView {
         p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
         self.paint_slide(p);
         self.paint_ink(p);
+        self.paint_marquee(p);
         p.pop_clip();
         if let Some(n) = self.notes_rect() {
             p.fill_rect(n[0], n[1] - 1.0, w - (n[0] - ox), 1.0, SPLITTER);
@@ -2558,6 +2917,9 @@ impl SlideView {
                 "title" => (&self.prompts[0], 44.0, true, 'm'),
                 "subTitle" => (&self.prompts[1], 24.0, true, 't'),
                 "body" | "obj" => (&self.prompts[2], 28.0, false, 't'),
+                // Handout / notes master: "Header" / "Footer" at 12 pt (reference).
+                "hdr" if st.page_master.is_some() => (&self.prompts[3], 12.0, false, 't'),
+                "ftr" if st.page_master.is_some() => (&self.prompts[4], 12.0, false, 'b'),
                 _ => continue,
             };
             // The layout's own prompt text (`hasCustomPrompt`) replaces the default one.
@@ -2603,25 +2965,41 @@ impl SlideView {
                 p.text_font(row, x.round(), y.round(), &font, PROMPT_INK);
             }
         }
+        self.paint_handout_slots(p, st);
+        self.paint_spelling(p);
         if let Some(pv) = &self.preview {
-            for b in &pv.boxes {
-                self.dashed(p, b, FRAME, (3.2, 1.6));
+            if self.live_since.is_none() {
+                for b in &pv.boxes {
+                    self.dashed(p, b, FRAME, (3.2, 1.6));
+                }
             }
             let wline = self.display_scale.round().max(1.0);
+            let (dash, gap) = (
+                (3.5 * self.display_scale).round(),
+                (2.1 * self.display_scale).round(),
+            );
             for g in &pv.guides {
-                let (a, z) = match g.axis {
-                    bo_engine::slide_edit::guides::GuideAxis::V => {
-                        (self.to_px(g.pos, g.from), self.to_px(g.pos, g.to))
-                    }
-                    bo_engine::slide_edit::guides::GuideAxis::H => {
-                        (self.to_px(g.from, g.pos), self.to_px(g.to, g.pos))
-                    }
+                let vertical = g.axis == bo_engine::slide_edit::guides::GuideAxis::V;
+                let (a, z) = if vertical {
+                    (self.to_px(g.pos, g.from), self.to_px(g.pos, g.to))
+                } else {
+                    (self.to_px(g.from, g.pos), self.to_px(g.to, g.pos))
                 };
-                p.path(
-                    &[PathSeg::M(a.0, a.1), PathSeg::L(z.0, z.1)],
-                    None,
-                    Some((GUIDE, wline)),
-                );
+                let (from, to) = if vertical {
+                    (a.1.min(z.1), a.1.max(z.1))
+                } else {
+                    (a.0.min(z.0), a.0.max(z.0))
+                };
+                let mut t = from;
+                while t < to {
+                    let l = dash.min(to - t);
+                    if vertical {
+                        p.fill_rect(a.0.round(), t, wline, l, GUIDE);
+                    } else {
+                        p.fill_rect(t, a.1.round(), l, wline, GUIDE);
+                    }
+                    t += dash + gap;
+                }
             }
         }
         if let Some(te) = editing {

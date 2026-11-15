@@ -413,6 +413,13 @@ fn grayscale_ruler_and_page_masters() {
     let n = w.view().slide_count();
     click_command(&mut w, "view.handoutMaster");
     assert!(w.page_master.is_some());
+    // The page alone: no thumbnails or notes pane, the slide frames drawn (reference).
+    assert!(w.view().in_page_master());
+    assert!(w.view().notes_rect().is_none());
+    let c = w.view().canvas_rect();
+    assert!(w.view().thumbs_area()[2] < 1.0 && c[2] > 0.0);
+    let mut p = Count::default();
+    w.paint(&mut p);
     assert_eq!(w.ribbon.active_tab(), 0);
     assert!(w.command_rect("pm.perPage").is_some());
     click_command(&mut w, "pm.header");
@@ -495,4 +502,49 @@ fn draw_table_eraser_and_window_group() {
         w.take_window_request(),
         Some(WindowRequest::Activate(_))
     ));
+}
+
+#[test]
+fn contextual_tab_takes_a_click_after_selecting_on_the_slide() {
+    let mut w = picture_window();
+    // Back to Home, nothing selected; then select the picture with a click on the slide.
+    w.view.run(SlideCommand::Select { ids: vec![] });
+    w.handle(Input::Tick, &Fixed);
+    w.ribbon.set_active_tab(0);
+    w.relayout_pending = true;
+    w.handle(Input::Tick, &Fixed);
+    let pic = w
+        .view()
+        .engine()
+        .presentation()
+        .and_then(|p| {
+            p.slides[w.view().current()]
+                .data
+                .shapes
+                .iter()
+                .find_map(|n| match n {
+                    bo_model::slide::ShapeNode::Picture(p) => Some(p.nv.id),
+                    _ => None,
+                })
+        })
+        .expect("picture");
+    w.view.run(SlideCommand::Select { ids: vec![pic] });
+    let b = w.view().selection()[0].rect;
+    w.view.run(SlideCommand::Select { ids: vec![] });
+    w.handle(Input::Tick, &Fixed);
+    let (x, y) = w.view().to_px(b.cx, b.cy);
+    w.handle(Input::Move { x, y }, &Fixed);
+    click(&mut w, x, y);
+    for _ in 0..8 {
+        w.handle(Input::Tick, &Fixed);
+    }
+    let i = w.base_tabs;
+    let [tx, ty, tw, th] = w.ribbon.rect_of(RibbonHit::Tab(i)).expect("picture tab");
+    let (cx, cy) = (tx + tw / 2.0, ty + th / 2.0);
+    w.handle(Input::Move { x: cx, y: cy }, &Fixed);
+    for _ in 0..8 {
+        w.handle(Input::Tick, &Fixed);
+    }
+    click(&mut w, cx, cy);
+    assert_eq!(w.ribbon.active_tab(), i);
 }

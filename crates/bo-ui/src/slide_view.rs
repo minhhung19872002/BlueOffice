@@ -25,11 +25,11 @@ const THUMB_EDGE: Rgba = Rgba(0xc8, 0xc6, 0xc4, 255);
 const THUMB_NUMBER: Rgba = Rgba(0x48, 0x48, 0x48, 255);
 /// Lines between the panes (reference: 191).
 const SPLITTER: Rgba = Rgba(0xbf, 0xbf, 0xbf, 255);
-/// Selection frame and handle outline of shapes.
-const FRAME: Rgba = Rgba(0x8a, 0x8a, 0x8a, 255);
+/// Selection frame and handle outline of shapes (reference: 97).
+const FRAME: Rgba = Rgba(0x61, 0x61, 0x61, 255);
 const HANDLE_FILL: Rgba = Rgba(255, 255, 255, 255);
-/// Text selection inside a shape: neutral grey over the text.
-const TEXT_SELECTION: Rgba = Rgba(0, 0, 0, 57);
+/// Text selection inside a shape: neutral grey over the text (reference: 185 over white).
+const TEXT_SELECTION: Rgba = Rgba(0, 0, 0, 70);
 /// Dashed outline of empty placeholders.
 const PLACEHOLDER_EDGE: Rgba = Rgba(0x9a, 0x9a, 0x9a, 255);
 /// Smart guides while moving shapes.
@@ -38,8 +38,8 @@ const CARET: Rgba = Rgba(0, 0, 0, 255);
 const NOTES_HINT: Rgba = Rgba(0x5f, 0x5f, 0x5f, 255);
 const BLACK: Rgba = Rgba(0, 0, 0, 255);
 /// BlueSlide accent (tokens.json `slide` accent): selected thumbnail frame and number.
-pub const ACCENT: Rgba = Rgba(0xc2, 0x41, 0x0c, 255);
-const ACCENT_TEXT: Rgba = Rgba(0xc2, 0x41, 0x0c, 255);
+pub const ACCENT: Rgba = Rgba(0xc2, 0x18, 0x5b, 255);
+const ACCENT_TEXT: Rgba = Rgba(0xb5, 0x19, 0x5a, 255);
 
 /// Image keys: main slide images use the slide id, thumbnails and show images an offset.
 const THUMB_KEY: usize = 1 << 40;
@@ -1085,12 +1085,15 @@ impl SlideView {
 
     /// The handle of the selection under a window position.
     fn handle_at(&self, x: f32, y: f32) -> Option<Handle> {
-        if self.text_edit().is_some() {
-            return None;
-        }
-        let r = self.px(6.0);
-        self.state.as_ref()?.handles.iter().copied().find(|h| {
-            let (hx, hy) = self.to_px(h.x, h.y);
+        let st = self.state.as_ref()?;
+        let b = st.bounds?;
+        let r = self.px(7.0);
+        st.handles.iter().copied().find(|h| {
+            let (hx, hy) = if h.kind == HandleKind::Rot {
+                self.rot_handle_px(&b)
+            } else {
+                self.to_px(h.x, h.y)
+            };
             (hx - x).abs() <= r && (hy - y).abs() <= r
         })
     }
@@ -1682,10 +1685,14 @@ impl SlideView {
     }
 
     /// Dashed outline of an axis-aligned or rotated box.
-    fn dashed(&self, p: &mut dyn Painter, b: &BoxR, color: Rgba) {
+    fn dashed(&self, p: &mut dyn Painter, b: &BoxR, color: Rgba, pattern: (f32, f32)) {
         let c = b.corners();
         let pts: Vec<(f32, f32)> = c.iter().map(|[x, y]| self.to_px(*x, *y)).collect();
-        let (dash, gap) = (self.px(3.0).max(2.0), self.px(2.0).max(1.0));
+        let k = self.display_scale;
+        let (dash, gap) = (
+            (pattern.0 * k).round().max(1.0),
+            (pattern.1 * k).round().max(1.0),
+        );
         let w = self.display_scale.round().max(1.0);
         for k in 0..4 {
             let (a, z) = (pts[k], pts[(k + 1) % 4]);
@@ -1722,31 +1729,60 @@ impl SlideView {
         }
     }
 
-    fn paint_handles(&self, p: &mut dyn Painter, b: &BoxR, handles: &[Handle]) {
+    /// Window position of the rotation handle: above the top edge's middle at a fixed
+    /// distance (reference: 43 px at 125 %), turned with the box.
+    fn rot_handle_px(&self, b: &BoxR) -> (f32, f32) {
+        let (tx, ty) = b.to_slide(0.0, -b.h / 2.0);
+        let (x, y) = self.to_px(tx, ty);
+        let a = b.rot.to_radians() as f32;
+        let d = self.display_scale * 34.4;
+        (x + d * a.sin(), y - d * a.cos())
+    }
+
+    /// Selection frame (solid, or dotted while its text is edited), the eight round
+    /// handles and the rotation handle, measured on the reference: 1 px frame of grey 97,
+    /// handles 14 px across with a 2 px ring at 125 %.
+    fn paint_handles(&self, p: &mut dyn Painter, b: &BoxR, handles: &[Handle], dotted: bool) {
         let w = self.display_scale.round().max(1.0);
-        p.path(&self.poly(b), None, Some((FRAME, w)));
-        let r = self.px(4.5);
+        if dotted {
+            self.dashed(p, b, FRAME, (1.6, 0.8));
+        } else {
+            p.path(&self.poly(b), None, Some((FRAME, w)));
+        }
+        let ring = (1.6 * self.display_scale).max(1.0);
+        let r = 5.6 * self.display_scale - ring / 2.0;
         for h in handles {
-            let (x, y) = self.to_px(h.x, h.y);
             if h.kind == HandleKind::Rot {
-                // Rotation handle: an open circle with an arrow head (own drawing).
-                let k = self.px(6.0);
-                let segs = arc(x, y, k, 0.6, 5.6);
-                p.path(&segs, None, Some((FRAME, w * 1.5)));
-                let (ex, ey) = (x + k * 5.6f32.cos(), y + k * 5.6f32.sin());
+                // Line from the top edge, then an open circle with an arrow head (own drawing).
+                let (tx, ty) = b.to_slide(0.0, -b.h / 2.0);
+                let (ex, ey) = self.to_px(tx, ty);
+                let (x, y) = self.rot_handle_px(b);
+                let k = 8.8 * self.display_scale;
+                let a = b.rot.to_radians() as f32;
+                let (sx, sy) = (x - k * a.sin(), y + k * a.cos());
+                p.path(
+                    &[PathSeg::M(ex, ey), PathSeg::L(sx, sy)],
+                    None,
+                    Some((FRAME, w)),
+                );
+                let (a0, a1) = (-1.2 + a, 4.0 + a);
+                p.path(&arc(x, y, k, a0, a1), None, Some((FRAME, ring)));
+                let (hx, hy) = (x + k * a0.cos(), y + k * a0.sin());
+                let s = self.display_scale * 3.2;
                 p.path(
                     &[
-                        PathSeg::M(ex - self.px(2.5), ey - self.px(2.0)),
-                        PathSeg::L(ex, ey),
-                        PathSeg::L(ex + self.px(2.5), ey - self.px(1.0)),
+                        PathSeg::M(hx - s, hy - s * 0.2),
+                        PathSeg::L(hx, hy),
+                        PathSeg::L(hx - s * 0.2, hy + s),
                     ],
                     None,
-                    Some((FRAME, w * 1.5)),
+                    Some((FRAME, ring)),
                 );
                 continue;
             }
-            let segs = arc(x, y, r, 0.0, std::f32::consts::TAU);
-            p.path(&segs, Some(HANDLE_FILL), Some((FRAME, w)));
+            let (x, y) = self.to_px(h.x, h.y);
+            let segs = arc(x.round(), y.round(), r, 0.0, std::f32::consts::TAU);
+            p.path(&segs, Some(HANDLE_FILL), Some((FRAME, ring)));
         }
     }
 
@@ -1831,11 +1867,11 @@ impl SlideView {
         let editing = st.text_edit.as_ref();
         // Empty placeholders: dashed outline.
         for b in &st.placeholders {
-            self.dashed(p, b, PLACEHOLDER_EDGE);
+            self.dashed(p, b, PLACEHOLDER_EDGE, (2.4, 1.6));
         }
         if let Some(pv) = &self.preview {
             for b in &pv.boxes {
-                self.dashed(p, b, FRAME);
+                self.dashed(p, b, FRAME, (3.2, 1.6));
             }
             let wline = self.display_scale.round().max(1.0);
             for g in &pv.guides {
@@ -1858,9 +1894,12 @@ impl SlideView {
             for r in &te.rects {
                 p.path(&self.poly(r), Some(TEXT_SELECTION), None);
             }
-            // The edited shape keeps its frame (dashed while typing, like the reference's
-            // text frame) and the caret blinks.
-            self.dashed(p, &te.rect, FRAME);
+            // The edited shape keeps its handles with a dotted frame, like the reference's
+            // text frame, and the caret blinks.
+            match st.bounds {
+                Some(b) if te.cell.is_none() => self.paint_handles(p, &b, &st.handles, true),
+                _ => self.dashed(p, &te.rect, FRAME, (1.6, 0.8)),
+            }
             if self.caret_on && te.start == te.end && self.focus == Focus::Canvas {
                 if let Some([x1, y1, x2, y2]) = te.caret {
                     let (ax, ay) = self.to_px(x1, y1);
@@ -1885,7 +1924,7 @@ impl SlideView {
                 }
             }
             if let Some(b) = st.bounds {
-                self.paint_handles(p, &b, &st.handles);
+                self.paint_handles(p, &b, &st.handles, false);
             }
         }
     }

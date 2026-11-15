@@ -134,7 +134,7 @@ fn typing_in_a_placeholder_redraws_bands_only() {
     assert!(v.text_edit().is_none());
     assert_eq!(v.selection().len(), 1);
     v.handle(key(Key::Escape));
-    assert!(v.selection().is_empty());
+    assert_eq!(v.selection().len(), 0);
 }
 
 #[test]

@@ -147,6 +147,48 @@ fn rotated_page_maps_user_space() {
 }
 
 #[test]
+fn reading_loads_objects_on_demand() {
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /PageMode /UseOutlines >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R          /Resources << /Font << /F1 5 0 R >> >> /Annots [8 0 R 9 0 R] >>",
+        &stream("BT /F1 12 Tf 10 50 Td (Hello) Tj ET"),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        "<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>",
+        "<< /Title (One) /Parent 6 0 R /Dest [3 0 R /Fit] >>",
+        "<< /Type /Annot /Subtype /Text /Rect [150 50 170 70] /Contents (Note) /T (Me) >>",
+        "<< /Type /Annot /Subtype /Link /Rect [10 40 60 60] /A << /S /URI /URI (https://example.com) >> >>",
+        "<< /Title (Doc) /Author (A) >>",
+    ];
+    let mut bytes = build_pdf(&objs);
+    let at = bytes
+        .windows(11)
+        .rposition(|w| w == b"/Root 1 0 R")
+        .expect("trailer");
+    bytes.splice(at..at, b"/Info 10 0 R ".iter().copied());
+    // The startxref offset is unchanged: the trailer comes after the table.
+    let mut doc = open(bytes);
+    let p = doc.render(0, RenderOptions::default()).expect("renders");
+    assert!(TextLayer::new(p.chars.clone()).text().contains("Hello"));
+    assert_eq!(p.links.len(), 1);
+    assert_eq!(doc.title().as_deref(), Some("Doc"));
+    assert_eq!(doc.info("Author").as_deref(), Some("A"));
+    assert_eq!(doc.outline().len(), 1);
+    assert_eq!(doc.annotations().len(), 1);
+    assert_eq!(doc.page_mode().as_deref(), Some("UseOutlines"));
+    let _ = doc.doc_info();
+    let _ = doc.font_list();
+    assert!(!doc.fully_loaded());
+    // An edit loads the whole document and saves as before.
+    let a = doc.annotations().remove(0);
+    doc.set_annotation_contents(&a, "Changed").expect("edits");
+    assert!(doc.fully_loaded());
+    let saved = doc.save().expect("saves");
+    let again = open(saved);
+    assert_eq!(again.annotations()[0].contents, "Changed");
+}
+
+#[test]
 fn images_clips_forms_and_annotation_appearance() {
     let content = "q 0 0 100 50 re W n q 40 0 0 20 10 10 cm /Im1 Do Q Q /Fm1 Do";
     let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \

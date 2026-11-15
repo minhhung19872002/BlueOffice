@@ -7,8 +7,9 @@
 use crate::annot::{nums, text_obj};
 use crate::interp::{apply, M};
 use crate::markup::{Markup, MarkupKind};
+use crate::store::Document;
 use crate::{resolve, text_string, AnnotKind, NewAnnot, PdfDocument};
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
+use lopdf::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
@@ -356,7 +357,7 @@ impl PdfDocument {
     /// The comments as FDF (§12.7.8): each annotation dictionary with its `/Page` and the
     /// objects it uses (appearance streams, embedded files); `file` names the document.
     pub fn export_fdf(&self, file: &str) -> Result<Vec<u8>, String> {
-        let mut out = Document::with_version("1.2");
+        let mut out = Document::from(lopdf::Document::with_version("1.2"));
         let mut map: HashMap<ObjectId, ObjectId> = HashMap::new();
         let mut refs = Vec::new();
         for page in 0..self.pages.len() {
@@ -412,7 +413,7 @@ impl PdfDocument {
         if b.starts_with(b"%FDF-") {
             b[1..4].copy_from_slice(b"PDF");
         }
-        let src = Document::load_mem(&b).map_err(|e| e.to_string())?;
+        let src = Document::from(lopdf::Document::load_mem(&b).map_err(|e| e.to_string())?);
         let root = src
             .trailer
             .get(b"Root")
@@ -781,7 +782,7 @@ impl PdfDocument {
             }
         }
         pages.push(cur);
-        let mut out = Document::with_version("1.7");
+        let mut out = Document::from(lopdf::Document::with_version("1.7"));
         let pages_id = out.new_object_id();
         let mut kids = Vec::new();
         for content in pages {

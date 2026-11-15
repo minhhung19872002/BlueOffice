@@ -1,7 +1,8 @@
 //! PDF functions (ISO 32000-1, §7.10): sampled (type 0), exponential (2), stitching (3) and
 //! PostScript calculator (4) functions, used by shadings and Separation / DeviceN colours.
 use crate::filters;
-use lopdf::{Dictionary, Document, Object};
+use crate::store::Document;
+use lopdf::{Dictionary, Object};
 
 /// A parsed function.
 #[derive(Debug, Clone)]
@@ -527,7 +528,7 @@ mod tests {
 
     #[test]
     fn exponential_stitching_and_postscript() {
-        let doc = Document::new();
+        let doc = Document::from(lopdf::Document::new());
         let mut d = Dictionary::new();
         d.set("FunctionType", 2);
         d.set("Domain", vec![0.into(), 1.into()]);

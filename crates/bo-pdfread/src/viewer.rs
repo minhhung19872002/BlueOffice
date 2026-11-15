@@ -53,7 +53,7 @@ impl PdfDocument {
     /// `/PageMode` of the catalog (`UseNone`, `UseOutlines`, `UseThumbs`, `FullScreen`, …).
     #[must_use]
     pub fn page_mode(&self) -> Option<String> {
-        let root = self.doc.trailer.get(b"Root").ok()?;
+        let root = self.doc.trailer_ref().get(b"Root").ok()?;
         let cat = resolve(&self.doc, root).as_dict().ok()?;
         let mode = resolve(&self.doc, cat.get(b"PageMode").ok()?)
             .as_name()
@@ -66,7 +66,7 @@ impl PdfDocument {
     pub fn doc_info(&self) -> DocInfo {
         let doc = &self.doc;
         let d = doc
-            .trailer
+            .trailer_ref()
             .get(b"Info")
             .ok()
             .and_then(|o| resolve(doc, o).as_dict().ok());
@@ -77,11 +77,11 @@ impl PdfDocument {
                 .unwrap_or_default()
         };
         let cat = doc
-            .trailer
+            .trailer_ref()
             .get(b"Root")
             .ok()
             .and_then(|o| resolve(doc, o).as_dict().ok());
-        let mut version = doc.version.clone();
+        let mut version = doc.pdf_version().to_owned();
         if let Some(v) = cat
             .and_then(|c| c.get(b"Version").ok())
             .and_then(|o| resolve(doc, o).as_name().ok())
@@ -100,7 +100,7 @@ impl PdfDocument {
         let head = &self.bytes[..self.bytes.len().min(1024)];
         let linearized = head.windows(11).any(|w| w == b"/Linearized");
         let enc = doc
-            .trailer
+            .trailer_ref()
             .get(b"Encrypt")
             .ok()
             .and_then(|o| resolve(doc, o).as_dict().ok());
@@ -143,13 +143,13 @@ impl PdfDocument {
     pub fn advanced(&self) -> Vec<(&'static str, String)> {
         let doc = &self.doc;
         fn dict<'a>(
-            doc: &'a lopdf::Document,
+            doc: &'a crate::store::Document,
             o: Option<&'a Object>,
         ) -> Option<&'a lopdf::Dictionary> {
             o.and_then(|o| resolve(doc, o).as_dict().ok())
         }
-        let cat = dict(doc, doc.trailer.get(b"Root").ok());
-        let info = dict(doc, doc.trailer.get(b"Info").ok());
+        let cat = dict(doc, doc.trailer_ref().get(b"Root").ok());
+        let info = dict(doc, doc.trailer_ref().get(b"Info").ok());
         let vp = cat.and_then(|c| dict(doc, c.get(b"ViewerPreferences").ok()));
         let text = |d: Option<&lopdf::Dictionary>, k: &[u8]| -> String {
             match d.and_then(|d| d.get(k).ok()).map(|o| resolve(doc, o)) {

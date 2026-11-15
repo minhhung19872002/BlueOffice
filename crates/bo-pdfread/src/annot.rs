@@ -2,8 +2,9 @@
 //! stand-ins for markup without an appearance stream, and adding highlight / underline /
 //! strikeout / note / text box / rectangle comments with their own appearance streams.
 use crate::interp::{apply, invert, M};
+use crate::store::Document;
 use crate::{resolve, text_string, PdfDocument};
-use lopdf::{Dictionary, Document, Object, Stream, StringFormat};
+use lopdf::{Dictionary, Object, Stream, StringFormat};
 
 /// Kind of a comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

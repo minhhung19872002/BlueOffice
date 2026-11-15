@@ -375,7 +375,7 @@ impl SlideView {
 
     /// Size of the notes text (device pixels) for a UI text size.
     pub fn notes_size(text_size: f32) -> f32 {
-        (text_size * 1.29).round()
+        (text_size * 1.33).round()
     }
 
     /// Measure the notes caret position with the platform's text engine.

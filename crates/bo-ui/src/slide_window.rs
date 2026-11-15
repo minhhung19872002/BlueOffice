@@ -348,8 +348,8 @@ impl SlideWindow {
     }
 
     fn status_h(&self) -> f32 {
-        // Reference: 32 device pixels at 125 % (line included).
-        (25.6 * self.scale).round()
+        // Reference: line 34 device pixels above the client bottom at 125 %.
+        (27.2 * self.scale).round()
     }
 
     fn t(&self, key: &str, fallback: &str) -> String {

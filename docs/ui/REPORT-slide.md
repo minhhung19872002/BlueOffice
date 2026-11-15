@@ -58,6 +58,41 @@ Chuyển trang (PageDown/PageUp, `slide-edit-slides.pptx`): trang kề đã đư
 0,003–0,005 ms, tổng 1,3–3,2 ms mỗi phím. Ảnh giữ theo id trang chiếu nên thêm/xoá/chuyển trang chỉ vẽ
 trang mới (kiểm thử `new_slide_and_navigation_reuse_kept_images`).
 
+## Vòng 4 — đo lại sau sửa (`bs-3.png` so với `pp-1.png`)
+
+| Phần | Tham chiếu | BlueSlide trước | BlueSlide sau |
+|---|---|---|---|
+| Số "2" cạnh hình thu nhỏ: x mực | 27–36, cao 15 | 20–29, cao 11 | 27–36, cao 15 |
+| Chữ gợi ý ghi chú: cách đường chia | 13 px, cao 16, rộng 168 | 17 px, cao 15, rộng 163 | 13 px; cỡ chữ ×1,33 (vòng 5) |
+| Nút xem hiện hành: nền | 198, bắt đầu x 985 | 216 (không có nút) | 198, x 986 |
+| Rãnh thanh trượt | màu 38, dài 152 px | 96, 134 px | 38, 152 px |
+| Đường trên thanh trạng thái | cách đáy vùng khách 34 px | 32 px | 34 px (vòng 5) |
+
+Còn lệch do khung chung: ribbon của BlueDoc thấp hơn ribbon tham chiếu 8 px, nên canvas và trang chiếu
+bắt đầu cao hơn 4–8 px (trang chiếu y 286 so với 290); kích thước trang, thu phóng, lề ngang trùng khớp.
+
+Độ nét chữ trang chiếu: cả hai đều khử răng cưa xám, không viền màu (độ lệch chuẩn kênh màu = 0 trên vùng
+phụ đề). Mật độ mực vùng phụ đề: tham chiếu 936 điểm < 128, trung bình 233,8; BlueSlide 776, 237,4 — nét của
+tham chiếu đậm hơn khoảng 20 % (gamma riêng); chưa chỉnh để không đổi chế độ chữ chung với BlueDoc.
+
+## Vòng 5 — đo lại (`bs-4.png`)
+
+Đường trên thanh trạng thái y 1059 (tham chiếu 1059). Chữ gợi ý ghi chú: x 259–429, cách đường chia 12 px,
+cao 16 (tham chiếu 259–427, 13 px, 16). Số trang chiếu và nút xem như vòng 4.
+
+## Tốc độ chuyển trang
+
+Tệp `slide-album-photos.pptx` (5 trang, có ảnh), PageDown/PageUp xen kẽ:
+
+| | |
+|---|---|
+| Tham chiếu (phím thật, đo màn hình, 30 lượt) | trung vị 27,7 ms, trung bình 34,4 ms |
+| BlueSlide nội bộ (`BLUEOFFICE_NATIVE_PERF`, 12 lượt) | xử lý 0,09–0,13 ms, `prepare` 0,004 ms (ảnh đã vẽ trước), tổng 1,1–1,6 ms đến khi trình bày |
+
+Đo màn hình cho BlueSlide không lặp lại được trong vòng này: chủ máy đang dùng máy (cửa sổ khác ở trên),
+nên đã dừng mọi phép đo bằng phím toàn cục (`keybd_event`) để không gõ nhầm vào ứng dụng của người dùng;
+các phép đo sau chỉ gửi thông điệp thẳng vào cửa sổ BlueSlide (`PostMessage`) và chụp bằng `PrintWindow`.
+
 ## Còn lại
 
 - Chữ gợi ý trong chỗ dành sẵn rỗng ("Bấm để thêm tiêu đề"): engine chưa dựng; hiện chỉ có viền chấm.

@@ -336,6 +336,7 @@ impl SheetWindow {
             return;
         }
         self.chart_sel = index;
+        self.view.set_object_selected(index.is_some());
         self.ribbon.set_contextual(
             if index.is_some() {
                 chart_tabs()

@@ -1920,7 +1920,12 @@ impl SheetWindow {
             f[3] - 2.0,
         );
         // One line, or as many as the expanded bar shows (19.2 pt pitch, measured).
-        let content = self.view.formula_text();
+        // Empty while a chart is selected, as on the reference.
+        let content = if self.chart_sel.is_some() {
+            ""
+        } else {
+            self.view.formula_text()
+        };
         for (i, shown) in content
             .lines()
             .take(self.fbar_lines.max(1) as usize)

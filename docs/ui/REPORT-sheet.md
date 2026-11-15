@@ -589,6 +589,29 @@ Tab / Enter trong vùng chọn đã có từ vòng trước (test `keyboard_shor
 (CPU + GPU ~5 ms sau input làm lỡ lần ghép DWM kế tiếp); muốn một khung cần dựng display list chỉ cho dải mới lộ ra và
 đường DirectComposition — chưa làm vòng này.
 
+### Vòng 26 — biểu đồ đang chọn, thang trục tự động, cỡ chữ biểu đồ
+
+- Khi chọn biểu đồ: thanh công thức trống, tiêu đề hàng/cột không tô, không khung ô chọn (như đối chứng;
+  `SheetView::set_object_selected`).
+- Thang trục giá trị tự động (bo-sheet `auto_scale`, dùng chung cho web) đo trên đối chứng qua object model
+  (`xaxis.ps1`, `Axes(xlValue).MinimumScale/MaximumScale/MajorUnit`):
+
+| Dữ liệu | Đối chứng | Trước | Sau |
+|---|---|---|---|
+| 5 / 7 / 4 | 0..8 bước 1 | 0..8 bước 2 | 0..8 bước 1 |
+| 0..47 | 0..50 bước 5 | 0..50 bước 10 | 0..50 bước 5 |
+| 0..95 | 0..100 bước 10 | — | 0..100 bước 10 |
+| 0..100 | 0..120 bước 20 | — | 0..120 bước 20 |
+| 100..105 | 97..106 bước 1 | — | 97..106 bước 1 |
+| 19..23 | 0..25 bước 5 | 19..23 bước 1 | 0..25 bước 5 |
+| −5..10 | −6..12 bước 2 | — | −6..12 bước 2 |
+| 1000..1300 | 0..1400 bước 200 | — | 0..1400 bước 200 |
+
+  Quy tắc: lấy 0 khi độ trải > 1/6 giá trị lớn nhất; đầu vượt qua 0 thêm 5 % độ trải, đầu chưa tới 0 thêm nửa độ trải;
+  bước = 0,2 / 0,5 / 1 × 10ⁿ theo chữ số đầu của độ trải đã thêm (< 2, < 5, còn lại). Test bo-sheet cập nhật theo số đo.
+- Chữ biểu đồ trên trang tính: nhãn trục / chú giải 9 pt, tiêu đề 14 pt như đối chứng (tiêu đề "Sales" 46 × 16 px cả hai) (trước: theo chiều cao biểu đồ, tiêu đề
+  1,35 ×); biểu đồ trong slide / văn bản giữ cách cũ.
+
 ## Còn lại (sau vòng 6)
 
 - Bánh xe: một khung như đối chứng (xem trên).

@@ -1721,6 +1721,15 @@ fn charts_select_move_resize_and_design() {
     // The new chart is selected and Chart Design is shown.
     assert_eq!(w.chart_sel, Some(0));
     assert_eq!(w.ribbon.active_label(), "sheetChart.tabDesign");
+    assert_eq!(w.name_box_text(), "Chart 1");
+    // The cell selection is not drawn while the chart is selected.
+    let mut with = PaintHash::default();
+    w.view.paint(&mut with);
+    w.view.set_object_selected(false);
+    let mut without = PaintHash::default();
+    w.view.paint(&mut without);
+    assert_ne!(with.finish(), without.finish());
+    w.view.set_object_selected(true);
     // The chart tab is laid out after the input (its buttons have places), not left blank.
     w.handle(Input::Move { x: 1.0, y: 1.0 }, &Fixed);
     assert!(w

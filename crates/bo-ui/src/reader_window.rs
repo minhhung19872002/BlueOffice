@@ -70,6 +70,11 @@ const TRACK: Rgba = Rgba(240, 240, 240, 255);
 const THUMB: Rgba = Rgba(133, 133, 133, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const CLOSE_BG: Rgba = Rgba(0xC4, 0x2B, 0x1C, 255);
+/// Page thumbnails measured on the reference at 125 %: pages 126 px wide in a 2 px frame,
+/// 200 px apart for Letter pages (163 px high).
+const THUMB_W: f32 = 100.8;
+const THUMB_GAP: f32 = 29.6;
+const THUMB_EDGE: Rgba = Rgba(207, 207, 208, 255);
 
 /// Pointer tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2445,7 +2450,9 @@ impl ReaderWindow {
     pub fn wheel_at(&mut self, x: f32, y: f32, dy: f32) -> bool {
         if inside(self.panel_rect, x, y) {
             if let Some(t) = self.tabs.get_mut(self.active) {
-                t.panel_scroll = (t.panel_scroll + dy).max(0.0);
+                // 60 px per notch at 125 % like the document (measured on the reference's
+                // page thumbnails too).
+                t.panel_scroll = (t.panel_scroll + dy * 0.8).max(0.0);
                 return true;
             }
         }
@@ -2473,7 +2480,8 @@ impl ReaderWindow {
         let animating = self.view4_animating() | self.step_smooth();
         let pages_panel = self.panel_open() == Some(Panel::Pages);
         let panel = self.panel_rect;
-        let thumb_w = self.px(120.0);
+        let thumb_w = self.px(THUMB_W);
+        let thumb_gap = self.px(THUMB_GAP);
         let Some(t) = self.tabs.get_mut(self.active) else {
             return false;
         };
@@ -2492,7 +2500,7 @@ impl ReaderWindow {
                 if y + h > panel[1] && y < panel[1] + panel[3] {
                     t.view.want_thumb(i, s);
                 }
-                y += h + 30.0 * (thumb_w / 120.0);
+                y += h + thumb_gap;
                 if y > panel[1] + panel[3] {
                     break;
                 }
@@ -3171,7 +3179,7 @@ impl ReaderWindow {
                 let n = t.view.page_count();
                 let cur = t.view.current_page();
                 let key_base = t.key_base;
-                let tw = self.px(120.0);
+                let tw = self.px(THUMB_W);
                 let mut rows = Vec::new();
                 for i in 0..n {
                     let (pw, ph) = t.view.page_size(i);
@@ -3186,7 +3194,9 @@ impl ReaderWindow {
                             p.fill_rect(x - 4.0, y - 4.0, tw + 8.0, hh + 8.0, self.theme.accent);
                             p.fill_rect(x - 2.0, y - 2.0, tw + 4.0, hh + 4.0, WHITE);
                         }
-                        p.fill_rect(x - 1.0, y - 1.0, tw + 2.0, hh + 2.0, PAGE_EDGE);
+                        // The reference: a 2 px light grey frame (207, 207, 208 at 125 %).
+                        let b = self.px(1.6).round().max(1.0);
+                        p.fill_rect(x - b, y - b, tw + 2.0 * b, hh + 2.0 * b, THUMB_EDGE);
                         p.fill_rect(x, y, tw, hh, WHITE);
                         if t.view.has_image(THUMB_KEY + i) {
                             p.page(key_base + THUMB_KEY + i, x as i32, y as i32);
@@ -3202,7 +3212,7 @@ impl ReaderWindow {
                         );
                     }
                     rows.push((y, hh + self.px(24.0), PanelRow::Page(i)));
-                    y += hh + self.px(30.0) * (tw / self.px(120.0));
+                    y += hh + self.px(THUMB_GAP);
                 }
                 self.panel_rows = rows;
             }

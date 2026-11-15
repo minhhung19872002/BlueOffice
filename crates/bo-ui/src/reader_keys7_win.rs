@@ -331,6 +331,41 @@ mod tests {
         );
     }
 
+    /// WCAG 2.2 contrast ratio of two sRGB colours.
+    fn contrast(a: Rgba, b: Rgba) -> f32 {
+        let lum = |c: Rgba| {
+            let ch = |v: u8| {
+                let v = f32::from(v) / 255.0;
+                if v <= 0.040_45 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * ch(c.0) + 0.7152 * ch(c.1) + 0.0722 * ch(c.2)
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn colours_meet_wcag_contrast() {
+        use super::super::{CANVAS, CHROME, HOVER, NAV_BG, PAGE_EDGE, PRESSED, TEXT};
+        let theme = crate::theme::Theme::light("reader");
+        // Text (1.4.3): 4.5 : 1 on every background it is drawn on, hovered or pressed too.
+        for bg in [CHROME, NAV_BG, CANVAS, HOVER, PRESSED] {
+            assert!(contrast(TEXT, bg) >= 4.5, "{bg:?} {}", contrast(TEXT, bg));
+        }
+        assert!(contrast(theme.accent_text, CHROME) >= 4.5);
+        assert!(contrast(TIP_TEXT, TIP_BG) >= 4.5);
+        // Non-text (1.4.11): 3 : 1 for the focus ring, key tips and the page edge.
+        for bg in [CHROME, NAV_BG, Rgba(255, 255, 255, 255)] {
+            assert!(contrast(FOCUS, bg) >= 3.0, "{bg:?}");
+            assert!(contrast(TIP_BG, bg) >= 3.0, "{bg:?}");
+        }
+        assert!(contrast(PAGE_EDGE, CANVAS) >= 3.0);
+    }
+
     #[test]
     fn tips_are_unique() {
         let used = vec!["H".to_owned(), "O".to_owned()];

@@ -366,6 +366,16 @@ const SOLID: &[(&str, &[SolidPart])] = &[
         ],
     ),
     (
+        // Group settings: a corner with an arrow pointing out of it (own drawing).
+        "launcher",
+        &[
+            ("M5 5h10", None),
+            ("M5 5v10", None),
+            ("M9 9l9 9", None),
+            ("M19 12v7h-7Z", Some(INK_FILL)),
+        ],
+    ),
+    (
         "layout.margins",
         &[
             ("M4 2h16v20H4Z", Some(SOFT)),

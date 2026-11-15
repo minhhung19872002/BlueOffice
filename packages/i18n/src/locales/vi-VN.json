@@ -275,7 +275,9 @@
       "painter": "Sao định dạng",
       "quickAnalysis": "Phân tích nhanh",
       "copyFormat": "Sao chép định dạng",
-      "pasteFormat": "Dán định dạng"
+      "pasteFormat": "Dán định dạng",
+      "fontSettings": "Thiết lập phông chữ",
+      "paragraphSettings": "Thiết lập đoạn văn"
     },
     "insert": {
       "table": "Bảng",

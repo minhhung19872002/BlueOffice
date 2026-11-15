@@ -80,7 +80,9 @@ pub fn static_id(id: &str) -> &'static str {
 }
 
 /// Commands the window handles itself (dialogs, view state, format painter, mail merge).
-pub const WINDOW: [&str; 20] = [
+pub const WINDOW: [&str; 22] = [
+    "format.fontSettings",
+    "format.paragraphSettings",
     "review.deleteComment",
     "edit.find",
     "edit.replace",

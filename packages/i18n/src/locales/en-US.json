@@ -275,7 +275,9 @@
       "painter": "Format Painter",
       "quickAnalysis": "Quick analysis",
       "copyFormat": "Copy formatting",
-      "pasteFormat": "Paste formatting"
+      "pasteFormat": "Paste formatting",
+      "fontSettings": "Font settings",
+      "paragraphSettings": "Paragraph settings"
     },
     "insert": {
       "table": "Table",

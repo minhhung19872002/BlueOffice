@@ -51,6 +51,7 @@ fn icon_of(id: &str) -> &str {
         "mailings.recipients" => "mailings.selectRecipients",
         "mailings.finish" => "mailings.mergeDocument",
         "insert.link" => "insert.link",
+        "format.fontSettings" | "format.paragraphSettings" => "launcher",
         "insert.shapes" => "insert.rect",
         "insert.dateTime" => "format.date",
         "insert.dropCap" => "format.fontGrow",
@@ -736,6 +737,26 @@ impl Ribbon {
                     },
                 );
                 group_w = group_w.max(lw + self.px(16.0));
+                // Settings button in the label row's right corner (Font, Paragraph), as on a
+                // desktop word processor's ribbon.
+                let launcher = match g.label {
+                    "ribbon.groups.font" => Some("format.fontSettings"),
+                    "ribbon.groups.paragraph" => Some("format.paragraphSettings"),
+                    _ => None,
+                };
+                if let Some(id) = launcher {
+                    let s = self.px(16.0);
+                    group_w = group_w.max(lw + 2.0 * s + self.px(16.0));
+                    placed.push(Placed::Item(
+                        Item::Button(id),
+                        Rect {
+                            x: gx + group_w - s - self.px(2.0),
+                            y: bottom - label_h + ((label_h - s) / 2.0).floor(),
+                            w: s,
+                            h: s,
+                        },
+                    ));
+                }
                 placed.push(Placed::GroupLabel(
                     g.label,
                     Rect {
@@ -2025,7 +2046,7 @@ mod tests {
             ribbon.active = tab;
             ribbon.scroll = 0.0;
             ribbon.layout(&Fixed, &strings, 480.0, 1.0, 40.0);
-            for _ in 0..20 {
+            for _ in 0..60 {
                 if ribbon.scroll >= ribbon.scroll_max {
                     break;
                 }
@@ -2238,6 +2259,14 @@ mod tests {
                         })
                         .unwrap();
                     for placed in &ribbon.placed {
+                        // Group settings buttons sit in the label row on purpose.
+                        if let Placed::Item(
+                            Item::Button("format.fontSettings" | "format.paragraphSettings"),
+                            _,
+                        ) = placed
+                        {
+                            continue;
+                        }
                         let (Placed::Item(_, rect) | Placed::Tile(_, rect) | Placed::More(rect)) =
                             placed
                         else {

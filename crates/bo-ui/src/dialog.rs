@@ -16,6 +16,10 @@ pub enum DialogKind {
     Comment,
     /// Word count (message only).
     WordCount,
+    /// Font of the selection (family, size, colour).
+    Font,
+    /// Paragraph indents and spacing.
+    Paragraph,
 }
 
 /// A dialog button's action.

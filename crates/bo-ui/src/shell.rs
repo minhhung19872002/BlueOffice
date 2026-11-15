@@ -111,6 +111,24 @@ const SIZES: [f32; 18] = [
 ];
 
 /// Next standard font size, in half-points, matching the shared editor's size steps.
+/// Points from twips, without trailing zeros (`12`, `7,5`).
+fn fmt_pt(twips: i32) -> String {
+    let pt = f64::from(twips) / 20.0;
+    let s = format!("{pt:.1}");
+    s.trim_end_matches('0')
+        .trim_end_matches('.')
+        .replace('.', ",")
+}
+
+/// A number typed with a comma or a point as decimal separator.
+fn parse_num(s: &str) -> Option<f64> {
+    let t = s.trim().replace(',', ".");
+    if t.is_empty() {
+        return None;
+    }
+    t.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
 /// Status bar view buttons: view layout and its icon (Bluestar's own drawings).
 const VIEW_MODES: [(&str, &str); 3] = [
     ("print", "layout.margins"),
@@ -274,6 +292,71 @@ impl DocWindow {
                 vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
                 vec![],
             ),
+            DialogKind::Font => {
+                let f = self.view.format();
+                let size = f.size_half_points.map_or_else(String::new, |h| {
+                    if h % 2 == 0 {
+                        (h / 2).to_string()
+                    } else {
+                        format!("{},5", h / 2)
+                    }
+                });
+                (
+                    self.t("docStyles.dialog.font", "Font"),
+                    vec![
+                        (
+                            self.t("docStyles.dialog.font", "Font"),
+                            f.font.clone().unwrap_or_default(),
+                        ),
+                        (self.t("docStyles.dialog.size", "Size (pt)"), size),
+                        (
+                            self.t("docStyles.dialog.color", "Colour"),
+                            f.color.clone().unwrap_or_default(),
+                        ),
+                    ],
+                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                    vec![],
+                )
+            }
+            DialogKind::Paragraph => {
+                let f = self.view.format();
+                let lines = f64::from(f.line_spacing.value) / 240.0;
+                let lines = format!("{lines:.2}")
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .replace('.', ",");
+                (
+                    self.t("docStyles.dialog.typeParagraph", "Paragraph"),
+                    vec![
+                        (
+                            self.t("docStyles.dialog.indentLeft", "Left indent (pt)"),
+                            fmt_pt(f.indent_left),
+                        ),
+                        (
+                            self.t("docStyles.dialog.indentRight", "Right indent (pt)"),
+                            fmt_pt(f.indent_right),
+                        ),
+                        (
+                            self.t("docStyles.dialog.indentFirstLine", "First line (pt)"),
+                            fmt_pt(f.first_line),
+                        ),
+                        (
+                            self.t("docStyles.dialog.spaceBefore", "Space before (pt)"),
+                            fmt_pt(f.space_before),
+                        ),
+                        (
+                            self.t("docStyles.dialog.spaceAfter", "Space after (pt)"),
+                            fmt_pt(f.space_after),
+                        ),
+                        (
+                            self.t("docStyles.dialog.lineSpacing", "Line spacing (lines)"),
+                            lines,
+                        ),
+                    ],
+                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                    vec![],
+                )
+            }
             DialogKind::Comment => (
                 self.t("commands.review.newComment", "New comment"),
                 vec![(self.t("comments.text", "Comment"), String::new())],
@@ -320,6 +403,71 @@ impl DocWindow {
                     display: v(1),
                 });
             }
+            (DialogKind::Font, DialogButton::Ok) => {
+                self.dialog = None;
+                let f = self.view.format().clone();
+                let (name, size, color) = (v(0), v(1), v(2));
+                let name = name.trim();
+                if !name.is_empty() && f.font.as_deref() != Some(name) {
+                    self.view.run_command(Command::FormatText {
+                        format: CharFormat::Font { name: name.into() },
+                    });
+                }
+                if let Some(pt) = parse_num(&size) {
+                    let half_points = (pt * 2.0).round().clamp(2.0, 3276.0) as u32;
+                    if f.size_half_points != Some(half_points) {
+                        self.view.run_command(Command::FormatText {
+                            format: CharFormat::Size { half_points },
+                        });
+                    }
+                }
+                let hex = color.trim().trim_start_matches('#').to_uppercase();
+                let hex =
+                    (hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex);
+                if hex != f.color && (hex.is_some() || color.trim().is_empty()) {
+                    self.view.run_command(Command::FormatText {
+                        format: CharFormat::Color { hex },
+                    });
+                }
+            }
+            (DialogKind::Paragraph, DialogButton::Ok) => {
+                self.dialog = None;
+                let f = self.view.format().clone();
+                let twips = |s: &str| parse_num(s).map(|pt| (pt * 20.0).round() as i32);
+                let (left, right, first) = (
+                    twips(&v(0)).unwrap_or(f.indent_left),
+                    twips(&v(1)).unwrap_or(f.indent_right),
+                    twips(&v(2)).unwrap_or(f.first_line),
+                );
+                if (left, right, first) != (f.indent_left, f.indent_right, f.first_line) {
+                    self.view.run_command(Command::FormatParagraph {
+                        format: bo_edit::ParaFormat::Indents {
+                            left,
+                            right,
+                            first_line: first,
+                        },
+                    });
+                }
+                if let Some(t) = twips(&v(3)).filter(|t| *t != f.space_before) {
+                    self.view.run_command(Command::FormatParagraph {
+                        format: bo_edit::ParaFormat::SpaceBefore { twips: t.max(0) },
+                    });
+                }
+                if let Some(t) = twips(&v(4)).filter(|t| *t != f.space_after) {
+                    self.view.run_command(Command::FormatParagraph {
+                        format: bo_edit::ParaFormat::SpaceAfter { twips: t.max(0) },
+                    });
+                }
+                if let Some(lines) = parse_num(&v(5)) {
+                    let value = (lines * 240.0).round().clamp(60.0, 5000.0) as u32;
+                    if value != f.line_spacing.value {
+                        self.view.run_command(Command::FormatParagraph {
+                            format: bo_edit::ParaFormat::LineSpacing { value },
+                        });
+                    }
+                }
+            }
+            (DialogKind::Font | DialogKind::Paragraph, _) => self.dialog = None,
             (DialogKind::Comment, _) => {
                 self.dialog = None;
                 if let Some(c) = catalog::from_json(json!({ "cmd": "addComment", "text": v(0) })) {
@@ -543,6 +691,8 @@ impl DocWindow {
             "edit.find" => self.open_dialog(DialogKind::Find),
             "edit.replace" => self.open_dialog(DialogKind::Replace),
             "insert.link" => self.open_dialog(DialogKind::Link),
+            "format.fontSettings" => self.open_dialog(DialogKind::Font),
+            "format.paragraphSettings" => self.open_dialog(DialogKind::Paragraph),
             "review.newComment" => self.open_dialog(DialogKind::Comment),
             "review.wordCount" => self.open_dialog(DialogKind::WordCount),
             "review.deleteComment" => match self.view.comment_at_caret() {
@@ -1656,6 +1806,52 @@ mod tests {
         std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut doc)
             .unwrap();
         assert!(doc.contains("txbxContent"), "text box");
+    }
+
+    #[test]
+    fn group_settings_buttons_open_font_and_paragraph_dialogs() {
+        assert_eq!(parse_num(" 7,5 "), Some(7.5));
+        assert_eq!(parse_num("12"), Some(12.0));
+        assert_eq!(parse_num(""), None);
+        assert_eq!(fmt_pt(150), "7,5");
+        assert_eq!(fmt_pt(240), "12");
+        let mut engine = Engine::with_bundled_fonts();
+        engine.new_document("a.docx").unwrap();
+        let mut w = DocWindow::new(DocView::new(engine).unwrap(), "en-US", "a.docx");
+        w.handle(
+            Input::Resize {
+                width: 1800.0,
+                height: 900.0,
+            },
+            &Fixed,
+        );
+        for (id, kind) in [
+            ("format.fontSettings", DialogKind::Font),
+            ("format.paragraphSettings", DialogKind::Paragraph),
+        ] {
+            assert!(
+                w.ribbon.rect_of(RibbonHit::Command(id)).is_some(),
+                "{id} on the ribbon"
+            );
+            w.action(id);
+            assert_eq!(w.dialog.as_ref().map(|d| d.kind), Some(kind));
+            w.dialog = None;
+        }
+        // Paragraph dialog: the left indent typed in points applies on Enter ("0" + "36").
+        w.action("format.paragraphSettings");
+        w.handle(Input::Text("36".into()), &Fixed);
+        w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+        assert!(w.dialog.is_none());
+        assert_eq!(w.view.format().indent_left, 720);
+        // Font dialog: the size field (second) takes 7,5 pt.
+        w.action("format.fontSettings");
+        w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
+        for _ in 0..4 {
+            w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+        }
+        w.handle(Input::Text("7,5".into()), &Fixed);
+        w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+        assert_eq!(w.view.format().size_half_points, Some(15));
     }
 
     #[test]

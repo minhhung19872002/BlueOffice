@@ -11,8 +11,10 @@ use std::collections::{HashMap, HashSet};
 /// Background behind the pages: the neutral grey measured on a desktop word processor
 /// (docs/ui/REPORT.md round 30).
 pub const CANVAS_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
-const PAGE_SHADOW: Rgba = Rgba(0xc3, 0xca, 0xd6, 255);
-const SELECTION: Rgba = Rgba(0x1f, 0x6f, 0xeb, 72);
+const PAGE_SHADOW: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
+/// Text selection: neutral grey, 198 over white like a desktop word processor (text
+/// stays dark under it).
+const SELECTION: Rgba = Rgba(0, 0, 0, 57);
 const CARET: Rgba = Rgba(0, 0, 0, 255);
 /// Gap between pages and around them, in logical pixels.
 const GAP: f32 = 16.0;

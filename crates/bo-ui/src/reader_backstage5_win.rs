@@ -10,11 +10,14 @@ use crate::reader_icons::{self, Ink};
 use crate::{Input, Key, Painter, TextStyle};
 use bo_render::Rgba;
 
-const COLUMN: Rgba = Rgba(0xEA, 0xEA, 0xEA, 255);
+// Round 6, measured on the reference's left column at 125 %: column 245, 246, 250 with a
+// 199, 204, 217 edge, rules 230, 233, 240, the chosen command a box with 4 px corners.
+const COLUMN: Rgba = Rgba(245, 246, 250, 255);
+const COLUMN_EDGE: Rgba = Rgba(199, 204, 217, 255);
 const TEXT: Rgba = Rgba(0x22, 0x22, 0x22, 255);
 const MUTED: Rgba = Rgba(0x70, 0x70, 0x70, 255);
 const RULE: Rgba = Rgba(0xE0, 0xE0, 0xE0, 255);
-const CHOSEN: Rgba = Rgba(0xD9, 0xD9, 0xD9, 255);
+const CHOSEN: Rgba = Rgba(230, 233, 240, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const GREY: Rgba = Rgba(0xC1, 0xC1, 0xC1, 255);
 
@@ -167,26 +170,27 @@ impl ReaderWindow {
         p.fill_rect(1.0, top, w - 2.0, h - top - 1.0, WHITE);
         let cw = px(210.4);
         p.fill_rect(1.0, top, cw - 1.0, h - top - 1.0, COLUMN);
+        p.fill_rect(cw, top, 1.0, h - top - 1.0, COLUMN_EDGE);
         let item = self.bs_style(17.0);
         let doc = self.view().is_some();
         let modified = self.view().is_some_and(|v| v.doc().modified());
         let accent = self.theme.accent;
+        // Rows 46 px apart from 14 px under the tabs, 38 px high; a rule adds 7 px.
         let mut y = top + px(11.2);
         for it in ITEMS {
             let Some((cmd, key)) = it else {
-                y += px(4.0);
-                p.fill_rect(px(20.0), y, cw - px(40.0), 1.0, Rgba(0xD4, 0xD4, 0xD4, 255));
-                y += px(8.0);
+                p.fill_rect(px(20.0), y - 1.0, cw - px(36.0), 1.0, CHOSEN);
+                y += px(5.6);
                 continue;
             };
             // Save and Revert stay grey until the document changes, like the reference's.
             let enabled = cmd == "bs.open"
                 || (doc && (!matches!(cmd, "file.save" | "bs.revert") || modified));
-            let r = [px(10.4), y, cw - px(22.4), px(31.2)];
+            let r = [px(10.4), y, cw - px(22.4), px(30.4)];
             let chosen = cmd == page;
             if chosen {
                 p.path(
-                    &rounded(r[0], r[1], r[2], r[3], r[3] / 2.0),
+                    &rounded(r[0], r[1], r[2], r[3], px(3.2)),
                     Some(accent),
                     None,
                 );
@@ -204,7 +208,7 @@ impl ReaderWindow {
             if enabled {
                 hits.push((r, cmd.to_owned()));
             }
-            y += px(37.6);
+            y += px(36.8);
         }
         let title = self.bs_style(26.0);
         let head = self.bs_style(21.0);
@@ -231,10 +235,10 @@ impl ReaderWindow {
             ];
             let mut ry = top + px(85.6);
             for (k, (cmd, icon, key)) in rows.iter().enumerate() {
-                let r = [mx - px(9.6), ry, px(300.0) - px(30.4), px(34.4)];
+                let r = [mx - px(9.6), ry, px(300.0) - px(30.4), px(33.6)];
                 if k == 0 {
                     p.path(
-                        &rounded(r[0], r[1], r[2], r[3], r[3] / 2.0),
+                        &rounded(r[0], r[1], r[2], r[3], px(3.2)),
                         Some(CHOSEN),
                         None,
                     );

@@ -7505,7 +7505,16 @@
     "zoom": "Zoom:",
     "paper": "Paper:",
     "tileLabel": "Page {{page}} ({{row}}, {{col}})",
-    "paperByPage": "Choose paper source by PDF page size"
+    "paperByPage": "Choose paper source by PDF page size",
+    "paperPrinter": "Printer's paper",
+    "resolution": "Resolution:",
+    "colorOutput": "Color output:",
+    "color": "Color",
+    "grayscaleOut": "Grayscale",
+    "blackWhite": "Black and white",
+    "margins": "Margins:",
+    "top": "Top",
+    "bottom": "Bottom"
   },
   "pdfExtra": {
     "readMode": "Read Mode",
@@ -7614,7 +7623,10 @@
     "fileClick": "Click on the page where the file goes",
     "keep": "Keep Tool Selected",
     "options": "Comment options",
-    "list": "Comment list"
+    "list": "Comment list",
+    "caretNoText": "Click on text to place the insertion caret.",
+    "insertTitle": "Insert Text",
+    "insertText": "Text to insert"
   },
   "pdfForm": {
     "reset": "Reset Form",

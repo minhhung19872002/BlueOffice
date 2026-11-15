@@ -7505,7 +7505,16 @@
     "zoom": "Thu phóng:",
     "paper": "Giấy:",
     "tileLabel": "Trang {{page}} ({{row}}, {{col}})",
-    "paperByPage": "Chọn khổ giấy theo kích thước trang PDF"
+    "paperByPage": "Chọn khổ giấy theo kích thước trang PDF",
+    "paperPrinter": "Giấy của máy in",
+    "resolution": "Độ phân giải:",
+    "colorOutput": "Màu khi in:",
+    "color": "Màu",
+    "grayscaleOut": "Thang xám",
+    "blackWhite": "Đen trắng",
+    "margins": "Lề:",
+    "top": "Trên",
+    "bottom": "Dưới"
   },
   "pdfExtra": {
     "readMode": "Chế độ đọc",
@@ -7614,7 +7623,10 @@
     "fileClick": "Nhấp trên trang nơi đặt tệp",
     "keep": "Giữ công cụ đã chọn",
     "options": "Tuỳ chọn chú thích",
-    "list": "Danh sách chú thích"
+    "list": "Danh sách chú thích",
+    "caretNoText": "Nhấp vào chữ để đặt dấu chèn.",
+    "insertTitle": "Chèn chữ",
+    "insertText": "Chữ cần chèn"
   },
   "pdfForm": {
     "reset": "Đặt lại biểu mẫu",

@@ -286,13 +286,13 @@ impl ReaderWindow {
                     self.tabs.iter().map(|t| (t.name.clone(), true)).collect();
                 let mut d = Dialog::new(
                     DialogKind::Comment,
-                    self.t("pdfBatch.title"),
+                    self.t("pdfBatch.ask"),
                     Vec::new(),
                     vec![
                         (self.t("pdfBatch.print"), DialogButton::Ok),
                         (self.t("pdfPrint.cancel"), DialogButton::Cancel),
                     ],
-                    vec![self.t("pdfBatch.ask")],
+                    Vec::new(),
                 )
                 .with_checks(checks);
                 d.layout(m, self.size, self.scale);
@@ -728,6 +728,10 @@ impl ReaderWindow {
                 d.hits.push(([bx, by, bw, bh], (*id).to_owned()));
             }
             self.prefs6.dialog = Some(d);
+            // Its drop-down lists over it (the window paints menus before dialogs).
+            if let Some((menu, "prefs")) = &self.menu {
+                menu.paint(p, &self.theme, &self.icons);
+            }
         }
         for d in [&self.prefs6.batch_ask, &self.prefs6.author_ask]
             .into_iter()

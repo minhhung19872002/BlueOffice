@@ -893,7 +893,19 @@ fn print_job(
         copies: s.copies,
         collate: s.collate,
     };
-    let plan = |area: (f32, f32)| bo_ui::print_plan(&s.pages, &size_of, s.view, area, &plan_opts);
+    // Page Setting margins: the plan fills the area inside them, moved by the top / left.
+    let [mt, mb, ml, mr] = s.margins;
+    let plan = |area: (f32, f32)| {
+        let inner = ((area.0 - ml - mr).max(36.0), (area.1 - mt - mb).max(36.0));
+        let mut sheets = bo_ui::print_plan(&s.pages, &size_of, s.view, inner, &plan_opts);
+        for sheet in &mut sheets {
+            for item in &mut sheet.items {
+                item.dest[0] += ml;
+                item.dest[1] += mt;
+            }
+        }
+        sheets
+    };
     let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
         let opts = RenderOptions {
             min_line: 1.0 / scale,
@@ -907,9 +919,12 @@ fn print_job(
         };
         let p = doc.render_extra(i, opts, extra).ok()?;
         let pics = pictures(&p.images);
-        let img = device
+        let mut img = device
             .render_page(&p.list, doc.fonts(), scale, &pics)
             .ok()?;
+        if s.color == bo_ui::PrintColor::BlackWhite {
+            bo_ui::black_white(&mut img.pixels);
+        }
         Some(print::PrintPage {
             width: img.width,
             height: img.height,
@@ -917,7 +932,7 @@ fn print_job(
         })
     };
     let options = print::Options {
-        grayscale: s.grayscale,
+        grayscale: s.grayscale || s.color == bo_ui::PrintColor::Gray,
         duplex: match s.duplex {
             bo_ui::Duplex::Off => 0,
             bo_ui::Duplex::LongEdge => 1,
@@ -932,12 +947,16 @@ fn print_job(
                 w > h
             }),
         },
-        max_dpi: if s.as_image { 150.0 } else { 300.0 },
+        max_dpi: if s.as_image {
+            s.image_dpi as f32
+        } else {
+            300.0
+        },
         devmode: devmode.map(<[u64]>::to_vec),
         paper: if s.paper_by_page {
             s.pages.first().map(|&i| size_of(i))
         } else {
-            None
+            s.paper
         },
     };
     print::print(&s.printer, title, &plan, &size_of, &options, &mut render)
@@ -971,6 +990,10 @@ fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result
         as_image: false,
         overprint: false,
         paper_by_page: false,
+        image_dpi: 150,
+        color: bo_ui::PrintColor::Color,
+        paper: None,
+        margins: [0.0; 4],
     };
     let mut order = bo_ui::PageOrder::Horizontal;
     let mut border = false;
@@ -1124,12 +1147,32 @@ fn page_text() -> TextRendering {
     }
 }
 
-/// Command-line tools: `--render in.pdf <page> out.png [zoom%]` and `--bench in.pdf [pages]`.
+/// `--text in.pdf`: what Select All + Copy puts on the clipboard, page by page (a form feed
+/// after each page), for comparing text extraction.
+fn text_tool(doc: &mut PdfDocument) -> Result<(), String> {
+    use std::io::Write as _;
+    let mut out = String::new();
+    for i in 0..doc.page_count() {
+        let p = doc.render(i, RenderOptions::default())?;
+        out.push_str(&bo_pdfread::TextLayer::new(p.chars).text());
+        out.push('\u{c}');
+    }
+    std::io::stdout()
+        .write_all(out.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+/// Command-line tools: `--render in.pdf <page> out.png [zoom%]`, `--bench in.pdf [pages]` and
+/// `--text in.pdf`.
+#[allow(clippy::too_many_lines)]
 pub fn tool(args: &[String]) -> Result<(), String> {
     let path = args.get(1).ok_or("missing PDF path")?;
     let t0 = Instant::now();
     let mut doc = open_pdf(std::path::Path::new(path))?;
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
+    if args[0] == "--text" {
+        return text_tool(&mut doc);
+    }
     let device = Device::new()?;
     device.set_text_rendering(page_text());
     if args[0] == "--print" {

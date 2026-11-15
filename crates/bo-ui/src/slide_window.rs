@@ -248,6 +248,8 @@ pub struct SlideWindow {
     gridlines: bool,
     guides: bool,
     outline_rows: Vec<(f32, usize)>,
+    /// Selection Pane / Alt Text pane (same place as the comments pane; one at a time).
+    side: selpane::SidePane,
 }
 
 #[path = "slide_controls.rs"]
@@ -255,6 +257,12 @@ mod controls;
 
 #[path = "slide_insert.rs"]
 mod ins;
+
+#[path = "slide_format.rs"]
+mod fmt;
+
+#[path = "slide_selpane.rs"]
+mod selpane;
 
 #[path = "slide_showtab.rs"]
 mod showtab;
@@ -291,7 +299,9 @@ fn base_tabs() -> Vec<Tab> {
 
 /// Fixed widths of gallery tiles (themes, transitions, effects, shape styles).
 fn large_widths(id: &str) -> Option<f32> {
-    sr::large_width(id).or_else(|| ins::large_width(id))
+    sr::large_width(id)
+        .or_else(|| ins::large_width(id))
+        .or_else(|| fmt::large_width(id))
 }
 
 /// Fixed widths of row slots drawn over by the window (timing and size boxes).
@@ -353,7 +363,7 @@ fn slide_flags(f: &bo_edit::FormatState) -> &str {
 
 fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
     let flags = slide_flags(f);
-    if ins::needs_selection(id) {
+    if ins::needs_selection(id) || fmt::needs_selection(id) {
         return flags.contains("sel");
     }
     // Trigger and Animation Painter need an effect on the selection (dimmed otherwise, as
@@ -366,6 +376,7 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || ins::COMMANDS.contains(&id)
         || showtab::COMMANDS.contains(&id)
         || viewtab::COMMANDS.contains(&id)
+        || fmt::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -376,11 +387,13 @@ impl SlideWindow {
         ins::install_strings(&mut strings);
         showtab::install_strings(&mut strings);
         viewtab::install_strings(&mut strings);
+        fmt::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
         showtab::install_icons(&mut icons);
         viewtab::install_icons(&mut icons);
+        fmt::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -455,6 +468,7 @@ impl SlideWindow {
             gridlines: false,
             guides: false,
             outline_rows: Vec::new(),
+            side: selpane::SidePane::default(),
         }
     }
 
@@ -538,7 +552,10 @@ impl SlideWindow {
             self.ribbon.bottom()
         };
         let sh = self.status_h();
-        let pane = if (self.comments.shown || self.anim_pane.shown || self.bg_pane.shown)
+        let pane = if (self.comments.shown
+            || self.anim_pane.shown
+            || self.bg_pane.shown
+            || self.side.shown())
             && self.view.mode() != ViewMode::Reading
         {
             CommentsPane::width(self.scale)
@@ -551,6 +568,8 @@ impl SlideWindow {
         self.comments
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         self.anim_pane
+            .layout([self.size.0 - pane, top, pane, area_h], self.scale);
+        self.side
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         let colors = self.theme_colors();
         self.bg_pane
@@ -675,6 +694,9 @@ impl SlideWindow {
             self.anim_pane
                 .record(text, &effects, &labels, self.theme.text);
         }
+        if self.side.shown() {
+            self.record_side(text);
+        }
         self.view.measure_notes(text, self.text_size);
         self.layout_outline(self.text_size);
         redraw
@@ -736,6 +758,9 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.format_action(id) {
+            return r;
+        }
         if let Some(r) = self.insert_action(id) {
             return r;
         }
@@ -813,6 +838,7 @@ impl SlideWindow {
                 self.step_comment(id == "review.nextComment")
             }
             "anim.pane" => {
+                self.side.close();
                 self.bg_pane.shown = false;
                 self.anim_pane.shown = !self.anim_pane.shown;
                 self.comments.shown = false;
@@ -837,6 +863,7 @@ impl SlideWindow {
                 moved
             }
             "review.comments" => {
+                self.side.close();
                 self.anim_pane.shown = false;
                 self.bg_pane.shown = false;
                 self.comments.shown = !self.comments.shown;
@@ -845,6 +872,7 @@ impl SlideWindow {
                 true
             }
             "review.newComment" => {
+                self.side.close();
                 self.anim_pane.shown = false;
                 self.bg_pane.shown = false;
                 self.comments.shown = true;
@@ -1768,6 +1796,7 @@ impl SlideWindow {
                 }
                 added
             }
+            "side" => self.choose_format(v),
             "cshow" => return self.choose_show(kind, v),
             "zoom" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
@@ -1968,6 +1997,9 @@ impl SlideWindow {
         if let Some(r) = self.controls_key(&input, text) {
             return r;
         }
+        if let Some(r) = self.side_input(&input) {
+            return r || tip_before != self.tooltip.is_some();
+        }
         if let Some(r) = self.anim_input(&input) {
             return r || tip_before != self.tooltip.is_some();
         }
@@ -2145,6 +2177,7 @@ impl SlideWindow {
             self.paint_galleries(p, &on);
             self.paint_controls(p);
             self.paint_insert(p);
+            self.paint_table_design(p);
             self.paint_show_checks(p);
             self.paint_view_checks(p);
         }
@@ -2152,6 +2185,7 @@ impl SlideWindow {
         self.comments.paint(p);
         self.anim_pane.paint(p);
         self.paint_bg_pane(p);
+        self.side.paint(p);
         self.paint_status(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
@@ -2624,3 +2658,7 @@ impl SlideWindow {
 #[cfg(test)]
 #[path = "slide_window_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "slide_round5_tests.rs"]
+mod round5_tests;

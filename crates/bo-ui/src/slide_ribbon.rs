@@ -158,6 +158,10 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.smartart"
             | "sl.links"
             | "sl.textStyles"
+            | "sl.textQuick"
+            | "sl.textFill"
+            | "sl.textOutline"
+            | "sl.textEffects"
     )
 }
 

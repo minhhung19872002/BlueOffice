@@ -51,6 +51,7 @@ pub mod record;
 pub mod reuse;
 pub mod rich;
 pub mod sections;
+pub mod shape_props;
 pub mod show;
 pub mod smartart;
 pub mod spell;
@@ -4158,6 +4159,14 @@ impl Engine {
             .and_then(|v| model3d::Model3dCommand::parse(&v))
         {
             let r = self.slide_model3d_command(mc)?;
+            return Ok(serde_json::to_string(&r).unwrap_or_default());
+        }
+        // Selection Pane, Alt Text and table styles (N6 round 5).
+        if let Some(pc) = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| shape_props::ShapePropsCommand::parse(&v))
+        {
+            let r = self.slide_props_command(pc)?;
             return Ok(serde_json::to_string(&r).unwrap_or_default());
         }
         // Hyperlinks and actions (SLIDE-ACTION-001).

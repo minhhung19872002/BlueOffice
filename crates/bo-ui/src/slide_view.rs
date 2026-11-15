@@ -847,6 +847,20 @@ impl SlideView {
         }
     }
 
+    /// Run a shape properties / table style command (Selection Pane, Alt Text, Table Design).
+    pub fn run_props(
+        &mut self,
+        cmd: bo_engine::slide_edit::shape_props::ShapePropsCommand,
+    ) -> bool {
+        match self.engine.slide_props_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Insert a picture, video or audio file on the current slide.
     pub fn insert_media(&mut self, bytes: Vec<u8>, name: &str) -> bool {
         match self.engine.slide_insert_picture(bytes, name) {

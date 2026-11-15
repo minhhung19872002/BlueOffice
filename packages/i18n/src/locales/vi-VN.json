@@ -9263,7 +9263,16 @@
     "inside": "Bên trong",
     "horizontal": "Ngang:",
     "vertical": "Dọc:",
-    "title": "Định dạng ô"
+    "title": "Định dạng ô",
+    "themeColors": "Màu chủ đề",
+    "standardColors": "Màu chuẩn",
+    "colorsTitle": "Màu",
+    "red": "Đỏ:",
+    "green": "Lục:",
+    "blue": "Lam:",
+    "hex": "Mã hex:",
+    "new": "Mới",
+    "current": "Hiện tại"
   },
   "common": {
     "ok": "OK",

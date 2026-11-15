@@ -1140,6 +1140,7 @@ impl SheetWindow {
             | FormKind::Link
             | FormKind::HeaderFooter
             | FormKind::Symbol => self.insert_form_event(ev, text),
+            FormKind::MoreColors => self.more_colors_event(ev),
             FormKind::CustomFilter | FormKind::Top10 => {
                 self.filter_form_event(ev);
             }

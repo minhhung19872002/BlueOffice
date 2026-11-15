@@ -1610,3 +1610,43 @@ fn name_box_lists_functions_while_a_formula_is_typed() {
 fn type_text_in(w: &mut SheetWindow, s: &str) {
     w.handle(Input::Text(s.into()), &Fixed);
 }
+
+#[test]
+fn colour_drop_downs_open_the_palette_and_more_colors() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    {
+        let f = w.form.as_mut().expect("form");
+        f.set_tab(2);
+        assert_eq!(f.color("color"), "");
+    }
+    // Click the Font page's colour box, then a standard colour (red, second cell).
+    let click = |w: &mut SheetWindow, x: f32, y: f32| {
+        let d = w.form.as_ref().expect("form").dev([x, y, 0.0, 0.0]);
+        press(w, (d[0], d[1]), 1);
+    };
+    let r = w
+        .form
+        .as_ref()
+        .expect("form")
+        .get("color")
+        .expect("color")
+        .rect;
+    click(&mut w, r[0] + 10.0, r[1] + 10.0);
+    click(&mut w, r[0] + 8.0 + 18.0 + 5.0, r[1] + r[3] + 166.0 + 5.0);
+    assert_eq!(w.form.as_ref().expect("form").color("color"), "FF0000");
+    // More Colors…: a Colors form over Format Cells; its hex code comes back.
+    click(&mut w, r[0] + 10.0, r[1] + 10.0);
+    click(&mut w, r[0] + 40.0, r[1] + r[3] + 200.0);
+    assert_eq!(w.form_kind, form_impl::FormKind::MoreColors);
+    w.form.as_mut().expect("colors").set_num("green", 128);
+    w.more_colors_event(&form_impl::Event::Changed("green"));
+    assert_eq!(w.form.as_ref().expect("colors").text("hex"), "FF8000");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::FormatCells);
+    assert_eq!(w.form.as_ref().expect("form").color("color"), "FF8000");
+    let ok = w.fc_ok_point();
+    press(&mut w, ok, 1);
+    assert_eq!(w.view().format().color.to_uppercase(), "FF8000");
+}

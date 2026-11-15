@@ -270,6 +270,9 @@ pub struct SheetWindow {
     /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
     spark_kind: String,
     symbol: (usize, usize),
+    /// A form waiting under More Colors…, and that form's new and current colour.
+    form_stash: Option<(form_impl::Form, form_impl::FormKind)>,
+    more_colors: (String, String),
 }
 
 impl SheetWindow {
@@ -342,6 +345,8 @@ impl SheetWindow {
             filter_status: false,
             spark_kind: String::new(),
             symbol: (0, 0),
+            form_stash: None,
+            more_colors: (String::new(), String::new()),
         };
         insert_impl::add_icons(&mut w.icons);
         w.load_functions();
@@ -1595,6 +1600,8 @@ impl SheetWindow {
             self.fc_paint_canvas(f, id, r, p);
         } else if self.form_kind == form_impl::FormKind::Symbol {
             self.paint_symbol_grid(f, r, p);
+        } else if self.form_kind == form_impl::FormKind::MoreColors {
+            self.paint_more_colors(r, p);
         }
     }
 

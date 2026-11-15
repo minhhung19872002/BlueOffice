@@ -9263,7 +9263,16 @@
     "inside": "Inside",
     "horizontal": "Horizontal:",
     "vertical": "Vertical:",
-    "title": "Format Cells"
+    "title": "Format Cells",
+    "themeColors": "Theme Colors",
+    "standardColors": "Standard Colors",
+    "colorsTitle": "Colors",
+    "red": "Red:",
+    "green": "Green:",
+    "blue": "Blue:",
+    "hex": "Hex:",
+    "new": "New",
+    "current": "Current"
   },
   "common": {
     "ok": "OK",

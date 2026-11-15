@@ -70,6 +70,8 @@ pub(super) enum FormKind {
     Link,
     HeaderFooter,
     Symbol,
+    /// More Colors… of a colour drop-down (over a stashed form).
+    MoreColors,
 }
 
 /// What a control is.
@@ -106,6 +108,10 @@ pub(super) enum Kind {
     },
     /// Area drawn by the owner (previews, the border box, the orientation dial).
     Canvas,
+    /// Colour drop-down button (`hex` `RRGGBB`, `""` = automatic) opening a palette of
+    /// `palette` colours: 60 theme colours (10 × 6) then 10 standard colours, as the
+    /// reference's colour pickers.
+    ColorPick { hex: String, palette: Vec<String> },
 }
 
 /// A control on a form.
@@ -161,6 +167,49 @@ pub(super) struct Form {
     caret_w: f32,
     /// Notes wrapped to the form's width at layout time (control index, lines).
     wrapped: Vec<(usize, Vec<String>)>,
+    /// Open colour palette (control index) and its hovered entry.
+    palette: Option<(usize, Option<PaletteHit>)>,
+    /// The colour control More Colors… was chosen for.
+    pub more_for: Option<&'static str>,
+    /// Palette texts: Automatic, Theme Colors, Standard Colors, More Colors….
+    pub palette_labels: Vec<String>,
+}
+
+/// An entry of an open colour palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PaletteHit {
+    Automatic,
+    Color(usize),
+    More,
+}
+
+/// Colour palette geometry (reference pixels from its top-left corner).
+const PAL_W: f32 = 196.0;
+const PAL_H: f32 = 218.0;
+
+fn pal_cell(k: usize) -> [f32; 4] {
+    let (row, col) = (k / 10, k % 10);
+    let y = match row {
+        0 => 50.0,
+        1..=5 => 68.0 + (row - 1) as f32 * 15.0,
+        _ => 166.0,
+    };
+    [8.0 + col as f32 * 18.0, y, 14.0, 14.0]
+}
+
+fn pal_hit(lx: f32, ly: f32, n: usize) -> Option<PaletteHit> {
+    if !(0.0..PAL_W).contains(&lx) || !(0.0..PAL_H).contains(&ly) {
+        return None;
+    }
+    if (4.0..26.0).contains(&ly) {
+        return Some(PaletteHit::Automatic);
+    }
+    if (190.0..212.0).contains(&ly) {
+        return Some(PaletteHit::More);
+    }
+    (0..n)
+        .find(|k| in_rect(pal_cell(*k), lx, ly))
+        .map(PaletteHit::Color)
 }
 
 impl Form {
@@ -181,6 +230,9 @@ impl Form {
             widths: Vec::new(),
             caret_w: 0.0,
             wrapped: Vec::new(),
+            palette: None,
+            more_for: None,
+            palette_labels: Vec::new(),
         }
     }
 
@@ -391,7 +443,30 @@ impl Form {
                 | Kind::Spin { .. }
                 | Kind::Button { .. }
                 | Kind::Swatches { .. }
+                | Kind::ColorPick { .. }
         )
+    }
+
+    /// Colour of a colour drop-down (`""` = automatic).
+    pub fn color(&self, id: &str) -> String {
+        match self.get(id).map(|c| &c.kind) {
+            Some(Kind::ColorPick { hex, .. }) => hex.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Set the colour of a colour drop-down.
+    pub fn set_color(&mut self, id: &str, v: &str) {
+        if let Some(Kind::ColorPick { hex, .. }) = self.get_mut(id).map(|c| &mut c.kind) {
+            v.clone_into(hex);
+        }
+    }
+
+    /// The open palette's rectangle (reference pixels): under its control.
+    fn palette_rect(&self) -> Option<[f32; 4]> {
+        let (i, _) = self.palette?;
+        let r = self.ctls.get(i)?.rect;
+        Some([r[0], r[1] + r[3], PAL_W, PAL_H])
     }
 
     fn first_focus(&self) -> Option<usize> {
@@ -523,6 +598,15 @@ impl Form {
     /// Pointer moved: `true` when the hovered button / drop-down item changed.
     pub fn hover(&mut self, x: f32, y: f32) -> bool {
         let (lx, ly) = self.local(x, y);
+        if let (Some(r), Some((i, old))) = (self.palette_rect(), self.palette) {
+            let n = match &self.ctls[i].kind {
+                Kind::ColorPick { palette, .. } => palette.len(),
+                _ => 0,
+            };
+            let h = pal_hit(lx - r[0], ly - r[1], n);
+            self.palette = Some((i, h));
+            return h != old;
+        }
         if let (Some((r, n)), Some((i, item))) = (self.drop_rect(), self.open) {
             if in_rect(r, lx, ly) {
                 let at = (((ly - r[1] - 1.0) / ROW_H).floor().max(0.0) as usize).min(n - 1);
@@ -542,6 +626,29 @@ impl Form {
     /// A click (`count` 2 = double click) at device point (x, y).
     pub fn press(&mut self, x: f32, y: f32, count: u8) -> Event {
         let (lx, ly) = self.local(x, y);
+        if let Some((i, _)) = self.palette {
+            let r = self.palette_rect().unwrap_or_default();
+            self.palette = None;
+            let id = self.ctls[i].id;
+            let Kind::ColorPick { hex, palette } = &mut self.ctls[i].kind else {
+                return Event::None;
+            };
+            return match pal_hit(lx - r[0], ly - r[1], palette.len()) {
+                Some(PaletteHit::Automatic) => {
+                    hex.clear();
+                    Event::Changed(id)
+                }
+                Some(PaletteHit::Color(k)) => {
+                    palette[k].clone_into(hex);
+                    Event::Changed(id)
+                }
+                Some(PaletteHit::More) => {
+                    self.more_for = Some(id);
+                    Event::Clicked("moreColors")
+                }
+                None => Event::None,
+            };
+        }
         if let Some((i, _)) = self.open.take() {
             if let Some((r, n)) = self.drop_rect_for(i) {
                 if in_rect(r, lx, ly) {
@@ -620,6 +727,10 @@ impl Form {
                 None => Event::None,
             },
             Kind::Canvas => Event::Canvas(id, lx - r[0], ly - r[1]),
+            Kind::ColorPick { .. } => {
+                self.palette = Some((i, None));
+                Event::None
+            }
             Kind::Label(_) | Kind::Note(_) | Kind::Group(_) => Event::None,
         }
     }
@@ -1165,6 +1276,32 @@ impl Form {
                     }
                 }
                 Kind::Canvas => canvas(c.id, r, p),
+                Kind::ColorPick { hex, .. } => {
+                    let open = self.palette.is_some_and(|(o, _)| o == i);
+                    p.fill_rect(
+                        r[0],
+                        r[1],
+                        r[2],
+                        r[3],
+                        if focused || open { SEL } else { EDIT_EDGE },
+                    );
+                    p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
+                    let bw = (22.0 * self.k).round();
+                    let sw = rgba_hex(hex).unwrap_or(INK);
+                    p.fill_rect(
+                        r[0] + (5.0 * self.k).round(),
+                        r[1] + (5.0 * self.k).round(),
+                        r[2] - bw - (10.0 * self.k).round(),
+                        r[3] - (10.0 * self.k).round(),
+                        sw,
+                    );
+                    chevron(p, r[0] + r[2] - bw / 2.0 - 1.0, r[1] + r[3] / 2.0, self.k);
+                }
+            }
+        }
+        if let (Some(pr), Some((i, hot))) = (self.palette_rect(), self.palette) {
+            if let Kind::ColorPick { hex, palette } = &self.ctls[i].kind {
+                self.paint_palette(p, pr, palette, hex, hot, &font);
             }
         }
         // Open drop-down list on top.
@@ -1190,6 +1327,67 @@ impl Form {
             }
         }
     }
+}
+
+impl Form {
+    /// The open colour palette: Automatic, Theme Colors, Standard Colors, More Colors….
+    fn paint_palette(
+        &self,
+        p: &mut dyn Painter,
+        pr: [f32; 4],
+        palette: &[String],
+        hex: &str,
+        hot: Option<PaletteHit>,
+        font: &Font<'_>,
+    ) {
+        let d = self.dev(pr);
+        let line = font.size * 1.33;
+        let label = |i: usize| self.palette_labels.get(i).map_or("", String::as_str);
+        p.fill_rect(d[0], d[1], d[2], d[3], Rgba(0xc6, 0xc6, 0xc6, 255));
+        p.fill_rect(d[0] + 1.0, d[1] + 1.0, d[2] - 2.0, d[3] - 2.0, WHITE);
+        let at = |x: f32, y: f32, w: f32, h: f32| self.dev([pr[0] + x, pr[1] + y, w, h]);
+        let row = |p: &mut dyn Painter, y: f32, s: &str, on: bool| {
+            let r = at(3.0, y, PAL_W - 6.0, 22.0);
+            if on {
+                p.fill_rect(r[0], r[1], r[2], r[3], HOVER);
+            }
+            let ty = (r[1] + (r[3] - line) / 2.0).round();
+            p.text_font(s, r[0] + 30.0 * self.k, ty, font, INK);
+        };
+        row(p, 4.0, label(0), hot == Some(PaletteHit::Automatic));
+        let auto = at(10.0, 9.0, 12.0, 12.0);
+        p.fill_rect(auto[0], auto[1], auto[2], auto[3], INK);
+        let caption = |p: &mut dyn Painter, y: f32, s: &str| {
+            let r = at(0.0, y, PAL_W, 18.0);
+            p.fill_rect(r[0] + 1.0, r[1], r[2] - 2.0, r[3], FACE);
+            let ty = (r[1] + (r[3] - line) / 2.0).round();
+            p.text_font(s, r[0] + 6.0 * self.k, ty, font, INK);
+        };
+        caption(p, 30.0, label(1));
+        caption(p, 146.0, label(2));
+        for (k, c) in palette.iter().enumerate() {
+            let cell = pal_cell(k);
+            let r = at(cell[0], cell[1], cell[2], cell[3]);
+            if c.eq_ignore_ascii_case(hex) || hot == Some(PaletteHit::Color(k)) {
+                let o = Rgba(0xf2, 0x94, 0x36, 255);
+                p.fill_rect(r[0] - 2.0, r[1] - 2.0, r[2] + 4.0, r[3] + 4.0, o);
+            }
+            p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xd0, 0xd0, 0xd0, 255));
+            let fill = rgba_hex(c).unwrap_or(WHITE);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, fill);
+        }
+        row(p, 190.0, label(3), hot == Some(PaletteHit::More));
+    }
+}
+
+/// `RRGGBB` as a colour.
+fn rgba_hex(h: &str) -> Option<Rgba> {
+    let h = h.trim_start_matches('#');
+    if h.len() != 6 {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some(Rgba((v >> 16) as u8, (v >> 8) as u8, v as u8, 255))
 }
 
 fn in_rect(r: [f32; 4], x: f32, y: f32) -> bool {

@@ -402,42 +402,40 @@ fn home() -> Tab {
             Group {
                 label: "sheetEditor.groupNumber",
                 large: vec![],
+                // Box, then currency / percent / thousands, then the decimal steps (three
+                // rows, as on the reference spreadsheet's ribbon).
                 rows: vec![
                     vec![S("sheet.numberFormat")],
-                    vec![
-                        B("format.currency"),
-                        B("format.percent"),
-                        B("format.comma"),
-                        B("format.decimalInc"),
-                        B("format.decimalDec"),
-                    ],
+                    vec![B("format.currency"), B("format.percent"), B("format.comma")],
+                    vec![B("format.decimalInc"), B("format.decimalDec")],
                 ],
             },
             Group {
                 label: "sheetEditor.groupStyles",
-                large: vec![
-                    L("sheet.conditional"),
-                    L("sheet.formatTable"),
-                    L("sheet.cellStyles"),
+                large: vec![],
+                rows: vec![
+                    vec![S("sheet.conditional")],
+                    vec![S("sheet.formatTable")],
+                    vec![S("sheet.cellStyles")],
                 ],
-                rows: vec![],
             },
             Group {
                 label: "sheetEditor.groupCells",
-                large: vec![
-                    L("sheet.insertCells"),
-                    L("sheet.deleteCells"),
-                    L("sheet.formatCells"),
+                large: vec![],
+                rows: vec![
+                    vec![S("sheet.insertCells")],
+                    vec![S("sheet.deleteCells")],
+                    vec![S("sheet.formatCells")],
                 ],
-                rows: vec![],
             },
             Group {
                 label: "sheetEditor.groupEditing",
-                large: vec![L("sheet.sortFilter"), L("sheet.findSelect")],
+                large: vec![],
+                // Icon menu buttons in two columns.
                 rows: vec![
-                    vec![S("sheet.autoSum")],
-                    vec![S("sheet.fill")],
-                    vec![S("sheet.clear")],
+                    vec![B("sheet.autoSum"), B("sheet.sortFilter")],
+                    vec![B("sheet.fill"), B("sheet.findSelect")],
+                    vec![B("sheet.clear")],
                 ],
             },
         ],

@@ -848,6 +848,27 @@ pub enum SheetCommand {
     },
     /// The registered map boundary datasets.
     MapDatasets,
+    /// Inserts a shape or a picture as a drawing object over the cells from `from` to the
+    /// cell holding its bottom-right corner `to` (`[row, col]`), written on save as a
+    /// group in the sheet's drawing (ECMA-376 Part 1, §20.5.2.17 grpSp, §20.5.2.29 sp,
+    /// §20.1.9.18 prstGeom, §20.1.8.14 blipFill).
+    InsertDrawing {
+        /// 0-based sheet index.
+        sheet: usize,
+        /// Top-left anchor cell `[row, col]`.
+        from: [u32; 2],
+        /// Bottom-right anchor cell `[row, col]`.
+        to: [u32; 2],
+        /// Preset geometry (`rect`, `ellipse`, `rightArrow`, … §20.1.10.56).
+        #[serde(default)]
+        shape: Option<String>,
+        /// Picture bytes (PNG / JPEG / GIF / BMP), base64-encoded: the shape is filled with it.
+        #[serde(default)]
+        image: Option<String>,
+        /// Text inside the shape.
+        #[serde(default)]
+        text: Option<String>,
+    },
     /// Removes a chart (charts read from the file lose their drawing anchor and parts).
     DeleteChart {
         /// 0-based sheet index.
@@ -2689,6 +2710,7 @@ impl SheetEngine {
             | C::ShowAllData { sheet }
             | C::AdvancedFilter { sheet, .. } => check(ws(*sheet)?, A::AutoFilter),
             C::InsertChart { sheet, .. }
+            | C::InsertDrawing { sheet, .. }
             | C::ChartDesign { sheet, .. }
             | C::EditChart { sheet, .. }
             | C::SetChartMap { sheet, .. }
@@ -4629,6 +4651,82 @@ impl SheetEngine {
                     .map(|p| json!({ "id": p.id(), "country": p.country(), "regions": p.regions().len() }))
                     .collect(),
             )),
+            C::InsertDrawing {
+                sheet,
+                from,
+                to,
+                shape,
+                image,
+                text,
+            } => {
+                let picture = match image.as_deref() {
+                    Some(b64) => Some(
+                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)
+                            .map_err(|_| bad("bad image data"))?,
+                    ),
+                    None => None,
+                };
+                self.edit(sheet, Recalc::No, |wb, _| {
+                    let (from, to) = (CellRef::new(from[0], from[1]), CellRef::new(to[0], to[1]));
+                    let mut n = 1;
+                    let key = loop {
+                        let cand = bo_model::diagram::group_name("/xl", n);
+                        if wb
+                            .sheets
+                            .iter()
+                            .flat_map(|s| &s.shape_groups)
+                            .all(|g| g.key != cand)
+                        {
+                            break cand;
+                        }
+                        n += 1;
+                    };
+                    let mut images = Vec::new();
+                    let fill = match &picture {
+                        Some(bytes) => {
+                            let ext = super::drawing_insert::image_ext(bytes)
+                                .ok_or_else(|| bad("unknown picture format"))?;
+                            let used: Vec<String> = wb
+                                .sheets
+                                .iter()
+                                .flat_map(|s| s.shape_groups.iter().flat_map(|g| &g.images))
+                                .map(|(name, _)| name.clone())
+                                .collect();
+                            let mut i = 1;
+                            let name = loop {
+                                let cand = format!("/xl/media/drawing_image{i}.{ext}");
+                                if !used.contains(&cand)
+                                    && !wb.opaque.parts.iter().any(|p| p.name == cand)
+                                {
+                                    break cand;
+                                }
+                                i += 1;
+                            };
+                            images.push((name.clone(), bytes.clone()));
+                            Some(name)
+                        }
+                        None => None,
+                    };
+                    let geom = shape.as_deref().unwrap_or("rect");
+                    let grp_sp = super::drawing_insert::group_xml(
+                        n as u32,
+                        geom,
+                        fill.as_deref(),
+                        text.as_deref(),
+                        picture.is_some(),
+                    );
+                    let ws = wb.sheets.get_mut(sheet).ok_or_else(|| bad("no such sheet"))?;
+                    ws.shape_groups.push(bo_model::sheet::SheetShapeGroup {
+                        from,
+                        to: Some(to),
+                        key,
+                        grp_sp,
+                        images,
+                        in_file: false,
+                    });
+                    Ok(json!({ "index": ws.shape_groups.len() - 1 }))
+                })
+            }
             C::DeleteChart { sheet, index } => self.edit(sheet, Recalc::No, |wb, _| {
                 if bo_xlsx::chart_write::remove_chart(wb, sheet, index) {
                     Ok(json!({ "ok": true }))
@@ -6197,6 +6295,22 @@ mod tests {
             n,
             "xfs deduplicated"
         );
+        // Diagonal borders (ECMA-376 Part 1, §18.8.4 diagonalDown / diagonalUp) survive saving.
+        e.set_input(0, 5, 0, "x").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "borders", "sheet": 0, "range": rng(5, 0, 5, 0),
+            "spec": { "preset": "diagonalDown", "style": "dashed", "color": "FF0000" } }),
+        );
+        let again = reopen(&mut e);
+        let wb = again.workbook().unwrap();
+        let xf = wb
+            .styles
+            .xf(wb.sheets[0].cell(5, 0).unwrap().style)
+            .unwrap();
+        let b = &wb.styles.borders[xf.border_id as usize];
+        assert!(b.diagonal_down && !b.diagonal_up);
+        assert_eq!(b.diagonal.style.as_deref(), Some("dashed"));
         // Format painter + undo.
         run(
             &mut back,

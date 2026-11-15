@@ -914,6 +914,16 @@ fn click_form(w: &mut SheetWindow, id: &str, dx: f32, dy: f32) {
 }
 
 #[test]
+fn format_cells_general_description_starts_right_of_the_category_list() {
+    let mut w = window();
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    let f = w.form.as_ref().expect("form");
+    let cat = f.get("cat").expect("cat").rect;
+    let desc = f.get("desc").expect("desc").rect;
+    assert!(desc[0] >= cat[0] + cat[2], "{desc:?} over {cat:?}");
+}
+
+#[test]
 fn format_cells_dialog_has_pages_like_the_reference() {
     let mut w = window();
     put(&mut w, &[(0, 0, "1234,5")]);
@@ -1349,4 +1359,332 @@ fn print_titles_help_tab_and_option_check_boxes() {
     assert!(checks
         .iter()
         .any(|(id, on)| *id == "sheet.gridlines" && *on));
+}
+
+#[test]
+fn filter_drop_down_checks_values_and_reports_records_found() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Name"),
+            (0, 1, "Region"),
+            (1, 0, "An"),
+            (1, 1, "North"),
+            (2, 0, "Binh"),
+            (2, 1, "South"),
+            (3, 0, "Chi"),
+            (3, 1, "North"),
+        ],
+    );
+    assert!(w.action("sheet.filter", &Fixed));
+    assert_eq!(w.auto_filter(), Some([0, 0, 3, 1]));
+    // The button sits at the right end of the header cell.
+    let b = w.view().cell_box(0, 1).expect("header");
+    let at = (b[2] - 4.0, f32::midpoint(b[1], b[3]));
+    assert_eq!(w.filter_button_at(at.0, at.1), Some(1));
+    assert_eq!(w.filter_button_at(b[0] + 4.0, at.1), None);
+    press(&mut w, at, 1);
+    let f = w.filter.as_ref().expect("drop-down open");
+    assert_eq!(f.header, "Region");
+    assert_eq!(f.kind, filter_impl::ColumnKind::Text);
+    let texts: Vec<&str> = f.lines.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(texts, ["North", "South"]);
+    // Untick South (list row 2 after Select All) and press OK.
+    w.filter.as_mut().expect("open").toggle(2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.filter.is_none());
+    assert_eq!(w.status, "2 of 3 records found");
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows, vec![(2, 2)]);
+    // Clear Filter From "Region" shows every row again.
+    press(&mut w, at, 1);
+    assert!(w.filter.as_ref().is_some_and(|f| f.active));
+    assert!(w.filter_item(3));
+    let info = w.view().engine().info().expect("info");
+    assert_eq!(info.sheets[0].hidden_rows.len(), 0);
+    // Number Filters > Greater Than opens the Custom AutoFilter form.
+    put(&mut w, &[(1, 1, "5"), (2, 1, "7"), (3, 1, "9")]);
+    press(&mut w, at, 1);
+    assert_eq!(
+        w.filter.as_ref().map(|f| f.kind),
+        Some(filter_impl::ColumnKind::Number)
+    );
+    assert!(w.filter_item(5));
+    assert!(w.menu.is_some(), "submenu");
+    w.menu = None;
+    assert!(w.filter_choice("op.2"));
+    let f = w.form.as_mut().expect("custom filter");
+    assert_eq!(f.sel("op1"), Some(2));
+    f.set_text("v1", "6");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.status, "2 of 3 records found");
+    // A press in the grid clears the message.
+    let at = cell_xy(&w, 5, 3);
+    press(&mut w, at, 1);
+    assert_eq!(w.status, "");
+}
+
+#[test]
+fn insert_tab_forms_create_tables_pivots_sparklines_links_and_headers() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Amount"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "South"),
+            (2, 1, "7"),
+            (3, 0, "North"),
+            (3, 1, "9"),
+        ],
+    );
+    // Create Table: the region and the header guess are filled in.
+    assert!(w.action("sheet.table", &Fixed));
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("range")).as_deref(),
+        Some("$A$1:$B$4")
+    );
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
+    assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
+    // Recommended PivotTable: Region as rows, Sum of Amount, on a new sheet.
+    assert!(w.action("sheet.recPivot", &Fixed));
+    {
+        let f = w.form.as_ref().expect("pivot form");
+        assert_eq!(f.sel("rows"), Some(0));
+        assert_eq!(f.sel("values"), Some(1));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.view().sheet(), 1, "the report's new sheet is shown");
+    let shown_cells: Vec<String> = (0..8).map(|r| shown_on(&w, 1, r, 1)).collect();
+    assert!(shown_cells.iter().any(|s| s == "21"), "{shown_cells:?}");
+    w.view_mut().set_sheet(0);
+    // Sparklines in D2:D4 from B2:B4.
+    w.view_mut().select((1, 1), (3, 1), (1, 1));
+    assert!(w.action("sheet.sparkColumn", &Fixed));
+    w.form.as_mut().expect("form").set_text("loc", "D2:D4");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let sp = w
+        .view
+        .query(json!({ "cmd": "sparklines" }))
+        .expect("sparklines");
+    assert!(sp.to_string().contains("column"), "{sp}");
+    // Link: a HYPERLINK formula in the active cell.
+    w.view_mut().select((5, 0), (5, 0), (5, 0));
+    assert!(w.action("sheet.link", &Fixed));
+    {
+        let f = w.form.as_mut().expect("link");
+        f.set_text("text", "Site");
+        f.set_text("addr", "https://example.com");
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        input(&w, 5, 0),
+        "=HYPERLINK(\"https://example.com\",\"Site\")"
+    );
+    assert_eq!(shown(&w, 5, 0), "Site");
+    // Header & Footer sections.
+    assert!(w.action("sheet.headerFooter", &Fixed));
+    w.form.as_mut().expect("hf").set_text("hc", "Report");
+    w.form.as_mut().expect("hf").set_text("fr", "Page &P");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let ps = &w.view().engine().workbook().expect("wb").sheets[0].page_setup;
+    assert_eq!(ps.odd_header.as_deref(), Some("&CReport"));
+    assert_eq!(ps.odd_footer.as_deref(), Some("&RPage &P"));
+    // Symbol: the chosen character goes into the cell editor.
+    assert!(w.action("sheet.symbol", &Fixed));
+    w.symbol = (0, 2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.view().editing());
+    assert_eq!(w.view().formula_text(), "#");
+}
+
+fn shown_on(w: &SheetWindow, sheet: usize, r: u32, c: u32) -> String {
+    w.view()
+        .engine()
+        .cell(sheet, r, c)
+        .map(|d| d.display)
+        .unwrap_or_default()
+}
+
+#[test]
+fn format_cells_diagonal_borders_reach_the_engine_and_come_back() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    w.fc.edges[7] = (6, "FF0000".into());
+    w.fc.border_changed = true;
+    let ok = w.fc_ok_point();
+    press(&mut w, ok, 1);
+    assert!(w.form.is_none());
+    let wb = w.view().engine().workbook().expect("wb");
+    let xf = wb
+        .styles
+        .xf(wb.sheets[0].cell(0, 0).expect("cell").style)
+        .expect("xf");
+    let b = &wb.styles.borders[xf.border_id as usize];
+    assert!(b.diagonal_down && !b.diagonal_up);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    assert_eq!(w.fc.edges[7], (6, "FF0000".to_owned()));
+    assert_eq!(w.fc.edges[6].0, 0);
+}
+
+#[test]
+fn insert_shapes_pictures_pivot_charts_and_slicers() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Amount"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "South"),
+            (2, 1, "7"),
+        ],
+    );
+    // Shapes menu entry: an oval at the active cell.
+    assert_eq!(
+        sheet_ribbon::menu("sheet.shapes", &[]).len(),
+        sheet_ribbon::SHAPES.len()
+    );
+    w.view_mut().select((4, 1), (4, 1), (4, 1));
+    assert!(w.action("shape.ellipse", &Fixed));
+    // A picture from the host (1 × 1 PNG): one column, one row.
+    let png = [
+        0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0,
+        0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0,
+    ];
+    assert!(w.insert_picture(&png, "dot.png"));
+    {
+        let ws = &w.view().engine().workbook().expect("wb").sheets[0];
+        assert_eq!(ws.shape_groups.len(), 2);
+        assert!(ws.shape_groups[0].grp_sp.contains("ellipse"));
+        assert_eq!(ws.shape_groups[1].to.map(|t| (t.row, t.col)), Some((5, 2)));
+    }
+    // Pictures asks the host for files.
+    assert!(w.action("sheet.pictures", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickPicture));
+    // Slicer outside a table: a hint; inside a table: a slicer.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.slicer", &Fixed));
+    assert!(w.status.contains("table"), "{}", w.status);
+    w.view_mut().select((0, 0), (2, 1), (0, 0));
+    assert!(w.action("table.TableStyleMedium2", &Fixed));
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.slicer", &Fixed));
+    assert_eq!(
+        w.view().engine().workbook().expect("wb").sheets[0]
+            .slicers
+            .len(),
+        1
+    );
+    // PivotChart: a pivot table and its chart on a new sheet.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.pivotChart", &Fixed));
+    let wb = w.view().engine().workbook().expect("wb");
+    let last = wb.sheets.last().expect("sheet");
+    assert_eq!((last.pivots.len(), last.charts.len()), (1, 1));
+}
+
+#[test]
+fn name_box_lists_functions_while_a_formula_is_typed() {
+    let mut w = window();
+    assert_eq!(w.name_box_text(), "A1");
+    type_text_in(&mut w, "=round(");
+    assert_eq!(w.name_box_text(), "ROUND");
+    let a = w.name_arrow_rect();
+    press(&mut w, (a[0] + 2.0, a[1] + 2.0), 1);
+    let items = w.menu.as_ref().expect("function list").items().len();
+    assert_eq!(items, fbar_impl::RECENT_FUNCTIONS.len() + 1);
+    w.menu = None;
+    assert!(w.choose(Choice::Command("fnin.SUM".into()), &Fixed));
+    assert_eq!(w.view().formula_text(), "=round(SUM(");
+    assert_eq!(w.name_box_text(), "SUM");
+}
+
+fn type_text_in(w: &mut SheetWindow, s: &str) {
+    w.handle(Input::Text(s.into()), &Fixed);
+}
+
+#[test]
+fn colour_drop_downs_open_the_palette_and_more_colors() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    {
+        let f = w.form.as_mut().expect("form");
+        f.set_tab(2);
+        assert_eq!(f.color("color"), "");
+    }
+    // Click the Font page's colour box, then a standard colour (red, second cell).
+    let click = |w: &mut SheetWindow, x: f32, y: f32| {
+        let d = w.form.as_ref().expect("form").dev([x, y, 0.0, 0.0]);
+        press(w, (d[0], d[1]), 1);
+    };
+    let r = w
+        .form
+        .as_ref()
+        .expect("form")
+        .get("color")
+        .expect("color")
+        .rect;
+    click(&mut w, r[0] + 10.0, r[1] + 10.0);
+    click(&mut w, r[0] + 8.0 + 18.0 + 5.0, r[1] + r[3] + 166.0 + 5.0);
+    assert_eq!(w.form.as_ref().expect("form").color("color"), "FF0000");
+    // More Colors…: a Colors form over Format Cells; its hex code comes back.
+    click(&mut w, r[0] + 10.0, r[1] + 10.0);
+    click(&mut w, r[0] + 40.0, r[1] + r[3] + 200.0);
+    assert_eq!(w.form_kind, form_impl::FormKind::MoreColors);
+    w.form.as_mut().expect("colors").set_num("green", 128);
+    w.more_colors_event(&form_impl::Event::Changed("green"));
+    assert_eq!(w.form.as_ref().expect("colors").text("hex"), "FF8000");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.form_kind, form_impl::FormKind::FormatCells);
+    assert_eq!(w.form.as_ref().expect("form").color("color"), "FF8000");
+    let ok = w.fc_ok_point();
+    press(&mut w, ok, 1);
+    assert_eq!(w.view().format().color.to_uppercase(), "FF8000");
+}
+
+#[test]
+fn cell_style_and_table_galleries_apply_their_choice() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[(0, 0, "A"), (0, 1, "B"), (1, 0, "1"), (1, 1, "2")],
+    );
+    w.relayout(&Fixed);
+    assert!(w.action("sheet.cellStyles", &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    assert_eq!(g.sections.len(), 4);
+    assert_eq!(w.gallery_choice_at(0, 2).as_deref(), Some("style.Good"));
+    // Clicking the Good tile styles the selection.
+    let r = w.gallery.as_ref().expect("g").rect();
+    let hit = (0..400)
+        .flat_map(|dx| (0..200).map(move |dy| (dx as f32, dy as f32)))
+        .map(|(dx, dy)| (r[0] + dx, r[1] + dy))
+        .find(|(x, y)| w.gallery.as_ref().and_then(|g| g.hit(*x, *y)) == Some((0, 2)))
+        .expect("Good tile");
+    press(&mut w, hit, 1);
+    assert!(w.gallery.is_none());
+    let st = w
+        .view
+        .query(json!({ "cmd": "formatState", "row": 0, "col": 0 }))
+        .expect("st");
+    assert_eq!(st["styleName"], "Good");
+    // Format as Table: 3 families × 7 styles.
+    assert!(w.action("sheet.formatTable", &Fixed));
+    let g = w.gallery.as_ref().expect("gallery");
+    assert_eq!(g.sections.iter().map(|s| s.1.len()).sum::<usize>(), 21);
+    let c = w.gallery_choice_at(1, 1).expect("medium 2");
+    assert_eq!(c, "table.TableStyleMedium2");
+    w.gallery = None;
+    assert!(w.action(&c, &Fixed));
+    let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
+    assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
 }

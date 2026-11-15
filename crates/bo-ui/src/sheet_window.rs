@@ -21,8 +21,14 @@ mod dataforms_impl;
 mod fbar_impl;
 #[path = "sheet_fcells.rs"]
 mod fcells_impl;
+#[path = "sheet_filter.rs"]
+mod filter_impl;
 #[path = "sheet_form.rs"]
 mod form_impl;
+#[path = "sheet_gallery.rs"]
+mod gallery_impl;
+#[path = "sheet_insert.rs"]
+mod insert_impl;
 #[path = "sheet_review.rs"]
 mod review_impl;
 use crate::strings::Strings;
@@ -257,6 +263,20 @@ pub struct SheetWindow {
     hover_comment: Option<(u32, u32)>,
     show_all_comments: bool,
     cards: Vec<comments_impl::Card>,
+    /// Open AutoFilter drop-down, its texts, the column of its Custom AutoFilter / Top 10
+    /// form, and whether the status bar shows its "x of y records found".
+    filter: Option<filter_impl::FilterDrop>,
+    filter_labels: filter_impl::Labels,
+    filter_col: u32,
+    filter_status: bool,
+    /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
+    spark_kind: String,
+    symbol: (usize, usize),
+    /// A form waiting under More Colors…, and that form's new and current colour.
+    form_stash: Option<(form_impl::Form, form_impl::FormKind)>,
+    more_colors: (String, String),
+    /// Open picture gallery (Cell Styles, Format as Table).
+    gallery: Option<gallery_impl::Gallery>,
 }
 
 impl SheetWindow {
@@ -323,7 +343,17 @@ impl SheetWindow {
             hover_comment: None,
             show_all_comments: false,
             cards: Vec::new(),
+            filter: None,
+            filter_labels: filter_impl::Labels::default(),
+            filter_col: 0,
+            filter_status: false,
+            spark_kind: String::new(),
+            symbol: (0, 0),
+            form_stash: None,
+            more_colors: (String::new(), String::new()),
+            gallery: None,
         };
+        insert_impl::add_icons(&mut w.icons);
         w.load_functions();
         w.refresh_calc_state();
         w
@@ -983,6 +1013,12 @@ impl SheetWindow {
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
             Choice::Command(id) => match id.strip_prefix("goto.") {
                 Some(name) => self.go_to(name),
+                None if id.starts_with("fnin.") => {
+                    self.view
+                        .edit_insert(&format!("{}(", &id["fnin.".len()..]), text);
+                    true
+                }
+                None if id.starts_with("filterop.") => self.filter_choice(&id["filterop.".len()..]),
                 None => self.action(&id, text),
             },
             Choice::Style(_) => false,
@@ -1040,7 +1076,8 @@ impl SheetWindow {
             return false;
         };
         self.rest += 1;
-        if self.rest != 5 || self.menu.is_some() {
+        if self.rest != 5 || self.menu.is_some() || self.gallery.is_some() || self.filter.is_some()
+        {
             return false;
         }
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
@@ -1133,6 +1170,16 @@ impl SheetWindow {
         }
         if self.menu.is_some() {
             if let Some(r) = self.menu_input(&input, text) {
+                return r;
+            }
+        }
+        if self.gallery.is_some() {
+            if let Some(r) = self.gallery_input(&input, text) {
+                return r;
+            }
+        }
+        if self.filter.is_some() {
+            if let Some(r) = self.filter_input(&input, text) {
                 return r;
             }
         }
@@ -1337,7 +1384,17 @@ impl SheetWindow {
                 }
                 self.ribbon.press(x, y)
             }
+            Input::Press { x, y, .. } if self.filter_button_at(x, y).is_some() => {
+                let col = self.filter_button_at(x, y).unwrap_or_default();
+                if self.view.editing() {
+                    self.view.commit();
+                }
+                self.open_filter(col)
+            }
             Input::Press { .. } => {
+                if std::mem::take(&mut self.filter_status) {
+                    self.status.clear();
+                }
                 self.grid_press = true;
                 self.ribbon.clear_pointer();
                 self.view.handle(input, text)
@@ -1480,6 +1537,8 @@ impl SheetWindow {
         self.paint_tabs(p);
         self.paint_scrollbars(p);
         self.paint_status(p);
+        self.paint_filter(p);
+        self.paint_gallery(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -1551,6 +1610,10 @@ impl SheetWindow {
     fn paint_form_canvas(&self, f: &form_impl::Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
         if self.form_kind == form_impl::FormKind::FormatCells {
             self.fc_paint_canvas(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Symbol {
+            self.paint_symbol_grid(f, r, p);
+        } else if self.form_kind == form_impl::FormKind::MoreColors {
+            self.paint_more_colors(r, p);
         }
     }
 
@@ -1639,7 +1702,7 @@ impl SheetWindow {
         let line = style.size * 1.33;
         let n = self.name_rect;
         p.text(
-            &self.view.name_box(),
+            &self.name_box_text(),
             n[0] + self.px(5.0),
             (n[1] + (n[3] - line) / 2.0).round(),
             style,

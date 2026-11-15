@@ -91,6 +91,12 @@ pub enum BorderPreset {
     Left,
     /// Right edge of the range.
     Right,
+    /// Top-left to bottom-right line in every cell (§18.8.4 `border/@diagonalDown`).
+    DiagonalDown,
+    /// Bottom-left to top-right line in every cell (§18.8.4 `border/@diagonalUp`).
+    DiagonalUp,
+    /// Remove both diagonal lines.
+    NoDiagonal,
 }
 
 /// A border command: preset, line style (§18.18.3 `ST_BorderStyle`) and colour.
@@ -410,9 +416,18 @@ pub fn apply_borders(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &B
         range.last.col,
     );
     let mut memo: HashMap<(u32, [bool; 4]), u32> = HashMap::new();
+    // Diagonal presets change every cell's diagonal (ECMA-376 Part 1, §18.8.4 `border`,
+    // `diagonal` element with `diagonalUp` / `diagonalDown`).
+    let diagonal = matches!(
+        spec.preset,
+        BorderPreset::DiagonalDown | BorderPreset::DiagonalUp | BorderPreset::NoDiagonal
+    );
     restyle(ws, range, |old, r, c| {
         // Which edges (top, right, bottom, left) this cell gets.
         let sides = match spec.preset {
+            BorderPreset::DiagonalDown | BorderPreset::DiagonalUp | BorderPreset::NoDiagonal => {
+                [false; 4]
+            }
             BorderPreset::All | BorderPreset::None => [true; 4],
             BorderPreset::Outline => [r == r0, c == c1, r == r1, c == c0],
             BorderPreset::Inside => [r > r0, c < c1, r < r1, c > c0],
@@ -421,7 +436,7 @@ pub fn apply_borders(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &B
             BorderPreset::Left => [false, false, false, c == c0],
             BorderPreset::Right => [false, c == c1, false, false],
         };
-        if sides == [false; 4] {
+        if sides == [false; 4] && !diagonal {
             return old;
         }
         *memo.entry((old, sides)).or_insert_with(|| {
@@ -433,6 +448,22 @@ pub fn apply_borders(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &B
                 .unwrap_or_default();
             if spec.preset == BorderPreset::None {
                 b = Border::default();
+            } else if diagonal {
+                match spec.preset {
+                    BorderPreset::DiagonalDown => {
+                        b.diagonal = e.clone();
+                        b.diagonal_down = true;
+                    }
+                    BorderPreset::DiagonalUp => {
+                        b.diagonal = e.clone();
+                        b.diagonal_up = true;
+                    }
+                    _ => {
+                        b.diagonal = BorderEdge::default();
+                        b.diagonal_up = false;
+                        b.diagonal_down = false;
+                    }
+                }
             } else {
                 if sides[0] {
                     b.top = e.clone();
@@ -550,6 +581,151 @@ pub const NAMED_STYLES: &[NamedStyle] = &[
         name: "Note",
         builtin_id: 10,
     },
+    NamedStyle {
+        name: "Calculation",
+        builtin_id: 22,
+    },
+    NamedStyle {
+        name: "Check Cell",
+        builtin_id: 23,
+    },
+    NamedStyle {
+        name: "Explanatory Text",
+        builtin_id: 53,
+    },
+    NamedStyle {
+        name: "Input",
+        builtin_id: 20,
+    },
+    NamedStyle {
+        name: "Linked Cell",
+        builtin_id: 24,
+    },
+    NamedStyle {
+        name: "Output",
+        builtin_id: 21,
+    },
+    NamedStyle {
+        name: "Warning Text",
+        builtin_id: 11,
+    },
+    NamedStyle {
+        name: "Heading 3",
+        builtin_id: 18,
+    },
+    NamedStyle {
+        name: "Heading 4",
+        builtin_id: 19,
+    },
+    // Themed cell styles: 20 % / 40 % / 60 % tints and the accent itself, accents 1–6
+    // (builtinId 30–32 then 29 for accent 1, each accent four ids further, §18.8.7).
+    NamedStyle {
+        name: "20% - Accent1",
+        builtin_id: 30,
+    },
+    NamedStyle {
+        name: "20% - Accent2",
+        builtin_id: 34,
+    },
+    NamedStyle {
+        name: "20% - Accent3",
+        builtin_id: 38,
+    },
+    NamedStyle {
+        name: "20% - Accent4",
+        builtin_id: 42,
+    },
+    NamedStyle {
+        name: "20% - Accent5",
+        builtin_id: 46,
+    },
+    NamedStyle {
+        name: "20% - Accent6",
+        builtin_id: 50,
+    },
+    NamedStyle {
+        name: "40% - Accent1",
+        builtin_id: 31,
+    },
+    NamedStyle {
+        name: "40% - Accent2",
+        builtin_id: 35,
+    },
+    NamedStyle {
+        name: "40% - Accent3",
+        builtin_id: 39,
+    },
+    NamedStyle {
+        name: "40% - Accent4",
+        builtin_id: 43,
+    },
+    NamedStyle {
+        name: "40% - Accent5",
+        builtin_id: 47,
+    },
+    NamedStyle {
+        name: "40% - Accent6",
+        builtin_id: 51,
+    },
+    NamedStyle {
+        name: "60% - Accent1",
+        builtin_id: 32,
+    },
+    NamedStyle {
+        name: "60% - Accent2",
+        builtin_id: 36,
+    },
+    NamedStyle {
+        name: "60% - Accent3",
+        builtin_id: 40,
+    },
+    NamedStyle {
+        name: "60% - Accent4",
+        builtin_id: 44,
+    },
+    NamedStyle {
+        name: "60% - Accent5",
+        builtin_id: 48,
+    },
+    NamedStyle {
+        name: "60% - Accent6",
+        builtin_id: 52,
+    },
+    NamedStyle {
+        name: "Accent1",
+        builtin_id: 29,
+    },
+    NamedStyle {
+        name: "Accent2",
+        builtin_id: 33,
+    },
+    NamedStyle {
+        name: "Accent3",
+        builtin_id: 37,
+    },
+    NamedStyle {
+        name: "Accent4",
+        builtin_id: 41,
+    },
+    NamedStyle {
+        name: "Accent5",
+        builtin_id: 45,
+    },
+    NamedStyle {
+        name: "Accent6",
+        builtin_id: 49,
+    },
+];
+
+/// Fills of the themed cell styles per accent 1–6: 20 %, 40 %, 60 % tints and the accent,
+/// measured on the reference's Cell Styles gallery (default theme).
+const ACCENT_FILLS: [[&str; 4]; 6] = [
+    ["D9E1F2", "B4C6E7", "8EA9DB", "4472C4"],
+    ["FCE4D6", "F8CBAD", "F4B084", "ED7D31"],
+    ["EDEDED", "DBDBDB", "C9C9C9", "A5A5A5"],
+    ["FFF2CC", "FFE699", "FFD966", "FFC000"],
+    ["DDEBF7", "BDD7EE", "9BC2E6", "5B9BD5"],
+    ["E2EFDA", "C6E0B4", "A9D08E", "70AD47"],
 ];
 
 /// Formatting record of a gallery style.
@@ -608,6 +784,85 @@ fn named_xf(styles: &mut Stylesheet, name: &str) -> Option<CellXf> {
                 ..Border::default()
             },
         ),
+        "Calculation" | "Input" | "Output" => {
+            // Measured: fill, frame colour and text colour / weight of each.
+            let (fill, edge, ink, bold) = match name {
+                "Calculation" => ("F2F2F2", "7F7F7F", "FA7D00", true),
+                "Input" => ("FFCC99", "7F7F7F", "3F3F76", false),
+                _ => ("F2F2F2", "3F3F3F", "3F3F3F", true),
+            };
+            let e = line("thin", edge);
+            (
+                font(ink, bold, None),
+                Some(fill),
+                Border {
+                    top: e.clone(),
+                    bottom: e.clone(),
+                    left: e.clone(),
+                    right: e,
+                    ..Border::default()
+                },
+            )
+        }
+        "Check Cell" => {
+            let e = line("double", "3F3F3F");
+            (
+                font("FFFFFF", true, None),
+                Some("A5A5A5"),
+                Border {
+                    top: e.clone(),
+                    bottom: e.clone(),
+                    left: e.clone(),
+                    right: e,
+                    ..Border::default()
+                },
+            )
+        }
+        "Explanatory Text" => (
+            Font {
+                italic: true,
+                ..font("7F7F7F", false, None)
+            },
+            None,
+            Border::default(),
+        ),
+        "Linked Cell" => (
+            font("FA7D00", false, None),
+            None,
+            Border {
+                bottom: line("double", "FF8001"),
+                ..Border::default()
+            },
+        ),
+        "Warning Text" => (font("FF0000", false, None), None, Border::default()),
+        "Heading 3" => (
+            font("1F3A5F", true, None),
+            None,
+            Border {
+                bottom: line("medium", "C5D3ED"),
+                ..Border::default()
+            },
+        ),
+        "Heading 4" => (font("1F3A5F", true, None), None, Border::default()),
+        themed if themed.contains("Accent") => {
+            let n = themed
+                .chars()
+                .last()
+                .and_then(|c| c.to_digit(10))
+                .map_or(0, |d| (d as usize).clamp(1, 6) - 1);
+            let level = match themed.get(..3) {
+                Some("20%") => 0,
+                Some("40%") => 1,
+                Some("60%") => 2,
+                _ => 3,
+            };
+            let ink = if level == 3 { "FFFFFF" } else { "000000" };
+            (
+                font(ink, false, None),
+                Some(ACCENT_FILLS[n][level]),
+                Border::default(),
+            )
+        }
         "Note" => {
             let edge = line("thin", "B5A55A");
             (
@@ -951,10 +1206,44 @@ mod tests {
         assert_eq!(st(&wb, 0, 0), ["", "", "", ""].map(String::from));
         apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::All));
         assert_eq!(st(&wb, 1, 1), ["thin"; 4].map(String::from));
+        // Diagonals keep the four edges and are removed on their own.
+        let border = |wb: &Workbook| {
+            let xf = wb
+                .styles
+                .xf(wb.sheets[0].cell(1, 1).unwrap().style)
+                .unwrap();
+            wb.styles.borders[xf.border_id as usize].clone()
+        };
+        apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::DiagonalDown));
+        apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::DiagonalUp));
+        let b = border(&wb);
+        assert!(b.diagonal_down && b.diagonal_up);
+        assert_eq!(b.diagonal.style.as_deref(), Some("thin"));
+        assert_eq!(st(&wb, 1, 1), ["thin"; 4].map(String::from));
+        apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::NoDiagonal));
+        let b = border(&wb);
+        assert!(!b.diagonal_down && !b.diagonal_up && b.diagonal.style.is_none());
     }
 
     #[test]
     fn named_styles_painter_and_clear() {
+        let mut wb = Workbook::new();
+        // Every gallery style has a format (ECMA-376 Part 1, §18.8.7 builtinId), the themed
+        // ones the measured tints.
+        for (i, s) in NAMED_STYLES.iter().enumerate() {
+            let at = rng("A1");
+            assert!(apply_named_style(&mut wb, 0, at, s.name), "{}", s.name);
+            assert_eq!(
+                format_state(&wb, 0, 0, 0, &Locale::VI_VN).style_name,
+                s.name,
+                "{i}"
+            );
+        }
+        let st = format_state(&wb, 0, 0, 0, &Locale::VI_VN);
+        assert_eq!(
+            (st.style_name.as_str(), st.fill_color.as_str()),
+            ("Accent6", "70AD47")
+        );
         let mut wb = Workbook::new();
         assert!(apply_named_style(&mut wb, 0, rng("A1:B1"), "Good"));
         let st = format_state(&wb, 0, 0, 1, &Locale::VI_VN);

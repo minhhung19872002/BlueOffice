@@ -317,17 +317,45 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("cells.unhideCols", "sheetMenu.cells.unhideCols"),
             e("sheet.formatCellsDialog", "sheetMenu.cells.formatCells"),
         ],
-        "sheet.chartColumn" => vec![
-            e("chart.column", "sheetMenu.chart.column"),
-            e("chart.bar", "sheetMenu.chart.bar"),
-        ],
-        "sheet.chartLine" => vec![
-            e("chart.line", "sheetMenu.chart.line"),
-            e("chart.area", "sheetMenu.chart.area"),
-        ],
-        "sheet.chartPie" => vec![
-            e("chart.pie", "sheetMenu.chart.pie"),
-            e("chart.doughnut", "sheetMenu.chart.doughnut"),
+        "sheet.chartColumn" => charts(&[
+            "column",
+            "stackedColumn",
+            "percentColumn",
+            "bar",
+            "stackedBar",
+            "percentBar",
+        ]),
+        "sheet.chartLine" => charts(&[
+            "line",
+            "stackedLine",
+            "percentLine",
+            "area",
+            "stackedArea",
+            "percentArea",
+        ]),
+        "sheet.chartPie" => charts(&["pie", "explodedPie", "doughnut", "pieOfPie", "barOfPie"]),
+        "sheet.chartHier" => charts(&["treemap", "sunburst"]),
+        "sheet.chartWaterfall" => charts(&["waterfall", "funnel", "stock", "surface"]),
+        "sheet.chartStat" => charts(&["histogram", "pareto", "boxWhisker"]),
+        "sheet.chartRadar" => charts(&["radar", "radarMarker", "radarFilled"]),
+        "sheet.chartScatter" => charts(&["scatter", "bubble"]),
+        "sheet.chart3D" => charts(&[
+            "clusteredColumn3D",
+            "stackedColumn3D",
+            "column3D",
+            "bar3D",
+            "line3D",
+            "area3D",
+            "pie3D",
+        ]),
+        "sheet.recCharts" => charts(&["column", "bar", "line", "pie", "area", "scatter"]),
+        "sheet.shapes" => SHAPES
+            .iter()
+            .map(|s| e(&format!("shape.{s}"), &format!("sheetShape.{s}")))
+            .collect(),
+        "sheet.text" => vec![
+            e("sheet.headerFooter", "sheetInsert.headerFooter"),
+            e("sheet.symbol", "sheetInsert.symbolMore"),
         ],
 
         "sheet.margins" => vec![
@@ -383,6 +411,31 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
         ],
         _ => Vec::new(),
     }
+}
+
+/// Preset shapes of the Shapes menu (ECMA-376 Part 1, §20.1.10.56 ST_ShapeType).
+pub(crate) const SHAPES: [&str; 12] = [
+    "rect",
+    "roundRect",
+    "ellipse",
+    "triangle",
+    "rightArrow",
+    "leftArrow",
+    "upArrow",
+    "downArrow",
+    "star5",
+    "hexagon",
+    "heart",
+    "wedgeRectCallout",
+];
+
+/// Menu entries inserting charts of kinds (engine chart type names, label keys
+/// `sheetInsertChart.<kind>`).
+fn charts(kinds: &[&str]) -> Vec<Entry> {
+    kinds
+        .iter()
+        .map(|k| e(&format!("chart.{k}"), &format!("sheetInsertChart.{k}")))
+        .collect()
 }
 
 /// Whether `id` is one of BlueSheet's menu buttons (the ribbon draws its drop-down arrow).
@@ -541,27 +594,83 @@ pub(crate) fn number_box_width(wide: bool) -> f32 {
 
 /// Large buttons placed after their group's rows.
 pub(crate) fn trailing(id: &str) -> bool {
-    matches!(id, "sheet.sortFilter" | "sheet.findSelect")
+    matches!(
+        id,
+        "sheet.sortFilter" | "sheet.findSelect" | "sheet.chartMap" | "sheet.pivotChart"
+    )
 }
 
 fn insert() -> Tab {
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
+    // Groups as the reference's Insert tab (round 16): Tables, Charts (Recommended Charts, a
+    // 3 × 3 block of chart type menus, Maps, PivotChart), Illustrations (pictures, shapes),
+    // Sparklines, Filters (slicer), Links, Text, Symbols.
     Tab {
         label: "ribbon.tabs.insert",
         groups: vec![
             Group {
                 label: "sheetEditor.groupTables",
-                large: vec![L("sheet.table")],
+                large: vec![L("sheet.pivotTable"), L("sheet.recPivot"), L("sheet.table")],
                 rows: vec![],
             },
             Group {
+                label: "sheetInsert.groupIllustrations",
+                large: vec![L("sheet.pictures")],
+                rows: vec![vec![S("sheet.shapes")]],
+            },
+            Group {
                 label: "sheetEditor.groupCharts",
-                large: vec![],
-                rows: vec![
-                    vec![S("sheet.chartColumn")],
-                    vec![S("sheet.chartLine")],
-                    vec![S("sheet.chartPie")],
+                large: vec![
+                    L("sheet.recCharts"),
+                    L("sheet.chartMap"),
+                    L("sheet.pivotChart"),
                 ],
+                rows: vec![
+                    vec![
+                        B("sheet.chartColumn"),
+                        B("sheet.chartHier"),
+                        B("sheet.chartWaterfall"),
+                    ],
+                    vec![
+                        B("sheet.chartLine"),
+                        B("sheet.chartStat"),
+                        B("sheet.chartRadar"),
+                    ],
+                    vec![
+                        B("sheet.chartPie"),
+                        B("sheet.chartScatter"),
+                        B("sheet.chart3D"),
+                    ],
+                ],
+            },
+            Group {
+                label: "sheetInsert.groupSparklines",
+                large: vec![
+                    L("sheet.sparkLine"),
+                    L("sheet.sparkColumn"),
+                    L("sheet.sparkWinLoss"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetInsert.groupFilters",
+                large: vec![L("sheet.slicer")],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetInsert.groupLinks",
+                large: vec![L("sheet.link")],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetInsert.groupText",
+                large: vec![L("sheet.text")],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetInsert.groupSymbols",
+                large: vec![],
+                rows: vec![vec![S("sheet.symbol")]],
             },
         ],
     }

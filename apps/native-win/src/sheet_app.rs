@@ -430,6 +430,19 @@ impl Shell {
                         spawn_self(Some(&path));
                     }
                 }
+                Request::PickPicture => {
+                    let filters = [(
+                        "Pictures (*.png;*.jpg;*.jpeg;*.gif;*.bmp)",
+                        "*.png;*.jpg;*.jpeg;*.gif;*.bmp",
+                    )];
+                    // BLUEOFFICE_PICTURE (a path) skips the dialog, for scripted comparisons.
+                    let path = std::env::var_os("BLUEOFFICE_PICTURE")
+                        .map(std::path::PathBuf::from)
+                        .or_else(|| win32::file_dialog(false, &filters, ""));
+                    if let Some(bytes) = path.and_then(|p| std::fs::read(p).ok()) {
+                        redraw |= self.view.insert_picture(&bytes, "");
+                    }
+                }
                 other => self.pending.push(other),
             }
         }

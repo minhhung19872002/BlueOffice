@@ -4,7 +4,7 @@
 //! with a preview (Font), line styles, presets and the border box (Border), the colour
 //! palette and patterns (Fill), and Protection. Positions are the reference's, measured
 //! black-box at 125 % (docs/ui/REPORT-sheet.md round 13).
-use super::form_impl::{Event, Form, Kind};
+use super::form_impl::{Event, Form, FormKind, Kind};
 use super::{SheetWindow, FONTS};
 use crate::Painter;
 use bo_model::sheet::{CellValue, SheetColor};
@@ -130,23 +130,6 @@ const PATTERNS: [&str; 19] = [
     "lightUp",
     "lightGrid",
     "lightTrellis",
-];
-
-/// Named colours of the colour drop-down boxes (`""` = automatic).
-const NAMED_COLORS: [(&str, &str); 13] = [
-    ("sheetFc.colAuto", ""),
-    ("sheetFc.colBlack", "000000"),
-    ("sheetFc.colWhite", "FFFFFF"),
-    ("sheetFc.colDarkRed", "C00000"),
-    ("sheetFc.colRed", "FF0000"),
-    ("sheetFc.colOrange", "FFC000"),
-    ("sheetFc.colYellow", "FFFF00"),
-    ("sheetFc.colLightGreen", "92D050"),
-    ("sheetFc.colGreen", "00B050"),
-    ("sheetFc.colLightBlue", "00B0F0"),
-    ("sheetFc.colBlue", "0070C0"),
-    ("sheetFc.colDarkBlue", "002060"),
-    ("sheetFc.colPurple", "7030A0"),
 ];
 
 /// Border edges of the Border page: top, inside horizontal, bottom, left, inside vertical,
@@ -299,7 +282,7 @@ impl SheetWindow {
         .iter()
         .map(|(k, f)| t(k, f))
         .collect();
-        let title = t("sheetMenu.cells.formatCells", "Format Cells").replace('…', "");
+        let title = t("sheetFc.title", "Format Cells");
         let mut f = Form::new(&title, (692.0, 636.0), tabs);
         let fmt = self.view.format().clone();
         let x = self.fc_cell();
@@ -726,18 +709,26 @@ impl SheetWindow {
             [321.0, 245.0, 0.0, 0.0],
             Kind::Label(t("sheetFc.color", "Color:")),
         );
-        let colors: Vec<String> = NAMED_COLORS.iter().map(|(k, _)| t(k, k)).collect();
-        let color_sel = NAMED_COLORS
-            .iter()
-            .position(|(_, h)| h.eq_ignore_ascii_case(&fmt.color))
-            .unwrap_or(0);
+        // Colour drop-downs open the reference's palette (theme colours with tints, then the
+        // standard colours) with Automatic and More Colors….
+        let palette = self.fc_palette();
+        f.palette_labels = vec![
+            t("sheetFc.colAuto", "Automatic"),
+            t("sheetFc.themeColors", "Theme Colors"),
+            t("sheetFc.standardColors", "Standard Colors"),
+            t("sheetFc.moreColors", "More Colors..."),
+        ];
         f.add(
             "color",
             p,
             [321.0, 265.0, 155.0, 28.0],
-            Kind::Combo {
-                items: colors.clone(),
-                sel: color_sel,
+            Kind::ColorPick {
+                hex: if fmt.color.eq_ignore_ascii_case("000000") {
+                    String::new()
+                } else {
+                    fmt.color.clone()
+                },
+                palette: palette.clone(),
             },
         );
         f.add(
@@ -827,9 +818,9 @@ impl SheetWindow {
             "bcolor",
             p,
             [46.0, 320.0, 143.0, 26.0],
-            Kind::Combo {
-                items: colors.clone(),
-                sel: 0,
+            Kind::ColorPick {
+                hex: String::new(),
+                palette: palette.clone(),
             },
         );
         f.add(
@@ -872,7 +863,6 @@ impl SheetWindow {
                 default: false,
             },
         );
-        let palette = self.fc_palette();
         let fill_sel = palette.iter().position(|h| h.eq_ignore_ascii_case(&x.3));
         f.add(
             "bg",
@@ -915,9 +905,9 @@ impl SheetWindow {
             "pcolor",
             p,
             [359.0, 108.0, 261.0, 28.0],
-            Kind::Combo {
-                items: colors,
-                sel: 0,
+            Kind::ColorPick {
+                hex: String::new(),
+                palette: palette.clone(),
             },
         );
         f.add(
@@ -1087,6 +1077,23 @@ impl SheetWindow {
                 out[slot] = (i, color);
             }
         }
+        // Diagonals share one line (ECMA-376 Part 1, §18.8.4 diagonalUp / diagonalDown).
+        if let Some(st) = b.diagonal.style.as_deref() {
+            let i = LINE_STYLES.iter().position(|s| *s == st).unwrap_or(6);
+            let color = b
+                .diagonal
+                .color
+                .as_ref()
+                .and_then(|c| bo_sheet::color::resolve_color(c, theme))
+                .map(hex)
+                .unwrap_or_default();
+            if b.diagonal_up {
+                out[6] = (i, color.clone());
+            }
+            if b.diagonal_down {
+                out[7] = (i, color);
+            }
+        }
         out
     }
 
@@ -1204,8 +1211,11 @@ impl SheetWindow {
         }
         // The description sits under the sample when the page has no other controls
         // (General, Text), else at the bottom (reference).
+        // Under the sample it starts right of the category list, not over it.
         if let Some(c) = f.get_mut("desc") {
-            c.rect[1] = if matches!(cat, 0 | 9) { 168.0 } else { 480.0 };
+            let beside = matches!(cat, 0 | 9);
+            c.rect[0] = if beside { 225.0 } else { 32.0 };
+            c.rect[1] = if beside { 163.0 } else { 480.0 };
         }
         if let Some(Kind::Note(s)) = f.get_mut("desc").map(|c| &mut c.kind) {
             s.clone_from(&descs[cat]);
@@ -1270,6 +1280,9 @@ impl SheetWindow {
     /// A form event of the Format Cells dialog.
     pub(super) fn fc_event(&mut self, ev: &Event) -> bool {
         match ev {
+            Event::Clicked("moreColors") => {
+                self.open_more_colors();
+            }
             Event::Cancel => {
                 self.form = None;
             }
@@ -1327,7 +1340,7 @@ impl SheetWindow {
                         f.set_sel("fstyle", Some(0));
                         f.set_text("styleName", &f.text("fstyle"));
                         f.set_sel("ul", Some(0));
-                        f.set_sel("color", Some(0));
+                        f.set_color("color", "");
                         for id in ["strike", "sup", "sub"] {
                             f.set_on(id, false);
                         }
@@ -1452,14 +1465,9 @@ impl SheetWindow {
     }
 
     fn fc_bcolor(&self) -> String {
-        let i = self
-            .form
+        self.form
             .as_ref()
-            .and_then(|f| f.sel("bcolor"))
-            .unwrap_or(0);
-        NAMED_COLORS
-            .get(i)
-            .map(|(_, h)| (*h).to_owned())
+            .map(|f| f.color("bcolor"))
             .unwrap_or_default()
     }
 
@@ -1532,10 +1540,7 @@ impl SheetWindow {
                     r[3] - 2.0,
                     Rgba(255, 255, 255, 255),
                 );
-                let color = NAMED_COLORS
-                    .get(f.sel("color").unwrap_or(0))
-                    .and_then(|(_, h)| rgba(h))
-                    .unwrap_or(ink);
+                let color = rgba(&f.color("color")).unwrap_or(ink);
                 let tw = f.width(&name).max(10.0) * pf.size / font.size;
                 let tx = (r[0] + (r[2] - tw) / 2.0).round();
                 let ty = (r[1] + (r[3] - pf.size * 1.33) / 2.0).round();
@@ -1842,10 +1847,7 @@ impl SheetWindow {
                     .copied()
                     .unwrap_or("none");
                 if !matches!(pat, "none" | "solid") {
-                    let fg = NAMED_COLORS
-                        .get(f.sel("pcolor").unwrap_or(0))
-                        .and_then(|(_, h)| rgba(h))
-                        .unwrap_or(ink);
+                    let fg = rgba(&f.color("pcolor")).unwrap_or(ink);
                     paint_pattern(p, r, pat, fg);
                 }
             }
@@ -1946,9 +1948,8 @@ impl SheetWindow {
             };
             patch.insert("underline".into(), json!(kind));
         }
-        let color = NAMED_COLORS
-            .get(f.sel("color").unwrap_or(0))
-            .map_or("", |(_, h)| *h);
+        let color = f.color("color");
+        let color = color.as_str();
         if !color.eq_ignore_ascii_case(&fmt.color) && (!color.is_empty() || fmt.color != "000000") {
             patch.insert("fontColor".into(), json!(color));
         }
@@ -1971,9 +1972,7 @@ impl SheetWindow {
             .copied()
             .unwrap_or("none");
         if !matches!(pat, "none" | "solid") && pat != x.4 {
-            let pc = NAMED_COLORS
-                .get(f.sel("pcolor").unwrap_or(0))
-                .map_or("", |(_, h)| *h);
+            let pc = f.color("pcolor");
             patch.insert("fillPattern".into(), json!(pat));
             patch.insert("patternColor".into(), json!(pc));
             patch.insert(
@@ -2022,6 +2021,8 @@ impl SheetWindow {
             if e[1].0 > 0 || e[4].0 > 0 {
                 add("inside", if e[1].0 > 0 { 1 } else { 4 });
             }
+            add("diagonalUp", 6);
+            add("diagonalDown", 7);
         }
         if !cmds.is_empty() {
             self.view.run(json!({ "cmd": "batch", "cmds": cmds }));
@@ -2128,6 +2129,134 @@ fn paint_pattern(p: &mut dyn Painter, r: [f32; 4], kind: &str, fg: Rgba) {
         }
     }
     p.pop_clip();
+}
+
+impl SheetWindow {
+    /// More Colors… of a colour drop-down: a Colors form (red / green / blue and the hex
+    /// code, with the new and current colour) over the stashed Format Cells form.
+    fn open_more_colors(&mut self) -> bool {
+        let Some(f) = self.form.take() else {
+            return false;
+        };
+        let target = f.more_for.unwrap_or("color");
+        let current = f.color(target);
+        let c = rgba(&current).unwrap_or(Rgba(0, 0, 0, 255));
+        self.form_stash = Some((f, self.form_kind));
+        let t = |k: &str, d: &str| self.t(k, d);
+        let mut m = Form::new(&t("sheetFc.colorsTitle", "Colors"), (400.0, 330.0), vec![]);
+        for (i, (id, key, label, v)) in [
+            ("red", "sheetFc.red", "Red:", c.0),
+            ("green", "sheetFc.green", "Green:", c.1),
+            ("blue", "sheetFc.blue", "Blue:", c.2),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let y = 64.0 + i as f32 * 36.0;
+            let lid = ["redLabel", "greenLabel", "blueLabel"][i];
+            m.add(
+                lid,
+                None,
+                [24.0, y + 4.0, 0.0, 0.0],
+                Kind::Label(t(key, label)),
+            );
+            m.add(
+                id,
+                None,
+                [100.0, y, 90.0, 26.0],
+                Kind::Spin {
+                    value: i32::from(v),
+                    min: 0,
+                    max: 255,
+                },
+            );
+        }
+        m.add(
+            "hexLabel",
+            None,
+            [24.0, 176.0, 0.0, 0.0],
+            Kind::Label(t("sheetFc.hex", "Hex:")),
+        );
+        let code = hex(c);
+        m.add(
+            "hex",
+            None,
+            [100.0, 172.0, 90.0, 26.0],
+            Kind::Edit {
+                value: code.chars().collect(),
+                caret: code.len(),
+            },
+        );
+        m.add(
+            "newLabel",
+            None,
+            [250.0, 60.0, 0.0, 0.0],
+            Kind::Label(t("sheetFc.new", "New")),
+        );
+        m.add("preview", None, [250.0, 80.0, 120.0, 100.0], Kind::Canvas);
+        m.add(
+            "curLabel",
+            None,
+            [250.0, 184.0, 0.0, 0.0],
+            Kind::Label(t("sheetFc.current", "Current")),
+        );
+        m.ok_cancel(&t("common.ok", "OK"), &t("common.cancel", "Cancel"));
+        self.more_colors = (code, current);
+        self.form = Some(m);
+        self.form_kind = FormKind::MoreColors;
+        true
+    }
+
+    /// Events of the Colors form.
+    pub(super) fn more_colors_event(&mut self, ev: &Event) {
+        let Some(m) = self.form.as_mut() else {
+            return;
+        };
+        match ev {
+            Event::Changed("red" | "green" | "blue") => {
+                let v = |id| m.num(id).clamp(0, 255) as u8;
+                let code = hex(Rgba(v("red"), v("green"), v("blue"), 255));
+                m.set_text("hex", &code);
+                self.more_colors.0 = code;
+            }
+            Event::Changed("hex") => {
+                let code = m.text("hex").trim().trim_start_matches('#').to_uppercase();
+                if let Some(c) = rgba(&code) {
+                    m.set_num("red", i32::from(c.0));
+                    m.set_num("green", i32::from(c.1));
+                    m.set_num("blue", i32::from(c.2));
+                    self.more_colors.0 = code;
+                }
+            }
+            Event::Ok | Event::Cancel => {
+                let ok = *ev == Event::Ok;
+                if let Some((mut f, kind)) = self.form_stash.take() {
+                    if ok {
+                        if let Some(id) = f.more_for {
+                            f.set_color(id, &self.more_colors.0);
+                        }
+                    }
+                    f.more_for = None;
+                    self.form = Some(f);
+                    self.form_kind = kind;
+                } else {
+                    self.form = None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The Colors form's preview: the new colour over the current one.
+    pub(super) fn paint_more_colors(&self, r: [f32; 4], p: &mut dyn Painter) {
+        let edge = Rgba(0x80, 0x80, 0x80, 255);
+        p.fill_rect(r[0], r[1], r[2], r[3], edge);
+        let half = (r[3] / 2.0).round();
+        let new = rgba(&self.more_colors.0).unwrap_or(Rgba(0, 0, 0, 255));
+        let cur = rgba(&self.more_colors.1).unwrap_or(Rgba(0, 0, 0, 255));
+        p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, half - 1.0, new);
+        p.fill_rect(r[0] + 1.0, r[1] + half, r[2] - 2.0, r[3] - half - 1.0, cur);
+    }
 }
 
 #[cfg(test)]

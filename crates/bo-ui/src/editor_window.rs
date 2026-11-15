@@ -94,22 +94,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("conv.image", Big("toImage", "pdfEditor.toImage", false)),
             ("conv.text", Big("file", "pdfEditor.toText", false)),
         ]),
-        2 => v.extend([
-            ("sep1", Sep),
-            ("ed.editText", Big("editText", "pdfEditor.editText", false)),
-            (
-                "ed.editObject",
-                Big("editObject", "pdfEditor.editObject", false),
-            ),
-            ("sep2", Sep),
-            ("ed.addText", Big("addText", "pdfEditor.addText", false)),
-            ("ed.addImage", Big("addImage", "pdfEditor.addImage", false)),
-            ("sep3", Sep),
-            (
-                "ed.delete",
-                Big("deletePage", "pdfEditor.deleteObject", false),
-            ),
-        ]),
+        2 => v.extend(crate::editor_format::edit_tab_items()),
         TAB_ORGANIZE => v.extend([
             ("sep1", Sep),
             (
@@ -744,6 +729,7 @@ impl EditorWindow {
             || self.format_command(cmd)
             || self.sign_command(cmd)
             || self.comment_command(cmd)
+            || self.edit_tab_command(cmd)
         {
             return;
         }
@@ -765,7 +751,13 @@ impl EditorWindow {
                 filters: image_filters(),
             }),
             "edit.redo" => self.undo(false),
-            "ed.editText" => self.toggle_tool(EditTool::Text),
+            "ed.editText" => {
+                self.toggle_tool(EditTool::Text);
+                // The reference shows the Edit tab while Edit Text is on.
+                if self.tool == Some(EditTool::Text) && self.r.ribbon_tab() != 2 {
+                    self.r.set_ribbon_tab(2, m);
+                }
+            }
             "ed.editObject" => self.toggle_tool(EditTool::Object),
             "ed.addText" => self.toggle_tool(EditTool::AddText),
             "prot.redact" => self.toggle_tool(EditTool::Redact),
@@ -1280,6 +1272,9 @@ impl EditorWindow {
         }
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
+        }
+        for id in crate::editor_format::EDIT_TAB_LATER {
+            self.r.enabled_override.insert(id, false);
         }
         self.r.tool_hidden = self.tool.is_some() || self.comment.tool.is_some();
         let area = self.r.doc_area();

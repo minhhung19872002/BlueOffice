@@ -38,17 +38,84 @@ const LINE: Rgba = Rgba(224, 224, 224, 255);
 const PRESSED: Rgba = Rgba(226, 226, 226, 255);
 
 /// Buttons of the pane: command and icon; rows of six, 48 logical pixels apart.
-const CHAR_ROW: [(&str, &str); 4] = [
+const CHAR_ROW: [(&str, &str); 6] = [
     ("fmt.bold", "bold"),
     ("fmt.italic", "italic"),
     ("fmt.underline", "fmtUnderline"),
     ("fmt.strike", "fmtStrike"),
+    ("fmt.super", "fmtSuper"),
+    ("fmt.sub", "fmtSub"),
 ];
-const ALIGN_ROW: [(&str, &str); 4] = [
+const ALIGN_ROW: [(&str, &str); 6] = [
     ("fmt.alignLeft", "alignLeft"),
     ("fmt.alignCenter", "alignCenter"),
     ("fmt.alignRight", "alignRight"),
     ("fmt.justify", "alignJustify"),
+    ("fmt.indent", "fmtIndent"),
+    ("fmt.outdent", "fmtOutdent"),
+];
+
+/// Ribbon items of the Edit tab (as the reference's; commands without a feature yet are
+/// shown disabled).
+pub(crate) fn edit_tab_items() -> Vec<(&'static str, crate::reader_window::Kind)> {
+    use crate::reader_window::Kind::{Big, Sep};
+    vec![
+        ("sep1", Sep),
+        ("ed.editText", Big("editText", "pdfEditor.editText", false)),
+        (
+            "ed.editObject",
+            Big("editObject", "pdfEditor.editObject", true),
+        ),
+        ("ed.linkJoin", Big("linkJoin", "pdfEditor.linkJoin", false)),
+        ("ed.spell", Big("spell", "pdfEditor.spell", false)),
+        (
+            "ed.searchReplace",
+            Big("searchReplace", "pdfEditor.searchReplace", false),
+        ),
+        ("sep2", Sep),
+        ("ed.addText", Big("addText", "pdfEditor.addText", false)),
+        ("ed.addImage", Big("addImage", "pdfEditor.addImages", true)),
+        (
+            "ed.addShapes",
+            Big("addShapes", "pdfEditor.addShapes", true),
+        ),
+        ("sep3", Sep),
+        ("ed.reflow", Big("reflow", "pdfEditor.reflow", false)),
+        ("sep4", Sep),
+        (
+            "ed.articleBox",
+            Big("articleBox", "pdfEditor.articleBox", false),
+        ),
+        ("sep5", Sep),
+        ("ed.webLinks", Big("webLinks", "pdfEditor.webLinks", true)),
+        ("ed.link", Big("link", "pdfEditor.link", false)),
+        ("ed.bookmark", Big("bookmark", "pdfEditor.bookmark", false)),
+        ("ed.crossRef", Big("crossRef", "pdfEditor.crossRef", false)),
+        ("sep6", Sep),
+        ("cm.file", Big("attach", "pdfEditor.fileAttachment", false)),
+        (
+            "ed.imageAnnot",
+            Big("imageAnnot", "pdfEditor.imageAnnot", false),
+        ),
+        ("ed.media", Big("media", "pdfEditor.media", false)),
+        ("ed.add3d", Big("add3d", "pdfEditor.add3d", false)),
+    ]
+}
+
+/// Edit tab commands with no feature yet (shown disabled).
+pub(crate) const EDIT_TAB_LATER: [&str; 12] = [
+    "ed.linkJoin",
+    "ed.spell",
+    "ed.addShapes",
+    "ed.reflow",
+    "ed.articleBox",
+    "ed.webLinks",
+    "ed.link",
+    "ed.bookmark",
+    "ed.crossRef",
+    "ed.imageAnnot",
+    "ed.media",
+    "ed.add3d",
 ];
 
 /// Hit boxes of the pane (window pixels) and their commands, from the last paint.
@@ -62,6 +129,102 @@ fn button_xy(k: usize) -> f32 {
 }
 
 impl EditorWindow {
+    /// Edit tab commands of this module; false when `cmd` is not one.
+    pub(crate) fn edit_tab_command(&mut self, cmd: &str) -> bool {
+        if cmd != "ed.searchReplace" {
+            return false;
+        }
+        let mut d = crate::dialog::Dialog::new(
+            crate::dialog::DialogKind::Replace,
+            self.t("pdfEditor.searchReplace"),
+            vec![
+                (self.t("pdfEditor.findWhat"), String::new()),
+                (self.t("pdfEditor.replaceWith"), String::new()),
+            ],
+            vec![
+                (self.t("pdfReader.ok"), crate::dialog::DialogButton::Ok),
+                (
+                    self.t("pdfReader.cancel"),
+                    crate::dialog::DialogButton::Cancel,
+                ),
+            ],
+            Vec::new(),
+        );
+        d.layout(
+            &crate::editor_window::Estimate,
+            self.r.window_size(),
+            self.r.ui_scale(),
+        );
+        self.dialog2 = Some((d, crate::editor_actions::Ask2::Replace));
+        true
+    }
+
+    /// Replace every `find` in the document's paragraphs with `with` (one undo step per
+    /// paragraph); returns how many were replaced.
+    pub(crate) fn replace_all(&mut self, find: &str, with: &str) -> usize {
+        if find.is_empty() {
+            return 0;
+        }
+        if let Some(v) = self.r.view_mut() {
+            self.edit.finish_typing(Some(v));
+        }
+        let mut count = 0;
+        let pages = self.r.view().map_or(0, crate::ReaderView::page_count);
+        for page in 0..pages {
+            let Some(v) = self.r.view_mut() else { break };
+            let doc = v.doc_mut();
+            loop {
+                let Ok(objs) = doc.page_objects(page) else {
+                    break;
+                };
+                let Some(b) = bo_pdfread::text_blocks(&objs)
+                    .into_iter()
+                    .find(|b| b.text.contains(find))
+                else {
+                    break;
+                };
+                let Ok(mut e) = doc.begin_block_edit(page, &b) else {
+                    break;
+                };
+                let text: String = e.text.iter().collect();
+                let n = text.matches(find).count();
+                let new = text.replace(find, with);
+                // Rebuild text and styles: each kept character keeps its style.
+                let mut chars = Vec::new();
+                let mut styles = Vec::new();
+                let mut i = 0;
+                let src: Vec<char> = e.text.clone();
+                let f: Vec<char> = find.chars().collect();
+                while i < src.len() {
+                    if src[i..].starts_with(&f) {
+                        let st = e.style_of.get(i).copied().unwrap_or(0);
+                        for c in with.chars() {
+                            chars.push(c);
+                            styles.push(st);
+                        }
+                        i += f.len();
+                    } else {
+                        chars.push(src[i]);
+                        styles.push(e.style_of.get(i).copied().unwrap_or(0));
+                        i += 1;
+                    }
+                }
+                debug_assert_eq!(chars.iter().collect::<String>(), new);
+                e.text = chars;
+                e.style_of = styles;
+                let ok = doc.block_edit_update(&mut e).is_ok();
+                doc.end_block_edit(&e);
+                if !ok {
+                    break;
+                }
+                count += n;
+            }
+            v.invalidate_page(page);
+        }
+        self.after_doc_edit();
+        count
+    }
+
     /// Run a Format command; false when `cmd` is not one.
     pub(crate) fn format_command(&mut self, cmd: &str) -> bool {
         if !cmd.starts_with("fmt.") {
@@ -159,6 +322,83 @@ impl EditorWindow {
                 return true;
             }
             "fmt.bold" => StyleChange::Bold(!style.as_ref().is_some_and(|(s, _)| s.bold)),
+            "fmt.underline" => {
+                StyleChange::Underline(!style.as_ref().is_some_and(|(s, _)| s.underline))
+            }
+            "fmt.strike" => StyleChange::Strike(!style.as_ref().is_some_and(|(s, _)| s.strike)),
+            "fmt.super" => StyleChange::Script(i8::from(
+                style.as_ref().is_none_or(|(s, _)| s.script <= 0),
+            )),
+            "fmt.sub" => {
+                StyleChange::Script(if style.as_ref().is_some_and(|(s, _)| s.script < 0) {
+                    0
+                } else {
+                    -1
+                })
+            }
+            "fmt.indent" | "fmt.outdent" => {
+                let d = if cmd == "fmt.indent" { 18.0 } else { -18.0 };
+                if let Some(v) = self.r.view_mut() {
+                    self.edit.with_block(v, |b, _| b.shift_left(d));
+                }
+                return true;
+            }
+            "fmt.bullets" | "fmt.numbering" => {
+                let items: Vec<(String, String, bool)> = if cmd == "fmt.bullets" {
+                    ["\u{2022}", "\u{2013}", "\u{2713}", "\u{25E6}"]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, b)| (format!("fmt.list.b{i}"), (*b).to_owned(), false))
+                        .collect()
+                } else {
+                    ["1.", "a)", "I."]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, b)| (format!("fmt.list.n{i}"), (*b).to_owned(), false))
+                        .collect()
+                };
+                let mut items = items;
+                items.push((
+                    "fmt.list.none".into(),
+                    self.t("pdfEditor.bulletNone"),
+                    false,
+                ));
+                self.pane_menu(items, cmd);
+                return true;
+            }
+            "fmt.lineSp" => {
+                let size = style.as_ref().map_or(12.0, |(s, _)| s.size);
+                let items = [1.0_f32, 1.15, 1.5, 2.0]
+                    .iter()
+                    .map(|m| {
+                        let v = (size * 1.15 * m * 100.0).round() / 100.0;
+                        (format!("fmt.pitch.{v}"), format!("{v:.2}"), false)
+                    })
+                    .collect();
+                self.pane_menu(items, cmd);
+                return true;
+            }
+            "fmt.scale" => {
+                let items = [50, 75, 90, 100, 110, 125, 150, 200]
+                    .iter()
+                    .map(|v| (format!("fmt.scale.{v}"), format!("{v}%"), false))
+                    .collect();
+                self.pane_menu(items, cmd);
+                return true;
+            }
+            "fmt.charSp" | "fmt.wordSp" => {
+                let key = if cmd == "fmt.charSp" {
+                    "fmt.tc."
+                } else {
+                    "fmt.tw."
+                };
+                let items = [-0.5_f32, 0.0, 0.5, 1.0, 2.0, 4.0]
+                    .iter()
+                    .map(|v| (format!("{key}{v}"), format!("{v:.2}"), false))
+                    .collect();
+                self.pane_menu(items, cmd);
+                return true;
+            }
             "fmt.italic" => StyleChange::Italic(!style.as_ref().is_some_and(|(s, _)| s.italic)),
             "fmt.family.serif" => StyleChange::Serif(true),
             "fmt.family.sans" => StyleChange::Serif(false),
@@ -175,6 +415,33 @@ impl EditorWindow {
                 return true;
             }
             _ => {
+                if let Some(kind) = cmd.strip_prefix("fmt.list.") {
+                    self.apply_list(kind);
+                    return true;
+                }
+                if let Some(v) = cmd
+                    .strip_prefix("fmt.pitch.")
+                    .and_then(|s| s.parse::<f32>().ok())
+                {
+                    if let Some(view) = self.r.view_mut() {
+                        self.edit.with_block(view, |b, _| b.pitch = v.max(1.0));
+                    }
+                    return true;
+                }
+                let num = |pre: &str| cmd.strip_prefix(pre).and_then(|s| s.parse::<f32>().ok());
+                let change = if let Some(v) = num("fmt.scale.") {
+                    Some(StyleChange::Scale(v))
+                } else if let Some(v) = num("fmt.tc.") {
+                    Some(StyleChange::CharSpacing(v))
+                } else {
+                    num("fmt.tw.").map(StyleChange::WordSpacing)
+                };
+                if let Some(change) = change {
+                    if let Some(v) = self.r.view_mut() {
+                        self.edit.style(v, &change);
+                    }
+                    return true;
+                }
                 if let Some((_, c)) = cmd
                     .strip_prefix("fmt.cColor.")
                     .and_then(|s| s.parse::<usize>().ok())
@@ -401,11 +668,16 @@ impl EditorWindow {
         p.fill_rect(sw[0], sw[1], sw[2], sw[3], col);
         frame(p, sw, EDGE);
         self.pane.hits.push((sw, "fmt.color"));
-        // Character and alignment rows.
+        // Character and paragraph rows (plain ink, as the reference draws them).
+        let script = cur.as_ref().map_or(0, |(s, _)| s.script);
         let on = |cmd: &str| -> bool {
             cur.as_ref().is_some_and(|(s, a)| match cmd {
                 "fmt.bold" => s.bold,
                 "fmt.italic" => s.italic,
+                "fmt.underline" => s.underline,
+                "fmt.strike" => s.strike,
+                "fmt.super" => script > 0,
+                "fmt.sub" => script < 0,
                 "fmt.alignLeft" => *a == Align::Left,
                 "fmt.alignCenter" => *a == Align::Center,
                 "fmt.alignRight" => *a == Align::Right,
@@ -413,37 +685,179 @@ impl EditorWindow {
                 _ => false,
             })
         };
-        for (row, items) in [(128.0, &CHAR_ROW), (172.0, &ALIGN_ROW)] {
+        let _ = (accent, ink);
+        for (row, items) in [(128.0, &CHAR_ROW[..]), (172.0, &ALIGN_ROW[..])] {
             for (i, (cmd, icon)) in items.iter().enumerate() {
                 let (cx, cy) = (x0 + px(button_xy(i)), y0 + px(row));
                 let s = px(28.0);
                 let b = [cx - s / 2.0, cy - s / 2.0, s, s];
-                let works = !matches!(*cmd, "fmt.underline" | "fmt.strike");
                 if on(cmd) {
                     p.fill_rect(b[0], b[1], b[2], b[3], PRESSED);
                 }
-                let color = if typing && works { TEXT } else { MUTED };
-                let is = px(20.0);
-                reader_icons::draw(
-                    p,
-                    icon,
-                    cx - is / 2.0,
-                    cy - is / 2.0,
-                    is,
-                    Ink {
-                        ink: color,
-                        accent: if typing && works { accent } else { MUTED },
-                    },
-                );
-                if works {
-                    self.pane.hits.push((b, cmd));
-                }
+                icon_at(p, icon, cx, cy, px(20.0), TEXT);
+                self.pane.hits.push((b, cmd));
+            }
+        }
+        // Bullets, numbering (menus) and baseline (not offered: grey, as the reference).
+        for (i, (cmd, icon, menu, color)) in [
+            ("fmt.bullets", "bullets", true, TEXT),
+            ("fmt.numbering", "numbering", true, TEXT),
+            ("fmt.baseline", "fmtBaseline", true, MUTED),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (cx, cy) = (
+                x0 + px(button_xy(i) + 6.0 + 10.0 * i as f32),
+                y0 + px(214.0),
+            );
+            icon_at(p, icon, cx, cy, px(20.0), color);
+            if menu {
+                arrow(p, cx + px(14.0), cy - px(1.0), px(6.0), color);
+            }
+            if color == TEXT {
+                let s = px(28.0);
+                self.pane
+                    .hits
+                    .push(([cx - s / 2.0, cy - s / 2.0, s + px(12.0), s], cmd));
+            }
+        }
+        // Spacing: line and paragraph spacing, character scale, character and word spacing.
+        let blk = self.edit.block();
+        let pitch = blk.map(|b| b.pitch);
+        let fields = [
+            (
+                "fmt.lineSp",
+                "lineSpacing",
+                33.0,
+                54.0,
+                263.0,
+                pitch.map(|v| format!("{v:.2}")),
+            ),
+            (
+                "fmt.paraSp",
+                "paraSpacing",
+                164.0,
+                184.0,
+                263.0,
+                Some("0.00".to_owned()),
+            ),
+            (
+                "fmt.scale",
+                "charScale",
+                33.0,
+                54.0,
+                301.0,
+                cur.as_ref().map(|(s, _)| format!("{}%", s.scale().round())),
+            ),
+            (
+                "fmt.charSp",
+                "charSpacing",
+                164.0,
+                184.0,
+                301.0,
+                cur.as_ref()
+                    .map(|(s, _)| format!("{:.2}", s.char_spacing())),
+            ),
+            (
+                "fmt.wordSp",
+                "wordSpacing",
+                33.0,
+                54.0,
+                339.0,
+                cur.as_ref()
+                    .map(|(s, _)| format!("{:.2}", s.word_spacing())),
+            ),
+        ];
+        for (cmd, icon, ix, bx, y, value) in fields {
+            let cy = y0 + px(y);
+            icon_at(p, icon, x0 + px(ix), cy, px(20.0), TEXT);
+            let r = [x0 + px(bx), cy - px(12.0), px(76.0), px(24.0)];
+            frame(p, r, EDGE);
+            let live = cmd != "fmt.paraSp";
+            let col = if live { ink } else { MUTED };
+            if let Some(v) = value {
+                p.text(&v, r[0] + px(6.0), r[1] + px(4.0), style(16.0), col);
+            }
+            arrow(p, r[0] + r[2] - px(14.0), r[1] + px(10.0), px(7.0), col);
+            if live {
+                self.pane.hits.push((r, cmd));
             }
         }
     }
 }
 
+/// Icon `name` centred on (`cx`, `cy`) in one ink colour.
+fn icon_at(p: &mut dyn Painter, name: &str, cx: f32, cy: f32, size: f32, ink: Rgba) {
+    reader_icons::draw(
+        p,
+        name,
+        cx - size / 2.0,
+        cy - size / 2.0,
+        size,
+        Ink { ink, accent: ink },
+    );
+}
+
+/// A small drop-down triangle with its top-left at (`x`, `y`).
+fn arrow(p: &mut dyn Painter, x: f32, y: f32, w: f32, c: Rgba) {
+    p.path(
+        &[
+            PathSeg::M(x, y),
+            PathSeg::L(x + w, y),
+            PathSeg::L(x + w / 2.0, y + w * 0.57),
+            PathSeg::Z,
+        ],
+        Some(c),
+        None,
+    );
+}
+
 impl EditorWindow {
+    /// Bullets or numbers at the start of each paragraph of the block (`b0`…, `n0`…, `none`).
+    fn apply_list(&mut self, kind: &str) {
+        const MARKS: [&str; 4] = ["\u{2022}", "\u{2013}", "\u{2713}", "\u{25E6}"];
+        let Some(v) = self.r.view_mut() else { return };
+        self.edit.with_block(v, |b, caret| {
+            // Paragraph starts: 0 and after each typed break.
+            let mut starts = vec![0];
+            starts.extend(
+                (0..b.text.len())
+                    .filter(|&i| b.text[i] == '\n')
+                    .map(|i| i + 1),
+            );
+            for (n, &st) in starts.iter().enumerate().rev() {
+                // Drop a mark this tool wrote before ("x " or "1. " / "a) " / "I. ").
+                let end = (st..b.text.len()).find(|&i| b.text[i] == ' ').unwrap_or(st);
+                let head: String = b.text[st..end].iter().collect();
+                let is_mark = MARKS.contains(&head.as_str())
+                    || (end > st
+                        && end - st <= 5
+                        && (head.ends_with('.') || head.ends_with(')'))
+                        && head[..head.len() - 1].chars().all(char::is_alphanumeric));
+                if is_mark && end < b.text.len() {
+                    b.remove(st, end + 1);
+                    if *caret > st {
+                        *caret = caret.saturating_sub(end + 1 - st).max(st);
+                    }
+                }
+                let mark = match kind.as_bytes() {
+                    [b'b', d] => MARKS.get(usize::from(d - b'0')).map(|m| (*m).to_owned()),
+                    [b'n', b'0'] => Some(format!("{}.", n + 1)),
+                    [b'n', b'1'] => Some(format!("{})", char::from(b'a' + (n % 26) as u8))),
+                    [b'n', b'2'] => Some(format!("{}.", roman(n + 1))),
+                    _ => None,
+                };
+                if let Some(m) = mark {
+                    let k = b.insert(st, &format!("{m} "));
+                    if *caret >= st {
+                        *caret += k - st;
+                    }
+                }
+            }
+        });
+    }
+
     /// The Format pane of a comment tool: colour, opacity and line width of new comments.
     fn paint_comment_props(&mut self, p: &mut dyn Painter, x0: f32, y0: f32) {
         let k = self.r.ui_scale();
@@ -522,4 +936,31 @@ fn frame(p: &mut dyn Painter, r: [f32; 4], c: Rgba) {
         None,
         Some((c, 1.0)),
     );
+}
+
+/// Upper-case Roman numeral of `n` (1–3999).
+fn roman(mut n: usize) -> String {
+    const R: [(usize, &str); 13] = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+    let mut s = String::new();
+    for (v, r) in R {
+        while n >= v {
+            s.push_str(r);
+            n -= v;
+        }
+    }
+    s
 }

@@ -660,6 +660,28 @@ impl Editing {
         true
     }
 
+    /// Change the paragraph being typed into with `f`, then lay it out again.
+    pub fn with_block(
+        &mut self,
+        v: &mut ReaderView,
+        f: impl FnOnce(&mut BlockEdit, &mut usize),
+    ) -> bool {
+        let Some(t) = self.typing.as_mut() else {
+            return false;
+        };
+        let Some(b) = t.block.as_mut() else {
+            return false;
+        };
+        f(b, &mut t.caret);
+        t.anchor = None;
+        self.write(v)
+    }
+
+    /// The paragraph being typed into.
+    pub fn block(&self) -> Option<&BlockEdit> {
+        self.typing.as_ref()?.block.as_ref()
+    }
+
     /// Align the paragraph being typed into.
     pub fn align(&mut self, v: &mut ReaderView, align: Align) -> bool {
         let Some(b) = self.typing.as_mut().and_then(|t| t.block.as_mut()) else {

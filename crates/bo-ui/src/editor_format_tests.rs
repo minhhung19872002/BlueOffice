@@ -128,3 +128,63 @@ fn typing_rewrites_only_the_paragraph() {
     key(&mut w, Key::Escape, false, false);
     assert_eq!(texts(&mut w), ["Page 1abcdefghij"]);
 }
+
+#[test]
+fn pane_rows_spacing_lists_and_replace() {
+    let mut w = window(1);
+    start_typing(&mut w);
+    // Edit Text switches to the Edit tab.
+    assert_eq!(w.r.ribbon_tab(), 2);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    assert!(rec.texts.iter().any(|t| t == "Replace"), "{:?}", rec.texts);
+    for cmd in [
+        "fmt.underline",
+        "fmt.strike",
+        "fmt.super",
+        "fmt.indent",
+        "fmt.bullets",
+        "fmt.numbering",
+        "fmt.lineSp",
+        "fmt.scale",
+        "fmt.charSp",
+        "fmt.wordSp",
+    ] {
+        assert!(w.pane.hits.iter().any(|h| h.1 == cmd), "{cmd}");
+    }
+    w.run("fmt.underline", &Fixed);
+    w.run("fmt.super", &Fixed);
+    w.run("fmt.scale.150", &Fixed);
+    w.run("fmt.tc.1", &Fixed);
+    {
+        let b = w.edit.block().expect("block");
+        let s = &b.styles[b.style_of[0]];
+        assert!(s.underline && s.script == 1);
+        assert!((s.scale() - 150.0).abs() < 0.01);
+        assert!((s.char_spacing() - 1.0).abs() < 0.01);
+    }
+    w.run("fmt.list.b0", &Fixed);
+    w.run("fmt.pitch.30", &Fixed);
+    {
+        let b = w.edit.block().expect("block");
+        assert_eq!(b.text.iter().collect::<String>(), "\u{2022} Page 1");
+        assert!((b.pitch - 30.0).abs() < 0.01);
+    }
+    w.run("fmt.list.n0", &Fixed);
+    assert_eq!(
+        w.edit.block().map(|b| b.text.iter().collect::<String>()),
+        Some("1. Page 1".into())
+    );
+    w.run("fmt.list.none", &Fixed);
+    key(&mut w, Key::Escape, false, false);
+    assert_eq!(texts(&mut w), ["Page 1"]);
+    // Search & Replace changes the text in its paragraph.
+    w.run("ed.searchReplace", &Fixed);
+    assert!(w.dialog2.is_some());
+    w.dialog2 = None;
+    w.answer2(
+        crate::editor_actions::Ask2::Replace,
+        &["Page".into(), "Trang".into()],
+    );
+    assert_eq!(texts(&mut w), ["Trang 1"]);
+}

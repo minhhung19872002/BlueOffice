@@ -299,6 +299,12 @@ pub struct RunStyle {
     pub bold: bool,
     /// Italic face.
     pub italic: bool,
+    /// Underlined (a rule drawn under the text).
+    pub underline: bool,
+    /// Struck through.
+    pub strike: bool,
+    /// Superscript (1), subscript (-1) or neither (0).
+    pub script: i8,
     /// Text state written for it (font resource, size, spacing, colours).
     pub(crate) ts: TextState,
     /// Text space (one unit, before the font size) to page points; no translation.
@@ -320,6 +326,42 @@ pub enum StyleChange {
     Color([u8; 3]),
     /// A bundled family: serif (true) or sans serif.
     Serif(bool),
+    /// Underline on or off.
+    Underline(bool),
+    /// Strikethrough on or off.
+    Strike(bool),
+    /// Superscript (1), subscript (-1) or back to the baseline (0).
+    Script(i8),
+    /// Horizontal scale in percent (`Tz`).
+    Scale(f32),
+    /// Extra space between characters in points (`Tc`).
+    CharSpacing(f32),
+    /// Extra space between words in points (`Tw`).
+    WordSpacing(f32),
+}
+
+impl RunStyle {
+    /// Page points per unscaled text space unit along the baseline.
+    fn along_k(&self) -> f32 {
+        (self.lin[0] * self.lin[0] + self.lin[1] * self.lin[1])
+            .sqrt()
+            .max(1e-6)
+    }
+
+    /// Horizontal scale in percent.
+    pub fn scale(&self) -> f32 {
+        self.ts.th * 100.0
+    }
+
+    /// Character spacing in points.
+    pub fn char_spacing(&self) -> f32 {
+        self.ts.tc * self.along_k()
+    }
+
+    /// Word spacing in points.
+    pub fn word_spacing(&self) -> f32 {
+        self.ts.tw * self.along_k()
+    }
 }
 
 /// Advance along the baseline and box relative to the origin (page points), and the codes.
@@ -563,6 +605,21 @@ impl BlockEdit {
         }
     }
 
+    /// Move the paragraph's left edge by `delta` points (indent / outdent; the right edge
+    /// stays).
+    pub fn shift_left(&mut self, delta: f32) {
+        let d = if self.width.is_finite() {
+            delta.min(self.width - 20.0)
+        } else {
+            delta
+        };
+        let d = d.max(-(self.origin.0 * self.u.0 + self.origin.1 * self.u.1).max(0.0));
+        self.origin = (self.origin.0 + d * self.u.0, self.origin.1 + d * self.u.1);
+        if self.width.is_finite() {
+            self.width -= d;
+        }
+    }
+
     /// Style of the character before caret `c` (the first at the start).
     pub fn style_at(&self, c: usize) -> Option<&RunStyle> {
         let k = if c > 0 {
@@ -648,6 +705,9 @@ impl PdfDocument {
             color: [ts.fill.0, ts.fill.1, ts.fill.2],
             bold: face & 1 != 0,
             italic: face & 2 != 0,
+            underline: false,
+            strike: false,
+            script: 0,
             ts,
             lin,
             face: None,
@@ -1086,6 +1146,8 @@ impl PdfDocument {
         let ctm_u = mul(e.ctm, invert(base).ok_or("page matrix")?);
         let mut tail = format!("\nq {} cm BT ", mat_str(ctm_u)).into_bytes();
         let mut cur: Option<usize> = None;
+        // Underline and strikethrough rules: style, start and end x, line.
+        let mut rules: Vec<(usize, f32, f32, usize)> = Vec::new();
         let mut j = 0;
         while j < n {
             if e.text[j] == '\n' || metric(e, j).is_none_or(|m| m.codes.is_empty()) {
@@ -1119,9 +1181,61 @@ impl PdfDocument {
                 }
             }
             tail.extend_from_slice(b"> Tj ");
+            if e.styles[k].underline || e.styles[k].strike {
+                let x1 = xs[end - 1] + metric(e, end - 1).map_or(0.0, |m| m.adv);
+                rules.push((k, xs[j], x1, line_of[j]));
+            }
             j = end;
         }
-        tail.extend_from_slice(b"ET Q\n");
+        tail.extend_from_slice(b"ET ");
+        for (k, x0, x1, line) in rules {
+            let st = &e.styles[k];
+            let size = st.size;
+            let t = (size * 0.06).max(0.4);
+            let mut ys = Vec::new();
+            if st.underline {
+                ys.push(size * 0.12);
+            }
+            if st.strike {
+                ys.push(-size * 0.28);
+            }
+            for dy in ys {
+                // A thin band across the line (page points), into the text object's space.
+                let p0 = at(e, x0, line);
+                let p1 = at(e, x1, line);
+                let (vx, vy) = (e.v.0, e.v.1);
+                let corners = [
+                    (p0.0 + vx * (dy - t / 2.0), p0.1 + vy * (dy - t / 2.0)),
+                    (p1.0 + vx * (dy - t / 2.0), p1.1 + vy * (dy - t / 2.0)),
+                    (p1.0 + vx * (dy + t / 2.0), p1.1 + vy * (dy + t / 2.0)),
+                    (p0.0 + vx * (dy + t / 2.0), p0.1 + vy * (dy + t / 2.0)),
+                ];
+                let c = st.color;
+                tail.extend(
+                    format!(
+                        "{} {} {} rg ",
+                        num(f32::from(c[0]) / 255.0),
+                        num(f32::from(c[1]) / 255.0),
+                        num(f32::from(c[2]) / 255.0)
+                    )
+                    .into_bytes(),
+                );
+                for (i, q) in corners.iter().enumerate() {
+                    let u = apply(inv_ctm, q.0, q.1);
+                    tail.extend(
+                        format!(
+                            "{} {} {} ",
+                            num(u.0),
+                            num(u.1),
+                            if i == 0 { "m" } else { "l" }
+                        )
+                        .into_bytes(),
+                    );
+                }
+                tail.extend_from_slice(b"h f ");
+            }
+        }
+        tail.extend_from_slice(b"Q\n");
         let sid = match e.sid {
             Some(s) => s,
             None => {
@@ -1186,11 +1300,38 @@ impl PdfDocument {
                     st.ts.fill = Rgba(c[0], c[1], c[2], 255);
                     st.ts.stroke = st.ts.fill;
                 }
+                StyleChange::Underline(on) => st.underline = *on,
+                StyleChange::Strike(on) => st.strike = *on,
+                StyleChange::Script(s) => {
+                    // Raised or lowered by a third of the size at 65 % size (§9.3.7 Ts).
+                    let full = match st.script {
+                        0 => st.ts.size,
+                        _ => st.ts.size / 0.65,
+                    };
+                    st.script = (*s).clamp(-1, 1);
+                    st.ts.size = if st.script == 0 { full } else { full * 0.65 };
+                    st.ts.rise = f32::from(st.script) * full * 0.33;
+                    let k = (st.lin[2] * st.lin[2] + st.lin[3] * st.lin[3]).sqrt();
+                    st.size = st.ts.size * k;
+                }
+                StyleChange::Scale(pct) => st.ts.th = (pct / 100.0).clamp(0.1, 10.0),
+                StyleChange::CharSpacing(v) => st.ts.tc = v / st.along_k(),
+                StyleChange::WordSpacing(v) => st.ts.tw = v / st.along_k(),
             }
             let new_face = face != st.face;
             let idx = if let Some(p) = e.styles.iter().position(|s| {
                 if new_face {
-                    s.face == face && s.size == st.size && s.color == st.color && s.lin == st.lin
+                    s.face == face
+                        && s.size == st.size
+                        && s.color == st.color
+                        && s.lin == st.lin
+                        && s.underline == st.underline
+                        && s.strike == st.strike
+                        && s.script == st.script
+                        && s.ts.tc == st.ts.tc
+                        && s.ts.tw == st.ts.tw
+                        && s.ts.th == st.ts.th
+                        && s.ts.rise == st.ts.rise
                 } else {
                     *s == st
                 }

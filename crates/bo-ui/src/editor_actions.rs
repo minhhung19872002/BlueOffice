@@ -23,6 +23,8 @@ pub(crate) enum Ask2 {
     Typewriter(usize, [f32; 2]),
     /// Text of a callout: page, box, the point it shows.
     Callout(usize, [f32; 4], [f32; 2]),
+    /// Search & Replace: find, replace with.
+    Replace,
 }
 
 /// A redaction mark being dragged: page, start and current point (page points).
@@ -389,6 +391,12 @@ impl EditorWindow {
             }
             Ask2::Info => {}
             Ask2::Typewriter(..) | Ask2::Callout(..) => self.comment_text(&what, &first),
+            Ask2::Replace => {
+                let with = values.get(1).cloned().unwrap_or_default();
+                let n = self.replace_all(&first, &with);
+                let s = self.fmt("pdfEditor.replaced", n);
+                self.set_status(&s);
+            }
         }
     }
 

@@ -1635,6 +1635,19 @@ impl DocWindow {
             style,
             self.theme.text,
         );
+        // Proofing language at the caret, as a desktop word processor's status bar shows it.
+        if let Some(lang) = self.view.format().lang.as_deref() {
+            let key = format!("spell.lang.{lang}");
+            let name = self.strings.get(&key);
+            let shown = if name == key { lang } else { name };
+            p.text(
+                shown,
+                x0 + (230.0 * self.scale).round(),
+                ty,
+                style,
+                self.theme.text,
+            );
+        }
         let zoom = self.strings.fmt(
             "status.zoom",
             &[(

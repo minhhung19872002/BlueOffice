@@ -53,6 +53,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
     WM_NCMOUSEMOVE, WM_QUIT, WM_RBUTTONUP,
 };
+use windows::Win32::UI::WindowsAndMessaging::{SetWindowTextW, IDC_HAND, IDC_SIZEALL};
 
 /// What the window reports to the application.
 pub trait Handler {
@@ -225,6 +226,10 @@ fn key(vk: u16, m: Mods) -> Option<Key> {
         _ if m.ctrl && (0x41..=0x5A).contains(&vk) => {
             Key::Letter(char::from(vk as u8).to_ascii_lowercase())
         }
+        // Ctrl + plus, minus and digits (zoom shortcuts of the reader).
+        _ if m.ctrl && matches!(vk, 0xBB | 0x6B) => Key::Letter('+'),
+        _ if m.ctrl && matches!(vk, 0xBD | 0x6D) => Key::Letter('-'),
+        _ if m.ctrl && (0x30..=0x39).contains(&vk) => Key::Letter(char::from(vk as u8)),
         _ => return None,
     })
 }
@@ -632,6 +637,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 1 => IDC_SIZEWE,
                 2 => IDC_SIZENS,
                 3 => IDC_ARROW,
+                4 => IDC_IBEAM,
+                5 => IDC_HAND,
+                6 => IDC_SIZEALL,
                 _ => IDC_CROSS,
             };
             // SAFETY: system cursors are shared and need no release.
@@ -1059,4 +1067,14 @@ pub fn shell_open(path: &std::path::Path, verb: &str) -> bool {
         )
     };
     r.0 as isize > 32
+}
+
+/// Set the window's title (taskbar, Alt+Tab).
+#[allow(dead_code)] // BlueReader only.
+pub fn set_title(hwnd: isize, title: &str) {
+    let text: Vec<u16> = title.encode_utf16().chain([0]).collect();
+    // SAFETY: the string is NUL-terminated and outlives the call; `hwnd` is our window.
+    unsafe {
+        let _ = SetWindowTextW(HWND(hwnd as *mut _), PCWSTR(text.as_ptr()));
+    }
 }

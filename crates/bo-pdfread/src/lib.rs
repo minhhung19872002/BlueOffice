@@ -30,7 +30,7 @@ mod text;
 mod type1;
 mod write;
 
-pub use annot::{Annot, AnnotKind};
+pub use annot::{Annot, AnnotKind, NewAnnot};
 pub use image::Image;
 pub use text::TextLayer;
 

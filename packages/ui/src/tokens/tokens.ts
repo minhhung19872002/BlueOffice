@@ -69,8 +69,9 @@ export interface Accent {
   subtle: string;
 }
 
-/** App accents: indigo (BlueDoc), teal (BlueSheet), coral (BlueSlide) — DESIGN.md "Màu". */
-export const ACCENTS: Record<ThemeName, Record<AppId | 'brand', Accent>> = {
+/** App accents: indigo (BlueDoc), teal (BlueSheet), coral (BlueSlide), crimson (BlueReader,
+ * native interface only) — DESIGN.md "Màu". */
+export const ACCENTS: Record<ThemeName, Record<AppId | 'brand' | 'reader', Accent>> = {
   light: {
     brand: { base: BRAND, strong: '#1A5FCC', on: '#ffffff', text: '#1A5FCC', subtle: '#E8F0FD' },
     doc: { base: '#4F46E5', strong: '#4F46E5', on: '#ffffff', text: '#4338CA', subtle: '#EEEDFC' },
@@ -87,6 +88,13 @@ export const ACCENTS: Record<ThemeName, Record<AppId | 'brand', Accent>> = {
       on: '#ffffff',
       text: '#B5195A',
       subtle: '#FCE9F0',
+    },
+    reader: {
+      base: '#D7263D',
+      strong: '#B31B30',
+      on: '#ffffff',
+      text: '#B31B30',
+      subtle: '#FCE8EA',
     },
   },
   dark: {
@@ -112,6 +120,13 @@ export const ACCENTS: Record<ThemeName, Record<AppId | 'brand', Accent>> = {
       text: '#FF8FB4',
       subtle: '#3D1A28',
     },
+    reader: {
+      base: '#F0626F',
+      strong: '#B31B30',
+      on: '#ffffff',
+      text: '#FF8A95',
+      subtle: '#3D1A1E',
+    },
   },
   hc: {
     brand: {
@@ -130,6 +145,13 @@ export const ACCENTS: Record<ThemeName, Record<AppId | 'brand', Accent>> = {
       subtle: '#1f1f1f',
     },
     slide: {
+      base: '#FFD600',
+      strong: '#FFD600',
+      on: '#000000',
+      text: '#FFD600',
+      subtle: '#1f1f1f',
+    },
+    reader: {
       base: '#FFD600',
       strong: '#FFD600',
       on: '#000000',

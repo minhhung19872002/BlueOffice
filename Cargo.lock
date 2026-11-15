@@ -834,9 +834,12 @@ dependencies = [
  "base64 0.22.1",
  "bo-engine",
  "bo-gpu-win",
+ "bo-pdfread",
  "bo-raster",
  "bo-render",
+ "bo-text",
  "bo-ui",
+ "png",
  "windows",
 ]
 
@@ -1049,8 +1052,10 @@ dependencies = [
  "bo-edit",
  "bo-engine",
  "bo-model",
+ "bo-pdfread",
  "bo-render",
  "bo-sheet",
+ "bo-text",
  "serde",
  "serde_json",
  "zip",

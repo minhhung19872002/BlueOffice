@@ -46,12 +46,56 @@ pub struct Backstage {
     size: (f32, f32),
     scale: f32,
     hover: Option<usize>,
+    /// Document properties shown on the Info page (label, value).
+    props: Vec<(String, String)>,
 }
 
 impl Backstage {
     /// Place below the title bar (`top`) in a window of `size`.
     pub fn layout(&mut self, top: f32, size: (f32, f32), scale: f32) {
         (self.top, self.size, self.scale) = (top, size, scale);
+    }
+
+    /// Icons of the navigation column (drawn after [`Backstage::paint`]), as a desktop word
+    /// processor's File screen shows them.
+    pub fn paint_icons(&self, p: &mut dyn Painter, t: &Theme, icons: &crate::icons::Icons) {
+        let on = IconColorsOn(t.accent_on);
+        let icon = self.px(18.0);
+        let rh = self.px(40.0);
+        let info_y = self.top + self.px(64.0);
+        icons.draw(
+            p,
+            "view.normal",
+            self.px(24.0),
+            (info_y + (rh - icon) / 2.0).round(),
+            icon,
+            on.colors(),
+        );
+        for (i, (action, _, _)) in ITEMS.iter().enumerate() {
+            let (y, rh) = self.row(i);
+            let name = match action {
+                FileAction::New => "file.new",
+                FileAction::Open => "file.open",
+                FileAction::Save => "file.save",
+                FileAction::SaveAs => "file.saveAs",
+                FileAction::Print => "file.print",
+                FileAction::ExportPdf => "file.exportPdf",
+                _ => continue,
+            };
+            icons.draw(
+                p,
+                name,
+                self.px(24.0),
+                (y + (rh - icon) / 2.0).round(),
+                icon,
+                on.colors(),
+            );
+        }
+    }
+
+    /// Properties listed in the Info page's right column.
+    pub fn set_properties(&mut self, props: Vec<(String, String)>) {
+        self.props = props;
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -62,9 +106,10 @@ impl Backstage {
         self.px(220.0)
     }
 
+    /// Navigation row `i` below the Info row (which is shown selected).
     fn row(&self, i: usize) -> (f32, f32) {
         let h = self.px(40.0);
-        (self.top + self.px(64.0) + i as f32 * h, h)
+        (self.top + self.px(64.0) + (i + 1) as f32 * h, h)
     }
 
     fn index_at(&self, x: f32, y: f32) -> Option<usize> {
@@ -138,6 +183,18 @@ impl Backstage {
             size: self.px(14.0),
             bold: false,
         };
+        // Info: the page shown, marked by a darker band as on a desktop word processor's
+        // File screen.
+        let rh = self.px(40.0);
+        let info_y = self.top + self.px(64.0);
+        p.fill_rect(0.0, info_y, self.nav_w(), rh, ON_ACCENT_SELECTED);
+        p.text(
+            &label("backstage.nav.info", "Info"),
+            self.px(54.0),
+            info_y + (rh - style.size * 1.33) / 2.0,
+            style,
+            t.accent_on,
+        );
         for (i, (_, key, fallback)) in ITEMS.iter().enumerate() {
             let (y, rh) = self.row(i);
             if self.hover == Some(i) {
@@ -145,7 +202,7 @@ impl Backstage {
             }
             p.text(
                 &label(key, fallback),
-                self.px(28.0),
+                self.px(54.0),
                 y + (rh - style.size * 1.33) / 2.0,
                 style,
                 t.accent_on,
@@ -173,17 +230,63 @@ impl Backstage {
             },
             if modified { "Not saved" } else { "Saved" },
         );
-        for line in [
-            name.to_owned(),
-            format!("{}: {pages}", label("wordCount.pages", "Pages")),
-            format!("{}: {words}", label("wordCount.words", "Words")),
-            state,
-        ] {
+        for line in [name.to_owned(), state] {
             p.text(&line, x, y, style, t.text);
             y += self.px(28.0);
         }
+        // Properties column on the right, as on a desktop word processor's Info page.
+        let px = (w * 0.62).max(x + self.px(320.0));
+        let mut py = self.top + self.px(100.0);
+        p.text(
+            &label("backstage.info.properties", "Properties"),
+            px,
+            py,
+            TextStyle {
+                size: self.px(16.0),
+                bold: false,
+            },
+            t.text,
+        );
+        py += self.px(36.0);
+        let small = TextStyle {
+            size: self.px(12.0),
+            bold: false,
+        };
+        let mut rows = vec![
+            (label("wordCount.pages", "Pages"), pages.to_string()),
+            (label("wordCount.words", "Words"), words.to_string()),
+        ];
+        rows.extend(self.props.iter().cloned());
+        for (k, v) in rows {
+            p.text(&k, px, py, small, t.text_muted);
+            p.text(
+                if v.is_empty() { "—" } else { &v },
+                px + self.px(140.0),
+                py,
+                small,
+                t.text,
+            );
+            py += self.px(24.0);
+        }
     }
 }
+
+/// Icon colours on the accent column: everything in the on-accent colour.
+struct IconColorsOn(bo_render::Rgba);
+
+impl IconColorsOn {
+    fn colors(&self) -> crate::icons::IconColors {
+        crate::icons::IconColors {
+            ink: self.0,
+            accent: self.0,
+            on: self.0,
+            tinted: false,
+        }
+    }
+}
+
+/// Darker band of the page shown in the accent column.
+const ON_ACCENT_SELECTED: bo_render::Rgba = bo_render::Rgba(0, 0, 0, 50);
 
 /// Translucent white for hovered items on the accent column.
 const ON_ACCENT_HOVER: bo_render::Rgba = bo_render::Rgba(255, 255, 255, 40);

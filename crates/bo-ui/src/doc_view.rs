@@ -284,6 +284,15 @@ impl DocView {
         self.edit(cmd)
     }
 
+    /// The document's properties (title, author, dates) for the File screen.
+    pub fn doc_properties(&mut self) -> Option<bo_engine::props::DocProperties> {
+        self.engine
+            .command(Command::DocProperties)
+            .ok()
+            .and_then(|r| r.doc_properties)
+            .map(|p| *p)
+    }
+
     /// Fonts offered by the font box (document fonts, bundled and installed families).
     pub fn font_list(&mut self) -> Vec<bo_engine::fonts::FontChoice> {
         self.engine

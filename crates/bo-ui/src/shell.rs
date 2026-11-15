@@ -1273,6 +1273,29 @@ impl DocWindow {
                 let ran = match fired {
                     Some(RibbonHit::File) => {
                         let mut b = Backstage::default();
+                        if let Some(props) = self.view.doc_properties() {
+                            let date = |s: &str| s.split('T').next().unwrap_or("").to_owned();
+                            let rows = [
+                                ("backstage.props.title", "Title", props.title.clone()),
+                                ("backstage.props.author", "Author", props.author.clone()),
+                                (
+                                    "backstage.props.lastModifiedBy",
+                                    "Last modified by",
+                                    props.last_modified_by.clone(),
+                                ),
+                                ("backstage.props.created", "Created", date(&props.created)),
+                                (
+                                    "backstage.props.modified",
+                                    "Last modified",
+                                    date(&props.modified),
+                                ),
+                            ];
+                            b.set_properties(
+                                rows.into_iter()
+                                    .map(|(k, f, v)| (self.t(k, f), v))
+                                    .collect(),
+                            );
+                        }
                         b.layout(self.title.height(), self.size, self.scale);
                         self.backstage = Some(b);
                         true
@@ -1662,6 +1685,7 @@ impl DocWindow {
                 self.view.word_count(),
                 self.view.modified(),
             );
+            b.paint_icons(p, &self.theme, &self.icons);
         }
         if let Some(d) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);

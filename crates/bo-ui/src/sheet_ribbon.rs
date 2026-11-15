@@ -596,7 +596,7 @@ pub(crate) fn number_box_width(wide: bool) -> f32 {
 pub(crate) fn trailing(id: &str) -> bool {
     matches!(
         id,
-        "sheet.sortFilter" | "sheet.findSelect" | "sheet.chartMap"
+        "sheet.sortFilter" | "sheet.findSelect" | "sheet.chartMap" | "sheet.pivotChart"
     )
 }
 

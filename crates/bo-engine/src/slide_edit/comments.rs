@@ -45,6 +45,9 @@ pub struct ThreadOut {
     pub done: bool,
     /// First comment, then the replies.
     pub comments: Vec<CommentOut>,
+    /// Where its marker sits on the slide (points), when the file says (`p188:pos`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pos: Option<(f64, f64)>,
 }
 
 const AUTHORS_PART: &str = "/ppt/authors.xml";
@@ -113,6 +116,9 @@ pub fn comments_out(pres: &Presentation, slide: usize) -> Vec<ThreadOut> {
                 .chain(&c.replies)
                 .map(out)
                 .collect(),
+            pos: c
+                .pos
+                .map(|(x, y)| (x as f64 / 12_700.0, y as f64 / 12_700.0)),
         })
         .collect()
 }
@@ -289,6 +295,7 @@ pub fn cmd_add_with(
             first: reply,
             resolved: false,
             replies: Vec::new(),
+            pos: None,
         }),
     }
     store(tx, slide, &list)

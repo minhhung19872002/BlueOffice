@@ -59,6 +59,9 @@ pub struct ModernComment {
     pub resolved: bool,
     /// `p188:replyLst`.
     pub replies: Vec<ModernReply>,
+    /// `p188:pos` ([MS-PPTX] 2.3.x CT_Comment, a:CT_Point2D): where the comment marker sits
+    /// on the slide, EMU.
+    pub pos: Option<(i64, i64)>,
 }
 
 /// `p188:author`.
@@ -185,6 +188,9 @@ pub fn read_comments(data: &[u8], part: &str) -> Vec<ModernComment> {
                 .flat_map(|l| kids(l, "reply"))
                 .map(reply_of)
                 .collect(),
+            pos: kids(cm, "pos")
+                .next()
+                .and_then(|p| Some((p.attr("x")?.parse().ok()?, p.attr("y")?.parse().ok()?))),
         })
         .collect()
 }
@@ -308,6 +314,9 @@ pub fn comments_xml_ns(
             out,
             "><pc:sldMkLst xmlns:pc=\"{NS_PC}\"><pc:docMk/><pc:sldMk cId=\"{creation_id}\" sldId=\"{sld_id}\"/></pc:sldMkLst>"
         );
+        if let Some((x, y)) = c.pos {
+            let _ = write!(out, "<p188:pos x=\"{x}\" y=\"{y}\"/>");
+        }
         if !c.replies.is_empty() {
             out.push_str("<p188:replyLst>");
             for r in &c.replies {
@@ -369,6 +378,7 @@ mod tests {
             first: r("{C1}", "Sửa tiêu đề <slide 1>\nvà ảnh & màu"),
             resolved: true,
             replies: vec![r("{R1}", "Đã sửa")],
+            pos: Some((1_524_000, 762_000)),
         }];
         let xml = comments_xml(&c, 256, 0);
         let mut back = read_comments(xml.as_bytes(), "/ppt/comments/modernComment_100_0.xml");

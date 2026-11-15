@@ -1149,6 +1149,11 @@ impl DocWindow {
         if self.nav.is_some() {
             on.push("view.navigationPane");
         }
+        on.push(match self.view_mode {
+            "web" => "view.webLayout",
+            "draft" => "view.draft",
+            _ => "view.printLayout",
+        });
         if self.painter {
             on.push("format.painter");
         }
@@ -1229,6 +1234,14 @@ impl DocWindow {
             // Find searches from the navigation pane, as on the reference.
             "edit.find" => self.toggle_nav(true, true),
             "review.spellingDialog" => self.open_spelling(),
+            "view.printLayout" => self.action("view.layout.print"),
+            "view.webLayout" => self.action("view.layout.web"),
+            "view.draft" => self.action("view.layout.draft"),
+            "view.onePage" | "view.pageWidth" => {
+                let z = self.view.fit_zoom(id == "view.onePage");
+                self.relayout_pending = true;
+                self.view.set_zoom(z)
+            }
             "insert.table" => self.open_table_grid(),
             "view.navigationPane" => {
                 let show = self.nav.is_none();

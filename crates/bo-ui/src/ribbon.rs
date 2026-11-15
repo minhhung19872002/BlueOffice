@@ -462,9 +462,11 @@ fn view_tab() -> Tab {
     Tab {
         label: "ribbon.tabs.view",
         groups: vec![
+            // Views and zoom as the reference's View tab: one large button per layout,
+            // 100 % with One Page and Page Width.
             Group {
                 label: "ribbon.groups.views",
-                large: vec![L("view.layout")],
+                large: vec![L("view.printLayout"), L("view.webLayout"), L("view.draft")],
                 rows: vec![],
             },
             Group {
@@ -479,7 +481,11 @@ fn view_tab() -> Tab {
             Group {
                 label: "ribbon.groups.zoom",
                 large: vec![L("view.zoomReset")],
-                rows: vec![vec![S("view.zoomIn")], vec![S("view.zoomOut")]],
+                rows: vec![
+                    vec![S("view.onePage")],
+                    vec![S("view.pageWidth")],
+                    vec![S("view.zoomIn"), S("view.zoomOut")],
+                ],
             },
         ],
     }

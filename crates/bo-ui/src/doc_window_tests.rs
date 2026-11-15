@@ -449,3 +449,27 @@ fn insert_table_grid_picks_the_size_by_pointing() {
     assert_eq!((t.cols, t.rows), (3, 2));
     assert_eq!(w.ribbon.active_label(), doc_tools::TABLE_DESIGN);
 }
+
+#[test]
+fn view_tab_layouts_and_page_fit_zooms() {
+    let mut w = window();
+    show_tab(&mut w, "ribbon.tabs.view");
+    assert!(w.on_ids().contains(&"view.printLayout"));
+    click(&mut w, "view.pageWidth");
+    let slot = w.view.slots()[0];
+    let (_, _, view_h) = w.view.scroll_info();
+    assert!(w.view.zoom() > 1.0, "page width zooms in a wide window");
+    // The page spans the view but for the gaps.
+    let pane = w.size.0 - w.sb_w() - w.vr_w();
+    assert!(
+        (pane - slot.width as f32) < 80.0,
+        "{pane} vs {}",
+        slot.width
+    );
+    click(&mut w, "view.onePage");
+    let slot = w.view.slots()[0];
+    assert!(slot.height as f32 <= view_h, "whole page in view");
+    click(&mut w, "view.draft");
+    assert_eq!(w.view_mode, "draft");
+    assert!(w.on_ids().contains(&"view.draft"));
+}

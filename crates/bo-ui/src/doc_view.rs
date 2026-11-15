@@ -313,6 +313,27 @@ impl DocView {
         &self.markup
     }
 
+    /// Zoom that fits the caret's page across the view (Page Width), or the whole page in
+    /// it (One Page), with the page gap around it.
+    pub fn fit_zoom(&self, whole_page: bool) -> f32 {
+        let page = self
+            .caret
+            .and_then(|c| self.pages.get(c.page))
+            .or_else(|| self.pages.first());
+        let Some(page) = page else {
+            return self.zoom;
+        };
+        let per_zoom = self.display_scale * 96.0 / 72.0;
+        let gap = 2.0 * self.gap();
+        let across = (self.viewport.0 - gap).max(1.0) / (page.width * per_zoom);
+        let z = if whole_page {
+            across.min((self.viewport.1 - gap).max(1.0) / (page.height * per_zoom))
+        } else {
+            across
+        };
+        (z * 100.0).floor() / 100.0
+    }
+
     /// The header, footer or note being edited, if any.
     pub fn story(&self) -> Option<&bo_engine::story::StoryState> {
         self.story.as_ref()

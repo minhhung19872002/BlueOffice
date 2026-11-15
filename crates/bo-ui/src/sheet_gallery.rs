@@ -195,7 +195,12 @@ impl Gallery {
                 size,
                 line,
             } => {
-                p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xd4, 0xd4, 0xd4, 255));
+                // Only Normal is framed (the current style), as on the reference.
+                if name == "Normal" {
+                    p.fill_rect(r[0], r[1], r[2], r[3], Rgba(0xab, 0xab, 0xab, 255));
+                } else {
+                    p.fill_rect(r[0], r[1], r[2], r[3], fill.unwrap_or(BG));
+                }
                 p.fill_rect(
                     r[0] + 1.0,
                     r[1] + 1.0,
@@ -214,7 +219,8 @@ impl Gallery {
                 }
                 // Large styles (titles) are shown smaller to fit, as the reference does.
                 let ts = TextStyle {
-                    size: (style.size * (size / 11.0).clamp(0.9, 1.35)).round(),
+                    // The reference shows tile text about 15 % larger than the menu text.
+                    size: (style.size * 1.15 * (size / 11.0).clamp(1.0, 1.4)).round(),
                     bold: *bold,
                 };
                 p.push_clip(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0);

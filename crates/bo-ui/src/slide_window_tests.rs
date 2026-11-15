@@ -581,3 +581,31 @@ fn animation_painter_copies_an_effect_to_the_next_shape() {
     );
     assert!(!w.toggled().contains(&"anim.painter"));
 }
+
+#[test]
+fn review_steps_through_comments_and_slide_show_hides_slides() {
+    let mut w = window();
+    // A comment on slide 3, none before it.
+    w.view_mut().go_to(2);
+    w.view_mut().run(SlideCommand::AddComment {
+        text: "Check numbers".into(),
+        author: "A".into(),
+        date: None,
+        parent: None,
+        mentions: Vec::new(),
+        task: None,
+    });
+    w.view_mut().go_to(0);
+    assert!(w.run_action("review.nextComment"));
+    assert_eq!(w.view().current(), 2);
+    assert!(w.comments.shown && w.comments.active.is_some());
+    assert!(!w.run_action("review.nextComment"), "no later comment");
+    assert!(w.run_action("review.deleteComment"));
+    assert_eq!(w.view().state().map(|s| s.comments.len()), Some(0));
+    // Hide Slide toggles the current slide out of the show.
+    assert!(w.run_action("show.hideSlide"));
+    let hidden = |w: &SlideWindow| w.view().engine().presentation().unwrap().slides[2].show;
+    assert_eq!(hidden(&w), Some(false));
+    assert!(w.run_action("show.hideSlide"));
+    assert_ne!(hidden(&w), Some(false));
+}

@@ -2583,7 +2583,16 @@
     "trigger": "Trigger",
     "animationPainter": "Animation Painter",
     "onClickOf": "On Click of {{name}}",
-    "onSequence": "On Sequence"
+    "onSequence": "On Sequence",
+    "text": "Text",
+    "setUp": "Set Up",
+    "hideSlide": "Hide Slide",
+    "presentationViews": "Presentation Views",
+    "showComments": "Show Comments",
+    "previous": "Previous",
+    "next": "Next",
+    "tools": "Tools",
+    "pens": "Pens"
   },
   "slideEditor": {
     "open": "Open",

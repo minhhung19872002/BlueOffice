@@ -2583,7 +2583,16 @@
     "trigger": "Kích hoạt",
     "animationPainter": "Sao chép hoạt hình",
     "onClickOf": "Khi bấm vào {{name}}",
-    "onSequence": "Theo trình tự"
+    "onSequence": "Theo trình tự",
+    "text": "Văn bản",
+    "setUp": "Thiết lập",
+    "hideSlide": "Ẩn trang chiếu",
+    "presentationViews": "Dạng xem bản trình bày",
+    "showComments": "Hiện chú thích",
+    "previous": "Trước",
+    "next": "Tiếp",
+    "tools": "Công cụ",
+    "pens": "Bút"
   },
   "slideEditor": {
     "open": "Mở",

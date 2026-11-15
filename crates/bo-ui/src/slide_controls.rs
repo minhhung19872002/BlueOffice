@@ -627,9 +627,14 @@ impl SlideWindow {
                 p.fill_rect(cx - px(30.0), r[1], px(60.0), r[3], HOVER);
             }
             let size = px(38.4);
+            // Solid pictures have no outline to dim: a disabled Add Animation shows a grey star.
+            let (name, tinted) = match (id, enabled) {
+                ("anim.add", false) => ("anim.none", true),
+                _ => (id, enabled),
+            };
             self.icons.draw(
                 p,
-                id,
+                name,
                 (cx - size / 2.0).round(),
                 r[1] + px(4.0),
                 size,
@@ -637,7 +642,7 @@ impl SlideWindow {
                     ink: if enabled { self.theme.text } else { DIM },
                     accent: self.theme.accent,
                     on: self.theme.accent_on,
-                    tinted: enabled,
+                    tinted,
                 },
             );
             let ink = if enabled { self.theme.text } else { DIM };

@@ -163,11 +163,21 @@ fn insert_tab() -> Tab {
             },
             Group {
                 label: "slideEditor.groupShapes",
-                large: vec![L("insert.textBox")],
+                large: vec![],
                 rows: vec![
                     vec![B("insert.rect"), B("insert.ellipse")],
                     vec![B("insert.triangle"), B("insert.arrow")],
                 ],
+            },
+            Group {
+                label: "ribbon.groups.comments",
+                large: vec![L("review.newComment")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.text",
+                large: vec![L("insert.textBox")],
+                rows: vec![],
             },
         ],
     }
@@ -177,11 +187,18 @@ fn show_tab() -> Tab {
     use Item::Large as L;
     Tab {
         label: "slideEditor.showTab",
-        groups: vec![Group {
-            label: "slideEditor.groupShow",
-            large: vec![L("show.fromStart"), L("show.fromCurrent")],
-            rows: vec![],
-        }],
+        groups: vec![
+            Group {
+                label: "slideEditor.groupShow",
+                large: vec![L("show.fromStart"), L("show.fromCurrent")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.setUp",
+                large: vec![L("show.hideSlide")],
+                rows: vec![],
+            },
+        ],
     }
 }
 
@@ -190,6 +207,11 @@ fn view_tab() -> Tab {
     Tab {
         label: "slideEditor.viewTab",
         groups: vec![
+            Group {
+                label: "slideNative.presentationViews",
+                large: vec![L("view.normal"), L("view.sorter"), L("view.reading")],
+                rows: vec![],
+            },
             Group {
                 label: "ribbon.groups.show",
                 large: vec![L("view.notes")],
@@ -698,6 +720,28 @@ impl SlideWindow {
                 self.open_trigger_menu();
                 true
             }
+            "show.hideSlide" => self.view.run(SlideCommand::HideSlides {
+                slides: Some(self.view.selected_slides()),
+                hidden: None,
+            }),
+            "review.deleteComment" => {
+                let id = self.comments.active.clone().or_else(|| {
+                    self.view
+                        .state()
+                        .and_then(|s| s.comments.first())
+                        .map(|t| t.id.clone())
+                });
+                match id {
+                    Some(id) => {
+                        self.comments.active = None;
+                        self.view.run(SlideCommand::DeleteComment { id })
+                    }
+                    None => false,
+                }
+            }
+            "review.prevComment" | "review.nextComment" => {
+                self.step_comment(id == "review.nextComment")
+            }
             "anim.pane" => {
                 self.anim_pane.shown = !self.anim_pane.shown;
                 self.comments.shown = false;
@@ -862,6 +906,59 @@ impl SlideWindow {
             .unwrap_or([0.0, 0.0, 1.0, 1.0]);
         self.menu_kind = MenuKind::Duration;
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    }
+
+    /// Previous / Next comment: the neighbouring thread on this slide, else the first (last)
+    /// thread of the next (previous) slide with comments; the pane opens on it.
+    fn step_comment(&mut self, forward: bool) -> bool {
+        let threads: Vec<String> = self
+            .view
+            .state()
+            .map(|s| s.comments.iter().map(|t| t.id.clone()).collect())
+            .unwrap_or_default();
+        let at = self
+            .comments
+            .active
+            .as_ref()
+            .and_then(|a| threads.iter().position(|t| t == a));
+        let next = match (at, forward) {
+            (Some(i), true) => threads.get(i + 1).cloned(),
+            (Some(i), false) => i.checked_sub(1).and_then(|j| threads.get(j).cloned()),
+            (None, _) => None,
+        };
+        if let Some(id) = next {
+            self.comments.shown = true;
+            self.comments.active = Some(id);
+            self.relayout_pending = true;
+            return true;
+        }
+        let cur = self.view.current();
+        let n = self.view.slide_count();
+        let has = |w: &Self, i: usize| {
+            w.view
+                .engine()
+                .presentation()
+                .map(|p| bo_engine::slide_edit::comments::comments_out(p, i))
+                .unwrap_or_default()
+        };
+        let order: Vec<usize> = if forward {
+            (cur + 1..n).collect()
+        } else {
+            (0..cur).rev().collect()
+        };
+        for i in order {
+            let list = has(self, i);
+            let pick = if forward { list.first() } else { list.last() };
+            if let Some(t) = pick {
+                let id = t.id.clone();
+                self.view.go_to(i);
+                self.comments.shown = true;
+                self.comments.active = Some(id);
+                self.relayout_pending = true;
+                return true;
+            }
+        }
+        false
     }
 
     /// Give the shape just chosen the effect the Animation Painter holds.
@@ -2071,7 +2168,7 @@ impl SlideWindow {
                 p.text(
                     label,
                     (x + (w - tw) / 2.0).round(),
-                    top + px(44.0),
+                    top + px(45.6),
                     style,
                     if enabled { self.theme.text } else { rgb(0xa6) },
                 );

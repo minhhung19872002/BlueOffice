@@ -73,7 +73,11 @@ pub const GALLERY_TILES: usize = 6;
 pub const ANIM_TILES: usize = 4;
 
 /// Other commands of these tabs.
-const OWN: [&str; 30] = [
+const OWN: [&str; 34] = [
+    "show.hideSlide",
+    "review.deleteComment",
+    "review.prevComment",
+    "review.nextComment",
     "anim.trigger",
     "anim.painter",
     "anim.add",
@@ -140,11 +144,11 @@ pub fn large_width(id: &str) -> Option<f32> {
     // 124 px (121 + the ribbon's 3 px gap), the "more" column 36 px framed, Effect Options
     // reaching the next divider at 985.
     match id {
-        "transition.preview" | "anim.preview" => return Some(50.4),
+        "transition.preview" | "anim.preview" => return Some(48.8),
         "transition.more" | "anim.more" => return Some(29.6),
         "transition.effect" | "anim.effect" => return Some(72.0),
         // Add Animation: reference x 745-850.
-        "anim.add" => return Some(80.0),
+        "anim.add" => return Some(89.6),
         _ => {}
     }
     if THEMES.iter().any(|(c, _)| *c == id) {
@@ -162,11 +166,18 @@ pub(crate) fn draw_tab() -> Tab {
     use Item::Large as L;
     Tab {
         label: "slideNative.draw",
-        groups: vec![Group {
-            label: "slideNative.drawTools",
-            large: DRAW_TOOLS.iter().map(|id| L(id)).collect(),
-            rows: vec![],
-        }],
+        groups: vec![
+            Group {
+                label: "slideNative.tools",
+                large: vec![L("draw.eraser"), L("draw.select")],
+                rows: vec![],
+            },
+            Group {
+                label: "slideNative.pens",
+                large: vec![L("draw.pen"), L("draw.red"), L("draw.highlight")],
+                rows: vec![],
+            },
+        ],
     }
 }
 
@@ -297,13 +308,19 @@ pub(crate) fn animations_tab() -> Tab {
 }
 
 pub(crate) fn review_tab() -> Tab {
-    use Item::{Labeled as S, Large as L};
+    use Item::Large as L;
     Tab {
         label: "ribbon.tabs.review",
         groups: vec![Group {
             label: "ribbon.groups.comments",
-            large: vec![L("review.newComment")],
-            rows: vec![vec![S("review.comments")]],
+            large: vec![
+                L("review.newComment"),
+                L("review.deleteComment"),
+                L("review.prevComment"),
+                L("review.nextComment"),
+                L("review.comments"),
+            ],
+            rows: vec![],
         }],
     }
 }
@@ -368,7 +385,11 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("draw.highlight", "slideNative.highlighter"),
         ("draw.eraser", "slideNative.eraser"),
         ("review.newComment", "slideEditor.comments.new"),
-        ("review.comments", "slideEditor.comments.title"),
+        ("review.comments", "slideNative.showComments"),
+        ("review.deleteComment", "slideEditor.comments.delete"),
+        ("review.prevComment", "slideNative.previous"),
+        ("review.nextComment", "slideNative.next"),
+        ("show.hideSlide", "slideNative.hideSlide"),
         ("view.normal", "slideEditor.normal"),
         ("view.sorter", "slideEditor.sorter"),
         ("view.reading", "slideEditor.reading"),
@@ -640,6 +661,47 @@ pub(crate) fn install_icons(icons: &mut Icons) {
     icons.alias("design.slideSize", "layout.size");
     icons.alias("design.background", "format.fillColor");
     icons.alias("review.comments", "review.pane");
+    // Comment commands: a speech bubble with a red cross / blue arrows (own drawings).
+    let bubble = "M3 4h18v12h-10l-5 4v-4h-3Z";
+    let paper = Rgba(0xff, 0xff, 0xff, 255);
+    icons.add_solid(
+        "review.deleteComment",
+        &[
+            (bubble, Some(paper)),
+            (bubble, None),
+            (
+                "M8 7l1-1l3 3l3-3l1 1l-3 3l3 3l-1 1l-3-3l-3 3l-1-1l3-3Z",
+                Some(Rgba(0xd2, 0x4a, 0x3c, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "review.prevComment",
+        &[
+            (bubble, Some(paper)),
+            (bubble, None),
+            ("M7 10l4-3.5v2h6v3h-6v2Z", Some(Rgba(0x44, 0x80, 0xc0, 255))),
+        ],
+    );
+    icons.add_solid(
+        "review.nextComment",
+        &[
+            (bubble, Some(paper)),
+            (bubble, None),
+            (
+                "M17 10l-4-3.5v2h-6v3h6v2Z",
+                Some(Rgba(0x44, 0x80, 0xc0, 255)),
+            ),
+        ],
+    );
+    icons.add_solid(
+        "show.hideSlide",
+        &[
+            ("M3 5h18v13h-18Z", Some(paper)),
+            ("M3 5h18v13h-18Z", None),
+            ("M5 19l14-15", None),
+        ],
+    );
     icons.alias("anim.pane", "view.animationPane");
 }
 

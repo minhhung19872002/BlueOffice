@@ -15,6 +15,8 @@ pub(crate) struct Props {
     description: Vec<(String, String)>,
     /// Rows of the Security tab.
     security: Vec<(String, String)>,
+    /// Rows of the Advanced tab.
+    advanced: Vec<(String, String)>,
     fonts: Vec<FontInfo>,
     /// Dialog, tab boxes, OK and close boxes (window pixels; set when painted).
     rect: [f32; 4],
@@ -46,13 +48,13 @@ fn size_text(n: usize) -> String {
 }
 
 impl ReaderWindow {
-    /// Open File › Properties for the active document.
-    pub(crate) fn open_properties(&mut self) {
+    /// Rows of the Description tab (also the File page's Properties).
+    pub(crate) fn description_rows(&self) -> Vec<(String, String)> {
         let Some(t) = self.tabs.get(self.active) else {
-            return;
+            return Vec::new();
         };
         let doc = t.view.doc();
-        let i: DocInfo = doc.info();
+        let i: DocInfo = doc.doc_info();
         let yes_no = |b: bool| {
             if b {
                 self.t("pdfProps.yes")
@@ -93,6 +95,32 @@ impl ReaderWindow {
             (self.t("pdfProps.tagged"), yes_no(i.tagged)),
             (self.t("pdfProps.fastWeb"), yes_no(i.linearized)),
         ];
+        description
+    }
+
+    /// Open File › Properties for the active document.
+    pub(crate) fn open_properties(&mut self) {
+        let description = self.description_rows();
+        let Some(t) = self.tabs.get(self.active) else {
+            return;
+        };
+        let doc = t.view.doc();
+        let i: DocInfo = doc.doc_info();
+        let yes_no = |b: bool| {
+            if b {
+                self.t("pdfProps.yes")
+            } else {
+                self.t("pdfProps.no")
+            }
+        };
+        let advanced = doc
+            .advanced()
+            .into_iter()
+            .map(|(k, v)| {
+                let v = if v.is_empty() { "—".to_owned() } else { v };
+                (self.t(&format!("pdfProps.{k}")), v)
+            })
+            .collect();
         let allowed = |bit: u32| i.permissions.is_none_or(|p| p & (1 << (bit - 1)) != 0);
         let security = vec![
             (
@@ -114,6 +142,7 @@ impl ReaderWindow {
             tab: 0,
             description,
             security,
+            advanced,
             fonts: doc.font_list(),
             rect: [0.0; 4],
             tabs: Vec::new(),
@@ -139,8 +168,7 @@ impl ReaderWindow {
                 Some(true)
             }
             Input::Key(Key::Tab, m) => {
-                d.tab = if m.shift { d.tab + 2 } else { d.tab + 1 } % 3;
-                d.tab %= 3;
+                d.tab = if m.shift { d.tab + 3 } else { d.tab + 1 } % 4;
                 Some(true)
             }
             Input::Resize { .. } | Input::Scale(_) | Input::Tick | Input::Blink => None,
@@ -155,7 +183,7 @@ impl ReaderWindow {
         };
         let (w, h) = self.size;
         p.fill_rect(0.0, 0.0, w, h, Rgba(0, 0, 0, 40));
-        let (dw, dh) = (self.px(560.0), self.px(520.0));
+        let (dw, dh) = (self.px(600.0), self.px(560.0));
         let r = [((w - dw) / 2.0).round(), ((h - dh) / 2.0).round(), dw, dh];
         d.rect = r;
         let edge = self.look.edge;
@@ -193,6 +221,7 @@ impl ReaderWindow {
             "pdfProps.description",
             "pdfProps.security",
             "pdfProps.fonts",
+            "pdfProps.advanced",
         ]
         .iter()
         .enumerate()
@@ -240,11 +269,11 @@ impl ReaderWindow {
         let val_x = r[0] + self.px(190.0);
         p.push_clip(r[0], y, r[2], r[3] - (y - r[1]) - self.px(52.0));
         match d.tab {
-            0 | 1 => {
-                let rows = if d.tab == 0 {
-                    &d.description
-                } else {
-                    &d.security
+            0 | 1 | 3 => {
+                let rows = match d.tab {
+                    0 => &d.description,
+                    1 => &d.security,
+                    _ => &d.advanced,
                 };
                 for (label, value) in rows {
                     p.text(&format!("{label}:"), left, y, body, MUTED);

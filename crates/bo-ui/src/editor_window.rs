@@ -37,6 +37,11 @@ const TABS: [&str; 9] = [
 /// Index of the Organize tab in [`TABS`].
 pub(crate) const TAB_ORGANIZE: usize = 3;
 
+/// Ribbon items of tab `tab` (an index into the tabs after File).
+pub(crate) fn ribbon_items(tab: usize) -> Vec<(&'static str, Kind)> {
+    ribbon(tab)
+}
+
 #[allow(clippy::too_many_lines)]
 fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     use Kind::{Big, Sep, Small};
@@ -46,17 +51,28 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     ];
     let mut v: Vec<(&'static str, Kind)> = common.to_vec();
     match tab {
+        // The reference's Home tab (SnapShot is BlueReader's); From Scanner and Quick
+        // Recognition are shown disabled so the groups keep their places.
         0 => v.extend([
-            ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
+            ("home.snapshot", Big("snapshot", "pdfHome.snapshot", false)),
+            (
+                "ed.clipboard",
+                Big("clipboard", "pdfEditor.clipboard", true),
+            ),
+            ("ed.bookmark", Big("bookmark", "pdfEditor.bookmark", false)),
             ("sep1", Sep),
             ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
             ("menu.fit", Big("fit", "pdfEditor.pageFitOption", true)),
+            ("view.reflow", Big("reflow", "pdfView.reflow", false)),
             ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
             ("sep2", Sep),
-            ("ed.editText", Big("editText", "pdfEditor.editText", false)),
+            (
+                "ed.editText",
+                Big("edEditText", "pdfEditor.editText", false),
+            ),
             (
                 "ed.editObject",
-                Big("editObject", "pdfEditor.editObject", false),
+                Big("editObject", "pdfEditor.editObject", true),
             ),
             ("sep3", Sep),
             (
@@ -70,13 +86,16 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep4", Sep),
             (
                 "org.rotateMenu",
-                Big("rotateRight", "pdfEditor.rotatePages", true),
+                Big("edRotatePages", "pdfEditor.rotatePages", true),
             ),
             (
                 "org.insertMenu",
-                Big("insertPage", "pdfEditor.insert", true),
+                Big("edInsertPage", "pdfEditor.insert", true),
             ),
             ("sep5", Sep),
+            ("ed.scanner", Big("scanner", "pdfEditor.fromScanner", true)),
+            ("ed.ocr", Big("ocr", "pdfEditor.quickRecognition", false)),
+            ("sep6", Sep),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         ]),
         1 => v.extend([
@@ -119,6 +138,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
                 "org.rotateRight",
                 Big("rotateRight", "pdfEditor.rotateRight", false),
             ),
+            ("org.crop", Big("cropPages", "pdfEditor.cropPages", false)),
             ("sep3", Sep),
             ("org.split", Big("splitPages", "pdfEditor.split", false)),
             ("org.combine", Big("combine", "pdfEditor.combine", false)),
@@ -171,31 +191,44 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep5", Sep),
             ("cm.stamp", Big("stamp", "pdfEditor.stamp", true)),
             ("sep6", Sep),
+            ("cm.summary", Big("summary", "pdfEditor.summarize", false)),
             (
                 "panel.comments",
                 Big("comments", "pdfReader.commentList", false),
             ),
         ]),
+        // The reference editor's View tab is its reader's: Read Mode, Reflow, Reverse View,
+        // Night Mode, Rotate View, page display, AutoScroll, Word Count, View Setting.
         5 => v.extend([
             ("sep1", Sep),
-            ("view.single", Small("single")),
-            ("view.continuous", Small("continuous")),
-            ("view.facing", Small("facing")),
-            ("view.contFacing", Small("contFacing")),
+            ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
+            ("view.reflow", Big("reflow", "pdfView.reflow", false)),
+            ("view.reverse", Big("reverseView", "pdfView.reverse", false)),
+            ("view.night", Big("night", "pdfView.night", false)),
             ("sep2", Sep),
             ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
             ("sep3", Sep),
-            ("zoom.in", Big("zoom", "pdfReader.zoomIn", false)),
-            ("zoom.out", Big("zoomOut", "pdfReader.zoomOut", false)),
-            ("zoom.actual", Big("actual", "pdfReader.actualSize", false)),
-            ("zoom.page", Big("fit", "pdfReader.fitPage", false)),
-            ("zoom.width", Big("fitWidth", "pdfReader.fitWidth", false)),
+            ("view.single", Small("single")),
+            ("view.contFacing", Small("contFacing")),
+            ("view.continuous", Small("continuous")),
+            ("view.cover", Small("cover")),
+            ("view.facing", Small("facing")),
+            ("view.grid", Small("grid")),
             ("sep4", Sep),
             (
-                "panel.bookmarks",
-                Big("bookmark", "pdfReader.bookmarks", false),
+                "view.autoScroll",
+                Big("autoScroll", "pdfView.autoScroll", false),
             ),
-            ("panel.pages", Big("pages", "pdfReader.pages", false)),
+            ("sep5", Sep),
+            (
+                "view.wordCount",
+                Big("wordCount", "pdfView.wordCount", false),
+            ),
+            ("sep6", Sep),
+            (
+                "menu.viewSetting",
+                Big("viewSetting", "pdfView.viewSetting", true),
+            ),
         ]),
         6 => v.extend(crate::editor_design::form_tab_items()),
         7 => v.extend([
@@ -207,6 +240,10 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             (
                 "prot.applyRedact",
                 Big("applyRedact", "pdfEditor.applyRedactions", false),
+            ),
+            (
+                "prot.whiteout",
+                Big("whiteout", "pdfEditor.whiteout", false),
             ),
             ("sep2", Sep),
             ("prot.password", Big("secure", "pdfEditor.secure", false)),
@@ -241,7 +278,7 @@ fn profile() -> Profile {
             ("file.merge", "pdfEditor.combine"),
             ("file.save", "pdfReader.save"),
             ("file.saveAs", "pdfReader.saveAs"),
-            ("file.saveOptimized", "pdfEditor.saveOptimized"),
+            ("file.optimize", "pdfEditor.optimize"),
             ("file.print", "pdfReader.print"),
             ("file.close", "pdfReader.close"),
         ],
@@ -267,7 +304,7 @@ const LOOK: Look = Look {
     body_h: 73.6,
     icon: 28.8,
     icon_y: 4.8,
-    label: 17.0,
+    label: 16.2,
     label_y: 36.0,
     quick_x: 54.8,
     quick_step: 28.0,
@@ -293,6 +330,18 @@ const LOOK: Look = Look {
     status_box_top: Some(3.2),
     // The reference's toolbar icons are drawn with 1 px lines at 36 px.
     icon_stroke: 0.66,
+    // Reference at 125 % with 110 % text: labels 9 % narrower than BlueReader's, buttons the
+    // label plus 18 px, at least 49 px, side by side; 1 px before a separator, 8 px after
+    // (Edit tab: Hand 14–65, Edit Text 131–179, separators at 123 and 470).
+    big_pad: 13.1,
+    big_min: 40.0,
+    big_gap: 0.0,
+    sep_space: (0.8, 5.8),
+    // "Edit Object▾": the arrow widens the button (reference 180–248 for a 44 px label).
+    arrow_w: 6.4,
+    // One-line labels: about 12 px between neighbouring labels (Home: Select 111 →
+    // SnapShot 123, Clipboard 270 → Bookmark 281).
+    big_pad_one: 9.6,
 };
 
 /// Editor tool that takes the document area's pointer input.
@@ -346,6 +395,33 @@ pub struct EditorWindow {
     pub(crate) dialog2: Option<(Dialog, crate::editor_actions::Ask2)>,
     /// Field whose option menu is open.
     pub(crate) pending_field: Option<bo_pdfread::FormField>,
+    /// Edit tab box tools, spelling, bookmarks, command search (`editor_tools`).
+    pub(crate) tools: crate::editor_tools::ToolsState,
+    /// The File page.
+    pub(crate) bs: crate::editor_backstage::Backstage,
+    /// File › Preferences.
+    pub(crate) prefs: Prefs,
+}
+
+/// Preferences (File › Preferences): comment author, zoom and page display of opened
+/// documents (empty: as the document asks), units of measurement.
+#[derive(Debug, Clone)]
+pub(crate) struct Prefs {
+    pub author: String,
+    pub zoom: String,
+    pub layout: String,
+    pub units: String,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Self {
+            author: std::env::var("USERNAME").unwrap_or_else(|_| "BlueEditor".into()),
+            zoom: String::new(),
+            layout: String::new(),
+            units: "mm".into(),
+        }
+    }
 }
 
 fn editor_theme() -> Theme {
@@ -361,6 +437,7 @@ impl EditorWindow {
     pub fn new(locale: &str) -> Self {
         let mut r = ReaderWindow::with_profile(locale, profile());
         r.set_theme(editor_theme());
+        r.file_backstage = true;
         Self {
             r,
             org: Organize::default(),
@@ -379,6 +456,9 @@ impl EditorWindow {
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
             pending_field: None,
+            tools: crate::editor_tools::ToolsState::default(),
+            bs: crate::editor_backstage::Backstage::default(),
+            prefs: Prefs::default(),
         }
     }
 
@@ -387,6 +467,7 @@ impl EditorWindow {
         self.edit.reset(self.r.view_mut());
         self.x = crate::editor_actions::Extras::default();
         self.r.open(doc, name, path);
+        self.apply_view_prefs();
         self.org = Organize::default();
         self.sync();
     }
@@ -495,6 +576,7 @@ impl EditorWindow {
         if cmd.starts_with("tool.") {
             self.comment.tool = None;
             self.design.tool = None;
+            self.tools.tool = None;
         }
         self.r.run_command(cmd, m);
         self.drain(m);
@@ -590,9 +672,20 @@ impl EditorWindow {
         }
         let mut redraw = false;
         let mut used = false;
-        if !self.r.modal_open() {
-            if let Input::Key(k, mods) = input {
-                used = self.key(k, mods, m);
+        let reader_tool = self.r.current_tool();
+        if self.backstage_input(&input) {
+            return true;
+        }
+        // The command search box keeps the keyboard while its results list is open.
+        if self.tools.search_on && matches!(input, Input::Text(_) | Input::Key(..)) {
+            used = self.search_input(&input);
+        }
+        if !used && !self.r.modal_open() {
+            used = self.search_input(&input);
+            if !used {
+                if let Input::Key(k, mods) = input {
+                    used = self.key(k, mods, m);
+                }
             }
             if !used && self.organize_on() {
                 used = self.org_input(&input, m);
@@ -605,6 +698,9 @@ impl EditorWindow {
             }
             if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = self.design_input(&input);
+            }
+            if !used && self.tools.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.tools_input(&input);
             }
             if !used && self.sig.pending.is_some() && self.r.showing_doc() {
                 used = self.sign_input(&input);
@@ -628,8 +724,18 @@ impl EditorWindow {
             redraw = true;
         } else {
             redraw |= self.r.handle(input, m);
+            // A reader tool chosen on the ribbon (highlight, note, select…) turns the
+            // editor's tools off.
+            let now = self.r.current_tool();
+            if now != reader_tool && now != Tool::Hand {
+                self.set_tool(None);
+                self.comment.tool = None;
+                self.design.tool = None;
+                self.tools.tool = None;
+            }
         }
         redraw |= self.drain(m);
+        redraw |= self.reflow_check();
         self.sync();
         self.sync_signatures();
         if redraw && self.edit.typing.is_some() {
@@ -741,7 +847,17 @@ impl EditorWindow {
             self.choose_option(i);
             return;
         }
+        if cmd == "file.backstage" {
+            if self.bs.open {
+                self.close_backstage();
+            } else {
+                self.open_backstage();
+            }
+            return;
+        }
         if self.action(cmd, m)
+            || self.search_command(cmd)
+            || self.tools_command(cmd)
             || self.format_command(cmd)
             || self.sign_command(cmd)
             || self.comment_command(cmd)
@@ -782,6 +898,8 @@ impl EditorWindow {
                 self.edit.reset(self.r.view_mut());
                 self.tool = None;
                 self.comment.tool = None;
+                self.design.tool = None;
+                self.tools.tool = None;
             }
             "org.insertMenu" => {
                 let items = [
@@ -915,6 +1033,7 @@ impl EditorWindow {
         self.edit.reset(self.r.view_mut());
         self.comment.tool = None;
         self.design.tool = None;
+        self.tools.tool = None;
         self.tool = if self.tool == Some(t) { None } else { Some(t) };
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
@@ -1014,7 +1133,9 @@ impl EditorWindow {
         d.layout(m, size, scale);
         if let Some(b) = done {
             if let Some((d, what)) = self.dialog2.take() {
-                if b == DialogButton::Ok {
+                if let crate::editor_actions::Ask2::Tools(t) = what {
+                    self.tools_answer(t, b, &d.values());
+                } else if b == DialogButton::Ok {
                     self.answer2(what, &d.values());
                 }
             }
@@ -1131,6 +1252,9 @@ impl EditorWindow {
         }
         if purpose == "certificate" {
             self.certificate_picked(bytes);
+            return;
+        }
+        if self.tools_file_picked(purpose, &name, bytes) {
             return;
         }
         if purpose == "attach" {
@@ -1317,6 +1441,9 @@ impl EditorWindow {
         if let Some(t) = self.comment.tool {
             self.r.on.insert(crate::editor_comment::tool_command(t));
         }
+        for id in ["ed.scanner", "ed.ocr"] {
+            self.r.enabled_override.insert(id, false);
+        }
         for id in crate::editor_format::EDIT_TAB_LATER
             .iter()
             .chain(&crate::editor_design::FORM_TAB_LATER)
@@ -1332,10 +1459,32 @@ impl EditorWindow {
                 F::Combo => "fd.combo",
                 F::List => "fd.list",
                 F::Button => "fd.button",
+                F::Signature => "fd.signature",
+                F::Image => "fd.image",
+                F::Barcode => "fd.barcode",
             });
         }
-        self.r.tool_hidden =
-            self.tool.is_some() || self.comment.tool.is_some() || self.design.tool.is_some();
+        if let Some(t) = self.tools.tool {
+            use crate::editor_tools::BoxTool as B;
+            self.r.on.insert(match t {
+                B::Link => "ed.link",
+                B::CrossRef => "ed.crossRef",
+                B::Article => "ed.articleBox",
+                B::ImageAnnot => "ed.imageAnnot",
+                B::Media => "ed.media",
+                B::Model3d => "ed.add3d",
+                B::Shape(_) => "ed.addShapes",
+                B::Whiteout => "prot.whiteout",
+                B::Join => "ed.linkJoin",
+            });
+        }
+        if self.tools.reflow {
+            self.r.on.insert("ed.reflow");
+        }
+        self.r.tool_hidden = self.tool.is_some()
+            || self.comment.tool.is_some()
+            || self.design.tool.is_some()
+            || self.tools.tool.is_some();
         let area = self.r.doc_area();
         let (w, _) = self.r.window_size();
         self.org.frame = [area[0], area[1], (w - 1.0 - area[0]).max(1.0), area[3]];
@@ -1452,7 +1601,9 @@ impl EditorWindow {
         self.paint_sign(p);
         self.paint_comment(p);
         self.paint_design(p);
+        self.paint_tools(p, &Estimate);
         self.paint_format(p);
+        self.paint_backstage(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }

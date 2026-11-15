@@ -11,10 +11,14 @@ use commands_impl::SheetDialog;
 
 #[path = "sheet_audit.rs"]
 mod audit_impl;
+#[path = "sheet_chart.rs"]
+mod chart_impl;
 #[path = "sheet_commands.rs"]
 mod commands_impl;
 #[path = "sheet_comments.rs"]
 mod comments_impl;
+#[path = "sheet_data.rs"]
+mod data_impl;
 #[path = "sheet_dataforms.rs"]
 mod dataforms_impl;
 #[path = "sheet_fbar.rs"]
@@ -27,6 +31,8 @@ mod filter_impl;
 mod form_impl;
 #[path = "sheet_gallery.rs"]
 mod gallery_impl;
+#[path = "sheet_illus.rs"]
+mod illus_impl;
 #[path = "sheet_insert.rs"]
 mod insert_impl;
 #[path = "sheet_review.rs"]
@@ -39,6 +45,55 @@ use bo_edit::FormatState;
 use bo_model::Alignment;
 use bo_render::{PathSeg, Rgba};
 use serde_json::json;
+
+/// Menus of the chart tabs.
+pub(crate) fn chart_menu(id: &str) -> Vec<(String, String)> {
+    chart_impl::chart_menu(id)
+}
+
+/// SmartArt layout families and built-in equations of the Insert tab's menus.
+pub(crate) const SMARTART_FAMILIES: [&str; 7] = illus_impl::SMARTART;
+pub(crate) const EQUATION_KEYS: [&str; 5] = [
+    illus_impl::EQUATIONS[0].0,
+    illus_impl::EQUATIONS[1].0,
+    illus_impl::EQUATIONS[2].0,
+    illus_impl::EQUATIONS[3].0,
+    illus_impl::EQUATIONS[4].0,
+];
+
+/// Local time offset from UTC in minutes, set by the host ([`SheetWindow::set_utc_offset`]).
+static UTC_OFFSET: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// Today's date (`M/D/YYYY`) or the time (`h:mm AM`) in local time.
+fn now_stamp(time: bool) -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let offset = i64::from(UTC_OFFSET.load(std::sync::atomic::Ordering::Relaxed));
+    let t = secs + offset * 60;
+    let (days, rem) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    if time {
+        let (h, mi) = (rem / 3600, rem % 3600 / 60);
+        let (h12, ap) = match h {
+            0 => (12, "AM"),
+            1..=11 => (h, "AM"),
+            12 => (12, "PM"),
+            _ => (h - 12, "PM"),
+        };
+        return format!("{h12}:{mi:02} {ap}");
+    }
+    // Civil date from days since 1970-01-01 (H. Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(mo <= 2);
+    format!("{mo}/{d}/{y}")
+}
 
 /// Tab strip and status bar greys of the reference spreadsheet.
 const TABS_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
@@ -117,6 +172,33 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
     match id {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
+        // No screen capture or 3-D model support in BlueSheet: shown dimmed.
+        "sheet.screenshot"
+        | "sheet.models3d"
+        // Not in BlueSheet yet (shown dimmed like the reference's unavailable commands).
+        | "sheet.recentSources"
+        | "sheet.fromWeb"
+        | "sheet.queryProps"
+        | "sheet.editLinks"
+        | "sheet.filterReapply"
+        | "sheet.filterAdvanced"
+        | "sheet.relationships"
+        | "sheet.dataModel"
+        | "sheet.forecastSheet"
+        | "sheet.watchWindow"
+        | "sheet.viewPageBreak"
+        | "sheet.viewPageLayout"
+        | "sheet.ruler"
+        | "sheet.newWindow"
+        | "sheet.split"
+        | "sheet.arrangeAll"
+        | "sheet.hideWindow"
+        | "sheet.unhideWindow"
+        | "sheet.switchWindows"
+        | "sheet.macros"
+        | "sheet.chartSwitch"
+        | "sheet.chartSelectData"
+        | "sheet.chartMove" => false,
         _ => COMMANDS.contains(&id) || id.starts_with("sheet."),
     }
 }
@@ -277,6 +359,16 @@ pub struct SheetWindow {
     more_colors: (String, String),
     /// Open picture gallery (Cell Styles, Format as Table).
     gallery: Option<gallery_impl::Gallery>,
+    /// What a file asked of the host (`Request::PickMergeData`) is for: `"styles"` (Merge
+    /// Styles…) or `"text"` (Get Data from Text/CSV).
+    pick: Option<&'static str>,
+    /// Open Shapes / Icons gallery and the icon library (loaded when Icons first opens).
+    picker: Option<crate::slide_pickers::Picker>,
+    library: Vec<crate::slide_pickers::LibIcon>,
+    /// Selected chart, a chart drag in progress, the charts' anchors for painting.
+    chart_sel: Option<usize>,
+    chart_drag: Option<chart_impl::ChartDrag>,
+    chart_cache: Vec<([u32; 2], [u32; 2])>,
 }
 
 impl SheetWindow {
@@ -297,6 +389,9 @@ impl SheetWindow {
                     (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
                 })
                 .with_trailing(sheet_ribbon::trailing)
+                .with_late_rows(sheet_ribbon::late)
+                .with_large_widths(chart_impl::large_width)
+                .with_plain_contextual()
                 .with_two_line_labels(),
             wide_ribbon: true,
             theme: Theme::light("sheet"),
@@ -352,11 +447,25 @@ impl SheetWindow {
             form_stash: None,
             more_colors: (String::new(), String::new()),
             gallery: None,
+            pick: None,
+            picker: None,
+            library: Vec::new(),
+            chart_sel: None,
+            chart_drag: None,
+            chart_cache: Vec::new(),
         };
         insert_impl::add_icons(&mut w.icons);
+        data_impl::add_icons(&mut w.icons);
+        chart_impl::add_icons(&mut w.icons);
+        data_impl::install_labels(&mut w.strings);
         w.load_functions();
         w.refresh_calc_state();
         w
+    }
+
+    /// Local time offset from UTC in minutes (Ctrl+; and Ctrl+Shift+; stamps).
+    pub fn set_utc_offset(minutes: i32) {
+        UTC_OFFSET.store(minutes, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The grid view (saving).
@@ -470,11 +579,17 @@ impl SheetWindow {
         for wide in [true, false] {
             if self.wide_ribbon != wide {
                 self.wide_ribbon = wide;
+                let active = self.ribbon.active_tab();
                 self.ribbon.set_tabs(if wide {
                     sheet_ribbon::tabs_wide()
                 } else {
                     sheet_ribbon::tabs()
                 });
+                if self.chart_sel.is_some() {
+                    self.ribbon.set_contextual(chart_impl::chart_tabs(), false);
+                }
+                // The same tab stays active (also a contextual one).
+                self.ribbon.set_active_tab(active);
                 self.ribbon.set_labeled_widths(if wide {
                     |id| (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
                 } else {
@@ -1105,6 +1220,12 @@ impl SheetWindow {
             _ => None,
         };
         let mut redraw = self.route(input, text);
+        self.refresh_chart_cache();
+        // Contextual tabs shown or hidden by the input (chart selection) need a layout.
+        if self.ribbon.needs_layout() {
+            self.relayout(text);
+            redraw = true;
+        }
         if let Some((x, y)) = moved {
             redraw |= self.hover_comments(x, y);
         }
@@ -1178,6 +1299,16 @@ impl SheetWindow {
                 return r;
             }
         }
+        if self.picker.is_some() {
+            if let Some(r) = self.picker_input(&input) {
+                return r;
+            }
+        }
+        if self.form.is_none() && self.dialog.is_none() {
+            if let Some(r) = self.chart_input(&input) {
+                return r;
+            }
+        }
         if self.filter.is_some() {
             if let Some(r) = self.filter_input(&input, text) {
                 return r;
@@ -1217,8 +1348,32 @@ impl SheetWindow {
                 (Key::Letter('i'), Mods { ctrl: true, .. }) => Some("format.italic"),
                 (Key::Letter('u'), Mods { ctrl: true, .. }) => Some("format.underline"),
                 (Key::Letter('5'), Mods { ctrl: true, .. }) => Some("format.strike"),
+                // Spreadsheet shortcuts: fill down / right, Format Cells, AutoSum.
+                (Key::Letter('d'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("fill.down")
+                }
+                (Key::Letter('r'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("fill.right")
+                }
+                (Key::Letter('1'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("sheet.formatCellsDialog")
+                }
+                (Key::Letter('='), Mods { alt: true, .. }) if !self.view.editing() => {
+                    Some("autosum.sum")
+                }
                 _ => None,
             };
+            // Ctrl+; today's date, Ctrl+Shift+; the time, typed into the cell (as the
+            // reference: the editor opens with them).
+            if k == Key::Letter(';') && m.ctrl {
+                let stamp = now_stamp(m.shift);
+                if self.view.editing() {
+                    self.view.edit_insert(&stamp, text);
+                } else {
+                    self.view.edit_with(&stamp, text);
+                }
+                return true;
+            }
             if let Some(id) = id {
                 if self.view.editing() && id.starts_with("format.") {
                     self.view.commit();
@@ -1524,12 +1679,14 @@ impl SheetWindow {
         );
         self.paint_number_box(p);
         self.paint_check_items(p);
+        self.paint_chart_style_tiles(p);
     }
 
     /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs
     /// (over the top band).
     pub fn paint_overlay(&self, p: &mut dyn Painter) {
         self.paint_arrows(p);
+        self.paint_chart_selection(p);
         self.paint_cards(p);
         if self.show_fbar {
             self.paint_formula_bar(p);
@@ -1539,6 +1696,7 @@ impl SheetWindow {
         self.paint_status(p);
         self.paint_filter(p);
         self.paint_gallery(p);
+        self.paint_picker(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -1762,7 +1920,12 @@ impl SheetWindow {
             f[3] - 2.0,
         );
         // One line, or as many as the expanded bar shows (19.2 pt pitch, measured).
-        let content = self.view.formula_text();
+        // Empty while a chart is selected, as on the reference.
+        let content = if self.chart_sel.is_some() {
+            ""
+        } else {
+            self.view.formula_text()
+        };
         for (i, shown) in content
             .lines()
             .take(self.fbar_lines.max(1) as usize)

@@ -30,6 +30,7 @@ mod encoding;
 mod encoding_data;
 mod exchange;
 mod fallback;
+mod field_detect;
 mod filters;
 mod font;
 mod forms;
@@ -37,9 +38,12 @@ mod function;
 mod image;
 mod interp;
 mod lexer;
+mod links_edit;
 mod markup;
+mod media_edit;
 mod mesh;
 mod objects;
+mod optimize;
 mod paragraph;
 mod sfnt;
 mod sigappear;
@@ -60,8 +64,11 @@ pub use edit::{Permissions, SaveOptions};
 pub use exchange::SummaryLabels;
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
+pub use links_edit::{find_web_addresses, FoundLink};
 pub use markup::{Markup, MarkupKind};
+pub use media_edit::ShapeKind;
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
+pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
@@ -555,6 +562,22 @@ impl PdfDocument {
         let t = resolve(&self.doc, d.get(b"Title").ok()?).as_str().ok()?;
         let s = text_string(t).trim().to_owned();
         (!s.is_empty()).then_some(s)
+    }
+
+    /// An entry of the document information dictionary (§14.3.3: `Author`, `Producer`…).
+    pub fn info(&self, key: &str) -> Option<String> {
+        let info = self.doc.trailer.get(b"Info").ok()?;
+        let d = resolve(&self.doc, info).as_dict().ok()?;
+        let t = resolve(&self.doc, d.get(key.as_bytes()).ok()?)
+            .as_str()
+            .ok()?;
+        let s = text_string(t).trim().to_owned();
+        (!s.is_empty()).then_some(s)
+    }
+
+    /// The PDF version in the file header (`1.7`, `2.0`).
+    pub fn version(&self) -> String {
+        self.doc.version.clone()
     }
 
     /// The bytes the document was opened from, with any saved updates appended.

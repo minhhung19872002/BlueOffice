@@ -98,6 +98,8 @@ pub(crate) struct Tabs5 {
     pub(crate) sig_selected: Option<(usize, [f32; 4], String)>,
     /// File › Properties.
     pub(crate) props: Option<super::props5::Props>,
+    /// The File page (backstage).
+    pub(crate) backstage: Option<super::bs5::Backstage>,
     /// Bookmarks panel: search text, its box has the keyboard, text size step, tool boxes,
     /// the tool under the pointer, the search box.
     pub(crate) bm_search: String,
@@ -724,6 +726,11 @@ impl ReaderWindow {
             return Some(r);
         }
         if self.tabs5.dialog.is_none() {
+            if let Some(r) = self.route_backstage(input, m) {
+                return Some(r);
+            }
+        }
+        if self.tabs5.dialog.is_none() {
             if let Some(r) = self.route_bookmarks(input, m) {
                 return Some(r);
             }
@@ -893,6 +900,7 @@ impl ReaderWindow {
 
     /// The additions' dialog, over everything else.
     pub(crate) fn paint_tabs5_dialog(&mut self, p: &mut dyn Painter) {
+        self.paint_reader_backstage(p);
         self.paint_doc_props(p);
         if let Some((d, _)) = &self.tabs5.dialog {
             d.paint(p, &self.theme, self.size, true);

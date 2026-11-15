@@ -232,6 +232,9 @@ impl ReaderWindow {
             let ix = x + self.px(12.8);
             let mid = (y + row_h / 2.0).round();
             if y + row_h > list_top {
+                if self.selected_outline.as_ref() == Some(&path) {
+                    p.fill_rect(r[0], y, r[2], row_h, self.look.pressed);
+                }
                 if q.is_empty() {
                     #[allow(clippy::needless_range_loop)]
                     for l in 1..=depth.min(17) {

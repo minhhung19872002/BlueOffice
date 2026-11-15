@@ -357,6 +357,8 @@ pub struct Stats {
 /// The grid of one workbook window.
 pub struct SheetView {
     engine: SheetEngine,
+    /// A drawing (chart) is selected: the cell selection is not drawn.
+    object_selected: bool,
     sheet: usize,
     /// Window rectangle of the grid with its headers.
     frame: [f32; 4],
@@ -443,6 +445,7 @@ impl SheetView {
             });
         let mut v = Self {
             engine,
+            object_selected: false,
             sheet: 0,
             frame: [0.0, 0.0, 800.0, 600.0],
             scale: 1.0,
@@ -1002,6 +1005,11 @@ impl SheetView {
             self.show_grid = on;
             self.redraw_all();
         }
+    }
+
+    /// A drawing (chart) is selected instead of cells: the cell selection is not drawn.
+    pub fn set_object_selected(&mut self, on: bool) {
+        self.object_selected = on;
     }
 
     /// Gridlines shown.
@@ -1760,6 +1768,16 @@ impl SheetView {
             Key::Up | Key::Down | Key::Left | Key::Right if typed && !mods.ctrl && pointing => {
                 Some(self.point_key(k, mods, m))
             }
+            // F4 cycles the reference at the caret: $A$1 → A$1 → $A1 → A1 (the reference's
+            // order); the caret goes after it.
+            Key::F(4) if e.text.starts_with('=') => {
+                if let Some((text, caret)) = cycle_reference(&e.text, e.caret) {
+                    e.text = text;
+                    e.caret = caret;
+                    self.measure_edit(m);
+                }
+                Some(true)
+            }
             Key::Enter if mods.alt => {
                 e.text.insert(e.caret, '\n');
                 e.caret += 1;
@@ -2368,13 +2386,24 @@ impl SheetView {
         p.push_clip(fx, fy, fw, fh);
         p.fill_rect(gx, gy, right - gx, bottom - gy, Rgba(255, 255, 255, 255));
         p.page(0, gx as i32, gy as i32);
-        let (r0, c0, r1, c1) = self.range_bounds();
+        // A selected drawing (chart) hides the cell selection: no highlighted headers, tint
+        // or frame, as on the reference.
+        let (r0, c0, r1, c1) = if self.object_selected {
+            (u32::MAX, u32::MAX, u32::MAX, u32::MAX)
+        } else {
+            self.range_bounds()
+        };
         let full_cols = r0 == 0 && r1 == MAX_ROWS - 1;
         let full_rows = c0 == 0 && c1 == MAX_COLS - 1;
         // Headers first: the selection frame covers their edge lines, as on the reference.
         self.paint_headers(p, (r0, c0, r1, c1), full_rows, full_cols);
+        let sel_rect = if self.object_selected {
+            None
+        } else {
+            self.sel_rect
+        };
         // Selection tint (all cells but the active one), then the frame.
-        if let Some([l0, t0, r0_, b0]) = self.sel_rect {
+        if let Some([l0, t0, r0_, b0]) = sel_rect {
             // Inside the frame's one-pixel white ring.
             let (l, t, r, b) = (l0 + 1.0, t0 + 1.0, r0_ - 1.0, b0 - 1.0);
             if (r0, c0) != (r1, c1) {
@@ -2454,7 +2483,7 @@ impl SheetView {
             p.fill_rect(r, t, 1.0, b - t + 1.0, grey);
         }
         p.pop_clip();
-        if let Some([l, t, r, b]) = self.sel_rect {
+        if let Some([l, t, r, b]) = sel_rect {
             p.push_clip(gx - 2.0, gy - 2.0, right - gx + 2.0, bottom - gy + 2.0);
             let w = (2.0 * self.scale / 1.25).round().max(2.0);
             let (x0, y0, x1, y1) = (l - w + 1.0, t - w + 1.0, r + w, b + w);
@@ -2755,4 +2784,58 @@ impl SheetView {
             self.label_widths.clear();
         }
     }
+}
+
+/// The next absolute / relative form of the cell reference (or range) touching byte `caret` of
+/// formula `text`, and the caret after it: `$A$1` → `A$1` → `$A1` → `A1` → `$A$1`.
+pub fn cycle_reference(text: &str, caret: usize) -> Option<(String, usize)> {
+    let b = text.as_bytes();
+    let part = |c: u8| c.is_ascii_alphanumeric() || c == b'$' || c == b':';
+    let mut s = caret.min(b.len());
+    while s > 0 && part(b[s - 1]) {
+        s -= 1;
+    }
+    let mut e = caret.min(b.len());
+    while e < b.len() && part(b[e]) {
+        e += 1;
+    }
+    let token = text.get(s..e)?;
+    // Each cell of a range: optional $, letters, optional $, digits.
+    let parse = |cell: &str| -> Option<(bool, String, bool, String)> {
+        let mut rest = cell;
+        let abs_c = rest.starts_with('$');
+        rest = rest.trim_start_matches('$');
+        let letters: String = rest.chars().take_while(char::is_ascii_alphabetic).collect();
+        rest = &rest[letters.len()..];
+        let abs_r = rest.starts_with('$');
+        rest = rest.trim_start_matches('$');
+        let ok = !letters.is_empty()
+            && letters.len() <= 3
+            && !rest.is_empty()
+            && rest.chars().all(|c| c.is_ascii_digit());
+        ok.then(|| (abs_c, letters, abs_r, rest.to_owned()))
+    };
+    let cells: Vec<_> = token.split(':').map(parse).collect::<Option<Vec<_>>>()?;
+    let (ac, _, ar, _) = cells.first()?.clone();
+    // Next state from the first cell's state.
+    let (nc, nr) = match (ac, ar) {
+        (true, true) => (false, true),
+        (false, true) => (true, false),
+        (true, false) => (false, false),
+        (false, false) => (true, true),
+    };
+    let out: Vec<String> = cells
+        .iter()
+        .map(|(_, l, _, d)| {
+            format!(
+                "{}{l}{}{d}",
+                if nc { "$" } else { "" },
+                if nr { "$" } else { "" }
+            )
+        })
+        .collect();
+    let new = out.join(":");
+    let mut text = text.to_owned();
+    text.replace_range(s..e, &new);
+    Some((text, s + new.len()))
 }

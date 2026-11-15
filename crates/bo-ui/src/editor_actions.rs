@@ -33,6 +33,8 @@ pub(crate) enum Ask2 {
     Bates,
     /// Properties of a new form field: kind, page, box.
     Field(bo_pdfread::NewFieldKind, usize, [f32; 4]),
+    /// A dialog of `editor_tools`.
+    Tools(crate::editor_tools::ToolAsk),
 }
 
 /// A redaction mark being dragged: page, start and current point (page points).
@@ -402,6 +404,7 @@ impl EditorWindow {
             Ask2::HeaderFooter | Ask2::Watermark | Ask2::Bates | Ask2::Field(..) => {
                 self.design_answer(&what, values);
             }
+            Ask2::Tools(t) => self.tools_answer(t, DialogButton::Ok, values),
             Ask2::Replace => {
                 let with = values.get(1).cloned().unwrap_or_default();
                 let n = self.replace_all(&first, &with);

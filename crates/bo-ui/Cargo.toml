@@ -20,6 +20,10 @@ bo-pdfread = { path = "../bo-pdfread" }
 # BlueEditor signs PDFs with certificates from .p12 / .pfx files.
 bo-sign = { path = "../bo-sign", features = ["pkcs12", "http"] }
 bo-text.workspace = true
+# Check Spelling (Vietnamese rules + the engine's bundled English dictionary).
+bo-spell.workspace = true
+# JPEG encoder for Optimize.
+bo-raster.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 

@@ -63,7 +63,7 @@ impl PdfDocument {
 
     /// The document's properties.
     #[must_use]
-    pub fn info(&self) -> DocInfo {
+    pub fn doc_info(&self) -> DocInfo {
         let doc = &self.doc;
         let d = doc
             .trailer
@@ -134,6 +134,42 @@ impl PdfDocument {
             security,
             permissions,
         }
+    }
+
+    /// The Advanced properties: base URL (`/URI /Base`), language (`/Lang`), trapped
+    /// (`/Trapped`), binding (`/ViewerPreferences /Direction`), print scaling, duplex and
+    /// number of copies (`/PrintScaling`, `/Duplex`, `/NumCopies`) as (key, value).
+    #[must_use]
+    pub fn advanced(&self) -> Vec<(&'static str, String)> {
+        let doc = &self.doc;
+        fn dict<'a>(
+            doc: &'a lopdf::Document,
+            o: Option<&'a Object>,
+        ) -> Option<&'a lopdf::Dictionary> {
+            o.and_then(|o| resolve(doc, o).as_dict().ok())
+        }
+        let cat = dict(doc, doc.trailer.get(b"Root").ok());
+        let info = dict(doc, doc.trailer.get(b"Info").ok());
+        let vp = cat.and_then(|c| dict(doc, c.get(b"ViewerPreferences").ok()));
+        let text = |d: Option<&lopdf::Dictionary>, k: &[u8]| -> String {
+            match d.and_then(|d| d.get(k).ok()).map(|o| resolve(doc, o)) {
+                Some(Object::String(s, _)) => text_string(s),
+                Some(Object::Name(n)) => String::from_utf8_lossy(n).into_owned(),
+                Some(Object::Boolean(b)) => b.to_string(),
+                Some(Object::Integer(i)) => i.to_string(),
+                _ => String::new(),
+            }
+        };
+        let base = cat.and_then(|c| dict(doc, c.get(b"URI").ok()));
+        vec![
+            ("baseUrl", text(base, b"Base")),
+            ("language", text(cat, b"Lang")),
+            ("trapped", text(info, b"Trapped")),
+            ("binding", text(vp, b"Direction")),
+            ("printScaling", text(vp, b"PrintScaling")),
+            ("duplex", text(vp, b"Duplex")),
+            ("copies", text(vp, b"NumCopies")),
+        ]
     }
 
     /// Fonts of the pages' resources (and of their form XObjects, one level), each once.
@@ -257,7 +293,7 @@ mod tests {
             &[],
         );
         assert_eq!(d.page_mode().as_deref(), Some("UseOutlines"));
-        let i = d.info();
+        let i = d.doc_info();
         assert!(i.tagged && !i.linearized && i.security.is_empty());
         assert_eq!(i.version, "1.7");
         let f = d.font_list();
@@ -269,5 +305,12 @@ mod tests {
             open("<< /Type /Catalog /Pages 2 0 R >>", &[]).page_mode(),
             None
         );
+        let a = open(
+            "<< /Type /Catalog /Pages 2 0 R /Lang (vi-VN) /ViewerPreferences << /Duplex /DuplexFlipLongEdge >> >>",
+            &[],
+        )
+        .advanced();
+        assert!(a.contains(&("language", "vi-VN".to_owned())));
+        assert!(a.contains(&("duplex", "DuplexFlipLongEdge".to_owned())));
     }
 }

@@ -72,6 +72,15 @@ pub(super) enum FormKind {
     Symbol,
     /// More Colors… of a colour drop-down (over a stashed form).
     MoreColors,
+    /// Style (New Cell Style… of the Cell Styles gallery).
+    CellStyle,
+    /// Data tab: Queries & Connections, Consolidate, What-If Data Table; View tab: Custom
+    /// Views, Zoom.
+    Queries,
+    Consolidate,
+    WhatIfTable,
+    CustomViews,
+    Zoom,
 }
 
 /// What a control is.

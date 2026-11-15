@@ -346,7 +346,7 @@ impl PdfDocument {
     }
 
     /// Make `order` the page list: one `/Pages` node whose kids are the pages.
-    fn set_page_order(&mut self, order: &[ObjectId]) -> Result<(), String> {
+    pub(crate) fn set_page_order(&mut self, order: &[ObjectId]) -> Result<(), String> {
         let root = self.root_pages()?;
         for &id in order {
             self.touch(id);

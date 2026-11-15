@@ -982,4 +982,15 @@ fn round5_properties_dialog() {
     let mut p = Rec::default();
     w.paint(&mut p);
     assert!(!p.texts.iter().any(|t| t == "Document Properties"));
+    // File opens the File page (backstage) with Open first, then Properties.
+    let file = w.tab_boxes()[0];
+    press(&mut w, file[0] + 4.0, file[1] + 4.0, 1);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(p.texts.iter().any(|t| t == "Recent Documents"));
+    assert!(p.texts.iter().any(|t| t == "Revert"));
+    key(&mut w, Key::Escape, false, false);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(!p.texts.iter().any(|t| t == "Recent Documents"));
 }

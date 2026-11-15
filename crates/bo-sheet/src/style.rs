@@ -715,7 +715,50 @@ pub const NAMED_STYLES: &[NamedStyle] = &[
         name: "Accent6",
         builtin_id: 49,
     },
+    // Number styles (§18.8.7 builtinId 3–7): they set only the number format.
+    NamedStyle {
+        name: "Comma",
+        builtin_id: 3,
+    },
+    NamedStyle {
+        name: "Comma [0]",
+        builtin_id: 6,
+    },
+    NamedStyle {
+        name: "Currency",
+        builtin_id: 4,
+    },
+    NamedStyle {
+        name: "Currency [0]",
+        builtin_id: 7,
+    },
+    NamedStyle {
+        name: "Percent",
+        builtin_id: 5,
+    },
 ];
+
+/// Built-in number format of a number style (§18.8.30 ids: 43 / 41 accounting without
+/// symbol, 44 / 42 with the currency symbol, 9 percent).
+fn number_style_format(name: &str) -> Option<u32> {
+    match name {
+        "Comma" => Some(43),
+        "Comma [0]" => Some(41),
+        "Currency" => Some(44),
+        "Currency [0]" => Some(42),
+        "Percent" => Some(9),
+        _ => None,
+    }
+}
+
+/// The heading (major) font matching the workbook's body font: the default theme pairs
+/// Calibri with Calibri Light.
+fn major_font(base: &Font) -> String {
+    match base.name.as_deref() {
+        None | Some("Calibri") => "Calibri Light".into(),
+        Some(n) => n.to_owned(),
+    }
+}
 
 /// Fills of the themed cell styles per accent 1–6: 20 %, 40 %, 60 % tints and the accent,
 /// measured on the reference's Cell Styles gallery (default theme).
@@ -741,46 +784,66 @@ fn named_xf(styles: &mut Stylesheet, name: &str) -> Option<CellXf> {
         style: Some(style.into()),
         color: color_of(color),
     };
+    if let Some(num) = number_style_format(name) {
+        return Some(CellXf {
+            num_fmt_id: num,
+            font_id: styles.add_font(base),
+            apply_number_format: Some(true),
+            ..CellXf::default()
+        });
+    }
     let (font, fill, border) = match name {
         "Normal" => (base.clone(), None, Border::default()),
+        // Fills, text colours and rules measured on the reference's Cell Styles gallery
+        // (default theme): Good / Bad / Neutral, headings in the dark text colour 44546A with
+        // accent-1 rules (thick, thick 50 % tint, medium 40 % tint), Title in the heading font.
         "Good" => (
-            font("1E6B3C", false, None),
-            Some("D8F3E3"),
+            font("006100", false, None),
+            Some("C6EFCE"),
             Border::default(),
         ),
         "Bad" => (
-            font("9B1C1C", false, None),
-            Some("FADBD8"),
+            font("9C0006", false, None),
+            Some("FFC7CE"),
             Border::default(),
         ),
         "Neutral" => (
-            font("7A5A00", false, None),
-            Some("FDF0C4"),
+            font("9C5700", false, None),
+            Some("FFEB9C"),
             Border::default(),
         ),
-        "Title" => (font("1F3A5F", true, Some(18.0)), None, Border::default()),
+        "Title" => (
+            Font {
+                // §18.8.22 font/scheme: the theme's major (heading) font.
+                name: Some(major_font(&base)),
+                scheme: Some("major".into()),
+                ..font("44546A", false, Some(18.0))
+            },
+            None,
+            Border::default(),
+        ),
         "Heading 1" => (
-            font("1F3A5F", true, Some(15.0)),
+            font("44546A", true, Some(15.0)),
             None,
             Border {
-                bottom: line("thick", "4A7BB7"),
+                bottom: line("thick", "4472C4"),
                 ..Border::default()
             },
         ),
         "Heading 2" => (
-            font("1F3A5F", true, Some(13.0)),
+            font("44546A", true, Some(13.0)),
             None,
             Border {
-                bottom: line("medium", "9DB7D9"),
+                bottom: line("thick", "A2B8E1"),
                 ..Border::default()
             },
         ),
         "Total" => (
-            font("1B1F24", true, None),
+            font("000000", true, None),
             None,
             Border {
-                top: line("thin", "4A7BB7"),
-                bottom: line("double", "4A7BB7"),
+                top: line("thin", "4472C4"),
+                bottom: line("double", "4472C4"),
                 ..Border::default()
             },
         ),
@@ -836,14 +899,14 @@ fn named_xf(styles: &mut Stylesheet, name: &str) -> Option<CellXf> {
         ),
         "Warning Text" => (font("FF0000", false, None), None, Border::default()),
         "Heading 3" => (
-            font("1F3A5F", true, None),
+            font("44546A", true, None),
             None,
             Border {
-                bottom: line("medium", "C5D3ED"),
+                bottom: line("medium", "8EA9DB"),
                 ..Border::default()
             },
         ),
-        "Heading 4" => (font("1F3A5F", true, None), None, Border::default()),
+        "Heading 4" => (font("44546A", true, None), None, Border::default()),
         themed if themed.contains("Accent") => {
             let n = themed
                 .chars()
@@ -864,10 +927,10 @@ fn named_xf(styles: &mut Stylesheet, name: &str) -> Option<CellXf> {
             )
         }
         "Note" => {
-            let edge = line("thin", "B5A55A");
+            let edge = line("thin", "B2B2B2");
             (
                 base.clone(),
-                Some("FFF8D6"),
+                Some("FFFFCC"),
                 Border {
                     top: edge.clone(),
                     bottom: edge.clone(),
@@ -925,6 +988,25 @@ pub fn apply_named_style(wb: &mut Workbook, sheet: usize, range: CellRange, name
         return false;
     };
     let mut memo = HashMap::new();
+    let number = NAMED_STYLES
+        .iter()
+        .find(|s| s.name.eq_ignore_ascii_case(name))
+        .and_then(|s| number_style_format(s.name));
+    if let Some(num) = number {
+        // A number style changes only the number format (its "style includes" are the
+        // number format alone); the rest of each cell's format stays.
+        return restyle(ws, range, |old, _, _| {
+            *memo.entry(old).or_insert_with(|| {
+                let xf = styles.xf(old).cloned().unwrap_or_default();
+                styles.add_xf(CellXf {
+                    num_fmt_id: num,
+                    xf_id: Some(xf_id),
+                    apply_number_format: Some(true),
+                    ..xf
+                })
+            })
+        });
+    }
     restyle(ws, range, |old, _, _| {
         *memo.entry(old).or_insert_with(|| {
             let num = styles.xf(old).map_or(0, |x| x.num_fmt_id);
@@ -936,6 +1018,113 @@ pub fn apply_named_style(wb: &mut Workbook, sheet: usize, range: CellRange, name
             })
         })
     })
+}
+
+/// Names of the workbook's own cell styles (no `builtinId`), for the gallery's Custom group.
+pub fn custom_styles(wb: &Workbook) -> Vec<String> {
+    wb.styles
+        .cell_styles
+        .iter()
+        .filter(|s| s.builtin_id.is_none() && !s.name.eq_ignore_ascii_case("Normal"))
+        .map(|s| s.name.clone())
+        .collect()
+}
+
+/// "New Cell Style…": a style `name` with the format of the cell at (`row`, `col`), which
+/// then takes that style (§18.8.7 `cellStyle` without `builtinId`, §18.8.9 `cellStyleXfs`).
+/// Refused for an empty name or a name already in use.
+pub fn new_cell_style(wb: &mut Workbook, sheet: usize, row: u32, col: u32, name: &str) -> bool {
+    let name = name.trim();
+    let taken = |n: &str| {
+        wb.styles
+            .cell_styles
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(n))
+            || NAMED_STYLES.iter().any(|s| s.name.eq_ignore_ascii_case(n))
+    };
+    if name.is_empty() || taken(name) {
+        return false;
+    }
+    let Workbook { sheets, styles, .. } = wb;
+    let Some(ws) = sheets.get_mut(sheet) else {
+        return false;
+    };
+    let old = ws.cell(row, col).map_or(0, |c| c.style);
+    let xf = styles.xf(old).cloned().unwrap_or_default();
+    styles.cell_style_xfs.push(CellXf {
+        xf_id: None,
+        ..xf.clone()
+    });
+    let Ok(id) = u32::try_from(styles.cell_style_xfs.len() - 1) else {
+        return false;
+    };
+    styles.cell_styles.push(CellStyle {
+        name: name.to_owned(),
+        xf_id: id,
+        builtin_id: None,
+        ..CellStyle::default()
+    });
+    let new = styles.add_xf(CellXf {
+        xf_id: Some(id),
+        ..xf
+    });
+    let at = bo_model::sheet::CellRef::new(row, col);
+    restyle(ws, CellRange::new(at, at), |_, _, _| new)
+}
+
+/// "Merge Styles…": copies the custom cell styles of `from` whose names this workbook does not
+/// have (fonts, fills and borders re-added here). Returns how many were copied.
+pub fn merge_styles(wb: &mut Workbook, from: &Workbook) -> usize {
+    let src = &from.styles;
+    let mut n = 0;
+    for s in src.cell_styles.iter().filter(|s| s.builtin_id.is_none()) {
+        let dst = &mut wb.styles;
+        if dst
+            .cell_styles
+            .iter()
+            .any(|d| d.name.eq_ignore_ascii_case(&s.name))
+        {
+            continue;
+        }
+        let Some(xf) = src.cell_style_xfs.get(s.xf_id as usize).cloned() else {
+            continue;
+        };
+        let font = src
+            .fonts
+            .get(xf.font_id as usize)
+            .cloned()
+            .unwrap_or_default();
+        let fill = src.fills.get(xf.fill_id as usize).cloned();
+        let border = src
+            .borders
+            .get(xf.border_id as usize)
+            .cloned()
+            .unwrap_or_default();
+        let num = match src.num_fmts.iter().find(|f| f.id == xf.num_fmt_id) {
+            Some(f) => dst.add_num_fmt(&f.code),
+            None => xf.num_fmt_id,
+        };
+        let copied = CellXf {
+            font_id: dst.add_font(font),
+            fill_id: fill.map_or(0, |f| dst.add_fill(f)),
+            border_id: dst.add_border(border),
+            num_fmt_id: num,
+            xf_id: None,
+            ..xf
+        };
+        dst.cell_style_xfs.push(copied);
+        let Ok(id) = u32::try_from(dst.cell_style_xfs.len() - 1) else {
+            continue;
+        };
+        dst.cell_styles.push(CellStyle {
+            name: s.name.clone(),
+            xf_id: id,
+            builtin_id: None,
+            ..CellStyle::default()
+        });
+        n += 1;
+    }
+    n
 }
 
 /// Formatting summary of the cell at (`row`, `col`).
@@ -1226,6 +1415,36 @@ mod tests {
     }
 
     #[test]
+    fn new_cell_style_and_merge_styles() {
+        let mut wb = Workbook::new();
+        assert!(apply_named_style(&mut wb, 0, rng("A1"), "Bad"));
+        assert!(new_cell_style(&mut wb, 0, 0, 0, "Mine"));
+        assert!(!new_cell_style(&mut wb, 0, 0, 0, "mine"), "name taken");
+        assert!(!new_cell_style(&mut wb, 0, 0, 0, "Good"), "built-in name");
+        assert!(!new_cell_style(&mut wb, 0, 0, 0, " "));
+        assert_eq!(custom_styles(&wb), ["Mine"]);
+        let st = format_state(&wb, 0, 0, 0, &Locale::EN_US);
+        assert_eq!(
+            (st.style_name.as_str(), st.fill_color.as_str()),
+            ("Mine", "FFC7CE")
+        );
+        // Applying the custom style elsewhere gives its look.
+        assert!(apply_named_style(&mut wb, 0, rng("C3"), "Mine"));
+        assert_eq!(
+            format_state(&wb, 0, 2, 2, &Locale::EN_US).fill_color,
+            "FFC7CE"
+        );
+        let mut other = Workbook::new();
+        assert_eq!(merge_styles(&mut other, &wb), 1);
+        assert_eq!(merge_styles(&mut other, &wb), 0, "already there");
+        assert!(apply_named_style(&mut other, 0, rng("B2"), "Mine"));
+        assert_eq!(
+            format_state(&other, 0, 1, 1, &Locale::EN_US).fill_color,
+            "FFC7CE"
+        );
+    }
+
+    #[test]
     fn named_styles_painter_and_clear() {
         let mut wb = Workbook::new();
         // Every gallery style has a format (ECMA-376 Part 1, §18.8.7 builtinId), the themed
@@ -1239,16 +1458,46 @@ mod tests {
                 "{i}"
             );
         }
+        // The last ones are number styles: they set the number format and keep Accent6's fill.
         let st = format_state(&wb, 0, 0, 0, &Locale::VI_VN);
         assert_eq!(
             (st.style_name.as_str(), st.fill_color.as_str()),
-            ("Accent6", "70AD47")
+            ("Percent", "70AD47")
+        );
+        assert_eq!(
+            wb.styles
+                .xf(wb.sheets[0].cell(0, 0).unwrap().style)
+                .unwrap()
+                .num_fmt_id,
+            9
+        );
+        let mut wb2 = Workbook::new();
+        assert!(apply_named_style(&mut wb2, 0, rng("A1"), "Bad"));
+        assert!(apply_named_style(&mut wb2, 0, rng("A1"), "comma [0]"));
+        let st = format_state(&wb2, 0, 0, 0, &Locale::EN_US);
+        assert_eq!(
+            (st.style_name.as_str(), st.fill_color.as_str()),
+            ("Comma [0]", "FFC7CE")
+        );
+        assert_eq!(
+            wb2.styles
+                .xf(wb2.sheets[0].cell(0, 0).unwrap().style)
+                .unwrap()
+                .num_fmt_id,
+            41
+        );
+        // Headings measured on the reference: thick accent-1 rule, Title in the heading font.
+        assert!(apply_named_style(&mut wb2, 0, rng("B1"), "Title"));
+        let st = format_state(&wb2, 0, 0, 1, &Locale::EN_US);
+        assert_eq!(
+            (st.font_name.as_str(), st.bold, st.font_color.as_str()),
+            ("Calibri Light", false, "44546A")
         );
         let mut wb = Workbook::new();
         assert!(apply_named_style(&mut wb, 0, rng("A1:B1"), "Good"));
         let st = format_state(&wb, 0, 0, 1, &Locale::VI_VN);
         assert_eq!(st.style_name, "Good");
-        assert_eq!(st.fill_color, "D8F3E3");
+        assert_eq!(st.fill_color, "C6EFCE");
         assert!(wb
             .styles
             .cell_styles

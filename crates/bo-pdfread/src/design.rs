@@ -204,6 +204,13 @@ pub enum NewFieldKind {
     List,
     /// Push button.
     Button,
+    /// Digital signature field (`/FT /Sig`, §12.7.4.5).
+    Signature,
+    /// Image field: a push button showing only its icon that asks for a picture when
+    /// clicked (`/MK /TP 1`, JavaScript `buttonImportIcon`).
+    Image,
+    /// Barcode field: a read-only text field drawn with bars (its value is the data).
+    Barcode,
 }
 
 /// A form field to create (rectangle in page points, origin top-left).
@@ -356,6 +363,73 @@ impl PdfDocument {
                         n(w - a * 1.2),
                         n(h / 2.0 - a / 2.0)
                     );
+                }
+                ap.set("N", Object::Reference(form(s, self)));
+            }
+            NewFieldKind::Signature => {
+                d.set("FT", Object::Name(b"Sig".to_vec()));
+                // Our own look: a pale box with a pen stroke at the bottom left.
+                let s = format!(
+                    "0.95 0.97 1 rg 0 0 {} {} re f {frame}0.45 G 0.8 w {} {} m {} {} l S ",
+                    n(w),
+                    n(h),
+                    n(h * 0.2),
+                    n(h * 0.25),
+                    n((w * 0.6).max(h * 0.4)),
+                    n(h * 0.25)
+                );
+                ap.set("N", Object::Reference(form(s, self)));
+            }
+            NewFieldKind::Image => {
+                d.set("FT", Object::Name(b"Btn".to_vec()));
+                flags |= 1 << 16;
+                // Icon only (§12.5.6.19 Table 189 TP).
+                mk.set("TP", 1);
+                let mut act = Dictionary::new();
+                act.set("S", Object::Name(b"JavaScript".to_vec()));
+                act.set("JS", text_obj("event.target.buttonImportIcon();"));
+                d.set("A", act);
+                // A picture placeholder of our own: a sun and a hill.
+                let (cx, cy, r) = (w * 0.35, h * 0.62, h.min(w) * 0.08);
+                let s = format!(
+                    "0.93 g 0 0 {} {} re f {frame}0.6 g {} {} m {} {} l {} {} l {} {} l h f {} {} {} {} re f ",
+                    n(w),
+                    n(h),
+                    n(w * 0.15),
+                    n(h * 0.2),
+                    n(w * 0.45),
+                    n(h * 0.5),
+                    n(w * 0.65),
+                    n(h * 0.35),
+                    n(w * 0.85),
+                    n(h * 0.2),
+                    n(cx - r),
+                    n(cy - r),
+                    n(r * 2.0),
+                    n(r * 2.0)
+                );
+                ap.set("N", Object::Reference(form(s, self)));
+            }
+            NewFieldKind::Barcode => {
+                d.set("FT", Object::Name(b"Tx".to_vec()));
+                flags |= 1;
+                d.set("DA", text_obj("/Helv 0 Tf 0 g"));
+                // Bars of our own pattern over the box.
+                let mut s = frame.clone();
+                let mut x = w * 0.06;
+                let mut k = 0_u32;
+                while x < w * 0.94 {
+                    let bw = [1.0_f32, 2.0, 1.0, 3.0, 1.5, 1.0, 2.5][(k % 7) as usize];
+                    let _ = write!(
+                        s,
+                        "0 g {} {} {} {} re f ",
+                        n(x),
+                        n(h * 0.12),
+                        n(bw),
+                        n(h * 0.76)
+                    );
+                    x += bw + [1.5_f32, 1.0, 2.5, 1.0][(k % 4) as usize];
+                    k += 1;
                 }
                 ap.set("N", Object::Reference(form(s, self)));
             }

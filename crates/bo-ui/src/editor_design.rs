@@ -54,13 +54,7 @@ pub(crate) fn form_tab_items() -> Vec<(&'static str, Kind)> {
 }
 
 /// Form tab commands with no feature yet.
-pub(crate) const FORM_TAB_LATER: [&str; 5] = [
-    "form.recognize",
-    "form.assistant",
-    "fd.barcode",
-    "fd.image",
-    "fd.signature",
-];
+pub(crate) const FORM_TAB_LATER: [&str; 1] = ["form.assistant"];
 
 fn field_kind(cmd: &str) -> Option<NewFieldKind> {
     Some(match cmd {
@@ -70,6 +64,9 @@ fn field_kind(cmd: &str) -> Option<NewFieldKind> {
         "fd.text" | "fd.date" => NewFieldKind::Text,
         "fd.combo" => NewFieldKind::Combo,
         "fd.list" => NewFieldKind::List,
+        "fd.signature" => NewFieldKind::Signature,
+        "fd.image" => NewFieldKind::Image,
+        "fd.barcode" => NewFieldKind::Barcode,
         _ => return None,
     })
 }
@@ -82,6 +79,9 @@ fn kind_prefix(k: NewFieldKind) -> &'static str {
         NewFieldKind::Combo => "Combo Box",
         NewFieldKind::List => "List Box",
         NewFieldKind::Button => "Button",
+        NewFieldKind::Signature => "Signature",
+        NewFieldKind::Image => "Image",
+        NewFieldKind::Barcode => "Barcode",
     }
 }
 
@@ -311,7 +311,9 @@ impl EditorWindow {
                 if r[2] - r[0] < 6.0 || r[3] - r[1] < 6.0 {
                     let (w, h) = match kind {
                         NewFieldKind::Check | NewFieldKind::Radio => (14.0, 14.0),
-                        NewFieldKind::List => (140.0, 60.0),
+                        NewFieldKind::List | NewFieldKind::Image => (140.0, 60.0),
+                        NewFieldKind::Signature => (160.0, 50.0),
+                        NewFieldKind::Barcode => (140.0, 50.0),
                         _ => (140.0, 22.0),
                     };
                     r = [a.0, a.1, a.0 + w, a.1 + h];

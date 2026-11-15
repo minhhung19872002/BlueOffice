@@ -551,7 +551,7 @@ impl PdfDocument {
     }
 
     /// Base matrix of page `index` (user space to page points) and its inverse.
-    fn bases(&self, index: usize) -> Result<(M, M), String> {
+    pub(crate) fn bases(&self, index: usize) -> Result<(M, M), String> {
         let info = self.pages.get(index).ok_or("no such page")?;
         let base = page_matrix(info.crop, info.rotate);
         Ok((base, invert(base).ok_or("page matrix")?))

@@ -395,7 +395,7 @@ impl EditorWindow {
             color: c.color,
             opacity: c.opacity,
             width: c.width,
-            author: std::env::var("USERNAME").unwrap_or_else(|_| "BlueEditor".into()),
+            author: self.prefs.author.clone(),
             contents,
             font_size: 12.0,
         };

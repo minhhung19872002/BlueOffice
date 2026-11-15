@@ -331,6 +331,47 @@ impl PdfDocument {
         r
     }
 
+    /// Crop `pages` (all when empty) by `margins` (left, top, right, bottom, points from
+    /// the current visible box): a new `/CropBox` (§14.11.2), one undo step.
+    pub fn crop_pages(&mut self, pages: &[usize], margins: [f32; 4]) -> Result<(), String> {
+        let list: Vec<usize> = if pages.is_empty() {
+            (0..self.pages.len()).collect()
+        } else {
+            pages.to_vec()
+        };
+        let mut boxes = Vec::new();
+        for i in list {
+            let p = self.pages.get(i).ok_or("no such page")?;
+            let c = p.crop;
+            // Margins are on the page as shown: map them to user space through /Rotate.
+            let [l, t, r, b] = margins;
+            let (l, t, r, b) = match p.rotate {
+                90 => (t, r, b, l),
+                180 => (r, b, l, t),
+                270 => (b, l, t, r),
+                _ => (l, t, r, b),
+            };
+            let nb = [c[0] + l, c[1] + b, c[2] - r, c[3] - t];
+            if nb[2] - nb[0] < 18.0 || nb[3] - nb[1] < 18.0 {
+                return Err("the margins leave too little of the page".into());
+            }
+            boxes.push((p.id, nb));
+        }
+        self.begin("crop pages");
+        let order: Vec<ObjectId> = self.pages.iter().map(|p| p.id).collect();
+        let r = self.set_page_order(&order);
+        if r.is_ok() {
+            for (id, nb) in boxes {
+                self.touch(id);
+                if let Ok(d) = self.doc.get_dictionary_mut(id) {
+                    d.set("CropBox", nums(&nb));
+                }
+            }
+        }
+        self.commit();
+        r
+    }
+
     /// A file specification with `bytes` embedded (§7.11.4).
     fn embedded_file(&mut self, name: &str, bytes: &[u8]) -> Dictionary {
         let mut ef_stream = Dictionary::new();
@@ -426,6 +467,17 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn pages_are_cropped_and_undone() {
+        let mut d = doc();
+        d.crop_pages(&[], [10.0, 20.0, 30.0, 40.0]).expect("crops");
+        let p = d.page_info(0).expect("page");
+        assert_eq!((p.width, p.height), (260.0, 240.0));
+        assert!(d.crop_pages(&[0], [150.0, 0.0, 150.0, 0.0]).is_err());
+        assert!(d.undo());
+        assert_eq!(d.page_info(0).expect("page").width, 300.0);
     }
 
     #[test]

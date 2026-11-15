@@ -2152,11 +2152,6 @@ impl ReaderWindow {
         }
     }
 
-    /// Queue a request (a window built on this one runs `Command`s on its next drain).
-    pub(crate) fn push_request(&mut self, r: ReaderRequest) {
-        self.requests.push(r);
-    }
-
     /// Text selected in the active document.
     pub(crate) fn selected_text(&self) -> Option<String> {
         self.tabs.get(self.active)?.view.selected_text()

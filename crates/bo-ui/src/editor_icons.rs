@@ -66,6 +66,9 @@ pub(crate) fn shape(name: &str) -> &'static [Part] {
         "bates" => &[S("M5 2.5h14v19H5z"), A("M8 17h8 M9 13.5l1-6 M13 13.5l1-6 M8 9.5h7 M7.5 12h7")],
         // Protect tab.
         "signPanel" => &[S("M4 3.5h11l4 4v13H4z M15 3.5v4h4"), A("M7 13.5c1.5-3 3-4.5 3.5-3.5s-1.5 4 0 4.5 2-2 3-2 .5 1.5 2.5 1.5 M7 17.5h10")],
+        "cropPages" => &[S("M6 2v16h16 M2 6h16v16"), A("M9 9h6v6H9z")],
+        "summary" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 11h8 M8 14h8 M8 17h5")],
+        "whiteout" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 12h8v5H8z")],
         // File page.
         "clock" => &[S("M12 3a9 9 0 1 0 .01 0z"), A("M12 7v5l3.5 2")],
         "computer" => &[S("M3 4h18v12H3z M9 20h6 M12 16v4")],

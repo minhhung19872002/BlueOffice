@@ -7680,7 +7680,17 @@
     "propProducer": "Phần mềm tạo",
     "propSecurity": "Bảo mật",
     "propEncrypted": "Bảo vệ bằng mật khẩu",
-    "propNoSecurity": "Không bảo mật"
+    "propNoSecurity": "Không bảo mật",
+    "cropPages": "Cắt trang",
+    "cropLeft": "Lề trái (mm)",
+    "cropTop": "Lề trên (mm)",
+    "cropRight": "Lề phải (mm)",
+    "cropBottom": "Lề dưới (mm)",
+    "cropPagesField": "Trang (1, 3, …)",
+    "cropAll": "Tất cả",
+    "summarize": "Tóm tắt ghi chú",
+    "summaryPage": "Trang",
+    "whiteout": "Tô trắng"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

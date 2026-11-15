@@ -26,6 +26,8 @@ pub(crate) enum BoxTool {
     Shape(ShapeKind),
     /// Link & Join Text: click the text blocks to join, in order.
     Join,
+    /// Whiteout: a white box drawn into the page content.
+    Whiteout,
 }
 
 /// What a dialog of this module asks.
@@ -45,6 +47,8 @@ pub(crate) enum ToolAsk {
     Spell,
     /// Optimize: resolution, quality.
     Optimize,
+    /// Crop pages: margins in millimetres and which pages.
+    Crop,
 }
 
 /// A misspelt word found by Check Spelling.
@@ -241,6 +245,7 @@ impl EditorWindow {
             "ed.media" => Some(BoxTool::Media),
             "ed.add3d" => Some(BoxTool::Model3d),
             "ed.linkJoin" => Some(BoxTool::Join),
+            "prot.whiteout" => Some(BoxTool::Whiteout),
             "ed.shape.rect" => shape(ShapeKind::Rectangle),
             "ed.shape.rounded" => shape(ShapeKind::RoundedRectangle),
             "ed.shape.ellipse" => shape(ShapeKind::Ellipse),
@@ -289,6 +294,27 @@ impl EditorWindow {
                 self.set_status(&s);
             }
             "ed.spell" => self.start_spelling(),
+            "org.crop" => {
+                let fields = vec![
+                    (self.t("pdfEditor.cropLeft"), "0".into()),
+                    (self.t("pdfEditor.cropTop"), "0".into()),
+                    (self.t("pdfEditor.cropRight"), "0".into()),
+                    (self.t("pdfEditor.cropBottom"), "0".into()),
+                    (
+                        self.t("pdfEditor.cropPagesField"),
+                        self.t("pdfEditor.cropAll"),
+                    ),
+                ];
+                self.tools_dialog(ToolAsk::Crop, "pdfEditor.cropPages", fields);
+            }
+            "cm.summary" => {
+                let text = self.comment_summary();
+                let name = format!("{}-comments.txt", self.doc_stem());
+                self.push(ReaderRequest::SaveBytes {
+                    name,
+                    bytes: text.into_bytes(),
+                });
+            }
             "ed.bookmark" => {
                 if self.r.selected_outline.is_some() {
                     let items = [
@@ -363,9 +389,9 @@ impl EditorWindow {
         self.push_command("ed.editText");
     }
 
-    /// Run `cmd` after this input (as a ribbon click would).
-    fn push_command(&mut self, cmd: &str) {
-        self.r.push_request(ReaderRequest::Command(cmd.to_owned()));
+    /// Run `cmd` as a ribbon click would (the reader window's own commands too).
+    pub(crate) fn push_command(&mut self, cmd: &str) {
+        self.run(cmd, &crate::editor_window::Estimate);
     }
 
     fn counted(&mut self, r: Result<usize, String>, key: &str) {
@@ -512,6 +538,19 @@ impl EditorWindow {
                     norm([r[0], r[1]], [r[2], r[3]])
                 };
                 let res = self.doc_edit(|d| d.add_shape(page, kind, r, Some(c), None, w));
+                self.page_done(page, res);
+            }
+            BoxTool::Whiteout => {
+                let res = self.doc_edit(|d| {
+                    d.add_shape(
+                        page,
+                        ShapeKind::Rectangle,
+                        r,
+                        None,
+                        Some([255, 255, 255]),
+                        0.0,
+                    )
+                });
                 self.page_done(page, res);
             }
             BoxTool::Join => {}
@@ -806,6 +845,36 @@ impl EditorWindow {
                 let q = get(1).trim().parse::<u8>().unwrap_or(75).clamp(10, 100);
                 self.optimize(ppi, q);
             }
+            ToolAsk::Crop => {
+                let mm = |i: usize| {
+                    get(i)
+                        .trim()
+                        .replace(',', ".")
+                        .parse::<f32>()
+                        .unwrap_or(0.0)
+                        .max(0.0)
+                        * 72.0
+                        / 25.4
+                };
+                let all = self.t("pdfEditor.cropAll");
+                let which = get(4);
+                let pages: Vec<usize> = if which.trim().is_empty() || which.trim() == all {
+                    Vec::new()
+                } else {
+                    which
+                        .split(',')
+                        .filter_map(|s| s.trim().parse::<usize>().ok())
+                        .filter(|p| (1..=n).contains(p))
+                        .map(|p| p - 1)
+                        .collect()
+                };
+                let m = [mm(0), mm(1), mm(2), mm(3)];
+                let r = self.doc_edit(|d| d.crop_pages(&pages, m));
+                match r {
+                    Ok(()) => self.after_doc_edit(),
+                    Err(e) => self.set_status(&e),
+                }
+            }
             ToolAsk::Spell => {}
         }
     }
@@ -846,6 +915,38 @@ impl EditorWindow {
             }
             Err(e) => self.set_status(&e),
         }
+    }
+
+    /// The comments as text: page, author, kind and contents of each, in page order.
+    pub(crate) fn comment_summary(&mut self) -> String {
+        let name = self.doc_stem();
+        let list = self.with_doc(|d| Ok(d.annotations())).unwrap_or_default();
+        let mut s = format!(
+            "{name}.pdf
+{}: {}
+
+",
+            self.t("pdfEditor.summarize"),
+            list.len()
+        );
+        for a in list {
+            if a.kind == bo_pdfread::AnnotKind::Other && a.contents.is_empty() {
+                continue;
+            }
+            s.push_str(&format!(
+                "{} {} — {} ({:?}) {}
+{}
+
+",
+                self.t("pdfEditor.summaryPage"),
+                a.page + 1,
+                a.author,
+                a.kind,
+                a.modified,
+                a.contents
+            ));
+        }
+        s
     }
 
     // ---- Check Spelling ------------------------------------------------------------------

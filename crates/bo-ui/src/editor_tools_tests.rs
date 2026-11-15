@@ -327,6 +327,21 @@ fn file_page_like_the_reference() {
         rows.iter().any(|(k, v)| k == "Pages" && v == "2"),
         "{rows:?}"
     );
+    // Save Asks the host (a command of the reader window).
+    let r =
+        w.bs.hits
+            .iter()
+            .find(|h| h.1 == "file.saveAs")
+            .map(|h| h.0)
+            .expect("item");
+    click(&mut w, r[0] + 5.0, r[1] + 5.0);
+    assert!(!w.bs.open);
+    assert!(w
+        .take_requests()
+        .iter()
+        .any(|r| matches!(r, crate::ReaderRequest::SaveAs)));
+    click(&mut w, file[0] + 4.0, file[1] + 4.0);
+    assert!(w.bs.open);
     // Another tab closes the page.
     let home = w.r.tab_boxes()[1];
     click(&mut w, home[0] + 4.0, home[1] + 4.0);
@@ -408,4 +423,51 @@ fn typing_draws_only_the_paragraph_band() {
     let b = *store.bands.last().expect("a band");
     let page_h = w.view().map(|v| v.page_size(0).1 * v.scale()).expect("v");
     assert!((b[3] as f32) < page_h / 4.0, "{b:?} of {page_h}");
+}
+
+#[test]
+fn whiteout_crop_and_comment_summary() {
+    let mut w = window(2);
+    w.run("prot.whiteout", &Fixed);
+    assert_eq!(w.tools.tool, Some(BoxTool::Whiteout));
+    drag(&mut w, 0, [100.0, 100.0, 200.0, 150.0]);
+    let objs = w
+        .view_mut()
+        .expect("v")
+        .doc_mut()
+        .page_objects(0)
+        .expect("o");
+    assert!(objs.iter().any(|o| o.kind == bo_pdfread::ObjectKind::Path));
+    w.run("org.crop", &Fixed);
+    answer(&mut w, &["10", "10", "10", "10", "2"]);
+    let (a, b) = {
+        let d = w.view().expect("v").doc();
+        (
+            d.page_info(0).expect("p").width,
+            d.page_info(1).expect("p").width,
+        )
+    };
+    assert!(
+        (a - 612.0).abs() < 0.1 && (b - (612.0 - 20.0 * 72.0 / 25.4)).abs() < 0.1,
+        "{a} {b}"
+    );
+    w.run("cm.rect", &Fixed);
+    drag(&mut w, 0, [300.0, 300.0, 400.0, 350.0]);
+    let text = w.comment_summary();
+    assert!(text.contains("Page 1"), "{text}");
+    w.run("cm.summary", &Fixed);
+    assert!(w
+        .take_requests()
+        .iter()
+        .any(|r| matches!(r, crate::ReaderRequest::SaveBytes { name, .. } if name.ends_with("-comments.txt"))));
+    // The View tab is the reference's (Read Mode, Night Mode, Word Count…).
+    w.show_tab(5, &Fixed);
+    for id in [
+        "view.readMode",
+        "view.night",
+        "view.wordCount",
+        "view.autoScroll",
+    ] {
+        assert!(w.r.control_rect(id).is_some(), "{id}");
+    }
 }

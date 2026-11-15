@@ -119,8 +119,7 @@ impl EditorWindow {
                 }
                 // Everything else is a command of the window.
                 self.close_backstage();
-                self.r
-                    .push_request(crate::ReaderRequest::Command(cmd.to_owned()));
+                self.push_command(cmd);
             }
         }
     }
@@ -143,7 +142,7 @@ impl EditorWindow {
         let item = self.bs_style(17.0);
         let doc = self.showing_doc() || self.view().is_some();
         let accent = self.accent();
-        let mut y = top + px(26.4);
+        let mut y = top + px(11.2);
         for it in ITEMS {
             let Some((cmd, key)) = it else {
                 y += px(4.0);
@@ -180,7 +179,7 @@ impl EditorWindow {
         let head = self.bs_style(21.0);
         let small = self.bs_style(14.0);
         let mx = cw + px(24.0);
-        let ty = top + px(26.0);
+        let ty = top + px(14.8);
         let ink = Ink {
             ink: Rgba(0x40, 0x40, 0x40, 255),
             accent,
@@ -214,7 +213,9 @@ impl EditorWindow {
                         ],
                     ),
                 };
-                p.text(&self.t(title_key), mx + px(1.6), ty, title, MUTED);
+                let head_text = self.t(title_key);
+                let head_text = head_text.trim_end_matches(['.', '…']);
+                p.text(head_text, mx - px(0.8), ty, title, MUTED);
                 let mw = px(300.0);
                 p.fill_rect(px(517.6), top, 1.0, h - top, RULE);
                 let mut ry = top + px(85.6);
@@ -242,17 +243,22 @@ impl EditorWindow {
                 if self.bs.page == "bs.open" {
                     // Recent documents.
                     let rx = px(547.2);
-                    p.text(&self.t("pdfEditor.bsRecent"), rx, ty + px(2.4), head, TEXT);
+                    p.text(&self.t("pdfEditor.bsRecent"), rx, ty + px(4.0), head, TEXT);
                     p.text(
                         &self.t("pdfEditor.bsLocal"),
                         rx + px(1.6),
-                        top + px(70.4),
+                        top + px(64.0),
                         item,
                         TEXT,
                     );
-                    let mut y = top + px(90.4);
+                    let mut y = top + px(84.0);
                     let rw = (w - rx - px(100.0)).min(px(578.0));
-                    let recent: Vec<std::path::PathBuf> = self.recent().to_vec();
+                    let mut recent: Vec<std::path::PathBuf> = Vec::new();
+                    for r in self.recent() {
+                        if !recent.contains(r) {
+                            recent.push(r.clone());
+                        }
+                    }
                     if recent.is_empty() {
                         p.text(
                             &self.t("pdfEditor.bsNoRecent"),
@@ -272,6 +278,7 @@ impl EditorWindow {
                         let name = path
                             .file_name()
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                        p.push_clip(rx, y, rw, r[3]);
                         p.text(&name, rx + px(41.6), y + px(8.0), item, TEXT);
                         p.text(
                             &path.to_string_lossy(),
@@ -280,6 +287,7 @@ impl EditorWindow {
                             small,
                             MUTED,
                         );
+                        p.pop_clip();
                         p.fill_rect(rx, y + r[3] - 1.0, rw, 1.0, RULE);
                         hits.push((r, format!("bs.recent.{}", path.to_string_lossy())));
                         y += r[3];
@@ -290,7 +298,7 @@ impl EditorWindow {
                 // Properties of the document.
                 p.text(
                     &self.t("pdfEditor.bsProperties"),
-                    mx + px(1.6),
+                    mx - px(0.8),
                     ty,
                     title,
                     MUTED,

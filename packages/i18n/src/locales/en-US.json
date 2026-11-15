@@ -7680,7 +7680,17 @@
     "propProducer": "Producer",
     "propSecurity": "Security",
     "propEncrypted": "Password security",
-    "propNoSecurity": "No security"
+    "propNoSecurity": "No security",
+    "cropPages": "Crop Pages",
+    "cropLeft": "Left margin (mm)",
+    "cropTop": "Top margin (mm)",
+    "cropRight": "Right margin (mm)",
+    "cropBottom": "Bottom margin (mm)",
+    "cropPagesField": "Pages (1, 3, …)",
+    "cropAll": "All",
+    "summarize": "Summarize Comments",
+    "summaryPage": "Page",
+    "whiteout": "Whiteout"
   },
   "taskPane": {
     "dockLeft": "Dock left",

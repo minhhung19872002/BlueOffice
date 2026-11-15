@@ -26,7 +26,7 @@ pub(super) const OPTIONS: [(&str, &str); 7] = [
 
 /// The Table Design tab.
 pub(crate) fn table_tabs() -> Vec<Tab> {
-    use Item::{Labeled as S, Large as L};
+    use Item::{Button as B, Labeled as S, Large as L};
     vec![Tab {
         label: "sheetTable.tabDesign",
         groups: vec![
@@ -44,7 +44,7 @@ pub(crate) fn table_tabs() -> Vec<Tab> {
             },
             Group {
                 label: "sheetTable.groupTools",
-                large: vec![L("sheet.slicer")],
+                large: vec![L("sheet.tblSlicer")],
                 rows: vec![
                     vec![S("sheet.tblPivot")],
                     vec![S("sheet.tblDuplicates")],
@@ -54,7 +54,11 @@ pub(crate) fn table_tabs() -> Vec<Tab> {
             Group {
                 label: "sheetTable.groupExternal",
                 large: vec![L("sheet.tblExport"), L("sheet.tblRefresh")],
-                rows: vec![],
+                rows: vec![
+                    vec![B("sheet.tblProperties")],
+                    vec![B("sheet.tblBrowser")],
+                    vec![B("sheet.tblUnlink")],
+                ],
             },
             Group {
                 label: "sheetTable.groupOptions",
@@ -164,6 +168,25 @@ pub(super) fn add_icons(icons: &mut Icons) {
         ],
     );
     icons.add_solid("sheet.tblNameLabel", &[]);
+    icons.alias("sheet.tblSlicer", "sheet.slicer");
+    icons.add_solid(
+        "sheet.tblProperties",
+        &[
+            ("M4 4h16v16h-16Z", Some(white)),
+            ("M4 4h16v16h-16ZM7 8h10M7 12h10M7 16h6", None),
+        ],
+    );
+    icons.add_solid(
+        "sheet.tblBrowser",
+        &[
+            ("M3 5h18v14h-18Z", Some(white)),
+            ("M3 5h18v14h-18ZM3 9h18", None),
+        ],
+    );
+    icons.add_solid(
+        "sheet.tblUnlink",
+        &[("M5 12h5M14 12h5M9 8l-2-2M15 16l2 2", None)],
+    );
     for (id, _) in OPTIONS {
         // Drawn over by a check box; a plain square keeps the place.
         icons.add_solid(id, &[("M5 5h14v14h-14Z", Some(white))]);
@@ -357,7 +380,8 @@ impl SheetWindow {
                 self.action("sheet.pivotTable", text)
             }
             "sheet.tblDuplicates" => self.action("sheet.removeDuplicates", text),
-            "sheet.tblQuickStyles" => self.open_gallery(false, text),
+            "sheet.tblQuickStyles" => self.open_quick_styles(),
+            "sheet.tblSlicer" => self.action("sheet.slicer", text),
             _ => false,
         })
     }

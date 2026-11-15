@@ -128,6 +128,34 @@ fn builtin_look(t: &Table, name: &str, row: u32, col: u32) -> Option<Look> {
         ("B2", "A2", "D2")
     };
     let mut l = get(mid)?.clone();
+    if !header && !totals {
+        // Lines between data rows: the samples next to the header (B2) and to the totals
+        // (B5) carry those rows' lines; inside the body the line between a first and a
+        // second band is B2's bottom, between a second and a first band B3's bottom.
+        let b2 = get("B2").map(|s| s.borders.clone()).unwrap_or_default();
+        let b3 = get("B3").map(|s| s.borders.clone()).unwrap_or_default();
+        let first_row = i == 0;
+        l.borders[0] = if first_row {
+            b2[0].clone()
+        } else if i % 2 == 1 {
+            b2[1].clone()
+        } else {
+            b3[1].clone()
+        };
+        if !last_data {
+            l.borders[1] = if i % 2 == 0 {
+                b2[1].clone()
+            } else {
+                b3[1].clone()
+            };
+        }
+        // The last row of a table without totals closes it with the header's top line.
+        if row == t.range.last.row {
+            l.borders[1] = get("B1")
+                .and_then(|h| h.borders[0].clone())
+                .or(l.borders[1].clone());
+        }
+    }
     if !info.show_row_stripes && !header && !totals {
         // No row bands: the second band's look (no band fill) for every data row.
         l.fill = get("B3").and_then(|b| b.fill.clone());

@@ -72,6 +72,9 @@ impl SheetWindow {
     /// Open the drop-down of menu button `id`; `false` when it has none.
     pub(super) fn open_sheet_menu(&mut self, id: &'static str) -> bool {
         // Conditional Formatting has the reference's cascading menu.
+        if id == "sheet.tblQuickStyles" {
+            return self.open_quick_styles();
+        }
         if id == "sheet.conditional" {
             return match self.ribbon.rect_of(RibbonHit::Command(id)) {
                 Some(anchor) => self.open_cf_menu(anchor),

@@ -274,6 +274,10 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("find.replace", "sheetMenu.find.replace"),
             e("find.goto", "sheetMenu.find.goto"),
         ],
+        // Table Design: Quick Styles opens the gallery; Export / Refresh are not available.
+        "sheet.tblQuickStyles" => vec![e("sheet.tblQuickStyles", "commands.sheet.tblQuickStyles")],
+        "sheet.tblExport" => vec![e("sheet.tblExport", "commands.sheet.tblExport")],
+        "sheet.tblRefresh" => vec![e("sheet.tblRefresh", "commands.sheet.tblRefresh")],
         "sheet.conditional" => vec![
             e("cf.greater", "sheetMenu.cf.greater"),
             e("cf.less", "sheetMenu.cf.less"),
@@ -701,6 +705,7 @@ pub(crate) fn trailing(id: &str) -> bool {
             | "sheet.findSelect"
             | "sheet.chartMap"
             | "sheet.pivotChart"
+            | "sheet.tblSlicer"
             | "sheet.sortDialog"
             | "sheet.filter"
             | "sheet.watchWindow"

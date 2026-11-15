@@ -357,7 +357,11 @@
       "themeEffects": "Hiệu ứng",
       "tblNameLabel": "Tên bảng:",
       "tblExport": "Xuất",
-      "tblRefresh": "Làm mới"
+      "tblRefresh": "Làm mới",
+      "tblSlicer": "Chèn slicer",
+      "tblProperties": "Thuộc tính",
+      "tblBrowser": "Mở trong trình duyệt",
+      "tblUnlink": "Bỏ liên kết"
     },
     "addins": {
       "manage": "Quản lý add-in"
@@ -10348,7 +10352,10 @@
     "protection": "Bảo vệ",
     "locked": "Khóa",
     "unlocked": "Không khóa",
-    "nameTaken": "Đã có kiểu mang tên này."
+    "nameTaken": "Đã có kiểu mang tên này.",
+    "newTableStyle": "Kiểu bảng mới...",
+    "newPivotStyle": "Kiểu PivotTable mới...",
+    "newStyleLater": "Chưa tạo được kiểu bảng riêng."
   },
   "sheetData": {
     "textFiles": "Tệp văn bản (*.prn;*.txt;*.csv)",

@@ -208,6 +208,9 @@ fn sheet_enabled(id: &str, f: &FormatState) -> bool {
         | "sheet.macros"
         | "sheet.themeEffects"
         | "sheet.tblExport"
+        | "sheet.tblProperties"
+        | "sheet.tblBrowser"
+        | "sheet.tblUnlink"
         | "sheet.tblRefresh" => false,
         _ => COMMANDS.contains(&id) || id.starts_with("sheet."),
     }

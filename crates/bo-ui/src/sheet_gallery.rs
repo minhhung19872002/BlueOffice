@@ -353,12 +353,12 @@ impl Gallery {
 }
 
 /// A style's preview as the reference draws it: a table of five rows (header and four
-/// banded rows) and four columns in the style's fills and lines, a dash in each cell in the
+/// banded rows) and five columns in the style's fills and lines, a dash in each cell in the
 /// style's text colour (77 × 56 px tiles at 125 %).
 fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
     use bo_model::sheet::{CellRange, CellRef, Table, TableStyleInfo};
     let t = Table {
-        range: CellRange::new(CellRef::new(0, 0), CellRef::new(4, 3)),
+        range: CellRange::new(CellRef::new(0, 0), CellRef::new(4, 4)),
         header_row_count: None,
         style: Some(TableStyleInfo {
             name: Some(name.to_owned()),
@@ -369,12 +369,12 @@ fn paint_table_tile(p: &mut dyn Painter, r: [f32; 4], name: &str) {
     };
     let [x, y, w, h] = r;
     p.fill_rect(x, y, w, h, BG);
-    let (cw, rh) = ((w - 1.0) / 4.0, (h - 1.0) / 5.0);
+    let (cw, rh) = ((w - 1.0) / 5.0, (h - 1.0) / 5.0);
     let col_x = |c: u32| (x + c as f32 * cw).round();
     let row_y = |k: u32| (y + k as f32 * rh).round();
     let looks: Vec<Vec<bo_sheet::table_style::Look>> = (0..5)
         .map(|k| {
-            (0..4)
+            (0..5)
                 .map(|c| bo_sheet::table_style::look(&t, k, c).unwrap_or_default())
                 .collect()
         })
@@ -495,6 +495,25 @@ const CELL_SECTIONS: [(&str, &str, &[&str]); 5] = [
 
 impl SheetWindow {
     /// Open the Cell Styles gallery (`cells`) or the Format as Table gallery.
+    /// The Format as Table gallery under Table Design's Quick Styles.
+    pub(super) fn open_quick_styles(&mut self) -> bool {
+        let Some(anchor) = self
+            .ribbon
+            .rect_of(RibbonHit::Command("sheet.tblQuickStyles"))
+        else {
+            return false;
+        };
+        let mut g = self.table_gallery();
+        g.k = self.scale;
+        let w = (g.width() * g.k).round();
+        g.origin = (
+            anchor[0].min(self.size.0 - w - 2.0).max(0.0).round(),
+            (anchor[1] + anchor[3] + 2.0).round(),
+        );
+        self.gallery = Some(g);
+        true
+    }
+
     pub(super) fn open_gallery(&mut self, cells: bool, text: &dyn crate::TextMeasure) -> bool {
         let id = if cells {
             "sheet.cellStyles"
@@ -683,7 +702,20 @@ impl SheetWindow {
         }
         Gallery {
             sections,
-            footer: Vec::new(),
+            // The reference's menu lines under the styles (new styles are not made yet: the
+            // status bar says so).
+            footer: vec![
+                (
+                    self.t("sheetGallery.newTableStyle", "New Table Style..."),
+                    "sheet.newTableStyle".into(),
+                    "new",
+                ),
+                (
+                    self.t("sheetGallery.newPivotStyle", "New PivotTable Style..."),
+                    "sheet.newPivotStyle".into(),
+                    "merge",
+                ),
+            ],
             // Measured at 125 % (round 27): 77 × 56 px tiles, 86 × 66 px apart, 5 px from
             // the edge, 34 px captions, 625 px wide.
             tile: (61.6, 44.8),
@@ -739,6 +771,13 @@ impl SheetWindow {
     pub(super) fn gallery_action(&mut self, id: &str) -> Option<bool> {
         Some(match id {
             "sheet.newCellStyle" => self.open_cell_style_form(),
+            "sheet.newTableStyle" | "sheet.newPivotStyle" => {
+                self.status = self.t(
+                    "sheetGallery.newStyleLater",
+                    "Custom table styles are not available yet.",
+                );
+                true
+            }
             "sheet.mergeStyles" => {
                 self.pick = Some("styles");
                 self.requests.push(crate::Request::PickMergeData);

@@ -357,7 +357,11 @@
       "themeEffects": "Effects",
       "tblNameLabel": "Table Name:",
       "tblExport": "Export",
-      "tblRefresh": "Refresh"
+      "tblRefresh": "Refresh",
+      "tblSlicer": "Insert Slicer",
+      "tblProperties": "Properties",
+      "tblBrowser": "Open in Browser",
+      "tblUnlink": "Unlink"
     },
     "addins": {
       "manage": "Manage add-ins"
@@ -10348,7 +10352,10 @@
     "protection": "Protection",
     "locked": "Locked",
     "unlocked": "Unlocked",
-    "nameTaken": "A style with this name already exists."
+    "nameTaken": "A style with this name already exists.",
+    "newTableStyle": "New Table Style...",
+    "newPivotStyle": "New PivotTable Style...",
+    "newStyleLater": "Custom table styles are not available yet."
   },
   "sheetData": {
     "textFiles": "Text Files (*.prn;*.txt;*.csv)",

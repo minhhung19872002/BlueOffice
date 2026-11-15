@@ -232,6 +232,8 @@ pub(crate) struct Look {
     pub big_min: f32,
     pub big_gap: f32,
     pub sep_space: (f32, f32),
+    /// Width a drop-down arrow after a two-line label adds to its button.
+    pub arrow_w: f32,
 }
 
 impl Look {
@@ -276,6 +278,7 @@ impl Look {
         big_min: 41.6,
         big_gap: 1.6,
         sep_space: (4.8, 6.4),
+        arrow_w: 0.0,
     };
 }
 
@@ -392,6 +395,10 @@ pub struct ReaderWindow {
     /// Outline entry last clicked in the Bookmarks panel (path of child indices; BlueEditor
     /// edits it).
     pub(crate) selected_outline: Option<Vec<usize>>,
+    /// File opens a full-window page (BlueEditor's backstage) through the `file.backstage`
+    /// command instead of a menu; `backstage_open` shows File as the selected tab.
+    pub(crate) file_backstage: bool,
+    pub(crate) backstage_open: bool,
     /// Width (logical pixels) of a pane at the right of the document drawn by a window built
     /// on this one (BlueEditor's Format panel); 0 for none.
     right_pane: f32,
@@ -471,6 +478,8 @@ impl ReaderWindow {
             doc_hidden: false,
             extra_panel: None,
             selected_outline: None,
+            file_backstage: false,
+            backstage_open: false,
             right_pane: 0.0,
             look: Look::READER,
             extra: extra::Extra::default(),
@@ -589,6 +598,16 @@ impl ReaderWindow {
     /// Open a menu of commands under `r`.
     pub(crate) fn menu_at(&mut self, items: Vec<MenuItem>, r: [f32; 4], id: &'static str) {
         self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+    }
+
+    /// Ribbon tab label boxes (File first), from the last layout.
+    pub(crate) fn tab_boxes(&self) -> &[[f32; 4]] {
+        &self.tab_rects
+    }
+
+    /// Bottom of the ribbon tab row.
+    pub(crate) fn tabs_bottom(&self) -> f32 {
+        self.tabs_y() + self.px(self.look.tab_h)
     }
 
     /// Close an open drop-down menu.
@@ -939,7 +958,7 @@ impl ReaderWindow {
         let mut small_col = 0_usize;
         for (id, kind) in self.ribbon_items() {
             match kind {
-                Kind::Big(_, label, _) => {
+                Kind::Big(_, label, dropdown) => {
                     if small_col > 0 {
                         // Past the columns of the small-button grid.
                         let cols = small_col.div_ceil(2) as f32;
@@ -956,6 +975,12 @@ impl ReaderWindow {
                         wa.max(wb)
                     } else {
                         self.measure(m, &text, label_style)
+                    };
+                    let two = words.len() > 1 && (text.len() > 9 || self.look.wrap_words);
+                    let lw = if dropdown && two {
+                        lw + self.px(self.look.arrow_w)
+                    } else {
+                        lw
                     };
                     let bw = (lw + self.px(self.look.big_pad))
                         .max(self.px(self.look.big_min))
@@ -1378,7 +1403,10 @@ impl ReaderWindow {
         // Ribbon tabs.
         for (i, r) in self.tab_rects.clone().into_iter().enumerate() {
             if inside(r, x, y) {
-                if i == 0 {
+                if i == 0 && self.file_backstage {
+                    self.requests
+                        .push(ReaderRequest::Command("file.backstage".into()));
+                } else if i == 0 {
                     self.open_file_menu(r);
                 } else {
                     self.ribbon_tab = i - 1;
@@ -2338,7 +2366,11 @@ impl ReaderWindow {
         let labels = self.tab_label_keys();
         for (i, r) in self.tab_rects.iter().enumerate() {
             let label = self.strings.get(labels[i]);
-            let active = i > 0 && i - 1 == self.ribbon_tab;
+            let active = if self.backstage_open {
+                i == 0
+            } else {
+                i > 0 && i - 1 == self.ribbon_tab
+            };
             let color = if active { self.theme.accent_text } else { TEXT };
             let ty = r[1] + ((r[3] - tab_style.size * 1.33) / 2.0).round();
             p.text(label, r[0] + self.px(4.0), ty, tab_style, color);
@@ -3216,6 +3248,18 @@ impl PdfStore for Keyed<'_> {
     ) -> Result<(), String> {
         self.inner
             .update(self.base + key, list, fonts, images, scale)
+    }
+    fn update_band(
+        &mut self,
+        key: usize,
+        list: &bo_render::PageList,
+        fonts: &bo_text::FontManager,
+        images: &std::collections::HashMap<String, std::sync::Arc<bo_pdfread::Image>>,
+        scale: f32,
+        band: [u32; 4],
+    ) -> Result<(), String> {
+        self.inner
+            .update_band(self.base + key, list, fonts, images, scale, band)
     }
     fn remove(&mut self, key: usize) {
         self.inner.remove(self.base + key);

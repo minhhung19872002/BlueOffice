@@ -510,6 +510,22 @@ impl PdfDocument {
         (!s.is_empty()).then_some(s)
     }
 
+    /// An entry of the document information dictionary (§14.3.3: `Author`, `Producer`…).
+    pub fn info(&self, key: &str) -> Option<String> {
+        let info = self.doc.trailer.get(b"Info").ok()?;
+        let d = resolve(&self.doc, info).as_dict().ok()?;
+        let t = resolve(&self.doc, d.get(key.as_bytes()).ok()?)
+            .as_str()
+            .ok()?;
+        let s = text_string(t).trim().to_owned();
+        (!s.is_empty()).then_some(s)
+    }
+
+    /// The PDF version in the file header (`1.7`, `2.0`).
+    pub fn version(&self) -> String {
+        self.doc.version.clone()
+    }
+
     /// The bytes the document was opened from, with any saved updates appended.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes

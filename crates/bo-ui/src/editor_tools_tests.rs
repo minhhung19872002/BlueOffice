@@ -236,7 +236,7 @@ fn command_search_runs_a_command() {
     let mut rec = Rec::default();
     w.paint(&mut rec);
     assert!(
-        rec.texts.iter().any(|t| t == "Search commands"),
+        rec.texts.iter().any(|t| t == "Commands…"),
         "{:?}",
         rec.texts
     );
@@ -283,4 +283,129 @@ fn optimize_saves_a_smaller_copy() {
         .filter(|r| matches!(r, crate::ReaderRequest::SaveBytes { .. }))
         .collect();
     assert_eq!(saves.len(), 1);
+}
+
+#[test]
+fn file_page_like_the_reference() {
+    let mut w = window(2);
+    let file = w.r.tab_boxes()[0];
+    let click = |w: &mut crate::EditorWindow, x: f32, y: f32| {
+        w.handle(
+            Input::Press {
+                x,
+                y,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        w.handle(Input::Release { x, y }, &Fixed);
+    };
+    click(&mut w, file[0] + 4.0, file[1] + 4.0);
+    assert!(w.bs.open && w.r.backstage_open);
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    for t in [
+        "Properties",
+        "PDF Optimizer",
+        "Recent Documents",
+        "Computer",
+    ] {
+        assert!(rec.texts.iter().any(|x| x == t), "{t}: {:?}", rec.texts);
+    }
+    // Properties of the document.
+    let r =
+        w.bs.hits
+            .iter()
+            .find(|h| h.1 == "bs.properties")
+            .map(|h| h.0)
+            .expect("item");
+    click(&mut w, r[0] + 5.0, r[1] + 5.0);
+    assert_eq!(w.bs.page, "bs.properties");
+    let rows = w.properties();
+    assert!(
+        rows.iter().any(|(k, v)| k == "Pages" && v == "2"),
+        "{rows:?}"
+    );
+    // Another tab closes the page.
+    let home = w.r.tab_boxes()[1];
+    click(&mut w, home[0] + 4.0, home[1] + 4.0);
+    assert!(!w.bs.open && !w.r.backstage_open);
+}
+
+/// A store that notes full draws and band draws.
+#[derive(Default)]
+struct BandStore {
+    full: usize,
+    bands: Vec<[u32; 4]>,
+}
+
+impl crate::PdfStore for BandStore {
+    fn update(
+        &mut self,
+        _: usize,
+        _: &bo_render::PageList,
+        _: &bo_text::FontManager,
+        _: &std::collections::HashMap<String, std::sync::Arc<bo_pdfread::Image>>,
+        _: f32,
+    ) -> Result<(), String> {
+        self.full += 1;
+        Ok(())
+    }
+
+    fn update_band(
+        &mut self,
+        _: usize,
+        _: &bo_render::PageList,
+        _: &bo_text::FontManager,
+        _: &std::collections::HashMap<String, std::sync::Arc<bo_pdfread::Image>>,
+        _: f32,
+        band: [u32; 4],
+    ) -> Result<(), String> {
+        self.bands.push(band);
+        Ok(())
+    }
+
+    fn remove(&mut self, _: usize) {}
+}
+
+#[test]
+fn typing_draws_only_the_paragraph_band() {
+    let mut w = window(1);
+    let mut store = BandStore::default();
+    while w.prepare(&mut store) {}
+    w.run("ed.editText", &Fixed);
+    while w.prepare(&mut store) {}
+    let (x, y) = {
+        let v = w.view_mut().expect("view");
+        let objs = v.doc_mut().page_objects(0).expect("objects");
+        let line = bo_pdfread::text_lines(&objs)
+            .into_iter()
+            .next()
+            .expect("line");
+        let r = v.doc_rect_to_window(0, line.bbox).expect("on screen");
+        (r[0] + 3.0, r[1] + r[3] / 2.0)
+    };
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
+    // The session starts with one full draw (the paragraph is taken out of the content).
+    w.handle(Input::Text("x".into()), &Fixed);
+    while w.prepare(&mut store) {}
+    let full = store.full;
+    for t in ["y", "z"] {
+        w.handle(Input::Text(t.into()), &Fixed);
+        while w.prepare(&mut store) {}
+    }
+    assert_eq!(store.full, full, "no full page draw while typing");
+    let b = *store.bands.last().expect("a band");
+    let page_h = w.view().map(|v| v.page_size(0).1 * v.scale()).expect("v");
+    assert!((b[3] as f32) < page_h / 4.0, "{b:?} of {page_h}");
 }

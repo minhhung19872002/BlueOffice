@@ -18,6 +18,20 @@ pub trait PdfStore {
         images: &HashMap<String, Arc<bo_pdfread::Image>>,
         scale: f32,
     ) -> Result<(), String>;
+    /// Draw only `band` (left, top, width, height in device pixels) of image `key`, which was
+    /// drawn before at `scale` (BlueEditor's typing); stores without bands draw it all.
+    fn update_band(
+        &mut self,
+        key: usize,
+        list: &PageList,
+        fonts: &bo_text::FontManager,
+        images: &HashMap<String, Arc<bo_pdfread::Image>>,
+        scale: f32,
+        band: [u32; 4],
+    ) -> Result<(), String> {
+        let _ = band;
+        self.update(key, list, fonts, images, scale)
+    }
     /// Forget image `key`.
     fn remove(&mut self, key: usize);
 }
@@ -114,6 +128,8 @@ pub struct ReaderView {
     drawn: HashMap<usize, (f32, u64)>,
     /// Page content changed (annotation added): images older than this are stale.
     generation: Vec<u64>,
+    /// Pages whose content changed only inside a box (page points): drawn again by band.
+    bands: HashMap<usize, [f32; 4]>,
     selection: Option<Selection>,
     hits: Vec<Hit>,
     current_hit: Option<usize>,
@@ -171,6 +187,7 @@ impl ReaderView {
             lru: VecDeque::new(),
             drawn: HashMap::new(),
             generation: vec![0; n],
+            bands: HashMap::new(),
             selection: None,
             hits: Vec::new(),
             current_hit: None,
@@ -828,9 +845,16 @@ impl ReaderView {
             if !self.ensure(i) {
                 continue;
             }
-            let drawn = match crop {
-                None => self.draw(store, i, i, scale),
-                Some(c) => self.draw_part(store, i, scale, c),
+            let band = self.bands.remove(&i);
+            let same_scale = self
+                .drawn
+                .get(&i)
+                .is_some_and(|&(s, _)| (s - scale).abs() < 1e-4);
+            let same_crop = crop == self.crops.get(&i).copied();
+            let drawn = match (crop, band) {
+                (_, Some(b)) if same_scale && same_crop => self.draw_band(store, i, scale, b, crop),
+                (None, _) => self.draw(store, i, i, scale),
+                (Some(c), _) => self.draw_part(store, i, scale, c),
             };
             if drawn.is_ok() {
                 self.drawn.insert(i, (scale, self.generation[i]));
@@ -964,6 +988,47 @@ impl ReaderView {
             commands,
         };
         store.update(i, &part, self.doc.fonts(), &r.images, scale)
+    }
+
+    fn draw_band(
+        &mut self,
+        store: &mut dyn PdfStore,
+        i: usize,
+        scale: f32,
+        b: [f32; 4],
+        crop: Option<[f32; 4]>,
+    ) -> Result<(), String> {
+        let r = self.cache.get(&i).ok_or("not rendered")?;
+        // The image is the page, or the `crop` part of it (device pixels).
+        let c = crop.unwrap_or([
+            0.0,
+            0.0,
+            (r.list.width * scale).ceil(),
+            (r.list.height * scale).ceil(),
+        ]);
+        let x0 = (b[0] * scale - 2.0 - c[0]).floor().clamp(0.0, c[2]);
+        let y0 = (b[1] * scale - 2.0 - c[1]).floor().clamp(0.0, c[3]);
+        let x1 = (b[2] * scale + 2.0 - c[0]).ceil().clamp(0.0, c[2]);
+        let y1 = (b[3] * scale + 2.0 - c[1]).ceil().clamp(0.0, c[3]);
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        let band = [x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32];
+        if crop.is_none() {
+            return store.update_band(i, &r.list, self.doc.fonts(), &r.images, scale, band);
+        }
+        let mut commands = Vec::with_capacity(r.list.commands.len() + 2);
+        commands.push(Command::PushTransform {
+            m: [1.0, 0.0, 0.0, 1.0, -c[0] / scale, -c[1] / scale],
+        });
+        commands.extend(r.list.commands.iter().cloned());
+        commands.push(Command::PopTransform);
+        let part = PageList {
+            width: c[2] / scale,
+            height: c[3] / scale,
+            commands,
+        };
+        store.update_band(i, &part, self.doc.fonts(), &r.images, scale, band)
     }
 
     fn draw(
@@ -1143,6 +1208,22 @@ impl ReaderView {
             }
         }
         out
+    }
+
+    /// Page `i` changed only inside `r` (page points): read it again and draw that band of
+    /// its image again (the whole page when it is not drawn yet or the view is rotated).
+    pub fn invalidate_band(&mut self, i: usize, r: [f32; 4]) {
+        let drawn = self.drawn.contains_key(&i);
+        self.invalidate_page(i);
+        if drawn && self.rotation == 0 && !self.night {
+            let b = self.bands.entry(i).or_insert(r);
+            *b = [
+                b[0].min(r[0]),
+                b[1].min(r[1]),
+                b[2].max(r[2]),
+                b[3].max(r[3]),
+            ];
+        }
     }
 
     /// The page's content changed (a comment was added): draw it again.

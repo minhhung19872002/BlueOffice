@@ -15,6 +15,7 @@ mod doc_view;
 mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;
+mod editor_backstage;
 mod editor_comment;
 #[cfg(test)]
 mod editor_comment_tests;

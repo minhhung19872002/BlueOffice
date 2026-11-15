@@ -53,6 +53,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
     match tab {
         0 => v.extend([
             ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
+            ("ed.bookmark", Big("bookmark", "pdfEditor.bookmark", false)),
             ("sep1", Sep),
             ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
             ("menu.fit", Big("fit", "pdfEditor.pageFitOption", true)),
@@ -272,7 +273,7 @@ const LOOK: Look = Look {
     body_h: 73.6,
     icon: 28.8,
     icon_y: 4.8,
-    label: 15.5,
+    label: 16.2,
     label_y: 36.0,
     quick_x: 54.8,
     quick_step: 28.0,
@@ -305,6 +306,8 @@ const LOOK: Look = Look {
     big_min: 35.6,
     big_gap: 0.0,
     sep_space: (0.8, 5.8),
+    // "Edit Object▾": the arrow widens the button (reference 180–248 for a 44 px label).
+    arrow_w: 6.4,
 };
 
 /// Editor tool that takes the document area's pointer input.
@@ -360,6 +363,8 @@ pub struct EditorWindow {
     pub(crate) pending_field: Option<bo_pdfread::FormField>,
     /// Edit tab box tools, spelling, bookmarks, command search (`editor_tools`).
     pub(crate) tools: crate::editor_tools::ToolsState,
+    /// The File page.
+    pub(crate) bs: crate::editor_backstage::Backstage,
 }
 
 fn editor_theme() -> Theme {
@@ -375,6 +380,7 @@ impl EditorWindow {
     pub fn new(locale: &str) -> Self {
         let mut r = ReaderWindow::with_profile(locale, profile());
         r.set_theme(editor_theme());
+        r.file_backstage = true;
         Self {
             r,
             org: Organize::default(),
@@ -394,6 +400,7 @@ impl EditorWindow {
             dialog2: None,
             pending_field: None,
             tools: crate::editor_tools::ToolsState::default(),
+            bs: crate::editor_backstage::Backstage::default(),
         }
     }
 
@@ -607,6 +614,9 @@ impl EditorWindow {
         let mut redraw = false;
         let mut used = false;
         let reader_tool = self.r.current_tool();
+        if self.backstage_input(&input) {
+            return true;
+        }
         // The command search box keeps the keyboard while its results list is open.
         if self.tools.search_on && matches!(input, Input::Text(_) | Input::Key(..)) {
             used = self.search_input(&input);
@@ -776,6 +786,14 @@ impl EditorWindow {
             .and_then(|v| v.parse::<usize>().ok())
         {
             self.choose_option(i);
+            return;
+        }
+        if cmd == "file.backstage" {
+            if self.bs.open {
+                self.close_backstage();
+            } else {
+                self.open_backstage();
+            }
             return;
         }
         if self.action(cmd, m)
@@ -1522,6 +1540,7 @@ impl EditorWindow {
         self.paint_design(p);
         self.paint_tools(p, &Estimate);
         self.paint_format(p);
+        self.paint_backstage(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }

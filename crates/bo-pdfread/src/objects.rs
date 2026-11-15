@@ -85,6 +85,8 @@ pub struct TextLine {
     pub font_size: f32,
     /// Fill colour.
     pub color: [u8; 3],
+    /// Page object index of each character of `text` (a word gap counts to the run before).
+    pub runs: Vec<usize>,
 }
 
 /// Group consecutive text runs into lines.
@@ -118,9 +120,13 @@ pub fn text_lines(objs: &[PageObject]) -> Vec<TextLine> {
                     line.text.push(' ');
                     line.char_boxes
                         .push([line.bbox[2], o.bbox[1], o.bbox[0], o.bbox[3]]);
+                    let prev = line.ids.last().copied().unwrap_or(i);
+                    line.runs.push(prev);
                 }
                 line.ids.push(i);
                 line.text.push_str(&o.text);
+                line.runs
+                    .extend(std::iter::repeat_n(i, o.text.chars().count()));
                 line.char_boxes.extend(o.char_boxes.iter().copied());
                 line.bbox = [
                     line.bbox[0].min(o.bbox[0]),
@@ -137,6 +143,7 @@ pub fn text_lines(objs: &[PageObject]) -> Vec<TextLine> {
                 char_boxes: o.char_boxes.clone(),
                 font_size: o.font_size,
                 color: o.color,
+                runs: vec![i; o.text.chars().count()],
             });
         }
         last = Some((i, key.0, key.1, key.2));
@@ -146,6 +153,8 @@ pub fn text_lines(objs: &[PageObject]) -> Vec<TextLine> {
         let n = l.text.chars().count();
         l.char_boxes
             .resize(n, [l.bbox[2], l.bbox[1], l.bbox[2], l.bbox[3]]);
+        let last = l.runs.last().or(l.ids.last()).copied().unwrap_or(0);
+        l.runs.resize(n, last);
     }
     out
 }
@@ -243,7 +252,7 @@ fn command_bounds(cmds: &[Command]) -> Option<[f32; 4]> {
     r
 }
 
-fn num(v: f32) -> String {
+pub(crate) fn num(v: f32) -> String {
     if !v.is_finite() {
         return "0".into();
     }
@@ -256,11 +265,11 @@ fn num(v: f32) -> String {
     }
 }
 
-fn matrix(m: M) -> String {
+pub(crate) fn matrix(m: M) -> String {
     m.iter().map(|v| num(*v)).collect::<Vec<_>>().join(" ")
 }
 
-fn rgb(c: Rgba) -> String {
+pub(crate) fn rgb(c: Rgba) -> String {
     format!(
         "{} {} {}",
         num(f32::from(c.0) / 255.0),
@@ -269,7 +278,7 @@ fn rgb(c: Rgba) -> String {
     )
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2 + 2);
     s.push('<');
     for b in bytes {
@@ -297,7 +306,7 @@ fn advance(ts: &TextState) -> f32 {
 }
 
 /// Operators that keep a deleted run's effect on the text position.
-fn deleted_run(rec: &Recorded) -> String {
+pub(crate) fn deleted_run(rec: &Recorded) -> String {
     let Some(ts) = &rec.text else {
         return String::new();
     };
@@ -352,7 +361,7 @@ fn show_operator(rec: &Recorded) -> Vec<u8> {
 }
 
 /// A text object with full state at the end of the content (`ctm` relative to user space).
-fn text_object(ts: &TextState, font: &[u8], ctm: M, tm: M, show: &[u8]) -> Vec<u8> {
+pub(crate) fn text_object(ts: &TextState, font: &[u8], ctm: M, tm: M, show: &[u8]) -> Vec<u8> {
     let mut font_name = Vec::new();
     crate::write::object(&mut font_name, &Object::Name(font.to_vec()));
     let mut s = format!("\nq {} cm BT ", matrix(ctm)).into_bytes();
@@ -381,12 +390,29 @@ fn text_object(ts: &TextState, font: &[u8], ctm: M, tm: M, show: &[u8]) -> Vec<u
 impl PdfDocument {
     /// Text runs, images, paths, forms and shadings of page `index` in content order.
     pub fn page_objects(&mut self, index: usize) -> Result<Vec<PageObject>, String> {
+        self.objects_in(index, None)
+    }
+
+    /// Page objects of `content` run with page `index`'s resources (the page's own content
+    /// when `None`).
+    pub(crate) fn objects_in(
+        &mut self,
+        index: usize,
+        content: Option<&[u8]>,
+    ) -> Result<Vec<PageObject>, String> {
         let info = self.pages.get(index).ok_or("no such page")?.clone();
         let base = page_matrix(info.crop, info.rotate);
         let doc = &self.doc;
         let page = doc.get_dictionary(info.id).map_err(|e| e.to_string())?;
         let resources = inherited(doc, page, b"Resources").and_then(|o| o.as_dict().ok());
-        let content = page_content(doc, page);
+        let own;
+        let content: &[u8] = match content {
+            Some(c) => c,
+            None => {
+                own = page_content(doc, page);
+                &own
+            }
+        };
         let mut shared = Shared {
             doc,
             fonts: &mut self.fonts,
@@ -406,7 +432,7 @@ impl PdfDocument {
             format!("o{index}"),
         );
         it.out.objects = Some(Vec::new());
-        it.run(&content);
+        it.run(content);
         it.finish();
         let out = std::mem::take(&mut it.out);
         let inv_base = invert(base).unwrap_or(IDENTITY);
@@ -478,7 +504,7 @@ impl PdfDocument {
         Ok((id, content))
     }
 
-    fn set_stream(&mut self, id: ObjectId, content: Vec<u8>) {
+    pub(crate) fn set_stream(&mut self, id: ObjectId, content: Vec<u8>) {
         self.touch(id);
         if let Ok(Object::Stream(s)) = self.doc.get_object_mut(id) {
             s.dict.remove(b"DecodeParms");
@@ -970,7 +996,12 @@ impl PdfDocument {
     }
 
     /// Encode `text` in page `index`'s font resource `name` when it has every glyph.
-    fn encode_in_font(&mut self, index: usize, name: &[u8], text: &str) -> Option<Vec<u8>> {
+    pub(crate) fn encode_in_font(
+        &mut self,
+        index: usize,
+        name: &[u8],
+        text: &str,
+    ) -> Option<Vec<u8>> {
         let info = self.pages.get(index)?.clone();
         let page = self.doc.get_dictionary(info.id).ok()?;
         let res = inherited(&self.doc, page, b"Resources")?.as_dict().ok()?;
@@ -996,7 +1027,7 @@ impl PdfDocument {
     }
 
     /// Bundled face (serif / sans, bold, italic) standing in for font resource `name`.
-    fn fallback_face(&self, index: usize, name: &[u8]) -> usize {
+    pub(crate) fn fallback_face(&self, index: usize, name: &[u8]) -> usize {
         let Some(info) = self.pages.get(index) else {
             return crate::fallback::SANS;
         };

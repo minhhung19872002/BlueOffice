@@ -346,6 +346,44 @@ impl<'a> PdfFile<'a> {
             .ok_or_else(|| malformed("trailer /Size"))
     }
 
+    /// Page `index` of the page tree under `pages` (§7.7.3.2), counting leaves in order.
+    fn nth_page(&self, pages: u32, index: usize) -> Result<u32> {
+        let mut node = pages;
+        let mut skip = index;
+        'down: for _ in 0..64 {
+            let dict = self.object_dict(node)?;
+            if dict_get(&dict, "Type") == Some("/Page") {
+                return Ok(node);
+            }
+            let kids = dict_get(&dict, "Kids").ok_or_else(|| malformed("/Kids"))?;
+            let inner = kids.trim().trim_start_matches('[').trim_end_matches(']');
+            let b = inner.as_bytes();
+            let mut i = skip_ws(b, 0);
+            while i < b.len() {
+                let end = value_end(b, i, 0)?;
+                let kid = parse_ref(inner[i..end].trim())
+                    .ok_or_else(|| malformed("page ref"))?
+                    .0;
+                let kd = self.object_dict(kid)?;
+                let count = if dict_get(&kd, "Type") == Some("/Page") {
+                    1
+                } else {
+                    dict_get(&kd, "Count")
+                        .and_then(|c| c.trim().parse::<usize>().ok())
+                        .unwrap_or(0)
+                };
+                if skip < count {
+                    node = kid;
+                    continue 'down;
+                }
+                skip -= count;
+                i = skip_ws(b, end);
+            }
+            return Err(malformed("page index"));
+        }
+        Err(malformed("page tree too deep"))
+    }
+
     fn first_page(&self, pages: u32) -> Result<u32> {
         let mut node = pages;
         for _ in 0..64 {
@@ -365,6 +403,20 @@ impl<'a> PdfFile<'a> {
 }
 
 // ---------------------------------------------------------------- writing
+
+/// A number for a PDF operand (at most four decimals).
+fn num(v: f32) -> String {
+    if !v.is_finite() {
+        return "0".into();
+    }
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() || s == "-0" {
+        "0".into()
+    } else {
+        s.to_owned()
+    }
+}
 
 /// PDF text string (ISO 32000-1 §7.9.2.2): PDFDocEncoding-safe ASCII
 /// literal, otherwise UTF-16BE with BOM as a hex string.
@@ -415,6 +467,22 @@ fn pdf_date(t: SystemTime) -> String {
 
 const BYTE_RANGE_PLACEHOLDER: &str = "[0 0000000000 0000000000 0000000000]";
 
+/// Visible appearance of a PDF signature: the widget's page and rectangle and the stream
+/// that draws it (ISO 32000-1 §12.7.4.5 signature fields, §12.5.5 appearance streams).
+#[derive(Debug, Clone, Default)]
+pub struct VisibleSignature {
+    /// Page index (0 = first).
+    pub page: usize,
+    /// Rectangle in the page's default user space: left, bottom, right, top.
+    pub rect: [f32; 4],
+    /// Content stream (ASCII operators) drawing the appearance in form space
+    /// `0 0 width height`.
+    pub content: Vec<u8>,
+    /// Picture the content draws as `/Im1 Do`: width, height and 8-bit RGB samples
+    /// compressed with zlib (`FlateDecode`).
+    pub image: Option<(u32, u32, Vec<u8>)>,
+}
+
 /// Adds a PAdES B-B signature (invisible signature field on page 1).
 pub fn sign_pdf(pdf: &[u8], signer: &dyn Signer, opts: &SignOptions) -> Result<Vec<u8>> {
     sign_pdf_with(pdf, signer, opts, None)
@@ -429,6 +497,34 @@ pub fn sign_pdf_with(
     tsa: Option<&dyn TimestampClient>,
 ) -> Result<Vec<u8>> {
     let prepared = prepare_pdf(pdf, signer.certificate_der(), &signer.chain_der(), opts)?;
+    let signature = signer.sign_sha256(&prepared.digest()?)?;
+    let token = match tsa {
+        Some(client) => Some(timestamp::timestamp(
+            client,
+            &signature,
+            timestamp::fresh_nonce(&signature),
+        )?),
+        None => None,
+    };
+    prepared.finish(&signature, token.as_deref())
+}
+
+/// Adds a PAdES signature shown on a page (`visible`), with a signature time-stamp when a
+/// time-stamp authority is given (baseline B-T).
+pub fn sign_pdf_visible(
+    pdf: &[u8],
+    signer: &dyn Signer,
+    opts: &SignOptions,
+    tsa: Option<&dyn TimestampClient>,
+    visible: &VisibleSignature,
+) -> Result<Vec<u8>> {
+    let prepared = prepare_pdf_visible(
+        pdf,
+        signer.certificate_der(),
+        &signer.chain_der(),
+        opts,
+        visible,
+    )?;
     let signature = signer.sign_sha256(&prepared.digest()?)?;
     let token = match tsa {
         Some(client) => Some(timestamp::timestamp(
@@ -486,6 +582,27 @@ pub fn prepare_pdf(
     chain: &[Vec<u8>],
     opts: &SignOptions,
 ) -> Result<PreparedPdf> {
+    prepare_with(pdf, cert_der, chain, opts, None)
+}
+
+/// [`prepare_pdf`] with the signature shown on a page.
+pub fn prepare_pdf_visible(
+    pdf: &[u8],
+    cert_der: &[u8],
+    chain: &[Vec<u8>],
+    opts: &SignOptions,
+    visible: &VisibleSignature,
+) -> Result<PreparedPdf> {
+    prepare_with(pdf, cert_der, chain, opts, Some(visible))
+}
+
+fn prepare_with(
+    pdf: &[u8],
+    cert_der: &[u8],
+    chain: &[Vec<u8>],
+    opts: &SignOptions,
+    visible: Option<&VisibleSignature>,
+) -> Result<PreparedPdf> {
     // Signature dictionary (§12.8.1, Table 252; PAdES: SubFilter ETSI.CAdES.detached).
     let mut head = format!(
         "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /ETSI.CAdES.detached /ByteRange {BYTE_RANGE_PLACEHOLDER} /M {}",
@@ -500,7 +617,7 @@ pub fn prepare_pdf(
             let _ = write!(head, " /{k} {}", text_string(v));
         }
     }
-    let (out, contents_start, signed) = prepare_field(pdf, head, opts.reserve_hex)?;
+    let (out, contents_start, signed) = prepare_field(pdf, head, opts.reserve_hex, visible)?;
     let cms = PreparedCms::detached(&sha256(&signed), cert_der, chain)?;
     Ok(PreparedPdf {
         out,
@@ -518,6 +635,7 @@ fn prepare_field(
     pdf: &[u8],
     sig_head: String,
     reserve_hex: usize,
+    visible: Option<&VisibleSignature>,
 ) -> Result<(Vec<u8>, usize, Vec<u8>)> {
     let file = PdfFile::parse(pdf)?;
     let root = dict_get(&file.trailer, "Root")
@@ -529,7 +647,10 @@ fn prepare_field(
         .and_then(parse_ref)
         .ok_or_else(|| malformed("catalog /Pages"))?
         .0;
-    let page = file.first_page(pages)?;
+    let page = match visible {
+        Some(v) => file.nth_page(pages, v.page)?,
+        None => file.first_page(pages)?,
+    };
     let mut page_dict = file.object_dict(page)?;
 
     let size = file.size()?;
@@ -540,8 +661,55 @@ fn prepare_field(
 
     // Signature field + widget (ISO 32000-1 §12.7.4.5, §12.5.6.19); F 132 = Print|Locked.
     let field_count = count_sig_fields(&file, &catalog);
+    let (rect, ap) = match visible {
+        Some(v) => {
+            // Appearance: a form XObject (§8.10) with the picture as `/Im1`.
+            let [x0, y0, x1, y1] = v.rect;
+            let (w, h) = ((x1 - x0).abs(), (y1 - y0).abs());
+            let mut res = String::new();
+            if let Some((iw, ih, data)) = &v.image {
+                let n = next_num;
+                next_num += 1;
+                let hex: String = data.iter().fold(String::new(), |mut s, b| {
+                    let _ = write!(s, "{b:02X}");
+                    s
+                });
+                new_objects.push((
+                    n,
+                    format!(
+                        "<< /Type /XObject /Subtype /Image /Width {iw} /Height {ih} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /FlateDecode] /Length {} >>\nstream\n{hex}>\nendstream",
+                        hex.len() + 1
+                    ),
+                ));
+                res = format!("/XObject << /Im1 {n} 0 R >>");
+            }
+            let content = String::from_utf8_lossy(&v.content);
+            let n = next_num;
+            next_num += 1;
+            new_objects.push((
+                n,
+                format!(
+                    "<< /Type /XObject /Subtype /Form /BBox [0 0 {} {}] /Resources << {res} >> /Length {} >>\nstream\n{content}\nendstream",
+                    num(w),
+                    num(h),
+                    content.len()
+                ),
+            ));
+            (
+                format!(
+                    "[{} {} {} {}]",
+                    num(x0.min(x1)),
+                    num(y0.min(y1)),
+                    num(x0.max(x1)),
+                    num(y0.max(y1))
+                ),
+                format!(" /AP << /N {n} 0 R >>"),
+            )
+        }
+        None => ("[0 0 0 0]".to_owned(), String::new()),
+    };
     let widget = format!(
-        "<< /Type /Annot /Subtype /Widget /FT /Sig /F 132 /Rect [0 0 0 0] /T {} /V {sig_num} 0 R /P {page} 0 R >>",
+        "<< /Type /Annot /Subtype /Widget /FT /Sig /F 132 /Rect {rect}{ap} /T {} /V {sig_num} 0 R /P {page} 0 R >>",
         text_string(&format!("Signature{}", field_count + 1))
     );
 
@@ -666,7 +834,7 @@ pub fn add_document_timestamp(pdf: &[u8], client: &dyn TimestampClient) -> Resul
     let head = format!(
         "<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 /ByteRange {BYTE_RANGE_PLACEHOLDER}"
     );
-    let (mut out, contents_start, signed) = prepare_field(pdf, head, reserve_hex)?;
+    let (mut out, contents_start, signed) = prepare_field(pdf, head, reserve_hex, None)?;
     let token = timestamp::timestamp(client, &signed, timestamp::fresh_nonce(&signed))?;
     let hex: String = token.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02X}");

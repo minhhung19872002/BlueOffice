@@ -70,6 +70,23 @@ pub enum Panel {
     Pages,
     /// Comment list.
     Comments,
+    /// A panel of a window built on this one ([`ExtraPanel`], BlueEditor's signatures).
+    Extra,
+}
+
+/// A navigation panel supplied by a window built on this one: its column icon and rows.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct ExtraPanel {
+    /// Command of its navigation column icon.
+    pub nav_id: &'static str,
+    /// Icon name.
+    pub icon: &'static str,
+    /// Panel title.
+    pub title: String,
+    /// Text shown when there are no rows.
+    pub empty: String,
+    /// Rows: status colour, title, detail line, command run when clicked.
+    pub rows: Vec<(Rgba, String, String, String)>,
 }
 
 /// What the window asks of the host.
@@ -203,6 +220,12 @@ pub(crate) struct Look {
     pub status_font: f32,
     /// Space between the tab row and the ribbon buttons.
     pub body_gap: f32,
+    /// Status bar page and zoom box height.
+    pub status_box_h: f32,
+    /// Top of those boxes below the status bar's edge (`None`: centred).
+    pub status_box_top: Option<f32>,
+    /// Stroke width of ribbon icons in icon grid units (24 to the icon).
+    pub icon_stroke: f32,
 }
 
 impl Look {
@@ -240,6 +263,9 @@ impl Look {
         box_edge: Rgba(175, 175, 176, 255),
         status_font: 12.5,
         body_gap: 0.8,
+        status_box_h: 19.2,
+        status_box_top: None,
+        icon_stroke: 1.5,
     };
 }
 
@@ -351,6 +377,11 @@ pub struct ReaderWindow {
     pub(crate) tool_hidden: bool,
     /// The document area is drawn by a window built on this one (page grid).
     pub(crate) doc_hidden: bool,
+    /// A panel of a window built on this one (its icon follows the comments icon).
+    pub(crate) extra_panel: Option<ExtraPanel>,
+    /// Width (logical pixels) of a pane at the right of the document drawn by a window built
+    /// on this one (BlueEditor's Format panel); 0 for none.
+    right_pane: f32,
     /// Sizes and greys.
     look: Look,
     /// Print dialog, Read Mode / Full Screen and the selected comment.
@@ -367,6 +398,8 @@ enum PanelRow {
     Outline(Vec<usize>, Option<LinkTarget>, Option<(f32, f32)>),
     Page(usize),
     Comment(usize, [f32; 4]),
+    /// A row of the extra panel: its command.
+    Extra(String),
 }
 
 const COLOR_HIGHLIGHT: [u8; 3] = [255, 230, 0];
@@ -423,6 +456,8 @@ impl ReaderWindow {
             enabled_override: std::collections::HashMap::new(),
             tool_hidden: false,
             doc_hidden: false,
+            extra_panel: None,
+            right_pane: 0.0,
             look: Look::READER,
             extra: extra::Extra::default(),
             viewx: viewx::ViewX::default(),
@@ -945,11 +980,14 @@ impl ReaderWindow {
         let nav_x = self.px(7.2);
         let nav_w = self.px(40.0);
         self.nav_rect = [nav_x, top, nav_w, h - sh - top];
-        let icons = [
+        let mut icons = vec![
             ("nav.bookmarks", Panel::Bookmarks),
             ("nav.pages", Panel::Pages),
             ("nav.comments", Panel::Comments),
         ];
+        if let Some(e) = &self.extra_panel {
+            icons.push((e.nav_id, Panel::Extra));
+        }
         let is = self.px(32.0);
         for (k, (id, panel)) in icons.into_iter().enumerate() {
             let cy = top + self.px(36.0) + k as f32 * self.px(44.0);
@@ -983,10 +1021,14 @@ impl ReaderWindow {
                 r: [self.px(xd), cy, s, s],
             });
         }
-        let bh = self.px(19.2);
+        let bh = self.px(self.look.status_box_h);
         self.page_box = [
             self.px(72.8),
-            (sy + (sh - bh) / 2.0).round(),
+            self.look
+                .status_box_top
+                .map_or((sy + (sh - bh) / 2.0).round(), |t| {
+                    (sy + self.px(t)).round()
+                }),
             self.px(113.6),
             bh,
         ];
@@ -1028,6 +1070,23 @@ impl ReaderWindow {
         self.tabs.get(self.active).and_then(|t| t.panel)
     }
 
+    /// Show a pane of `width` logical pixels at the right of the document (0 hides it).
+    pub(crate) fn set_right_pane(&mut self, width: f32) {
+        if (self.right_pane - width).abs() > 0.01 {
+            self.right_pane = width;
+            self.layout_doc();
+        }
+    }
+
+    /// The right pane in window pixels (zero width when hidden); it starts at the document
+    /// tab row, which ends where it begins.
+    pub(crate) fn right_pane_rect(&self) -> [f32; 4] {
+        let (w, h) = self.size;
+        let top = self.ribbon_bottom() + 1.0;
+        let rp = self.px(self.right_pane);
+        [w - rp, top, rp, (h - self.status_h() - top).max(0.0)]
+    }
+
     /// Lay out the navigation panel and the document view.
     fn layout_doc(&mut self) {
         let (w, h) = self.size;
@@ -1045,11 +1104,12 @@ impl ReaderWindow {
         let dx = nav_end + panel_w + strip_w;
         let sbw = self.px(16.8);
         let margin = self.px(6.4);
-        self.vbar = [w - margin - sbw, top, sbw, h - sh - top];
+        let rp = self.px(self.right_pane);
+        self.vbar = [w - rp - margin - sbw, top, sbw, h - sh - top];
         self.doc_rect = [
             dx,
             top,
-            (w - margin - sbw - dx).max(1.0),
+            (w - rp - margin - sbw - dx).max(1.0),
             (h - sh - top).max(1.0),
         ];
         self.mode_layout();
@@ -1983,6 +2043,9 @@ impl ReaderWindow {
             "nav.bookmarks" | "panel.bookmarks" => self.toggle_panel(Panel::Bookmarks),
             "nav.pages" | "panel.pages" => self.toggle_panel(Panel::Pages),
             "nav.comments" | "panel.comments" => self.toggle_panel(Panel::Comments),
+            c if self.extra_panel.as_ref().is_some_and(|e| e.nav_id == c) => {
+                self.toggle_panel(Panel::Extra);
+            }
             "view.fullscreen" => {
                 self.requests
                     .push(ReaderRequest::Window(Request::ToggleMaximize));
@@ -2064,6 +2127,7 @@ impl ReaderWindow {
                     .into_iter()
                     .find(|a| a.page == page && a.rect == rect);
             }
+            PanelRow::Extra(cmd) => self.requests.push(ReaderRequest::Command(cmd)),
         }
         true
     }
@@ -2267,13 +2331,14 @@ impl ReaderWindow {
                         );
                     }
                     let is = self.px(self.look.icon);
-                    reader_icons::draw(
+                    reader_icons::draw_weight(
                         p,
                         icon,
                         r[0] + ((r[2] - is) / 2.0).round(),
                         r[1] + self.px(self.look.icon_y),
                         is,
                         ink,
+                        self.look.icon_stroke,
                     );
                     let text = self.t(label);
                     let lines: Vec<String> =
@@ -2321,6 +2386,7 @@ impl ReaderWindow {
                         Kind::Nav(Panel::Bookmarks) => "bookmark",
                         Kind::Nav(Panel::Pages) => "pages",
                         Kind::Nav(Panel::Comments) => "comments",
+                        Kind::Nav(Panel::Extra) => self.extra_panel.as_ref().map_or("", |e| e.icon),
                         Kind::Small(i) | Kind::Quick(i) => i,
                         _ => "",
                     };
@@ -2364,13 +2430,14 @@ impl ReaderWindow {
                         },
                         accent,
                     };
-                    reader_icons::draw(
+                    reader_icons::draw_weight(
                         p,
                         icon,
                         r[0] + ((r[2] - is) / 2.0).round(),
                         r[1] + ((r[3] - is) / 2.0).round(),
                         is,
                         ink2,
+                        self.look.icon_stroke,
                     );
                 }
                 Kind::Win(k) => {
@@ -2481,7 +2548,8 @@ impl ReaderWindow {
             ("nav.bookmarks" | "panel.bookmarks", Some(Panel::Bookmarks))
                 | ("nav.pages" | "panel.pages", Some(Panel::Pages))
                 | ("nav.comments" | "panel.comments", Some(Panel::Comments))
-        )
+        ) || (self.panel_open() == Some(Panel::Extra)
+            && self.extra_panel.as_ref().is_some_and(|e| e.nav_id == id))
     }
 
     fn enabled(&self, id: &str) -> bool {
@@ -2687,18 +2755,16 @@ impl ReaderWindow {
             return;
         };
         let title = match panel {
-            Panel::Bookmarks => "pdfReader.bookmarks",
-            Panel::Pages => "pdfReader.pages",
-            Panel::Comments => "pdfReader.comments",
+            Panel::Bookmarks => self.t("pdfReader.bookmarks"),
+            Panel::Pages => self.t("pdfReader.pages"),
+            Panel::Comments => self.t("pdfReader.comments"),
+            Panel::Extra => self
+                .extra_panel
+                .as_ref()
+                .map_or_else(String::new, |e| e.title.clone()),
         };
         let ts = self.style(16.0, false);
-        p.text(
-            &self.t(title),
-            r[0] + self.px(8.8),
-            r[1] + self.px(10.4),
-            ts,
-            TEXT,
-        );
+        p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
         let list_top = r[1] + self.px(40.0);
         p.push_clip(r[0], list_top, r[2], r[3] - (list_top - r[1]));
         let body = self.style(14.0, false);
@@ -2898,6 +2964,42 @@ impl ReaderWindow {
                         rows.push((y, self.px(38.0), PanelRow::Comment(a.page, a.rect)));
                         y += self.px(40.0);
                     }
+                }
+                self.panel_rows = rows;
+            }
+            Panel::Extra => {
+                let extra = self.extra_panel.clone().unwrap_or_default();
+                if extra.rows.is_empty() {
+                    p.text(&extra.empty, r[0] + self.px(8.8), y, body, MUTED);
+                }
+                let small = self.style(12.5, false);
+                let mut rows = Vec::new();
+                for (color, title, detail, cmd) in extra.rows {
+                    // Status mark: a filled circle in the row's colour.
+                    let d = self.px(12.0);
+                    let (cx, cy) = (r[0] + self.px(8.8), y + self.px(3.0));
+                    let k = 0.5523 * d / 2.0;
+                    let (mx, my, rr) = (cx + d / 2.0, cy + d / 2.0, d / 2.0);
+                    p.path(
+                        &[
+                            PathSeg::M(mx + rr, my),
+                            PathSeg::C(mx + rr, my + k, mx + k, my + rr, mx, my + rr),
+                            PathSeg::C(mx - k, my + rr, mx - rr, my + k, mx - rr, my),
+                            PathSeg::C(mx - rr, my - k, mx - k, my - rr, mx, my - rr),
+                            PathSeg::C(mx + k, my - rr, mx + rr, my - k, mx + rr, my),
+                            PathSeg::Z,
+                        ],
+                        Some(color),
+                        None,
+                    );
+                    let tx = r[0] + self.px(26.0);
+                    let w = r[2] - self.px(34.0);
+                    let shown = elide(&title, self.width_of(&title, body), w, body.size);
+                    p.text(&shown, tx, y, body, TEXT);
+                    let shown = elide(&detail, self.width_of(&detail, small), w, small.size);
+                    p.text(&shown, tx, y + self.px(18.0), small, MUTED);
+                    rows.push((y, self.px(38.0), PanelRow::Extra(cmd)));
+                    y += self.px(44.0);
                 }
                 self.panel_rows = rows;
             }

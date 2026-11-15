@@ -19,7 +19,9 @@ mod annot_edit;
 mod cmap;
 mod codecs;
 mod color;
+mod convert;
 mod crypt;
+mod design;
 mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
@@ -32,9 +34,12 @@ mod function;
 mod image;
 mod interp;
 mod lexer;
+mod markup;
 mod mesh;
 mod objects;
+mod paragraph;
 mod sfnt;
+mod sigappear;
 mod text;
 mod type1;
 mod write;
@@ -44,10 +49,16 @@ pub use annot_draw::{
     measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
 };
 pub use annot_edit::CommentThread;
-pub use edit::SaveOptions;
+
+pub use convert::{StyledBlock, StyledRun};
+pub use design::{NewField, NewFieldKind, PageMarks};
+pub use edit::{Permissions, SaveOptions};
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
+pub use markup::{Markup, MarkupKind};
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
+pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
+pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
 
 use bo_render::PageList;
@@ -999,5 +1010,7 @@ mod edit_tests;
 mod forms_tests;
 #[cfg(test)]
 mod objects_tests;
+#[cfg(test)]
+mod paragraph_tests;
 #[cfg(test)]
 mod tests;

@@ -394,3 +394,38 @@ fn reverse_and_set_password() {
     assert!(!PdfDocument::needs_password(&plain));
     assert!(!open(plain).is_encrypted());
 }
+
+#[test]
+fn aes256_protection_with_permissions() {
+    let mut doc = PdfDocument::open(
+        crate::tests::build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> >>",
+        ]),
+        standard_fonts(),
+    )
+    .expect("opens");
+    let allow = crate::Permissions {
+        print: true,
+        copy: false,
+        modify: false,
+        annotate: true,
+        assemble: false,
+    };
+    doc.set_protection("mở", "owner", allow, true)
+        .expect("protects");
+    let saved = doc.save().expect("saves");
+    let text = String::from_utf8_lossy(&saved);
+    assert!(
+        text.contains("/R 6") && text.contains("/AESV3"),
+        "revision 6"
+    );
+    assert!(PdfDocument::needs_password(&saved));
+    assert!(PdfDocument::open_with_password(saved.clone(), standard_fonts(), "sai").is_err());
+    let again =
+        PdfDocument::open_with_password(saved.clone(), standard_fonts(), "mở").expect("user");
+    assert_eq!(again.page_count(), 1);
+    let owner = PdfDocument::open_with_password(saved, standard_fonts(), "owner").expect("owner");
+    assert_eq!(owner.page_count(), 1);
+}

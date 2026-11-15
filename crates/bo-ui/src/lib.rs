@@ -15,8 +15,20 @@ mod doc_view;
 mod editor_actions;
 #[cfg(test)]
 mod editor_actions_tests;
+mod editor_comment;
+#[cfg(test)]
+mod editor_comment_tests;
+mod editor_convert;
+mod editor_design;
+#[cfg(test)]
+mod editor_design_tests;
 mod editor_edit;
+mod editor_format;
+#[cfg(test)]
+mod editor_format_tests;
+mod editor_icons;
 mod editor_organize;
+mod editor_sign;
 #[cfg(test)]
 mod editor_tests;
 mod editor_window;

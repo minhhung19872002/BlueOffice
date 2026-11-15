@@ -94,22 +94,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("conv.image", Big("toImage", "pdfEditor.toImage", false)),
             ("conv.text", Big("file", "pdfEditor.toText", false)),
         ]),
-        2 => v.extend([
-            ("sep1", Sep),
-            ("ed.editText", Big("editText", "pdfEditor.editText", false)),
-            (
-                "ed.editObject",
-                Big("editObject", "pdfEditor.editObject", false),
-            ),
-            ("sep2", Sep),
-            ("ed.addText", Big("addText", "pdfEditor.addText", false)),
-            ("ed.addImage", Big("addImage", "pdfEditor.addImage", false)),
-            ("sep3", Sep),
-            (
-                "ed.delete",
-                Big("deletePage", "pdfEditor.deleteObject", false),
-            ),
-        ]),
+        2 => v.extend(crate::editor_format::edit_tab_items()),
         TAB_ORGANIZE => v.extend([
             ("sep1", Sep),
             (
@@ -137,6 +122,20 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ("sep3", Sep),
             ("org.split", Big("splitPages", "pdfEditor.split", false)),
             ("org.combine", Big("combine", "pdfEditor.combine", false)),
+            ("sep4", Sep),
+            (
+                "org.watermark",
+                Big("watermark", "pdfEditor.watermark", true),
+            ),
+            (
+                "org.background",
+                Big("background", "pdfEditor.background", true),
+            ),
+            (
+                "org.headerFooter",
+                Big("headerFooter", "pdfEditor.headerFooter", true),
+            ),
+            ("org.bates", Big("bates", "pdfEditor.bates", false)),
         ]),
         4 => v.extend([
             ("sep1", Sep),
@@ -158,13 +157,20 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep2", Sep),
             ("tool.note", Big("note", "pdfReader.note", false)),
-            ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+            ("cm.file", Big("attach", "pdfEditor.file", false)),
             ("sep3", Sep),
             (
-                "tool.rectangle",
-                Big("rectangle", "pdfReader.rectangle", false),
+                "cm.typewriter",
+                Big("typewriter", "pdfReader.typewriter", false),
             ),
+            ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+            ("cm.callout", Big("callout", "pdfEditor.callout", false)),
             ("sep4", Sep),
+            ("cm.drawing", Big("drawing", "pdfEditor.drawing", true)),
+            ("cm.pencil", Big("pencil", "pdfEditor.pencil", false)),
+            ("sep5", Sep),
+            ("cm.stamp", Big("stamp", "pdfEditor.stamp", true)),
+            ("sep6", Sep),
             (
                 "panel.comments",
                 Big("comments", "pdfReader.commentList", false),
@@ -191,17 +197,7 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("panel.pages", Big("pages", "pdfReader.pages", false)),
         ]),
-        6 => v.extend([
-            ("sep1", Sep),
-            ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
-            (
-                "form.highlight",
-                Big("formFields", "pdfEditor.highlightFields", false),
-            ),
-            ("sep2", Sep),
-            ("form.reset", Big("resetForm", "pdfEditor.resetForm", false)),
-            ("form.flatten", Big("flatten", "pdfEditor.flatten", false)),
-        ]),
+        6 => v.extend(crate::editor_design::form_tab_items()),
         7 => v.extend([
             ("sep1", Sep),
             (
@@ -220,6 +216,10 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep3", Sep),
             ("prot.sign", Big("sign", "pdfEditor.signCertify", false)),
+            (
+                "prot.sigPanel",
+                Big("signPanel", "pdfEditor.signaturePanel", false),
+            ),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         ]),
         _ => {
@@ -259,7 +259,7 @@ const LOOK: Look = Look {
     title_h: 36.0,
     ribbon_bottom: 144.0,
     doc_tabs_h: 35.2,
-    status_h: 35.2,
+    status_h: 36.0,
     tab_h: 25.6,
     tab_gap_first: 24.0,
     tab_gap: 25.6,
@@ -288,6 +288,11 @@ const LOOK: Look = Look {
     box_edge: Rgba(224, 224, 224, 255),
     status_font: 17.0,
     body_gap: 4.0,
+    // Reference: status bar 45 px, boxes 28 px high 4 px below its edge (125 %).
+    status_box_h: 22.4,
+    status_box_top: Some(3.2),
+    // The reference's toolbar icons are drawn with 1 px lines at 36 px.
+    icon_stroke: 0.66,
 };
 
 /// Editor tool that takes the document area's pointer input.
@@ -313,7 +318,7 @@ enum Ask {
 
 /// Window contents of BlueEditor.
 pub struct EditorWindow {
-    r: ReaderWindow,
+    pub(crate) r: ReaderWindow,
     org: Organize,
     tool: Option<EditTool>,
     dialog: Option<(Dialog, Ask)>,
@@ -323,7 +328,16 @@ pub struct EditorWindow {
     /// Pointer position (window pixels).
     pointer: (f32, f32),
     /// Edit Text / Edit Object / Add Text state.
-    edit: crate::editor_edit::Editing,
+    pub(crate) edit: crate::editor_edit::Editing,
+    /// Format pane hit boxes; the pane was closed with its close box.
+    pub(crate) pane: crate::editor_format::FormatPane,
+    pub(crate) format_closed: bool,
+    /// Signature placement and the Signatures panel.
+    pub(crate) sig: crate::editor_sign::SignState,
+    /// Comment tools and the properties of new comments.
+    pub(crate) comment: crate::editor_comment::CommentState,
+    /// Form field tool.
+    pub(crate) design: crate::editor_design::DesignState,
     /// Caret shown (blink phase).
     caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -356,6 +370,11 @@ impl EditorWindow {
             panel_before: None,
             pointer: (0.0, 0.0),
             edit: crate::editor_edit::Editing::default(),
+            pane: crate::editor_format::FormatPane::default(),
+            format_closed: false,
+            sig: crate::editor_sign::SignState::default(),
+            comment: crate::editor_comment::CommentState::default(),
+            design: crate::editor_design::DesignState::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -473,6 +492,10 @@ impl EditorWindow {
 
     /// Run a ribbon or menu command.
     pub fn run(&mut self, cmd: &str, m: &dyn TextMeasure) {
+        if cmd.starts_with("tool.") {
+            self.comment.tool = None;
+            self.design.tool = None;
+        }
         self.r.run_command(cmd, m);
         self.drain(m);
         self.sync();
@@ -574,6 +597,18 @@ impl EditorWindow {
             if !used && self.organize_on() {
                 used = self.org_input(&input, m);
             }
+            if !used {
+                used = self.format_input(&input);
+            }
+            if !used && self.comment.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.comment_input(&input);
+            }
+            if !used && self.design.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.design_input(&input);
+            }
+            if !used && self.sig.pending.is_some() && self.r.showing_doc() {
+                used = self.sign_input(&input);
+            }
             if !used && self.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
                 used = if self.tool == Some(EditTool::Redact) {
                     self.redact_input(&input)
@@ -596,6 +631,12 @@ impl EditorWindow {
         }
         redraw |= self.drain(m);
         self.sync();
+        self.sync_signatures();
+        if redraw && self.edit.typing.is_some() {
+            if let Some(s) = self.format_status() {
+                self.r.set_status(&s);
+            }
+        }
         redraw
     }
 
@@ -700,7 +741,13 @@ impl EditorWindow {
             self.choose_option(i);
             return;
         }
-        if self.action(cmd, m) {
+        if self.action(cmd, m)
+            || self.format_command(cmd)
+            || self.sign_command(cmd)
+            || self.comment_command(cmd)
+            || self.edit_tab_command(cmd)
+            || self.design_command(cmd)
+        {
             return;
         }
         match cmd {
@@ -721,13 +768,20 @@ impl EditorWindow {
                 filters: image_filters(),
             }),
             "edit.redo" => self.undo(false),
-            "ed.editText" => self.toggle_tool(EditTool::Text),
+            "ed.editText" => {
+                self.toggle_tool(EditTool::Text);
+                // The reference shows the Edit tab while Edit Text is on.
+                if self.tool == Some(EditTool::Text) && self.r.ribbon_tab() != 2 {
+                    self.r.set_ribbon_tab(2, m);
+                }
+            }
             "ed.editObject" => self.toggle_tool(EditTool::Object),
             "ed.addText" => self.toggle_tool(EditTool::AddText),
             "prot.redact" => self.toggle_tool(EditTool::Redact),
             "tool.hand" | "tool.select" => {
                 self.edit.reset(self.r.view_mut());
                 self.tool = None;
+                self.comment.tool = None;
             }
             "org.insertMenu" => {
                 let items = [
@@ -809,15 +863,32 @@ impl EditorWindow {
                 vec![(self.t("pdfEditor.pagesPerFile"), "1".into())],
                 m,
             ),
-            "prot.password" => self.ask(
-                Ask::Password,
-                "pdfEditor.secure",
-                vec![
-                    (self.t("pdfEditor.openPassword"), String::new()),
-                    (self.t("pdfEditor.permissionsPassword"), String::new()),
-                ],
-                m,
-            ),
+            "prot.password" => {
+                // Passwords, what is allowed without the permissions password, AES-256.
+                let mut d = Dialog::new(
+                    DialogKind::Comment,
+                    self.t("pdfEditor.secure"),
+                    vec![
+                        (self.t("pdfEditor.openPassword"), String::new()),
+                        (self.t("pdfEditor.permissionsPassword"), String::new()),
+                    ],
+                    vec![
+                        (self.t("pdfReader.ok"), DialogButton::Ok),
+                        (self.t("pdfReader.cancel"), DialogButton::Cancel),
+                    ],
+                    Vec::new(),
+                )
+                .with_checks(vec![
+                    (self.t("pdfEditor.allowPrint"), true),
+                    (self.t("pdfEditor.allowCopy"), true),
+                    (self.t("pdfEditor.allowModify"), false),
+                    (self.t("pdfEditor.allowComments"), true),
+                    (self.t("pdfEditor.allowAssemble"), false),
+                    (self.t("pdfEditor.aes256"), true),
+                ]);
+                d.layout(m, self.r.window_size(), self.r.ui_scale());
+                self.dialog = Some((d, Ask::Password));
+            }
             "prot.removeSecurity" => {
                 let Some(v) = self.r.view_mut() else { return };
                 let r = v.doc_mut().set_password("", "");
@@ -842,6 +913,8 @@ impl EditorWindow {
 
     fn toggle_tool(&mut self, t: EditTool) {
         self.edit.reset(self.r.view_mut());
+        self.comment.tool = None;
+        self.design.tool = None;
         self.tool = if self.tool == Some(t) { None } else { Some(t) };
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
@@ -849,7 +922,7 @@ impl EditorWindow {
         self.x.marking = None;
     }
 
-    fn menu(&mut self, items: &[(&str, &str)], id: &'static str) {
+    pub(crate) fn menu(&mut self, items: &[(&str, &str)], id: &'static str) {
         let Some(r) = self.r.control_rect(id) else {
             return;
         };
@@ -985,8 +1058,17 @@ impl EditorWindow {
                 if owner.is_empty() {
                     return;
                 }
+                let on = |i: usize| values.get(i).is_none_or(|v| v == "1");
+                let allow = bo_pdfread::Permissions {
+                    print: on(2),
+                    copy: on(3),
+                    modify: on(4),
+                    annotate: on(5),
+                    assemble: on(6),
+                };
+                let aes256 = on(7);
                 let Some(v) = self.r.view_mut() else { return };
-                let r = v.doc_mut().set_password(&user, &owner);
+                let r = v.doc_mut().set_protection(&user, &owner, allow, aes256);
                 self.edit_result(r);
                 self.r.set_status(&self.t("pdfEditor.securityAdded"));
             }
@@ -1049,6 +1131,10 @@ impl EditorWindow {
         }
         if purpose == "certificate" {
             self.certificate_picked(bytes);
+            return;
+        }
+        if purpose == "attach" {
+            self.attach_picked(&name, bytes);
             return;
         }
         if purpose == "create" {
@@ -1228,11 +1314,33 @@ impl EditorWindow {
                 EditTool::Redact => "prot.redact",
             });
         }
-        self.r.tool_hidden = self.tool.is_some();
+        if let Some(t) = self.comment.tool {
+            self.r.on.insert(crate::editor_comment::tool_command(t));
+        }
+        for id in crate::editor_format::EDIT_TAB_LATER
+            .iter()
+            .chain(&crate::editor_design::FORM_TAB_LATER)
+        {
+            self.r.enabled_override.insert(id, false);
+        }
+        if let Some(k) = self.design.tool {
+            use bo_pdfread::NewFieldKind as F;
+            self.r.on.insert(match k {
+                F::Text => "fd.text",
+                F::Check => "fd.check",
+                F::Radio => "fd.radio",
+                F::Combo => "fd.combo",
+                F::List => "fd.list",
+                F::Button => "fd.button",
+            });
+        }
+        self.r.tool_hidden =
+            self.tool.is_some() || self.comment.tool.is_some() || self.design.tool.is_some();
         let area = self.r.doc_area();
         let (w, _) = self.r.window_size();
         self.org.frame = [area[0], area[1], (w - 1.0 - area[0]).max(1.0), area[3]];
         self.org.scale = self.r.ui_scale();
+        self.sync_format();
     }
 
     fn org_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
@@ -1341,6 +1449,10 @@ impl EditorWindow {
             }
         }
         self.paint_extras(p);
+        self.paint_sign(p);
+        self.paint_comment(p);
+        self.paint_design(p);
+        self.paint_format(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }

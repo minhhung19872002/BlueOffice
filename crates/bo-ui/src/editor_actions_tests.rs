@@ -1,5 +1,5 @@
 //! Headless tests of BlueEditor's forms, comments, redaction, signing and conversion.
-use crate::editor_tests::{key, texts, window, Fixed};
+use crate::editor_tests::{key, texts, window, Fixed, Rec};
 use crate::reader_window::ReaderRequest;
 use crate::{EditTool, EditorWindow, Input, Key, Mods};
 use bo_pdfread::PdfDocument;
@@ -152,19 +152,69 @@ fn mark_and_apply_redactions() {
 #[test]
 fn sign_with_a_certificate() {
     let mut w = window(2);
-    let signer = bo_sign::testing::self_signed(&mut rand::thread_rng(), "BlueEditor Test");
-    w.sign_with(&signer, "Approved", "Hà Nội").expect("signs");
+    let pki = bo_sign::testing::TestPki::new(&mut rand::thread_rng());
+    let tsa = bo_sign::testing::LocalTsa::new(pki.tsa, std::time::SystemTime::now());
+    let pending = crate::editor_sign::Pending {
+        signer: pki.signer,
+        reason: "Approved".into(),
+        location: "Hà Nội".into(),
+        tsa: String::new(),
+        picture: None,
+    };
+    // A visible signature on page 2, time-stamped.
+    w.sign_placed(&pending, 1, [72.0, 600.0, 252.0, 654.0], Some(&tsa))
+        .expect("signs");
     let req = w.take_requests();
     let Some(ReaderRequest::SaveBytes { name, bytes }) = req.first() else {
         panic!("{req:?}");
     };
     assert_eq!(name, "document-signed.pdf");
+    assert!(matches!(
+        req.get(1),
+        Some(ReaderRequest::OpenDocument { .. })
+    ));
     let sigs = bo_sign::pdf::verify_pdf(bytes).expect("verifies");
     assert_eq!(sigs.len(), 1);
     assert!(sigs[0].covers_whole_file);
-    // The signed file still opens with both pages.
-    let doc = PdfDocument::open(bytes.clone(), bo_pdfread::standard_fonts()).expect("opens");
+    assert!(sigs[0].signer.timestamp.is_some(), "time-stamped");
+    // The signed file opens with both pages; the widget on page 2 has an appearance.
+    let mut doc = PdfDocument::open(bytes.clone(), bo_pdfread::standard_fonts()).expect("opens");
     assert_eq!(doc.page_count(), 2);
+    let text = String::from_utf8_lossy(bytes);
+    assert!(text.contains("/Subtype /Form") && text.contains("/AP << /N"));
+    let page = doc
+        .render(1, bo_pdfread::RenderOptions::default())
+        .expect("renders");
+    // The appearance draws paths inside the box (72..252 × 138..192 in page points).
+    let inside = page
+        .list
+        .commands
+        .iter()
+        .any(|c| matches!(c, bo_render::Command::Path { .. }));
+    assert!(inside);
+    // The Signatures panel lists it as valid.
+    let mut w2 = window(1);
+    w2.open(doc, "signed.pdf", None);
+    w2.handle(crate::Input::Move { x: 1.0, y: 1.0 }, &Fixed);
+    let rows = w2.signature_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].color, crate::editor_sign::SIG_VALID);
+    assert!(
+        rows[0].title.starts_with("Signature 1: "),
+        "{}",
+        rows[0].title
+    );
+    assert!(
+        rows[0].lines.iter().any(|l| l.starts_with("Time-stamp: ")),
+        "{:?}",
+        rows[0].lines
+    );
+    w2.run("prot.sigPanel", &Fixed);
+    let mut rec = Rec::default();
+    w2.paint(&mut rec);
+    assert!(rec.texts.iter().any(|t| t == "Signatures"));
+    w2.run("sig.detail.0", &Fixed);
+    assert!(w2.dialog2.is_some());
 }
 
 #[test]
@@ -185,8 +235,15 @@ fn convert_to_office_formats_text_and_back() {
             "docx" => {
                 let mut e = bo_engine::Engine::with_bundled_fonts();
                 e.open(bytes, "x.docx").expect("opens");
-                let text = String::from_utf8_lossy(&e.save_docx().expect("saves")).len();
-                assert!(text > 0);
+                let pdf = e.export_pdf().expect("exports");
+                let mut back = PdfDocument::open(pdf, bo_pdfread::standard_fonts()).expect("pdf");
+                // Two paragraphs, a page break between them, the size and font kept.
+                assert_eq!(back.page_count(), 2);
+                let objs = back.page_objects(0).expect("objects");
+                let line = bo_pdfread::text_lines(&objs).remove(0);
+                assert_eq!(line.text, "Page 1");
+                assert!((line.font_size - 24.0).abs() < 0.5, "{}", line.font_size);
+                assert!((line.bbox[0] - 72.0).abs() < 2.0, "{:?}", line.bbox);
             }
             "xlsx" => {
                 let mut s = bo_engine::SheetEngine::with_bundled_fonts();
@@ -213,6 +270,16 @@ fn convert_to_office_formats_text_and_back() {
     };
     assert_eq!(name, "document.pptx");
     assert!(bo_pptx::is_pptx(bytes));
+    // An editable text box per paragraph over the page picture.
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).expect("zip");
+    let slide = String::from_utf8_lossy(&pkg.part("/ppt/slides/slide1.xml").expect("slide").data)
+        .into_owned();
+    assert!(slide.contains("<a:t>Page 1</a:t>"), "{slide}");
+    assert!(slide.contains("sz=\"2400\""), "{slide}");
+    assert!(slide.contains("<p:pic>"), "{slide}");
+    // The text is back on the pages and the document is not changed.
+    assert_eq!(texts(&mut w), ["Page 1", "Page 2"]);
+    assert!(!w.view().expect("view").doc().can_undo());
     w.pages_rendered("images", vec![png.clone(), png]);
     assert!(matches!(&w.take_requests()[..], [ReaderRequest::SaveMany(f)] if f.len() == 2));
     // A document made into a PDF opens in a new tab.

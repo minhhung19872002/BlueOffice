@@ -31,3 +31,53 @@ tạo PDF từ tệp BlueDoc/BlueSheet/BlueSlide.
 
 Còn lại: ô “Tell me”, nút tài khoản; sửa chữ một dòng (chưa reflow); sang PowerPoint là ảnh trang; ký chưa có
 dấu thời gian / hình chữ ký; tối ưu độ trễ gõ (phân tích trang 3–4 lần mỗi phím); chữ thanh trạng thái thấp 6 px.
+
+## Vòng 2 (2026-11-15)
+
+Ảnh so sánh (bản đối chiếu trên/trái, BlueEditor dưới/phải): `scratchpad/show/editor-01…05-*.png`.
+
+**Gõ chữ.** Sửa chữ thành phiên theo đoạn (`bo_pdfread::BlockEdit`): phân tích trang một lần khi bấm vào đoạn,
+các run của đoạn được vô hiệu trong bản sao nội dung (prefix), mỗi phím chỉ dàn lại đoạn (ngắt từ theo bề rộng,
+giữ căn lề, thụt dòng đầu, khoảng cách dòng, kiểu từng ký tự) và ghi luồng không nén; nén khi kết thúc phiên
+hoặc khi lưu. Bề rộng ký tự đo một lần cho mỗi (kiểu, ký tự); phông nhúng dự phòng lưu thô, nén khi lưu.
+
+| WM_CHAR gửi bằng PostMessage, `phase1-sample.pdf`, 25 ký tự | Vòng 1 | Vòng 2 |
+| --- | --- | --- |
+| Tổng mỗi phím p50 / p95 | 35,7 / 69 ms | 9,4 / 15,9 ms |
+| Xử lý phím (handle) p50 | ~28 ms | 1,6 ms |
+
+**Đoạn văn.** Dòng cùng đường cơ sở gộp thành dòng nhìn thấy, các dòng cùng cỡ, bước dòng đều, mép trái/giữa/phải
+thẳng hàng gộp thành đoạn với kiểu căn (trái, giữa, phải, đều hai bên, thụt dòng đầu). Trên mẫu: “Điều 1–4”
+nhận đúng 4/4/4/3 dòng, căn đều; quốc hiệu căn giữa. Enter ngắt dòng, mũi tên lên/xuống, chọn bằng Shift/kéo,
+Ctrl+B/I.
+
+**Bảng Format** (khung phải như bản đối chiếu, rộng 437 px ở 125 %): Text Style (phông, cỡ, màu), B I U S chỉ số
+trên/dưới, căn trái/giữa/phải/đều, tăng/giảm lề, gạch đầu dòng/đánh số, giãn dòng, tỉ lệ ký tự, giãn ký tự, giãn
+từ (giãn đoạn chỉ hiển thị). Zoom vừa trang khi khung hiện: 68,42 % (đối chiếu 68,47 %). Bật Edit Text chuyển
+sang tab Edit bố cục như bản đối chiếu (các lệnh chưa có hiện mờ).
+
+**Ký số.** Kéo khung chữ ký trên trang bất kỳ; hình chữ ký là bố cục riêng (tên hoặc ảnh bên trái, “Ký số bởi”,
+tên, ngày, lý do bên phải) vẽ bằng đường viền glyph nên không cần phông; dấu thời gian TSA (B-T) tuỳ chọn.
+Bảng Chữ ký (cột điều hướng, Protect › Bảng chữ ký) kiểm `verify_pdf`: xanh = toàn vẹn, hổ phách = sửa sau khi ký,
+đỏ = sai chữ ký; chi tiết người ký, TSA, thời điểm.
+
+**Chuyển đổi.** PowerPoint: mỗi trang một slide, ảnh trang không có chữ phía sau + hộp chữ sửa được theo từng
+đoạn (phông, cỡ, đậm, nghiêng, màu, căn). Word: đoạn văn với căn lề, thụt dòng đầu, bước dòng chính xác, khoảng
+trước, kiểu run, khổ và lề trang, ngắt trang. Excel: ô theo cột dò từ mép trái.
+
+**Ghi chú.** Typewriter, Callout, Drawing (chữ nhật, bầu dục, đường, mũi tên, đa giác, đám mây), Pencil, Stamp
+(thiết kế và chữ riêng), tệp đính kèm; màu, độ mờ đục (/CA), độ dày (/BS) trong khung Format.
+
+**Bảo vệ / Biểu mẫu / Thiết kế trang.** AES-256 (R6) mặc định hoặc AES-128, hộp quyền (in, sao chép, sửa,
+ghi chú/điền, sắp trang); trường text, check, radio, ngày, combo, list, nút (kéo khung → thuộc tính); tab Organize:
+Watermark, Background, Header & Footer (`<<page>>`, `<<pages>>`, `<<date>>`), Bates; Tìm & thay thế.
+
+| Hạng mục (125 %) | Bản đối chiếu | BlueEditor vòng 2 |
+| --- | --- | --- |
+| Thanh trạng thái | 45 px, ô trang 28 px cách mép 4 px, chữ y +13 | 45 px, ô 28 px cách mép 4 px |
+| Chữ tab tài liệu “Start” | x 24, y 204–214 | x 24, y 204–213 |
+| Khung Format: Text Style / hộp phông / hàng B / hàng căn | y 250 / 275 / 350 / 405 | ±3 px |
+
+Còn lại: Link & Join Text, chính tả, Reflow, Article Box, liên kết, bookmark, cross reference, image annotation,
+audio/video, 3D, nhận dạng trường, barcode/ảnh/chữ ký trường, giãn đoạn; chọn chữ có công cụ ghi chú của Reader
+đang bật vẫn đi qua công cụ ghi chú của Editor; hộp “Tell me”.

@@ -464,6 +464,19 @@ fn subject(c: &Certificate) -> String {
     c.tbs_certificate.subject.to_string()
 }
 
+/// Subject (RFC 4514) of a DER certificate, `None` when it does not parse.
+pub fn certificate_subject(der: &[u8]) -> Option<String> {
+    Certificate::from_der(der).ok().map(|c| subject(&c))
+}
+
+/// The common name (`CN`) of an RFC 4514 subject, else the whole subject.
+pub fn common_name(subject: &str) -> String {
+    subject
+        .split(',')
+        .find_map(|p| p.trim().strip_prefix("CN="))
+        .map_or_else(|| subject.to_owned(), str::to_owned)
+}
+
 /// Checks `child`'s signature with `issuer`'s public key.
 fn signed_by(child: &Certificate, issuer: &Certificate) -> std::result::Result<(), ChainProblem> {
     let alg = HashAlg::from_signature_oid(child.signature_algorithm.oid).map_err(|_| {

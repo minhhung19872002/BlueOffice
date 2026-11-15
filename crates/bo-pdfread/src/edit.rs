@@ -32,6 +32,58 @@ impl Default for SaveOptions {
     }
 }
 
+/// What a protected document allows without the permissions password (ISO 32000-1
+/// §7.6.3.2, Table 22).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct Permissions {
+    /// Print (bit 3) in high quality (bit 12).
+    pub print: bool,
+    /// Change the document (bit 4).
+    pub modify: bool,
+    /// Copy text and graphics (bit 5).
+    pub copy: bool,
+    /// Add comments and fill fields (bits 6, 9).
+    pub annotate: bool,
+    /// Insert, delete and rotate pages (bit 11).
+    pub assemble: bool,
+}
+
+impl Default for Permissions {
+    fn default() -> Self {
+        Self {
+            print: true,
+            modify: true,
+            copy: true,
+            annotate: true,
+            assemble: true,
+        }
+    }
+}
+
+impl Permissions {
+    fn flags(self) -> lopdf::Permissions {
+        use lopdf::Permissions as P;
+        let mut p = P::COPYABLE_FOR_ACCESSIBILITY;
+        if self.print {
+            p |= P::PRINTABLE | P::PRINTABLE_IN_HIGH_QUALITY;
+        }
+        if self.modify {
+            p |= P::MODIFIABLE;
+        }
+        if self.copy {
+            p |= P::COPYABLE;
+        }
+        if self.annotate {
+            p |= P::ANNOTABLE | P::FILLABLE;
+        }
+        if self.assemble {
+            p |= P::ASSEMBLABLE;
+        }
+        p
+    }
+}
+
 /// One undoable edit: previous values of the objects it changed (`None`: it created them).
 #[derive(Default, Clone)]
 pub(crate) struct Step {
@@ -60,6 +112,8 @@ pub(crate) struct EditState {
     pub group: bool,
     /// Embedded fallback fonts (serif?) by font object.
     pub embedded: HashMap<usize, ObjectId>,
+    /// Page contents swapped out by `hide_text`.
+    pub hidden_text: Option<crate::convert::HiddenText>,
 }
 
 const UNDO_LIMIT: usize = 100;
@@ -157,9 +211,11 @@ impl PdfDocument {
 
     /// Remember `id`'s current value in the open step before it changes.
     pub(crate) fn touch(&mut self, id: ObjectId) {
-        let prev = self.doc.objects.get(&id).cloned();
         if let Some(step) = self.edit.open.as_mut() {
+            // Only the first change in a step clones the old value (typing touches the page
+            // stream on every key).
             if step.seen.insert(id) {
+                let prev = self.doc.objects.get(&id).cloned();
                 step.before.push((id, prev));
             }
         }
@@ -399,8 +455,21 @@ impl PdfDocument {
     /// `user` opens it (empty: anyone opens it), `owner` changes the permissions. An empty
     /// `owner` removes the protection. Written by the next save, which rewrites the file.
     pub fn set_password(&mut self, user: &str, owner: &str) -> Result<(), String> {
-        use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
-        use lopdf::{EncryptionState, EncryptionVersion, Permissions};
+        self.set_protection(user, owner, Permissions::default(), true)
+    }
+
+    /// Protect the document: `user` opens it, `owner` changes the permissions, `allow` is what
+    /// it allows without the owner password; AES-256 (security handler revision 6, ISO
+    /// 32000-2 §7.6.4.4) or AES-128 (revision 4). An empty `owner` removes the protection.
+    pub fn set_protection(
+        &mut self,
+        user: &str,
+        owner: &str,
+        allow: Permissions,
+        aes256: bool,
+    ) -> Result<(), String> {
+        use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
+        use lopdf::{EncryptionState, EncryptionVersion};
         if let Ok(e) = self
             .doc
             .trailer
@@ -421,17 +490,33 @@ impl PdfDocument {
             }
             let mut filters: std::collections::BTreeMap<Vec<u8>, std::sync::Arc<dyn CryptFilter>> =
                 std::collections::BTreeMap::new();
-            filters.insert(b"StdCF".to_vec(), std::sync::Arc::new(Aes128CryptFilter));
-            let state = EncryptionState::try_from(EncryptionVersion::V4 {
-                document: &self.doc,
-                encrypt_metadata: true,
-                crypt_filters: filters,
-                stream_filter: b"StdCF".to_vec(),
-                string_filter: b"StdCF".to_vec(),
-                owner_password: owner,
-                user_password: user,
-                permissions: Permissions::all(),
-            })
+            let state = if aes256 {
+                filters.insert(b"StdCF".to_vec(), std::sync::Arc::new(Aes256CryptFilter));
+                let mut key = new_file_id(1);
+                key.extend(new_file_id(2));
+                EncryptionState::try_from(EncryptionVersion::V5 {
+                    encrypt_metadata: true,
+                    crypt_filters: filters,
+                    file_encryption_key: &key,
+                    stream_filter: b"StdCF".to_vec(),
+                    string_filter: b"StdCF".to_vec(),
+                    owner_password: owner,
+                    user_password: user,
+                    permissions: allow.flags(),
+                })
+            } else {
+                filters.insert(b"StdCF".to_vec(), std::sync::Arc::new(Aes128CryptFilter));
+                EncryptionState::try_from(EncryptionVersion::V4 {
+                    document: &self.doc,
+                    encrypt_metadata: true,
+                    crypt_filters: filters,
+                    stream_filter: b"StdCF".to_vec(),
+                    string_filter: b"StdCF".to_vec(),
+                    owner_password: owner,
+                    user_password: user,
+                    permissions: allow.flags(),
+                })
+            }
             .map_err(|e| e.to_string())?;
             self.doc.encryption_state = Some(state);
         }
@@ -653,6 +738,23 @@ impl PdfDocument {
         }
         self.saved(out.clone());
         Ok(out)
+    }
+
+    /// Compress changed streams written without a filter (typed text, embedded faces)
+    /// before an incremental save.
+    pub(crate) fn compress_changed(&mut self) {
+        for id in self.changed.clone() {
+            if let Some(Object::Stream(s)) = self.doc.objects.get_mut(&id) {
+                if compressible(s) {
+                    let z = flate(&s.content);
+                    if z.len() + 19 < s.content.len() {
+                        s.dict.set("Filter", Object::Name(b"FlateDecode".to_vec()));
+                        s.dict.remove(b"DecodeParms");
+                        s.set_content(z);
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) fn saved(&mut self, bytes: Vec<u8>) {

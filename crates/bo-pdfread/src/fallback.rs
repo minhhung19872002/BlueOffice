@@ -29,12 +29,12 @@ pub(crate) fn face_for(base: &str) -> usize {
 }
 
 #[cfg(feature = "bundled-fonts")]
-fn face_data(face: usize) -> Option<&'static [u8]> {
+pub(crate) fn face_data(face: usize) -> Option<&'static [u8]> {
     crate::bundled::FONTS.get(face).copied()
 }
 
 #[cfg(not(feature = "bundled-fonts"))]
-fn face_data(_face: usize) -> Option<&'static [u8]> {
+pub(crate) fn face_data(_face: usize) -> Option<&'static [u8]> {
     None
 }
 
@@ -78,15 +78,6 @@ fn to_unicode(face: &ttf_parser::Face<'_>) -> Vec<u8> {
     s.into_bytes()
 }
 
-fn flate_stream(d: Dictionary, data: &[u8]) -> Object {
-    let mut d = d;
-    d.set("Filter", Object::Name(b"FlateDecode".to_vec()));
-    Object::Stream(Stream::new(
-        d,
-        miniz_oxide::deflate::compress_to_vec_zlib(data, 6),
-    ))
-}
-
 impl PdfDocument {
     /// The embedded font (serif or sans) and `text` encoded for it (glyph ids).
     pub(crate) fn embed_text(
@@ -110,7 +101,9 @@ impl PdfDocument {
         let k = |v: f32| Object::Integer((v * 1000.0 / upem).round() as i64);
         let mut len1 = Dictionary::new();
         len1.set("Length1", data.len() as i64);
-        let file = self.add(flate_stream(len1, data));
+        // Written uncompressed: a save compresses it ([`PdfDocument::save`]), so the first
+        // keystroke that needs the face stays fast.
+        let file = self.add(Object::Stream(Stream::new(len1, data.to_vec())));
         let serif = face_index < SANS;
         let style = ["", "-Bold", "-Italic", "-BoldItalic"][face_index % 4];
         let name =
@@ -167,7 +160,10 @@ impl PdfDocument {
         cid.set("DW", 1000);
         cid.set("W", vec![Object::Integer(0), Object::Array(widths)]);
         let cid_id = self.add(Object::Dictionary(cid));
-        let tu = self.add(flate_stream(Dictionary::new(), &to_unicode(&face)));
+        let tu = self.add(Object::Stream(Stream::new(
+            Dictionary::new(),
+            to_unicode(&face),
+        )));
         let mut t0 = Dictionary::new();
         t0.set("Type", Object::Name(b"Font".to_vec()));
         t0.set("Subtype", Object::Name(b"Type0".to_vec()));

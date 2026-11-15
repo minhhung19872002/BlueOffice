@@ -28,7 +28,7 @@ fn shifted(o: &Object, dx: f32, dy: f32) -> Option<Object> {
 }
 
 impl PdfDocument {
-    fn page_base(&self, page: usize) -> Option<M> {
+    fn annot_page_base(&self, page: usize) -> Option<M> {
         let info = self.pages.get(page)?;
         Some(crate::page_matrix(info.crop, info.rotate))
     }
@@ -37,7 +37,7 @@ impl PdfDocument {
     /// follows its rectangle.
     pub fn move_annotation(&mut self, a: &Annot, dx: f32, dy: f32) -> Result<(), String> {
         let id = a.id.ok_or("the comment cannot be changed")?;
-        let base = self.page_base(a.page).ok_or("no such page")?;
+        let base = self.annot_page_base(a.page).ok_or("no such page")?;
         let inv = invert(base).ok_or("page matrix")?;
         // The page-space offset in user space (linear part only).
         let (ox, oy) = apply(inv, 0.0, 0.0);

@@ -15,6 +15,7 @@
 
 mod annot;
 mod cmap;
+mod codecs;
 mod color;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]

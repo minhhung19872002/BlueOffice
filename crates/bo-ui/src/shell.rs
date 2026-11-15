@@ -604,27 +604,30 @@ impl DocWindow {
     }
 
     fn context_menu(&mut self, x: f32, y: f32) {
-        let items = [
-            "edit.cut",
-            "edit.copy",
-            "edit.paste",
-            "insert.link",
-            "review.newComment",
-        ]
-        .iter()
-        .map(|id| MenuItem {
-            label: self.strings.get(&format!("commands.{id}")).to_owned(),
-            choice: Choice::Command((*id).to_owned()),
-            checked: false,
-            dim: false,
-        })
-        .collect();
-        self.menu = Some(Menu::open(
-            items,
-            [x, y - 2.0, 1.0, 0.0],
-            self.size,
-            self.scale,
-        ));
+        // Clipboard, then insert commands behind a separator, with icons; cut and copy dim
+        // without a selection, as in a desktop word processor's context menu.
+        let selected = self.view.has_selection();
+        let ids = [
+            ("edit.cut", "edit.cut"),
+            ("edit.copy", "edit.copy"),
+            ("edit.paste", "edit.paste"),
+            ("insert.link", "insert.link"),
+            ("review.newComment", "review.newComment"),
+        ];
+        let items = ids
+            .iter()
+            .map(|(id, _)| MenuItem {
+                label: self.strings.get(&format!("commands.{id}")).to_owned(),
+                choice: Choice::Command((*id).to_owned()),
+                checked: false,
+                dim: !selected && matches!(*id, "edit.cut" | "edit.copy"),
+            })
+            .collect();
+        let icons = ids.iter().map(|(_, icon)| Some(*icon)).collect();
+        self.menu = Some(
+            Menu::open(items, [x, y - 2.0, 1.0, 0.0], self.size, self.scale)
+                .with_decor(icons, vec![3]),
+        );
     }
 
     /// Ids drawn as switched on beyond the formatting state.
@@ -1643,7 +1646,7 @@ impl DocWindow {
         );
         p.text(&zoom, pct[0] + (6.0 * self.scale).round(), ty, style, ink);
         if let Some(menu) = &self.menu {
-            menu.paint(p, &self.theme);
+            menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
             paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale);
         }

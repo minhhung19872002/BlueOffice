@@ -41,6 +41,10 @@ pub struct Menu {
     hover: Option<usize>,
     pressed: bool,
     scale: f32,
+    /// Icon of each item (context menus), drawn in a left column.
+    icons: Vec<Option<&'static str>>,
+    /// Items preceded by a separator line.
+    separators: Vec<usize>,
 }
 
 impl Menu {
@@ -90,6 +94,8 @@ impl Menu {
             hover: current,
             pressed: false,
             scale,
+            icons: Vec::new(),
+            separators: Vec::new(),
         };
         // Show the current value in the middle of the list.
         if let Some(i) = current {
@@ -97,6 +103,15 @@ impl Menu {
             m.clamp();
         }
         m
+    }
+
+    /// Icons per item and separators before items, as in a desktop word processor's
+    /// context menu.
+    #[must_use]
+    pub fn with_decor(mut self, icons: Vec<Option<&'static str>>, separators: Vec<usize>) -> Self {
+        self.icons = icons;
+        self.separators = separators;
+        self
     }
 
     fn pad(&self) -> f32 {
@@ -175,7 +190,7 @@ impl Menu {
     }
 
     /// Paint the menu with a soft shadow.
-    pub fn paint(&self, p: &mut dyn Painter, t: &Theme) {
+    pub fn paint(&self, p: &mut dyn Painter, t: &Theme, icons: &crate::icons::Icons) {
         let s = self.scale;
         for (k, a) in [(3.0, 18u8), (2.0, 26), (1.0, 34)] {
             let o = (k * s).round();
@@ -240,10 +255,40 @@ impl Menu {
                     Some((Rgba(0x1e, 0x6e, 0x3e, 255), (1.6 * s).max(1.5))),
                 );
             }
+            if self.separators.contains(&i) && i > 0 {
+                p.fill_rect(
+                    self.x + (28.0 * s).round(),
+                    y.round(),
+                    self.w - (32.0 * s).round(),
+                    1.0,
+                    Rgba(0xe1, 0xe1, 0xe1, 255),
+                );
+            }
+            if let Some(Some(name)) = self.icons.get(i) {
+                let size = (16.0 * s).round();
+                icons.draw(
+                    p,
+                    name,
+                    self.x + (6.0 * s).round(),
+                    (y + (self.item_h - size) / 2.0).round(),
+                    size,
+                    crate::icons::IconColors {
+                        ink: t.text,
+                        accent: t.accent,
+                        on: t.accent_on,
+                        tinted: !item.dim,
+                    },
+                );
+            }
             let color = if item.dim { t.text_muted } else { t.text };
             p.text(
                 &item.label,
-                self.x + (24.0 * s).round(),
+                self.x
+                    + if self.icons.is_empty() {
+                        (24.0 * s).round()
+                    } else {
+                        (34.0 * s).round()
+                    },
                 y + (self.item_h - line) / 2.0,
                 style,
                 color,

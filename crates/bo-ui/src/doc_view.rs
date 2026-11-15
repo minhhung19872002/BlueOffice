@@ -274,6 +274,11 @@ impl DocView {
         Some((slot.y as f32, slot.height as f32))
     }
 
+    /// Whether some text is selected (not just a caret).
+    pub fn has_selection(&self) -> bool {
+        !self.rects.is_empty()
+    }
+
     /// Run an engine command that changes the document or selection.
     pub fn run_command(&mut self, cmd: Command) -> bool {
         self.edit(cmd)

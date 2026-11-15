@@ -102,15 +102,31 @@ pub enum Scaling {
     Actual,
 }
 
-/// Print `pages` (index, size in points) on `printer`, `copies` times (collated). `render`
-/// draws page `index` at a scale in device pixels per point. Returns pages printed.
-#[allow(clippy::chunks_exact_to_as_chunks)] // s_chunks_mut exceeds the workspace MSRV.
+/// How a job prints.
+#[allow(clippy::struct_excessive_bools)]
+pub struct Options {
+    /// Copies.
+    pub copies: u32,
+    /// Each copy all pages (else each page `copies` times).
+    pub collate: bool,
+    /// Page sizing.
+    pub scaling: Scaling,
+    /// Turn pages to the paper's orientation.
+    pub auto_rotate: bool,
+    /// Centre pages on the paper (else top-left of the printable area).
+    pub auto_center: bool,
+    /// Shades of grey.
+    pub grayscale: bool,
+}
+
+/// Print `pages` (index, size in points) on `printer`. `render` draws page `index` at a
+/// scale in device pixels per point. Returns sheets printed.
+#[allow(clippy::chunks_exact_to_as_chunks, clippy::too_many_lines)] // `as_chunks_mut`: MSRV.
 pub fn print(
     printer: &str,
     title: &str,
     pages: &[(usize, (f32, f32))],
-    copies: u32,
-    scaling: Scaling,
+    opts: &Options,
     render: &mut dyn FnMut(usize, f32) -> Option<PrintPage>,
 ) -> Result<usize, String> {
     let name = wide(printer);
@@ -146,18 +162,30 @@ pub fn print(
         SetStretchBltMode(hdc, HALFTONE);
         let mut printed = 0;
         let result = (|| -> Result<(), String> {
-            for _ in 0..copies.max(1) {
-                for &(index, (w_pt, h_pt)) in pages {
+            // Collated: every page per copy; else each page all its copies in a row.
+            let n = opts.copies.max(1) as usize;
+            let order: Vec<&(usize, (f32, f32))> = if opts.collate {
+                (0..n).flat_map(|_| pages.iter()).collect()
+            } else {
+                pages
+                    .iter()
+                    .flat_map(|p| std::iter::repeat_n(p, n))
+                    .collect()
+            };
+            {
+                for &&(index, (w_pt, h_pt)) in &order {
                     if StartPage(hdc) <= 0 {
                         return Err("the printer refused a page".into());
                     }
                     // Turn the page when its orientation differs from the paper's.
-                    let turn = (w_pt > h_pt) != (area.0 > area.1) && (w_pt - h_pt).abs() > 1.0;
+                    let turn = opts.auto_rotate
+                        && (w_pt > h_pt) != (area.0 > area.1)
+                        && (w_pt - h_pt).abs() > 1.0;
                     let (pw, ph) = if turn { (h_pt, w_pt) } else { (w_pt, h_pt) };
                     // Natural size in printer pixels.
                     let natural = (pw / 72.0 * dpi_x, ph / 72.0 * dpi_y);
                     let fit = (area.0 / natural.0).min(area.1 / natural.1);
-                    let k = match scaling {
+                    let k = match opts.scaling {
                         Scaling::Fit => fit,
                         Scaling::Shrink => fit.min(1.0),
                         Scaling::Actual => 1.0,
@@ -170,7 +198,18 @@ pub fn print(
                         let img = if turn { rotate_cw(&img) } else { img };
                         let mut bgra = img.pixels;
                         for px in bgra.chunks_exact_mut(4) {
-                            px.swap(0, 2);
+                            if opts.grayscale {
+                                // Rec. 601 luma.
+                                let y = ((u32::from(px[0]) * 299
+                                    + u32::from(px[1]) * 587
+                                    + u32::from(px[2]) * 114)
+                                    / 1000) as u8;
+                                px[0] = y;
+                                px[1] = y;
+                                px[2] = y;
+                            } else {
+                                px.swap(0, 2);
+                            }
                         }
                         let bmi = BITMAPINFO {
                             bmiHeader: BITMAPINFOHEADER {
@@ -184,8 +223,14 @@ pub fn print(
                             },
                             ..Default::default()
                         };
-                        let x = ((area.0 - dest.0) / 2.0).round() as i32;
-                        let y = ((area.1 - dest.1) / 2.0).round() as i32;
+                        let (x, y) = if opts.auto_center {
+                            (
+                                ((area.0 - dest.0) / 2.0).round() as i32,
+                                ((area.1 - dest.1) / 2.0).round() as i32,
+                            )
+                        } else {
+                            (0, 0)
+                        };
                         StretchDIBits(
                             hdc,
                             x,

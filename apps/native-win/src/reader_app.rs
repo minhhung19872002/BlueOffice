@@ -414,7 +414,15 @@ impl Shell {
             bo_ui::PrintScaling::Shrink => print::Scaling::Shrink,
             bo_ui::PrintScaling::Actual => print::Scaling::Actual,
         };
-        let result = print::print(&s.printer, &title, &pages, s.copies, scaling, &mut render);
+        let options = print::Options {
+            copies: s.copies,
+            collate: s.collate,
+            scaling,
+            auto_rotate: s.auto_rotate,
+            auto_center: s.auto_center,
+            grayscale: s.grayscale,
+        };
+        let result = print::print(&s.printer, &title, &pages, &options, &mut render);
         let status = match result {
             Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
             Err(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),

@@ -24,6 +24,8 @@ pub trait PdfStore {
 
 /// Key of page `i`'s thumbnail image in the store.
 pub const THUMB_KEY: usize = 1 << 24;
+/// Key of the one preview image (print preview) in the store.
+pub const PREVIEW_KEY: usize = 2 << 24;
 
 /// How pages are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +130,9 @@ pub struct ReaderView {
     /// Pages too large to keep whole at this zoom: the part drawn (device pixels from the
     /// page's top-left corner: x, y, width, height).
     crops: HashMap<usize, [f32; 4]>,
+    /// Preview image wanted this frame (page, scale) and the one drawn (page, scale, generation).
+    preview_wanted: Option<(usize, f32)>,
+    preview_drawn: Option<(usize, f32, u64)>,
 }
 
 /// Largest page image side and area (device pixels) drawn whole; larger pages at high zoom
@@ -171,6 +176,8 @@ impl ReaderView {
             cover: true,
             single_page: 0,
             crops: HashMap::new(),
+            preview_wanted: None,
+            preview_drawn: None,
         };
         v.update_sizes();
         v
@@ -807,6 +814,16 @@ impl ReaderView {
                 };
             }
         }
+        // Print preview.
+        if let Some((i, s)) = self.preview_wanted.take() {
+            if i < self.sizes.len()
+                && !self.has_preview(i, s)
+                && self.ensure(i)
+                && self.draw(store, PREVIEW_KEY, i, s).is_ok()
+            {
+                self.preview_drawn = Some((i, s, self.generation[i]));
+            }
+        }
         // Thumbnails.
         let thumbs = std::mem::take(&mut self.thumbs_wanted);
         for (i, s) in thumbs {
@@ -852,6 +869,17 @@ impl ReaderView {
             }
         }
         more
+    }
+
+    /// Ask for the preview image of page `i` at `scale` (key [`PREVIEW_KEY`]) this frame.
+    pub fn want_preview(&mut self, i: usize, scale: f32) {
+        self.preview_wanted = Some((i, scale));
+    }
+
+    /// Whether the preview image shows page `i` at `scale`.
+    pub fn has_preview(&self, i: usize, scale: f32) -> bool {
+        self.preview_drawn
+            .is_some_and(|(p, s, g)| p == i && (s - scale).abs() < 1e-4 && g == self.generation[i])
     }
 
     /// The part of page `i` in the view (device pixels from the page's corner).

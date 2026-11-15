@@ -1,11 +1,11 @@
 //! BlueReader additions kept in their own file (a child of `reader_window`, so they reach its
 //! state): the Print dialog, Read Mode, Full Screen with presentation-like page flipping, and
 //! selecting, moving, recolouring, editing, replying to and deleting existing comments.
-use super::{inside, Panel, ReaderRequest, ReaderWindow, Tool, CANVAS};
+use super::{inside, Panel, ReaderRequest, ReaderWindow, Tool};
 use crate::dialog::{Dialog, DialogButton, DialogKind};
 use crate::popup::{Choice, MenuItem};
 use crate::reader_print::{PrintAction, PrintDialog};
-use crate::reader_view::{Fit, Layout, THUMB_KEY};
+use crate::reader_view::{Fit, Layout, PREVIEW_KEY};
 use crate::{Input, Key, Painter, Request, TextMeasure};
 use bo_pdfread::Annot;
 use bo_render::Rgba;
@@ -84,22 +84,22 @@ impl ReaderWindow {
         self.extra.print.is_some()
     }
 
-    /// Thumbnail of the first page to print, at the thumbnail scale of the Pages panel (the
-    /// same image serves both).
+    /// The preview image of the page shown in the Print dialog, fitted to its preview box.
     fn update_print_preview(&mut self) {
-        let thumb_w = self.px(120.0);
         let (Some(d), Some(t)) = (self.extra.print.as_mut(), self.tabs.get_mut(self.active)) else {
             return;
         };
         let i = d.preview_page();
         let (pw, ph) = t.view.page_size(i);
-        let s = thumb_w / pw.max(1.0);
-        t.view.want_thumb(i, s);
-        let key = t
-            .view
-            .has_image(THUMB_KEY + i)
-            .then_some(t.key_base + THUMB_KEY + i);
-        d.set_preview(key, (pw, ph), s);
+        let b = d.preview_box();
+        let s = (b[2] / pw.max(1.0)).min(b[3] / ph.max(1.0));
+        if s <= 0.0 {
+            return;
+        }
+        t.view.want_preview(i, s);
+        // The thumbnail is drawn by the view's prepare right after this; until then the
+        // painter has no image for the key and draws nothing.
+        d.set_preview(Some(t.key_base + PREVIEW_KEY), (pw, ph), s);
     }
 
     /// Before page images are brought up to date (the print preview wants its thumbnail).
@@ -135,6 +135,11 @@ impl ReaderWindow {
         self.requests
             .push(ReaderRequest::Window(Request::FullScreen(true)));
         self.relayout(m);
+    }
+
+    /// Top of the document tab strip in Read Mode (just under the ribbon tab row).
+    fn read_strip_y(&self) -> f32 {
+        self.title_h() + 1.0 + self.px(23.2)
     }
 
     /// Enter or leave Read Mode.
@@ -192,8 +197,11 @@ impl ReaderWindow {
                 self.nav_rect = [0.0; 4];
             }
             Mode::Read => {
-                let top = self.title_h() + 1.0;
-                let bottom = h - self.status_h();
+                // Measured on the reference: the tab row stays, the document tabs move up to
+                // y 100 (125 %), the ribbon body and the status bar go; 8 px of chrome remain
+                // under the document.
+                let top = self.read_strip_y() + self.doc_tabs_h();
+                let bottom = h - self.px(6.4) - 1.0;
                 let sbw = self.px(16.8);
                 let margin = self.px(6.4);
                 self.vbar = [w - margin - sbw, top, sbw, bottom - top];
@@ -206,13 +214,15 @@ impl ReaderWindow {
                 self.panel_rect = [0.0; 4];
                 self.strip_rect = [0.0; 4];
                 self.nav_rect = [0.0; 4];
-                // Ribbon and navigation controls are hidden: drop them from hit testing.
-                let (th, sy) = (self.title_h(), bottom);
-                self.controls
-                    .retain(|c| c.r[1] + c.r[3] <= th + 1.0 || c.r[1] >= sy - 1.0);
-                self.tab_rects.clear();
+                // Ribbon, navigation and status bar controls are hidden: drop them from hit
+                // testing (the document tabs are placed again when painted).
+                let th = self.title_h();
+                self.controls.retain(|c| c.r[1] + c.r[3] <= th + 1.0);
                 self.doc_tab_rects.clear();
                 self.start_tab = [0.0; 4];
+                self.page_box = [0.0; 4];
+                self.zoom_box = [0.0; 4];
+                self.slider = [0.0; 4];
             }
         }
     }
@@ -247,6 +257,7 @@ impl ReaderWindow {
             if let Some(d) = self.extra.print.as_mut() {
                 d.layout(m, self.size, self.scale);
             }
+            self.update_print_preview();
             return Some(true);
         }
         // Comment text dialog.
@@ -565,7 +576,11 @@ impl ReaderWindow {
                 p.page(t.key_base + i, (r[0] + ox) as i32, (r[1] + oy) as i32);
             }
         }
-        let _ = (w, h);
+        // A 1 px frame like the reference's full-screen window.
+        p.fill_rect(0.0, 0.0, w, 1.0, self.look.canvas);
+        p.fill_rect(0.0, 1.0, 1.0, h - 1.0, self.look.edge);
+        p.fill_rect(w - 1.0, 1.0, 1.0, h - 1.0, self.look.edge);
+        p.fill_rect(0.0, h - 1.0, w, 1.0, self.look.edge);
         true
     }
 
@@ -573,10 +588,12 @@ impl ReaderWindow {
     /// a comment being moved and the dialogs of the additions.
     pub(crate) fn paint_extra(&mut self, p: &mut dyn Painter) {
         let (w, h) = self.size;
-        if self.extra.mode == Mode::Read && !self.show_start {
-            let top = self.title_h() + 1.0;
-            let bottom = h - self.status_h();
-            p.fill_rect(1.0, top, w - 2.0, bottom - top, CANVAS);
+        if self.extra.mode == Mode::Read && !self.show_start && !self.tabs.is_empty() {
+            let y = self.read_strip_y();
+            p.fill_rect(1.0, y, w - 2.0, h - y - 1.0, self.look.chrome);
+            self.paint_doc_tabs(p, y);
+            let top = y + self.doc_tabs_h();
+            p.fill_rect(0.0, top - 1.0, w, 1.0, self.look.edge);
             self.paint_doc(p);
             self.paint_vbar(p);
         }

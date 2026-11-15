@@ -18,11 +18,18 @@ path = "src/slide_main.rs"
 name = "bluesheet-native"
 path = "src/sheet_main.rs"
 
+[[bin]]
+name = "bluereader-native"
+path = "src/reader_main.rs"
+
 [dependencies]
 bo-engine = { workspace = true, features = ["bundled-fonts"] }
 bo-render.workspace = true
 bo-raster.workspace = true
 bo-ui = { path = "../../crates/bo-ui" }
+bo-pdfread = { path = "../../crates/bo-pdfread" }
+bo-text.workspace = true
+png.workspace = true
 base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]

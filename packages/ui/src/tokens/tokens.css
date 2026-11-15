@@ -97,6 +97,11 @@
   --bo-slide-accent-on: #ffffff;
   --bo-slide-accent-text: #B5195A;
   --bo-slide-accent-subtle: #FCE9F0;
+  --bo-reader-accent: #D7263D;
+  --bo-reader-accent-strong: #B31B30;
+  --bo-reader-accent-on: #ffffff;
+  --bo-reader-accent-text: #B31B30;
+  --bo-reader-accent-subtle: #FCE8EA;
   --bo-surface-alt: var(--bo-surface-2);
   --bo-muted: var(--bo-text-muted);
   --bo-danger: var(--bo-danger-text);
@@ -176,6 +181,11 @@
   --bo-slide-accent-on: #ffffff;
   --bo-slide-accent-text: #FF8FB4;
   --bo-slide-accent-subtle: #3D1A28;
+  --bo-reader-accent: #F0626F;
+  --bo-reader-accent-strong: #B31B30;
+  --bo-reader-accent-on: #ffffff;
+  --bo-reader-accent-text: #FF8A95;
+  --bo-reader-accent-subtle: #3D1A1E;
   --bo-surface-alt: var(--bo-surface-2);
   --bo-muted: var(--bo-text-muted);
   --bo-danger: var(--bo-danger-text);
@@ -255,6 +265,11 @@
   --bo-slide-accent-on: #000000;
   --bo-slide-accent-text: #FFD600;
   --bo-slide-accent-subtle: #1f1f1f;
+  --bo-reader-accent: #FFD600;
+  --bo-reader-accent-strong: #FFD600;
+  --bo-reader-accent-on: #000000;
+  --bo-reader-accent-text: #FFD600;
+  --bo-reader-accent-subtle: #1f1f1f;
   --bo-surface-alt: var(--bo-surface-2);
   --bo-muted: var(--bo-text-muted);
   --bo-danger: var(--bo-danger-text);

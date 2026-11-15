@@ -64,6 +64,9 @@ fn icon_of(id: &str) -> &str {
 const GALLERY_EDGE: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
 const GALLERY_CURRENT: Rgba = Rgba(0x88, 0x88, 0x88, 255);
 
+/// Frame of the font and size boxes (grey measured on a desktop word processor).
+const BOX_EDGE: Rgba = Rgba(0x94, 0x94, 0x94, 255);
+
 /// Fill and frame of ribbon commands that are on.
 const TOGGLED_FILL: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
 const TOGGLED_EDGE: Rgba = Rgba(0x80, 0x80, 0x80, 255);
@@ -1539,7 +1542,7 @@ impl Ribbon {
                         w: r.w,
                         h: r.h - self.px(2.0),
                     };
-                    p.fill_rect(inner.x, inner.y, inner.w, inner.h, t.border);
+                    p.fill_rect(inner.x, inner.y, inner.w, inner.h, BOX_EDGE);
                     p.fill_rect(
                         inner.x + 1.0,
                         inner.y + 1.0,
@@ -1608,7 +1611,8 @@ impl Ribbon {
                         mix(t.text, t.text_muted, 0.8),
                     );
                 }
-                Placed::Divider(r) => p.fill_rect(r.x, r.y, r.w, r.h, t.border),
+                // Group dividers in mid grey (128, measured on a desktop word processor).
+                Placed::Divider(r) => p.fill_rect(r.x, r.y, r.w, r.h, TOGGLED_EDGE),
                 Placed::Scroll(right, r) | Placed::TabScroll(right, r) => {
                     let tabs = matches!(placed, Placed::TabScroll(..));
                     let hit = match (tabs, right) {

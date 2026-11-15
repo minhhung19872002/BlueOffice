@@ -802,6 +802,43 @@ impl Frame<'_> {
         }
     }
 
+    /// Draw the `src` rectangle (left, top, width, height in device pixels of the bitmap) of a
+    /// page bitmap 1:1 with its top-left corner at device pixel (`x`, `y`): the pieces of a
+    /// grid image kept as a ring.
+    pub fn draw_page_rect(&self, page: &PageBitmap, src: [u32; 4], x: i32, y: i32) {
+        let [l, t, w, h] = src;
+        if w == 0 || h == 0 {
+            return;
+        }
+        let dest = D2D_RECT_F {
+            left: x as f32,
+            top: y as f32,
+            right: (x + w as i32) as f32,
+            bottom: (y + h as i32) as f32,
+        };
+        // SAFETY: the bitmap belongs to the same device; drawing happens inside the frame.
+        unsafe {
+            // The source rectangle is in the bitmap's DIPs (page bitmaps carry their scale).
+            let (mut dx, mut dy) = (96.0_f32, 96.0_f32);
+            page.bitmap.GetDpi(&raw mut dx, &raw mut dy);
+            let (kx, ky) = (96.0 / dx.max(1.0), 96.0 / dy.max(1.0));
+            let s = D2D_RECT_F {
+                left: l as f32 * kx,
+                top: t as f32 * ky,
+                right: (l + w) as f32 * kx,
+                bottom: (t + h) as f32 * ky,
+            };
+            self.device.context.DrawBitmap(
+                &page.bitmap,
+                Some(&dest),
+                1.0,
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                Some(&s),
+                None,
+            );
+        }
+    }
+
     /// Draw a page bitmap 1:1 with its top-left corner at device pixel (`x`, `y`).
     pub fn draw_page(&self, page: &PageBitmap, x: i32, y: i32) {
         let dest = D2D_RECT_F {

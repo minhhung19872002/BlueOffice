@@ -948,7 +948,9 @@ impl Ribbon {
                             Item::FontBox => self.px(150.0),
                             Item::SizeBox => self.px(52.0),
                             Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
-                            Item::Labeled(id) => match (self.labeled_w)(id).or_else(|| (self.row_w)(id)) {
+                            Item::Labeled(id) => match (self.labeled_w)(id)
+                                .or_else(|| (self.row_w)(id))
+                            {
                                 Some(fixed) => self.px(fixed),
                                 None => btn + self.measure_label(text, strings, id) + self.px(8.0),
                             },

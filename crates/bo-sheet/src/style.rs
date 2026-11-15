@@ -46,6 +46,13 @@ pub struct StylePatch {
     pub font_color: Option<String>,
     /// Solid fill colour `RRGGBB` (empty = no fill).
     pub fill_color: Option<String>,
+    /// Pattern of the fill (§18.18.55 `ST_PatternType`, e.g. `gray125`, `lightUp`); drawn in
+    /// `pattern_color` over `fill_color` (the background). `solid` / empty: a solid fill.
+    pub fill_pattern: Option<String>,
+    /// Pattern colour `RRGGBB` (empty = automatic, black).
+    pub pattern_color: Option<String>,
+    /// `vertAlign` (§18.4.14): `superscript`, `subscript` or `baseline`.
+    pub vert_align: Option<String>,
     /// Horizontal alignment (§18.18.40 `ST_HorizontalAlignment`).
     pub h_align: Option<String>,
     /// Vertical alignment (§18.18.88 `ST_VerticalAlignment`).
@@ -208,6 +215,10 @@ fn patch_font(base: &Font, p: &StylePatch) -> Font {
     if let Some(s) = p.strike {
         f.strike = s;
     }
+    // §18.4.14 vertAlign.
+    if let Some(v) = &p.vert_align {
+        f.vert_align = matches!(v.as_str(), "superscript" | "subscript").then(|| v.clone());
+    }
     if let Some(c) = &p.font_color {
         f.color = color_of(c);
     }
@@ -246,6 +257,7 @@ fn touches_font(p: &StylePatch) -> bool {
         || p.italic.is_some()
         || p.underline.is_some()
         || p.strike.is_some()
+        || p.vert_align.is_some()
         || p.font_color.is_some()
 }
 
@@ -275,7 +287,39 @@ pub fn patched_xf(styles: &mut Stylesheet, xf: u32, patch: &StylePatch) -> u32 {
         x.font_id = styles.add_font(patch_font(&base, patch));
         x.apply_font = Some(true);
     }
-    if let Some(c) = &patch.fill_color {
+    let pattern = patch
+        .fill_pattern
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != "solid" && *p != "none");
+    if let Some(kind) = pattern {
+        // §18.8.32 patternFill: fgColor draws the pattern over bgColor.
+        let fg = match patch
+            .pattern_color
+            .as_deref()
+            .filter(|c| color_of(c).is_some())
+        {
+            Some(c) => SheetColor::rgb(c.trim().trim_start_matches('#')),
+            None => SheetColor::rgb("000000"),
+        };
+        let bg = patch
+            .fill_color
+            .as_deref()
+            .filter(|c| color_of(c).is_some())
+            .map_or(
+                SheetColor {
+                    indexed: Some(64),
+                    ..SheetColor::default()
+                },
+                |c| SheetColor::rgb(c.trim().trim_start_matches('#')),
+            );
+        x.fill_id = styles.add_fill(Fill::Pattern(bo_model::sheet::PatternFill {
+            pattern: Some(kind.to_owned()),
+            fg: Some(fg),
+            bg: Some(bg),
+        }));
+        x.apply_fill = Some(true);
+    } else if let Some(c) = &patch.fill_color {
         // §18.8.20: fills 0 (none) and 1 (gray125) are reserved.
         x.fill_id = match color_of(c) {
             Some(_) => styles.add_fill(Fill::solid(c.trim().trim_start_matches('#'))),
@@ -793,6 +837,42 @@ mod tests {
         let st = format_state(&wb, 0, 2, 2, &Locale::VI_VN);
         assert_eq!(st.rotation, 255);
         assert!(!st.shrink);
+    }
+
+    #[test]
+    fn pattern_fills_and_superscript() {
+        let mut wb = Workbook::new();
+        let p = StylePatch {
+            fill_color: Some("FFFF00".into()),
+            fill_pattern: Some("lightUp".into()),
+            pattern_color: Some("FF0000".into()),
+            vert_align: Some("superscript".into()),
+            ..StylePatch::default()
+        };
+        apply_patch(&mut wb, 0, rng("B2"), &p);
+        let style = wb.sheets[0].cell(1, 1).map_or(0, |c| c.style);
+        let xf = wb.styles.xf(style).cloned().unwrap_or_default();
+        match wb.styles.fills.get(xf.fill_id as usize) {
+            Some(Fill::Pattern(f)) => {
+                assert_eq!(f.pattern.as_deref(), Some("lightUp"));
+                assert_eq!(
+                    f.fg.as_ref().and_then(|c| c.rgb.as_deref()),
+                    Some("FFFF0000")
+                );
+                assert_eq!(
+                    f.bg.as_ref().and_then(|c| c.rgb.as_deref()),
+                    Some("FFFFFF00")
+                );
+            }
+            other => panic!("pattern fill expected, got {other:?}"),
+        }
+        let font = wb
+            .styles
+            .fonts
+            .get(xf.font_id as usize)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(font.vert_align.as_deref(), Some("superscript"));
     }
 
     #[test]

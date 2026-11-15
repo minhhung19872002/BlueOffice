@@ -589,6 +589,20 @@ fn formulas() -> Tab {
                 rows: vec![],
             },
             Group {
+                label: "sheetMenu.groupDefinedNames",
+                large: vec![L("sheet.nameManager")],
+                rows: vec![vec![S("sheet.defineName")], vec![S("sheet.createNames")]],
+            },
+            Group {
+                label: "sheetMenu.groupAuditing",
+                large: vec![],
+                rows: vec![
+                    vec![S("sheet.tracePrecedents"), S("sheet.showFormulas")],
+                    vec![S("sheet.traceDependents"), S("sheet.errorCheck")],
+                    vec![S("sheet.removeArrows"), S("sheet.evaluateFormula")],
+                ],
+            },
+            Group {
                 label: "sheetMenu.groupCalculation",
                 large: vec![L("sheet.calcOptions")],
                 rows: vec![vec![S("sheet.calcNow")], vec![S("sheet.calcSheet")]],
@@ -610,6 +624,7 @@ fn page_layout() -> Tab {
                     L("sheet.size"),
                     L("sheet.printArea"),
                     L("sheet.breaks"),
+                    L("sheet.printTitles"),
                 ],
                 rows: vec![],
             },
@@ -646,6 +661,7 @@ fn review() -> Tab {
                     L("sheet.deleteComment"),
                     L("sheet.prevComment"),
                     L("sheet.nextComment"),
+                    L("sheet.showComments"),
                 ],
                 rows: vec![],
             },
@@ -665,12 +681,21 @@ fn data() -> Tab {
         groups: vec![
             Group {
                 label: "sheetEditor.groupSortFilter",
-                large: vec![L("sheet.filter")],
+                large: vec![L("sheet.sortDialog"), L("sheet.filter")],
                 rows: vec![vec![B("sheet.sortAsc")], vec![B("sheet.sortDesc")]],
             },
             Group {
                 label: "sheetEditor.groupDataTools",
-                large: vec![L("sheet.textToColumns"), L("sheet.removeDuplicates")],
+                large: vec![
+                    L("sheet.textToColumns"),
+                    L("sheet.removeDuplicates"),
+                    L("sheet.dataValidation"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetMenu.groupForecast",
+                large: vec![L("sheet.goalSeek")],
                 rows: vec![],
             },
         ],
@@ -715,7 +740,20 @@ pub(crate) fn tabs() -> Vec<Tab> {
         data(),
         review(),
         view(),
+        help(),
     ]
+}
+
+fn help() -> Tab {
+    use Item::Large as L;
+    Tab {
+        label: "sheetMenu.tabHelp",
+        groups: vec![Group {
+            label: "sheetMenu.groupHelp",
+            large: vec![L("sheet.help"), L("sheet.shortcuts")],
+            rows: vec![],
+        }],
+    }
 }
 
 /// The tabs of a wide window (Home with large buttons).

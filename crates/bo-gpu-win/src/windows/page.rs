@@ -302,6 +302,11 @@ struct Prep<'p> {
     /// Page size in points.
     page: (f32, f32),
     ppp: f32,
+    /// Band being redrawn (top, bottom in points), when glyph runs wholly outside it can be
+    /// skipped.
+    band: Option<(f32, f32)>,
+    /// World transform of the page (a whole-pixel shift for `draw_page_at`, else identity).
+    base: Matrix3x2,
 }
 
 struct GroupJob<'p> {
@@ -719,7 +724,7 @@ impl Device {
         images: &dyn Fn(&str) -> Option<Bitmap>,
         region: Option<[u32; 4]>,
     ) -> Result<PageImage, String> {
-        self.render_impl(page, fonts, pixels_per_point, images, region, None)
+        self.render_impl(page, fonts, pixels_per_point, images, region, None, [0, 0])
     }
 
     /// Draw a page (or the `region` band of it) into a GPU-resident [`PageBitmap`] made by
@@ -748,11 +753,66 @@ impl Device {
             images,
             region,
             Some(&into.bitmap),
+            [0, 0],
         )
         .map(|_| ())
     }
 
-    #[allow(clippy::too_many_lines, clippy::chunks_exact_to_as_chunks)]
+    /// [`Device::draw_page`] of the `region` band (left, top, width, height in device pixels
+    /// of the page) drawn `shift` device pixels away in `into`: a grid image kept as a ring
+    /// (it wraps around when scrolling) draws a newly exposed band where the ring holds it.
+    /// The band must land inside `into`; pages with blurred shapes are drawn unshifted only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_page_at(
+        &self,
+        page: &PageList,
+        fonts: &FontManager,
+        pixels_per_point: f32,
+        images: &dyn Fn(&str) -> Option<Bitmap>,
+        region: [u32; 4],
+        shift: [i32; 2],
+        into: &PageBitmap,
+    ) -> Result<(), String> {
+        let expected = (
+            (page.width * pixels_per_point).ceil() as u32,
+            (page.height * pixels_per_point).ceil() as u32,
+        );
+        if expected != (into.width, into.height) {
+            return Err("page bitmap size does not match the page".into());
+        }
+        let [x, y, w, h] = region;
+        let inside = |a: u32, l: u32, s: i32, n: u32| {
+            i64::from(a) + i64::from(s) >= 0
+                && i64::from(a) + i64::from(l) + i64::from(s) <= i64::from(n)
+        };
+        if !inside(x, w, shift[0], into.width) || !inside(y, h, shift[1], into.height) {
+            return Err("shifted band outside the bitmap".into());
+        }
+        if shift != [0, 0]
+            && page
+                .commands
+                .iter()
+                .any(|c| matches!(c, Command::BlurPath { .. } | Command::PushGroup { .. }))
+        {
+            return Err("blurred shapes are not drawn shifted".into());
+        }
+        self.render_impl(
+            page,
+            fonts,
+            pixels_per_point,
+            images,
+            Some(region),
+            Some(&into.bitmap),
+            shift,
+        )
+        .map(|_| ())
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        clippy::chunks_exact_to_as_chunks,
+        clippy::too_many_arguments
+    )]
     fn render_impl(
         &self,
         page: &PageList,
@@ -761,6 +821,7 @@ impl Device {
         images: &dyn Fn(&str) -> Option<Bitmap>,
         region: Option<[u32; 4]>,
         into: Option<&ID2D1Bitmap1>,
+        shift: [i32; 2],
     ) -> Result<PageImage, String> {
         if !pixels_per_point.is_finite()
             || pixels_per_point <= 0.0
@@ -814,6 +875,17 @@ impl Device {
             groups: HashMap::new(),
             page: (page.width, page.height),
             ppp: pixels_per_point,
+            band: region.map(|_| {
+                (
+                    top as f32 / pixels_per_point,
+                    (top + band_h) as f32 / pixels_per_point,
+                )
+            }),
+            base: Matrix3x2 {
+                M31: shift[0] as f32 / pixels_per_point,
+                M32: shift[1] as f32 / pixels_per_point,
+                ..IDENTITY
+            },
         };
         self.prepare(
             &page.commands,
@@ -900,12 +972,13 @@ impl Device {
             let banded = region.is_some();
             if banded {
                 // Direct2D culls everything outside the band; coordinates are in DIPs (points).
+                let (sx, sy) = (shift[0] as f32, shift[1] as f32);
                 self.context.PushAxisAlignedClip(
                     &D2D_RECT_F {
-                        left: left as f32 / pixels_per_point,
-                        top: top as f32 / pixels_per_point,
-                        right: (left + band_w) as f32 / pixels_per_point,
-                        bottom: (top + band_h) as f32 / pixels_per_point,
+                        left: (left as f32 + sx) / pixels_per_point,
+                        top: (top as f32 + sy) / pixels_per_point,
+                        right: ((left + band_w) as f32 + sx) / pixels_per_point,
+                        bottom: ((top + band_h) as f32 + sy) / pixels_per_point,
                     },
                     D2D1_ANTIALIAS_MODE_ALIASED,
                 );
@@ -926,10 +999,14 @@ impl Device {
                 band: [left, top, band_w, band_h],
                 size: (width, height),
             };
+            // A shifted band (`draw_page_at`): the whole page moves by whole device pixels.
+            let mut start = State::new();
+            start.transform = prep.base;
+            self.context.SetTransform(&prep.base);
             let mut sans_on: Option<bool> = None;
             let drawn = self.draw_list(
                 &page.commands,
-                State::new(),
+                start,
                 fonts,
                 &prep,
                 Some(&backdrop),
@@ -1054,13 +1131,35 @@ impl Device {
             }
             match command {
                 Command::Glyphs {
-                    face, size, glyphs, ..
+                    face,
+                    size,
+                    glyphs,
+                    y,
+                    ..
                 } => {
                     if (*face as usize) >= fonts.len() {
                         return Err("unknown font face".into());
                     }
                     if glyphs.is_empty() {
                         continue;
+                    }
+                    // A band redraw skips runs that lie wholly above or below the band (no
+                    // pixel of them would be drawn): preparing every run of a large page
+                    // costs more than drawing the band.
+                    if let (Some(band), true) = (prep.band, axis_aligned(&state.transform)) {
+                        let (lo, hi) = glyphs
+                            .iter()
+                            .fold((f32::MAX, f32::MIN), |(a, b), g| (a.min(g.2), b.max(g.2)));
+                        let k = state.transform.M22;
+                        let (y0, y1) = ((y + lo) * k, (y + hi) * k);
+                        let (y0, y1) = (
+                            y0.min(y1) + state.transform.M32,
+                            y0.max(y1) + state.transform.M32,
+                        );
+                        let margin = size.abs() * 2.0 * k.abs() + 2.0;
+                        if y1 + margin < band.0 || y0 - margin > band.1 {
+                            continue;
+                        }
                     }
                     let (font, collection) = fonts.data(FaceId(*face));
                     let positions: Vec<bo_dwrite::Glyph> = glyphs
@@ -1600,7 +1699,7 @@ impl Device {
                                 continue;
                             };
                             // The blur was recorded in page space: draw without the transform.
-                            self.context.SetTransform(&IDENTITY);
+                            self.context.SetTransform(&prep.base);
                             self.context.DrawImage(
                                 image,
                                 None,

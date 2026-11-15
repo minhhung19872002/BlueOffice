@@ -79,10 +79,67 @@ pub enum ReaderRequest {
     OpenUrl(String),
     /// A window operation.
     Window(Request),
+    /// A command this window does not know (handled by a window built on it, BlueEditor).
+    Command(String),
+    /// Pick a file for `purpose`; the host passes its bytes back (BlueEditor `file_picked`).
+    PickFile {
+        /// What the file is for (`insert`, `merge`, `create`, `image`).
+        purpose: String,
+        /// Dialog filters: description, pattern.
+        filters: Vec<(String, String)>,
+    },
+    /// Ask where to write `bytes` (suggested file name) and write them.
+    SaveBytes {
+        /// Suggested file name.
+        name: String,
+        /// File contents.
+        bytes: Vec<u8>,
+    },
+    /// Ask for a place and write several files (suggested names) next to each other.
+    SaveMany(Vec<(String, Vec<u8>)>),
+    /// Render pages to PNG images for `purpose` (`images`, `slides`); the host passes them
+    /// back (BlueEditor `pages_rendered`).
+    RenderPages {
+        /// What the images are for.
+        purpose: String,
+        /// Pixels per point.
+        scale: f32,
+    },
+    /// Open a protected file with a password.
+    OpenWithPassword {
+        /// The file.
+        path: std::path::PathBuf,
+        /// Its user or owner password.
+        password: String,
+    },
+    /// Open a PDF made in memory (converted, new blank) in a new tab without a file yet.
+    OpenDocument {
+        /// Tab name.
+        name: String,
+        /// PDF bytes.
+        bytes: Vec<u8>,
+    },
+}
+
+/// What a window built on this one changes (BlueEditor): app name, ribbon tabs and items, File
+/// menu and a coloured title bar.
+pub(crate) struct Profile {
+    /// Product name in the title.
+    pub app: &'static str,
+    /// Ribbon tab label keys after File.
+    pub tabs: Vec<&'static str>,
+    /// Ribbon items of tab `i` (an index into `tabs`).
+    pub items: fn(usize) -> Vec<(&'static str, Kind)>,
+    /// File menu entries: command, label key.
+    pub file_menu: Vec<(&'static str, &'static str)>,
+    /// Title bar fill (white text and icons on it).
+    pub title_band: Option<Rgba>,
+    /// App mark icon in the title bar.
+    pub app_icon: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     /// Title bar button with an icon.
     Quick(&'static str),
     /// Large ribbon button: icon, label key, drop-down arrow.
@@ -179,6 +236,16 @@ pub struct ReaderWindow {
     widths: std::collections::HashMap<(String, u32, bool), f32>,
     /// Panel rows: (y, height, action) for hit testing.
     panel_rows: Vec<(f32, f32, PanelRow)>,
+    /// Set by a window built on this one (BlueEditor).
+    pub(crate) profile: Option<Profile>,
+    /// Controls shown pressed in addition to the pointer tool, layout and panel.
+    pub(crate) on: HashSet<&'static str>,
+    /// Controls enabled or disabled regardless of the defaults.
+    pub(crate) enabled_override: std::collections::HashMap<&'static str, bool>,
+    /// The pointer tool is not shown pressed (another window's tool is active).
+    pub(crate) tool_hidden: bool,
+    /// The document area is drawn by a window built on this one (page grid).
+    pub(crate) doc_hidden: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -238,7 +305,133 @@ impl ReaderWindow {
             strip_rect: [0.0; 4],
             widths: std::collections::HashMap::new(),
             panel_rows: Vec::new(),
+            profile: None,
+            on: HashSet::new(),
+            enabled_override: std::collections::HashMap::new(),
+            tool_hidden: false,
+            doc_hidden: false,
         }
+    }
+
+    /// A window with another product's ribbon and title (BlueEditor).
+    pub(crate) fn with_profile(locale: &str, profile: Profile) -> Self {
+        let mut w = Self::new(locale);
+        w.author = std::env::var("USERNAME").unwrap_or_else(|_| profile.app.into());
+        w.profile = Some(profile);
+        w
+    }
+
+    fn app_name(&self) -> &'static str {
+        self.profile.as_ref().map_or("BlueReader", |p| p.app)
+    }
+
+    fn tab_label_keys(&self) -> Vec<&'static str> {
+        let mut v = vec!["pdfReader.tabs.file"];
+        match &self.profile {
+            Some(p) => v.extend(p.tabs.iter().copied()),
+            None => v.extend([
+                "pdfReader.tabs.home",
+                "pdfReader.tabs.comment",
+                "pdfReader.tabs.view",
+                "pdfReader.tabs.help",
+            ]),
+        }
+        v
+    }
+
+    /// Document area in window pixels.
+    pub(crate) fn doc_area(&self) -> [f32; 4] {
+        self.doc_rect
+    }
+
+    /// Display scale (device pixels per logical pixel).
+    pub(crate) fn ui_scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Window size in pixels.
+    pub(crate) fn window_size(&self) -> (f32, f32) {
+        self.size
+    }
+
+    /// Image key base of the active document (page images are `base + index`).
+    pub(crate) fn key_base(&self) -> Option<usize> {
+        self.tabs.get(self.active).map(|t| t.key_base)
+    }
+
+    /// A document is shown (not the start page).
+    pub(crate) fn showing_doc(&self) -> bool {
+        !self.show_start && !self.tabs.is_empty()
+    }
+
+    /// Selected ribbon tab (0 = the first after File).
+    pub(crate) fn ribbon_tab(&self) -> usize {
+        self.ribbon_tab
+    }
+
+    /// Show ribbon tab `i` (0 = the first after File).
+    pub(crate) fn set_ribbon_tab(&mut self, i: usize, m: &dyn TextMeasure) {
+        self.ribbon_tab = i;
+        self.relayout(m);
+    }
+
+    /// The navigation panel shown for the active document.
+    pub(crate) fn panel(&self) -> Option<Panel> {
+        self.panel_open()
+    }
+
+    /// Run a command as if its control was clicked.
+    pub(crate) fn run_command(&mut self, cmd: &str, m: &dyn TextMeasure) {
+        self.command(cmd, m);
+    }
+
+    /// The interface colours.
+    pub(crate) fn theme(&self) -> &Theme {
+        &self.theme
+    }
+
+    /// Use other interface colours (another product's accent).
+    pub(crate) fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+    }
+
+    /// Interface strings.
+    pub(crate) fn strings(&self) -> &Strings {
+        &self.strings
+    }
+
+    /// The document's pages or outline changed: read the outline again and lay out.
+    pub(crate) fn document_changed(&mut self) {
+        if let Some(t) = self.tabs.get_mut(self.active) {
+            t.outline = t.view.doc().outline();
+            t.expanded.clear();
+            t.view.document_changed();
+        }
+        self.layout_doc();
+    }
+
+    /// Show or hide a navigation panel.
+    pub(crate) fn set_panel(&mut self, p: Option<Panel>) {
+        if let Some(t) = self.tabs.get_mut(self.active) {
+            t.panel = p;
+            t.panel_scroll = 0.0;
+        }
+        self.layout_doc();
+    }
+
+    /// Open a menu of commands under `r`.
+    pub(crate) fn menu_at(&mut self, items: Vec<MenuItem>, r: [f32; 4], id: &'static str) {
+        self.menu = Some((Menu::open(items, r, self.size, self.scale), id));
+    }
+
+    /// A menu or dialog of this window is open.
+    pub(crate) fn modal_open(&self) -> bool {
+        self.menu.is_some() || self.dialog.is_some()
+    }
+
+    /// Rectangle of control `id`.
+    pub(crate) fn control_rect(&self, id: &str) -> Option<[f32; 4]> {
+        self.controls.iter().find(|c| c.id == id).map(|c| c.r)
     }
 
     /// Open `doc` named `name` in a new tab and show it.
@@ -296,8 +489,8 @@ impl ReaderWindow {
     /// Window title text.
     pub fn title(&self) -> String {
         match self.tabs.get(self.active) {
-            Some(t) if !self.show_start => format!("{} - BlueReader", t.name),
-            _ => "BlueReader".into(),
+            Some(t) if !self.show_start => format!("{} - {}", t.name, self.app_name()),
+            _ => self.app_name().into(),
         }
     }
 
@@ -391,6 +584,9 @@ impl ReaderWindow {
 
     fn ribbon_items(&self) -> Vec<(&'static str, Kind)> {
         use Kind::{Big, Sep, Small};
+        if let Some(p) = &self.profile {
+            return (p.items)(self.ribbon_tab);
+        }
         let common = [
             ("tool.hand", Big("hand", "pdfReader.hand", false)),
             ("tool.select", Big("select", "pdfReader.select", false)),
@@ -522,13 +718,7 @@ impl ReaderWindow {
         self.search = [self.px(464.0), self.px(16.0), sw, self.px(32.0)];
         // Ribbon tabs: label + 35 px between labels, first at x 27.
         let tab_style = self.style(17.0, true);
-        let labels = [
-            "pdfReader.tabs.file",
-            "pdfReader.tabs.home",
-            "pdfReader.tabs.comment",
-            "pdfReader.tabs.view",
-            "pdfReader.tabs.help",
-        ];
+        let labels = self.tab_label_keys();
         self.tab_rects.clear();
         let mut x = self.px(21.6);
         let ty = self.tabs_y();
@@ -1497,6 +1687,22 @@ impl ReaderWindow {
     }
 
     fn open_file_menu(&mut self, r: [f32; 4]) {
+        if let Some(p) = &self.profile {
+            let items = p.file_menu.clone();
+            let open = self.tabs.is_empty();
+            let mut items: Vec<MenuItem> = items
+                .iter()
+                .map(|(cmd, key)| MenuItem {
+                    label: self.t(key),
+                    choice: Choice::Command((*cmd).to_owned()),
+                    checked: false,
+                    dim: open && !matches!(*cmd, "file.open" | "file.create" | "file.merge"),
+                })
+                .collect();
+            items.retain(|i| !(open && i.dim));
+            self.menu = Some((Menu::open(items, r, self.size, self.scale), "file"));
+            return;
+        }
         let mut items = vec![
             ("file.open", "pdfReader.open"),
             ("file.save", "pdfReader.save"),
@@ -1610,7 +1816,7 @@ impl ReaderWindow {
             "help.about" => {
                 let d = Dialog::new(
                     DialogKind::WordCount,
-                    "BlueReader".into(),
+                    self.app_name().into(),
                     Vec::new(),
                     vec![(self.t("pdfReader.ok"), DialogButton::Ok)],
                     vec![self.t("pdfReader.aboutText")],
@@ -1626,6 +1832,7 @@ impl ReaderWindow {
             }
             _ => {
                 let Some(t) = self.tabs.get_mut(self.active) else {
+                    self.requests.push(ReaderRequest::Command(cmd.to_owned()));
                     return;
                 };
                 match cmd {
@@ -1653,7 +1860,7 @@ impl ReaderWindow {
                     "zoom.width" => t.view.set_fit(Fit::Width),
                     "rotate.right" => t.view.rotate(true),
                     "rotate.left" => t.view.rotate(false),
-                    _ => {}
+                    other => self.requests.push(ReaderRequest::Command(other.to_owned())),
                 }
             }
         }
@@ -1762,20 +1969,34 @@ impl ReaderWindow {
         };
         // Title bar.
         let th = self.title_h();
+        let band = self.profile.as_ref().and_then(|p| p.title_band);
+        let (title_ink, title_edge, title_hover) = match band {
+            Some(c) => {
+                p.fill_rect(0.0, 0.0, w, th, c);
+                (WHITE, Rgba(255, 255, 255, 90), Rgba(255, 255, 255, 46))
+            }
+            None => (TEXT, EDGE, HOVER),
+        };
         let mark = self.px(16.0);
         reader_icons::draw(
             p,
-            "app",
+            self.profile.as_ref().map_or("app", |p| p.app_icon),
             self.px(19.2),
             ((th - mark) / 2.0).round(),
             mark,
             ink,
         );
-        p.fill_rect(self.px(46.4), self.px(20.0), 1.0, self.px(16.0), EDGE);
+        p.fill_rect(self.px(46.4), self.px(20.0), 1.0, self.px(16.0), title_edge);
         let title = self.title();
         let tstyle = self.style(14.0, true);
         let qe = self.px(52.0) + 5.0 * self.px(32.0);
-        p.fill_rect(qe + self.px(6.4), self.px(20.0), 1.0, self.px(16.0), EDGE);
+        p.fill_rect(
+            qe + self.px(6.4),
+            self.px(20.0),
+            1.0,
+            self.px(16.0),
+            title_edge,
+        );
         let tx = qe + self.px(19.2);
         let max_tx = self.search[0] - self.px(12.0);
         let shown = elide(
@@ -1789,7 +2010,7 @@ impl ReaderWindow {
             tx,
             ((th - tstyle.size * 1.33) / 2.0).round(),
             tstyle,
-            TEXT,
+            title_ink,
         );
         // Search box.
         let s = self.search;
@@ -1830,13 +2051,7 @@ impl ReaderWindow {
         p.fill_rect(0.0, th, w, 1.0, EDGE);
         // Ribbon tabs.
         let tab_style = self.style(17.0, true);
-        let labels = [
-            "pdfReader.tabs.file",
-            "pdfReader.tabs.home",
-            "pdfReader.tabs.comment",
-            "pdfReader.tabs.view",
-            "pdfReader.tabs.help",
-        ];
+        let labels = self.tab_label_keys();
         for (i, r) in self.tab_rects.iter().enumerate() {
             let label = self.strings.get(labels[i]);
             let active = i > 0 && i - 1 == self.ribbon_tab;
@@ -1862,7 +2077,10 @@ impl ReaderWindow {
         for c in self.controls.clone() {
             let hot = self.hover == Some(c.id);
             let down = self.pressed == Some(c.id) && hot;
-            let on = c.id == tool_id || self.layout_on(c.id) || self.panel_on(c.id);
+            let on = c.id == tool_id
+                || self.layout_on(c.id)
+                || self.panel_on(c.id)
+                || self.on.contains(c.id);
             let r = c.r;
             match c.kind {
                 Kind::Big(icon, label, dropdown) => {
@@ -1932,8 +2150,15 @@ impl ReaderWindow {
                         _ => "",
                     };
                     let enabled = self.enabled(c.id);
+                    let quick_band = band.is_some() && matches!(c.kind, Kind::Quick(_));
                     if enabled && (on || down || hot) {
-                        let fill = if on || down { PRESSED } else { HOVER };
+                        let fill = if quick_band {
+                            title_hover
+                        } else if on || down {
+                            PRESSED
+                        } else {
+                            HOVER
+                        };
                         p.path(
                             &rounded(r[0], r[1], r[2], r[3], self.px(2.4)),
                             Some(fill),
@@ -1945,10 +2170,11 @@ impl ReaderWindow {
                         Kind::Nav(_) => self.px(20.8),
                         _ => self.px(17.6),
                     };
-                    let col = if enabled {
-                        TEXT
-                    } else {
-                        Rgba(175, 175, 176, 255)
+                    let col = match (enabled, quick_band) {
+                        (true, true) => WHITE,
+                        (false, true) => Rgba(255, 255, 255, 120),
+                        (true, false) => TEXT,
+                        (false, false) => Rgba(175, 175, 176, 255),
                     };
                     let accent = if matches!(c.kind, Kind::Nav(_)) && on {
                         self.theme.accent
@@ -1975,9 +2201,10 @@ impl ReaderWindow {
                 Kind::Win(k) => {
                     let close = k == NcHit::Close;
                     if hot {
-                        p.fill_rect(r[0], r[1], r[2], r[3], if close { CLOSE_BG } else { HOVER });
+                        let fill = if close { CLOSE_BG } else { title_hover };
+                        p.fill_rect(r[0], r[1], r[2], r[3], fill);
                     }
-                    let col = if hot && close { WHITE } else { TEXT };
+                    let col = if hot && close { WHITE } else { title_ink };
                     win_glyph(p, k, r, self.scale, self.maximized, col);
                 }
                 Kind::Sep => p.fill_rect(r[0], r[1], 1.0, r[3], EDGE),
@@ -2015,8 +2242,13 @@ impl ReaderWindow {
                 ]
             };
             p.path(&segs, Some(Rgba(20, 20, 20, 255)), None);
-            self.paint_doc(p);
-            self.paint_vbar(p);
+            if self.doc_hidden {
+                let d = self.doc_rect;
+                p.fill_rect(d[0], d[1], d[2] + self.vbar[2], d[3], CANVAS);
+            } else {
+                self.paint_doc(p);
+                self.paint_vbar(p);
+            }
         }
         // Status bar.
         let sh = self.status_h();
@@ -2035,6 +2267,9 @@ impl ReaderWindow {
     }
 
     fn tool_id(&self) -> &'static str {
+        if self.tool_hidden {
+            return "";
+        }
         match self.tool {
             Tool::Hand => "tool.hand",
             Tool::Select => "tool.select",
@@ -2069,6 +2304,9 @@ impl ReaderWindow {
     }
 
     fn enabled(&self, id: &str) -> bool {
+        if let Some(&e) = self.enabled_override.get(id) {
+            return e;
+        }
         let Some(v) = self.view() else {
             return id == "file.open";
         };

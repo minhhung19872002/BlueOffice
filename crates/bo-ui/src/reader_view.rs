@@ -990,6 +990,24 @@ impl ReaderView {
         rotate_rect(r, back, shown)
     }
 
+    /// The document's pages changed (inserted, deleted, moved, rotated, content edited, undo):
+    /// forget every rendered page and lay out again.
+    pub fn document_changed(&mut self) {
+        let n = self.doc.page_count();
+        self.cache.clear();
+        self.lru.clear();
+        self.drawn.clear();
+        let g = self.generation.iter().copied().max().unwrap_or(0) + 1;
+        self.generation = vec![g; n];
+        self.selection = None;
+        self.hits.clear();
+        self.current_hit = None;
+        self.single_page = self.single_page.min(n.saturating_sub(1));
+        self.update_sizes();
+        self.relayout();
+        self.clamp_scroll();
+    }
+
     /// Whether the document was changed.
     pub fn modified(&self) -> bool {
         self.doc.modified()

@@ -32,7 +32,7 @@ fn main() {
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
-            if let Err(e) = reader_app::run() {
+            if let Err(e) = reader_app::run(false) {
                 win32::fatal(&e);
             }
         });

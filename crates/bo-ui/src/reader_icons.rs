@@ -75,7 +75,7 @@ fn shape(name: &str) -> &'static [Part] {
         "rectangle" => &[A("M3.5 6h17v12h-17z")],
         "ellipse" => &[A("M12 6c5 0 8.5 2.7 8.5 6s-3.5 6-8.5 6-8.5-2.7-8.5-6 3.5-6 8.5-6z")],
         "pencil" => &[S("M15.5 4.5l4 4L9 19l-5 1 1-5z"), A("M3 22c3-2 5 1 8-1")],
-        "file" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4")],
+        "file" | "blankPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4")],
         "bookmark" => &[S("M6 3h12v18l-6-4.5L6 21z")],
         "pages" => &[S("M8 2.5h9l3 3v13H8z M17 2.5v3h3 M5 6v15.5h11")],
         "comments" => &[
@@ -113,7 +113,32 @@ fn shape(name: &str) -> &'static [Part] {
         "properties" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), S("M8 11h8 M8 14.5h8 M8 18h5")],
         "bell" => &[S("M6 17V11a6 6 0 0 1 12 0v6l2 2H4z M10 21h4")],
         "info" => &[S("M12 2.5a9.5 9.5 0 1 0 0.01 0z M12 10.5v7"), F("M12 6.5a1.1 1.1 0 1 0 .01 0z")],
-        "app" => &[],
+        "app" | "appEditor" => &[],
+        "editText" => &[A("M3 4.5h18v15H3z"), S("M7.5 8.5h9 M12 8.5v8 M10 16.5h4")],
+        "editObject" => &[S("M3.5 3.5h11v11h-11z"), A("M12 12l8.5 3.5-3.5 1.2 3.5 3.5-1.4 1.4-3.5-3.5-1.2 3.5z")],
+        "insertPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 10v8 M8 14h8")],
+        "deletePage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M9 11l6 6 M15 11l-6 6")],
+        "extractPage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M12 9v9 M8.5 14.5L12 18l3.5-3.5")],
+        "reversePages" => &[S("M3.5 3h8v11h-8z M12.5 10h8v11h-8z"), A("M15 3.5h3.5V7 M18.5 3.5L14 8 M9 20.5H5.5V17 M5.5 20.5L10 16")],
+        "splitPages" => &[S("M5 2.5h14v7H5z M5 14.5h14v7H5z"), A("M2 12h3 M8 12h3 M13 12h3 M19 12h3")],
+        "combine" => &[S("M3 3h7.5v10H3z M13.5 3H21v10h-7.5z"), A("M6.5 13v3h11v-3 M12 16v5 M9.5 18.5L12 21l2.5-2.5")],
+        "createPdf" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8.5 12.5h7 M8.5 15.5h7 M8.5 18.5h4")],
+        "toWord" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M7.5 10.5l1.5 7 3-5 3 5 1.5-7")],
+        "toExcel" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8 10h8v8H8z M8 14h8 M12 10v8")],
+        "toSlides" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M7.5 10h9v6h-9z M12 16v2.5 M10 18.5h4")],
+        "toImage" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M7.5 18l3-3.5 2 2 1.5-1.5 2.5 3"), FA("M10 10.5a1.2 1.2 0 1 0 .01 0z")],
+        "addText" => &[S("M4 5h12 M10 5v14 M7.5 19h5"), A("M18.5 14v7 M15 17.5h7")],
+        "addImage" => &[S("M2.5 4.5h15v12h-15z M4.5 14.5l3.5-4 2.5 2.5 2-2 2.5 3.5"), A("M19 15v7 M15.5 18.5h7")],
+        "redact" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), FA("M7.5 10h9v2.5h-9z M7.5 14.5h6v2.5h-6z")],
+        "applyRedact" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), FA("M7.5 10h9v2.5h-9z"), A("M8 16.5l2.5 2.5 5.5-5.5")],
+        "sign" => &[S("M3 20.5h18"), A("M4 16.5c2.5-7 5-10 6-8.5s-2.5 7.5 0 8.5 3.5-4.5 5-4.5 1 3 4 3")],
+        "fillSign" => &[S("M14.5 3.5l5 5L9 19H4v-5z M12 6l5 5"), A("M3 22h18")],
+        "secure" => &[S("M5.5 10.5h13v11h-13z M8.5 10.5V7a3.5 3.5 0 0 1 7 0v3.5"), FA("M12 14.5a1.6 1.6 0 1 0 .01 0z")],
+        "unsecure" => &[S("M5.5 10.5h13v11h-13z M8.5 10.5V7a3.5 3.5 0 0 1 6.8-1.2"), A("M10 16h4")],
+        "flatten" => &[S("M3 8l9-5 9 5-9 5z"), A("M3 12l9 5 9-5 M3 16l9 5 9-5")],
+        "resetForm" => &[S("M5 2.5h10l4 4v15H5z M15 2.5v4h4"), A("M8.5 15a3.5 3.5 0 1 0 1-2.5 M8.5 10.5v2.5H11")],
+        "formFields" => &[S("M3 5h18v5H3z M3 14h18v5H3z"), FA("M5 6.5h7v2H5z M5 15.5h4v2H5z")],
+        "organize" => &[S("M3 3h7v8H3z M14 3h7v8h-7z M3 13h7v8H3z"), A("M14 13h7v8h-7z")],
         _ => &[S("M5 5h14v14H5z")],
     }
 }
@@ -128,6 +153,10 @@ pub(crate) fn draw(p: &mut dyn Painter, name: &str, x: f32, y: f32, size: f32, c
     let off = if (width as i32) % 2 == 1 { 0.5 } else { 0.0 };
     if name == "app" {
         app_mark(p, x, y, size, c);
+        return;
+    }
+    if name == "appEditor" {
+        editor_mark(p, x, y, size, c);
         return;
     }
     for part in shape(name) {
@@ -212,6 +241,37 @@ fn app_mark(p: &mut dyn Painter, x: f32, y: f32, size: f32, c: Ink) {
     p.path(&lines, None, Some((c.accent, (1.4 * k).round().max(1.0))));
 }
 
+/// BlueEditor's app mark: a white rounded square with an accent page and pen (for a coloured
+/// title bar).
+fn editor_mark(p: &mut dyn Painter, x: f32, y: f32, size: f32, c: Ink) {
+    let k = size / 24.0;
+    let r = 4.0 * k;
+    let (w, h) = (size, size);
+    let rounded = vec![
+        PathSeg::M(x + r, y),
+        PathSeg::L(x + w - r, y),
+        PathSeg::Q(x + w, y, x + w, y + r),
+        PathSeg::L(x + w, y + h - r),
+        PathSeg::Q(x + w, y + h, x + w - r, y + h),
+        PathSeg::L(x + r, y + h),
+        PathSeg::Q(x, y + h, x, y + h - r),
+        PathSeg::L(x, y + r),
+        PathSeg::Q(x, y, x + r, y),
+        PathSeg::Z,
+    ];
+    p.path(&rounded, Some(Rgba(255, 255, 255, 255)), None);
+    let page: Vec<PathSeg> = crate::icons::parse_path("M6.5 4.5h7.5l3.5 3.5v11.5h-11z")
+        .into_iter()
+        .map(|s| place(s, x, y, k, 0.0))
+        .collect();
+    p.path(&page, Some(c.accent), None);
+    let pen: Vec<PathSeg> = crate::icons::parse_path("M15.5 9.5l2.5 2.5-6 6H9.5v-2.5z")
+        .into_iter()
+        .map(|s| place(s, x, y, k, 0.0))
+        .collect();
+    p.path(&pen, Some(Rgba(255, 255, 255, 255)), None);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,6 +297,32 @@ mod tests {
             accent: Rgba(200, 0, 0, 255),
         };
         for name in [
+            "editText",
+            "editObject",
+            "insertPage",
+            "deletePage",
+            "extractPage",
+            "reversePages",
+            "splitPages",
+            "combine",
+            "blankPage",
+            "createPdf",
+            "toWord",
+            "toExcel",
+            "toSlides",
+            "toImage",
+            "addText",
+            "addImage",
+            "redact",
+            "applyRedact",
+            "sign",
+            "fillSign",
+            "secure",
+            "unsecure",
+            "flatten",
+            "resetForm",
+            "formFields",
+            "organize",
             "hand",
             "select",
             "snapshot",

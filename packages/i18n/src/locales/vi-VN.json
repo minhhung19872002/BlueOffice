@@ -60,7 +60,24 @@
       "references": "Tham chiếu",
       "mailings": "Gửi thư",
       "review": "Xem lại",
-      "table": "Bảng"
+      "table": "Bảng",
+      "tableDesign": "Thiết kế bảng",
+      "tableLayout": "Bố cục bảng",
+      "pictureFormat": "Định dạng ảnh"
+    },
+    "docTools": {
+      "autoFit": "Tự khớp",
+      "textDirection": "Hướng chữ",
+      "shading": "Tô nền",
+      "borders": "Viền",
+      "delete": "Xoá",
+      "crop": "Cắt",
+      "mergeCells": "Gộp ô",
+      "splitCells": "Tách ô",
+      "spelling": "Chính tả & ngữ pháp",
+      "insertTable": "Chèn bảng",
+      "tableSize": "Bảng {{cols}}x{{rows}}",
+      "goToPage": "Nhập số trang"
     },
     "groups": {
       "links": "Liên kết",
@@ -4028,7 +4045,11 @@
     "pageNumber": "Chèn số trang",
     "pageCount": "Chèn tổng số trang",
     "close": "Đóng đầu/chân trang",
-    "linkToPrevious": "Liên kết với phần trước"
+    "linkToPrevious": "Liên kết với phần trước",
+    "gotoHeader": "Tới đầu trang",
+    "gotoFooter": "Tới chân trang",
+    "options": "Tuỳ chọn",
+    "navigation": "Điều hướng"
   },
   "notes": {
     "title": "Chú thích",

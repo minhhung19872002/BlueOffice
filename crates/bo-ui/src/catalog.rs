@@ -114,6 +114,7 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("layout.margins.moderate", "Moderate — 2.54 / 1.91 cm"),
             e("layout.margins.wide", "Wide — 2.54 / 5.08 cm"),
             e("layout.margins.vn", "Vietnam (Decree 30) — 2 / 3 / 1.5 cm"),
+            e("layout.pageSetup", "commands.layout.pageSetup"),
         ],
         "layout.orientation" => vec![
             e("layout.orientation.portrait", "Portrait"),
@@ -125,6 +126,7 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("layout.size.legal", "Legal — 21.59 × 35.56 cm"),
             e("layout.size.a5", "A5 — 14.8 × 21 cm"),
             e("layout.size.a3", "A3 — 29.7 × 42 cm"),
+            e("layout.pageSetup", "commands.layout.pageSetup"),
         ],
         "layout.columns" => vec![
             e("layout.columns.1", "One"),
@@ -212,7 +214,7 @@ pub fn menu(id: &str) -> Vec<Entry> {
             e("view.layout.web", "Web Layout"),
             e("view.layout.draft", "Draft"),
         ],
-        _ => Vec::new(),
+        _ => crate::doc_tools::menu(id),
     }
 }
 
@@ -496,7 +498,12 @@ mod tests {
             "references.insertCaption",
         ] {
             for entry in menu(id) {
-                assert!(command(entry.id, &page).is_some(), "{}", entry.id);
+                assert!(
+                    command(entry.id, &page).is_some()
+                        || crate::commands::WINDOW.contains(&entry.id),
+                    "{}",
+                    entry.id
+                );
             }
         }
         for id in [

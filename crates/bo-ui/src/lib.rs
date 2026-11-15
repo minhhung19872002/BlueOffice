@@ -10,9 +10,11 @@ mod backstage;
 mod catalog;
 mod commands;
 mod dialog;
+mod doc_tools;
 mod doc_view;
 mod icons;
 mod input;
+mod nav_pane;
 mod popup;
 mod reader_icons;
 #[cfg(test)]
@@ -32,8 +34,10 @@ mod slide_ribbon;
 mod slide_show;
 mod slide_view;
 mod slide_window;
+mod spell_pane;
 mod spin_box;
 mod strings;
+mod table_grid;
 mod theme;
 mod titlebar;
 

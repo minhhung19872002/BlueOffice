@@ -2,12 +2,16 @@
 use crate::backstage::{Backstage, FileAction};
 use crate::catalog;
 use crate::dialog::{Dialog, DialogButton, DialogKind};
+use crate::doc_tools::{self, Context, Tool};
 use crate::doc_view::DocView;
 use crate::icons::Icons;
+use crate::nav_pane::{Heading, NavAction, NavPane, NavTab};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Ribbon, RibbonHit};
 use crate::ruler::Ruler;
+use crate::spell_pane::{SpellAction, SpellPane};
 use crate::strings::Strings;
+use crate::table_grid::{GridPick, TableGrid};
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
 use crate::{commands, Key, Mods};
@@ -53,6 +57,8 @@ pub enum Request {
     Close,
     /// Cover the whole screen without window frame (slide show), or go back.
     FullScreen(bool),
+    /// Let the user pick picture files and call [`DocWindow::insert_picture`] for each.
+    PickPicture,
 }
 
 /// Window contents of BlueDoc.
@@ -104,6 +110,33 @@ pub struct DocWindow {
     last_drag: Option<(f32, f32)>,
     /// The File screen, when open.
     backstage: Option<Backstage>,
+    /// What the contextual tabs shown are for (table, header/footer, picture).
+    context: Context,
+    /// The next contextual tab that appears becomes active (after inserting a table or a
+    /// picture, as the reference does).
+    activate_context: bool,
+    /// Navigation pane (View › Navigation Pane, Ctrl+F), when shown.
+    nav: Option<NavPane>,
+    /// The document changed since the pane's headings were read.
+    nav_dirty: bool,
+    /// Last pointer position (wheel over the pane).
+    pointer: (f32, f32),
+    /// The document changed since spelling was last checked, and the idle ticks since.
+    spell_pending: bool,
+    spell_idle: u32,
+    /// The misspelt word the context menu offers corrections for.
+    spell_menu: Option<bo_engine::spell::SpellInfo>,
+    /// Measured widths of the "Header" / "Footer" tags shown while one is edited.
+    tag_w: [f32; 2],
+    /// Left edges of the status bar's word count, proofing icon and language, laid out one
+    /// after the other from measured text as on the reference.
+    status_x: [f32; 3],
+    /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
+    spell_pane: Option<SpellPane>,
+    /// Insert › Table size picker, when open.
+    table_grid: Option<TableGrid>,
+    /// The format painter stays on after applying (double click), until Escape.
+    painter_lock: bool,
 }
 
 /// Font sizes offered by the size box (points).
@@ -180,6 +213,10 @@ const TOOLTIP_TICKS: u32 = 5;
 impl DocWindow {
     /// Wrap the document `name` shown by `view` with BlueDoc's interface in `locale`.
     pub fn new(view: DocView, locale: &str, name: &str) -> Self {
+        let mut strings = Strings::load(locale);
+        doc_tools::install_strings(&mut strings);
+        let mut icons = Icons::load();
+        doc_tools::install_icons(&mut icons);
         Self {
             view,
             title: TitleBar::new(),
@@ -187,8 +224,8 @@ impl DocWindow {
             requests: Vec::new(),
             ribbon: Ribbon::new(),
             theme: Theme::light("doc"),
-            icons: Icons::load(),
-            strings: Strings::load(locale),
+            icons,
+            strings,
             size: (800.0, 600.0),
             scale: 1.0,
             doc_press: false,
@@ -212,6 +249,459 @@ impl DocWindow {
             relayout_pending: false,
             last_drag: None,
             backstage: None,
+            context: Context::default(),
+            activate_context: false,
+            nav: None,
+            nav_dirty: false,
+            pointer: (0.0, 0.0),
+            spell_pending: true,
+            spell_idle: 0,
+            spell_menu: None,
+            tag_w: [0.0; 2],
+            status_x: [0.0; 3],
+            spell_pane: None,
+            table_grid: None,
+            painter_lock: false,
+        }
+    }
+
+    /// Open the Insert › Table size picker under its button.
+    fn open_table_grid(&mut self) -> bool {
+        let anchor = self
+            .ribbon
+            .rect_of(RibbonHit::Command("insert.table"))
+            .unwrap_or([0.0, self.ribbon.bottom(), 1.0, 0.0]);
+        let commands = vec![self.t("commands.table.fromText", "Convert Text to Table")];
+        self.menu = None;
+        self.table_grid = Some(TableGrid::open(anchor, commands, self.scale));
+        true
+    }
+
+    /// Input while the table size picker is open; `None` lets it through.
+    fn table_grid_input(&mut self, input: &Input) -> Option<bool> {
+        let grid = self.table_grid.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => grid.hover(x, y),
+            Input::Press { x, y, .. } => {
+                let pick = grid.press(x, y);
+                self.table_grid = None;
+                self.ribbon.clear_pointer();
+                match pick {
+                    Some(GridPick::Size(cols, rows)) => {
+                        self.activate_context = true;
+                        self.view.run_command(Command::InsertTable { rows, cols })
+                    }
+                    Some(GridPick::Command(_)) => {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "tableEdit",
+                            "edit": { "kind": "fromText", "separator": "\t" },
+                        }));
+                        self.activate_context = true;
+                        cmd.is_some_and(|c| self.view.run_command(c))
+                    }
+                    None => true,
+                }
+            }
+            Input::Key(Key::Escape, _) => {
+                self.table_grid = None;
+                true
+            }
+            Input::Text(_) | Input::Key(..) | Input::Wheel(_) | Input::Release { .. } => true,
+            _ => return None,
+        })
+    }
+
+    /// Right edge of the document area (the proofing pane takes the window's right side).
+    fn doc_right(&self) -> f32 {
+        self.size.0
+            - if self.spell_pane.is_some() {
+                SpellPane::width(self.scale)
+            } else {
+                0.0
+            }
+    }
+
+    /// Open the proofing pane on the first issue at or after the caret.
+    fn open_spelling(&mut self) -> bool {
+        let issues = self.view.proof_issues();
+        let caret = self.view.caret_para().unwrap_or(0);
+        let index = issues.iter().position(|i| i.para >= caret).unwrap_or(0);
+        let mut pane = SpellPane::new(issues);
+        pane.index = index;
+        self.spell_pane = Some(pane);
+        self.show_issue();
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Select the issue the pane shows.
+    fn show_issue(&mut self) {
+        let at = self
+            .spell_pane
+            .as_ref()
+            .and_then(|p| p.current())
+            .map(|i| (i.para, i.start, i.end));
+        if let Some((para, start, end)) = at {
+            self.view.select_range(para, start, end);
+        }
+    }
+
+    /// Check again after a change and show the next issue from paragraph `para`, offset `from`.
+    fn next_issue(&mut self, para: usize, from: usize) {
+        let issues = self.view.proof_issues();
+        if let Some(pane) = self.spell_pane.as_mut() {
+            pane.index = issues
+                .iter()
+                .position(|i| (i.para, i.start) >= (para, from))
+                .unwrap_or(issues.len());
+            pane.issues = issues;
+        }
+        self.show_issue();
+        self.spell_pending = true;
+    }
+
+    fn spell_pane_action(&mut self, a: SpellAction) -> bool {
+        let Some(issue) = self.spell_pane.as_ref().and_then(|p| p.current()).cloned() else {
+            if a == SpellAction::Close {
+                self.spell_pane = None;
+                self.relayout_pending = true;
+            }
+            return true;
+        };
+        match a {
+            SpellAction::Close => {
+                self.spell_pane = None;
+                self.relayout_pending = true;
+            }
+            SpellAction::Change(i) => {
+                if let Some(s) = issue.suggestions.get(i) {
+                    self.view
+                        .replace_range(issue.para, issue.start, issue.end, s);
+                    self.next_issue(issue.para, issue.start + s.len());
+                }
+            }
+            SpellAction::IgnoreOnce => {
+                if let Some(p) = self.spell_pane.as_mut() {
+                    p.index += 1;
+                }
+                self.show_issue();
+            }
+            SpellAction::IgnoreAll | SpellAction::AddToDictionary => {
+                self.view
+                    .spell_word(a == SpellAction::AddToDictionary, &issue.word);
+                self.next_issue(issue.para, issue.end);
+            }
+            SpellAction::Redraw => {}
+        }
+        true
+    }
+
+    /// Status bar texts: page, word count.
+    fn status_texts(&self) -> (String, String) {
+        let page = self.strings.fmt(
+            "status.page",
+            &[
+                ("current", &(self.view.current_page() + 1).to_string()),
+                ("total", &self.view.page_count().to_string()),
+            ],
+        );
+        let words = self.strings.fmt(
+            "status.words",
+            &[("count", &self.view.word_count().to_string())],
+        );
+        (page, words)
+    }
+
+    /// Place the status bar items after their measured texts. Gaps measured on the
+    /// reference at 125 %: 31 px after the page, 80 px after the word count (room of its
+    /// macro-recording dot), 27 px after the proofing book (19 px wide).
+    fn layout_status(&mut self, text: &dyn TextMeasure) {
+        let style = TextStyle {
+            size: (12.0 * self.scale).round(),
+            bold: false,
+        };
+        let (page, words) = self.status_texts();
+        let px = |v: f32| (v * self.scale).round();
+        let x0 = px(12.0);
+        let words_x = x0 + text.measure(&page, style).0.ceil() + px(17.0);
+        let book_x = words_x + text.measure(&words, style).0.ceil() + px(54.0);
+        let lang_x = book_x + px(15.0) + px(26.0);
+        self.status_x = [words_x, book_x, lang_x];
+    }
+
+    /// Style of the "Header" / "Footer" tags (the reference's are small: 60×21 px at 125 %).
+    fn tag_style(&self) -> TextStyle {
+        TextStyle {
+            size: (10.0 * self.scale).round(),
+            bold: false,
+        }
+    }
+
+    /// Commands of the spelling part of the context menu.
+    fn spell_action(&mut self, id: &str) -> Option<bool> {
+        let info = self.spell_menu.take()?;
+        self.spell_pending = true;
+        Some(match id {
+            "spell.ignoreAll" => self.view.spell_word(false, &info.word),
+            "spell.addToDictionary" => self.view.spell_word(true, &info.word),
+            _ => {
+                let i: usize = id.strip_prefix("spell.use.")?.parse().ok()?;
+                let word = info.suggestions.get(i)?;
+                self.view
+                    .replace_range(info.para, info.start, info.end, word)
+            }
+        })
+    }
+
+    /// Width taken by the navigation pane on the left (0 when hidden).
+    fn nav_w(&self) -> f32 {
+        if self.nav.is_some() {
+            NavPane::width(self.scale)
+        } else {
+            0.0
+        }
+    }
+
+    /// Show or hide the navigation pane; `search` puts the keyboard in its search box.
+    fn toggle_nav(&mut self, show: bool, search: bool) -> bool {
+        if show {
+            let mut pane = self.nav.take().unwrap_or_else(NavPane::new);
+            pane.focus = search;
+            self.nav = Some(pane);
+            self.refresh_nav();
+        } else {
+            self.nav = None;
+            self.view.clear_highlights();
+        }
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Read the headings (and page count) again; mark the heading holding the caret.
+    fn refresh_nav(&mut self) {
+        self.nav_dirty = false;
+        if self.nav.is_none() {
+            return;
+        }
+        let items = self.view.outline();
+        let pages = self.view.page_count();
+        let caret = self.view.caret_para();
+        let current_page = self.view.current_page();
+        if let Some(nav) = self.nav.as_mut() {
+            nav.headings = items
+                .into_iter()
+                .filter_map(|i| {
+                    i.entry.level.map(|level| Heading {
+                        para: i.entry.para,
+                        level,
+                        text: i.entry.text,
+                        page: i.page,
+                    })
+                })
+                .collect();
+            nav.pages = pages;
+            match nav.tab {
+                NavTab::Headings => {
+                    nav.current =
+                        caret.and_then(|c| nav.headings.iter().rposition(|h| h.para <= c));
+                }
+                NavTab::Pages => nav.current = Some(current_page),
+                NavTab::Results => {}
+            }
+        }
+    }
+
+    /// Carry out what the pane asked for.
+    fn nav_action(&mut self, a: NavAction) -> bool {
+        match a {
+            NavAction::Close => self.toggle_nav(false, false),
+            NavAction::Heading(para) => self.view.goto_para(para),
+            NavAction::Page(i) => self.view.show_page(i),
+            NavAction::Result(i) => {
+                let query = self
+                    .nav
+                    .as_ref()
+                    .map(|n| n.query.clone())
+                    .unwrap_or_default();
+                let fresh = self.find.as_ref().is_none_or(|f| f.0 != query);
+                if fresh {
+                    let matches = catalog::from_json(json!({ "cmd": "find", "query": query }))
+                        .and_then(|c| self.view.exec(c))
+                        .and_then(|r| r.matches)
+                        .unwrap_or_default();
+                    self.find = Some((query, matches, usize::MAX));
+                }
+                let m = self.find.as_ref().and_then(|f| f.1.get(i).copied());
+                if let Some(f) = self.find.as_mut() {
+                    f.2 = i;
+                }
+                match m
+                    .and_then(|m| catalog::from_json(json!({ "cmd": "selectMatch", "match": m })))
+                {
+                    Some(c) => self.view.run_command(c),
+                    None => true,
+                }
+            }
+            NavAction::Search => {
+                let query = self
+                    .nav
+                    .as_ref()
+                    .map(|n| n.query.clone())
+                    .unwrap_or_default();
+                let results = if query.is_empty() {
+                    self.view.clear_highlights();
+                    Vec::new()
+                } else {
+                    self.view.find_results(&query)
+                };
+                self.find = None;
+                let first = !results.is_empty();
+                if let Some(nav) = self.nav.as_mut() {
+                    nav.results = results
+                        .into_iter()
+                        .map(|r| (r.before, r.text, r.after))
+                        .collect();
+                    nav.searched = !query.is_empty();
+                    nav.show(NavTab::Results);
+                    nav.current = None;
+                }
+                // The reference moves to the first match as it searches.
+                if first {
+                    self.nav_action(NavAction::Result(0));
+                    if let Some(nav) = self.nav.as_mut() {
+                        nav.current = Some(0);
+                    }
+                }
+                true
+            }
+            NavAction::Redraw => true,
+        }
+    }
+
+    /// Input for the navigation pane; `None` lets it through to the window.
+    fn nav_input(&mut self, input: &Input) -> Option<bool> {
+        let nav = self.nav.as_mut()?;
+        match *input {
+            Input::Move { x, y } if nav.contains(x, y) => Some(nav.hover(x, y)),
+            Input::Move { .. } => {
+                nav.hover(-1.0, -1.0);
+                None
+            }
+            Input::Press { x, y, .. } if nav.contains(x, y) => {
+                let a = nav.press(x, y, &self.strings);
+                Some(self.nav_action(a))
+            }
+            Input::Press { .. } => {
+                nav.focus = false;
+                None
+            }
+            Input::Wheel(dy) if nav.contains(self.pointer.0, self.pointer.1) => Some(nav.wheel(dy)),
+            Input::Text(ref s) if nav.focus => {
+                nav.text(s);
+                Some(true)
+            }
+            Input::Key(k, m) if nav.focus && !m.ctrl => {
+                let a = nav.key(k);
+                Some(self.nav_action(a))
+            }
+            _ => None,
+        }
+    }
+
+    /// Insert a picture file the host read (`name` with its extension).
+    pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        self.activate_context = true;
+        let ok = self.view.insert_picture(bytes, name);
+        self.sync_context();
+        ok
+    }
+
+    /// Bring the ribbon up to date after host calls such as [`DocWindow::insert_picture`]
+    /// (contextual tabs, layout); `true` when it changed.
+    pub fn refresh(&mut self, text: &dyn TextMeasure) -> bool {
+        self.sync_context();
+        let pending = self.relayout_pending;
+        if pending {
+            self.relayout_pending = false;
+            self.relayout(text);
+        }
+        self.layout_status(text);
+        if let Some(sp) = self.spell_pane.as_mut() {
+            sp.measure(text);
+        }
+        pending
+    }
+
+    /// Run interface command `id` (ribbon, menu entry or shortcut id) as if chosen, then
+    /// bring the ribbon up to date; `text:…` types text at the caret, `tab:…` shows a ribbon
+    /// tab (`tab:tableLayout`).
+    pub fn run_interface_command(&mut self, id: &str, text: &dyn TextMeasure) -> bool {
+        let done = if let Some(t) = id.strip_prefix("text:") {
+            self.view.handle(Input::Text(t.to_owned()))
+        } else if let Some(label) = id.strip_prefix("tab:") {
+            self.sync_context();
+            self.relayout_pending = true;
+            self.ribbon.select_tab(&format!("ribbon.tabs.{label}"))
+        } else {
+            self.action(id)
+        };
+        self.refresh(text);
+        done
+    }
+
+    /// Lines of the Word Count dialog, as the reference lists them: pages, words,
+    /// characters without and with spaces, paragraphs (the selection's when one is made).
+    fn word_count_lines(&mut self) -> Vec<String> {
+        let pages = self.view.page_count();
+        let Some(info) = self.view.word_counts() else {
+            return vec![format!(
+                "{}: {}",
+                self.t("wordCount.words", "Words"),
+                self.view.word_count()
+            )];
+        };
+        let c = info.selection.unwrap_or(info.document);
+        [
+            ("wordCount.pages", "Pages", pages),
+            ("wordCount.words", "Words", c.words),
+            ("wordCount.chars", "Characters (no spaces)", c.chars),
+            (
+                "wordCount.charsWithSpaces",
+                "Characters (with spaces)",
+                c.chars_with_spaces,
+            ),
+            ("wordCount.paragraphs", "Paragraphs", c.paragraphs),
+        ]
+        .into_iter()
+        .map(|(k, f, n)| format!("{}: {n}", self.t(k, f)))
+        .collect()
+    }
+
+    /// Header/footer options of the open header or footer: (different first page,
+    /// different odd and even pages, linked to the previous section).
+    fn story_options(&self) -> Option<(bool, bool, bool)> {
+        self.view
+            .story()
+            .filter(|s| s.kind == "header" || s.kind == "footer")
+            .map(|s| (s.title_page, s.even_and_odd, s.linked))
+    }
+
+    /// Show the contextual tabs the selection needs (table, header/footer, picture).
+    fn sync_context(&mut self) {
+        let c = Context::of(self.view.format(), self.view.story().map(|s| s.kind));
+        if c == self.context && !self.activate_context {
+            return;
+        }
+        // Opening a header or footer, inserting a table or a picture brings its tab
+        // forward; moving the caret into an existing table only shows the tabs.
+        let story_opened = c.story.is_some() && self.context.story.is_none();
+        let new_object = (c.table && !self.context.table) || (c.picture && !self.context.picture);
+        let activate = story_opened || (self.activate_context && new_object);
+        self.activate_context = false;
+        if c != self.context || activate {
+            self.context = c;
+            self.ribbon.set_contextual(doc_tools::tabs(c), activate);
+            self.relayout_pending = true;
         }
     }
 
@@ -320,6 +810,46 @@ impl DocWindow {
                     vec![],
                 )
             }
+            DialogKind::GoTo => (
+                self.t("sheetEditor.goto.title", "Go To"),
+                vec![(
+                    self.t("ribbon.docTools.goToPage", "Enter page number"),
+                    (self.view.current_page() + 1).to_string(),
+                )],
+                vec![
+                    (self.t("inspect.goTo", "Go To"), DialogButton::Ok),
+                    (cancel, DialogButton::Cancel),
+                ],
+                vec![],
+            ),
+            DialogKind::PageSetup => {
+                let s = &self.view.format().section;
+                // Centimetres with two decimals at most, decimal comma.
+                let cm = |twips: i32| {
+                    format!("{:.2}", f64::from(twips) * 2.54 / 1440.0)
+                        .trim_end_matches('0')
+                        .trim_end_matches('.')
+                        .replace('.', ",")
+                };
+                let f = |key: &str, fallback: &str, twips: i32| {
+                    (format!("{} (cm)", self.t(key, fallback)), cm(twips))
+                };
+                (
+                    self.t("pageSetup.title", "Page Setup"),
+                    vec![
+                        f("pageSetup.top", "Top", s.margin_top),
+                        f("pageSetup.bottom", "Bottom", s.margin_bottom),
+                        f("pageSetup.left", "Left", s.margin_left),
+                        f("pageSetup.right", "Right", s.margin_right),
+                        f("pageSetup.width", "Width", s.width),
+                        f("pageSetup.height", "Height", s.height),
+                        f("pageSetup.header", "Header from edge", s.header),
+                        f("pageSetup.footer", "Footer from edge", s.footer),
+                    ],
+                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                    vec![],
+                )
+            }
             DialogKind::Paragraph => {
                 let f = self.view.format();
                 let lines = f64::from(f.line_spacing.value) / 240.0;
@@ -369,18 +899,7 @@ impl DocWindow {
                 self.t("commands.review.wordCount", "Word Count"),
                 vec![],
                 vec![(self.t("common.close", "Close"), DialogButton::Cancel)],
-                vec![
-                    format!(
-                        "{}: {}",
-                        self.t("wordCount.pages", "Pages"),
-                        self.view.page_count()
-                    ),
-                    format!(
-                        "{}: {}",
-                        self.t("wordCount.words", "Words"),
-                        self.view.word_count()
-                    ),
-                ],
+                self.word_count_lines(),
             ),
         };
         self.menu = None;
@@ -493,7 +1012,52 @@ impl DocWindow {
                     }
                 }
             }
-            (DialogKind::Font | DialogKind::Paragraph, _) => self.dialog = None,
+            (DialogKind::PageSetup, DialogButton::Ok) => {
+                self.dialog = None;
+                let s = self.view.format().section;
+                let twips = |i: usize, old: i32| {
+                    parse_num(&v(i)).map_or(old, |cm| (cm * 1440.0 / 2.54).round() as i32)
+                };
+                // ECMA-376 Part 1, §17.6.11 pgMar, §17.6.13 pgSz.
+                let cmd = catalog::from_json(json!({
+                    "cmd": "setPageSetup",
+                    "setup": {
+                        "width": twips(4, s.width).max(1440), "height": twips(5, s.height).max(1440),
+                        "marginTop": twips(0, s.margin_top), "marginBottom": twips(1, s.margin_bottom),
+                        "marginLeft": twips(2, s.margin_left).max(0), "marginRight": twips(3, s.margin_right).max(0),
+                        "header": twips(6, s.header).max(0), "footer": twips(7, s.footer).max(0),
+                        "columns": s.columns.max(1), "columnSpace": s.column_space,
+                    },
+                    "scope": "document",
+                }));
+                if let Some(c) = cmd {
+                    self.view.run_command(c);
+                }
+            }
+            (DialogKind::GoTo, DialogButton::Ok) => {
+                // Page numbers count from 1; "+n" / "-n" move from the current page.
+                let typed = v(0);
+                let t = typed.trim();
+                let current = self.view.current_page() as i64;
+                let target = if let Some(n) = t.strip_prefix('+') {
+                    n.parse::<i64>().ok().map(|n| current + n)
+                } else if let Some(n) = t.strip_prefix('-') {
+                    n.parse::<i64>().ok().map(|n| current - n)
+                } else {
+                    t.parse::<i64>().ok().map(|n| n - 1)
+                };
+                if let Some(page) = target {
+                    let last = self.view.page_count().saturating_sub(1) as i64;
+                    self.dialog = None;
+                    self.view.show_page(page.clamp(0, last) as usize);
+                }
+            }
+            (
+                DialogKind::Font | DialogKind::Paragraph | DialogKind::PageSetup | DialogKind::GoTo,
+                _,
+            ) => {
+                self.dialog = None;
+            }
             (DialogKind::Comment, _) => {
                 self.dialog = None;
                 if let Some(c) = catalog::from_json(json!({ "cmd": "addComment", "text": v(0) })) {
@@ -589,16 +1153,17 @@ impl DocWindow {
                     _ => e.label.to_owned(),
                 },
                 choice: Choice::Command(e.id.to_owned()),
-                checked: spacing.rule == bo_edit::LineRule::Auto
-                    && match e.id {
-                        "format.lineSpacing1" => spacing.value == 240,
-                        "format.lineSpacing115" => spacing.value == 276,
-                        "format.lineSpacing15" => spacing.value == 360,
-                        "format.lineSpacing2" => spacing.value == 480,
-                        "format.lineSpacing25" => spacing.value == 600,
-                        "format.lineSpacing3" => spacing.value == 720,
-                        _ => false,
-                    },
+                checked: doc_tools::checked(e.id, self.view.markup())
+                    || spacing.rule == bo_edit::LineRule::Auto
+                        && match e.id {
+                            "format.lineSpacing1" => spacing.value == 240,
+                            "format.lineSpacing115" => spacing.value == 276,
+                            "format.lineSpacing15" => spacing.value == 360,
+                            "format.lineSpacing2" => spacing.value == 480,
+                            "format.lineSpacing25" => spacing.value == 600,
+                            "format.lineSpacing3" => spacing.value == 720,
+                            _ => false,
+                        },
                 dim: false,
             })
             .collect();
@@ -625,10 +1190,55 @@ impl DocWindow {
                 dim: !selected && matches!(*id, "edit.cut" | "edit.copy"),
             })
             .collect();
-        let icons = ids.iter().map(|(_, icon)| Some(*icon)).collect();
+        let mut icons: Vec<Option<&'static str>> =
+            ids.iter().map(|(_, icon)| Some(*icon)).collect();
+        let mut items: Vec<MenuItem> = items;
+        let mut separators = vec![3];
+        // Over a misspelt word: its corrections first, then ignore / add, as on the
+        // reference's context menu.
+        self.spell_menu = self.view.spell_at(x, y);
+        if let Some(info) = &self.spell_menu {
+            let mut top: Vec<MenuItem> = info
+                .suggestions
+                .iter()
+                .take(5)
+                .enumerate()
+                .map(|(i, s)| MenuItem {
+                    label: s.clone(),
+                    choice: Choice::Command(format!("spell.use.{i}")),
+                    checked: false,
+                    dim: false,
+                })
+                .collect();
+            if top.is_empty() {
+                top.push(MenuItem {
+                    label: self.strings.get("spell.noSuggestions").to_owned(),
+                    choice: Choice::Command("spell.none".into()),
+                    checked: false,
+                    dim: true,
+                });
+            }
+            if info.rule.is_none() {
+                for key in ["spell.ignoreAll", "spell.addToDictionary"] {
+                    top.push(MenuItem {
+                        label: self.strings.get(key).to_owned(),
+                        choice: Choice::Command(key.to_owned()),
+                        checked: false,
+                        dim: false,
+                    });
+                }
+            }
+            let n = top.len();
+            separators = vec![n, n + 3];
+            let mut tops: Vec<Option<&'static str>> = vec![None; n];
+            tops.append(&mut icons);
+            icons = tops;
+            top.append(&mut items);
+            items = top;
+        }
         self.menu = Some(
             Menu::open(items, [x, y - 2.0, 1.0, 0.0], self.size, self.scale)
-                .with_decor(icons, vec![3]),
+                .with_decor(icons, separators),
         );
     }
 
@@ -641,6 +1251,14 @@ impl DocWindow {
         if self.marks {
             on.push("view.formattingMarks");
         }
+        if self.nav.is_some() {
+            on.push("view.navigationPane");
+        }
+        on.push(match self.view_mode {
+            "web" => "view.webLayout",
+            "draft" => "view.draft",
+            _ => "view.printLayout",
+        });
         if self.painter {
             on.push("format.painter");
         }
@@ -650,6 +1268,7 @@ impl DocWindow {
         if self.merge_record.is_some() {
             on.push("mailings.preview");
         }
+        on.extend(doc_tools::on_ids(self.view.format(), self.story_options()));
         on
     }
 
@@ -717,7 +1336,24 @@ impl DocWindow {
                 true
             }
             "edit.copy" | "edit.cut" | "edit.paste" => self.clipboard(id),
-            "edit.find" => self.open_dialog(DialogKind::Find),
+            // Find searches from the navigation pane, as on the reference.
+            "edit.find" => self.toggle_nav(true, true),
+            "review.spellingDialog" => self.open_spelling(),
+            "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
+            "edit.goTo" => self.open_dialog(DialogKind::GoTo),
+            "view.printLayout" => self.action("view.layout.print"),
+            "view.webLayout" => self.action("view.layout.web"),
+            "view.draft" => self.action("view.layout.draft"),
+            "view.onePage" | "view.pageWidth" => {
+                let z = self.view.fit_zoom(id == "view.onePage");
+                self.relayout_pending = true;
+                self.view.set_zoom(z)
+            }
+            "insert.table" => self.open_table_grid(),
+            "view.navigationPane" => {
+                let show = self.nav.is_none();
+                self.toggle_nav(show, false)
+            }
             "edit.replace" => self.open_dialog(DialogKind::Replace),
             "insert.link" => self.open_dialog(DialogKind::Link),
             "format.fontSettings" => self.open_dialog(DialogKind::Font),
@@ -755,6 +1391,7 @@ impl DocWindow {
                 self.view.set_zoom(z)
             }
             "format.painter" => {
+                self.painter_lock = false;
                 self.painter = self.view.run_command(Command::PickFormat);
                 true
             }
@@ -786,6 +1423,11 @@ impl DocWindow {
                 merge(self, Some(r))
             }
             "mailings.finish" => self.view.run_command(Command::MergeToDocument),
+            "insert.picture" => {
+                self.requests.push(Request::PickPicture);
+                false
+            }
+            id if id.starts_with("spell.") => self.spell_action(id).unwrap_or(false),
             id if catalog::is_menu(id) => {
                 let anchor = self
                     .ribbon
@@ -794,10 +1436,25 @@ impl DocWindow {
                 self.open_command_menu(id, anchor);
                 true
             }
-            _ => match catalog::command(id, &self.view.format().section) {
-                Some(cmd) => self.view.run_command(cmd),
-                None => self.view.run_action(id),
-            },
+            _ => {
+                let page = self.view.current_page();
+                let story = self.story_options();
+                let markup = self.view.markup().clone();
+                if let Some(tool) = doc_tools::command(id, self.view.format(), story, page, &markup)
+                {
+                    return match tool {
+                        Tool::Edit(cmd) => self.view.run_command(cmd),
+                        Tool::Picture(v) => self.view.picture_command(&v),
+                    };
+                }
+                if id.starts_with("insert.table.") {
+                    self.activate_context = true;
+                }
+                match catalog::command(id, &self.view.format().section) {
+                    Some(cmd) => self.view.run_command(cmd),
+                    None => self.view.run_action(id),
+                }
+            }
         }
     }
 
@@ -877,7 +1534,7 @@ impl DocWindow {
     /// Scroll bar parts: (bar, up button, down button, thumb) as [x, y, w, h].
     fn sb_rects(&self) -> [[f32; 4]; 4] {
         let w = self.sb_w();
-        let x = self.size.0 - w;
+        let x = self.doc_right() - w;
         let top = self.view_top();
         let bottom = self.size.1 - self.status_h();
         let bar = [x, top, w, (bottom - top).max(0.0)];
@@ -946,8 +1603,27 @@ impl DocWindow {
         let h = (self.size.1 - top - self.status_h()).max(1.0);
         // The vertical scroll bar takes the right edge, the vertical ruler the left one.
         let vr = self.vr_w();
-        self.view
-            .set_frame(vr, top, (self.size.0 - self.sb_w() - vr).max(1.0), h);
+        let left = self.nav_w();
+        let right = self.doc_right();
+        self.view.set_frame(
+            left + vr,
+            top,
+            (right - self.sb_w() - vr - left).max(1.0),
+            h,
+        );
+        let (sp_top, sp_bottom, sp_right, scale) = (
+            self.ribbon.bottom(),
+            self.size.1 - self.status_h(),
+            self.size.0,
+            self.scale,
+        );
+        if let Some(sp) = self.spell_pane.as_mut() {
+            sp.layout(sp_right, sp_top, sp_bottom, scale);
+        }
+        let (nav_top, nav_bottom) = (self.ribbon.bottom(), self.size.1 - self.status_h());
+        if let Some(nav) = self.nav.as_mut() {
+            nav.layout(nav_top, nav_bottom, self.scale);
+        }
         self.layout_ruler();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
@@ -958,6 +1634,11 @@ impl DocWindow {
         if self.styles.is_empty() {
             self.styles = self.view.styles();
         }
+        let tag = self.tag_style();
+        self.tag_w = [
+            text.measure(&self.t("hf.header", "Header"), tag).0,
+            text.measure(&self.t("hf.footer", "Footer"), tag).0,
+        ];
         self.ribbon.measure_previews(text, &self.styles);
         // Status bar zoom controls, right to left: percentage, plus, slider, minus.
         let px = |v: f32| (v * self.scale).round();
@@ -1000,6 +1681,7 @@ impl DocWindow {
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let redraw = self.route(input, text);
+        self.sync_context();
         if self.relayout_pending {
             self.relayout_pending = false;
             self.relayout(text);
@@ -1008,6 +1690,10 @@ impl DocWindow {
         }
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
+        }
+        self.layout_status(text);
+        if let Some(sp) = self.spell_pane.as_mut() {
+            sp.measure(text);
         }
         redraw
     }
@@ -1067,9 +1753,65 @@ impl DocWindow {
                 _ => {}
             }
         }
+        if let Some(redraw) = self.table_grid_input(&input) {
+            return redraw;
+        }
         // Pointer and keyboard input goes to an open menu first.
         if self.menu.is_some() {
             if let Some(redraw) = self.menu_input(&input) {
+                return redraw;
+            }
+        }
+        if let Input::Move { x, y } | Input::Drag { x, y } = input {
+            self.pointer = (x, y);
+        }
+        // Spelling is checked again once typing rests for 400 ms (4 ticks).
+        match input {
+            Input::Text(_) | Input::Key(..) | Input::Release { .. } => {
+                self.spell_pending = true;
+                self.spell_idle = 0;
+            }
+            Input::Tick if self.spell_pending => {
+                self.spell_idle += 1;
+                if self.spell_idle >= 4 {
+                    self.spell_pending = false;
+                    if self.view.refresh_spelling() {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(sp) = self.spell_pane.as_mut() {
+            match input {
+                Input::Move { x, y } if sp.contains(x, y) => return sp.hover(x, y),
+                Input::Move { .. } => {
+                    sp.hover(-1.0, -1.0);
+                }
+                Input::Press { x, y, .. } if sp.contains(x, y) => {
+                    let a = sp.press(x, y);
+                    return self.spell_pane_action(a);
+                }
+                _ => {}
+            }
+        }
+        if let Input::Key(Key::F(7), _) = input {
+            return self.open_spelling();
+        }
+        if self.nav.is_some() {
+            if matches!(
+                input,
+                Input::Text(_) | Input::Key(..) | Input::Release { .. }
+            ) {
+                self.nav_dirty = true;
+            }
+            if let Input::Tick = input {
+                if self.nav_dirty {
+                    self.refresh_nav();
+                    return true;
+                }
+            }
+            if let Some(redraw) = self.nav_input(&input) {
                 return redraw;
             }
         }
@@ -1088,7 +1830,7 @@ impl DocWindow {
         let in_title = |w: &Self, y: f32| y < w.title.height();
         let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
         if let Input::Key(
-            Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k')),
+            Key::Letter(c @ ('s' | 'c' | 'x' | 'v' | 'f' | 'h' | 'k' | 'g')),
             Mods {
                 ctrl: true, shift, ..
             },
@@ -1102,13 +1844,18 @@ impl DocWindow {
                 ('v', _) => "edit.paste",
                 ('f', _) => "edit.find",
                 ('h', _) => "edit.replace",
+                ('g', _) => "edit.goTo",
                 _ => "insert.link",
             };
             return self.action(id);
         }
         if let Input::Key(Key::Escape, _) = input {
+            if self.story_options().is_some() && !self.painter {
+                return self.view.run_command(Command::CloseHeaderFooter);
+            }
             if self.painter {
                 self.painter = false;
+                self.painter_lock = false;
                 if let Some(c) = catalog::from_json(json!({ "cmd": "cancelFormat" })) {
                     self.view.run_command(c);
                 }
@@ -1171,7 +1918,8 @@ impl DocWindow {
         // Vertical scroll bar on the right edge of the document area.
         match input {
             Input::Press { x, y, .. }
-                if x >= self.size.0 - self.sb_w()
+                if x >= self.doc_right() - self.sb_w()
+                    && x < self.doc_right()
                     && y >= self.view_top()
                     && y < status_top
                     && self.menu.is_none()
@@ -1187,6 +1935,13 @@ impl DocWindow {
             _ => {}
         }
         match input {
+            Input::Press { x, y, .. }
+                if y >= status_top
+                    && x >= self.status_x[1] - 4.0
+                    && x < self.status_x[1] + (20.0 * self.scale).round() =>
+            {
+                return self.open_spelling();
+            }
             Input::Press { x, y, .. } if y >= status_top => {
                 if let Some(i) = self
                     .view_rects
@@ -1247,13 +2002,35 @@ impl DocWindow {
                 self.doc_press = false;
                 self.title.press(x, y)
             }
-            Input::Press { x, y, .. } if in_ribbon(self, y) => {
+            Input::Press { x, y, count, .. } if in_ribbon(self, y) => {
                 self.doc_press = false;
+                // A double click on the format painter keeps it on, as on the reference.
+                if count == 2 && self.ribbon.hit(x, y) == Some(RibbonHit::Command("format.painter"))
+                {
+                    self.painter_lock = true;
+                    if !self.painter {
+                        self.painter = self.view.run_command(Command::PickFormat);
+                    }
+                    return true;
+                }
                 self.ribbon.press(x, y)
             }
-            Input::Press { .. } => {
+            Input::Press { x, y, count, .. } => {
                 self.doc_press = true;
                 let cleared = self.ribbon.clear_pointer();
+                // A double click in the top or bottom margin opens that page's header or
+                // footer, as on a desktop word processor.
+                if count == 2 && self.view.story().is_none() {
+                    if let Some((page, header)) = self.view.hf_zone(x, y) {
+                        let cmd = catalog::from_json(json!({
+                            "cmd": "editHeaderFooter", "page": page, "header": header,
+                        }));
+                        if let Some(c) = cmd {
+                            self.doc_press = false;
+                            return self.view.run_command(c) || cleared;
+                        }
+                    }
+                }
                 self.view.handle(input) || cleared
             }
             Input::Drag { .. } if !self.doc_press => false,
@@ -1262,6 +2039,10 @@ impl DocWindow {
                 if self.doc_press && self.painter {
                     self.painter = false;
                     self.view.run_command(Command::ApplyFormat);
+                    // Locked by a double click: pick the format again for the next one.
+                    if self.painter_lock {
+                        self.painter = self.view.run_command(Command::PickFormat);
+                    }
                 }
                 self.doc_press = false;
                 self.last_drag = None;
@@ -1502,6 +2283,7 @@ impl DocWindow {
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
         self.view.paint(p);
+        self.paint_story_frame(p);
         self.title.paint(
             p,
             &self.theme,
@@ -1528,13 +2310,19 @@ impl DocWindow {
                 crate::ruler::paint_vertical(
                     p,
                     &self.theme,
-                    (0.0, self.vr_w(), top, bottom),
+                    (self.nav_w(), self.vr_w(), top, bottom),
                     page,
                     &self.view.format().section,
                     self.view.scale() / 20.0,
                     self.scale,
                 );
             }
+        }
+        if let Some(nav) = &self.nav {
+            nav.paint(p, &self.theme, &self.strings);
+        }
+        if let Some(sp) = &self.spell_pane {
+            sp.paint(p, &self.theme, &self.strings);
         }
         // Status bar.
         let (w, h) = self.size;
@@ -1615,38 +2403,65 @@ impl DocWindow {
             bold: false,
         };
         let ty = y + (sh - style.size * 1.33) / 2.0;
-        let page = self.strings.fmt(
-            "status.page",
-            &[
-                ("current", &(self.view.current_page() + 1).to_string()),
-                ("total", &self.view.page_count().to_string()),
-            ],
-        );
-        let words = self.strings.fmt(
-            "status.words",
-            &[("count", &self.view.word_count().to_string())],
-        );
+        let (page, words) = self.status_texts();
         let x0 = (12.0 * self.scale).round();
+        let [words_x, book_x, lang_x] = self.status_x;
         p.text(&page, x0, ty, style, self.theme.text);
-        p.text(
-            &words,
-            x0 + (110.0 * self.scale).round(),
-            ty,
-            style,
-            self.theme.text,
-        );
+        p.text(&words, words_x, ty, style, self.theme.text);
+        // Proofing state: a book with a cross while issues remain, with a tick when none
+        // (own drawing, at the reference's place between word count and language).
+        {
+            let u = self.scale;
+            let (bx, by) = (book_x.round(), (y + (sh - 13.0 * u) / 2.0).round());
+            let lw = u.max(1.0);
+            // Grey 116 measured on the reference's icon.
+            let ink = Rgba(116, 116, 116, 255);
+            p.path(
+                &[
+                    PathSeg::M(bx, by + 1.0 * u),
+                    PathSeg::L(bx + 6.0 * u, by),
+                    PathSeg::L(bx + 12.0 * u, by + 1.0 * u),
+                    PathSeg::L(bx + 12.0 * u, by + 12.0 * u),
+                    PathSeg::L(bx + 6.0 * u, by + 11.0 * u),
+                    PathSeg::L(bx, by + 12.0 * u),
+                    PathSeg::Z,
+                    PathSeg::M(bx + 6.0 * u, by),
+                    PathSeg::L(bx + 6.0 * u, by + 11.0 * u),
+                ],
+                Some(self.theme.ribbon),
+                Some((ink, lw)),
+            );
+            let (mx, my) = (bx + 12.0 * u, by + 9.0 * u);
+            if self.view.proofing_issues() > 0 {
+                let k = 3.0 * u;
+                p.path(
+                    &[
+                        PathSeg::M(mx - k, my - k),
+                        PathSeg::L(mx + k, my + k),
+                        PathSeg::M(mx + k, my - k),
+                        PathSeg::L(mx - k, my + k),
+                    ],
+                    None,
+                    Some((ink, 1.5 * lw)),
+                );
+            } else {
+                p.path(
+                    &[
+                        PathSeg::M(mx - 3.0 * u, my),
+                        PathSeg::L(mx - 1.0 * u, my + 2.0 * u),
+                        PathSeg::L(mx + 3.5 * u, my - 3.0 * u),
+                    ],
+                    None,
+                    Some((ink, 1.5 * lw)),
+                );
+            }
+        }
         // Proofing language at the caret, as a desktop word processor's status bar shows it.
         if let Some(lang) = self.view.format().lang.as_deref() {
             let key = format!("spell.lang.{lang}");
             let name = self.strings.get(&key);
             let shown = if name == key { lang } else { name };
-            p.text(
-                shown,
-                x0 + (230.0 * self.scale).round(),
-                ty,
-                style,
-                self.theme.text,
-            );
+            p.text(shown, lang_x, ty, style, self.theme.text);
         }
         let zoom = self.strings.fmt(
             "status.zoom",
@@ -1683,6 +2498,20 @@ impl DocWindow {
             self.theme.text,
         );
         p.text(&zoom, pct[0] + (6.0 * self.scale).round(), ty, style, ink);
+        if let Some(grid) = &self.table_grid {
+            let label = |c: usize, r: usize| {
+                self.strings.fmt(
+                    "ribbon.docTools.tableSize",
+                    &[("cols", &c.to_string()), ("rows", &r.to_string())],
+                )
+            };
+            grid.paint(
+                p,
+                &self.theme,
+                &self.t("ribbon.docTools.insertTable", "Insert Table"),
+                &label,
+            );
+        }
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -1702,6 +2531,62 @@ impl DocWindow {
         }
         if let Some(d) = &self.dialog {
             d.paint(p, &self.theme, self.size, true);
+        }
+    }
+
+    /// While a header or footer is edited: the body text faded, a dashed line under the
+    /// header and over the footer with a "Header" / "Footer" tag, as measured on a desktop
+    /// word processor (text 0 → 128, line 119 in 3 px dashes, tag 225 with text 68).
+    fn paint_story_frame(&self, p: &mut dyn Painter) {
+        if self.story_options().is_none() {
+            return;
+        }
+        let sec = &self.view.format().section;
+        let s = self.view.scale();
+        let line = Rgba(119, 119, 119, 255);
+        let style = self.tag_style();
+        let (header, footer) = (self.t("hf.header", "Header"), self.t("hf.footer", "Footer"));
+        let dash = (3.0 * self.scale).round().max(1.0);
+        for slot in self.view.slots() {
+            let (x, w) = (slot.x as f32, slot.width as f32);
+            let top = (slot.y as f32 + sec.margin_top as f32 / 20.0 * s).round();
+            let bottom =
+                (slot.y as f32 + slot.height as f32 - sec.margin_bottom as f32 / 20.0 * s).round();
+            if bottom > top {
+                p.fill_rect(x, top, w, bottom - top, Rgba(255, 255, 255, 128));
+            }
+            for y in [top, bottom] {
+                let mut dx = 0.0;
+                while dx < w {
+                    p.fill_rect(x + dx, y, dash.min(w - dx), 1.0, line);
+                    dx += 2.0 * dash;
+                }
+            }
+            // Tags at the left edge: under the header line, over the footer line.
+            let pad = (6.0 * self.scale).round();
+            let tag_h = (style.size * 1.33 + 2.0 * self.scale).round();
+            for (i, (label, y)) in [(&header, top + 1.0), (&footer, bottom - tag_h)]
+                .into_iter()
+                .enumerate()
+            {
+                let tw = self.tag_w[i].ceil() + 2.0 * pad;
+                let tx = x + (6.0 * self.scale).round();
+                p.fill_rect(tx, y, tw, tag_h, line);
+                p.fill_rect(
+                    tx + 1.0,
+                    y + 1.0,
+                    tw - 2.0,
+                    tag_h - 2.0,
+                    Rgba(225, 225, 225, 255),
+                );
+                p.text(
+                    label,
+                    tx + pad,
+                    y + (tag_h - style.size * 1.33) / 2.0,
+                    style,
+                    Rgba(68, 68, 68, 255),
+                );
+            }
         }
     }
 
@@ -2184,3 +3069,7 @@ mod tests {
         assert_eq!(w.take_requests(), vec![Request::Paste]);
     }
 }
+
+#[cfg(test)]
+#[path = "doc_window_tests.rs"]
+mod doc_window_tests;

@@ -60,7 +60,24 @@
       "references": "References",
       "mailings": "Mailings",
       "review": "Review",
-      "table": "Table"
+      "table": "Table",
+      "tableDesign": "Table Design",
+      "tableLayout": "Table Layout",
+      "pictureFormat": "Picture Format"
+    },
+    "docTools": {
+      "autoFit": "AutoFit",
+      "textDirection": "Text Direction",
+      "shading": "Shading",
+      "borders": "Borders",
+      "delete": "Delete",
+      "crop": "Crop",
+      "mergeCells": "Merge Cells",
+      "splitCells": "Split Cells",
+      "spelling": "Spelling & Grammar",
+      "insertTable": "Insert Table",
+      "tableSize": "{{cols}}x{{rows}} Table",
+      "goToPage": "Enter page number"
     },
     "groups": {
       "links": "Links",
@@ -4028,7 +4045,11 @@
     "pageNumber": "Insert page number",
     "pageCount": "Insert page count",
     "close": "Close header/footer",
-    "linkToPrevious": "Link to previous"
+    "linkToPrevious": "Link to previous",
+    "gotoHeader": "Go to Header",
+    "gotoFooter": "Go to Footer",
+    "options": "Options",
+    "navigation": "Navigation"
   },
   "notes": {
     "title": "Notes",

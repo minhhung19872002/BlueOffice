@@ -49,6 +49,28 @@ pub struct PageSlot {
     pub height: i32,
 }
 
+/// Wavy line colours of spelling (red) and grammar (blue) issues.
+const SPELL_RED: Rgba = Rgba(0xe8, 0x11, 0x23, 255);
+const SPELL_GRAMMAR: Rgba = Rgba(0x2b, 0x57, 0xd8, 255);
+
+/// A wavy line `w` long starting at (`x`, `y`): 2 px high, 4 px period at 100 % display scale.
+fn wavy(p: &mut dyn Painter, x: f32, y: f32, w: f32, scale: f32, color: Rgba) {
+    if w <= 0.0 {
+        return;
+    }
+    let step = (2.0 * scale).max(1.0);
+    let amp = (1.0 * scale).max(1.0);
+    let mut segs = vec![bo_render::PathSeg::M(x, y)];
+    let mut dx = 0.0;
+    let mut up = true;
+    while dx < w {
+        dx = (dx + step).min(w);
+        segs.push(bo_render::PathSeg::L(x + dx, if up { y - amp } else { y }));
+        up = !up;
+    }
+    p.path(&segs, None, Some((color, scale.max(1.0))));
+}
+
 /// The editing view of one document.
 pub struct DocView {
     engine: Engine,
@@ -79,6 +101,14 @@ pub struct DocView {
     selection: Option<bo_edit::Selection>,
     format: FormatState,
     words: usize,
+    /// Header, footer or note being edited (contextual Header & Footer tab).
+    story: Option<bo_engine::story::StoryState>,
+    /// Search results highlighted on the pages (navigation pane).
+    highlights: Vec<SelRect>,
+    /// Misspelt words and grammar issues under a wavy line (check as you type).
+    spell: Vec<bo_engine::spell::SpellMark>,
+    /// How tracked changes and comments are shown.
+    markup: bo_engine::markup::MarkupOptions,
 }
 
 impl DocView {
@@ -108,6 +138,10 @@ impl DocView {
             selection: None,
             format: FormatState::default(),
             words: 0,
+            story: None,
+            highlights: Vec::new(),
+            spell: Vec::new(),
+            markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
         Ok(view)
@@ -272,6 +306,253 @@ impl DocView {
             .find(|s| Some(s.index) == page)
             .or_else(|| slots.first())?;
         Some((slot.y as f32, slot.height as f32))
+    }
+
+    /// How tracked changes and comments are shown (Review › markup).
+    pub fn markup(&self) -> &bo_engine::markup::MarkupOptions {
+        &self.markup
+    }
+
+    /// Zoom that fits the caret's page across the view (Page Width), or the whole page in
+    /// it (One Page), with the page gap around it.
+    pub fn fit_zoom(&self, whole_page: bool) -> f32 {
+        let page = self
+            .caret
+            .and_then(|c| self.pages.get(c.page))
+            .or_else(|| self.pages.first());
+        let Some(page) = page else {
+            return self.zoom;
+        };
+        let per_zoom = self.display_scale * 96.0 / 72.0;
+        let gap = 2.0 * self.gap();
+        let across = (self.viewport.0 - gap).max(1.0) / (page.width * per_zoom);
+        let z = if whole_page {
+            across.min((self.viewport.1 - gap).max(1.0) / (page.height * per_zoom))
+        } else {
+            across
+        };
+        (z * 100.0).floor() / 100.0
+    }
+
+    /// The header, footer or note being edited, if any.
+    pub fn story(&self) -> Option<&bo_engine::story::StoryState> {
+        self.story.as_ref()
+    }
+
+    /// Run a picture tools command (`{"cmd": "picture…"}`) on the selected picture.
+    pub fn picture_command(&mut self, v: &serde_json::Value) -> bool {
+        let Some(cmd) = bo_engine::picture_tools::PictureCommand::parse(v) else {
+            return false;
+        };
+        match self.engine.doc_picture_command(cmd) {
+            Ok(r) => {
+                self.apply(&r);
+                self.caret_on = true;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Insert a picture file (`name` with its extension) at the selection.
+    pub fn insert_picture(&mut self, bytes: Vec<u8>, name: &str) -> bool {
+        match self.engine.insert_image(bytes, name) {
+            Ok(r) => {
+                let ok = r.error.is_none();
+                self.apply(&r);
+                self.caret_on = true;
+                self.reveal_caret();
+                ok
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Page and whether a window position is in its header (`true`) or footer (`false`)
+    /// area: above the top margin or below the bottom margin of the caret's section.
+    pub fn hf_zone(&self, x: f32, y: f32) -> Option<(usize, bool)> {
+        let slots = self.slots();
+        slots
+            .iter()
+            .find(|p| y >= p.y as f32 && y < (p.y + p.height) as f32)?;
+        let (page, _, py) = self.hit(x, y)?;
+        let height = self.pages.get(page)?.height;
+        let sec = &self.format.section;
+        if py < sec.margin_top as f32 / 20.0 {
+            Some((page, true))
+        } else if py > height - sec.margin_bottom as f32 / 20.0 {
+            Some((page, false))
+        } else {
+            None
+        }
+    }
+
+    /// Headings of the document (outline levels set), with their pages.
+    pub fn outline(&mut self) -> Vec<bo_engine::views::OutlineItem> {
+        self.engine
+            .command(Command::Outline)
+            .ok()
+            .and_then(|r| r.outline)
+            .unwrap_or_default()
+    }
+
+    /// Search the document for `query`: results with their context; the matches are
+    /// highlighted on the pages until [`DocView::clear_highlights`].
+    pub fn find_results(&mut self, query: &str) -> Vec<bo_engine::views::FindResult> {
+        let cmd = Command::FindResults {
+            query: query.to_owned(),
+            options: bo_edit::find::FindOptions::default(),
+        };
+        match self.engine.command(cmd) {
+            Ok(r) => {
+                self.highlights = r.highlights.clone().unwrap_or_default();
+                r.results.unwrap_or_default()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Check spelling and grammar of the whole document again (the engine caches checked
+    /// paragraphs); `true` when the wavy lines changed.
+    pub fn refresh_spelling(&mut self) -> bool {
+        let marks = self
+            .engine
+            .command(Command::Spelling { pages: None })
+            .ok()
+            .and_then(|r| r.spelling)
+            .unwrap_or_default();
+        let changed = marks != self.spell;
+        self.spell = marks;
+        changed
+    }
+
+    /// Wavy-line marks of the last spelling check.
+    pub fn spell_marks(&self) -> &[bo_engine::spell::SpellMark] {
+        &self.spell
+    }
+
+    /// Word Count figures of the document and of the selection (when there is one).
+    pub fn word_counts(&mut self) -> Option<bo_engine::word_count::WordCountInfo> {
+        let cmd = bo_engine::word_count::WordCountCommand::WordCount { notes: false };
+        self.engine
+            .doc_word_count(&cmd)
+            .ok()
+            .and_then(|r| r.word_count)
+    }
+
+    /// Spelling and grammar issues of the main text, in document order (proofing pane).
+    pub fn proof_issues(&mut self) -> Vec<bo_engine::proof::ProofIssue> {
+        self.engine
+            .command(Command::ProofCheck)
+            .ok()
+            .and_then(|r| r.proof)
+            .map(|p| {
+                p.issues
+                    .into_iter()
+                    .filter(|i| i.story == bo_edit::proofing::Story::Body)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Select bytes `start..end` of body paragraph `para` and show them.
+    pub fn select_range(&mut self, para: usize, start: usize, end: usize) -> bool {
+        let sel = bo_edit::Selection {
+            anchor: bo_edit::Pos {
+                para,
+                offset: start,
+            },
+            focus: bo_edit::Pos { para, offset: end },
+        };
+        self.edit(Command::SetSelection { selection: sel })
+    }
+
+    /// Number of spelling and grammar issues found by the last check.
+    pub fn proofing_issues(&self) -> usize {
+        self.spell.len()
+    }
+
+    /// The misspelt word or grammar issue at window point (`x`, `y`), with suggestions.
+    pub fn spell_at(&mut self, x: f32, y: f32) -> Option<bo_engine::spell::SpellInfo> {
+        let (page, px, py) = self.hit(x, y)?;
+        self.engine
+            .command(Command::SpellAt { page, x: px, y: py })
+            .ok()
+            .and_then(|r| r.spell)
+    }
+
+    /// Replace bytes `start..end` of body paragraph `para` by `text` (one undo step).
+    pub fn replace_range(&mut self, para: usize, start: usize, end: usize, text: &str) -> bool {
+        let sel = bo_edit::Selection {
+            anchor: bo_edit::Pos {
+                para,
+                offset: start,
+            },
+            focus: bo_edit::Pos { para, offset: end },
+        };
+        self.edit(Command::SetSelection { selection: sel })
+            && self.edit(Command::InsertText {
+                text: text.to_owned(),
+            })
+    }
+
+    /// Run a spelling command that ignores or adds a word, then refresh the wavy lines.
+    pub fn spell_word(&mut self, add: bool, word: &str) -> bool {
+        let word = word.to_owned();
+        let cmd = if add {
+            Command::SpellAddWord { word }
+        } else {
+            Command::SpellIgnore { word }
+        };
+        match self.engine.command(cmd) {
+            Ok(r) => {
+                self.spell = r.spelling.unwrap_or_default();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Remove the search highlights.
+    pub fn clear_highlights(&mut self) -> bool {
+        let had = !self.highlights.is_empty();
+        self.highlights.clear();
+        had
+    }
+
+    /// Put the caret at the start of body paragraph `para` and show it near the top.
+    pub fn goto_para(&mut self, para: usize) -> bool {
+        let at = bo_edit::Pos { para, offset: 0 };
+        let ok = self.edit(Command::SetSelection {
+            selection: bo_edit::Selection {
+                anchor: at,
+                focus: at,
+            },
+        });
+        if let Some(c) = self.caret {
+            if let Some(top) = self.page_tops().get(c.page).copied() {
+                self.scroll = top + c.y * self.scale() - self.gap();
+                self.clamp_scroll();
+            }
+        }
+        ok
+    }
+
+    /// Scroll so page `index` starts at the top of the view.
+    pub fn show_page(&mut self, index: usize) -> bool {
+        match self.page_tops().get(index).copied() {
+            Some(top) => {
+                self.scroll = top - self.gap();
+                self.clamp_scroll();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Body paragraph of the caret (the selection's focus).
+    pub fn caret_para(&self) -> Option<usize> {
+        self.selection.map(|s| s.focus.para)
     }
 
     /// Whether some text is selected (not just a caret).
@@ -631,9 +912,11 @@ impl DocView {
         if let Some(review) = &r.review {
             self.track = review.track_changes;
             self.comments.clone_from(&review.comments);
+            self.markup.clone_from(&review.markup);
         }
         self.selection = Some(r.selection);
         self.words = r.info.word_count;
+        self.story.clone_from(&r.story);
     }
 
     fn reveal_caret(&mut self) {
@@ -744,6 +1027,29 @@ impl DocView {
             );
             if self.shown.contains_key(&slot.index) {
                 p.page(slot.index, slot.x, slot.y);
+            }
+            // Wavy lines under misspelt words (red) and grammar issues (blue), as a desktop
+            // word processor checks as you type.
+            for m in self.spell.iter().filter(|m| m.page == slot.index) {
+                let color = if m.grammar { SPELL_GRAMMAR } else { SPELL_RED };
+                wavy(
+                    p,
+                    slot.x as f32 + m.x * s,
+                    (slot.y as f32 + m.y * s + 1.5 * self.display_scale).round(),
+                    m.w * s,
+                    self.display_scale,
+                    color,
+                );
+            }
+            // Search results (navigation pane) in a translucent highlighter yellow.
+            for r in self.highlights.iter().filter(|r| r.page == slot.index) {
+                p.fill_rect(
+                    slot.x as f32 + r.x * s,
+                    slot.y as f32 + r.y * s,
+                    r.w * s,
+                    r.h * s,
+                    Rgba(255, 238, 0, 110),
+                );
             }
             for r in self.rects.iter().filter(|r| r.page == slot.index) {
                 p.fill_rect(

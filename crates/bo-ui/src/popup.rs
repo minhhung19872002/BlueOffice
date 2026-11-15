@@ -105,6 +105,12 @@ impl Menu {
         m
     }
 
+    /// The entries (tests).
+    #[cfg(test)]
+    pub(crate) fn items(&self) -> &[MenuItem] {
+        &self.items
+    }
+
     /// Icons per item and separators before items, as in a desktop word processor's
     /// context menu.
     #[must_use]

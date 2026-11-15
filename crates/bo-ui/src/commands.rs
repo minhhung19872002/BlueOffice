@@ -76,11 +76,25 @@ pub fn static_id(id: &str) -> &'static str {
         "view.layout",
         "format.lineSpacing",
     ];
-    MENUS.iter().find(|m| **m == id).copied().unwrap_or("")
+    MENUS
+        .iter()
+        .find(|m| **m == id)
+        .copied()
+        .or_else(|| crate::doc_tools::static_id(id))
+        .unwrap_or("")
 }
 
 /// Commands the window handles itself (dialogs, view state, format painter, mail merge).
-pub const WINDOW: [&str; 22] = [
+pub const WINDOW: [&str; 31] = [
+    "layout.pageSetup",
+    "view.printLayout",
+    "view.webLayout",
+    "view.draft",
+    "view.onePage",
+    "view.pageWidth",
+    "review.spellingDialog",
+    "insert.picture",
+    "view.navigationPane",
     "format.fontSettings",
     "format.paragraphSettings",
     "review.deleteComment",
@@ -156,6 +170,9 @@ pub fn enabled(id: &str, f: &FormatState) -> bool {
         "edit.undo" => f.can_undo,
         "edit.redo" => f.can_redo,
         "edit.copy" | "edit.cut" | "edit.paste" | "file.save" => true,
+        _ if crate::doc_tools::enabled(id, f).is_some() => {
+            crate::doc_tools::enabled(id, f).unwrap_or(false)
+        }
         _ => {
             command(id).is_some()
                 || WINDOW.contains(&id)

@@ -459,7 +459,8 @@ fn cell_align_looks_and_select() {
     s.set_selection(Selection::caret(Pos::new(4, 0)));
     s.edit_table(&TableEdit::RowHeight { twips: Some(720) })
         .unwrap();
-    s.edit_table(&TableEdit::ColumnWidth { twips: 2000 }).unwrap();
+    s.edit_table(&TableEdit::ColumnWidth { twips: 2000 })
+        .unwrap();
     let st = s.format_state().table.expect("in a table");
     assert_eq!((st.row_height, st.col_width), (720, 2000));
     let t = table(&s);
@@ -471,5 +472,31 @@ fn cell_align_looks_and_select() {
     );
     s.edit_table(&TableEdit::RowHeight { twips: None }).unwrap();
     assert_eq!(s.format_state().table.map(|t| t.row_height), Some(0));
+    s.edit_table(&TableEdit::CellMargins {
+        left: 200,
+        right: 150,
+    })
+    .unwrap();
+    assert_eq!(
+        s.format_state().table.map(|t| t.cell_margin),
+        Some((200, 150))
+    );
+    // Split above the caret's row (row 1): two tables with a paragraph between.
+    s.set_selection(Selection::caret(Pos::new(4, 0)));
+    s.edit_table(&TableEdit::SplitTable).unwrap();
+    let blocks = &s.doc().sections[0].blocks;
+    let tables: Vec<usize> = blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Table(t) => Some(t.rows.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tables, [1, 2]);
+    assert!(matches!(blocks[1], Block::Paragraph(_)));
+    assert!(
+        s.format_state().table.is_none(),
+        "caret in the paragraph between"
+    );
     round_trip(&mut s, &original);
 }

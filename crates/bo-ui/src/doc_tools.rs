@@ -117,7 +117,7 @@ fn table_layout_tab() -> Tab {
             Group {
                 label: "ribbon.groups.table",
                 large: vec![],
-                rows: vec![vec![S("table.select")]],
+                rows: vec![vec![S("table.select")], vec![S("table.properties")]],
             },
             Group {
                 label: "ribbon.groups.rowsColumns",
@@ -131,7 +131,11 @@ fn table_layout_tab() -> Tab {
             Group {
                 label: "ribbon.groups.merge",
                 large: vec![],
-                rows: vec![vec![S("table.mergeCells")], vec![S("table.splitCell")]],
+                rows: vec![
+                    vec![S("table.mergeCells")],
+                    vec![S("table.splitCell")],
+                    vec![S("table.splitTable")],
+                ],
             },
             // Height / width boxes with the distribute buttons beside them, AutoFit under
             // them, as on the reference.
@@ -147,12 +151,13 @@ fn table_layout_tab() -> Tab {
             // Nine alignment buttons in three rows, then Text Direction (reference order).
             Group {
                 label: "ribbon.groups.cellAlignment",
-                large: vec![L("table.textDirection")],
+                large: vec![L("table.textDirection"), L("table.cellMargins")],
                 rows: vec![
                     vec![a(0), a(1), a(2)],
                     vec![a(3), a(4), a(5)],
                     vec![a(6), a(7), a(8)],
                 ],
+                // (Text Direction and Cell Margins follow the grid.)
             },
             // One Data menu, as on the reference.
             Group {
@@ -243,6 +248,8 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
         "table.data" => vec![
             e("table.headerRow", "docTable.repeatHeaderRows"),
             e("table.toText", "docTable.convertToText"),
+            e("table.sortAsc", "docTable.sortAsc"),
+            e("table.sortDesc", "docTable.sortDesc"),
         ],
         "table.select" => crate::doc_table::SELECT
             .iter()
@@ -386,6 +393,16 @@ pub(crate) fn command(
         "table.autoFitWindow" => table(&json!({ "kind": "autoFit", "mode": "window" })),
         "table.autoFitFixed" => table(&json!({ "kind": "autoFit", "mode": "fixed" })),
         "table.toText" => table(&json!({ "kind": "toText", "separator": "\t" })),
+        "table.splitTable" => table(&json!({ "kind": "splitTable" })),
+        // Sort the rows below the header row by the caret's column, as text.
+        "table.sortAsc" | "table.sortDesc" => {
+            let column = f.table.as_ref().map_or(0, |t| t.col);
+            table(&json!({
+                "kind": "sort",
+                "keys": [{ "column": column, "kind": "text", "descending": id == "table.sortDesc" }],
+                "header": f.table.as_ref().is_some_and(|t| t.header_row),
+            }))
+        }
         "table.headerRow" => {
             let on = !f.table.as_ref().is_some_and(|t| t.header_row);
             table(&json!({ "kind": "headerRow", "on": on }))
@@ -516,6 +533,7 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("picture.crop", "ribbon.docTools.crop"),
         ("picture.fill", "pictureTools.fill"),
         ("picture.fit", "pictureTools.fit"),
+        ("view.readMode", "docTable.readMode"),
     ] {
         copy(s, id, key);
     }
@@ -533,6 +551,9 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("table.textDirection", "format.wrap"),
         ("table.toText", "table.split"),
         ("table.data", "data.sortAsc"),
+        ("table.splitTable", "table.split"),
+        ("table.properties", "table.bordersAll"),
+        ("table.cellMargins", "layout.margins"),
         ("hf.gotoHeader", "insert.header"),
         ("hf.gotoFooter", "insert.footer"),
         ("hf.linkToPrevious", "insert.link"),

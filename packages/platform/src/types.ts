@@ -367,6 +367,8 @@ export interface TableState {
   rowHeight: number;
   /** Width of the caret's column in twips. */
   colWidth: number;
+  /** Default left / right cell margins in twips. */
+  cellMargin: [number, number];
 }
 
 /** §17.18.93 ST_TextDirection (transitional names). */
@@ -421,6 +423,8 @@ export type TableEdit =
   | { kind: 'select'; part: 'cell' | 'column' | 'row' | 'table' }
   | { kind: 'rowHeight'; twips: number | null }
   | { kind: 'columnWidth'; twips: number }
+  | { kind: 'splitTable' }
+  | { kind: 'cellMargins'; left: number; right: number }
   /** Separator: "\t", ",", "\n" (one paragraph per cell) or any text. */
   | { kind: 'toText'; separator: string }
   | { kind: 'fromText'; separator: string; cols?: number | null };

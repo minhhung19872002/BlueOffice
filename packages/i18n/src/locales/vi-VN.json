@@ -10665,6 +10665,12 @@
     "chartName": "Biểu đồ"
   },
   "docTable": {
+    "properties": "Thuộc tính",
+    "splitTable": "Tách bảng",
+    "cellMargins": "Lề ô",
+    "preferredWidth": "Chiều rộng mong muốn",
+    "sortAsc": "Sắp xếp A đến Z",
+    "sortDesc": "Sắp xếp Z đến A",
     "readMode": "Chế độ đọc",
     "rowHeight": "Chiều cao hàng",
     "colWidth": "Chiều rộng cột",

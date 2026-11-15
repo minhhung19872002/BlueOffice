@@ -175,6 +175,16 @@ pub enum TableEdit {
         /// New width.
         twips: i32,
     },
+    /// Split the table above the caret's row: the rows from it on become a second table
+    /// after an empty paragraph (at the first row, a paragraph goes before the table).
+    SplitTable,
+    /// Default left / right cell margins of the table in twips (§17.4.43 tblCellMar).
+    CellMargins {
+        /// Left margin.
+        left: i32,
+        /// Right margin.
+        right: i32,
+    },
     /// Select the caret's cell, column, row or the whole table.
     Select {
         /// `cell`, `column`, `row` or `table`.
@@ -634,6 +644,8 @@ impl Session {
             fixed_layout: t.props.fixed_layout,
             v_align: cell.props.v_align,
             row_height: row.props.height.map_or(0, |(h, _)| h.0),
+            // 0.19 cm (108 twips) when the table does not say: the usual default.
+            cell_margin: t.props.cell_margin.map_or((108, 108), |(l, r)| (l.0, r.0)),
             col_width: {
                 let g = starts(row).get(at.cell).copied().unwrap_or(0);
                 t.grid.iter().skip(g).take(span(cell)).map(|w| w.0).sum()
@@ -752,6 +764,41 @@ impl Session {
                 if let Some(why) = tools::sort_blocker(&old, lo, hi) {
                     return Err(EditError::Unsupported(why.into()));
                 }
+            }
+            TableEdit::SplitTable => {
+                let mut insert = Vec::new();
+                if r0 > 0 {
+                    let mut top = old.clone();
+                    top.rows.truncate(r0);
+                    insert.push(Block::Table(top));
+                }
+                insert.push(Block::Paragraph(Paragraph::default()));
+                let mut bottom = old.clone();
+                bottom.rows.drain(..r0);
+                // A vertical merge cannot continue across the split (§17.4.85 vMerge).
+                if let Some(first) = bottom.rows.first_mut() {
+                    for c in &mut first.cells {
+                        if c.props.v_merge == Some(VMerge::Continue) {
+                            c.props.v_merge = Some(VMerge::Restart);
+                        }
+                    }
+                }
+                insert.push(Block::Table(bottom));
+                let para_at = at.index + usize::from(r0 > 0);
+                let container = at.container.clone();
+                let index = at.index;
+                return self.edit(move |tx, _| {
+                    tx.push(Op::Blocks {
+                        path: container.clone(),
+                        index,
+                        remove: vec![Block::Table(old)],
+                        insert,
+                    })?;
+                    let mut path = container;
+                    path.push(para_at);
+                    let id = id_of(tx.doc, &path).ok_or(EditError::BadPath)?;
+                    Ok(Selection::caret(Pos::new(id, 0)))
+                });
             }
             TableEdit::Select { part } => {
                 let rows = old.rows.len().saturating_sub(1);
@@ -1110,6 +1157,9 @@ impl Session {
                 horizontal,
             } => tools::set_cell_align(&mut t, (r0, r1), (g0, g1), *vertical, *horizontal),
             TableEdit::RowHeight { twips } => tools::set_row_height(&mut t, r0, r1, *twips),
+            TableEdit::CellMargins { left, right } => {
+                t.props.cell_margin = Some((Twips((*left).max(0)), Twips((*right).max(0))));
+            }
             TableEdit::ColumnWidth { twips } => tools::set_column_width(&mut t, g0, g1, *twips),
             TableEdit::Look { preset, options } => {
                 if !tools::apply_look(&mut t, preset, *options) {
@@ -1118,7 +1168,10 @@ impl Session {
             }
             TableEdit::Wrap { around } => tools::set_wrap(&mut t, *around),
             // Handled before the table is copied.
-            TableEdit::ToText { .. } | TableEdit::FromText { .. } | TableEdit::Select { .. } => {}
+            TableEdit::ToText { .. }
+            | TableEdit::FromText { .. }
+            | TableEdit::Select { .. }
+            | TableEdit::SplitTable => {}
         }
         if !remove_table && t == old {
             return Ok(self.selection);

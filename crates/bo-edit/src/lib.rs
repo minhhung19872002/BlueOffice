@@ -553,6 +553,8 @@ pub struct TableState {
     pub cell_h_align: Alignment,
     /// Height of the caret's row in twips (§17.4.81 trHeight; 0 = automatic).
     pub row_height: i32,
+    /// Default left / right cell margins in twips (§17.4.43 tblCellMar).
+    pub cell_margin: (i32, i32),
     /// Width of the caret's cell's grid columns in twips (§17.4.48 gridCol).
     pub col_width: i32,
 }

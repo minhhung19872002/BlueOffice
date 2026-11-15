@@ -168,7 +168,14 @@ pub(crate) fn spin_press(
 /// Step a value being typed (Up / Down keys).
 pub(crate) fn spin_step(id: &str, text: &str, up: bool) -> Option<Command> {
     let v = parse_cm(text)?;
-    spin_command(id, if up { v + SPIN_STEP } else { (v - SPIN_STEP).max(0) })
+    spin_command(
+        id,
+        if up {
+            v + SPIN_STEP
+        } else {
+            (v - SPIN_STEP).max(0)
+        },
+    )
 }
 
 /// Draw the Cell Size boxes over their placeholders: a small icon, then the value (or
@@ -240,6 +247,9 @@ pub(crate) fn paint_spins(
     }
 }
 
+/// Table commands that open a dialog of the window (Properties, Cell Margins).
+pub(crate) const DIALOGS: [&str; 2] = ["table.properties", "table.cellMargins"];
+
 /// Header & Footer options drawn as check boxes.
 pub(crate) const HF_CHECKS: [&str; 2] = ["hf.differentFirst", "hf.differentOddEven"];
 
@@ -272,7 +282,7 @@ pub(crate) fn labeled_w(id: &str) -> Option<f32> {
 /// Large buttons placed after their group's rows: Text Direction follows the nine
 /// alignment buttons, as on the reference.
 pub(crate) fn trailing(id: &str) -> bool {
-    id == "table.textDirection"
+    matches!(id, "table.textDirection" | "table.cellMargins")
 }
 
 /// Width (logical px) of a gallery tile (the reference's step 108 px at 125 %).
@@ -387,6 +397,9 @@ pub(crate) fn install_strings(s: &mut Strings) {
         )
         .chain([
             ("table.select", "docTable.select"),
+            ("table.properties", "docTable.properties"),
+            ("table.splitTable", "docTable.splitTable"),
+            ("table.cellMargins", "docTable.cellMargins"),
             ("view.readMode", "docTable.readMode"),
             ("table.rowHeight", "docTable.rowHeight"),
             ("table.colWidth", "docTable.colWidth"),

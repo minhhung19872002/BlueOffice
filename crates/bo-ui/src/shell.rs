@@ -856,6 +856,56 @@ impl DocWindow {
                 ],
                 vec![],
             ),
+            DialogKind::TableProperties | DialogKind::CellMargins => {
+                let Some(t) = self.view.format().table.clone() else {
+                    return false;
+                };
+                let cm = |twips: i32| {
+                    format!("{:.2}", f64::from(twips) * 2.54 / 1440.0)
+                        .trim_end_matches('0')
+                        .trim_end_matches('.')
+                        .replace('.', ",")
+                };
+                let f = |key: &str, fallback: &str, v: String| {
+                    (format!("{} (cm)", self.t(key, fallback)), v)
+                };
+                let (title, fields) = if kind == DialogKind::TableProperties {
+                    let width = match (t.width_pct, t.width) {
+                        (None, w) if w > 0 => cm(w),
+                        _ => String::new(),
+                    };
+                    (
+                        self.t("docTable.properties", "Table Properties"),
+                        vec![
+                            f("docTable.preferredWidth", "Preferred width", width),
+                            f(
+                                "docTable.rowHeight",
+                                "Row height",
+                                if t.row_height > 0 {
+                                    cm(t.row_height)
+                                } else {
+                                    String::new()
+                                },
+                            ),
+                            f("docTable.colWidth", "Column width", cm(t.col_width)),
+                        ],
+                    )
+                } else {
+                    (
+                        self.t("docTable.cellMargins", "Cell Margins"),
+                        vec![
+                            f("pageSetup.left", "Left", cm(t.cell_margin.0)),
+                            f("pageSetup.right", "Right", cm(t.cell_margin.1)),
+                        ],
+                    )
+                };
+                (
+                    title,
+                    fields,
+                    vec![(ok, DialogButton::Ok), (cancel, DialogButton::Cancel)],
+                    vec![],
+                )
+            }
             DialogKind::PageSetup => {
                 let s = &self.view.format().section;
                 // Centimetres with two decimals at most, decimal comma.
@@ -1068,6 +1118,43 @@ impl DocWindow {
                     self.view.run_command(c);
                 }
             }
+            (DialogKind::TableProperties, DialogButton::Ok) => {
+                self.dialog = None;
+                let twips =
+                    |i: usize| parse_num(&v(i)).map(|cm| (cm * 1440.0 / 2.54).round() as i32);
+                let edits = [
+                    json!({ "kind": "properties", "width": twips(0).filter(|w| *w > 0) }),
+                    json!({ "kind": "rowHeight", "twips": twips(1).filter(|h| *h > 0) }),
+                ];
+                for e in edits {
+                    if let Some(c) = catalog::from_json(json!({ "cmd": "tableEdit", "edit": e })) {
+                        self.view.run_command(c);
+                    }
+                }
+                if let Some(c) = twips(2)
+                    .filter(|w| *w > 0)
+                    .and_then(|w| crate::doc_table::spin_command(crate::doc_table::SPINS[1], w))
+                {
+                    self.view.run_command(c);
+                }
+            }
+            (DialogKind::CellMargins, DialogButton::Ok) => {
+                self.dialog = None;
+                let t = self
+                    .view
+                    .format()
+                    .table
+                    .as_ref()
+                    .map_or((108, 108), |t| t.cell_margin);
+                let twips = |i: usize, old: i32| {
+                    parse_num(&v(i)).map_or(old, |cm| (cm * 1440.0 / 2.54).round() as i32)
+                };
+                let e =
+                    json!({ "kind": "cellMargins", "left": twips(0, t.0), "right": twips(1, t.1) });
+                if let Some(c) = catalog::from_json(json!({ "cmd": "tableEdit", "edit": e })) {
+                    self.view.run_command(c);
+                }
+            }
             (DialogKind::GoTo, DialogButton::Ok) => {
                 // Page numbers count from 1; "+n" / "-n" move from the current page.
                 let typed = v(0);
@@ -1087,7 +1174,12 @@ impl DocWindow {
                 }
             }
             (
-                DialogKind::Font | DialogKind::Paragraph | DialogKind::PageSetup | DialogKind::GoTo,
+                DialogKind::Font
+                | DialogKind::Paragraph
+                | DialogKind::PageSetup
+                | DialogKind::GoTo
+                | DialogKind::TableProperties
+                | DialogKind::CellMargins,
                 _,
             ) => {
                 self.dialog = None;
@@ -1383,6 +1475,8 @@ impl DocWindow {
             "review.spellingDialog" => self.open_spelling(),
             "layout.pageSetup" => self.open_dialog(DialogKind::PageSetup),
             "edit.goTo" => self.open_dialog(DialogKind::GoTo),
+            "table.properties" => self.open_dialog(DialogKind::TableProperties),
+            "table.cellMargins" => self.open_dialog(DialogKind::CellMargins),
             "view.printLayout" => self.action("view.layout.print"),
             "view.readMode" => self.action("view.layout.read"),
             "view.webLayout" => self.action("view.layout.web"),
@@ -2678,8 +2772,6 @@ impl DocWindow {
 
     /// Paint `paint` through cached layer `id` over `rect` (window pixels): the backend
     /// keeps its image and draws it again while the drawing it records hashes the same.
-    // A method so callers read like the other paint helpers; it needs no window state.
-    #[allow(clippy::unused_self)]
     fn layered(
         p: &mut dyn Painter,
         id: usize,

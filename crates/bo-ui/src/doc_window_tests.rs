@@ -263,6 +263,7 @@ fn every_contextual_button_has_a_label_an_icon_and_a_command() {
                 );
                 assert!(
                     catalog::is_menu(id)
+                        || crate::doc_table::DIALOGS.contains(&id)
                         || doc_tools::command(
                             id,
                             &format,

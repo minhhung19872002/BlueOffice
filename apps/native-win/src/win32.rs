@@ -88,6 +88,8 @@ thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
     static HIGH_SURROGATE: Cell<u16> = const { Cell::new(0) };
     static LAST_DOUBLE: Cell<(u32, i32, i32)> = const { Cell::new((0, 0, 0)) };
+    /// Window placement before going full screen (slide show), while full screen.
+    static FULL_SCREEN: Cell<Option<(isize, RECT, bool)>> = const { Cell::new(None) };
 }
 
 /// WM_MOUSELEAVE (WinUser.h); not exported by this module of the bindings.
@@ -212,6 +214,8 @@ fn key(vk: u16, m: Mods) -> Option<Key> {
         VK_RETURN => Key::Enter,
         VK_TAB => Key::Tab,
         VK_ESCAPE => Key::Escape,
+        // VK_F1..VK_F12
+        _ if (0x70..=0x7B).contains(&vk) => Key::F((vk - 0x70 + 1) as u8),
         // Ctrl+letter shortcuts; plain letters arrive as text (WM_CHAR).
         _ if m.ctrl && (0x41..=0x5A).contains(&vk) => {
             Key::Letter(char::from(vk as u8).to_ascii_lowercase())
@@ -305,6 +309,68 @@ fn window_request(hwnd: HWND, r: &Request) {
             }
             Request::Close => {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            Request::FullScreen(on) => full_screen(hwnd, *on),
+            _ => {}
+        }
+    }
+}
+
+/// Cover the window's monitor without frame (slide show), or restore the window.
+fn full_screen(hwnd: HWND, on: bool) {
+    use windows::Win32::Graphics::Gdi::MONITOR_DEFAULTTONEAREST;
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW, GWL_STYLE, HWND_TOP, WS_POPUP,
+    };
+    // SAFETY: plain window operations on this thread's window; the structures are
+    // initialised and outlive the calls.
+    unsafe {
+        match (on, FULL_SCREEN.with(Cell::get)) {
+            (true, None) => {
+                let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+                let mut r = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut r);
+                FULL_SCREEN.with(|c| c.set(Some((style, r, IsZoomed(hwnd).as_bool()))));
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                if !GetMonitorInfoW(mon, &mut info).as_bool() {
+                    return;
+                }
+                let m = info.rcMonitor;
+                SetWindowLongPtrW(
+                    hwnd,
+                    GWL_STYLE,
+                    (style & !(WS_OVERLAPPEDWINDOW.0 as isize)) | WS_POPUP.0 as isize,
+                );
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOP),
+                    m.left,
+                    m.top,
+                    m.right - m.left,
+                    m.bottom - m.top,
+                    SWP_FRAMECHANGED,
+                );
+            }
+            (false, Some((style, r, zoomed))) => {
+                FULL_SCREEN.with(|c| c.set(None));
+                SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    SWP_FRAMECHANGED | SWP_NOZORDER,
+                );
+                if zoomed {
+                    let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+                }
             }
             _ => {}
         }
@@ -550,6 +616,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_ERASEBKGND => LRESULT(1),
+        // Full screen: the client area is the whole window.
+        WM_NCCALCSIZE if wparam.0 != 0 && FULL_SCREEN.with(Cell::get).is_some() => LRESULT(0),
         WM_NCCALCSIZE if wparam.0 != 0 => {
             // The client area covers the title bar (drawn by the interface); the resize frame
             // stays non-client on the left, right and bottom, and off-screen when maximised.
@@ -567,6 +635,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             LRESULT(0)
         }
+        WM_NCHITTEST if FULL_SCREEN.with(Cell::get).is_some() => LRESULT(HTCLIENT as isize),
         WM_NCHITTEST => {
             // SAFETY: default processing of this window's own message.
             let def = unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };

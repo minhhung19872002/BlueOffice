@@ -123,6 +123,24 @@
     "comingLater": "Sẽ có ở phiên bản sau"
   },
   "commands": {
+    "slide": {
+      "new": "Trang chiếu mới",
+      "layout": "Bố cục",
+      "duplicate": "Nhân bản trang chiếu",
+      "delete": "Xoá trang chiếu"
+    },
+    "show": {
+      "fromStart": "Từ đầu",
+      "fromCurrent": "Từ trang chiếu hiện tại"
+    },
+    "arrange": {
+      "front": "Đưa lên trên cùng",
+      "back": "Đưa xuống dưới cùng",
+      "forward": "Đưa lên một lớp",
+      "backward": "Đưa xuống một lớp",
+      "group": "Nhóm",
+      "ungroup": "Bỏ nhóm"
+    },
     "cells": {
       "insert": "Chèn ô…",
       "delete": "Xoá ô…",
@@ -280,6 +298,10 @@
       "paragraphSettings": "Thiết lập đoạn văn"
     },
     "insert": {
+      "rect": "Hình chữ nhật",
+      "ellipse": "Hình bầu dục",
+      "triangle": "Hình tam giác",
+      "arrow": "Mũi tên",
       "table": "Bảng",
       "image": "Ảnh",
       "pageBreak": "Ngắt trang",
@@ -336,6 +358,8 @@
       "breaks": "Ngắt"
     },
     "view": {
+      "notes": "Ghi chú",
+      "fitSlide": "Vừa cửa sổ",
       "zoomIn": "Phóng to",
       "zoomOut": "Thu nhỏ",
       "zoomReset": "100%",

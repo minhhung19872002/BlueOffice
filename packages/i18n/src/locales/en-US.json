@@ -123,6 +123,24 @@
     "comingLater": "Coming in a later release"
   },
   "commands": {
+    "slide": {
+      "new": "New Slide",
+      "layout": "Layout",
+      "duplicate": "Duplicate Slide",
+      "delete": "Delete Slide"
+    },
+    "show": {
+      "fromStart": "From Beginning",
+      "fromCurrent": "From Current Slide"
+    },
+    "arrange": {
+      "front": "Bring to Front",
+      "back": "Send to Back",
+      "forward": "Bring Forward",
+      "backward": "Send Backward",
+      "group": "Group",
+      "ungroup": "Ungroup"
+    },
     "cells": {
       "insert": "Insert cells…",
       "delete": "Delete cells…",
@@ -280,6 +298,10 @@
       "paragraphSettings": "Paragraph settings"
     },
     "insert": {
+      "rect": "Rectangle",
+      "ellipse": "Oval",
+      "triangle": "Triangle",
+      "arrow": "Arrow",
       "table": "Table",
       "image": "Picture",
       "pageBreak": "Page break",
@@ -336,6 +358,8 @@
       "breaks": "Breaks"
     },
     "view": {
+      "notes": "Notes",
+      "fitSlide": "Fit to Window",
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "zoomReset": "100%",

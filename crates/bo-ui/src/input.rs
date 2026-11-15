@@ -31,6 +31,8 @@ pub enum Key {
     Escape,
     /// A letter key with Ctrl (shortcuts: `'a'`, `'z'`, `'y'`, …), lower case.
     Letter(char),
+    /// Function key F1–F12 (`F(5)` starts the slide show).
+    F(u8),
 }
 
 /// Modifier keys held during an event.

@@ -51,6 +51,8 @@ pub enum Request {
     ToggleMaximize,
     /// Close the window.
     Close,
+    /// Cover the whole screen without window frame (slide show), or go back.
+    FullScreen(bool),
 }
 
 /// Window contents of BlueDoc.

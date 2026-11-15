@@ -55,6 +55,8 @@ pub struct TitleBar {
     name_w: f32,
     hover: Option<(NcHit, Option<&'static str>)>,
     pressed: Option<&'static str>,
+    /// App name and its mark icon (BlueDoc unless set).
+    app: (&'static str, &'static str),
 }
 
 impl Default for TitleBar {
@@ -77,7 +79,13 @@ impl TitleBar {
             name_w: 0.0,
             hover: None,
             pressed: None,
+            app: ("BlueDoc", "app.doc"),
         }
+    }
+
+    /// Show another app's name and mark (`"BlueSlide"`, `"app.slide"`).
+    pub fn set_app(&mut self, name: &'static str, mark: &'static str) {
+        self.app = (name, mark);
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -115,7 +123,7 @@ impl TitleBar {
                 h,
             };
         }
-        let app = text.measure("BlueDoc", self.style(true)).0;
+        let app = text.measure(self.app.0, self.style(true)).0;
         let mut x = self.px(40.0) + app + self.px(12.0);
         let size = self.px(30.0);
         self.quick = QUICK
@@ -222,7 +230,7 @@ impl TitleBar {
         let mark = self.px(20.0);
         icons.draw(
             p,
-            "app.doc",
+            self.app.1,
             self.px(12.0),
             ((h - mark) / 2.0).round(),
             mark,
@@ -230,7 +238,7 @@ impl TitleBar {
         );
         let line = self.style(false).size * 1.33;
         let ty = ((h - line) / 2.0).round();
-        p.text("BlueDoc", self.px(40.0), ty, self.style(true), t.text);
+        p.text(self.app.0, self.px(40.0), ty, self.style(true), t.text);
         for (id, r) in &self.quick {
             let enabled = match *id {
                 "file.save" => modified,

@@ -8653,6 +8653,9 @@
     "today": "Hôm nay"
   },
   "sheetMenu": {
+    "modeEnter": "Nhập",
+    "modeEdit": "Sửa",
+    "modePoint": "Trỏ",
     "tabFormulas": "Công thức",
     "groupFunctions": "Thư viện hàm",
     "groupCalculation": "Tính toán",

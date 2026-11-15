@@ -8653,6 +8653,9 @@
     "today": "Today"
   },
   "sheetMenu": {
+    "modeEnter": "Enter",
+    "modeEdit": "Edit",
+    "modePoint": "Point",
     "tabFormulas": "Formulas",
     "groupFunctions": "Function library",
     "groupCalculation": "Calculation",

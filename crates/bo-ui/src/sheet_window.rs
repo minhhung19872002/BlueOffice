@@ -11,6 +11,8 @@ use commands_impl::SheetDialog;
 
 #[path = "sheet_commands.rs"]
 mod commands_impl;
+#[path = "sheet_fbar.rs"]
+mod fbar_impl;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -208,6 +210,14 @@ pub struct SheetWindow {
     dialog: Option<(SheetDialog, Dialog)>,
     /// Formula bar shown (View tab).
     show_fbar: bool,
+    /// The ribbon shows the wide arrangement of the Home tab (it fits the window).
+    wide_ribbon: bool,
+    /// Lines of the formula bar's content box (1, or 3 when expanded).
+    fbar_lines: u32,
+    /// The name box while a reference or name is typed into it.
+    name_edit: Option<fbar_impl::NameEdit>,
+    /// Measured widths of name box text being typed.
+    name_widths: Vec<(String, f32)>,
 }
 
 impl SheetWindow {
@@ -222,7 +232,14 @@ impl SheetWindow {
             },
             name: name.to_owned(),
             requests: Vec::new(),
-            ribbon: Ribbon::with_tabs(sheet_ribbon::tabs()).with_enabled(sheet_enabled),
+            ribbon: Ribbon::with_tabs(sheet_ribbon::tabs_wide())
+                .with_enabled(sheet_enabled)
+                .with_labeled_widths(|id| {
+                    (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
+                })
+                .with_trailing(sheet_ribbon::trailing)
+                .with_two_line_labels(),
+            wide_ribbon: true,
             theme: Theme::light("sheet"),
             icons: Icons::load(),
             strings: Strings::load(locale),
@@ -249,6 +266,9 @@ impl SheetWindow {
             functions: Vec::new(),
             dialog: None,
             show_fbar: true,
+            fbar_lines: 1,
+            name_edit: None,
+            name_widths: Vec::new(),
         };
         w.load_functions();
         w
@@ -303,7 +323,7 @@ impl SheetWindow {
     /// Formula bar band height (54 px at 125 %, boxes 30 px high, 12 px above and below).
     fn fbar_h(&self) -> f32 {
         if self.show_fbar {
-            self.px(43.2)
+            self.px(43.2) + self.fbar_extra()
         } else {
             0.0
         }
@@ -360,8 +380,28 @@ impl SheetWindow {
         self.title
             .layout(text, &self.strings, &self.name, self.size.0, self.scale);
         let top = self.title.height();
-        self.ribbon
-            .layout(text, &self.strings, self.size.0, self.scale, top);
+        // The wide Home arrangement when it fits, else the compact one (as the reference
+        // ribbon shrinks its groups with the window).
+        for wide in [true, false] {
+            if self.wide_ribbon != wide {
+                self.wide_ribbon = wide;
+                self.ribbon.set_tabs(if wide {
+                    sheet_ribbon::tabs_wide()
+                } else {
+                    sheet_ribbon::tabs()
+                });
+                self.ribbon.set_labeled_widths(if wide {
+                    |id| (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
+                } else {
+                    |id| (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(false))
+                });
+            }
+            self.ribbon
+                .layout(text, &self.strings, self.size.0, self.scale, top);
+            if !self.ribbon.overflows() {
+                break;
+            }
+        }
         let (w, h) = self.size;
         let gt = self.grid_top();
         let tabs_y = h - self.status_h() - self.tabs_h();
@@ -373,7 +413,12 @@ impl SheetWindow {
         let bh = self.px(24.0);
         self.name_rect = [self.px(4.8), fb + pad, self.px(101.6), bh];
         let fx_x = self.px(248.0);
-        self.fx_rect = [fx_x, fb + pad, (w - fx_x - self.px(4.8)).max(1.0), bh];
+        self.fx_rect = [
+            fx_x,
+            fb + pad,
+            (w - fx_x - self.px(4.8)).max(1.0),
+            bh + self.fbar_extra(),
+        ];
         // Sheet tabs.
         self.layout_tabs(text);
         // Status bar zoom controls, right to left.
@@ -842,7 +887,10 @@ impl SheetWindow {
         match c {
             Choice::Font(name) => self.patch(json!({ "fontName": name })),
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
-            Choice::Command(id) => self.action(&id, text),
+            Choice::Command(id) => match id.strip_prefix("goto.") {
+                Some(name) => self.go_to(name),
+                None => self.action(&id, text),
+            },
             Choice::Style(_) => false,
         }
     }
@@ -933,6 +981,7 @@ impl SheetWindow {
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
+        self.measure_name(text);
         redraw
     }
 
@@ -975,6 +1024,9 @@ impl SheetWindow {
             if let Some(r) = self.menu_input(&input, text) {
                 return r;
             }
+        }
+        if let Some(r) = self.name_input(&input) {
+            return r;
         }
         let tip_before = self.tooltip.is_some();
         if matches!(
@@ -1122,8 +1174,12 @@ impl SheetWindow {
                 return false;
             }
         }
-        // Formula bar: a click in the content box edits the active cell there.
+        // Formula bar: name box (typed go-to, list of names), expand button; a click in the
+        // content box edits the active cell there.
         if let Input::Press { x, y, .. } = input {
+            if let Some(r) = self.fbar_press(x, y, text) {
+                return r;
+            }
             if Self::in_rect(self.fx_rect, x, y) {
                 if !self.view.editing() {
                     self.view.edit_cell(text);
@@ -1366,6 +1422,16 @@ impl SheetWindow {
         };
         boxed(p, self.name_rect);
         boxed(p, self.fx_rect);
+        // Box around the cancel / enter / function marks (measured 137 × 30 px at 125 %).
+        boxed(
+            p,
+            [
+                self.px(136.0),
+                self.name_rect[1],
+                self.px(109.6),
+                self.name_rect[3],
+            ],
+        );
         let style = self.ui_style();
         let line = style.size * 1.33;
         let n = self.name_rect;
@@ -1423,11 +1489,24 @@ impl SheetWindow {
         let f = self.fx_rect;
         let tx = f[0] + self.px(5.0);
         let ty = (f[1] + (f[3] - line) / 2.0).round();
-        p.push_clip(f[0] + 1.0, f[1] + 1.0, f[2] - 2.0, f[3] - 2.0);
+        p.push_clip(
+            f[0] + 1.0,
+            f[1] + 1.0,
+            f[2] - 2.0 - self.px(16.0),
+            f[3] - 2.0,
+        );
+        // One line, or as many as the expanded bar shows (19.2 pt pitch, measured).
         let content = self.view.formula_text();
-        let shown = content.lines().next().unwrap_or("");
-        p.text(shown, tx, ty, style, self.theme.text);
+        for (i, shown) in content
+            .lines()
+            .take(self.fbar_lines.max(1) as usize)
+            .enumerate()
+        {
+            let y = ty + i as f32 * self.px(19.2);
+            p.text(shown, tx, y, style, self.theme.text);
+        }
         p.pop_clip();
+        self.paint_fbar_parts(p);
     }
 
     /// Scroll bars as measured: #E6E6E6 column, white arrow boxes framed in #949494 with
@@ -1601,11 +1680,11 @@ impl SheetWindow {
         p.fill_rect(0.0, y - 1.0, w, 1.0, STATUS_EDGE);
         let style = self.ui_style();
         let ty = (y + (sh - style.size * 1.33) / 2.0).round();
-        let mode = if self.view.editing() {
-            if self.view.formula_caret().is_some() {
-                self.t("statusBar.enter", "Enter")
-            } else {
-                self.t("statusBar.edit", "Edit")
+        let mode = if let Some(m) = self.view.edit_mode() {
+            match m {
+                "point" => self.t("sheetMenu.modePoint", "Point"),
+                "edit" => self.t("sheetMenu.modeEdit", "Edit"),
+                _ => self.t("sheetMenu.modeEnter", "Enter"),
             }
         } else if !self.status.is_empty() {
             self.status.clone()

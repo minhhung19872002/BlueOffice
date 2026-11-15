@@ -442,6 +442,63 @@ fn home() -> Tab {
     }
 }
 
+/// Home tab of a wide window (the reference at 1800 px and more): number format box 196 px
+/// over one row of number buttons, large style buttons, and Sort & Filter / Find & Select as
+/// large buttons after the editing icon column.
+fn home_wide() -> Tab {
+    use Item::{Button as B, Labeled as S, Large as L};
+    let mut t = home();
+    for g in &mut t.groups {
+        match g.label {
+            "sheetEditor.groupNumber" => {
+                g.rows = vec![
+                    vec![S("sheet.numberFormat")],
+                    vec![
+                        B("format.currency"),
+                        B("format.percent"),
+                        B("format.comma"),
+                        B("format.decimalInc"),
+                        B("format.decimalDec"),
+                    ],
+                ];
+            }
+            "sheetEditor.groupStyles" => {
+                g.large = vec![
+                    L("sheet.conditional"),
+                    L("sheet.formatTable"),
+                    L("sheet.cellStyles"),
+                ];
+                g.rows = Vec::new();
+            }
+            "sheetEditor.groupEditing" => {
+                g.large = vec![L("sheet.sortFilter"), L("sheet.findSelect")];
+                g.rows = vec![
+                    vec![B("sheet.autoSum")],
+                    vec![B("sheet.fill")],
+                    vec![B("sheet.clear")],
+                ];
+            }
+            _ => {}
+        }
+    }
+    t
+}
+
+/// Number format box width (logical px): 121 px at 125 % on a compact ribbon, 196 px on a
+/// wide one (measured).
+pub(crate) fn number_box_width(wide: bool) -> f32 {
+    if wide {
+        156.8
+    } else {
+        96.8
+    }
+}
+
+/// Large buttons placed after their group's rows.
+pub(crate) fn trailing(id: &str) -> bool {
+    matches!(id, "sheet.sortFilter" | "sheet.findSelect")
+}
+
 fn insert() -> Tab {
     use Item::{Labeled as S, Large as L};
     Tab {
@@ -545,6 +602,13 @@ fn view() -> Tab {
 /// The ribbon tabs of BlueSheet.
 pub(crate) fn tabs() -> Vec<Tab> {
     vec![home(), insert(), formulas(), data(), view()]
+}
+
+/// The tabs of a wide window (Home with large buttons).
+pub(crate) fn tabs_wide() -> Vec<Tab> {
+    let mut t = tabs();
+    t[0] = home_wide();
+    t
 }
 
 /// Every command id on BlueSheet's tabs (enabled rule, label check).

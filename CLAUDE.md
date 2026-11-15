@@ -6,7 +6,7 @@ WASM (web) + native (Tauri desktop, server worker), một UI React dùng chung.
 Kiến trúc: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Tiến độ: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Kế hoạch: `docs/plan/phase-N.md`.
 
 ## Quy tắc đặt tên (bắt buộc, ADR-0006)
-- Họ sản phẩm: **BlueDrive · BlueDoc · BlueSheet · BlueSlide**; giai đoạn sau: **BlueForm**, **BlueNote** (không có "s" ở cuối).
+- Họ sản phẩm: **BlueDrive · BlueDoc · BlueSheet · BlueSlide · BlueReader · BlueEditor** (PDF: đọc / biên tập, ADR-0006 bổ sung 2026-11-15); giai đoạn sau: **BlueForm**, **BlueNote** (không có "s" ở cuối).
 - Tên hiển thị: "BlueDoc – Soạn thảo văn bản", "BlueSheet – Bảng tính", "BlueSlide – Trình chiếu".
 - App id: `doc` / `sheet` / `slide`; route web `/doc` `/sheet` `/slide` (route cũ chuyển hướng); desktop `vn.bluestar.bluedoc|bluesheet|blueslide`; deep link `bluedoc://` `bluesheet://` `blueslide://`.
 - KHÔNG dùng tên, nhãn hiệu, icon hay màu nhận diện của Microsoft hoặc Google (Word, Excel, PowerPoint, Office, Google Docs/Sheets/Slides/Drive) làm tên sản phẩm, tính năng hay icon. Chỉ nhắc dạng mô tả tương thích: "Tương thích định dạng Microsoft Word (.docx)".

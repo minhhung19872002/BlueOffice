@@ -244,7 +244,7 @@ pub struct SlideWindow {
     tooltip: Option<(String, f32, [f32; 4])>,
     backstage: Option<Backstage>,
     /// Status bar: notes toggle, zoom minus, slider track, plus, percentage, fit button.
-    status: [[f32; 4]; 6],
+    status: [[f32; 4]; 10],
     zoom_drag: bool,
     /// The pointer went down in the editing area.
     area_press: bool,
@@ -286,7 +286,7 @@ impl SlideWindow {
             rest: 0,
             tooltip: None,
             backstage: None,
-            status: [[0.0; 4]; 6],
+            status: [[0.0; 4]; 10],
             zoom_drag: false,
             area_press: false,
             relayout_pending: false,
@@ -380,16 +380,28 @@ impl SlideWindow {
         let (w, h) = self.size;
         let y = h - sh + 1.0;
         let sh = sh - 1.0;
-        let fit = [w - self.px(28.0), y, self.px(24.0), sh];
-        let pct = [fit[0] - self.px(46.0), y, self.px(44.0), sh];
-        let plus = [pct[0] - self.px(22.0), y, self.px(20.0), sh];
-        let track = [plus[0] - self.px(124.0), y, self.px(122.0), sh];
-        let minus = [track[0] - self.px(22.0), y, self.px(20.0), sh];
+        // Positions from the window's right edge measured on the reference at 125 %
+        // (logical px): fit button centre 13.6, percentage 61.6, plus centre 80, slider track
+        // 89.6–211.2, minus centre 220, view buttons 37.6 wide ending at 253.6.
+        let at = |v: f32| w - v * self.scale;
+        let box_at =
+            |c: f32, half: f32| [at(c) - half * self.scale, y, 2.0 * half * self.scale, sh];
+        let fit = box_at(13.6, 11.0);
+        let pct = [at(61.6), y, at(13.6 + 11.0) - at(61.6), sh];
+        let plus = box_at(80.0, 9.0);
+        let track = [at(211.2).round(), y, (121.6 * self.scale).round(), sh];
+        let minus = box_at(220.0, 9.0);
+        let bw = 37.6 * self.scale;
+        let views: Vec<[f32; 4]> = (0..4)
+            .map(|i| [(at(253.6) - (4 - i) as f32 * bw).round(), y, bw.round(), sh])
+            .collect();
         let label = self.t("slideEditor.notes", "Notes");
         let style = self.status_style();
         let nw = text.measure(&label, style).0 + self.px(30.0);
-        let notes = [minus[0] - self.px(160.0) - nw, y, nw, sh];
-        self.status = [notes, minus, track, plus, pct, fit];
+        let notes = [views[0][0] - self.px(150.0) - nw, y, nw, sh];
+        self.status = [
+            notes, minus, track, plus, pct, fit, views[0], views[1], views[2], views[3],
+        ];
         self.text_size = (12.0 * self.scale).round();
         self.view.measure_notes(text, self.text_size);
     }
@@ -775,6 +787,8 @@ impl SlideWindow {
                         self.view.set_zoom(None);
                         true
                     }
+                    // Normal view is the only one so far; the last button presents.
+                    Some(9) => self.action("show.fromCurrent"),
                     _ => false,
                 }
             }
@@ -908,23 +922,49 @@ impl SlideWindow {
             .replace("{{n}}", &(self.view.current() + 1).to_string())
             .replace("{{total}}", &self.view.slide_count().to_string());
         p.text(&counter, self.px(11.0), ty, style, ink);
-        let [notes, minus, track, plus, pct, fit] = self.status;
-        if self.view.notes_shown() {
-            p.fill_rect(notes[0], notes[1], notes[2], notes[3], self.theme.active);
-        }
+        let [notes, minus, track, plus, pct, fit, normal, ..] = self.status;
         let icon = self.px(16.0);
+        let colors = IconColors {
+            ink,
+            accent: self.theme.accent,
+            on: self.theme.accent_on,
+            tinted: true,
+        };
+        // View buttons: the current one (normal) on a grey band, as on the reference.
+        p.fill_rect(
+            normal[0],
+            normal[1],
+            normal[2],
+            normal[3],
+            bo_render::Rgba(0xc6, 0xc6, 0xc6, 255),
+        );
+        for (i, name) in [
+            "view.normal",
+            "view.sorter",
+            "view.reading",
+            "show.fromStart",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let r = self.status[6 + i];
+            self.icons.draw(
+                p,
+                name,
+                (r[0] + (r[2] - icon) / 2.0).round(),
+                (r[1] + (r[3] - icon) / 2.0).round(),
+                icon,
+                colors,
+            );
+        }
+        // The notes toggle is a plain icon and label (no band), as on the reference.
         self.icons.draw(
             p,
-            "view.normal",
+            "format.lineSpacing",
             notes[0] + self.px(4.0),
             (notes[1] + (notes[3] - icon) / 2.0).round(),
             icon,
-            IconColors {
-                ink,
-                accent: self.theme.accent,
-                on: self.theme.accent_on,
-                tinted: true,
-            },
+            colors,
         );
         p.text(
             &self.t("slideEditor.notes", "Notes"),
@@ -941,13 +981,15 @@ impl SlideWindow {
         p.fill_rect((qx - k).round(), qy.round(), 2.0 * k, line, ink);
         p.fill_rect(qx.round(), (qy - k).round(), line, 2.0 * k, ink);
         let ty2 = (track[1] + track[3] / 2.0).round();
-        p.fill_rect(track[0], ty2, track[2], line, self.theme.border);
+        // Track and 100 % tick in the text colour (reference: 38).
+        let groove = bo_render::Rgba(0x26, 0x26, 0x26, 255);
+        p.fill_rect(track[0], ty2, track[2], line, groove);
         p.fill_rect(
             (track[0] + track[2] / 2.0).round(),
-            ty2 - k,
+            ty2 - k / 2.0,
             line,
-            2.0 * k + line,
-            self.theme.border,
+            k + line,
+            groove,
         );
         let thumb = self.slider_pos();
         p.fill_rect(
@@ -958,7 +1000,7 @@ impl SlideWindow {
             ink,
         );
         let zoom = format!("{}%", (self.view.zoom() * 100.0).round() as i32);
-        p.text(&zoom, pct[0] + self.px(4.0), ty, style, ink);
+        p.text(&zoom, pct[0], ty, style, ink);
         // Fit to window: a frame with arrows out to its corners (own drawing).
         let (cx, cy) = (fit[0] + fit[2] / 2.0, fit[1] + fit[3] / 2.0);
         let r = self.px(6.0);
@@ -973,12 +1015,7 @@ impl SlideWindow {
             PathSeg::M(cx, cy - r + self.px(3.0)),
             PathSeg::L(cx, cy + r - self.px(3.0)),
         ];
-        let tint = if self.view.fits() {
-            self.theme.accent
-        } else {
-            ink
-        };
-        p.path(&segs, None, Some((tint, line)));
+        p.path(&segs, None, Some((ink, line)));
     }
 
     /// Whether the slide show is running (the host shows the window full screen).

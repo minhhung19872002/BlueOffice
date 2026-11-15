@@ -35,7 +35,7 @@ const PLACEHOLDER_EDGE: Rgba = Rgba(0x9a, 0x9a, 0x9a, 255);
 /// Smart guides while moving shapes.
 const GUIDE: Rgba = Rgba(0xd2, 0x4a, 0x26, 255);
 const CARET: Rgba = Rgba(0, 0, 0, 255);
-const NOTES_HINT: Rgba = Rgba(0x5f, 0x5f, 0x5f, 255);
+const NOTES_HINT: Rgba = Rgba(0x52, 0x52, 0x52, 255);
 const BLACK: Rgba = Rgba(0, 0, 0, 255);
 /// BlueSlide accent (tokens.json `slide` accent): selected thumbnail frame and number.
 pub const ACCENT: Rgba = Rgba(0xc2, 0x18, 0x5b, 255);
@@ -224,6 +224,8 @@ pub struct SlideView {
     labels: (String, String),
     /// Advance of the notes text before the caret on its line (device pixels).
     notes_caret_x: f32,
+    /// Width of one digit of the thumbnail numbers (device pixels).
+    digit_w: f32,
 }
 
 impl SlideView {
@@ -255,6 +257,7 @@ impl SlideView {
             window: (800.0, 600.0),
             labels: ("Click to add notes".into(), "End of slide show".into()),
             notes_caret_x: 0.0,
+            digit_w: 10.0,
         };
         if view.engine.slide_count() == 0 {
             return Err("no slides".into());
@@ -372,7 +375,7 @@ impl SlideView {
 
     /// Size of the notes text (device pixels) for a UI text size.
     pub fn notes_size(text_size: f32) -> f32 {
-        (text_size * 1.25).round()
+        (text_size * 1.29).round()
     }
 
     /// Measure the notes caret position with the platform's text engine.
@@ -385,6 +388,15 @@ impl SlideView {
             bold: false,
         };
         self.notes_caret_x = text.measure(col, style).0;
+        self.digit_w = text.measure("0", self.number_style()).0;
+    }
+
+    /// Thumbnail numbers: digits 16 px tall at 125 % on the reference.
+    fn number_style(&self) -> TextStyle {
+        TextStyle {
+            size: (16.8 * self.display_scale).round(),
+            bold: false,
+        }
     }
 
     /// Forget cached images after the host's text rendering changed.
@@ -936,6 +948,9 @@ impl SlideView {
                 delta: if m.shift { -1 } else { 1 },
             }),
             Key::Escape => self.run(SlideCommand::TextExit),
+            // Page keys leave the text for the previous / next slide, as on the reference.
+            Key::PageUp => self.go_to(self.current.saturating_sub(1)),
+            Key::PageDown => self.go_to(self.current + 1),
             Key::Letter('a') if m.ctrl => self.select_text(0, len),
             _ => false,
         }
@@ -1796,7 +1811,7 @@ impl SlideView {
         let (w, h) = self.size;
         p.push_clip(ox, oy, w, h);
         p.fill_rect(ox, oy, w, h, SLIDE_CANVAS);
-        self.paint_thumbs(p, text_size);
+        self.paint_thumbs(p);
         // Pane splitters.
         let tw = self.thumbs_w();
         p.fill_rect(ox + tw, oy, 1.0, h, SPLITTER);
@@ -1812,13 +1827,9 @@ impl SlideView {
         p.pop_clip();
     }
 
-    fn paint_thumbs(&self, p: &mut dyn Painter, text_size: f32) {
+    fn paint_thumbs(&self, p: &mut dyn Painter) {
         let r = self.thumbs_rect();
         p.push_clip(r[0], r[1], r[2], r[3]);
-        let style = TextStyle {
-            size: text_size,
-            bold: false,
-        };
         let one = self.display_scale.round().max(1.0);
         let frame = self.px(2.4).max(2.0);
         for i in self.visible_thumbs() {
@@ -1846,8 +1857,11 @@ impl SlideView {
             }
             let n = (i + 1).to_string();
             let color = if selected { ACCENT_TEXT } else { THUMB_NUMBER };
-            let nx = x - self.px(17.0) - text_size * 0.55 * (n.len() as f32 - 1.0);
-            p.text(&n, nx.round(), y - self.px(1.0), style, color);
+            // Digit ink ends 22 px left of the image (advance: 16.4 logical px), digit tops 2 px
+            // above it (reference).
+            let nx = x - 16.4 * self.display_scale - self.digit_w * n.len() as f32;
+            let ny = y - 8.8 * self.display_scale;
+            p.text(&n, nx.round(), ny.round(), self.number_style(), color);
         }
         p.pop_clip();
     }
@@ -1936,7 +1950,7 @@ impl SlideView {
         let size = Self::notes_size(text_size);
         let style = TextStyle { size, bold: false };
         let line = size * 1.33;
-        let ty = r[1] + self.px(6.0);
+        let ty = r[1] + (2.8 * self.display_scale).round();
         p.push_clip(r[0], r[1], r[2], r[3]);
         if notes.is_empty() && self.focus != Focus::Notes {
             p.text(&self.labels.0, tx, ty, style, NOTES_HINT);

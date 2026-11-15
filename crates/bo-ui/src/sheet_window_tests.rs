@@ -1424,3 +1424,89 @@ fn filter_drop_down_checks_values_and_reports_records_found() {
     press(&mut w, at, 1);
     assert_eq!(w.status, "");
 }
+
+#[test]
+fn insert_tab_forms_create_tables_pivots_sparklines_links_and_headers() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Amount"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "South"),
+            (2, 1, "7"),
+            (3, 0, "North"),
+            (3, 1, "9"),
+        ],
+    );
+    // Create Table: the region and the header guess are filled in.
+    assert!(w.action("sheet.table", &Fixed));
+    assert_eq!(
+        w.form.as_ref().map(|f| f.text("range")).as_deref(),
+        Some("$A$1:$B$4")
+    );
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.form.is_none());
+    let tables = w.view.query(json!({ "cmd": "tables" })).expect("tables");
+    assert_eq!(tables["tables"].as_array().map(Vec::len), Some(1));
+    // Recommended PivotTable: Region as rows, Sum of Amount, on a new sheet.
+    assert!(w.action("sheet.recPivot", &Fixed));
+    {
+        let f = w.form.as_ref().expect("pivot form");
+        assert_eq!(f.sel("rows"), Some(0));
+        assert_eq!(f.sel("values"), Some(1));
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.view().sheet(), 1, "the report's new sheet is shown");
+    let shown_cells: Vec<String> = (0..8).map(|r| shown_on(&w, 1, r, 1)).collect();
+    assert!(shown_cells.iter().any(|s| s == "21"), "{shown_cells:?}");
+    w.view_mut().set_sheet(0);
+    // Sparklines in D2:D4 from B2:B4.
+    w.view_mut().select((1, 1), (3, 1), (1, 1));
+    assert!(w.action("sheet.sparkColumn", &Fixed));
+    w.form.as_mut().expect("form").set_text("loc", "D2:D4");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let sp = w
+        .view
+        .query(json!({ "cmd": "sparklines" }))
+        .expect("sparklines");
+    assert!(sp.to_string().contains("column"), "{sp}");
+    // Link: a HYPERLINK formula in the active cell.
+    w.view_mut().select((5, 0), (5, 0), (5, 0));
+    assert!(w.action("sheet.link", &Fixed));
+    {
+        let f = w.form.as_mut().expect("link");
+        f.set_text("text", "Site");
+        f.set_text("addr", "https://example.com");
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        input(&w, 5, 0),
+        "=HYPERLINK(\"https://example.com\",\"Site\")"
+    );
+    assert_eq!(shown(&w, 5, 0), "Site");
+    // Header & Footer sections.
+    assert!(w.action("sheet.headerFooter", &Fixed));
+    w.form.as_mut().expect("hf").set_text("hc", "Report");
+    w.form.as_mut().expect("hf").set_text("fr", "Page &P");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let ps = &w.view().engine().workbook().expect("wb").sheets[0].page_setup;
+    assert_eq!(ps.odd_header.as_deref(), Some("&CReport"));
+    assert_eq!(ps.odd_footer.as_deref(), Some("&RPage &P"));
+    // Symbol: the chosen character goes into the cell editor.
+    assert!(w.action("sheet.symbol", &Fixed));
+    w.symbol = (0, 2);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.view().editing());
+    assert_eq!(w.view().formula_text(), "#");
+}
+
+fn shown_on(w: &SheetWindow, sheet: usize, r: u32, c: u32) -> String {
+    w.view()
+        .engine()
+        .cell(sheet, r, c)
+        .map(|d| d.display)
+        .unwrap_or_default()
+}

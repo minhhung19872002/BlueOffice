@@ -25,6 +25,8 @@ mod fcells_impl;
 mod filter_impl;
 #[path = "sheet_form.rs"]
 mod form_impl;
+#[path = "sheet_insert.rs"]
+mod insert_impl;
 #[path = "sheet_review.rs"]
 mod review_impl;
 use crate::strings::Strings;
@@ -265,6 +267,9 @@ pub struct SheetWindow {
     filter_labels: filter_impl::Labels,
     filter_col: u32,
     filter_status: bool,
+    /// Create Sparklines: the kind chosen on the ribbon; Symbol: the selected grid cell.
+    spark_kind: String,
+    symbol: (usize, usize),
 }
 
 impl SheetWindow {
@@ -335,7 +340,10 @@ impl SheetWindow {
             filter_labels: filter_impl::Labels::default(),
             filter_col: 0,
             filter_status: false,
+            spark_kind: String::new(),
+            symbol: (0, 0),
         };
+        insert_impl::add_icons(&mut w.icons);
         w.load_functions();
         w.refresh_calc_state();
         w
@@ -1580,6 +1588,8 @@ impl SheetWindow {
     fn paint_form_canvas(&self, f: &form_impl::Form, id: &str, r: [f32; 4], p: &mut dyn Painter) {
         if self.form_kind == form_impl::FormKind::FormatCells {
             self.fc_paint_canvas(f, id, r, p);
+        } else if self.form_kind == form_impl::FormKind::Symbol {
+            self.paint_symbol_grid(f, r, p);
         }
     }
 

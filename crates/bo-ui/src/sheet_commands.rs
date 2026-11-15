@@ -105,7 +105,7 @@ impl SheetWindow {
     }
 
     /// The selection's current region (a single cell grows to its block of data).
-    fn region(&mut self) -> Value {
+    pub(super) fn region(&mut self) -> Value {
         let range = self.view.rng();
         self.view
             .query(json!({ "cmd": "region", "range": range }))
@@ -734,6 +734,9 @@ impl SheetWindow {
             }
         }
         if let Some(r) = self.audit_action(id, text) {
+            return Some(r);
+        }
+        if let Some(r) = self.insert_action(id) {
             return Some(r);
         }
         let (kind, arg) = id.split_once('.').unwrap_or((id, ""));

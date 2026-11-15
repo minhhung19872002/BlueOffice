@@ -1134,6 +1134,12 @@ impl SheetWindow {
             FormKind::Names => self.names_event(ev),
             FormKind::Function => self.function_event(ev, text),
             FormKind::PrintTitles => self.print_titles_event(ev),
+            FormKind::CreateTable
+            | FormKind::CreatePivot
+            | FormKind::Sparklines
+            | FormKind::Link
+            | FormKind::HeaderFooter
+            | FormKind::Symbol => self.insert_form_event(ev, text),
             FormKind::CustomFilter | FormKind::Top10 => {
                 self.filter_form_event(ev);
             }

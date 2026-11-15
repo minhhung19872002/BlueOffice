@@ -62,6 +62,14 @@ pub(super) enum FormKind {
     CustomFilter,
     /// Top 10 AutoFilter.
     Top10,
+    /// Insert tab: Create Table, Create PivotTable, Create Sparklines, Insert Hyperlink,
+    /// Header / Footer, Symbol.
+    CreateTable,
+    CreatePivot,
+    Sparklines,
+    Link,
+    HeaderFooter,
+    Symbol,
 }
 
 /// What a control is.

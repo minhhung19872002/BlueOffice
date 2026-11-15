@@ -453,3 +453,187 @@ fn huge_zoom_draws_only_the_part_in_view() {
     w.prepare(&mut s);
     assert!(w.view().expect("view").image_offset(0).1 > 0.0);
 }
+
+/// Records the first command of every page list drawn.
+#[derive(Default)]
+struct FirstCommand(HashMap<usize, Option<bo_render::Command>>);
+
+impl PdfStore for FirstCommand {
+    fn update(
+        &mut self,
+        key: usize,
+        list: &PageList,
+        _: &bo_text::FontManager,
+        _: &HashMap<String, Arc<bo_pdfread::Image>>,
+        _: f32,
+    ) -> Result<(), String> {
+        self.0.insert(key, list.commands.first().cloned());
+        Ok(())
+    }
+    fn remove(&mut self, key: usize) {
+        self.0.remove(&key);
+    }
+}
+
+#[test]
+fn night_mode_reflow_autoscroll_cover_and_rulers() {
+    let mut w = window(4);
+    // Night Mode: pages are drawn again on a black sheet.
+    w.run_command("view.night", &Fixed);
+    let mut store = FirstCommand::default();
+    w.prepare(&mut store);
+    assert!(matches!(
+        store.0.get(&0),
+        Some(Some(bo_render::Command::FillRect {
+            color: Rgba(0, 0, 0, 255),
+            ..
+        }))
+    ));
+    w.run_command("view.night", &Fixed);
+    // Reflow: the page's text is drawn as lines in the window's font.
+    w.run_command("view.reflow", &Fixed);
+    w.handle(Input::Tick, &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(
+        p.texts.iter().any(|t| t == "Page 1 hello world"),
+        "{:?}",
+        p.texts
+    );
+    assert!(p.pages.iter().all(|(k, ..)| *k >= THUMB_KEY));
+    // Page Down moves on to the next page's text (one short page per screen).
+    key(&mut w, Key::PageDown, false, false);
+    w.handle(Input::Tick, &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(
+        p.texts.iter().any(|t| t == "Page 2 hello world"),
+        "{:?}",
+        p.texts
+    );
+    w.run_command("view.reflow", &Fixed);
+    // AutoScroll: ticks move the document down; Escape stops.
+    w.run_command("view.autoScroll", &Fixed);
+    let y0 = w.view().expect("view").scroll_state().0 .1;
+    for _ in 0..5 {
+        assert!(w.handle(Input::Tick, &Fixed));
+    }
+    let y1 = w.view().expect("view").scroll_state().0 .1;
+    assert!(y1 > y0 + 10.0, "{y0} → {y1}");
+    key(&mut w, Key::Escape, false, false);
+    assert!(!w.handle(Input::Tick, &Fixed));
+    // Separate cover page in facing layouts.
+    w.run_command("view.facing", &Fixed);
+    let cover = w.view().expect("view").cover();
+    w.run_command("view.cover", &Fixed);
+    assert_eq!(w.view().expect("view").cover(), !cover);
+    // Rulers take 16 px (125 %: 20) along the top and the left.
+    let before = w.view().expect("view").frame();
+    w.run_command("view.rulers", &Fixed);
+    let after = w.view().expect("view").frame();
+    assert_eq!((after[0] - before[0], after[1] - before[1]), (20.0, 20.0));
+    w.run_command("view.grid", &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(p.texts.iter().any(|t| t == "1"));
+}
+
+fn press(w: &mut ReaderWindow, x: f32, y: f32, count: u8) {
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count,
+            shift: false,
+        },
+        &Fixed,
+    );
+}
+
+fn drag(w: &mut ReaderWindow, from: (f32, f32), to: (f32, f32)) {
+    press(w, from.0, from.1, 1);
+    w.handle(Input::Drag { x: to.0, y: to.1 }, &Fixed);
+    w.handle(Input::Release { x: to.0, y: to.1 }, &Fixed);
+}
+
+#[test]
+fn drawing_tools_stamp_measure_resize_and_properties() {
+    use bo_pdfread::AnnotKind as K;
+    let mut w = window(2);
+    let r = w.view().expect("view").page_rect(0).expect("page");
+    let at = |fx: f32, fy: f32| (r[0] + r[2] * fx, r[1] + r[3] * fy);
+    // Pencil: one stroke, one ink comment.
+    w.run_command("draw.pencil", &Fixed);
+    assert!(w.draw_tool().is_some());
+    press(&mut w, at(0.2, 0.05).0, at(0.2, 0.05).1, 1);
+    for k in 1..10 {
+        let (x, y) = at(0.2 + k as f32 * 0.02, 0.05 + (k % 2) as f32 * 0.01);
+        w.handle(Input::Drag { x, y }, &Fixed);
+    }
+    w.handle(Input::Release { x: 0.0, y: 0.0 }, &Fixed);
+    // Arrow, oval and a stamp from the menu.
+    w.run_command("draw.arrow", &Fixed);
+    drag(&mut w, at(0.1, 0.12), at(0.4, 0.15));
+    w.run_command("draw.oval", &Fixed);
+    drag(&mut w, at(0.5, 0.12), at(0.7, 0.18));
+    w.run_command("draw.stamp.Draft", &Fixed);
+    press(&mut w, at(0.5, 0.25).0, at(0.5, 0.25).1, 1);
+    w.handle(Input::Release { x: 0.0, y: 0.0 }, &Fixed);
+    // Area: three clicks and a double click.
+    w.run_command("draw.area", &Fixed);
+    for (fx, fy) in [(0.1, 0.3), (0.3, 0.3), (0.3, 0.35)] {
+        let (x, y) = at(fx, fy);
+        press(&mut w, x, y, 1);
+        w.handle(Input::Release { x, y }, &Fixed);
+    }
+    let (x, y) = at(0.1, 0.35);
+    press(&mut w, x, y, 1);
+    press(&mut w, x, y, 2);
+    // Typewriter asks for its text.
+    w.run_command("draw.typewriter", &Fixed);
+    press(&mut w, at(0.1, 0.4).0, at(0.1, 0.4).1, 1);
+    w.handle(Input::Release { x: 0.0, y: 0.0 }, &Fixed);
+    w.handle(Input::Text("Typed".into()), &Fixed);
+    key(&mut w, Key::Enter, false, false);
+    let doc = w.view().expect("view").doc();
+    let annots = doc.annotations();
+    let kinds: Vec<_> = annots.iter().map(|a| a.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![K::Ink, K::Line, K::Circle, K::Stamp, K::Line, K::TextBox],
+        "{annots:?}"
+    );
+    assert!(matches!(
+        doc.drawing(&annots[4]).map(|d| d.0),
+        Some(bo_pdfread::Shape::Area(v)) if v.len() == 4
+    ));
+    assert!(annots[4].contents.ends_with("sq in"));
+    assert_eq!(annots[5].contents, "Typed");
+    // Escape leaves the tool; select the oval and drag its bottom-right handle.
+    key(&mut w, Key::Escape, false, false);
+    assert!(w.draw_tool().is_none());
+    w.run_command("tool.hand", &Fixed);
+    let oval = annots[2].clone();
+    let wr = w
+        .view()
+        .expect("view")
+        .doc_rect_to_window(0, oval.rect)
+        .expect("rect");
+    press(&mut w, wr[0] + wr[2] / 2.0, wr[1] + wr[3] / 2.0, 1);
+    w.handle(
+        Input::Release {
+            x: wr[0] + wr[2] / 2.0,
+            y: wr[1] + wr[3] / 2.0,
+        },
+        &Fixed,
+    );
+    let (hx, hy) = (wr[0] + wr[2], wr[1] + wr[3]);
+    drag(&mut w, (hx, hy), (hx + 60.0, hy + 40.0));
+    let grown = w.view().expect("view").doc().annotations()[2].clone();
+    assert!(grown.rect[2] > oval.rect[2] + 20.0, "{oval:?} → {grown:?}");
+    // Properties: thickness 3 pt for the selected oval.
+    w.run_command("draw.props", &Fixed);
+    let mut p = Rec::default();
+    w.paint(&mut p);
+    assert!(p.texts.iter().any(|t| t == "3 pt"));
+}

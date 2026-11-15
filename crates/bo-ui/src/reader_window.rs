@@ -21,6 +21,12 @@ use std::collections::HashSet;
 // Print dialog, Read Mode, Full Screen and comment editing (BlueReader round 2).
 #[path = "reader_extra.rs"]
 mod extra;
+// Night Mode, Reflow, AutoScroll, cover page, rulers and grid (BlueReader round 3).
+#[path = "reader_viewx_win.rs"]
+mod viewx;
+// Drawing tools, resize handles and the properties panel (BlueReader round 3).
+#[path = "reader_draw_win.rs"]
+mod draw;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -349,6 +355,10 @@ pub struct ReaderWindow {
     look: Look,
     /// Print dialog, Read Mode / Full Screen and the selected comment.
     extra: extra::Extra,
+    /// View tab additions.
+    viewx: viewx::ViewX,
+    /// Comment tab drawing tools.
+    draw: draw::Draw,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -415,6 +425,8 @@ impl ReaderWindow {
             doc_hidden: false,
             look: Look::READER,
             extra: extra::Extra::default(),
+            viewx: viewx::ViewX::default(),
+            draw: draw::Draw::default(),
         }
     }
 
@@ -727,11 +739,26 @@ impl ReaderWindow {
                 ("sep2", Sep),
                 ("tool.note", Big("note", "pdfReader.note", false)),
                 ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+                (
+                    "draw.typewriter",
+                    Big("typewriter", "pdfDraw.typewriter", false),
+                ),
+                ("draw.callout", Big("callout", "pdfDraw.callout", false)),
                 ("sep3", Sep),
+                ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
                 (
                     "tool.rectangle",
                     Big("rectangle", "pdfReader.rectangle", false),
                 ),
+                ("draw.oval", Small("ellipse")),
+                ("draw.line", Small("line")),
+                ("draw.arrow", Small("arrow")),
+                ("draw.polygon", Small("polygon")),
+                ("draw.polyline", Small("polyline")),
+                ("sep5", Sep),
+                ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
+                ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+                ("draw.props", Big("properties", "pdfDraw.properties", false)),
                 ("sep4", Sep),
                 (
                     "panel.comments",
@@ -742,12 +769,21 @@ impl ReaderWindow {
                 ("sep0", Sep),
                 // Read Mode first after the pointer tools, like the reference's View tab.
                 ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
+                ("view.night", Big("night", "pdfView.night", false)),
+                ("view.reflow", Big("reflow", "pdfView.reflow", false)),
                 ("sep1", Sep),
                 ("view.single", Small("single")),
                 ("view.continuous", Small("continuous")),
                 ("view.facing", Small("facing")),
                 ("view.contFacing", Small("contFacing")),
+                ("view.cover", Small("cover")),
+                ("view.rulers", Small("ruler")),
+                ("view.grid", Small("grid")),
                 ("sep2", Sep),
+                (
+                    "view.autoScroll",
+                    Big("autoScroll", "pdfView.autoScroll", false),
+                ),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep3", Sep),
                 ("zoom.in", Big("zoom", "pdfReader.zoomIn", false)),
@@ -1018,6 +1054,7 @@ impl ReaderWindow {
             (h - sh - top).max(1.0),
         ];
         self.mode_layout();
+        self.viewx_layout();
         let (rect, scale) = (self.doc_rect, self.scale);
         if let Some(t) = self.tabs.get_mut(self.active) {
             t.view.set_frame(rect, scale);
@@ -1053,6 +1090,13 @@ impl ReaderWindow {
     /// Handle an input event; true when the window needs a new frame.
     #[allow(clippy::too_many_lines)]
     pub fn handle(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
+        let redraw = self.handle_input(input, m);
+        // Reflowed text follows the page and the window width.
+        self.reflow_layout(m);
+        redraw
+    }
+
+    fn handle_input(&mut self, input: Input, m: &dyn TextMeasure) -> bool {
         match input {
             Input::Scale(s) => {
                 self.scale = s;
@@ -1069,7 +1113,8 @@ impl ReaderWindow {
                 self.maximized = on;
                 true
             }
-            Input::Tick | Input::Blink => self.search_focus,
+            Input::Tick => self.tick_viewx(m) || self.search_focus,
+            Input::Blink => self.search_focus,
             Input::Leave => self.hover.take().is_some(),
             _ => {
                 if self.controls.is_empty() {
@@ -2863,7 +2908,11 @@ impl ReaderWindow {
 
     fn paint_doc(&self, p: &mut dyn Painter) {
         let d = self.doc_rect;
-        p.fill_rect(d[0], d[1], d[2], d[3], self.look.canvas);
+        p.fill_rect(d[0], d[1], d[2], d[3], self.doc_canvas());
+        if self.paint_reflow(p) {
+            self.paint_viewx_overlay(p);
+            return;
+        }
         let Some(t) = self.tabs.get(self.active) else {
             return;
         };
@@ -2873,7 +2922,7 @@ impl ReaderWindow {
         for i in v.visible_pages() {
             let Some(r) = v.page_rect(i) else { continue };
             p.fill_rect(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, PAGE_EDGE);
-            p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
+            p.fill_rect(r[0], r[1], r[2], r[3], self.paper());
             if v.has_image(i) {
                 let (ox, oy) = v.image_offset(i);
                 p.page(t.key_base + i, (r[0] + ox) as i32, (r[1] + oy) as i32);
@@ -2900,6 +2949,7 @@ impl ReaderWindow {
             }
         }
         p.pop_clip();
+        self.paint_viewx_overlay(p);
     }
 
     fn paint_vbar(&self, p: &mut dyn Painter) {

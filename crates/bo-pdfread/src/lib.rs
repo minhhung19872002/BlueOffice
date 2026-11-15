@@ -14,6 +14,7 @@
 #![allow(clippy::items_after_statements, clippy::match_same_arms)]
 
 mod annot;
+mod annot_draw;
 mod annot_edit;
 mod cmap;
 mod codecs;
@@ -39,6 +40,9 @@ mod type1;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
+pub use annot_draw::{
+    measure_label, path_length, polygon_area, Shape, StampKind, Style as DrawStyle,
+};
 pub use annot_edit::CommentThread;
 pub use edit::SaveOptions;
 pub use forms::{FieldKind, FormField};

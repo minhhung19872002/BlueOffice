@@ -389,40 +389,7 @@ impl Shell {
         let Some(view) = self.window.view_mut() else {
             return;
         };
-        let pages: Vec<(usize, (f32, f32))> =
-            s.pages.iter().map(|&i| (i, view.page_size(i))).collect();
-        let device = &gpu.device;
-        let doc = view.doc_mut();
-        let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
-            let opts = RenderOptions {
-                min_line: 1.0 / scale,
-                ..RenderOptions::default()
-            };
-            let p = doc.render(i, opts).ok()?;
-            let pics = pictures(&p.images);
-            let img = device
-                .render_page(&p.list, doc.fonts(), scale, &pics)
-                .ok()?;
-            Some(print::PrintPage {
-                width: img.width,
-                height: img.height,
-                pixels: img.pixels,
-            })
-        };
-        let scaling = match s.scaling {
-            bo_ui::PrintScaling::Fit => print::Scaling::Fit,
-            bo_ui::PrintScaling::Shrink => print::Scaling::Shrink,
-            bo_ui::PrintScaling::Actual => print::Scaling::Actual,
-        };
-        let options = print::Options {
-            copies: s.copies,
-            collate: s.collate,
-            scaling,
-            auto_rotate: s.auto_rotate,
-            auto_center: s.auto_center,
-            grayscale: s.grayscale,
-        };
-        let result = print::print(&s.printer, &title, &pages, &options, &mut render);
+        let result = print_job(&gpu.device, view.doc_mut(), &title, s, None);
         let status = match result {
             Ok(n) => self.window.text("pdfPrint.done", &[("n", &n.to_string())]),
             Err(e) => self.window.text("pdfPrint.failed", &[("error", &e)]),
@@ -735,6 +702,176 @@ impl Handler for Shell {
 #[allow(unsafe_code)]
 mod print;
 
+/// Print `s` from `doc` (the GUI's Print dialog and `--print`); `output` writes the job to a
+/// file (print-to-file printers). Returns sheets printed.
+fn print_job(
+    device: &Device,
+    doc: &mut PdfDocument,
+    title: &str,
+    s: &bo_ui::PrintSettings,
+    output: Option<String>,
+) -> Result<usize, String> {
+    let sizes: Vec<(f32, f32)> = (0..doc.page_count())
+        .map(|i| {
+            doc.page_info(i)
+                .map_or((612.0, 792.0), |p| (p.width, p.height))
+        })
+        .collect();
+    let size_of = |i: usize| sizes.get(i).copied().unwrap_or((612.0, 792.0));
+    let plan_opts = bo_ui::PlanOptions {
+        scaling: s.scaling,
+        auto_rotate: s.auto_rotate,
+        auto_center: s.auto_center,
+        layout: s.layout,
+        copies: s.copies,
+        collate: s.collate,
+    };
+    let plan = |area: (f32, f32)| bo_ui::print_plan(&s.pages, &size_of, s.view, area, &plan_opts);
+    let mut render = |i: usize, scale: f32| -> Option<print::PrintPage> {
+        let opts = RenderOptions {
+            min_line: 1.0 / scale,
+            ..RenderOptions::default()
+        };
+        let p = doc.render(i, opts).ok()?;
+        let pics = pictures(&p.images);
+        let img = device
+            .render_page(&p.list, doc.fonts(), scale, &pics)
+            .ok()?;
+        Some(print::PrintPage {
+            width: img.width,
+            height: img.height,
+            pixels: img.pixels,
+        })
+    };
+    let options = print::Options {
+        grayscale: s.grayscale,
+        duplex: match s.duplex {
+            bo_ui::Duplex::Off => 0,
+            bo_ui::Duplex::LongEdge => 1,
+            bo_ui::Duplex::ShortEdge => 2,
+        },
+        output,
+    };
+    print::print(&s.printer, title, &plan, &size_of, &options, &mut render)
+}
+
+/// `--print in.pdf <printer> <out-file> [options…]`: print without a window (to a
+/// print-to-file printer such as the system's PDF printer when `out-file` is given; `-` prints
+/// to the printer's port). Options: `--pages 1-3,5`, `--nup 2|4|6|9|16`, `--order h|hr|v|vr`,
+/// `--border`, `--booklet [front|back] [right]`, `--scale fit|shrink|actual|<percent>`,
+/// `--duplex long|short`, `--view x,y,w,h` (with one page), `--copies n`, `--uncollated`,
+/// `--gray`, `--no-rotate`, `--no-center`.
+#[allow(clippy::too_many_lines)]
+fn print_tool(args: &[String], doc: &mut PdfDocument, device: &Device) -> Result<(), String> {
+    let printer = args.get(2).ok_or("missing printer name")?.clone();
+    let out = args.get(3).ok_or("missing output file (or -)")?;
+    let n = doc.page_count();
+    let mut s = bo_ui::PrintSettings {
+        printer,
+        copies: 1,
+        collate: true,
+        pages: (0..n).collect(),
+        scaling: bo_ui::PrintScaling::Fit,
+        grayscale: false,
+        auto_rotate: true,
+        auto_center: true,
+        layout: bo_ui::PrintLayout::Size,
+        duplex: bo_ui::Duplex::Off,
+        view: None,
+    };
+    let mut order = bo_ui::PageOrder::Horizontal;
+    let mut border = false;
+    let mut it = args.iter().skip(4).peekable();
+    while let Some(a) = it.next() {
+        let mut val = || it.next().cloned().unwrap_or_default();
+        match a.as_str() {
+            "--pages" => s.pages = bo_ui::parse_pages(&val(), n),
+            "--nup" => {
+                s.layout = bo_ui::PrintLayout::Multiple {
+                    per_sheet: val().parse().map_err(|_| "--nup wants a number")?,
+                    order,
+                    border,
+                }
+            }
+            "--order" => {
+                order = match val().as_str() {
+                    "hr" => bo_ui::PageOrder::HorizontalReversed,
+                    "v" => bo_ui::PageOrder::Vertical,
+                    "vr" => bo_ui::PageOrder::VerticalReversed,
+                    _ => bo_ui::PageOrder::Horizontal,
+                };
+            }
+            "--border" => border = true,
+            "--booklet" => {
+                let mut sides = bo_ui::BookletSides::Both;
+                let mut right_binding = false;
+                while let Some(w) = it.peek() {
+                    match w.as_str() {
+                        "front" => sides = bo_ui::BookletSides::Front,
+                        "back" => sides = bo_ui::BookletSides::Back,
+                        "right" => right_binding = true,
+                        _ => break,
+                    }
+                    it.next();
+                }
+                s.layout = bo_ui::PrintLayout::Booklet {
+                    sides,
+                    right_binding,
+                };
+            }
+            "--scale" => {
+                s.scaling = match val().as_str() {
+                    "shrink" => bo_ui::PrintScaling::Shrink,
+                    "actual" => bo_ui::PrintScaling::Actual,
+                    "fit" => bo_ui::PrintScaling::Fit,
+                    v => bo_ui::PrintScaling::Custom(
+                        v.parse()
+                            .map_err(|_| "--scale wants fit|shrink|actual|percent")?,
+                    ),
+                }
+            }
+            "--duplex" => {
+                s.duplex = if val() == "short" {
+                    bo_ui::Duplex::ShortEdge
+                } else {
+                    bo_ui::Duplex::LongEdge
+                }
+            }
+            "--view" => {
+                let v: Vec<f32> = val().split(',').filter_map(|x| x.parse().ok()).collect();
+                if let [x, y, w, h] = v[..] {
+                    s.view = Some([x, y, w, h]);
+                }
+            }
+            "--copies" => s.copies = val().parse().unwrap_or(1),
+            "--uncollated" => s.collate = false,
+            "--gray" => s.grayscale = true,
+            "--no-rotate" => s.auto_rotate = false,
+            "--no-center" => s.auto_center = false,
+            other => return Err(format!("unknown option {other}")),
+        }
+    }
+    if let bo_ui::PrintLayout::Multiple {
+        order: o,
+        border: b,
+        ..
+    } = &mut s.layout
+    {
+        *o = order;
+        *b = border;
+    }
+    let output = (out != "-").then(|| {
+        std::path::absolute(out).map_or_else(|_| out.clone(), |p| p.display().to_string())
+    });
+    let t0 = Instant::now();
+    let sheets = print_job(device, doc, "BlueReader", &s, output)?;
+    println!(
+        r#"{{"sheets":{sheets},"ms":{:.0}}}"#,
+        t0.elapsed().as_secs_f64() * 1e3
+    );
+    Ok(())
+}
+
 /// Gamma, enhanced contrast and ClearType level of PDF page text: the same ink coverage on body
 /// text as the reference reader (docs/ui/REPORT-reader.md round 2).
 const PDF_TEXT: (f32, f32, f32) = (1.8, 1.0, 1.0);
@@ -780,6 +917,9 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
     let device = Device::new()?;
     device.set_text_rendering(page_text());
+    if args[0] == "--print" {
+        return print_tool(args, &mut doc, &device);
+    }
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
         let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);

@@ -7,19 +7,10 @@ use crate::theme::Theme;
 use crate::{Key, Mods, Painter, Strings, TextMeasure, TextStyle};
 use bo_render::{PathSeg, Rgba};
 
-/// How pages are sized on paper.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PrintScaling {
-    /// Grow or shrink to the printable area.
-    Fit,
-    /// Shrink oversized pages only.
-    Shrink,
-    /// 100 %.
-    Actual,
-}
+pub use crate::reader_impose::{BookletSides, Duplex, PageOrder, PrintLayout, PrintScaling};
 
 /// What to print.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PrintSettings {
     /// Printer name.
     pub printer: String,
@@ -37,10 +28,16 @@ pub struct PrintSettings {
     pub auto_rotate: bool,
     /// Centre pages on the paper (else at the top-left of the printable area).
     pub auto_center: bool,
+    /// One page per sheet, several, or a booklet.
+    pub layout: PrintLayout,
+    /// Both sides of the paper.
+    pub duplex: Duplex,
+    /// Print only this part of the page (page points x y w h): the current view.
+    pub view: Option<[f32; 4]>,
 }
 
 /// Answer of a click or key.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PrintAction {
     /// Print with these settings.
     Print(PrintSettings),
@@ -50,6 +47,7 @@ pub enum PrintAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Range {
+    View,
     Current,
     All,
     Pages,
@@ -69,6 +67,15 @@ enum Part {
     Subset,
     Reverse,
     Scaling(PrintScaling),
+    ScaleText,
+    Duplex,
+    Flip(bool),
+    Handling(Handling),
+    PerSheet,
+    Order,
+    Border,
+    BookletSubset,
+    Binding,
     Rotate,
     Center,
     PrevPage,
@@ -77,6 +84,25 @@ enum Part {
     Cancel,
     Close,
 }
+
+/// Tabs of the Print Handling group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Handling {
+    Scale,
+    Multiple,
+    Booklet,
+}
+
+/// Text box with the typing focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field {
+    Copies,
+    Pages,
+    Scale,
+}
+
+/// Pages per sheet offered, in order.
+const PER_SHEET: [u8; 5] = [2, 4, 6, 9, 16];
 
 /// Parse a page list such as `1-3, 5, 8-` (1-based) into page indices within `count`.
 pub fn parse_pages(s: &str, count: usize) -> Vec<usize> {
@@ -124,10 +150,22 @@ pub struct PrintDialog {
     subset: u8,
     reverse: bool,
     scaling: PrintScaling,
+    /// Custom scale text (percent).
+    scale_text: Vec<char>,
+    handling: Handling,
+    per_sheet: u8,
+    order: PageOrder,
+    border: bool,
+    booklet_sides: BookletSides,
+    right_binding: bool,
+    duplex: bool,
+    flip_long: bool,
+    /// Visible part of the current page (page, page points x y w h).
+    view: Option<(usize, [f32; 4])>,
     rotate: bool,
     center: bool,
-    /// Typing goes to the page list (`true`) or the copies box.
-    focus_pages: bool,
+    /// Text box receiving typing.
+    focus: Field,
     count: usize,
     current: usize,
     /// Index into the pages to print of the page shown in the preview.
@@ -141,6 +179,8 @@ pub struct PrintDialog {
     preview_key: Option<usize>,
     preview_scale: f32,
     preview_rect: [f32; 4],
+    /// Window size and display scale of the last layout.
+    window: ((f32, f32), f32),
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -176,9 +216,19 @@ impl PrintDialog {
             subset: 0,
             reverse: false,
             scaling: PrintScaling::Fit,
+            scale_text: vec!['1', '0', '0'],
+            handling: Handling::Scale,
+            per_sheet: 2,
+            order: PageOrder::Horizontal,
+            border: false,
+            booklet_sides: BookletSides::Both,
+            right_binding: false,
+            duplex: false,
+            flip_long: true,
+            view: None,
             rotate: true,
             center: true,
-            focus_pages: false,
+            focus: Field::Copies,
             count: count.max(1),
             current: current.min(count.saturating_sub(1)),
             preview_at: 0,
@@ -191,6 +241,7 @@ impl PrintDialog {
             preview_key: None,
             preview_scale: 0.0,
             preview_rect: [0.0; 4],
+            window: ((1500.0, 1000.0), 1.0),
         }
     }
 
@@ -221,6 +272,7 @@ impl PrintDialog {
         let mut v: Vec<usize> = match self.range {
             Range::All => (0..self.count).collect(),
             Range::Current => vec![self.current],
+            Range::View => vec![self.view.map_or(self.current, |v| v.0)],
             Range::Pages => {
                 let s: String = self.pages_text.iter().collect();
                 parse_pages(&s, self.count)
@@ -252,7 +304,45 @@ impl PrintDialog {
             grayscale: self.gray,
             auto_rotate: self.rotate,
             auto_center: self.center,
+            layout: self.print_layout(),
+            duplex: match (self.duplex, self.flip_long) {
+                (false, _) => Duplex::Off,
+                (true, true) => Duplex::LongEdge,
+                (true, false) => Duplex::ShortEdge,
+            },
+            view: match self.range {
+                Range::View => self.view.map(|v| v.1),
+                _ => None,
+            },
         })
+    }
+
+    /// The Print Handling choice as a layout.
+    fn print_layout(&self) -> PrintLayout {
+        match self.handling {
+            Handling::Scale => PrintLayout::Size,
+            Handling::Multiple => PrintLayout::Multiple {
+                per_sheet: self.per_sheet,
+                order: self.order,
+                border: self.border,
+            },
+            Handling::Booklet => PrintLayout::Booklet {
+                sides: self.booklet_sides,
+                right_binding: self.right_binding,
+            },
+        }
+    }
+
+    /// Offer "Current view": the visible part (page points) of page `page`.
+    pub fn set_view(&mut self, page: usize, rect: [f32; 4]) {
+        self.view = Some((page, rect));
+    }
+
+    fn sync_scale(&mut self) {
+        let v: String = self.scale_text.iter().collect();
+        if let Ok(p) = v.parse::<u16>() {
+            self.scaling = PrintScaling::Custom(p.clamp(1, 1000));
+        }
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -268,6 +358,18 @@ impl PrintDialog {
 
     /// Lay out centred in a window of `size` device pixels at `scale`.
     pub fn layout(&mut self, _m: &dyn TextMeasure, size: (f32, f32), scale: f32) {
+        self.layout_at(size, scale);
+    }
+
+    /// Lay out again (a Print Handling tab changed the controls) and answer `r`.
+    fn relayout_after(&mut self, r: Option<PrintAction>) -> Option<PrintAction> {
+        let (size, scale) = self.window;
+        self.layout_at(size, scale);
+        r
+    }
+
+    fn layout_at(&mut self, size: (f32, f32), scale: f32) {
+        self.window = (size, scale);
         // The reference at 125 %: 1535 × 870; smaller windows get a smaller dialog.
         self.scale = scale.min(size.0 / 1250.0).min(size.1 / 712.0).max(0.5);
         let (w, h) = (self.px(1228.0), self.px(696.0));
@@ -301,6 +403,10 @@ impl PrintDialog {
         self.parts
             .push((Part::Collate, r(203.0, 84.0, 100.0, 20.0)));
         self.parts.push((Part::Gray, r(296.0, 84.0, 140.0, 20.0)));
+        // 125 % reference: Current view at y 192, both sides at x 617, flip at 229 / 264, the
+        // Print Handling tabs 123 × 51 px from x 27 / 167 / 307 / 447 at y 506.
+        self.parts
+            .push((Part::Range(Range::View), r(28.0, 144.0, 200.0, 20.0)));
         self.parts
             .push((Part::Range(Range::Current), r(28.0, 170.0, 200.0, 20.0)));
         self.parts
@@ -313,18 +419,48 @@ impl PrintDialog {
             .push((Part::Subset, r(119.0, 282.0, 172.0, 26.0)));
         self.parts
             .push((Part::Reverse, r(28.0, 312.0, 200.0, 20.0)));
-        self.parts.push((
-            Part::Scaling(PrintScaling::Actual),
-            r(28.0, 464.0, 240.0, 20.0),
-        ));
-        self.parts.push((
-            Part::Scaling(PrintScaling::Fit),
-            r(28.0, 494.0, 240.0, 20.0),
-        ));
-        self.parts.push((
-            Part::Scaling(PrintScaling::Shrink),
-            r(28.0, 524.0, 240.0, 20.0),
-        ));
+        self.parts
+            .push((Part::Duplex, r(492.0, 144.0, 280.0, 20.0)));
+        self.parts
+            .push((Part::Flip(true), r(511.0, 173.0, 240.0, 20.0)));
+        self.parts
+            .push((Part::Flip(false), r(511.0, 201.0, 240.0, 20.0)));
+        for (k, h) in [Handling::Scale, Handling::Multiple, Handling::Booklet]
+            .into_iter()
+            .enumerate()
+        {
+            // The reference's second tab (tile large pages) is not offered: its place stays.
+            let slot = if k == 0 { 0.0 } else { k as f32 + 1.0 };
+            self.parts
+                .push((Part::Handling(h), r(21.6 + slot * 112.0, 404.8, 98.4, 40.8)));
+        }
+        match self.handling {
+            Handling::Scale => {
+                for (sc, y) in [
+                    (PrintScaling::Actual, 464.0),
+                    (PrintScaling::Fit, 494.0),
+                    (PrintScaling::Shrink, 524.0),
+                    (PrintScaling::Custom(0), 554.0),
+                ] {
+                    self.parts
+                        .push((Part::Scaling(sc), r(28.0, y, 130.0, 20.0)));
+                }
+                self.parts
+                    .push((Part::ScaleText, r(160.0, 551.0, 60.0, 26.0)));
+            }
+            Handling::Multiple => {
+                self.parts
+                    .push((Part::PerSheet, r(160.0, 462.0, 120.0, 26.0)));
+                self.parts.push((Part::Order, r(160.0, 498.0, 180.0, 26.0)));
+                self.parts.push((Part::Border, r(28.0, 536.0, 240.0, 20.0)));
+            }
+            Handling::Booklet => {
+                self.parts
+                    .push((Part::BookletSubset, r(160.0, 462.0, 180.0, 26.0)));
+                self.parts
+                    .push((Part::Binding, r(160.0, 498.0, 120.0, 26.0)));
+            }
+        }
         self.parts
             .push((Part::Rotate, r(492.0, 232.0, 200.0, 20.0)));
         self.parts
@@ -392,7 +528,7 @@ impl PrintDialog {
                 self.printer = i;
                 self.list_open = false;
             }
-            Part::Copies => self.focus_pages = false,
+            Part::Copies => self.focus = Field::Copies,
             Part::CopiesUp => {
                 self.copies = (self.copies + 1).min(999);
                 self.sync_copies();
@@ -405,19 +541,70 @@ impl PrintDialog {
             Part::Gray => self.gray = !self.gray,
             Part::Range(r) => {
                 self.range = r;
-                self.focus_pages = r == Range::Pages;
+                if r == Range::Pages {
+                    self.focus = Field::Pages;
+                }
                 self.preview_at = 0;
             }
             Part::PagesText => {
                 self.range = Range::Pages;
-                self.focus_pages = true;
+                self.focus = Field::Pages;
             }
             Part::Subset => {
                 self.subset = (self.subset + 1) % 3;
                 self.preview_at = 0;
             }
             Part::Reverse => self.reverse = !self.reverse,
+            Part::Scaling(PrintScaling::Custom(_)) | Part::ScaleText => {
+                self.focus = Field::Scale;
+                self.sync_scale();
+                if !matches!(self.scaling, PrintScaling::Custom(_)) {
+                    self.scaling = PrintScaling::Custom(100);
+                }
+            }
             Part::Scaling(s) => self.scaling = s,
+            Part::Duplex => self.duplex = !self.duplex,
+            Part::Flip(long) => {
+                if self.duplex {
+                    self.flip_long = long;
+                }
+            }
+            Part::Handling(h) => {
+                self.handling = h;
+                // A booklet is printed on both sides, flipped on the short edge.
+                if h == Handling::Booklet {
+                    self.duplex = true;
+                    self.flip_long = false;
+                }
+                self.preview_at = 0;
+                return self.relayout_after(None);
+            }
+            Part::PerSheet => {
+                let i = PER_SHEET
+                    .iter()
+                    .position(|n| *n == self.per_sheet)
+                    .unwrap_or(0);
+                self.per_sheet = PER_SHEET[(i + 1) % PER_SHEET.len()];
+                self.preview_at = 0;
+            }
+            Part::Order => {
+                self.order = match self.order {
+                    PageOrder::Horizontal => PageOrder::HorizontalReversed,
+                    PageOrder::HorizontalReversed => PageOrder::Vertical,
+                    PageOrder::Vertical => PageOrder::VerticalReversed,
+                    PageOrder::VerticalReversed => PageOrder::Horizontal,
+                };
+            }
+            Part::Border => self.border = !self.border,
+            Part::BookletSubset => {
+                self.booklet_sides = match self.booklet_sides {
+                    BookletSides::Both => BookletSides::Front,
+                    BookletSides::Front => BookletSides::Back,
+                    BookletSides::Back => BookletSides::Both,
+                };
+                self.preview_at = 0;
+            }
+            Part::Binding => self.right_binding = !self.right_binding,
             Part::Rotate => self.rotate = !self.rotate,
             Part::Center => self.center = !self.center,
             Part::PrevPage => self.preview_at = self.preview_at.saturating_sub(1),
@@ -431,9 +618,14 @@ impl PrintDialog {
         None
     }
 
-    /// Typed text: page list or copies.
+    /// Typed text: page list, custom scale or copies.
     pub fn text(&mut self, s: &str) {
-        if self.focus_pages {
+        if self.focus == Field::Scale {
+            self.scale_text
+                .extend(s.chars().filter(char::is_ascii_digit));
+            self.scale_text.truncate(4);
+            self.sync_scale();
+        } else if self.focus == Field::Pages {
             self.pages_text.extend(
                 s.chars()
                     .filter(|c| c.is_ascii_digit() || matches!(c, ',' | '-' | ' ' | ';')),
@@ -461,7 +653,10 @@ impl PrintDialog {
                 return Some(PrintAction::Cancel);
             }
             Key::Backspace => {
-                if self.focus_pages {
+                if self.focus == Field::Scale {
+                    self.scale_text.pop();
+                    self.sync_scale();
+                } else if self.focus == Field::Pages {
                     self.pages_text.pop();
                 } else {
                     self.copies_text.pop();
@@ -482,7 +677,12 @@ impl PrintDialog {
                 self.preview_at = (self.preview_at + 1).min(n.saturating_sub(1));
             }
             Key::PageUp => self.preview_at = self.preview_at.saturating_sub(1),
-            Key::Tab => self.focus_pages = !self.focus_pages,
+            Key::Tab => {
+                self.focus = match self.focus {
+                    Field::Copies => Field::Pages,
+                    Field::Pages | Field::Scale => Field::Copies,
+                };
+            }
             _ => {}
         }
         None
@@ -688,7 +888,7 @@ impl PrintDialog {
             TEXT,
         );
         let copies: String = self.copies_text.iter().collect();
-        self.field(p, cp, !self.focus_pages, &copies, caret);
+        self.field(p, cp, self.focus == Field::Copies, &copies, caret);
         for (part, up) in [(Part::CopiesUp, true), (Part::CopiesDown, false)] {
             let r = self.rect(part);
             p.fill_rect(r[0], r[1], r[2], r[3], FIELD);
@@ -740,7 +940,7 @@ impl PrintDialog {
         let pt = self.rect(Part::PagesText);
         let pages_text: String = self.pages_text.iter().collect();
         if self.range == Range::Pages {
-            self.field(p, pt, self.focus_pages, &pages_text, caret);
+            self.field(p, pt, self.focus == Field::Pages, &pages_text, caret);
         } else {
             p.fill_rect(pt[0], pt[1], pt[2], pt[3], GROUP);
             p.fill_rect(pt[0] + 1.0, pt[1] + 1.0, pt[2] - 2.0, pt[3] - 2.0, WHITE);
@@ -782,24 +982,23 @@ impl PrintDialog {
         );
         // Print Handling.
         self.group(p, s.get("pdfPrint.handling"), [17.0, 386.0, 449.0, 258.0]);
-        for (sc, key) in [
-            (PrintScaling::Actual, "pdfPrint.none"),
-            (PrintScaling::Fit, "pdfPrint.fit"),
-            (PrintScaling::Shrink, "pdfPrint.shrink"),
-        ] {
-            self.radio(
-                p,
-                self.rect(Part::Scaling(sc)),
-                self.scaling == sc,
-                s.get(key),
-            );
-        }
-        // Orientation.
-        self.group(
+        self.paint_handling(p, s, caret);
+        // Both sides, rotate and centre (an untitled group like the reference's).
+        self.group(p, "", [479.0, 132.0, 316.0, 235.0]);
+        self.check(
             p,
-            s.get("pdfPrint.orientation"),
-            [479.0, 132.0, 316.0, 235.0],
+            self.rect(Part::Duplex),
+            self.duplex,
+            s.get("pdfPrint.duplex"),
         );
+        for (long, key) in [(true, "pdfPrint.flipLong"), (false, "pdfPrint.flipShort")] {
+            let r = self.rect(Part::Flip(long));
+            if self.duplex {
+                self.radio(p, r, self.flip_long == long, s.get(key));
+            } else {
+                self.radio_off(p, r, s.get(key));
+            }
+        }
         self.check(
             p,
             self.rect(Part::Rotate),
@@ -841,10 +1040,33 @@ impl PrintDialog {
         let fw = self.scale.max(1.0).round() + 1.0;
         p.fill_rect(x0 - fw, y0 - fw, pw + 2.0 * fw, ph + 2.0 * fw, PAGE_FRAME);
         p.fill_rect(x0, y0, pw, ph, WHITE);
-        if let Some(key) = self.preview_key {
+        let sheets = self.preview_sheets();
+        if let Some(sheets) = &sheets {
+            // Several pages per sheet / booklet: where each page goes on the sheet shown.
+            let sheet = sheets.get(self.preview_at.min(sheets.len().saturating_sub(1)));
+            for pl in sheet.map(|s| s.items.as_slice()).unwrap_or_default() {
+                let d = pl.dest;
+                let r = [x0 + d[0] * k, y0 + d[1] * k, d[2] * k, d[3] * k];
+                p.fill_rect(r[0], r[1], r[2], r[3], GROUP);
+                p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, CAPTION);
+                let label = (pl.page + 1).to_string();
+                let st = self.style();
+                let tw = label.chars().count() as f32 * st.size * 0.5;
+                self.label(
+                    p,
+                    &label,
+                    (r[0] + (r[2] - tw) / 2.0).round(),
+                    (r[1] + r[3] / 2.0 - st.size * 0.66).round(),
+                    TEXT,
+                );
+            }
+        } else if let Some(key) = self.preview_key {
             p.page(key, x0 as i32, y0 as i32);
         }
-        let n = self.pages().len().max(1);
+        let n = sheets
+            .as_ref()
+            .map_or_else(|| self.pages().len(), Vec::len)
+            .max(1);
         let at = self.preview_at.min(n - 1) + 1;
         for (part, left) in [(Part::PrevPage, true), (Part::NextPage, false)] {
             let r = self.rect(part);
@@ -865,7 +1087,11 @@ impl PrintDialog {
         }
         let nr = self.rect(Part::NextPage);
         let page_of = s
-            .get("pdfPrint.pageOf")
+            .get(if sheets.is_some() {
+                "pdfPrint.sheetOf"
+            } else {
+                "pdfPrint.pageOf"
+            })
             .replace("{{n}}", &at.to_string())
             .replace("{{total}}", &n.to_string());
         self.text_in(
@@ -899,6 +1125,172 @@ impl PrintDialog {
                     p.fill_rect(r[0] + 1.0, r[1], r[2] - 2.0, r[3] - 1.0, ITEM_HOVER);
                 }
                 self.text_in(p, &self.printers[i], r, self.px(4.8), TEXT);
+            }
+        }
+    }
+}
+
+impl PrintDialog {
+    /// Sheets of the preview when several pages go on one sheet (the preview page's size
+    /// stands for the paper and for every page).
+    fn preview_sheets(&self) -> Option<Vec<crate::reader_impose::Sheet>> {
+        if self.handling == Handling::Scale {
+            return None;
+        }
+        let size = self.preview_size;
+        let o = crate::reader_impose::PlanOptions {
+            scaling: self.scaling,
+            auto_rotate: self.rotate,
+            auto_center: self.center,
+            layout: self.print_layout(),
+            copies: 1,
+            collate: true,
+        };
+        Some(crate::reader_impose::plan(
+            &self.pages(),
+            &|_| size,
+            None,
+            size,
+            &o,
+        ))
+    }
+
+    fn radio_off(&self, p: &mut dyn Painter, r: [f32; 4], label: &str) {
+        let d = self.px(12.8);
+        let (cx, cy) = (r[0] + d / 2.0 + 1.0, r[1] + r[3] / 2.0);
+        p.path(
+            &circle(cx, cy, d / 2.0),
+            Some(Rgba(249, 249, 249, 255)),
+            Some((GROUP, self.scale.max(1.0))),
+        );
+        self.text_in(p, label, r, d + self.px(6.4), GREY_TEXT);
+    }
+
+    /// A tab button of the Print Handling group (measured: selected 0,84,153 frame on
+    /// 204,228,247; others 208,208,208 on 253,253,253), label centred on one or two lines.
+    fn tab_button(&self, p: &mut dyn Painter, part: Part, label: &str, on: bool) {
+        let r = self.rect(part);
+        let (edge, fill) = if on {
+            (Rgba(0, 84, 153, 255), Rgba(204, 228, 247, 255))
+        } else if self.hover == Some(part) {
+            (BUTTON_EDGE, BUTTON_HOVER)
+        } else {
+            (Rgba(208, 208, 208, 255), BUTTON)
+        };
+        p.fill_rect(r[0], r[1], r[2], r[3], edge);
+        p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, fill);
+        let st = self.style();
+        let lines: Vec<String> = if label.chars().count() > 14 {
+            // Wrap at the space nearest the middle.
+            let mid = label.len() / 2;
+            let cut = label
+                .match_indices(' ')
+                .map(|(i, _)| i)
+                .min_by_key(|i| i.abs_diff(mid));
+            match cut {
+                Some(i) => vec![label[..i].to_owned(), label[i + 1..].to_owned()],
+                None => vec![label.to_owned()],
+            }
+        } else {
+            vec![label.to_owned()]
+        };
+        let lh = (st.size * 1.33).round();
+        let top = r[1] + ((r[3] - lh * lines.len() as f32) / 2.0).round();
+        for (k, line) in lines.iter().enumerate() {
+            let tw = line.chars().count() as f32 * st.size * 0.5;
+            self.label(
+                p,
+                line,
+                (r[0] + (r[2] - tw) / 2.0).round(),
+                top + lh * k as f32,
+                TEXT,
+            );
+        }
+    }
+
+    /// Print Handling: tab buttons and the chosen tab's options.
+    fn paint_handling(&self, p: &mut dyn Painter, s: &Strings, caret: bool) {
+        for (h, key) in [
+            (Handling::Scale, "pdfPrint.tabScale"),
+            (Handling::Multiple, "pdfPrint.tabMultiple"),
+            (Handling::Booklet, "pdfPrint.tabBooklet"),
+        ] {
+            self.tab_button(p, Part::Handling(h), s.get(key), self.handling == h);
+        }
+        let caption = |p: &mut dyn Painter, part: Part, key: &str| {
+            let r = self.rect(part);
+            self.text_in(
+                p,
+                s.get(key),
+                [self.frame[0], r[1], 0.0, r[3]],
+                self.px(28.8),
+                TEXT,
+            );
+        };
+        match self.handling {
+            Handling::Scale => {
+                for (sc, key) in [
+                    (PrintScaling::Actual, "pdfPrint.none"),
+                    (PrintScaling::Fit, "pdfPrint.fit"),
+                    (PrintScaling::Shrink, "pdfPrint.shrink"),
+                ] {
+                    self.radio(
+                        p,
+                        self.rect(Part::Scaling(sc)),
+                        self.scaling == sc,
+                        s.get(key),
+                    );
+                }
+                let custom = matches!(self.scaling, PrintScaling::Custom(_));
+                self.radio(
+                    p,
+                    self.rect(Part::Scaling(PrintScaling::Custom(0))),
+                    custom,
+                    s.get("pdfPrint.custom"),
+                );
+                let r = self.rect(Part::ScaleText);
+                let text: String = self.scale_text.iter().collect();
+                self.field(p, r, custom && self.focus == Field::Scale, &text, caret);
+                self.text_in(p, "%", [r[0] + r[2], r[1], 0.0, r[3]], self.px(6.4), TEXT);
+            }
+            Handling::Multiple => {
+                caption(p, Part::PerSheet, "pdfPrint.perSheet");
+                self.combo(
+                    p,
+                    self.rect(Part::PerSheet),
+                    &self.per_sheet.to_string(),
+                    false,
+                );
+                caption(p, Part::Order, "pdfPrint.order");
+                let order = match self.order {
+                    PageOrder::Horizontal => "pdfPrint.orderH",
+                    PageOrder::HorizontalReversed => "pdfPrint.orderHR",
+                    PageOrder::Vertical => "pdfPrint.orderV",
+                    PageOrder::VerticalReversed => "pdfPrint.orderVR",
+                };
+                self.combo(p, self.rect(Part::Order), s.get(order), false);
+                self.check(
+                    p,
+                    self.rect(Part::Border),
+                    self.border,
+                    s.get("pdfPrint.border"),
+                );
+            }
+            Handling::Booklet => {
+                caption(p, Part::BookletSubset, "pdfPrint.bookletSubset");
+                let sides = match self.booklet_sides {
+                    BookletSides::Both => "pdfPrint.bothSides",
+                    BookletSides::Front => "pdfPrint.frontOnly",
+                    BookletSides::Back => "pdfPrint.backOnly",
+                };
+                self.combo(p, self.rect(Part::BookletSubset), s.get(sides), false);
+                caption(p, Part::Binding, "pdfPrint.binding");
+                let binding = if self.right_binding {
+                    "pdfPrint.right"
+                } else {
+                    "pdfPrint.left"
+                };
+                self.combo(p, self.rect(Part::Binding), s.get(binding), false);
             }
         }
     }
@@ -938,6 +1330,59 @@ mod tests {
         assert_eq!(parse_pages("8-", 10), vec![7, 8, 9]);
         assert_eq!(parse_pages("4-2;x;12", 10), vec![1, 2, 3]);
         assert_eq!(parse_pages("", 3), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn view_duplex_custom_scale_multiple_and_booklet() {
+        let mut d = PrintDialog::new(vec!["A".into()], None, 12, 2);
+        d.set_view(2, [10.0, 20.0, 300.0, 200.0]);
+        d.layout(&Fixed, (1600.0, 1000.0), 1.25);
+        let click = |d: &mut PrintDialog, part| {
+            let (x, y) = centre(d, part);
+            d.press(x, y)
+        };
+        click(&mut d, Part::Range(Range::View));
+        click(&mut d, Part::Duplex);
+        click(&mut d, Part::Flip(false));
+        click(&mut d, Part::Scaling(PrintScaling::Custom(0)));
+        for _ in 0..3 {
+            d.key(Key::Backspace, Mods::default());
+        }
+        d.text("75");
+        let s = d.settings().unwrap();
+        assert_eq!(s.pages, vec![2]);
+        assert_eq!(s.view, Some([10.0, 20.0, 300.0, 200.0]));
+        assert_eq!(s.duplex, Duplex::ShortEdge);
+        assert_eq!(s.scaling, PrintScaling::Custom(75));
+        // Multiple pages per sheet: 2 → 4, order horizontal → reversed, border.
+        click(&mut d, Part::Range(Range::All));
+        click(&mut d, Part::Handling(Handling::Multiple));
+        click(&mut d, Part::PerSheet);
+        click(&mut d, Part::Order);
+        click(&mut d, Part::Border);
+        assert_eq!(
+            d.settings().unwrap().layout,
+            PrintLayout::Multiple {
+                per_sheet: 4,
+                order: PageOrder::HorizontalReversed,
+                border: true,
+            }
+        );
+        assert_eq!(d.preview_sheets().map(|s| s.len()), Some(3));
+        // Booklet: both sides, short edge; right binding.
+        click(&mut d, Part::Handling(Handling::Booklet));
+        click(&mut d, Part::Binding);
+        let s = d.settings().unwrap();
+        assert_eq!(
+            s.layout,
+            PrintLayout::Booklet {
+                sides: BookletSides::Both,
+                right_binding: true,
+            }
+        );
+        assert_eq!(s.duplex, Duplex::ShortEdge);
+        // 12 pages: 3 sheets, 6 sides.
+        assert_eq!(d.preview_sheets().map(|s| s.len()), Some(6));
     }
 
     #[test]
@@ -990,6 +1435,9 @@ mod tests {
                 grayscale: true,
                 auto_rotate: true,
                 auto_center: true,
+                layout: PrintLayout::Size,
+                duplex: Duplex::Off,
+                view: None,
             }))
         );
         assert_eq!(

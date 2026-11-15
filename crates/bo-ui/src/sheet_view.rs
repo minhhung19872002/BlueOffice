@@ -36,8 +36,9 @@ const HDR_EDGE: Rgba = Rgba(0x99, 0x99, 0x99, 255);
 const HDR_TEXT: Rgba = Rgba(0x00, 0x00, 0x00, 255);
 /// Selection frame, labels of selected headers.
 pub const SEL_GREEN: Rgba = Rgba(0x21, 0x73, 0x46, 255);
-/// Tint over the selected cells other than the active one.
-const SEL_TINT: Rgba = Rgba(0x00, 0x00, 0x00, 0x1f);
+/// Tint over the selected cells other than the active one (white #FFFFFF shows as #C6C6C6,
+/// gridlines #A5A5A5, as measured); a one-pixel ring inside the frame stays untinted.
+const SEL_TINT: Rgba = Rgba(0x00, 0x00, 0x00, 57);
 /// Select-all triangle in the corner.
 const CORNER_MARK: Rgba = Rgba(0xb4, 0xb4, 0xb4, 255);
 /// Line under frozen rows / right of frozen columns.
@@ -1514,7 +1515,9 @@ impl SheetView {
         // Headers first: the selection frame covers their edge lines, as on the reference.
         self.paint_headers(p, (r0, c0, r1, c1), full_rows, full_cols);
         // Selection tint (all cells but the active one), then the frame.
-        if let Some([l, t, r, b]) = self.sel_rect {
+        if let Some([l0, t0, r0_, b0]) = self.sel_rect {
+            // Inside the frame's one-pixel white ring.
+            let (l, t, r, b) = (l0 + 1.0, t0 + 1.0, r0_ - 1.0, b0 - 1.0);
             if (r0, c0) != (r1, c1) {
                 p.push_clip(gx, gy, right - gx, bottom - gy);
                 let rr = r.min(right);

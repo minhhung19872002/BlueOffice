@@ -449,7 +449,7 @@ impl SheetWindow {
         let _ = y;
         let style = self.tab_style(false);
         let bold = self.tab_style(true);
-        // Measured: first tab 112 px from the left, tab = label + 44 px at 125 %.
+        // Measured: first tab 112 px from the left, tab = label + 22 px at 125 %.
         let mut x = self.px(89.6);
         self.tab_rects.clear();
         self.tab_label_widths.clear();
@@ -459,7 +459,7 @@ impl SheetWindow {
             self.tab_label_widths.push((name.clone(), false, wr));
             self.tab_label_widths.push((name.clone(), true, wb));
             let w = wr.max(wb);
-            let tw = (w + self.px(35.2)).round();
+            let tw = (w + self.px(17.6)).round();
             self.tab_rects.push((i, x, tw));
             x += tw;
         }
@@ -1369,7 +1369,7 @@ impl SheetWindow {
         let gt = self.grid_top();
         let tabs_y = h - self.status_h() - self.tabs_h();
         p.fill_rect(w - self.sb_w(), gt, self.sb_w(), tabs_y - gt, TABS_BG);
-        let k = self.px(2.4);
+        let k = self.px(3.2);
         for (i, r) in self.arrow_rects().into_iter().enumerate() {
             boxed(p, r);
             let (cx, cy) = ((r[0] + r[2] / 2.0).round(), (r[1] + r[3] / 2.0).round());
@@ -1484,7 +1484,7 @@ impl SheetWindow {
             p.text(
                 &name,
                 (x + (tw - lw) / 2.0).round(),
-                (y + (tab_h - line) / 2.0).round(),
+                (y + (tab_h - line) / 2.0 - self.px(4.0)).round(),
                 style,
                 ink,
             );
@@ -1538,7 +1538,7 @@ impl SheetWindow {
         } else {
             self.t("sheetEditor.ready", "Ready")
         };
-        p.text(&mode, self.px(14.0), ty, style, STATUS_TEXT);
+        p.text(&mode, self.px(11.2), ty - 1.0, style, STATUS_TEXT);
         // Selection statistics, right-aligned before the zoom controls.
         let st = self.view.stats();
         if st.count > 1 {

@@ -262,6 +262,18 @@ impl DocView {
         Some((slot.x as f32, slot.width as f32))
     }
 
+    /// Top edge and height in window pixels of the page the caret is on (or the first
+    /// visible page), for the vertical ruler.
+    pub fn ruler_page_v(&self) -> Option<(f32, f32)> {
+        let page = self.caret.map(|c| c.page);
+        let slots = self.visible();
+        let slot = slots
+            .iter()
+            .find(|s| Some(s.index) == page)
+            .or_else(|| slots.first())?;
+        Some((slot.y as f32, slot.height as f32))
+    }
+
     /// Run an engine command that changes the document or selection.
     pub fn run_command(&mut self, cmd: Command) -> bool {
         self.edit(cmd)

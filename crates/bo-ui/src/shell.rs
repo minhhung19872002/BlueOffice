@@ -681,6 +681,15 @@ impl DocWindow {
         self.title.hit(x, y)
     }
 
+    /// Width of the vertical ruler (shown with the ruler, as on a desktop word processor).
+    fn vr_w(&self) -> f32 {
+        if self.show_ruler {
+            (16.0 * self.scale).round()
+        } else {
+            0.0
+        }
+    }
+
     /// Width of the vertical scroll bar (as on a desktop word processor).
     fn sb_w(&self) -> f32 {
         (15.0 * self.scale).round()
@@ -756,9 +765,10 @@ impl DocWindow {
             top += Ruler::height(self.scale);
         }
         let h = (self.size.1 - top - self.status_h()).max(1.0);
-        // The vertical scroll bar takes the right edge.
+        // The vertical scroll bar takes the right edge, the vertical ruler the left one.
+        let vr = self.vr_w();
         self.view
-            .set_frame(0.0, top, (self.size.0 - self.sb_w()).max(1.0), h);
+            .set_frame(vr, top, (self.size.0 - self.sb_w() - vr).max(1.0), h);
         self.layout_ruler();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
@@ -1310,6 +1320,19 @@ impl DocWindow {
         );
         if self.show_ruler {
             self.ruler.paint(p, &self.theme);
+            if let Some(page) = self.view.ruler_page_v() {
+                let top = self.view_top();
+                let bottom = self.size.1 - self.status_h();
+                crate::ruler::paint_vertical(
+                    p,
+                    &self.theme,
+                    (0.0, self.vr_w(), top, bottom),
+                    page,
+                    &self.view.format().section,
+                    self.view.scale() / 20.0,
+                    self.scale,
+                );
+            }
         }
         // Status bar.
         let (w, h) = self.size;

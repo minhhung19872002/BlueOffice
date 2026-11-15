@@ -232,6 +232,71 @@ impl Ruler {
     }
 }
 
+/// Paint the vertical ruler in the strip at `x` (`w` wide) between `top` and `bottom`:
+/// the page from `page_y` (`page_h` pixels high) with its top and bottom margins in grey,
+/// centimetres numbered from the top margin, half centimetres as short lines and quarters
+/// as dots, as on a desktop word processor's vertical ruler.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_vertical(
+    p: &mut dyn Painter,
+    t: &Theme,
+    (x, w, top, bottom): (f32, f32, f32, f32),
+    (page_y, page_h): (f32, f32),
+    sec: &SectionState,
+    per_twip: f32,
+    scale: f32,
+) {
+    p.fill_rect(x, top, w, bottom - top, crate::doc_view::CANVAS_BG);
+    let band = (x + (3.0 * scale).round(), w - (6.0 * scale).round());
+    p.push_clip(x, top, w, bottom - top);
+    p.fill_rect(band.0, page_y, band.1, page_h, RULER_MARGIN);
+    let text_top = page_y + sec.margin_top as f32 * per_twip;
+    let text_bottom = page_y + (sec.height - sec.margin_bottom) as f32 * per_twip;
+    p.fill_rect(
+        band.0,
+        text_top,
+        band.1,
+        (text_bottom - text_top).max(0.0),
+        t.surface,
+    );
+    let per_cm = 567.0 * per_twip;
+    if per_cm > 4.0 {
+        let style = TextStyle {
+            size: (10.0 * scale).round(),
+            bold: false,
+        };
+        let line_w = scale.max(1.0).round();
+        let mid = band.0 + band.1 / 2.0;
+        let first = ((page_y - text_top) / per_cm * 4.0).floor() as i32;
+        let last = ((page_y + page_h - text_top) / per_cm * 4.0).ceil() as i32;
+        for q in first..=last {
+            let y = (text_top + q as f32 * per_cm / 4.0).round();
+            if y < page_y.max(top) || y > (page_y + page_h).min(bottom) {
+                continue;
+            }
+            if q % 4 == 0 {
+                if q != 0 {
+                    let n = (q / 4).abs().to_string();
+                    let tw = style.size * 0.55 * n.len() as f32;
+                    p.text(
+                        &n,
+                        mid - tw / 2.0,
+                        y - style.size * 0.66,
+                        style,
+                        t.text_muted,
+                    );
+                }
+            } else if q % 2 == 0 {
+                let len = (5.0 * scale).round();
+                p.fill_rect((mid - len / 2.0).round(), y, len, line_w, t.text_muted);
+            } else {
+                p.fill_rect(mid.round(), y, line_w, line_w, t.text_muted);
+            }
+        }
+    }
+    p.pop_clip();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

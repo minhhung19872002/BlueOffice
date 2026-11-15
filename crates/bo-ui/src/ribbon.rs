@@ -188,6 +188,11 @@ pub struct Ribbon {
     labeled_w: fn(&str) -> Option<f32>,
     /// Large buttons placed after the group's rows instead of before them.
     trailing: fn(&str) -> bool,
+    /// Row items placed as a column after the trailing large buttons (BlueSheet's Sort &
+    /// Filter: Clear / Reapply / Advanced after Sort and Filter).
+    late: fn(&str) -> bool,
+    /// Contextual tabs drawn like the others (BlueSheet: no tinted band or accent label).
+    plain_contextual: bool,
     /// Large button labels with a space break into two lines (BlueSheet), measured lines
     /// by command id.
     two_line: bool,
@@ -555,6 +560,8 @@ impl Ribbon {
             large_w: |_| None,
             labeled_w: |_| None,
             trailing: |_| false,
+            late: |_| false,
+            plain_contextual: false,
             two_line: false,
             large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
             row_w: |_| None,
@@ -578,6 +585,18 @@ impl Ribbon {
     /// Place the large buttons `rule` picks after the group's rows.
     pub(crate) fn with_trailing(mut self, rule: fn(&str) -> bool) -> Self {
         self.trailing = rule;
+        self
+    }
+
+    /// Draw contextual tabs like the permanent ones.
+    pub(crate) fn with_plain_contextual(mut self) -> Self {
+        self.plain_contextual = true;
+        self
+    }
+
+    /// Place the row items `rule` picks in a column after the trailing large buttons.
+    pub(crate) fn with_late_rows(mut self, rule: fn(&str) -> bool) -> Self {
+        self.late = rule;
         self
     }
 
@@ -920,6 +939,7 @@ impl Ribbon {
                 let mut group_w: f32 = 0.0;
                 let mut lx = gx + self.px(4.0);
                 let trailing = |item: &Item| matches!(item, Item::Large(id) if (self.trailing)(id));
+                let late = |item: &Item| matches!(item, Item::Labeled(id) | Item::Button(id) if (self.late)(id));
                 for item in g.large.iter().filter(|i| !trailing(i)) {
                     if *item == Item::Gallery {
                         {
@@ -981,7 +1001,7 @@ impl Ribbon {
                         rows_top + r as f32 * (btn + row_gap)
                     };
                     let mut x = lx;
-                    for item in row {
+                    for item in row.iter().filter(|i| !late(i)) {
                         let w = match item {
                             Item::FontBox => self.px(self.box_w.map_or(150.0, |b| b.0)),
                             Item::SizeBox => self.px(self.box_w.map_or(52.0, |b| b.1)),
@@ -1023,6 +1043,27 @@ impl Ribbon {
                     ));
                     tx += w + gap;
                     group_w = group_w.max(tx - gap - gx + self.px(4.0));
+                }
+                // Late row items: one column after the trailing large buttons.
+                let three = g.rows.len() >= 3;
+                for (r, row) in g.rows.iter().enumerate() {
+                    let y = if three {
+                        content_top + r as f32 * (row_h + gap)
+                    } else {
+                        rows_top + r as f32 * (btn + row_gap)
+                    };
+                    let mut x = tx;
+                    for item in row.iter().filter(|i| late(i)) {
+                        let w = match item {
+                            Item::Labeled(id) => {
+                                btn + self.measure_label(text, strings, id) + self.px(8.0)
+                            }
+                            _ => btn,
+                        };
+                        placed.push(Placed::Item(*item, Rect { x, y, w, h: row_h }));
+                        x += w + gap;
+                        group_w = group_w.max(x - gap - gx + self.px(4.0));
+                    }
                 }
                 let label = strings.get(g.label);
                 let (lw, _) = text.measure(
@@ -1507,7 +1548,7 @@ impl Ribbon {
                     );
                 }
                 Placed::Tab(i, r) => {
-                    let contextual = *i >= self.fixed_tabs;
+                    let contextual = *i >= self.fixed_tabs && !self.plain_contextual;
                     if contextual {
                         // Contextual tabs sit on a tinted band (the reference darkens its
                         // tab strip by about a fifth behind them) with accent labels.

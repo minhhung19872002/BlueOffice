@@ -12,7 +12,49 @@ use serde_json::{json, Value};
 /// Frame and handle colours of a selected chart (the reference: grey frame, white round
 /// handles with a grey ring).
 const FRAME: Rgba = Rgba(0xa6, 0xa6, 0xa6, 255);
-const HANDLE_RING: Rgba = Rgba(0x84, 0x84, 0x84, 255);
+/// Handles: 13 px circles with a 2 px #616161 ring at 125 % (measured).
+const HANDLE_RING: Rgba = Rgba(0x61, 0x61, 0x61, 255);
+/// Source ranges of the selected chart (measured): categories, series names, values.
+const SRC_CAT: Rgba = Rgba(0x81, 0x57, 0xb7, 255);
+const SRC_NAME: Rgba = Rgba(0xc0, 0x35, 0x3e, 255);
+const SRC_VAL: Rgba = Rgba(0x32, 0x6a, 0xc7, 255);
+/// Chart style tiles shown inline on Chart Design (the reference shows five and a More
+/// button at 1500 px).
+pub(crate) const STYLE_TILES: [&str; 5] = [
+    "sheet.chartStyle0",
+    "sheet.chartStyle1",
+    "sheet.chartStyle2",
+    "sheet.chartStyle3",
+    "sheet.chartStyle4",
+];
+
+/// Width (logical px) of the style tiles (130 px at 125 %) and the More button.
+pub(crate) fn large_width(id: &str) -> Option<f32> {
+    if STYLE_TILES.contains(&id) {
+        Some(104.0)
+    } else if id == "sheet.chartStylesMore" {
+        Some(22.0)
+    } else {
+        None
+    }
+}
+
+/// Cells of an A1 reference formula (`Sheet1!$A$1:$B$3`): first and last (row, col).
+fn ref_cells(f: &str) -> Option<((u32, u32), (u32, u32))> {
+    let body = f.rsplit('!').next()?.replace('$', "");
+    let cell = |s: &str| -> Option<(u32, u32)> {
+        let letters: String = s.chars().take_while(char::is_ascii_alphabetic).collect();
+        let row: u32 = s[letters.len()..].parse().ok()?;
+        let col = letters.chars().try_fold(0u32, |a, c| {
+            Some(a * 26 + (c.to_ascii_uppercase() as u32 - 64))
+        })?;
+        Some((row.checked_sub(1)?, col.checked_sub(1)?))
+    };
+    let mut parts = body.split(':');
+    let a = cell(parts.next()?)?;
+    let b = parts.next().map_or(Some(a), cell)?;
+    Some((a, b))
+}
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
 const PREVIEW: Rgba = Rgba(0x21, 0x73, 0x46, 255);
 
@@ -141,7 +183,15 @@ pub(crate) fn chart_tabs() -> Vec<Tab> {
                 },
                 Group {
                     label: "sheetChart.groupStyles",
-                    large: vec![L("sheet.chartColors"), L("sheet.chartStyles")],
+                    large: vec![
+                        L("sheet.chartColors"),
+                        L(STYLE_TILES[0]),
+                        L(STYLE_TILES[1]),
+                        L(STYLE_TILES[2]),
+                        L(STYLE_TILES[3]),
+                        L(STYLE_TILES[4]),
+                        L("sheet.chartStylesMore"),
+                    ],
                     rows: vec![],
                 },
                 Group {
@@ -209,7 +259,7 @@ pub(crate) fn chart_menu(id: &str) -> Vec<(String, String)> {
             .iter()
             .map(|p| (format!("chartColors.{p}"), format!("sheetChart.pal_{p}")))
             .collect(),
-        "sheet.chartStyles" => bo_sheet::chart_style::STYLES
+        "sheet.chartStyles" | "sheet.chartStylesMore" => bo_sheet::chart_style::STYLES
             .iter()
             .enumerate()
             .map(|(i, s)| (format!("chartStyle.{s}"), format!("Style {}", i + 1)))
@@ -429,6 +479,7 @@ impl SheetWindow {
         };
         let [gx, gy, gw, gh] = self.view.grid_frame();
         p.push_clip(gx, gy, gw, gh);
+        self.paint_chart_sources(p, i);
         if let Some(r) = self.anchor_rect(from, to) {
             let [x, y, w, h] = r;
             for (rx, ry, rw, rh) in [
@@ -439,7 +490,7 @@ impl SheetWindow {
             ] {
                 p.fill_rect(rx, ry, rw, rh, FRAME);
             }
-            let s = (4.0 * self.scale).round();
+            let s = 6.5 * self.scale / 1.25;
             for (hx, hy) in Self::handles(r) {
                 let circle = |rad: f32| {
                     let k = rad * 0.552;
@@ -452,7 +503,11 @@ impl SheetWindow {
                         bo_render::PathSeg::Z,
                     ]
                 };
-                p.path(&circle(s), Some(WHITE), Some((HANDLE_RING, 1.0)));
+                p.path(
+                    &circle(s),
+                    Some(WHITE),
+                    Some((HANDLE_RING, 1.6 * self.scale / 1.25)),
+                );
             }
         }
         if let Some(d) = &self.chart_drag {
@@ -470,6 +525,123 @@ impl SheetWindow {
             }
         }
         p.pop_clip();
+    }
+
+    /// The selected chart's source ranges framed on the grid as the reference: categories
+    /// purple, series names red, values blue, a light tint inside and square corner handles.
+    fn paint_chart_sources(&self, p: &mut dyn Painter, index: usize) {
+        let Some(chart) = self
+            .view
+            .engine()
+            .workbook()
+            .and_then(|wb| wb.sheets.get(self.view.sheet()))
+            .and_then(|ws| ws.charts.get(index))
+        else {
+            return;
+        };
+        let mut ranges = Vec::new();
+        for s in chart.plots.iter().flat_map(|pl| &pl.series) {
+            for (f, c) in [
+                (&s.cat_ref, SRC_CAT),
+                (&s.name_ref, SRC_NAME),
+                (&s.val_ref, SRC_VAL),
+            ] {
+                if let Some(cells) = f.as_deref().and_then(ref_cells) {
+                    if !ranges.contains(&(cells, c)) {
+                        ranges.push((cells, c));
+                    }
+                }
+            }
+        }
+        let k = self.scale / 1.25;
+        for (((r0, c0), (r1, c1)), color) in ranges {
+            let (Some(a), Some(b)) = (self.view.cell_rect(r0, c0), self.view.cell_rect(r1, c1))
+            else {
+                continue;
+            };
+            let (x, y) = (a[0], a[1]);
+            let (w, h) = (b[0] + b[2] - x, b[1] + b[3] - y);
+            p.fill_rect(x, y, w, h, Rgba(color.0, color.1, color.2, 26));
+            let t = (2.0 * k).round().max(1.0);
+            for (rx, ry, rw, rh) in [
+                (x, y, w, t),
+                (x, y + h - t, w, t),
+                (x, y, t, h),
+                (x + w - t, y, t, h),
+            ] {
+                p.fill_rect(rx, ry, rw, rh, color);
+            }
+            let hs = (5.0 * k).round();
+            for (hx, hy) in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)] {
+                p.fill_rect(hx - hs / 2.0, hy - hs / 2.0, hs, hs, color);
+            }
+        }
+    }
+
+    /// Thumbnails of the inline chart style tiles (own drawings of a small column chart in
+    /// each style's look) over their ribbon places.
+    pub(super) fn paint_chart_style_tiles(&self, p: &mut dyn Painter) {
+        if self.chart_sel.is_none() {
+            return;
+        }
+        let accent = Rgba(0x44, 0x72, 0xc4, 255);
+        for (i, id) in STYLE_TILES.iter().enumerate() {
+            let Some([x, y, w, h]) = self.ribbon.rect_of(crate::ribbon::RibbonHit::Command(id))
+            else {
+                continue;
+            };
+            let (x, y, w, h) = (x + 3.0, y + 3.0, w - 6.0, h - 6.0);
+            let dark = i == 4;
+            let bg = if dark {
+                Rgba(0x40, 0x40, 0x40, 255)
+            } else {
+                WHITE
+            };
+            p.fill_rect(x, y, w, h, Rgba(0xc8, 0xc8, 0xc8, 255));
+            p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, bg);
+            // Title line, gridlines (styles 0, 3), then three columns.
+            let ink = if dark {
+                WHITE
+            } else {
+                Rgba(0x80, 0x80, 0x80, 255)
+            };
+            p.fill_rect(x + w * 0.35, y + h * 0.1, w * 0.3, 2.0, ink);
+            if i == 0 || i == 3 {
+                for g in 1..5 {
+                    let gy = (y + h * 0.25 + g as f32 * h * 0.14).round();
+                    p.fill_rect(x + w * 0.1, gy, w * 0.8, 1.0, Rgba(0xd9, 0xd9, 0xd9, 255));
+                }
+            }
+            let base = y + h * 0.88;
+            let bar_w = if i == 1 { w * 0.06 } else { w * 0.16 };
+            for (j, frac) in [0.45f32, 0.75, 0.35].iter().enumerate() {
+                let bx = x + w * (0.18 + 0.27 * j as f32);
+                let bh = h * 0.6 * frac;
+                let fill = if i == 2 {
+                    Rgba(0x8e, 0xa9, 0xdb, 255)
+                } else {
+                    accent
+                };
+                p.fill_rect(
+                    bx.round(),
+                    (base - bh).round(),
+                    bar_w.round(),
+                    bh.round(),
+                    fill,
+                );
+                if i == 3 {
+                    // Shaded look: a lighter top half.
+                    p.fill_rect(
+                        bx.round(),
+                        (base - bh).round(),
+                        bar_w.round(),
+                        (bh / 2.0).round(),
+                        Rgba(0x6f, 0x94, 0xd6, 255),
+                    );
+                }
+            }
+            p.fill_rect(x + w * 0.1, base.round(), w * 0.8, 1.0, ink);
+        }
     }
 
     /// Keep the anchors of the charts for painting (refreshed after each input).
@@ -527,6 +699,14 @@ impl SheetWindow {
             }
             "sheet.chartResetStyle" => {
                 design(json!({ "style": bo_sheet::chart_style::STYLES[0] }))?
+            }
+            _ if STYLE_TILES.contains(&id) => {
+                let i = STYLE_TILES.iter().position(|t| *t == id).unwrap_or(0);
+                let s = bo_sheet::chart_style::STYLES
+                    .get(i)
+                    .copied()
+                    .unwrap_or(bo_sheet::chart_style::STYLES[0]);
+                design(json!({ "style": s }))?
             }
             "sheet.chartDelete" => {
                 self.set_chart_selection(None, false);

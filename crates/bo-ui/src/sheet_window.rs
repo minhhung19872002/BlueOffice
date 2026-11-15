@@ -389,6 +389,9 @@ impl SheetWindow {
                     (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
                 })
                 .with_trailing(sheet_ribbon::trailing)
+                .with_late_rows(sheet_ribbon::late)
+                .with_large_widths(chart_impl::large_width)
+                .with_plain_contextual()
                 .with_two_line_labels(),
             wide_ribbon: true,
             theme: Theme::light("sheet"),
@@ -1676,6 +1679,7 @@ impl SheetWindow {
         );
         self.paint_number_box(p);
         self.paint_check_items(p);
+        self.paint_chart_style_tiles(p);
     }
 
     /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs

@@ -43,6 +43,10 @@ impl SheetWindow {
     /// The name box text: the function being typed (or the first recent one) while a
     /// formula is edited, as the reference shows it; else the cell reference or name.
     pub(super) fn name_box_text(&self) -> String {
+        // A selected chart is named in the name box ("Chart 1"), as on the reference.
+        if let Some(i) = self.chart_sel {
+            return format!("{} {}", self.t("sheetChart.chartName", "Chart"), i + 1);
+        }
         if !self.formula_editing() {
             return self.view.name_box();
         }

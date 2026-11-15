@@ -41,6 +41,12 @@ const NATIVE_LABELS: [(&str, &str); 18] = [
 
 /// Use the native labels for this window's ribbon.
 pub(super) fn install_labels(s: &mut crate::strings::Strings) {
+    // Chart style tiles: no label, "Style n" as the tooltip.
+    for (i, id) in super::chart_impl::STYLE_TILES.iter().enumerate() {
+        s.set(&format!("commands.{id}"), "");
+        s.set(&format!("commands.tip.{id}"), &format!("Style {}", i + 1));
+    }
+    s.set("commands.sheet.chartStylesMore", "");
     for (name, target) in NATIVE_LABELS {
         let v = s.get(&format!("sheetNative.{name}")).to_owned();
         if v.is_empty() || v.starts_with("sheetNative.") {

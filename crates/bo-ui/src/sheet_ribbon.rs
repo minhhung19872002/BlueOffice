@@ -660,6 +660,15 @@ pub(crate) fn number_box_width(wide: bool) -> f32 {
     }
 }
 
+/// Small buttons placed in a column after their group's trailing large buttons (Data › Sort &
+/// Filter: Clear, Reapply, Advanced after Sort and Filter, as on the reference).
+pub(crate) fn late(id: &str) -> bool {
+    matches!(
+        id,
+        "sheet.filterClear" | "sheet.filterReapply" | "sheet.filterAdvanced"
+    )
+}
+
 /// Large buttons placed after their group's rows.
 pub(crate) fn trailing(id: &str) -> bool {
     matches!(
@@ -938,7 +947,8 @@ fn data() -> Tab {
                 rows: vec![],
             },
             Group {
-                label: "sheetData.groupOutline",
+                // The reference shows no caption under the folded Outline button.
+                label: "",
                 large: vec![L("sheet.outline")],
                 rows: vec![],
             },
@@ -1092,7 +1102,8 @@ mod tests {
             }
             for t in tabs() {
                 assert_ne!(s.get(t.label), t.label, "{locale}: missing {}", t.label);
-                for g in &t.groups {
+                // A group without a caption (the folded Outline button) has an empty label.
+                for g in t.groups.iter().filter(|g| !g.label.is_empty()) {
                     assert_ne!(s.get(g.label), g.label, "{locale}: missing {}", g.label);
                 }
             }

@@ -330,7 +330,13 @@
       "chartOutline": "Viền hình",
       "chartDelete": "Xóa biểu đồ",
       "illustrations": "Hình minh họa",
-      "symbols": "Ký hiệu"
+      "symbols": "Ký hiệu",
+      "chartStyle0": "Kiểu 1",
+      "chartStyle1": "Kiểu 2",
+      "chartStyle2": "Kiểu 3",
+      "chartStyle3": "Kiểu 4",
+      "chartStyle4": "Kiểu 5",
+      "chartStylesMore": "Thêm"
     },
     "addins": {
       "manage": "Quản lý add-in"
@@ -10153,6 +10159,7 @@
     "pal_grey": "Grey",
     "pal_bluestar": "bluestar",
     "pal_lotus": "lotus",
-    "pal_terrace": "terrace"
+    "pal_terrace": "terrace",
+    "chartName": "Biểu đồ"
   }
 }

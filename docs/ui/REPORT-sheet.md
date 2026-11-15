@@ -568,3 +568,34 @@ Ctrl+D / Ctrl+R điền xuống / sang phải; Ctrl+1 mở Format Cells; Ctrl+; 
 phương); Alt+= AutoSum; Alt+Enter xuống dòng trong ô (trước đây Windows gửi Alt+phím dạng phím hệ thống nên không tới
 BlueSheet; nay chỉ BlueSheet bật `win32::enable_sheet_keys`, BlueDoc không đổi). Ctrl+mũi tên, Ctrl+Shift+mũi tên, F2,
 Tab / Enter trong vùng chọn đã có từ vòng trước (test `keyboard_shortcuts_as_the_reference`).
+
+### Vòng 25 — góp ý của chủ dự án về Chart Design / Data
+
+- Chart Styles là thư viện ô xem trước nằm ngay trên ribbon (5 ô 130 px + nút More) như đối chứng; ô là hình vẽ riêng
+  (cột, lưới, sắc độ, nền tối) và áp `chartDesign.style`.
+- Khi chọn biểu đồ, vùng nguồn được đóng khung trên lưới như đối chứng (đo `xch2-1.png`): danh mục #8157B7, tên chuỗi
+  #C0353E, giá trị #326AC7, nét 2 px, nền nhạt, tay nắm vuông ở góc; hộp tên hiện "Chart 1". Tay nắm biểu đồ 13 px
+  viền 2 px #616161 (trước 10 px viền 1 px #848484).
+- Thẻ ngữ cảnh vẽ như thẻ thường (gạch dưới xanh khi chọn; `Ribbon::with_plain_contextual`, BlueDoc không đổi).
+- Data › Sort & Filter: A→Z / Z→A, Sort, Filter, rồi cột Clear / Reapply / Advanced như đối chứng (ribbon thêm
+  `with_late_rows`: mục hàng đặt sau nút lớn cuối nhóm). Outline: một nút lớn, không chú thích nhóm.
+- Cỡ chữ biểu đồ đo lại: tiêu đề "Sales" đối chứng 46 × 16 px, BlueSheet 40 × 14 px (nhỏ hơn chút, không lớn hơn);
+  chưa đổi bộ vẽ biểu đồ của engine trong vòng này.
+
+### Bánh xe — đo lại vòng 6
+
+`thumb.ps1`, `big10k.xlsx`, 900 × 700, 30 nấc cách 120 ms, 144 Hz: đối chứng trung vị 7,4 / p95 13,4 ms; BlueSheet
+14,5 / 16,1 ms (vòng 5: 14,6 / 15,7). Không đổi: vẫn hai vblank so với một của đối chứng. Phân tích ở vòng 5 vẫn đúng
+(CPU + GPU ~5 ms sau input làm lỡ lần ghép DWM kế tiếp); muốn một khung cần dựng display list chỉ cho dải mới lộ ra và
+đường DirectComposition — chưa làm vòng này.
+
+## Còn lại (sau vòng 6)
+
+- Bánh xe: một khung như đối chứng (xem trên).
+- Insert ở 1500 px vẫn tràn (mũi tên cuộn ribbon): nhóm Tables / Sparklines rộng hơn đối chứng ~50 px; nhãn một từ
+  có ▾ chưa xuống dòng riêng như đối chứng ("Illustrations ▾").
+- Biểu đồ: Switch Row/Column, Select Data, Move Chart (engine chưa có lệnh); Format tab chưa có Shape Styles gallery,
+  WordArt, Size; ô kiểu biểu đồ là hình vẽ chung chứ chưa là ảnh xem trước thật của từng kiểu (`chartGallery` trả SVG).
+- Format as Table 60 kiểu (engine mới 21) và Table Design; Conditional Formatting menu con + Manage Rules; Page Layout
+  Themes; Page Break Preview / Page Layout view; Split, New Window, Watch Window, Macros (mờ).
+- Merge Styles chọn tệp thay vì danh sách sổ đang mở (mỗi sổ một tiến trình).

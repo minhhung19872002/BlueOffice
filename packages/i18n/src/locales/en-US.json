@@ -330,7 +330,13 @@
       "chartOutline": "Shape Outline",
       "chartDelete": "Delete Chart",
       "illustrations": "Illustrations",
-      "symbols": "Symbols"
+      "symbols": "Symbols",
+      "chartStyle0": "Style 1",
+      "chartStyle1": "Style 2",
+      "chartStyle2": "Style 3",
+      "chartStyle3": "Style 4",
+      "chartStyle4": "Style 5",
+      "chartStylesMore": "More"
     },
     "addins": {
       "manage": "Manage add-ins"
@@ -10153,6 +10159,7 @@
     "pal_grey": "Grey",
     "pal_bluestar": "bluestar",
     "pal_lotus": "lotus",
-    "pal_terrace": "terrace"
+    "pal_terrace": "terrace",
+    "chartName": "Chart"
   }
 }

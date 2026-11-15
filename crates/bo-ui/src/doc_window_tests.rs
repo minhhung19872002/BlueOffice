@@ -345,3 +345,35 @@ fn misspelt_words_get_a_wavy_line_and_corrections_in_the_context_menu() {
     }
     assert_eq!(w.view.proofing_issues(), 0);
 }
+
+#[test]
+fn f7_opens_the_proofing_pane_and_walks_the_issues() {
+    let mut w = window();
+    w.handle(
+        Input::Text("The houze is big and teh car is red".into()),
+        &Fixed,
+    );
+    w.handle(Input::Key(Key::Home, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::F(7), Mods::default()), &Fixed);
+    let pane = w.spell_pane.as_ref().expect("pane");
+    assert_eq!(pane.current().map(|i| i.word.as_str()), Some("houze"));
+    assert!(w.view.has_selection(), "the issue is selected");
+    // The document area makes room for the pane on the right.
+    let right = w.doc_right();
+    assert!(w
+        .view
+        .slots()
+        .iter()
+        .all(|s| (s.x + s.width) as f32 <= right));
+    let first = pane.current().unwrap().suggestions[0].clone();
+    w.spell_pane_action(SpellAction::Change(0));
+    w.view.run_command(Command::SelectAll);
+    let text = w.view.copy(false).map(|c| c.text).unwrap_or_default();
+    assert!(text.contains(&first), "{text}");
+    let pane = w.spell_pane.as_ref().unwrap();
+    assert_eq!(pane.current().map(|i| i.word.as_str()), Some("teh"));
+    w.spell_pane_action(SpellAction::IgnoreOnce);
+    assert!(w.spell_pane.as_ref().unwrap().current().is_none());
+    w.spell_pane_action(SpellAction::Close);
+    assert!(w.spell_pane.is_none());
+}

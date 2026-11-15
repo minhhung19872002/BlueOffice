@@ -32,6 +32,7 @@ mod slide_ribbon;
 mod slide_show;
 mod slide_view;
 mod slide_window;
+mod spell_pane;
 mod strings;
 mod theme;
 mod titlebar;

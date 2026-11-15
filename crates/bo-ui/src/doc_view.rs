@@ -402,6 +402,33 @@ impl DocView {
         &self.spell
     }
 
+    /// Spelling and grammar issues of the main text, in document order (proofing pane).
+    pub fn proof_issues(&mut self) -> Vec<bo_engine::proof::ProofIssue> {
+        self.engine
+            .command(Command::ProofCheck)
+            .ok()
+            .and_then(|r| r.proof)
+            .map(|p| {
+                p.issues
+                    .into_iter()
+                    .filter(|i| i.story == bo_edit::proofing::Story::Body)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Select bytes `start..end` of body paragraph `para` and show them.
+    pub fn select_range(&mut self, para: usize, start: usize, end: usize) -> bool {
+        let sel = bo_edit::Selection {
+            anchor: bo_edit::Pos {
+                para,
+                offset: start,
+            },
+            focus: bo_edit::Pos { para, offset: end },
+        };
+        self.edit(Command::SetSelection { selection: sel })
+    }
+
     /// Number of spelling and grammar issues found by the last check.
     pub fn proofing_issues(&self) -> usize {
         self.spell.len()

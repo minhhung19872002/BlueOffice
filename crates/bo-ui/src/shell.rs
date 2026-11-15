@@ -9,6 +9,7 @@ use crate::nav_pane::{Heading, NavAction, NavPane, NavTab};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Ribbon, RibbonHit};
 use crate::ruler::Ruler;
+use crate::spell_pane::{SpellAction, SpellPane};
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -126,6 +127,11 @@ pub struct DocWindow {
     spell_menu: Option<bo_engine::spell::SpellInfo>,
     /// Measured widths of the "Header" / "Footer" tags shown while one is edited.
     tag_w: [f32; 2],
+    /// Left edges of the status bar's word count, proofing icon and language, laid out one
+    /// after the other from measured text as on the reference.
+    status_x: [f32; 3],
+    /// Proofing pane (Review › Spelling & Grammar, F7), when shown.
+    spell_pane: Option<SpellPane>,
 }
 
 /// Font sizes offered by the size box (points).
@@ -247,7 +253,127 @@ impl DocWindow {
             spell_idle: 0,
             spell_menu: None,
             tag_w: [0.0; 2],
+            status_x: [0.0; 3],
+            spell_pane: None,
         }
+    }
+
+    /// Right edge of the document area (the proofing pane takes the window's right side).
+    fn doc_right(&self) -> f32 {
+        self.size.0
+            - if self.spell_pane.is_some() {
+                SpellPane::width(self.scale)
+            } else {
+                0.0
+            }
+    }
+
+    /// Open the proofing pane on the first issue at or after the caret.
+    fn open_spelling(&mut self) -> bool {
+        let issues = self.view.proof_issues();
+        let caret = self.view.caret_para().unwrap_or(0);
+        let index = issues.iter().position(|i| i.para >= caret).unwrap_or(0);
+        let mut pane = SpellPane::new(issues);
+        pane.index = index;
+        self.spell_pane = Some(pane);
+        self.show_issue();
+        self.relayout_pending = true;
+        true
+    }
+
+    /// Select the issue the pane shows.
+    fn show_issue(&mut self) {
+        let at = self
+            .spell_pane
+            .as_ref()
+            .and_then(|p| p.current())
+            .map(|i| (i.para, i.start, i.end));
+        if let Some((para, start, end)) = at {
+            self.view.select_range(para, start, end);
+        }
+    }
+
+    /// Check again after a change and show the next issue from paragraph `para`, offset `from`.
+    fn next_issue(&mut self, para: usize, from: usize) {
+        let issues = self.view.proof_issues();
+        if let Some(pane) = self.spell_pane.as_mut() {
+            pane.index = issues
+                .iter()
+                .position(|i| (i.para, i.start) >= (para, from))
+                .unwrap_or(issues.len());
+            pane.issues = issues;
+        }
+        self.show_issue();
+        self.spell_pending = true;
+    }
+
+    fn spell_pane_action(&mut self, a: SpellAction) -> bool {
+        let Some(issue) = self.spell_pane.as_ref().and_then(|p| p.current()).cloned() else {
+            if a == SpellAction::Close {
+                self.spell_pane = None;
+                self.relayout_pending = true;
+            }
+            return true;
+        };
+        match a {
+            SpellAction::Close => {
+                self.spell_pane = None;
+                self.relayout_pending = true;
+            }
+            SpellAction::Change(i) => {
+                if let Some(s) = issue.suggestions.get(i) {
+                    self.view
+                        .replace_range(issue.para, issue.start, issue.end, s);
+                    self.next_issue(issue.para, issue.start + s.len());
+                }
+            }
+            SpellAction::IgnoreOnce => {
+                if let Some(p) = self.spell_pane.as_mut() {
+                    p.index += 1;
+                }
+                self.show_issue();
+            }
+            SpellAction::IgnoreAll | SpellAction::AddToDictionary => {
+                self.view
+                    .spell_word(a == SpellAction::AddToDictionary, &issue.word);
+                self.next_issue(issue.para, issue.end);
+            }
+            SpellAction::Redraw => {}
+        }
+        true
+    }
+
+    /// Status bar texts: page, word count.
+    fn status_texts(&self) -> (String, String) {
+        let page = self.strings.fmt(
+            "status.page",
+            &[
+                ("current", &(self.view.current_page() + 1).to_string()),
+                ("total", &self.view.page_count().to_string()),
+            ],
+        );
+        let words = self.strings.fmt(
+            "status.words",
+            &[("count", &self.view.word_count().to_string())],
+        );
+        (page, words)
+    }
+
+    /// Place the status bar items after their measured texts. Gaps measured on the
+    /// reference at 125 %: 31 px after the page, 80 px after the word count (room of its
+    /// macro-recording dot), 27 px after the proofing book (19 px wide).
+    fn layout_status(&mut self, text: &dyn TextMeasure) {
+        let style = TextStyle {
+            size: (12.0 * self.scale).round(),
+            bold: false,
+        };
+        let (page, words) = self.status_texts();
+        let px = |v: f32| (v * self.scale).round();
+        let x0 = px(12.0);
+        let words_x = x0 + text.measure(&page, style).0.ceil() + px(17.0);
+        let book_x = words_x + text.measure(&words, style).0.ceil() + px(54.0);
+        let lang_x = book_x + px(15.0) + px(26.0);
+        self.status_x = [words_x, book_x, lang_x];
     }
 
     /// Style of the "Header" / "Footer" tags (the reference's are small: 60×21 px at 125 %).
@@ -445,6 +571,10 @@ impl DocWindow {
         if pending {
             self.relayout_pending = false;
             self.relayout(text);
+        }
+        self.layout_status(text);
+        if let Some(sp) = self.spell_pane.as_mut() {
+            sp.measure(text);
         }
         pending
     }
@@ -1046,6 +1176,7 @@ impl DocWindow {
             "edit.copy" | "edit.cut" | "edit.paste" => self.clipboard(id),
             // Find searches from the navigation pane, as on the reference.
             "edit.find" => self.toggle_nav(true, true),
+            "review.spellingDialog" => self.open_spelling(),
             "view.navigationPane" => {
                 let show = self.nav.is_none();
                 self.toggle_nav(show, false)
@@ -1227,7 +1358,7 @@ impl DocWindow {
     /// Scroll bar parts: (bar, up button, down button, thumb) as [x, y, w, h].
     fn sb_rects(&self) -> [[f32; 4]; 4] {
         let w = self.sb_w();
-        let x = self.size.0 - w;
+        let x = self.doc_right() - w;
         let top = self.view_top();
         let bottom = self.size.1 - self.status_h();
         let bar = [x, top, w, (bottom - top).max(0.0)];
@@ -1297,12 +1428,22 @@ impl DocWindow {
         // The vertical scroll bar takes the right edge, the vertical ruler the left one.
         let vr = self.vr_w();
         let left = self.nav_w();
+        let right = self.doc_right();
         self.view.set_frame(
             left + vr,
             top,
-            (self.size.0 - self.sb_w() - vr - left).max(1.0),
+            (right - self.sb_w() - vr - left).max(1.0),
             h,
         );
+        let (sp_top, sp_bottom, sp_right, scale) = (
+            self.ribbon.bottom(),
+            self.size.1 - self.status_h(),
+            self.size.0,
+            self.scale,
+        );
+        if let Some(sp) = self.spell_pane.as_mut() {
+            sp.layout(sp_right, sp_top, sp_bottom, scale);
+        }
         let (nav_top, nav_bottom) = (self.ribbon.bottom(), self.size.1 - self.status_h());
         if let Some(nav) = self.nav.as_mut() {
             nav.layout(nav_top, nav_bottom, self.scale);
@@ -1373,6 +1514,10 @@ impl DocWindow {
         }
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
+        }
+        self.layout_status(text);
+        if let Some(sp) = self.spell_pane.as_mut() {
+            sp.measure(text);
         }
         redraw
     }
@@ -1457,6 +1602,22 @@ impl DocWindow {
                 }
             }
             _ => {}
+        }
+        if let Some(sp) = self.spell_pane.as_mut() {
+            match input {
+                Input::Move { x, y } if sp.contains(x, y) => return sp.hover(x, y),
+                Input::Move { .. } => {
+                    sp.hover(-1.0, -1.0);
+                }
+                Input::Press { x, y, .. } if sp.contains(x, y) => {
+                    let a = sp.press(x, y);
+                    return self.spell_pane_action(a);
+                }
+                _ => {}
+            }
+        }
+        if let Input::Key(Key::F(7), _) = input {
+            return self.open_spelling();
         }
         if self.nav.is_some() {
             if matches!(
@@ -1576,7 +1737,8 @@ impl DocWindow {
         // Vertical scroll bar on the right edge of the document area.
         match input {
             Input::Press { x, y, .. }
-                if x >= self.size.0 - self.sb_w()
+                if x >= self.doc_right() - self.sb_w()
+                    && x < self.doc_right()
                     && y >= self.view_top()
                     && y < status_top
                     && self.menu.is_none()
@@ -1592,6 +1754,13 @@ impl DocWindow {
             _ => {}
         }
         match input {
+            Input::Press { x, y, .. }
+                if y >= status_top
+                    && x >= self.status_x[1] - 4.0
+                    && x < self.status_x[1] + (20.0 * self.scale).round() =>
+            {
+                return self.open_spelling();
+            }
             Input::Press { x, y, .. } if y >= status_top => {
                 if let Some(i) = self
                     .view_rects
@@ -1958,6 +2127,9 @@ impl DocWindow {
         if let Some(nav) = &self.nav {
             nav.paint(p, &self.theme, &self.strings);
         }
+        if let Some(sp) = &self.spell_pane {
+            sp.paint(p, &self.theme, &self.strings);
+        }
         // Status bar.
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -2037,36 +2209,19 @@ impl DocWindow {
             bold: false,
         };
         let ty = y + (sh - style.size * 1.33) / 2.0;
-        let page = self.strings.fmt(
-            "status.page",
-            &[
-                ("current", &(self.view.current_page() + 1).to_string()),
-                ("total", &self.view.page_count().to_string()),
-            ],
-        );
-        let words = self.strings.fmt(
-            "status.words",
-            &[("count", &self.view.word_count().to_string())],
-        );
+        let (page, words) = self.status_texts();
         let x0 = (12.0 * self.scale).round();
+        let [words_x, book_x, lang_x] = self.status_x;
         p.text(&page, x0, ty, style, self.theme.text);
-        p.text(
-            &words,
-            x0 + (110.0 * self.scale).round(),
-            ty,
-            style,
-            self.theme.text,
-        );
+        p.text(&words, words_x, ty, style, self.theme.text);
         // Proofing state: a book with a cross while issues remain, with a tick when none
         // (own drawing, at the reference's place between word count and language).
         {
             let u = self.scale;
-            let (bx, by) = (
-                (x0 + 190.0 * u).round(),
-                (y + (sh - 14.0 * u) / 2.0).round(),
-            );
+            let (bx, by) = (book_x.round(), (y + (sh - 13.0 * u) / 2.0).round());
             let lw = u.max(1.0);
-            let ink = self.theme.text;
+            // Grey 116 measured on the reference's icon.
+            let ink = Rgba(116, 116, 116, 255);
             p.path(
                 &[
                     PathSeg::M(bx, by + 1.0 * u),
@@ -2079,10 +2234,10 @@ impl DocWindow {
                     PathSeg::M(bx + 6.0 * u, by),
                     PathSeg::L(bx + 6.0 * u, by + 11.0 * u),
                 ],
-                Some(self.theme.surface),
+                Some(self.theme.ribbon),
                 Some((ink, lw)),
             );
-            let (mx, my) = (bx + 11.0 * u, by + 10.0 * u);
+            let (mx, my) = (bx + 12.0 * u, by + 9.0 * u);
             if self.view.proofing_issues() > 0 {
                 let k = 3.0 * u;
                 p.path(
@@ -2093,7 +2248,7 @@ impl DocWindow {
                         PathSeg::L(mx - k, my + k),
                     ],
                     None,
-                    Some((Rgba(0xc4, 0x2b, 0x1c, 255), 1.5 * lw)),
+                    Some((ink, 1.5 * lw)),
                 );
             } else {
                 p.path(
@@ -2103,7 +2258,7 @@ impl DocWindow {
                         PathSeg::L(mx + 3.5 * u, my - 3.0 * u),
                     ],
                     None,
-                    Some((Rgba(0x10, 0x7c, 0x10, 255), 1.5 * lw)),
+                    Some((ink, 1.5 * lw)),
                 );
             }
         }
@@ -2112,13 +2267,7 @@ impl DocWindow {
             let key = format!("spell.lang.{lang}");
             let name = self.strings.get(&key);
             let shown = if name == key { lang } else { name };
-            p.text(
-                shown,
-                x0 + (230.0 * self.scale).round(),
-                ty,
-                style,
-                self.theme.text,
-            );
+            p.text(shown, lang_x, ty, style, self.theme.text);
         }
         let zoom = self.strings.fmt(
             "status.zoom",

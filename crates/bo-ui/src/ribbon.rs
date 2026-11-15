@@ -427,7 +427,7 @@ fn review_tab() -> Tab {
         groups: vec![
             Group {
                 label: "ribbon.groups.proofing",
-                large: vec![L("review.wordCount")],
+                large: vec![L("review.spellingDialog"), L("review.wordCount")],
                 rows: vec![],
             },
             Group {

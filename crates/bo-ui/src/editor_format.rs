@@ -626,7 +626,7 @@ impl EditorWindow {
             return;
         }
         // "Text Style" section.
-        let ty = y0 + px(50.0);
+        let ty = y0 + px(46.0);
         p.path(
             &[
                 PathSeg::M(x0 + px(7.0), ty + px(4.0)),

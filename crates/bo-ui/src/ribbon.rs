@@ -60,6 +60,10 @@ fn icon_of(id: &str) -> &str {
     }
 }
 
+/// Frame of the style gallery box and band of its current tile; outer line of that tile.
+const GALLERY_EDGE: Rgba = Rgba(0xd2, 0xd2, 0xd2, 255);
+const GALLERY_CURRENT: Rgba = Rgba(0x88, 0x88, 0x88, 255);
+
 /// Fill and frame of ribbon commands that are on.
 const TOGGLED_FILL: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
 const TOGGLED_EDGE: Rgba = Rgba(0x80, 0x80, 0x80, 255);
@@ -1409,18 +1413,31 @@ impl Ribbon {
                     let Some(st) = styles.get(*i) else { continue };
                     let current = format.style.as_deref() == Some(st.id.as_str())
                         || (format.style.is_none() && st.id == "Normal");
-                    if let Some(c) = tint(RibbonHit::Style(*i)) {
-                        radius_rect(p, r, c);
+                    // Tiles share one white box with a light grey frame (the gap to the next
+                    // tile is part of it); the style at the selection gets a dark outer
+                    // line and a grey inner band, as on a desktop word processor's gallery.
+                    let gap = self.px(2.0);
+                    let (x, y, w, h) = (r.x.round(), r.y.round(), r.w.round(), r.h.round());
+                    p.fill_rect(x, y, w + gap, h, t.surface);
+                    p.fill_rect(x, y, w + gap, 1.0, GALLERY_EDGE);
+                    p.fill_rect(x, y + h - 1.0, w + gap, 1.0, GALLERY_EDGE);
+                    if *i == 0 {
+                        p.fill_rect(x, y, 1.0, h, GALLERY_EDGE);
                     }
-                    // Tile on a white card; frame accent when it is the style at the selection.
-                    if tint(RibbonHit::Style(*i)).is_none() {
-                        p.fill_rect(r.x, r.y, r.w, r.h, t.surface);
+                    let band = self.px(3.0);
+                    if current {
+                        p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, GALLERY_CURRENT);
+                        p.fill_rect(x + 2.0, y + 2.0, w - 4.0, h - 4.0, GALLERY_EDGE);
+                        p.fill_rect(
+                            x + 2.0 + band,
+                            y + 2.0 + band,
+                            w - 4.0 - 2.0 * band,
+                            h - 4.0 - 2.0 * band,
+                            t.surface,
+                        );
+                    } else if let Some(c) = tint(RibbonHit::Style(*i)) {
+                        p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, c);
                     }
-                    let edge = if current { t.accent } else { t.border };
-                    p.fill_rect(r.x, r.y, r.w, 1.0, edge);
-                    p.fill_rect(r.x, r.y + r.h - 1.0, r.w, 1.0, edge);
-                    p.fill_rect(r.x, r.y, 1.0, r.h, edge);
-                    p.fill_rect(r.x + r.w - 1.0, r.y, 1.0, r.h, edge);
                     let pv = &st.preview;
                     // Preview size follows the style, kept inside the tile.
                     let default_size =
@@ -1456,9 +1473,11 @@ impl Ribbon {
                     p.pop_clip();
                 }
                 Placed::More(r) => {
-                    if let Some(c) = tint(RibbonHit::StylesMore) {
-                        radius_rect(p, r, c);
-                    }
+                    // Part of the gallery box, behind a divider.
+                    let (x, y, w, h) = (r.x.round(), r.y.round(), r.w.round(), r.h.round());
+                    p.fill_rect(x, y, w, h, GALLERY_EDGE);
+                    let fill = tint(RibbonHit::StylesMore).unwrap_or(t.ribbon);
+                    p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, fill);
                     let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
                     let k = self.px(4.0);
                     p.path(

@@ -1,5 +1,5 @@
 //! Headless tests of paragraph typing and the Format tab of BlueEditor.
-use crate::editor_format::TAB_FORMAT;
+use crate::editor_format::PANE_W;
 use crate::editor_tests::{key, texts, window, Fixed, Rec};
 use crate::editor_window::EditorWindow;
 use crate::{Input, Key};
@@ -24,27 +24,47 @@ fn start_typing(w: &mut EditorWindow) {
     w.handle(Input::Release { x, y }, &Fixed);
 }
 
-fn tabs(w: &EditorWindow) -> usize {
-    w.r.profile.as_ref().map_or(0, |p| p.tabs.len())
+fn hit(w: &EditorWindow, cmd: &str) -> (f32, f32) {
+    let r = w.pane.hits.iter().find(|h| h.1 == cmd).expect("button").0;
+    (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0)
+}
+
+fn press(w: &mut EditorWindow, (x, y): (f32, f32)) {
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &Fixed,
+    );
+    w.handle(Input::Release { x, y }, &Fixed);
 }
 
 #[test]
-fn format_tab_appears_while_typing() {
+fn format_pane_follows_edit_text() {
     let mut w = window(1);
-    assert_eq!(tabs(&w), TAB_FORMAT);
+    assert_eq!(w.r.right_pane_rect()[2], 0.0);
+    let before = w.view().map(crate::ReaderView::frame).expect("view");
     start_typing(&mut w);
-    assert_eq!(tabs(&w), TAB_FORMAT + 1);
-    assert_eq!(w.r.ribbon_tab(), TAB_FORMAT);
+    let pane = w.r.right_pane_rect();
+    assert!((pane[2] - PANE_W * 1.25).abs() < 1.0, "{pane:?}");
+    // The document makes room for it.
+    let after = w.view().map(crate::ReaderView::frame).expect("view");
+    assert!(after[2] < before[2] - 400.0, "{before:?} {after:?}");
     let mut rec = Rec::default();
     w.paint(&mut rec);
     assert!(rec.texts.iter().any(|t| t == "Format"));
-    assert!(rec.texts.iter().any(|t| t == "Bold"));
-    // Select "Page" and make it bold, then the whole line italic and red.
+    assert!(rec.texts.iter().any(|t| t == "Text Style"));
+    assert!(rec.texts.iter().any(|t| t == "24"), "{:?}", rec.texts);
+    // Select "Page" and make it bold with the pane's button.
     key(&mut w, Key::Home, false, false);
     for _ in 0..4 {
         key(&mut w, Key::Right, false, true);
     }
-    w.run("fmt.bold", &Fixed);
+    let at = hit(&w, "fmt.bold");
+    press(&mut w, at);
     {
         let t = w.edit.typing.as_ref().expect("typing");
         let b = t.block.as_ref().expect("block");
@@ -84,12 +104,17 @@ fn format_tab_appears_while_typing() {
     key(&mut w, Key::Up, false, false);
     assert!(w.edit.typing.as_ref().is_some_and(|t| t.caret <= 8));
     key(&mut w, Key::Escape, false, false);
-    assert_eq!(tabs(&w), TAB_FORMAT);
-    assert_eq!(w.r.ribbon_tab(), 0);
     assert_eq!(texts(&mut w), ["Page 1 A\nB"]);
     // One undo step for the whole session.
     key(&mut w, Key::Letter('z'), true, false);
     assert_eq!(texts(&mut w), ["Page 1"]);
+    // The close box hides the pane until Edit Text is turned on again.
+    let at = hit(&w, "fmt.close");
+    press(&mut w, at);
+    assert_eq!(w.r.right_pane_rect()[2], 0.0);
+    w.run("ed.editText", &Fixed);
+    w.run("ed.editText", &Fixed);
+    assert!(w.r.right_pane_rect()[2] > 0.0);
 }
 
 #[test]

@@ -60,6 +60,8 @@ pub(crate) struct EditState {
     pub group: bool,
     /// Embedded fallback fonts (serif?) by font object.
     pub embedded: HashMap<usize, ObjectId>,
+    /// Page contents swapped out by `hide_text`.
+    pub hidden_text: Option<crate::convert::HiddenText>,
 }
 
 const UNDO_LIMIT: usize = 100;

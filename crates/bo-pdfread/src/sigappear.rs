@@ -24,7 +24,13 @@ fn n(v: f32) -> String {
 
 /// Outline path operators for `text` at `size` points with its baseline start at (x, y)
 /// (PDF space, y up); returns the operators and the advance width.
-fn text_path(face: &ttf_parser::Face<'_>, text: &str, size: f32, x: f32, y: f32) -> (String, f32) {
+pub(crate) fn text_path(
+    face: &ttf_parser::Face<'_>,
+    text: &str,
+    size: f32,
+    x: f32,
+    y: f32,
+) -> (String, f32) {
     struct Pen<'a> {
         out: &'a mut String,
         k: f32,
@@ -102,7 +108,7 @@ fn text_path(face: &ttf_parser::Face<'_>, text: &str, size: f32, x: f32, y: f32)
     (out, pen_x - x)
 }
 
-fn advance(face: &ttf_parser::Face<'_>, text: &str, size: f32) -> f32 {
+pub(crate) fn advance(face: &ttf_parser::Face<'_>, text: &str, size: f32) -> f32 {
     let k = size / f32::from(face.units_per_em().max(1));
     text.chars()
         .map(|c| {

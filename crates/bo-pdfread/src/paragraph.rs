@@ -615,7 +615,7 @@ impl PdfDocument {
 
     /// The page content an edit starts from: the editor's own stream, or the content
     /// wrapped in `q … Q` exactly as [`PdfDocument::page_stream`] will make it.
-    fn virtual_content(&self, index: usize) -> Result<Vec<u8>, String> {
+    pub(crate) fn virtual_content(&self, index: usize) -> Result<Vec<u8>, String> {
         let info = self.pages.get(index).ok_or("no such page")?;
         let page = self
             .doc
@@ -636,7 +636,7 @@ impl PdfDocument {
         Ok(content)
     }
 
-    fn style_of_run(&self, index: usize, rec: &Recorded) -> Option<RunStyle> {
+    pub(crate) fn style_of_run(&self, index: usize, rec: &Recorded) -> Option<RunStyle> {
         let ts = rec.text.clone()?;
         let (full, _) = run_frame(rec)?;
         let lin = [full[0], full[1], full[2], full[3], 0.0, 0.0];

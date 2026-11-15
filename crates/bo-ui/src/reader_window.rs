@@ -358,6 +358,9 @@ pub struct ReaderWindow {
     pub(crate) doc_hidden: bool,
     /// A panel of a window built on this one (its icon follows the comments icon).
     pub(crate) extra_panel: Option<ExtraPanel>,
+    /// Width (logical pixels) of a pane at the right of the document drawn by a window built
+    /// on this one (BlueEditor's Format panel); 0 for none.
+    right_pane: f32,
     /// Sizes and greys.
     look: Look,
 }
@@ -427,6 +430,7 @@ impl ReaderWindow {
             tool_hidden: false,
             doc_hidden: false,
             extra_panel: None,
+            right_pane: 0.0,
             look: Look::READER,
         }
     }
@@ -1017,6 +1021,23 @@ impl ReaderWindow {
         self.tabs.get(self.active).and_then(|t| t.panel)
     }
 
+    /// Show a pane of `width` logical pixels at the right of the document (0 hides it).
+    pub(crate) fn set_right_pane(&mut self, width: f32) {
+        if (self.right_pane - width).abs() > 0.01 {
+            self.right_pane = width;
+            self.layout_doc();
+        }
+    }
+
+    /// The right pane in window pixels (zero width when hidden); it starts at the document
+    /// tab row, which ends where it begins.
+    pub(crate) fn right_pane_rect(&self) -> [f32; 4] {
+        let (w, h) = self.size;
+        let top = self.ribbon_bottom() + 1.0;
+        let rp = self.px(self.right_pane);
+        [w - rp, top, rp, (h - self.status_h() - top).max(0.0)]
+    }
+
     /// Lay out the navigation panel and the document view.
     fn layout_doc(&mut self) {
         let (w, h) = self.size;
@@ -1034,11 +1055,12 @@ impl ReaderWindow {
         let dx = nav_end + panel_w + strip_w;
         let sbw = self.px(16.8);
         let margin = self.px(6.4);
-        self.vbar = [w - margin - sbw, top, sbw, h - sh - top];
+        let rp = self.px(self.right_pane);
+        self.vbar = [w - rp - margin - sbw, top, sbw, h - sh - top];
         self.doc_rect = [
             dx,
             top,
-            (w - margin - sbw - dx).max(1.0),
+            (w - rp - margin - sbw - dx).max(1.0),
             (h - sh - top).max(1.0),
         ];
         let (rect, scale) = (self.doc_rect, self.scale);

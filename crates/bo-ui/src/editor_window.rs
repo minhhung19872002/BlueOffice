@@ -158,13 +158,20 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("sep2", Sep),
             ("tool.note", Big("note", "pdfReader.note", false)),
-            ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+            ("cm.file", Big("attach", "pdfEditor.file", false)),
             ("sep3", Sep),
             (
-                "tool.rectangle",
-                Big("rectangle", "pdfReader.rectangle", false),
+                "cm.typewriter",
+                Big("typewriter", "pdfReader.typewriter", false),
             ),
+            ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+            ("cm.callout", Big("callout", "pdfEditor.callout", false)),
             ("sep4", Sep),
+            ("cm.drawing", Big("drawing", "pdfEditor.drawing", true)),
+            ("cm.pencil", Big("pencil", "pdfEditor.pencil", false)),
+            ("sep5", Sep),
+            ("cm.stamp", Big("stamp", "pdfEditor.stamp", true)),
+            ("sep6", Sep),
             (
                 "panel.comments",
                 Big("comments", "pdfReader.commentList", false),
@@ -226,7 +233,6 @@ fn ribbon(tab: usize) -> Vec<(&'static str, Kind)> {
             ),
             ("form.fill", Big("fillSign", "pdfEditor.fillSign", false)),
         ]),
-        crate::editor_format::TAB_FORMAT => return crate::editor_format::format_items(),
         _ => {
             v.clear();
             v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -329,10 +335,13 @@ pub struct EditorWindow {
     pointer: (f32, f32),
     /// Edit Text / Edit Object / Add Text state.
     pub(crate) edit: crate::editor_edit::Editing,
-    /// Ribbon tab shown before the Format tab appeared.
-    pub(crate) format_before: Option<usize>,
+    /// Format pane hit boxes; the pane was closed with its close box.
+    pub(crate) pane: crate::editor_format::FormatPane,
+    pub(crate) format_closed: bool,
     /// Signature placement and the Signatures panel.
     pub(crate) sig: crate::editor_sign::SignState,
+    /// Comment tools and the properties of new comments.
+    pub(crate) comment: crate::editor_comment::CommentState,
     /// Caret shown (blink phase).
     caret_on: bool,
     /// Forms, comments, redaction and signing state.
@@ -365,8 +374,10 @@ impl EditorWindow {
             panel_before: None,
             pointer: (0.0, 0.0),
             edit: crate::editor_edit::Editing::default(),
-            format_before: None,
+            pane: crate::editor_format::FormatPane::default(),
+            format_closed: false,
             sig: crate::editor_sign::SignState::default(),
+            comment: crate::editor_comment::CommentState::default(),
             caret_on: true,
             x: crate::editor_actions::Extras::default(),
             dialog2: None,
@@ -484,6 +495,9 @@ impl EditorWindow {
 
     /// Run a ribbon or menu command.
     pub fn run(&mut self, cmd: &str, m: &dyn TextMeasure) {
+        if cmd.starts_with("tool.") {
+            self.comment.tool = None;
+        }
         self.r.run_command(cmd, m);
         self.drain(m);
         self.sync();
@@ -585,6 +599,12 @@ impl EditorWindow {
             if !used && self.organize_on() {
                 used = self.org_input(&input, m);
             }
+            if !used {
+                used = self.format_input(&input);
+            }
+            if !used && self.comment.tool.is_some() && self.r.showing_doc() && !self.organize_on() {
+                used = self.comment_input(&input);
+            }
             if !used && self.sig.pending.is_some() && self.r.showing_doc() {
                 used = self.sign_input(&input);
             }
@@ -610,7 +630,6 @@ impl EditorWindow {
         }
         redraw |= self.drain(m);
         self.sync();
-        self.sync_format(m);
         self.sync_signatures();
         if redraw && self.edit.typing.is_some() {
             if let Some(s) = self.format_status() {
@@ -721,7 +740,11 @@ impl EditorWindow {
             self.choose_option(i);
             return;
         }
-        if self.action(cmd, m) || self.format_command(cmd) || self.sign_command(cmd) {
+        if self.action(cmd, m)
+            || self.format_command(cmd)
+            || self.sign_command(cmd)
+            || self.comment_command(cmd)
+        {
             return;
         }
         match cmd {
@@ -749,6 +772,7 @@ impl EditorWindow {
             "tool.hand" | "tool.select" => {
                 self.edit.reset(self.r.view_mut());
                 self.tool = None;
+                self.comment.tool = None;
             }
             "org.insertMenu" => {
                 let items = [
@@ -863,6 +887,7 @@ impl EditorWindow {
 
     fn toggle_tool(&mut self, t: EditTool) {
         self.edit.reset(self.r.view_mut());
+        self.comment.tool = None;
         self.tool = if self.tool == Some(t) { None } else { Some(t) };
         if self.tool.is_some() {
             self.r.set_tool(Tool::Hand);
@@ -870,7 +895,7 @@ impl EditorWindow {
         self.x.marking = None;
     }
 
-    fn menu(&mut self, items: &[(&str, &str)], id: &'static str) {
+    pub(crate) fn menu(&mut self, items: &[(&str, &str)], id: &'static str) {
         let Some(r) = self.r.control_rect(id) else {
             return;
         };
@@ -1072,6 +1097,10 @@ impl EditorWindow {
             self.certificate_picked(bytes);
             return;
         }
+        if purpose == "attach" {
+            self.attach_picked(&name, bytes);
+            return;
+        }
         if purpose == "create" {
             self.create_picked(path, bytes);
             return;
@@ -1249,11 +1278,15 @@ impl EditorWindow {
                 EditTool::Redact => "prot.redact",
             });
         }
-        self.r.tool_hidden = self.tool.is_some();
+        if let Some(t) = self.comment.tool {
+            self.r.on.insert(crate::editor_comment::tool_command(t));
+        }
+        self.r.tool_hidden = self.tool.is_some() || self.comment.tool.is_some();
         let area = self.r.doc_area();
         let (w, _) = self.r.window_size();
         self.org.frame = [area[0], area[1], (w - 1.0 - area[0]).max(1.0), area[3]];
         self.org.scale = self.r.ui_scale();
+        self.sync_format();
     }
 
     fn org_input(&mut self, input: &Input, m: &dyn TextMeasure) -> bool {
@@ -1363,6 +1396,8 @@ impl EditorWindow {
         }
         self.paint_extras(p);
         self.paint_sign(p);
+        self.paint_comment(p);
+        self.paint_format(p);
         if let Some((d, _)) = &self.dialog {
             d.paint(p, self.r.theme(), self.r.window_size(), true);
         }

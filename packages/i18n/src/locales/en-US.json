@@ -7166,7 +7166,30 @@
     "timestamp": "Time-stamp",
     "noTimestamp": "No time-stamp: the signing time comes from the signer's computer",
     "identityUnknown": "Signer identity not checked against a trusted certificate list",
-    "signaturePanel": "Signature Panel"
+    "signaturePanel": "Signature Panel",
+    "format": "Format",
+    "textStyle": "Text Style",
+    "file": "File",
+    "callout": "Callout",
+    "drawing": "Drawing",
+    "pencil": "Pencil",
+    "stamp": "Stamp",
+    "ellipse": "Oval",
+    "line": "Line",
+    "arrow": "Arrow",
+    "polygon": "Polygon",
+    "cloud": "Cloud",
+    "stamps": {
+      "approved": "Approved",
+      "draft": "Draft",
+      "confidential": "Confidential",
+      "final": "Final",
+      "notApproved": "Not Approved",
+      "forComment": "For Comment"
+    },
+    "appearance": "Appearance",
+    "opacity": "Opacity",
+    "thickness": "Thickness"
   },
   "taskPane": {
     "dockLeft": "Dock left",

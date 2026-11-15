@@ -235,8 +235,15 @@ fn convert_to_office_formats_text_and_back() {
             "docx" => {
                 let mut e = bo_engine::Engine::with_bundled_fonts();
                 e.open(bytes, "x.docx").expect("opens");
-                let text = String::from_utf8_lossy(&e.save_docx().expect("saves")).len();
-                assert!(text > 0);
+                let pdf = e.export_pdf().expect("exports");
+                let mut back = PdfDocument::open(pdf, bo_pdfread::standard_fonts()).expect("pdf");
+                // Two paragraphs, a page break between them, the size and font kept.
+                assert_eq!(back.page_count(), 2);
+                let objs = back.page_objects(0).expect("objects");
+                let line = bo_pdfread::text_lines(&objs).remove(0);
+                assert_eq!(line.text, "Page 1");
+                assert!((line.font_size - 24.0).abs() < 0.5, "{}", line.font_size);
+                assert!((line.bbox[0] - 72.0).abs() < 2.0, "{:?}", line.bbox);
             }
             "xlsx" => {
                 let mut s = bo_engine::SheetEngine::with_bundled_fonts();
@@ -263,6 +270,16 @@ fn convert_to_office_formats_text_and_back() {
     };
     assert_eq!(name, "document.pptx");
     assert!(bo_pptx::is_pptx(bytes));
+    // An editable text box per paragraph over the page picture.
+    let pkg = bo_opc::Package::read(bytes, &bo_opc::Limits::default()).expect("zip");
+    let slide = String::from_utf8_lossy(&pkg.part("/ppt/slides/slide1.xml").expect("slide").data)
+        .into_owned();
+    assert!(slide.contains("<a:t>Page 1</a:t>"), "{slide}");
+    assert!(slide.contains("sz=\"2400\""), "{slide}");
+    assert!(slide.contains("<p:pic>"), "{slide}");
+    // The text is back on the pages and the document is not changed.
+    assert_eq!(texts(&mut w), ["Page 1", "Page 2"]);
+    assert!(!w.view().expect("view").doc().can_undo());
     w.pages_rendered("images", vec![png.clone(), png]);
     assert!(matches!(&w.take_requests()[..], [ReaderRequest::SaveMany(f)] if f.len() == 2));
     // A document made into a PDF opens in a new tab.

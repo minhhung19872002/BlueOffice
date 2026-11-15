@@ -19,6 +19,10 @@ pub(crate) enum Ask2 {
     Sign,
     /// A message with only OK.
     Info,
+    /// Text of a typewriter comment at a page point.
+    Typewriter(usize, [f32; 2]),
+    /// Text of a callout: page, box, the point it shows.
+    Callout(usize, [f32; 4], [f32; 2]),
 }
 
 /// A redaction mark being dragged: page, start and current point (page points).
@@ -86,76 +90,6 @@ pub(crate) fn document_text(doc: &mut PdfDocument) -> String {
         }
     }
     out
-}
-
-/// A workbook with one sheet per page: each text line a row, cells split at wide gaps.
-pub(crate) fn to_xlsx(doc: &mut PdfDocument) -> Result<Vec<u8>, String> {
-    let mut sheet = bo_engine::SheetEngine::with_bundled_fonts();
-    sheet
-        .new_workbook("Converted.xlsx")
-        .map_err(|e| e.to_string())?;
-    let mut cells = Vec::new();
-    let mut row = 0_u32;
-    for i in 0..doc.page_count() {
-        let objs = doc.page_objects(i)?;
-        let mut lines = bo_pdfread::text_lines(&objs);
-        lines.sort_by(|a, b| {
-            (a.bbox[1] / 4.0)
-                .round()
-                .total_cmp(&(b.bbox[1] / 4.0).round())
-                .then(a.bbox[0].total_cmp(&b.bbox[0]))
-        });
-        // Lines on one baseline become the cells of one row, left to right.
-        let mut last_y: Option<f32> = None;
-        let mut col = 0_u32;
-        for l in lines {
-            let y = l.bbox[3];
-            if last_y.is_none_or(|ly| (ly - y).abs() > l.font_size.max(4.0) * 0.5) {
-                if last_y.is_some() {
-                    row += 1;
-                }
-                col = 0;
-                last_y = Some(y);
-            }
-            cells.push((row, col, l.text.trim().to_owned()));
-            col += 1;
-        }
-        row += 2;
-    }
-    sheet.set_inputs(0, &cells).map_err(|e| e.to_string())?;
-    sheet.save("xlsx", 0).map_err(|e| e.to_string())
-}
-
-/// A deck with one picture slide per page image (PNG), sized like the first page.
-pub(crate) fn to_pptx(pngs: Vec<Vec<u8>>, size: (f32, f32)) -> Result<Vec<u8>, String> {
-    use bo_pptx::build::{DeckSpec, Picture, ShapeSpec, SlideSpec};
-    let emu = |pt: f32| (pt * 12_700.0).round() as i64;
-    let (w, h) = (emu(size.0), emu(size.1));
-    let slides = pngs
-        .into_iter()
-        .enumerate()
-        .map(|(i, data)| SlideSpec {
-            shapes: vec![ShapeSpec {
-                name: format!("Page {}", i + 1),
-                cx: w,
-                cy: h,
-                geometry: "rect".into(),
-                picture: Some(Picture {
-                    data,
-                    ext: "png".into(),
-                }),
-                ..ShapeSpec::default()
-            }],
-            ..SlideSpec::default()
-        })
-        .collect();
-    let deck = DeckSpec {
-        width: w,
-        height: h,
-        slides,
-        title: None,
-    };
-    bo_pptx::build::build_pptx(&deck).map_err(|e| e.to_string())
 }
 
 /// PDF of an Office document (BlueDoc, BlueSheet, BlueSlide formats).
@@ -228,16 +162,13 @@ impl EditorWindow {
             "conv.word" => {
                 let name = format!("{}.docx", self.doc_stem());
                 let r = self.with_doc(|d| {
-                    let bytes = d.save()?;
-                    let mut e = bo_engine::Engine::with_bundled_fonts();
-                    e.open(&bytes, "in.pdf").map_err(|e| e.to_string())?;
-                    e.save_docx().map_err(|e| e.to_string())
+                    crate::editor_convert::pages_to_docx(&crate::editor_convert::page_texts(d)?)
                 });
                 self.save_result(name, r);
             }
             "conv.excel" => {
                 let name = format!("{}.xlsx", self.doc_stem());
-                let r = self.with_doc(to_xlsx);
+                let r = self.with_doc(crate::editor_convert::to_xlsx);
                 self.save_result(name, r);
             }
             "conv.text" => {
@@ -249,10 +180,16 @@ impl EditorWindow {
                 purpose: "images".into(),
                 scale: 150.0 / 72.0,
             }),
-            "conv.slides" => self.push(ReaderRequest::RenderPages {
-                purpose: "slides".into(),
-                scale: 2.0,
-            }),
+            "conv.slides" => {
+                // The pages are drawn without text behind editable text boxes.
+                match self.with_doc(PdfDocument::hide_text) {
+                    Ok(()) => self.push(ReaderRequest::RenderPages {
+                        purpose: "slides".into(),
+                        scale: 2.0,
+                    }),
+                    Err(e) => self.set_status(&e),
+                }
+            }
             "comment.edit" => {
                 if let Some(a) = self.x.selected_comment.clone() {
                     self.ask_comment(a, m);
@@ -451,6 +388,7 @@ impl EditorWindow {
                 self.sign_answer(&cert, values);
             }
             Ask2::Info => {}
+            Ask2::Typewriter(..) | Ask2::Callout(..) => self.comment_text(&what, &first),
         }
     }
 
@@ -502,12 +440,15 @@ impl EditorWindow {
 
     /// Slides from rendered page images.
     pub(crate) fn slides_rendered(&mut self, pngs: Vec<Vec<u8>>) {
-        let size = self
-            .view()
-            .and_then(|v| v.doc().page_info(0))
-            .map_or((612.0, 792.0), |p| (p.width, p.height));
         let name = format!("{}.pptx", self.doc_stem());
-        let r = to_pptx(pngs, size);
+        let r = self.with_doc(|d| {
+            d.show_text();
+            let mut pages = crate::editor_convert::page_texts(d)?;
+            for (p, png) in pages.iter_mut().zip(pngs) {
+                p.picture = Some(png);
+            }
+            crate::editor_convert::pages_to_pptx(pages)
+        });
         self.save_result(name, r);
     }
 

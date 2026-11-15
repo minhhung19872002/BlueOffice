@@ -16,6 +16,7 @@
 mod annot;
 mod cmap;
 mod color;
+mod convert;
 mod crypt;
 mod edit;
 mod encoding;
@@ -29,6 +30,7 @@ mod function;
 mod image;
 mod interp;
 mod lexer;
+mod markup;
 mod objects;
 mod paragraph;
 mod sfnt;
@@ -38,9 +40,11 @@ mod type1;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
+pub use convert::{StyledBlock, StyledRun};
 pub use edit::SaveOptions;
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
+pub use markup::{Markup, MarkupKind};
 pub use objects::{image_size, text_lines, NewImage, ObjectKind, PageObject, TextLine};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use sigappear::{signature_appearance, SignatureLook};

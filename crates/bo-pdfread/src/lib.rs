@@ -28,6 +28,7 @@ mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
+mod exchange;
 mod fallback;
 mod field_detect;
 mod filters;
@@ -48,6 +49,7 @@ mod sfnt;
 mod sigappear;
 mod text;
 mod type1;
+mod viewer;
 mod write;
 
 pub use annot::{Annot, AnnotKind, NewAnnot};
@@ -59,6 +61,7 @@ pub use annot_edit::CommentThread;
 pub use convert::{StyledBlock, StyledRun};
 pub use design::{NewField, NewFieldKind, PageMarks};
 pub use edit::{Permissions, SaveOptions};
+pub use exchange::SummaryLabels;
 pub use forms::{FieldKind, FormField};
 pub use image::Image;
 pub use links_edit::{find_web_addresses, FoundLink};
@@ -69,6 +72,7 @@ pub use optimize::{JpegEncoder, OptimizeOptions, OptimizeReport};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use sigappear::{signature_appearance, SignatureLook};
 pub use text::TextLayer;
+pub use viewer::{DocInfo, FontInfo};
 
 use bo_render::{PageList, Rgba};
 use bo_text::FontManager;

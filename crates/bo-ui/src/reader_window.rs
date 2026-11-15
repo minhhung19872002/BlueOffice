@@ -34,6 +34,18 @@ mod view4;
 #[path = "reader_tabs4_win.rs"]
 mod tabs4;
 
+#[path = "reader_tabs5_win.rs"]
+mod tabs5;
+
+#[path = "reader_bookmarks5_win.rs"]
+mod bm5;
+
+#[path = "reader_props5_win.rs"]
+mod props5;
+
+#[path = "reader_backstage5_win.rs"]
+mod bs5;
+
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
 const EDGE: Rgba = Rgba(199, 204, 217, 255);
@@ -319,6 +331,9 @@ pub(crate) enum Kind {
     Big(&'static str, &'static str, bool),
     /// Small icon button.
     Small(&'static str),
+    /// A row of a three-row column: small icon, label key (empty: icon only), drop-down
+    /// arrow.
+    Row(&'static str, &'static str, bool),
     /// Navigation column icon.
     Nav(Panel),
     /// Window button.
@@ -443,6 +458,8 @@ pub struct ReaderWindow {
     view4: view4::View4,
     /// Form / Protect tabs and Comment tab additions of round 4.
     tabs4: tabs4::Tabs4,
+    /// Fill & Sign, signing, comment exchange of round 5.
+    tabs5: tabs5::Tabs5,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -520,6 +537,7 @@ impl ReaderWindow {
             draw: draw::Draw::default(),
             view4: view4::View4::default(),
             tabs4: tabs4::Tabs4::default(),
+            tabs5: tabs5::Tabs5::default(),
         }
     }
 
@@ -548,6 +566,9 @@ impl ReaderWindow {
                 "pdfReader.tabs.protect",
                 "pdfReader.tabs.help",
             ]),
+        }
+        if self.profile.is_none() && self.tabs5.fill_mode {
+            v.push("pdfFill.tab");
         }
         v
     }
@@ -665,8 +686,11 @@ impl ReaderWindow {
     /// Open `doc` named `name` in a new tab and show it.
     pub fn open(&mut self, doc: PdfDocument, name: &str, path: Option<std::path::PathBuf>) {
         let outline = doc.outline();
-        let panel = (!outline.is_empty()).then_some(Panel::Bookmarks);
-        let expanded = HashSet::new();
+        // The reference shows bookmarks when the document asks (/PageMode /UseOutlines).
+        let panel = (!outline.is_empty() && doc.page_mode().as_deref() == Some("UseOutlines"))
+            .then_some(Panel::Bookmarks);
+        let mut expanded = HashSet::new();
+        tabs5::open_items(&outline, &mut Vec::new(), &mut expanded);
         let view = ReaderView::new(doc);
         self.tabs.push(DocTab {
             view,
@@ -830,10 +854,13 @@ impl ReaderWindow {
                 // The reference's Home tab: SnapShot, Clipboard | Zoom, Page Fit, Reflow,
                 // Rotate View | Typewriter, Highlight | Fill & Sign.
                 ("home.snapshot", Big("snapshot", "pdfHome.snapshot", false)),
-                ("edit.copy", Big("clipboard", "pdfReader.copy", false)),
+                (
+                    "menu.clipboard",
+                    Big("clipboard", "pdfHome.clipboard", true),
+                ),
                 ("sep1", Sep),
                 ("menu.zoom", Big("zoom", "pdfReader.zoom", true)),
-                ("menu.fit", Big("fit", "pdfReader.pageFit", true)),
+                ("menu.fit", Big("fit", "pdfHome.pageFitOption", true)),
                 ("view.reflow", Big("reflow", "pdfView.reflow", false)),
                 ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep2", Sep),
@@ -850,66 +877,56 @@ impl ReaderWindow {
                     "prot.fillSign",
                     Big("fillSign", "pdfProtect.fillSign", false),
                 ),
-                ("sep4", Sep),
-                ("find", Big("search", "pdfReader.find", false)),
             ]),
-            1 => v.extend([
-                ("sep1", Sep),
-                // Text markup as a grid of small buttons, like the reference's Comment tab.
-                // Six text markup tools in a 3 × 2 grid like the reference's (filled column
-                // by column).
-                ("tool.highlight", Small("highlight")),
-                ("tool.strikeout", Small("strikeout")),
-                ("tool.squiggly", Small("squiggly")),
-                ("comment.replace", Small("replaceText")),
-                ("tool.underline", Small("underline")),
-                ("comment.insert", Small("insertText")),
-                ("sep2", Sep),
-                // Order of the reference's Comment tab: note | typewriter, text box, callout |
-                // drawing, pencil | measure | stamp.
-                ("tool.note", Big("note", "pdfReader.note", false)),
-                ("comment.file", Big("attach", "pdfComment.file", false)),
-                ("sep3", Sep),
-                (
-                    "draw.typewriter",
-                    Big("typewriter", "pdfDraw.typewriter", false),
-                ),
-                ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
-                ("draw.callout", Big("callout", "pdfDraw.callout", false)),
-                ("sep5", Sep),
-                ("menu.drawing", Big("rectangle", "pdfDraw.drawing", true)),
-                ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
-                ("comment.eraser", Big("eraser", "pdfComment.eraser", false)),
-                ("sep8", Sep),
-                (
-                    "comment.areaHighlight",
-                    Big("areaHighlight", "pdfComment.areaHighlight", false),
-                ),
-                (
-                    "comment.searchHighlight",
-                    Big("searchHighlight", "pdfComment.searchHighlight", false),
-                ),
-                ("sep6", Sep),
-                ("menu.measure", Big("measure", "pdfDraw.measure", true)),
-                ("sep7", Sep),
-                ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
-                (
-                    "menu.customStamp",
-                    Big("customStamp", "pdfComment.customStamp", true),
-                ),
-                ("draw.props", Big("properties", "pdfDraw.properties", false)),
-                ("sep4", Sep),
-                (
-                    "comment.summarize",
-                    Big("summarize", "pdfComment.summarize", false),
-                ),
-                ("comment.import", Big("import", "pdfComment.import", false)),
-                ("comment.export", Big("export", "pdfComment.export", false)),
-                (
-                    "panel.comments",
-                    Big("comments", "pdfReader.commentList", false),
-                ),
-            ]),
+            1 => v.extend(
+                [
+                    ("sep1", Sep),
+                    // Text markup as a grid of small buttons, like the reference's Comment tab.
+                    // Six text markup tools in a 3 × 2 grid like the reference's (filled column
+                    // by column).
+                    ("tool.highlight", Small("highlight")),
+                    ("tool.strikeout", Small("strikeout")),
+                    ("tool.squiggly", Small("squiggly")),
+                    ("comment.replace", Small("replaceText")),
+                    ("tool.underline", Small("underline")),
+                    ("comment.insert", Small("insertText")),
+                    ("sep2", Sep),
+                    // Order of the reference's Comment tab: note | typewriter, text box, callout |
+                    // drawing, pencil | measure | stamp.
+                    ("tool.note", Big("note", "pdfReader.note", false)),
+                    ("comment.file", Big("attach", "pdfComment.file", false)),
+                    ("sep3", Sep),
+                    (
+                        "draw.typewriter",
+                        Big("typewriter", "pdfDraw.typewriter", false),
+                    ),
+                    ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+                    ("draw.callout", Big("callout", "pdfDraw.callout", false)),
+                    ("sep5", Sep),
+                    ("menu.drawing", Big("rectangle", "pdfDraw.drawing", true)),
+                    ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
+                    ("comment.eraser", Big("eraser", "pdfComment.eraser", false)),
+                    ("sep8", Sep),
+                    (
+                        "comment.areaHighlight",
+                        Big("areaHighlight", "pdfComment.areaHighlight", false),
+                    ),
+                    (
+                        "comment.searchHighlight",
+                        Big("searchHighlight", "pdfComment.searchHighlight", false),
+                    ),
+                    ("sep6", Sep),
+                    ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+                    ("sep7", Sep),
+                    ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
+                    (
+                        "menu.customStamp",
+                        Big("customStamp", "pdfComment.customStamp", true),
+                    ),
+                ]
+                .into_iter()
+                .chain(Self::comment_rows()),
+            ),
             2 => v.extend([
                 ("sep0", Sep),
                 // Read Mode first after the pointer tools, like the reference's View tab.
@@ -953,6 +970,7 @@ impl ReaderWindow {
                 ),
             ]),
             3 | 4 => v.extend(Self::tabs4_items(self.ribbon_tab)),
+            tabs5::FILL_TAB => v.extend(Self::fill_items()),
             _ => {
                 v.clear();
                 v.push(("help.about", Big("info", "pdfReader.about", false)));
@@ -1035,7 +1053,43 @@ impl ReaderWindow {
         let label_style = self.style(self.look.label, false);
         let mut x = self.px(11.2);
         let mut small_col = 0_usize;
+        // Columns of three rows (round 5): rows in the column and its width.
+        let (mut row_n, mut row_w) = (0_usize, 0.0_f32);
         for (id, kind) in self.ribbon_items() {
+            if let Kind::Row(_, label, dropdown) = kind {
+                if row_n == 3 {
+                    x += row_w + self.px(2.4);
+                    row_n = 0;
+                    row_w = 0.0;
+                }
+                let tw = if label.is_empty() {
+                    0.0
+                } else {
+                    let text = self.t(label);
+                    self.measure(m, &text, label_style) + self.px(2.4)
+                };
+                let w = (self.px(4.0)
+                    + self.px(17.6)
+                    + tw
+                    + if dropdown { self.px(11.2) } else { 0.0 }
+                    + self.px(4.0))
+                .round();
+                // 125 %: rows 29 px apart from y 105 (measured).
+                let h = self.px(23.2);
+                self.controls.push(Control {
+                    id,
+                    kind,
+                    r: [x, by + self.px(0.8) + row_n as f32 * h, w, h],
+                });
+                row_w = row_w.max(w);
+                row_n += 1;
+                continue;
+            }
+            if row_n > 0 {
+                x += row_w + self.px(2.4);
+                row_n = 0;
+                row_w = 0.0;
+            }
             match kind {
                 Kind::Big(_, label, dropdown) => {
                     if small_col > 0 {
@@ -1422,8 +1476,11 @@ impl ReaderWindow {
             }
             Input::Zoom(n) => {
                 if let Some(t) = self.tabs.get_mut(self.active) {
-                    let z = t.view.zoom() * 1.1_f32.powf(n);
-                    t.view.set_zoom(z);
+                    // One preset per notch (the reference's Ctrl + wheel).
+                    let steps = n.abs().round().max(1.0) as usize;
+                    for _ in 0..steps {
+                        t.view.step_zoom(if n > 0.0 { 1 } else { -1 });
+                    }
                     return true;
                 }
                 false
@@ -1583,7 +1640,7 @@ impl ReaderWindow {
                 if matches!(self.tool, Tool::Hand | Tool::Select) {
                     match target {
                         LinkTarget::Page { index, top } => t.view.go_to(index, top),
-                        LinkTarget::Uri(u) => self.requests.push(ReaderRequest::OpenUrl(u)),
+                        LinkTarget::Uri(u) => self.confirm_url(u, m),
                     }
                     return true;
                 }
@@ -1688,7 +1745,7 @@ impl ReaderWindow {
 
     fn release(&mut self, x: f32, y: f32, m: &dyn TextMeasure) -> bool {
         if let Some(id) = self.pressed.take() {
-            if self.control_at(x, y).is_some_and(|c| c.id == id) {
+            if self.control_at(x, y).is_some_and(|c| c.id == id) && self.enabled(id) {
                 let r = self.controls.iter().find(|c| c.id == id).map(|c| c.r);
                 if let Some(r) = r {
                     self.click(id, r, m);
@@ -1915,7 +1972,8 @@ impl ReaderWindow {
             }
             return false;
         };
-        let line = 40.0 * self.scale;
+        // 125 %: 54 px per arrow press (measured on the reference).
+        let line = 43.2 * self.scale;
         let page_h = t.view.frame()[3] * 0.9;
         match (k, mods.ctrl) {
             (Key::Down, false) => t.view.scroll_by(0.0, line),
@@ -2056,6 +2114,7 @@ impl ReaderWindow {
         }
         let mut items = vec![
             ("file.open", "pdfReader.open"),
+            ("file.properties", "pdfProps.menu"),
             ("file.save", "pdfReader.save"),
             ("file.saveAs", "pdfReader.saveAs"),
             ("file.print", "pdfReader.print"),
@@ -2069,27 +2128,33 @@ impl ReaderWindow {
 
     fn open_zoom_menu(&mut self, r: [f32; 4]) {
         let z = self.view().map_or(1.0, ReaderView::zoom);
-        let mut items: Vec<MenuItem> = [
-            ("zoom.width", "pdfReader.fitWidth"),
-            ("zoom.page", "pdfReader.fitPage"),
-            ("zoom.actual", "pdfReader.actualSize"),
-        ]
-        .iter()
-        .map(|(c, k)| MenuItem {
-            label: self.t(k),
-            choice: Choice::Command((*c).to_owned()),
-            checked: false,
-            dim: false,
-        })
-        .collect();
-        for p in [10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 800, 1600] {
+        let mut items: Vec<MenuItem> = Vec::new();
+        for p in [
+            "6400", "3200", "1600", "800", "600", "400", "200", "150", "125", "100", "75", "66.67",
+            "50", "33.33", "25", "12.5", "8.33", "1",
+        ] {
+            let v: f32 = p.parse().unwrap_or(100.0);
             items.push(MenuItem {
                 label: format!("{p}%"),
                 choice: Choice::Command(format!("zoom.set.{p}")),
-                checked: (z * 100.0 - p as f32).abs() < 0.5,
+                checked: (z * 100.0 - v).abs() < 0.05,
                 dim: false,
             });
         }
+        items.extend(
+            [
+                ("zoom.actual", "pdfReader.actualSize"),
+                ("zoom.page", "pdfReader.fitPage"),
+                ("zoom.width", "pdfReader.fitWidth"),
+            ]
+            .iter()
+            .map(|(c, k)| MenuItem {
+                label: self.t(k),
+                choice: Choice::Command((*c).to_owned()),
+                checked: false,
+                dim: false,
+            }),
+        );
         self.menu = Some((Menu::open(items, r, self.size, self.scale), "zoom"));
     }
 
@@ -2298,7 +2363,8 @@ impl ReaderWindow {
         }
         if let Some(t) = self.tabs.get_mut(self.active) {
             if !self.show_start {
-                t.view.scroll_by(0.0, dy);
+                // The reference scrolls 16 logical px per wheel line (the host sends 20).
+                t.view.scroll_by(0.0, dy * 0.8);
                 return true;
             }
         }
@@ -2475,7 +2541,8 @@ impl ReaderWindow {
             let on = c.id == tool_id
                 || self.layout_on(c.id)
                 || self.panel_on(c.id)
-                || self.on.contains(c.id);
+                || self.on.contains(c.id)
+                || self.tabs5_on(c.id);
             let r = c.r;
             match c.kind {
                 Kind::Big(icon, label, dropdown) => {
@@ -2578,6 +2645,8 @@ impl ReaderWindow {
                     let is = match c.kind {
                         Kind::Quick(_) => self.px(19.2),
                         Kind::Nav(_) => self.px(20.8),
+                        // Text markup marks are drawn larger, like the reference's (round 5).
+                        Kind::Small(i) if tabs5::markup_icon(i) => self.px(20.8),
                         _ => self.px(17.6),
                     };
                     let col = match (enabled, quick_band) {
@@ -2608,6 +2677,57 @@ impl ReaderWindow {
                         ink2,
                         self.look.icon_stroke,
                     );
+                }
+                Kind::Row(icon, label, dropdown) => {
+                    let enabled = self.enabled(c.id);
+                    if enabled && (on || down || hot) {
+                        let fill = if on || down {
+                            self.look.pressed
+                        } else {
+                            self.look.hover
+                        };
+                        p.path(
+                            &rounded(r[0], r[1], r[2], r[3], self.px(2.4)),
+                            Some(fill),
+                            None,
+                        );
+                    }
+                    let col = if enabled {
+                        TEXT
+                    } else {
+                        Rgba(175, 175, 176, 255)
+                    };
+                    let is = self.px(17.6);
+                    let ix = r[0] + self.px(4.0);
+                    reader_icons::draw_weight(
+                        p,
+                        icon,
+                        ix,
+                        r[1] + ((r[3] - is) / 2.0).round(),
+                        is,
+                        Ink {
+                            ink: col,
+                            accent: col,
+                        },
+                        self.look.icon_stroke,
+                    );
+                    let mut tx = ix + is;
+                    if !label.is_empty() {
+                        let text = self.t(label);
+                        tx += self.px(2.4);
+                        let ty = r[1] + ((r[3] - label_style.size * 1.33) / 2.0).round();
+                        p.text(&text, tx, ty, label_style, col);
+                        tx += self.width_of(&text, label_style);
+                    }
+                    if dropdown {
+                        tri(
+                            p,
+                            tx + self.px(3.2),
+                            r[1] + r[3] / 2.0 - self.px(1.6),
+                            self.px(3.2),
+                            col,
+                        );
+                    }
                 }
                 Kind::Win(k) => {
                     let close = k == NcHit::Close;
@@ -2724,6 +2844,9 @@ impl ReaderWindow {
     fn enabled(&self, id: &str) -> bool {
         if let Some(&e) = self.enabled_override.get(id) {
             return e;
+        }
+        if let Some(e) = self.tabs5_enabled(id) {
+            return e && self.showing_doc();
         }
         if Self::tabs4_disabled(id) {
             return false;
@@ -2937,81 +3060,18 @@ impl ReaderWindow {
         };
         let ts = self.style(16.0, false);
         p.text(&title, r[0] + self.px(8.8), r[1] + self.px(10.4), ts, TEXT);
-        let list_top = r[1] + self.px(40.0);
+        let list_top = r[1]
+            + if panel == Panel::Bookmarks {
+                self.paint_bookmark_tools(p, r)
+            } else {
+                self.px(40.0)
+            };
         p.push_clip(r[0], list_top, r[2], r[3] - (list_top - r[1]));
         let body = self.style(14.0, false);
-        let row_h = self.px(19.2);
         let scroll = self.tabs.get(self.active).map_or(0.0, |t| t.panel_scroll);
         let mut y = list_top + self.px(4.0) - scroll;
         match panel {
-            Panel::Bookmarks => {
-                let Some(t) = self.tabs.get(self.active) else {
-                    p.pop_clip();
-                    return;
-                };
-                let outline = t.outline.clone();
-                let expanded = t.expanded.clone();
-                let mut rows = Vec::new();
-                flatten_outline(&outline, &expanded, &mut Vec::new(), 0, &mut rows);
-                if rows.is_empty() {
-                    p.text(
-                        &self.t("pdfReader.noBookmarks"),
-                        r[0] + self.px(8.8),
-                        y,
-                        body,
-                        MUTED,
-                    );
-                }
-                for (path, item, depth, has_kids, open) in rows {
-                    if y > r[1] + r[3] {
-                        break;
-                    }
-                    let x = r[0] + self.px(8.0) + depth as f32 * self.px(14.4);
-                    if y + row_h > list_top {
-                        if self.selected_outline.as_ref() == Some(&path) {
-                            p.fill_rect(r[0], y, r[2], row_h, self.look.pressed);
-                        }
-                        if has_kids {
-                            let b = self.px(7.2);
-                            let bx = x;
-                            let by = (y + (row_h - b) / 2.0).round();
-                            p.fill_rect(bx, by, b + 1.0, b + 1.0, Rgba(140, 140, 140, 255));
-                            p.fill_rect(bx + 1.0, by + 1.0, b - 1.0, b - 1.0, WHITE);
-                            p.fill_rect(bx + 2.0, by + b / 2.0, b - 3.0, 1.0, TEXT);
-                            if !open {
-                                p.fill_rect(bx + b / 2.0, by + 2.0, 1.0, b - 3.0, TEXT);
-                            }
-                        }
-                        let ix = x + self.px(12.8);
-                        reader_icons::draw(
-                            p,
-                            "bookmark",
-                            ix,
-                            y + ((row_h - self.px(14.4)) / 2.0).round(),
-                            self.px(14.4),
-                            Ink {
-                                ink: TEXT,
-                                accent: TEXT,
-                            },
-                        );
-                        p.text(
-                            &item.title,
-                            ix + self.px(16.0),
-                            y + ((row_h - body.size * 1.33) / 2.0).round(),
-                            body,
-                            TEXT,
-                        );
-                    }
-                    let toggle = has_kids.then_some((x, x + self.px(7.2)));
-                    self.panel_rows.push((
-                        y,
-                        row_h,
-                        PanelRow::Outline(path, item.target.clone(), toggle),
-                    ));
-                    y += row_h;
-                }
-                // Toggle rows only cover the box: keep them first but narrow by x in hit test.
-            }
+            Panel::Bookmarks => self.paint_bookmarks(p, r, list_top, y),
             Panel::Pages => {
                 let Some(t) = self.tabs.get(self.active) else {
                     p.pop_clip();

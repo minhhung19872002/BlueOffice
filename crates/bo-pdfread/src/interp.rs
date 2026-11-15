@@ -8,7 +8,7 @@ use crate::function::Function;
 use crate::image::{self, Image};
 use crate::lexer::{Lexer, Op};
 use crate::{RenderOptions, TextChar};
-use bo_render::{Command, Glyph, GradientStop, Paint, PathSeg, Rgba, Stroke};
+use bo_render::{BlendMode, Command, Glyph, GradientStop, Paint, PathSeg, Rgba, SoftMask, Stroke};
 use bo_text::FontManager;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
@@ -129,6 +129,10 @@ struct Gs {
     tl: f32,
     rise: f32,
     mode: u8,
+    /// Blend mode (§11.3.5, ExtGState `/BM`); `None` = Normal.
+    blend: Option<BlendMode>,
+    /// Soft mask (§11.6.5, ExtGState `/SMask`) in page space.
+    smask: Option<Rc<SoftMask>>,
     /// Clips pushed while this state was current.
     clips: u32,
 }
@@ -157,6 +161,8 @@ impl Gs {
             tl: 0.0,
             rise: 0.0,
             mode: 0,
+            blend: None,
+            smask: None,
             clips: 0,
         }
     }
@@ -255,6 +261,8 @@ pub(crate) struct Interp<'s, 'a> {
     /// Type 3 glyph with `d1`: colours come from the text state.
     uncolored: bool,
     image_prefix: String,
+    /// Where the clip pushed by the last path painting operator starts.
+    clip_mark: Option<usize>,
 }
 
 impl<'s, 'a> Interp<'s, 'a> {
@@ -287,6 +295,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             page,
             uncolored: false,
             image_prefix,
+            clip_mark: None,
         }
     }
 
@@ -478,6 +487,7 @@ impl<'s, 'a> Interp<'s, 'a> {
             }
         }
         if self.clip.take().is_some() {
+            self.clip_mark = Some(self.out.commands.len());
             self.push_clip(&segs);
         }
     }
@@ -504,8 +514,54 @@ impl<'s, 'a> Interp<'s, 'a> {
         self.gs.clips += 1;
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Run one operator; painting operators under a blend mode or soft mask are wrapped in a
+    /// group (§11.3.5 / §11.6.5: each object is composited on its own). Form XObjects are
+    /// treated as transparency groups: their content starts with Normal and no soft mask.
     fn op(&mut self, op: &Op) {
+        let painting = matches!(
+            op.name.as_slice(),
+            b"S" | b"s"
+                | b"f"
+                | b"F"
+                | b"f*"
+                | b"B"
+                | b"B*"
+                | b"b"
+                | b"b*"
+                | b"sh"
+                | b"Do"
+                | b"BI"
+                | b"Tj"
+                | b"'"
+                | b"\""
+                | b"TJ"
+        );
+        if !painting || (self.gs.blend.is_none() && self.gs.smask.is_none()) {
+            self.op_inner(op);
+            return;
+        }
+        let blend = self.gs.blend.take();
+        let mask = self.gs.smask.take();
+        let start = self.out.commands.len();
+        self.clip_mark = None;
+        self.op_inner(op);
+        let end = self.clip_mark.take().unwrap_or(self.out.commands.len());
+        if end > start {
+            self.out.commands.insert(end, Command::PopGroup);
+            self.out.commands.insert(
+                start,
+                Command::PushGroup {
+                    blend,
+                    mask: mask.as_ref().map(|m| Box::new(SoftMask::clone(m))),
+                },
+            );
+        }
+        self.gs.blend = blend;
+        self.gs.smask = mask;
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn op_inner(&mut self, op: &Op) {
         let a = &op.args;
         let n = |i: usize| a.get(i).map_or(0.0, f);
         match op.name.as_slice() {
@@ -781,6 +837,22 @@ impl<'s, 'a> Interp<'s, 'a> {
                 }
                 b"CA" => self.gs.stroke_alpha = f(v).clamp(0.0, 1.0),
                 b"ca" => self.gs.fill_alpha = f(v).clamp(0.0, 1.0),
+                b"BM" => {
+                    self.gs.blend = match v {
+                        Object::Name(n) => BlendMode::from_pdf_name(n),
+                        Object::Array(a) => a
+                            .iter()
+                            .filter_map(|o| o.as_name().ok())
+                            .find_map(BlendMode::from_pdf_name),
+                        _ => None,
+                    };
+                }
+                b"SMask" => {
+                    self.gs.smask = match v {
+                        Object::Dictionary(m) => self.soft_mask(m).map(Rc::new),
+                        _ => None,
+                    };
+                }
                 b"Font" => {
                     if let Ok(arr) = v.as_array() {
                         if let (Some(fo), Some(size)) = (arr.first(), arr.get(1)) {
@@ -792,6 +864,76 @@ impl<'s, 'a> Interp<'s, 'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Draw a soft mask's group (§11.6.5.2) with the current matrix into its own commands.
+    fn soft_mask(&mut self, d: &Dictionary) -> Option<SoftMask> {
+        let doc = self.doc();
+        let luminosity = d.get(b"S").and_then(Object::as_name).ok() != Some(b"Alpha");
+        let id = d.get(b"G").ok()?.as_reference().ok()?;
+        if self.depth > 12 || self.forms.contains(&id) {
+            return None;
+        }
+        let Object::Stream(s) = doc.get_object(id).ok()? else {
+            return None;
+        };
+        let content = filters::stream_bytes(doc, s).ok()?;
+        let num_array = |o: &Object| -> Vec<f32> {
+            doc.dereference(o)
+                .map_or(o, |(_, o)| o)
+                .as_array()
+                .map(|a| a.iter().map(f).collect())
+                .unwrap_or_default()
+        };
+        let matrix = s
+            .dict
+            .get(b"Matrix")
+            .ok()
+            .map(num_array)
+            .and_then(|v| <[f32; 6]>::try_from(v.as_slice()).ok())
+            .unwrap_or(IDENTITY);
+        let bbox = s.dict.get(b"BBox").ok().map(num_array);
+        let res = s
+            .dict
+            .get(b"Resources")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok());
+        // Backdrop colour in the group's colour space (default black: nothing shows outside).
+        let space = s
+            .dict
+            .get(b"Group")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok())
+            .and_then(|g| g.get(b"CS").ok())
+            .and_then(|o| self.color_space(o));
+        let bc = d.get(b"BC").ok().map(num_array).unwrap_or_default();
+        let backdrop = match (&space, bc.is_empty()) {
+            (Some(cs), false) => rgba(cs, &bc, 1.0),
+            (None, false) if bc.len() == 1 => rgba(&ColorSpace::Gray, &bc, 1.0),
+            (None, false) if bc.len() == 3 => rgba(&ColorSpace::Rgb, &bc, 1.0),
+            (None, false) if bc.len() == 4 => rgba(&ColorSpace::Cmyk, &bc, 1.0),
+            _ => Rgba(0, 0, 0, 255),
+        };
+        let saved = std::mem::take(&mut self.out.commands);
+        let chars = self.out.chars.len();
+        let path = std::mem::take(&mut self.path);
+        self.save();
+        let ctm = self.gs.ctm;
+        self.gs = Gs::new(ctm);
+        self.forms.push(id);
+        self.run_form(&content, matrix, bbox.as_deref(), res);
+        self.forms.pop();
+        self.restore();
+        self.path = path;
+        self.out.chars.truncate(chars);
+        let commands = std::mem::replace(&mut self.out.commands, saved);
+        Some(SoftMask {
+            luminosity,
+            backdrop,
+            commands,
+        })
     }
 
     fn load_font(&mut self, name: &[u8]) -> Option<Rc<Font>> {

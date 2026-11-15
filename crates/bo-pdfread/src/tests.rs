@@ -323,3 +323,79 @@ fn garbage_and_hostile_input_never_panics() {
         }
     }
 }
+
+#[test]
+fn blend_modes_and_soft_masks_become_groups() {
+    // ISO 32000-1 §11.3.5 /BM and §11.6.5 /SMask in an ExtGState: each painted object under
+    // them is one group; the clip of `W n` stays outside the group; a form is one group.
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+                /Resources << /ExtGState << /M 5 0 R /S 6 0 R >> /XObject << /X 8 0 R >> >> >>";
+    let mask = xstream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 100] \
+         /Group << /S /Transparency /CS /DeviceGray >>",
+        "0.5 g 0 0 100 100 re f",
+    );
+    let form = xstream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 100]",
+        "0 0 1 rg 0 0 5 5 re f 1 0 0 rg 5 5 5 5 re f",
+    );
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        page.to_owned(),
+        stream(
+            "q /M gs 1 1 0 rg 10 10 50 20 re f 0 0 80 80 re W n /X Do Q \
+             q /S gs 0 0 1 rg 0 0 40 40 re f Q 0 g 0 0 1 1 re f",
+        ),
+        "<< /Type /ExtGState /BM /Multiply >>".to_owned(),
+        "<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 7 0 R /BC [1] >> >>"
+            .to_owned(),
+        mask,
+        form,
+    ];
+    let refs: Vec<&str> = objs.iter().map(String::as_str).collect();
+    let mut doc = open(build_pdf(&refs));
+    let page = doc.render(0, RenderOptions::default()).expect("renders");
+    let kinds: Vec<&str> = page
+        .list
+        .commands
+        .iter()
+        .map(|c| match c {
+            Command::PushGroup {
+                blend: Some(_),
+                mask: None,
+            } => "blend",
+            Command::PushGroup { mask: Some(_), .. } => "mask",
+            Command::PopGroup => "end",
+            Command::Path { .. } => "path",
+            Command::PushClip { .. } | Command::PushClipPath { .. } => "clip",
+            Command::PopClip => "unclip",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "blend", "path", "end", "clip", "blend", "clip", "path", "path", "unclip", "end",
+            "unclip", "mask", "path", "end", "path"
+        ]
+    );
+    let mask = page.list.commands.iter().find_map(|c| match c {
+        Command::PushGroup { mask: Some(m), .. } => Some(m.clone()),
+        _ => None,
+    });
+    let mask = mask.expect("soft mask");
+    assert!(mask.luminosity);
+    assert_eq!(mask.backdrop, bo_render::Rgba(255, 255, 255, 255));
+    assert!(mask
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::Path { .. })));
+    assert!(matches!(
+        page.list.commands.first(),
+        Some(Command::PushGroup {
+            blend: Some(bo_render::BlendMode::Multiply),
+            ..
+        })
+    ));
+}

@@ -310,6 +310,8 @@ pub fn write_pdf_with_options(
                     res.groups.push(a);
                     use_alpha(&mut c, &mut res, (a * 255.0).round() as u8);
                 }
+                // Groups (blend modes, soft masks of read PDFs) are written as plain content.
+                Command::PushGroup { .. } | Command::PopGroup => {}
                 Command::BlurPath { .. } if flatten => {
                     // ISO 19005-1 §6.4: soft masks are not allowed; soft shadows and
                     // glows are left out of PDF/A-1 files.

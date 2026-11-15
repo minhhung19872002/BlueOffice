@@ -41,6 +41,16 @@ pub enum TextRendering {
         /// Snap outlines to the pixel grid (font hinting).
         grid_fit: bool,
     },
+    /// Grayscale symmetric antialiasing with one gamma / contrast for every face (PDF pages
+    /// in BlueReader, tuned against the desktop PDF reader; BlueDoc keeps [`Self::Grayscale`]).
+    GrayscaleTuned {
+        /// Gamma, normally 1.0 to 2.2.
+        gamma: f32,
+        /// Extra contrast, 0 or more.
+        contrast: f32,
+        /// Snap outlines to the pixel grid (font hinting).
+        grid_fit: bool,
+    },
 }
 
 impl TextRendering {
@@ -374,6 +384,51 @@ mod tests {
         assert_eq!(px(&image, 16, 16), [0, 0, 0, 255]);
         // Corner of the bounding box lies outside the rotated square.
         assert_eq!(px(&image, 6, 6), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn blend_modes_and_soft_masks() {
+        use bo_render::{BlendMode, Command, Rgba, SoftMask};
+        let rect = |x: f32, w: f32, color: Rgba| Command::FillRect {
+            x,
+            y: 0.0,
+            w,
+            h: 32.0,
+            color,
+        };
+        let image = render(vec![
+            // Grey backdrop on the left half; Multiply orange over both halves.
+            rect(0.0, 16.0, Rgba(128, 128, 128, 255)),
+            Command::PushGroup {
+                blend: Some(BlendMode::Multiply),
+                mask: None,
+            },
+            rect(0.0, 32.0, Rgba(255, 128, 0, 255)),
+            Command::PopGroup,
+        ]);
+        let over_grey = px(&image, 4, 4);
+        assert!(
+            (over_grey[0] as i32 - 128).abs() <= 2
+                && (over_grey[1] as i32 - 64).abs() <= 2
+                && over_grey[2] <= 2,
+            "{over_grey:?}"
+        );
+        assert_eq!(px(&image, 24, 4), [255, 128, 0, 255]);
+        // Luminosity mask: white over the left half (opaque), black backdrop elsewhere.
+        let image = render(vec![
+            Command::PushGroup {
+                blend: None,
+                mask: Some(Box::new(SoftMask {
+                    luminosity: true,
+                    backdrop: Rgba(0, 0, 0, 255),
+                    commands: vec![rect(0.0, 16.0, Rgba(255, 255, 255, 255))],
+                })),
+            },
+            rect(0.0, 32.0, Rgba(0, 0, 255, 255)),
+            Command::PopGroup,
+        ]);
+        assert_eq!(px(&image, 4, 4), [0, 0, 255, 255]);
+        assert_eq!(px(&image, 24, 4), [255, 255, 255, 255]);
     }
 
     #[test]

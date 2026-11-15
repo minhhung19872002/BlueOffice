@@ -188,6 +188,13 @@ pub fn large_width(id: &str) -> Option<f32> {
     match id {
         "transition.preview" | "anim.preview" => return Some(48.8),
         "transition.more" | "anim.more" | "design.more" => return Some(29.6),
+        // Design tab, measured on the reference at 125 %: Variants 66, Colors 58, Fonts 62,
+        // Effects 60, Background Styles 100, Layout 66, Slide Size 60 device px.
+        "design.variants" | "design.layout" => return Some(52.8),
+        "design.colors" => return Some(46.4),
+        "design.fonts" => return Some(49.6),
+        "design.effects" | "design.slideSize" => return Some(48.0),
+        "design.background" => return Some(80.0),
         CURRENT_THEME => return Some(109.6),
         "transition.effect" | "anim.effect" => return Some(72.0),
         // Add Animation: reference x 745-850.

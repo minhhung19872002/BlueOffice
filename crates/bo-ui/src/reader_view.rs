@@ -125,7 +125,15 @@ pub struct ReaderView {
     cover: bool,
     /// First page of the spread shown in single and facing layouts.
     single_page: usize,
+    /// Pages too large to keep whole at this zoom: the part drawn (device pixels from the
+    /// page's top-left corner: x, y, width, height).
+    crops: HashMap<usize, [f32; 4]>,
 }
+
+/// Largest page image side and area (device pixels) drawn whole; larger pages at high zoom
+/// draw only the part around the view.
+const MAX_IMAGE_SIDE: f32 = 8192.0;
+const MAX_IMAGE_AREA: f32 = 32.0 * 1024.0 * 1024.0;
 
 /// Points to device pixels at 100 % zoom and a scale of 1 (96 / 72).
 const PT: f32 = 96.0 / 72.0;
@@ -162,6 +170,7 @@ impl ReaderView {
             gap: 6.0,
             cover: true,
             single_page: 0,
+            crops: HashMap::new(),
         };
         v.update_sizes();
         v
@@ -760,10 +769,22 @@ impl ReaderView {
             }
         }
         for (n, &i) in wanted.iter().enumerate() {
-            let fresh = self
-                .drawn
-                .get(&i)
-                .is_some_and(|&(s, g)| (s - scale).abs() < 1e-4 && g == self.generation[i]);
+            let crop = self.crop_for(i, scale);
+            let covered = match (crop, self.crops.get(&i)) {
+                (None, None) => true,
+                (Some(_), Some(have)) => self.visible_part(i).is_none_or(|v| {
+                    v[0] >= have[0]
+                        && v[1] >= have[1]
+                        && v[0] + v[2] <= have[0] + have[2]
+                        && v[1] + v[3] <= have[1] + have[3]
+                }),
+                _ => false,
+            };
+            let fresh = covered
+                && self
+                    .drawn
+                    .get(&i)
+                    .is_some_and(|&(s, g)| (s - scale).abs() < 1e-4 && g == self.generation[i]);
             if fresh {
                 continue;
             }
@@ -774,8 +795,16 @@ impl ReaderView {
             if !self.ensure(i) {
                 continue;
             }
-            if self.draw(store, i, i, scale).is_ok() {
+            let drawn = match crop {
+                None => self.draw(store, i, i, scale),
+                Some(c) => self.draw_part(store, i, scale, c),
+            };
+            if drawn.is_ok() {
                 self.drawn.insert(i, (scale, self.generation[i]));
+                match crop {
+                    Some(c) => self.crops.insert(i, c),
+                    None => self.crops.remove(&i),
+                };
             }
         }
         // Thumbnails.
@@ -808,6 +837,7 @@ impl ReaderView {
         for k in drop {
             store.remove(k);
             self.drawn.remove(&k);
+            self.crops.remove(&k);
         }
         let thumbs: Vec<usize> = self
             .drawn
@@ -822,6 +852,64 @@ impl ReaderView {
             }
         }
         more
+    }
+
+    /// The part of page `i` in the view (device pixels from the page's corner).
+    fn visible_part(&self, i: usize) -> Option<[f32; 4]> {
+        let r = self.page_rect(i)?;
+        let f = self.frame;
+        let x0 = (f[0].max(r[0]) - r[0]).max(0.0);
+        let y0 = (f[1].max(r[1]) - r[1]).max(0.0);
+        let x1 = (f[0] + f[2]).min(r[0] + r[2]) - r[0];
+        let y1 = (f[1] + f[3]).min(r[1] + r[3]) - r[1];
+        (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
+    }
+
+    /// For a page too large to draw whole at `scale`: the part to draw, the view's part grown
+    /// by half a view each way.
+    fn crop_for(&self, i: usize, scale: f32) -> Option<[f32; 4]> {
+        let (w, h) = self.sizes.get(i).map(|s| (s.0 * scale, s.1 * scale))?;
+        if w <= MAX_IMAGE_SIDE && h <= MAX_IMAGE_SIDE && w * h <= MAX_IMAGE_AREA {
+            return None;
+        }
+        let v = self
+            .visible_part(i)
+            .unwrap_or([0.0, 0.0, self.frame[2], self.frame[3]]);
+        let (mx, my) = ((self.frame[2] / 2.0).round(), (self.frame[3] / 2.0).round());
+        let x0 = (v[0] - mx).max(0.0).floor();
+        let y0 = (v[1] - my).max(0.0).floor();
+        let x1 = (v[0] + v[2] + mx).min(w.floor());
+        let y1 = (v[1] + v[3] + my).min(h.floor());
+        Some([x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)])
+    }
+
+    /// Where image `key`'s top-left corner lies on its page (device pixels): the drawn part
+    /// of a page too large to draw whole, else (0, 0).
+    pub fn image_offset(&self, key: usize) -> (f32, f32) {
+        self.crops.get(&key).map_or((0.0, 0.0), |c| (c[0], c[1]))
+    }
+
+    /// Draw part `c` (device pixels) of page `i` as its image.
+    fn draw_part(
+        &mut self,
+        store: &mut dyn PdfStore,
+        i: usize,
+        scale: f32,
+        c: [f32; 4],
+    ) -> Result<(), String> {
+        let r = self.cache.get(&i).ok_or("not rendered")?;
+        let mut commands = Vec::with_capacity(r.list.commands.len() + 2);
+        commands.push(Command::PushTransform {
+            m: [1.0, 0.0, 0.0, 1.0, -c[0] / scale, -c[1] / scale],
+        });
+        commands.extend(r.list.commands.iter().cloned());
+        commands.push(Command::PopTransform);
+        let part = PageList {
+            width: c[2] / scale,
+            height: c[3] / scale,
+            commands,
+        };
+        store.update(i, &part, self.doc.fonts(), &r.images, scale)
     }
 
     fn draw(

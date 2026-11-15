@@ -2884,7 +2884,8 @@ impl ReaderWindow {
             p.fill_rect(r[0] - 1.0, r[1] - 1.0, r[2] + 2.0, r[3] + 2.0, PAGE_EDGE);
             p.fill_rect(r[0], r[1], r[2], r[3], WHITE);
             if v.has_image(i) {
-                p.page(t.key_base + i, r[0] as i32, r[1] as i32);
+                let (ox, oy) = v.image_offset(i);
+                p.page(t.key_base + i, (r[0] + ox) as i32, (r[1] + oy) as i32);
             }
             for (hr, cur) in v.hit_rects(i) {
                 p.fill_rect(

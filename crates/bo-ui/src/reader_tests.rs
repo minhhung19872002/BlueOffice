@@ -436,3 +436,20 @@ fn select_move_recolour_and_delete_a_comment() {
     key(&mut w, Key::Delete, false, false);
     assert_eq!(w.view().expect("view").doc().annotations().len(), 0);
 }
+
+#[test]
+fn huge_zoom_draws_only_the_part_in_view() {
+    let mut w = window(1);
+    w.view_mut().expect("view").set_zoom(16.0);
+    let mut s = Store::default();
+    w.prepare(&mut s);
+    let (pw, ph, sc) = s.keys[&0];
+    // 1600 %: the whole page would be about 16 000 px wide; only the view's part is drawn.
+    assert!(
+        pw * sc <= 8192.0 && pw < 612.0 && ph < 792.0,
+        "{pw} x {ph} at {sc}"
+    );
+    w.view_mut().expect("view").scroll_by(0.0, 6000.0);
+    w.prepare(&mut s);
+    assert!(w.view().expect("view").image_offset(0).1 > 0.0);
+}

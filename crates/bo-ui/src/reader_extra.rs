@@ -561,7 +561,8 @@ impl ReaderWindow {
             };
             p.fill_rect(r[0], r[1], r[2], r[3], Rgba(255, 255, 255, 255));
             if t.view.has_image(i) {
-                p.page(t.key_base + i, r[0] as i32, r[1] as i32);
+                let (ox, oy) = t.view.image_offset(i);
+                p.page(t.key_base + i, (r[0] + ox) as i32, (r[1] + oy) as i32);
             }
         }
         let _ = (w, h);

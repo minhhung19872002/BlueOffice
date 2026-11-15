@@ -9155,7 +9155,8 @@
     "groupAuditing": "Kiểm tra công thức",
     "groupForecast": "Dự báo",
     "tabHelp": "Trợ giúp",
-    "groupHelp": "Trợ giúp"
+    "groupHelp": "Trợ giúp",
+    "moreFunctions": "Hàm khác..."
   },
   "sheetFc": {
     "catGeneral": "Chung",

@@ -1590,3 +1590,23 @@ fn insert_shapes_pictures_pivot_charts_and_slicers() {
     let last = wb.sheets.last().expect("sheet");
     assert_eq!((last.pivots.len(), last.charts.len()), (1, 1));
 }
+
+#[test]
+fn name_box_lists_functions_while_a_formula_is_typed() {
+    let mut w = window();
+    assert_eq!(w.name_box_text(), "A1");
+    type_text_in(&mut w, "=round(");
+    assert_eq!(w.name_box_text(), "ROUND");
+    let a = w.name_arrow_rect();
+    press(&mut w, (a[0] + 2.0, a[1] + 2.0), 1);
+    let items = w.menu.as_ref().expect("function list").items().len();
+    assert_eq!(items, fbar_impl::RECENT_FUNCTIONS.len() + 1);
+    w.menu = None;
+    assert!(w.choose(Choice::Command("fnin.SUM".into()), &Fixed));
+    assert_eq!(w.view().formula_text(), "=round(SUM(");
+    assert_eq!(w.name_box_text(), "SUM");
+}
+
+fn type_text_in(w: &mut SheetWindow, s: &str) {
+    w.handle(Input::Text(s.into()), &Fixed);
+}

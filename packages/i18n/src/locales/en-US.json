@@ -9155,7 +9155,8 @@
     "groupAuditing": "Formula auditing",
     "groupForecast": "Forecast",
     "tabHelp": "Help",
-    "groupHelp": "Help"
+    "groupHelp": "Help",
+    "moreFunctions": "More Functions..."
   },
   "sheetFc": {
     "catGeneral": "General",

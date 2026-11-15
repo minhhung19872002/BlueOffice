@@ -1003,6 +1003,11 @@ impl SheetWindow {
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
             Choice::Command(id) => match id.strip_prefix("goto.") {
                 Some(name) => self.go_to(name),
+                None if id.starts_with("fnin.") => {
+                    self.view
+                        .edit_insert(&format!("{}(", &id["fnin.".len()..]), text);
+                    true
+                }
                 None if id.starts_with("filterop.") => self.filter_choice(&id["filterop.".len()..]),
                 None => self.action(&id, text),
             },
@@ -1678,7 +1683,7 @@ impl SheetWindow {
         let line = style.size * 1.33;
         let n = self.name_rect;
         p.text(
-            &self.view.name_box(),
+            &self.name_box_text(),
             n[0] + self.px(5.0),
             (n[1] + (n[3] - line) / 2.0).round(),
             style,

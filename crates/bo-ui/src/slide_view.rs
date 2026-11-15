@@ -106,6 +106,8 @@ struct Show {
     fx_start: Option<f64>,
     /// Slide id and scale of the stored layer images.
     layers: Option<(usize, f32)>,
+    /// Slide id and scale of the stored Morph images.
+    morph: Option<(usize, f32)>,
     /// When the slide was fully shown (automatic advance counts from there).
     arrived: f64,
     /// A preview on the editing canvas (Transitions / Animations tab): `Some(true)` plays
@@ -123,6 +125,7 @@ impl Show {
             trans: None,
             fx_start: None,
             layers: None,
+            morph: None,
             arrived: 0.0,
             preview: None,
         }
@@ -131,6 +134,10 @@ impl Show {
 
 /// Image keys of the show layers of the current slide (one slide's layers at a time).
 const LAYER_KEY: usize = 3 << 40;
+/// Image keys of the layers' pieces (paragraphs, letters), one image per layer.
+const PIECES_KEY: usize = 4 << 40;
+/// Image keys of a running Morph (`slide_show::morph_keys` offsets).
+const MORPH_KEY: usize = 5 << 40;
 
 /// Device-pixel rectangle `[x, y, w, h]`.
 type R = [f32; 4];
@@ -1924,6 +1931,7 @@ impl SlideView {
         scale: f32,
     ) -> Result<(), String> {
         let id = self.ids[i];
+        self.prepare_morph(store, id, scale)?;
         let Some(s) = self.show.as_ref() else {
             return Ok(());
         };
@@ -1939,20 +1947,59 @@ impl SlideView {
         if old.is_some() {
             for k in 0..64 {
                 store.remove(LAYER_KEY + k);
+                store.remove(PIECES_KEY + k);
             }
         }
         for k in 0..count {
-            let page = self
+            let images = self
                 .show
                 .as_ref()
                 .and_then(|s| s.info.as_ref())
-                .map(|info| info.layers[k].page.clone());
-            if let Some(page) = page {
-                store.update_layer(LAYER_KEY + k, &page, &self.engine, scale)?;
+                .map(|info| crate::slide_show::layer_images(info, k));
+            if let Some((base, pieces)) = images {
+                store.update_layer(LAYER_KEY + k, &base, &self.engine, scale)?;
+                match pieces {
+                    Some(list) => store.update_layer(PIECES_KEY + k, &list, &self.engine, scale)?,
+                    None => store.remove(PIECES_KEY + k),
+                }
             }
         }
         if let Some(s) = self.show.as_mut() {
             s.layers = Some((id, scale));
+        }
+        Ok(())
+    }
+
+    /// Store the drawings of a Morph into slide `id` while it plays.
+    fn prepare_morph(
+        &mut self,
+        store: &mut dyn PageStore,
+        id: usize,
+        scale: f32,
+    ) -> Result<(), String> {
+        let Some(s) = self.show.as_ref() else {
+            return Ok(());
+        };
+        let morphing = s.trans.as_ref().is_some_and(|(_, t, _)| t.kind == "morph");
+        let Some(m) = s
+            .info
+            .as_ref()
+            .and_then(|i| i.morph.as_ref())
+            .filter(|_| morphing)
+        else {
+            return Ok(());
+        };
+        if s.morph == Some((id, scale)) {
+            return Ok(());
+        }
+        for (k, list) in crate::slide_show::morph_images(m).into_iter().enumerate() {
+            match list {
+                Some(l) => store.update_layer(MORPH_KEY + k, &l, &self.engine, scale)?,
+                None => store.remove(MORPH_KEY + k),
+            }
+        }
+        if let Some(s) = self.show.as_mut() {
+            s.morph = Some((id, scale));
         }
         Ok(())
     }
@@ -2534,7 +2581,7 @@ impl SlideView {
             layers: if layered {
                 s.info
                     .as_ref()
-                    .map(|info| (info, crate::slide_show::layer_looks(info, s.step, elapsed)))
+                    .map(|info| (info, crate::slide_show::pieces(info, s.step, elapsed)))
             } else {
                 None
             },
@@ -2543,6 +2590,17 @@ impl SlideView {
             return;
         }
         match s.trans.as_ref() {
+            Some((_, t, start))
+                if t.kind == "morph"
+                    && s.morph
+                        .is_some_and(|(id, sc)| id == self.ids[i] && sc == scale) =>
+            {
+                let k = ((now - start) / t.dur_ms).clamp(0.0, 1.0);
+                if let Some(m) = s.info.as_ref().and_then(|i| i.morph.as_ref()) {
+                    let slide = (f64::from(self.slide_size.0), f64::from(self.slide_size.1));
+                    crate::slide_show::paint_morph(p, m, MORPH_KEY, size, r, slide, k, &|_| true);
+                }
+            }
             Some((from, t, start)) => {
                 let k = ((now - start) / t.dur_ms).clamp(0.0, 1.0);
                 let from_img = from
@@ -2572,12 +2630,12 @@ impl SlideView {
 struct ShowImage<'a> {
     key: usize,
     size: (f32, f32),
-    layers: Option<(&'a ShowOut, Vec<crate::slide_show::Look>)>,
+    layers: Option<(&'a ShowOut, Vec<crate::slide_show::Piece>)>,
 }
 
 impl crate::slide_show::SlideImage for ShowImage<'_> {
     fn draw(&self, p: &mut dyn Painter, dest: [f32; 4], part: [f32; 4], opacity: f32) {
-        let Some((info, looks)) = &self.layers else {
+        let Some((info, pieces)) = &self.layers else {
             crate::slide_show::draw_part(p, self.key, self.size, dest, part, opacity);
             return;
         };
@@ -2589,24 +2647,23 @@ impl crate::slide_show::SlideImage for ShowImage<'_> {
         ];
         p.push_clip(clip[0], clip[1], clip[2], clip[3]);
         let slide = (f64::from(info.width), f64::from(info.height));
-        for (k, look) in looks.iter().enumerate() {
-            let rect = info
-                .animations
-                .iter()
-                .find(|a| a.layer == Some(k))
-                .and_then(|a| a.rect);
-            crate::slide_show::paint_layer(
-                p,
-                LAYER_KEY + k,
-                self.size,
-                dest,
-                look,
-                rect,
-                slide,
-                opacity,
-            );
+        for pc in pieces {
+            let key = match pc.image {
+                crate::slide_show::PieceImage::Base(k) => LAYER_KEY + k,
+                crate::slide_show::PieceImage::Pieces(k) => PIECES_KEY + k,
+            };
+            crate::slide_show::paint_piece(p, key, self.size, dest, pc, slide, opacity);
         }
         p.pop_clip();
+    }
+
+    fn draw_turned(&self, p: &mut dyn Painter, dest: [f32; 4], opacity: f32, degrees: f32) {
+        if self.layers.is_some() {
+            self.draw(p, dest, crate::slide_show::WHOLE, opacity);
+            return;
+        }
+        let src = [0.0, 0.0, self.size.0, self.size.1];
+        p.page_part_rotated(self.key, src, dest, opacity, degrees);
     }
 }
 

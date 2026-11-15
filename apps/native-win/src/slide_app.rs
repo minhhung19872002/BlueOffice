@@ -195,6 +195,19 @@ impl Painter for WinPainter<'_, '_> {
             self.frame.draw_page_part(bitmap, src, dest, opacity);
         }
     }
+    fn page_part_rotated(
+        &mut self,
+        index: usize,
+        src: [f32; 4],
+        dest: [f32; 4],
+        opacity: f32,
+        degrees: f32,
+    ) {
+        if let Some(bitmap) = self.bitmaps.get(&index) {
+            self.frame
+                .draw_page_part_rotated(bitmap, src, dest, opacity, degrees);
+        }
+    }
     fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
         self.frame
             .text(text, x, y, ui_size(style.size), style.bold, color);

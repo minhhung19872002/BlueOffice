@@ -676,6 +676,62 @@ impl Frame<'_> {
         }
     }
 
+    /// Draw like [`Frame::draw_page_part`], turned `degrees` clockwise about the centre of
+    /// `dest` (slide show spin effects, Morph).
+    pub fn draw_page_part_rotated(
+        &self,
+        page: &PageBitmap,
+        src: [f32; 4],
+        dest: [f32; 4],
+        opacity: f32,
+        degrees: f32,
+    ) {
+        if degrees.abs() < 0.01 {
+            self.draw_page_part(page, src, dest, opacity);
+            return;
+        }
+        if dest[2] <= 0.0 || dest[3] <= 0.0 || src[2] <= 0.0 || src[3] <= 0.0 {
+            return;
+        }
+        let (cx, cy) = (dest[0] + dest[2] / 2.0, dest[1] + dest[3] / 2.0);
+        let (s, c) = degrees.to_radians().sin_cos();
+        // Row-vector convention: x' = x·M11 + y·M21 + M31, y' = x·M12 + y·M22 + M32.
+        let m = Matrix3x2 {
+            M11: c,
+            M12: s,
+            M21: -s,
+            M22: c,
+            M31: cx - c * cx + s * cy,
+            M32: cy - s * cx - c * cy,
+        };
+        let d = D2D_RECT_F {
+            left: dest[0],
+            top: dest[1],
+            right: dest[0] + dest[2],
+            bottom: dest[1] + dest[3],
+        };
+        let sr = D2D_RECT_F {
+            left: src[0],
+            top: src[1],
+            right: src[0] + src[2],
+            bottom: src[1] + src[3],
+        };
+        // SAFETY: the bitmap belongs to the same device; drawing happens inside the frame, and
+        // the transform is put back to identity (what every other draw of the frame expects).
+        unsafe {
+            self.device.context.SetTransform(&m);
+            self.device.context.DrawBitmap(
+                &page.bitmap,
+                Some(&d),
+                opacity.clamp(0.0, 1.0),
+                D2D1_INTERPOLATION_MODE_LINEAR,
+                Some(&sr),
+                None,
+            );
+            self.device.context.SetTransform(&IDENTITY);
+        }
+    }
+
     /// Draw a page bitmap 1:1 with its top-left corner at device pixel (`x`, `y`).
     pub fn draw_page(&self, page: &PageBitmap, x: i32, y: i32) {
         let dest = D2D_RECT_F {

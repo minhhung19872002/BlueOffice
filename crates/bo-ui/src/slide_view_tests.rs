@@ -391,3 +391,174 @@ fn show_builds_entrance_effects_click_by_click() {
     assert_eq!(v.show.as_ref().map(|s| s.step), Some(0));
     assert!(!v.animating());
 }
+
+/// The view with every shape of slide 1 given `spec`, showing from slide 1.
+fn show_with(spec: bo_engine::slide_edit::show::AnimSpec) -> (SlideView, ShowOut) {
+    let mut v = open("slide-text-bullets.pptx");
+    v.run(SlideCommand::SelectAll);
+    assert!(v.run(SlideCommand::AddAnimation { spec }));
+    v.set_window(1600.0, 900.0);
+    v.set_clock(0.0);
+    v.start_show(0);
+    v.set_clock(100_000.0);
+    let info = v
+        .show
+        .as_ref()
+        .and_then(|s| s.info.clone())
+        .expect("show info");
+    (v, info)
+}
+
+fn spec(effect: &str, class: &str) -> bo_engine::slide_edit::show::AnimSpec {
+    bo_engine::slide_edit::show::AnimSpec {
+        effect: Some(effect.into()),
+        class: Some(class.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn show_spins_and_uncovers_with_filters() {
+    use crate::slide_show::{effect_look, Look};
+    let (_, info) = show_with(spec("spin", "emph"));
+    let a = info.animations.first().expect("spin").clone();
+    let slide = (f64::from(info.width), f64::from(info.height));
+    let mid = f64::from(a.dur_ms) / 2.0;
+    let shown = crate::slide_show::layer_looks(&info, 0, 0.0)[0];
+    let look = effect_look(&a, mid, shown, slide, None);
+    assert!(look.rot.abs() > 10.0, "{look:?}");
+    let (mut v, info) = show_with(spec("blinds", "entr"));
+    let a = info.animations.first().expect("blinds").clone();
+    let mid = f64::from(a.dur_ms) / 2.0;
+    let hidden = Look {
+        visible: false,
+        ..shown
+    };
+    let look = effect_look(&a, mid, hidden, slide, None);
+    let (rev, q) = look.reveal.expect("a reveal pattern");
+    assert_eq!(rev, crate::slide_reveal::Reveal::Blinds { vert: false });
+    assert!(q > 0.2 && q < 0.8, "{q}");
+    // Mid way the layer is drawn as six bands.
+    v.handle(Input::Key(Key::Right, Mods::default()));
+    let rec = show_frame(&mut v, 100_000.0 + f64::from(a.start_ms) + mid);
+    let bands = rec
+        .parts
+        .iter()
+        .filter(|(k, _, _)| *k >= LAYER_KEY && *k < LAYER_KEY + 64)
+        .count();
+    assert!(bands >= 6, "{:?}", rec.parts);
+}
+
+#[test]
+fn show_builds_text_letter_by_letter() {
+    use crate::slide_show::{layer_images, layer_mode, pieces, LayerMode, PieceImage};
+    let (_, info) = show_with(bo_engine::slide_edit::show::AnimSpec {
+        text_by: Some("letter".into()),
+        ..spec("fade", "entr")
+    });
+    let li = (0..info.layers.len())
+        .find(|li| layer_mode(&info, *li) == LayerMode::Text)
+        .expect("a layer cut into letters");
+    let a = info
+        .animations
+        .iter()
+        .find(|a| a.layer == Some(li))
+        .expect("effect")
+        .clone();
+    let mid = f64::midpoint(f64::from(a.start_ms), f64::from(a.end_ms));
+    let pcs: Vec<_> = pieces(&info, a.click, mid)
+        .into_iter()
+        .filter(|p| p.image == PieceImage::Pieces(li))
+        .collect();
+    assert!(pcs.len() > 3);
+    // Half way: the first letters are in, the last ones not yet.
+    assert!(pcs.first().is_some_and(|p| p.look.visible));
+    assert!(pcs
+        .last()
+        .is_some_and(|p| !p.look.visible || p.look.opacity < 0.5));
+    let (_, letters) = layer_images(&info, li);
+    assert!(letters.is_some_and(|l| !l.commands.is_empty()));
+}
+
+#[test]
+fn show_builds_paragraph_by_paragraph() {
+    use crate::slide_show::{layer_mode, pieces, LayerMode, PieceImage};
+    // A deck whose effects build shapes element by element (paragraphs, chart, SmartArt).
+    let mut v = open("slide-edit-anim-build-elements.pptx");
+    let found = (0..v.slide_count()).find_map(|i| {
+        let info = v
+            .engine
+            .slide_command(SlideCommand::Show { slide: i })
+            .ok()
+            .and_then(|r| r.show)?;
+        let li = (0..info.layers.len()).find(|li| layer_mode(&info, *li) == LayerMode::Parts)?;
+        Some((info, li))
+    });
+    let (info, li) = found.expect("a layer built by parts");
+    let shown = |step| {
+        pieces(&info, step, f64::INFINITY)
+            .into_iter()
+            .filter(|p| p.image == PieceImage::Pieces(li))
+            .map(|p| p.look.visible)
+            .collect::<Vec<_>>()
+    };
+    let first_click = info
+        .animations
+        .iter()
+        .filter(|a| a.layer == Some(li))
+        .map(|a| a.click)
+        .min()
+        .unwrap_or(0);
+    let before = shown(first_click.saturating_sub(1));
+    let after = shown(first_click);
+    // Pieces come in click by click: some are still hidden before the first click, more
+    // show after it, and not all of them at once.
+    let count = |v: &[bool]| v.iter().filter(|s| **s).count();
+    assert!(before.len() > 1, "{before:?}");
+    assert!(count(&before) < before.len(), "{before:?}");
+    assert!(count(&after) > count(&before), "{before:?} {after:?}");
+    let all = shown(info.clicks);
+    assert_eq!(count(&all), all.len(), "{all:?}");
+}
+
+#[test]
+fn show_morphs_matched_shapes() {
+    let mut v = open("slide-text-bullets.pptx");
+    assert!(v.run(SlideCommand::DuplicateSlide { index: Some(0) }));
+    v.go_to(1);
+    v.run(SlideCommand::SelectAll);
+    v.run(SlideCommand::Transform {
+        transform: bo_engine::slide_edit::Transform::Move { dx: 80.0, dy: 40.0 },
+        snap: false,
+        tolerance: 0.0,
+        preview: false,
+    });
+    assert!(v.run(SlideCommand::SetTransition {
+        slides: None,
+        all: false,
+        transition: bo_engine::slide_edit::show::TransitionSpec {
+            kind: "morph".into(),
+            dur_ms: Some(2000),
+            ..Default::default()
+        },
+    }));
+    v.set_window(1600.0, 900.0);
+    v.set_clock(0.0);
+    v.start_show(0);
+    v.set_clock(10_000.0);
+    v.handle(Input::Key(Key::Right, Mods::default()));
+    let m = v
+        .show
+        .as_ref()
+        .and_then(|s| s.info.as_ref())
+        .and_then(|i| i.morph.clone())
+        .expect("morph data");
+    assert_ne!(m.pairs.len(), 0);
+    let rec = show_frame(&mut v, 11_000.0);
+    let morph: Vec<_> = rec
+        .parts
+        .iter()
+        .filter(|(k, _, _)| *k >= MORPH_KEY && *k < MORPH_KEY + 8)
+        .collect();
+    assert!(!morph.is_empty(), "{:?}", rec.parts);
+}

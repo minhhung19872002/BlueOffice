@@ -33,6 +33,9 @@ mod view4;
 // Form and Protect tabs, Eraser, Area Highlight, Custom Stamp, comment list order (round 4).
 #[path = "reader_tabs4_win.rs"]
 mod tabs4;
+// Row buttons (small icon, label on the right, three to a column; BlueEditor round 4).
+#[path = "editor_rows_win.rs"]
+mod rows;
 
 /// Measured greys of the reference reader at 125 %.
 const CHROME: Rgba = Rgba(251, 251, 253, 255);
@@ -319,6 +322,8 @@ pub(crate) enum Kind {
     Big(&'static str, &'static str, bool),
     /// Small icon button.
     Small(&'static str),
+    /// Small icon with its label on the right, three to a column: icon, label key, arrow.
+    Row(&'static str, &'static str, bool),
     /// Navigation column icon.
     Nav(Panel),
     /// Window button.
@@ -1035,8 +1040,13 @@ impl ReaderWindow {
         let label_style = self.style(self.look.label, false);
         let mut x = self.px(11.2);
         let mut small_col = 0_usize;
+        let mut rows = rows::Rows::default();
         for (id, kind) in self.ribbon_items() {
+            if !matches!(kind, Kind::Row(..)) {
+                x = self.rows_flush(&mut rows, x);
+            }
             match kind {
+                Kind::Row(..) => x = self.row_layout(&mut rows, id, kind, x, by, m),
                 Kind::Big(_, label, dropdown) => {
                     if small_col > 0 {
                         // Past the columns of the small-button grid.
@@ -1047,19 +1057,21 @@ impl ReaderWindow {
                     let text = self.t(label);
                     let words: Vec<&str> = text.split(' ').collect();
                     // Two-line labels wrap at the last space.
-                    let lw = if words.len() > 1 && (text.len() > 9 || self.look.wrap_words) {
+                    let two = words.len() > 1 && (text.len() > 9 || self.look.wrap_words);
+                    // The drop-down arrow follows the second line: it widens the button only
+                    // when that line with the arrow is the longer one.
+                    let arrow = if dropdown && two {
+                        self.px(self.look.arrow_w)
+                    } else {
+                        0.0
+                    };
+                    let lw = if two {
                         let (a, b) = text.rsplit_once(' ').unwrap_or((&text, ""));
                         let wa = self.measure(m, a, label_style);
                         let wb = self.measure(m, b, label_style);
-                        wa.max(wb)
+                        wa.max(wb + arrow)
                     } else {
                         self.measure(m, &text, label_style)
-                    };
-                    let two = words.len() > 1 && (text.len() > 9 || self.look.wrap_words);
-                    let lw = if dropdown && two {
-                        lw + self.px(self.look.arrow_w)
-                    } else {
-                        lw
                     };
                     let pad = if two {
                         self.look.big_pad
@@ -1107,6 +1119,7 @@ impl ReaderWindow {
                 _ => {}
             }
         }
+        self.rows_flush(&mut rows, x);
         // Navigation column and status bar.
         let top = self.ribbon_bottom() + 1.0 + self.doc_tabs_h();
         let sh = self.status_h();
@@ -2619,6 +2632,7 @@ impl ReaderWindow {
                     win_glyph(p, k, r, self.scale, self.maximized, col);
                 }
                 Kind::Sep => p.fill_rect(r[0], r[1], 1.0, r[3], self.look.edge),
+                Kind::Row(..) => self.paint_row(p, &c, ink, on, hot, down),
             }
         }
         let rb = self.ribbon_bottom();

@@ -28,6 +28,10 @@ mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;
 mod editor_icons;
+mod editor_more;
+mod editor_more2;
+#[cfg(test)]
+mod editor_more_tests;
 mod editor_organize;
 mod editor_sign;
 #[cfg(test)]

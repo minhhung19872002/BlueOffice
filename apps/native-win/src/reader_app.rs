@@ -561,6 +561,26 @@ impl Shell {
                     }
                 }
                 ReaderRequest::Window(w) => self.pending.push(w),
+                // BlueEditor's From Clipboard: the bitmap on the clipboard.
+                ReaderRequest::Command(c) if c == "host.clipboardImage" => {
+                    let dib = clip::get_dib().unwrap_or_default();
+                    self.window.file_picked(
+                        "clipboardImage",
+                        std::path::Path::new("clipboard.bmp"),
+                        &dib,
+                    );
+                }
+                // BlueEditor's Ctrl+V while typing: plain text from the clipboard.
+                ReaderRequest::Command(c) if c == "host.pasteText" => {
+                    let (_, _, text) = win32::read_clipboard();
+                    if let Some(t) = text {
+                        self.window.file_picked(
+                            "pasteText",
+                            std::path::Path::new("clipboard.txt"),
+                            t.as_bytes(),
+                        );
+                    }
+                }
                 ReaderRequest::Command(_) => {}
                 ReaderRequest::PickFile { purpose, filters } => {
                     let f: Vec<(&str, &str)> = filters

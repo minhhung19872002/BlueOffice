@@ -8249,7 +8249,21 @@
     "objFlipDown": "Flip vertical",
     "objSelectAll": "Select All",
     "objDelete": "Delete",
-    "pagesCopied": "page(s) copied"
+    "pagesCopied": "page(s) copied",
+    "tplPage": "page",
+    "templateName": "New template name",
+    "templateAdd": "Add",
+    "templateSpawn": "Spawn",
+    "templateDelete": "Delete",
+    "noEmbeddedFiles": "This document has no embedded files.",
+    "portfolioOpen": "Open",
+    "portfolioExtract": "Extract",
+    "batchEncrypt": "Batch Encrypt",
+    "batchRun": "Encrypt",
+    "batchAdd": "Add Files...",
+    "batchNeedsPassword": "Type a password first.",
+    "batchFailed": "Not encrypted (already protected?)",
+    "batchDone": "file(s) encrypted"
   },
   "taskPane": {
     "dockLeft": "Dock left",

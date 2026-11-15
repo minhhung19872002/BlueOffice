@@ -191,3 +191,31 @@ tài liệu lấy lại cả phiên.
 Còn lại: Page Transitions, OCR, From Web Page, PDF Portfolio, Preflight, Accounting Calculator, XFA, Page
 Templates (xám); lưới nút nhỏ tab Comment hẹp hơn bản đối chiếu ~23 px; nhãn "Text Box" hai dòng (bản đối chiếu
 "Textbox"); undo trong phiên của bản đối chiếu chưa đo được bằng input gửi qua PostMessage.
+
+## Vòng 5 (2026-11-16)
+
+Gộp BlueReader vòng 6 (bộ đọc đối tượng lười `store::Document`): mọi đường ghi của BlueEditor (sửa chữ / đối
+tượng, lưu toàn bộ / nối thêm, mã hoá, tối ưu, sắp trang, mẫu trang) đi qua `DerefMut` như trước — 113 test
+`bo-pdfread` và các test editor của `bo-ui` xanh sau khi gộp.
+
+**Edit Object** (`editor_arrange.rs`, lõi `bo-pdfread::arrange`): kéo bám vào mép / giữa trang và mép / giữa đối
+tượng khác trong 6 px màn hình, vẽ đường dẫn hồng; Shift giữ hướng ngang / dọc (chỉ trục tự do còn bám), Shift ở
+góc giữ tỉ lệ; ←↑→↓ dời 1 pt, Shift 10 pt, đối tượng vẫn được chọn; Ctrl+kéo chép (bản gốc giữ nguyên, bản chép được
+chọn: ảnh / path / form chép ngay sau bản gốc trong cùng trạng thái đồ hoạ, chữ chép với đủ trạng thái chữ); kéo
+khung trên chỗ trống chọn mọi đối tượng chạm khung (Shift thêm vào); Ctrl+A chọn cả trang; khung Format khi Edit
+Object hiện mục **Arrange** như bản đối chiếu: Page Center (dọc, ngang, cả hai), Alignment (trái, giữa, phải,
+trên, giữa, dưới — cần ≥ 2 đối tượng), Distribute (ngang, dọc — cần ≥ 3), thêm Rotate & Flip (xoay ±90°, lật
+ngang / dọc quanh tâm vùng chọn); chuột phải mở menu cùng các lệnh. Mỗi lần kéo / dời / sắp xếp là một bước hoàn
+tác (`transform_each` ghi mọi đối tượng một lượt).
+
+**Organize**: Ctrl+bấm thêm / bớt một trang; thanh trượt cỡ hình thu nhỏ ở góc dưới phải lưới (50–250 %) và
+Ctrl+lăn chuột; Ctrl+C / Ctrl+X / Ctrl+V chép, cắt, dán trang (dán sau trang chọn, sang được tài liệu khác đang
+mở); kéo trang thả lên tab của tài liệu khác chép trang sang cuối tài liệu đó. Kéo đổi thứ tự với vạch chèn, mũi
+tên / Shift / Home / End / Delete đã có từ vòng 1.
+
+**Lệnh xám đã làm**: Form › Page Templates (đặt tên trang hiện tại làm mẫu `/Names /Pages`, tạo trang từ mẫu ngay
+sau trang hiện tại — một bước hoàn tác, xoá mẫu; mẫu giữ qua lưu), Convert › PDF Portfolio (danh sách tệp nhúng
+`/EmbeddedFiles` có cỡ và mô tả, chỉ đọc: Open mở PDF thành tab, tệp khác lưu ra; Extract lưu các tệp chọn),
+Protect › Secure › Batch Encrypt (chọn các tài liệu đang mở và thêm tệp, một mật khẩu mở / quyền, AES-256 hoặc
+128, lưu bản `-protected.pdf` cạnh nhau; tệp đã có mật khẩu bị bỏ qua và báo tên). Accounting Calculator,
+Preflight, Sensitivity không làm (theo yêu cầu); OCR vẫn xám.

@@ -54,6 +54,7 @@ mod sanitize;
 mod sfnt;
 mod sigappear;
 mod store;
+mod templates;
 mod text;
 mod type1;
 mod viewer;
@@ -83,6 +84,7 @@ pub use pages_edit::{LabelRange, LabelStyle};
 pub use paragraph::{text_blocks, Align, BlockEdit, RunStyle, StyleChange, TextBlock};
 pub use sanitize::{ButtonAction, HiddenCounts, HiddenData};
 pub use sigappear::{signature_appearance, SignatureLook};
+pub use templates::EmbeddedFile;
 pub use text::TextLayer;
 pub use viewer::{DocInfo, FontInfo};
 
@@ -1141,6 +1143,8 @@ fn hidden_groups(doc: &Document) -> HashSet<ObjectId> {
 }
 
 #[cfg(test)]
+mod arrange_tests;
+#[cfg(test)]
 mod color_tests;
 #[cfg(test)]
 mod edit_tests;
@@ -1151,6 +1155,6 @@ mod objects_tests;
 #[cfg(test)]
 mod paragraph_tests;
 #[cfg(test)]
-mod tests;
+mod templates_tests;
 #[cfg(test)]
-mod arrange_tests;
+mod tests;

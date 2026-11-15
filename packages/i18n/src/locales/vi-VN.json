@@ -8249,7 +8249,21 @@
     "objFlipDown": "Lật dọc",
     "objSelectAll": "Chọn tất cả",
     "objDelete": "Xoá",
-    "pagesCopied": "trang đã sao chép"
+    "pagesCopied": "trang đã sao chép",
+    "tplPage": "trang",
+    "templateName": "Tên mẫu mới",
+    "templateAdd": "Thêm",
+    "templateSpawn": "Tạo trang",
+    "templateDelete": "Xoá",
+    "noEmbeddedFiles": "Tài liệu không có tệp nhúng.",
+    "portfolioOpen": "Mở",
+    "portfolioExtract": "Trích xuất",
+    "batchEncrypt": "Mã hoá hàng loạt",
+    "batchRun": "Mã hoá",
+    "batchAdd": "Thêm tệp...",
+    "batchNeedsPassword": "Hãy nhập mật khẩu trước.",
+    "batchFailed": "Không mã hoá được (đã có mật khẩu?)",
+    "batchDone": "tệp đã mã hoá"
   },
   "taskPane": {
     "dockLeft": "Gắn bên trái",

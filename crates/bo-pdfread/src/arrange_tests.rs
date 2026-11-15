@@ -50,7 +50,10 @@ fn copies_keep_the_original_and_undo_as_one_step() {
         let b = kinds(&mut doc, k);
         assert_eq!(b.len(), 2, "{k:?}: {b:?}");
         let (a, c) = (b[0], b[1]);
-        assert!(near(c[0], a[0] + 30.0) && near(c[1], a[1] - 10.0), "{k:?}: {b:?}");
+        assert!(
+            near(c[0], a[0] + 30.0) && near(c[1], a[1] - 10.0),
+            "{k:?}: {b:?}"
+        );
     }
     // The copied text is readable text.
     let p = doc.render(0, RenderOptions::default()).expect("renders");
@@ -69,13 +72,13 @@ fn rotation_and_flip_matrices_turn_about_the_centre() {
         .position(|o| o.kind == ObjectKind::Image)
         .expect("image");
     let b = objs[i].bbox;
-    let (cx, cy) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
+    let (cx, cy) = (f32::midpoint(b[0], b[2]), f32::midpoint(b[1], b[3]));
     doc.transform_objects(0, &[i], rotation_about(1, cx, cy))
         .expect("rotates");
     let r = kinds(&mut doc, ObjectKind::Image)[0];
     // 50 × 30 becomes 30 × 50 about the same centre.
     assert!(near(r[2] - r[0], 30.0) && near(r[3] - r[1], 50.0), "{r:?}");
-    assert!(near((r[0] + r[2]) / 2.0, cx) && near((r[1] + r[3]) / 2.0, cy));
+    assert!(near(f32::midpoint(r[0], r[2]), cx) && near(f32::midpoint(r[1], r[3]), cy));
     // Four quarter turns are the identity; flips keep the box.
     let m = rotation_about(4, 10.0, 20.0);
     assert!(near(m[0], 1.0) && near(m[3], 1.0) && near(m[4], 0.0) && near(m[5], 0.0));
@@ -85,10 +88,13 @@ fn rotation_and_flip_matrices_turn_about_the_centre() {
         .position(|o| o.kind == ObjectKind::Path)
         .expect("path");
     let pb = objs[p].bbox;
-    doc.transform_objects(0, &[p], flip_about(true, (pb[0] + pb[2]) / 2.0, 0.0))
+    doc.transform_objects(0, &[p], flip_about(true, f32::midpoint(pb[0], pb[2]), 0.0))
         .expect("flips");
     let f = kinds(&mut doc, ObjectKind::Path)[0];
-    assert!(near(f[0], pb[0]) && near(f[2], pb[2]) && near(f[1], pb[1]), "{f:?} {pb:?}");
+    assert!(
+        near(f[0], pb[0]) && near(f[2], pb[2]) && near(f[1], pb[1]),
+        "{f:?} {pb:?}"
+    );
 }
 
 #[test]
@@ -96,7 +102,11 @@ fn each_object_moves_by_its_own_matrix_in_one_step() {
     let mut doc = PdfDocument::open(pdf(), standard_fonts()).expect("opens");
     let objs = doc.page_objects(0).expect("objects");
     let at = |k: ObjectKind| objs.iter().position(|o| o.kind == k).expect("object");
-    let (t, p, i) = (at(ObjectKind::Text), at(ObjectKind::Path), at(ObjectKind::Image));
+    let (t, p, i) = (
+        at(ObjectKind::Text),
+        at(ObjectKind::Path),
+        at(ObjectKind::Image),
+    );
     let (tb, pb, ib) = (objs[t].bbox, objs[p].bbox, objs[i].bbox);
     doc.transform_each(
         0,

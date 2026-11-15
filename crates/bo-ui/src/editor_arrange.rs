@@ -16,20 +16,35 @@ pub(crate) fn union_box(boxes: &[[f32; 4]]) -> Option<[f32; 4]> {
     let mut it = boxes.iter();
     let first = *it.next()?;
     Some(it.fold(first, |a, b| {
-        [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+        [
+            a[0].min(b[0]),
+            a[1].min(b[1]),
+            a[2].max(b[2]),
+            a[3].max(b[3]),
+        ]
     }))
 }
 
 /// Box of `b` transformed by `m` (page points, row vectors).
 pub(crate) fn transform_box(b: [f32; 4], m: [f32; 6]) -> [f32; 4] {
     let pts = [(b[0], b[1]), (b[2], b[1]), (b[0], b[3]), (b[2], b[3])];
-    let mut r = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+    let mut r = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
     for (x, y) in pts {
         let (u, v) = (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]);
         r = [r[0].min(u), r[1].min(v), r[2].max(u), r[3].max(v)];
     }
     r
 }
+
+/// Span of a guide across the other axis (`None`: the whole page).
+type Span = Option<(f32, f32)>;
+/// A snapping target: position and its guide's span.
+type Target = (f32, Span);
 
 /// Snap a moved box: its left / centre / right to the page's edges and centre or another
 /// box's, the same for top / middle / bottom, within `tol` points. Returns the extra move
@@ -54,8 +69,8 @@ pub(crate) fn snap_move(
             ys.push((y, Some((o[0], o[2]))));
         }
     }
-    let best = |srcs: [f32; 3], targets: &[(f32, Option<(f32, f32)>)]| {
-        let mut best: Option<(f32, f32, Option<(f32, f32)>)> = None;
+    let best = |srcs: [f32; 3], targets: &[Target]| {
+        let mut best: Option<(f32, f32, Span)> = None;
         for s in srcs {
             for &(t, span) in targets {
                 let d = t - s;
@@ -89,7 +104,10 @@ pub(crate) fn snap_move(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Arrange {
     /// Centre the selection on the page across, down or both.
-    PageCenter { across: bool, down: bool },
+    PageCenter {
+        across: bool,
+        down: bool,
+    },
     AlignLeft,
     AlignCenter,
     AlignRight,
@@ -181,11 +199,8 @@ fn moves_for(a: Arrange, boxes: &[[f32; 4]], page: (f32, f32)) -> Option<Vec<[f3
         }
         Arrange::DistributeAcross | Arrange::DistributeDown => {
             let across = a == Arrange::DistributeAcross;
-            let (lo, hi, size) = if across {
-                (u[0], u[2], |b: &[f32; 4]| b[2] - b[0])
-            } else {
-                (u[1], u[3], |b: &[f32; 4]| b[3] - b[1])
-            };
+            let (lo, hi) = if across { (u[0], u[2]) } else { (u[1], u[3]) };
+            let size = |b: &[f32; 4]| if across { b[2] - b[0] } else { b[3] - b[1] };
             let mut order: Vec<usize> = (0..boxes.len()).collect();
             let key = |b: &[f32; 4]| if across { b[0] } else { b[1] };
             order.sort_by(|&i, &j| key(&boxes[i]).total_cmp(&key(&boxes[j])));
@@ -301,9 +316,12 @@ impl Editing {
     }
 }
 
-/// Pane rows of the Arrange section: (sub-heading, buttons of command and icon, x step in
-/// logical pixels, selected objects needed).
-pub(crate) const ARRANGE_ROWS: [(&str, &[(&str, &str)], f32); 4] = [
+/// A pane row of the Arrange section: sub-heading, buttons (command, icon), x step in logical
+/// pixels.
+pub(crate) type ArrangeRow = (&'static str, &'static [(&'static str, &'static str)], f32);
+
+/// Pane rows of the Arrange section.
+pub(crate) const ARRANGE_ROWS: [ArrangeRow; 4] = [
     (
         "pdfEditor.pageCenter",
         &[
@@ -456,7 +474,13 @@ impl EditorWindow {
             Some(MUTED),
             None,
         );
-        p.text(&self.t("pdfEditor.arrange"), x0 + px(27.0), ty, style(17.0), TEXT);
+        p.text(
+            &self.t("pdfEditor.arrange"),
+            x0 + px(27.0),
+            ty,
+            style(17.0),
+            TEXT,
+        );
         // Rows as the reference's (125 %: heading +26, buttons +71, next heading +119 …).
         let mut y = ty + px(21.0);
         for (i, (label, buttons, step)) in ARRANGE_ROWS.iter().enumerate() {
@@ -512,13 +536,11 @@ mod tests {
         assert_eq!(g[0][0], 100.0);
         assert!(g[0][1] <= 100.0 && g[0][3] >= 320.0);
         // The page centre: a box centred 2 pt off snaps across and down to both centres.
-        let (dx, dy, g) = snap_move(
-            Some([252.0, 380.0, 352.0, 424.0]),
-            &[],
-            (600.0, 800.0),
-            5.0,
+        let (dx, dy, g) = snap_move(Some([252.0, 380.0, 352.0, 424.0]), &[], (600.0, 800.0), 5.0);
+        assert!(
+            (dx + 2.0).abs() < 1e-4 && (dy + 2.0).abs() < 1e-4,
+            "{dx} {dy}"
         );
-        assert!((dx + 2.0).abs() < 1e-4 && (dy + 2.0).abs() < 1e-4, "{dx} {dy}");
         assert_eq!(g.len(), 2);
         // Out of reach: no snap.
         let (dx, dy, g) = snap_move(Some([20.0, 20.0, 40.0, 40.0]), &[], (600.0, 800.0), 5.0);
@@ -552,6 +574,9 @@ mod tests {
         )
         .expect("moves");
         assert_eq!(m[0][4], 280.0);
-        assert_eq!(transform_box([0.0, 0.0, 10.0, 20.0], rotation_about(1, 5.0, 10.0)), [-5.0, 5.0, 15.0, 15.0]);
+        assert_eq!(
+            transform_box([0.0, 0.0, 10.0, 20.0], rotation_about(1, 5.0, 10.0)),
+            [-5.0, 5.0, 15.0, 15.0]
+        );
     }
 }

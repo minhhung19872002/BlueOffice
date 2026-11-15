@@ -522,6 +522,8 @@ pub struct EditorWindow {
     pub(crate) prefs: Prefs,
     /// Pages copied or cut in the page grid (a PDF of them), for Ctrl+V in any open document.
     pub(crate) page_clip: Option<Vec<u8>>,
+    /// Batch Encrypt files and passwords (`editor_five`).
+    pub(crate) five: crate::editor_five::FiveState,
 }
 
 /// Preferences (File › Preferences): comment author, zoom and page display of opened
@@ -581,6 +583,7 @@ impl EditorWindow {
             bs: crate::editor_backstage::Backstage::default(),
             prefs: Prefs::default(),
             page_clip: None,
+            five: crate::editor_five::FiveState::default(),
         }
     }
 
@@ -1025,6 +1028,7 @@ impl EditorWindow {
             || self.more_command(cmd)
             || self.more2_command(cmd)
             || self.arrange_command(cmd)
+            || self.five_command(cmd)
         {
             return;
         }
@@ -1297,6 +1301,8 @@ impl EditorWindow {
             if let Some((d, what)) = self.dialog2.take() {
                 if let crate::editor_actions::Ask2::Tools(t) = what {
                     self.tools_answer(t, b, &d.values());
+                } else if let crate::editor_actions::Ask2::Five(t) = what {
+                    self.five_answer(t, b, &d.values());
                 } else if b == DialogButton::Ok {
                     self.answer2(what, &d.values());
                 }
@@ -1427,7 +1433,10 @@ impl EditorWindow {
             self.certificate_picked(bytes);
             return;
         }
-        if self.more_file_picked(purpose, bytes) || self.more2_file_picked(purpose, &name, bytes) {
+        if self.five_file_picked(purpose, &name, bytes)
+            || self.more_file_picked(purpose, bytes)
+            || self.more2_file_picked(purpose, &name, bytes)
+        {
             return;
         }
         if self.tools_file_picked(purpose, &name, bytes) {
@@ -1713,10 +1722,11 @@ impl EditorWindow {
                 self.org.drag_to(x, y);
                 true
             }
-            Input::Release { x, y } if self.org.dragging() && self.org.drag_moved() && {
-                let t = self.r.doc_tab_at(x, y);
-                t.is_some() && t != Some(self.r.active_tab())
-            } =>
+            Input::Release { x, y }
+                if self.org.dragging() && self.org.drag_moved() && {
+                    let t = self.r.doc_tab_at(x, y);
+                    t.is_some() && t != Some(self.r.active_tab())
+                } =>
             {
                 // Dropped on another document's tab: copy the pages to its end.
                 self.org.cancel_drag();

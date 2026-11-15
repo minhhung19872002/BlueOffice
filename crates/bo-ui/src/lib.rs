@@ -29,6 +29,9 @@ mod editor_design;
 #[cfg(test)]
 mod editor_design_tests;
 mod editor_edit;
+mod editor_five;
+#[cfg(test)]
+mod editor_five_tests;
 mod editor_format;
 #[cfg(test)]
 mod editor_format_tests;

@@ -1,5 +1,6 @@
 //! Edit Object behaviour: nudging, Shift-constrained and snapped moves, Ctrl+drag copies,
 //! marquee selection, the Arrange section and their undo steps.
+#![allow(clippy::manual_midpoint)]
 use crate::editor_tests::{key, texts, window, Fixed, Rec};
 use crate::editor_window::EditorWindow;
 use crate::{Input, Key, Mods};
@@ -130,9 +131,9 @@ fn a_move_snaps_to_the_page_centre_with_a_guide() {
     let (x1, y1) = to_window(&w, a.0 + dx, a.1);
     press(&mut w, x0, y0);
     w.handle(Input::Drag { x: x1, y: y1 }, &Fixed);
-    assert!(!w.edit.guides.is_empty());
+    assert_ne!(w.edit.guides.len(), 0);
     w.handle(Input::Release { x: x1, y: y1 }, &Fixed);
-    assert!(w.edit.guides.is_empty());
+    assert_eq!(w.edit.guides.len(), 0);
     let n = lines(&mut w)[0];
     assert!(((n[0] + n[2]) / 2.0 - 306.0).abs() < 0.2, "{n:?}");
 }
@@ -163,7 +164,7 @@ fn marquee_selects_and_arrange_centres_on_the_page() {
     assert!(((n[1] + n[3]) / 2.0 - 396.0).abs() < 0.2, "{n:?}");
     w.run("obj.rotateRight", &Fixed);
     let r = lines(&mut w);
-    assert!(!r.is_empty());
+    assert_ne!(r.len(), 0);
     key(&mut w, Key::Letter('z'), true, false);
     key(&mut w, Key::Letter('z'), true, false);
     assert!((lines(&mut w)[0][0] - b[0]).abs() < 0.1);

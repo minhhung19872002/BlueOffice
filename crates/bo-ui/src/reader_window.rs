@@ -3665,9 +3665,4 @@ impl ReaderWindow {
     pub(crate) fn tab_view_mut(&mut self, i: usize) -> Option<&mut ReaderView> {
         self.tabs.get_mut(i).map(|t| &mut t.view)
     }
-
-    /// Name of document tab `i`.
-    pub(crate) fn tab_name(&self, i: usize) -> Option<&str> {
-        self.tabs.get(i).map(|t| t.name.as_str())
-    }
 }

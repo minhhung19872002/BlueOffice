@@ -259,6 +259,25 @@ impl PdfDocument {
         }
     }
 
+    /// Join the newest `n` undo steps into one (an action made of several edits).
+    pub fn merge_last_steps(&mut self, n: usize) {
+        if n < 2 || self.edit.undo.len() < n {
+            return;
+        }
+        let tail = self.edit.undo.split_off(self.edit.undo.len() - n);
+        let mut it = tail.into_iter();
+        let Some(mut first) = it.next() else { return };
+        for s in it {
+            for (id, prev) in s.before {
+                if first.seen.insert(id) {
+                    first.before.push((id, prev));
+                }
+            }
+            first.structural |= s.structural;
+        }
+        self.edit.undo.push(first);
+    }
+
     /// Whether an edit can be undone.
     pub fn can_undo(&self) -> bool {
         !self.edit.undo.is_empty()

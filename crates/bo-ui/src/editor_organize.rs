@@ -82,7 +82,13 @@ impl Organize {
     pub fn slider_press(&mut self, x: f32, y: f32) -> bool {
         let s = self.slider;
         let pad = self.px(6.0);
-        if s[2] <= 0.0 || !inside([s[0] - pad, s[1] - pad, s[2] + 2.0 * pad, s[3] + 2.0 * pad], x, y) {
+        if s[2] <= 0.0
+            || !inside(
+                [s[0] - pad, s[1] - pad, s[2] + 2.0 * pad, s[3] + 2.0 * pad],
+                x,
+                y,
+            )
+        {
             return false;
         }
         self.sliding = true;
@@ -241,8 +247,8 @@ impl Organize {
             }
             return None;
         };
-        let collapse = (!shift && !ctrl && self.selected.len() > 1 && self.selected.contains(&i))
-            .then_some(i);
+        let collapse =
+            (!shift && !ctrl && self.selected.len() > 1 && self.selected.contains(&i)).then_some(i);
         if ctrl && !shift {
             // Ctrl+click adds or removes one page.
             if !self.selected.remove(&i) {
@@ -460,12 +466,14 @@ impl Organize {
     fn paint_slider(&mut self, p: &mut dyn Painter, theme: &Theme) {
         let f = self.frame;
         let w = self.px(120.0);
-        let (x, y) = (
-            f[0] + f[2] - w - self.px(32.0),
-            f[1] + f[3] - self.px(22.0),
-        );
+        let (x, y) = (f[0] + f[2] - w - self.px(32.0), f[1] + f[3] - self.px(22.0));
         self.slider = [x, y, w, 1.0];
-        let back = [x - self.px(22.0), y - self.px(12.0), w + self.px(44.0), self.px(24.0)];
+        let back = [
+            x - self.px(22.0),
+            y - self.px(12.0),
+            w + self.px(44.0),
+            self.px(24.0),
+        ];
         p.path(
             &rounded(back[0], back[1], back[2], back[3], self.px(4.0)),
             Some(Rgba(255, 255, 255, 230)),

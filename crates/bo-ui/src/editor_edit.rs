@@ -519,7 +519,10 @@ impl Editing {
                 true
             }
             Some(Drag::Resize { corner, .. }) => {
-                self.drag = Some(Drag::Resize { corner, to: pointer });
+                self.drag = Some(Drag::Resize {
+                    corner,
+                    to: pointer,
+                });
                 true
             }
             Some(Drag::Marquee { from, .. }) => {
@@ -602,7 +605,10 @@ impl Editing {
                 };
                 let b = item.bbox;
                 let (nb, sx, sy) = self.resized(b, corner, to);
-                if b[2] - b[0] < 0.1 || b[3] - b[1] < 0.1 || nb[2] - nb[0] < 2.0 || nb[3] - nb[1] < 2.0
+                if b[2] - b[0] < 0.1
+                    || b[3] - b[1] < 0.1
+                    || nb[2] - nb[0] < 2.0
+                    || nb[3] - nb[1] < 2.0
                 {
                     return false;
                 }
@@ -1203,7 +1209,13 @@ impl Editing {
                 from.1.max(to.1),
             ];
             if let Some(r) = v.doc_rect_to_window(page, b) {
-                p.fill_rect(r[0], r[1], r[2], r[3], Rgba(accent.0, accent.1, accent.2, 30));
+                p.fill_rect(
+                    r[0],
+                    r[1],
+                    r[2],
+                    r[3],
+                    Rgba(accent.0, accent.1, accent.2, 30),
+                );
                 outline(p, r, accent, 1.0);
             }
         }

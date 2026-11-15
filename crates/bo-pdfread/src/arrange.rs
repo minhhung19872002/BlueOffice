@@ -5,6 +5,7 @@
 //! same graphics state (`<original> q <m> cm <original> Q`), so it draws with the same colours
 //! and clip, one step above it; a copied text run is written at the end of the content with
 //! its full text state, like a moved one.
+#![allow(clippy::single_match_else)]
 use crate::interp::{invert, mul};
 use crate::objects::{deleted_run, matrix, show_operator, text_object, ObjectKind};
 use crate::PdfDocument;
@@ -44,7 +45,11 @@ impl PdfDocument {
 
     /// Transform each listed page object of page `index` by its own matrix (page points):
     /// aligning or distributing several objects; one undo step.
-    pub fn transform_each(&mut self, index: usize, moves: &[(usize, [f32; 6])]) -> Result<(), String> {
+    pub fn transform_each(
+        &mut self,
+        index: usize,
+        moves: &[(usize, [f32; 6])],
+    ) -> Result<(), String> {
         self.begin("arrange objects");
         let r = self.each_inner(index, moves);
         self.commit();

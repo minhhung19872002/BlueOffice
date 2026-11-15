@@ -107,14 +107,25 @@ fn pages_dropped_on_another_tab_are_copied_there() {
         },
         &Fixed,
     );
-    w.handle(Input::Drag { x: tx, y: ty + 40.0 }, &Fixed);
+    w.handle(
+        Input::Drag {
+            x: tx,
+            y: ty + 40.0,
+        },
+        &Fixed,
+    );
     w.handle(Input::Drag { x: tx, y: ty }, &Fixed);
     w.handle(Input::Release { x: tx, y: ty }, &Fixed);
     // This document is unchanged; the first one gained "Page 2".
     assert_eq!(texts(&mut w), ["Page 1", "Page 2", "Page 3"]);
     let first = w.r.tab_view_mut(0).expect("first");
     let t: Vec<String> = (0..first.page_count())
-        .map(|i| first.text(i).map(bo_pdfread::TextLayer::text).unwrap_or_default())
+        .map(|i| {
+            first
+                .text(i)
+                .map(bo_pdfread::TextLayer::text)
+                .unwrap_or_default()
+        })
         .collect();
     assert_eq!(t, ["Page 1", "Page 2"]);
 }

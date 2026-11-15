@@ -16,7 +16,7 @@ fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
 
 /// One control of a group row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Item {
+pub(crate) enum Item {
     /// Icon button running command `id`; the tooltip / accessible name is `commands.<id>`.
     Button(&'static str),
     /// Font family box (shows the selection's font).
@@ -77,16 +77,16 @@ const TILES: usize = 5;
 /// Gallery preview text (Vietnamese letters show diacritics of the style font).
 const PREVIEWS: [&str; 3] = ["AaĐđ", "AĐ", "Đ"];
 
-struct Group {
-    label: &'static str,
+pub(crate) struct Group {
+    pub(crate) label: &'static str,
     /// Controls spanning the group's full height, before the rows.
-    large: Vec<Item>,
-    rows: Vec<Vec<Item>>,
+    pub(crate) large: Vec<Item>,
+    pub(crate) rows: Vec<Vec<Item>>,
 }
 
-struct Tab {
-    label: &'static str,
-    groups: Vec<Group>,
+pub(crate) struct Tab {
+    pub(crate) label: &'static str,
+    pub(crate) groups: Vec<Group>,
 }
 
 /// What a pointer position is over.
@@ -477,17 +477,23 @@ impl Default for Ribbon {
 impl Ribbon {
     /// BlueDoc's tabs; the Home tab is active.
     pub fn new() -> Self {
+        Self::with_tabs(vec![
+            home(),
+            insert_tab(),
+            design_tab(),
+            layout_tab(),
+            references_tab(),
+            mailings_tab(),
+            review_tab(),
+            view_tab(),
+        ])
+    }
+
+    /// A ribbon with the given tabs (BlueSheet, BlueSlide declare their own); the first
+    /// is active.
+    pub(crate) fn with_tabs(tabs: Vec<Tab>) -> Self {
         Self {
-            tabs: vec![
-                home(),
-                insert_tab(),
-                design_tab(),
-                layout_tab(),
-                references_tab(),
-                mailings_tab(),
-                review_tab(),
-                view_tab(),
-            ],
+            tabs,
             active: 0,
             scale: 1.0,
             width: 0.0,

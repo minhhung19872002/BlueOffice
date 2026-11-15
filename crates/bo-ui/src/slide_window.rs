@@ -6,7 +6,7 @@ use crate::backstage::{Backstage, FileAction};
 use crate::icons::{IconColors, Icons};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Group, Item, Ribbon, RibbonHit, Tab};
-use crate::slide_comments::{CommentsPane, PaneEdit, PaneHit};
+use crate::slide_comments::{now_iso, CommentsPane, PaneEdit, PaneHit};
 use crate::slide_ribbon as sr;
 use crate::slide_view::{Focus, SlideView, ViewMode};
 use crate::strings::Strings;
@@ -737,7 +737,7 @@ impl SlideWindow {
                 self.view.run(SlideCommand::AddComment {
                     text,
                     author,
-                    date: None,
+                    date: now_iso(),
                     parent: None,
                     mentions: Vec::new(),
                     task: None,
@@ -1641,17 +1641,13 @@ impl SlideWindow {
             first[3],
             grey(0xf3),
         );
+        // The box starts 4 px left of the first slot (reference: x 20, first card 27).
+        let left = first[0] - px(3.2);
+        p.fill_rect(left, top, right - left + 1.0, px(73.6), grey(0xd2));
         p.fill_rect(
-            first[0] - 1.0,
-            top,
-            right - first[0] + 2.0,
-            px(73.6),
-            grey(0xd2),
-        );
-        p.fill_rect(
-            first[0],
+            left + 1.0,
             top + 1.0,
-            right - first[0],
+            right - left - 1.0,
             px(73.6) - 2.0,
             grey(0xff),
         );

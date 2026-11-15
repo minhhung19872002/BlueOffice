@@ -100,7 +100,7 @@ pub fn is_menu(id: &str) -> bool {
 pub fn large_width(id: &str) -> Option<f32> {
     if THEMES.iter().any(|(c, _)| *c == id) {
         // Reference pitch 140 px with the ribbon's 2 px gap.
-        Some(110.4)
+        Some(109.6)
     } else if TRANSITIONS.iter().any(|(c, _)| *c == id) || EFFECTS.iter().any(|(c, _)| *c == id) {
         Some(99.2)
     } else {
@@ -408,7 +408,8 @@ pub(crate) fn paint_theme_tile(
     current: bool,
 ) {
     let px = |v: f32| (v * scale).round();
-    let x = r[0];
+    // The current band starts 2 px left of the ribbon slot, the card 3 px right of it.
+    let x = r[0] - px(1.6);
     if current {
         p.fill_rect(
             x,

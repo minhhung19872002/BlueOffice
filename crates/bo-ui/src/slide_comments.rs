@@ -315,6 +315,37 @@ impl CommentsPane {
     }
 }
 
+/// The current UTC time as ISO 8601 (`2026-11-15T07:30:00Z`), `None` without a clock.
+pub fn now_iso() -> Option<String> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    iso_of(secs)
+}
+
+/// `secs` after 1970-01-01 UTC as ISO 8601.
+fn iso_of(secs: u64) -> Option<String> {
+    let days = i64::try_from(secs / 86_400).ok()?;
+    let rem = secs % 86_400;
+    // Civil date from days since 1970-01-01 (proleptic Gregorian calendar).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    Some(format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    ))
+}
+
 /// Break `s` into lines no wider than `width` (words, then characters).
 fn wrap(s: &str, width: f32, text: &dyn TextMeasure, style: TextStyle) -> Vec<String> {
     let mut out = Vec::new();
@@ -336,4 +367,19 @@ fn wrap(s: &str, width: f32, text: &dyn TextMeasure, style: TextStyle) -> Vec<St
         out.push(cur);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::iso_of;
+
+    #[test]
+    fn iso_dates() {
+        assert_eq!(iso_of(0).as_deref(), Some("1970-01-01T00:00:00Z"));
+        assert_eq!(
+            iso_of(1_763_200_000).as_deref(),
+            Some("2025-11-15T09:46:40Z")
+        );
+        assert_eq!(iso_of(951_782_400).as_deref(), Some("2000-02-29T00:00:00Z"));
+    }
 }

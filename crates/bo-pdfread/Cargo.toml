@@ -1,0 +1,27 @@
+[package]
+name = "bo-pdfread"
+description = "Read PDF files into BlueOffice display lists (BlueReader, later BlueEditor): page tree, content streams, fonts, images, text with positions, outlines, annotations."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["bundled-fonts"]
+# Substitutes for the standard 14 fonts compiled in (Tinos, Liberation Sans; OFL / Apache-2.0).
+bundled-fonts = []
+
+[dependencies]
+bo-render.workspace = true
+bo-text.workspace = true
+lopdf = { version = "0.38", default-features = false }
+ttf-parser.workspace = true
+miniz_oxide = "0.8"
+weezl = "0.1"
+zune-jpeg = { version = "0.4", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+bo-engine = { workspace = true, features = ["bundled-fonts"] }
+
+[lints]
+workspace = true

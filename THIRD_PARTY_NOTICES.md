@@ -69,7 +69,8 @@ Bảng dưới liệt kê dependency **trực tiếp**. Danh sách đầy đủ 
 | cryptoki (bo-sign, feature `pkcs11`, chỉ desktop) | 0.12.1 | Apache-2.0 | USB token qua PKCS#11 (FFI nằm trong crate, crate của ta vẫn `forbid(unsafe_code)`) |
 | p12-keystore (bo-sign, feature `pkcs12`) | 0.4.1 | MIT OR Apache-2.0 | Đọc file chứng thư `.p12` / `.pfx` (PKCS#12) |
 | serde, serde_json (bo-sign) | 1.0.229, 1.0.154 | MIT OR Apache-2.0 | Giao thức JSON ký số từ xa, báo cáo xác minh |
-| lopdf | 0.38.0 | MIT | Mở PDF thành tài liệu BlueDoc (chỉ văn bản, `bo-engine::pdf_import`); kiểm tra PDF đã ký (dev, bo-sign) |
+| lopdf | 0.38.0 | MIT | Mở PDF thành tài liệu BlueDoc (chỉ văn bản, `bo-engine::pdf_import`); kiểm tra PDF đã ký (dev, bo-sign); đọc PDF của BlueReader (`bo-pdfread`), bảng mã chuẩn và Adobe Glyph List trong `bo-pdfread/src/encoding_data.rs` sinh từ bảng của lopdf |
+| weezl (bo-pdfread) | 0.1.12 | MIT OR Apache-2.0 | Giải nén LZWDecode trong PDF |
 | rand (dev, bo-sign) | 0.8.8 | Apache-2.0 OR MIT | Sinh khoá test |
 | yrs (bo-collab) | 0.25.0 | MIT | CRDT tương thích Yjs, giao thức y-sync/awareness |
 | insta (dev) | 1.49.0 | Apache-2.0 | Snapshot test |

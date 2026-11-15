@@ -1,0 +1,1533 @@
+//! Content stream interpreter (ISO 32000-1, §8 graphics, §9.4 text objects): turns page
+//! content into display list commands in page points (origin top-left, y down), and records
+//! every shown glyph with its box for search, selection and copy.
+use crate::color::ColorSpace;
+use crate::filters;
+use crate::font::{Font, FontCache, GlyphRef};
+use crate::function::Function;
+use crate::image::{self, Image};
+use crate::lexer::{Lexer, Op};
+use crate::{RenderOptions, TextChar};
+use bo_render::{Command, Glyph, GradientStop, Paint, PathSeg, Rgba, Stroke};
+use bo_text::FontManager;
+use lopdf::{Dictionary, Document, Object, ObjectId};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Instant;
+
+/// Affine matrix `[a b c d e f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`.
+pub(crate) type M = [f32; 6];
+
+pub(crate) const IDENTITY: M = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+/// `a` then `b` (PDF order: `a × b`).
+pub(crate) fn mul(a: M, b: M) -> M {
+    [
+        a[0] * b[0] + a[1] * b[2],
+        a[0] * b[1] + a[1] * b[3],
+        a[2] * b[0] + a[3] * b[2],
+        a[2] * b[1] + a[3] * b[3],
+        a[4] * b[0] + a[5] * b[2] + b[4],
+        a[4] * b[1] + a[5] * b[3] + b[5],
+    ]
+}
+
+pub(crate) fn apply(m: M, x: f32, y: f32) -> (f32, f32) {
+    (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+}
+
+pub(crate) fn invert(m: M) -> Option<M> {
+    let det = m[0] * m[3] - m[1] * m[2];
+    if det.abs() < 1e-12 || !det.is_finite() {
+        return None;
+    }
+    let (a, b, c, d) = (m[3] / det, -m[1] / det, -m[2] / det, m[0] / det);
+    Some([a, b, c, d, -(m[4] * a + m[5] * c), -(m[4] * b + m[5] * d)])
+}
+
+fn scale_of(m: M) -> f32 {
+    (m[0] * m[3] - m[1] * m[2]).abs().sqrt()
+}
+
+/// Largest number of operators run for one page (hostile files).
+const MAX_OPS: u64 = 4_000_000;
+/// Time budget for one page.
+const MAX_TIME_MS: u128 = 6_000;
+
+/// Decoded pictures shared by the pages of a document.
+#[derive(Default)]
+pub(crate) struct ImageCache {
+    map: HashMap<String, Option<Arc<Image>>>,
+    bytes: usize,
+}
+
+const IMAGE_CACHE_BYTES: usize = 384 * 1024 * 1024;
+
+impl ImageCache {
+    fn get_or(&mut self, key: &str, f: impl FnOnce() -> Option<Image>) -> Option<Arc<Image>> {
+        if let Some(v) = self.map.get(key) {
+            return v.clone();
+        }
+        let v = f().map(Arc::new);
+        let n = v.as_ref().map_or(0, |i| i.pixels.len());
+        if self.bytes + n > IMAGE_CACHE_BYTES {
+            self.map.clear();
+            self.bytes = 0;
+        }
+        self.bytes += n;
+        self.map.insert(key.to_owned(), v.clone());
+        v
+    }
+}
+
+/// Document-wide state the interpreter reads and fills.
+pub(crate) struct Shared<'a> {
+    pub doc: &'a Document,
+    pub fonts: &'a mut FontManager,
+    pub font_cache: &'a mut FontCache,
+    pub images: &'a mut ImageCache,
+    /// Optional content groups that are off.
+    pub hidden: &'a HashSet<ObjectId>,
+    pub opts: RenderOptions,
+}
+
+/// What a page produced.
+#[derive(Default)]
+pub(crate) struct Out {
+    pub commands: Vec<Command>,
+    pub images: HashMap<String, Arc<Image>>,
+    pub chars: Vec<TextChar>,
+}
+
+#[derive(Clone)]
+enum Res<'a> {
+    Dict(&'a Dictionary),
+    Owned(Rc<Font>),
+}
+
+#[derive(Clone)]
+struct Gs {
+    ctm: M,
+    fill_cs: Arc<ColorSpace>,
+    fill: Vec<f32>,
+    fill_pattern: Option<Vec<u8>>,
+    stroke_cs: Arc<ColorSpace>,
+    stroke: Vec<f32>,
+    stroke_pattern: Option<Vec<u8>>,
+    lw: f32,
+    cap: u8,
+    join: u8,
+    dash: Vec<f32>,
+    fill_alpha: f32,
+    stroke_alpha: f32,
+    font: Option<Rc<Font>>,
+    size: f32,
+    tc: f32,
+    tw: f32,
+    th: f32,
+    tl: f32,
+    rise: f32,
+    mode: u8,
+    /// Clips pushed while this state was current.
+    clips: u32,
+}
+
+impl Gs {
+    fn new(ctm: M) -> Self {
+        Self {
+            ctm,
+            fill_cs: Arc::new(ColorSpace::Gray),
+            fill: vec![0.0],
+            fill_pattern: None,
+            stroke_cs: Arc::new(ColorSpace::Gray),
+            stroke: vec![0.0],
+            stroke_pattern: None,
+            lw: 1.0,
+            cap: 0,
+            join: 0,
+            dash: Vec::new(),
+            fill_alpha: 1.0,
+            stroke_alpha: 1.0,
+            font: None,
+            size: 0.0,
+            tc: 0.0,
+            tw: 0.0,
+            th: 1.0,
+            tl: 0.0,
+            rise: 0.0,
+            mode: 0,
+            clips: 0,
+        }
+    }
+}
+
+fn rgba(cs: &ColorSpace, v: &[f32], alpha: f32) -> Rgba {
+    let c = cs.rgb(v);
+    let b = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Rgba(b(c[0]), b(c[1]), b(c[2]), b(alpha))
+}
+
+fn f(o: &Object) -> f32 {
+    o.as_float().unwrap_or(0.0)
+}
+
+fn transform_seg(s: PathSeg, m: M) -> PathSeg {
+    let p = |x: f32, y: f32| apply(m, x, y);
+    match s {
+        PathSeg::M(x, y) => {
+            let (a, b) = p(x, y);
+            PathSeg::M(a, b)
+        }
+        PathSeg::L(x, y) => {
+            let (a, b) = p(x, y);
+            PathSeg::L(a, b)
+        }
+        PathSeg::Q(x1, y1, x, y) => {
+            let (a, b) = p(x1, y1);
+            let (c, d) = p(x, y);
+            PathSeg::Q(a, b, c, d)
+        }
+        PathSeg::C(x1, y1, x2, y2, x, y) => {
+            let (a, b) = p(x1, y1);
+            let (c, d) = p(x2, y2);
+            let (e, g) = p(x, y);
+            PathSeg::C(a, b, c, d, e, g)
+        }
+        PathSeg::Z => PathSeg::Z,
+    }
+}
+
+/// The axis-aligned rectangle a path is, if it is one.
+fn as_rect(segs: &[PathSeg]) -> Option<[f32; 4]> {
+    let pts: Vec<(f32, f32)> = match segs {
+        [PathSeg::M(a, b), PathSeg::L(c, d), PathSeg::L(e, g), PathSeg::L(h, i), PathSeg::Z]
+        | [PathSeg::M(a, b), PathSeg::L(c, d), PathSeg::L(e, g), PathSeg::L(h, i), PathSeg::L(_, _), PathSeg::Z] =>
+        {
+            vec![(*a, *b), (*c, *d), (*e, *g), (*h, *i)]
+        }
+        _ => return None,
+    };
+    let eq = |x: f32, y: f32| (x - y).abs() < 0.01;
+    let horizontal_first = eq(pts[0].1, pts[1].1)
+        && eq(pts[1].0, pts[2].0)
+        && eq(pts[2].1, pts[3].1)
+        && eq(pts[3].0, pts[0].0);
+    let vertical_first = eq(pts[0].0, pts[1].0)
+        && eq(pts[1].1, pts[2].1)
+        && eq(pts[2].0, pts[3].0)
+        && eq(pts[3].1, pts[0].1);
+    if !horizontal_first && !vertical_first {
+        return None;
+    }
+    let x0 = pts.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+    let x1 = pts.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
+    let y0 = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+    let y1 = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+    Some([x0, y0, x1 - x0, y1 - y0])
+}
+
+/// One content stream run (page, form, Type 3 glyph, annotation appearance).
+pub(crate) struct Interp<'s, 'a> {
+    sh: &'s mut Shared<'a>,
+    pub out: Out,
+    gs: Gs,
+    stack: Vec<Gs>,
+    res: Vec<Res<'a>>,
+    path: Vec<PathSeg>,
+    /// Current point and subpath start in user space.
+    cur: (f32, f32),
+    start: (f32, f32),
+    clip: Option<bool>,
+    tm: M,
+    tlm: M,
+    depth: u32,
+    ops: u64,
+    started: Instant,
+    /// Marked content nesting: whether each level hides its content.
+    marked: Vec<bool>,
+    hidden_depth: u32,
+    /// Form XObjects being run (cycle guard).
+    forms: Vec<ObjectId>,
+    inline_count: u32,
+    /// Page size in points (shadings fill the clip of the page).
+    page: (f32, f32),
+    /// Type 3 glyph with `d1`: colours come from the text state.
+    uncolored: bool,
+    image_prefix: String,
+}
+
+impl<'s, 'a> Interp<'s, 'a> {
+    pub(crate) fn new(
+        sh: &'s mut Shared<'a>,
+        base: M,
+        resources: Option<&'a Dictionary>,
+        page: (f32, f32),
+        image_prefix: String,
+    ) -> Self {
+        Self {
+            sh,
+            out: Out::default(),
+            gs: Gs::new(base),
+            stack: Vec::new(),
+            res: resources.map(Res::Dict).into_iter().collect(),
+            path: Vec::new(),
+            cur: (0.0, 0.0),
+            start: (0.0, 0.0),
+            clip: None,
+            tm: IDENTITY,
+            tlm: IDENTITY,
+            depth: 0,
+            ops: 0,
+            started: Instant::now(),
+            marked: Vec::new(),
+            hidden_depth: 0,
+            forms: Vec::new(),
+            inline_count: 0,
+            page,
+            uncolored: false,
+            image_prefix,
+        }
+    }
+
+    fn doc(&self) -> &'a Document {
+        self.sh.doc
+    }
+
+    /// Look a resource up from the innermost resource dictionary outwards.
+    fn resource(&self, category: &[u8], name: &[u8]) -> Option<Object> {
+        let doc = self.doc();
+        for r in self.res.iter().rev() {
+            let dict: Option<&Dictionary> = match r {
+                Res::Dict(d) => Some(d),
+                Res::Owned(font) => font.type3.as_ref().and_then(|t| t.resources.as_ref()),
+            };
+            let Some(d) = dict else { continue };
+            let Ok(cat) = d.get(category) else { continue };
+            let cat = doc.dereference(cat).map_or(cat, |(_, o)| o);
+            if let Ok(cd) = cat.as_dict() {
+                if let Ok(v) = cd.get(name) {
+                    return Some(v.clone());
+                }
+            }
+        }
+        None
+    }
+
+    fn color_space(&self, o: &Object) -> Option<ColorSpace> {
+        let lookup = |n: &[u8]| self.resource(b"ColorSpace", n);
+        ColorSpace::parse(self.doc(), o, &lookup, 0)
+    }
+
+    fn hidden(&self) -> bool {
+        self.hidden_depth > 0
+    }
+
+    /// Run a content stream.
+    pub(crate) fn run(&mut self, content: &[u8]) {
+        for op in Lexer::new(content) {
+            self.ops += 1;
+            if self.ops > MAX_OPS
+                || (self.ops.is_multiple_of(4096)
+                    && self.started.elapsed().as_millis() > MAX_TIME_MS)
+            {
+                break;
+            }
+            self.op(&op);
+        }
+    }
+
+    /// Close every clip and state still open.
+    pub(crate) fn finish(&mut self) {
+        while !self.stack.is_empty() {
+            self.restore();
+        }
+        for _ in 0..self.gs.clips {
+            self.out.commands.push(Command::PopClip);
+        }
+        self.gs.clips = 0;
+    }
+
+    fn save(&mut self) {
+        if self.stack.len() < 256 {
+            let mut copy = self.gs.clone();
+            copy.clips = 0;
+            let parent = std::mem::replace(&mut self.gs, copy);
+            self.stack.push(parent);
+        }
+    }
+
+    fn restore(&mut self) {
+        let Some(prev) = self.stack.pop() else {
+            return;
+        };
+        for _ in 0..self.gs.clips {
+            self.out.commands.push(Command::PopClip);
+        }
+        self.gs = prev;
+    }
+
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.cur = (x, y);
+        self.start = (x, y);
+        let (a, b) = apply(self.gs.ctm, x, y);
+        self.path.push(PathSeg::M(a, b));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        if self.path.is_empty() {
+            self.move_to(self.cur.0, self.cur.1);
+        }
+        self.cur = (x, y);
+        let (a, b) = apply(self.gs.ctm, x, y);
+        self.path.push(PathSeg::L(a, b));
+    }
+
+    fn curve_to(&mut self, p: [f32; 6]) {
+        if self.path.is_empty() {
+            self.move_to(self.cur.0, self.cur.1);
+        }
+        self.cur = (p[4], p[5]);
+        let m = self.gs.ctm;
+        let (a, b) = apply(m, p[0], p[1]);
+        let (c, d) = apply(m, p[2], p[3]);
+        let (e, g) = apply(m, p[4], p[5]);
+        self.path.push(PathSeg::C(a, b, c, d, e, g));
+    }
+
+    fn close(&mut self) {
+        if !self.path.is_empty() {
+            self.path.push(PathSeg::Z);
+            self.cur = self.start;
+        }
+    }
+
+    fn fill_paint(&mut self) -> Option<Paint> {
+        if self.gs.fill_cs.paints_nothing() {
+            return None;
+        }
+        if let Some(name) = self.gs.fill_pattern.clone() {
+            return self.pattern_paint(&name);
+        }
+        Some(Paint::Solid {
+            color: rgba(&self.gs.fill_cs, &self.gs.fill, self.gs.fill_alpha),
+        })
+    }
+
+    fn fill_rgba(&self) -> Rgba {
+        rgba(&self.gs.fill_cs, &self.gs.fill, self.gs.fill_alpha)
+    }
+
+    fn stroke_style(&self) -> Option<Stroke> {
+        if self.gs.stroke_cs.paints_nothing() {
+            return None;
+        }
+        let s = scale_of(self.gs.ctm);
+        let width = (self.gs.lw * s).max(self.sh.opts.min_line);
+        let color = if self.gs.stroke_pattern.is_some() {
+            Rgba(128, 128, 128, (self.gs.stroke_alpha * 255.0) as u8)
+        } else {
+            rgba(&self.gs.stroke_cs, &self.gs.stroke, self.gs.stroke_alpha)
+        };
+        let dash: Vec<f32> = if self.gs.dash.iter().all(|d| *d <= 0.0) {
+            Vec::new()
+        } else {
+            self.gs.dash.iter().map(|d| (d * s).max(0.01)).collect()
+        };
+        Some(Stroke {
+            width,
+            color,
+            dash,
+            cap: ["butt", "round", "square"][usize::from(self.gs.cap.min(2))].to_owned(),
+            join: ["miter", "round", "bevel"][usize::from(self.gs.join.min(2))].to_owned(),
+        })
+    }
+
+    /// Paint the current path, then apply a pending clip and start a new path.
+    fn paint(&mut self, fill: bool, stroke: bool) {
+        let segs = std::mem::take(&mut self.path);
+        if !self.hidden() && !segs.is_empty() && (fill || stroke) {
+            let tiling = fill
+                && self
+                    .gs
+                    .fill_pattern
+                    .clone()
+                    .is_some_and(|n| self.is_tiling(&n));
+            if tiling {
+                if let Some(n) = self.gs.fill_pattern.clone() {
+                    self.tiling_fill(&n, &segs);
+                }
+                if stroke {
+                    let st = self.stroke_style();
+                    self.out.commands.push(Command::Path {
+                        segs: segs.clone(),
+                        fill: None,
+                        stroke: st,
+                    });
+                }
+            } else {
+                let fill = if fill { self.fill_paint() } else { None };
+                let stroke = if stroke { self.stroke_style() } else { None };
+                if fill.is_some() || stroke.is_some() {
+                    self.out.commands.push(Command::Path {
+                        segs: segs.clone(),
+                        fill,
+                        stroke,
+                    });
+                }
+            }
+        }
+        if self.clip.take().is_some() {
+            self.push_clip(&segs);
+        }
+    }
+
+    fn push_clip(&mut self, segs: &[PathSeg]) {
+        let cmd = match as_rect(segs) {
+            Some([x, y, w, h]) => Command::PushClip { x, y, w, h },
+            None if segs
+                .iter()
+                .any(|s| matches!(s, PathSeg::L(..) | PathSeg::C(..) | PathSeg::Q(..))) =>
+            {
+                Command::PushClipPath {
+                    segs: segs.to_vec(),
+                }
+            }
+            None => Command::PushClip {
+                x: 0.0,
+                y: 0.0,
+                w: 0.0,
+                h: 0.0,
+            },
+        };
+        self.out.commands.push(cmd);
+        self.gs.clips += 1;
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn op(&mut self, op: &Op) {
+        let a = &op.args;
+        let n = |i: usize| a.get(i).map_or(0.0, f);
+        match op.name.as_slice() {
+            b"q" => self.save(),
+            b"Q" => self.restore(),
+            b"cm" if a.len() >= 6 => {
+                let m = [n(0), n(1), n(2), n(3), n(4), n(5)];
+                if m.iter().all(|v| v.is_finite()) {
+                    self.gs.ctm = mul(m, self.gs.ctm);
+                }
+            }
+            b"w" => self.gs.lw = n(0).abs(),
+            b"J" => self.gs.cap = n(0).clamp(0.0, 2.0) as u8,
+            b"j" => self.gs.join = n(0).clamp(0.0, 2.0) as u8,
+            b"d" => {
+                self.gs.dash = a
+                    .first()
+                    .and_then(|o| o.as_array().ok())
+                    .map(|v| v.iter().map(f).collect())
+                    .unwrap_or_default();
+            }
+            b"gs" => {
+                if let Some(Object::Name(name)) = a.first() {
+                    if let Some(o) = self.resource(b"ExtGState", name) {
+                        self.ext_gstate(&o);
+                    }
+                }
+            }
+            // Path construction.
+            b"m" => self.move_to(n(0), n(1)),
+            b"l" => self.line_to(n(0), n(1)),
+            b"c" => self.curve_to([n(0), n(1), n(2), n(3), n(4), n(5)]),
+            b"v" => {
+                let (x, y) = self.cur;
+                self.curve_to([x, y, n(0), n(1), n(2), n(3)]);
+            }
+            b"y" => self.curve_to([n(0), n(1), n(2), n(3), n(2), n(3)]),
+            b"h" => self.close(),
+            b"re" => {
+                let (x, y, w, h) = (n(0), n(1), n(2), n(3));
+                self.move_to(x, y);
+                self.line_to(x + w, y);
+                self.line_to(x + w, y + h);
+                self.line_to(x, y + h);
+                self.close();
+            }
+            // Painting.
+            b"S" => self.paint(false, true),
+            b"s" => {
+                self.close();
+                self.paint(false, true);
+            }
+            b"f" | b"F" | b"f*" => self.paint(true, false),
+            b"B" | b"B*" => self.paint(true, true),
+            b"b" | b"b*" => {
+                self.close();
+                self.paint(true, true);
+            }
+            b"n" => self.paint(false, false),
+            b"W" | b"W*" => self.clip = Some(op.name == b"W*"),
+            // Colour.
+            b"CS" | b"cs" => {
+                let cs = a
+                    .first()
+                    .and_then(|o| self.color_space(o))
+                    .unwrap_or(ColorSpace::Gray);
+                let init = cs.initial();
+                if op.name == b"CS" {
+                    self.gs.stroke_cs = Arc::new(cs);
+                    self.gs.stroke = init;
+                    self.gs.stroke_pattern = None;
+                } else {
+                    self.gs.fill_cs = Arc::new(cs);
+                    self.gs.fill = init;
+                    self.gs.fill_pattern = None;
+                }
+            }
+            b"SC" | b"SCN" | b"sc" | b"scn" => {
+                let stroke = op.name[0] == b'S';
+                let vals: Vec<f32> = a.iter().filter_map(|o| o.as_float().ok()).collect();
+                let pattern = match a.last() {
+                    Some(Object::Name(p)) => Some(p.clone()),
+                    _ => None,
+                };
+                if stroke {
+                    self.gs.stroke = vals;
+                    self.gs.stroke_pattern = pattern;
+                } else {
+                    self.gs.fill = vals;
+                    self.gs.fill_pattern = pattern;
+                }
+            }
+            b"G" | b"g" | b"RG" | b"rg" | b"K" | b"k" => {
+                let cs = match op.name[0] {
+                    b'G' | b'g' => ColorSpace::Gray,
+                    b'R' | b'r' => ColorSpace::Rgb,
+                    _ => ColorSpace::Cmyk,
+                };
+                let vals: Vec<f32> = a.iter().filter_map(|o| o.as_float().ok()).collect();
+                if op.name[0].is_ascii_uppercase() {
+                    self.gs.stroke_cs = Arc::new(cs);
+                    self.gs.stroke = vals;
+                    self.gs.stroke_pattern = None;
+                } else {
+                    self.gs.fill_cs = Arc::new(cs);
+                    self.gs.fill = vals;
+                    self.gs.fill_pattern = None;
+                }
+            }
+            // Text.
+            b"BT" => {
+                self.tm = IDENTITY;
+                self.tlm = IDENTITY;
+            }
+            b"ET" => {}
+            b"Tc" => self.gs.tc = n(0),
+            b"Tw" => self.gs.tw = n(0),
+            b"Tz" => self.gs.th = n(0) / 100.0,
+            b"TL" => self.gs.tl = n(0),
+            b"Ts" => self.gs.rise = n(0),
+            b"Tr" => self.gs.mode = n(0).clamp(0.0, 7.0) as u8,
+            b"Tf" => {
+                self.gs.size = n(1);
+                if let Some(Object::Name(name)) = a.first() {
+                    self.gs.font = self.load_font(name);
+                }
+            }
+            b"Td" => self.next_line(n(0), n(1)),
+            b"TD" => {
+                self.gs.tl = -n(1);
+                self.next_line(n(0), n(1));
+            }
+            b"Tm" if a.len() >= 6 => {
+                self.tm = [n(0), n(1), n(2), n(3), n(4), n(5)];
+                self.tlm = self.tm;
+            }
+            b"T*" => self.next_line(0.0, -self.gs.tl),
+            b"Tj" => {
+                if let Some(Object::String(s, _)) = a.first() {
+                    self.show(s);
+                }
+            }
+            b"'" => {
+                self.next_line(0.0, -self.gs.tl);
+                if let Some(Object::String(s, _)) = a.first() {
+                    self.show(s);
+                }
+            }
+            b"\"" => {
+                self.gs.tw = n(0);
+                self.gs.tc = n(1);
+                self.next_line(0.0, -self.gs.tl);
+                if let Some(Object::String(s, _)) = a.get(2) {
+                    self.show(s);
+                }
+            }
+            b"TJ" => {
+                if let Some(Object::Array(items)) = a.first() {
+                    for it in items {
+                        match it {
+                            Object::String(s, _) => self.show(s),
+                            o => {
+                                let v = o.as_float().unwrap_or(0.0);
+                                let fs = self.gs.size;
+                                let vertical = self.gs.font.as_ref().is_some_and(|f| f.vertical);
+                                let adj = -v / 1000.0 * fs;
+                                if vertical {
+                                    self.tm = mul([1.0, 0.0, 0.0, 1.0, 0.0, adj], self.tm);
+                                } else {
+                                    self.tm =
+                                        mul([1.0, 0.0, 0.0, 1.0, adj * self.gs.th, 0.0], self.tm);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            b"d0" => {}
+            b"d1" => self.uncolored = true,
+            // Shading, XObjects, inline images.
+            b"sh" => {
+                if let Some(Object::Name(name)) = a.first() {
+                    self.shade(name);
+                }
+            }
+            b"Do" => {
+                if let Some(Object::Name(name)) = a.first() {
+                    self.do_xobject(name);
+                }
+            }
+            b"BI" => {
+                if let (Some(Object::Dictionary(d)), Some(data)) = (a.first(), op.data.as_ref()) {
+                    self.inline_image(d, data);
+                }
+            }
+            // Optional content.
+            b"BDC" | b"BMC" => {
+                let hide = op.name == b"BDC"
+                    && matches!(a.first(), Some(Object::Name(t)) if t == b"OC")
+                    && self.oc_hidden(a.get(1));
+                self.marked.push(hide);
+                if hide {
+                    self.hidden_depth += 1;
+                }
+            }
+            b"EMC" if self.marked.pop() == Some(true) => {
+                self.hidden_depth = self.hidden_depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn oc_hidden(&self, prop: Option<&Object>) -> bool {
+        let obj = match prop {
+            Some(Object::Name(n)) => match self.resource(b"Properties", n) {
+                Some(o) => o,
+                None => return false,
+            },
+            Some(o) => o.clone(),
+            None => return false,
+        };
+        self.ocg_off(&obj)
+    }
+
+    /// Whether an optional content group (or membership dictionary) is off.
+    fn ocg_off(&self, o: &Object) -> bool {
+        let doc = self.doc();
+        if let Object::Reference(id) = o {
+            if self.sh.hidden.contains(id) {
+                return true;
+            }
+        }
+        let Ok((_, Object::Dictionary(d))) = doc.dereference(o) else {
+            return false;
+        };
+        if d.get(b"Type").and_then(Object::as_name).ok() == Some(b"OCMD") {
+            let groups: Vec<ObjectId> = match d.get(b"OCGs") {
+                Ok(Object::Reference(r)) => vec![*r],
+                Ok(Object::Array(a)) => a.iter().filter_map(|o| o.as_reference().ok()).collect(),
+                _ => return false,
+            };
+            let policy = d.get(b"P").and_then(Object::as_name).unwrap_or(b"AnyOn");
+            let off = |g: &ObjectId| self.sh.hidden.contains(g);
+            return match policy {
+                b"AllOn" => groups.iter().any(off),
+                b"AnyOff" => !groups.iter().any(off),
+                b"AllOff" => !groups.iter().all(off),
+                _ => !groups.is_empty() && groups.iter().all(off),
+            };
+        }
+        false
+    }
+
+    fn ext_gstate(&mut self, o: &Object) {
+        let doc = self.doc();
+        let Ok((_, Object::Dictionary(d))) = doc.dereference(o) else {
+            return;
+        };
+        for (k, v) in d {
+            let v = doc.dereference(v).map_or(v, |(_, o)| o);
+            match k.as_slice() {
+                b"LW" => self.gs.lw = f(v).abs(),
+                b"LC" => self.gs.cap = f(v).clamp(0.0, 2.0) as u8,
+                b"LJ" => self.gs.join = f(v).clamp(0.0, 2.0) as u8,
+                b"D" => {
+                    if let Ok(arr) = v.as_array() {
+                        self.gs.dash = arr
+                            .first()
+                            .and_then(|o| o.as_array().ok())
+                            .map(|v| v.iter().map(f).collect())
+                            .unwrap_or_default();
+                    }
+                }
+                b"CA" => self.gs.stroke_alpha = f(v).clamp(0.0, 1.0),
+                b"ca" => self.gs.fill_alpha = f(v).clamp(0.0, 1.0),
+                b"Font" => {
+                    if let Ok(arr) = v.as_array() {
+                        if let (Some(fo), Some(size)) = (arr.first(), arr.get(1)) {
+                            self.gs.size = f(size);
+                            self.gs.font = self.sh.font_cache.get(doc, fo, self.sh.fonts);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn load_font(&mut self, name: &[u8]) -> Option<Rc<Font>> {
+        let o = self.resource(b"Font", name)?;
+        let doc = self.doc();
+        self.sh.font_cache.get(doc, &o, self.sh.fonts)
+    }
+
+    fn next_line(&mut self, tx: f32, ty: f32) {
+        self.tlm = mul([1.0, 0.0, 0.0, 1.0, tx, ty], self.tlm);
+        self.tm = self.tlm;
+    }
+
+    /// Show a string with the current font (§9.4.4).
+    #[allow(clippy::too_many_lines)]
+    fn show(&mut self, s: &[u8]) {
+        let Some(font) = self.gs.font.clone() else {
+            return;
+        };
+        let fs = self.gs.size;
+        let th = self.gs.th;
+        let mode = self.gs.mode;
+        let visible = !self.hidden() && !matches!(mode, 3 | 7) && fs != 0.0;
+        let fill = !matches!(mode, 1 | 5);
+        let stroke = matches!(mode, 1 | 2 | 5 | 6);
+        let color = if fill {
+            self.fill_rgba()
+        } else {
+            rgba(&self.gs.stroke_cs, &self.gs.stroke, self.gs.stroke_alpha)
+        };
+        let paths = self.sh.opts.text_as_paths || font.face.is_none() || font.is_type1_program();
+        let mut run: Vec<Glyph> = Vec::new();
+        let mut run_text = String::new();
+        let mut run_origin = (0.0, 0.0);
+        let mut run_lin = [0.0_f32; 4];
+        let mut run_size = 0.0_f32;
+        let mut glyph_path: Vec<PathSeg> = Vec::new();
+        let sub_data = font.substitute_data();
+        let sub_face = sub_data
+            .as_ref()
+            .and_then(|(d, i)| ttf_parser::Face::parse(d, *i).ok());
+        for (code, len) in font.codes(s) {
+            let text = font.text(code);
+            let space = code == 32 && len == 1;
+            let (w0, advance) = if let Some(_t3) = &font.type3 {
+                let w = font.width(code) * font.matrix[0];
+                (w, w * fs)
+            } else {
+                let w = font.width(code) / 1000.0;
+                (w, w * fs)
+            };
+            let tsm = [fs * th, 0.0, 0.0, fs, 0.0, self.gs.rise];
+            let mut trm = mul(tsm, mul(self.tm, self.gs.ctm));
+            if font.vertical {
+                let (vx, vy) = font.vertical_metrics(code);
+                trm = mul([1.0, 0.0, 0.0, 1.0, -vx / 1000.0, -vy / 1000.0], trm);
+            }
+            let (ox, oy) = apply(trm, 0.0, 0.0);
+            // Text box for search and selection.
+            if !text.is_empty() {
+                let (asc, desc) = (font.ascent / 1000.0, font.descent / 1000.0);
+                let w = if font.vertical { 1.0 } else { w0 };
+                let corners = [
+                    apply(trm, 0.0, desc),
+                    apply(trm, w, desc),
+                    apply(trm, w, asc),
+                    apply(trm, 0.0, asc),
+                ];
+                let xs = corners.iter().map(|c| c.0);
+                let ys = corners.iter().map(|c| c.1);
+                let x0 = xs.clone().fold(f32::INFINITY, f32::min);
+                let x1 = xs.fold(f32::NEG_INFINITY, f32::max);
+                let y0 = ys.clone().fold(f32::INFINITY, f32::min);
+                let y1 = ys.fold(f32::NEG_INFINITY, f32::max);
+                let (bx, by) = apply(trm, 1.0, 0.0);
+                if x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite() {
+                    self.out.chars.push(TextChar {
+                        text: text.clone(),
+                        rect: [x0, y0, x1, y1],
+                        origin: [ox, oy],
+                        dir: [bx - ox, by - oy],
+                        size: scale_of(trm),
+                    });
+                }
+            }
+            if visible {
+                if let Some(t3) = &font.type3 {
+                    let name = font.glyph_name(code);
+                    if let Some(proc_) = name.and_then(|n| t3.procs.get(n.as_bytes())).cloned() {
+                        let m = mul(font.matrix, trm);
+                        self.type3_glyph(&font, &proc_, m);
+                    }
+                } else if let Some(g) = font.glyph(code).or_else(|| {
+                    sub_face
+                        .as_ref()
+                        .and_then(|f| font.substitute_glyph(code, f))
+                        .map(GlyphRef::Gid)
+                }) {
+                    if paths {
+                        if let Some(o) = font.outline(&g, self.sh.fonts) {
+                            let m = mul(font.matrix, trm);
+                            glyph_path.extend(o.iter().map(|s| transform_seg(*s, m)));
+                        }
+                    } else if let (GlyphRef::Gid(gid), Some(_)) = (&g, font.face) {
+                        // Glyph run: em of the face maps through `trm` (text space y up,
+                        // page y down).
+                        let lin = [trm[0], trm[1], -trm[2], -trm[3]];
+                        let size = scale_of(trm);
+                        let same = !run.is_empty()
+                            && (size - run_size).abs() < 1e-4
+                            && lin
+                                .iter()
+                                .zip(run_lin.iter())
+                                .all(|(a, b)| (a - b).abs() < 1e-4);
+                        if !same {
+                            self.flush_run(
+                                &font,
+                                &mut run,
+                                &mut run_text,
+                                run_origin,
+                                run_lin,
+                                run_size,
+                                color,
+                            );
+                            run_origin = (ox, oy);
+                            run_lin = lin;
+                            run_size = size;
+                        }
+                        // Position in run space: inverse of the run's linear map / size.
+                        let (dx, dy) = (ox - run_origin.0, oy - run_origin.1);
+                        let l = [lin[0] / size, lin[1] / size, lin[2] / size, lin[3] / size];
+                        let det = l[0] * l[3] - l[1] * l[2];
+                        let (rx, ry) = if det.abs() > 1e-9 {
+                            (
+                                (l[3] * dx - l[2] * dy) / det,
+                                (-l[1] * dx + l[0] * dy) / det,
+                            )
+                        } else {
+                            (dx, dy)
+                        };
+                        let cluster = run_text.len() as u32;
+                        run.push(Glyph(*gid, rx, ry, cluster));
+                        run_text.push_str(&text);
+                    }
+                }
+            }
+            // Advance (§9.4.4).
+            let spacing = self.gs.tc + if space { self.gs.tw } else { 0.0 };
+            if font.vertical {
+                self.tm = mul([1.0, 0.0, 0.0, 1.0, 0.0, -(advance) + spacing], self.tm);
+            } else {
+                self.tm = mul([1.0, 0.0, 0.0, 1.0, (advance + spacing) * th, 0.0], self.tm);
+            }
+        }
+        self.flush_run(
+            &font,
+            &mut run,
+            &mut run_text,
+            run_origin,
+            run_lin,
+            run_size,
+            color,
+        );
+        if !glyph_path.is_empty() {
+            let fill_paint = fill.then_some(Paint::Solid { color });
+            let stroke_style = if stroke { self.stroke_style() } else { None };
+            self.out.commands.push(Command::Path {
+                segs: glyph_path,
+                fill: fill_paint,
+                stroke: stroke_style,
+            });
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn flush_run(
+        &mut self,
+        font: &Font,
+        run: &mut Vec<Glyph>,
+        text: &mut String,
+        origin: (f32, f32),
+        lin: [f32; 4],
+        size: f32,
+        color: Rgba,
+    ) {
+        if run.is_empty() {
+            return;
+        }
+        let Some(face) = font.face else {
+            run.clear();
+            text.clear();
+            return;
+        };
+        let glyphs = std::mem::take(run);
+        let text = std::mem::take(text);
+        let l = [lin[0] / size, lin[1] / size, lin[2] / size, lin[3] / size];
+        let upright = (l[0] - 1.0).abs() < 1e-3
+            && l[1].abs() < 1e-3
+            && l[2].abs() < 1e-3
+            && (l[3] - 1.0).abs() < 1e-3;
+        if upright {
+            self.out.commands.push(Command::Glyphs {
+                face: face.0,
+                size,
+                x: origin.0,
+                y: origin.1,
+                color,
+                text,
+                glyphs,
+            });
+        } else {
+            self.out.commands.push(Command::PushTransform {
+                m: [l[0], l[1], l[2], l[3], origin.0, origin.1],
+            });
+            self.out.commands.push(Command::Glyphs {
+                face: face.0,
+                size,
+                x: 0.0,
+                y: 0.0,
+                color,
+                text,
+                glyphs,
+            });
+            self.out.commands.push(Command::PopTransform);
+        }
+    }
+
+    fn type3_glyph(&mut self, font: &Rc<Font>, proc_: &Object, m: M) {
+        if self.depth > 6 {
+            return;
+        }
+        let doc = self.doc();
+        let Ok((_, Object::Stream(s))) = doc.dereference(proc_) else {
+            return;
+        };
+        let Ok(content) = filters::stream_bytes(doc, s) else {
+            return;
+        };
+        self.save();
+        self.gs.ctm = m;
+        let saved_tm = (self.tm, self.tlm);
+        self.res.push(Res::Owned(font.clone()));
+        self.depth += 1;
+        let path = std::mem::take(&mut self.path);
+        let stack = self.stack.len();
+        self.run(&content);
+        while self.stack.len() > stack {
+            self.restore();
+        }
+        self.path = path;
+        self.depth -= 1;
+        self.res.pop();
+        (self.tm, self.tlm) = saved_tm;
+        self.restore();
+        self.uncolored = false;
+    }
+
+    /// Fill opacity of the current state (annotation stand-ins).
+    pub(crate) fn set_fill_alpha(&mut self, alpha: f32) {
+        self.gs.fill_alpha = alpha.clamp(0.0, 1.0);
+    }
+
+    fn do_xobject(&mut self, name: &[u8]) {
+        let Some(o) = self.resource(b"XObject", name) else {
+            return;
+        };
+        let doc = self.doc();
+        let id = o.as_reference().ok();
+        let Some(Object::Stream(s)) = id.and_then(|i| doc.get_object(i).ok()) else {
+            return;
+        };
+        if let Ok(oc) = s.dict.get(b"OC") {
+            if self.ocg_off(oc) {
+                return;
+            }
+        }
+        match s.dict.get(b"Subtype").and_then(Object::as_name) {
+            Ok(b"Image") => {
+                if self.hidden() {
+                    return;
+                }
+                let stencil = s
+                    .dict
+                    .get(b"ImageMask")
+                    .is_ok_and(|o| o.as_bool().unwrap_or(false));
+                let fill = self.gs.fill_cs.rgb(&self.gs.fill);
+                let key = match (id, stencil) {
+                    (Some(id), false) => format!("x{}_{}", id.0, id.1),
+                    (Some(id), true) => format!(
+                        "m{}_{}_{:02x}{:02x}{:02x}",
+                        id.0,
+                        id.1,
+                        (fill[0] * 255.0) as u8,
+                        (fill[1] * 255.0) as u8,
+                        (fill[2] * 255.0) as u8
+                    ),
+                    (None, _) => {
+                        self.inline_count += 1;
+                        format!("{}d{}", self.image_prefix, self.inline_count)
+                    }
+                };
+                let space = s
+                    .dict
+                    .get(b"ColorSpace")
+                    .ok()
+                    .and_then(|o| self.color_space(o));
+                let images = &mut *self.sh.images;
+                let img = images.get_or(&key, || {
+                    image::decode(&image::Params {
+                        doc,
+                        dict: &s.dict,
+                        data: &s.content,
+                        space,
+                        fill,
+                    })
+                });
+                if let Some(img) = img {
+                    self.place_image(key, img);
+                }
+            }
+            Ok(b"Form") => {
+                if self.depth > 12 || id.is_some_and(|i| self.forms.contains(&i)) {
+                    return;
+                }
+                let Ok(content) = filters::stream_bytes(doc, s) else {
+                    return;
+                };
+                let matrix = s
+                    .dict
+                    .get(b"Matrix")
+                    .ok()
+                    .and_then(|o| o.as_array().ok())
+                    .map(|a| a.iter().map(f).collect::<Vec<_>>())
+                    .and_then(|v| <[f32; 6]>::try_from(v.as_slice()).ok())
+                    .unwrap_or(IDENTITY);
+                let bbox = s
+                    .dict
+                    .get(b"BBox")
+                    .ok()
+                    .and_then(|o| o.as_array().ok())
+                    .map(|a| a.iter().map(f).collect::<Vec<_>>());
+                let res = s
+                    .dict
+                    .get(b"Resources")
+                    .ok()
+                    .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+                    .and_then(|o| o.as_dict().ok());
+                if let Some(i) = id {
+                    self.forms.push(i);
+                }
+                self.run_form(&content, matrix, bbox.as_deref(), res);
+                if id.is_some() {
+                    self.forms.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Run a form's content with its matrix and bounding box clip.
+    pub(crate) fn run_form(
+        &mut self,
+        content: &[u8],
+        matrix: M,
+        bbox: Option<&[f32]>,
+        res: Option<&'a Dictionary>,
+    ) {
+        self.save();
+        self.gs.ctm = mul(matrix, self.gs.ctm);
+        if let Some([x0, y0, x1, y1]) = bbox.and_then(|b| <[f32; 4]>::try_from(b).ok()) {
+            self.path.clear();
+            self.move_to(x0, y0);
+            self.line_to(x1, y0);
+            self.line_to(x1, y1);
+            self.line_to(x0, y1);
+            self.close();
+            let segs = std::mem::take(&mut self.path);
+            self.push_clip(&segs);
+        }
+        let saved_path = std::mem::take(&mut self.path);
+        let saved_tm = (self.tm, self.tlm);
+        if let Some(r) = res {
+            self.res.push(Res::Dict(r));
+        }
+        self.depth += 1;
+        let marked = self.marked.len();
+        let stack = self.stack.len();
+        self.run(content);
+        // Unbalanced q/Q or marked content inside the form stays inside it.
+        while self.stack.len() > stack {
+            self.restore();
+        }
+        while self.marked.len() > marked {
+            if self.marked.pop() == Some(true) {
+                self.hidden_depth = self.hidden_depth.saturating_sub(1);
+            }
+        }
+        self.depth -= 1;
+        if res.is_some() {
+            self.res.pop();
+        }
+        (self.tm, self.tlm) = saved_tm;
+        self.path = saved_path;
+        self.restore();
+    }
+
+    fn inline_image(&mut self, d: &Dictionary, data: &[u8]) {
+        if self.hidden() {
+            return;
+        }
+        let space = d
+            .get(b"ColorSpace")
+            .or_else(|_| d.get(b"CS"))
+            .ok()
+            .and_then(|o| self.color_space(o));
+        let fill = self.gs.fill_cs.rgb(&self.gs.fill);
+        self.inline_count += 1;
+        let key = format!("{}i{}", self.image_prefix, self.inline_count);
+        let img = image::decode(&image::Params {
+            doc: self.doc(),
+            dict: d,
+            data,
+            space,
+            fill,
+        });
+        if let Some(img) = img {
+            self.place_image(key, Arc::new(img));
+        }
+    }
+
+    /// Draw a picture into the unit square of the current matrix.
+    fn place_image(&mut self, key: String, img: Arc<Image>) {
+        let t = mul([1.0, 0.0, 0.0, -1.0, 0.0, 1.0], self.gs.ctm);
+        if !t.iter().all(|v| v.is_finite()) {
+            return;
+        }
+        self.out.images.insert(key.clone(), img);
+        let alpha = self.gs.fill_alpha;
+        if alpha < 0.999 {
+            self.out.commands.push(Command::PushOpacity { alpha });
+        }
+        if t[1].abs() < 1e-4 && t[2].abs() < 1e-4 && t[0] > 0.0 && t[3] > 0.0 {
+            self.out.commands.push(Command::Image {
+                x: t[4],
+                y: t[5],
+                w: t[0],
+                h: t[3],
+                image: key,
+                crop: None,
+                rotation: 0.0,
+            });
+        } else {
+            self.out.commands.push(Command::PushTransform { m: t });
+            self.out.commands.push(Command::Image {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+                image: key,
+                crop: None,
+                rotation: 0.0,
+            });
+            self.out.commands.push(Command::PopTransform);
+        }
+        if alpha < 0.999 {
+            self.out.commands.push(Command::PopOpacity);
+        }
+    }
+
+    fn page_rect(&self) -> Vec<PathSeg> {
+        let (w, h) = self.page;
+        vec![
+            PathSeg::M(-1.0, -1.0),
+            PathSeg::L(w + 1.0, -1.0),
+            PathSeg::L(w + 1.0, h + 1.0),
+            PathSeg::L(-1.0, h + 1.0),
+            PathSeg::Z,
+        ]
+    }
+
+    fn shade(&mut self, name: &[u8]) {
+        if self.hidden() {
+            return;
+        }
+        let Some(o) = self.resource(b"Shading", name) else {
+            return;
+        };
+        if let Some(p) = self.shading_paint(&o, self.gs.ctm) {
+            let segs = self.page_rect();
+            self.out.commands.push(Command::Path {
+                segs,
+                fill: Some(p),
+                stroke: None,
+            });
+        }
+    }
+
+    /// Gradient paint of an axial or radial shading in pattern space `m`.
+    fn shading_paint(&self, o: &Object, m: M) -> Option<Paint> {
+        let doc = self.doc();
+        let dict = match doc.dereference(o).ok()?.1 {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &s.dict,
+            _ => return None,
+        };
+        let kind = dict.get(b"ShadingType").ok()?.as_i64().ok()?;
+        let cs = self.color_space(dict.get(b"ColorSpace").ok()?)?;
+        let coords: Vec<f32> = dict
+            .get(b"Coords")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_array().ok())
+            .map(|a| a.iter().map(f).collect())
+            .unwrap_or_default();
+        let func = dict
+            .get(b"Function")
+            .ok()
+            .and_then(|o| Function::parse(doc, o, 0));
+        let domain: Vec<f32> = dict
+            .get(b"Domain")
+            .ok()
+            .and_then(|o| o.as_array().ok())
+            .map_or_else(|| vec![0.0, 1.0], |a| a.iter().map(f).collect());
+        let (t0, t1) = (
+            domain.first().copied().unwrap_or(0.0),
+            domain.get(1).copied().unwrap_or(1.0),
+        );
+        let color_at = |t: f32| -> Rgba {
+            let vals = func.as_ref().map_or_else(|| vec![t], |f| f.eval(&[t]));
+            rgba(&cs, &vals, self.gs.fill_alpha)
+        };
+        let stops = |map: &dyn Fn(f32) -> f32| -> Vec<GradientStop> {
+            (0..=16)
+                .map(|k| {
+                    let u = k as f32 / 16.0;
+                    GradientStop {
+                        offset: map(u).clamp(0.0, 1.0),
+                        color: color_at(t0 + u * (t1 - t0)),
+                    }
+                })
+                .collect()
+        };
+        match kind {
+            2 if coords.len() >= 4 => {
+                let (x1, y1) = apply(m, coords[0], coords[1]);
+                let (x2, y2) = apply(m, coords[2], coords[3]);
+                Some(Paint::Linear {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    stops: stops(&|u| u),
+                })
+            }
+            3 if coords.len() >= 6 => {
+                let (r0, r1) = (coords[2], coords[5]);
+                let (cx, cy) = apply(m, coords[3], coords[4]);
+                let r = r1.max(r0).max(0.01) * scale_of(m);
+                let outer = r1.max(r0).max(0.01);
+                Some(Paint::Radial {
+                    cx,
+                    cy,
+                    r,
+                    stops: stops(&|u| (r0 + u * (r1 - r0)) / outer),
+                })
+            }
+            _ => {
+                // Mesh and function shadings: their background, or the middle colour.
+                let bg: Vec<f32> = dict
+                    .get(b"Background")
+                    .ok()
+                    .and_then(|o| o.as_array().ok())
+                    .map(|a| a.iter().map(f).collect())
+                    .unwrap_or_default();
+                if bg.is_empty() {
+                    None
+                } else {
+                    Some(Paint::Solid {
+                        color: rgba(&cs, &bg, self.gs.fill_alpha),
+                    })
+                }
+            }
+        }
+    }
+
+    fn pattern_object(&self, name: &[u8]) -> Option<Object> {
+        self.resource(b"Pattern", name)
+    }
+
+    fn is_tiling(&self, name: &[u8]) -> bool {
+        let doc = self.doc();
+        self.pattern_object(name)
+            .and_then(|o| doc.dereference(&o).ok().map(|(_, o)| o.clone()))
+            .and_then(|o| match o {
+                Object::Stream(s) => s
+                    .dict
+                    .get(b"PatternType")
+                    .ok()
+                    .and_then(|v| v.as_i64().ok()),
+                Object::Dictionary(d) => d.get(b"PatternType").ok().and_then(|v| v.as_i64().ok()),
+                _ => None,
+            })
+            == Some(1)
+    }
+
+    fn pattern_matrix(&self, d: &Dictionary) -> M {
+        let m = d
+            .get(b"Matrix")
+            .ok()
+            .and_then(|o| o.as_array().ok())
+            .map(|a| a.iter().map(f).collect::<Vec<_>>())
+            .and_then(|v| <[f32; 6]>::try_from(v.as_slice()).ok())
+            .unwrap_or(IDENTITY);
+        // Pattern space is the default space of the page (or of the form being run).
+        let base = self.stack.first().map_or(self.gs.ctm, |g| g.ctm);
+        mul(m, base)
+    }
+
+    fn pattern_paint(&self, name: &[u8]) -> Option<Paint> {
+        let doc = self.doc();
+        let o = self.pattern_object(name)?;
+        let d = match doc.dereference(&o).ok()?.1 {
+            Object::Dictionary(d) => d,
+            Object::Stream(s) => &s.dict,
+            _ => return None,
+        };
+        let m = self.pattern_matrix(d);
+        let sh = d.get(b"Shading").ok()?;
+        self.shading_paint(sh, m)
+    }
+
+    /// Fill `segs` with a tiling pattern by drawing its cell over the path's bounds.
+    fn tiling_fill(&mut self, name: &[u8], segs: &[PathSeg]) {
+        let doc = self.doc();
+        let Some(Object::Stream(s)) = self
+            .pattern_object(name)
+            .and_then(|o| o.as_reference().ok())
+            .and_then(|i| doc.get_object(i).ok())
+        else {
+            return;
+        };
+        let Ok(content) = filters::stream_bytes(doc, s) else {
+            return;
+        };
+        let m = self.pattern_matrix(&s.dict);
+        let num = |k: &[u8]| s.dict.get(k).ok().map_or(0.0, f);
+        let (xs, ys) = (num(b"XStep").abs(), num(b"YStep").abs());
+        let bbox: Vec<f32> = s
+            .dict
+            .get(b"BBox")
+            .ok()
+            .and_then(|o| o.as_array().ok())
+            .map(|a| a.iter().map(f).collect())
+            .unwrap_or_default();
+        let res = s
+            .dict
+            .get(b"Resources")
+            .ok()
+            .map(|o| doc.dereference(o).map_or(o, |(_, o)| o))
+            .and_then(|o| o.as_dict().ok());
+        let Some(inv) = invert(m) else { return };
+        if xs < 1e-3 || ys < 1e-3 || bbox.len() < 4 {
+            return;
+        }
+        // Path bounds in pattern space.
+        let mut lo = (f32::INFINITY, f32::INFINITY);
+        let mut hi = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for sg in segs {
+            let pts: &[(f32, f32)] = &match *sg {
+                PathSeg::M(x, y) | PathSeg::L(x, y) => vec![(x, y)],
+                PathSeg::Q(a, b, x, y) => vec![(a, b), (x, y)],
+                PathSeg::C(a, b, c, d, x, y) => vec![(a, b), (c, d), (x, y)],
+                PathSeg::Z => vec![],
+            };
+            for &(x, y) in pts {
+                let (u, v) = apply(inv, x, y);
+                lo = (lo.0.min(u), lo.1.min(v));
+                hi = (hi.0.max(u), hi.1.max(v));
+            }
+        }
+        let i0 = ((lo.0 - bbox[2]) / xs).floor() as i64;
+        let i1 = ((hi.0 - bbox[0]) / xs).ceil() as i64;
+        let j0 = ((lo.1 - bbox[3]) / ys).floor() as i64;
+        let j1 = ((hi.1 - bbox[1]) / ys).ceil() as i64;
+        if (i1 - i0).saturating_mul(j1 - j0) > 4000 || self.depth > 8 {
+            // Too many cells: an even grey keeps the area visible.
+            self.out.commands.push(Command::Path {
+                segs: segs.to_vec(),
+                fill: Some(Paint::Solid {
+                    color: Rgba(200, 200, 200, 255),
+                }),
+                stroke: None,
+            });
+            return;
+        }
+        self.push_clip(segs);
+        let ctm = self.gs.ctm;
+        let saved_ctm_base = self.gs.ctm;
+        for j in j0..j1 {
+            for i in i0..i1 {
+                let cell = mul([1.0, 0.0, 0.0, 1.0, i as f32 * xs, j as f32 * ys], m);
+                // run_form multiplies onto the current matrix: start from identity.
+                self.gs.ctm = IDENTITY;
+                self.run_form(&content, cell, Some(&bbox), res);
+                self.gs.ctm = ctm;
+            }
+        }
+        self.gs.ctm = saved_ctm_base;
+        self.out.commands.push(Command::PopClip);
+        self.gs.clips = self.gs.clips.saturating_sub(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matrices() {
+        let m = mul(
+            [2.0, 0.0, 0.0, 2.0, 1.0, 1.0],
+            [1.0, 0.0, 0.0, -1.0, 0.0, 100.0],
+        );
+        assert_eq!(apply(m, 1.0, 1.0), (3.0, 97.0));
+        let inv = invert(m).expect("invertible");
+        let (x, y) = apply(inv, 3.0, 97.0);
+        assert!((x - 1.0).abs() < 1e-5 && (y - 1.0).abs() < 1e-5);
+        assert_eq!(
+            as_rect(&[
+                PathSeg::M(0.0, 0.0),
+                PathSeg::L(5.0, 0.0),
+                PathSeg::L(5.0, 3.0),
+                PathSeg::L(0.0, 3.0),
+                PathSeg::Z
+            ]),
+            Some([0.0, 0.0, 5.0, 3.0])
+        );
+    }
+}

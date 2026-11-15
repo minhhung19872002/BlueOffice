@@ -880,6 +880,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo-pdfread"
+version = "0.1.0"
+dependencies = [
+ "bo-engine",
+ "bo-render",
+ "bo-text",
+ "lopdf",
+ "miniz_oxide 0.8.9",
+ "ttf-parser",
+ "weezl",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "bo-pptx"
 version = "0.1.0"
 dependencies = [

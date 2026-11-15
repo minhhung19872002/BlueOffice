@@ -34,6 +34,103 @@ pub trait GridStore {
         let _ = (moves, bands);
         self.update(list, engine, scale)
     }
+
+    /// The view scrolled by whole device pixels with nothing frozen along that axis: a store
+    /// keeping its image as a ring ([`GridRing`]) turns it by `shift` (the new image at
+    /// (x, y) is the old one at (x + dx, y + dy)) and draws only `bands`, without copying the
+    /// kept pixels. `Ok(false)`: not supported, [`GridStore::scroll`] is used instead.
+    fn turn(
+        &mut self,
+        list: &PageList,
+        engine: &SheetEngine,
+        scale: f32,
+        shift: [i64; 2],
+        bands: &[[u32; 4]],
+    ) -> Result<bool, String> {
+        let _ = (list, engine, scale, shift, bands);
+        Ok(false)
+    }
+}
+
+/// A grid image kept as a ring: image pixel (x, y) is stored at ((x + px) mod w,
+/// (y + py) mod h), so scrolling only changes the phase (px, py) and draws the newly
+/// exposed band, and showing the image takes up to four pieces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GridRing {
+    phase: [u32; 2],
+    size: [u32; 2],
+}
+
+impl GridRing {
+    /// A ring of `width` × `height` pixels at phase zero (a freshly drawn image).
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            phase: [0, 0],
+            size: [width, height],
+        }
+    }
+
+    /// Where image pixel (0, 0) is stored.
+    pub fn phase(&self) -> [u32; 2] {
+        self.phase
+    }
+
+    /// Scroll: the new image at (x, y) is the old one at (x + dx, y + dy).
+    pub fn turn(&mut self, shift: [i64; 2]) {
+        for (i, d) in shift.iter().enumerate() {
+            if self.size[i] > 0 {
+                let n = i64::from(self.size[i]);
+                self.phase[i] = (i64::from(self.phase[i]) + d).rem_euclid(n) as u32;
+            }
+        }
+    }
+
+    /// The pieces of image rectangle `r` (left, top, width, height): each is the image
+    /// rectangle and the top-left corner where the ring stores it.
+    pub fn split(&self, r: [u32; 4]) -> Vec<([u32; 4], [u32; 2])> {
+        let axis = |a: u32, len: u32, p: u32, n: u32| -> Vec<(u32, u32, u32)> {
+            let a = a.min(n);
+            let len = len.min(n - a);
+            if len == 0 {
+                return Vec::new();
+            }
+            let s = (a + p) % n;
+            let first = len.min(n - s);
+            let mut v = vec![(a, first, s)];
+            if first < len {
+                v.push((a + first, len - first, 0));
+            }
+            v
+        };
+        let xs = axis(r[0], r[2], self.phase[0], self.size[0]);
+        let ys = axis(r[1], r[3], self.phase[1], self.size[1]);
+        let mut out = Vec::with_capacity(4);
+        for &(ly, lh, py) in &ys {
+            for &(lx, lw, px) in &xs {
+                out.push(([lx, ly, lw, lh], [px, py]));
+            }
+        }
+        out
+    }
+
+    /// The pieces of the whole image (to show it).
+    pub fn pieces(&self) -> Vec<([u32; 4], [u32; 2])> {
+        self.split([0, 0, self.size[0], self.size[1]])
+    }
+}
+
+/// Scroll position, extent and visible size of both axes (vertical first).
+type BarFigures = [(f64, f64, f64); 2];
+
+/// What the cached scroll bar figures were computed for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BarKey {
+    scroll: (f64, f64),
+    frame: [f32; 4],
+    sheet: usize,
+    zoom: f32,
+    scale: f32,
+    content_gen: u64,
 }
 
 /// A rectangle of the previous grid image kept at a new place when scrolling.
@@ -274,6 +371,11 @@ pub struct SheetView {
     grid_dirty: bool,
     /// The grid image must be drawn whole (cells, size or scale changed), not only scrolled.
     full_redraw: bool,
+    /// Scroll bar figures of both axes and what they were computed for: the sheet's content
+    /// size scans every cell, so it is only redone after edits, not per scroll step.
+    bar_cache: Option<(BarKey, BarFigures)>,
+    /// Counts edits that may change the content size or row / column geometry.
+    content_gen: u64,
     /// Scroll of the last drawn grid image.
     drawn: Option<(f64, f64)>,
     drag: Option<Drag>,
@@ -303,6 +405,8 @@ pub struct SheetView {
     label_size: f32,
     /// View settings: gridlines, row / column headings.
     show_grid: bool,
+    /// Formulas are shown in their cells instead of their results (Formulas tab).
+    show_formulas: bool,
     show_headings: bool,
     /// Cells the fill handle drag would fill (bounds), while dragging.
     fill_to: Option<(u32, u32, u32, u32)>,
@@ -347,6 +451,8 @@ impl SheetView {
             edit: None,
             grid_dirty: true,
             full_redraw: true,
+            bar_cache: None,
+            content_gen: 0,
             drawn: None,
             drag: None,
             cols: Vec::new(),
@@ -366,6 +472,7 @@ impl SheetView {
             label_widths: std::collections::HashMap::new(),
             label_size: 0.0,
             show_grid: true,
+            show_formulas: false,
             show_headings: true,
             fill_to: None,
         };
@@ -514,7 +621,7 @@ impl SheetView {
     }
 
     /// Viewport of the grid image, in points (no headers: the window draws them).
-    fn viewport(&self) -> Viewport {
+    pub(crate) fn viewport(&self) -> Viewport {
         let k = f64::from(self.k());
         let (gx, gy) = self.grid_origin();
         let w = f64::from((self.frame[0] + self.frame[2] - gx).max(1.0));
@@ -848,6 +955,43 @@ impl SheetView {
         self.refresh();
     }
 
+    /// Show formulas in their cells instead of their results (Formulas tab).
+    pub fn set_show_formulas(&mut self, on: bool) {
+        if self.show_formulas != on {
+            self.show_formulas = on;
+            self.redraw_all();
+        }
+    }
+
+    /// Formulas shown in cells.
+    pub fn show_formulas(&self) -> bool {
+        self.show_formulas
+    }
+
+    /// Window rectangle of cell (`r`, `c`) when its row and column are on screen.
+    pub(crate) fn cell_rect(&self, r: u32, c: u32) -> Option<[f32; 4]> {
+        let row = self.rows.iter().find(|s| s.index == r)?;
+        let col = self.cols.iter().find(|s| s.index == c)?;
+        Some([
+            col.start,
+            row.start,
+            col.line - col.start,
+            row.line - row.start,
+        ])
+    }
+
+    /// The cell under window point (x, y) when it is over the cells.
+    pub(crate) fn cell_under(&self, x: f32, y: f32) -> Option<(u32, u32)> {
+        let (gx, gy) = self.grid_origin();
+        let [fx, fy, fw, fh] = self.frame;
+        (x >= gx && y >= gy && x < fx + fw && y < fy + fh).then(|| self.cell_at(x, y))
+    }
+
+    /// The grid's rectangle in the window (cells and headers).
+    pub(crate) fn grid_frame(&self) -> [f32; 4] {
+        self.frame
+    }
+
     /// Show or hide the gridlines (view setting).
     pub fn set_gridlines(&mut self, on: bool) {
         if self.show_grid != on {
@@ -1077,6 +1221,25 @@ impl SheetView {
     /// Scroll position, scrollable extent and visible size of the main pane, in points
     /// (`vertical` or horizontal), for scroll bars.
     pub fn scroll_info(&mut self, vertical: bool) -> (f64, f64, f64) {
+        let key = BarKey {
+            scroll: self.scroll,
+            frame: self.frame,
+            sheet: self.sheet,
+            zoom: self.zoom,
+            scale: self.scale,
+            content_gen: self.content_gen,
+        };
+        if let Some((k, v)) = &self.bar_cache {
+            if *k == key {
+                return v[usize::from(!vertical)];
+            }
+        }
+        let both = [self.scroll_info_now(true), self.scroll_info_now(false)];
+        self.bar_cache = Some((key, both));
+        both[usize::from(!vertical)]
+    }
+
+    fn scroll_info_now(&mut self, vertical: bool) -> (f64, f64, f64) {
         let vp = self.viewport();
         let (content_w, content_h) = self.engine.content_size(self.sheet).unwrap_or((0.0, 0.0));
         let Ok((layout, geom)) = self.engine.view_layout(self.sheet, &vp) else {
@@ -2045,6 +2208,7 @@ impl SheetView {
     fn redraw_all(&mut self) {
         self.grid_dirty = true;
         self.full_redraw = true;
+        self.content_gen += 1;
     }
 
     /// Redraw the grid image when the cells, scroll or size changed. A pure scroll by whole
@@ -2056,6 +2220,7 @@ impl SheetView {
         }
         let vp = self.viewport();
         let show_grid = self.show_grid;
+        let show_formulas = self.show_formulas;
         let list = self
             .engine
             .render_viewport_with(self.sheet, &vp, |o| {
@@ -2063,6 +2228,9 @@ impl SheetView {
                 o.gridline_color = GRID_LINE;
                 if !show_grid {
                     o.gridlines = Some(false);
+                }
+                if show_formulas {
+                    o.show_formulas = Some(true);
                 }
             })
             .map_err(|e| e.to_string())?;
@@ -2073,8 +2241,16 @@ impl SheetView {
             self.drawn.and_then(|from| self.blit_plan(from, &list, k))
         };
         match plan {
-            Some((moves, bands)) if moves.is_empty() && bands.is_empty() => {}
-            Some((moves, bands)) => store.scroll(&list, &self.engine, k, &moves, &bands)?,
+            Some((moves, bands, _)) if moves.is_empty() && bands.is_empty() => {}
+            Some((moves, bands, shift)) => {
+                let turned = match shift {
+                    Some(s) => store.turn(&list, &self.engine, k, s, &bands)?,
+                    None => false,
+                };
+                if !turned {
+                    store.scroll(&list, &self.engine, k, &moves, &bands)?;
+                }
+            }
             None => store.update(&list, &self.engine, k)?,
         }
         self.drawn = Some(self.scroll);
@@ -2085,13 +2261,15 @@ impl SheetView {
 
     /// Moves and bands that turn the image drawn at scroll rom into the current one, or
     /// None when it must be drawn whole (both directions, fractional pixels, a jump
-    /// larger than the scrolling part).
+    /// larger than the scrolling part); with the shift of the whole image when nothing is
+    /// frozen along the scroll (a ring store turns instead of moving pixels).
+    #[allow(clippy::type_complexity)]
     fn blit_plan(
         &self,
         from: (f64, f64),
         list: &PageList,
         k: f32,
-    ) -> Option<(Vec<GridMove>, Vec<[u32; 4]>)> {
+    ) -> Option<(Vec<GridMove>, Vec<[u32; 4]>, Option<[i64; 2]>)> {
         let w = (list.width * k).ceil() as i64;
         let h = (list.height * k).ceil() as i64;
         let whole = |v: f64| {
@@ -2101,7 +2279,7 @@ impl SheetView {
         let dx = whole((self.scroll.0 - from.0) * f64::from(k))?;
         let dy = whole((self.scroll.1 - from.1) * f64::from(k))?;
         if dx == 0 && dy == 0 {
-            return Some((Vec::new(), Vec::new()));
+            return Some((Vec::new(), Vec::new(), None));
         }
         if dx != 0 && dy != 0 {
             return None;
@@ -2150,7 +2328,8 @@ impl SheetView {
         let at = if dy == 0 { [u(dst), 0] } else { [0, u(dst)] };
         moves.push(GridMove { src: s, dst: at });
         bands.push(rect(band, n));
-        Some((moves, bands))
+        let shift = (fixed == 0).then_some([dx, dy]);
+        Some((moves, bands, shift))
     }
 
     /// The grid image must be drawn again (text rendering or device changed).

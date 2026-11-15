@@ -44,7 +44,7 @@ pub use reader_view::{Fit, Layout, PdfStore, ReaderView, THUMB_KEY};
 pub use reader_window::{Panel, ReaderRequest, ReaderWindow, Tool};
 pub use ribbon::{Ribbon, RibbonHit};
 pub use ruler::Ruler;
-pub use sheet_view::{CellFormat, GridMove, GridStore, SheetView, Stats};
+pub use sheet_view::{CellFormat, GridMove, GridRing, GridStore, SheetView, Stats};
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};

@@ -93,6 +93,54 @@ fn mix(a: &[f32], b: &[f32], c: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+/// A Gouraud-shaded triangle (§8.7.4.5.5: colours interpolated between the vertices) as
+/// `k` × `k` flat sub-triangles, `k` from its size.
+fn gouraud(out: &mut Vec<Tri>, a: &Vertex, b: &Vertex, c: &Vertex) {
+    let len = |p: (f32, f32), q: (f32, f32)| ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt();
+    let size = len(a.0, b.0).max(len(b.0, c.0)).max(len(c.0, a.0));
+    let same = a.1 == b.1 && b.1 == c.1;
+    let k = if same {
+        1
+    } else {
+        ((size / 3.0).ceil() as usize).clamp(1, 32)
+    };
+    // Point and colour at barycentric (i, j) of k steps.
+    let at = |i: usize, j: usize| -> Vertex {
+        let (u, v) = (i as f32 / k as f32, j as f32 / k as f32);
+        let w = 1.0 - u - v;
+        let p = (
+            w * a.0 .0 + u * b.0 .0 + v * c.0 .0,
+            w * a.0 .1 + u * b.0 .1 + v * c.0 .1,
+        );
+        let col = (0..a.1.len())
+            .map(|n| {
+                let g = |x: &Vec<f32>| x.get(n).copied().unwrap_or(0.0);
+                w * g(&a.1) + u * g(&b.1) + v * g(&c.1)
+            })
+            .collect();
+        (p, col)
+    };
+    for i in 0..k {
+        for j in 0..k - i {
+            if out.len() >= MAX_TRIANGLES {
+                return;
+            }
+            let (p, q, r) = (at(i, j), at(i + 1, j), at(i, j + 1));
+            out.push(Tri {
+                pts: [p.0, q.0, r.0],
+                color: mix(&p.1, &q.1, &r.1),
+            });
+            if i + j + 1 < k {
+                let s = at(i + 1, j + 1);
+                out.push(Tri {
+                    pts: [q.0, s.0, r.0],
+                    color: mix(&q.1, &s.1, &r.1),
+                });
+            }
+        }
+    }
+}
+
 fn num(d: &Dictionary, k: &[u8]) -> Option<i64> {
     d.get(k).ok()?.as_i64().ok()
 }
@@ -171,10 +219,7 @@ fn free_form(l: &Layout, b: &mut Bits<'_>) -> Vec<Tri> {
         }
         let n = verts.len();
         let (a, bb, c) = (&verts[n - 3], &verts[n - 2], &verts[n - 1]);
-        out.push(Tri {
-            pts: [a.0, bb.0, c.0],
-            color: mix(&a.1, &bb.1, &c.1),
-        });
+        gouraud(&mut out, a, bb, c);
     }
     out
 }
@@ -203,14 +248,8 @@ fn lattice(l: &Layout, b: &mut Bits<'_>, per_row: usize) -> Vec<Tri> {
         let (r0, r1) = (&pair[0], &pair[1]);
         for i in 0..per_row - 1 {
             let (a, bb, c, d) = (&r0[i], &r0[i + 1], &r1[i], &r1[i + 1]);
-            out.push(Tri {
-                pts: [a.0, bb.0, c.0],
-                color: mix(&a.1, &bb.1, &c.1),
-            });
-            out.push(Tri {
-                pts: [bb.0, d.0, c.0],
-                color: mix(&bb.1, &d.1, &c.1),
-            });
+            gouraud(&mut out, a, bb, c);
+            gouraud(&mut out, bb, d, c);
         }
     }
     out
@@ -290,7 +329,7 @@ fn patches(l: &Layout, b: &mut Bits<'_>, tensor: bool) -> Vec<Tri> {
                 .sum::<f32>()
         };
         let size = span(d1).max(span(c2)).max(span(d2)).max(span(c1));
-        let n = ((size / 8.0).ceil() as usize).clamp(2, 16);
+        let n = ((size / 3.0).ceil() as usize).clamp(2, 32);
         let s = |u: f32, v: f32| -> (f32, f32) {
             let (a, bb, c, d) = (bez(c1, u), bez(c2, u), bez(d1, v), bez(d2, v));
             let corner = |i: usize| p[i];
@@ -354,7 +393,7 @@ pub(crate) fn function_based(doc: &Document, dict: &Dictionary, func: &Function)
     let [x0, x1, y0, y1] = <[f32; 4]>::try_from(domain.as_slice()).unwrap_or([0.0, 1.0, 0.0, 1.0]);
     let m: M =
         <[f32; 6]>::try_from(nums(b"Matrix").as_slice()).unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
-    let n = 24;
+    let n = 48;
     let mut out = Vec::with_capacity(n * n * 2);
     for i in 0..n {
         for j in 0..n {
@@ -446,7 +485,12 @@ mod tests {
         d4.set("BitsPerFlag", 8);
         let data4 = [0, 0, 0, 0, 0, 100, 0, 128, 0, 0, 100, 255];
         let t4 = mesh(4, &d4, &data4, 1, false);
-        assert_eq!(t4.len(), 1);
-        assert!((t4[0].color[0] - (128.0 / 255.0) / 3.0 - 1.0 / 3.0).abs() < 0.01);
+        // Gouraud: subdivided, colours interpolated (mean = the centroid colour).
+        assert!(t4.len() > 1);
+        let mean = t4.iter().map(|t| t.color[0]).sum::<f32>() / t4.len() as f32;
+        assert!(
+            (mean - (128.0 / 255.0) / 3.0 - 1.0 / 3.0).abs() < 0.02,
+            "{mean}"
+        );
     }
 }

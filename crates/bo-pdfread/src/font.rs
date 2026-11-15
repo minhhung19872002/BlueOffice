@@ -139,7 +139,10 @@ fn substitute_names(name: &str, serif: bool, fixed: bool) -> (Vec<String>, bool,
         } else if lower.starts_with("courier") {
             Some("Courier New")
         } else if lower.starts_with("symbol") {
-            Some("Symbol")
+            // Greek and mathematical signs by Unicode (the built-in encoding's names) in a
+            // serif face: Windows' own Symbol face keeps its glyphs at U+F0xx and is not
+            // drawn by the page renderer.
+            Some("Times New Roman")
         } else if lower.starts_with("zapfdingbats") {
             Some("Segoe UI Symbol")
         } else {

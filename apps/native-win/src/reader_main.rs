@@ -19,10 +19,9 @@ mod win32;
 #[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args
-        .first()
-        .is_some_and(|a| a == "--render" || a == "--bench" || a == "--print" || a == "--text")
-    {
+    if args.first().is_some_and(|a| {
+        a == "--render" || a == "--bench" || a == "--print" || a == "--text" || a == "--search"
+    }) {
         if let Err(e) = reader_app::tool(&args) {
             eprintln!("{e}");
             std::process::exit(1);

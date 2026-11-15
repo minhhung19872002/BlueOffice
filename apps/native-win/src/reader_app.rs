@@ -1182,6 +1182,31 @@ fn text_tool(doc: &mut PdfDocument) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// `--search in.pdf word`: read every page's text as the search does (from page 1), print the
+/// time to the first hit and in all, and the hit count.
+fn search_tool(doc: &mut PdfDocument, query: &str, open_ms: f64) -> Result<(), String> {
+    let t0 = Instant::now();
+    let mut first = None;
+    let mut hits = 0;
+    for i in 0..doc.page_count() {
+        let p = doc.render(i, RenderOptions::default())?;
+        let n = bo_pdfread::TextLayer::new(p.chars)
+            .find(query, false, false)
+            .len();
+        if n > 0 && first.is_none() {
+            first = Some((i + 1, t0.elapsed().as_secs_f64() * 1e3));
+        }
+        hits += n;
+    }
+    let (page, ms) = first.unwrap_or((0, 0.0));
+    println!(
+        r#"{{"open_ms":{open_ms:.1},"first_hit_page":{page},"first_hit_ms":{ms:.1},"total_ms":{:.1},"hits":{hits},"pages":{}}}"#,
+        t0.elapsed().as_secs_f64() * 1e3,
+        doc.page_count()
+    );
+    Ok(())
+}
+
 /// Command-line tools: `--render in.pdf <page> out.png [zoom%]`, `--bench in.pdf [pages]` and
 /// `--text in.pdf`.
 #[allow(clippy::too_many_lines)]
@@ -1192,6 +1217,9 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
     if args[0] == "--text" {
         return text_tool(&mut doc);
+    }
+    if args[0] == "--search" {
+        return search_tool(&mut doc, args.get(2).map_or("", String::as_str), open_ms);
     }
     let device = Device::new()?;
     device.set_text_rendering(page_text());

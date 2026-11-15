@@ -1200,9 +1200,39 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     }
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
-        let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);
         let out = args.get(3).ok_or("missing output path")?;
         let zoom: f32 = args.get(4).and_then(|v| v.parse().ok()).unwrap_or(100.0);
+        // `all` (or `a-b`) with `%d` in the output path: many pages in one run.
+        let spec = args.get(2).map_or("1", String::as_str);
+        if spec == "all" || spec.contains('-') {
+            let pages = if spec == "all" {
+                (0..doc.page_count()).collect()
+            } else {
+                bo_ui::parse_pages(spec, doc.page_count())
+            };
+            for i in pages {
+                let one = out.replace("%d", &(i + 1).to_string());
+                if let Err(e) = render_one(&mut doc, &device, i + 1, &one, zoom) {
+                    println!("{one}: FAILED {e}");
+                }
+            }
+            return Ok(());
+        }
+        let page: usize = spec.parse().unwrap_or(1);
+        return render_one(&mut doc, &device, page, out, zoom);
+    }
+    bench_tool(args, &mut doc, &device, open_ms)
+}
+
+/// `--render`: one page to a PNG at `zoom` % (125 % display scale).
+fn render_one(
+    doc: &mut PdfDocument,
+    device: &Device,
+    page: usize,
+    out: &str,
+    zoom: f32,
+) -> Result<(), String> {
+    {
         let scale = zoom / 100.0 * 96.0 / 72.0 * 1.25;
         let opts = RenderOptions {
             min_line: 1.0 / scale,
@@ -1235,8 +1265,17 @@ pub fn tool(args: &[String]) -> Result<(), String> {
             img.height,
             p.list.commands.len()
         );
-        return Ok(());
+        Ok(())
     }
+}
+
+/// `--bench`: open time, first page, display list and GPU times per page.
+fn bench_tool(
+    args: &[String],
+    doc: &mut PdfDocument,
+    device: &Device,
+    open_ms: f64,
+) -> Result<(), String> {
     let n = doc.page_count();
     let limit: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(n).min(n);
     let scale = 96.0 / 72.0 * 1.25;

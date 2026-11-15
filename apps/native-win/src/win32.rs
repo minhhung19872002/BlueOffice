@@ -261,6 +261,51 @@ pub fn enable_sheet_keys() {
     SHEET_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// BlueReader: Alt pressed and released alone, or F10, comes as `Key::F(10)` (ribbon key
+/// tips) instead of the system menu's keyboard mode.
+static RIBBON_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn on [`RIBBON_KEYS`] for this process.
+#[allow(dead_code)] // BlueReader only.
+pub fn enable_ribbon_keys() {
+    RIBBON_KEYS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+thread_local! {
+    /// Alt went down and no other key followed yet ([`RIBBON_KEYS`]).
+    static ALT_ALONE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether [`RIBBON_KEYS`] takes this system key message (Alt or F10 down / up); any other
+/// system key ends an Alt press alone.
+fn ribbon_sys_key(msg: u32, vk: u16) -> bool {
+    if !RIBBON_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
+        return false;
+    }
+    let ours = matches!(vk, 0x12 | 0x79) && matches!(msg, WM_SYSKEYDOWN | 0x0105);
+    if !ours {
+        ALT_ALONE.with(|a| a.set(false));
+    }
+    ours
+}
+
+/// A message [`ribbon_sys_key`] took: `true` when it becomes `Key::F(10)` (F10 down, or Alt
+/// up after Alt alone).
+fn ribbon_sys_key_last(msg: u32, vk: u16) -> bool {
+    match (msg, vk) {
+        (WM_SYSKEYDOWN, 0x12) => {
+            ALT_ALONE.with(|a| a.set(true));
+            false
+        }
+        (WM_SYSKEYDOWN, _) => {
+            ALT_ALONE.with(|a| a.set(false));
+            true
+        }
+        (_, 0x12) => ALT_ALONE.with(|a| a.replace(false)),
+        _ => false,
+    }
+}
+
 /// A system key (Alt held) that the spreadsheet handles itself.
 fn sheet_sys_key(vk: u16) -> Option<Key> {
     if !SHEET_KEYS.load(std::sync::atomic::Ordering::Relaxed) {
@@ -525,6 +570,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             };
             if let Some(text) = text {
                 input(hwnd, Input::Text(text));
+            }
+            LRESULT(0)
+        }
+        WM_SYSKEYDOWN | 0x0105 if ribbon_sys_key(msg, wparam.0 as u16) => {
+            if ribbon_sys_key_last(msg, wparam.0 as u16) {
+                input(hwnd, Input::Key(Key::F(10), Mods::default()));
             }
             LRESULT(0)
         }

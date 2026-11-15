@@ -29,6 +29,8 @@ fn main() {
         }
         return;
     }
+    // Alt / F10 show the ribbon's key tips.
+    win32::enable_ribbon_keys();
     let ui = std::thread::Builder::new()
         .name("ui".into())
         .stack_size(64 * 1024 * 1024)

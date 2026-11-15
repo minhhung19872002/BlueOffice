@@ -12,6 +12,8 @@ pub use crate::reader_impose::{BookletSides, Duplex, PageOrder, PrintLayout, Pri
 pub use sub6::{black_white, PrintColor};
 
 // Advanced and Page Setting panels (BlueReader round 6).
+#[path = "reader_print7.rs"]
+mod keys7;
 #[path = "reader_print6.rs"]
 mod sub6;
 
@@ -309,6 +311,8 @@ pub struct PrintDialog {
     window: ((f32, f32), f32),
     /// Advanced and Page Setting values and the open panel.
     sub: sub6::Sub6,
+    /// Control with the keyboard focus ring (Tab order, `keys7`).
+    kbd: Option<Part>,
 }
 
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
@@ -380,6 +384,7 @@ impl PrintDialog {
             preview_rect: [0.0; 4],
             window: ((1500.0, 1000.0), 1.0),
             sub: sub6::Sub6::default(),
+            kbd: None,
         }
     }
 
@@ -1127,6 +1132,15 @@ impl PrintDialog {
             self.text_sub(s);
             return;
         }
+        // Space presses the control with the focus ring; other controls ignore typing.
+        if !self.ring_on_text() {
+            if s == " " {
+                if let Some((x, y)) = self.ring_centre() {
+                    let _ = self.press(x, y);
+                }
+            }
+            return;
+        }
         if self.focus == Field::TileZoom {
             self.tile_zoom
                 .extend(s.chars().filter(char::is_ascii_digit));
@@ -1159,7 +1173,7 @@ impl PrintDialog {
 
     /// A key: Enter prints, Escape cancels, Backspace edits, Up / Down change the copies,
     /// Page Up / Down move the preview.
-    pub fn key(&mut self, key: Key, _m: Mods) -> Option<PrintAction> {
+    pub fn key(&mut self, key: Key, mods: Mods) -> Option<PrintAction> {
         if self.sub.open.is_some() {
             self.key_sub(key);
             return None;
@@ -1201,12 +1215,7 @@ impl PrintDialog {
                 self.preview_at = (self.preview_at + 1).min(n.saturating_sub(1));
             }
             Key::PageUp => self.preview_at = self.preview_at.saturating_sub(1),
-            Key::Tab => {
-                self.focus = match self.focus {
-                    Field::Copies => Field::Pages,
-                    Field::Pages | Field::Scale | Field::TileZoom | Field::Overlap => Field::Copies,
-                };
-            }
+            Key::Tab => self.tab_key(mods.shift),
             _ => {}
         }
         None
@@ -1625,6 +1634,7 @@ impl PrintDialog {
                 self.text_in(p, &self.item_label(d, i, s), r, self.px(4.8), TEXT);
             }
         }
+        self.paint_ring(p);
         self.paint_sub(p, s, caret);
     }
 }
@@ -2218,6 +2228,43 @@ mod tests {
         assert!(after.dest[0] >= pr[0] + (18.0 + ml) * k - 0.5);
         assert!(after.dest[1] >= pr[1] + (18.0 + mt) * k - 0.5);
         assert!(after.zoom < before);
+    }
+
+    #[test]
+    fn tab_moves_a_focus_ring_in_reading_order() {
+        let mut d = PrintDialog::new(vec!["A".into()], None, 3, 0);
+        d.layout(&Fixed, (1600.0, 1000.0), 1.25);
+        let order = d.tab_order();
+        assert_eq!(order.first(), Some(&Part::Printer));
+        assert_eq!(&order[order.len() - 2..], &[Part::Ok, Part::Cancel]);
+        let pos = |p: Part| order.iter().position(|q| *q == p).expect("part");
+        assert!(pos(Part::Copies) < pos(Part::Range(Range::All)));
+        assert!(pos(Part::Range(Range::All)) < pos(Part::Duplex));
+        assert!(pos(Part::Duplex) < pos(Part::PageSetting));
+        // Tab from the copies box (the typing focus) goes on; Shift+Tab comes back.
+        d.key(Key::Tab, Mods::default());
+        let after = d.kbd.expect("ring");
+        assert_eq!(pos(after), pos(Part::Copies) + 1);
+        let shift = Mods {
+            shift: true,
+            ..Mods::default()
+        };
+        d.key(Key::Tab, shift);
+        assert_eq!(d.kbd, Some(Part::Copies));
+        // Typing goes to the copies box; Space on Print as grayscale ticks it.
+        d.text("2");
+        while d.kbd != Some(Part::Gray) {
+            d.key(Key::Tab, Mods::default());
+        }
+        d.text("5");
+        assert!(!d.gray);
+        d.text(" ");
+        assert!(d.gray);
+        // Wraps around.
+        for _ in 0..order.len() {
+            d.key(Key::Tab, Mods::default());
+        }
+        assert_eq!(d.kbd, Some(Part::Gray));
     }
 
     #[test]

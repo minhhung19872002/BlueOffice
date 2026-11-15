@@ -248,7 +248,14 @@ impl ReaderWindow {
                 };
                 for (label, value) in rows {
                     p.text(&format!("{label}:"), left, y, body, MUTED);
-                    p.text(value, val_x, y, body, TEXT);
+                    // Long values (a deep folder) keep their end, like a path box.
+                    let n = value.chars().count();
+                    let shown = if n > 60 {
+                        format!("…{}", value.chars().skip(n - 59).collect::<String>())
+                    } else {
+                        value.clone()
+                    };
+                    p.text(&shown, val_x, y, body, TEXT);
                     y += lh;
                 }
             }

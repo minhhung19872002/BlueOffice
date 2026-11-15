@@ -2495,6 +2495,23 @@
       "unsupportedLink": "Chưa hỗ trợ loại liên kết này."
     }
   },
+  "slideNative": {
+    "design": "Thiết kế",
+    "customize": "Tùy chỉnh",
+    "transitionGallery": "Chuyển sang trang chiếu này",
+    "timing": "Thời gian",
+    "animations": "Hoạt hình",
+    "animationGallery": "Hoạt hình",
+    "advanced": "Hoạt hình nâng cao",
+    "formatBackground": "Định dạng nền",
+    "fonts": "Phông chữ",
+    "effectOptions": "Tùy chọn hiệu ứng",
+    "widescreen": "Màn hình rộng (16:9)",
+    "standard": "Chuẩn (4:3)",
+    "seconds": "{{n}} giây",
+    "noComments": "Trang chiếu này chưa có chú thích",
+    "layout": "Bố cục"
+  },
   "slideEditor": {
     "open": "Mở",
     "save": "Lưu .pptx",

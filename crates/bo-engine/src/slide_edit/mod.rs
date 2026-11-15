@@ -1286,6 +1286,10 @@ pub struct SlideEditResult {
     /// Type of each of [`SlideEditResult::placeholders`] (§19.7.10 ST_PlaceholderType:
     /// `title`, `ctrTitle`, `subTitle`, `body`, `obj`, …), for their prompt text.
     pub placeholder_kinds: Vec<String>,
+    /// Custom prompt of each of [`SlideEditResult::placeholders`]: the text of the layout's
+    /// placeholder when it has `hasCustomPrompt` (§19.3.1.36 ph), empty for the default prompt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placeholder_prompts: Vec<String>,
     /// Slides whose display list changed.
     pub dirty: Vec<usize>,
     /// The slide list changed (count or order).
@@ -2714,6 +2718,73 @@ fn cmd_set_text(
         apply_box(tx.pres, sel.slide, &mut n, p, &b);
     }
     tx.replace_node(sel.slide, &path, n)?;
+    Ok(())
+}
+
+/// Prompt text of an empty slide placeholder whose layout placeholder has a custom prompt
+/// (§19.3.1.36 ph@hasCustomPrompt: the layout shape's own text is the prompt); empty when
+/// the default prompt applies.
+fn custom_prompt(pres: &Presentation, slide: usize, ph: &bo_model::slide::Placeholder) -> String {
+    let Some(layout) = pres
+        .slides
+        .get(slide)
+        .and_then(|s| pres.layouts.get(s.layout))
+    else {
+        return String::new();
+    };
+    match bo_pptx::inherit::find_placeholder(&layout.data.shapes, ph, false) {
+        Some(l)
+            if l.nv
+                .placeholder
+                .as_ref()
+                .and_then(|p| p.has_custom_prompt)
+                .unwrap_or(false) =>
+        {
+            l.text.as_ref().map(TextBody::text).unwrap_or_default()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Fit the text of shapes `ids` again after their box or text format changed, as the
+/// reference app does on resize and on a new font size: `spAutoFit` (§21.1.2.1.2) snaps the
+/// height to the text, `normAutofit` (§21.1.2.1.3) stores the new font scale.
+fn refit_shapes(
+    tx: &mut Tx<'_>,
+    slide: usize,
+    ids: &[u32],
+    fonts: &mut bo_text::FontManager,
+) -> R<()> {
+    let placed = place_slide(tx.pres, slide);
+    for p in selected(&placed, ids) {
+        let n0 = node_clone(tx.pres, slide, &p.path)?;
+        let mut n = n0.clone();
+        let ShapeNode::Shape(s) = &mut n else {
+            continue;
+        };
+        if s.text.is_none() {
+            continue;
+        }
+        let had = s.text.as_ref().and_then(|t| t.body_pr.autofit.clone());
+        let fitted = rich::autofit(tx.pres, slide, s, &p.b, fonts);
+        if let Some(tb) = s.text.as_mut().filter(|_| had.is_none()) {
+            // Inherited shrink that still fits at 100 %: keep inheriting (no new XML).
+            if tb.body_pr.autofit
+                == Some(bo_model::slide::Autofit::Normal {
+                    font_scale: None,
+                    ln_spc_reduction: None,
+                })
+            {
+                tb.body_pr.autofit = None;
+            }
+        }
+        if let Some(b) = fitted {
+            apply_box(tx.pres, slide, &mut n, p, &b);
+        }
+        if n != n0 {
+            tx.replace_node(slide, &p.path, n)?;
+        }
+    }
     Ok(())
 }
 
@@ -4395,8 +4466,12 @@ impl Engine {
                                 Some(plan(pres, &placed, &items, transform, snap, tolerance));
                         }
                     } else {
+                        let resize = matches!(transform, Transform::Resize { .. });
                         ed.mutate(pres, &mut out, |tx, sel| {
                             cmd_transform(tx, sel, transform, snap, tolerance)?;
+                            if resize {
+                                refit_shapes(tx, sel.slide, &sel.ids, fonts)?;
+                            }
                             // A resized 3D model gets a picture of its new shape.
                             model3d::refresh_resized(tx, sel)
                         });
@@ -4550,7 +4625,14 @@ impl Engine {
                         if view {
                             cmd_format_master(tx, sel, &format, ts)
                         } else {
-                            cmd_format(tx, sel, &format, ts)
+                            cmd_format(tx, sel, &format, ts)?;
+                            // A new size, font or spacing changes how much room the text
+                            // takes: fit the box (or the shrink) again.
+                            let mut ids = sel.ids.clone();
+                            if let Some(t) = ts.filter(|t| t.cell.is_none()) {
+                                ids.push(t.id);
+                            }
+                            refit_shapes(tx, sel.slide, &ids, fonts)
                         }
                     });
                 }
@@ -5925,19 +6007,24 @@ impl Engine {
             [one] => Some(one.b),
             many => Rect::union_all(many.iter().map(|p| p.b.bounds())).map(BoxR::from_rect),
         };
+        let mut placeholder_prompts = Vec::new();
         let (placeholders, placeholder_kinds): (Vec<BoxR>, Vec<String>) = placed
             .iter()
             .filter_map(|p| match ops::node_at(pres, slide, &p.path) {
                 Some(ShapeNode::Shape(s))
                     if s.text.as_ref().is_none_or(|t| t.text().trim().is_empty()) =>
                 {
-                    s.nv.placeholder
-                        .as_ref()
-                        .map(|ph| (p.b, ph.kind.clone().unwrap_or_else(|| "obj".to_owned())))
+                    s.nv.placeholder.as_ref().map(|ph| {
+                        placeholder_prompts.push(custom_prompt(pres, slide, ph));
+                        (p.b, ph.kind.clone().unwrap_or_else(|| "obj".to_owned()))
+                    })
                 }
                 _ => None,
             })
             .unzip();
+        if placeholder_prompts.iter().all(String::is_empty) {
+            placeholder_prompts.clear();
+        }
         Ok(SlideEditResult {
             info: self.info()?,
             slide,
@@ -5946,6 +6033,7 @@ impl Engine {
             selection,
             placeholders,
             placeholder_kinds,
+            placeholder_prompts,
             dirty,
             slides_changed: out.all,
             modified: ed.is_modified() || self.sec.dirty(),

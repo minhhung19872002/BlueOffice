@@ -2495,6 +2495,23 @@
       "unsupportedLink": "This kind of link is not supported yet."
     }
   },
+  "slideNative": {
+    "design": "Design",
+    "customize": "Customize",
+    "transitionGallery": "Transition to This Slide",
+    "timing": "Timing",
+    "animations": "Animations",
+    "animationGallery": "Animation",
+    "advanced": "Advanced Animation",
+    "formatBackground": "Format Background",
+    "fonts": "Fonts",
+    "effectOptions": "Effect Options",
+    "widescreen": "Widescreen (16:9)",
+    "standard": "Standard (4:3)",
+    "seconds": "{{n}} s",
+    "noComments": "No comments on this slide",
+    "layout": "Layout"
+  },
   "slideEditor": {
     "open": "Open",
     "save": "Save .pptx",

@@ -6,11 +6,15 @@ use crate::backstage::{Backstage, FileAction};
 use crate::icons::{IconColors, Icons};
 use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
 use crate::ribbon::{Group, Item, Ribbon, RibbonHit, Tab};
-use crate::slide_view::{Focus, SlideView};
+use crate::slide_comments::{now_iso, CommentsPane, PaneEdit, PaneHit};
+use crate::slide_ribbon as sr;
+use crate::slide_view::{Focus, SlideView, ViewMode};
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
 use crate::{Input, Key, Mods, PageStore, Painter, Request, TextMeasure, TextStyle};
+use bo_engine::slide_edit::master::{MasterCommand, SizeMode, COLOR_SETS, FONT_SETS};
+use bo_engine::slide_edit::show::{AnimSpec, TransitionSpec};
 use bo_engine::slide_edit::text::{Align, TextFormat};
 use bo_engine::slide_edit::SlideCommand;
 use bo_render::PathSeg;
@@ -231,6 +235,13 @@ pub struct SlideWindow {
     title: TitleBar,
     name: String,
     requests: Vec<Request>,
+    /// What this window last put on the system clipboard (its internal form), and a count.
+    clip_token: Option<String>,
+    clip_seq: u32,
+    /// Comments pane on the right of the editing area.
+    comments: CommentsPane,
+    /// Measured widths of the gallery tiles' names.
+    gallery_w: Vec<(&'static str, f32)>,
     ribbon: Ribbon,
     theme: Theme,
     icons: Icons,
@@ -258,12 +269,53 @@ enum MenuKind {
     Font,
     Size,
     Layout,
+    /// Design: colour variants, font variants, slide size, background colour.
+    Colors,
+    Fonts,
+    SlideSize,
+    Background,
+    /// Transitions: effect options (direction), duration.
+    TransitionEffect,
+    Duration,
+    /// Animations: effect options (direction).
+    AnimEffect,
+    /// Every transition / effect of the galleries.
+    TransitionMore,
+    AnimMore,
+}
+
+/// Extra height of BlueSlide's command band (logical px): measured 2026-11-15 at 125 %, the
+/// reference presentation app's ribbon body (y 99-235) is 1 device pixel taller than
+/// BlueDoc's (the 8 px of round 1 came from another state of the reference window).
+const RIBBON_EXTRA: f32 = 0.8;
+
+/// Durations offered for a transition (ms).
+const DURATIONS: [u32; 8] = [250, 500, 750, 1000, 1500, 2000, 3000, 5000];
+
+/// Background colours offered by Format Background (`RRGGBB`; `None` resets).
+const BACKGROUNDS: [Option<&str>; 9] = [
+    None,
+    Some("FFFFFF"),
+    Some("F2F2F2"),
+    Some("D9D9D9"),
+    Some("000000"),
+    Some("DEEAF6"),
+    Some("E2F0D9"),
+    Some("FFF2CC"),
+    Some("FBE5D6"),
+];
+
+fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
+    crate::commands::enabled(id, f) || sr::is_command(id)
 }
 
 impl SlideWindow {
     /// Wrap the presentation `name` shown by `view` with BlueSlide's interface in `locale`.
     pub fn new(mut view: SlideView, locale: &str, name: &str) -> Self {
-        let strings = Strings::load(locale);
+        let mut strings = Strings::load(locale);
+        sr::install_strings(&mut strings);
+        let mut icons = Icons::load();
+        sr::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -280,9 +332,25 @@ impl SlideWindow {
             title,
             name: name.to_owned(),
             requests: Vec::new(),
-            ribbon: Ribbon::with_tabs(vec![home(), insert_tab(), show_tab(), view_tab()]),
+            clip_token: None,
+            clip_seq: 0,
+            comments: CommentsPane::default(),
+            gallery_w: Vec::new(),
+            ribbon: Ribbon::with_tabs(vec![
+                home(),
+                insert_tab(),
+                sr::design_tab(),
+                sr::transitions_tab(),
+                sr::animations_tab(),
+                show_tab(),
+                sr::review_tab(),
+                view_tab(),
+            ])
+            .with_band_extra(RIBBON_EXTRA)
+            .with_large_widths(sr::large_width)
+            .with_enabled(slide_enabled),
             theme: Theme::light("slide"),
-            icons: Icons::load(),
+            icons,
             strings,
             size: (800.0, 600.0),
             scale: 1.0,
@@ -353,8 +421,8 @@ impl SlideWindow {
     }
 
     fn status_h(&self) -> f32 {
-        // Reference: line 34 device pixels above the client bottom at 125 %.
-        (27.2 * self.scale).round()
+        // Reference: line 33 device pixels above the client bottom at 125 % (re-measured).
+        (26.4 * self.scale).round()
     }
 
     fn t(&self, key: &str, fallback: &str) -> String {
@@ -372,10 +440,23 @@ impl SlideWindow {
         let top = self.title.height();
         self.ribbon
             .layout(text, &self.strings, self.size.0, self.scale, top);
-        let top = self.ribbon.bottom();
+        // Reading view: no ribbon, the slide fills the window between title and status bar.
+        let top = if self.view.mode() == ViewMode::Reading {
+            top
+        } else {
+            self.ribbon.bottom()
+        };
         let sh = self.status_h();
+        let pane = if self.comments.shown && self.view.mode() != ViewMode::Reading {
+            CommentsPane::width(self.scale)
+        } else {
+            0.0
+        };
+        let area_h = (self.size.1 - top - sh).max(1.0);
         self.view
-            .set_frame(0.0, top, self.size.0, (self.size.1 - top - sh).max(1.0));
+            .set_frame(0.0, top, (self.size.0 - pane).max(1.0), area_h);
+        self.comments
+            .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         self.view.set_window(self.size.0, self.size.1);
         if let Some(b) = self.backstage.as_mut() {
             b.layout(self.title.height(), self.size, self.scale);
@@ -408,6 +489,17 @@ impl SlideWindow {
             notes, minus, track, plus, pct, fit, views[0], views[1], views[2], views[3],
         ];
         self.text_size = (12.0 * self.scale).round();
+        let style = self.status_style();
+        self.gallery_w = sr::TRANSITIONS
+            .iter()
+            .map(|(c, _)| *c)
+            .chain(sr::EFFECTS.iter().map(|(c, _)| *c))
+            .map(|id| {
+                let key = format!("commands.{id}");
+                let label = self.strings.get(&key);
+                (id, text.measure(label, style).0)
+            })
+            .collect();
         self.view.measure_notes(text, self.text_size);
     }
 
@@ -421,13 +513,35 @@ impl SlideWindow {
     /// Handle an input event; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
         let showing = self.view.showing();
+        let mode = self.view.mode();
         let redraw = self.route(input, text);
+        if mode != self.view.mode() {
+            self.relayout_pending = true;
+        }
         if showing != self.view.showing() {
             self.requests.push(Request::FullScreen(self.view.showing()));
         }
         if self.relayout_pending {
             self.relayout_pending = false;
             self.relayout(text);
+        }
+        if self.comments.shown {
+            let threads = self
+                .view
+                .state()
+                .map(|s| s.comments.clone())
+                .unwrap_or_default();
+            let labels = [
+                self.t("slideEditor.comments.title", "Comments"),
+                self.t("slideEditor.comments.new", "New comment"),
+                self.t("slideNative.noComments", "No comments"),
+                self.t("slideEditor.comments.resolve", "Resolve"),
+                self.t("slideEditor.comments.reopen", "Reopen"),
+                self.t("slideEditor.comments.delete", "Delete"),
+                self.t("slideEditor.comments.newPlaceholder", ""),
+            ];
+            self.comments
+                .record(text, &threads, &labels, self.theme.text);
         }
         self.view.measure_notes(text, self.text_size);
         redraw
@@ -494,9 +608,35 @@ impl SlideWindow {
                 self.requests.push(Request::Save);
                 true
             }
-            "edit.copy" => self.view.run(SlideCommand::Copy),
-            "edit.cut" => self.view.run(SlideCommand::Cut),
-            "edit.paste" => self.view.run(SlideCommand::Paste { keep_source: false }),
+            "edit.copy" => self.copy(false),
+            "edit.cut" => self.copy(true),
+            "edit.paste" => {
+                // The host reads the system clipboard and calls `paste`.
+                self.requests.push(Request::Paste);
+                true
+            }
+            "review.comments" => {
+                self.comments.shown = !self.comments.shown;
+                self.comments.draft = None;
+                self.relayout_pending = true;
+                true
+            }
+            "review.newComment" => {
+                self.comments.shown = true;
+                self.comments.draft = Some(String::new());
+                self.relayout_pending = true;
+                true
+            }
+            "view.normal" | "view.sorter" | "view.reading" => {
+                let mode = match id {
+                    "view.sorter" => ViewMode::Sorter,
+                    "view.reading" => ViewMode::Reading,
+                    _ => ViewMode::Normal,
+                };
+                let changed = self.view.set_mode(mode);
+                self.relayout_pending = true;
+                changed
+            }
             "slide.layout" => {
                 self.open_menu(MenuKind::Layout, RibbonHit::Command("slide.layout"));
                 true
@@ -512,13 +652,246 @@ impl SlideWindow {
             }
             "view.zoomIn" => self.step_zoom(true),
             "view.zoomOut" => self.step_zoom(false),
-            _ => self.view.action(id),
+            id if sr::is_menu(id) => {
+                let (kind, anchor) = match id {
+                    "design.colors" => (MenuKind::Colors, "design.colors"),
+                    "design.fonts" => (MenuKind::Fonts, "design.fonts"),
+                    "design.slideSize" => (MenuKind::SlideSize, "design.slideSize"),
+                    "design.background" => (MenuKind::Background, "design.background"),
+                    "transition.effect" => (MenuKind::TransitionEffect, "transition.effect"),
+                    "transition.duration" => (MenuKind::Duration, "transition.duration"),
+                    "transition.more" => (MenuKind::TransitionMore, "transition.more"),
+                    "anim.more" => (MenuKind::AnimMore, "anim.more"),
+                    _ => (MenuKind::AnimEffect, "anim.effect"),
+                };
+                self.open_menu(kind, RibbonHit::Command(anchor));
+                true
+            }
+            "transition.applyAll" => self.set_transition(None, None, None, true),
+            "transition.preview" => self.view.start_preview(false),
+            "anim.preview" => self.view.start_preview(true),
+            id => {
+                if let Some((_, theme)) = sr::THEMES.iter().find(|(c, _)| *c == id) {
+                    return self.view.run_master(MasterCommand::ApplyTheme {
+                        builtin: Some((*theme).to_owned()),
+                        file: None,
+                        all: true,
+                    });
+                }
+                if let Some((_, kind)) = sr::TRANSITIONS.iter().find(|(c, _)| *c == id) {
+                    // The reference plays a transition as soon as it is chosen.
+                    let set = self.set_transition(Some(kind), None, None, false);
+                    if set {
+                        self.view.start_preview(false);
+                    }
+                    return set;
+                }
+                if let Some((_, effect)) = sr::EFFECTS.iter().find(|(c, _)| *c == id) {
+                    let set = self.apply_effect(*effect, None);
+                    if set && effect.is_some() {
+                        self.view.start_preview(true);
+                    }
+                    return set;
+                }
+                self.view.action(id)
+            }
         }
+    }
+
+    /// Input for the Comments pane (clicks in it, typing a new comment).
+    fn comments_input(&mut self, input: &Input) -> Option<bool> {
+        if !self.comments.shown {
+            return None;
+        }
+        let edit = match input {
+            Input::Press { x, y, .. } if self.comments.contains(*x, *y) => {
+                self.area_press = false;
+                let hit = self.comments.press(*x, *y);
+                return Some(match hit {
+                    Some(PaneHit::New) => {
+                        self.comments.draft = Some(String::new());
+                        true
+                    }
+                    Some(PaneHit::Close) => {
+                        self.comments.shown = false;
+                        self.relayout_pending = true;
+                        true
+                    }
+                    Some(PaneHit::Resolve(id, done)) => {
+                        self.view.run(SlideCommand::ResolveComment { id, done })
+                    }
+                    Some(PaneHit::Delete(id)) => self.view.run(SlideCommand::DeleteComment { id }),
+                    None => false,
+                });
+            }
+            Input::Text(t) => self.comments.text(t),
+            Input::Key(k, m) if !m.ctrl => self.comments.key(*k),
+            _ => None,
+        }?;
+        Some(match edit {
+            PaneEdit::Changed | PaneEdit::Cancel => true,
+            PaneEdit::Post(text) => {
+                let author = std::env::var("USERNAME")
+                    .or_else(|_| std::env::var("USER"))
+                    .unwrap_or_else(|_| "BlueSlide".to_owned());
+                self.view.run(SlideCommand::AddComment {
+                    text,
+                    author,
+                    date: now_iso(),
+                    parent: None,
+                    mentions: Vec::new(),
+                    task: None,
+                })
+            }
+        })
+    }
+
+    /// Copy (or cut) the selected shapes, or the chosen slides in the sorter / thumbnails,
+    /// into the engine's clipboard and put text, a picture (HTML) and this window's token
+    /// on the system clipboard.
+    fn copy(&mut self, cut: bool) -> bool {
+        let slides = self.view.mode() == ViewMode::Sorter || self.view.focus() == Focus::Thumbs;
+        let indices = Some(self.view.selected_slides());
+        let cmd = match (slides, cut) {
+            (true, false) => SlideCommand::CopySlides { indices },
+            (true, true) => SlideCommand::CutSlides { indices },
+            (false, false) => SlideCommand::Copy,
+            (false, true) => SlideCommand::Cut,
+        };
+        if !self.view.run(cmd) || self.view.state().is_some_and(|s| s.error.is_some()) {
+            return false;
+        }
+        let out = self.view.state().and_then(|s| s.clipboard.clone());
+        let text = out.as_ref().map(|c| c.text.clone()).unwrap_or_default();
+        let html = out
+            .as_ref()
+            .and_then(|c| c.png.as_ref())
+            .map(|png| format!(r#"<img src="data:image/png;base64,{png}">"#))
+            .unwrap_or_default();
+        self.clip_seq += 1;
+        let token = format!("BlueSlide/{:p}/{}", &raw const *self, self.clip_seq);
+        self.clip_token = Some(token.clone());
+        self.requests.push(Request::SetClipboard {
+            text,
+            html,
+            internal: token,
+        });
+        true
+    }
+
+    /// Paste what the system clipboard holds: this window's own copy from the engine's
+    /// clipboard, else another program's text as a new text box (as the reference does).
+    pub fn paste(
+        &mut self,
+        internal: Option<String>,
+        _html: Option<String>,
+        text: Option<String>,
+    ) -> bool {
+        let ours = internal.is_some_and(|i| Some(&i) == self.clip_token.as_ref());
+        let text = text.unwrap_or_default();
+        if ours || text.trim().is_empty() {
+            return self.view.run(SlideCommand::Paste { keep_source: false });
+        }
+        self.view.run(SlideCommand::InsertTextBox {
+            text: text.replace("\r\n", "\n"),
+            rect: None,
+        })
+    }
+
+    /// Set the current slide's transition (`kind` `None` keeps the effect; `all`: every
+    /// slide gets the current slide's transition, as Apply To All).
+    fn set_transition(
+        &mut self,
+        kind: Option<&str>,
+        dir: Option<String>,
+        dur_ms: Option<u32>,
+        all: bool,
+    ) -> bool {
+        let cur = self.view.state().and_then(|s| s.transition.clone());
+        let transition = if all {
+            let Some(t) = cur else {
+                return self.view.run(SlideCommand::SetTransition {
+                    slides: None,
+                    all: true,
+                    transition: TransitionSpec {
+                        kind: "none".into(),
+                        ..TransitionSpec::default()
+                    },
+                });
+            };
+            TransitionSpec {
+                kind: t.kind,
+                dir: t.dir,
+                dur_ms: Some(t.dur_ms),
+                ..TransitionSpec::default()
+            }
+        } else {
+            TransitionSpec {
+                kind: kind.unwrap_or("keep").to_owned(),
+                dir,
+                dur_ms,
+                ..TransitionSpec::default()
+            }
+        };
+        self.view.run(SlideCommand::SetTransition {
+            slides: None,
+            all,
+            transition,
+        })
+    }
+
+    /// Give the selected shapes `effect` (engine effect id and class) in place of their
+    /// effects, as the reference's animation gallery does (`None` removes them); `dir`
+    /// changes the direction of their effects instead.
+    fn apply_effect(&mut self, effect: Option<(&str, &str)>, dir: Option<String>) -> bool {
+        let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
+        if ids.is_empty() {
+            return false;
+        }
+        let mine: Vec<usize> = self
+            .view
+            .state()
+            .map(|s| {
+                s.animations
+                    .iter()
+                    .filter(|a| ids.contains(&a.shape_id))
+                    .map(|a| a.index)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(d) = dir {
+            let mut done = false;
+            for index in mine {
+                done |= self.view.run(SlideCommand::SetAnimation {
+                    index,
+                    spec: AnimSpec {
+                        direction: Some(d.clone()),
+                        ..AnimSpec::default()
+                    },
+                });
+            }
+            return done;
+        }
+        let mut done = false;
+        for index in mine.into_iter().rev() {
+            done |= self.view.run(SlideCommand::RemoveAnimation { index });
+        }
+        if let Some((e, class)) = effect {
+            done |= self.view.run(SlideCommand::AddAnimation {
+                spec: AnimSpec {
+                    effect: Some(e.to_owned()),
+                    class: Some(class.to_owned()),
+                    ..AnimSpec::default()
+                },
+            });
+        }
+        done
     }
 
     fn open_menu(&mut self, kind: MenuKind, hit: RibbonHit) {
         let anchor = self.ribbon.rect_of(hit).unwrap_or([0.0, 0.0, 1.0, 1.0]);
         let f = self.view.format();
+        let design = self.view.state().and_then(|s| s.design.clone());
         let items: Vec<MenuItem> = match kind {
             MenuKind::Font => {
                 let mut names: Vec<String> = FONTS.iter().map(|s| (*s).to_owned()).collect();
@@ -562,7 +935,126 @@ impl SlideWindow {
                     dim: false,
                 })
                 .collect(),
+            MenuKind::Colors => COLOR_SETS
+                .iter()
+                .map(|c| MenuItem {
+                    label: c.name.trim_start_matches("BlueOffice ").to_owned(),
+                    choice: Choice::Command(format!("colors:{}", c.id)),
+                    checked: design.as_ref().is_some_and(|d| d.colors == c.name),
+                    dim: false,
+                })
+                .collect(),
+            MenuKind::Fonts => FONT_SETS
+                .iter()
+                .map(|f| MenuItem {
+                    label: format!("{} / {}", f.major, f.minor),
+                    choice: Choice::Command(format!("fonts:{}", f.id)),
+                    checked: design.as_ref().is_some_and(|d| d.fonts == f.name),
+                    dim: false,
+                })
+                .collect(),
+            MenuKind::SlideSize => [
+                ("slideNative.standard", "size:43", 9_144_000, 6_858_000),
+                ("slideNative.widescreen", "size:169", 12_192_000, 6_858_000),
+            ]
+            .iter()
+            .map(|(key, c, cx, cy)| MenuItem {
+                label: self.strings.get(key).to_owned(),
+                choice: Choice::Command((*c).to_owned()),
+                checked: design.as_ref().is_some_and(|d| d.cx == *cx && d.cy == *cy),
+                dim: false,
+            })
+            .collect(),
+            MenuKind::Background => BACKGROUNDS
+                .iter()
+                .map(|c| MenuItem {
+                    label: match c {
+                        Some(hex) => format!("#{hex}"),
+                        None => self
+                            .strings
+                            .get("slideEditor.design.resetBackground")
+                            .to_owned(),
+                    },
+                    choice: Choice::Command(format!("bg:{}", c.unwrap_or(""))),
+                    checked: false,
+                    dim: false,
+                })
+                .collect(),
+            MenuKind::TransitionEffect => {
+                let t = self.view.state().and_then(|s| s.transition.clone());
+                t.map(|t| {
+                    t.dirs
+                        .iter()
+                        .map(|d| MenuItem {
+                            label: self.dir_label(d),
+                            choice: Choice::Command(format!("tdir:{d}")),
+                            checked: t.dir.as_deref() == Some(*d),
+                            dim: false,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+            }
+            MenuKind::AnimEffect => {
+                let ids: Vec<u32> = self.view.selection().iter().map(|s| s.id).collect();
+                let a = self.view.state().and_then(|s| {
+                    s.animations
+                        .iter()
+                        .find(|a| ids.contains(&a.shape_id))
+                        .cloned()
+                });
+                a.map(|a| {
+                    a.dirs
+                        .iter()
+                        .map(|d| MenuItem {
+                            label: self.dir_label(d),
+                            choice: Choice::Command(format!("adir:{d}")),
+                            checked: a.direction.as_deref() == Some(*d),
+                            dim: false,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+            }
+            MenuKind::TransitionMore | MenuKind::AnimMore => Vec::new(),
+            MenuKind::Duration => {
+                let cur = self
+                    .view
+                    .state()
+                    .and_then(|s| s.transition.as_ref())
+                    .map(|t| t.dur_ms);
+                DURATIONS
+                    .iter()
+                    .map(|ms| MenuItem {
+                        label: self.strings.get("slideNative.seconds").replace(
+                            "{{n}}",
+                            &format!("{:.2}", f64::from(*ms) / 1000.0).replace('.', ","),
+                        ),
+                        choice: Choice::Command(format!("tdur:{ms}")),
+                        checked: cur == Some(*ms),
+                        dim: false,
+                    })
+                    .collect()
+            }
         };
+        let on = self.toggled();
+        let gallery = |list: &mut dyn Iterator<Item = &'static str>| -> Vec<MenuItem> {
+            list.map(|id| MenuItem {
+                label: self.strings.get(&format!("commands.{id}")).to_owned(),
+                choice: Choice::Command(id.to_owned()),
+                checked: on.contains(&id),
+                dim: false,
+            })
+            .collect()
+        };
+        let items = match kind {
+            MenuKind::TransitionMore => gallery(&mut sr::TRANSITIONS.iter().map(|(c, _)| *c)),
+            MenuKind::AnimMore => gallery(&mut sr::EFFECTS.iter().map(|(c, _)| *c)),
+            _ => items,
+        };
+        if items.is_empty() {
+            return;
+        }
         self.menu_kind = kind;
         self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
     }
@@ -573,15 +1065,71 @@ impl SlideWindow {
             Choice::Size(half) => self.view.format_text(TextFormat::Size {
                 points: f64::from(half) / 2.0,
             }),
-            Choice::Command(c) => match c.strip_prefix("layout:").and_then(|i| i.parse().ok()) {
-                // The Layout menu adds a slide with the chosen layout, as New Slide's menu does.
-                Some(layout) if self.menu_kind == MenuKind::Layout => {
-                    self.view.new_slide(Some(layout))
+            Choice::Command(c) => {
+                if let Some(r) = self.choose_design(&c) {
+                    return r;
                 }
-                _ => self.action(&c),
-            },
+                match c.strip_prefix("layout:").and_then(|i| i.parse().ok()) {
+                    // The Layout menu adds a slide with the chosen layout, as New Slide's
+                    // menu does.
+                    Some(layout) if self.menu_kind == MenuKind::Layout => {
+                        self.view.new_slide(Some(layout))
+                    }
+                    _ => self.action(&c),
+                }
+            }
             Choice::Style(_) => false,
         }
+    }
+
+    /// Menu choices of the Design, Transitions and Animations tabs.
+    fn choose_design(&mut self, c: &str) -> Option<bool> {
+        let (kind, v) = c.split_once(':')?;
+        Some(match kind {
+            "colors" => self.view.run_master(MasterCommand::ThemeVariant {
+                colors: Some(v.to_owned()),
+                fonts: None,
+                all: true,
+            }),
+            "fonts" => self.view.run_master(MasterCommand::ThemeVariant {
+                colors: None,
+                fonts: Some(v.to_owned()),
+                all: true,
+            }),
+            "size" => {
+                let (cx, kind) = if v == "43" {
+                    (9_144_000, Some("screen4x3".to_owned()))
+                } else {
+                    (12_192_000, None)
+                };
+                let changed = self.view.run_master(MasterCommand::SetSlideSize {
+                    cx,
+                    cy: 6_858_000,
+                    kind,
+                    mode: SizeMode::Fit,
+                });
+                self.view.set_zoom(None);
+                changed
+            }
+            "bg" => self.view.run_master(MasterCommand::SetBackground {
+                color: (!v.is_empty()).then(|| v.to_owned()),
+                all: false,
+            }),
+            "tdir" => self.set_transition(None, Some(v.to_owned()), None, false),
+            "tdur" => self.set_transition(None, None, v.parse().ok(), false),
+            "adir" => self.apply_effect(None, Some(v.to_owned())),
+            _ => return None,
+        })
+    }
+
+    /// Name of an effect variant (direction, ...) from the editor's strings.
+    fn dir_label(&self, d: &str) -> String {
+        let key = match d {
+            "u" => "slideEditor.animDir.up".to_owned(),
+            "d" => "slideEditor.animDir.down".to_owned(),
+            other => format!("slideEditor.animDir.{other}"),
+        };
+        self.t(&key, d)
     }
 
     fn menu_input(&mut self, input: &Input) -> Option<bool> {
@@ -641,7 +1189,11 @@ impl SlideWindow {
         let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
             return false;
         };
-        let name = self.strings.get(&format!("commands.{id}")).to_owned();
+        let mut name = self.strings.get(&format!("commands.{id}")).to_owned();
+        if name.is_empty() {
+            // Theme tiles: the theme's name.
+            name = self.strings.get(&format!("commands.tip.{id}")).to_owned();
+        }
         let keys = match id {
             "slide.new" => Some("Ctrl+M"),
             "show.fromStart" => Some("F5"),
@@ -679,7 +1231,8 @@ impl SlideWindow {
                     self.relayout(text);
                     true
                 }
-                Input::Release { .. } | Input::Move { .. } | Input::Tick | Input::Blink => false,
+                Input::Tick => self.view.show_tick(),
+                Input::Release { .. } | Input::Move { .. } | Input::Blink => false,
                 other => self.view.handle(other),
             };
         }
@@ -735,9 +1288,14 @@ impl SlideWindow {
                 return self.action(id);
             }
         }
+        if let Some(r) = self.comments_input(&input) {
+            return r || tip_before != self.tooltip.is_some();
+        }
         let status_top = self.size.1 - self.status_h();
         let in_title = |w: &Self, y: f32| y < w.title.height();
-        let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
+        let in_ribbon = |w: &Self, y: f32| {
+            w.view.mode() != ViewMode::Reading && y >= w.ribbon.top() && y < w.ribbon.bottom()
+        };
         let redraw = match input {
             Input::Resize { width, height } => {
                 self.size = (width.max(1.0), height.max(1.0));
@@ -792,7 +1350,9 @@ impl SlideWindow {
                         self.view.set_zoom(None);
                         true
                     }
-                    // Normal view is the only one so far; the last button presents.
+                    Some(6) => self.action("view.normal"),
+                    Some(7) => self.action("view.sorter"),
+                    Some(8) => self.action("view.reading"),
                     Some(9) => self.action("show.fromCurrent"),
                     _ => false,
                 }
@@ -878,20 +1438,21 @@ impl SlideWindow {
             self.view.modified(),
             &format,
         );
-        let on: Vec<&str> = if self.view.notes_shown() {
-            vec!["view.notes"]
-        } else {
-            vec![]
-        };
-        self.ribbon.paint(
-            p,
-            &self.theme,
-            &self.icons,
-            &self.strings,
-            &format,
-            &[],
-            &on,
-        );
+        let on = self.toggled();
+        if self.view.mode() != ViewMode::Reading {
+            self.ribbon.paint(
+                p,
+                &self.theme,
+                &self.icons,
+                &self.strings,
+                &format,
+                &[],
+                &on,
+            );
+            self.paint_theme_tiles(p);
+            self.paint_galleries(p, &on);
+        }
+        self.comments.paint(p);
         self.paint_status(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
@@ -911,6 +1472,214 @@ impl SlideWindow {
         }
     }
 
+    /// Ribbon commands shown as on: notes, the current slide's transition, the selection's
+    /// effect.
+    fn toggled(&self) -> Vec<&'static str> {
+        let mut on = Vec::new();
+        if self.view.notes_shown() {
+            on.push("view.notes");
+        }
+        let Some(st) = self.view.state() else {
+            return on;
+        };
+        let kind = st.transition.as_ref().map_or("none", |t| t.kind.as_str());
+        if let Some((id, _)) = sr::TRANSITIONS.iter().find(|(_, k)| *k == kind) {
+            on.push(id);
+        }
+        let ids: Vec<u32> = st.selection.iter().map(|s| s.id).collect();
+        if !ids.is_empty() {
+            let a = st.animations.iter().find(|a| ids.contains(&a.shape_id));
+            let found = sr::EFFECTS.iter().find(|(_, e)| match (e, a) {
+                (None, None) => true,
+                (Some((effect, class)), Some(a)) => a.effect == *effect && a.class == *class,
+                _ => false,
+            });
+            if let Some((id, _)) = found {
+                on.push(id);
+            }
+        }
+        on
+    }
+
+    /// The transition and effect galleries drawn as the reference draws them: one white box
+    /// with a light frame (y 106-197 at 125 %), 48 px pictures over the names, the current
+    /// tile framed dark grey on light grey, and the "more" column at the right edge.
+    fn paint_galleries(&self, p: &mut dyn Painter, on: &[&'static str]) {
+        let lists: [(Vec<&'static str>, &'static str); 2] = [
+            (
+                sr::TRANSITIONS
+                    .iter()
+                    .take(sr::GALLERY_TILES)
+                    .map(|(c, _)| *c)
+                    .collect(),
+                "transition.more",
+            ),
+            (
+                sr::EFFECTS
+                    .iter()
+                    .take(sr::GALLERY_TILES)
+                    .map(|(c, _)| *c)
+                    .collect(),
+                "anim.more",
+            ),
+        ];
+        let px = |v: f32| (v * self.scale).round();
+        let rgb = |v: u8| bo_render::Rgba(v, v, v, 255);
+        let hovered = self.ribbon.hovered();
+        for (tiles, more) in lists {
+            let Some(first) = self.ribbon.rect_of(RibbonHit::Command(tiles[0])) else {
+                continue;
+            };
+            let Some(m) = self.ribbon.rect_of(RibbonHit::Command(more)) else {
+                continue;
+            };
+            let top = first[1] + px(1.6);
+            let h = px(73.6);
+            let right = m[0] + px(27.2);
+            // Cover what the ribbon drew for these buttons (toggled / hover fills).
+            p.fill_rect(
+                first[0] - 1.0,
+                first[1],
+                right - first[0] + 2.0,
+                first[3],
+                rgb(0xf3),
+            );
+            p.fill_rect(first[0] - 1.0, top, right - first[0] + 1.0, h, rgb(0xd2));
+            p.fill_rect(
+                first[0],
+                top + 1.0,
+                right - first[0] - 1.0,
+                h - 2.0,
+                rgb(0xff),
+            );
+            for id in &tiles {
+                let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+                    continue;
+                };
+                let (x, w) = (r[0], r[2]);
+                if on.contains(id) {
+                    p.fill_rect(x, top + 1.0, w, h - 2.0, rgb(0x88));
+                    p.fill_rect(x + 1.0, top + 2.0, w - 2.0, h - 4.0, rgb(0xd2));
+                } else if hovered == Some(RibbonHit::Command(id)) {
+                    p.fill_rect(x, top + 1.0, w, h - 2.0, rgb(0xe6));
+                }
+                let size = px(38.4);
+                self.icons.draw(
+                    p,
+                    id,
+                    (x + (w - size) / 2.0).round(),
+                    top + px(4.0),
+                    size,
+                    IconColors {
+                        ink: self.theme.text,
+                        accent: self.theme.accent,
+                        on: self.theme.accent_on,
+                        tinted: true,
+                    },
+                );
+                let key = format!("commands.{id}");
+                let label = self.strings.get(&key);
+                let style = self.status_style();
+                let tw = self
+                    .gallery_w
+                    .iter()
+                    .find(|(g, _)| g == id)
+                    .map_or(0.0, |(_, w)| *w);
+                p.text(
+                    label,
+                    (x + (w - tw) / 2.0).round(),
+                    top + px(46.4),
+                    style,
+                    self.theme.text,
+                );
+            }
+            // "More" column: its own frame with the arrow in the middle.
+            let mx = m[0];
+            let mw = right - mx;
+            p.fill_rect(mx, top, 1.0, h, rgb(0xd2));
+            if hovered == Some(RibbonHit::Command(more)) {
+                p.fill_rect(mx + 1.0, top + 1.0, mw - 2.0, h - 2.0, rgb(0xe6));
+            }
+            let (cx, cy) = (mx + mw / 2.0, top + h / 2.0);
+            let k = px(3.2);
+            p.fill_rect(
+                (cx - k).round(),
+                (cy - k - px(2.4)).round(),
+                2.0 * k,
+                1.0,
+                self.theme.text,
+            );
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy - k / 2.0),
+                    PathSeg::L(cx + k, cy - k / 2.0),
+                    PathSeg::L(cx, cy + k / 2.0),
+                    PathSeg::Z,
+                ],
+                Some(self.theme.text),
+                None,
+            );
+        }
+    }
+
+    /// Theme previews over the Design tab's theme buttons.
+    fn paint_theme_tiles(&self, p: &mut dyn Painter) {
+        let design = self.view.state().and_then(|s| s.design.as_ref());
+        let rect = |id: &'static str| self.ribbon.rect_of(RibbonHit::Command(id));
+        let (Some(first), Some(last)) = (rect(sr::THEMES[0].0), rect(sr::THEMES[4].0)) else {
+            return;
+        };
+        // One white gallery box with a light frame, as the transition gallery (y 106-197).
+        let px = |v: f32| (v * self.scale).round();
+        let top = first[1] + px(1.6);
+        let right = last[0] + last[2];
+        let grey = |v: u8| bo_render::Rgba(v, v, v, 255);
+        p.fill_rect(
+            first[0] - 1.0,
+            first[1],
+            right - first[0] + 2.0,
+            first[3],
+            grey(0xf3),
+        );
+        // The box starts 4 px left of the first slot (reference: x 20, first card 27).
+        let left = first[0] - px(3.2);
+        p.fill_rect(left, top, right - left + 1.0, px(73.6), grey(0xd2));
+        p.fill_rect(
+            left + 1.0,
+            top + 1.0,
+            right - left - 1.0,
+            px(73.6) - 2.0,
+            grey(0xff),
+        );
+        for (id, theme) in sr::THEMES {
+            let Some(r) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+                continue;
+            };
+            let Some(def) = bo_engine::slide_edit::master::THEMES
+                .iter()
+                .find(|t| t.id == theme)
+            else {
+                continue;
+            };
+            let colors: Vec<bo_render::Rgba> = COLOR_SETS
+                .iter()
+                .find(|c| c.id == def.colors)
+                .map(|c| {
+                    c.c[4..10]
+                        .iter()
+                        .map(|v| bo_render::Rgba((v >> 16) as u8, (v >> 8) as u8, *v as u8, 255))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let heading = FONT_SETS
+                .iter()
+                .find(|f| f.id == def.fonts)
+                .map_or("Calibri Light", |f| f.major);
+            let current = design.is_some_and(|d| d.theme.as_deref() == Some(def.name));
+            sr::paint_theme_tile(p, r, top, self.scale, heading, &colors, current);
+        }
+    }
+
     fn paint_status(&self, p: &mut dyn Painter) {
         let (w, h) = self.size;
         let sh = self.status_h();
@@ -924,7 +1693,11 @@ impl SlideWindow {
         let counter = self
             .strings
             .get("slideEditor.slideOf")
-            .replace("{{n}}", &(self.view.current() + 1).to_string())
+            // Reading view counts the slide it shows.
+            .replace(
+                "{{n}}",
+                &(self.view.show_slide().unwrap_or(self.view.current()) + 1).to_string(),
+            )
             .replace("{{total}}", &self.view.slide_count().to_string());
         p.text(&counter, self.px(11.0), ty, style, ink);
         let [notes, minus, track, plus, pct, fit, normal, ..] = self.status;
@@ -935,12 +1708,17 @@ impl SlideWindow {
             on: self.theme.accent_on,
             tinted: true,
         };
-        // View buttons: the current one (normal) on a grey band, as on the reference.
+        // View buttons: the current one on a grey band, as on the reference.
+        let current = match self.view.mode() {
+            ViewMode::Normal => normal,
+            ViewMode::Sorter => self.status[7],
+            ViewMode::Reading => self.status[8],
+        };
         p.fill_rect(
-            normal[0],
-            normal[1],
-            normal[2],
-            normal[3],
+            current[0],
+            current[1],
+            current[2],
+            current[3],
             bo_render::Rgba(0xc6, 0xc6, 0xc6, 255),
         );
         for (i, name) in [
@@ -962,22 +1740,25 @@ impl SlideWindow {
                 colors,
             );
         }
-        // The notes toggle is a plain icon and label (no band), as on the reference.
-        self.icons.draw(
-            p,
-            "format.lineSpacing",
-            notes[0] + self.px(4.0),
-            (notes[1] + (notes[3] - icon) / 2.0).round(),
-            icon,
-            colors,
-        );
-        p.text(
-            &self.t("slideEditor.notes", "Notes"),
-            notes[0] + self.px(24.0),
-            ty,
-            style,
-            ink,
-        );
+        // The notes toggle is a plain icon and label (no band), as on the reference; the
+        // sorter has no notes, so no toggle.
+        if self.view.mode() == ViewMode::Normal {
+            self.icons.draw(
+                p,
+                "format.lineSpacing",
+                notes[0] + self.px(4.0),
+                (notes[1] + (notes[3] - icon) / 2.0).round(),
+                icon,
+                colors,
+            );
+            p.text(
+                &self.t("slideEditor.notes", "Notes"),
+                notes[0] + self.px(24.0),
+                ty,
+                style,
+                ink,
+            );
+        }
         let k = (4.0 * self.scale).round();
         let line = self.scale.max(1.0).round();
         let (mx, my) = (minus[0] + minus[2] / 2.0, minus[1] + minus[3] / 2.0);
@@ -1004,7 +1785,12 @@ impl SlideWindow {
             2.0 * k + 3.0 * line,
             ink,
         );
-        let zoom = format!("{}%", (self.view.zoom() * 100.0).round() as i32);
+        // The sorter shows its own zoom (its images at 100 %).
+        let zoom = if self.view.mode() == ViewMode::Sorter {
+            "100%".to_owned()
+        } else {
+            format!("{}%", (self.view.zoom() * 100.0).round() as i32)
+        };
         p.text(&zoom, pct[0], ty, style, ink);
         // Fit to window: a frame with arrows out to its corners (own drawing).
         let (cx, cy) = (fit[0] + fit[2] / 2.0, fit[1] + fit[3] / 2.0);
@@ -1021,6 +1807,17 @@ impl SlideWindow {
             PathSeg::L(cx, cy + r - self.px(3.0)),
         ];
         p.path(&segs, None, Some((ink, line)));
+    }
+
+    /// The host's clock (ms) before a frame: transitions and effects advance with it;
+    /// `true` when the frame changed.
+    pub fn set_clock(&mut self, ms: f64) -> bool {
+        self.view.set_clock(ms)
+    }
+
+    /// A transition or effects are playing: the host draws every frame.
+    pub fn animating(&self) -> bool {
+        self.view.animating()
     }
 
     /// Whether the slide show is running (the host shows the window full screen).

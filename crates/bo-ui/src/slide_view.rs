@@ -9,6 +9,7 @@
 use crate::{Input, Key, Mods, PageStore, Painter, TextStyle};
 use bo_engine::slide_edit::geom::{BoxR, Handle, HandleKind};
 use bo_engine::slide_edit::rich::TextEditOut;
+use bo_engine::slide_edit::show::ShowOut;
 use bo_engine::slide_edit::text::{Align, FormatState, TextFormat};
 use bo_engine::slide_edit::{Preview, ShapeInfo, SlideCommand, SlideEditResult, Transform};
 use bo_engine::Engine;
@@ -76,17 +77,60 @@ enum Drag {
     Handle { kind: HandleKind, from: (f32, f32) },
     /// Extending the text selection.
     Text,
-    /// Pressed on the thumbnails (no drag action yet).
-    Thumbs,
+    /// Pressed on a slide thumbnail (pane or sorter): drags the chosen slides once the
+    /// pointer travels; `to` is the insertion index.
+    Slides {
+        from: (f32, f32),
+        moved: bool,
+        to: Option<usize>,
+    },
 }
 
+#[path = "slide_sorter.rs"]
+mod sorter;
+pub use sorter::ViewMode;
+
 /// The running slide show.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Show {
     index: usize,
     /// Past the last slide: the black end screen.
     ended: bool,
+    /// Clicks played on this slide.
+    step: usize,
+    /// What the engine says the slide plays (layers, effects, transition).
+    info: Option<ShowOut>,
+    /// Transition into this slide: the slide it comes from (`None`: black), when it started.
+    trans: Option<(Option<usize>, crate::slide_show::Transition, f64)>,
+    /// Start of the current step's effects while they run.
+    fx_start: Option<f64>,
+    /// Slide id and scale of the stored layer images.
+    layers: Option<(usize, f32)>,
+    /// When the slide was fully shown (automatic advance counts from there).
+    arrived: f64,
+    /// A preview on the editing canvas (Transitions / Animations tab): `Some(true)` plays
+    /// the effects one click after the other, `Some(false)` the transition only.
+    preview: Option<bool>,
 }
+
+impl Show {
+    fn at(index: usize) -> Self {
+        Self {
+            index,
+            ended: false,
+            step: 0,
+            info: None,
+            trans: None,
+            fx_start: None,
+            layers: None,
+            arrived: 0.0,
+            preview: None,
+        }
+    }
+}
+
+/// Image keys of the show layers of the current slide (one slide's layers at a time).
+const LAYER_KEY: usize = 3 << 40;
 
 /// Device-pixel rectangle `[x, y, w, h]`.
 type R = [f32; 4];
@@ -230,6 +274,16 @@ pub struct SlideView {
     notes_caret_x: f32,
     /// Width of one digit of the thumbnail numbers (device pixels).
     digit_w: f32,
+    /// Host clock (ms) for slide show animations.
+    clock: f64,
+    /// Slide Sorter view.
+    sorter: bool,
+    /// Reading view (the show inside the window's editing area).
+    reading: bool,
+    /// Scroll of the sorter (device pixels).
+    sorter_scroll: f32,
+    /// Slides chosen in the sorter / thumbnails pane (Shift extends).
+    slide_sel: Vec<usize>,
 }
 
 impl SlideView {
@@ -267,6 +321,11 @@ impl SlideView {
             labels: ("Click to add notes".into(), "End of slide show".into()),
             notes_caret_x: 0.0,
             digit_w: 10.0,
+            clock: 0.0,
+            sorter: false,
+            reading: false,
+            sorter_scroll: 0.0,
+            slide_sel: Vec::new(),
         };
         if view.engine.slide_count() == 0 {
             return Err("no slides".into());
@@ -360,9 +419,47 @@ impl SlideView {
         })
     }
 
-    /// The slide show is running.
+    /// The slide show is running full screen (Reading view plays it in the window).
     pub fn showing(&self) -> bool {
-        self.show.is_some()
+        self.show.is_some() && !self.reading && !self.previewing()
+    }
+
+    /// A transition or effects preview plays on the editing canvas.
+    pub fn previewing(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| s.preview.is_some())
+    }
+
+    /// Preview the current slide on the canvas: its transition (`effects` false, from the
+    /// previous slide) or its effects one after the other, as the reference does when a
+    /// transition or an effect is chosen.
+    pub fn start_preview(&mut self, effects: bool) -> bool {
+        if self.text_edit().is_some() {
+            self.run(SlideCommand::TextExit);
+        }
+        let cur = self.current;
+        let mut s = Show::at(cur);
+        s.preview = Some(effects);
+        self.show = Some(s);
+        self.enter_slide(cur.checked_sub(1));
+        let Some(s) = self.show.as_mut() else {
+            return false;
+        };
+        if effects {
+            s.trans = None;
+            let clicks = s.info.as_ref().map_or(0, |i| i.clicks);
+            if clicks == 0 && s.fx_start.is_none() {
+                self.show = None;
+                return false;
+            }
+            if s.fx_start.is_none() {
+                s.step = 1;
+                s.fx_start = Some(self.clock);
+            }
+        } else if s.trans.is_none() {
+            self.show = None;
+            return false;
+        }
+        true
     }
 
     /// The presentation as `.pptx` bytes.
@@ -454,7 +551,8 @@ impl SlideView {
     /// Height of the notes pane (reference: 36 logical px), its splitter excluded.
     fn notes_h(&self) -> f32 {
         if self.show_notes {
-            self.px(36.0)
+            // Reference: splitter 47 px above the status bar line at 125 %.
+            self.px(36.8)
         } else {
             0.0
         }
@@ -659,6 +757,27 @@ impl SlideView {
             }
             Err(_) => false,
         }
+    }
+
+    /// Run a Design command (theme, variants, slide size, background).
+    pub fn run_master(&mut self, cmd: bo_engine::slide_edit::master::MasterCommand) -> bool {
+        match self.engine.slide_master_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                // A theme or size change can touch every slide.
+                self.stale.extend(self.shown.keys().copied());
+                if r.dirty.is_empty() {
+                    self.full.extend(self.shown.keys().copied());
+                }
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The engine's last answer for the current slide (selection, transition, effects, design).
+    pub fn state(&self) -> Option<&SlideEditResult> {
+        self.state.as_ref()
     }
 
     fn apply(&mut self, r: SlideEditResult) {
@@ -1015,7 +1134,7 @@ impl SlideView {
             Key::Down | Key::Right | Key::PageDown => self.go_to(self.current + 1),
             Key::Home => self.go_to(0),
             Key::End => self.go_to(n.saturating_sub(1)),
-            Key::Delete | Key::Backspace => self.delete_slide(),
+            Key::Delete | Key::Backspace => self.delete_slides(),
             Key::Enter => self.new_slide(None),
             Key::Letter('d') if m.ctrl => self.duplicate_slide(),
             _ => false,
@@ -1243,7 +1362,7 @@ impl SlideView {
                 dy: f64::from(y - from.1) / s,
                 keep_aspect: shift,
             }),
-            Drag::Text | Drag::Thumbs => None,
+            Drag::Text | Drag::Slides { .. } => None,
         }
     }
 
@@ -1265,7 +1384,8 @@ impl SlideView {
                 self.preview_transform(x, y)
             }
             Some(Drag::Handle { .. }) => self.preview_transform(x, y),
-            Some(Drag::Thumbs) | None => false,
+            Some(Drag::Slides { .. }) => self.drag_slides(x, y),
+            None => false,
         }
     }
 
@@ -1286,6 +1406,15 @@ impl SlideView {
     fn release(&mut self, x: f32, y: f32) -> bool {
         let drag = self.drag.take();
         self.preview = None;
+        if let Some(Drag::Slides { moved, to, .. }) = drag {
+            return match to.filter(|_| moved) {
+                Some(t) => {
+                    self.drop_slides(t);
+                    true
+                }
+                None => true,
+            };
+        }
         let commit = matches!(
             drag,
             Some(Drag::Move { moved: true, .. } | Drag::Handle { .. })
@@ -1329,6 +1458,13 @@ impl SlideView {
 
     /// Handle an input event inside the area; `true` when a new frame is needed.
     pub fn handle(&mut self, input: Input) -> bool {
+        if self.previewing() {
+            // Anything but timers stops a preview and acts as usual.
+            if matches!(input, Input::Blink | Input::Tick | Input::Move { .. }) {
+                return false;
+            }
+            self.show = None;
+        }
         if self.show.is_some() {
             return self.show_input(&input);
         }
@@ -1350,14 +1486,23 @@ impl SlideView {
                     }
                 }
             }
+            Input::Key(k, m)
+                if self.sorter && !(m.ctrl && matches!(k, Key::Letter('z' | 'y' | 'm'))) =>
+            {
+                self.sorter_key(k, m)
+            }
             Input::Key(k, m) => self.key(k, m),
+            Input::Wheel(dy) if self.sorter => self.sorter_wheel(dy),
             Input::Wheel(dy) => self.wheel(dy),
             Input::Press { x, y, count, shift } => {
+                if self.sorter {
+                    return match self.sort_at(x, y) {
+                        Some(i) => self.press_slide(i, x, y, count, shift),
+                        None => false,
+                    };
+                }
                 if let Some(i) = self.thumb_at(x, y) {
-                    self.focus = Focus::Thumbs;
-                    self.drag = Some(Drag::Thumbs);
-                    self.go_to(i);
-                    return true;
+                    return self.press_slide(i, x, y, count, shift);
                 }
                 if inside(self.thumbs_rect(), x, y) {
                     self.focus = Focus::Thumbs;
@@ -1394,7 +1539,7 @@ impl SlideView {
     fn wheel(&mut self, dy: f32) -> bool {
         // Over the thumbnails the pane scrolls; on the canvas a fitted slide steps to the
         // previous / next slide like the reference, a zoomed one scrolls.
-        if self.drag == Some(Drag::Thumbs) || self.focus == Focus::Thumbs {
+        if matches!(self.drag, Some(Drag::Slides { .. })) || self.focus == Focus::Thumbs {
             let before = self.thumb_scroll;
             self.thumb_scroll += dy;
             self.clamp_thumb_scroll();
@@ -1428,15 +1573,14 @@ impl SlideView {
 
     // ------------------------------------------------------------------ slide show
 
-    /// Start the slide show at slide `from`.
+    /// Start the slide show at slide `from` (its transition plays from black).
     pub fn start_show(&mut self, from: usize) -> bool {
         if self.text_edit().is_some() {
             self.run(SlideCommand::TextExit);
         }
-        self.show = Some(Show {
-            index: from.min(self.ids.len().saturating_sub(1)),
-            ended: false,
-        });
+        let index = from.min(self.ids.len().saturating_sub(1));
+        self.show = Some(Show::at(index));
+        self.enter_slide(None);
         self.drag = None;
         true
     }
@@ -1446,14 +1590,115 @@ impl SlideView {
         let Some(s) = self.show.take() else {
             return false;
         };
+        self.reading = false;
         if !s.ended {
             self.go_to(s.index);
         }
         true
     }
 
+    /// The show arrived on its slide (after `from`): read what it plays, start its
+    /// transition, or its automatic effects when it has none.
+    fn enter_slide(&mut self, from: Option<usize>) {
+        let now = self.clock;
+        let Some(index) = self.show.as_ref().map(|s| s.index) else {
+            return;
+        };
+        let info = self
+            .engine
+            .slide_command(SlideCommand::Show { slide: index })
+            .ok()
+            .and_then(|r| r.show);
+        let Some(s) = self.show.as_mut() else {
+            return;
+        };
+        s.step = 0;
+        s.fx_start = None;
+        s.trans =
+            crate::slide_show::Transition::of(info.as_ref().and_then(|i| i.transition.as_ref()))
+                .map(|t| (from, t, now));
+        s.info = info;
+        if s.trans.is_none() {
+            let automatic = s
+                .info
+                .as_ref()
+                .is_some_and(|i| crate::slide_show::step_end(i, 0) > 0.0);
+            s.fx_start = automatic.then_some(now);
+            s.arrived = now;
+        }
+    }
+
+    /// Whether a transition or effects are playing (the host draws every frame).
+    pub fn animating(&self) -> bool {
+        self.show
+            .as_ref()
+            .is_some_and(|s| !s.ended && (s.trans.is_some() || s.fx_start.is_some()))
+    }
+
+    /// The host's clock (ms, any origin) for the next frame; `true` when the show changed.
+    pub fn set_clock(&mut self, ms: f64) -> bool {
+        self.clock = ms;
+        let Some(s) = self.show.as_mut() else {
+            return false;
+        };
+        let mut changed = false;
+        if let Some((_, t, start)) = &s.trans {
+            if ms - start >= t.dur_ms {
+                // Transition done: the slide's automatic effects (click 0) start.
+                s.fx_start = Some(start + t.dur_ms);
+                s.arrived = start + t.dur_ms;
+                s.trans = None;
+                changed = true;
+            }
+        }
+        if let (Some(start), Some(info)) = (s.fx_start, s.info.as_ref()) {
+            if ms - start >= crate::slide_show::step_end(info, s.step) {
+                s.fx_start = None;
+                s.arrived = ms;
+                changed = true;
+                // An effects preview goes on with the next click's effects.
+                if s.preview == Some(true) && s.step < info.clicks {
+                    s.step += 1;
+                    s.fx_start = Some(ms);
+                }
+            }
+        } else if s.fx_start.is_some() && s.info.is_none() {
+            s.fx_start = None;
+        }
+        // A finished preview gives the canvas back.
+        let done = match s.preview {
+            Some(false) => s.trans.is_none(),
+            Some(true) => s.trans.is_none() && s.fx_start.is_none(),
+            None => false,
+        };
+        if done {
+            self.show = None;
+            return true;
+        }
+        changed || self.animating()
+    }
+
+    /// Advance on its own when the slide's time is up (§19.3.1.50 transition@advTm), once
+    /// every click has played; `true` when the show moved on.
+    pub fn show_tick(&mut self) -> bool {
+        let now = self.clock;
+        let due = self.show.as_ref().is_some_and(|s| {
+            let Some(info) = s.info.as_ref() else {
+                return false;
+            };
+            let after = info.transition.as_ref().and_then(|t| t.advance_after_ms);
+            !s.ended
+                && s.trans.is_none()
+                && s.fx_start.is_none()
+                && s.step >= info.clicks
+                && after.is_some_and(|a| now - s.arrived >= f64::from(a))
+        });
+        due && self.show_step(true)
+    }
+
     fn show_step(&mut self, forward: bool) -> bool {
         let n = self.ids.len();
+        let now = self.clock;
         let Some(s) = self.show.as_mut() else {
             return false;
         };
@@ -1461,17 +1706,70 @@ impl SlideView {
             if s.ended {
                 return self.end_show();
             }
+            // A click during a transition or effects finishes them first.
+            if let Some((_, t, start)) = &s.trans {
+                s.fx_start = Some(start + t.dur_ms);
+                s.trans = None;
+                s.arrived = now;
+                return true;
+            }
+            if let Some(start) = s.fx_start.take() {
+                let end = s
+                    .info
+                    .as_ref()
+                    .map_or(0.0, |i| crate::slide_show::step_end(i, s.step));
+                if now - start < end {
+                    s.arrived = now;
+                    return true;
+                }
+            }
+            let clicks = s.info.as_ref().map_or(0, |i| i.clicks);
+            if s.step < clicks {
+                s.step += 1;
+                s.fx_start = Some(now);
+                return true;
+            }
             if s.index + 1 < n {
+                let from = s.index;
                 s.index += 1;
+                self.enter_slide(Some(from));
             } else {
                 s.ended = true;
             }
-        } else if s.ended {
+            return true;
+        }
+        if s.ended {
             s.ended = false;
-        } else if s.index > 0 {
-            s.index -= 1;
-        } else {
+            return true;
+        }
+        s.trans = None;
+        s.fx_start = None;
+        if s.step > 0 {
+            s.step -= 1;
+            return true;
+        }
+        if s.index == 0 {
             return false;
+        }
+        // Back to the previous slide, fully built.
+        s.index -= 1;
+        self.enter_slide(None);
+        if let Some(s) = self.show.as_mut() {
+            s.trans = None;
+            s.fx_start = None;
+            s.step = s.info.as_ref().map_or(0, |i| i.clicks);
+        }
+        true
+    }
+
+    /// Jump to slide `index` of the show (Home / End), without its transition.
+    fn show_jump(&mut self, index: usize) -> bool {
+        if let Some(s) = self.show.as_mut() {
+            *s = Show::at(index);
+        }
+        self.enter_slide(None);
+        if let Some(s) = self.show.as_mut() {
+            s.trans = None;
         }
         true
     }
@@ -1487,25 +1785,8 @@ impl SlideView {
                 Key::Escape => self.end_show(),
                 Key::Right | Key::Down | Key::PageDown | Key::Enter => self.show_step(true),
                 Key::Left | Key::Up | Key::PageUp | Key::Backspace => self.show_step(false),
-                Key::Home => {
-                    if let Some(s) = self.show.as_mut() {
-                        *s = Show {
-                            index: 0,
-                            ended: false,
-                        };
-                    }
-                    true
-                }
-                Key::End => {
-                    let last = self.ids.len().saturating_sub(1);
-                    if let Some(s) = self.show.as_mut() {
-                        *s = Show {
-                            index: last,
-                            ended: false,
-                        };
-                    }
-                    true
-                }
+                Key::Home => self.show_jump(0),
+                Key::End => self.show_jump(self.ids.len().saturating_sub(1)),
                 _ => false,
             },
             Input::Wheel(dy) => self.show_step(dy > 0.0),
@@ -1516,11 +1797,26 @@ impl SlideView {
 
     /// Slide index shown by the slide show (`None` on the end screen).
     pub fn show_slide(&self) -> Option<usize> {
-        self.show.filter(|s| !s.ended).map(|s| s.index)
+        self.show.as_ref().filter(|s| !s.ended).map(|s| s.index)
+    }
+
+    /// Where the show draws: the whole window, or the editing area in Reading view.
+    fn show_area(&self) -> R {
+        if self.previewing() {
+            let (x, y) = self.slide_origin();
+            let (w, h) = self.slide_px(self.scale());
+            return [x, y, w, h];
+        }
+        if self.reading {
+            [self.origin.0, self.origin.1, self.size.0, self.size.1]
+        } else {
+            [0.0, 0.0, self.window.0, self.window.1]
+        }
     }
 
     fn show_scale(&self) -> f32 {
-        (self.window.0 / self.slide_size.0).min(self.window.1 / self.slide_size.1)
+        let [_, _, w, h] = self.show_area();
+        (w / self.slide_size.0).min(h / self.slide_size.1)
     }
 
     // ------------------------------------------------------------------ images
@@ -1584,11 +1880,26 @@ impl SlideView {
             let key = SHOW_KEY + self.ids[i];
             self.ensure(store, key, i, scale)?;
             self.touch(key);
+            // The slide a transition comes from.
+            let from = self
+                .show
+                .as_ref()
+                .and_then(|s| s.trans.as_ref())
+                .and_then(|(f, _, _)| *f);
+            if let Some(j) = from.filter(|j| *j < self.ids.len()) {
+                let fk = SHOW_KEY + self.ids[j];
+                self.ensure(store, fk, j, scale)?;
+                self.touch(fk);
+            }
+            self.prepare_layers(store, i, scale)?;
             self.evict(store, SHOW_KEY, SHOW_CACHE);
             return Ok(());
         }
         if self.show.is_some() {
             return Ok(());
+        }
+        if self.sorter {
+            return self.prepare_sorter(store);
         }
         let cur = self.current;
         if let Some(&id) = self.ids.get(cur) {
@@ -1602,6 +1913,47 @@ impl SlideView {
             self.ensure(store, key, i, ts)?;
         }
         self.evict(store, 0, MAIN_CACHE);
+        Ok(())
+    }
+
+    /// Store the show layers of slide `i` when its effects need them.
+    fn prepare_layers(
+        &mut self,
+        store: &mut dyn PageStore,
+        i: usize,
+        scale: f32,
+    ) -> Result<(), String> {
+        let id = self.ids[i];
+        let Some(s) = self.show.as_ref() else {
+            return Ok(());
+        };
+        let animated = s
+            .info
+            .as_ref()
+            .is_some_and(|info| !info.animations.is_empty());
+        if !animated || s.layers == Some((id, scale)) {
+            return Ok(());
+        }
+        let old = s.layers.and_then(|(old, _)| (old != id).then_some(old));
+        let count = s.info.as_ref().map_or(0, |info| info.layers.len());
+        if old.is_some() {
+            for k in 0..64 {
+                store.remove(LAYER_KEY + k);
+            }
+        }
+        for k in 0..count {
+            let page = self
+                .show
+                .as_ref()
+                .and_then(|s| s.info.as_ref())
+                .map(|info| info.layers[k].page.clone());
+            if let Some(page) = page {
+                store.update_layer(LAYER_KEY + k, &page, &self.engine, scale)?;
+            }
+        }
+        if let Some(s) = self.show.as_mut() {
+            s.layers = Some((id, scale));
+        }
         Ok(())
     }
 
@@ -1817,15 +2169,21 @@ impl SlideView {
 
     /// Paint the editing area (or the slide show over the whole window).
     pub fn paint(&self, p: &mut dyn Painter, text_size: f32) {
-        if self.show.is_some() {
+        if self.show.is_some() && !self.previewing() {
             self.paint_show(p, text_size);
             return;
         }
         let (ox, oy) = self.origin;
         let (w, h) = self.size;
         p.push_clip(ox, oy, w, h);
+        if self.sorter {
+            self.paint_sorter(p);
+            p.pop_clip();
+            return;
+        }
         p.fill_rect(ox, oy, w, h, SLIDE_CANVAS);
         self.paint_thumbs(p);
+        self.paint_thumb_drop(p);
         // Pane splitters.
         let tw = self.thumbs_w();
         p.fill_rect(ox + tw, oy, 1.0, h, SPLITTER);
@@ -1838,6 +2196,11 @@ impl SlideView {
             self.paint_notes(p, n, text_size);
         }
         self.paint_scrollbar(p);
+        if self.previewing() {
+            p.push_clip(canvas[0], canvas[1], canvas[2], canvas[3]);
+            self.paint_show(p, text_size);
+            p.pop_clip();
+        }
         p.pop_clip();
     }
 
@@ -1909,6 +2272,11 @@ impl SlideView {
                 "body" | "obj" => (&self.prompts[2], 28.0, false, 't'),
                 _ => continue,
             };
+            // The layout's own prompt text (`hasCustomPrompt`) replaces the default one.
+            let text = match st.placeholder_prompts.get(i) {
+                Some(c) if !c.trim().is_empty() => c,
+                _ => text,
+            };
             if text.is_empty() {
                 continue;
             }
@@ -1927,20 +2295,25 @@ impl SlideView {
             let (left, top) = self.to_px(b.cx - b.w / 2.0, b.cy - b.h / 2.0);
             let (cx, cy) = self.to_px(b.cx, b.cy);
             let (_, bottom) = self.to_px(b.cx, b.cy + b.h / 2.0);
-            // Average advance of the prompt in Calibri, measured: 0.39 em.
-            let est_w = text.chars().count() as f32 * size * 0.39;
             let line = size * 1.22;
-            let x = if centred {
-                cx - est_w / 2.0
-            } else {
-                left + 7.2 * s
-            };
-            let y = match anchor {
-                'b' => bottom - 3.6 * s - line - 0.15 * size,
-                'm' => cy - line / 2.0,
+            let rows: Vec<&str> = text.lines().collect();
+            let n = rows.len().max(1) as f32;
+            let y0 = match anchor {
+                'b' => bottom - 3.6 * s - n * line - 0.15 * size,
+                'm' => cy - n * line / 2.0,
                 _ => top + 0.4 * s,
             };
-            p.text_font(text, x.round(), y.round(), &font, PROMPT_INK);
+            for (k, row) in rows.iter().enumerate() {
+                // Average advance of the prompt in Calibri, measured: 0.39 em.
+                let est_w = row.chars().count() as f32 * size * 0.39;
+                let x = if centred {
+                    cx - est_w / 2.0
+                } else {
+                    left + 7.2 * s
+                };
+                let y = y0 + k as f32 * line;
+                p.text_font(row, x.round(), y.round(), &font, PROMPT_INK);
+            }
         }
         if let Some(pv) = &self.preview {
             for b in &pv.boxes {
@@ -2113,18 +2486,10 @@ impl SlideView {
     }
 
     fn paint_show(&self, p: &mut dyn Painter, text_size: f32) {
-        let (ww, wh) = self.window;
-        p.fill_rect(0.0, 0.0, ww, wh, BLACK);
-        if let Some(i) = self.show_slide() {
-            let scale = self.show_scale();
-            let (w, h) = self.slide_px(scale);
-            let x = ((ww - w) / 2.0).floor();
-            let y = ((wh - h) / 2.0).floor();
-            let key = SHOW_KEY + self.ids[i];
-            if self.shown.contains_key(&key) {
-                p.page(key, x as i32, y as i32);
-            }
-        } else {
+        use crate::slide_show::{paint_transition, SlideImage};
+        let [ax, ay, ww, wh] = self.show_area();
+        p.fill_rect(ax, ay, ww, wh, BLACK);
+        let Some(i) = self.show_slide() else {
             let style = TextStyle {
                 size: text_size,
                 bold: false,
@@ -2136,7 +2501,112 @@ impl SlideView {
                 style,
                 Rgba(0xff, 0xff, 0xff, 255),
             );
+            return;
+        };
+        let Some(s) = self.show.as_ref() else {
+            return;
+        };
+        let scale = self.show_scale();
+        let (w, h) = self.slide_px(scale);
+        let r = [
+            (ax + (ww - w) / 2.0).floor(),
+            (ay + (wh - h) / 2.0).floor(),
+            w.round(),
+            h.round(),
+        ];
+        let size = (
+            (self.slide_size.0 * scale).ceil(),
+            (self.slide_size.1 * scale).ceil(),
+        );
+        let now = self.clock;
+        let key = SHOW_KEY + self.ids[i];
+        let elapsed = match (s.trans.as_ref(), s.fx_start) {
+            (Some(_), _) => 0.0,
+            (None, Some(start)) => now - start,
+            (None, None) => f64::INFINITY,
+        };
+        let layered = s
+            .layers
+            .is_some_and(|(id, sc)| id == self.ids[i] && sc == scale);
+        let to = ShowImage {
+            key,
+            size,
+            layers: if layered {
+                s.info
+                    .as_ref()
+                    .map(|info| (info, crate::slide_show::layer_looks(info, s.step, elapsed)))
+            } else {
+                None
+            },
+        };
+        if !self.shown.contains_key(&key) {
+            return;
         }
+        match s.trans.as_ref() {
+            Some((from, t, start)) => {
+                let k = ((now - start) / t.dur_ms).clamp(0.0, 1.0);
+                let from_img = from
+                    .filter(|j| *j < self.ids.len())
+                    .map(|j| SHOW_KEY + self.ids[j])
+                    .filter(|fk| self.shown.contains_key(fk))
+                    .map(|fk| ShowImage {
+                        key: fk,
+                        size,
+                        layers: None,
+                    });
+                paint_transition(
+                    p,
+                    t,
+                    k,
+                    r,
+                    from_img.as_ref().map(|f| f as &dyn SlideImage),
+                    &to,
+                );
+            }
+            None => to.draw(p, r, [0.0, 0.0, 1.0, 1.0], 1.0),
+        }
+    }
+}
+
+/// A slide as the show draws it: its stored image, or its layers in their current looks.
+struct ShowImage<'a> {
+    key: usize,
+    size: (f32, f32),
+    layers: Option<(&'a ShowOut, Vec<crate::slide_show::Look>)>,
+}
+
+impl crate::slide_show::SlideImage for ShowImage<'_> {
+    fn draw(&self, p: &mut dyn Painter, dest: [f32; 4], part: [f32; 4], opacity: f32) {
+        let Some((info, looks)) = &self.layers else {
+            crate::slide_show::draw_part(p, self.key, self.size, dest, part, opacity);
+            return;
+        };
+        let clip = [
+            dest[0] + part[0] * dest[2],
+            dest[1] + part[1] * dest[3],
+            part[2] * dest[2],
+            part[3] * dest[3],
+        ];
+        p.push_clip(clip[0], clip[1], clip[2], clip[3]);
+        let slide = (f64::from(info.width), f64::from(info.height));
+        for (k, look) in looks.iter().enumerate() {
+            let rect = info
+                .animations
+                .iter()
+                .find(|a| a.layer == Some(k))
+                .and_then(|a| a.rect);
+            crate::slide_show::paint_layer(
+                p,
+                LAYER_KEY + k,
+                self.size,
+                dest,
+                look,
+                rect,
+                slide,
+                opacity,
+            );
+        }
+        p.pop_clip();
     }
 }
 

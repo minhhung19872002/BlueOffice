@@ -50,6 +50,11 @@ impl Strings {
     pub fn get<'a>(&'a self, key: &'a str) -> &'a str {
         self.0.get(key).map_or(key, String::as_str)
     }
+
+    /// Set `key` to `value` (a window naming its own commands from existing strings).
+    pub(crate) fn set(&mut self, key: &str, value: &str) {
+        self.0.insert(key.to_owned(), value.to_owned());
+    }
 }
 
 #[cfg(test)]

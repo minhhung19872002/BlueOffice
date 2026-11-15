@@ -634,8 +634,35 @@ fn layout_paragraph(
             finish(std::mem::take(&mut line_pieces), &mut lines, fonts, false);
             line_w = 0.0;
         }
-        line_w += ww;
-        line_pieces.extend(word);
+        let (_, avail) = new_line_avail(lines.len());
+        if wrap && ww - wtrail > avail && word.iter().all(|p| p.math.is_none()) {
+            // A word wider than a whole line breaks between characters where it
+            // overflows, as the reference presentation app does (measured: the word
+            // starts a line of its own, the text after it continues on its last part).
+            for piece in word {
+                let mut rest = piece;
+                loop {
+                    let (_, avail) = new_line_avail(lines.len());
+                    let (head, tail) =
+                        split_to_fit(rest, avail - line_w, line_pieces.is_empty(), fonts);
+                    if let Some(h) = head {
+                        line_w += h.width;
+                        line_pieces.push(h);
+                    }
+                    match tail {
+                        Some(t) => {
+                            finish(std::mem::take(&mut line_pieces), &mut lines, fonts, false);
+                            line_w = 0.0;
+                            rest = t;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        } else {
+            line_w += ww;
+            line_pieces.extend(word);
+        }
         if forced {
             finish(std::mem::take(&mut line_pieces), &mut lines, fonts, true);
             line_w = 0.0;
@@ -708,6 +735,68 @@ fn push_piece(
         src,
         math: None,
     });
+}
+
+/// Split `piece` at the last character boundary whose text (without trailing spaces) fits
+/// in `room` points: the part that fits and the rest. A line with nothing on it takes at
+/// least one character, so the text always advances.
+fn split_to_fit(
+    piece: Piece,
+    room: f64,
+    line_empty: bool,
+    fonts: &mut FontManager,
+) -> (Option<Piece>, Option<Piece>) {
+    if piece.width - piece.trailing <= room {
+        return (Some(piece), None);
+    }
+    let bounds: Vec<usize> = piece
+        .text
+        .char_indices()
+        .map(|(i, _)| i)
+        .skip(1)
+        .chain(std::iter::once(piece.text.len()))
+        .collect();
+    // Largest count of characters that fits (binary search on the prefix width).
+    let fits = |n: usize, fonts: &mut FontManager| {
+        measure(fonts, &piece.style, piece.text[..bounds[n - 1]].trim_end()) <= room
+    };
+    let (mut lo, mut hi) = (0usize, bounds.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if fits(mid, fonts) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if lo == 0 {
+        if !line_empty {
+            return (None, Some(piece));
+        }
+        lo = 1;
+    }
+    if lo >= bounds.len() {
+        return (Some(piece), None);
+    }
+    let cut = bounds[lo - 1];
+    let map = SrcMap::new(&piece.text, piece.src);
+    let mut head = Vec::new();
+    push_piece(
+        &mut head,
+        &piece.text[..cut],
+        &piece.style,
+        fonts,
+        map.range(0, cut),
+    );
+    let mut tail = Vec::new();
+    push_piece(
+        &mut tail,
+        &piece.text[cut..],
+        &piece.style,
+        fonts,
+        map.range(cut, piece.text.len()),
+    );
+    (head.pop(), tail.pop())
 }
 
 /// A line placed in the text box.

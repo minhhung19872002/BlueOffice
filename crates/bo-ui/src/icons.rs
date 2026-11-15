@@ -24,6 +24,7 @@ struct File {
     icons: HashMap<String, Vec<Part>>,
 }
 
+#[derive(Clone)]
 struct Shape {
     segs: Vec<PathSeg>,
     fill: bool,
@@ -542,6 +543,29 @@ impl Icons {
             grid: file.grid,
             stroke: file.stroke,
             shapes,
+        }
+    }
+
+    /// Add icon `name` drawn from SVG paths in the icon grid (24 units), like [`SOLID`] entries: a
+    /// colour fills its path, `None` strokes it in the icon ink (BlueSlide's own commands).
+    pub(crate) fn add_solid(&mut self, name: &str, parts: &[(&str, Option<Rgba>)]) {
+        let drawn = parts
+            .iter()
+            .map(|(d, fill)| Shape {
+                segs: parse_path(d),
+                fill: fill.is_some(),
+                stroke: if fill.is_some() { None } else { Some(false) },
+                accent: false,
+                fixed: *fill,
+            })
+            .collect();
+        self.shapes.insert(name.to_owned(), drawn);
+    }
+
+    /// Draw `name` with the icon of `existing` (no-op when that one is missing).
+    pub(crate) fn alias(&mut self, name: &str, existing: &str) {
+        if let Some(s) = self.shapes.get(existing).cloned() {
+            self.shapes.insert(name.to_owned(), s);
         }
     }
 

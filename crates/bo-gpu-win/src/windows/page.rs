@@ -823,8 +823,15 @@ impl Device {
                 );
             }
             // Clear respects the axis-aligned band clip: a reused bitmap keeps its other pixels.
-            self.context
-                .Clear(Some(&color(Rgba(255, 255, 255, 255), 1.0)));
+            // A layer bitmap (premultiplied alpha, `create_layer_bitmap`) starts transparent.
+            let layer =
+                into.is_some_and(|b| b.GetPixelFormat().alphaMode == D2D1_ALPHA_MODE_PREMULTIPLIED);
+            let paper = if layer {
+                Rgba(0, 0, 0, 0)
+            } else {
+                Rgba(255, 255, 255, 255)
+            };
+            self.context.Clear(Some(&color(paper, 1.0)));
             let mut state = State::new();
             // Which document text setting is current (serif / sans-serif faces).
             let mut sans_on: Option<bool> = None;

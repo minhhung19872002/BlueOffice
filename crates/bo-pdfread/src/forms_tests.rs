@@ -218,3 +218,146 @@ fn redaction_removes_glyphs_under_the_box_only() {
         .expect("saves");
     assert!(!saved.windows(4).any(|w| w == b"1234"));
 }
+
+#[test]
+fn xfdf_fdf_and_csv_round_trip() {
+    let mut doc = open(form_pdf());
+    let fields = doc.form_fields();
+    let by = |n: &str| fields.iter().find(|f| f.name == n).cloned().expect("field");
+    doc.set_field_text(&by("name"), "Ann").expect("fills");
+    doc.set_field_checked(&by("agree"), true).expect("checks");
+    let large = fields
+        .iter()
+        .find(|f| f.name == "size" && f.on_state.as_deref() == Some(&b"L"[..]))
+        .cloned()
+        .expect("radio");
+    doc.set_field_checked(&large, true).expect("chooses");
+    let note = NewAnnot {
+        kind: AnnotKind::Note,
+        page: 0,
+        rects: vec![[100.0, 100.0, 120.0, 120.0]],
+        color: [255, 200, 0],
+        author: "me".into(),
+        contents: "see <this>".into(),
+    };
+    doc.add_annotation(&note).expect("adds");
+    let xfdf = doc.to_xfdf(true, true, "form.pdf");
+    let fdf = doc.fields_fdf();
+    let csv = doc.fields_csv();
+    assert!(xfdf.contains("<text page=\"0\"") && xfdf.contains("see &lt;this&gt;"));
+    assert!(csv.starts_with("name,agree,size,city"), "{csv}");
+    for data in [xfdf.as_bytes(), &fdf[..], csv.as_bytes()] {
+        let mut fresh = open(form_pdf());
+        let rep = fresh.import_data(data, "x").expect("imports");
+        assert_eq!(rep.fields, 4, "{}", String::from_utf8_lossy(data));
+        let v = fresh.field_values();
+        assert_eq!(v[0], ("name".to_owned(), "Ann".to_owned()));
+        assert_eq!(v[1], ("agree".to_owned(), "Yes".to_owned()));
+        assert_eq!(v[2], ("size".to_owned(), "L".to_owned()));
+        // One undo step takes it all back.
+        assert!(fresh.undo());
+        assert_eq!(fresh.field_values()[0].1, "");
+    }
+    let mut fresh = open(form_pdf());
+    let rep = fresh.import_data(xfdf.as_bytes(), "x").expect("imports");
+    assert_eq!(rep.comments, 1);
+    let a = fresh.annotations();
+    let n = a.iter().find(|a| a.kind == AnnotKind::Note).expect("note");
+    assert_eq!(n.contents, "see <this>");
+    assert_eq!(n.author, "me");
+    let orig = doc.annotations();
+    let o = orig
+        .iter()
+        .find(|a| a.kind == AnnotKind::Note)
+        .expect("note");
+    assert!((n.rect[0] - o.rect[0]).abs() < 0.5 && (n.rect[1] - o.rect[1]).abs() < 0.5);
+}
+#[test]
+fn hidden_data_calculation_order_tooltips_and_buttons() {
+    let mut doc = open(form_pdf());
+    let note = NewAnnot {
+        kind: AnnotKind::Note,
+        page: 0,
+        rects: vec![[100.0, 100.0, 120.0, 120.0]],
+        color: [255, 200, 0],
+        author: "me".into(),
+        contents: "x".into(),
+    };
+    doc.add_annotation(&note).expect("adds");
+    let before = doc.hidden_counts();
+    assert_eq!(before.comments, 1);
+    assert_eq!(before.forms, 5);
+    // Calculation order and tooltips.
+    let n = doc
+        .set_calculation_order(&["city".into(), "name".into(), "nope".into()])
+        .expect("orders");
+    assert_eq!(n, 2);
+    assert_eq!(doc.calculation_order(), ["city", "name"]);
+    let name = doc
+        .form_fields()
+        .into_iter()
+        .find(|f| f.name == "name")
+        .expect("field");
+    doc.set_field_tooltip(&name, "Your name").expect("tip");
+    assert_eq!(doc.field_tooltip(&name), "Your name");
+    // Hide and show a field, a reset button action.
+    assert_eq!(doc.hide_fields(&["name".into()], true).expect("hides"), 1);
+    let agree = doc
+        .form_fields()
+        .into_iter()
+        .find(|f| f.name == "agree")
+        .expect("field");
+    doc.set_button_action(&agree, &ButtonAction::Hide(vec!["name".into()], false))
+        .expect("action");
+    assert_eq!(
+        doc.button_action(&agree),
+        Some(ButtonAction::Hide(vec!["name".into()], false))
+    );
+    // Remove comments only: the fields stay; then everything.
+    doc.remove_hidden_data(HiddenData {
+        comments: true,
+        ..HiddenData::default()
+    })
+    .expect("removes");
+    assert_eq!(doc.annotations(), []);
+    assert_eq!(doc.form_fields().len(), 5);
+    doc.remove_hidden_data(HiddenData::all()).expect("removes");
+    assert_eq!(doc.form_fields(), []);
+    let mut again = open(doc.save().expect("saves"));
+    assert_eq!(again.hidden_counts().forms, 0);
+    assert!(text(&mut again).contains("Name:"));
+    // One step each.
+    assert!(doc.undo());
+    assert_eq!(doc.form_fields().len(), 5);
+}
+
+#[test]
+fn hidden_layers_are_cut_from_the_content() {
+    let content = "/OC /oc1 BDC BT /F1 12 Tf 20 250 Td (Secret) Tj ET EMC BT /F1 12 Tf 20 200 Td (Shown) Tj ET";
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >> >>"
+            .to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 4 0 R \
+         /Resources << /Font << /F1 6 0 R >> /Properties << /oc1 5 0 R >> >> >>"
+            .to_owned(),
+        format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ),
+        "<< /Type /OCG /Name (Hidden) >>".to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+    ];
+    let refs: Vec<&str> = objs.iter().map(String::as_str).collect();
+    let mut doc = open(build_pdf(&refs));
+    assert_eq!(doc.hidden_counts().hidden_layers, 1);
+    doc.remove_hidden_data(HiddenData {
+        hidden_layers: true,
+        ..HiddenData::default()
+    })
+    .expect("removes");
+    let mut again = open(doc.save().expect("saves"));
+    let t = text(&mut again);
+    assert!(t.contains("Shown") && !t.contains("Secret"), "{t}");
+    assert_eq!(again.hidden_counts().hidden_layers, 0);
+}

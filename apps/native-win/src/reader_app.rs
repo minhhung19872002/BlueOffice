@@ -404,14 +404,7 @@ impl Handler for Shell {
         if let Err(e) = device.update_window_monitor(hwnd) {
             eprintln!("monitor text settings: {e}");
         }
-        // Page text like the reference reader: the system's ClearType settings
-        // (BLUEOFFICE_TEXT=gray|light compares other renderings).
-        device.set_text_rendering(match std::env::var("BLUEOFFICE_TEXT").as_deref() {
-            Ok("gray") => TextRendering::Grayscale,
-            Ok("light") => TextRendering::light_cleartype(),
-            Ok("doc") => TextRendering::document_default(),
-            _ => TextRendering::System,
-        });
+        device.set_text_rendering(page_text());
         let surface = WindowSurface::new(&device, hwnd, width, height)?;
         self.gpu = Some(Gpu {
             device,
@@ -547,6 +540,43 @@ impl Handler for Shell {
     }
 }
 
+/// Gamma, enhanced contrast and ClearType level of PDF page text: the same ink coverage on body
+/// text as the reference reader (docs/ui/REPORT-reader.md round 2).
+const PDF_TEXT: (f32, f32, f32) = (1.8, 1.0, 1.0);
+
+/// Page text rendering: [PDF_TEXT] unless `BLUEOFFICE_TEXT=system|gray|light|doc` asks for
+/// another; `BO_PDF_TEXT=gamma,contrast,level[,gray][,nosym][,nofit]` tunes it for comparisons.
+fn page_text() -> TextRendering {
+    match std::env::var("BLUEOFFICE_TEXT").as_deref() {
+        Ok("system") => return TextRendering::System,
+        Ok("gray") => return TextRendering::Grayscale,
+        Ok("light") => return TextRendering::light_cleartype(),
+        Ok("doc") => return TextRendering::document_default(),
+        _ => {}
+    }
+    let tuned = std::env::var("BO_PDF_TEXT").ok();
+    let mut it = tuned.as_deref().unwrap_or("").split(',');
+    let mut num = |d: f32| it.next().and_then(|v| v.trim().parse().ok()).unwrap_or(d);
+    let (gamma, contrast, level) = (num(PDF_TEXT.0), num(PDF_TEXT.1), num(PDF_TEXT.2));
+    let has = |s: &str| tuned.as_deref().is_some_and(|v| v.contains(s));
+    let grid_fit = !has("nofit");
+    // The reference draws page text with ClearType when the system uses it, grayscale else.
+    if has("gray") || !bo_gpu_win::system_cleartype() {
+        return TextRendering::GrayscaleTuned {
+            gamma,
+            contrast,
+            grid_fit,
+        };
+    }
+    TextRendering::Tuned {
+        gamma,
+        contrast,
+        level,
+        symmetric: !has("nosym"),
+        grid_fit,
+    }
+}
+
 /// Command-line tools: `--render in.pdf <page> out.png [zoom%]` and `--bench in.pdf [pages]`.
 pub fn tool(args: &[String]) -> Result<(), String> {
     let path = args.get(1).ok_or("missing PDF path")?;
@@ -554,7 +584,7 @@ pub fn tool(args: &[String]) -> Result<(), String> {
     let mut doc = open_pdf(std::path::Path::new(path))?;
     let open_ms = t0.elapsed().as_secs_f64() * 1e3;
     let device = Device::new()?;
-    device.set_text_rendering(TextRendering::System);
+    device.set_text_rendering(page_text());
     // 125 % display scale at 100 % zoom unless a zoom is given.
     if args[0] == "--render" {
         let page: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(1);

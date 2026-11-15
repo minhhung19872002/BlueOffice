@@ -359,3 +359,42 @@ Còn lại (sau vòng 13): Presenter View trên cửa sổ thứ hai / màn hìn
 cửa sổ mỗi tiến trình); thư viện Corrections / Color của tham chiếu không mở được bằng COM nên chỉ so
 nút; khung trang phát (handout) chưa vẽ ô trang chiếu trong chế độ Handout Master; Eraser chỉ gộp với
 ô bên phải.
+
+## Vòng 14 — hành vi: kéo hình, chữ, trình chiếu, khung trang phát (`slide-19…23`, 1500 × 1102, 125 %)
+
+Tham chiếu được điều khiển bằng COM và `PostMessage` chuột thẳng vào cửa sổ `mdiClass` của nó (không có
+phím / chuột thật); kéo hình, khung chọn, đổi cỡ chạy được như vậy (kéo hình thu nhỏ thì không: OLE drag-drop).
+
+| Đo (thiết bị) | Tham chiếu | BlueSlide |
+|---|---|---|
+| Khung chọn (marquee) | viền 1 px xám 115, trong xám 115 phủ 50 % (trắng → 185, 46/117/182 → 81/116/149) | như vậy |
+| Đường gióng khi kéo | nét đứt 1 px 209/139/121, chu kỳ 7 px, vượt hai hình ~10 px | như vậy (trước: liền, 210/74/38) |
+| Khoảng hút gióng | hút khoảng hở 5,5 px (4,4 pt ở 75 %) | 6 px logic trên màn hình (trước: 4 pt cố định) |
+| Kéo hình | hình đi theo con trỏ (bản gốc biến mất) | như vậy (áp dụng trực tiếp, một bước hoàn tác) |
+| Xoá nền: vùng bỏ | 200/0/200 (trời), 168/0/168 (cỏ), 252/0/252 (trắng) | 201/0/201, 167/0/167 (`0,6 × độ sáng + 0,4 × 250`, kênh lục 0) |
+| Gõ chữ tiêu đề (nội bộ, 60 phím) | — | tổng p50 5,3 ms, p95 6,3 ms (vòng 13: 11,8 ms) |
+
+- Cạnh trên hình được hút vào tâm phụ đề như tham chiếu (cạnh ↔ tâm). Lệch dọc của chữ do số đo phông:
+  BlueSlide desktop dùng Calibri hệ thống với `hhea` 0,75 / 0,25 em; tham chiếu dùng `OS/2.usWinAscent /
+  usWinDescent` (0,952 / 0,269 em). Bộ thử tự dựng (Calibri 24 / 54 pt, giãn dòng 100 / 90 / 80 %, neo trên /
+  dưới): dòng đầu cao hơn 5–6 px (24 pt), 12–13 px (54 pt); sau sửa lệch 0–2 px, neo dưới 0–1 px; phụ đề /
+  tiêu đề trùng từng hàng mực (628 / 532). Phông có cờ USE_TYPO_METRICS giữ số đo typo; Carlito / Liberation /
+  Tinos đóng gói có `hhea` = win nên web và ảnh chụp kiểm thử không đổi.
+- Hình: Shift + kéo đi thẳng, Ctrl + kéo chép (một bước hoàn tác), nhấp lần hai vào hình đang chọn vào chữ khi
+  nhả (kéo thì di chuyển; trước đây vào chữ ngay), Shift + nhấp hình đang chọn bỏ nó khỏi lựa chọn khi nhả.
+  Shift / Ctrl lấy từ cờ của thông điệp chuột (`win32::mouse_mods`).
+- Chữ: nhấp ba lần chọn đoạn (kèm dấu đoạn); Tab giữa đoạn gõ ký tự tab, ở đầu đoạn hạ cấp (thử trên tham
+  chiếu: `Mục |tiêu` → `Mục \ttiêu`, đầu đoạn → cấp 2); gạch sóng đỏ / xanh dưới lỗi chính tả / ngữ pháp của
+  trang hiện tại (lệnh `slideSpelling`, kiểm lại ở nhịp kế sau mỗi thay đổi).
+- Trình chiếu: B / . màn đen, W / , màn trắng (phím / nhấp bất kỳ trở lại, không sang bước); số + Enter tới
+  trang; Ctrl+P bút đỏ, Ctrl+I bút đánh dấu, Ctrl+L laser, Ctrl+A / Esc về mũi tên (Esc lần đầu chỉ bỏ bút),
+  E xoá nét của trang. Máy chỉ có một màn hình nên Presenter View vẫn trong cửa sổ.
+- Handout Master: chỉ còn trang (không ngăn hình thu nhỏ / ghi chú), ô trang chiếu chấm từ
+  `PageMasterOut.slots`, chữ gợi ý "Header" / "Footer" 12 pt. Eraser xoá cạnh ô gần con trỏ nhất, bốn phía.
+- Slide Sorter có thu phóng riêng (Ctrl + bánh xe, thanh trạng thái): ảnh 320 px logic × thu phóng.
+- Web: `pnpm build:wasm`, `@blueoffice/platform` 185 và `@blueoffice/slide-editor` 310 kiểm thử qua sau thay
+  đổi bình luận neo hình của vòng 13, không cần sửa.
+
+Còn lại (sau vòng 14): ngày giờ trong chỗ dành sẵn Handout Master và thanh trạng thái "Handout Master";
+đổi cỡ của tham chiếu vẽ bóng mờ 50 % (ta vẽ hình thật); hỏi giữ nét bút khi kết thúc trình chiếu; Presenter
+View trên màn hình phụ.

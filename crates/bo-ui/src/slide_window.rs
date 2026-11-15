@@ -442,6 +442,10 @@ impl SlideWindow {
             strings.get("slideEditor.promptSubtitle"),
             strings.get("slideEditor.promptText"),
         );
+        view.set_hf_prompts(
+            strings.get("slideNative.phHeader"),
+            strings.get("slideNative.phFooter"),
+        );
         let mut title = TitleBar::new();
         title.set_app("BlueSlide", "app.slide");
         Self {
@@ -524,6 +528,12 @@ impl SlideWindow {
     /// The editing area.
     pub fn view(&self) -> &SlideView {
         &self.view
+    }
+
+    /// Shift / Ctrl held with the mouse button (constrained moves, Ctrl + drag copies,
+    /// marquee extends); the host sets them before each mouse event.
+    pub fn set_pointer_mods(&mut self, m: crate::Mods) {
+        self.view.set_pointer_mods(m);
     }
 
     /// The editing area, for the host's file operations.
@@ -1988,7 +1998,7 @@ impl SlideWindow {
                     true
                 }
                 Input::Tick => self.view.show_tick(),
-                Input::Release { .. } | Input::Move { .. } | Input::Blink => false,
+                Input::Blink => false,
                 other => self.view.handle(other),
             };
         }
@@ -2120,7 +2130,10 @@ impl SlideWindow {
                 self.relayout(text);
                 true
             }
-            Input::Tick => self.tick(text),
+            Input::Tick => {
+                let spell = self.view.spell_tick();
+                self.tick(text) || spell
+            }
             Input::Maximized(m) => self.title.set_maximized(m),
             Input::Leave => {
                 let a = self.title.hover(-1.0, -1.0);

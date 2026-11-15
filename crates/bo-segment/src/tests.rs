@@ -231,12 +231,13 @@ fn apply_and_tint() {
     assert_eq!(rgba[3], 0);
     assert_eq!(rgba[((24 * 64 + 32) * 4 + 3) as usize], 255);
     let t = tinted(&seg);
-    // Corner tinted towards TINT, centre unchanged.
+    // Corner tinted magenta (green off, red = blue from the luminance), centre unchanged.
     let c = &t.rgba[0..4];
-    let want: Vec<u8> = (0..3)
-        .map(|i| (f64::from(img.rgba[i]) * 0.35 + f64::from(TINT[i]) * 0.65).round() as u8)
-        .collect();
-    assert_eq!(&c[..3], &want[..]);
+    let luma = 0.299 * f64::from(img.rgba[0])
+        + 0.587 * f64::from(img.rgba[1])
+        + 0.114 * f64::from(img.rgba[2]);
+    let m = (luma * 0.6 + f64::from(TINT[0]) * 0.4).round() as u8;
+    assert_eq!(&c[..3], &[m, 0, m]);
     let o = ((24 * 64 + 32) * 4) as usize;
     assert_eq!(&t.rgba[o..o + 3], &img.rgba[o..o + 3]);
 }

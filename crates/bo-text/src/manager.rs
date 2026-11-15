@@ -39,6 +39,22 @@ pub struct FaceInfo {
     /// Sans-serif design: `OS/2` PANOSE serif style 11–15 (OpenType `OS/2.panose`,
     /// bSerifStyle normal / obtuse / perpendicular sans, flared, rounded).
     pub sans: bool,
+    /// `OS/2.usWinAscent` (0 without an `OS/2` table): the line extent above the
+    /// baseline GDI-based layout uses (a desktop presentation app's text lines).
+    pub win_ascent: u16,
+    /// `OS/2.usWinDescent` (positive, below the baseline; 0 without an `OS/2` table).
+    pub win_descent: u16,
+    /// `OS/2.fsSelection` bit 7 USE_TYPO_METRICS: the font asks for its typographic
+    /// metrics (`ascender` / `descender` above) rather than the Windows ones.
+    pub use_typo_metrics: bool,
+}
+
+/// A big-endian `u16` of the face's `OS/2` table at byte `at` (0 when absent).
+fn os2_u16(face: &ttf_parser::Face<'_>, at: usize) -> u16 {
+    face.raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"OS/2"))
+        .and_then(|t| t.get(at..at + 2))
+        .map_or(0, |b| u16::from_be_bytes([b[0], b[1]]))
 }
 
 struct Face {
@@ -155,6 +171,9 @@ impl FontManager {
                     .table(ttf_parser::Tag::from_bytes(b"OS/2"))
                     .and_then(|t| t.get(33))
                     .is_some_and(|s| (11..=15).contains(s)),
+                win_ascent: os2_u16(&face, 74),
+                win_descent: os2_u16(&face, 76),
+                use_typo_metrics: os2_u16(&face, 62) & 0x80 != 0,
                 family,
             };
             let id = FaceId(self.faces.len() as u32);

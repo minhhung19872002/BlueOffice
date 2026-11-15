@@ -1,7 +1,7 @@
 //! Table Design > Draw Borders, as the reference presentation app lays it out (N6, round 5):
 //! the pen style and pen weight as boxes showing the line, Pen Color, and the Draw Table and
 //! Eraser tools — Draw Table drags out a new table on the slide, Eraser removes the border
-//! between the clicked cell and its right-hand neighbour (the two cells merge).
+//! of the clicked cell nearest the pointer (the two cells it separates merge).
 use super::SlideWindow;
 use crate::ribbon::RibbonHit;
 use crate::{Input, Key, Painter};
@@ -19,6 +19,36 @@ pub enum TableTool {
     Draw(Option<(f32, f32, f32, f32)>),
     /// Eraser.
     Erase,
+}
+
+/// The cells (`r0, c0, r1, c1`, inclusive) the Eraser merges when it is clicked at `pt` in a
+/// cell with box `b` placed at `(row, col, row span, col span)` of a `rows` × `cols` table:
+/// the side of the cell nearest the click goes; `None` on the table's outer border.
+pub fn erase_span(
+    b: &bo_engine::slide_edit::geom::BoxR,
+    pt: (f64, f64),
+    (r, c, rs, cs): (usize, usize, usize, usize),
+    (rows, cols): (usize, usize),
+) -> Option<(usize, usize, usize, usize)> {
+    let (l, t) = (b.cx - b.w / 2.0, b.cy - b.h / 2.0);
+    let sides = [
+        (pt.0 - l, 0u8),
+        (l + b.w - pt.0, 1),
+        (pt.1 - t, 2),
+        (t + b.h - pt.1, 3),
+    ];
+    let side = sides
+        .iter()
+        .min_by(|a, z| a.0.total_cmp(&z.0))
+        .map_or(1, |s| s.1);
+    let (r1, c1) = (r + rs - 1, c + cs - 1);
+    match side {
+        0 if c > 0 => Some((r, c - 1, r1, c1)),
+        1 if c1 + 1 < cols => Some((r, c, r1, c1 + 1)),
+        2 if r > 0 => Some((r - 1, c, r1, c1)),
+        3 if r1 + 1 < rows => Some((r, c, r1 + 1, c1)),
+        _ => None,
+    }
 }
 
 /// Widths (logical px) of the pen style / weight boxes (reference: 112 device px at 125 %).
@@ -108,7 +138,8 @@ impl SlideWindow {
         }
     }
 
-    /// Eraser: merge the clicked cell with the one on its right.
+    /// Eraser: remove the cell border nearest the click — on any side of the clicked cell —
+    /// merging the two cells it separates (reference); outer borders stay.
     fn erase_at(&mut self, x: f32, y: f32) -> bool {
         let (sx, sy) = self.slide_point(x, y);
         if !self.view.run(SlideCommand::TableHit {
@@ -122,15 +153,21 @@ impl SlideWindow {
             return false;
         };
         let [r0, c0, _, _] = t.sel;
-        if c0 + 1 >= t.cols {
+        let Some(cell) = t.cells.iter().find(|c| c.row == r0 && c.col == c0) else {
             return false;
-        }
+        };
+        let (rs, cs) = (cell.row_span.max(1), cell.col_span.max(1));
+        let Some((r0, c0, r1, c1)) =
+            erase_span(&cell.rect, (sx, sy), (r0, c0, rs, cs), (t.rows, t.cols))
+        else {
+            return false;
+        };
         self.view.run(SlideCommand::TableSelect {
             id: Some(t.id),
             r0,
             c0,
-            r1: Some(r0),
-            c1: Some(c0 + 1),
+            r1: Some(r1),
+            c1: Some(c1),
         }) && self.view.run(SlideCommand::TableMerge)
     }
 
@@ -231,5 +268,32 @@ impl SlideWindow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::erase_span;
+    use bo_engine::slide_edit::geom::BoxR;
+
+    #[test]
+    fn eraser_takes_the_nearest_side() {
+        // Cell (1, 1) of a 3 × 3 table, 100 × 40 pt at (100, 100).
+        let b = BoxR {
+            cx: 150.0,
+            cy: 120.0,
+            w: 100.0,
+            h: 40.0,
+            rot: 0.0,
+        };
+        let at = |x, y| erase_span(&b, (x, y), (1, 1, 1, 1), (3, 3));
+        assert_eq!(at(103.0, 120.0), Some((1, 0, 1, 1)), "left");
+        assert_eq!(at(197.0, 120.0), Some((1, 1, 1, 2)), "right");
+        assert_eq!(at(150.0, 102.0), Some((0, 1, 1, 1)), "top");
+        assert_eq!(at(150.0, 138.0), Some((1, 1, 2, 1)), "bottom");
+        // Outer borders stay.
+        let corner = |x, y| erase_span(&b, (x, y), (0, 0, 1, 1), (3, 3));
+        assert_eq!(corner(103.0, 120.0), None);
+        assert_eq!(corner(150.0, 102.0), None);
     }
 }

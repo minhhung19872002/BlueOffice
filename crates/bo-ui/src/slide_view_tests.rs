@@ -276,6 +276,10 @@ fn text_offsets_are_utf16() {
     assert_eq!(step_word("ab cd", 0, true), 3);
     assert_eq!(step_word("ab cd", 5, false), 3);
     assert_eq!(word_at("ab cd", 1), (0, 3));
+    // Triple click: the paragraph with its mark.
+    assert_eq!(para_at("ab\ncd ef\ngh", 4), (3, 9));
+    assert_eq!(para_at("ab\ncd", 1), (0, 3));
+    assert_eq!(para_at("ab\ncd", 4), (3, 5));
 }
 
 /// Painter recording the slide images drawn by the show (key, destination, opacity).
@@ -564,4 +568,195 @@ fn show_morphs_matched_shapes() {
         .filter(|(k, _, _)| *k >= MORPH_KEY && *k < MORPH_KEY + 8)
         .collect();
     assert!(!morph.is_empty(), "{:?}", rec.parts);
+}
+
+#[test]
+fn show_keys_blank_jump_and_draw() {
+    use super::show_tools::{Pointer, Screen};
+    let mut v = open("slide-anim-transitions.pptx");
+    v.set_window(1600.0, 900.0);
+    v.set_clock(0.0);
+    v.start_show(0);
+    let n = v.slide_count();
+    assert!(n >= 2);
+    // B blanks the screen; any key brings the slide back without advancing.
+    v.handle(Input::Text("b".into()));
+    assert_eq!(v.show_tools().screen, Some(Screen::Black));
+    let mut rec = Rec::default();
+    v.paint(&mut rec, 12.0);
+    v.handle(key(Key::Right));
+    assert_eq!(v.show_tools().screen, None);
+    assert_eq!(v.show_slide(), Some(0));
+    v.handle(Input::Text(",".into()));
+    assert_eq!(v.show_tools().screen, Some(Screen::White));
+    v.handle(Input::Text("w".into()));
+    assert_eq!(v.show_tools().screen, None);
+    // Number + Enter goes to that slide.
+    v.handle(Input::Text(n.to_string()));
+    v.handle(key(Key::Enter));
+    assert_eq!(v.show_slide(), Some(n - 1));
+    v.handle(Input::Text("1".into()));
+    v.handle(key(Key::Enter));
+    assert_eq!(v.show_slide(), Some(0));
+    // Ctrl+P: the pen draws instead of advancing; E erases; Esc back to the arrow.
+    v.handle(ctrl('p'));
+    assert_eq!(v.show_tools().pointer, Pointer::Pen);
+    v.handle(Input::Press {
+        x: 400.0,
+        y: 300.0,
+        count: 1,
+        shift: false,
+    });
+    v.handle(Input::Drag { x: 600.0, y: 350.0 });
+    v.handle(Input::Release { x: 600.0, y: 350.0 });
+    assert_eq!(v.show_slide(), Some(0));
+    assert_eq!(v.show_tools().strokes.get(&0).map(Vec::len), Some(1));
+    let mut rec = Rec::default();
+    v.paint(&mut rec, 12.0);
+    v.handle(Input::Text("e".into()));
+    assert_eq!(v.show_tools().strokes.len(), 0);
+    v.handle(key(Key::Escape));
+    assert_eq!(v.show_tools().pointer, Pointer::Arrow);
+    assert!(v.showing(), "the first Esc only drops the pen");
+    // Laser follows the pointer.
+    v.handle(ctrl('l'));
+    v.handle(Input::Move { x: 500.0, y: 400.0 });
+    assert_eq!(v.show_tools().laser, Some((500.0, 400.0)));
+    v.handle(key(Key::Escape));
+    v.handle(key(Key::Escape));
+    assert!(!v.showing());
+}
+
+fn shape_count(v: &mut SlideView) -> usize {
+    v.engine_mut()
+        .slide_command(SlideCommand::ShapeBoxes)
+        .ok()
+        .and_then(|r| r.shape_boxes)
+        .map_or(0, |b| b.shapes.len())
+}
+
+fn drag_px(v: &mut SlideView, a: (f32, f32), b: (f32, f32), shift: bool) {
+    v.handle(Input::Press {
+        x: a.0,
+        y: a.1,
+        count: 1,
+        shift,
+    });
+    v.handle(Input::Drag { x: b.0, y: b.1 });
+    v.handle(Input::Release { x: b.0, y: b.1 });
+}
+
+#[test]
+fn marquee_constrained_move_and_ctrl_drag_copy() {
+    use bo_engine::slide_edit::geom::Rect;
+    let mut v = open("slide-text-bullets.pptx");
+    let (sw, sh) = v.slide_points();
+    let (sw, sh) = (f64::from(sw), f64::from(sh));
+    assert!(v.run(SlideCommand::InsertShape {
+        preset: "rect".into(),
+        rect: Some(Rect {
+            x: sw - 80.0,
+            y: sh - 60.0,
+            w: 60.0,
+            h: 40.0,
+        }),
+    }));
+    let id = v.selection()[0].id;
+    // Marquee from the empty bottom-right corner round the shape selects it alone.
+    click_slide(&mut v, sw - 2.0, sh - 2.0);
+    assert_eq!(v.selection().len(), 0);
+    let a = v.to_px(sw - 2.0, sh - 2.0);
+    let b = v.to_px(sw - 90.0, sh - 70.0);
+    v.handle(Input::Press {
+        x: a.0,
+        y: a.1,
+        count: 1,
+        shift: false,
+    });
+    v.handle(Input::Drag { x: b.0, y: b.1 });
+    assert!(v.marquee().is_some());
+    let mut rec = Rec::default();
+    v.paint(&mut rec, 12.0);
+    v.handle(Input::Release { x: b.0, y: b.1 });
+    assert!(v.marquee().is_none());
+    let ids: Vec<u32> = v.selection().iter().map(|s| s.id).collect();
+    assert_eq!(ids, vec![id]);
+    // Shift + drag moves straight across.
+    let r0 = v.selection()[0].rect;
+    let c = v.to_px(r0.cx, r0.cy);
+    v.set_pointer_mods(Mods {
+        shift: true,
+        ..Mods::default()
+    });
+    drag_px(&mut v, c, (c.0 - 60.0, c.1 - 9.0), true);
+    let r1 = v.selection()[0].rect;
+    assert!((r1.cy - r0.cy).abs() < 1e-6, "{r0:?} {r1:?}");
+    assert!(r1.cx < r0.cx - 10.0);
+    // Ctrl + drag leaves the shape and moves a copy (one undo step).
+    let before = shape_count(&mut v);
+    v.set_pointer_mods(Mods {
+        ctrl: true,
+        ..Mods::default()
+    });
+    let c = v.to_px(r1.cx, r1.cy);
+    drag_px(&mut v, c, (c.0, c.1 - 50.0), false);
+    assert_eq!(shape_count(&mut v), before + 1);
+    let r2 = v.selection()[0].rect;
+    assert_ne!(v.selection()[0].id, id);
+    assert!(
+        r2.cy < r1.cy - 10.0 && (r2.cx - r1.cx).abs() < 2.0,
+        "{r1:?} {r2:?}"
+    );
+    // A click on the selected copy without moving puts the caret in its text.
+    let c = v.to_px(r2.cx, r2.cy);
+    v.set_pointer_mods(Mods::default());
+    drag_px(&mut v, c, c, false);
+    assert!(v.text_edit().is_some());
+    v.handle(key(Key::Escape));
+    v.handle(ctrl('z'));
+    assert_eq!(shape_count(&mut v), before);
+}
+
+#[test]
+fn misspelt_words_get_wavy_lines_and_tab_types_inside_a_paragraph() {
+    let mut v = open("slide-text-bullets.pptx");
+    let placeholder = v.state().and_then(|s| s.selection.first().map(|i| i.id));
+    let id = placeholder.or_else(|| {
+        v.run(SlideCommand::SelectAll);
+        v.selection().first().map(|s| s.id)
+    });
+    let id = id.expect("a shape");
+    v.run(SlideCommand::TextSelect {
+        id: Some(id),
+        start: 0,
+        end: 0,
+        cell: None,
+    });
+    v.handle(Input::Text("Helo wrold ".into()));
+    v.spell_tick();
+    assert!(!v.spell_marks().is_empty(), "wavy lines under the typos");
+    let mut rec = Rec::default();
+    v.paint(&mut rec, 12.0);
+    // Tab inside the paragraph types a tab character; at its start it demotes.
+    let before = v.text_edit().map(|t| t.text.clone()).unwrap_or_default();
+    v.handle(key(Key::Tab));
+    let after = v.text_edit().map(|t| t.text.clone()).unwrap_or_default();
+    assert_eq!(
+        after.matches('\t').count(),
+        before.matches('\t').count() + 1
+    );
+}
+
+#[test]
+fn slide_sorter_has_its_own_zoom() {
+    let mut v = open("slide-text-bullets.pptx");
+    let edit = v.scale();
+    v.set_mode(ViewMode::Sorter);
+    assert!((v.zoom() - 1.0).abs() < 1e-6);
+    assert_eq!(v.sort_rect(0)[2], 400.0, "320 logical px at 125 %");
+    assert!(v.set_zoom(Some(0.5)));
+    assert_eq!(v.sort_rect(0)[2], 200.0);
+    assert!((v.scale() - edit).abs() < 1e-6, "the editing zoom is kept");
+    v.set_mode(ViewMode::Normal);
+    assert!((v.zoom() - edit / v.base_scale()).abs() < 1e-6);
 }

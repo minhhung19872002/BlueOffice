@@ -1261,7 +1261,7 @@ impl SheetWindow {
         self.paint_scrollbars(p);
         self.paint_status(p);
         if let Some(menu) = &self.menu {
-            menu.paint(p, &self.theme);
+            menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
             paint_tooltip(p, &self.theme, label, *tw, *anchor, self.size.0, self.scale);
         }

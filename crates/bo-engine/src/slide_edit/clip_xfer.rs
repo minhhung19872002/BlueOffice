@@ -39,7 +39,11 @@ impl crate::Engine {
     /// Copy `what` from the presentation `bytes` (another window's deck) onto this engine's
     /// slide clipboard; `false` when the deck cannot be read or nothing was copied.
     pub fn copy_from_deck(&mut self, bytes: &[u8], what: &Copied) -> bool {
+        // The web build (no bundled-fonts feature) has its fonts loaded by the host.
+        #[cfg(feature = "bundled-fonts")]
         let mut other = crate::Engine::with_bundled_fonts();
+        #[cfg(not(feature = "bundled-fonts"))]
+        let mut other = crate::Engine::new();
         if other.open(bytes, "clipboard.pptx").is_err() {
             return false;
         }

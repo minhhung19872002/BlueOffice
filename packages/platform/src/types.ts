@@ -101,7 +101,40 @@ export type DisplayCommand =
   | { op: 'popOpacity' }
   /** Filled path blurred by `radius` points (soft shadow). */
   /** Soft shadow / glow: the path grown by `spread` (glow, §20.1.8.32) and blurred by `radius`. */
-  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number; spread?: number };
+  | { op: 'blurPath'; segs: PathSeg[]; color: Rgba; radius: number; spread?: number }
+  /**
+   * Transparency group (PDF pages, ISO 32000-1 §11.3.5 / §11.6.5): what follows up to the
+   * matching `popGroup` is composited with `blend` and, when set, through `mask`.
+   */
+  | { op: 'pushGroup'; blend?: BlendMode; mask?: SoftMask }
+  | { op: 'popGroup' };
+
+/** Blend modes of `bo_render::BlendMode` (ISO 32000-1 §11.3.5, Tables 136–137). */
+export type BlendMode =
+  | 'multiply'
+  | 'screen'
+  | 'overlay'
+  | 'darken'
+  | 'lighten'
+  | 'colorDodge'
+  | 'colorBurn'
+  | 'hardLight'
+  | 'softLight'
+  | 'difference'
+  | 'exclusion'
+  | 'hue'
+  | 'saturation'
+  | 'color'
+  | 'luminosity';
+
+/** Soft mask of a group (`bo_render::SoftMask`, ISO 32000-1 §11.6.5.2). */
+export interface SoftMask {
+  /** Luminosity (`/S /Luminosity`) rather than alpha mask. */
+  luminosity: boolean;
+  /** Backdrop colour (`/BC`), the mask value outside its drawing. */
+  backdrop: Rgba;
+  commands: DisplayCommand[];
+}
 
 /** Path segment as serialised by serde (`bo_render::PathSeg`). */
 export type PathSeg =

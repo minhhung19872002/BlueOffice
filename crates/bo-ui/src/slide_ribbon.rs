@@ -158,6 +158,20 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.smartart"
             | "sl.links"
             | "sl.textStyles"
+            | "sl.textQuick"
+            | "sl.textFill"
+            | "sl.textOutline"
+            | "sl.textEffects"
+            | "sl.corrections"
+            | "sl.picColor"
+            | "sl.transparency"
+            | "sl.changePicture"
+            | "sl.tblBorders"
+            | "sl.tblEffects"
+            | "sl.penColor"
+            | "sl.picQuick"
+            | "pm.orientation"
+            | "pm.perPage"
     )
 }
 
@@ -918,6 +932,7 @@ const TILE_CORNER: Rgba = Rgba(0xc4, 0xc3, 0xc2, 255);
 const TILE_INNER: Rgba = Rgba(0xc4, 0xc4, 0xc4, 255);
 const TILE_BEVEL: Rgba = Rgba(0xec, 0xf2, 0xf8, 255);
 const TILE_FILL: Rgba = Rgba(0xc9, 0xd9, 0xea, 255);
+const TILE_TOP: Rgba = Rgba(0xe4, 0xed, 0xf7, 255);
 const TILE_BLUE: Rgba = Rgba(0x4d, 0x82, 0xb8, 255);
 const TILE_LIGHT: Rgba = Rgba(0xb1, 0xc7, 0xde, 255);
 const TILE_ARROW: Rgba = Rgba(0x72, 0x72, 0x72, 255);
@@ -926,6 +941,56 @@ const TILE_DIM: Rgba = Rgba(0xd9, 0xd9, 0xd9, 255);
 fn mix(a: Rgba, b: Rgba, t: f32) -> Rgba {
     let l = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
     Rgba(l(a.0, b.0), l(a.1, b.1), l(a.2, b.2), 255)
+}
+
+/// Fill `[x, y, w, h]` shading from `a` (top) to `b` (bottom), one device row at a time.
+fn shade_down(p: &mut dyn Painter, r: [f32; 4], a: Rgba, b: Rgba) {
+    let n = r[3].round().max(1.0) as usize;
+    for i in 0..n {
+        let t = if n > 1 {
+            i as f32 / (n - 1) as f32
+        } else {
+            1.0
+        };
+        p.fill_rect(r[0], r[1] + i as f32, r[2], 1.0, mix(a, b, t));
+    }
+}
+
+/// A five-pointed star centred on (`cx`, `cy`) with outer radius `r`, shaded from a light
+/// top to a darker bottom of `base` and outlined a shade darker (own drawing in the
+/// reference gallery's manner); grey when `enabled` is false.
+pub(crate) fn paint_star(p: &mut dyn Painter, cx: f32, cy: f32, r: f32, base: Rgba, enabled: bool) {
+    let base = if enabled { base } else { NONE };
+    let white = Rgba(255, 255, 255, 255);
+    let black = Rgba(0, 0, 0, 255);
+    let mut segs = Vec::with_capacity(11);
+    for k in 0..10 {
+        let a = std::f32::consts::PI * (k as f32) / 5.0 - std::f32::consts::FRAC_PI_2;
+        let rr = if k % 2 == 0 { r } else { r * 0.45 };
+        let (x, y) = (cx + rr * a.cos(), cy + rr * a.sin());
+        segs.push(if k == 0 {
+            bo_render::PathSeg::M(x, y)
+        } else {
+            bo_render::PathSeg::L(x, y)
+        });
+    }
+    segs.push(bo_render::PathSeg::Z);
+    let (top, bottom) = (cy - r, cy + r * 0.85);
+    let bands = 10;
+    let step = ((bottom - top) / bands as f32).ceil().max(1.0);
+    for b in 0..bands {
+        let y = top + b as f32 * step;
+        let t = b as f32 / (bands - 1) as f32;
+        let c = if t < 0.5 {
+            mix(mix(base, white, 0.45), base, t * 2.0)
+        } else {
+            mix(base, mix(base, black, 0.25), (t - 0.5) * 2.0)
+        };
+        p.push_clip(cx - r - 1.0, y, 2.0 * r + 2.0, step);
+        p.path(&segs, Some(c), None);
+        p.pop_clip();
+    }
+    p.path(&segs, None, Some((mix(base, black, 0.35), 1.0)));
 }
 
 /// Fill `[x, y, w, h]` shading from `a` (left) to `b` (right), one device column at a time.
@@ -991,7 +1056,8 @@ pub(crate) fn paint_transition_tile(
     p.fill_rect(x + 1.0, y + 1.0, w - 2.0, h - 2.0, g(TILE_INNER));
     p.fill_rect(x + 2.0, y + 2.0, w - 4.0, h - 4.0, g(TILE_BEVEL));
     let i = [x + 3.0, y + 3.0, w - 6.0, h - 6.0];
-    p.fill_rect(i[0], i[1], i[2], i[3], g(TILE_FILL));
+    // The card's face shades from a light top to the reference's fill colour.
+    shade_down(p, i, g(TILE_TOP), g(TILE_FILL));
     // Interior point at fractions (u, v).
     let at = |u: f32, v: f32| ((i[0] + u * i[2]).round(), (i[1] + v * i[3]).round());
     let arrow = g(TILE_ARROW);

@@ -246,8 +246,20 @@ fn word_at(s: &str, u: usize) -> (usize, usize) {
     (off(a), off(b))
 }
 
+#[path = "slide_colormode.rs"]
+pub mod colormode;
+
+#[path = "slide_thumb_sections.rs"]
+mod thumb_sections;
+
 /// The editing area of one presentation.
 pub struct SlideView {
+    /// Ids of the sections collapsed in the thumbnails pane.
+    collapsed: Vec<String>,
+    /// Colour, Grayscale or Black and White (View tab).
+    color_mode: colormode::ColorMode,
+    /// The selection's frame and handles are not drawn (Remove Background).
+    hide_handles: bool,
     /// Prompts of empty title, subtitle and body placeholders (interface language).
     prompts: [String; 3],
     engine: Engine,
@@ -314,6 +326,9 @@ impl SlideView {
     /// A view of the presentation already open in `engine`.
     pub fn new(engine: Engine) -> Result<Self, String> {
         let mut view = Self {
+            collapsed: Vec::new(),
+            color_mode: colormode::ColorMode::Color,
+            hide_handles: false,
             prompts: [
                 "Click to add title".into(),
                 "Click to add subtitle".into(),
@@ -745,12 +760,12 @@ impl SlideView {
     pub fn thumb_rect(&self, i: usize) -> R {
         let (w, h) = self.slide_px(self.thumb_scale());
         let x = self.origin.0 + self.px(39.0);
-        let y = self.origin.1 + self.px(20.0) + i as f32 * self.thumb_pitch() - self.thumb_scroll;
+        let y = self.origin.1 + self.thumb_y(i).0 - self.thumb_scroll;
         [x, y.round(), w, h]
     }
 
     fn thumbs_content_h(&self) -> f32 {
-        self.px(20.0) + self.ids.len() as f32 * self.thumb_pitch()
+        self.thumbs_height()
     }
 
     fn clamp_thumb_scroll(&mut self) {
@@ -759,11 +774,7 @@ impl SlideView {
     }
 
     fn visible_thumbs(&self) -> std::ops::Range<usize> {
-        let pitch = self.thumb_pitch().max(1.0);
-        let top = self.thumb_scroll - self.px(20.0);
-        let first = (top / pitch).floor().max(0.0) as usize;
-        let last = ((top + self.size.1) / pitch).ceil().max(0.0) as usize + 1;
-        first.min(self.ids.len())..last.min(self.ids.len())
+        self.thumbs_in_view()
     }
 
     /// Keep thumbnail `i` inside the pane.
@@ -839,6 +850,68 @@ impl SlideView {
     /// Run a hyperlink / action command on the selection.
     pub fn run_action_cmd(&mut self, cmd: bo_engine::slide_edit::action::ActionCommand) -> bool {
         match self.engine.slide_action_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Draw slides in colour, grayscale or black and white (every image is drawn again).
+    pub fn set_color_mode(&mut self, mode: colormode::ColorMode) -> bool {
+        if mode == self.color_mode {
+            return false;
+        }
+        self.color_mode = mode;
+        self.invalidate_page_images();
+        true
+    }
+
+    /// The colour mode of the editing area.
+    pub fn color_mode(&self) -> colormode::ColorMode {
+        self.color_mode
+    }
+
+    /// Hide the selection's frame and handles (Remove Background draws its own frame).
+    pub fn set_hide_handles(&mut self, hide: bool) {
+        self.hide_handles = hide;
+    }
+
+    /// Run a notes / handout master view command (the view replaces the slide list).
+    pub fn run_page_master(
+        &mut self,
+        cmd: bo_engine::slide_edit::page_master::PageMasterCommand,
+    ) -> bool {
+        match self.engine.slide_page_master_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.stale.extend(self.shown.keys().copied());
+                self.full.extend(self.shown.keys().copied());
+                self.apply(r);
+                self.refresh_ids();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Run an outline / section command.
+    pub fn run_view(&mut self, cmd: bo_engine::slide_edit::views::ViewCommand) -> bool {
+        match self.engine.slide_view_command(cmd) {
+            Ok(r) if r.error.is_none() => {
+                self.apply(r);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Run a shape properties / table style command (Selection Pane, Alt Text, Table Design).
+    pub fn run_props(
+        &mut self,
+        cmd: bo_engine::slide_edit::shape_props::ShapePropsCommand,
+    ) -> bool {
+        match self.engine.slide_props_command(cmd) {
             Ok(r) if r.error.is_none() => {
                 self.apply(r);
                 true
@@ -1544,6 +1617,9 @@ impl SlideView {
             return None;
         }
         self.visible_thumbs().find(|&i| {
+            if self.thumb_hidden(i) {
+                return false;
+            }
             let [tx, ty, tw, th] = self.thumb_rect(i);
             let pad = self.px(8.0);
             inside(
@@ -1981,7 +2057,14 @@ impl SlideView {
                 None => None,
             }
         };
-        store.update(key, list, &self.engine, scale, band)?;
+        // The editing area and thumbnails show the View tab's colour mode (slide shows
+        // stay in colour).
+        if self.color_mode != colormode::ColorMode::Color && key < SHOW_KEY {
+            let shown = colormode::recolor(list, self.color_mode);
+            store.update(key, &shown, &self.engine, scale, band)?;
+        } else {
+            store.update(key, list, &self.engine, scale, band)?;
+        }
         self.shown.insert(key, (scale, list.clone()));
         self.stale.remove(&key);
         self.full.remove(&key);
@@ -2051,8 +2134,14 @@ impl SlideView {
             self.touch(id);
         }
         let ts = self.thumb_scale();
+        // While typing, the current slide's thumbnail is brought up to date when idle
+        // (`prefetch`), off the keystroke's path: it costs as much as the slide itself.
+        let typing = self.text_edit().is_some();
         for i in self.visible_thumbs() {
             let key = THUMB_KEY + self.ids[i];
+            if typing && i == cur && self.shown.contains_key(&key) {
+                continue;
+            }
             self.ensure(store, key, i, ts)?;
         }
         self.evict(store, 0, MAIN_CACHE);
@@ -2191,6 +2280,15 @@ impl SlideView {
         }
         let scale = self.scale();
         let cur = self.current;
+        // The current slide's thumbnail left behind while typing.
+        if let Some(&id) = self.ids.get(cur) {
+            let key = THUMB_KEY + id;
+            let ts = self.thumb_scale();
+            if self.needs(key, ts) && !self.sorter {
+                self.ensure(store, key, cur, ts)?;
+                return Ok(true);
+            }
+        }
         for j in [cur + 1, cur.wrapping_sub(1), cur + 2] {
             if let Some(&id) = self.ids.get(j) {
                 if self.needs(id, scale) {
@@ -2395,7 +2493,11 @@ impl SlideView {
         p.push_clip(r[0], r[1], r[2], r[3]);
         let one = self.display_scale.round().max(1.0);
         let frame = self.px(2.4).max(2.0);
+        self.paint_section_rows(p);
         for i in self.visible_thumbs() {
+            if self.thumb_hidden(i) {
+                continue;
+            }
             let [x, y, tw, th] = self.thumb_rect(i);
             let key = THUMB_KEY + self.ids[i];
             let selected = i == self.current;
@@ -2548,7 +2650,7 @@ impl SlideView {
                     }
                 }
             }
-        } else if self.preview.is_none() {
+        } else if self.preview.is_none() && !self.hide_handles {
             for s in &st.selection {
                 if st.selection.len() > 1 {
                     let w = self.display_scale.round().max(1.0);

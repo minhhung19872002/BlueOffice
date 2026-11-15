@@ -87,7 +87,7 @@ pub use sheet_view::{CellFormat, GridMove, GridRing, GridStore, SheetView, Stats
 pub use sheet_window::{PaintHash, SheetWindow};
 pub use shell::{DocWindow, Request};
 pub use slide_view::{Focus, SlideView, ViewMode, SLIDE_CANVAS};
-pub use slide_window::{InsertFile, SlideWindow};
+pub use slide_window::{InsertFile, SlideWindow, WindowRequest};
 pub use strings::Strings;
 pub use theme::{parse_color, Theme};
 pub use titlebar::{NcHit, TitleBar};

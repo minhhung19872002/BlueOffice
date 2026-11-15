@@ -68,7 +68,7 @@ const FONTS: [&str; 10] = [
 const TOOLTIP_TICKS: u32 = 5;
 
 fn home() -> Tab {
-    use Item::{Button as B, FontBox, Labeled as S, Large as L, SizeBox};
+    use Item::{Button as B, FontBox, Large as L, SizeBox};
     Tab {
         label: "ribbon.tabs.home",
         groups: vec![
@@ -81,15 +81,7 @@ fn home() -> Tab {
                     vec![B("sl.painter")],
                 ],
             },
-            Group {
-                label: "slideEditor.groupSlides",
-                large: vec![L("slide.new")],
-                rows: vec![
-                    vec![S("slide.layout")],
-                    vec![S("slide.duplicate")],
-                    vec![S("slide.delete")],
-                ],
-            },
+            sections::slides_group(),
             Group {
                 label: "ribbon.groups.font",
                 large: vec![],
@@ -248,6 +240,23 @@ pub struct SlideWindow {
     gridlines: bool,
     guides: bool,
     outline_rows: Vec<(f32, usize)>,
+    /// Selection Pane / Alt Text pane (same place as the comments pane; one at a time).
+    side: selpane::SidePane,
+    /// Picture Format gallery of previews (Corrections, Color, Transparency).
+    gallery: Option<pic::PicGallery>,
+    /// Remove Background mode.
+    bg_mode: Option<pic::BgMode>,
+    /// Draw Borders pen of Table Design.
+    pen: fmt::Pen,
+    /// Notes / Handout Master view open, and its placeholder check boxes.
+    page_master: Option<bo_engine::slide_edit::page_master::PageKind>,
+    pm_flags: [bool; 6],
+    /// View > Ruler.
+    ruler: bool,
+    /// A window operation for the host (View > Window).
+    window_request: Option<WindowRequest>,
+    /// Draw Table / Eraser in use.
+    table_tool: tabletools::TableTool,
 }
 
 #[path = "slide_controls.rs"]
@@ -256,12 +265,31 @@ mod controls;
 #[path = "slide_insert.rs"]
 mod ins;
 
+#[path = "slide_format.rs"]
+mod fmt;
+
+#[path = "slide_selpane.rs"]
+mod selpane;
+
+#[path = "slide_picture.rs"]
+mod pic;
+
+#[path = "slide_views5.rs"]
+mod views5;
+
+#[path = "slide_sections.rs"]
+mod sections;
+
+#[path = "slide_tabletools.rs"]
+mod tabletools;
+
 #[path = "slide_showtab.rs"]
 mod showtab;
 
 #[path = "slide_viewtab.rs"]
 mod viewtab;
 pub use ins::InsertFile;
+pub use views5::WindowRequest;
 
 impl SlideWindow {
     /// The fixed tabs now shown: Slide Master's tab first while the master is edited.
@@ -269,6 +297,9 @@ impl SlideWindow {
         let mut tabs = base_tabs();
         if self.master_view {
             tabs.insert(0, viewtab::master_tab());
+        }
+        if let Some(t) = self.page_master_tab() {
+            tabs.insert(0, t);
         }
         tabs
     }
@@ -291,12 +322,16 @@ fn base_tabs() -> Vec<Tab> {
 
 /// Fixed widths of gallery tiles (themes, transitions, effects, shape styles).
 fn large_widths(id: &str) -> Option<f32> {
-    sr::large_width(id).or_else(|| ins::large_width(id))
+    sr::large_width(id)
+        .or_else(|| ins::large_width(id))
+        .or_else(|| fmt::large_width(id))
 }
 
 /// Fixed widths of row slots drawn over by the window (timing and size boxes).
 fn row_widths(id: &str) -> Option<f32> {
-    sr::row_width(id).or_else(|| ins::row_width(id))
+    sr::row_width(id)
+        .or_else(|| ins::row_width(id))
+        .or_else(|| tabletools::row_width(id))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,7 +388,7 @@ fn slide_flags(f: &bo_edit::FormatState) -> &str {
 
 fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
     let flags = slide_flags(f);
-    if ins::needs_selection(id) {
+    if ins::needs_selection(id) || fmt::needs_selection(id) {
         return flags.contains("sel");
     }
     // Trigger and Animation Painter need an effect on the selection (dimmed otherwise, as
@@ -366,6 +401,11 @@ fn slide_enabled(id: &str, f: &bo_edit::FormatState) -> bool {
         || ins::COMMANDS.contains(&id)
         || showtab::COMMANDS.contains(&id)
         || viewtab::COMMANDS.contains(&id)
+        || fmt::COMMANDS.contains(&id)
+        || pic::COMMANDS.contains(&id)
+        || pic::BG_COMMANDS.contains(&id)
+        || views5::COMMANDS.contains(&id)
+        || sections::COMMANDS.contains(&id)
 }
 
 impl SlideWindow {
@@ -376,11 +416,19 @@ impl SlideWindow {
         ins::install_strings(&mut strings);
         showtab::install_strings(&mut strings);
         viewtab::install_strings(&mut strings);
+        fmt::install_strings(&mut strings);
+        pic::install_strings(&mut strings);
+        views5::install_strings(&mut strings);
+        sections::install_strings(&mut strings);
         let mut icons = Icons::load();
         sr::install_icons(&mut icons);
         ins::install_icons(&mut icons);
         showtab::install_icons(&mut icons);
         viewtab::install_icons(&mut icons);
+        fmt::install_icons(&mut icons);
+        pic::install_icons(&mut icons);
+        views5::install_icons(&mut icons);
+        sections::install_icons(&mut icons);
         view.set_labels(
             strings.get("slideEditor.notesPlaceholder"),
             strings.get("slideEditor.end"),
@@ -416,7 +464,13 @@ impl SlideWindow {
                 .with_mark_on_own_line()
                 // Reference at 125 %: font box 213 px, size box 67.
                 .with_box_widths(170.4, 53.6)
-                .with_enabled(slide_enabled),
+                .with_enabled(slide_enabled)
+                .with_trailing(|id| {
+                    matches!(
+                        id,
+                        "view.notes" | "win.switch" | "sl.drawTable" | "sl.eraser"
+                    )
+                }),
             theme: Theme::light("slide"),
             icons,
             strings,
@@ -455,6 +509,15 @@ impl SlideWindow {
             gridlines: false,
             guides: false,
             outline_rows: Vec::new(),
+            side: selpane::SidePane::default(),
+            gallery: None,
+            bg_mode: None,
+            pen: fmt::Pen::default(),
+            page_master: None,
+            pm_flags: [true; 6],
+            ruler: false,
+            window_request: None,
+            table_tool: tabletools::TableTool::Off,
         }
     }
 
@@ -499,7 +562,8 @@ impl SlideWindow {
 
     /// Update the images the next frame shows.
     pub fn prepare(&mut self, store: &mut dyn PageStore) -> Result<(), String> {
-        self.view.prepare(store)
+        self.view.prepare(store)?;
+        self.prepare_picture(store)
     }
 
     /// Draw one image ahead of need; `true` while more remains (call when idle).
@@ -538,7 +602,10 @@ impl SlideWindow {
             self.ribbon.bottom()
         };
         let sh = self.status_h();
-        let pane = if (self.comments.shown || self.anim_pane.shown || self.bg_pane.shown)
+        let pane = if (self.comments.shown
+            || self.anim_pane.shown
+            || self.bg_pane.shown
+            || self.side.shown())
             && self.view.mode() != ViewMode::Reading
         {
             CommentsPane::width(self.scale)
@@ -551,6 +618,8 @@ impl SlideWindow {
         self.comments
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         self.anim_pane
+            .layout([self.size.0 - pane, top, pane, area_h], self.scale);
+        self.side
             .layout([self.size.0 - pane, top, pane, area_h], self.scale);
         let colors = self.theme_colors();
         self.bg_pane
@@ -675,6 +744,9 @@ impl SlideWindow {
             self.anim_pane
                 .record(text, &effects, &labels, self.theme.text);
         }
+        if self.side.shown() {
+            self.record_side(text);
+        }
         self.view.measure_notes(text, self.text_size);
         self.layout_outline(self.text_size);
         redraw
@@ -736,6 +808,18 @@ impl SlideWindow {
 
     /// Run interface command `id` (ribbon, title bar, menu, shortcut).
     fn action(&mut self, id: &str) -> bool {
+        if let Some(r) = self.table_tool_action(id) {
+            return r;
+        }
+        if let Some(r) = self.sections_action(id) {
+            return r;
+        }
+        if let Some(r) = self.picture_action(id) {
+            return r;
+        }
+        if let Some(r) = self.format_action(id) {
+            return r;
+        }
         if let Some(r) = self.insert_action(id) {
             return r;
         }
@@ -813,6 +897,7 @@ impl SlideWindow {
                 self.step_comment(id == "review.nextComment")
             }
             "anim.pane" => {
+                self.side.close();
                 self.bg_pane.shown = false;
                 self.anim_pane.shown = !self.anim_pane.shown;
                 self.comments.shown = false;
@@ -837,6 +922,7 @@ impl SlideWindow {
                 moved
             }
             "review.comments" => {
+                self.side.close();
                 self.anim_pane.shown = false;
                 self.bg_pane.shown = false;
                 self.comments.shown = !self.comments.shown;
@@ -845,6 +931,7 @@ impl SlideWindow {
                 true
             }
             "review.newComment" => {
+                self.side.close();
                 self.anim_pane.shown = false;
                 self.bg_pane.shown = false;
                 self.comments.shown = true;
@@ -1182,13 +1269,28 @@ impl SlideWindow {
         let size = self.px(24.0);
         let k = self.view.scale();
         let mut corner = 0;
+        let placed = self
+            .view
+            .engine()
+            .presentation()
+            .map(|p| bo_engine::slide_edit::geom::place_slide(p, self.view.current()));
+        // Top-right corner of an anchored shape (points).
+        let shape_corner = |id: u32| {
+            let p = bo_engine::slide_edit::geom::find(placed.as_deref()?, id)?;
+            let b = p.b.bounds();
+            Some((b.x + b.w, b.y))
+        };
         st.comments
             .iter()
             .map(|t| {
-                // At the comment's anchor point when the file has one (p188:pos), else
-                // along the slide's top-left corner.
+                // At the comment's anchor point when the file has one (p188:pos), at the
+                // top-right corner of the shape it is anchored to, else along the slide's
+                // top-left corner.
+                let at_shape = t.shape.and_then(shape_corner);
                 let (x, y) = if let Some((px, py)) = t.pos {
                     (ox + px as f32 * k, oy + py as f32 * k)
+                } else if let Some((sx, sy)) = at_shape {
+                    (ox + sx as f32 * k + self.px(4.0), oy + sy as f32 * k)
                 } else {
                     corner += 1;
                     (
@@ -1768,8 +1870,10 @@ impl SlideWindow {
                 }
                 added
             }
+            "side" => self.choose_format(v),
+            "sect" => self.choose_section(v),
             "cshow" => return self.choose_show(kind, v),
-            "zoom" => return self.choose_view(kind, v),
+            "zoom" | "pm" => return self.choose_view(kind, v),
             _ => return self.choose_insert(kind, v),
         })
     }
@@ -1914,6 +2018,11 @@ impl SlideWindow {
                 return r;
             }
         }
+        if self.gallery.is_some() {
+            if let Some(r) = self.gallery_input(&input) {
+                return r;
+            }
+        }
         if self.picker.is_some() {
             if let Some(r) = self.picker_input(&input) {
                 return r;
@@ -1960,6 +2069,12 @@ impl SlideWindow {
             if let Some(r) = self.size_press(x, y) {
                 return r;
             }
+            if let Input::Press { count, .. } = input {
+                if let Some(r) = self.section_press(x, y, count) {
+                    self.area_press = false;
+                    return r;
+                }
+            }
             if let Some(r) = self.pane_press(x, y) {
                 self.area_press = false;
                 return r;
@@ -1967,6 +2082,15 @@ impl SlideWindow {
         }
         if let Some(r) = self.controls_key(&input, text) {
             return r;
+        }
+        if let Some(r) = self.table_tool_input(&input) {
+            return r;
+        }
+        if let Some(r) = self.removal_input(&input) {
+            return r;
+        }
+        if let Some(r) = self.side_input(&input) {
+            return r || tip_before != self.tooltip.is_some();
         }
         if let Some(r) = self.anim_input(&input) {
             return r || tip_before != self.tooltip.is_some();
@@ -2119,6 +2243,7 @@ impl SlideWindow {
         }
         p.clear(self.theme.bg);
         self.view.paint(p, self.text_size);
+        self.paint_removal(p);
         self.paint_view_extras(p);
         let format = ribbon_format(&self.view, self.anim_index().is_some());
         self.title.paint(
@@ -2145,6 +2270,8 @@ impl SlideWindow {
             self.paint_galleries(p, &on);
             self.paint_controls(p);
             self.paint_insert(p);
+            self.paint_table_design(p);
+            self.paint_table_tools(p);
             self.paint_show_checks(p);
             self.paint_view_checks(p);
         }
@@ -2152,7 +2279,9 @@ impl SlideWindow {
         self.comments.paint(p);
         self.anim_pane.paint(p);
         self.paint_bg_pane(p);
+        self.side.paint(p);
         self.paint_status(p);
+        self.paint_gallery(p);
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
@@ -2188,6 +2317,8 @@ impl SlideWindow {
             on.push("sl.painter");
         }
         self.view_toggled(&mut on);
+        self.picture_toggled(&mut on);
+        self.table_tool_toggled(&mut on);
         // The Draw tool in use (Select when none).
         let tool = sr::DRAW_TOOLS
             .iter()
@@ -2302,20 +2433,26 @@ impl SlideWindow {
                         true,
                     );
                 } else {
-                    // Without a selection the reference greys every star.
+                    // Shaded stars in the class colour; without a selection the reference
+                    // greys every star.
+                    let effect = sr::EFFECTS
+                        .iter()
+                        .find(|(c, _)| c == id)
+                        .and_then(|(_, e)| *e);
+                    let base = match effect {
+                        None => bo_render::Rgba(0xa6, 0xa6, 0xa6, 255),
+                        Some((_, "emph")) => bo_render::Rgba(0xe8, 0xb3, 0x1e, 255),
+                        Some((_, "exit")) => bo_render::Rgba(0xd2, 0x4a, 0x3c, 255),
+                        _ => bo_render::Rgba(0x68, 0xa4, 0x90, 255),
+                    };
                     let size = px(38.4);
-                    self.icons.draw(
+                    sr::paint_star(
                         p,
-                        if enabled { id } else { "anim.none" },
-                        (x + (w - size) / 2.0).round(),
-                        top + px(4.0),
-                        size,
-                        IconColors {
-                            ink: self.theme.text,
-                            accent: self.theme.accent,
-                            on: self.theme.accent_on,
-                            tinted: true,
-                        },
+                        (x + w / 2.0).round(),
+                        top + px(4.0) + size / 2.0,
+                        size * 0.42,
+                        base,
+                        enabled,
                     );
                 }
                 let key = format!("commands.{id}");
@@ -2624,3 +2761,7 @@ impl SlideWindow {
 #[cfg(test)]
 #[path = "slide_window_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "slide_round5_tests.rs"]
+mod round5_tests;

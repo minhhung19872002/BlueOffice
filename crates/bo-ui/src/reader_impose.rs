@@ -205,7 +205,11 @@ fn one_page(
     o: &PlanOptions,
 ) -> Placement {
     // Turn the page when its orientation differs from the paper's.
-    let turn = o.auto_rotate && (w > h) != (area.0 > area.1) && (w - h).abs() > 1.0;
+    // The current view prints upright, as it is seen (only whole pages are auto-rotated).
+    let turn = o.auto_rotate
+        && view.is_none()
+        && (w > h) != (area.0 > area.1)
+        && (w - h).abs() > 1.0;
     let (pw, ph) = if turn { (h, w) } else { (w, h) };
     let fit = (area.0 / pw.max(0.01)).min(area.1 / ph.max(0.01));
     let k = match o.scaling {
@@ -496,10 +500,11 @@ mod tests {
         let s = plan(&[0, 1], &size, None, LETTER, &o);
         let ids: Vec<usize> = s.iter().map(|sh| sh.items[0].page).collect();
         assert_eq!(ids, vec![0, 1, 0, 1]);
-        // The current view: a 300 × 200 pt part of page 3, fitted (wide → turned).
+        // The current view: a 300 × 200 pt part of page 3, upright, fitted to the width.
         let v = [100.0, 50.0, 300.0, 200.0];
         let s = plan(&[3], &size, Some(v), LETTER, &opts(PrintLayout::Size));
         assert_eq!(s[0].items[0].clip, Some(v));
-        assert!(s[0].items[0].turn);
+        assert!(!s[0].items[0].turn);
+        assert!(near(s[0].items[0].dest, [0.0, 192.0, 612.0, 408.0]));
     }
 }

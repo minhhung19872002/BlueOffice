@@ -299,7 +299,7 @@ impl SheetWindow {
         .iter()
         .map(|(k, f)| t(k, f))
         .collect();
-        let title = t("sheetMenu.cells.formatCells", "Format Cells").replace('…', "");
+        let title = t("sheetFc.title", "Format Cells");
         let mut f = Form::new(&title, (692.0, 636.0), tabs);
         let fmt = self.view.format().clone();
         let x = self.fc_cell();
@@ -1225,7 +1225,7 @@ impl SheetWindow {
         if let Some(c) = f.get_mut("desc") {
             let beside = matches!(cat, 0 | 9);
             c.rect[0] = if beside { 225.0 } else { 32.0 };
-            c.rect[1] = if beside { 168.0 } else { 480.0 };
+            c.rect[1] = if beside { 163.0 } else { 480.0 };
         }
         if let Some(Kind::Note(s)) = f.get_mut("desc").map(|c| &mut c.kind) {
             s.clone_from(&descs[cat]);

@@ -270,7 +270,11 @@
       "link": "Liên kết",
       "text": "Văn bản",
       "symbol": "Ký hiệu",
-      "headerFooter": "Đầu trang & Chân trang"
+      "headerFooter": "Đầu trang & Chân trang",
+      "pictures": "Ảnh",
+      "shapes": "Hình dạng",
+      "pivotChart": "PivotChart",
+      "slicer": "Slicer"
     },
     "addins": {
       "manage": "Quản lý add-in"
@@ -9257,7 +9261,8 @@
     "outline": "Viền ngoài",
     "inside": "Bên trong",
     "horizontal": "Ngang:",
-    "vertical": "Dọc:"
+    "vertical": "Dọc:",
+    "title": "Định dạng ô"
   },
   "common": {
     "ok": "OK",
@@ -9520,6 +9525,23 @@
     "symbolTitle": "Ký hiệu",
     "subset": "Tập con:",
     "insert": "Chèn",
-    "charCode": "Mã ký tự:"
+    "charCode": "Mã ký tự:",
+    "groupIllustrations": "Minh hoạ",
+    "groupFilters": "Bộ lọc",
+    "slicerNeedsTable": "Chọn một ô trong bảng để chèn slicer."
+  },
+  "sheetShape": {
+    "rect": "Hình chữ nhật",
+    "roundRect": "Hình chữ nhật bo góc",
+    "ellipse": "Hình bầu dục",
+    "triangle": "Tam giác cân",
+    "rightArrow": "Mũi tên phải",
+    "leftArrow": "Mũi tên trái",
+    "upArrow": "Mũi tên lên",
+    "downArrow": "Mũi tên xuống",
+    "star5": "Sao 5 cánh",
+    "hexagon": "Hình lục giác",
+    "heart": "Hình trái tim",
+    "wedgeRectCallout": "Bong bóng lời thoại: chữ nhật"
   }
 }

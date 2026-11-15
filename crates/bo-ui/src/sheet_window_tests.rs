@@ -1532,3 +1532,61 @@ fn format_cells_diagonal_borders_reach_the_engine_and_come_back() {
     assert_eq!(w.fc.edges[7], (6, "FF0000".to_owned()));
     assert_eq!(w.fc.edges[6].0, 0);
 }
+
+#[test]
+fn insert_shapes_pictures_pivot_charts_and_slicers() {
+    let mut w = window();
+    put(
+        &mut w,
+        &[
+            (0, 0, "Region"),
+            (0, 1, "Amount"),
+            (1, 0, "North"),
+            (1, 1, "5"),
+            (2, 0, "South"),
+            (2, 1, "7"),
+        ],
+    );
+    // Shapes menu entry: an oval at the active cell.
+    assert_eq!(
+        sheet_ribbon::menu("sheet.shapes", &[]).len(),
+        sheet_ribbon::SHAPES.len()
+    );
+    w.view_mut().select((4, 1), (4, 1), (4, 1));
+    assert!(w.action("shape.ellipse", &Fixed));
+    // A picture from the host (1 × 1 PNG): one column, one row.
+    let png = [
+        0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0,
+        0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0,
+    ];
+    assert!(w.insert_picture(&png, "dot.png"));
+    {
+        let ws = &w.view().engine().workbook().expect("wb").sheets[0];
+        assert_eq!(ws.shape_groups.len(), 2);
+        assert!(ws.shape_groups[0].grp_sp.contains("ellipse"));
+        assert_eq!(ws.shape_groups[1].to.map(|t| (t.row, t.col)), Some((5, 2)));
+    }
+    // Pictures asks the host for files.
+    assert!(w.action("sheet.pictures", &Fixed));
+    assert!(w.take_requests().contains(&Request::PickPicture));
+    // Slicer outside a table: a hint; inside a table: a slicer.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.slicer", &Fixed));
+    assert!(w.status.contains("table"), "{}", w.status);
+    w.view_mut().select((0, 0), (2, 1), (0, 0));
+    assert!(w.action("table.TableStyleMedium2", &Fixed));
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.slicer", &Fixed));
+    assert_eq!(
+        w.view().engine().workbook().expect("wb").sheets[0]
+            .slicers
+            .len(),
+        1
+    );
+    // PivotChart: a pivot table and its chart on a new sheet.
+    w.view_mut().select((1, 0), (1, 0), (1, 0));
+    assert!(w.action("sheet.pivotChart", &Fixed));
+    let wb = w.view().engine().workbook().expect("wb");
+    let last = wb.sheets.last().expect("sheet");
+    assert_eq!((last.pivots.len(), last.charts.len()), (1, 1));
+}

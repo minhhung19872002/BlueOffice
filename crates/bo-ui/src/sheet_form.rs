@@ -888,6 +888,20 @@ impl Form {
             None,
             Some((Rgba(0x40, 0x40, 0x40, 255), 1.0)),
         );
+        // Help (?) left of the close button, as the reference's dialogs show it (its centre
+        // 96 px from the right edge at 125 %).
+        let q = self.dev([self.size.0 - 101.0, 0.0, 10.0, TITLE_H]);
+        let qfont = Font {
+            size: (font.size * 1.2).round(),
+            ..font
+        };
+        p.text_font(
+            "?",
+            q[0],
+            (q[1] + (q[3] - qfont.size * 1.33) / 2.0).round(),
+            &qfont,
+            Rgba(0x40, 0x40, 0x40, 255),
+        );
         if !self.tabs.is_empty() {
             let pg = self.dev([18.0, 74.0, self.size.0 - 36.0, self.size.1 - 74.0 - 61.0]);
             p.fill_rect(pg[0], pg[1], pg[2], pg[3], PAGE_EDGE);
@@ -992,7 +1006,10 @@ impl Form {
                     p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
                     let rows = ((c.rect[3] - 4.0) / ROW_H).floor() as usize;
                     let bar = items.len() > rows;
-                    let inner_w = r[2] - 2.0 - if bar { 17.0 * self.k } else { 0.0 };
+                    // The reference's Category list keeps a disabled scroll bar when its
+                    // items fit (LBS_DISABLENOSCROLL).
+                    let idle_bar = !bar && c.id == "cat";
+                    let inner_w = r[2] - 2.0 - if bar || idle_bar { 17.0 * self.k } else { 0.0 };
                     p.push_clip(r[0] + 1.0, r[1] + 1.0, inner_w, r[3] - 2.0);
                     for (k, item) in items.iter().enumerate().skip(*top).take(rows + 1) {
                         let y = r[1] + ((2.0 + (k - top) as f32 * ROW_H) * self.k).round();
@@ -1035,6 +1052,20 @@ impl Form {
                             self.k,
                             false,
                         );
+                    } else if idle_bar {
+                        let sx = r[0] + r[2] - 1.0 - 17.0 * self.k;
+                        p.fill_rect(sx, r[1] + 1.0, 17.0 * self.k, r[3] - 2.0, FACE);
+                        let dim = Rgba(0xbf, 0xbf, 0xbf, 255);
+                        arrow_in(
+                            p,
+                            sx + 8.5 * self.k,
+                            r[1] + 10.0 * self.k,
+                            self.k,
+                            true,
+                            dim,
+                        );
+                        let by = r[1] + r[3] - 10.0 * self.k;
+                        arrow_in(p, sx + 8.5 * self.k, by, self.k, false, dim);
                     }
                 }
                 Kind::Combo { items, sel } => {
@@ -1226,6 +1257,11 @@ pub(crate) fn paint_check(
 
 /// Small filled triangle (scroll / spin arrows) centred at (x, y).
 fn arrow(p: &mut dyn Painter, x: f32, y: f32, k: f32, up: bool) {
+    arrow_in(p, x, y, k, up, ARROW);
+}
+
+/// [`arrow`] in colour `c` (disabled arrows are lighter).
+fn arrow_in(p: &mut dyn Painter, x: f32, y: f32, k: f32, up: bool, c: Rgba) {
     let (w, h) = (4.0 * k, 3.0 * k);
     let s = if up { -1.0 } else { 1.0 };
     p.path(
@@ -1235,7 +1271,7 @@ fn arrow(p: &mut dyn Painter, x: f32, y: f32, k: f32, up: bool) {
             PathSeg::L(x, y + s * h / 2.0),
             PathSeg::Z,
         ],
-        Some(ARROW),
+        Some(c),
         None,
     );
 }

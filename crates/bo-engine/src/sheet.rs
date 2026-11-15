@@ -30,6 +30,7 @@ pub(crate) mod collab;
 mod comments;
 mod compare_cmd;
 mod datatools_cmd;
+mod drawing_insert;
 mod formctl_cmd;
 mod inspect_cmd;
 mod light_undo;

@@ -349,6 +349,10 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             "pie3D",
         ]),
         "sheet.recCharts" => charts(&["column", "bar", "line", "pie", "area", "scatter"]),
+        "sheet.shapes" => SHAPES
+            .iter()
+            .map(|s| e(&format!("shape.{s}"), &format!("sheetShape.{s}")))
+            .collect(),
         "sheet.text" => vec![
             e("sheet.headerFooter", "sheetInsert.headerFooter"),
             e("sheet.symbol", "sheetInsert.symbolMore"),
@@ -408,6 +412,22 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
         _ => Vec::new(),
     }
 }
+
+/// Preset shapes of the Shapes menu (ECMA-376 Part 1, §20.1.10.56 ST_ShapeType).
+pub(crate) const SHAPES: [&str; 12] = [
+    "rect",
+    "roundRect",
+    "ellipse",
+    "triangle",
+    "rightArrow",
+    "leftArrow",
+    "upArrow",
+    "downArrow",
+    "star5",
+    "hexagon",
+    "heart",
+    "wedgeRectCallout",
+];
 
 /// Menu entries inserting charts of kinds (engine chart type names, label keys
 /// `sheetInsertChart.<kind>`).
@@ -583,8 +603,8 @@ pub(crate) fn trailing(id: &str) -> bool {
 fn insert() -> Tab {
     use Item::{Button as B, Labeled as S, Large as L};
     // Groups as the reference's Insert tab (round 16): Tables, Charts (Recommended Charts, a
-    // 3 × 3 block of chart type menus, Maps), Sparklines, Links, Text, Symbols. Pictures and
-    // shapes need drawing objects the sheet engine does not insert yet.
+    // 3 × 3 block of chart type menus, Maps, PivotChart), Illustrations (pictures, shapes),
+    // Sparklines, Filters (slicer), Links, Text, Symbols.
     Tab {
         label: "ribbon.tabs.insert",
         groups: vec![
@@ -594,8 +614,17 @@ fn insert() -> Tab {
                 rows: vec![],
             },
             Group {
+                label: "sheetInsert.groupIllustrations",
+                large: vec![L("sheet.pictures")],
+                rows: vec![vec![S("sheet.shapes")]],
+            },
+            Group {
                 label: "sheetEditor.groupCharts",
-                large: vec![L("sheet.recCharts"), L("sheet.chartMap")],
+                large: vec![
+                    L("sheet.recCharts"),
+                    L("sheet.chartMap"),
+                    L("sheet.pivotChart"),
+                ],
                 rows: vec![
                     vec![
                         B("sheet.chartColumn"),
@@ -621,6 +650,11 @@ fn insert() -> Tab {
                     L("sheet.sparkColumn"),
                     L("sheet.sparkWinLoss"),
                 ],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetInsert.groupFilters",
+                large: vec![L("sheet.slicer")],
                 rows: vec![],
             },
             Group {

@@ -34,6 +34,16 @@ pub(super) fn symbols() -> Vec<char> {
     v
 }
 
+/// Width and height of a PNG picture (ECMA-376 pictures are commonly PNG; IHDR, RFC 2083).
+fn png_size(b: &[u8]) -> Option<(u32, u32)> {
+    if b.len() < 24 || !b.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return None;
+    }
+    let w = u32::from_be_bytes(b[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(b[20..24].try_into().ok()?);
+    Some((w, h))
+}
+
 /// Symbol grid: columns and cell size (reference pixels).
 const SYM_COLS: usize = 16;
 const SYM_CELL: f32 = 30.0;
@@ -43,9 +53,56 @@ const SYM_ROWS: usize = 8;
 pub(crate) fn add_icons(icons: &mut Icons) {
     icons.alias("sheet.pivotTable", "insert.pivot");
     icons.alias("sheet.link", "insert.link");
-    icons.alias("sheet.text", "insert.textBox");
+    icons.alias("sheet.pictures", "insert.picture");
+    icons.alias("sheet.shapes", "insert.rect");
+    icons.alias("sheet.slicer", "insert.slicer");
+    icons.add_solid(
+        "sheet.pivotChart",
+        &[
+            ("M3 3h11v14h-11Z", Some(PALE)),
+            ("M3 3h11v14h-11Z", None),
+            ("M3 7h11M7 3v14", None),
+            ("M14 13h3v8h-3Z", Some(BLUE)),
+            ("M18 9h3v12h-3Z", Some(ORANGE)),
+        ],
+    );
+    // Text: a framed box with a blue letter, like the reference's Text button (own drawing).
+    icons.add_solid(
+        "sheet.text",
+        &[
+            ("M3 3h18v18h-18Z", None),
+            (
+                "M8 17l3.2-10h1.6l3.2 10h-1.8l-0.8-2.6h-2.8l-0.8 2.6Z",
+                Some(BLUE),
+            ),
+        ],
+    );
     icons.alias("sheet.symbol", "insert.symbol");
     icons.alias("sheet.headerFooter", "insert.header");
+    // Filled chart type pictures like the reference's Charts group (own drawings).
+    icons.add_solid(
+        "sheet.chartColumn",
+        &[
+            ("M4 12h4v8h-4Z", Some(BLUE)),
+            ("M10 5h4v15h-4Z", Some(BLUE)),
+            ("M16 9h4v11h-4Z", Some(BLUE)),
+        ],
+    );
+    icons.add_solid(
+        "sheet.chartLine",
+        &[
+            ("M3 3v18h18", None),
+            ("M5 16l4-6l4 3l6-8", None),
+            ("M5 19l4-3l4 1l6-4", None),
+        ],
+    );
+    icons.add_solid(
+        "sheet.chartPie",
+        &[
+            ("M11 4a8 8 0 1 0 8 8h-8Z", Some(BLUE)),
+            ("M13 2a8 8 0 0 1 8 8h-8Z", Some(ORANGE)),
+        ],
+    );
     icons.add_solid(
         "sheet.recPivot",
         &[
@@ -252,6 +309,19 @@ impl SheetWindow {
             "sheet.link" => self.open_link(),
             "sheet.headerFooter" => self.open_header_footer(),
             "sheet.symbol" => self.open_symbol(),
+            "sheet.pictures" => {
+                self.requests.push(crate::Request::PickPicture);
+                true
+            }
+            "sheet.pivotChart" => self.insert_pivot_chart(),
+            "sheet.slicer" => self.insert_slicer(),
+            _ if id.starts_with("shape.") => {
+                let (r, c) = self.view.active();
+                self.view.run(json!({
+                    "cmd": "insertDrawing", "from": [r, c], "to": [r + 6, c + 3],
+                    "shape": &id["shape.".len()..],
+                }))
+            }
             "sheet.chartMap" => {
                 let region = self.region();
                 self.view
@@ -259,6 +329,69 @@ impl SheetWindow {
             }
             _ => return None,
         })
+    }
+
+    /// Insert picture `bytes` at the active cell, as large as the picture at 100 % (PNG
+    /// size; other formats 8 columns × 15 rows); `name` is the file name (unused).
+    pub fn insert_picture(&mut self, bytes: &[u8], _name: &str) -> bool {
+        use base64::Engine as _;
+        let (cols, rows) = png_size(bytes).map_or((8, 15), |(w, h)| {
+            // Default column 64 px and row 20 px at 100 %.
+            ((w / 64).clamp(1, 20), (h / 20).clamp(1, 40))
+        });
+        let (r, c) = self.view.active();
+        let image = base64::engine::general_purpose::STANDARD.encode(bytes);
+        self.view.run(json!({
+            "cmd": "insertDrawing", "from": [r, c], "to": [r + rows, c + cols], "image": image,
+        }))
+    }
+
+    /// PivotChart: a recommended pivot table on a new sheet and a column chart of it.
+    fn insert_pivot_chart(&mut self) -> bool {
+        let region = self.region();
+        let n = |k: &str| region.get(k).and_then(Value::as_u64).unwrap_or(0) as u32;
+        let numeric: Vec<bool> = (n("c0")..=n("c1"))
+            .map(|c| {
+                self.view
+                    .engine()
+                    .cell(self.view.sheet(), n("r0") + 1, c)
+                    .is_ok_and(|d| d.input.trim().parse::<f64>().is_ok())
+            })
+            .collect();
+        let rows = numeric.iter().position(|v| !v).unwrap_or(0);
+        let values = numeric.iter().position(|v| *v).unwrap_or(0);
+        let before = self.view.sheet_names().len();
+        let made = self.view.query(json!({
+            "cmd": "pivotCreate", "range": region, "rows": [rows],
+            "values": [{ "field": values, "function": "sum" }],
+        }));
+        if made.is_none() {
+            return false;
+        }
+        self.view.changed();
+        let after = self.view.sheet_names().len();
+        if after > before {
+            self.view.set_sheet(after - 1);
+        }
+        self.view
+            .run(json!({ "cmd": "pivotChart", "index": 0, "kind": "column" }))
+    }
+
+    /// Slicer for the table column of the active cell (the reference asks for a table).
+    fn insert_slicer(&mut self) -> bool {
+        let (r, c) = self.view.active();
+        if self
+            .view
+            .run(json!({ "cmd": "insertSlicer", "row": r, "col": c }))
+        {
+            return true;
+        }
+        let _ = self.view.take_error();
+        self.status = self.t(
+            "sheetInsert.slicerNeedsTable",
+            "Select a cell in a table to insert a slicer.",
+        );
+        true
     }
 
     fn open_create_table(&mut self) -> bool {

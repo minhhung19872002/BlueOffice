@@ -820,12 +820,13 @@ impl SheetWindow {
                 })
                 .collect();
         }
-        // Under the button, its right edge on the cell's right edge, kept in the window.
+        // Under the header cell, its left edge on the cell's left edge (as the reference),
+        // kept in the window.
         let k = self.scale;
         let cell = self.view.cell_box(r0, col).unwrap_or([0.0; 4]);
         let w = (W * k).round();
         let h = (FilterDrop::height() * k).round();
-        let x = (cell[2] - w)
+        let x = cell[0]
             .max(self.px(2.0))
             .min(self.size.0 - w - self.px(2.0))
             .max(0.0);

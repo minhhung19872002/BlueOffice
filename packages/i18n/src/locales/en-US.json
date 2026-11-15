@@ -270,7 +270,11 @@
       "link": "Link",
       "text": "Text",
       "symbol": "Symbol",
-      "headerFooter": "Header & Footer"
+      "headerFooter": "Header & Footer",
+      "pictures": "Pictures",
+      "shapes": "Shapes",
+      "pivotChart": "PivotChart",
+      "slicer": "Slicer"
     },
     "addins": {
       "manage": "Manage add-ins"
@@ -9257,7 +9261,8 @@
     "outline": "Outline",
     "inside": "Inside",
     "horizontal": "Horizontal:",
-    "vertical": "Vertical:"
+    "vertical": "Vertical:",
+    "title": "Format Cells"
   },
   "common": {
     "ok": "OK",
@@ -9520,6 +9525,23 @@
     "symbolTitle": "Symbol",
     "subset": "Subset:",
     "insert": "Insert",
-    "charCode": "Character code:"
+    "charCode": "Character code:",
+    "groupIllustrations": "Illustrations",
+    "groupFilters": "Filters",
+    "slicerNeedsTable": "Select a cell in a table to insert a slicer."
+  },
+  "sheetShape": {
+    "rect": "Rectangle",
+    "roundRect": "Rounded Rectangle",
+    "ellipse": "Oval",
+    "triangle": "Isosceles Triangle",
+    "rightArrow": "Right Arrow",
+    "leftArrow": "Left Arrow",
+    "upArrow": "Up Arrow",
+    "downArrow": "Down Arrow",
+    "star5": "Star: 5 Points",
+    "hexagon": "Hexagon",
+    "heart": "Heart",
+    "wedgeRectCallout": "Speech Bubble: Rectangle"
   }
 }

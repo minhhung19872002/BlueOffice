@@ -1087,6 +1087,23 @@ impl SheetWindow {
                 out[slot] = (i, color);
             }
         }
+        // Diagonals share one line (ECMA-376 Part 1, §18.8.4 diagonalUp / diagonalDown).
+        if let Some(st) = b.diagonal.style.as_deref() {
+            let i = LINE_STYLES.iter().position(|s| *s == st).unwrap_or(6);
+            let color = b
+                .diagonal
+                .color
+                .as_ref()
+                .and_then(|c| bo_sheet::color::resolve_color(c, theme))
+                .map(hex)
+                .unwrap_or_default();
+            if b.diagonal_up {
+                out[6] = (i, color.clone());
+            }
+            if b.diagonal_down {
+                out[7] = (i, color);
+            }
+        }
         out
     }
 
@@ -2025,6 +2042,8 @@ impl SheetWindow {
             if e[1].0 > 0 || e[4].0 > 0 {
                 add("inside", if e[1].0 > 0 { 1 } else { 4 });
             }
+            add("diagonalUp", 6);
+            add("diagonalDown", 7);
         }
         if !cmds.is_empty() {
             self.view.run(json!({ "cmd": "batch", "cmds": cmds }));

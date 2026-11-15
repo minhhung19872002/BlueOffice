@@ -91,6 +91,12 @@ pub enum BorderPreset {
     Left,
     /// Right edge of the range.
     Right,
+    /// Top-left to bottom-right line in every cell (§18.8.4 `border/@diagonalDown`).
+    DiagonalDown,
+    /// Bottom-left to top-right line in every cell (§18.8.4 `border/@diagonalUp`).
+    DiagonalUp,
+    /// Remove both diagonal lines.
+    NoDiagonal,
 }
 
 /// A border command: preset, line style (§18.18.3 `ST_BorderStyle`) and colour.
@@ -410,9 +416,18 @@ pub fn apply_borders(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &B
         range.last.col,
     );
     let mut memo: HashMap<(u32, [bool; 4]), u32> = HashMap::new();
+    // Diagonal presets change every cell's diagonal (ECMA-376 Part 1, §18.8.4 `border`,
+    // `diagonal` element with `diagonalUp` / `diagonalDown`).
+    let diagonal = matches!(
+        spec.preset,
+        BorderPreset::DiagonalDown | BorderPreset::DiagonalUp | BorderPreset::NoDiagonal
+    );
     restyle(ws, range, |old, r, c| {
         // Which edges (top, right, bottom, left) this cell gets.
         let sides = match spec.preset {
+            BorderPreset::DiagonalDown | BorderPreset::DiagonalUp | BorderPreset::NoDiagonal => {
+                [false; 4]
+            }
             BorderPreset::All | BorderPreset::None => [true; 4],
             BorderPreset::Outline => [r == r0, c == c1, r == r1, c == c0],
             BorderPreset::Inside => [r > r0, c < c1, r < r1, c > c0],
@@ -421,7 +436,7 @@ pub fn apply_borders(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &B
             BorderPreset::Left => [false, false, false, c == c0],
             BorderPreset::Right => [false, c == c1, false, false],
         };
-        if sides == [false; 4] {
+        if sides == [false; 4] && !diagonal {
             return old;
         }
         *memo.entry((old, sides)).or_insert_with(|| {
@@ -433,6 +448,22 @@ pub fn apply_borders(wb: &mut Workbook, sheet: usize, range: CellRange, spec: &B
                 .unwrap_or_default();
             if spec.preset == BorderPreset::None {
                 b = Border::default();
+            } else if diagonal {
+                match spec.preset {
+                    BorderPreset::DiagonalDown => {
+                        b.diagonal = e.clone();
+                        b.diagonal_down = true;
+                    }
+                    BorderPreset::DiagonalUp => {
+                        b.diagonal = e.clone();
+                        b.diagonal_up = true;
+                    }
+                    _ => {
+                        b.diagonal = BorderEdge::default();
+                        b.diagonal_up = false;
+                        b.diagonal_down = false;
+                    }
+                }
             } else {
                 if sides[0] {
                     b.top = e.clone();
@@ -951,6 +982,23 @@ mod tests {
         assert_eq!(st(&wb, 0, 0), ["", "", "", ""].map(String::from));
         apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::All));
         assert_eq!(st(&wb, 1, 1), ["thin"; 4].map(String::from));
+        // Diagonals keep the four edges and are removed on their own.
+        let border = |wb: &Workbook| {
+            let xf = wb
+                .styles
+                .xf(wb.sheets[0].cell(1, 1).unwrap().style)
+                .unwrap();
+            wb.styles.borders[xf.border_id as usize].clone()
+        };
+        apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::DiagonalDown));
+        apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::DiagonalUp));
+        let b = border(&wb);
+        assert!(b.diagonal_down && b.diagonal_up);
+        assert_eq!(b.diagonal.style.as_deref(), Some("thin"));
+        assert_eq!(st(&wb, 1, 1), ["thin"; 4].map(String::from));
+        apply_borders(&mut wb, 0, rng("B2"), &spec(BorderPreset::NoDiagonal));
+        let b = border(&wb);
+        assert!(!b.diagonal_down && !b.diagonal_up && b.diagonal.style.is_none());
     }
 
     #[test]

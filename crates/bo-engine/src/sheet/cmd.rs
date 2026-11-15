@@ -6197,6 +6197,22 @@ mod tests {
             n,
             "xfs deduplicated"
         );
+        // Diagonal borders (ECMA-376 Part 1, §18.8.4 diagonalDown / diagonalUp) survive saving.
+        e.set_input(0, 5, 0, "x").unwrap();
+        run(
+            &mut e,
+            json!({ "cmd": "borders", "sheet": 0, "range": rng(5, 0, 5, 0),
+            "spec": { "preset": "diagonalDown", "style": "dashed", "color": "FF0000" } }),
+        );
+        let again = reopen(&mut e);
+        let wb = again.workbook().unwrap();
+        let xf = wb
+            .styles
+            .xf(wb.sheets[0].cell(5, 0).unwrap().style)
+            .unwrap();
+        let b = &wb.styles.borders[xf.border_id as usize];
+        assert!(b.diagonal_down && !b.diagonal_up);
+        assert_eq!(b.diagonal.style.as_deref(), Some("dashed"));
         // Format painter + undo.
         run(
             &mut back,

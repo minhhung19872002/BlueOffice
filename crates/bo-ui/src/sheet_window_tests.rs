@@ -1510,3 +1510,25 @@ fn shown_on(w: &SheetWindow, sheet: usize, r: u32, c: u32) -> String {
         .map(|d| d.display)
         .unwrap_or_default()
 }
+
+#[test]
+fn format_cells_diagonal_borders_reach_the_engine_and_come_back() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    w.fc.edges[7] = (6, "FF0000".into());
+    w.fc.border_changed = true;
+    let ok = w.fc_ok_point();
+    press(&mut w, ok, 1);
+    assert!(w.form.is_none());
+    let wb = w.view().engine().workbook().expect("wb");
+    let xf = wb
+        .styles
+        .xf(wb.sheets[0].cell(0, 0).expect("cell").style)
+        .expect("xf");
+    let b = &wb.styles.borders[xf.border_id as usize];
+    assert!(b.diagonal_down && !b.diagonal_up);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    assert_eq!(w.fc.edges[7], (6, "FF0000".to_owned()));
+    assert_eq!(w.fc.edges[6].0, 0);
+}

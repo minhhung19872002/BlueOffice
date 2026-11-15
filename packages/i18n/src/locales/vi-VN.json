@@ -7104,7 +7104,13 @@
     "stampConfidential": "Mật",
     "stampForComment": "Xin ý kiến",
     "stampExpired": "Hết hạn",
-    "stampExperimental": "Thử nghiệm"
+    "stampExperimental": "Thử nghiệm",
+    "drawing": "Vẽ hình",
+    "oval": "Hình bầu dục",
+    "line": "Đường thẳng",
+    "arrow": "Mũi tên",
+    "polygon": "Đa giác",
+    "polyline": "Đường gấp khúc"
   },
   "pdfReader": {
     "tabs": {

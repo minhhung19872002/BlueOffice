@@ -737,27 +737,23 @@ impl ReaderWindow {
                 ("tool.strikeout", Small("strikeout")),
                 ("tool.squiggly", Small("squiggly")),
                 ("sep2", Sep),
+                // Order of the reference's Comment tab: note | typewriter, text box, callout |
+                // drawing, pencil | measure | stamp.
                 ("tool.note", Big("note", "pdfReader.note", false)),
-                ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
+                ("sep3", Sep),
                 (
                     "draw.typewriter",
                     Big("typewriter", "pdfDraw.typewriter", false),
                 ),
+                ("tool.textbox", Big("textbox", "pdfReader.textbox", false)),
                 ("draw.callout", Big("callout", "pdfDraw.callout", false)),
-                ("sep3", Sep),
-                ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
-                (
-                    "tool.rectangle",
-                    Big("rectangle", "pdfReader.rectangle", false),
-                ),
-                ("draw.oval", Small("ellipse")),
-                ("draw.line", Small("line")),
-                ("draw.arrow", Small("arrow")),
-                ("draw.polygon", Small("polygon")),
-                ("draw.polyline", Small("polyline")),
                 ("sep5", Sep),
-                ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
+                ("menu.drawing", Big("rectangle", "pdfDraw.drawing", true)),
+                ("draw.pencil", Big("pencil", "pdfDraw.pencil", false)),
+                ("sep6", Sep),
                 ("menu.measure", Big("measure", "pdfDraw.measure", true)),
+                ("sep7", Sep),
+                ("menu.stamp", Big("stamp", "pdfDraw.stamp", true)),
                 ("draw.props", Big("properties", "pdfDraw.properties", false)),
                 ("sep4", Sep),
                 (
@@ -768,10 +764,14 @@ impl ReaderWindow {
             2 => v.extend([
                 ("sep0", Sep),
                 // Read Mode first after the pointer tools, like the reference's View tab.
+                // Then Reflow and Night Mode, Rotate View, the page display grid and
+                // AutoScroll, in the reference's order.
                 ("view.readMode", Big("readMode", "pdfExtra.readMode", false)),
-                ("view.night", Big("night", "pdfView.night", false)),
                 ("view.reflow", Big("reflow", "pdfView.reflow", false)),
+                ("view.night", Big("night", "pdfView.night", false)),
                 ("sep1", Sep),
+                ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
+                ("sep2", Sep),
                 ("view.single", Small("single")),
                 ("view.continuous", Small("continuous")),
                 ("view.facing", Small("facing")),
@@ -779,12 +779,11 @@ impl ReaderWindow {
                 ("view.cover", Small("cover")),
                 ("view.rulers", Small("ruler")),
                 ("view.grid", Small("grid")),
-                ("sep2", Sep),
+                ("sep5", Sep),
                 (
                     "view.autoScroll",
                     Big("autoScroll", "pdfView.autoScroll", false),
                 ),
-                ("menu.rotate", Big("rotate", "pdfReader.rotateView", true)),
                 ("sep3", Sep),
                 ("zoom.in", Big("zoom", "pdfReader.zoomIn", false)),
                 ("zoom.out", Big("zoomOut", "pdfReader.zoomOut", false)),

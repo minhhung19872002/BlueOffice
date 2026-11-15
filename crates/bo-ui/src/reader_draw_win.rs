@@ -48,11 +48,9 @@ impl DrawTool {
     fn command(self) -> &'static str {
         match self {
             Self::Pencil => "draw.pencil",
-            Self::Line => "draw.line",
-            Self::Arrow => "draw.arrow",
-            Self::Oval => "draw.oval",
-            Self::Polygon => "draw.polygon",
-            Self::Polyline => "draw.polyline",
+            Self::Line | Self::Arrow | Self::Oval | Self::Polygon | Self::Polyline => {
+                "menu.drawing"
+            }
             Self::Callout => "draw.callout",
             Self::Typewriter => "draw.typewriter",
             Self::Stamp => "menu.stamp",
@@ -163,6 +161,29 @@ impl ReaderWindow {
                     })
                     .collect();
                 self.open_draw_menu(items, "menu.stamp");
+            }
+            "menu.drawing" => {
+                let items = [
+                    ("tool.rectangle", "pdfReader.rectangle", None),
+                    ("draw.oval", "pdfDraw.oval", Some(DrawTool::Oval)),
+                    ("draw.line", "pdfDraw.line", Some(DrawTool::Line)),
+                    ("draw.arrow", "pdfDraw.arrow", Some(DrawTool::Arrow)),
+                    ("draw.polygon", "pdfDraw.polygon", Some(DrawTool::Polygon)),
+                    (
+                        "draw.polyline",
+                        "pdfDraw.polyline",
+                        Some(DrawTool::Polyline),
+                    ),
+                ]
+                .iter()
+                .map(|(c, k, t)| MenuItem {
+                    label: self.t(k),
+                    choice: Choice::Command((*c).to_owned()),
+                    checked: t.is_some() && self.draw.tool == *t,
+                    dim: false,
+                })
+                .collect();
+                self.open_draw_menu(items, "menu.drawing");
             }
             "menu.measure" => {
                 let items = [

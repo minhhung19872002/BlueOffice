@@ -7104,7 +7104,13 @@
     "stampConfidential": "Confidential",
     "stampForComment": "For Comment",
     "stampExpired": "Expired",
-    "stampExperimental": "Experimental"
+    "stampExperimental": "Experimental",
+    "drawing": "Drawing",
+    "oval": "Oval",
+    "line": "Line",
+    "arrow": "Arrow",
+    "polygon": "Polygon",
+    "polyline": "Polyline"
   },
   "pdfReader": {
     "tabs": {

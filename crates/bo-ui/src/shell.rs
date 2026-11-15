@@ -14,6 +14,7 @@ use crate::{commands, Key, Mods};
 use crate::{Input, PageStore, Painter, TextMeasure, TextStyle};
 use bo_edit::CharFormat;
 use bo_engine::edit::Command;
+use bo_render::{PathSeg, Rgba};
 use serde_json::json;
 
 /// Something only the platform host can do.
@@ -80,6 +81,8 @@ pub struct DocWindow {
     view_rects: [[f32; 4]; 3],
     /// Current view layout (`print`, `web`, `draft`).
     view_mode: &'static str,
+    /// Vertical scroll bar drag: pointer offset from the thumb top.
+    sb_drag: Option<f32>,
     /// The pointer is dragging the zoom slider.
     zoom_drag: bool,
     dialog: Option<Dialog>,
@@ -176,6 +179,7 @@ impl DocWindow {
             zoom_rects: [[0.0; 4]; 4],
             view_rects: [[0.0; 4]; 3],
             view_mode: "print",
+            sb_drag: None,
             zoom_drag: false,
             dialog: None,
             ruler: Ruler::default(),
@@ -677,6 +681,66 @@ impl DocWindow {
         self.title.hit(x, y)
     }
 
+    /// Width of the vertical scroll bar (as on a desktop word processor).
+    fn sb_w(&self) -> f32 {
+        (15.0 * self.scale).round()
+    }
+
+    /// Scroll bar parts: (bar, up button, down button, thumb) as [x, y, w, h].
+    fn sb_rects(&self) -> [[f32; 4]; 4] {
+        let w = self.sb_w();
+        let x = self.size.0 - w;
+        let top = self.view_top();
+        let bottom = self.size.1 - self.status_h();
+        let bar = [x, top, w, (bottom - top).max(0.0)];
+        let up = [x, top, w, w];
+        let down = [x, bottom - w, w, w];
+        let (scroll, content, view) = self.view.scroll_info();
+        let track = (bar[3] - 2.0 * w).max(0.0);
+        let thumb_h = if content > 0.0 {
+            (track * (view / content).min(1.0))
+                .max((12.0 * self.scale).round())
+                .min(track)
+        } else {
+            track
+        };
+        let room = (content - view).max(1.0);
+        let thumb_y = top + w + ((track - thumb_h) * (scroll / room).clamp(0.0, 1.0)).round();
+        [bar, up, down, [x, thumb_y, w, thumb_h.round()]]
+    }
+
+    /// Scroll from a press or drag on the scroll bar at window `y`; `true` when it moved.
+    fn sb_press(&mut self, y: f32) -> bool {
+        let [_, up, down, thumb] = self.sb_rects();
+        let (scroll, _, view) = self.view.scroll_info();
+        let line = (40.0 * self.scale).round();
+        if y < up[1] + up[3] {
+            self.view.scroll_to(scroll - line)
+        } else if y >= down[1] {
+            self.view.scroll_to(scroll + line)
+        } else if y < thumb[1] {
+            self.view.scroll_to(scroll - view)
+        } else if y >= thumb[1] + thumb[3] {
+            self.view.scroll_to(scroll + view)
+        } else {
+            self.sb_drag = Some(y - thumb[1]);
+            false
+        }
+    }
+
+    /// Drag the thumb so its top follows the pointer.
+    fn sb_drag_to(&mut self, y: f32) -> bool {
+        let Some(offset) = self.sb_drag else {
+            return false;
+        };
+        let [bar, _, _, thumb] = self.sb_rects();
+        let w = self.sb_w();
+        let track = (bar[3] - 2.0 * w - thumb[3]).max(1.0);
+        let (_, content, view) = self.view.scroll_info();
+        let t = ((y - offset - (bar[1] + w)) / track).clamp(0.0, 1.0);
+        self.view.scroll_to(t * (content - view).max(0.0))
+    }
+
     fn status_h(&self) -> f32 {
         (24.0 * self.scale).round()
     }
@@ -692,7 +756,9 @@ impl DocWindow {
             top += Ruler::height(self.scale);
         }
         let h = (self.size.1 - top - self.status_h()).max(1.0);
-        self.view.set_frame(0.0, top, self.size.0, h);
+        // The vertical scroll bar takes the right edge.
+        self.view
+            .set_frame(0.0, top, (self.size.0 - self.sb_w()).max(1.0), h);
         self.layout_ruler();
         if let Some(d) = self.dialog.as_mut() {
             d.layout(text, self.size, self.scale);
@@ -913,6 +979,24 @@ impl DocWindow {
             return self.zoom_to(z, text);
         }
         let status_top = self.size.1 - self.status_h();
+        // Vertical scroll bar on the right edge of the document area.
+        match input {
+            Input::Press { x, y, .. }
+                if x >= self.size.0 - self.sb_w()
+                    && y >= self.view_top()
+                    && y < status_top
+                    && self.menu.is_none()
+                    && self.backstage.is_none() =>
+            {
+                return self.sb_press(y);
+            }
+            Input::Drag { y, .. } if self.sb_drag.is_some() => return self.sb_drag_to(y),
+            Input::Release { .. } if self.sb_drag.is_some() => {
+                self.sb_drag = None;
+                return false;
+            }
+            _ => {}
+        }
         match input {
             Input::Press { x, y, .. } if y >= status_top => {
                 if let Some(i) = self
@@ -1231,6 +1315,52 @@ impl DocWindow {
         let (w, h) = self.size;
         let sh = self.status_h();
         let y = h - sh;
+        // Vertical scroll bar: light track, white buttons and thumb framed in grey, dark
+        // arrows (measured on a desktop word processor: 243 / 255 / 148 / 38).
+        let [bar, up, down, thumb] = self.sb_rects();
+        if bar[3] > 0.0 {
+            let edge = Rgba(0x94, 0x94, 0x94, 255);
+            p.fill_rect(bar[0], bar[1], bar[2], bar[3], Rgba(0xf3, 0xf3, 0xf3, 255));
+            let boxed = |p: &mut dyn Painter, r: [f32; 4]| {
+                p.fill_rect(r[0], r[1], r[2], r[3], edge);
+                p.fill_rect(
+                    r[0] + 1.0,
+                    r[1] + 1.0,
+                    r[2] - 2.0,
+                    r[3] - 2.0,
+                    self.theme.surface,
+                );
+            };
+            boxed(p, up);
+            boxed(p, down);
+            if thumb[3] > 2.0 {
+                boxed(p, thumb);
+            }
+            let k = (3.0 * self.scale).round();
+            let arrow = Rgba(0x26, 0x26, 0x26, 255);
+            let (cx, cy) = (up[0] + up[2] / 2.0, up[1] + up[3] / 2.0);
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy + k / 2.0),
+                    PathSeg::L(cx + k, cy + k / 2.0),
+                    PathSeg::L(cx, cy - k / 2.0 - 1.0),
+                    PathSeg::Z,
+                ],
+                Some(arrow),
+                None,
+            );
+            let (cx, cy) = (down[0] + down[2] / 2.0, down[1] + down[3] / 2.0);
+            p.path(
+                &[
+                    PathSeg::M(cx - k, cy - k / 2.0),
+                    PathSeg::L(cx + k, cy - k / 2.0),
+                    PathSeg::L(cx, cy + k / 2.0 + 1.0),
+                    PathSeg::Z,
+                ],
+                Some(arrow),
+                None,
+            );
+        }
         // Neutral grey bar with dark text, like the ribbon body (and a desktop word
         // processor's status bar).
         p.fill_rect(0.0, y, w, sh, self.theme.ribbon);

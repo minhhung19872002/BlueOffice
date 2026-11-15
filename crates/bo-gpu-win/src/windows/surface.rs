@@ -174,6 +174,61 @@ impl Device {
     }
 
     fn ui_layout(&self, text: &str, f: &FontSpec<'_>) -> Result<IDWriteTextLayout, String> {
+        // Interface labels repeat every frame: reuse their layouts (bounded cache).
+        let key = (
+            text.to_owned(),
+            f.family.to_owned(),
+            f.size.to_bits(),
+            f.weight,
+            f.italic,
+            f.underline,
+        );
+        if let Some(l) = self.ui_layouts.borrow().get(&key) {
+            return Ok(l.clone());
+        }
+        let layout = self.new_ui_layout(text, f)?;
+        let mut cache = self.ui_layouts.borrow_mut();
+        if cache.len() > 4096 {
+            cache.clear();
+        }
+        cache.insert(key, layout.clone());
+        Ok(layout)
+    }
+
+    /// Path geometry of interface drawing `segs`, reused across frames (bounded cache).
+    fn ui_geometry(
+        &self,
+        segs: &[PathSeg],
+    ) -> Result<windows::Win32::Graphics::Direct2D::ID2D1PathGeometry1, String> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for s in segs {
+            match *s {
+                PathSeg::M(a, b) => (0u8, a.to_bits(), b.to_bits()).hash(&mut h),
+                PathSeg::L(a, b) => (1u8, a.to_bits(), b.to_bits()).hash(&mut h),
+                PathSeg::Q(a, b, c, d) => {
+                    (2u8, a.to_bits(), b.to_bits(), c.to_bits(), d.to_bits()).hash(&mut h);
+                }
+                PathSeg::C(a, b, c, d, e, f) => {
+                    (3u8, [a, b, c, d, e, f].map(f32::to_bits)).hash(&mut h)
+                }
+                PathSeg::Z => 4u8.hash(&mut h),
+            }
+        }
+        let key = h.finish();
+        if let Some(g) = self.ui_geoms.borrow().get(&key) {
+            return Ok(g.clone());
+        }
+        let g = self.geometry(segs)?;
+        let mut cache = self.ui_geoms.borrow_mut();
+        if cache.len() > 8192 {
+            cache.clear();
+        }
+        cache.insert(key, g.clone());
+        Ok(g)
+    }
+
+    fn new_ui_layout(&self, text: &str, f: &FontSpec<'_>) -> Result<IDWriteTextLayout, String> {
         let format = self.ui_format(f)?;
         let wide: Vec<u16> = text.encode_utf16().collect();
         // SAFETY: `wide` outlives the call (DirectWrite copies it); the layout is owned.
@@ -472,7 +527,7 @@ impl Frame<'_> {
 
     /// Fill and / or stroke (round caps and joins) a path in device pixels.
     pub fn path(&self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
-        let Ok(geometry) = self.device.geometry(segs) else {
+        let Ok(geometry) = self.device.ui_geometry(segs) else {
             return;
         };
         // SAFETY: geometry, brushes and stroke style are owned; drawing happens in the frame.

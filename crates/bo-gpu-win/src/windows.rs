@@ -59,6 +59,12 @@ pub(crate) fn system_cleartype() -> bool {
     }
 }
 
+/// Interface text layouts by (text, family, size bits, weight, italic, underline).
+type UiLayouts = std::collections::HashMap<
+    (String, String, u32, u16, bool, bool),
+    windows::Win32::Graphics::DirectWrite::IDWriteTextLayout,
+>;
+
 /// A Direct2D context backed by a Direct3D device. It is not yet connected to a surface.
 pub struct Device {
     // Retain all parent COM objects for the lifetime of the context.
@@ -86,6 +92,12 @@ pub struct Device {
             windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams,
             windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams,
         )>,
+    >,
+    // Interface text layouts and path geometries reused across frames (keystrokes redraw
+    // the same ribbon labels and icons), see surface.rs.
+    ui_layouts: RefCell<UiLayouts>,
+    ui_geoms: RefCell<
+        std::collections::HashMap<u64, windows::Win32::Graphics::Direct2D::ID2D1PathGeometry1>,
     >,
     // Rendering parameters for interface text, see `Device::apply_ui_text`.
     ui_params: RefCell<Option<windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams>>,
@@ -356,6 +368,8 @@ impl Device {
                 monitor: Cell::new(0),
                 pixel_geometry: Cell::new(None),
                 text_params: RefCell::new(None),
+                ui_layouts: RefCell::new(std::collections::HashMap::new()),
+                ui_geoms: RefCell::new(std::collections::HashMap::new()),
                 ui_formats: RefCell::new(std::collections::HashMap::new()),
                 ui_params: RefCell::new(None),
                 _thread_bound: PhantomData,

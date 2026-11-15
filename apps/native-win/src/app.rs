@@ -90,6 +90,7 @@ pub fn run() -> Result<(), String> {
             pending: Vec::new(),
             dirty: true,
             pending_input: None,
+            last_frame: [std::time::Duration::ZERO; 3],
             clock: Instant::now(),
         }),
     )
@@ -237,6 +238,8 @@ struct Shell {
     /// A frame is needed (drawn when the message queue is empty).
     dirty: bool,
     pending_input: Option<PendingInput>,
+    /// Last frame: page preparation, interface paint, end-of-draw + present.
+    last_frame: [std::time::Duration; 3],
     /// Clock of animations.
     clock: Instant,
 }
@@ -362,14 +365,23 @@ impl Shell {
         let Some(gpu) = self.gpu.as_mut() else {
             return Ok(());
         };
+        let t0 = Instant::now();
         self.view.prepare(&mut Store {
             device: &gpu.device,
             pages: &mut gpu.pages,
         })?;
+        let t1 = Instant::now();
         let (view, pages) = (&self.view, &gpu.pages.bitmaps);
-        gpu.surface.frame(&gpu.device, |frame| {
+        let mut painted = std::time::Duration::ZERO;
+        let r = gpu.surface.frame(&gpu.device, |frame| {
+            let p0 = Instant::now();
             view.paint(&mut WinPainter { frame, pages });
-        })
+            painted = p0.elapsed();
+        });
+        // Performance log: page re-render, interface paint, the rest of the frame (end of
+        // drawing and present).
+        self.last_frame = [t1 - t0, painted, t1.elapsed().saturating_sub(painted)];
+        r
     }
 }
 
@@ -540,11 +552,14 @@ impl Handler for Shell {
             let total = p.first.elapsed();
             let _ = writeln!(
                 file,
-                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
+                r#"{{"input":"{}","inputs":{},"age_ms":{},"handle_ms":{:.3},"prepare_ms":{:.3},"paint_ms":{:.3},"submit_ms":{:.3},"present_ms":{:.3},"total_ms":{:.3}}}"#,
                 p.kind,
                 p.count,
                 p.age_ms,
                 p.handle.as_secs_f64() * 1e3,
+                self.last_frame[0].as_secs_f64() * 1e3,
+                self.last_frame[1].as_secs_f64() * 1e3,
+                self.last_frame[2].as_secs_f64() * 1e3,
                 total.saturating_sub(p.handle).as_secs_f64() * 1e3,
                 total.as_secs_f64() * 1e3 + f64::from(p.age_ms),
             );

@@ -374,6 +374,20 @@ impl DocView {
             .sum::<f32>()
     }
 
+    /// Scroll offset, content height and viewport height in device pixels (scroll bar).
+    pub fn scroll_info(&self) -> (f32, f32, f32) {
+        (self.scroll, self.content_height(), self.viewport.1)
+    }
+
+    /// Scroll to `y` device pixels from the top (clamped); `true` when it moved.
+    pub fn scroll_to(&mut self, y: f32) -> bool {
+        let before = self.scroll;
+        self.glide = None;
+        self.scroll = y;
+        self.clamp_scroll();
+        self.scroll != before
+    }
+
     fn clamp_scroll(&mut self) {
         let max = (self.content_height() - self.viewport.1).max(0.0);
         self.scroll = self.scroll.clamp(0.0, max).round();

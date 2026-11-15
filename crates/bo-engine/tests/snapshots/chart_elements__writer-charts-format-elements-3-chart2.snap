@@ -7,15 +7,15 @@ line 0.0,0.2 → 480.0,0.2 0.50 #c8cdd3ff
 line 0.0,287.8 → 480.0,287.8 0.50 #c8cdd3ff
 line 0.2,0.0 → 0.2,288.0 0.50 #c8cdd3ff
 line 479.8,0.0 → 479.8,288.0 0.50 #c8cdd3ff
-path 4segs M241.4,134.9 L241.4,43.3 C268.4,47.4 Z fill #2e6db4ff stroke #ffffffff 0.75
-path 4segs M245.2,136.4 L272.2,48.9 C316.8,79.3 Z fill #f28c28ff stroke #ffffffff 0.75
-path 4segs M248.9,142.0 L320.6,84.8 C338.3,162.4 Z fill #2fa36bff stroke #ffffffff 0.75
-path 4segs M246.2,150.7 L335.6,171.1 C259.9,241.3 Z fill #d64545ff stroke #ffffffff 0.75
-path 4segs M234.8,151.6 L248.5,242.2 C145.5,172.0 Z fill #7e57c2ff stroke #ffffffff 0.75
-path 5segs M232.8,138.3 L143.5,158.7 C161.2,81.2 C232.8,46.7 Z fill #c9a227ff stroke #ffffffff 0.75
-label 9.9pt 241.6,20.0 37.4x15.4 "4,8%"
-label 9.9pt 298.1,39.1 37.4x15.4 "9,5%"
-label 9.9pt 354.2,110.1 44.0x15.4 "14,3%"
-label 9.9pt 313.0,222.6 44.0x15.4 "19,0%"
-label 9.9pt 139.3,233.5 44.0x15.4 "23,8%"
-label 9.9pt 108.8,62.9 44.0x15.4 "28,6%"
+path 4segs M241.5,134.4 L241.5,36.9 C270.2,41.2 Z fill #2e6db4ff stroke #ffffffff 0.75
+path 4segs M245.5,135.9 L274.2,42.8 C321.7,75.2 Z fill #f28c28ff stroke #ffffffff 0.75
+path 4segs M249.5,141.8 L325.7,81.1 C344.5,163.5 Z fill #2fa36bff stroke #ffffffff 0.75
+path 4segs M246.6,151.1 L341.6,172.8 C261.2,247.5 Z fill #d64545ff stroke #ffffffff 0.75
+path 4segs M234.5,152.1 L249.0,248.4 C139.5,173.7 Z fill #7e57c2ff stroke #ffffffff 0.75
+path 5segs M232.4,137.9 L137.4,159.6 C156.2,77.2 C232.4,40.5 Z fill #c9a227ff stroke #ffffffff 0.75
+label 8.1pt 245.3,15.8 30.6x12.6 "4,8%"
+label 8.1pt 302.7,35.9 30.6x12.6 "9,5%"
+label 8.1pt 359.7,110.3 36.0x12.6 "14,3%"
+label 8.1pt 318.1,228.0 36.0x12.6 "19,0%"
+label 8.1pt 142.4,239.5 36.0x12.6 "23,8%"
+label 8.1pt 111.6,60.9 36.0x12.6 "28,6%"

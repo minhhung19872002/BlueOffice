@@ -21,12 +21,14 @@ mod edit;
 mod encoding;
 #[allow(clippy::unreadable_literal, clippy::large_const_arrays)]
 mod encoding_data;
+mod fallback;
 mod filters;
 mod font;
 mod function;
 mod image;
 mod interp;
 mod lexer;
+mod objects;
 mod sfnt;
 mod text;
 mod type1;
@@ -35,6 +37,7 @@ mod write;
 pub use annot::{Annot, AnnotKind, NewAnnot};
 pub use edit::SaveOptions;
 pub use image::Image;
+pub use objects::{text_lines, NewImage, ObjectKind, PageObject, TextLine};
 pub use text::TextLayer;
 
 use bo_render::PageList;
@@ -968,5 +971,7 @@ fn hidden_groups(doc: &Document) -> HashSet<ObjectId> {
 
 #[cfg(test)]
 mod edit_tests;
+#[cfg(test)]
+mod objects_tests;
 #[cfg(test)]
 mod tests;

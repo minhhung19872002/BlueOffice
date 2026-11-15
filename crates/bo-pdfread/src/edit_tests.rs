@@ -362,3 +362,35 @@ fn bluedoc_export_rewrite_renders_the_same() {
         assert_eq!(&commands(&mut again, i), b, "page {i} after moves");
     }
 }
+
+#[test]
+fn reverse_and_set_password() {
+    let mut doc = open(pages_pdf(4));
+    doc.reverse_pages(&[]).expect("reverses");
+    assert_eq!(texts(&mut doc), ["Page 4", "Page 3", "Page 2", "Page 1"]);
+    doc.reverse_pages(&[1, 2]).expect("reverses");
+    assert_eq!(texts(&mut doc), ["Page 4", "Page 2", "Page 3", "Page 1"]);
+    doc.set_password("open me", "owner").expect("protects");
+    let saved = doc.save().expect("saves");
+    assert!(PdfDocument::needs_password(&saved));
+    // A comment saved after the protecting save is an encrypted incremental update.
+    doc.add_annotation(&NewAnnot {
+        kind: AnnotKind::Note,
+        page: 0,
+        rects: vec![[10.0, 10.0, 30.0, 30.0]],
+        color: [255, 214, 0],
+        author: "Tester".into(),
+        contents: "x".into(),
+    })
+    .expect("comments");
+    let inc = doc.save().expect("saves");
+    let mut again =
+        PdfDocument::open_with_password(inc, standard_fonts(), "open me").expect("opens");
+    assert_eq!(texts(&mut again), ["Page 4", "Page 2", "Page 3", "Page 1"]);
+    assert_eq!(again.annotations().len(), 1);
+    // Removing the protection.
+    again.set_password("", "").expect("unprotects");
+    let plain = again.save().expect("saves");
+    assert!(!PdfDocument::needs_password(&plain));
+    assert!(!open(plain).is_encrypted());
+}

@@ -52,15 +52,26 @@ pub(crate) struct EditState {
     pub structural: bool,
     /// Edits since the last save.
     pub edits: u32,
+    /// Content streams made by editing a page (one per page, already wrapped in `q … Q`).
+    pub own_streams: HashSet<ObjectId>,
+    /// Character encoders of fonts by font object (`None`: text cannot be encoded).
+    pub encoders: HashMap<ObjectId, Option<Encoder>>,
+    /// An undo group is open ([`PdfDocument::begin_group`]).
+    pub group: bool,
+    /// Embedded fallback fonts (serif?) by font object.
+    pub embedded: HashMap<bool, ObjectId>,
 }
 
 const UNDO_LIMIT: usize = 100;
+
+/// Codes of each character in one font.
+pub(crate) type Encoder = std::rc::Rc<HashMap<char, Vec<u8>>>;
 
 /// Inheritable page attributes (§7.7.3.4, Table 31).
 const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
 /// Raw value (maybe a reference) of an inheritable attribute of a page or its ancestors.
-fn inherited_raw(doc: &Document, page: ObjectId, key: &[u8]) -> Option<Object> {
+pub(crate) fn inherited_raw(doc: &Document, page: ObjectId, key: &[u8]) -> Option<Object> {
     let mut d = doc.get_dictionary(page).ok()?;
     for _ in 0..32 {
         if let Ok(v) = d.get(key) {
@@ -170,6 +181,9 @@ impl PdfDocument {
 
     /// Close the open step; it becomes the newest undo entry.
     pub(crate) fn commit(&mut self) {
+        if self.edit.group {
+            return;
+        }
         let Some(step) = self.edit.open.take() else {
             return;
         };
@@ -228,11 +242,15 @@ impl PdfDocument {
         // Cached fonts and images may belong to objects that changed.
         self.font_cache = crate::font::FontCache::default();
         self.images = crate::interp::ImageCache::default();
+        self.edit.encoders.clear();
         inverse
     }
 
     /// Revert the newest edit; false when there is none.
     pub fn undo(&mut self) -> bool {
+        if self.edit.group {
+            self.end_group();
+        }
         let Some(step) = self.edit.undo.pop() else {
             return false;
         };
@@ -350,6 +368,75 @@ impl PdfDocument {
         self.begin("delete");
         self.set_page_order(&order)?;
         self.commit();
+        Ok(())
+    }
+
+    /// Reverse the order of `pages` among themselves (all pages when `pages` is empty).
+    pub fn reverse_pages(&mut self, pages: &[usize]) -> Result<(), String> {
+        let n = self.pages.len();
+        let mut sel: Vec<usize> = if pages.is_empty() {
+            (0..n).collect()
+        } else {
+            pages.iter().copied().filter(|&i| i < n).collect()
+        };
+        sel.sort_unstable();
+        sel.dedup();
+        if sel.len() < 2 {
+            return Ok(());
+        }
+        let mut order = self.page_ids();
+        let ids: Vec<ObjectId> = sel.iter().map(|&i| order[i]).collect();
+        for (k, &i) in sel.iter().enumerate() {
+            order[i] = ids[ids.len() - 1 - k];
+        }
+        self.begin("reverse");
+        self.set_page_order(&order)?;
+        self.commit();
+        Ok(())
+    }
+
+    /// Protect the document with passwords (standard security handler, AES-128, §7.6.3.2):
+    /// `user` opens it (empty: anyone opens it), `owner` changes the permissions. An empty
+    /// `owner` removes the protection. Written by the next save, which rewrites the file.
+    pub fn set_password(&mut self, user: &str, owner: &str) -> Result<(), String> {
+        use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
+        use lopdf::{EncryptionState, EncryptionVersion, Permissions};
+        if let Ok(e) = self
+            .doc
+            .trailer
+            .get(b"Encrypt")
+            .and_then(Object::as_reference)
+        {
+            self.doc.objects.remove(&e);
+        }
+        self.doc.trailer.remove(b"Encrypt");
+        self.doc.encryption_state = None;
+        if !owner.is_empty() {
+            if !self.doc.trailer.has(b"ID") {
+                let id = Object::String(
+                    new_file_id(self.doc.objects.len()),
+                    lopdf::StringFormat::Hexadecimal,
+                );
+                self.doc.trailer.set("ID", vec![id.clone(), id]);
+            }
+            let mut filters: std::collections::BTreeMap<Vec<u8>, std::sync::Arc<dyn CryptFilter>> =
+                std::collections::BTreeMap::new();
+            filters.insert(b"StdCF".to_vec(), std::sync::Arc::new(Aes128CryptFilter));
+            let state = EncryptionState::try_from(EncryptionVersion::V4 {
+                document: &self.doc,
+                encrypt_metadata: true,
+                crypt_filters: filters,
+                stream_filter: b"StdCF".to_vec(),
+                string_filter: b"StdCF".to_vec(),
+                owner_password: owner,
+                user_password: user,
+                permissions: Permissions::all(),
+            })
+            .map_err(|e| e.to_string())?;
+            self.doc.encryption_state = Some(state);
+        }
+        self.edit.structural = true;
+        self.edit.edits += 1;
         Ok(())
     }
 
@@ -514,7 +601,7 @@ impl PdfDocument {
             c.remove(b"Outlines");
             c.remove(b"PageLabels");
         }
-        write_document(doc, opts, true)
+        write_document(doc, opts, true).map(|w| w.0)
     }
 
     /// Split into files of `every` pages each.
@@ -549,7 +636,21 @@ impl PdfDocument {
     /// compressed, encrypted again with the original security handler when it was encrypted.
     /// Afterwards the returned bytes are the document's original.
     pub fn save_full(&mut self, opts: SaveOptions) -> Result<Vec<u8>, String> {
-        let out = write_document(self.doc.clone(), opts, true)?;
+        let (out, encrypt) = write_document(self.doc.clone(), opts, true)?;
+        // Later incremental saves name the encryption dictionary the file now has.
+        if let Some((id, dict)) = encrypt {
+            if let Ok(old) = self
+                .doc
+                .trailer
+                .get(b"Encrypt")
+                .and_then(Object::as_reference)
+            {
+                self.doc.objects.remove(&old);
+            }
+            self.doc.objects.insert(id, dict);
+            self.doc.trailer.set("Encrypt", Object::Reference(id));
+            self.doc.max_id = self.doc.max_id.max(id.0);
+        }
         self.saved(out.clone());
         Ok(out)
     }
@@ -563,11 +664,31 @@ impl PdfDocument {
 }
 
 /// Write a whole document. `keep_encryption`: encrypt again with the state it was opened with.
+/// A new file identifier (§14.4): 16 bytes from the clock and `salt`.
+fn new_file_id(salt: usize) -> Vec<u8> {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos())
+        ^ ((salt as u128) << 64);
+    let mut x = ((seed as u64) ^ ((seed >> 64) as u64)) | 1;
+    (0..16)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 24) as u8
+        })
+        .collect()
+}
+
+/// The written file, and the encryption dictionary it got (id and object) when encrypted.
+type Written = (Vec<u8>, Option<(ObjectId, Object)>);
+
 pub(crate) fn write_document(
     mut doc: Document,
     opts: SaveOptions,
     keep_encryption: bool,
-) -> Result<Vec<u8>, String> {
+) -> Result<Written, String> {
     let state = doc.encryption_state.take();
     if doc.is_encrypted() && state.is_none() {
         return Err("the document is protected by a password".into());
@@ -588,21 +709,10 @@ pub(crate) fn write_document(
         }
     }
     if !trailer.has(b"ID") {
-        // A new file identifier (§14.4): 16 bytes from the clock and the object count.
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos())
-            ^ ((doc.objects.len() as u128) << 64);
-        let mut x = ((seed as u64) ^ ((seed >> 64) as u64)) | 1;
-        let bytes: Vec<u8> = (0..16)
-            .map(|_| {
-                x ^= x << 13;
-                x ^= x >> 7;
-                x ^= x << 17;
-                (x >> 24) as u8
-            })
-            .collect();
-        let id = Object::String(bytes, lopdf::StringFormat::Hexadecimal);
+        let id = Object::String(
+            new_file_id(doc.objects.len()),
+            lopdf::StringFormat::Hexadecimal,
+        );
         trailer.set("ID", vec![id.clone(), id]);
     }
     doc.trailer = trailer;
@@ -626,8 +736,15 @@ pub(crate) fn write_document(
     doc.max_id = doc.objects.keys().map(|k| k.0).max().unwrap_or(0);
     let encrypt = keep_encryption.then_some(state).flatten();
     let mut out = Vec::new();
+    let mut dict = None;
     if let Some(state) = encrypt {
         doc.encrypt(&state).map_err(|e| format!("encrypt: {e}"))?;
+        dict = doc
+            .trailer
+            .get(b"Encrypt")
+            .and_then(Object::as_reference)
+            .ok()
+            .and_then(|id| doc.objects.get(&id).map(|o| (id, o.clone())));
         doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
         doc.save_to(&mut out).map_err(|e| e.to_string())?;
     } else if opts.object_streams {
@@ -636,7 +753,7 @@ pub(crate) fn write_document(
         doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
         doc.save_to(&mut out).map_err(|e| e.to_string())?;
     }
-    Ok(out)
+    Ok((out, dict))
 }
 
 /// Objects in `doc` keyed by id (for tests comparing revisions).

@@ -234,6 +234,8 @@ pub(crate) struct Look {
     pub sep_space: (f32, f32),
     /// Width a drop-down arrow after a two-line label adds to its button.
     pub arrow_w: f32,
+    /// Label padding of large buttons with a one-line label.
+    pub big_pad_one: f32,
 }
 
 impl Look {
@@ -279,6 +281,7 @@ impl Look {
         big_gap: 1.6,
         sep_space: (4.8, 6.4),
         arrow_w: 0.0,
+        big_pad_one: 13.6,
     };
 }
 
@@ -982,9 +985,12 @@ impl ReaderWindow {
                     } else {
                         lw
                     };
-                    let bw = (lw + self.px(self.look.big_pad))
-                        .max(self.px(self.look.big_min))
-                        .round();
+                    let pad = if two {
+                        self.look.big_pad
+                    } else {
+                        self.look.big_pad_one
+                    };
+                    let bw = (lw + self.px(pad)).max(self.px(self.look.big_min)).round();
                     self.controls.push(Control {
                         id,
                         kind,
@@ -2395,7 +2401,21 @@ impl ReaderWindow {
             let r = c.r;
             match c.kind {
                 Kind::Big(icon, label, dropdown) => {
-                    if on || down || hot {
+                    // A command switched off by the window built on this one shows grey.
+                    let dim = self.enabled_override.get(c.id) == Some(&false);
+                    let grey = Rgba(175, 175, 176, 255);
+                    let (ink, text_col) = if dim {
+                        (
+                            Ink {
+                                ink: grey,
+                                accent: grey,
+                            },
+                            grey,
+                        )
+                    } else {
+                        (ink, TEXT)
+                    };
+                    if !dim && (on || down || hot) {
                         let fill = if on || down {
                             self.look.pressed
                         } else {
@@ -2436,14 +2456,14 @@ impl ReaderWindow {
                             0.0
                         };
                         let lx = r[0] + ((r[2] - lw - extra) / 2.0).round();
-                        p.text(l, lx, ly, label_style, TEXT);
+                        p.text(l, lx, ly, label_style, text_col);
                         if dropdown && k == n - 1 && n > 1 {
                             tri(
                                 p,
                                 lx + lw + self.px(2.0),
                                 ly + lh * 0.45,
                                 self.px(3.2),
-                                TEXT,
+                                text_col,
                             );
                         }
                         ly += lh;
@@ -2454,7 +2474,7 @@ impl ReaderWindow {
                             r[0] + r[2] / 2.0 - self.px(3.2),
                             ly + self.px(3.2),
                             self.px(3.2),
-                            TEXT,
+                            text_col,
                         );
                     }
                 }

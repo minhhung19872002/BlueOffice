@@ -334,11 +334,14 @@ const LOOK: Look = Look {
     // label plus 18 px, at least 49 px, side by side; 1 px before a separator, 8 px after
     // (Edit tab: Hand 14–65, Edit Text 131–179, separators at 123 and 470).
     big_pad: 13.1,
-    big_min: 35.6,
+    big_min: 40.0,
     big_gap: 0.0,
     sep_space: (0.8, 5.8),
     // "Edit Object▾": the arrow widens the button (reference 180–248 for a 44 px label).
     arrow_w: 6.4,
+    // One-line labels: about 12 px between neighbouring labels (Home: Select 111 →
+    // SnapShot 123, Clipboard 270 → Bookmark 281).
+    big_pad_one: 9.6,
 };
 
 /// Editor tool that takes the document area's pointer input.

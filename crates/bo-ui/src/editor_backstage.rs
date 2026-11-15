@@ -141,6 +141,7 @@ impl EditorWindow {
         p.fill_rect(0.0, top, cw, h - top, COLUMN);
         let item = self.bs_style(17.0);
         let doc = self.showing_doc() || self.view().is_some();
+        let modified = self.view().is_some_and(|v| v.doc().modified());
         let accent = self.accent();
         let mut y = top + px(11.2);
         for it in ITEMS {
@@ -150,7 +151,9 @@ impl EditorWindow {
                 y += px(8.0);
                 continue;
             };
-            let enabled = doc || matches!(cmd, "bs.create" | "bs.open" | "bs.back");
+            // Save is grey until the document changes, as in the reference.
+            let enabled = (doc && (cmd != "file.save" || modified))
+                || matches!(cmd, "bs.create" | "bs.open" | "bs.back");
             let r = [px(10.4), y, cw - px(22.4), px(31.2)];
             let chosen = cmd == self.bs.page;
             if chosen {
@@ -168,7 +171,8 @@ impl EditorWindow {
                 Rgba(0xC1, 0xC1, 0xC1, 255)
             };
             let ty = r[1] + ((r[3] - item.size * 1.33) / 2.0).round();
-            p.text(&self.t(key), px(25.6), ty, item, col);
+            let label = self.t(key);
+            p.text(label.trim_end_matches(['.', '…']), px(25.6), ty, item, col);
             if enabled {
                 hits.push((r, cmd.to_owned()));
             }

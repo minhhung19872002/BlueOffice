@@ -495,4 +495,6 @@ DirectComposition — chưa làm trong vòng này; p95 ở 1500×1000 đã sát 
   Arrange; tab Draw (engine bảng tính chưa có nét mực).
 - Conditional Formatting: menu con theo đối chứng và Manage Rules; Fill Effects (gradient); Text to Columns định dạng
   từng cột; ngăn PivotTable Fields; chọn / di chuyển hình và ảnh trên lưới; tab Chart Design / Format, Table Design.
-- Kiểu số (Comma, Currency, Percent) trong thư viện Cell Styles.
+- Kiểu số (Comma, Currency, Percent) trong thư viện Cell Styles; ô thư viện chưa vẽ khung bốn cạnh (Calculation,
+  Output, Check Cell) và chữ đậm tiêu đề nhóm; Format as Table mới có 21 kiểu (đối chứng 60: Light 21, Medium 28,
+  Dark 11) và ô nhỏ hơn (61 × 46 so với 77 × 56 px).

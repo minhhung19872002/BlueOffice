@@ -1036,6 +1036,7 @@ dependencies = [
  "bo-engine",
  "bo-model",
  "bo-render",
+ "bo-sheet",
  "serde",
  "serde_json",
  "zip",

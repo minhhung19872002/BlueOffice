@@ -109,6 +109,53 @@ impl Default for RenderOptions {
     }
 }
 
+/// Text of General number `n` that `fits`: as many decimals as fit (dropping trailing
+/// zeros), else scientific notation with as many mantissa digits as fit; `None` when nothing
+/// fits. Values that would round to zero use scientific notation.
+fn general_fit(n: f64, decimal: char, fits: &mut dyn FnMut(&str) -> bool) -> Option<String> {
+    let local = |s: &str| {
+        if decimal == '.' {
+            s.to_owned()
+        } else {
+            s.replace('.', &decimal.to_string())
+        }
+    };
+    let trim = |s: &str| {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_owned()
+        } else {
+            s.to_owned()
+        }
+    };
+    if n.abs() < 1e11 {
+        for d in (0..=10).rev() {
+            let s = trim(&format!("{n:.d$}"));
+            if n != 0.0
+                && s.trim_start_matches('-')
+                    .chars()
+                    .all(|c| c == '0' || c == '.')
+            {
+                break;
+            }
+            let s = local(&s);
+            if fits(&s) {
+                return Some(s);
+            }
+        }
+    }
+    for m in (0..=5).rev() {
+        let s = format!("{n:.m$E}");
+        let (mant, exp) = s.split_once('E')?;
+        let e: i32 = exp.parse().ok()?;
+        let sign = if e < 0 { '-' } else { '+' };
+        let t = local(&format!("{}E{sign}{:02}", trim(mant), e.abs()));
+        if fits(&t) {
+            return Some(t);
+        }
+    }
+    None
+}
+
 /// Display text of a cell value with its number format (§18.8.30 / §18.8.31).
 pub fn format_cell(wb: &Workbook, cell: &Cell, locale: &Locale) -> Formatted {
     let id = wb.styles.xf(cell.style).map_or(0, |x| x.num_fmt_id);
@@ -1295,6 +1342,21 @@ impl Renderer<'_> {
 
         // Lines: wrapped text or a single line.
         let avail = (rect.w - 2.0 * pad - indent).max(0.0);
+        // A General number too wide for its column shows fewer decimals, then scientific
+        // notation, before `#` (black-box behaviour of desktop spreadsheets for the General
+        // format, ECMA-376 Part 1, §18.8.30 numFmtId 0).
+        if let (CellValue::Number(n), false) = (&cell.value, as_formula) {
+            let general = self.xf(cell).map_or(0, |x| x.num_fmt_id) == 0;
+            if general && !fmt.invalid && self.measure(face, &fmt.text, size) > avail {
+                let decimal = self.opts.locale.decimal;
+                let fitted = general_fit(*n, decimal, &mut |t: &str| {
+                    self.measure(face, t, size) <= avail
+                });
+                if let Some(t) = fitted {
+                    fmt.text = t;
+                }
+            }
+        }
         let mut lines: Vec<String> = Vec::new();
         // `_x` gaps and `*x` fill (§18.8.31) for a single unwrapped line.
         let mut one = fmt.clone();
@@ -1393,7 +1455,11 @@ impl Renderer<'_> {
             w: f(clip.w),
             h: f(clip.h),
         });
-        let total_h = line_h * lines.len() as f64;
+        // The last line's gap below the descent is not part of the block: bottom-aligned text
+        // sits on the cell's bottom edge with only the descent under its baseline, as on desktop
+        // spreadsheets (measured black-box: Calibri 11 at 120 dpi, baseline 5 px above the
+        // gridline).
+        let total_h = line_h * (lines.len().max(1) - 1) as f64 + ascent + descent;
         // §18.18.88 ST_VerticalAlignment (default bottom).
         let top = match align.vertical.as_deref() {
             Some("top") => rect.y + pad / 2.0,
@@ -1619,6 +1685,35 @@ impl Renderer<'_> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod general_fit_tests {
+    #[test]
+    fn general_numbers_lose_decimals_then_go_scientific() {
+        let max = |n: usize| move |t: &str| t.chars().count() <= n;
+        assert_eq!(
+            super::general_fit(-0.000_125, ',', &mut max(8)).as_deref(),
+            Some("-0,00013")
+        );
+        assert_eq!(
+            super::general_fit(46_341.482_361, '.', &mut max(8)).as_deref(),
+            Some("46341.48")
+        );
+        assert_eq!(
+            super::general_fit(1.0 / 3.0, '.', &mut max(8)).as_deref(),
+            Some("0.333333")
+        );
+        assert_eq!(
+            super::general_fit(123_456_789_012.0, '.', &mut max(8)).as_deref(),
+            Some("1.23E+11")
+        );
+        assert_eq!(
+            super::general_fit(0.000_000_012_3, '.', &mut max(6)).as_deref(),
+            Some("1E-08")
+        );
+        assert_eq!(super::general_fit(123_456.0, '.', &mut max(2)), None);
     }
 }
 

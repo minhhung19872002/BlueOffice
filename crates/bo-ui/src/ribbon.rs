@@ -179,6 +179,8 @@ pub struct Ribbon {
     /// Height of the group label row, from the measured label text (it grows with the
     /// platform's interface text size, as the reference ribbon does).
     label_row: f32,
+    /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
+    enabled: fn(&str, &FormatState) -> bool,
 }
 
 fn home() -> Tab {
@@ -511,7 +513,14 @@ impl Ribbon {
             glyph_size: [(0.0, 0.0); GLYPH_BUTTONS.len()],
             previews: Vec::new(),
             label_row: 0.0,
+            enabled: commands::enabled,
         }
+    }
+
+    /// Use `rule` to decide which commands are enabled (dimmed otherwise).
+    pub(crate) fn with_enabled(mut self, rule: fn(&str, &FormatState) -> bool) -> Self {
+        self.enabled = rule;
+        self
     }
 
     fn px(&self, v: f32) -> f32 {
@@ -1225,7 +1234,7 @@ impl Ribbon {
                 }
                 Placed::Item(Item::Button(id), r) => {
                     let on = commands::toggled(id, format) || on_ids.contains(id);
-                    let enabled = commands::enabled(id, format);
+                    let enabled = (self.enabled)(id, format);
                     let hit = RibbonHit::Command(id);
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
@@ -1522,7 +1531,7 @@ impl Ribbon {
                 }
                 Placed::Item(Item::Labeled(id), r) => {
                     let hit = RibbonHit::Command(id);
-                    let enabled = commands::enabled(id, format);
+                    let enabled = (self.enabled)(id, format);
                     if let Some(c) = tint(hit).filter(|_| enabled) {
                         radius_rect(p, r, c);
                     } else if on_ids.contains(id) || commands::toggled(id, format) {

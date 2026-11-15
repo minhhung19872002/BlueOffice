@@ -498,6 +498,8 @@ enum UndoEntry {
 pub struct SheetEngine {
     pub(crate) fonts: FontManager,
     pub(crate) name: String,
+    /// Screen scale of the geometry ([`SheetEngine::set_display_scale`]).
+    display_ppp: Option<f64>,
     wb: Option<Workbook>,
     geometry: Vec<Option<SheetGeometry>>,
     locale: Locale,
@@ -1038,6 +1040,7 @@ impl SheetEngine {
         Self {
             fonts: FontManager::new(),
             name: String::new(),
+            display_ppp: None,
             wb: None,
             geometry: Vec::new(),
             locale: Locale::VI_VN,
@@ -1375,9 +1378,27 @@ impl SheetEngine {
             .get_mut(sheet)
             .ok_or(EngineError::PageOutOfRange(sheet))?;
         if slot.is_none() {
-            *slot = Some(SheetGeometry::new(ws, &wb.styles, &mut self.fonts));
+            *slot = Some(match self.display_ppp {
+                Some(ppp) => {
+                    let locale = self.locale;
+                    let text_of = |c: &Cell| format_cell(wb, c, &locale).text;
+                    SheetGeometry::for_display(ws, &wb.styles, &mut self.fonts, ppp, &text_of)
+                }
+                None => SheetGeometry::new(ws, &wb.styles, &mut self.fonts),
+            });
         }
         slot.as_ref().ok_or(EngineError::NoDocument)
+    }
+
+    /// Lay sheets out for a screen at `ppp` device pixels per point (zoom × dpi / 72), with
+    /// row heights in whole pixels as a desktop spreadsheet shows them
+    /// ([`SheetGeometry::for_display`]); `None` restores the file's point sizes. Native
+    /// windows set it; printing and the web keep `None`.
+    pub fn set_display_scale(&mut self, ppp: Option<f64>) {
+        if self.display_ppp != ppp {
+            self.display_ppp = ppp;
+            self.invalidate(None);
+        }
     }
 
     fn invalidate(&mut self, sheet: Option<usize>) {
@@ -1427,6 +1448,61 @@ impl SheetEngine {
             &opts,
             &mut self.fonts,
         ))
+    }
+
+    /// Display list of viewport `vp` of sheet `sheet` for a native grid (ADR-0018): the
+    /// caller chooses header sizes (0 draws no headers), colours and the like through `style`,
+    /// which receives the engine's options (locale, clock, drawings) to adjust.
+    pub fn render_viewport_with(
+        &mut self,
+        sheet: usize,
+        vp: &Viewport,
+        style: impl FnOnce(&mut RenderOptions),
+    ) -> Result<PageList> {
+        self.refresh_drawings();
+        self.geometry(sheet)?;
+        let wb = self.wb.as_ref().ok_or(EngineError::NoDocument)?;
+        let geom = self
+            .geometry
+            .get(sheet)
+            .and_then(Option::as_ref)
+            .ok_or(EngineError::NoDocument)?;
+        let mut opts = RenderOptions {
+            locale: self.locale,
+            now: self.live.now(),
+            drawings: self.drawings.clone(),
+            images: self.web_images.states(),
+            ..RenderOptions::default()
+        };
+        style(&mut opts);
+        Ok(render_viewport(wb, sheet, geom, vp, &opts, &mut self.fonts))
+    }
+
+    /// Visible panes of viewport `vp` and the sheet's geometry (column / row offsets, merges),
+    /// for a native grid's headers, selection and hit testing.
+    pub fn view_layout(
+        &mut self,
+        sheet: usize,
+        vp: &Viewport,
+    ) -> Result<(ViewLayout, &SheetGeometry)> {
+        self.geometry(sheet)?;
+        let ws = self
+            .wb
+            .as_ref()
+            .and_then(|w| w.sheets.get(sheet))
+            .ok_or(EngineError::NoDocument)?;
+        let geom = self
+            .geometry
+            .get(sheet)
+            .and_then(Option::as_ref)
+            .ok_or(EngineError::NoDocument)?;
+        Ok((ViewLayout::for_sheet(geom, ws, vp), geom))
+    }
+
+    /// The fonts glyph runs of [`Self::render_viewport_with`] refer to.
+    #[must_use]
+    pub fn fonts(&self) -> &FontManager {
+        &self.fonts
     }
 
     /// [`Self::render`] as JSON.

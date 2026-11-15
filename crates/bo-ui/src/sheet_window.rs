@@ -1,0 +1,1923 @@
+//! The BlueSheet window (ADR-0018, plan N6): title bar, ribbon with a Home tab, formula bar,
+//! grid, sheet tabs and status bar, with input routing. Sizes and colours follow black-box
+//! measurements of a desktop spreadsheet at 125 % display scale (docs/ui/REPORT-sheet.md).
+use crate::icons::{IconColors, Icons};
+use crate::popup::{paint_tooltip, Choice, Menu, MenuItem};
+use crate::ribbon::{Group, Item, Ribbon, RibbonHit, Tab};
+use crate::sheet_view::{GridStore, SheetView, SEL_GREEN};
+use crate::strings::Strings;
+use crate::theme::Theme;
+use crate::titlebar::{NcHit, TitleBar};
+use crate::{Font, Input, Key, Mods, Painter, Request, TextMeasure, TextStyle};
+use bo_edit::FormatState;
+use bo_model::Alignment;
+use bo_render::{PathSeg, Rgba};
+use serde_json::json;
+
+/// Tab strip and status bar greys of the reference spreadsheet.
+const TABS_BG: Rgba = Rgba(0xe6, 0xe6, 0xe6, 255);
+const TABS_EDGE: Rgba = Rgba(0x99, 0x99, 0x99, 255);
+const STATUS_BG: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
+const STATUS_EDGE: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
+const STATUS_TEXT: Rgba = Rgba(0x26, 0x26, 0x26, 255);
+const WHITE: Rgba = Rgba(255, 255, 255, 255);
+
+/// Fonts offered by the font box.
+const FONTS: [&str; 12] = [
+    "Aptos Narrow",
+    "Arial",
+    "Calibri",
+    "Cambria",
+    "Candara",
+    "Consolas",
+    "Courier New",
+    "Segoe UI",
+    "Tahoma",
+    "Times New Roman",
+    "Trebuchet MS",
+    "Verdana",
+];
+
+/// Font sizes offered by the size box.
+const SIZES: [f64; 16] = [
+    8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0,
+];
+
+const ACCOUNTING: &str = "_-* #,##0 [$₫-42A]_-;-* #,##0 [$₫-42A]_-;_-* \"-\" [$₫-42A]_-;_-@_-";
+const COMMA_STYLE: &str = "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-";
+
+fn home_tab() -> Tab {
+    use Item::{Button as B, FontBox, Labeled as S, Large as L, SizeBox};
+    Tab {
+        label: "ribbon.tabs.home",
+        groups: vec![
+            Group {
+                label: "ribbon.groups.clipboard",
+                large: vec![L("edit.paste")],
+                rows: vec![
+                    vec![B("edit.cut")],
+                    vec![B("edit.copy")],
+                    vec![B("format.painter")],
+                ],
+            },
+            Group {
+                label: "sheetEditor.groupFont",
+                large: vec![],
+                rows: vec![
+                    vec![
+                        FontBox,
+                        SizeBox,
+                        B("format.growStep"),
+                        B("format.shrinkStep"),
+                    ],
+                    vec![
+                        B("format.bold"),
+                        B("format.italic"),
+                        B("format.underline"),
+                        B("format.borders"),
+                        B("format.fillColor"),
+                        B("format.color"),
+                    ],
+                ],
+            },
+            Group {
+                label: "sheetEditor.groupAlignment",
+                large: vec![],
+                rows: vec![
+                    vec![
+                        B("format.alignTop"),
+                        B("format.alignMiddle"),
+                        B("format.alignBottom"),
+                        B("format.wrap"),
+                    ],
+                    vec![
+                        B("format.alignLeft"),
+                        B("format.alignCenter"),
+                        B("format.alignRight"),
+                        B("format.outdent"),
+                        B("format.indent"),
+                        B("format.mergeCenter"),
+                    ],
+                ],
+            },
+            Group {
+                label: "sheetEditor.groupNumber",
+                large: vec![],
+                rows: vec![
+                    vec![B("format.currency"), B("format.percent"), B("format.comma")],
+                    vec![B("format.decimalInc"), B("format.decimalDec")],
+                ],
+            },
+            Group {
+                label: "sheetEditor.groupCells",
+                large: vec![],
+                rows: vec![
+                    vec![S("cells.insertRow")],
+                    vec![S("cells.deleteRow")],
+                    vec![S("cells.autofitCol")],
+                ],
+            },
+        ],
+    }
+}
+
+/// Commands of the BlueSheet window.
+const COMMANDS: [&str; 34] = [
+    "edit.undo",
+    "edit.redo",
+    "edit.paste",
+    "edit.cut",
+    "edit.copy",
+    "file.save",
+    "format.painter",
+    "format.growStep",
+    "format.shrinkStep",
+    "format.bold",
+    "format.italic",
+    "format.underline",
+    "format.borders",
+    "format.fillColor",
+    "format.color",
+    "format.alignTop",
+    "format.alignMiddle",
+    "format.alignBottom",
+    "format.wrap",
+    "format.alignLeft",
+    "format.alignCenter",
+    "format.alignRight",
+    "format.outdent",
+    "format.indent",
+    "format.mergeCenter",
+    "format.currency",
+    "format.percent",
+    "format.comma",
+    "format.decimalInc",
+    "format.decimalDec",
+    "cells.insertRow",
+    "cells.deleteRow",
+    "cells.autofitCol",
+    "cells.insertCol",
+];
+
+fn sheet_enabled(id: &str, f: &FormatState) -> bool {
+    match id {
+        "edit.undo" => f.can_undo,
+        "edit.redo" => f.can_redo,
+        _ => COMMANDS.contains(&id),
+    }
+}
+
+/// Tooltip text key of a command.
+fn tip_key(id: &str) -> String {
+    let own = match id {
+        "format.borders" => "sheetEditor.borders",
+        "format.fillColor" => "sheetEditor.fillColor",
+        "format.color" => "sheetEditor.fontColor",
+        "format.alignTop" => "sheetEditor.alignTop",
+        "format.alignMiddle" => "sheetEditor.alignMiddle",
+        "format.alignBottom" => "sheetEditor.alignBottom",
+        "format.wrap" => "sheetEditor.wrap",
+        "format.mergeCenter" => "sheetEditor.mergeCenter",
+        "format.currency" => "sheetEditor.currency",
+        "format.percent" => "sheetEditor.percent",
+        "format.comma" => "sheetEditor.comma",
+        "format.decimalInc" => "sheetEditor.decimalInc",
+        "format.decimalDec" => "sheetEditor.decimalDec",
+        "format.outdent" => "sheetEditor.indentDec",
+        "format.indent" => "sheetEditor.indentInc",
+        _ => "",
+    };
+    if own.is_empty() {
+        format!("commands.{id}")
+    } else {
+        own.to_owned()
+    }
+}
+
+/// Number format with one decimal place more (`dir` 1) or less (−1), from `code` and the
+/// decimals `shown` by a General cell.
+pub fn step_decimals(code: &str, shown: usize, dir: i32) -> String {
+    let general = code.is_empty() || code.eq_ignore_ascii_case("general");
+    if general {
+        let n = (shown as i32 + dir).max(0) as usize;
+        return if n == 0 {
+            "0".into()
+        } else {
+            format!("0.{}", "0".repeat(n))
+        };
+    }
+    // Each section of the code gets the same step.
+    code.split(';')
+        .map(|sec| {
+            if let Some(dot) = sec.find('.') {
+                let zeros = sec[dot + 1..].chars().take_while(|c| *c == '0').count();
+                let end = dot + 1 + zeros;
+                if dir > 0 {
+                    format!("{}0{}", &sec[..end], &sec[end..])
+                } else if zeros <= 1 {
+                    format!("{}{}", &sec[..dot], &sec[end..])
+                } else {
+                    format!("{}{}", &sec[..end - 1], &sec[end..])
+                }
+            } else if dir > 0 {
+                match sec.rfind('0') {
+                    Some(i) => format!("{}0.0{}", &sec[..i], &sec[i + 1..]),
+                    None => sec.to_owned(),
+                }
+            } else {
+                sec.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// Window contents of BlueSheet.
+pub struct SheetWindow {
+    view: SheetView,
+    title: TitleBar,
+    name: String,
+    requests: Vec<Request>,
+    ribbon: Ribbon,
+    theme: Theme,
+    icons: Icons,
+    strings: Strings,
+    size: (f32, f32),
+    scale: f32,
+    menu: Option<Menu>,
+    rest: u32,
+    tooltip: Option<(String, f32, [f32; 4])>,
+    /// Sheet tab rectangles (index, x, width) and the + button.
+    tab_rects: Vec<(usize, f32, f32)>,
+    /// Measured tab labels: name, bold, width.
+    tab_label_widths: Vec<(String, bool, f32)>,
+    add_rect: [f32; 4],
+    /// Zoom controls: minus, slider track, plus, percentage.
+    zoom_rects: [[f32; 4]; 4],
+    zoom_drag: bool,
+    /// Scroll bar drags: pointer offset from the thumb start (vertical, horizontal).
+    vdrag: Option<f32>,
+    hdrag: Option<f32>,
+    /// Scroll bar geometry: (track rect, thumb start, thumb length) for both bars.
+    vbar: ([f32; 4], f32, f32),
+    hbar: ([f32; 4], f32, f32),
+    /// The pointer went down in the grid.
+    grid_press: bool,
+    /// Formula bar: name box and content box.
+    name_rect: [f32; 4],
+    fx_rect: [f32; 4],
+    /// Format painter armed with this source range.
+    painter: Option<serde_json::Value>,
+    /// Pointer cursor wanted by the grid (`SheetView::cursor_at`).
+    cursor: u8,
+    status: String,
+}
+
+impl SheetWindow {
+    /// Wrap workbook `name` shown by `view` with BlueSheet's interface in `locale`.
+    pub fn new(view: SheetView, locale: &str, name: &str) -> Self {
+        Self {
+            view,
+            title: {
+                let mut t = TitleBar::new();
+                t.set_app("BlueSheet", "app.sheet");
+                t
+            },
+            name: name.to_owned(),
+            requests: Vec::new(),
+            ribbon: Ribbon::with_tabs(vec![home_tab()]).with_enabled(sheet_enabled),
+            theme: Theme::light("sheet"),
+            icons: Icons::load(),
+            strings: Strings::load(locale),
+            size: (800.0, 600.0),
+            scale: 1.0,
+            menu: None,
+            rest: 0,
+            tooltip: None,
+            tab_rects: Vec::new(),
+            tab_label_widths: Vec::new(),
+            add_rect: [0.0; 4],
+            zoom_rects: [[0.0; 4]; 4],
+            zoom_drag: false,
+            vdrag: None,
+            hdrag: None,
+            vbar: ([0.0; 4], 0.0, 0.0),
+            hbar: ([0.0; 4], 0.0, 0.0),
+            grid_press: false,
+            name_rect: [0.0; 4],
+            fx_rect: [0.0; 4],
+            painter: None,
+            cursor: 0,
+            status: String::new(),
+        }
+    }
+
+    /// The grid view (saving).
+    pub fn view(&self) -> &SheetView {
+        &self.view
+    }
+
+    /// The grid view, for the host's file operations.
+    pub fn view_mut(&mut self) -> &mut SheetView {
+        &mut self.view
+    }
+
+    /// The workbook now has this file name (after Save As).
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_owned();
+    }
+
+    /// Requests for the host made since the last call.
+    pub fn take_requests(&mut self) -> Vec<Request> {
+        std::mem::take(&mut self.requests)
+    }
+
+    /// Pointer cursor: `0` cell cross, `1` column resize, `2` row resize, `3` arrow.
+    pub fn cursor(&self) -> u8 {
+        self.cursor
+    }
+
+    /// What a window position is for the window manager.
+    pub fn nc_hit(&self, x: f32, y: f32) -> NcHit {
+        if self.menu.is_some() {
+            return NcHit::Client;
+        }
+        self.title.hit(x, y)
+    }
+
+    fn px(&self, v: f32) -> f32 {
+        (v * self.scale).round()
+    }
+
+    fn t(&self, key: &str, fallback: &str) -> String {
+        let v = self.strings.get(key);
+        if v == key {
+            fallback.to_owned()
+        } else {
+            v.to_owned()
+        }
+    }
+
+    /// Formula bar band height (54 px at 125 %, boxes 30 px high, 12 px above and below).
+    fn fbar_h(&self) -> f32 {
+        self.px(43.2)
+    }
+
+    /// Sheet tab strip (31 px at 125 %) and status bar (32 px) heights.
+    fn tabs_h(&self) -> f32 {
+        self.px(24.8)
+    }
+
+    fn status_h(&self) -> f32 {
+        self.px(25.6)
+    }
+
+    /// Vertical scroll bar column (25 px at 125 %: 3 px margins around 19 px boxes).
+    fn sb_w(&self) -> f32 {
+        self.px(20.0)
+    }
+
+    /// Arrow box size and its margin in the scroll bar column.
+    fn sb_box(&self) -> (f32, f32) {
+        (self.px(15.2), self.px(2.4))
+    }
+
+    /// Arrow buttons: up, down, left, right.
+    fn arrow_rects(&self) -> [[f32; 4]; 4] {
+        let (w, h) = self.size;
+        let (b, m) = self.sb_box();
+        let gt = self.grid_top();
+        let tabs_y = h - self.status_h() - self.tabs_h();
+        let x = w - self.sb_w() + m;
+        let hy = (tabs_y + (self.tabs_h() - b) / 2.0).round();
+        let hx = self.hbar_x();
+        [
+            [x, gt + 2.0, b, b],
+            [x, tabs_y - 2.0 - b, b, b],
+            [hx, hy, b, b],
+            [w - self.sb_w() - b, hy, b, b],
+        ]
+    }
+
+    /// Left edge of the horizontal scroll bar in the tab strip.
+    fn hbar_x(&self) -> f32 {
+        (self.size.0 * 0.6)
+            .round()
+            .max(self.add_rect[0] + self.add_rect[2] + self.px(24.0))
+    }
+
+    fn grid_top(&self) -> f32 {
+        self.ribbon.bottom() + self.fbar_h()
+    }
+
+    fn relayout(&mut self, text: &dyn TextMeasure) {
+        self.title
+            .layout(text, &self.strings, &self.name, self.size.0, self.scale);
+        let top = self.title.height();
+        self.ribbon
+            .layout(text, &self.strings, self.size.0, self.scale, top);
+        let (w, h) = self.size;
+        let gt = self.grid_top();
+        let tabs_y = h - self.status_h() - self.tabs_h();
+        self.view
+            .set_frame(0.0, gt, (w - self.sb_w()).max(1.0), (tabs_y - gt).max(1.0));
+        // Formula bar: name box, then the content box after the fx area.
+        let fb = self.ribbon.bottom();
+        let pad = self.px(9.6);
+        let bh = self.px(24.0);
+        self.name_rect = [self.px(4.8), fb + pad, self.px(101.6), bh];
+        let fx_x = self.px(248.0);
+        self.fx_rect = [fx_x, fb + pad, (w - fx_x - self.px(4.8)).max(1.0), bh];
+        // Sheet tabs.
+        self.layout_tabs(text);
+        // Status bar zoom controls, right to left.
+        let y = h - self.status_h();
+        let sh = self.status_h();
+        // Measured from the right edge at 125 %: percentage 65 px, plus centred 91 px, slider
+        // track 257–102 px, minus centred 268 px.
+        let pct = [w - self.px(52.0), y, self.px(44.0), sh];
+        let plus = [w - self.px(79.2), y, self.px(12.8), sh];
+        let track = [w - self.px(205.6), y, self.px(124.0), sh];
+        let minus = [w - self.px(220.8), y, self.px(12.8), sh];
+        self.zoom_rects = [minus, track, plus, pct];
+        self.update_bars();
+        self.view.measure_labels(text);
+    }
+
+    fn layout_tabs(&mut self, text: &dyn TextMeasure) {
+        let y = self.size.1 - self.status_h() - self.tabs_h();
+        let _ = y;
+        let style = self.tab_style(false);
+        let bold = self.tab_style(true);
+        // Measured: first tab 112 px from the left, tab = label + 22 px at 125 %.
+        let mut x = self.px(89.6);
+        self.tab_rects.clear();
+        self.tab_label_widths.clear();
+        for (i, name) in self.view.sheet_names().into_iter().enumerate() {
+            let Some(name) = name else { continue };
+            let (wr, wb) = (text.measure(&name, style).0, text.measure(&name, bold).0);
+            self.tab_label_widths.push((name.clone(), false, wr));
+            self.tab_label_widths.push((name.clone(), true, wb));
+            let w = wr.max(wb);
+            let tw = (w + self.px(17.6)).round();
+            self.tab_rects.push((i, x, tw));
+            x += tw;
+        }
+        let s = self.px(16.0);
+        let ty = self.size.1 - self.status_h() - self.tabs_h();
+        self.add_rect = [
+            x + self.px(11.2),
+            ty + ((self.tabs_h() - s) / 2.0).round(),
+            s,
+            s,
+        ];
+    }
+
+    fn tab_label_w(&self, name: &str, bold: bool) -> f32 {
+        self.tab_label_widths
+            .iter()
+            .find(|(n, b, _)| n == name && *b == bold)
+            .map_or(name.chars().count() as f32 * self.px(7.0), |e| e.2)
+    }
+
+    fn tab_style(&self, bold: bool) -> TextStyle {
+        TextStyle {
+            size: self.px(13.0),
+            bold,
+        }
+    }
+
+    /// Scroll bar geometry from the view's scroll state.
+    fn update_bars(&mut self) {
+        // Thumb tracks between the arrow boxes (the reference's layout).
+        let [up, down, left, right] = self.arrow_rects();
+        let vtrack = [
+            up[0],
+            up[1] + up[3] + 1.0,
+            up[2],
+            (down[1] - up[1] - up[3] - 2.0).max(0.0),
+        ];
+        let (pos, content, view) = self.view.scroll_info(true);
+        self.vbar = Self::thumb(vtrack, pos, content, view, true, self.px(16.0));
+        let htrack = [
+            left[0] + left[2] + 1.0,
+            left[1],
+            (right[0] - left[0] - left[2] - 2.0).max(0.0),
+            left[3],
+        ];
+        let (pos, content, view) = self.view.scroll_info(false);
+        self.hbar = Self::thumb(htrack, pos, content, view, false, self.px(16.0));
+    }
+
+    fn thumb(
+        track: [f32; 4],
+        pos: f64,
+        content: f64,
+        view: f64,
+        vertical: bool,
+        min: f32,
+    ) -> ([f32; 4], f32, f32) {
+        let len = if vertical { track[3] } else { track[2] };
+        let frac = if content > 0.0 {
+            (view / content).min(1.0)
+        } else {
+            1.0
+        };
+        let thumb = (len * frac as f32).max(min).min(len);
+        let room = (content - view).max(1.0);
+        let start = ((len - thumb) * (pos / room).clamp(0.0, 1.0) as f32).round();
+        (track, start, thumb.round())
+    }
+
+    fn bar_drag(&mut self, vertical: bool, at: f32) -> bool {
+        let (track, _, thumb) = if vertical { self.vbar } else { self.hbar };
+        let off = if vertical { self.vdrag } else { self.hdrag };
+        let Some(off) = off else { return false };
+        let (start, len) = if vertical {
+            (track[1], track[3])
+        } else {
+            (track[0], track[2])
+        };
+        let t = ((at - off - start) / (len - thumb).max(1.0)).clamp(0.0, 1.0);
+        let (_, content, view) = self.view.scroll_info(vertical);
+        let moved = self
+            .view
+            .scroll_to(vertical, f64::from(t) * (content - view).max(0.0));
+        self.update_bars();
+        moved
+    }
+
+    fn bar_press(&mut self, vertical: bool, at: f32) -> bool {
+        let (track, start, thumb) = if vertical { self.vbar } else { self.hbar };
+        let origin = if vertical { track[1] } else { track[0] };
+        let s = origin + start;
+        if at >= s && at < s + thumb {
+            if vertical {
+                self.vdrag = Some(at - s);
+            } else {
+                self.hdrag = Some(at - s);
+            }
+            return false;
+        }
+        // Page towards the pointer.
+        let (pos, _, view) = self.view.scroll_info(vertical);
+        let to = if at < s { pos - view } else { pos + view };
+        let moved = self.view.scroll_to(vertical, to);
+        self.update_bars();
+        moved
+    }
+
+    /// Ribbon formatting state of the active cell.
+    fn format_state(&self) -> FormatState {
+        let f = self.view.format();
+        let e = self.view.engine();
+        FormatState {
+            bold: f.bold,
+            italic: f.italic,
+            underline: f.underline,
+            strike: f.strike,
+            font: Some(f.font.clone()),
+            size_half_points: Some((f.size * 2.0).round() as u32),
+            align: match f.h_align.as_str() {
+                "center" | "centerContinuous" => Alignment::Center,
+                "right" => Alignment::Right,
+                "justify" => Alignment::Justify,
+                _ => Alignment::Left,
+            },
+            can_undo: e.can_undo(),
+            can_redo: e.can_redo(),
+            ..FormatState::default()
+        }
+    }
+
+    fn on_ids(&self) -> Vec<&'static str> {
+        let f = self.view.format();
+        let mut on = Vec::new();
+        match f.v_align.as_str() {
+            "top" => on.push("format.alignTop"),
+            "center" => on.push("format.alignMiddle"),
+            _ => on.push("format.alignBottom"),
+        }
+        if f.wrap {
+            on.push("format.wrap");
+        }
+        if self.painter.is_some() {
+            on.push("format.painter");
+        }
+        on
+    }
+
+    fn patch(&mut self, patch: serde_json::Value) -> bool {
+        let mut cmd = json!({ "cmd": "format", "range": self.view.rng() });
+        cmd["patch"] = patch;
+        self.view.run(cmd)
+    }
+
+    /// Run window command `id`; `true` when the window changed.
+    fn action(&mut self, id: &str) -> bool {
+        let f = self.view.format().clone();
+        match id {
+            "edit.undo" => self.view.undo(),
+            "edit.redo" => self.view.redo(),
+            "file.save" => {
+                self.view.commit();
+                self.requests.push(Request::Save);
+                true
+            }
+            "file.saveAs" => {
+                self.requests.push(Request::SaveAs);
+                true
+            }
+            "file.open" => {
+                self.requests.push(Request::Open);
+                false
+            }
+            "file.new" => {
+                self.requests.push(Request::New);
+                false
+            }
+            "file.close" => {
+                self.requests.push(Request::Close);
+                false
+            }
+            "edit.copy" | "edit.cut" => {
+                let text = self.view.copy(id == "edit.cut");
+                self.requests.push(Request::SetClipboard {
+                    text,
+                    html: String::new(),
+                    internal: String::new(),
+                });
+                true
+            }
+            "edit.paste" => {
+                self.requests.push(Request::Paste);
+                false
+            }
+            "format.painter" => {
+                self.painter = if self.painter.is_some() {
+                    None
+                } else {
+                    Some(self.view.rng())
+                };
+                true
+            }
+            "format.bold" => self.patch(json!({ "bold": !f.bold })),
+            "format.italic" => self.patch(json!({ "italic": !f.italic })),
+            "format.underline" => {
+                self.patch(json!({ "underline": if f.underline { "none" } else { "single" } }))
+            }
+            "format.strike" => self.patch(json!({ "strike": !f.strike })),
+            "format.growStep" | "format.shrinkStep" => {
+                let grow = id == "format.growStep";
+                let next = if grow {
+                    SIZES
+                        .iter()
+                        .copied()
+                        .find(|s| *s > f.size)
+                        .unwrap_or(f.size + 10.0)
+                } else {
+                    SIZES
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|s| *s < f.size)
+                        .unwrap_or(1.0)
+                };
+                self.patch(json!({ "fontSize": next }))
+            }
+            "format.borders" => {
+                let range = self.view.rng();
+                self.view.run(json!({
+                    "cmd": "borders", "range": range,
+                    "spec": { "preset": "bottom", "style": "thin" },
+                }))
+            }
+            "format.fillColor" => self.patch(json!({ "fillColor": "FFFF00" })),
+            "format.color" => self.patch(json!({ "fontColor": "FF0000" })),
+            "format.alignTop" | "format.alignMiddle" | "format.alignBottom" => {
+                let v = match id {
+                    "format.alignTop" => "top",
+                    "format.alignMiddle" => "center",
+                    _ => "bottom",
+                };
+                self.patch(json!({ "vAlign": v }))
+            }
+            "format.alignLeft" | "format.alignCenter" | "format.alignRight" => {
+                let h = match id {
+                    "format.alignLeft" => "left",
+                    "format.alignCenter" => "center",
+                    _ => "right",
+                };
+                // A second click returns to General alignment.
+                let h = if f.h_align == h { "" } else { h };
+                self.patch(json!({ "hAlign": h }))
+            }
+            "format.wrap" => self.patch(json!({ "wrap": !f.wrap })),
+            "format.indent" | "format.outdent" => {
+                let cur = self.indent();
+                let n = if id == "format.indent" {
+                    cur + 1
+                } else {
+                    cur.saturating_sub(1)
+                };
+                self.patch(json!({ "indent": n }))
+            }
+            "format.mergeCenter" => {
+                let range = self.view.rng();
+                let (r0, c0, r1, c1) = self.view.range_bounds();
+                let merged = self.view.engine().workbook().is_some_and(|w| {
+                    w.sheets.get(self.view.sheet()).is_some_and(|ws| {
+                        ws.merges.iter().any(|m| {
+                            m.first.row <= r1
+                                && m.last.row >= r0
+                                && m.first.col <= c1
+                                && m.last.col >= c0
+                        })
+                    })
+                });
+                if merged {
+                    self.view.run(json!({ "cmd": "unmerge", "range": range }))
+                } else {
+                    self.view
+                        .run(json!({ "cmd": "merge", "range": range, "center": true }))
+                }
+            }
+            "format.currency" => self.patch(json!({ "numFmt": ACCOUNTING })),
+            "format.percent" => self.patch(json!({ "numFmt": "0%" })),
+            "format.comma" => self.patch(json!({ "numFmt": COMMA_STYLE })),
+            "format.decimalInc" | "format.decimalDec" => {
+                let display = self.view.formula_display();
+                let shown = display.rsplit_once(['.', ',']).map_or(0, |(_, d)| {
+                    d.chars().take_while(char::is_ascii_digit).count()
+                });
+                let dir = if id == "format.decimalInc" { 1 } else { -1 };
+                let code = step_decimals(&f.num_fmt, shown, dir);
+                self.patch(json!({ "numFmt": code }))
+            }
+            "cells.insertRow" | "cells.deleteRow" | "cells.insertCol" => {
+                let (r0, c0, r1, c1) = self.view.range_bounds();
+                let rows = id != "cells.insertCol";
+                let insert = id != "cells.deleteRow";
+                let range = if rows {
+                    json!({ "r0": r0, "c0": 0, "r1": r1, "c1": bo_model::sheet::MAX_COLS - 1 })
+                } else {
+                    json!({ "r0": 0, "c0": c0, "r1": bo_model::sheet::MAX_ROWS - 1, "c1": c1 })
+                };
+                self.view.run(json!({
+                    "cmd": "shiftCells", "range": range, "down": rows, "insert": insert,
+                }))
+            }
+            "cells.autofitCol" => {
+                let (_, c0, _, c1) = self.view.range_bounds();
+                self.view
+                    .run(json!({ "cmd": "autofit", "rows": false, "first": c0, "last": c1 }))
+            }
+            _ => false,
+        }
+    }
+
+    fn indent(&self) -> u32 {
+        self.view
+            .engine()
+            .workbook()
+            .and_then(|w| {
+                let ws = w.sheets.get(self.view.sheet())?;
+                let (r, c) = {
+                    let (r0, c0, _, _) = self.view.range_bounds();
+                    (r0, c0)
+                };
+                let cell = ws.cell(r, c)?;
+                let xf = w.styles.xf(cell.style)?;
+                xf.alignment.as_ref().and_then(|a| a.indent)
+            })
+            .unwrap_or(0)
+    }
+
+    /// Paste the clipboard the host read (`text` form).
+    pub fn paste(&mut self, text: Option<String>) -> bool {
+        self.view.paste(text)
+    }
+
+    fn zoom_to(&mut self, z: f32, text: &dyn TextMeasure) -> bool {
+        let changed = self.view.set_zoom(z);
+        if changed {
+            self.relayout(text);
+        }
+        changed
+    }
+
+    fn slider_zoom(&self, x: f32) -> f32 {
+        let track = self.zoom_rects[1];
+        let t = ((x - track[0]) / track[2]).clamp(0.0, 1.0);
+        // Left half 10–100 %, right half 100–400 %, as on desktop spreadsheets.
+        let z = if t <= 0.5 {
+            0.1 + t / 0.5 * 0.9
+        } else {
+            1.0 + (t - 0.5) / 0.5 * 3.0
+        };
+        (z * 100.0).round() / 100.0
+    }
+
+    fn slider_pos(&self) -> f32 {
+        let track = self.zoom_rects[1];
+        let z = self.view.zoom();
+        let t = if z <= 1.0 {
+            (z - 0.1) / 0.9 * 0.5
+        } else {
+            0.5 + (z - 1.0) / 3.0 * 0.5
+        };
+        track[0] + track[2] * t.clamp(0.0, 1.0)
+    }
+
+    fn open_menu(&mut self, hit: RibbonHit) {
+        let Some(anchor) = self.ribbon.rect_of(hit) else {
+            return;
+        };
+        let f = self.view.format();
+        let items = if hit == RibbonHit::FontBox {
+            FONTS
+                .iter()
+                .map(|n| MenuItem {
+                    label: (*n).to_owned(),
+                    choice: Choice::Font((*n).to_owned()),
+                    checked: f.font == *n,
+                    dim: false,
+                })
+                .collect()
+        } else {
+            SIZES
+                .iter()
+                .map(|s| MenuItem {
+                    label: format!("{s}"),
+                    choice: Choice::Size((s * 2.0) as u32),
+                    checked: (f.size - s).abs() < 0.01,
+                    dim: false,
+                })
+                .collect()
+        };
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    }
+
+    fn open_file_menu(&mut self) {
+        let Some(anchor) = self.ribbon.rect_of(RibbonHit::File) else {
+            return;
+        };
+        let items = [
+            ("file.new", "backstage.nav.new", "New"),
+            ("file.open", "backstage.nav.open", "Open"),
+            ("file.save", "backstage.nav.save", "Save"),
+            ("file.saveAs", "backstage.nav.saveAs", "Save As"),
+            ("file.close", "backstage.nav.close", "Close"),
+        ]
+        .iter()
+        .map(|(id, key, fb)| MenuItem {
+            label: self.t(key, fb),
+            choice: Choice::Command((*id).to_owned()),
+            checked: false,
+            dim: false,
+        })
+        .collect();
+        self.menu = Some(Menu::open(items, anchor, self.size, self.scale));
+    }
+
+    fn choose(&mut self, c: Choice) -> bool {
+        match c {
+            Choice::Font(name) => self.patch(json!({ "fontName": name })),
+            Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
+            Choice::Command(id) => self.action(&id),
+            Choice::Style(_) => false,
+        }
+    }
+
+    fn menu_input(&mut self, input: &Input) -> Option<bool> {
+        let menu = self.menu.as_mut()?;
+        Some(match *input {
+            Input::Move { x, y } | Input::Drag { x, y } => menu.hover(x, y),
+            Input::Press { x, y, .. } => {
+                if menu.contains(x, y) {
+                    menu.press(x, y);
+                } else {
+                    self.menu = None;
+                    self.ribbon.clear_pointer();
+                }
+                true
+            }
+            Input::Release { x, y } => {
+                if let Some(choice) = menu.release(x, y) {
+                    self.menu = None;
+                    self.choose(choice);
+                }
+                true
+            }
+            Input::Wheel(dy) => menu.wheel(dy),
+            Input::Key(Key::Escape, _) => {
+                self.menu = None;
+                true
+            }
+            Input::Key(Key::Up, _) => {
+                menu.step(-1);
+                true
+            }
+            Input::Key(Key::Down, _) => {
+                menu.step(1);
+                true
+            }
+            Input::Key(Key::Enter, _) => {
+                let choice = menu.current();
+                self.menu = None;
+                if let Some(c) = choice {
+                    self.choose(c);
+                }
+                true
+            }
+            Input::Text(_) | Input::Key(..) => true,
+            _ => return None,
+        })
+    }
+
+    fn tick(&mut self, text: &dyn TextMeasure) -> bool {
+        let Some(RibbonHit::Command(id)) = self.ribbon.hovered() else {
+            return false;
+        };
+        self.rest += 1;
+        if self.rest != 5 || self.menu.is_some() {
+            return false;
+        }
+        let Some(anchor) = self.ribbon.rect_of(RibbonHit::Command(id)) else {
+            return false;
+        };
+        let name = self.strings.get(&tip_key(id)).to_owned();
+        let label = match crate::commands::shortcut(id) {
+            Some(keys) => format!("{name} ({keys})"),
+            None => name,
+        };
+        let style = TextStyle {
+            size: (12.0 * self.scale).round(),
+            bold: false,
+        };
+        let (w, _) = text.measure(&label, style);
+        self.tooltip = Some((label, w, anchor));
+        true
+    }
+
+    /// Handle an input event; `true` when a new frame is needed.
+    pub fn handle(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        let sheets = self.view.sheet_names().len();
+        let redraw = self.route(input, text);
+        if self.view.sheet_names().len() != sheets {
+            self.layout_tabs(text);
+        }
+        self.update_bars();
+        self.view.measure_labels(text);
+        if let Some(e) = self.view.take_error() {
+            self.status = e;
+        }
+        redraw
+    }
+
+    fn in_rect(r: [f32; 4], x: f32, y: f32) -> bool {
+        x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn route(&mut self, input: Input, text: &dyn TextMeasure) -> bool {
+        if self.menu.is_some() {
+            if let Some(r) = self.menu_input(&input) {
+                return r;
+            }
+        }
+        let tip_before = self.tooltip.is_some();
+        if matches!(
+            input,
+            Input::Move { .. }
+                | Input::Press { .. }
+                | Input::Wheel(_)
+                | Input::Key(..)
+                | Input::Text(_)
+        ) {
+            self.rest = 0;
+            self.tooltip = None;
+        }
+        // Window shortcuts.
+        if let Input::Key(k, m) = input {
+            let id = match (k, m) {
+                (Key::Letter('s'), Mods { ctrl: true, .. }) => Some("file.save"),
+                (Key::Letter('o'), Mods { ctrl: true, .. }) => Some("file.open"),
+                (Key::Letter('n'), Mods { ctrl: true, .. }) => Some("file.new"),
+                (Key::Letter('c'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("edit.copy")
+                }
+                (Key::Letter('x'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("edit.cut")
+                }
+                (Key::Letter('v'), Mods { ctrl: true, .. }) if !self.view.editing() => {
+                    Some("edit.paste")
+                }
+                (Key::Letter('b'), Mods { ctrl: true, .. }) => Some("format.bold"),
+                (Key::Letter('i'), Mods { ctrl: true, .. }) => Some("format.italic"),
+                (Key::Letter('u'), Mods { ctrl: true, .. }) => Some("format.underline"),
+                (Key::Letter('5'), Mods { ctrl: true, .. }) => Some("format.strike"),
+                _ => None,
+            };
+            if let Some(id) = id {
+                if self.view.editing() && id.starts_with("format.") {
+                    self.view.commit();
+                }
+                self.action(id);
+                return true;
+            }
+            if m.ctrl && matches!(k, Key::PageUp | Key::PageDown) {
+                let names = self.view.sheet_names();
+                let cur = self.view.sheet();
+                let next = if k == Key::PageDown {
+                    (cur + 1..names.len()).find(|i| names[*i].is_some())
+                } else {
+                    (0..cur).rev().find(|i| names[*i].is_some())
+                };
+                return next.is_some_and(|i| self.view.set_sheet(i));
+            }
+            if k == Key::Escape && self.painter.take().is_some() {
+                return true;
+            }
+        }
+        if let Input::Zoom(steps) = input {
+            let z = ((self.view.zoom() + 0.1 * steps) * 10.0).round() / 10.0;
+            return self.zoom_to(z, text);
+        }
+        let status_top = self.size.1 - self.status_h();
+        let tabs_top = status_top - self.tabs_h();
+        // Scroll bar arrows: one row / column.
+        if let Input::Press { x, y, .. } = input {
+            if let Some(i) = self
+                .arrow_rects()
+                .iter()
+                .position(|r| Self::in_rect(*r, x, y))
+            {
+                let moved = match i {
+                    0 => self.view.scroll_rows(-1),
+                    1 => self.view.scroll_rows(1),
+                    2 => self.view.scroll_cols(-1),
+                    _ => self.view.scroll_cols(1),
+                };
+                self.update_bars();
+                return moved;
+            }
+        }
+        // Scroll bars.
+        match input {
+            Input::Press { x, y, .. } if Self::in_rect(self.vbar.0, x, y) => {
+                return self.bar_press(true, y);
+            }
+            Input::Press { x, y, .. } if Self::in_rect(self.hbar.0, x, y) => {
+                return self.bar_press(false, x);
+            }
+            Input::Drag { y, .. } if self.vdrag.is_some() => return self.bar_drag(true, y),
+            Input::Drag { x, .. } if self.hdrag.is_some() => return self.bar_drag(false, x),
+            Input::Release { .. } if self.vdrag.is_some() || self.hdrag.is_some() => {
+                self.vdrag = None;
+                self.hdrag = None;
+                return true;
+            }
+            _ => {}
+        }
+        // Status bar zoom.
+        match input {
+            Input::Press { x, y, .. } if y >= status_top => {
+                let hit = self.zoom_rects.iter().position(|r| Self::in_rect(*r, x, y));
+                return match hit {
+                    Some(0) => self.zoom_to(((self.view.zoom() - 0.1) * 10.0).round() / 10.0, text),
+                    Some(1) => {
+                        self.zoom_drag = true;
+                        let z = self.slider_zoom(x);
+                        self.zoom_to(z, text)
+                    }
+                    Some(2) => self.zoom_to(((self.view.zoom() + 0.1) * 10.0).round() / 10.0, text),
+                    Some(_) => self.zoom_to(1.0, text),
+                    None => false,
+                };
+            }
+            Input::Drag { x, .. } if self.zoom_drag => {
+                let z = self.slider_zoom(x);
+                return self.zoom_to(z, text);
+            }
+            Input::Release { .. } if self.zoom_drag => {
+                self.zoom_drag = false;
+                return false;
+            }
+            _ => {}
+        }
+        // Sheet tabs.
+        if let Input::Press { x, y, .. } = input {
+            if y >= tabs_top && y < status_top {
+                if Self::in_rect(self.add_rect, x, y) {
+                    let added = self.view.add_sheet();
+                    self.layout_tabs(text);
+                    return added;
+                }
+                if let Some((i, ..)) = self
+                    .tab_rects
+                    .iter()
+                    .find(|(_, tx, tw)| x >= *tx && x < tx + tw)
+                {
+                    let i = *i;
+                    return self.view.set_sheet(i);
+                }
+                return false;
+            }
+        }
+        // Formula bar: a click in the content box edits the active cell there.
+        if let Input::Press { x, y, .. } = input {
+            if Self::in_rect(self.fx_rect, x, y) {
+                if !self.view.editing() {
+                    self.view.edit_cell(text);
+                }
+                return true;
+            }
+        }
+        let in_title = |w: &Self, y: f32| y < w.title.height();
+        let in_ribbon = |w: &Self, y: f32| y >= w.ribbon.top() && y < w.ribbon.bottom();
+        let redraw = match input {
+            Input::Resize { width, height } => {
+                self.size = (width.max(1.0), height.max(1.0));
+                self.menu = None;
+                self.relayout(text);
+                true
+            }
+            Input::Scale(scale) => {
+                self.scale = scale;
+                self.menu = None;
+                self.view.set_scale(scale);
+                self.relayout(text);
+                true
+            }
+            Input::Tick => self.tick(text),
+            Input::Zoom(_) | Input::Context { .. } | Input::Blink => false,
+            Input::Maximized(m) => self.title.set_maximized(m),
+            Input::Leave => {
+                let a = self.title.hover(-1.0, -1.0);
+                self.ribbon.clear_pointer() || a
+            }
+            Input::Move { x, y } => {
+                let a = self.title.hover(x, y);
+                self.cursor = self.view.cursor_at(x, y);
+                self.ribbon.hover(x, y) || a
+            }
+            Input::Press { x, y, .. } if in_title(self, y) => self.title.press(x, y),
+            Input::Press { x, y, .. } if in_ribbon(self, y) => {
+                if self.view.editing() {
+                    self.view.commit();
+                }
+                self.ribbon.press(x, y)
+            }
+            Input::Press { .. } => {
+                self.grid_press = true;
+                self.ribbon.clear_pointer();
+                self.view.handle(input, text)
+            }
+            Input::Drag { .. } if !self.grid_press => false,
+            Input::Release { x, y } => {
+                let mut changed = false;
+                if self.grid_press {
+                    changed |= self.view.handle(Input::Release { x, y }, text);
+                    if let Some(from) = self.painter.take() {
+                        let to = self.view.rng();
+                        changed |= self
+                            .view
+                            .run(json!({ "cmd": "paintFormat", "from": from, "to": to }));
+                    }
+                }
+                self.grid_press = false;
+                let quick = match self.title.release(x, y) {
+                    Some(id) => self.action(id),
+                    None => false,
+                };
+                let (fired, pressed) = self.ribbon.release(x, y);
+                let ran = match fired {
+                    Some(RibbonHit::File) => {
+                        self.open_file_menu();
+                        true
+                    }
+                    Some(RibbonHit::Command(id)) => self.action(id),
+                    Some(hit @ (RibbonHit::FontBox | RibbonHit::SizeBox)) => {
+                        self.open_menu(hit);
+                        true
+                    }
+                    _ => false,
+                };
+                if self.ribbon.needs_layout() {
+                    self.relayout(text);
+                }
+                changed || quick || ran || pressed || fired.is_some()
+            }
+            Input::Wheel(_)
+            | Input::Text(_)
+            | Input::Key(..)
+            | Input::Preedit(_)
+            | Input::Drag { .. } => self.view.handle(input, text),
+        };
+        redraw || tip_before != self.tooltip.is_some()
+    }
+
+    /// Whether an animation needs frames (none yet).
+    pub fn animating(&self) -> bool {
+        false
+    }
+
+    /// Redraw the grid image if needed.
+    pub fn prepare(&mut self, store: &mut dyn GridStore) -> Result<(), String> {
+        self.view.prepare(store)
+    }
+
+    /// Caret rectangle (IME placement).
+    pub fn caret_rect(&self) -> Option<[f32; 4]> {
+        self.view.caret_rect()
+    }
+
+    /// Paint the whole window.
+    pub fn paint(&self, p: &mut dyn Painter) {
+        p.clear(self.theme.bg);
+        self.view.paint(p);
+        let fmt = self.format_state();
+        self.title.paint(
+            p,
+            &self.theme,
+            &self.icons,
+            &self.strings,
+            &self.name,
+            self.view.modified(),
+            &fmt,
+        );
+        self.ribbon.paint(
+            p,
+            &self.theme,
+            &self.icons,
+            &self.strings,
+            &fmt,
+            &[],
+            &self.on_ids(),
+        );
+        self.paint_formula_bar(p);
+        self.paint_tabs(p);
+        self.paint_scrollbars(p);
+        self.paint_status(p);
+        if let Some(menu) = &self.menu {
+            menu.paint(p, &self.theme, &self.icons);
+        } else if let Some((label, tw, anchor)) = &self.tooltip {
+            paint_tooltip(p, &self.theme, label, *tw, *anchor, self.size.0, self.scale);
+        }
+    }
+
+    fn ui_style(&self) -> TextStyle {
+        TextStyle {
+            size: self.px(12.0),
+            bold: false,
+        }
+    }
+
+    fn paint_formula_bar(&self, p: &mut dyn Painter) {
+        let top = self.ribbon.bottom();
+        let (w, h) = (self.size.0, self.fbar_h());
+        // Measured: #E6E6E6 band, #FDFDFD boxes framed in #C6C6C6.
+        p.fill_rect(0.0, top, w, h, TABS_BG);
+        let edge = STATUS_EDGE;
+        let boxed = |p: &mut dyn Painter, r: [f32; 4]| {
+            p.fill_rect(r[0], r[1], r[2], r[3], edge);
+            p.fill_rect(
+                r[0] + 1.0,
+                r[1] + 1.0,
+                r[2] - 2.0,
+                r[3] - 2.0,
+                Rgba(0xfd, 0xfd, 0xfd, 255),
+            );
+        };
+        boxed(p, self.name_rect);
+        boxed(p, self.fx_rect);
+        let style = self.ui_style();
+        let line = style.size * 1.33;
+        let n = self.name_rect;
+        p.text(
+            &self.view.name_box(),
+            n[0] + self.px(5.0),
+            (n[1] + (n[3] - line) / 2.0).round(),
+            style,
+            self.theme.text,
+        );
+        // Cancel / enter / function marks between the boxes.
+        let gx = self.px(152.0);
+        let cy = (n[1] + n[3] / 2.0).round();
+        let k = self.px(4.0);
+        let ink = if self.view.editing() {
+            self.theme.text
+        } else {
+            Rgba(0xa6, 0xa6, 0xa6, 255)
+        };
+        let lw = self.scale.max(1.0).round();
+        p.path(
+            &[
+                PathSeg::M(gx - k, cy - k),
+                PathSeg::L(gx + k, cy + k),
+                PathSeg::M(gx + k, cy - k),
+                PathSeg::L(gx - k, cy + k),
+            ],
+            None,
+            Some((ink, lw)),
+        );
+        let gx2 = gx + self.px(36.0);
+        p.path(
+            &[
+                PathSeg::M(gx2 - k, cy),
+                PathSeg::L(gx2 - k / 3.0, cy + k * 0.8),
+                PathSeg::L(gx2 + k, cy - k),
+            ],
+            None,
+            Some((ink, lw)),
+        );
+        let fx_font = Font {
+            family: "Cambria Math",
+            size: self.px(14.0),
+            weight: 400,
+            italic: true,
+            underline: false,
+        };
+        p.text_font(
+            "fx",
+            gx2 + self.px(28.0),
+            (cy - fx_font.size * 0.7).round(),
+            &fx_font,
+            self.theme.text,
+        );
+        let f = self.fx_rect;
+        let tx = f[0] + self.px(5.0);
+        let ty = (f[1] + (f[3] - line) / 2.0).round();
+        p.push_clip(f[0] + 1.0, f[1] + 1.0, f[2] - 2.0, f[3] - 2.0);
+        let content = self.view.formula_text();
+        let shown = content.lines().next().unwrap_or("");
+        p.text(shown, tx, ty, style, self.theme.text);
+        p.pop_clip();
+    }
+
+    /// Scroll bars as measured: #E6E6E6 column, white arrow boxes framed in #949494 with
+    /// #262626 triangles, #F3F3F3 track, white thumb framed in #949494.
+    fn paint_scrollbars(&self, p: &mut dyn Painter) {
+        let edge = Rgba(0x94, 0x94, 0x94, 255);
+        let arrow = STATUS_TEXT;
+        let boxed = |p: &mut dyn Painter, r: [f32; 4]| {
+            p.fill_rect(r[0], r[1], r[2], r[3], edge);
+            p.fill_rect(r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0, WHITE);
+        };
+        let (w, h) = self.size;
+        let gt = self.grid_top();
+        let tabs_y = h - self.status_h() - self.tabs_h();
+        p.fill_rect(w - self.sb_w(), gt, self.sb_w(), tabs_y - gt, TABS_BG);
+        let k = self.px(3.2);
+        for (i, r) in self.arrow_rects().into_iter().enumerate() {
+            boxed(p, r);
+            let (cx, cy) = ((r[0] + r[2] / 2.0).round(), (r[1] + r[3] / 2.0).round());
+            let segs = match i {
+                0 => [
+                    (cx - k, cy + k / 2.0),
+                    (cx + k, cy + k / 2.0),
+                    (cx, cy - k / 2.0 - 1.0),
+                ],
+                1 => [
+                    (cx - k, cy - k / 2.0),
+                    (cx + k, cy - k / 2.0),
+                    (cx, cy + k / 2.0 + 1.0),
+                ],
+                2 => [
+                    (cx + k / 2.0, cy - k),
+                    (cx + k / 2.0, cy + k),
+                    (cx - k / 2.0 - 1.0, cy),
+                ],
+                _ => [
+                    (cx - k / 2.0, cy - k),
+                    (cx - k / 2.0, cy + k),
+                    (cx + k / 2.0 + 1.0, cy),
+                ],
+            };
+            p.path(
+                &[
+                    PathSeg::M(segs[0].0, segs[0].1),
+                    PathSeg::L(segs[1].0, segs[1].1),
+                    PathSeg::L(segs[2].0, segs[2].1),
+                    PathSeg::Z,
+                ],
+                Some(arrow),
+                None,
+            );
+        }
+        let (vt, vs, vl) = self.vbar;
+        if vt[3] > 0.0 {
+            p.fill_rect(vt[0], vt[1], vt[2], vt[3], STATUS_BG);
+            if vl > 2.0 {
+                boxed(p, [vt[0], vt[1] + vs, vt[2], vl]);
+            }
+        }
+        let (ht, hs, hl) = self.hbar;
+        if ht[2] > 0.0 {
+            p.fill_rect(ht[0], ht[1], ht[2], ht[3], STATUS_BG);
+            if hl > 2.0 {
+                boxed(p, [ht[0] + hs, ht[1], hl, ht[3]]);
+            }
+        }
+    }
+    fn paint_tabs(&self, p: &mut dyn Painter) {
+        let y = self.size.1 - self.status_h() - self.tabs_h();
+        let h = self.tabs_h();
+        let w = self.size.0;
+        p.fill_rect(0.0, y, w, h, TABS_BG);
+        p.fill_rect(0.0, y, w, 1.0, TABS_EDGE);
+        // Navigation arrows.
+        let ink = Rgba(0xa6, 0xa6, 0xa6, 255);
+        let k = self.px(3.0);
+        let cy = (y + h / 2.0).round();
+        for (i, dir) in [(0, -1.0_f32), (1, 1.0)] {
+            let cx = self.px(20.0) + i as f32 * self.px(18.0);
+            p.path(
+                &[
+                    PathSeg::M(cx - dir * k / 2.0, cy - k),
+                    PathSeg::L(cx + dir * k / 2.0, cy),
+                    PathSeg::L(cx - dir * k / 2.0, cy + k),
+                    PathSeg::Z,
+                ],
+                Some(ink),
+                None,
+            );
+        }
+        let names = self.view.sheet_names();
+        let current = self.view.sheet();
+        for (i, x, tw) in &self.tab_rects {
+            let name = names.get(*i).and_then(Clone::clone).unwrap_or_default();
+            let active = *i == current;
+            let style = self.tab_style(active);
+            let line = style.size * 1.33;
+            // Measured: white tab from the strip's top edge to 3 px above its bottom, #999999
+            // sides, a 2 px green bar 2 px above the tab's bottom, bold green label.
+            let tab_h = h - self.px(2.4);
+            if active {
+                p.fill_rect(*x, y, *tw, tab_h, WHITE);
+                p.fill_rect(*x, y, 1.0, tab_h, TABS_EDGE);
+                p.fill_rect(x + tw - 1.0, y, 1.0, tab_h, TABS_EDGE);
+                let bar = self.px(1.6).max(2.0);
+                p.fill_rect(
+                    x + 1.0,
+                    y + tab_h - bar - self.px(1.6),
+                    tw - 2.0,
+                    bar,
+                    SEL_GREEN,
+                );
+            } else {
+                p.fill_rect(
+                    x + tw - 1.0,
+                    y + self.px(6.0),
+                    1.0,
+                    h - self.px(12.0),
+                    Rgba(0xb4, 0xb4, 0xb4, 255),
+                );
+            }
+            let ink = if active {
+                SEL_GREEN
+            } else {
+                Rgba(0x44, 0x44, 0x44, 255)
+            };
+            let lw = self.tab_label_w(&name, active);
+            p.text(
+                &name,
+                (x + (tw - lw) / 2.0).round(),
+                (y + (tab_h - line) / 2.0 - self.px(4.0)).round(),
+                style,
+                ink,
+            );
+        }
+        // New sheet: a circled plus.
+        let [ax, ay, aw, ah] = self.add_rect;
+        let (cx, cy, r) = (ax + aw / 2.0, ay + ah / 2.0, aw / 2.0 - 1.0);
+        let c = 0.5523 * r;
+        let ink = Rgba(0x6e, 0x6e, 0x6e, 255);
+        p.path(
+            &[
+                PathSeg::M(cx + r, cy),
+                PathSeg::C(cx + r, cy + c, cx + c, cy + r, cx, cy + r),
+                PathSeg::C(cx - c, cy + r, cx - r, cy + c, cx - r, cy),
+                PathSeg::C(cx - r, cy - c, cx - c, cy - r, cx, cy - r),
+                PathSeg::C(cx + c, cy - r, cx + r, cy - c, cx + r, cy),
+                PathSeg::Z,
+            ],
+            None,
+            Some((ink, self.scale.max(1.0))),
+        );
+        let a = r * 0.5;
+        p.path(
+            &[
+                PathSeg::M(cx - a, cy),
+                PathSeg::L(cx + a, cy),
+                PathSeg::M(cx, cy - a),
+                PathSeg::L(cx, cy + a),
+            ],
+            None,
+            Some((ink, self.scale.max(1.0))),
+        );
+    }
+
+    fn paint_status(&self, p: &mut dyn Painter) {
+        let (w, h) = self.size;
+        let sh = self.status_h();
+        let y = h - sh;
+        p.fill_rect(0.0, y, w, sh, STATUS_BG);
+        p.fill_rect(0.0, y - 1.0, w, 1.0, STATUS_EDGE);
+        let style = self.ui_style();
+        let ty = (y + (sh - style.size * 1.33) / 2.0).round();
+        let mode = if self.view.editing() {
+            if self.view.formula_caret().is_some() {
+                self.t("statusBar.enter", "Enter")
+            } else {
+                self.t("statusBar.edit", "Edit")
+            }
+        } else if !self.status.is_empty() {
+            self.status.clone()
+        } else {
+            self.t("sheetEditor.ready", "Ready")
+        };
+        p.text(&mode, self.px(11.2), ty - 1.0, style, STATUS_TEXT);
+        // Selection statistics, right-aligned before the zoom controls.
+        let st = self.view.stats();
+        if st.count > 1 {
+            let num = |v: f64| {
+                let s = format!("{v:.10}");
+                let s = s.trim_end_matches('0').trim_end_matches('.').to_owned();
+                if s == "-0" {
+                    "0".to_owned()
+                } else {
+                    s
+                }
+            };
+            let mut parts = Vec::new();
+            if let Some(a) = st.average {
+                parts.push(format!(
+                    "{}: {}",
+                    self.t("sheetEditor.average", "Average"),
+                    num(a)
+                ));
+            }
+            parts.push(format!(
+                "{}: {}",
+                self.t("sheetEditor.count", "Count"),
+                st.count
+            ));
+            if st.numbers > 0 {
+                parts.push(format!(
+                    "{}: {}",
+                    self.t("sheetEditor.sum", "Sum"),
+                    num(st.sum)
+                ));
+            }
+            let text = parts.join("      ");
+            let est = text.chars().count() as f32 * style.size * 0.52;
+            p.text(
+                &text,
+                (self.zoom_rects[0][0] - self.px(150.0) - est).round(),
+                ty,
+                style,
+                STATUS_TEXT,
+            );
+        }
+        // Zoom: minus, track with the 100 % tick, thumb, plus, percentage.
+        let [minus, track, plus, pct] = self.zoom_rects;
+        let k = self.px(4.0);
+        let lw = self.scale.max(1.0).round();
+        let ink = STATUS_TEXT;
+        let (mx, my) = (minus[0] + minus[2] / 2.0, minus[1] + minus[3] / 2.0);
+        p.fill_rect((mx - k).round(), my.round(), 2.0 * k, lw, ink);
+        let (qx, qy) = (plus[0] + plus[2] / 2.0, plus[1] + plus[3] / 2.0);
+        p.fill_rect((qx - k).round(), qy.round(), 2.0 * k, lw, ink);
+        p.fill_rect(qx.round(), (qy - k).round(), lw, 2.0 * k, ink);
+        let ty2 = (track[1] + track[3] / 2.0).round();
+        p.fill_rect(track[0], ty2, track[2], lw, Rgba(0x80, 0x80, 0x80, 255));
+        p.fill_rect(
+            (track[0] + track[2] / 2.0).round(),
+            ty2 - k / 2.0,
+            lw,
+            k + lw,
+            Rgba(0x80, 0x80, 0x80, 255),
+        );
+        let thumb = self.slider_pos();
+        p.fill_rect(
+            (thumb - k / 2.0).round(),
+            ty2 - k - lw,
+            k,
+            2.0 * k + 3.0 * lw,
+            ink,
+        );
+        let zoom = format!("{}%", (self.view.zoom() * 100.0).round() as i32);
+        p.text(&zoom, pct[0], ty, style, ink);
+        // View buttons before the zoom controls (normal view on).
+        // Three 54 px view buttons ending 389 px from the right; the current one #C6C6C6.
+        let bw = self.px(43.2);
+        let size = self.px(16.0);
+        for i in 0..3 {
+            let x = w - self.px(353.6) + i as f32 * bw;
+            if i == 0 {
+                p.fill_rect(x, y, bw, sh, STATUS_EDGE);
+            }
+            let icon = ["view.normal", "layout.margins", "view.sorter"][i];
+            self.icons.draw(
+                p,
+                icon,
+                (x + (bw - size) / 2.0).round(),
+                (y + (sh - size) / 2.0).round(),
+                size,
+                IconColors {
+                    ink: STATUS_TEXT,
+                    accent: self.theme.accent,
+                    on: self.theme.accent_on,
+                    tinted: false,
+                },
+            );
+        }
+    }
+}
+
+impl SheetView {
+    /// Displayed text of the active cell.
+    pub fn formula_display(&self) -> String {
+        let (r0, c0, _, _) = self.range_bounds();
+        self.engine()
+            .cell(self.sheet(), r0, c0)
+            .map(|d| d.display)
+            .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sheet_view::GridStore;
+    use bo_engine::SheetEngine;
+
+    struct Fixed;
+    impl TextMeasure for Fixed {
+        fn measure(&self, text: &str, style: TextStyle) -> (f32, f32) {
+            (
+                text.chars().count() as f32 * style.size * 0.5,
+                style.size * 1.3,
+            )
+        }
+    }
+
+    struct Store(usize);
+    impl GridStore for Store {
+        fn update(
+            &mut self,
+            list: &bo_render::PageList,
+            _: &SheetEngine,
+            _: f32,
+        ) -> Result<(), String> {
+            self.0 = list.commands.len();
+            Ok(())
+        }
+    }
+
+    fn window() -> SheetWindow {
+        let mut e = SheetEngine::with_bundled_fonts();
+        e.new_workbook("Book1.xlsx").expect("workbook");
+        let mut w = SheetWindow::new(SheetView::new(e), "en-US", "Book1.xlsx");
+        w.handle(Input::Scale(1.25), &Fixed);
+        w.handle(
+            Input::Resize {
+                width: 1500.0,
+                height: 1000.0,
+            },
+            &Fixed,
+        );
+        w
+    }
+
+    fn type_text(w: &mut SheetWindow, s: &str) {
+        for c in s.chars() {
+            w.handle(Input::Text(c.to_string()), &Fixed);
+        }
+    }
+
+    fn key(w: &mut SheetWindow, k: Key) {
+        w.handle(Input::Key(k, Mods::default()), &Fixed);
+    }
+
+    #[test]
+    fn typing_enters_values_and_formulas_recalculate() {
+        let mut w = window();
+        type_text(&mut w, "12");
+        key(&mut w, Key::Enter);
+        type_text(&mut w, "30");
+        key(&mut w, Key::Enter);
+        type_text(&mut w, "=A1+A2");
+        key(&mut w, Key::Enter);
+        let e = w.view().engine();
+        assert_eq!(e.cell(0, 2, 0).expect("A3").display, "42");
+        assert_eq!(w.view().range_bounds(), (3, 0, 3, 0), "Enter moves down");
+        // Editing A1 recalculates A3 at once.
+        w.handle(Input::Key(Key::Up, Mods::default()), &Fixed);
+        for _ in 0..3 {
+            key(&mut w, Key::Up);
+        }
+        type_text(&mut w, "2");
+        key(&mut w, Key::Tab);
+        assert_eq!(w.view().engine().cell(0, 2, 0).expect("A3").display, "32");
+        assert_eq!(w.view().range_bounds(), (0, 1, 0, 1), "Tab moves right");
+        assert!(w.view().modified());
+    }
+
+    #[test]
+    fn escape_cancels_f2_edits_and_delete_clears() {
+        let mut w = window();
+        type_text(&mut w, "abc");
+        key(&mut w, Key::Escape);
+        assert_eq!(w.view().engine().cell(0, 0, 0).expect("A1").input, "");
+        type_text(&mut w, "abc");
+        key(&mut w, Key::Enter);
+        key(&mut w, Key::Up);
+        key(&mut w, Key::F(2));
+        assert!(w.view().editing());
+        key(&mut w, Key::Left);
+        key(&mut w, Key::Backspace);
+        key(&mut w, Key::Enter);
+        assert_eq!(w.view().engine().cell(0, 0, 0).expect("A1").input, "ac");
+        key(&mut w, Key::Up);
+        key(&mut w, Key::Delete);
+        assert_eq!(w.view().engine().cell(0, 0, 0).expect("A1").input, "");
+        // Undo brings it back, redo clears again.
+        w.handle(
+            Input::Key(
+                Key::Letter('z'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        assert_eq!(w.view().engine().cell(0, 0, 0).expect("A1").input, "ac");
+        w.handle(
+            Input::Key(
+                Key::Letter('y'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        assert_eq!(w.view().engine().cell(0, 0, 0).expect("A1").input, "");
+    }
+
+    #[test]
+    fn copy_paste_within_the_app_and_text_from_outside() {
+        let mut w = window();
+        type_text(&mut w, "5");
+        key(&mut w, Key::Enter);
+        key(&mut w, Key::Up);
+        w.handle(
+            Input::Key(
+                Key::Letter('c'),
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        let reqs = w.take_requests();
+        let text = reqs.iter().find_map(|r| match r {
+            Request::SetClipboard { text, .. } => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(text.as_deref(), Some("5\r\n"));
+        key(&mut w, Key::Right);
+        assert!(w.paste(text));
+        assert_eq!(w.view().engine().cell(0, 0, 1).expect("B1").input, "5");
+        // Text from another application: tab-separated rows.
+        key(&mut w, Key::Down);
+        assert!(w.paste(Some("1\t2\r\n3\t4\r\n".into())));
+        assert_eq!(w.view().engine().cell(0, 2, 2).expect("C3").input, "4");
+    }
+
+    #[test]
+    fn ribbon_bold_and_statistics_and_sheet_tabs() {
+        let mut w = window();
+        for v in ["1", "2", "3"] {
+            type_text(&mut w, v);
+            key(&mut w, Key::Enter);
+        }
+        w.handle(
+            Input::Key(
+                Key::Up,
+                Mods {
+                    shift: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        w.handle(
+            Input::Key(
+                Key::Up,
+                Mods {
+                    shift: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        w.handle(
+            Input::Key(
+                Key::Up,
+                Mods {
+                    shift: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        let st = w.view().stats();
+        assert_eq!((st.sum, st.count, st.average), (6.0, 3, Some(2.0)));
+        assert!(w.action("format.bold"));
+        assert!(w.view().format().bold, "bold applied to the active cell");
+        assert!(w.action("edit.undo"));
+        assert!(!w.view().format().bold);
+        // + adds a sheet and shows it.
+        let [x, y, ww, hh] = w.add_rect;
+        w.handle(
+            Input::Press {
+                x: x + ww / 2.0,
+                y: y + hh / 2.0,
+                count: 1,
+                shift: false,
+            },
+            &Fixed,
+        );
+        assert_eq!(w.view().sheet(), 1);
+        assert_eq!(w.view().sheet_names().len(), 2);
+    }
+
+    #[test]
+    fn grid_image_is_redrawn_only_when_cells_or_scroll_change() {
+        let mut w = window();
+        let mut store = Store(0);
+        w.prepare(&mut store).expect("grid");
+        assert!(store.0 > 0);
+        store.0 = 0;
+        key(&mut w, Key::Down);
+        w.prepare(&mut store).expect("grid");
+        assert_eq!(store.0, 0, "moving the selection keeps the grid image");
+        type_text(&mut w, "x");
+        w.prepare(&mut store).expect("grid");
+        assert_eq!(store.0, 0, "typing in the editor keeps the grid image");
+        key(&mut w, Key::Enter);
+        w.prepare(&mut store).expect("grid");
+        assert!(store.0 > 0, "committing redraws it");
+        store.0 = 0;
+        w.handle(Input::Wheel(75.0), &Fixed);
+        w.prepare(&mut store).expect("grid");
+        assert!(store.0 > 0, "scrolling redraws it");
+    }
+
+    #[test]
+    fn scrolling_ten_thousand_rows_lays_out_only_visible_rows() {
+        let mut e = SheetEngine::with_bundled_fonts();
+        e.new_workbook("Big.xlsx").expect("workbook");
+        let cells: Vec<(u32, u32, String)> =
+            (0..10_000).map(|r| (r, 0, (r + 1).to_string())).collect();
+        e.set_inputs(0, &cells).expect("cells");
+        let mut w = SheetWindow::new(SheetView::new(e), "en-US", "Big.xlsx");
+        w.handle(Input::Scale(1.25), &Fixed);
+        w.handle(
+            Input::Resize {
+                width: 1500.0,
+                height: 1000.0,
+            },
+            &Fixed,
+        );
+        let mut store = Store(0);
+        w.handle(
+            Input::Key(
+                Key::Down,
+                Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+        assert_eq!(w.view().range_bounds().0, 9_999);
+        w.prepare(&mut store).expect("grid");
+        assert!(store.0 > 0 && store.0 < 2_000, "{} commands", store.0);
+    }
+
+    #[test]
+    fn decimal_steps() {
+        assert_eq!(step_decimals("General", 0, 1), "0.0");
+        assert_eq!(step_decimals("General", 2, -1), "0.0");
+        assert_eq!(step_decimals("#,##0.00", 0, 1), "#,##0.000");
+        assert_eq!(step_decimals("#,##0.0", 0, -1), "#,##0");
+        assert_eq!(step_decimals("0%", 0, 1), "0.0%");
+    }
+}

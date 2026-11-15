@@ -288,9 +288,7 @@ fn picture_galleries_apply_adjustments() {
 #[test]
 fn remove_background_marks_and_keeps_changes() {
     let mut w = picture_window();
-    if !w.picture_info().expect("picture").removable {
-        return;
-    }
+    assert!(w.picture_info().expect("picture").removable);
     click_command(&mut w, "sl.removeBg");
     assert!(w.bg_mode.is_some());
     assert!(
@@ -339,4 +337,49 @@ fn compress_dialog_reports() {
         &["96".into(), "1".into(), "1".into()],
     );
     assert!(w.dialog.is_some(), "the result stays shown");
+}
+
+#[test]
+fn draw_borders_pen_and_borders_menu() {
+    let mut w = table_window();
+    for id in [
+        "sl.tblBorders",
+        "sl.tblEffects",
+        "sl.penStyle",
+        "sl.penWeight",
+        "sl.penColor",
+        "sl.textQuick",
+    ] {
+        assert!(w.command_rect(id).is_some(), "{id}");
+    }
+    // 3 pt pen (the seventh weight), then All Borders.
+    click_command(&mut w, "sl.penWeight");
+    for _ in 0..7 {
+        w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    }
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!((w.pen.width - 3.0).abs() < 1e-9, "{}", w.pen.width);
+    click_command(&mut w, "sl.tblBorders");
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    let id = w.view().selection()[0].id;
+    let p = w.view().engine().presentation().expect("deck");
+    let t = p.slides[w.view().current()]
+        .data
+        .shapes
+        .iter()
+        .find_map(|n| match n {
+            bo_model::slide::ShapeNode::Frame(f) if f.nv.id == id => match &f.content {
+                bo_model::slide::GraphicContent::Table(t) => Some(t.clone()),
+                bo_model::slide::GraphicContent::Other(_) => None,
+            },
+            _ => None,
+        })
+        .expect("table");
+    let ln = t.rows[1].cells[1]
+        .props
+        .as_ref()
+        .and_then(|p| p.ln_t.clone())
+        .expect("inner top border");
+    assert_eq!(ln.w, Some(38_100));
 }

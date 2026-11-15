@@ -910,6 +910,7 @@ impl SlideWindow {
                     (self.label("find"), "ins:find".into()),
                     (self.label("replace"), "ins:replace".into()),
                     (self.label("selectAll"), "ins:selectAll".into()),
+                    (self.label("selectionPane"), "side:selPane".into()),
                 ],
                 "sl.editing",
             ),
@@ -949,6 +950,7 @@ impl SlideWindow {
                     ("alignBottom", "aln:bottom"),
                     ("rotateRight", "rot:90"),
                     ("rotateLeft", "rot:-90"),
+                    ("selectionPane", "side:selPane"),
                 ]
                 .iter()
                 .map(|(k, c)| (self.label(k), (*c).to_owned()))

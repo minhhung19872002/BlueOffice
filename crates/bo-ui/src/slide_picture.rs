@@ -63,8 +63,8 @@ pub(super) fn picture_format_tab() -> Tab {
             },
             Group {
                 label: "slideNative.pictureStyles",
-                large: vec![],
-                rows: vec![vec![S("sl.picBorder")], vec![S("sl.effects")]],
+                large: vec![L("sl.picQuick")],
+                rows: vec![vec![B("sl.picBorder")], vec![B("sl.effects")]],
             },
             super::fmt::accessibility_group(),
             super::fmt::arrange_group(),
@@ -301,8 +301,8 @@ impl PicGallery {
                         ..base.clone()
                     },
                     PictureFx {
-                        bright: 70_000,
-                        contrast: -70_000,
+                        bright: 30_000,
+                        contrast: -60_000,
                         ..base.clone()
                     },
                     PictureFx {
@@ -673,6 +673,27 @@ impl SlideWindow {
                 let area = self.view.canvas_rect();
                 p.push_clip(area[0], area[1], area[2], area[3]);
                 p.page(BG_KEY, x as i32, y as i32);
+                // A dashed frame round the picture instead of the handles.
+                let (w, h) = (
+                    (m.frame[2] as f32 * k).round(),
+                    (m.frame[3] as f32 * k).round(),
+                );
+                let d = (4.0 * self.scale).round().max(2.0);
+                let ink = Rgba(0x40, 0x40, 0x40, 255);
+                let mut t = 0.0;
+                while t < w {
+                    let l = d.min(w - t);
+                    p.fill_rect(x + t, y - 1.0, l, 1.0, ink);
+                    p.fill_rect(x + t, y + h, l, 1.0, ink);
+                    t += 2.0 * d;
+                }
+                let mut t = 0.0;
+                while t < h {
+                    let l = d.min(h - t);
+                    p.fill_rect(x - 1.0, y + t, 1.0, l, ink);
+                    p.fill_rect(x + w, y + t, 1.0, l, ink);
+                    t += 2.0 * d;
+                }
                 // The stroke being drawn.
                 if m.stroke.len() > 1 {
                     let (w, h) = (m.frame[2] as f32 * k, m.frame[3] as f32 * k);
@@ -717,6 +738,7 @@ impl SlideWindow {
             frame: [s.cx - s.w / 2.0, s.cy - s.h / 2.0, s.w, s.h],
             ..BgMode::default()
         });
+        self.view.set_hide_handles(true);
         self.refresh_bg_preview();
         self.relayout_tabs();
         true
@@ -759,6 +781,7 @@ impl SlideWindow {
         if let Some(id) = &m.preview {
             self.view.engine_mut().remove_ui_image(id);
         }
+        self.view.set_hide_handles(false);
         let done = keep && self.view.run_picture(P::PictureRemoveBackground(m.spec));
         self.relayout_tabs();
         done || !keep

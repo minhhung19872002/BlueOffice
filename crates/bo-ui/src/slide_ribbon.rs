@@ -166,6 +166,12 @@ pub fn has_menu_mark(id: &str) -> bool {
             | "sl.picColor"
             | "sl.transparency"
             | "sl.changePicture"
+            | "sl.tblBorders"
+            | "sl.tblEffects"
+            | "sl.penStyle"
+            | "sl.penWeight"
+            | "sl.penColor"
+            | "sl.picQuick"
     )
 }
 

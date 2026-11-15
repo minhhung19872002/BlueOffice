@@ -30,7 +30,13 @@ pub const TABLE_FLAGS: [(&str, &str); 6] = [
 ];
 
 /// Commands of these tabs.
-pub const COMMANDS: [&str; 17] = [
+pub const COMMANDS: [&str; 23] = [
+    "sl.tblBorders",
+    "sl.tblEffects",
+    "sl.penStyle",
+    "sl.penWeight",
+    "sl.penColor",
+    "sl.picQuick",
     "sl.firstCol",
     "sl.totalRow",
     "sl.lastCol",
@@ -51,7 +57,13 @@ pub const COMMANDS: [&str; 17] = [
 ];
 
 /// Label keys (`slideNative.*`).
-const LABELS: [(&str, &str); 10] = [
+const LABELS: [(&str, &str); 16] = [
+    ("sl.tblBorders", "borders"),
+    ("sl.tblEffects", "effects"),
+    ("sl.penStyle", "penStyle"),
+    ("sl.penWeight", "penWeight"),
+    ("sl.penColor", "penColor"),
+    ("sl.picQuick", "quickStyles"),
     ("sl.firstCol", "firstColumn"),
     ("sl.totalRow", "totalRow"),
     ("sl.lastCol", "lastColumn"),
@@ -83,7 +95,7 @@ pub fn large_width(id: &str) -> Option<f32> {
 
 /// Shape Format (a shape, text box or group selected).
 pub(super) fn shape_format_tab() -> Tab {
-    use Item::{Button as B, Labeled as S, Large as L};
+    use Item::{Labeled as S, Large as L};
     Tab {
         label: "slideNative.shapeFormat",
         groups: vec![
@@ -105,15 +117,7 @@ pub(super) fn shape_format_tab() -> Tab {
                     vec![S("sl.effects")],
                 ],
             },
-            Group {
-                label: "slideNative.textStylesGroup",
-                large: vec![L("sl.textQuick")],
-                rows: vec![
-                    vec![B("sl.textFill")],
-                    vec![B("sl.textOutline")],
-                    vec![B("sl.textEffects")],
-                ],
-            },
+            text_styles_group(),
             accessibility_group(),
             arrange_group(),
             ins::size_group(false),
@@ -167,11 +171,92 @@ pub(super) fn table_design_tab() -> Tab {
                     .map(|id| L(id))
                     .chain([L("sl.tblMore")])
                     .collect(),
-                rows: vec![vec![B("sl.shading")]],
+                rows: vec![
+                    vec![B("sl.shading")],
+                    vec![B("sl.tblBorders")],
+                    vec![B("sl.tblEffects")],
+                ],
+            },
+            text_styles_group(),
+            Group {
+                label: "slideNative.drawBorders",
+                large: vec![],
+                rows: vec![
+                    vec![S("sl.penStyle")],
+                    vec![S("sl.penWeight")],
+                    vec![S("sl.penColor")],
+                ],
             },
         ],
     }
 }
+
+/// Text styles (WordArt-free): quick text styles, text fill, outline and transform.
+pub(super) fn text_styles_group() -> Group {
+    use Item::{Button as B, Large as L};
+    Group {
+        label: "slideNative.textStylesGroup",
+        large: vec![L("sl.textQuick")],
+        rows: vec![
+            vec![B("sl.textFill")],
+            vec![B("sl.textOutline")],
+            vec![B("sl.textEffects")],
+        ],
+    }
+}
+
+/// The pen of Draw Borders: dash, width (points), colour.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pen {
+    /// §20.1.10.48 preset dash (`solid`, `sysDash`, `sysDot`, `dash`).
+    pub dash: &'static str,
+    /// Width in points.
+    pub width: f64,
+    /// Colour `RRGGBB`.
+    pub color: String,
+}
+
+impl Default for Pen {
+    fn default() -> Self {
+        Pen {
+            dash: "solid",
+            width: 1.0,
+            color: "000000".into(),
+        }
+    }
+}
+
+/// Pen dashes offered by Pen Style.
+const DASHES: [(&str, &str); 4] = [
+    ("dashSolid", "solid"),
+    ("dashDash", "dash"),
+    ("dashRound", "sysDot"),
+    ("dashSquare", "sysDash"),
+];
+
+/// Pen weights offered (points).
+const WEIGHTS: [f64; 8] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5];
+
+/// Border choices of Borders.
+const BORDERS: [(&str, &str); 8] = [
+    ("borderAll", "all"),
+    ("borderOutside", "outside"),
+    ("borderInside", "inside"),
+    ("borderNone", "none"),
+    ("borderTop", "top"),
+    ("borderBottom", "bottom"),
+    ("borderLeft", "left"),
+    ("borderRight", "right"),
+];
+
+/// Picture quick styles (own set): label key, line colour / width, effect.
+const PIC_STYLES: [(&str, &str); 5] = [
+    ("pqWhite", "white"),
+    ("pqBlack", "black"),
+    ("pqSoft", "soft"),
+    ("pqReflect", "reflect"),
+    ("pqPerspective", "perspective"),
+];
 
 /// Own icons (own drawings) and aliases.
 pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
@@ -179,6 +264,38 @@ pub(super) fn install_icons(icons: &mut crate::icons::Icons) {
         icons.alias(id, "transition.more");
     }
     icons.alias("sl.textQuick", "sl.textStyles");
+    icons.alias("sl.picQuick", "sl.quickStyles");
+    icons.alias("sl.tblEffects", "sl.effects");
+    icons.add_solid(
+        "sl.tblBorders",
+        &[
+            ("M3 3h18v18h-18Z", Some(Rgba(255, 255, 255, 255))),
+            ("M3 3h18v18h-18ZM12 3v18M3 12h18", None),
+        ],
+    );
+    icons.add_solid(
+        "sl.penStyle",
+        &[("M2 12h4M9 12h4M16 12h4", None), ("M2 6h20", None)],
+    );
+    icons.add_solid(
+        "sl.penWeight",
+        &[
+            ("M2 5h20v1h-20Z", Some(Rgba(0x26, 0x26, 0x26, 255))),
+            ("M2 10h20v2h-20Z", Some(Rgba(0x26, 0x26, 0x26, 255))),
+            ("M2 16h20v4h-20Z", Some(Rgba(0x26, 0x26, 0x26, 255))),
+        ],
+    );
+    icons.add_solid(
+        "sl.penColor",
+        &[
+            (
+                "M15 2l4 4l-10 10l-5 1l1-5Z",
+                Some(Rgba(0xf4, 0xf4, 0xf4, 255)),
+            ),
+            ("M15 2l4 4l-10 10l-5 1l1-5Z", None),
+            ("M2 19h20v4h-20Z", Some(Rgba(0x26, 0x26, 0x26, 255))),
+        ],
+    );
     let blue = Rgba(0x44, 0x80, 0xc0, 255);
     let dark = Rgba(0x26, 0x26, 0x26, 255);
     let letter = "M10 2h4l6 14h-3l-1.4-3.6h-6.2l-1.4 3.6h-3ZM10.4 10h3.2l-1.6-4.4Z";
@@ -254,6 +371,8 @@ pub(super) fn install_strings(s: &mut crate::strings::Strings) {
         "sl.textFill",
         "sl.textOutline",
         "sl.textEffects",
+        "sl.tblBorders",
+        "sl.tblEffects",
     ] {
         let v = s.get(&format!("commands.{id}")).to_owned();
         if !v.is_empty() {
@@ -671,6 +790,49 @@ impl SlideWindow {
                     .collect();
                 list(self, items, "sl.textEffects")
             }
+            "sl.tblBorders" => {
+                let items = BORDERS
+                    .iter()
+                    .map(|(k, v)| (self.label(k), format!("side:bd{v}")))
+                    .collect();
+                list(self, items, "sl.tblBorders")
+            }
+            "sl.tblEffects" => {
+                let items = [
+                    ("reflection", "fx:reflection"),
+                    ("softEdges", "fx:soft"),
+                    ("noEffects", "fx:none"),
+                ]
+                .iter()
+                .map(|(k, c)| (self.label(k), (*c).to_owned()))
+                .collect();
+                list(self, items, "sl.tblEffects")
+            }
+            "sl.penStyle" => {
+                let items = DASHES
+                    .iter()
+                    .map(|(k, v)| (self.label(k), format!("side:dash{v}")))
+                    .collect();
+                list(self, items, "sl.penStyle")
+            }
+            "sl.penWeight" => {
+                let items = WEIGHTS
+                    .iter()
+                    .map(|w| (format!("{w} pt"), format!("side:pw{w}")))
+                    .collect();
+                list(self, items, "sl.penWeight")
+            }
+            "sl.penColor" => {
+                self.open_picker(PickKind::Outline, "sl.penColor");
+                true
+            }
+            "sl.picQuick" => {
+                let items = PIC_STYLES
+                    .iter()
+                    .map(|(k, v)| (self.label(k), format!("side:pq{v}")))
+                    .collect();
+                list(self, items, "sl.picQuick")
+            }
             "sl.altText" => self.open_side(SideKind::AltText),
             "sl.selPane" => self.open_side(SideKind::Selection),
             _ => return None,
@@ -693,8 +855,59 @@ impl SlideWindow {
                 },
             });
         }
+        if let Some(which) = v.strip_prefix("bd") {
+            return self.view.run_props(Props::SetTableBorders {
+                which: which.to_owned(),
+                color: Some(self.pen.color.clone()),
+                width: self.pen.width,
+                dash: Some(self.pen.dash.to_owned()),
+            });
+        }
+        if let Some(d) = v.strip_prefix("dash") {
+            if let Some((_, d)) = DASHES.iter().find(|(_, x)| *x == d) {
+                self.pen.dash = d;
+            }
+            return true;
+        }
+        if let Some(w) = v.strip_prefix("pw").and_then(|w| w.parse().ok()) {
+            self.pen.width = w;
+            return true;
+        }
+        if let Some(q) = v.strip_prefix("pq") {
+            return self.picture_style(q);
+        }
         match v {
             "selPane" => self.open_side(SideKind::Selection),
+            _ => false,
+        }
+    }
+
+    /// A picture quick style: a frame and / or an effect.
+    fn picture_style(&mut self, q: &str) -> bool {
+        use bo_engine::slide_edit::effects::EffectOp;
+        let line = |w: &mut Self, c: &str, width: f64| {
+            w.view.run(SlideCommand::SetLine {
+                color: Some(c.to_owned()),
+                width: Some(width),
+            })
+        };
+        match q {
+            "white" => line(self, "FFFFFF", 6.0),
+            "black" => line(self, "000000", 4.5),
+            "soft" => self.view.run(SlideCommand::ShapeEffects {
+                op: EffectOp::SoftEdge { radius: Some(8.0) },
+            }),
+            "reflect" => self.view.run(SlideCommand::ShapeEffects {
+                op: EffectOp::Reflection {
+                    size: Some(0.35),
+                    distance: 0.0,
+                },
+            }),
+            "perspective" => self.view.run(SlideCommand::ShapeEffects {
+                op: EffectOp::Rotation3d {
+                    preset: Some("perspectiveRight".into()),
+                },
+            }),
             _ => false,
         }
     }
@@ -704,6 +917,12 @@ impl SlideWindow {
         use bo_engine::slide_edit::effects::EffectOp;
         use bo_engine::slide_edit::text::TextFormat;
         Some(match anchor {
+            "sl.penColor" => {
+                if let Some(c) = color {
+                    self.pen.color = c;
+                }
+                true
+            }
             "sl.textFill" => self.view.format_text(TextFormat::Color { hex: color }),
             "sl.textOutline" => self.view.run(SlideCommand::ShapeEffects {
                 op: EffectOp::TextOutline {
@@ -718,6 +937,10 @@ impl SlideWindow {
     /// Table Design: the option check boxes and the style gallery (a white box with tables
     /// drawn in each style's colours, the table's own style framed, the "more" column).
     pub(super) fn paint_table_design(&self, p: &mut dyn Painter) {
+        // Shape Format's style gallery "more" column, framed like the gallery box.
+        if let Some(r) = self.ribbon.rect_of(RibbonHit::Command("sl.stylesMore")) {
+            frame_more(p, [r[0], r[1] + self.px(1.6), r[2], self.px(73.6)]);
+        }
         let Some((flags, current)) = self.table_state() else {
             return;
         };
@@ -756,9 +979,7 @@ impl SlideWindow {
             h - 2.0,
             grey(0xff),
         );
-        // "More" column framed as the other galleries'.
-        p.fill_rect(more[0], top, more[2], h, grey(0xd2));
-        p.fill_rect(more[0] + 1.0, top + 1.0, more[2] - 2.0, h - 2.0, grey(0xf3));
+        frame_more(p, [more[0], top, more[2], h]);
         let accents = self.theme_colors();
         let hovered = self.ribbon.hovered();
         for (i, id) in TABLE_TILES.iter().enumerate() {
@@ -769,7 +990,7 @@ impl SlideWindow {
                 r[2] - self.px(3.2),
                 h - self.px(6.4),
             ];
-            if current == Some(i) {
+            if current.unwrap_or(0) == i {
                 p.fill_rect(band[0], band[1], band[2], band[3], grey(0x88));
                 p.fill_rect(
                     band[0] + 1.0,
@@ -796,15 +1017,25 @@ impl SlideWindow {
     }
 }
 
+/// The frame of a gallery's "more" column (edges only: the ribbon draws its mark).
+pub(super) fn frame_more(p: &mut dyn Painter, r: [f32; 4]) {
+    let c = Rgba(0xd2, 0xd2, 0xd2, 255);
+    let [x, y, w, h] = r;
+    p.fill_rect(x, y, w, 1.0, c);
+    p.fill_rect(x, y + h - 1.0, w, 1.0, c);
+    p.fill_rect(x, y, 1.0, h, c);
+    p.fill_rect(x + w - 1.0, y, 1.0, h, c);
+}
+
 /// White mixed with `c` at `t` (DrawingML `tint`: `t` of the colour).
 fn tint(c: Rgba, t: f32) -> Rgba {
     let l = |v: u8| (255.0 - (255.0 - f32::from(v)) * t).round() as u8;
     Rgba(l(c.0), l(c.1), l(c.2), 255)
 }
 
-/// A small table in a built-in style (own drawing in the reference's manner): five rows of
-/// four cells — the header row in the accent (when shown), banded rows in light tints, white
-/// rules between cells, a short dark dash for each cell's text.
+/// A small table in a built-in style (own drawing in the reference's manner): a header band
+/// in the accent, white body rows (banded ones lightly tinted) ruled by thin accent lines,
+/// a short dash for each cell's text.
 fn paint_table_tile(
     p: &mut dyn Painter,
     r: [f32; 4],
@@ -817,57 +1048,40 @@ fn paint_table_tile(
     let cols: usize = 4;
     let rh = (h / rows as f32).floor();
     let cw = (w / cols as f32).floor();
-    let whole = tint(accent, 0.15);
-    let band = tint(accent, 0.32);
-    let dash = Rgba(0x40, 0x40, 0x40, 255);
+    let tw = cw * cols as f32;
+    let band = tint(accent, 0.18);
+    let rule = tint(accent, 0.55);
+    let dash = Rgba(0x59, 0x59, 0x59, 255);
+    let white = Rgba(255, 255, 255, 255);
+    let k = scale.max(1.0).round();
+    p.fill_rect(x, y, tw, rh * rows as f32, white);
     for rr in 0..rows {
         let header = rr == 0 && f.first_row;
         let total = rr == rows - 1 && f.last_row;
         let body = rr.saturating_sub(usize::from(f.first_row));
-        let fill = if header || total {
-            accent
-        } else if f.band_row && body % 2 == 0 {
-            band
-        } else {
-            whole
-        };
         let ry = y + rr as f32 * rh;
-        p.fill_rect(x, ry, cw * cols as f32, rh, fill);
+        if header || total {
+            p.fill_rect(x, ry, tw, rh, accent);
+        } else if f.band_row && body % 2 == 0 {
+            p.fill_rect(x, ry, tw, rh, band);
+        }
         for cc in 0..cols {
             let cx = x + cc as f32 * cw;
             let emph = (cc == 0 && f.first_col) || (cc == cols - 1 && f.last_col);
-            let cell = if header || total {
-                accent
-            } else if emph {
-                tint(accent, 0.75)
-            } else if f.band_col && cc % 2 == 0 && !(f.band_row && body % 2 == 0) {
-                band
-            } else {
-                fill
-            };
-            p.fill_rect(cx, ry, cw, rh, cell);
-            // White rule right of each cell.
-            p.fill_rect(cx + cw - 1.0, ry, 1.0, rh, Rgba(255, 255, 255, 255));
-            let ink = if header || total || emph {
-                Rgba(255, 255, 255, 255)
-            } else {
-                dash
-            };
-            let dw = (cw * 0.5).round();
+            if emph && !(header || total) {
+                p.fill_rect(cx, ry, cw, rh, tint(accent, 0.45));
+            }
+            let ink = if header || total { white } else { dash };
+            let dw = (cw * 0.55).round();
             p.fill_rect(
                 (cx + (cw - dw) / 2.0).round(),
                 (ry + rh / 2.0).round(),
                 dw,
-                scale.max(1.0).round(),
+                k,
                 ink,
             );
         }
-        p.fill_rect(
-            x,
-            ry + rh - 1.0,
-            cw * cols as f32,
-            1.0,
-            Rgba(255, 255, 255, 255),
-        );
+        // A thin rule under each row in the accent.
+        p.fill_rect(x, ry + rh - k, tw, k, if header { accent } else { rule });
     }
 }

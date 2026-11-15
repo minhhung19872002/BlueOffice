@@ -248,6 +248,8 @@ fn word_at(s: &str, u: usize) -> (usize, usize) {
 
 /// The editing area of one presentation.
 pub struct SlideView {
+    /// The selection's frame and handles are not drawn (Remove Background).
+    hide_handles: bool,
     /// Prompts of empty title, subtitle and body placeholders (interface language).
     prompts: [String; 3],
     engine: Engine,
@@ -314,6 +316,7 @@ impl SlideView {
     /// A view of the presentation already open in `engine`.
     pub fn new(engine: Engine) -> Result<Self, String> {
         let mut view = Self {
+            hide_handles: false,
             prompts: [
                 "Click to add title".into(),
                 "Click to add subtitle".into(),
@@ -845,6 +848,11 @@ impl SlideView {
             }
             _ => false,
         }
+    }
+
+    /// Hide the selection's frame and handles (Remove Background draws its own frame).
+    pub fn set_hide_handles(&mut self, hide: bool) {
+        self.hide_handles = hide;
     }
 
     /// Run a shape properties / table style command (Selection Pane, Alt Text, Table Design).
@@ -2562,7 +2570,7 @@ impl SlideView {
                     }
                 }
             }
-        } else if self.preview.is_none() {
+        } else if self.preview.is_none() && !self.hide_handles {
             for s in &st.selection {
                 if st.selection.len() > 1 {
                     let w = self.display_scale.round().max(1.0);

@@ -254,6 +254,8 @@ pub struct SlideWindow {
     gallery: Option<pic::PicGallery>,
     /// Remove Background mode.
     bg_mode: Option<pic::BgMode>,
+    /// Draw Borders pen of Table Design.
+    pen: fmt::Pen,
 }
 
 #[path = "slide_controls.rs"]
@@ -482,6 +484,7 @@ impl SlideWindow {
             side: selpane::SidePane::default(),
             gallery: None,
             bg_mode: None,
+            pen: fmt::Pen::default(),
         }
     }
 

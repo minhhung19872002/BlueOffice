@@ -28,7 +28,7 @@ pub const DECORATIVE_NS: &str = "http://schemas.microsoft.com/office/drawing/201
 const CNV_EXT_KEY: u16 = 2;
 
 /// A shape properties command (JSON bridge, ADR-0008).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "cmd", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ShapePropsCommand {
     /// Change shape `id` of the current slide (fields left out stay as they are).
@@ -81,6 +81,20 @@ pub enum ShapePropsCommand {
         #[serde(default)]
         band_col: Option<bool>,
     },
+    /// Borders of the selected table's cells (§21.1.3.5 lnL / lnR / lnT / lnB of tcPr).
+    SetTableBorders {
+        /// `all`, `outside`, `inside`, `none`, `top`, `bottom`, `left` or `right`.
+        which: String,
+        /// Colour `RRGGBB` (default black).
+        #[serde(default)]
+        color: Option<String>,
+        /// Width in points.
+        #[serde(default = "one_pt")]
+        width: f64,
+        /// §20.1.10.48 ST_PresetLineDashVal (`solid` when left out).
+        #[serde(default)]
+        dash: Option<String>,
+    },
 }
 
 /// Command names of [`ShapePropsCommand`].
@@ -89,7 +103,12 @@ pub const COMMANDS: &[&str] = &[
     "shapeOrder",
     "setTableStyle",
     "setTableFlags",
+    "setTableBorders",
 ];
+
+fn one_pt() -> f64 {
+    1.0
+}
 
 impl ShapePropsCommand {
     /// Parses a JSON command when it is one of these.
@@ -300,6 +319,38 @@ pub fn set_style_id(t: &mut bo_model::slide::Table, id: &str) {
     }
 }
 
+/// Set the borders `which` of every cell of `t` to `line`.
+pub fn set_borders(t: &mut bo_model::slide::Table, which: &str, line: &bo_model::slide::Line) {
+    let rows = t.rows.len();
+    let cols = t.grid.len();
+    for (r, row) in t.rows.iter_mut().enumerate() {
+        for (c, cell) in row.cells.iter_mut().enumerate() {
+            let (top, bottom, left, right) = (r == 0, r + 1 == rows, c == 0, c + 1 == cols);
+            let [l, rr, tt, b] = match which {
+                "all" | "none" => [true; 4],
+                "outside" => [left, right, top, bottom],
+                "inside" => [!left, !right, !top, !bottom],
+                "top" => [false, false, top, false],
+                "bottom" => [false, false, false, bottom],
+                "left" => [left, false, false, false],
+                "right" => [false, right, false, false],
+                _ => [false; 4],
+            };
+            let pr = cell.props.get_or_insert_with(Default::default);
+            for (on, slot) in [
+                (l, &mut pr.ln_l),
+                (rr, &mut pr.ln_r),
+                (tt, &mut pr.ln_t),
+                (b, &mut pr.ln_b),
+            ] {
+                if on {
+                    *slot = Some(line.clone());
+                }
+            }
+        }
+    }
+}
+
 impl crate::Engine {
     /// Run a shape properties / table style command on the current slide.
     pub fn slide_props_command(&mut self, cmd: ShapePropsCommand) -> Result<SlideEditResult> {
@@ -363,6 +414,31 @@ impl crate::Engine {
                                 }
                             }
                         })
+                    });
+                }
+                ShapePropsCommand::SetTableBorders {
+                    which,
+                    color,
+                    width,
+                    dash,
+                } => {
+                    ed.table = None;
+                    ed.mutate(pres, &mut out, |tx, sel| {
+                        let fill = if which == "none" {
+                            bo_model::slide::Fill::None
+                        } else {
+                            let v = super::text::parse_hex(color.as_deref().unwrap_or("000000"))
+                                .ok_or(super::EditError::Refused("badColor"))?;
+                            bo_model::slide::Fill::Solid(bo_model::slide::Color::srgb(v))
+                        };
+                        let line = bo_model::slide::Line {
+                            // Points to EMU (12 700 per point), 0.25 to 6 pt.
+                            w: Some((width.clamp(0.25, 6.0) * 12_700.0).round() as i64),
+                            fill: Some(fill),
+                            dash: dash.clone().filter(|d| d != "solid"),
+                            ..Default::default()
+                        };
+                        edit_table(tx, sel, |t| set_borders(t, &which, &line))
                     });
                 }
             }
@@ -533,6 +609,32 @@ mod tests {
         assert!(styles
             .iter()
             .any(|s| s.id == bo_pptx::table_style::BUILTIN_IDS[2]));
+        let out = e
+            .slide_command_json(
+                r#"{"cmd":"setTableBorders","which":"outside","color":"FF0000","width":3}"#,
+            )
+            .expect("borders");
+        assert!(!out.contains("\"error\""), "{out}");
+        let pres = e.presentation().expect("deck");
+        let t = pres.slides[0]
+            .data
+            .shapes
+            .iter()
+            .find_map(|n| match n {
+                ShapeNode::Frame(f) => match &f.content {
+                    GraphicContent::Table(t) => Some(t.clone()),
+                    GraphicContent::Other(_) => None,
+                },
+                _ => None,
+            })
+            .expect("table");
+        let p0 = t.rows[0].cells[0].props.clone().expect("props");
+        assert_eq!(p0.ln_t.and_then(|l| l.w), Some(38_100));
+        assert!(p0.ln_l.is_some());
+        assert!(t.rows[1].cells[1]
+            .props
+            .as_ref()
+            .is_none_or(|p| p.ln_t.is_none()));
         let json = r#"{"cmd":"setTableStyle","style":4}"#;
         let out = e.slide_command_json(json).expect("json");
         assert!(!out.contains("\"error\""), "{out}");

@@ -155,10 +155,15 @@ pub(crate) struct SpellState {
     pub(crate) tones: ToneCounts,
 }
 
-/// Old / new tone placements of each block of each section.
+/// Blocks whose tone placements one spelling check counts at most (about 2 ms on a long
+/// Vietnamese document); the background sweep's checks count the rest.
+const TONE_BLOCKS_PER_CHECK: usize = 8;
+
+/// Old / new tone placements of each block of each section; `None` until counted (an
+/// edit only forgets the changed blocks, counted when spelling next needs the style).
 #[derive(Default)]
 pub(crate) struct ToneCounts {
-    blocks: Vec<Vec<(u32, u32)>>,
+    blocks: Vec<Vec<Option<(u32, u32)>>>,
 }
 
 impl ToneCounts {
@@ -166,6 +171,10 @@ impl ToneCounts {
         match b {
             bo_model::Block::Paragraph(p) => {
                 let text = bo_model::index::para_index(p).0;
+                // Tone marks are never ASCII.
+                if text.is_ascii() {
+                    return;
+                }
                 let styles = grammar::tone_styles(&text);
                 if styles.is_empty() {
                     return;
@@ -212,13 +221,11 @@ impl ToneCounts {
             self.blocks = doc
                 .sections
                 .iter()
-                .map(|s| s.blocks.iter().map(|b| Self::count(doc, b)).collect())
+                .map(|s| vec![None; s.blocks.len()])
                 .collect();
         } else {
             for c in changes.sections() {
-                let new = doc.sections[c.section].blocks[c.start..c.end]
-                    .iter()
-                    .map(|b| Self::count(doc, b));
+                let new = std::iter::repeat_n(None, c.end.saturating_sub(c.start));
                 let v = &mut self.blocks[c.section];
                 let e = c.old_end().min(v.len());
                 v.splice(c.start.min(e)..e, new);
@@ -226,13 +233,25 @@ impl ToneCounts {
         }
     }
 
-    /// The placement most used (`None` when no word shows one).
-    fn style(&self) -> Option<ToneStyle> {
-        let (old, new) = self
-            .blocks
-            .iter()
-            .flatten()
-            .fold((0u32, 0u32), |a, b| (a.0 + b.0, a.1 + b.1));
+    /// The placement most used in `doc` (`None` when no word shows one); blocks not
+    /// counted since they changed are counted now.
+    /// At most [`TONE_BLOCKS_PER_CHECK`] blocks are counted per call so a check never
+    /// stalls typing; until all are counted the majority is that of the blocks counted.
+    fn style(&mut self, doc: &Document) -> Option<ToneStyle> {
+        let (mut old, mut new) = (0u32, 0u32);
+        let mut budget = TONE_BLOCKS_PER_CHECK;
+        for (s, counts) in doc.sections.iter().zip(&mut self.blocks) {
+            for (b, c) in s.blocks.iter().zip(counts.iter_mut()) {
+                if c.is_none() && budget > 0 {
+                    budget -= 1;
+                    *c = Some(Self::count(doc, b));
+                }
+                if let Some((o, n)) = *c {
+                    old += o;
+                    new += n;
+                }
+            }
+        }
         match (old, new) {
             (0, 0) => None,
             _ if old > new => Some(ToneStyle::Old),
@@ -465,7 +484,8 @@ impl Engine {
 
     /// The document's tone style (majority of the counts kept per block).
     fn document_tone_style(&mut self) -> Option<ToneStyle> {
-        self.spell.tones.style()
+        let s = self.session.as_ref()?;
+        self.spell.tones.style(s.doc())
     }
 
     /// Marks of the misspelt words on `pages` (all pages when `None`). Only the paragraphs

@@ -80,6 +80,8 @@ pub struct DocWindow {
     /// Ticks the pointer has rested on the hovered control, and the tooltip shown.
     rest: u32,
     tooltip: Option<(String, f32, [f32; 4])>,
+    /// The tooltip laid out with its description (title, wrapped lines).
+    tip: Option<crate::doc_tips::Tip>,
     /// Quick styles of the gallery.
     styles: Vec<bo_engine::gallery::StyleEntry>,
     /// Status bar zoom controls: minus, slider track, plus, percentage.
@@ -231,7 +233,8 @@ impl DocWindow {
             requests: Vec::new(),
             ribbon: Ribbon::new()
                 .with_labeled_widths(crate::doc_table::labeled_w)
-                .with_large_widths(crate::doc_table::large_w),
+                .with_large_widths(crate::doc_table::large_w)
+                .with_trailing(crate::doc_table::trailing),
             theme: Theme::light("doc"),
             icons,
             strings,
@@ -241,6 +244,7 @@ impl DocWindow {
             menu: None,
             rest: 0,
             tooltip: None,
+            tip: None,
             styles: Vec::new(),
             zoom_rects: [[0.0; 4]; 4],
             view_rects: [[0.0; 4]; 3],
@@ -1810,6 +1814,13 @@ impl DocWindow {
                     return true;
                 }
             }
+            // While typing rests, the rest of the document a few milliseconds per tick
+            // (the status bar's proofing icon covers the whole document).
+            Input::Tick if self.view.sweeping() => {
+                if self.view.spell_sweep(std::time::Duration::from_millis(3)) {
+                    return true;
+                }
+            }
             _ => {}
         }
         if let Some(sp) = self.spell_pane.as_mut() {
@@ -2285,6 +2296,13 @@ impl DocWindow {
             bold: false,
         };
         let (w, _) = text.measure(&label, style);
+        let desc = crate::doc_tips::description(&self.strings, id);
+        self.tip = Some(crate::doc_tips::layout(
+            &label,
+            desc.as_deref(),
+            text,
+            self.scale,
+        ));
         self.tooltip = Some((label, w, anchor));
         true
     }
@@ -2338,6 +2356,19 @@ impl DocWindow {
                 &self.styles,
                 &on,
             );
+            if let Some((first, odd_even, _)) = self.story_options() {
+                crate::doc_table::paint_checks(
+                    p,
+                    &self.ribbon,
+                    &[
+                        (crate::doc_table::HF_CHECKS[0], first),
+                        (crate::doc_table::HF_CHECKS[1], odd_even),
+                    ],
+                    &self.theme,
+                    &self.strings,
+                    self.scale,
+                );
+            }
             if self.context.table {
                 crate::doc_table::paint(
                     p,
@@ -2439,7 +2470,12 @@ impl DocWindow {
         if let Some(menu) = &self.menu {
             menu.paint(p, &self.theme, &self.icons);
         } else if let Some((label, tw, anchor)) = &self.tooltip {
-            paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale);
+            match &self.tip {
+                Some(tip) if tip.title == *label => {
+                    crate::doc_tips::paint(p, &self.theme, tip, *anchor, w, self.scale);
+                }
+                _ => paint_tooltip(p, &self.theme, label, *tw, *anchor, w, self.scale),
+            }
         }
         if let Some(b) = &self.backstage {
             b.paint(
@@ -2538,7 +2574,7 @@ impl DocWindow {
                 Some((ink, lw)),
             );
             let (mx, my) = (bx + 12.0 * u, by + 9.0 * u);
-            if self.view.proofing_issues() > 0 {
+            if self.view.document_has_issues() {
                 let k = 3.0 * u;
                 p.path(
                     &[
@@ -2567,9 +2603,15 @@ impl DocWindow {
         // shows its default, English (United States), there).
         {
             let lang = self.view.format().lang.as_deref().unwrap_or("en-US");
+            // The status bar's long names ("English (United States)" as on the reference),
+            // else the proofing language names.
+            let long = format!("statusLang.{lang}");
             let key = format!("spell.lang.{lang}");
-            let name = self.strings.get(&key);
-            let shown = if name == key { lang } else { name };
+            let shown = [&long, &key]
+                .into_iter()
+                .map(|k| (k, self.strings.get(k)))
+                .find(|(k, v)| *v != k.as_str())
+                .map_or(lang, |(_, v)| v);
             p.text(shown, lang_x, ty, style, self.theme.text);
         }
         let zoom = self.strings.fmt(

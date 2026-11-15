@@ -3041,8 +3041,7 @@ impl Session {
 
     /// Index text of a body paragraph.
     pub fn para_text(&self, id: usize) -> Option<String> {
-        let paths = body_paragraphs(&self.doc);
-        para_at(&self.doc, paths.get(id)?).map(bo_model::index::para_index_text)
+        bo_model::index::para_by_id(&self.doc, id).map(bo_model::index::para_index_text)
     }
 
     fn edit(

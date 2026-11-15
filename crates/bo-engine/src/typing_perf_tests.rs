@@ -37,6 +37,19 @@ fn typing_cost() {
     time("insert text (whole command)", n, || {
         e.command(Command::InsertText { text: "a".into() }).unwrap();
     });
+    time("session insert", n, || {
+        e.session.as_mut().unwrap().insert_text("b").unwrap();
+    });
+    time("insert + relayout", n, || {
+        e.session.as_mut().unwrap().insert_text("c").unwrap();
+        drop(e.relayout());
+    });
+    time("insert + relayout + result", n, || {
+        e.session.as_mut().unwrap().insert_text("d").unwrap();
+        let dirty = e.relayout().unwrap();
+        drop(e.edit_result(dirty, (None, None, None), None));
+    });
+    time("collab after edit", n, || drop(e.collab_after_edit()));
     let s = e.session.as_ref().unwrap();
     time("revisions", n, || drop(s.revisions()));
     time("comments", n, || drop(s.comments()));
@@ -50,7 +63,9 @@ fn typing_cost() {
     });
     time("field at", n, || drop(s.field_at()));
     time("form field info", n, || drop(s.form_field_info()));
-    time("picked format", n, || drop(s.picked_format().is_some()));
+    time("picked format", n, || {
+        let _ = s.picked_format().is_some();
+    });
     let layout = e.layout.document();
     let sel = s.selection();
     time("caret rect", n, || {

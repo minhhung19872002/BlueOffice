@@ -94,6 +94,9 @@ pub(crate) const ALIGN: [(&str, &str, &str, &str); 9] = [
     ),
 ];
 
+/// Header & Footer options drawn as check boxes.
+pub(crate) const HF_CHECKS: [&str; 2] = ["hf.differentFirst", "hf.differentOddEven"];
+
 /// Select menu entries.
 pub(crate) const SELECT: [(&str, &str); 4] = [
     ("table.select.cell", "docTable.selectCell"),
@@ -105,10 +108,21 @@ pub(crate) const SELECT: [(&str, &str); 4] = [
 /// Width (logical px) of the check box items, measured on the reference at 125 %: the
 /// first column 138 px ("Banded Rows" with its box), the second 162 px ("Banded Columns").
 pub(crate) fn labeled_w(id: &str) -> Option<f32> {
+    // Header & Footer options are check boxes too (reference: 224 px at 125 % for
+    // "Different Odd & Even Pages").
+    if HF_CHECKS.contains(&id) {
+        return Some(180.0);
+    }
     match OPTIONS.iter().position(|(o, _)| *o == id)? {
         i if i % 2 == 0 => Some(110.0),
         _ => Some(130.0),
     }
+}
+
+/// Large buttons placed after their group's rows: Text Direction follows the nine
+/// alignment buttons, as on the reference.
+pub(crate) fn trailing(id: &str) -> bool {
+    id == "table.textDirection"
 }
 
 /// Width (logical px) of a gallery tile (the reference's step 108 px at 125 %).
@@ -222,7 +236,22 @@ pub(crate) fn install_strings(s: &mut Strings) {
                 ])
                 .map(|((id, _), k)| (*id, k)),
         )
-        .chain([("table.select", "docTable.select")]);
+        .chain([
+            ("table.select", "docTable.select"),
+            // Title Case labels as on the reference's Table Layout tab.
+            ("table.insertRowAbove", "docTable.insertRowAbove"),
+            ("table.insertRowBelow", "docTable.insertRowBelow"),
+            ("table.insertColumnLeft", "docTable.insertColumnLeft"),
+            ("table.insertColumnRight", "docTable.insertColumnRight"),
+            ("table.mergeCells", "docTable.mergeCells"),
+            ("table.splitCell", "docTable.splitCells"),
+            ("table.distributeRows", "docTable.distributeRows"),
+            ("table.distributeColumns", "docTable.distributeColumns"),
+            ("table.textDirection", "docTable.textDirection"),
+            ("table.data", "docTable.data"),
+            ("table.headerRow", "docTable.repeatHeaderRows"),
+            ("table.toText", "docTable.convertToText"),
+        ]);
     for (id, key) in pairs {
         let v = s.get(key).to_owned();
         if v != key {
@@ -234,6 +263,8 @@ pub(crate) fn install_strings(s: &mut Strings) {
         ("ribbon.groups.tableStyles", "docTable.tableStyles"),
         ("ribbon.groups.table", "docTable.table"),
         ("ribbon.groups.cellAlignment", "docTable.alignment"),
+        ("ribbon.groups.rowsColumns", "docTable.rowsColumns"),
+        ("ribbon.groups.cellSize", "docTable.cellSize"),
     ] {
         let v = s.get(key).to_owned();
         if v != key {
@@ -297,19 +328,39 @@ pub(crate) fn paint(
     strings: &Strings,
     scale: f32,
 ) {
+    let checks: Vec<(&'static str, bool)> = OPTIONS
+        .iter()
+        .map(|(id, _)| (*id, look.option(id)))
+        .collect();
+    paint_checks(p, ribbon, &checks, t, strings, scale);
+    paint_gallery(p, ribbon, look, t, scale);
+}
+
+/// Draw check boxes (ticked or not) with their labels over the ribbon placeholders of
+/// `items`, in the reference's style (box 13 px at 100 %, label after a 5 px gap).
+pub(crate) fn paint_checks(
+    p: &mut dyn Painter,
+    ribbon: &Ribbon,
+    items: &[(&'static str, bool)],
+    t: &Theme,
+    strings: &Strings,
+    scale: f32,
+) {
     let px = |v: f32| (v * scale).round();
     let hovered = ribbon.hovered();
-    for (id, _) in OPTIONS {
+    for &(id, on) in items {
         let Some(r) = ribbon.rect_of(RibbonHit::Command(id)) else {
             continue;
         };
+        // Cover what the ribbon drew for the placeholder (toggled fill).
+        p.fill_rect(r[0], r[1], r[2], r[3], t.ribbon);
         if hovered == Some(RibbonHit::Command(id)) {
             p.fill_rect(r[0], r[1], r[2], r[3], t.hover);
         }
         let b = px(13.0);
         let bx = (r[0] + px(4.0)).round();
         let by = (r[1] + (r[3] - b) / 2.0).round();
-        crate::spin_box::paint_check(p, [bx, by, b, b], look.option(id), true, t.text);
+        crate::spin_box::paint_check(p, [bx, by, b, b], on, true, t.text);
         let style = TextStyle {
             size: px(12.0),
             bold: false,
@@ -322,7 +373,6 @@ pub(crate) fn paint(
             t.text,
         );
     }
-    paint_gallery(p, ribbon, look, t, scale);
 }
 
 fn hex(s: &str) -> Rgba {

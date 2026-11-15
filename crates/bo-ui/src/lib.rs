@@ -11,6 +11,7 @@ mod catalog;
 mod commands;
 mod dialog;
 mod doc_table;
+mod doc_tips;
 mod doc_tools;
 mod doc_view;
 mod icons;

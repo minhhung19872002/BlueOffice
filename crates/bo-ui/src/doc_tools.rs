@@ -18,8 +18,9 @@ pub(crate) const HEADER_FOOTER: &str = "ribbon.tabs.headerFooter";
 pub(crate) const PICTURE_FORMAT: &str = "ribbon.tabs.pictureFormat";
 
 /// Menu buttons of the contextual tabs.
-const MENUS: [&str; 10] = [
+const MENUS: [&str; 11] = [
     "table.select",
+    "table.data",
     "review.markupMode",
     "review.showMarkup",
     "review.acceptMenu",
@@ -150,10 +151,11 @@ fn table_layout_tab() -> Tab {
                     vec![a(6), a(7), a(8)],
                 ],
             },
+            // One Data menu, as on the reference.
             Group {
                 label: "ribbon.groups.tableData",
-                large: vec![],
-                rows: vec![vec![S("table.headerRow")], vec![S("table.toText")]],
+                large: vec![L("table.data")],
+                rows: vec![],
             },
         ],
     }
@@ -234,6 +236,10 @@ pub(crate) fn menu(id: &str) -> Vec<Entry> {
             e("table.bordersOutside", "commands.table.bordersOutside"),
             e("table.bordersInside", "commands.table.bordersInside"),
             e("table.bordersNone", "commands.table.bordersNone"),
+        ],
+        "table.data" => vec![
+            e("table.headerRow", "docTable.repeatHeaderRows"),
+            e("table.toText", "docTable.convertToText"),
         ],
         "table.select" => crate::doc_table::SELECT
             .iter()
@@ -523,6 +529,7 @@ pub(crate) fn install_icons(icons: &mut Icons) {
         ("table.distributeColumns", "table.insertColumnRight"),
         ("table.textDirection", "format.wrap"),
         ("table.toText", "table.split"),
+        ("table.data", "data.sortAsc"),
         ("hf.gotoHeader", "insert.header"),
         ("hf.gotoFooter", "insert.footer"),
         ("hf.linkToPrevious", "insert.link"),

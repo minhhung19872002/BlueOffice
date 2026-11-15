@@ -40,6 +40,22 @@ impl Painter for Calls {
     fn pop_clip(&mut self) {}
 }
 
+/// A page store that keeps nothing (the cost of preparing pages without drawing them).
+struct NoStore;
+impl crate::PageStore for NoStore {
+    fn update(
+        &mut self,
+        _: usize,
+        _: &bo_render::PageList,
+        _: &Engine,
+        _: f32,
+        _: Option<[u32; 4]>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn remove(&mut self, _: usize) {}
+}
+
 fn sample(path: &str) -> DocWindow {
     let mut engine = Engine::with_bundled_fonts();
     let bytes = std::fs::read(path).unwrap();
@@ -113,6 +129,107 @@ fn typing_reuses_the_ribbon_and_status_layers() {
     assert!(p.drawn.contains(&0));
 }
 
+/// Only the pages in view are checked as the view settles; a misspelt word far below is
+/// found by the background sweep, a few milliseconds per tick, and shows in the status
+/// bar's proofing state.
+#[test]
+fn background_sweep_finds_issues_far_from_the_view() {
+    let mut text: Vec<String> = (0..400)
+        .map(|i| format!("Đoạn văn số {i} có nội dung đúng chính tả và khá dài để lấp trang."))
+        .collect();
+    text.push("Lỗi ở cuối: documnet.".into());
+    let mut engine = Engine::with_bundled_fonts();
+    engine
+        .load(
+            bo_engine::plain_text_document(&text.join("\n")),
+            "long.docx",
+        )
+        .unwrap();
+    let mut w = DocWindow::new(DocView::new(engine).unwrap(), "en-US", "long.docx");
+    let m = Counting::default();
+    w.handle(Input::Scale(1.0), &m);
+    w.handle(
+        Input::Resize {
+            width: 1200.0,
+            height: 800.0,
+        },
+        &m,
+    );
+    assert!(w.view.page_count() > 8, "{} pages", w.view.page_count());
+    w.view.refresh_spelling();
+    assert_eq!(w.view.proofing_issues(), 0, "nothing wrong in view");
+    assert!(!w.view.document_has_issues());
+    let mut ticks = 0;
+    while w.view.sweeping() {
+        w.handle(Input::Tick, &m);
+        ticks += 1;
+        assert!(ticks < 1000);
+    }
+    assert!(
+        w.view.document_has_issues(),
+        "the last page's mistake is known"
+    );
+    assert_eq!(
+        w.view.proofing_issues(),
+        0,
+        "the view still shows its own pages"
+    );
+}
+
+/// A misspelt word typed on page 250 of `BO_PERF_DOC` (a 300-page document) is found by
+/// the background sweep while the view is back on page 1; prints the sweep's cost.
+#[test]
+#[ignore = "needs BO_PERF_DOC, run by hand"]
+fn sweep_finds_a_mistake_on_page_250() {
+    let Ok(path) = std::env::var("BO_PERF_DOC") else {
+        return;
+    };
+    let mut w = sample(&path);
+    let m = Counting::default();
+    w.view.show_page(249);
+    let (x, y) = (700.0, 500.0);
+    w.handle(
+        Input::Press {
+            x,
+            y,
+            count: 1,
+            shift: false,
+        },
+        &m,
+    );
+    w.handle(Input::Release { x, y }, &m);
+    let page = w.view.current_page();
+    w.handle(Input::Text(" documnet ".into()), &m);
+    w.view.show_page(0);
+    w.view.refresh_spelling();
+    println!(
+        "typed on page {}; issues in view: {}",
+        page + 1,
+        w.view.proofing_issues()
+    );
+    let (mut steps, mut longest) = (0, 0.0f64);
+    let t = std::time::Instant::now();
+    while w.view.sweeping() {
+        let s = std::time::Instant::now();
+        w.view.spell_sweep(std::time::Duration::from_millis(3));
+        longest = longest.max(s.elapsed().as_secs_f64() * 1e3);
+        steps += 1;
+    }
+    println!(
+        "sweep: {steps} steps, {:.0} ms in all, longest {longest:.2} ms; document has issues: {}",
+        t.elapsed().as_secs_f64() * 1e3,
+        w.view.document_has_issues()
+    );
+    assert!(w.view.document_has_issues());
+    // Typing again restarts the sweep; the next one is cheaper (cached paragraphs).
+    w.handle(Input::Text("x".into()), &m);
+    let t = std::time::Instant::now();
+    while w.view.sweeping() {
+        w.view.spell_sweep(std::time::Duration::from_millis(3));
+    }
+    println!("second sweep: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
+}
+
 /// Time typing `n` characters as the host does (handle, refresh, paint); prints a
 /// breakdown. `cargo test -p bo-ui --release keystroke_cost -- --ignored --nocapture`
 /// (`BO_PERF_DOC` picks another document).
@@ -128,6 +245,17 @@ fn keystroke_cost() {
     });
     let mut w = sample(&path);
     let m = Counting::default();
+    // Caret where the typing script clicks (client 600, 612).
+    w.handle(
+        Input::Press {
+            x: 600.0,
+            y: 612.0,
+            count: 1,
+            shift: false,
+        },
+        &m,
+    );
+    w.handle(Input::Release { x: 600.0, y: 612.0 }, &m);
     // Spelling marks present, as after the idle check.
     let t = std::time::Instant::now();
     w.view.refresh_spelling();
@@ -136,8 +264,8 @@ fn keystroke_cost() {
         t.elapsed().as_secs_f64() * 1e3,
         w.view.proofing_issues()
     );
-    let n = 200;
-    let (mut handle, mut refresh, mut paint) = (0.0, 0.0, 0.0);
+    let n: u32 = 200;
+    let (mut handle, mut refresh, mut paint, mut prepare) = (0.0, 0.0, 0.0, 0.0);
     let mut calls = Calls::default();
     for i in 0..n {
         let c = if i % 7 == 6 { " " } else { "a" };
@@ -146,14 +274,21 @@ fn keystroke_cost() {
         let t1 = std::time::Instant::now();
         w.refresh(&m);
         let t2 = std::time::Instant::now();
+        w.prepare(&mut NoStore).unwrap();
+        let t2b = std::time::Instant::now();
         let mut p = Calls::default();
         w.paint(&mut p);
         let t3 = std::time::Instant::now();
         handle += (t1 - t).as_secs_f64();
         refresh += (t2 - t1).as_secs_f64();
-        paint += (t3 - t2).as_secs_f64();
+        prepare += (t2b - t2).as_secs_f64();
+        paint += (t3 - t2b).as_secs_f64();
         calls = p;
     }
+    println!(
+        "prepare (pages without drawing): {:.3} ms",
+        prepare * 1e3 / f64::from(n)
+    );
     // The idle spelling check after typing (only the edited paragraph is new).
     let t = std::time::Instant::now();
     w.view.refresh_spelling();
@@ -162,6 +297,20 @@ fn keystroke_cost() {
     w.view.refresh_spelling();
     let again = t.elapsed().as_secs_f64() * 1e3;
     println!("idle spelling check: {idle:.2} ms after typing, {again:.2} ms unchanged");
+    // Background sweep of the whole document: longest step (what a key can wait for).
+    let (mut steps, mut longest) = (0, 0.0f64);
+    let t = std::time::Instant::now();
+    while w.view.sweeping() {
+        let s = std::time::Instant::now();
+        w.view.spell_sweep(std::time::Duration::from_millis(3));
+        longest = longest.max(s.elapsed().as_secs_f64() * 1e3);
+        steps += 1;
+    }
+    println!(
+        "sweep: {steps} steps, {:.0} ms in all, longest {longest:.2} ms, issues {}",
+        t.elapsed().as_secs_f64() * 1e3,
+        w.view.document_has_issues()
+    );
     let ms = |v: f64| v * 1e3 / f64::from(n);
     println!(
         "per key: handle {:.3} ms, refresh {:.3} ms, paint {:.3} ms; measures {}, rects {}, texts {}, paths {}",

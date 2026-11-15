@@ -71,6 +71,13 @@ fn wavy(p: &mut dyn Painter, x: f32, y: f32, w: f32, scale: f32, color: Rgba) {
     p.path(&segs, None, Some((color, scale.max(1.0))));
 }
 
+/// Background spelling sweep: next page to check and the pages found with issues.
+#[derive(Debug, Default)]
+struct Sweep {
+    next: usize,
+    found: std::collections::BTreeSet<usize>,
+}
+
 /// The editing view of one document.
 pub struct DocView {
     engine: Engine,
@@ -109,6 +116,8 @@ pub struct DocView {
     spell: Vec<bo_engine::spell::SpellMark>,
     /// Pages the marks were checked on (those in view and one either side).
     spell_pages: Vec<usize>,
+    /// The rest of the document checked in the background, a few pages at a time.
+    sweep: Sweep,
     /// How tracked changes and comments are shown.
     markup: bo_engine::markup::MarkupOptions,
 }
@@ -144,6 +153,7 @@ impl DocView {
             highlights: Vec::new(),
             spell: Vec::new(),
             spell_pages: Vec::new(),
+            sweep: Sweep::default(),
             markup: bo_engine::markup::MarkupOptions::default(),
         };
         view.apply(&state);
@@ -442,6 +452,48 @@ impl DocView {
                 .collect(),
             _ => Vec::new(),
         }
+    }
+
+    /// Check the next pages of the background sweep for at most `budget` (a few
+    /// milliseconds between keys); `true` when whether the document has issues changed
+    /// (the status bar's proofing icon). The sweep starts again after an edit; its results
+    /// also warm the engine's cache for the proofing pane (F7).
+    pub fn spell_sweep(&mut self, budget: std::time::Duration) -> bool {
+        if self.sweep.next >= self.pages.len() {
+            return false;
+        }
+        let before = self.document_has_issues();
+        let start = std::time::Instant::now();
+        while self.sweep.next < self.pages.len() && start.elapsed() < budget {
+            let page = self.sweep.next;
+            let marks = self
+                .engine
+                .command(Command::Spelling {
+                    pages: Some(vec![page]),
+                })
+                .ok()
+                .and_then(|r| r.spelling)
+                .unwrap_or_default();
+            if marks.is_empty() {
+                self.sweep.found.remove(&page);
+            } else {
+                self.sweep.found.insert(page);
+            }
+            self.sweep.next += 1;
+        }
+        self.sweep.found.retain(|p| *p < self.pages.len());
+        before != self.document_has_issues()
+    }
+
+    /// Whether the background sweep has pages left to check.
+    pub fn sweeping(&self) -> bool {
+        self.sweep.next < self.pages.len()
+    }
+
+    /// Some page has a misspelt word or grammar issue: those in view, else the pages the
+    /// background sweep found.
+    pub fn document_has_issues(&self) -> bool {
+        !self.spell.is_empty() || !self.sweep.found.is_empty()
     }
 
     /// Some page in view was not checked yet (after scrolling).
@@ -920,6 +972,11 @@ impl DocView {
             self.clamp_scroll();
         }
         self.stale.extend(r.dirty.iter().copied());
+        // The document changed: check every page again in the background (the cache
+        // keeps unchanged paragraphs cheap); pages found so far stay until re-checked.
+        if !r.dirty.is_empty() {
+            self.sweep.next = 0;
+        }
         // Glide the caret from where it is shown now, like desktop word processors do while
         // typing; long moves (another line far away, other page) jump.
         let shown = self.caret_shown();

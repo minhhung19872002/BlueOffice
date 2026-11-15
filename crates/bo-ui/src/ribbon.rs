@@ -184,6 +184,15 @@ pub struct Ribbon {
     band_extra: f32,
     /// Fixed width (logical px) of some large buttons (gallery-like tiles), by command id.
     large_w: fn(&str) -> Option<f32>,
+    /// Fixed width (logical px) of some labeled items (BlueSheet's number format box).
+    labeled_w: fn(&str) -> Option<f32>,
+    /// Large buttons placed after the group's rows instead of before them.
+    trailing: fn(&str) -> bool,
+    /// Large button labels with a space break into two lines (BlueSheet), measured lines
+    /// by command id.
+    two_line: bool,
+    #[allow(clippy::type_complexity)]
+    large_lines: std::cell::RefCell<std::collections::HashMap<&'static str, [(String, f32); 2]>>,
     /// Whether a command can run now (BlueSheet / BlueSlide pass their own rule).
     enabled: fn(&str, &FormatState) -> bool,
 }
@@ -520,7 +529,92 @@ impl Ribbon {
             label_row: 0.0,
             band_extra: 0.0,
             large_w: |_| None,
+            labeled_w: |_| None,
+            trailing: |_| false,
+            two_line: false,
+            large_lines: std::cell::RefCell::new(std::collections::HashMap::new()),
             enabled: commands::enabled,
+        }
+    }
+
+    /// Give some labeled items a fixed width (logical px).
+    pub(crate) fn with_labeled_widths(mut self, rule: fn(&str) -> Option<f32>) -> Self {
+        self.labeled_w = rule;
+        self
+    }
+
+    /// Change the fixed widths of labeled items.
+    pub(crate) fn set_labeled_widths(&mut self, rule: fn(&str) -> Option<f32>) {
+        self.labeled_w = rule;
+    }
+
+    /// Place the large buttons `rule` picks after the group's rows.
+    pub(crate) fn with_trailing(mut self, rule: fn(&str) -> bool) -> Self {
+        self.trailing = rule;
+        self
+    }
+
+    /// Break large button labels into two lines where the reference ribbon does.
+    pub(crate) fn with_two_line_labels(mut self) -> Self {
+        self.two_line = true;
+        self
+    }
+
+    /// Replace the tabs (a narrower or wider arrangement of the same commands); the active
+    /// tab stays.
+    pub(crate) fn set_tabs(&mut self, tabs: Vec<Tab>) {
+        self.active = self.active.min(tabs.len().saturating_sub(1));
+        self.tabs = tabs;
+    }
+
+    /// Whether the active tab's groups need scrolling at the current width.
+    pub(crate) fn overflows(&self) -> bool {
+        self.scroll_max > 0.0
+    }
+
+    /// Width of large button `id`'s label: one line, or the wider of two lines when labels
+    /// break (the split that makes the wider line narrowest; the drop-down mark ends the
+    /// second line).
+    fn measure_large_label(
+        &self,
+        text: &dyn TextMeasure,
+        strings: &Strings,
+        id: &'static str,
+    ) -> f32 {
+        let one = self.measure_label(text, strings, id);
+        let label = strings.get(&format!("commands.{id}")).to_owned();
+        if !self.two_line || !label.contains(' ') {
+            self.large_lines.borrow_mut().remove(id);
+            return one;
+        }
+        let style = TextStyle {
+            size: self.px(12.0),
+            bold: false,
+        };
+        let mark = if crate::catalog::is_menu(id) {
+            " \u{25BE}"
+        } else {
+            ""
+        };
+        let mut best: Option<[(String, f32); 2]> = None;
+        for (i, _) in label.match_indices(' ') {
+            let (a, b) = (label[..i].to_owned(), format!("{}{mark}", &label[i + 1..]));
+            let (wa, wb) = (text.measure(&a, style).0, text.measure(&b, style).0);
+            if best
+                .as_ref()
+                .is_none_or(|[x, y]| wa.max(wb) <= x.1.max(y.1))
+            {
+                best = Some([(a, wa), (b, wb)]);
+            }
+        }
+        match best {
+            Some(lines) => {
+                let w = lines[0].1.max(lines[1].1);
+                self.large_lines.borrow_mut().insert(id, lines);
+                self.label_w.borrow_mut().insert(id, w);
+                w
+            }
+            None => one,
         }
     }
 
@@ -689,7 +783,8 @@ impl Ribbon {
             for g in &self.tabs[self.active].groups {
                 let mut group_w: f32 = 0.0;
                 let mut lx = gx + self.px(4.0);
-                for item in &g.large {
+                let trailing = |item: &Item| matches!(item, Item::Large(id) if (self.trailing)(id));
+                for item in g.large.iter().filter(|i| !trailing(i)) {
                     if *item == Item::Gallery {
                         {
                             let (tw, more) = (self.px(78.0), self.px(20.0));
@@ -717,7 +812,7 @@ impl Ribbon {
                                 Item::Large(id) => *id,
                                 _ => "",
                             };
-                            let lw = self.measure_label(text, strings, id);
+                            let lw = self.measure_large_label(text, strings, id);
                             let w = match (self.large_w)(id) {
                                 Some(fixed) => self.px(fixed),
                                 None => self.px(52.0).max(lw + self.px(14.0)),
@@ -755,15 +850,41 @@ impl Ribbon {
                             Item::FontBox => self.px(150.0),
                             Item::SizeBox => self.px(52.0),
                             Item::Button(id) if crate::catalog::is_menu(id) => self.px(36.0),
-                            Item::Labeled(id) => {
-                                btn + self.measure_label(text, strings, id) + self.px(8.0)
-                            }
+                            Item::Labeled(id) => match (self.labeled_w)(id) {
+                                Some(fixed) => self.px(fixed),
+                                None => btn + self.measure_label(text, strings, id) + self.px(8.0),
+                            },
                             _ => btn,
                         };
                         placed.push(Placed::Item(*item, Rect { x, y, w, h: row_h }));
                         x += w + gap;
                     }
                     group_w = group_w.max(x - gap - gx + self.px(4.0));
+                }
+                // Large buttons after the rows (BlueSheet's Sort & Filter, Find & Select).
+                let mut tx = if g.rows.is_empty() {
+                    lx
+                } else {
+                    gx + group_w - self.px(4.0) + gap
+                };
+                for item in g.large.iter().filter(|i| trailing(i)) {
+                    let Item::Large(id) = *item else { continue };
+                    let lw = self.measure_large_label(text, strings, id);
+                    let w = match (self.large_w)(id) {
+                        Some(fixed) => self.px(fixed),
+                        None => self.px(52.0).max(lw + self.px(14.0)),
+                    };
+                    placed.push(Placed::Item(
+                        *item,
+                        Rect {
+                            x: tx,
+                            y: content_top,
+                            w,
+                            h: content_h,
+                        },
+                    ));
+                    tx += w + gap;
+                    group_w = group_w.max(tx - gap - gx + self.px(4.0));
                 }
                 let label = strings.get(g.label);
                 let (lw, _) = text.measure(
@@ -1462,13 +1583,26 @@ impl Ribbon {
                         bold: false,
                     };
                     let w = self.label_w.borrow().get(id).copied().unwrap_or(0.0);
-                    p.text(
-                        &label,
-                        (r.x + (r.w - w) / 2.0).round(),
-                        r.y + self.px(40.0),
-                        style,
-                        t.text,
-                    );
+                    if let Some(lines) = self.large_lines.borrow().get(id) {
+                        // Two lines 19.2 pt apart, each centred (measured on the reference).
+                        for (i, (line, lw)) in lines.iter().enumerate() {
+                            p.text(
+                                line,
+                                (r.x + (r.w - lw) / 2.0).round(),
+                                r.y + self.px(40.0) + i as f32 * self.px(19.2),
+                                style,
+                                t.text,
+                            );
+                        }
+                    } else {
+                        p.text(
+                            &label,
+                            (r.x + (r.w - w) / 2.0).round(),
+                            r.y + self.px(40.0),
+                            style,
+                            t.text,
+                        );
+                    }
                 }
                 Placed::Tile(i, r) => {
                     let Some(st) = styles.get(*i) else { continue };
@@ -1551,6 +1685,8 @@ impl Ribbon {
                         Some((t.text, self.scale.max(1.0))),
                     );
                 }
+                // A fixed-width labeled item is a placeholder the window draws over.
+                Placed::Item(Item::Labeled(id), _) if (self.labeled_w)(id).is_some() => {}
                 Placed::Item(Item::Labeled(id), r) => {
                     let hit = RibbonHit::Command(id);
                     let enabled = (self.enabled)(id, format);

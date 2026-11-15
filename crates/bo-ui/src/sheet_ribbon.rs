@@ -330,6 +330,51 @@ pub(crate) fn menu(id: &str, functions: &[String]) -> Vec<Entry> {
             e("chart.doughnut", "sheetMenu.chart.doughnut"),
         ],
 
+        "sheet.margins" => vec![
+            e("margins.normal", "sheetMenu.marginsNormal"),
+            e("margins.wide", "sheetMenu.marginsWide"),
+            e("margins.narrow", "sheetMenu.marginsNarrow"),
+        ],
+        "sheet.orientation" => vec![
+            e("orient.portrait", "sheetMenu.portrait"),
+            e("orient.landscape", "sheetMenu.landscape"),
+        ],
+        "sheet.size" => vec![
+            e("paper.1", "Letter"),
+            e("paper.5", "Legal"),
+            e("paper.8", "A3"),
+            e("paper.9", "A4"),
+            e("paper.11", "A5"),
+        ],
+        "sheet.printArea" => vec![
+            e("printArea.set", "sheetMenu.printAreaSet"),
+            e("printArea.clear", "sheetMenu.printAreaClear"),
+        ],
+        "sheet.breaks" => vec![
+            e("breaks.insert", "sheetMenu.breakInsert"),
+            e("breaks.remove", "sheetMenu.breakRemove"),
+            e("breaks.reset", "sheetMenu.breakReset"),
+        ],
+        "sheet.fitWidth" => vec![
+            e("fitw.0", "sheetMenu.fitAuto"),
+            e("fitw.1", "sheetMenu.fit1"),
+            e("fitw.2", "sheetMenu.fit2"),
+        ],
+        "sheet.fitHeight" => vec![
+            e("fith.0", "sheetMenu.fitAuto"),
+            e("fith.1", "sheetMenu.fit1"),
+            e("fith.2", "sheetMenu.fit2"),
+        ],
+        "sheet.printScale" => vec![
+            e("scale.100", "100%"),
+            e("scale.90", "90%"),
+            e("scale.75", "75%"),
+            e("scale.50", "50%"),
+        ],
+        "sheet.calcOptions" => vec![
+            e("calc.auto", "sheetMenu.calcAuto"),
+            e("calc.manual", "sheetMenu.calcManual"),
+        ],
         "sheet.freezePanes" => vec![
             e("freeze.panes", "sheetMenu.freeze.panes"),
             e("freeze.row", "sheetMenu.freeze.row"),
@@ -442,6 +487,63 @@ fn home() -> Tab {
     }
 }
 
+/// Home tab of a wide window (the reference at 1800 px and more): number format box 196 px
+/// over one row of number buttons, large style buttons, and Sort & Filter / Find & Select as
+/// large buttons after the editing icon column.
+fn home_wide() -> Tab {
+    use Item::{Button as B, Labeled as S, Large as L};
+    let mut t = home();
+    for g in &mut t.groups {
+        match g.label {
+            "sheetEditor.groupNumber" => {
+                g.rows = vec![
+                    vec![S("sheet.numberFormat")],
+                    vec![
+                        B("format.currency"),
+                        B("format.percent"),
+                        B("format.comma"),
+                        B("format.decimalInc"),
+                        B("format.decimalDec"),
+                    ],
+                ];
+            }
+            "sheetEditor.groupStyles" => {
+                g.large = vec![
+                    L("sheet.conditional"),
+                    L("sheet.formatTable"),
+                    L("sheet.cellStyles"),
+                ];
+                g.rows = Vec::new();
+            }
+            "sheetEditor.groupEditing" => {
+                g.large = vec![L("sheet.sortFilter"), L("sheet.findSelect")];
+                g.rows = vec![
+                    vec![B("sheet.autoSum")],
+                    vec![B("sheet.fill")],
+                    vec![B("sheet.clear")],
+                ];
+            }
+            _ => {}
+        }
+    }
+    t
+}
+
+/// Number format box width (logical px): 121 px at 125 % on a compact ribbon, 196 px on a
+/// wide one (measured).
+pub(crate) fn number_box_width(wide: bool) -> f32 {
+    if wide {
+        156.8
+    } else {
+        96.8
+    }
+}
+
+/// Large buttons placed after their group's rows.
+pub(crate) fn trailing(id: &str) -> bool {
+    matches!(id, "sheet.sortFilter" | "sheet.findSelect")
+}
+
 fn insert() -> Tab {
     use Item::{Labeled as S, Large as L};
     Tab {
@@ -488,8 +590,69 @@ fn formulas() -> Tab {
             },
             Group {
                 label: "sheetMenu.groupCalculation",
-                large: vec![],
+                large: vec![L("sheet.calcOptions")],
                 rows: vec![vec![S("sheet.calcNow")], vec![S("sheet.calcSheet")]],
+            },
+        ],
+    }
+}
+
+fn page_layout() -> Tab {
+    use Item::{Labeled as S, Large as L};
+    Tab {
+        label: "sheetMenu.tabPageLayout",
+        groups: vec![
+            Group {
+                label: "sheetMenu.groupPageSetup",
+                large: vec![
+                    L("sheet.margins"),
+                    L("sheet.orientation"),
+                    L("sheet.size"),
+                    L("sheet.printArea"),
+                    L("sheet.breaks"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetMenu.groupScaleFit",
+                large: vec![],
+                rows: vec![
+                    vec![S("sheet.fitWidth")],
+                    vec![S("sheet.fitHeight")],
+                    vec![S("sheet.printScale")],
+                ],
+            },
+            Group {
+                label: "sheetMenu.groupSheetOptions",
+                large: vec![],
+                rows: vec![
+                    vec![S("sheet.gridlines"), S("sheet.headings")],
+                    vec![S("sheet.printGridlines"), S("sheet.printHeadings")],
+                ],
+            },
+        ],
+    }
+}
+
+fn review() -> Tab {
+    use Item::Large as L;
+    Tab {
+        label: "ribbon.tabs.review",
+        groups: vec![
+            Group {
+                label: "sheetMenu.groupComments",
+                large: vec![
+                    L("sheet.newComment"),
+                    L("sheet.deleteComment"),
+                    L("sheet.prevComment"),
+                    L("sheet.nextComment"),
+                ],
+                rows: vec![],
+            },
+            Group {
+                label: "sheetMenu.groupProtect",
+                large: vec![L("sheet.protectSheet"), L("sheet.protectWorkbook")],
+                rows: vec![],
             },
         ],
     }
@@ -544,7 +707,22 @@ fn view() -> Tab {
 
 /// The ribbon tabs of BlueSheet.
 pub(crate) fn tabs() -> Vec<Tab> {
-    vec![home(), insert(), formulas(), data(), view()]
+    vec![
+        home(),
+        insert(),
+        page_layout(),
+        formulas(),
+        data(),
+        review(),
+        view(),
+    ]
+}
+
+/// The tabs of a wide window (Home with large buttons).
+pub(crate) fn tabs_wide() -> Vec<Tab> {
+    let mut t = tabs();
+    t[0] = home_wide();
+    t
 }
 
 /// Every command id on BlueSheet's tabs (enabled rule, label check).

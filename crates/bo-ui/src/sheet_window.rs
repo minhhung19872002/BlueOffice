@@ -11,6 +11,10 @@ use commands_impl::SheetDialog;
 
 #[path = "sheet_commands.rs"]
 mod commands_impl;
+#[path = "sheet_fbar.rs"]
+mod fbar_impl;
+#[path = "sheet_review.rs"]
+mod review_impl;
 use crate::strings::Strings;
 use crate::theme::Theme;
 use crate::titlebar::{NcHit, TitleBar};
@@ -27,6 +31,9 @@ const STATUS_BG: Rgba = Rgba(0xf3, 0xf3, 0xf3, 255);
 const STATUS_EDGE: Rgba = Rgba(0xc6, 0xc6, 0xc6, 255);
 const STATUS_TEXT: Rgba = Rgba(0x26, 0x26, 0x26, 255);
 const WHITE: Rgba = Rgba(255, 255, 255, 255);
+/// Corner mark of a cell with a comment: a red right triangle with 7 px legs inside the cell's
+/// top-right corner (measured).
+const COMMENT_MARK: Rgba = Rgba(0xff, 0x00, 0x00, 255);
 
 /// Fonts offered by the font box.
 const FONTS: [&str; 12] = [
@@ -208,6 +215,18 @@ pub struct SheetWindow {
     dialog: Option<(SheetDialog, Dialog)>,
     /// Formula bar shown (View tab).
     show_fbar: bool,
+    /// The ribbon shows the wide arrangement of the Home tab (it fits the window).
+    wide_ribbon: bool,
+    /// Lines of the formula bar's content box (1, or 3 when expanded).
+    fbar_lines: u32,
+    /// The name box while a reference or name is typed into it.
+    name_edit: Option<fbar_impl::NameEdit>,
+    /// Measured widths of name box text being typed.
+    name_widths: Vec<(String, f32)>,
+    /// Calculation: manual mode, and formulas waiting for F9 (the status bar says Calculate).
+    calc_state: (bool, bool),
+    /// Settings of the Text to Columns wizard's first step.
+    ttc_values: Vec<String>,
 }
 
 impl SheetWindow {
@@ -222,7 +241,14 @@ impl SheetWindow {
             },
             name: name.to_owned(),
             requests: Vec::new(),
-            ribbon: Ribbon::with_tabs(sheet_ribbon::tabs()).with_enabled(sheet_enabled),
+            ribbon: Ribbon::with_tabs(sheet_ribbon::tabs_wide())
+                .with_enabled(sheet_enabled)
+                .with_labeled_widths(|id| {
+                    (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
+                })
+                .with_trailing(sheet_ribbon::trailing)
+                .with_two_line_labels(),
+            wide_ribbon: true,
             theme: Theme::light("sheet"),
             icons: Icons::load(),
             strings: Strings::load(locale),
@@ -249,8 +275,14 @@ impl SheetWindow {
             functions: Vec::new(),
             dialog: None,
             show_fbar: true,
+            fbar_lines: 1,
+            name_edit: None,
+            name_widths: Vec::new(),
+            calc_state: (false, false),
+            ttc_values: Vec::new(),
         };
         w.load_functions();
+        w.refresh_calc_state();
         w
     }
 
@@ -303,7 +335,7 @@ impl SheetWindow {
     /// Formula bar band height (54 px at 125 %, boxes 30 px high, 12 px above and below).
     fn fbar_h(&self) -> f32 {
         if self.show_fbar {
-            self.px(43.2)
+            self.px(43.2) + self.fbar_extra()
         } else {
             0.0
         }
@@ -360,8 +392,28 @@ impl SheetWindow {
         self.title
             .layout(text, &self.strings, &self.name, self.size.0, self.scale);
         let top = self.title.height();
-        self.ribbon
-            .layout(text, &self.strings, self.size.0, self.scale, top);
+        // The wide Home arrangement when it fits, else the compact one (as the reference
+        // ribbon shrinks its groups with the window).
+        for wide in [true, false] {
+            if self.wide_ribbon != wide {
+                self.wide_ribbon = wide;
+                self.ribbon.set_tabs(if wide {
+                    sheet_ribbon::tabs_wide()
+                } else {
+                    sheet_ribbon::tabs()
+                });
+                self.ribbon.set_labeled_widths(if wide {
+                    |id| (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(true))
+                } else {
+                    |id| (id == "sheet.numberFormat").then(|| sheet_ribbon::number_box_width(false))
+                });
+            }
+            self.ribbon
+                .layout(text, &self.strings, self.size.0, self.scale, top);
+            if !self.ribbon.overflows() {
+                break;
+            }
+        }
         let (w, h) = self.size;
         let gt = self.grid_top();
         let tabs_y = h - self.status_h() - self.tabs_h();
@@ -373,7 +425,12 @@ impl SheetWindow {
         let bh = self.px(24.0);
         self.name_rect = [self.px(4.8), fb + pad, self.px(101.6), bh];
         let fx_x = self.px(248.0);
-        self.fx_rect = [fx_x, fb + pad, (w - fx_x - self.px(4.8)).max(1.0), bh];
+        self.fx_rect = [
+            fx_x,
+            fb + pad,
+            (w - fx_x - self.px(4.8)).max(1.0),
+            bh + self.fbar_extra(),
+        ];
         // Sheet tabs.
         self.layout_tabs(text);
         // Status bar zoom controls, right to left.
@@ -842,7 +899,10 @@ impl SheetWindow {
         match c {
             Choice::Font(name) => self.patch(json!({ "fontName": name })),
             Choice::Size(half) => self.patch(json!({ "fontSize": f64::from(half) / 2.0 })),
-            Choice::Command(id) => self.action(&id, text),
+            Choice::Command(id) => match id.strip_prefix("goto.") {
+                Some(name) => self.go_to(name),
+                None => self.action(&id, text),
+            },
             Choice::Style(_) => false,
         }
     }
@@ -933,6 +993,10 @@ impl SheetWindow {
         if let Some(e) = self.view.take_error() {
             self.status = e;
         }
+        self.measure_name(text);
+        if self.calc_state.0 && redraw {
+            self.refresh_calc_state();
+        }
         redraw
     }
 
@@ -975,6 +1039,9 @@ impl SheetWindow {
             if let Some(r) = self.menu_input(&input, text) {
                 return r;
             }
+        }
+        if let Some(r) = self.name_input(&input) {
+            return r;
         }
         let tip_before = self.tooltip.is_some();
         if matches!(
@@ -1028,6 +1095,10 @@ impl SheetWindow {
             }
             if k == Key::Escape && self.painter.take().is_some() {
                 return true;
+            }
+            // F9 calculates the workbook, Shift+F9 the sheet (manual calculation).
+            if k == Key::F(9) && !self.view.editing() {
+                return self.calculate(m.shift);
             }
         }
         if let Input::Context { x, y } = input {
@@ -1122,8 +1193,12 @@ impl SheetWindow {
                 return false;
             }
         }
-        // Formula bar: a click in the content box edits the active cell there.
+        // Formula bar: name box (typed go-to, list of names), expand button; a click in the
+        // content box edits the active cell there.
         if let Input::Press { x, y, .. } = input {
+            if let Some(r) = self.fbar_press(x, y, text) {
+                return r;
+            }
             if Self::in_rect(self.fx_rect, x, y) {
                 if !self.view.editing() {
                     self.view.edit_cell(text);
@@ -1233,7 +1308,48 @@ impl SheetWindow {
     /// Paint the whole window.
     pub fn paint(&self, p: &mut dyn Painter) {
         p.clear(self.theme.bg);
+        self.paint_base(p);
+        self.paint_top(p);
+        self.paint_overlay(p);
+    }
+
+    /// Height of the top band (title bar and ribbon) that [`Self::paint_top`] draws; the
+    /// host may cache it as an image.
+    pub fn top_height(&self) -> f32 {
+        self.ribbon.bottom()
+    }
+
+    /// The grid with its headers (below the overlay). With [`Self::paint_top`] and
+    /// [`Self::paint_overlay`] it covers the whole window, so a host drawing the three
+    /// needs no clear (one pass less over the window's pixels).
+    pub fn paint_base(&self, p: &mut dyn Painter) {
         self.view.paint(p);
+        self.paint_comment_marks(p);
+    }
+
+    /// Cells with a comment carry a mark in their top-right corner.
+    fn paint_comment_marks(&self, p: &mut dyn Painter) {
+        let s = self.px(5.6);
+        for (r, c) in self.commented_cells() {
+            let Some([_, t, right, _]) = self.view.cell_box(r, c) else {
+                continue;
+            };
+            p.path(
+                &[
+                    PathSeg::M(right - s, t + 1.0),
+                    PathSeg::L(right, t + 1.0),
+                    PathSeg::L(right, t + 1.0 + s),
+                    PathSeg::Z,
+                ],
+                Some(COMMENT_MARK),
+                None,
+            );
+        }
+    }
+
+    /// Title bar, ribbon and number format box: everything above the formula bar.
+    pub fn paint_top(&self, p: &mut dyn Painter) {
+        p.fill_rect(0.0, 0.0, self.size.0, self.top_height(), self.theme.bg);
         let fmt = self.format_state();
         self.title.paint(
             p,
@@ -1254,6 +1370,11 @@ impl SheetWindow {
             &self.on_ids(),
         );
         self.paint_number_box(p);
+    }
+
+    /// Formula bar, sheet tabs, scroll bars, status bar, then menus, tooltips and dialogs
+    /// (over the top band).
+    pub fn paint_overlay(&self, p: &mut dyn Painter) {
         if self.show_fbar {
             self.paint_formula_bar(p);
         }
@@ -1341,6 +1462,16 @@ impl SheetWindow {
         };
         boxed(p, self.name_rect);
         boxed(p, self.fx_rect);
+        // Box around the cancel / enter / function marks (measured 137 × 30 px at 125 %).
+        boxed(
+            p,
+            [
+                self.px(136.0),
+                self.name_rect[1],
+                self.px(109.6),
+                self.name_rect[3],
+            ],
+        );
         let style = self.ui_style();
         let line = style.size * 1.33;
         let n = self.name_rect;
@@ -1398,11 +1529,24 @@ impl SheetWindow {
         let f = self.fx_rect;
         let tx = f[0] + self.px(5.0);
         let ty = (f[1] + (f[3] - line) / 2.0).round();
-        p.push_clip(f[0] + 1.0, f[1] + 1.0, f[2] - 2.0, f[3] - 2.0);
+        p.push_clip(
+            f[0] + 1.0,
+            f[1] + 1.0,
+            f[2] - 2.0 - self.px(16.0),
+            f[3] - 2.0,
+        );
+        // One line, or as many as the expanded bar shows (19.2 pt pitch, measured).
         let content = self.view.formula_text();
-        let shown = content.lines().next().unwrap_or("");
-        p.text(shown, tx, ty, style, self.theme.text);
+        for (i, shown) in content
+            .lines()
+            .take(self.fbar_lines.max(1) as usize)
+            .enumerate()
+        {
+            let y = ty + i as f32 * self.px(19.2);
+            p.text(shown, tx, y, style, self.theme.text);
+        }
         p.pop_clip();
+        self.paint_fbar_parts(p);
     }
 
     /// Scroll bars as measured: #E6E6E6 column, white arrow boxes framed in #949494 with
@@ -1576,14 +1720,21 @@ impl SheetWindow {
         p.fill_rect(0.0, y - 1.0, w, 1.0, STATUS_EDGE);
         let style = self.ui_style();
         let ty = (y + (sh - style.size * 1.33) / 2.0).round();
-        let mode = if self.view.editing() {
-            if self.view.formula_caret().is_some() {
-                self.t("statusBar.enter", "Enter")
-            } else {
-                self.t("statusBar.edit", "Edit")
+        let mode = if let Some(m) = self.view.edit_mode() {
+            match m {
+                "point" => self.t("sheetMenu.modePoint", "Point"),
+                "edit" => self.t("sheetMenu.modeEdit", "Edit"),
+                _ => self.t("sheetMenu.modeEnter", "Enter"),
             }
         } else if !self.status.is_empty() {
             self.status.clone()
+        } else if self.calc_state.1 {
+            // Manual calculation with formulas waiting (F9), as the reference shows it.
+            format!(
+                "{}      {}",
+                self.t("sheetEditor.ready", "Ready"),
+                self.t("sheetMenu.calculate", "Calculate")
+            )
         } else {
             self.t("sheetEditor.ready", "Ready")
         };
@@ -1683,6 +1834,91 @@ impl SheetWindow {
                 },
             );
         }
+    }
+}
+
+/// A painter that only hashes what it is asked to draw: equal hashes mean an equal picture,
+/// so a cached image of that part can be reused.
+#[derive(Default)]
+pub struct PaintHash(std::collections::hash_map::DefaultHasher);
+
+impl PaintHash {
+    /// Hash of everything drawn so far.
+    pub fn finish(&self) -> u64 {
+        use std::hash::Hasher;
+        self.0.finish()
+    }
+
+    fn put(&mut self, tag: u8, v: &[f32]) {
+        use std::hash::Hasher;
+        self.0.write_u8(tag);
+        for x in v {
+            self.0.write_u32(x.to_bits());
+        }
+    }
+
+    fn color(&mut self, c: Rgba) {
+        use std::hash::Hasher;
+        self.0.write(&[c.0, c.1, c.2, c.3]);
+    }
+}
+
+impl Painter for PaintHash {
+    fn clear(&mut self, color: Rgba) {
+        self.put(0, &[]);
+        self.color(color);
+    }
+    fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
+        self.put(1, &[x, y, w, h]);
+        self.color(color);
+    }
+    fn page(&mut self, index: usize, x: i32, y: i32) {
+        self.put(2, &[index as f32, x as f32, y as f32]);
+    }
+    fn text(&mut self, text: &str, x: f32, y: f32, style: TextStyle, color: Rgba) {
+        use std::hash::Hasher;
+        self.put(3, &[x, y, style.size, f32::from(u8::from(style.bold))]);
+        self.0.write(text.as_bytes());
+        self.color(color);
+    }
+    fn text_font(&mut self, text: &str, x: f32, y: f32, font: &Font<'_>, color: Rgba) {
+        use std::hash::Hasher;
+        self.put(4, &[x, y, font.size, f32::from(font.weight)]);
+        self.0.write(font.family.as_bytes());
+        self.0
+            .write(&[u8::from(font.italic), u8::from(font.underline)]);
+        self.0.write(text.as_bytes());
+        self.color(color);
+    }
+    fn path(&mut self, segs: &[PathSeg], fill: Option<Rgba>, stroke: Option<(Rgba, f32)>) {
+        self.put(5, &[]);
+        for s in segs {
+            match *s {
+                PathSeg::M(a, b) => self.put(6, &[a, b]),
+                PathSeg::L(a, b) => self.put(7, &[a, b]),
+                PathSeg::Q(a, b, c, d) => self.put(8, &[a, b, c, d]),
+                PathSeg::C(a, b, c, d, e, f) => self.put(9, &[a, b, c, d, e, f]),
+                PathSeg::Z => self.put(10, &[]),
+            }
+        }
+        if let Some(c) = fill {
+            self.color(c);
+        }
+        if let Some((c, w)) = stroke {
+            self.put(11, &[w]);
+            self.color(c);
+        }
+    }
+    fn push_clip(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.put(12, &[x, y, w, h]);
+    }
+    fn pop_clip(&mut self) {
+        self.put(13, &[]);
+    }
+    fn page_part(&mut self, index: usize, src: [f32; 4], dest: [f32; 4], opacity: f32) {
+        self.put(14, &[index as f32, opacity]);
+        self.put(15, &src);
+        self.put(16, &dest);
     }
 }
 

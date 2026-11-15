@@ -537,3 +537,351 @@ fn type_in(w: &mut SheetWindow, s: &str) {
         w.handle(Input::Text(c.to_string()), &Fixed);
     }
 }
+
+/// Painter recording filled rectangles and text runs.
+#[derive(Default)]
+struct Rec {
+    rects: Vec<([f32; 4], Rgba)>,
+    texts: Vec<(String, Rgba)>,
+}
+
+impl Painter for Rec {
+    fn clear(&mut self, _: Rgba) {}
+    fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
+        self.rects.push(([x, y, w, h], color));
+    }
+    fn page(&mut self, _: usize, _: i32, _: i32) {}
+    fn text(&mut self, text: &str, _: f32, _: f32, _: TextStyle, color: Rgba) {
+        self.texts.push((text.to_owned(), color));
+    }
+    fn text_font(&mut self, text: &str, _: f32, _: f32, _: &Font<'_>, color: Rgba) {
+        self.texts.push((text.to_owned(), color));
+    }
+    fn path(&mut self, _: &[PathSeg], _: Option<Rgba>, _: Option<(Rgba, f32)>) {}
+    fn push_clip(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+    fn pop_clip(&mut self) {}
+}
+
+#[test]
+fn arrow_keys_point_at_cells_while_typing_a_formula() {
+    let mut w = window();
+    w.view_mut().select((4, 2), (4, 2), (4, 2));
+    type_in(&mut w, "=");
+    let key = |w: &mut SheetWindow, k: Key, shift: bool| {
+        w.handle(
+            Input::Key(
+                k,
+                Mods {
+                    shift,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+    };
+    // The first arrow points next to the active cell (C5 → C4), later ones move it.
+    key(&mut w, Key::Up, false);
+    assert_eq!(w.view().formula_text(), "=C4");
+    assert_eq!(w.view().edit_mode(), Some("point"));
+    key(&mut w, Key::Left, false);
+    assert_eq!(w.view().formula_text(), "=B4");
+    // Shift extends the pointed cell to a range.
+    key(&mut w, Key::Up, true);
+    key(&mut w, Key::Up, true);
+    assert_eq!(w.view().formula_text(), "=B2:B4");
+    // After an operator the next arrow starts from the active cell again.
+    type_in(&mut w, "+");
+    assert_eq!(w.view().edit_mode(), Some("enter"));
+    key(&mut w, Key::Right, false);
+    assert_eq!(w.view().formula_text(), "=B2:B4+D5");
+    assert!(w.view().editing());
+    // Without a place for a reference, an arrow commits and moves (Enter mode).
+    type_in(&mut w, "1");
+    key(&mut w, Key::Down, false);
+    assert!(!w.view().editing());
+    assert_eq!(w.view().active(), (5, 2));
+}
+
+#[test]
+fn reference_frames_use_the_measured_colours_tint_and_corner_squares() {
+    let mut w = window();
+    w.view_mut().select((1, 7), (1, 7), (1, 7));
+    type_in(&mut w, "=A1+B2:C3+A5+D2+E6+F8+B10+D11");
+    let mut rec = Rec::default();
+    w.paint(&mut rec);
+    let blue = Rgba(0x32, 0x6a, 0xc7, 255);
+    let red = Rgba(0xc0, 0x35, 0x3e, 255);
+    // Text of the references in their frame colour; the eighth wraps to the first colour.
+    let colour_of = |t: &str| rec.texts.iter().find(|(s, _)| s == t).map(|x| x.1);
+    assert_eq!(colour_of("A1"), Some(blue));
+    assert_eq!(colour_of("B2:C3"), Some(red));
+    assert_eq!(colour_of("D11"), Some(blue));
+    assert_eq!(colour_of("+"), Some(Rgba(0, 0, 0, 255)));
+    // 10 % tints and 5 px corner squares (4 per reference) in the frame colours.
+    assert!(rec
+        .rects
+        .iter()
+        .any(|(_, c)| *c == Rgba(0xc0, 0x35, 0x3e, 26)));
+    let squares = rec
+        .rects
+        .iter()
+        .filter(|(r, c)| *c == red && r[2] == 5.0 && r[3] == 5.0)
+        .count();
+    assert_eq!(squares, 4);
+}
+
+#[test]
+fn name_box_goes_to_typed_references_and_lists_defined_names() {
+    let mut w = window();
+    assert!(w
+        .view_mut()
+        .query(serde_json::json!({
+            "cmd": "defineName", "name": "Prices", "refersTo": "=Sheet1!$B$2:$C$4",
+        }))
+        .is_some());
+    // A click in the name box selects its text; typing replaces it, Enter goes there.
+    let n = w.name_rect;
+    press(&mut w, (n[0] + 10.0, n[1] + n[3] / 2.0), 1);
+    type_in(&mut w, "D7");
+    assert!(
+        !w.view().editing(),
+        "typing goes to the name box, not the cell"
+    );
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.view().active(), (6, 3));
+    // The arrow lists the names; choosing one selects its range.
+    let a = w.name_arrow_rect();
+    press(&mut w, (a[0] + a[2] / 2.0, a[1] + a[3] / 2.0), 1);
+    assert!(w.menu.is_some());
+    w.handle(Input::Key(Key::Down, Mods::default()), &Fixed);
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.view().range_bounds(), (1, 1, 3, 2));
+    // Escape leaves the name box without moving.
+    press(&mut w, (n[0] + 10.0, n[1] + n[3] / 2.0), 1);
+    type_in(&mut w, "Z99");
+    w.handle(Input::Key(Key::Escape, Mods::default()), &Fixed);
+    assert_eq!(w.view().range_bounds(), (1, 1, 3, 2));
+    type_in(&mut w, "x");
+    assert!(w.view().editing(), "typing goes to the cell again");
+}
+
+#[test]
+fn expand_button_shows_three_formula_lines() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "one")]);
+    let top = w.grid_top();
+    let e = w.expand_rect();
+    press(&mut w, (e[0] + e[2] / 2.0, e[1] + e[3] / 2.0), 1);
+    // Two more lines of 24 px at 125 %, as measured on the reference.
+    assert_eq!(w.grid_top(), top + 48.0);
+    assert_eq!(w.fx_rect[3], 30.0 + 48.0);
+    let e = w.expand_rect();
+    press(&mut w, (e[0] + e[2] / 2.0, e[1] + e[3] / 2.0), 1);
+    assert_eq!(w.grid_top(), top);
+}
+
+#[test]
+fn home_tab_is_wide_or_compact_with_the_window_as_on_the_reference() {
+    let mut w = window();
+    let resize = |w: &mut SheetWindow, width: f32| {
+        w.handle(
+            Input::Resize {
+                width,
+                height: 800.0,
+            },
+            &Fixed,
+        );
+    };
+    let rect = |w: &SheetWindow, id: &'static str| {
+        w.ribbon
+            .rect_of(RibbonHit::Command(id))
+            .expect("placed command")
+    };
+    // Wide: number format box 196 px, Sort & Filter and Find & Select as large buttons after
+    // the editing icon column, styles as large buttons.
+    resize(&mut w, 2400.0);
+    assert_eq!(rect(&w, "sheet.numberFormat")[2], 196.0);
+    let sum = rect(&w, "sheet.autoSum");
+    let sort = rect(&w, "sheet.sortFilter");
+    let find = rect(&w, "sheet.findSelect");
+    assert!(sort[0] > sum[0] && find[0] > sort[0]);
+    assert!(sort[3] > 2.0 * sum[3], "large button spans the band");
+    assert!(rect(&w, "sheet.conditional")[3] > 2.0 * sum[3]);
+    // Compact: a 121 px box, the editing buttons in two small columns.
+    resize(&mut w, 1100.0);
+    assert_eq!(rect(&w, "sheet.numberFormat")[2], 121.0);
+    let sum = rect(&w, "sheet.autoSum");
+    let sort = rect(&w, "sheet.sortFilter");
+    assert_eq!(sort[3], sum[3]);
+}
+
+#[test]
+fn format_cells_dialog_has_pages_like_the_reference() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "x")]);
+    assert!(w.action("sheet.formatCellsDialog", &Fixed));
+    let page = |w: &SheetWindow| w.dialog.as_ref().map(|(_, d)| d.page());
+    assert_eq!(page(&w), Some(0));
+    let key = |w: &mut SheetWindow, k: Key, ctrl: bool, shift: bool| {
+        w.handle(
+            Input::Key(
+                k,
+                Mods {
+                    shift,
+                    ctrl,
+                    ..Mods::default()
+                },
+            ),
+            &Fixed,
+        );
+    };
+    let retype = |w: &mut SheetWindow, s: &str| {
+        for _ in 0..12 {
+            w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+        }
+        type_in(w, s);
+    };
+    // Alignment page: horizontal, vertical, indent, orientation, then wrap / shrink / merge.
+    key(&mut w, Key::Tab, true, false);
+    assert_eq!(page(&w), Some(1));
+    retype(&mut w, "center");
+    key(&mut w, Key::Tab, false, false);
+    retype(&mut w, "top");
+    key(&mut w, Key::Tab, false, false);
+    key(&mut w, Key::Tab, false, false);
+    retype(&mut w, "45");
+    // Font page: Tab reaches its check boxes (bold, italic, underline) after the text boxes.
+    key(&mut w, Key::Tab, true, false);
+    assert_eq!(page(&w), Some(2));
+    for _ in 0..5 {
+        key(&mut w, Key::Tab, false, false);
+    }
+    type_in(&mut w, " ");
+    // Protection page (Ctrl+Shift+Tab goes back round): clear Locked.
+    key(&mut w, Key::Tab, true, true);
+    key(&mut w, Key::Tab, true, true);
+    key(&mut w, Key::Tab, true, true);
+    assert_eq!(page(&w), Some(5));
+    type_in(&mut w, " ");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    let f = w.view().format().clone();
+    assert_eq!((f.h_align.as_str(), f.v_align.as_str()), ("center", "top"));
+    assert!(f.underline, "underline from the Font page");
+    let wb = w.view().engine().workbook().expect("workbook");
+    let xf = wb
+        .styles
+        .xf(wb.sheets[0].cell(0, 0).expect("cell").style)
+        .expect("xf");
+    assert_eq!(
+        xf.alignment.as_ref().and_then(|a| a.text_rotation),
+        Some(45)
+    );
+    assert_eq!(xf.protection.as_ref().and_then(|p| p.locked), Some(false));
+}
+
+#[test]
+fn page_layout_tab_sets_up_printing() {
+    let mut w = window();
+    assert!(w.action("orient.landscape", &Fixed));
+    assert!(w.action("margins.narrow", &Fixed));
+    assert!(w.action("paper.8", &Fixed));
+    w.view_mut().select((0, 0), (4, 2), (0, 0));
+    assert!(w.action("printArea.set", &Fixed));
+    assert!(w.action("fitw.1", &Fixed));
+    let s = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageSetup" }))
+        .expect("page setup");
+    assert_eq!(s["orientation"], "landscape");
+    assert_eq!(s["paperSize"], 8);
+    assert_eq!(s["margins"][0], 0.25);
+    assert_eq!(s["fit"][0], 1);
+    assert!(s["printArea"]
+        .as_str()
+        .is_some_and(|a| a.contains("$A$1:$C$5")));
+    assert!(w.action("sheet.printGridlines", &Fixed));
+    let s = w
+        .view_mut()
+        .query(serde_json::json!({ "cmd": "pageSetup" }))
+        .expect("page setup");
+    assert_eq!(s["gridLines"], true);
+}
+
+#[test]
+fn review_tab_comments_and_sheet_protection() {
+    let mut w = window();
+    w.view_mut().select((2, 1), (2, 1), (2, 1));
+    assert!(w.action("sheet.newComment", &Fixed));
+    type_in(&mut w, "Check this");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(w.commented_cells(), vec![(2, 1)]);
+    w.view_mut().select((0, 0), (0, 0), (0, 0));
+    assert!(w.action("sheet.nextComment", &Fixed));
+    assert_eq!(w.view().active(), (2, 1));
+    assert_eq!(w.status, "Check this");
+    assert!(w.action("sheet.deleteComment", &Fixed));
+    assert_eq!(w.commented_cells(), Vec::new());
+    // Protect, then a locked cell refuses typing; Unprotect with the same button.
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    w.view_mut().select((5, 5), (5, 5), (5, 5));
+    type_in(&mut w, "1");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert_eq!(
+        input(&w, 5, 5),
+        "",
+        "locked cells of a protected sheet keep their value"
+    );
+    assert!(w.status.contains("protected"), "{}", w.status);
+    assert!(w.action("sheet.protectSheet", &Fixed));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    put(&mut w, &[(5, 5, "1")]);
+    assert_eq!(input(&w, 5, 5), "1");
+}
+
+#[test]
+fn manual_calculation_waits_for_f9() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "1"), (0, 1, "=A1+1")]);
+    assert!(w.action("calc.manual", &Fixed));
+    put(&mut w, &[(0, 0, "10")]);
+    assert_eq!(shown(&w, 0, 1), "2", "not recalculated in manual mode");
+    assert!(w.calc_state.1, "the status bar says Calculate");
+    w.handle(Input::Key(Key::F(9), Mods::default()), &Fixed);
+    assert_eq!(shown(&w, 0, 1), "11");
+    assert!(!w.calc_state.1);
+    assert!(w.action("calc.auto", &Fixed));
+    put(&mut w, &[(0, 0, "20")]);
+    assert_eq!(shown(&w, 0, 1), "21");
+}
+
+#[test]
+fn text_to_columns_wizard_previews_then_splits() {
+    let mut w = window();
+    put(&mut w, &[(0, 0, "a;b;c"), (1, 0, "d;e")]);
+    w.view_mut().select((0, 0), (1, 0), (0, 0));
+    assert!(w.action("sheet.textToColumns", &Fixed));
+    // Step 1: delimiters field (second), type a semicolon list.
+    w.handle(Input::Key(Key::Tab, Mods::default()), &Fixed);
+    for _ in 0..12 {
+        w.handle(Input::Key(Key::Backspace, Mods::default()), &Fixed);
+    }
+    type_in(&mut w, "semicolon");
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(matches!(
+        w.dialog.as_ref().map(|d| d.0),
+        Some(commands_impl::SheetDialog::TextToColumns(1))
+    ));
+    w.handle(Input::Key(Key::Enter, Mods::default()), &Fixed);
+    assert!(w.dialog.is_none());
+    assert_eq!(
+        (
+            input(&w, 0, 0),
+            input(&w, 0, 1),
+            input(&w, 0, 2),
+            input(&w, 1, 1)
+        ),
+        ("a".into(), "b".into(), "c".into(), "e".into())
+    );
+}

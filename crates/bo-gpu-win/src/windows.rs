@@ -112,6 +112,44 @@ impl Device {
             .or_else(|_| Self::create(D3D_DRIVER_TYPE_WARP, Driver::Software))
     }
 
+    /// Wait until the GPU has finished the work submitted so far; the time waited in
+    /// milliseconds (performance logging only: it stalls the calling thread).
+    pub fn wait_gpu_ms(&self) -> f64 {
+        use windows::Win32::Graphics::Direct3D11::{D3D11_QUERY_DESC, D3D11_QUERY_EVENT};
+        let start = std::time::Instant::now();
+        // SAFETY: the query and the immediate context are owned COM objects of this device;
+        // GetData writes one BOOL into `done`.
+        unsafe {
+            let desc = D3D11_QUERY_DESC {
+                Query: D3D11_QUERY_EVENT,
+                MiscFlags: 0,
+            };
+            let mut query = None;
+            if self.d3d.CreateQuery(&desc, Some(&mut query)).is_err() {
+                return 0.0;
+            }
+            let Some(query) = query else { return 0.0 };
+            let Ok(ctx) = self.d3d.GetImmediateContext() else {
+                return 0.0;
+            };
+            ctx.End(&query);
+            let mut done = windows::core::BOOL(0);
+            while start.elapsed().as_millis() < 200 {
+                let r = ctx.GetData(
+                    &query,
+                    Some(std::ptr::from_mut(&mut done).cast()),
+                    std::mem::size_of::<windows::core::BOOL>() as u32,
+                    0,
+                );
+                if r.is_ok() && done.as_bool() {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+        }
+        start.elapsed().as_secs_f64() * 1e3
+    }
+
     /// Choose how later pages antialias text.
     pub fn set_text_rendering(&self, mode: TextRendering) {
         *self.text.borrow_mut() = mode;

@@ -113,6 +113,11 @@ struct Editor {
     preedit: String,
     /// The reference inserted by pointing at cells (byte range in `text`).
     point: Option<std::ops::Range<usize>>,
+    /// Cells of the pointed reference: anchor and moving end (arrow keys move the end).
+    point_cells: Option<((u32, u32), (u32, u32))>,
+    /// Pieces of a formula's text, references in their frame colour (`None`: the cell's
+    /// colour): x offset from the text start, byte range of `text`, colour.
+    runs: Vec<(f32, std::ops::Range<usize>, Option<Rgba>)>,
 }
 
 /// Placed column or row: index, first pixel (window), pixel of its closing gridline.
@@ -139,16 +144,20 @@ enum Drag {
 }
 
 /// Colours of the reference frames drawn around the cells a formula refers to while it is
-/// edited, in the order the references appear.
+/// edited, in the order the references appear (measured on the reference spreadsheet, which
+/// repeats its seven colours; the reference text in the cell editor takes the same colour).
 pub const REF_COLORS: [Rgba; 7] = [
-    Rgba(0x44, 0x72, 0xc4, 255),
-    Rgba(0xed, 0x7d, 0x31, 255),
-    Rgba(0x70, 0x30, 0xa0, 255),
-    Rgba(0x00, 0xb0, 0x50, 255),
-    Rgba(0xc0, 0x00, 0x00, 255),
-    Rgba(0x00, 0x70, 0xc0, 255),
-    Rgba(0xbf, 0x8f, 0x00, 255),
+    Rgba(0x32, 0x6a, 0xc7, 255),
+    Rgba(0xc0, 0x35, 0x3e, 255),
+    Rgba(0x81, 0x57, 0xb7, 255),
+    Rgba(0x00, 0x7c, 0x20, 255),
+    Rgba(0xb0, 0x3e, 0x84, 255),
+    Rgba(0xb6, 0x49, 0x00, 255),
+    Rgba(0x26, 0x73, 0x92, 255),
 ];
+
+/// Opacity of the tint inside a reference frame (10 % of its colour over white, measured).
+const REF_TINT_ALPHA: u8 = 26;
 
 /// A reference of a formula: byte range in the text and cell bounds (first row, first column,
 /// last row, last column).
@@ -1124,6 +1133,8 @@ impl SheetView {
             text_w: 0.0,
             preedit: String::new(),
             point: None,
+            point_cells: None,
+            runs: Vec::new(),
         });
         self.measure_edit(m);
     }
@@ -1166,8 +1177,50 @@ impl SheetView {
             e.text.insert_str(at, &r);
             e.caret = at + r.len();
             e.point = Some(at..e.caret);
+            e.point_cells = Some((a, b));
         }
         self.measure_edit(m);
+    }
+
+    /// Arrow key `k` while typing a formula where a reference may go ("Point" mode): the
+    /// first arrow points at the cell next to the active one, later arrows move the pointed
+    /// cell, Shift extends it to a range (as the reference spreadsheet does).
+    fn point_key(&mut self, k: Key, mods: Mods, m: &dyn TextMeasure) -> bool {
+        let (dr, dc) = match k {
+            Key::Up => (-1, 0),
+            Key::Down => (1, 0),
+            Key::Left => (0, -1),
+            _ => (0, 1),
+        };
+        let Some(e) = self.edit.as_ref() else {
+            return false;
+        };
+        let (anchor, end) = match (&e.point, e.point_cells) {
+            (Some(p), Some(cells)) if p.end == e.caret => cells,
+            _ => (self.active, self.active),
+        };
+        let step =
+            |v: u32, d: i64, max: u32| (i64::from(v) + d).clamp(0, i64::from(max) - 1) as u32;
+        let next = (step(end.0, dr, MAX_ROWS), step(end.1, dc, MAX_COLS));
+        let next = self.skip_hidden(next.0, next.1, dr, dc);
+        let anchor = if mods.shift { anchor } else { next };
+        self.point_ref(anchor, next, m);
+        self.reveal(next);
+        true
+    }
+
+    /// Mode of the cell editor for the status bar: `"point"` (a reference was just pointed
+    /// at), `"enter"` (typing over a cell) or `"edit"` (F2 / double click); `None` when not
+    /// editing.
+    pub fn edit_mode(&self) -> Option<&'static str> {
+        let e = self.edit.as_ref()?;
+        Some(if e.point.as_ref().is_some_and(|p| p.end == e.caret) {
+            "point"
+        } else if e.typed {
+            "enter"
+        } else {
+            "edit"
+        })
     }
 
     /// Reference frames of the formula being edited: colour and window rectangle (the
@@ -1228,9 +1281,28 @@ impl SheetView {
             let before = format!("{}{}", &e.text[..e.caret], e.preedit);
             let caret_x = m.measure_font(&before, &font).0;
             let text_w = m.measure_font(&shown, &font).0;
+            // A formula's references in their frame colours (not while composing).
+            let mut runs = Vec::new();
+            if e.preedit.is_empty() {
+                let mut at = 0;
+                for (n, (range, _)) in formula_refs(&e.text).into_iter().enumerate() {
+                    if range.start > at {
+                        let x = m.measure_font(&e.text[..at], &font).0;
+                        runs.push((x, at..range.start, None));
+                    }
+                    let x = m.measure_font(&e.text[..range.start], &font).0;
+                    at = range.end;
+                    runs.push((x, range, Some(REF_COLORS[n % REF_COLORS.len()])));
+                }
+                if !runs.is_empty() && at < e.text.len() {
+                    let x = m.measure_font(&e.text[..at], &font).0;
+                    runs.push((x, at..e.text.len(), None));
+                }
+            }
             if let Some(e) = self.edit.as_mut() {
                 e.caret_x = caret_x;
                 e.text_w = text_w;
+                e.runs = runs;
             }
         }
     }
@@ -1466,6 +1538,7 @@ impl SheetView {
     /// Key while the editor is open; `None` lets the key through (commit + navigate).
     fn edit_key(&mut self, k: Key, mods: Mods, m: &dyn TextMeasure) -> Option<bool> {
         let typed = self.edit.as_ref()?.typed;
+        let pointing = self.pointing();
         let e = self.edit.as_mut()?;
         match k {
             Key::Escape => {
@@ -1509,6 +1582,9 @@ impl SheetView {
                 Some(true)
             }
             Key::Up | Key::Down if !typed => Some(false),
+            Key::Up | Key::Down | Key::Left | Key::Right if typed && !mods.ctrl && pointing => {
+                Some(self.point_key(k, mods, m))
+            }
             Key::Enter if mods.alt => {
                 e.text.insert(e.caret, '\n');
                 e.caret += 1;
@@ -2143,11 +2219,30 @@ impl SheetView {
         // Formula references: one coloured frame per reference.
         let w2 = (2.0 * self.scale / 1.25).round().max(2.0);
         p.push_clip(gx, gy, right - gx, bottom - gy);
-        for (color, [l, t, r, b]) in self.ref_frames() {
-            p.fill_rect(l, t - 1.0, r - l + 1.0, w2, color);
-            p.fill_rect(l, b - w2 + 2.0, r - l + 1.0, w2, color);
+        // Measured: a 2 px frame over the surrounding gridlines and one pixel outside them, a
+        // 10 % tint (over gridlines and text) inside a one-pixel white ring, and a 5 px square framed in white on
+        // each corner.
+        let hs = (5.0 * self.scale / 1.25).round().max(5.0);
+        let frames = self.ref_frames();
+        let white = Rgba(255, 255, 255, 255);
+        for &(color, [l, t, r, b]) in &frames {
+            p.fill_rect(l + 1.0, t + 1.0, r - l - 1.0, 1.0, white);
+            p.fill_rect(l + 1.0, b - 1.0, r - l - 1.0, 1.0, white);
+            p.fill_rect(l + 1.0, t + 1.0, 1.0, b - t - 1.0, white);
+            p.fill_rect(r - 1.0, t + 1.0, 1.0, b - t - 1.0, white);
+            let tint = Rgba(color.0, color.1, color.2, REF_TINT_ALPHA);
+            p.fill_rect(l + 2.0, t + 2.0, r - l - 3.0, b - t - 3.0, tint);
+        }
+        for &(color, [l, t, r, b]) in &frames {
+            p.fill_rect(l - 1.0, t - 1.0, r - l + 3.0, w2, color);
+            p.fill_rect(l - 1.0, b - w2 + 2.0, r - l + 3.0, w2, color);
             p.fill_rect(l - 1.0, t, w2, b - t + 1.0, color);
             p.fill_rect(r - w2 + 2.0, t, w2, b - t + 1.0, color);
+            for (cx, cy) in [(l, t), (r, t), (l, b), (r, b)] {
+                let (x, y) = (cx - (hs / 2.0).floor(), cy - (hs / 2.0).floor());
+                p.fill_rect(x - 1.0, y - 1.0, hs + 2.0, hs + 2.0, white);
+                p.fill_rect(x, y, hs, hs, color);
+            }
         }
         // Fill handle drag: grey frame around the cells being filled.
         if let Some((r0, c0, r1, c1)) = self.fill_to {
@@ -2255,7 +2350,15 @@ impl SheetView {
         let ty = (b - pad / 2.0 - line_h).round().max(t + 1.0);
         let shown = format!("{}{}{}", &e.text[..e.caret], e.preedit, &e.text[e.caret..]);
         p.push_clip(l + 1.0, t + 1.0, w, b - t - 1.0);
-        p.text_font(&shown, l + 1.0 + pad, ty, &font, color);
+        if e.runs.is_empty() {
+            p.text_font(&shown, l + 1.0 + pad, ty, &font, color);
+        } else {
+            for (x, range, c) in &e.runs {
+                if let Some(part) = e.text.get(range.clone()) {
+                    p.text_font(part, l + 1.0 + pad + x, ty, &font, c.unwrap_or(color));
+                }
+            }
+        }
 
         let cx = (l + 1.0 + pad + e.caret_x).round();
         p.fill_rect(
@@ -2393,6 +2496,13 @@ impl SheetView {
             .get(s)
             .copied()
             .unwrap_or_else(|| s.chars().count() as f32 * font.size * 0.52)
+    }
+
+    /// Window box of a visible cell: left and top gridline, right and bottom gridline.
+    pub(crate) fn cell_box(&self, r: u32, c: u32) -> Option<[f32; 4]> {
+        let row = self.rows.iter().find(|s| s.index == r)?;
+        let col = self.cols.iter().find(|s| s.index == c)?;
+        Some([col.start - 1.0, row.start - 1.0, col.line, row.line])
     }
 
     /// Placed rows: index, first pixel, closing gridline (tests).
